@@ -95,3 +95,26 @@ flutter test test/workaround_test.dart
 - `方案/spike/s4_kinsoku/test/s4_test.dart`
 - `方案/spike/s4_kinsoku/test/workaround_test.dart`
 - `方案/spike/s4_kinsoku/s4-result.json`
+
+## 7. 工程口径定稿（P0-12）
+
+> 本节把 S4 的取舍固化为可执行约束，供 P2-01 与后续验收直接引用。技术方案原文不改，冲突与说明见《P0 文档》附录 A-04。
+
+### 7.1 采用方案
+
+- **采用引擎断行**（`TextPainter` / SkParagraph），不引入自建断行器。
+- 不启用 `justify` 引擎对齐来补偿禁则；对齐仍走 §8.4 的 gap 方案。
+- 不插入 U+2060 / U+FEFF 等零宽字符（实验证明对 SkParagraph 断行无约束力）。
+
+### 7.2 硬性约束
+
+1. 正文内容宽下限 **3em**（基准字号 16px 时为 48px）；低于该值由布局层钳制到 3em，并只记录一次告警（`layout.tooNarrow`）。
+2. 验收只在内容宽 ≥3em 时检查禁则；2em 及以下不在验收范围。
+3. 已知缺陷登记：`「……」` 在恰好 2em 宽时可能被拆为 `「…` / `…」`；正常宽度（≥3em）不拆。
+4. 若产品后续要求 100% 禁则（含 2em），再按技术方案 §15 的后备路径评估自建断行器（约 +1200 行），当前不预留开关。
+
+### 7.3 与任务的关系
+
+- **P2-01**：实现断行时按本节执行宽度钳制与告警；验收命令为 `cd 方案/spike/s4_kinsoku && flutter test`（覆盖 10 个场景）加 P2-05 的边界单测。
+- **P3-22 / P5-16**：分页与混排不得放宽 3em 下限。
+- 检索键：`3em`、`tooNarrow`、`S4 工程口径`、`「……」`。
