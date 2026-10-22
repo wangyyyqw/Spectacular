@@ -1,0 +1,15 @@
+name: s4_kinsoku
+description: S4 中文避头尾禁则实验（临时工程，不进产品）
+publish_to: none
+version: 0.0.1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
