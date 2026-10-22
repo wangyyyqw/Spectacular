@@ -3,11 +3,11 @@
     "flutter": "3.47.5",
     "dart": "3.13.4",
     "platform": "macos",
-    "font": "../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf",
+    "font": "../../../test_fonts/SourceHanSerifSC-Regular.otf",
     "fontSize": 16.0,
     "text": "一二三四五六七八九十一二三四五六七八九十",
     "charCount": 20,
-    "measuredAt": "2026-10-22T21:15:15.447191"
+    "measuredAt": "2026-10-22T23:12:21.396817"
   },
   "naturalWidth": 320.0,
   "cases": [

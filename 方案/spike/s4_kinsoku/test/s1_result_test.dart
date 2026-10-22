@@ -11,7 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String kFontPath =
-    '../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf';
+    '../../../test_fonts/SourceHanSerifSC-Regular.otf';
 const String kFontFamily = 'S1CJK';
 const String kText = '中文中文中文中文中文中文\nEnglish mixed 中文 text\n第三行中文内容';
 const List<(double, double)> kGroups = [(16, 1.5), (20, 1.2), (28, 2.0)];

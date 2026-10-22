@@ -3,9 +3,9 @@
     "flutter": "3.47.5",
     "dart": "3.13.4",
     "platform": "macos",
-    "font": "../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf",
+    "font": "../../../test_fonts/SourceHanSerifSC-Regular.otf",
     "fontSize": 16.0,
-    "measuredAt": "2026-10-22T21:15:15.415876"
+    "measuredAt": "2026-10-22T23:12:21.393096"
   },
   "cases": [
     {
