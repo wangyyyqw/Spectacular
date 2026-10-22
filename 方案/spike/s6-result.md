@@ -1,26 +1,35 @@
-# S6 FTS5 可用性实验结果（桌面部分）
+# S6 FTS5 可用性实验结果（iOS 模拟器 + macOS）
 
-> 实验日期：2026-10-22　执行人：Lead
+> 实验日期：2026-10-22（桌面）/ 2026-10-23（模拟器）　执行人：Lead
 > 对应方案：§15 / §79.6，落点 §66.7
-> 状态：**桌面部分完成；Android/iOS 真机未测，P0-10 尚未完成。**
+> 验收口径：经用户 2026-10-23 授权，以 iOS 模拟器 + macOS 桌面替代真机（《P0 文档》附录 A-06）。
+> 状态：**完成。**
 
-## 1. 结论（仅 macOS 桌面）
+## 1. 结论
 
-- macOS 系统 `sqlite3` 3.51.0 编译进了 FTS5：`CREATE VIRTUAL TABLE ... USING fts5` 成功。
-- 默认 `unicode61` 分词器**不切分中文**：`MATCH '中文'` 无结果，`MATCH 'hello'` 有结果。
-- `trigram` 分词器可用：三字查询 `MATCH '中文检'` 命中；两字查询 `MATCH '中文'` 不命中（trigram 需要至少 3 个字符）。
-- 对实现的直接影响：搜索索引不能依赖默认分词器切中文；技术方案 §66 的 2-gram 方案需要自建索引表（或使用 trigram + 前缀策略），这也解释了为什么 §66.7 准备了降级路径。
-- Android/iOS 上的 FTS5 是否可用仍必须真机验证（P0-10 验收要求），当前无设备。
+- iOS 模拟器（iPhone 18 Pro，iOS 27.0）与 macOS 上，App 内 SQLite 均为 **3.54.0**，`CREATE VIRTUAL TABLE ... USING fts5` 成功。
+- 默认 `unicode61` 分词器**不切分中文**：`MATCH '中文'` 返回 0 行；`MATCH 'hello'` 返回 1 行。
+- `trigram` 分词器可用：三字查询 `MATCH '中文检'` 返回 1 行；两字查询不命中（trigram 需要至少 3 个字符）。
+- 对实现的直接影响：中文搜索不能依赖默认分词器；技术方案 §66 的 2-gram 自建索引仍是主路径，trigram 可作为替代或降级选项。
+- Android 无 AVD/许可未接受，未测；后续真机阶段补测。
 
-## 2. 环境
+## 2. 环境与数据
 
-| 项 | 值 |
-|---|---|
-| 平台 | macOS 26.7.1 |
-| SQLite | 3.51.0（系统自带 `/usr/bin/sqlite3`） |
-| 命令 | `sqlite3 :memory:` + FTS5 DDL / MATCH |
+| 平台 | SQLite | FTS5 | 默认分词中文 | trigram 三字 | 证据 |
+|---|---|---:|---:|---:|---|
+| iOS 模拟器（iPhone 18 Pro，iOS 27.0） | 3.54.0 | 可用 | 0 行 | 1 行 | `S6 platform=iOS sqlite=3.54.0 ascii=1 cjk_default=0 trigram=1` |
+| macOS 26.7.1 | 3.54.0 | 可用 | 0 行 | 1 行 | `S6 platform=macOS sqlite=3.54.0 ascii=1 cjk_default=0 trigram=1` |
+| Android | 未测 | — | — | — | 无 AVD、licenses 未接受 |
 
 ## 3. 复现
+
+```bash
+cd apps/reader_mobile
+flutter test integration_test/s6_fts5_test.dart -d 0229CA7B-9D61-4DBA-B7DC-562DD39F9719
+flutter test integration_test/s6_fts5_test.dart -d macos
+```
+
+桌面临时验证（系统 sqlite3）：
 
 ```bash
 sqlite3 :memory: <<'SQL'
@@ -30,9 +39,7 @@ SELECT 'trigram3=' || x FROM t WHERE t MATCH '中文检';
 SQL
 ```
 
-期望输出：`trigram3=中文检索测试 hello`。
-
 ## 4. 待办
 
-- Android 与 iOS 真机上用 `sqlite3_flutter_libs` / drift 执行同样 DDL，确认 FTS5 与 trigram 是否编译进库。
-- 若任一端不可用，按技术方案 §66.7 回退自建 2-gram 索引表。
+- Android 真机补测 FTS5 与 trigram（P0-10 的 Android 侧）。
+- 搜索实现按 §66 建 2-gram 索引；若改用 FTS5，必须显式 `tokenize='trigram'` 并处理 <3 字查询。
