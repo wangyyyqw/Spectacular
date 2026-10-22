@@ -1,0 +1,14 @@
+# 第三方参考项目（体积大，各自带 LICENSE，不入库）
+参考/
+
+# Dart / Flutter
+.dart_tool/
+build/
+.packages
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

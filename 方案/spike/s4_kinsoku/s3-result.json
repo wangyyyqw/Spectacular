@@ -1,0 +1,140 @@
+{
+  "environment": {
+    "flutter": "3.47.5",
+    "dart": "3.13.4",
+    "platform": "macos",
+    "font": "../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf",
+    "fontSize": 16.0,
+    "text": "一二三四五六七八九十一二三四五六七八九十",
+    "charCount": 20,
+    "measuredAt": "2026-10-22T21:15:15.447191"
+  },
+  "naturalWidth": 320.0,
+  "cases": [
+    {
+      "target": 320.0,
+      "naturalWidth": 320.0,
+      "extra": 0.0,
+      "letterSpacing": 0.0,
+      "measuredWidth": 320.0,
+      "widthError": 0.0,
+      "lineCount": 1,
+      "lineWidths": [
+        320.0
+      ],
+      "maxBoxOverlap": 0.0,
+      "firstBoxLeft": 0.0,
+      "lastBoxRight": 320.0,
+      "rightGap": 0.0,
+      "caretMinGap": 16.0,
+      "caretMaxGap": 16.0,
+      "firstBoxes": [
+        {
+          "index": 0.0,
+          "left": 0.0,
+          "right": 16.0,
+          "width": 16.0
+        },
+        {
+          "index": 1.0,
+          "left": 16.0,
+          "right": 32.0,
+          "width": 16.0
+        },
+        {
+          "index": 2.0,
+          "left": 32.0,
+          "right": 48.0,
+          "width": 16.0
+        }
+      ]
+    },
+    {
+      "target": 336.0,
+      "naturalWidth": 320.0,
+      "extra": 16.0,
+      "letterSpacing": 0.8,
+      "measuredWidth": 336.0,
+      "widthError": 0.0,
+      "lineCount": 1,
+      "lineWidths": [
+        336.0
+      ],
+      "maxBoxOverlap": 0.0,
+      "firstBoxLeft": 0.4000000059604645,
+      "lastBoxRight": 336.3999938964844,
+      "rightGap": -0.399993896484375,
+      "caretMinGap": 16.399993896484375,
+      "caretMaxGap": 16.800018310546875,
+      "firstBoxes": [
+        {
+          "index": 0.0,
+          "left": 0.4000000059604645,
+          "right": 17.19999885559082,
+          "width": 16.799998849630356
+        },
+        {
+          "index": 1.0,
+          "left": 17.19999885559082,
+          "right": 34.0,
+          "width": 16.80000114440918
+        },
+        {
+          "index": 2.0,
+          "left": 34.0,
+          "right": 50.80000305175781,
+          "width": 16.800003051757812
+        }
+      ]
+    },
+    {
+      "target": 400.0,
+      "naturalWidth": 320.0,
+      "extra": 80.0,
+      "letterSpacing": 4.0,
+      "measuredWidth": 400.0,
+      "widthError": 0.0,
+      "lineCount": 1,
+      "lineWidths": [
+        400.0
+      ],
+      "maxBoxOverlap": 0.0,
+      "firstBoxLeft": 2.0,
+      "lastBoxRight": 402.0,
+      "rightGap": -2.0,
+      "caretMinGap": 18.0,
+      "caretMaxGap": 20.0,
+      "firstBoxes": [
+        {
+          "index": 0.0,
+          "left": 2.0,
+          "right": 22.0,
+          "width": 20.0
+        },
+        {
+          "index": 1.0,
+          "left": 22.0,
+          "right": 42.0,
+          "width": 20.0
+        },
+        {
+          "index": 2.0,
+          "left": 42.0,
+          "right": 62.0,
+          "width": 20.0
+        }
+      ]
+    }
+  ],
+  "textAlignJustifyOnly": {
+    "width": 320.0,
+    "lineWidths": [
+      320.0
+    ]
+  },
+  "summary": {
+    "maxWidthError": 0.0,
+    "maxBoxOverlap": 0.0,
+    "maxCaretGapDelta": 2.0
+  }
+}

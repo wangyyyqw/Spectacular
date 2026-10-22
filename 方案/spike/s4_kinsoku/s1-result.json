@@ -1,0 +1,183 @@
+{
+  "environment": {
+    "flutter": "3.47.5",
+    "dart": "3.13.4",
+    "platform": "macos",
+    "font": "../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf",
+    "fontSizeGroups": [
+      {
+        "fontSize": 16.0,
+        "lineHeight": 1.5
+      },
+      {
+        "fontSize": 20.0,
+        "lineHeight": 1.2
+      },
+      {
+        "fontSize": 28.0,
+        "lineHeight": 2.0
+      }
+    ],
+    "measuredAt": "2026-10-22T21:15:15.539808"
+  },
+  "groups": [
+    {
+      "fontSize": 16.0,
+      "lineHeightFactor": 1.5,
+      "rawAscent": 18.41603660583496,
+      "rawDescent": 4.576009273529053,
+      "lineCount": 3,
+      "lines": [
+        {
+          "line": 0,
+          "top": 0.0,
+          "height": 24.0,
+          "ascent": 18.920013427734375,
+          "descent": 5.079986095428467,
+          "baseline": 18.920013427734375,
+          "expectedHeight": 24.0,
+          "expectedBaseline": 18.920013666152954,
+          "heightError": 0.0,
+          "baselineErrorEven": 2.384185791015625e-7,
+          "baselineErrorProportional": 0.30336737632751465,
+          "width": 192.0
+        },
+        {
+          "line": 1,
+          "top": 24.0,
+          "height": 24.0,
+          "ascent": 18.920013427734375,
+          "descent": 5.079986095428467,
+          "baseline": 42.920013427734375,
+          "expectedHeight": 24.0,
+          "expectedBaseline": 42.920013666152954,
+          "heightError": 0.0,
+          "baselineErrorEven": 2.384185791015625e-7,
+          "baselineErrorProportional": 0.30336737632751465,
+          "width": 179.69601440429688
+        },
+        {
+          "line": 2,
+          "top": 48.0,
+          "height": 24.0,
+          "ascent": 18.920013427734375,
+          "descent": 5.079986095428467,
+          "baseline": 66.92001342773438,
+          "expectedHeight": 24.0,
+          "expectedBaseline": 66.92001366615295,
+          "heightError": 0.0,
+          "baselineErrorEven": 2.384185791015625e-7,
+          "baselineErrorProportional": 0.30336737632751465,
+          "width": 112.0
+        }
+      ]
+    },
+    {
+      "fontSize": 20.0,
+      "lineHeightFactor": 1.2,
+      "rawAscent": 23.02004623413086,
+      "rawDescent": 5.7200117111206055,
+      "lineCount": 3,
+      "lines": [
+        {
+          "line": 0,
+          "top": 0.0,
+          "height": 24.0,
+          "ascent": 20.65001678466797,
+          "descent": 3.349982261657715,
+          "baseline": 20.65001678466797,
+          "expectedHeight": 24.0,
+          "expectedBaseline": 20.650017261505127,
+          "heightError": 0.0,
+          "baselineErrorEven": 4.76837158203125e-7,
+          "baselineErrorProportional": 1.4266362190246582,
+          "width": 240.0
+        },
+        {
+          "line": 1,
+          "top": 24.0,
+          "height": 24.0,
+          "ascent": 20.65001678466797,
+          "descent": 3.349982261657715,
+          "baseline": 44.65001678466797,
+          "expectedHeight": 24.0,
+          "expectedBaseline": 44.65001726150513,
+          "heightError": 0.0,
+          "baselineErrorEven": 4.76837158203125e-7,
+          "baselineErrorProportional": 1.4266362190246582,
+          "width": 224.62001037597656
+        },
+        {
+          "line": 2,
+          "top": 48.0,
+          "height": 24.0,
+          "ascent": 20.65001678466797,
+          "descent": 3.349982261657715,
+          "baseline": 68.65001678466797,
+          "expectedHeight": 24.0,
+          "expectedBaseline": 68.65001726150513,
+          "heightError": 0.0,
+          "baselineErrorEven": 4.76837158203125e-7,
+          "baselineErrorProportional": 1.4266362190246582,
+          "width": 140.0
+        }
+      ]
+    },
+    {
+      "fontSize": 28.0,
+      "lineHeightFactor": 2.0,
+      "rawAscent": 32.228065490722656,
+      "rawDescent": 8.008016586303711,
+      "lineCount": 3,
+      "lines": [
+        {
+          "line": 0,
+          "top": 0.0,
+          "height": 56.0,
+          "ascent": 40.110023498535156,
+          "descent": 15.889974594116211,
+          "baseline": 40.110023498535156,
+          "expectedHeight": 56.0,
+          "expectedBaseline": 40.11002445220947,
+          "heightError": 0.0,
+          "baselineErrorEven": 9.5367431640625e-7,
+          "baselineErrorProportional": 4.744536399841309,
+          "width": 336.0
+        },
+        {
+          "line": 1,
+          "top": 56.0,
+          "height": 56.0,
+          "ascent": 40.110023498535156,
+          "descent": 15.889974594116211,
+          "baseline": 96.11002349853516,
+          "expectedHeight": 56.0,
+          "expectedBaseline": 96.11002445220947,
+          "heightError": 0.0,
+          "baselineErrorEven": 9.5367431640625e-7,
+          "baselineErrorProportional": 4.744536399841309,
+          "width": 314.4680480957031
+        },
+        {
+          "line": 2,
+          "top": 112.0,
+          "height": 56.0,
+          "ascent": 40.110023498535156,
+          "descent": 15.889974594116211,
+          "baseline": 152.1100311279297,
+          "expectedHeight": 56.0,
+          "expectedBaseline": 152.11002445220947,
+          "heightError": 0.0,
+          "baselineErrorEven": 0.00000667572021484375,
+          "baselineErrorProportional": 4.744528770446777,
+          "width": 196.0
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "maxHeightError": 0.0,
+    "maxEvenBaselineError": 0.00000667572021484375,
+    "maxProportionalBaselineError": 4.744536399841309
+  }
+}

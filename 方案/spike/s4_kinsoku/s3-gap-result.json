@@ -1,0 +1,152 @@
+{
+  "environment": {
+    "flutter": "3.47.5",
+    "dart": "3.13.4",
+    "platform": "macos",
+    "font": "../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf",
+    "fontSize": 16.0,
+    "measuredAt": "2026-10-22T21:15:15.415876"
+  },
+  "cases": [
+    {
+      "text": "一二三四五六七八九十一二三四五六七八九十",
+      "target": 336.0,
+      "naturalWidth": 320.0,
+      "gapCount": 19,
+      "wholeRun": {
+        "width": 336.0,
+        "lineCount": 1,
+        "lineWidths": [
+          336.0
+        ],
+        "firstBoxLeft": 0.4000000059604645,
+        "lastCaretX": 319.6000061035156,
+        "endCaretX": 336.0,
+        "lastBoxLeft": 319.6000061035156,
+        "lastBoxRight": 336.3999938964844,
+        "rightGap": -0.399993896484375,
+        "widthError": 0.0
+      },
+      "perGap": {
+        "width": 335.99993896484375,
+        "lineCount": 1,
+        "lineWidths": [
+          335.99993896484375
+        ],
+        "firstBoxLeft": 0.42105263471603394,
+        "lastCaretX": 320.4210510253906,
+        "endCaretX": 335.99993896484375,
+        "lastBoxLeft": 320.4210510253906,
+        "lastBoxRight": 336.4210510253906,
+        "rightGap": -0.421051025390625,
+        "widthError": 0.00006103515625
+      }
+    },
+    {
+      "text": "一二三四五六七八九十一二三四五六七八九十",
+      "target": 400.0,
+      "naturalWidth": 320.0,
+      "gapCount": 19,
+      "wholeRun": {
+        "width": 400.0,
+        "lineCount": 1,
+        "lineWidths": [
+          400.0
+        ],
+        "firstBoxLeft": 2.0,
+        "lastCaretX": 382.0,
+        "endCaretX": 400.0,
+        "lastBoxLeft": 382.0,
+        "lastBoxRight": 402.0,
+        "rightGap": -2.0,
+        "widthError": 0.0
+      },
+      "perGap": {
+        "width": 399.9998779296875,
+        "lineCount": 1,
+        "lineWidths": [
+          399.9998779296875
+        ],
+        "firstBoxLeft": 2.1052632331848145,
+        "lastCaretX": 386.1052551269531,
+        "endCaretX": 399.9998779296875,
+        "lastBoxLeft": 386.1052551269531,
+        "lastBoxRight": 402.1052551269531,
+        "rightGap": -2.105255126953125,
+        "widthError": 0.0001220703125
+      }
+    },
+    {
+      "text": "中文English混排测试继续排",
+      "target": 336.0,
+      "naturalWidth": 201.9840087890625,
+      "gapCount": 9,
+      "wholeRun": {
+        "width": 336.0,
+        "lineCount": 1,
+        "lineWidths": [
+          336.00006103515625
+        ],
+        "firstBoxLeft": 4.187999725341797,
+        "lastCaretX": 315.8119812011719,
+        "endCaretX": 336.0,
+        "lastBoxLeft": 315.8119812011719,
+        "lastBoxRight": 340.18798828125,
+        "rightGap": -4.18798828125,
+        "widthError": 0.0
+      },
+      "perGap": {
+        "width": 336.0,
+        "lineCount": 1,
+        "lineWidths": [
+          336.0
+        ],
+        "firstBoxLeft": 7.445333003997803,
+        "lastCaretX": 327.4453430175781,
+        "endCaretX": 336.0,
+        "lastBoxLeft": 327.4453430175781,
+        "lastBoxRight": 343.4453430175781,
+        "rightGap": -7.445343017578125,
+        "widthError": 0.0
+      }
+    },
+    {
+      "text": "中文English混排测试继续排",
+      "target": 400.0,
+      "naturalWidth": 201.9840087890625,
+      "gapCount": 9,
+      "wholeRun": {
+        "width": 400.0,
+        "lineCount": 1,
+        "lineWidths": [
+          400.0000305175781
+        ],
+        "firstBoxLeft": 6.187999725341797,
+        "lastCaretX": 377.81201171875,
+        "endCaretX": 400.0,
+        "lastBoxLeft": 377.81201171875,
+        "lastBoxRight": 406.1880187988281,
+        "rightGap": -6.188018798828125,
+        "widthError": 0.0
+      },
+      "perGap": {
+        "width": 399.9999694824219,
+        "lineCount": 1,
+        "lineWidths": [
+          399.9999694824219
+        ],
+        "firstBoxLeft": 11.00088882446289,
+        "lastCaretX": 395.0008850097656,
+        "endCaretX": 399.9999694824219,
+        "lastBoxLeft": 395.0008850097656,
+        "lastBoxRight": 411.0008850097656,
+        "rightGap": -11.000885009765625,
+        "widthError": 0.000030517578125
+      }
+    }
+  ],
+  "summary": {
+    "maxGapWidthError": 0.0001220703125,
+    "maxGapBoxOverlap": 0.0
+  }
+}

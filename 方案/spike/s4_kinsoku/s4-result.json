@@ -1,0 +1,356 @@
+{
+  "environment": {
+    "flutter": "3.47.5",
+    "dart": "3.13.4",
+    "platform": "macos",
+    "font": "../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf",
+    "fontFamily": "S4CJK",
+    "fontSize": 16.0,
+    "unitWidth": 16.0,
+    "locale": "zh_CN",
+    "measuredAt": "2026-10-22T21:15:15.548465"
+  },
+  "cases": [
+    {
+      "id": "S4-1",
+      "title": "行首禁标点（，。、；：？！）",
+      "text": "一二三四五六七八九十，后续文字继续排下去",
+      "widthUnits": 10.0,
+      "maxWidth": 160.0,
+      "lines": [
+        "一二三四五六七八九",
+        "十，后续文字继续排下",
+        "去"
+      ],
+      "lineWidths": [
+        144.0,
+        160.0,
+        16.0
+      ],
+      "firstChars": [
+        "一",
+        "十",
+        "去"
+      ],
+      "lastChars": [
+        "九",
+        "下",
+        "去"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-2",
+      "title": "行首禁后括号/后引号",
+      "text": "一二三四五六七八九十」后续文字继续排下去",
+      "widthUnits": 10.0,
+      "maxWidth": 160.0,
+      "lines": [
+        "一二三四五六七八九",
+        "十」后续文字继续排下",
+        "去"
+      ],
+      "lineWidths": [
+        144.0,
+        160.0,
+        16.0
+      ],
+      "firstChars": [
+        "一",
+        "十",
+        "去"
+      ],
+      "lastChars": [
+        "九",
+        "下",
+        "去"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-3",
+      "title": "行尾禁前括号/前引号",
+      "text": "一二三四五六七八九「引用文字继续排下去",
+      "widthUnits": 10.0,
+      "maxWidth": 160.0,
+      "lines": [
+        "一二三四五六七八九",
+        "「引用文字继续排下去"
+      ],
+      "lineWidths": [
+        144.0,
+        160.0
+      ],
+      "firstChars": [
+        "一",
+        "「"
+      ],
+      "lastChars": [
+        "九",
+        "去"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-4",
+      "title": "「……」窄宽度（2 字）",
+      "text": "「……」",
+      "widthUnits": 2.0,
+      "maxWidth": 32.0,
+      "lines": [
+        "「…",
+        "…」"
+      ],
+      "lineWidths": [
+        32.0,
+        32.0
+      ],
+      "firstChars": [
+        "「",
+        "…"
+      ],
+      "lastChars": [
+        "…",
+        "」"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-4b",
+      "title": "「……」窄宽度（3 字）",
+      "text": "「……」",
+      "widthUnits": 3.0,
+      "maxWidth": 48.0,
+      "lines": [
+        "「……",
+        "」"
+      ],
+      "lineWidths": [
+        48.0,
+        16.0
+      ],
+      "firstChars": [
+        "「",
+        "」"
+      ],
+      "lastChars": [
+        "…",
+        "」"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-4c",
+      "title": "「……」窄宽度（4 字）",
+      "text": "「……」",
+      "widthUnits": 4.0,
+      "maxWidth": 64.0,
+      "lines": [
+        "「……」"
+      ],
+      "lineWidths": [
+        64.0
+      ],
+      "firstChars": [
+        "「"
+      ],
+      "lastChars": [
+        "」"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-5",
+      "title": "数字 2026 不被拆开",
+      "text": "一二三四五六七八九2026年继续排",
+      "widthUnits": 10.0,
+      "maxWidth": 160.0,
+      "lines": [
+        "一二三四五六七八九",
+        "2026年继续排"
+      ],
+      "lineWidths": [
+        144.0,
+        98.5
+      ],
+      "firstChars": [
+        "一",
+        "2"
+      ],
+      "lastChars": [
+        "九",
+        "排"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-6",
+      "title": "英文单词按词断",
+      "text": "Hello wonderful internationalization",
+      "widthUnits": 14.0,
+      "maxWidth": 224.0,
+      "lines": [
+        "Hello wonderful ",
+        "internationalization"
+      ],
+      "lineWidths": [
+        126.29,
+        154.51
+      ],
+      "firstChars": [
+        "H",
+        "i"
+      ],
+      "lastChars": [
+        "l",
+        "n"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-7",
+      "title": "中英混排",
+      "text": "中文English混排测试继续排",
+      "widthUnits": 6.0,
+      "maxWidth": 96.0,
+      "lines": [
+        "中文English",
+        "混排测试继续",
+        "排"
+      ],
+      "lineWidths": [
+        89.98,
+        96.0,
+        16.0
+      ],
+      "firstChars": [
+        "中",
+        "混",
+        "排"
+      ],
+      "lastChars": [
+        "h",
+        "续",
+        "排"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-8",
+      "title": "省略号 …… 不被拆开（10 字）",
+      "text": "一二三四五六七八九……后续文字继续排",
+      "widthUnits": 10.0,
+      "maxWidth": 160.0,
+      "lines": [
+        "一二三四五六七八",
+        "九……后续文字继续排"
+      ],
+      "lineWidths": [
+        128.0,
+        160.0
+      ],
+      "firstChars": [
+        "一",
+        "九"
+      ],
+      "lastChars": [
+        "八",
+        "排"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-8b",
+      "title": "省略号 …… 不被拆开（9 字）",
+      "text": "一二三四五六七八九……后续文字继续排",
+      "widthUnits": 9.0,
+      "maxWidth": 144.0,
+      "lines": [
+        "一二三四五六七八",
+        "九……后续文字继续",
+        "排"
+      ],
+      "lineWidths": [
+        128.0,
+        144.0,
+        16.0
+      ],
+      "firstChars": [
+        "一",
+        "九",
+        "排"
+      ],
+      "lastChars": [
+        "八",
+        "续",
+        "排"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-9",
+      "title": "破折号 —— 允许断在其后",
+      "text": "一二三四五六七八九——后文继续排下去",
+      "widthUnits": 10.0,
+      "maxWidth": 160.0,
+      "lines": [
+        "一二三四五六七八九",
+        "——后文继续排下去"
+      ],
+      "lineWidths": [
+        144.0,
+        144.0
+      ],
+      "firstChars": [
+        "一",
+        "—"
+      ],
+      "lastChars": [
+        "九",
+        "去"
+      ],
+      "didOverflow": false
+    },
+    {
+      "id": "S4-10",
+      "title": "长西文 URL 未设 word-break",
+      "text": "https://example.com/averylongpathsegment",
+      "widthUnits": 8.0,
+      "maxWidth": 128.0,
+      "lines": [
+        "https://",
+        "example.com/av",
+        "erylongpathseg",
+        "ment"
+      ],
+      "lineWidths": [
+        53.98,
+        125.5,
+        119.15,
+        40.53
+      ],
+      "firstChars": [
+        "h",
+        "e",
+        "e",
+        "m"
+      ],
+      "lastChars": [
+        "/",
+        "v",
+        "g",
+        "t"
+      ],
+      "didOverflow": false
+    }
+  ],
+  "checks": {
+    "S4-1 行首无禁标点": true,
+    "S4-2 行首无后括号/后引号": true,
+    "S4-3 行尾无前括号/前引号": true,
+    "S4-4 无空行首": true,
+    "S4-5 2026 未拆开": true,
+    "S4-8 省略号未拆开": false,
+    "S4-9 破折号未拆开": true
+  }
+}
