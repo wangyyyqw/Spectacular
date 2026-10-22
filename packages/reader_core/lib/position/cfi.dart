@@ -151,8 +151,9 @@ class EpubCfi {
       if (indexResult != 0) {
         return indexResult;
       }
-      final assertionResult = (a.steps[i].assertion ?? '')
-          .compareTo(b.steps[i].assertion ?? '');
+      final assertionResult = (a.steps[i].assertion ?? '').compareTo(
+        b.steps[i].assertion ?? '',
+      );
       if (assertionResult != 0) {
         return assertionResult;
       }

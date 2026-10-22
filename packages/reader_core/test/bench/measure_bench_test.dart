@@ -16,19 +16,22 @@ final String _paragraphText = List<String>.filled(
 final int _paragraphCount = _chapterChars ~/ _paragraphLength;
 
 ui.Paragraph _buildParagraph() {
-  final builder = ui.ParagraphBuilder(
-    ui.ParagraphStyle(
-      fontSize: _fontSize,
-      height: 1.6,
-      textAlign: ui.TextAlign.justify,
-    ),
-  )..pushStyle(
-      ui.TextStyle(
-        color: const ui.Color(0xFF000000),
-        fontSize: _fontSize,
-        height: 1.6,
-      ),
-    )..addText(_paragraphText);
+  final builder =
+      ui.ParagraphBuilder(
+          ui.ParagraphStyle(
+            fontSize: _fontSize,
+            height: 1.6,
+            textAlign: ui.TextAlign.justify,
+          ),
+        )
+        ..pushStyle(
+          ui.TextStyle(
+            color: const ui.Color(0xFF000000),
+            fontSize: _fontSize,
+            height: 1.6,
+          ),
+        )
+        ..addText(_paragraphText);
   final paragraph = builder.build();
   paragraph.layout(const ui.ParagraphConstraints(width: _pageWidth));
   return paragraph;
