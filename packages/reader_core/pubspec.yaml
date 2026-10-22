@@ -1,6 +1,7 @@
 name: reader_core
-description: "A new Flutter package project."
+description: "EPUB 排版引擎核心：解析、样式、布局、绘制与位置。"
 version: 0.0.1
+publish_to: 'none'
 homepage:
 
 environment:
@@ -10,6 +11,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
