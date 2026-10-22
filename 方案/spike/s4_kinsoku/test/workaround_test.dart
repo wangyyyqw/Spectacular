@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String kFontPath =
-    '../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf';
+    '../../../test_fonts/SourceHanSerifSC-Regular.otf';
 
 late double unit;
 

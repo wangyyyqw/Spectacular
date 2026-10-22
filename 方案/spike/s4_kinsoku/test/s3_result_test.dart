@@ -12,7 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String kFontPath =
-    '../../../参考/anx-reader-develop/assets/fonts/SourceHanSerifSC-Regular.otf';
+    '../../../test_fonts/SourceHanSerifSC-Regular.otf';
 const String kFontFamily = 'S3CJK';
 const double kFontSize = 16;
 const String kText = '一二三四五六七八九十一二三四五六七八九十'; // 20 个全角字
