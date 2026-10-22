@@ -1,0 +1,28 @@
+# 全仓库统一分析配置：包内 analysis_options.yaml 通过相对路径 include 本文件。
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+  errors:
+    invalid_annotation_target: ignore
+    # 严格模式命中即失败，避免“警告堆积”式退化。
+    inference_failure_on_collection_literal: error
+    inference_failure_on_function_return_type: error
+    inference_failure_on_instance_creation: error
+    inference_failure_on_uninitialized_variable: error
+    inference_failure_on_untyped_parameter: error
+    strict_raw_type: error
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - avoid_print
+    - prefer_single_quotes
+    - unawaited_futures
