@@ -1,0 +1,73 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/position/cfi.dart';
+
+const List<String> _samples = <String>[
+  'epubcfi(/6/4[chap01ref]!/4[body01]/10[para05]/3:10)',
+  'epubcfi(/6/2!/4/2/2:0)',
+  'epubcfi(/6/14[chapter03]!/4/2/2/2[para1]/1:5)',
+  'epubcfi(/6/4!/4/10/2[c01]/8/1:3)',
+  'epubcfi(/6/4!/4/2/2/2/4/2/2[note1]:7)',
+  'epubcfi(/6/8!/4/2/6/2[img1])',
+  'epubcfi(/6/4[cover]!/2/2[titlepage])',
+  'epubcfi(/6/10!/4/2/4/2/2/1:0)',
+  'epubcfi(/6/12!/4/2/2[preface]!/4/2/2:1)',
+  'epubcfi(/6/2[title]!/2/2/2/2/2)',
+];
+
+void main() {
+  test('10 个真实 CFI 解析并 round-trip 无损', () {
+    for (final sample in _samples) {
+      final parsed = EpubCfi.parse(sample);
+      expect(parsed, isNotNull, reason: '解析失败：$sample');
+      expect(parsed!.serialize(), sample, reason: 'round-trip 不一致：$sample');
+    }
+  });
+
+  test('非法输入返回 null 而不抛异常', () {
+    const invalid = <String>[
+      '',
+      'epubcfi()',
+      'foo(/6/4)',
+      'epubcfi(/a/4)',
+      'epubcfi(/6/4!)',
+      'epubcfi(/6/4:abc)',
+      'epubcfi(/6/4[unclosed)',
+      'epubcfi(!/6/4)',
+    ];
+    for (final value in invalid) {
+      expect(EpubCfi.parse(value), isNull, reason: '应判为非法：$value');
+    }
+  });
+
+  test('序列化 100 次结果稳定', () {
+    final parsed = EpubCfi.parse(_samples.first)!;
+    final first = parsed.serialize();
+    for (var i = 0; i < 100; i++) {
+      expect(parsed.serialize(), first);
+    }
+  });
+
+  test('比较满足自反、反对称与传递', () {
+    final cfis = _samples.map(EpubCfi.parse).toList();
+    for (final cfi in cfis) {
+      expect(cfi!.compareTo(cfi), 0);
+    }
+    for (var i = 0; i < cfis.length; i++) {
+      for (var j = 0; j < cfis.length; j++) {
+        final forward = cfis[i]!.compareTo(cfis[j]!);
+        final backward = cfis[j]!.compareTo(cfis[i]!);
+        expect(forward.sign, -backward.sign);
+      }
+    }
+    for (var i = 0; i < cfis.length; i++) {
+      for (var j = 0; j < cfis.length; j++) {
+        for (var k = 0; k < cfis.length; k++) {
+          if (cfis[i]!.compareTo(cfis[j]!) <= 0 &&
+              cfis[j]!.compareTo(cfis[k]!) <= 0) {
+            expect(cfis[i]!.compareTo(cfis[k]!), lessThanOrEqualTo(0));
+          }
+        }
+      }
+    }
+  });
+}
