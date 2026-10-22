@@ -1,0 +1,15 @@
+name: s5_multiwght
+description: "S5：同一 family 下 regular/bold 多字重是否按 fontWeight 正确选中。"
+publish_to: 'none'
+version: 0.0.1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
