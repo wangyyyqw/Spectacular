@@ -8,7 +8,7 @@ void main() {
 
   testWidgets('S6 当前平台 SQLite 支持 FTS5 与 trigram，中文默认分词不命中', (tester) async {
     final db = sqlite3.openInMemory();
-    addTearDown(db.dispose);
+    addTearDown(db.close);
 
     final version = db.select('SELECT sqlite_version() AS v').first['v'];
     db.execute('CREATE VIRTUAL TABLE docs USING fts5(body)');
