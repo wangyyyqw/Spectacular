@@ -1,0 +1,15 @@
+name: s7_image
+description: "S7：instantiateImageCodec 的 targetWidth 降采样验证。"
+publish_to: 'none'
+version: 0.0.1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
