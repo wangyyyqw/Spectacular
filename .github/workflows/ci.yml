@@ -27,6 +27,12 @@ jobs:
           channel: stable
           cache: true
 
+      - name: 获取依赖
+        run: |
+          (cd packages/reader_core && flutter pub get)
+          (cd packages/reader_ui && flutter pub get)
+          (cd apps/reader_mobile && flutter pub get)
+
       - name: 格式检查
         run: dart format --output=none --set-exit-if-changed packages/reader_core packages/reader_ui apps/reader_mobile
 
