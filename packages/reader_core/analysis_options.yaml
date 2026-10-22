@@ -1,0 +1,5 @@
+# 继承根目录严格规则
+analyzer:
+  exclude:
+    - build/**
+include: ../../analysis_options.yaml
