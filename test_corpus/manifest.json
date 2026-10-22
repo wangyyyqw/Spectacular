@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "description": "Spectacular 测试样本库清单；file 相对 test_corpus/ 目录。",
+  "samples": [
+    {
+      "id": "basic",
+      "file": "basic.epub",
+      "title": "山海小记",
+      "language": "zh-CN",
+      "source": "自建原创文本（无版权，按 CC0-1.0 放弃著作权）",
+      "license": "CC0-1.0",
+      "features": [
+        "EPUB3",
+        "OPF",
+        "spine",
+        "nav",
+        "三章",
+        "纯文本",
+        "中文"
+      ],
+      "sha256": "a27627c103df2c641468cc947757422b2accf5c73fe48eaf960a119718af790c",
+      "size_bytes": 4898
+    },
+    {
+      "id": "styles",
+      "file": "styles.epub",
+      "title": "样式练习册",
+      "language": "zh-CN",
+      "source": "自建原创文本（无版权，按 CC0-1.0 放弃著作权）",
+      "license": "CC0-1.0",
+      "features": [
+        "EPUB3",
+        "CSS",
+        "标题",
+        "粗体",
+        "斜体",
+        "颜色",
+        "行高",
+        "text-indent",
+        "text-align",
+        "margin",
+        "blockquote"
+      ],
+      "sha256": "10ddacbc0f2a83ef85b361e1d9fd6ec33fe65bc597b1520d2b0d5d2252607e36",
+      "size_bytes": 3452
+    },
+    {
+      "id": "table",
+      "file": "table.epub",
+      "title": "表格与插图样例",
+      "language": "zh-CN",
+      "source": "自建原创文本（无版权，按 CC0-1.0 放弃著作权）",
+      "license": "CC0-1.0",
+      "features": [
+        "EPUB3",
+        "table",
+        "colspan",
+        "caption",
+        "PNG 图片",
+        "图文混排"
+      ],
+      "sha256": "d2e92a1181d4b777b0e959b4b3457ec3a1a5febf2f2685379e7483ba6c4a2612",
+      "size_bytes": 3523
+    },
+    {
+      "id": "toc-ncx",
+      "file": "toc-ncx.epub",
+      "title": "旧式目录",
+      "language": "zh-CN",
+      "source": "自建原创文本（无版权，按 CC0-1.0 放弃著作权）",
+      "license": "CC0-1.0",
+      "features": [
+        "EPUB2",
+        "OPF 2.0",
+        "toc.ncx",
+        "NCX",
+        "guide",
+        "无 nav",
+        "三章"
+      ],
+      "sha256": "f89a16cf9659b3a8ec224ae9475455aa1f77f0eaf83017b6af6b60f128eeadf9",
+      "size_bytes": 4379
+    },
+    {
+      "id": "broken-resource",
+      "file": "broken-resource.epub",
+      "title": "破损之书",
+      "language": "zh-CN",
+      "source": "自建测试样本（故意破损，无版权）",
+      "license": "自建测试样本",
+      "features": [
+        "EPUB3",
+        "容错",
+        "manifest 引用缺失图片",
+        "NCX 坏链接",
+        "缺失资源",
+        "坏目录项"
+      ],
+      "sha256": "f8a3c9dc24b30917476f9dd69926e539dab0508faf5e9beb7f772f55e4b9b189",
+      "size_bytes": 3555
+    },
+    {
+      "id": "cjk-vertical",
+      "file": "cjk-vertical.epub",
+      "title": "竖排与注音",
+      "language": "zh-CN",
+      "source": "自建原创文本（无版权，按 CC0-1.0 放弃著作权）",
+      "license": "CC0-1.0",
+      "features": [
+        "EPUB3",
+        "ruby",
+        "ruby-position",
+        "竖排",
+        "writing-mode: vertical-rl",
+        "中文标点"
+      ],
+      "sha256": "5c457caefee417d4bcaba4ce5b49ce919997bd0e5289396c3244f3528b690b41",
+      "size_bytes": 3143
+    }
+  ]
+}
