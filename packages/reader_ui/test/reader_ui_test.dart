@@ -5,4 +5,8 @@ void main() {
   test('UI 包可被加载', () {
     expect(readerUiPackageName, 'reader_ui');
   });
+
+  test('UI 包转出核心 API', () {
+    expect(CancelToken().isCancelled, isFalse);
+  });
 }

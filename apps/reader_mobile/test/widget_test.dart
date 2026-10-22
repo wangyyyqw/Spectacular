@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/api.dart';
 import 'package:reader_mobile/main.dart';
 
 void main() {
@@ -7,5 +8,9 @@ void main() {
     await tester.pumpWidget(const ReaderApp());
     expect(find.byType(Scaffold), findsOneWidget);
     expect(find.byType(SizedBox), findsWidgets);
+  });
+
+  test('宿主可导入核心契约', () {
+    expect(CancelToken().isCancelled, isFalse);
   });
 }
