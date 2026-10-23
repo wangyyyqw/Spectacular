@@ -8,6 +8,15 @@ import 'package:reader_ui/reader_session.dart';
 ///
 /// 使用随包字体，保证页序列在测试与 CI 环境一致。
 class DemoChapterSource implements ReaderChapterSource {
+  /// 创建示例源；尺寸由 ReaderPage 的实际内容区传入。
+  DemoChapterSource({this.contentWidth = 320, this.contentHeight = 480});
+
+  /// 正文区宽（逻辑像素）。
+  final double contentWidth;
+
+  /// 正文区高（逻辑像素）。
+  final double contentHeight;
+
   static bool _fontLoaded = false;
   static const _fontFamily = 'M0Serif';
 
@@ -44,11 +53,11 @@ class DemoChapterSource implements ReaderChapterSource {
     final layout = TextLayoutEngine.layout(
       text: lines.join('\n'),
       style: _style,
-      maxWidth: 320,
+      maxWidth: contentWidth,
     );
     final block = PageBlock(layout: layout, style: _style);
-    return Paginator(pageHeight: 480)
-        .measureChapter(blocks: <PageBlock>[block], spineIndex: spineIndex)
-        .pages;
+    final result = Paginator(pageHeight: contentHeight)
+        .measureChapter(blocks: <PageBlock>[block], spineIndex: spineIndex);
+    return result.pages;
   }
 }
