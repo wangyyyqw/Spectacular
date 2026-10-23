@@ -211,11 +211,9 @@ class _TextAccumulator {
       text: text,
       runs: List<TextRun>.unmodifiable(_runs),
       hardBreaks: List<int>.unmodifiable(_hardBreaks),
-      cfi:
-          _firstText?.cfi ??
-          EpubCfi(CfiBuilder().itemRef(2).body(4).build().segments),
-      start: _firstText?.start ?? 0,
-      end: _lastText?.end ?? 0,
+      cfi: _firstText?.cfi ?? fallbackCfi,
+      start: _firstText?.start ?? fallbackStart,
+      end: _lastText?.end ?? fallbackEnd,
     );
     _buffer.clear();
     _runs.clear();
