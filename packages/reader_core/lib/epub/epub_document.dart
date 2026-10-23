@@ -1,10 +1,13 @@
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
+
 import '../src/api/models.dart';
 import '../src/api/interfaces.dart';
 import 'archive_reader.dart';
 import 'container.dart';
 import 'epub_exception.dart';
+import 'footnote.dart';
 import 'opf.dart';
 import 'toc.dart';
 import 'resource_index.dart';
@@ -158,6 +161,24 @@ class EpubDocumentImpl implements EpubDocument {
 
   /// 目录来源：nav / ncx / spine。
   final String tocSource;
+
+  /// 解析指定 spine 的注释锚点（单章，不解析跨文档目标）。
+  FootnoteDocument parseFootnotes(int spineIndex) {
+    final item = spine[spineIndex];
+    final baseDir = p.posix.dirname(opfPath);
+    final resolved =
+        resources.resolve(item.href, baseDir: baseDir) ??
+        p.posix.normalize(p.posix.join(baseDir, item.href));
+    final xhtml = archive.readString(resolved);
+    if (xhtml == null) {
+      throw EpubException('E_SPINE_MISSING', '章节文件不存在：');
+    }
+    return FootnoteParser.parse(
+      spineIndex: spineIndex,
+      path: resolved,
+      xhtml: xhtml,
+    );
+  }
 
   @override
   Future<SpineDocument> readSpine(int spineIndex) {
