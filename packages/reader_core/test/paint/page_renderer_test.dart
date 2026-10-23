@@ -57,7 +57,7 @@ Future<ByteData> _renderReference(PageContent page) => _render((canvas) {
         text: TextSpan(text: text, style: textStyle),
         textDirection: TextDirection.ltr,
       )..layout();
-      painter.paint(canvas, Offset(0, y));
+      painter.paint(canvas, Offset(line.indent, y));
       y += line.height;
     }
     if (slice.endLine == slice.block.layout.lineCount) {
@@ -96,6 +96,29 @@ void main() {
     final expected = await _renderReference(result.pages[0]);
     expect(_diff(actual, expected), 0);
     expect(result.pages[0].slices.single.endLine, 2);
+  });
+
+  test('首行缩进绘制在缩进位置', () async {
+    final style = ComputedStyle(const <String, String>{
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': _font,
+      'text-indent': '32px',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: 'abcdefghijklmnop',
+      style: style,
+      maxWidth: 180,
+    );
+    final block = PageBlock(layout: layout, style: style);
+    final page = Paginator(pageHeight: 100)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    expect(layout.lines.first.indent, 32);
+    final actual = await _renderPage(page);
+    final expected = await _renderReference(page);
+    expect(_diff(actual, expected), 0);
   });
 
   test('背景色生效且空页只画背景', () async {

@@ -61,6 +61,8 @@ void main() {
     expect(initial.fontWeight, 400);
     expect(initial.italic, isFalse);
     expect(initial.textAlign, CssTextAlign.start);
+    expect(initial.textIndent, 0);
+    expect(initial.letterSpacing, 0);
     expect(initial.margin.top, 0);
     expect(initial.margin.left, 0);
   });
@@ -113,6 +115,24 @@ void main() {
     );
     expect(overridden.margin.top, 1);
     expect(overridden.margin.left, 40);
+  });
+
+  test('text-indent 与负 letter-spacing 解析/继承', () {
+    final parent = style(
+      'parent',
+      'div { font-size: 20px; text-indent: 2em; letter-spacing: -1px; }',
+    );
+    expect(parent.textIndent, 40);
+    expect(parent.letterSpacing, -1);
+    final child = style('p', 'p {}', parent: parent);
+    expect(child.textIndent, 40);
+    expect(child.letterSpacing, -1);
+    final percent = style(
+      'p',
+      'p { font-size: 16px; text-indent: 10%; }',
+      containingWidth: 320,
+    );
+    expect(percent.textIndent, 32);
   });
 
   test('颜色解析与继承', () {

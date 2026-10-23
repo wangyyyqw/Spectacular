@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
@@ -50,10 +52,12 @@ class PagePainter {
             textDirection: TextDirection.ltr,
             textAlign: TextAlign.left,
           )..layout();
+          final indent = math.max(0.0, line.indent);
+          final available = math.max(0.0, width - indent);
           final x = switch (style.textAlign) {
-            CssTextAlign.center => (width - line.width) / 2,
+            CssTextAlign.center => indent + (available - line.width) / 2,
             CssTextAlign.right || CssTextAlign.end => width - line.width,
-            _ => 0.0,
+            _ => indent,
           };
           painter.paint(canvas, Offset(x, y));
         }

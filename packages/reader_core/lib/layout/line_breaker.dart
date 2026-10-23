@@ -15,6 +15,9 @@ class LineBox {
     required this.height,
     required this.baseline,
     required this.width,
+    this.indent = 0,
+    this.isLastLine = false,
+    this.isHardBreak = false,
   });
 
   /// 行起始字符下标（半开区间，P1-23 精化）。
@@ -35,12 +38,42 @@ class LineBox {
   /// 行实际宽度。
   final double width;
 
+  /// 首行缩进（仅首行非 0）。
+  final double indent;
+
+  /// 是否为段落最后一行。
+  final bool isLastLine;
+
+  /// 是否以硬换行结束。
+  final bool isHardBreak;
+
   /// 行底。
   double get bottom => top + height;
 
+  /// 复制并更新标志。
+  LineBox copyWith({
+    int? start,
+    int? end,
+    double? top,
+    double? indent,
+    bool? isLastLine,
+    bool? isHardBreak,
+  }) => LineBox(
+    start: start ?? this.start,
+    end: end ?? this.end,
+    top: top ?? this.top,
+    height: height,
+    baseline: baseline,
+    width: width,
+    indent: indent ?? this.indent,
+    isLastLine: isLastLine ?? this.isLastLine,
+    isHardBreak: isHardBreak ?? this.isHardBreak,
+  );
+
   @override
   String toString() =>
-      'LineBox($start..$end, top=$top, h=$height, baseline=$baseline, w=$width)';
+      'LineBox($start..$end, top=$top, h=$height, baseline=$baseline, w=$width, '
+      'indent=$indent, last=$isLastLine, hard=$isHardBreak)';
 }
 
 /// TextLayout 的测量结果。
@@ -209,6 +242,68 @@ abstract final class TextLayoutEngine {
     required TextLeadingDistribution leadingDistribution,
   }) {
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
+    final indent = width.isFinite
+        ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
+        : 0.0;
+    if (text.isEmpty || indent <= 0) {
+      final lines = _measureSegment(
+        text: text,
+        width: width,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+      );
+      return _result(text, lines, width);
+    }
+
+    // 首行可用宽减少 text-indent；尾段用完整宽度重新断行，符合 §61.2。
+    final firstWidth = math.max(1.0, width - indent);
+    final head = _measureSegment(
+      text: text,
+      width: firstWidth,
+      style: style,
+      textScaleFactor: textScaleFactor,
+      leadingDistribution: leadingDistribution,
+    );
+    if (head.isEmpty) {
+      return _result(text, const <LineBox>[], width);
+    }
+    final first = head.first.copyWith(indent: indent);
+    var remainderStart = first.end;
+    if (remainderStart < text.length && text.codeUnitAt(remainderStart) == 10) {
+      remainderStart += 1;
+    }
+    final remainder = text.substring(remainderStart);
+    final rest = _measureSegment(
+      text: remainder,
+      width: width,
+      style: style,
+      textScaleFactor: textScaleFactor,
+      leadingDistribution: leadingDistribution,
+    );
+    final lines = <LineBox>[first];
+    for (var i = 0; i < rest.length; i++) {
+      final line = rest[i];
+      lines.add(
+        line.copyWith(
+          start: line.start + remainderStart,
+          end: line.end + remainderStart,
+          top: first.height + line.top,
+          isLastLine: i == rest.length - 1,
+        ),
+      );
+    }
+    lines[0] = lines[0].copyWith(isLastLine: rest.isEmpty);
+    return _result(text, lines, width);
+  }
+
+  static List<LineBox> _measureSegment({
+    required String text,
+    required double width,
+    required ComputedStyle style,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+  }) {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
@@ -236,18 +331,39 @@ abstract final class TextLayoutEngine {
           top: top,
           height: metric.height,
           baseline: top + metric.ascent,
-          width: metric.width,
+          width: math.max(0, metric.width).toDouble(),
         ),
       );
       top += metric.height;
     }
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final hardBreak =
+          line.end < text.length && text.codeUnitAt(line.end) == 10;
+      lines[i] = line.copyWith(
+        isLastLine: i == lines.length - 1,
+        isHardBreak: hardBreak,
+      );
+    }
+    return lines;
+  }
 
+  static TextLayoutResult _result(
+    String text,
+    List<LineBox> lines,
+    double maxWidth,
+  ) {
+    var maxLineWidth = 0.0;
+    for (final line in lines) {
+      maxLineWidth = math.max(maxLineWidth, line.width);
+    }
+    final height = lines.isEmpty ? 0.0 : lines.last.bottom;
     return TextLayoutResult(
       text: text,
       lines: List<LineBox>.unmodifiable(lines),
-      width: painter.width,
-      height: top,
-      maxWidth: width,
+      width: maxLineWidth,
+      height: height,
+      maxWidth: maxWidth,
     );
   }
 
@@ -262,6 +378,7 @@ abstract final class TextLayoutEngine {
     fontWeight: _fontWeight(style.fontWeight),
     fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
     fontFamily: style.fontFamily,
+    letterSpacing: style.letterSpacing,
     color: style.color,
   );
 

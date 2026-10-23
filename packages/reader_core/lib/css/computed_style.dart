@@ -126,6 +126,38 @@ class ComputedStyle {
         ? (parent?.textAlign ?? CssTextAlign.start)
         : _parseTextAlign(rawAlign) ?? parent?.textAlign ?? CssTextAlign.start;
 
+    var textIndent = parent?.textIndent ?? 0.0;
+    final rawTextIndent = explicitValue('text-indent');
+    if (rawTextIndent != null) {
+      textIndent =
+          _resolveLength(
+            rawTextIndent,
+            fontSize: fontSize,
+            parentFontSize: parentFontSize,
+            rootFontSize: rootFontSize,
+            percentBase: containingWidth,
+          ) ??
+          textIndent;
+    }
+
+    var letterSpacing = parent?.letterSpacing ?? 0.0;
+    final rawLetterSpacing = explicitValue('letter-spacing');
+    if (rawLetterSpacing != null) {
+      if (rawLetterSpacing.trim().toLowerCase() == 'normal') {
+        letterSpacing = 0;
+      } else {
+        letterSpacing =
+            _resolveLength(
+              rawLetterSpacing,
+              fontSize: fontSize,
+              parentFontSize: parentFontSize,
+              rootFontSize: rootFontSize,
+              percentBase: fontSize,
+            ) ??
+            letterSpacing;
+      }
+    }
+
     final margin = _resolveMargin(
       values,
       explicit,
@@ -145,6 +177,8 @@ class ComputedStyle {
       italic: italic,
       fontFamily: fontFamily,
       textAlign: textAlign,
+      textIndent: textIndent,
+      letterSpacing: letterSpacing,
       margin: margin,
       explicitProperties: explicit,
     );
@@ -161,6 +195,8 @@ class ComputedStyle {
     required this.italic,
     required this.fontFamily,
     required this.textAlign,
+    required this.textIndent,
+    required this.letterSpacing,
     required this.margin,
     required this.explicitProperties,
   });
@@ -197,6 +233,12 @@ class ComputedStyle {
   /// 文本对齐。
   final CssTextAlign textAlign;
 
+  /// 首行缩进（逻辑像素）。
+  final double textIndent;
+
+  /// 字间距（逻辑像素，可为负）。
+  final double letterSpacing;
+
   /// 四边 margin（逻辑像素）。
   final CssEdges margin;
 
@@ -213,7 +255,7 @@ class ComputedStyle {
   String toString() =>
       'ComputedStyle(fontSize=$fontSize, lineHeight=$lineHeight, '
       'color=$color, weight=$fontWeight, italic=$italic, align=$textAlign, '
-      'margin=$margin)';
+      'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin)';
 
   static CssEdges _resolveMargin(
     Map<String, String> values,
