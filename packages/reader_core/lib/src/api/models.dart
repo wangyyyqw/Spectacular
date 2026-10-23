@@ -57,6 +57,7 @@ class TocEntry {
     required this.spineIndex,
     this.fragment,
     this.children = const <TocEntry>[],
+    this.playOrder,
   });
 
   /// 显示标题。
@@ -70,6 +71,9 @@ class TocEntry {
 
   /// 子目录。
   final List<TocEntry> children;
+
+  /// NCX 的 playOrder；NAV 与兜底目录为 null。
+  final int? playOrder;
 }
 
 /// 导入结果与可读性分级。

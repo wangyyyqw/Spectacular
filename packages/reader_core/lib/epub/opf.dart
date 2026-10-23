@@ -35,6 +35,7 @@ class OpfPackage {
     required this.spine,
     required this.version,
     required this.warnings,
+    this.tocId,
   });
 
   /// 书籍元信息。
@@ -51,6 +52,9 @@ class OpfPackage {
 
   /// 解析过程中的可恢复问题。
   final List<String> warnings;
+
+  /// spine 的 toc 属性（NCX id），可为空。
+  final String? tocId;
 
   /// 按 ID 查 manifest 项。
   OpfManifestItem? itemById(String id) {
@@ -143,6 +147,7 @@ abstract final class OpfParser {
       spine: spine,
       version: version,
       warnings: warnings,
+      tocId: spineElement?.getAttribute('toc')?.trim(),
     );
   }
 
