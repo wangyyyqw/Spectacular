@@ -383,6 +383,30 @@ class EpubCfi implements Comparable<EpubCfi> {
         rangeEnd!.compareTo(otherEnd) >= 0;
   }
 
+  /// 在最后一个路径段上设置字符偏移，不重建步骤。
+  EpubCfi withCharOffset(int offset, {int? end}) {
+    final copied = <CfiSegment>[];
+    for (var i = 0; i < segments.length; i++) {
+      final segment = segments[i];
+      copied.add(
+        CfiSegment(
+          segment.steps,
+          offset: i == segments.length - 1 ? offset : segment.offset,
+          offsetEnd: i == segments.length - 1 ? end : segment.offsetEnd,
+          side: segment.side,
+        ),
+      );
+    }
+    return EpubCfi(
+      copied,
+      rangeParentBody: rangeParentBody,
+      rangeStartBody: rangeStartBody,
+      rangeEndBody: rangeEndBody,
+      rangeStart: rangeStart,
+      rangeEnd: rangeEnd,
+    );
+  }
+
   /// 仅替换 side，不重建步骤。
   EpubCfi copyWithSide(CfiSide value) {
     if (segments.isEmpty) {
