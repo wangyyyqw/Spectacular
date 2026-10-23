@@ -46,6 +46,14 @@ void main() {
     }, skip: skip);
   });
 
+  test('真实书边界：linear=no 与多作者', () {
+    final agatha = _parseSample('real/agatha-linear-no.epub')!;
+    expect(agatha.spine.any((item) => !item.linear), isTrue);
+    final cloverfield = _parseSample('real/cloverfield-multi-author.epub')!;
+    expect(cloverfield.meta.author, contains('雪中菜鸡'));
+    expect(cloverfield.meta.author, contains('弦外'));
+  }, skip: skip);
+
   test('EPUB2 与 EPUB3 的版本号保留', () {
     expect(_parseSample('basic.epub')!.version, startsWith('3'));
     expect(_parseSample('toc-ncx.epub')!.version, startsWith('2'));
