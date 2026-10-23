@@ -1,4 +1,3 @@
-
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 
@@ -236,4 +235,200 @@ String _normalize(String path) {
     result = result.substring(1);
   }
   return p.posix.normalize(result);
+}
+
+/// NAV 与回退链（P1-07）。
+extension TocFallback on TocParser {
+  /// 按任务口径：NAV → NCX → spine 兜底，绝不返回空目录。
+  static TocResult build({
+    required EpubArchive archive,
+    required OpfPackage package,
+    required String opfPath,
+  }) {
+    final warnings = <String>[];
+    final navItem = findNavItem(package);
+    if (navItem != null) {
+      try {
+        final result = parseNav(
+          archive: archive,
+          package: package,
+          opfPath: opfPath,
+          item: navItem,
+        );
+        if (result.entries.isNotEmpty) {
+          return TocResult(
+            entries: result.entries,
+            source: 'nav',
+            warnings: <String>[...warnings, ...result.warnings],
+          );
+        }
+        warnings.add('NAV 目录为空，尝试 NCX');
+      } on EpubException catch (error) {
+        warnings.add('NAV 解析失败（${error.code}），尝试 NCX');
+      }
+    }
+
+    final ncxItem = TocParser.findNcxItem(package);
+    if (ncxItem != null) {
+      try {
+        final result = TocParser.parseNcx(
+          archive: archive,
+          package: package,
+          opfPath: opfPath,
+        );
+        if (result.entries.isNotEmpty) {
+          return TocResult(
+            entries: result.entries,
+            source: 'ncx',
+            warnings: <String>[...warnings, ...result.warnings],
+          );
+        }
+        warnings.add('NCX 目录为空，使用 spine 兜底');
+      } on EpubException catch (error) {
+        warnings.add('NCX 解析失败（${error.code}），使用 spine 兜底');
+      }
+    }
+
+    warnings.add('未找到可用目录，使用 spine 兜底');
+    return TocResult(
+      entries: fallbackToc(package.spine),
+      source: 'spine',
+      warnings: warnings,
+    );
+  }
+
+  /// 找 EPUB3 NAV 条目。
+  static OpfManifestItem? findNavItem(OpfPackage package) {
+    for (final item in package.manifest) {
+      if (item.properties.contains('nav')) {
+        return item;
+      }
+    }
+    for (final item in package.manifest) {
+      if (item.id.toLowerCase().contains('nav') &&
+          item.mediaType.contains('xhtml')) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  /// 解析 NAV 文档。
+  static TocResult parseNav({
+    required EpubArchive archive,
+    required OpfPackage package,
+    required String opfPath,
+    required OpfManifestItem item,
+  }) {
+    final navPath = _join(_dirOf(opfPath), item.href);
+    final text = archive.readString(navPath);
+    if (text == null) {
+      throw EpubException('E_TOC_NAV_MISSING', 'NAV 文件不存在：$navPath');
+    }
+
+    final XmlDocument document;
+    try {
+      document = XmlDocument.parse(_stripBom(_sanitizeEntities(text)));
+    } on FormatException catch (error) {
+      throw EpubException('E_TOC_NAV_XML', 'NAV 解析失败：${error.message}');
+    }
+
+    XmlElement? nav;
+    for (final element in document.descendants.whereType<XmlElement>()) {
+      if (element.name.local != 'nav') {
+        continue;
+      }
+      final type = element.attributes
+          .where((attribute) => attribute.name.local == 'type')
+          .map((attribute) => attribute.value)
+          .join(' ');
+      if (type.split(RegExp(r'\s+')).contains('toc') ||
+          element.getAttribute('id') == 'toc') {
+        nav = element;
+        break;
+      }
+    }
+    if (nav == null) {
+      throw const EpubException('E_TOC_NAV_EMPTY', 'NAV 中未找到 toc');
+    }
+
+    final resolver = _SpineResolver(package, opfPath);
+    final warnings = <String>[];
+    final baseDir = _dirOf(navPath);
+
+    List<TocEntry> parseList(XmlElement list) {
+      final entries = <TocEntry>[];
+      for (final li in list.childElements.where((e) => e.name.local == 'li')) {
+        final anchor = li.childElements
+            .where((e) => e.name.local == 'a')
+            .firstOrNull;
+        final label = li.childElements
+            .where((e) => e.name.local == 'span')
+            .firstOrNull;
+        final title = (anchor ?? label)?.innerText.trim() ?? '';
+        final href = anchor?.getAttribute('href')?.trim() ?? '';
+        final split = _splitHref(href);
+        final spineIndex = split.path.isEmpty
+            ? -1
+            : resolver.resolve(split.path, baseDir);
+        if (spineIndex < 0 && href.isNotEmpty) {
+          warnings.add('目录项无法定位到 spine：$href');
+        }
+        final nested = li.childElements
+            .where((e) => e.name.local == 'ol')
+            .firstOrNull;
+        entries.add(
+          TocEntry(
+            title: title.isEmpty ? '未命名章节' : title,
+            spineIndex: spineIndex,
+            fragment: split.fragment,
+            children: nested == null ? const <TocEntry>[] : parseList(nested),
+          ),
+        );
+      }
+      return entries;
+    }
+
+    final list = nav.descendants
+        .whereType<XmlElement>()
+        .where((element) => element.name.local == 'ol')
+        .firstOrNull;
+    if (list == null) {
+      throw const EpubException('E_TOC_NAV_EMPTY', 'NAV toc 缺少 ol');
+    }
+    final entries = parseList(list);
+    if (entries.isEmpty) {
+      throw const EpubException('E_TOC_NAV_EMPTY', 'NAV toc 为空');
+    }
+    return TocResult(entries: entries, source: 'nav', warnings: warnings);
+  }
+
+  /// spine 兜底目录。
+  static List<TocEntry> fallbackToc(List<SpineItem> spine) {
+    final entries = <TocEntry>[];
+    for (final item in spine) {
+      if (!item.linear) {
+        continue;
+      }
+      final name = item.href.split('/').last;
+      final title = name.isEmpty ? '第 ${item.index + 1} 节' : name;
+      entries.add(TocEntry(title: title, spineIndex: item.index));
+    }
+    return entries;
+  }
+}
+
+String _sanitizeEntities(String text) {
+  return text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {
+    const known = <String, String>{
+      'amp': '&',
+      'lt': '<',
+      'gt': '>',
+      'quot': '"',
+      'apos': "'",
+      'nbsp': ' ',
+    };
+    final replacement = known[match[1]];
+    return replacement ?? match[0]!;
+  });
 }
