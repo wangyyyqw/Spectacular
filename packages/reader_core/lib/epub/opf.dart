@@ -178,9 +178,17 @@ abstract final class OpfParser {
           : (identifiers.isNotEmpty ? identifiers.first.innerText.trim() : '');
     }
 
+    final creators = metadata == null
+        ? const <String>[]
+        : metadata.childElements
+              .where((element) => element.name.local == 'creator')
+              .map((element) => element.innerText.trim())
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false);
+
     return BookMeta(
       title: textOf('title'),
-      author: textOf('creator'),
+      author: creators.join('、'),
       language: textOf('language'),
       identifier: identifier,
     );
