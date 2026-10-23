@@ -11,7 +11,7 @@ apps/reader_mobile/     iOS / Android / macOS 壳：文件、存储、TTS
 方案/                   技术方案、开发方案（按阶段拆分）、接受记录模板
 方案/spike/             已完成的技术实验
 tool/                   统一脚本与进度维护
-test_corpus/            测试样本库（P0-06）
+test_corpus/            本地测试样本库（不入库，需自行准备）
 tests/                  跨包测试与校验脚本
 ```
 
