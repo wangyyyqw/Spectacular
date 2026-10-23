@@ -11,6 +11,7 @@ void main() {
     expect(find.byType(Scaffold), findsOneWidget);
     expect(find.byType(ReaderPage), findsOneWidget);
     expect(find.byType(CustomPaint), findsWidgets);
+    expect(find.byTooltip('导出日志'), findsOneWidget);
   });
 
   test('宿主可导入核心契约', () {
