@@ -1,4 +1,4 @@
-import '../src/api/models.dart' show PageSlice;
+import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'text_layout.dart';
 
 /// 一个待分页的文本块。
@@ -233,4 +233,138 @@ class Paginator {
       totalHeight: totalHeight,
     );
   }
+}
+
+/// 异步增量分页：每产出一页就让出事件循环，并响应取消。
+extension PaginatorStreaming on Paginator {
+  /// 逐页产出本章内容。
+  Stream<PageContent> paginate({
+    required List<PageBlock> blocks,
+    int spineIndex = 0,
+    CancelToken? token,
+  }) async* {
+    final slices = <PageBlockSlice>[];
+    var used = 0.0;
+    var available = pageHeight - topPadding;
+    var firstPage = true;
+
+    PageContent? record() {
+      if (slices.isEmpty) {
+        return null;
+      }
+      final page = PageContent(
+        spineIndex: spineIndex,
+        pageIndex: -1,
+        slices: List<PageBlockSlice>.unmodifiable(slices),
+        usedHeight: used,
+        pageHeight: pageHeight,
+        topPadding: firstPage ? topPadding : 0,
+      );
+      slices.clear();
+      used = 0;
+      available = pageHeight;
+      firstPage = false;
+      return page;
+    }
+
+    var pageIndex = 0;
+    for (final block in blocks) {
+      if (token?.isCancelled ?? false) {
+        return;
+      }
+      final lines = block.layout.lines;
+      if (lines.isEmpty) {
+        continue;
+      }
+      if (block.pageBreakBefore) {
+        final page = record();
+        if (page != null) {
+          yield _withIndex(page, pageIndex++);
+          await Future<void>.delayed(Duration.zero);
+          if (token?.isCancelled ?? false) {
+            return;
+          }
+        }
+      }
+
+      var lineStart = 0;
+      while (lineStart < lines.length) {
+        if (token?.isCancelled ?? false) {
+          return;
+        }
+        var fitEnd = lineStart;
+        var sliceHeight = 0.0;
+        while (fitEnd < lines.length) {
+          final lineHeight = lines[fitEnd].height;
+          if (sliceHeight + lineHeight <= available + tolerance) {
+            sliceHeight += lineHeight;
+            fitEnd += 1;
+          } else {
+            break;
+          }
+        }
+        if (fitEnd == lineStart) {
+          if (slices.isNotEmpty) {
+            final page = record();
+            if (page != null) {
+              yield _withIndex(page, pageIndex++);
+              await Future<void>.delayed(Duration.zero);
+              if (token?.isCancelled ?? false) {
+                return;
+              }
+            }
+            continue;
+          }
+          sliceHeight = lines[lineStart].height;
+          fitEnd = lineStart + 1;
+        }
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: lineStart,
+            endLine: fitEnd,
+            height: sliceHeight,
+          ),
+        );
+        used += sliceHeight;
+        available -= sliceHeight;
+        lineStart = fitEnd;
+        if (lineStart < lines.length) {
+          final page = record();
+          if (page != null) {
+            yield _withIndex(page, pageIndex++);
+            await Future<void>.delayed(Duration.zero);
+            if (token?.isCancelled ?? false) {
+              return;
+            }
+          }
+        }
+      }
+
+      if (block.pageBreakAfter) {
+        final page = record();
+        if (page != null) {
+          yield _withIndex(page, pageIndex++);
+          await Future<void>.delayed(Duration.zero);
+          if (token?.isCancelled ?? false) {
+            return;
+          }
+        }
+      }
+    }
+
+    final last = record();
+    if (last != null) {
+      yield _withIndex(last, pageIndex++);
+    }
+  }
+
+  static PageContent _withIndex(PageContent page, int index) => PageContent(
+    spineIndex: page.spineIndex,
+    pageIndex: index,
+    slices: page.slices,
+    usedHeight: page.usedHeight,
+    pageHeight: page.pageHeight,
+    topPadding: page.topPadding,
+  );
 }
