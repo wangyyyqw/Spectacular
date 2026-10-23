@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -28,7 +30,17 @@ void main() {
     await tts.awaitSpeakCompletion(true);
 
     final stopwatch = Stopwatch()..start();
-    final speakResult = await tts.speak('这是中文字体朗读测试。');
+    var speakTimedOut = false;
+    Object? speakResult;
+    try {
+      speakResult = await tts
+          .speak('这是中文字体朗读测试。')
+          .timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      speakTimedOut = true;
+      speakResult = 0;
+      await tts.stop();
+    }
     stopwatch.stop();
 
     final voices = await tts.getVoices;
@@ -39,12 +51,17 @@ void main() {
       'P0-20 platform=${defaultTargetPlatform.name} '
       'languages=${languageList.length} chinese=$chinese '
       'zh_cn_available=$available voices=$voiceCount rates=$rateResults '
-      'speak_result=$speakResult elapsed_ms=${stopwatch.elapsedMilliseconds}',
+      'speak_result=$speakResult speak_timeout=$speakTimedOut '
+      'elapsed_ms=${stopwatch.elapsedMilliseconds}',
     );
 
     expect(languageList, isNotEmpty);
     expect(chinese, isNotEmpty);
     expect(available, isTrue);
-    expect(speakResult, isNot(0));
+    expect(
+      speakResult,
+      isNot(0),
+      reason: speakTimedOut ? 'TTS speak 8 秒未回调（设备引擎可能崩溃/无语音）' : null,
+    );
   });
 }
