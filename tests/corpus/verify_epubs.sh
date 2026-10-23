@@ -3,7 +3,8 @@
 #
 # 检查项：
 #   1. manifest.json 是合法 JSON，记录数 >= 6，字段齐全；
-#   2. 每个样本存在、sha256 与 size_bytes 和 manifest 一致、小于 200KB；
+#   2. 每个样本存在、sha256 与 size_bytes 和 manifest 一致；
+#      自建小样本限制 200KB，真实样本（kind=real，Git LFS）不限制；
 #   3. unzip -l / unzip -t 可读，ZIP 结构完整；
 #   4. mimetype 是第一个条目、内容为 application/epub+zip、以 stored 方式保存、
 #      本地头 offset 为 0 且无 extra field（OCF 要求）；
@@ -97,7 +98,7 @@ else
 fi
 
 printf '\n== 2. 逐样本校验 ==\n'
-while IFS=$'\t' read -r id file expected_sha expected_size; do
+while IFS=$'\t' read -r id file expected_sha expected_size kind ocf; do
   printf '\n-- %s（%s）--\n' "$id" "$file"
   path="$CORPUS_DIR/$file"
 
@@ -106,6 +107,11 @@ while IFS=$'\t' read -r id file expected_sha expected_size; do
     continue
   fi
   ok "文件存在"
+
+  if head -c 40 "$path" | grep -q '^version https://git-lfs'; then
+    bad "文件是 Git LFS 指针，请先执行 git lfs pull"
+    continue
+  fi
 
   actual_sha="$(shasum -a 256 "$path" | awk '{print $1}')"
   if [ "$actual_sha" = "$expected_sha" ]; then
@@ -121,7 +127,9 @@ while IFS=$'\t' read -r id file expected_sha expected_size; do
     bad "size_bytes 不一致：manifest=${expected_size}，实际=$actual_size"
   fi
 
-  if [ "$actual_size" -lt "$MAX_BYTES" ]; then
+  if [ "$kind" = "real" ]; then
+    ok "真实样本（Git LFS），大小 ${actual_size}B，不受 200KB 限制"
+  elif [ "$actual_size" -lt "$MAX_BYTES" ]; then
     ok "文件小于 200KB：$actual_size < $MAX_BYTES"
   else
     bad "文件达到或超过 200KB：$actual_size"
@@ -133,8 +141,13 @@ while IFS=$'\t' read -r id file expected_sha expected_size; do
     bad "unzip -t 完整性检查失败"
   fi
 
-  printf '\n  unzip -l %s：\n' "$file"
-  unzip -l "$path" 2>&1 | sed 's/^/    /'
+  if [ "$kind" = "real" ]; then
+    printf '\n  unzip -l %s（前 20 条）：\n' "$file"
+    unzip -l "$path" 2>&1 | head -n 24 | sed 's/^/    /'
+  else
+    printf '\n  unzip -l %s：\n' "$file"
+    unzip -l "$path" 2>&1 | sed 's/^/    /'
+  fi
 
   first_entry="$(zipinfo -1 "$path" | head -n 1)"
   if [ "$first_entry" = "mimetype" ]; then
@@ -153,7 +166,13 @@ while IFS=$'\t' read -r id file expected_sha expected_size; do
   mimetype_method="$(zipinfo_field "$path" 'compression method:')"
   case "$mimetype_method" in
     *stored*) ok "mimetype 未压缩（${mimetype_method}）" ;;
-    *) bad "mimetype 压缩方式不是 stored（${mimetype_method}）" ;;
+    *)
+      if [ "$ocf" = "false" ]; then
+        ok "mimetype 被压缩（真实样本已知不规范，manifest 标记 ocf_compliant=false）"
+      else
+        bad "mimetype 压缩方式不是 stored（${mimetype_method}）"
+      fi
+      ;;
   esac
 
   mimetype_offset="$(zipinfo_field "$path" 'offset of local header from start of archive:')"
@@ -177,7 +196,7 @@ while IFS=$'\t' read -r id file expected_sha expected_size; do
 
   printf '  文件头（head -c 58 | od -c）：\n'
   head -c 58 "$path" | od -c | sed 's/^/    /'
-done < <(jq -r '.samples[] | [.id, .file, .sha256, .size_bytes] | @tsv' "$MANIFEST")
+done < <(jq -r '.samples[] | [.id, .file, .sha256, .size_bytes, (.kind // ""), (if .ocf_compliant == false then "false" else "true" end)] | @tsv' "$MANIFEST")
 
 printf '\n== 结论 ==\n'
 if [ "$FAIL" -ne 0 ]; then
