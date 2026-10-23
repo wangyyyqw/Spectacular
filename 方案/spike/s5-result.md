@@ -12,7 +12,7 @@
 - 对照：同一 regular 字体注册为两个 family 名，400 字重渲染逐像素一致（`regular_control=0`），排除测量噪声。
 - 因此**在桌面上方案 A（单 family 多字重）成立**，暂不需要退化为方案 B（按字重拆 family 名）。
 - iOS 模拟器（iPhone 18 Pro，iOS 27.0）复测通过：`bold_face_effect=4122`，与桌面 `4147` 同向；按授权口径视为移动端通过。
-- Android 模拟器不可用（无 AVD、licenses 未接受），未做 Android 侧验证；后续真机阶段可补测。
+- Android 模拟器不可用（无 AVD、licenses 未接受）；2026-10-23 以 MEIZU 20/Android 16 真机补测通过：`bold_face_effect=4152`。
 
 ## 2. 环境
 
@@ -70,6 +70,6 @@ S5 device=macOS regular_control=0 bold_face_effect=4147
 |---|---|---|
 | macOS 桌面 | 通过（bold 生效） | 包内测试 + 集成测试 `bold_face_effect=4147` |
 | iOS 模拟器（iPhone 18 Pro，iOS 27.0） | 通过 | 集成测试 `bold_face_effect=4122` |
-| Android | 未测 | 无 AVD、licenses 未接受；后续真机阶段补测 |
+| Android 真机（MEIZU 20，Android 16） | 通过 | 集成测试 `S5 device=android bold_face_effect=4152` |
 
 按用户 2026-10-23 授权（《P0 文档》附录 A-06），P0-08 以 iOS 模拟器 + 桌面口径完成；Android 真机复测列入后续真机任务。

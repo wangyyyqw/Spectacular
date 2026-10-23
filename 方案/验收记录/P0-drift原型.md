@@ -9,7 +9,7 @@
 
 - v1 旧库（`books(id,title)`，`user_version=1`）由 v2 `PrototypeDb` 打开后自动迁移，新增 `author` 列，旧数据保留。
 - 迁移后插入带作者的新书成功，共 2 行；全新内存库 `onCreate` 路径建表并读写成功。
-- Android 无 AVD、licenses 未接受，未测；后续真机阶段补测。
+- 2026-10-23 Android 真机（MEIZU 20/Android 16）补测通过：迁移 1 行、总 2 行、列齐全、新库 1 行。
 
 ## 2. 证据
 
@@ -17,6 +17,7 @@
 |---|---:|---:|---|---:|---|
 | iOS 模拟器（iPhone 18 Pro，iOS 27.0） | 1 | 2 | id, title, author | 1 | `P0-16 platform=iOS migrated_rows=1 all_rows=2 columns=[id, title, author] fresh_rows=1` |
 | macOS 26.7.1 | 1 | 2 | id, title, author | 1 | `P0-16 platform=macOS migrated_rows=1 all_rows=2 columns=[id, title, author] fresh_rows=1` |
+| Android 真机（MEIZU 20，Android 16） | 1 | 2 | id, title, author | 1 | `P0-16 platform=android migrated_rows=1 all_rows=2 columns=[id, title, author] fresh_rows=1` |
 
 ## 3. 复现
 

@@ -11,7 +11,7 @@
 - 默认 `unicode61` 分词器**不切分中文**：`MATCH '中文'` 返回 0 行；`MATCH 'hello'` 返回 1 行。
 - `trigram` 分词器可用：三字查询 `MATCH '中文检'` 返回 1 行；两字查询不命中（trigram 需要至少 3 个字符）。
 - 对实现的直接影响：中文搜索不能依赖默认分词器；技术方案 §66 的 2-gram 自建索引仍是主路径，trigram 可作为替代或降级选项。
-- Android 无 AVD/许可未接受，未测；后续真机阶段补测。
+- 2026-10-23 Android 真机（MEIZU 20/Android 16）补测通过：SQLite 3.54.0，FTS5 可用，默认分词中文 0 行，trigram 1 行。
 
 ## 2. 环境与数据
 
@@ -19,7 +19,7 @@
 |---|---|---:|---:|---:|---|
 | iOS 模拟器（iPhone 18 Pro，iOS 27.0） | 3.54.0 | 可用 | 0 行 | 1 行 | `S6 platform=iOS sqlite=3.54.0 ascii=1 cjk_default=0 trigram=1` |
 | macOS 26.7.1 | 3.54.0 | 可用 | 0 行 | 1 行 | `S6 platform=macOS sqlite=3.54.0 ascii=1 cjk_default=0 trigram=1` |
-| Android | 未测 | — | — | — | 无 AVD、licenses 未接受 |
+| Android 真机（MEIZU 20，Android 16） | 3.54.0 | 可用 | 0 行 | 1 行 | `S6 platform=android sqlite=3.54.0 ascii=1 cjk_default=0 trigram=1` |
 
 ## 3. 复现
 
