@@ -6,6 +6,7 @@ import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
 
 import 'diagnostics/reader_log.dart';
+import 'storage/file_progress_store.dart';
 import 'reader/demo_source.dart';
 
 Future<void> main() async {
@@ -38,20 +39,22 @@ Future<void> main() async {
 
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
-  runApp(const ReaderApp());
+  runApp(ReaderApp(store: FileReaderProgressStore()));
 }
 
 /// 应用壳：M0 最小阅读页 + 诊断日志导出。
 class ReaderApp extends StatefulWidget {
   /// 创建应用。
-  const ReaderApp({super.key});
+  const ReaderApp({super.key, required this.store});
+
+  /// 进度存储。
+  final ReaderProgressStore store;
 
   @override
   State<ReaderApp> createState() => _ReaderAppState();
 }
 
 class _ReaderAppState extends State<ReaderApp> {
-  static final ReaderProgressStore _store = MemoryReaderProgressStore();
   final GlobalKey<ScaffoldMessengerState> _messengerKey =
       GlobalKey<ScaffoldMessengerState>();
   ReaderSession? _session;
@@ -185,7 +188,7 @@ class _ReaderAppState extends State<ReaderApp> {
                   contentWidth: width,
                   contentHeight: height,
                 ),
-                store: _store,
+                store: widget.store,
                 bookId: 'demo-30',
                 onSessionReady: _onSessionReady,
               );

@@ -42,7 +42,7 @@ flutter build apk --release
 ```
 apps/reader_mobile/dist/spectacular-reader-release.apk
 大小：51 MB
-SHA-256：d52b90487379be511c0e112240a749b580a1e0320a0d4ade9cd7f3e1f01ae771
+SHA-256：b952d40dab908c72817e8d56868fcdc9b3d83363579b793ab53e6a71f76905fa
 签名：Android Debug（仅供测试安装）
 ```
 
@@ -89,8 +89,8 @@ SHA-256：44b65842513f6fdba74e6d1a977f806427186b6b570e5e5158629afef6887144
   导出成功新增 `export_success` 事件。
 - 截图显示正文紧贴屏幕边缘；`ReaderPage` 默认增加 20px 水平、16px 垂直留白并 `ClipRect`，避免文字贴边/越界。
 - 日志中 30 章翻页、跨章、返回均无 reader_error；页序连续。
-- 修复后的 Release APK：`dist/spectacular-reader-release.apk`，51 MB，
-  SHA-256 `d52b90487379be511c0e112240a749b580a1e0320a0d4ade9cd7f3e1f01ae771`。
+- 修复后的 Release APK：`dist/spectacular-reader-release.apk`，53.2 MB，
+  SHA-256 `b952d40dab908c72817e8d56868fcdc9b3d83363579b793ab53e6a71f76905fa`。
 
 ## 6. 无线调试与第二轮真机验证（2026-10-23）
 
@@ -103,5 +103,11 @@ SHA-256：44b65842513f6fdba74e6d1a977f806427186b6b570e5e5158629afef6887144
   - 发现示例页固定 320×480，手机上页面下方留白；改为把 LayoutBuilder 实际内容区
     传给 `DemoChapterSource`，页面按 344×699 重新分页，正文铺满可用高度；
   - 第 1 章第 1 页显示 12 行示例文本，无空白页、无文字贴边。
-- 修复后 Release APK：51 MB，
-  SHA-256 `d52b90487379be511c0e112240a749b580a1e0320a0d4ade9cd7f3e1f01ae771`。
+- 修复后 Release APK：53.2 MB，
+  SHA-256 `b952d40dab908c72817e8d56868fcdc9b3d83363579b793ab53e6a71f76905fa`。
+
+## 7. 进度持久化（2026-10-23 真机验证）
+
+- 新增 `FileReaderProgressStore`，写入应用支持目录 `reader_progress.json`；
+- 真机 force-stop 后重启，恢复到第 2 章第 1 页；
+- 最终 APK 51 MB，SHA-256 `b952d40dab908c72817e8d56868fcdc9b3d83363579b793ab53e6a71f76905fa`。
