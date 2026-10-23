@@ -50,7 +50,7 @@ void main() {
       maxWidth: 200,
     );
     // Ahem 单字 16px：行宽 48，余量 152，偏移 76。
-    expect(layout.lines.single.width, 48);
+    expect(layout.lines.single.width, closeTo(48, 0.01));
     expect(layout.lines.single.offsetX, closeTo(76, 0.01));
   });
 
