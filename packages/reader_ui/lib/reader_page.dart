@@ -16,6 +16,7 @@ class ReaderPage extends StatefulWidget {
     required this.store,
     required this.bookId,
     this.background = const Color(0xFFFFFFFF),
+    this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     this.onSessionReady,
   });
 
@@ -30,6 +31,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 页面背景。
   final Color background;
+
+  /// 正文区外边距。
+  final EdgeInsets padding;
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
@@ -82,11 +86,16 @@ class _ReaderPageState extends State<ReaderPage> {
             return Stack(
               fit: StackFit.expand,
               children: [
-                CustomPaint(
-                  painter: _ReaderPageCustomPainter(
-                    page: page,
-                    painter: _painter,
-                    pageSize: size,
+                Padding(
+                  padding: widget.padding,
+                  child: ClipRect(
+                    child: CustomPaint(
+                      painter: _ReaderPageCustomPainter(
+                        page: page,
+                        painter: _painter,
+                        pageSize: size,
+                      ),
+                    ),
                   ),
                 ),
                 ReaderView(

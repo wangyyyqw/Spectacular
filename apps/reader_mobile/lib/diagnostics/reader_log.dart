@@ -13,13 +13,15 @@ class ReaderLog {
     Future<Directory> Function()? directoryProvider,
     Future<Map<String, String>> Function()? deviceInfoProvider,
   }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
-       _deviceInfoProvider = deviceInfoProvider ?? _collectDeviceInfo;
+       _deviceInfoProvider = deviceInfoProvider ?? _collectDeviceInfo,
+       _customDirectory = directoryProvider != null;
 
   /// 全局实例。
   static final ReaderLog instance = ReaderLog();
 
   final Future<Directory> Function() _directoryProvider;
   final Future<Map<String, String>> Function() _deviceInfoProvider;
+  final bool _customDirectory;
   final List<String> _lines = <String>[];
   File? _file;
   Future<void>? _initializing;
@@ -38,15 +40,21 @@ class ReaderLog {
 
   Future<void> _initialize() async {
     try {
-      final directory = await _directoryProvider();
-      await directory.create(recursive: true);
-      _file = File('${directory.path}/reader_log.txt');
-      await _file!.create(recursive: true);
+      final isFlutterTest = Platform.environment['FLUTTER_TEST'] == 'true';
       _lines.add('=== Spectacular Reader log ===');
       _lines.add('started_at=${DateTime.now().toIso8601String()}');
-      final info = await _deviceInfoProvider();
-      for (final entry in info.entries) {
-        _lines.add('${entry.key}=${entry.value}');
+      if (isFlutterTest && !_customDirectory) {
+        // widget test 没有 path_provider/device_info 插件，保留内存日志。
+        _lines.add('test_mode=true');
+      } else {
+        final directory = await _directoryProvider();
+        await directory.create(recursive: true);
+        _file = File('${directory.path}/reader_log.txt');
+        await _file!.create(recursive: true);
+        final info = await _deviceInfoProvider();
+        for (final entry in info.entries) {
+          _lines.add('${entry.key}=${entry.value}');
+        }
       }
       _lines.add('--- events ---');
       await _writeAll();

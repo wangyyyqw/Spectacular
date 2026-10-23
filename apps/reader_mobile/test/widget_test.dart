@@ -12,6 +12,11 @@ void main() {
     expect(find.byType(ReaderPage), findsOneWidget);
     expect(find.byType(CustomPaint), findsWidgets);
     expect(find.byTooltip('导出日志'), findsOneWidget);
+
+    // 测试环境没有分享插件/可写目录时，导出应显示失败提示而不是崩溃。
+    await tester.tap(find.byTooltip('导出日志'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('日志导出失败'), findsOneWidget);
   });
 
   test('宿主可导入核心契约', () {

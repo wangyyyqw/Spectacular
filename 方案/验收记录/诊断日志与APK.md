@@ -42,7 +42,7 @@ flutter build apk --release
 ```
 apps/reader_mobile/dist/spectacular-reader-release.apk
 大小：51 MB
-SHA-256：c43e9c26882acc9049c1f26c7f7cbe718d5800a477bb706283cff5e1941db16a
+SHA-256：2cce4d655760cdedfac97bc9014515b8fed370b7cfcc6d10a4b7a3addf8ef92d
 签名：Android Debug（仅供测试安装）
 ```
 
@@ -76,3 +76,18 @@ SHA-256：44b65842513f6fdba74e6d1a977f806427186b6b570e5e5158629afef6887144
 - Debug APK 体积较大（约 159MB，含多 ABI）；release 包会小很多。
 - 日志包含页首文本，属于阅读内容；分享前需确认用户知情。
 - 日志文件位于应用私有目录，普通文件管理器不可见，必须通过“导出日志”分享。
+
+## 5. 真机日志反馈与修复（2026-10-23）
+
+真机：HUAWEI MRT-AL10，Android 16（SDK 36），屏幕 1272×2860，DPR 3.5，Flutter 3.47.5。
+
+日志发现：
+
+- `export_logs` 后出现 `export_error: Null check operator used on a null value`；
+  根因是 `ReaderApp` 的 context 位于 `MaterialApp` 之上，`ScaffoldMessenger.of(context)` 找不到祖先。
+- 修复：`MaterialApp` 挂 `scaffoldMessengerKey`，导出成功/失败都通过该 key 显示提示；
+  导出成功新增 `export_success` 事件。
+- 截图显示正文紧贴屏幕边缘；`ReaderPage` 默认增加 20px 水平、16px 垂直留白并 `ClipRect`，避免文字贴边/越界。
+- 日志中 30 章翻页、跨章、返回均无 reader_error；页序连续。
+- 修复后的 Release APK：`dist/spectacular-reader-release.apk`，51 MB，
+  SHA-256 `2cce4d655760cdedfac97bc9014515b8fed370b7cfcc6d10a4b7a3addf8ef92d`。

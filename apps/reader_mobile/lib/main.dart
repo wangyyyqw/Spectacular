@@ -52,6 +52,8 @@ class ReaderApp extends StatefulWidget {
 
 class _ReaderAppState extends State<ReaderApp> {
   static final ReaderProgressStore _store = MemoryReaderProgressStore();
+  final GlobalKey<ScaffoldMessengerState> _messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
   ReaderSession? _session;
   ReaderProgress? _lastProgress;
   String? _lastError;
@@ -117,17 +119,15 @@ class _ReaderAppState extends State<ReaderApp> {
       await log.log('export_logs');
       final path = await log.exportFile();
       await log.share();
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('日志已导出：${path ?? '分享面板已打开'}')));
-      }
+      await log.log('export_success', fields: <String, Object?>{'path': path});
+      _messengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('日志已导出：${path ?? '分享面板已打开'}')),
+      );
     } catch (error) {
       await log.log('export_error', fields: <String, Object?>{'error': error});
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('日志导出失败：$error')));
-      }
+      _messengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('日志导出失败：$error')),
+      );
     } finally {
       if (mounted) {
         setState(() => _exporting = false);
@@ -146,6 +146,7 @@ class _ReaderAppState extends State<ReaderApp> {
     final progress = _lastProgress;
     return MaterialApp(
       title: 'Spectacular Reader',
+      scaffoldMessengerKey: _messengerKey,
       home: Scaffold(
         appBar: AppBar(
           title: Text(
