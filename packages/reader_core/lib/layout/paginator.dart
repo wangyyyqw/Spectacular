@@ -166,47 +166,64 @@ class Paginator {
       firstPage = false;
     }
 
-    void addWhole(PageBlock block) {
-      final height = block.height;
-      slices.add(
-        PageBlockSlice(
-          block: block,
-          startLine: 0,
-          endLine: block.layout.lineCount,
-          height: height,
-        ),
-      );
-      used += height;
-      available -= height;
-    }
-
     for (final block in blocks) {
       totalHeight += block.height;
-      if (block.layout.lineCount == 0) {
+      final lines = block.layout.lines;
+      if (lines.isEmpty) {
         continue;
       }
       if (block.pageBreakBefore) {
         record();
       }
-      if (block.height <= available + tolerance) {
-        addWhole(block);
-      } else if (slices.isEmpty) {
-        // P1-25：单块高于整页时先整块放入，P1-26 再做跨页行切分。
-        addWhole(block);
-        record();
-      } else {
-        record();
-        if (block.height <= available + tolerance) {
-          addWhole(block);
-        } else {
-          addWhole(block);
+
+      var lineStart = 0;
+      while (lineStart < lines.length) {
+        var fitEnd = lineStart;
+        var sliceHeight = 0.0;
+        while (fitEnd < lines.length) {
+          final lineHeight = lines[fitEnd].height;
+          if (sliceHeight + lineHeight <= available + tolerance) {
+            sliceHeight += lineHeight;
+            fitEnd += 1;
+          } else {
+            break;
+          }
+        }
+
+        if (fitEnd == lineStart) {
+          // 当前页已非空：先收页，在新页重试本行。
+          if (slices.isNotEmpty) {
+            record();
+            continue;
+          }
+          // 单行高于整页：强制放一行，避免死循环；P1-26 之后由渲染层裁切。
+          sliceHeight = lines[lineStart].height;
+          fitEnd = lineStart + 1;
+        }
+
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: lineStart,
+            endLine: fitEnd,
+            height: sliceHeight,
+          ),
+        );
+        used += sliceHeight;
+        available -= sliceHeight;
+        lineStart = fitEnd;
+
+        // 本块还有行：当前页已满，记录后下一页继续。
+        if (lineStart < lines.length) {
           record();
         }
       }
+
       if (block.pageBreakAfter) {
         record();
       }
     }
+
     record();
 
     return ChapterPagination(

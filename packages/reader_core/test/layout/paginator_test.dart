@@ -98,4 +98,57 @@ void main() {
     expect(slice.endLine, 1);
     expect(slice.lines, hasLength(1));
   });
+
+  _crossPageTests();
+}
+
+void _crossPageTests() {
+  test('3 行段落按 2+1 跨页切分', () {
+    final block = _block('a\nb\nc');
+    final result = Paginator(pageHeight: 48).measureChapter(blocks: [block]);
+    expect(result.pages, hasLength(2));
+    expect(result.pages[0].slices.single.startLine, 0);
+    expect(result.pages[0].slices.single.endLine, 2);
+    expect(result.pages[0].slices.single.height, 48);
+    expect(result.pages[1].slices.single.startLine, 2);
+    expect(result.pages[1].slices.single.endLine, 3);
+    expect(result.pages[1].slices.single.height, 24);
+    expect(result.totalHeight, 72);
+  });
+
+  test('两行段落恰好占满页高 48', () {
+    final result = Paginator(pageHeight: 48)
+        .measureChapter(blocks: [_block('a\nb')]);
+    expect(result.pages, hasLength(1));
+    expect(result.pages.single.slices.single.endLine, 2);
+    expect(result.pages.single.usedHeight, 48);
+  });
+
+  test('差 1px：tolerance=2 合并，tolerance=0 切分', () {
+    final block = _block('a\nb');
+    final tolerant = Paginator(
+      pageHeight: 47,
+      tolerance: 2,
+    ).measureChapter(blocks: [block]);
+    expect(tolerant.pages, hasLength(1));
+    expect(tolerant.pages.single.slices.single.endLine, 2);
+    expect(tolerant.pages.single.usedHeight, 48);
+
+    final strict = Paginator(
+      pageHeight: 47,
+      tolerance: 0,
+    ).measureChapter(blocks: [block]);
+    expect(strict.pages, hasLength(2));
+    expect(strict.pages[0].slices.single.endLine, 1);
+    expect(strict.pages[1].slices.single.startLine, 1);
+  });
+
+  test('跨页后 pageBreakAfter 只结束末页', () {
+    final result = Paginator(pageHeight: 48)
+        .measureChapter(blocks: [_block('a\nb\nc', after: true)]);
+    expect(result.pages, hasLength(2));
+    expect(result.pages[0].slices.single.endLine, 2);
+    expect(result.pages[1].slices.single.endLine, 3);
+    expect(result.pages.every((page) => page.slices.isNotEmpty), isTrue);
+  });
 }
