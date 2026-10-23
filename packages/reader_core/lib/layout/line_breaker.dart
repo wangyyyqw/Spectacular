@@ -90,6 +90,64 @@ class LineBox {
       'justify=$justifyExtra)';
 }
 
+/// 行内样式区间：为文本 `[start, end)` 指定独立计算样式。
+///
+/// 混排字号、上下标、超出行高的行内元素都用它表达；区间必须升序且不重叠，
+/// 未覆盖的部分沿用块的样式。
+class StyledRun {
+  /// 创建区间。
+  const StyledRun({
+    required this.start,
+    required this.end,
+    required this.style,
+  });
+
+  /// 起始偏移（UTF-16，含）。
+  final int start;
+
+  /// 结束偏移（UTF-16，不含）。
+  final int end;
+
+  /// 该区间的计算样式。
+  final ComputedStyle style;
+}
+
+/// 把 `[start, end)` 按样式区间切成连续 span（§61.1 的行内 run）。
+///
+/// [runs] 需升序且不重叠；区间外的文本用 [baseStyle]。
+List<InlineSpan> buildStyledSpans({
+  required String text,
+  required int start,
+  required int end,
+  required List<StyledRun> runs,
+  required TextStyle baseStyle,
+  required TextStyle Function(ComputedStyle style) styleOf,
+}) {
+  final spans = <InlineSpan>[];
+  var cursor = start;
+  for (final run in runs) {
+    final runStart = math.max(run.start, start);
+    final runEnd = math.min(run.end, end);
+    if (runEnd <= cursor || runStart >= end) {
+      continue;
+    }
+    final from = math.max(cursor, runStart);
+    if (from > cursor) {
+      spans.add(TextSpan(text: text.substring(cursor, from), style: baseStyle));
+    }
+    if (runEnd > from) {
+      spans.add(
+        TextSpan(text: text.substring(from, runEnd), style: styleOf(run.style)),
+      );
+      cursor = runEnd;
+    }
+  }
+  if (cursor < end) {
+    spans.add(TextSpan(text: text.substring(cursor, end), style: baseStyle));
+  }
+  return spans;
+}
+
 /// TextLayout 的测量结果。
 class TextLayoutResult implements TextLayout {
   /// 创建结果。
@@ -99,6 +157,7 @@ class TextLayoutResult implements TextLayout {
     required this.width,
     required this.height,
     required this.maxWidth,
+    this.runs = const <StyledRun>[],
   });
 
   /// 原始文本。
@@ -115,6 +174,9 @@ class TextLayoutResult implements TextLayout {
 
   /// 布局使用的最大宽度。
   final double maxWidth;
+
+  /// 行内样式区间（绘制用），偏移基于 [text]。
+  final List<StyledRun> runs;
 
   /// 行数。
   int get lineCount => lines.length;
@@ -204,12 +266,14 @@ class LineBreaker {
   /// 按 [maxWidth] 测量 [text]。
   ///
   /// 宽度低于 3em 时钳制到 3em；无限宽保持单行断行。
+  /// [runs] 为行内样式区间，用于混排字号与行内元素；未覆盖部分沿用 [style]。
   TextLayoutResult layout({
     required String text,
     required ComputedStyle style,
     required double maxWidth,
     double textScaleFactor = 1,
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+    List<StyledRun> runs = const <StyledRun>[],
   }) {
     final width = effectiveWidth(style, maxWidth);
     return TextLayoutEngine._layoutRaw(
@@ -218,6 +282,7 @@ class LineBreaker {
       maxWidth: width,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
+      runs: runs,
     );
   }
 }
@@ -238,6 +303,7 @@ abstract final class TextLayoutEngine {
     double textScaleFactor = 1,
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
     LineBreaker? lineBreaker,
+    List<StyledRun> runs = const <StyledRun>[],
   }) {
     return (lineBreaker ?? LineBreaker()).layout(
       text: text,
@@ -245,6 +311,7 @@ abstract final class TextLayoutEngine {
       maxWidth: maxWidth,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
+      runs: runs,
     );
   }
 
@@ -254,28 +321,81 @@ abstract final class TextLayoutEngine {
     required double maxWidth,
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
+    List<StyledRun> runs = const <StyledRun>[],
   }) {
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
     final indent = width.isFinite
         ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
         : 0.0;
-    final measured = text.isEmpty || indent <= 0
+    final ordered = _normalizeRuns(runs, text.length);
+    // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
+    var measuredEnd = text.length;
+    while (measuredEnd > 0 && text.codeUnitAt(measuredEnd - 1) == 10) {
+      measuredEnd -= 1;
+    }
+    final measuredText = measuredEnd == text.length
+        ? text
+        : text.substring(0, measuredEnd);
+    final measured = measuredText.isEmpty || indent <= 0
         ? _measureSegment(
-            text: text,
+            text: measuredText,
             width: width,
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
+            runs: ordered,
           )
         : _measureWithIndent(
-            text: text,
+            text: measuredText,
             width: width,
             indent: indent,
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
+            runs: ordered,
           );
-    return _result(text, _align(text, measured, style.textAlign, width), width);
+    return _result(
+      text,
+      _align(measuredText, measured, style.textAlign, width),
+      width,
+      ordered,
+    );
+  }
+
+  /// 排序并裁掉越界区间；空区间丢弃。
+  static List<StyledRun> _normalizeRuns(List<StyledRun> runs, int length) {
+    if (runs.isEmpty) {
+      return const <StyledRun>[];
+    }
+    final ordered = <StyledRun>[];
+    for (final run in runs) {
+      final start = run.start.clamp(0, length);
+      final end = run.end.clamp(start, length);
+      if (end > start) {
+        ordered.add(StyledRun(start: start, end: end, style: run.style));
+      }
+    }
+    ordered.sort((a, b) => a.start.compareTo(b.start));
+    return ordered;
+  }
+
+  /// 取 `[start, end)` 范围内的样式区间，偏移改为相对起点。
+  static List<StyledRun> _sliceRuns(List<StyledRun> runs, int start, int end) {
+    final sliced = <StyledRun>[];
+    for (final run in runs) {
+      final runStart = math.max(run.start, start);
+      final runEnd = math.min(run.end, end);
+      if (runEnd > runStart) {
+        sliced.add(
+          StyledRun(
+            start: runStart - start,
+            end: runEnd - start,
+            style: run.style,
+          ),
+        );
+      }
+    }
+    return sliced;
   }
 
   /// 首行减宽断行，尾段用完整宽度重排后合并（§61.2）。
@@ -286,6 +406,7 @@ abstract final class TextLayoutEngine {
     required ComputedStyle style,
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
+    List<StyledRun> runs = const <StyledRun>[],
   }) {
     final firstWidth = math.max(1.0, width - indent);
     final head = _measureSegment(
@@ -294,6 +415,7 @@ abstract final class TextLayoutEngine {
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
+      runs: runs,
     );
     if (head.isEmpty) {
       return const <LineBox>[];
@@ -310,6 +432,7 @@ abstract final class TextLayoutEngine {
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
+      runs: _sliceRuns(runs, remainderStart, text.length),
     );
     final lines = <LineBox>[first];
     for (var i = 0; i < rest.length; i++) {
@@ -372,12 +495,29 @@ abstract final class TextLayoutEngine {
     required ComputedStyle style,
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
+    List<StyledRun> runs = const <StyledRun>[],
   }) {
+    final baseStyle = textStyleFor(
+      style,
+      leadingDistribution: leadingDistribution,
+    );
     final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: textStyleFor(style, leadingDistribution: leadingDistribution),
-      ),
+      text: runs.isEmpty
+          ? TextSpan(text: text, style: baseStyle)
+          : TextSpan(
+              style: baseStyle,
+              children: buildStyledSpans(
+                text: text,
+                start: 0,
+                end: text.length,
+                runs: runs,
+                baseStyle: baseStyle,
+                styleOf: (runStyle) => textStyleFor(
+                  runStyle,
+                  leadingDistribution: leadingDistribution,
+                ),
+              ),
+            ),
       textDirection: TextDirection.ltr,
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout(maxWidth: width);
@@ -420,6 +560,7 @@ abstract final class TextLayoutEngine {
     String text,
     List<LineBox> lines,
     double maxWidth,
+    List<StyledRun> runs,
   ) {
     var maxLineWidth = 0.0;
     for (final line in lines) {
@@ -432,6 +573,7 @@ abstract final class TextLayoutEngine {
       width: maxLineWidth,
       height: height,
       maxWidth: maxWidth,
+      runs: List<StyledRun>.unmodifiable(runs),
     );
   }
 
