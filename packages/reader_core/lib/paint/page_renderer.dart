@@ -31,6 +31,10 @@ class PagePainter {
       if (slice.startLine == 0) {
         y += slice.block.spaceBefore;
       }
+      // 跨页块只画本页可见的行（§60.8）：裁剪后即使字号/行高有浮点误差，
+      // 墨迹也不会越到下一块或下一页。
+      canvas.save();
+      canvas.clipRect(slice.clipRect(y, pageSize.width));
       for (
         var lineIndex = slice.startLine;
         lineIndex < slice.endLine;
@@ -50,6 +54,7 @@ class PagePainter {
         }
         y += line.height;
       }
+      canvas.restore();
       if (slice.endLine == slice.block.layout.lineCount) {
         y += slice.block.spaceAfter;
       }

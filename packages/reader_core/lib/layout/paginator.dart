@@ -1,3 +1,5 @@
+import 'dart:ui' show Offset, Rect;
+
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'text_layout.dart';
@@ -69,6 +71,42 @@ class PageBlockSlice {
   /// 切片行。
   Iterable<LineBox> get lines =>
       block.layout.lines.skip(startLine).take(endLine - startLine);
+
+  /// 是否从块中部开始：前面的行在上一页。
+  bool get continuesBefore => startLine > 0;
+
+  /// 是否在块中部结束：后续行在下一页。
+  bool get continuesAfter => endLine < block.layout.lineCount;
+
+  /// 页面坐标系中的可见裁剪矩形（§60.8）。
+  ///
+  /// [top] 是切片顶边在页面上的 y；绘制与命中都要限制在这个矩形内，
+  /// 跨页块因此不会画到下一页或下一块的地盘上。
+  Rect clipRect(double top, double width) =>
+      Rect.fromLTWH(0, top, width, height);
+}
+
+/// 一次命中：页面坐标落在哪个切片、哪一行。
+class PageHit {
+  /// 创建命中结果。
+  const PageHit({
+    required this.sliceIndex,
+    required this.slice,
+    required this.lineIndex,
+    required this.line,
+  });
+
+  /// 切片在页内的序号。
+  final int sliceIndex;
+
+  /// 命中的切片。
+  final PageBlockSlice slice;
+
+  /// 行在块内的序号。
+  final int lineIndex;
+
+  /// 命中的行框。
+  final LineBox line;
 }
 
 /// 一页内容。
@@ -103,6 +141,49 @@ class PageContent implements PageSlice {
 
   /// 是否为空页。
   bool get isEmpty => slices.isEmpty;
+
+  /// 内容区高度（不含首页顶部留白）。
+  double get contentHeight => usedHeight;
+
+  /// 页面坐标 [offset] 命中的切片与行；内容区之外返回 null。
+  ///
+  /// 只搜索本页可见的行：跨页块属于上一页/下一页的行不会被命中，命中区域
+  /// 因此与绘制裁剪保持一致（§60.8）。
+  PageHit? hitTest(Offset offset, {double contentWidth = double.infinity}) {
+    if (offset.dx < 0 || offset.dx > contentWidth) {
+      return null;
+    }
+    final contentBottom = topPadding + usedHeight;
+    if (offset.dy < topPadding || offset.dy > contentBottom) {
+      return null;
+    }
+    var y = topPadding;
+    for (var i = 0; i < slices.length; i++) {
+      final slice = slices[i];
+      if (offset.dy >= y && offset.dy < y + slice.height) {
+        var lineY = y;
+        for (
+          var lineIndex = slice.startLine;
+          lineIndex < slice.endLine;
+          lineIndex++
+        ) {
+          final line = slice.block.layout.lines[lineIndex];
+          if (offset.dy < lineY + line.height) {
+            return PageHit(
+              sliceIndex: i,
+              slice: slice,
+              lineIndex: lineIndex,
+              line: line,
+            );
+          }
+          lineY += line.height;
+        }
+        return null;
+      }
+      y += slice.height;
+    }
+    return null;
+  }
 }
 
 /// 一章的分页结果。
