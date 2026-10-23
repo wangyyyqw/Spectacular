@@ -59,12 +59,7 @@ class BoundDocument {
     if (offset < 0 || offset > node.text.length) {
       return null;
     }
-    final builder = CfiBuilder().itemRef((spineIndex + 1) * 2).body(4);
-    for (final step in node.elementSteps) {
-      builder.step(step.index, assertion: step.assertion);
-    }
-    builder.step(node.textStep.index);
-    return builder.charOffset(offset).build();
+    return node.baseCfi.withCharOffset(offset);
   }
 }
 
