@@ -316,9 +316,21 @@ abstract final class CssParser {
         warnings.add('跳过非法属性名：$property');
         continue;
       }
-      var value = node.expression?.span?.text.trim() ?? '';
+      final spanText = node.span.text.trim();
+      final colon = spanText.indexOf(':');
+      var value = colon >= 0
+          ? spanText.substring(colon + 1).trim()
+          : node.expression?.span?.text.trim() ?? '';
       while (value.endsWith(';')) {
         value = value.substring(0, value.length - 1).trim();
+      }
+      if (node.important) {
+        value = value
+            .replaceFirst(
+              RegExp(r'\s*!\s*important\s*$', caseSensitive: false),
+              '',
+            )
+            .trim();
       }
       if (value.isEmpty) {
         warnings.add('跳过空值声明：$property');
