@@ -1,7 +1,8 @@
-import 'dart:typed_data';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -9,6 +10,7 @@ import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 const _font = 'Ahem';
+const _cjkFont = 'P203Justify';
 const _size = Size(200, 100);
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
@@ -57,7 +59,7 @@ Future<ByteData> _renderReference(PageContent page) => _render((canvas) {
         text: TextSpan(text: text, style: textStyle),
         textDirection: TextDirection.ltr,
       )..layout();
-      painter.paint(canvas, Offset(line.indent, y));
+      painter.paint(canvas, Offset(line.offsetX, y));
       y += line.height;
     }
     if (slice.endLine == slice.block.layout.lineCount) {
@@ -76,8 +78,101 @@ int _diff(ByteData a, ByteData b) {
   return count;
 }
 
+/// 找到第一条有墨迹的像素行；没有时返回 -1。
+int _firstInkRow(ByteData bytes) {
+  final width = _size.width.round();
+  for (var y = 0; y < _size.height; y++) {
+    for (var x = 0; x < width; x++) {
+      if (bytes.getUint32((y * width + x) * 4) != 0xFFFFFFFF) {
+        return y;
+      }
+    }
+  }
+  return -1;
+}
+
+/// 指定行第一个墨迹像素列；没有时返回 -1。
+int _firstInkColumn(ByteData bytes, int row) {
+  final width = _size.width.round();
+  for (var x = 0; x < width; x++) {
+    if (bytes.getUint32((row * width + x) * 4) != 0xFFFFFFFF) {
+      return x;
+    }
+  }
+  return -1;
+}
+
+/// 指定行最后一个墨迹像素列；没有时返回 -1。
+int _lastInkColumn(ByteData bytes, int row) {
+  final width = _size.width.round();
+  for (var x = width - 1; x >= 0; x--) {
+    if (bytes.getUint32((row * width + x) * 4) != 0xFFFFFFFF) {
+      return x;
+    }
+  }
+  return -1;
+}
+
+/// 用给定对齐方式排一行 3 字（Ahem 16px，行宽 48）并返回绘制结果。
+Future<ByteData> _renderAligned(String align) {
+  final style = ComputedStyle(<String, String>{
+    'font-size': '16px',
+    'line-height': '1.5',
+    'font-family': _font,
+    'text-align': align,
+  });
+  final layout = TextLayoutEngine.layout(
+    text: 'abc',
+    style: style,
+    maxWidth: 180,
+  );
+  final page = Paginator(pageHeight: 100)
+      .measureChapter(
+        blocks: [PageBlock(layout: layout, style: style)],
+      )
+      .pages
+      .single;
+  return _renderPage(page);
+}
+
+ComputedStyle _cjkStyle(String align) => ComputedStyle(<String, String>{
+  'font-size': '16px',
+  'line-height': '1.5',
+  'font-family': _cjkFont,
+  'text-align': align,
+});
+
+/// 9 个全角字、可用宽 100：首行 6 字（96），余量 4。
+TextLayoutResult _cjkLayout(String align) => TextLayoutEngine.layout(
+  text: '一二三四五六七八九',
+  style: _cjkStyle(align),
+  maxWidth: 100,
+);
+
+Future<ByteData> _renderCjkPage(String align) {
+  final style = _cjkStyle(align);
+  final page = Paginator(pageHeight: 100)
+      .measureChapter(
+        blocks: [PageBlock(layout: _cjkLayout(align), style: style)],
+      )
+      .pages
+      .single;
+  return _renderPage(page);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    final file = File('../../test_fonts/SourceHanSerifSC-Regular.otf');
+    if (!file.existsSync()) {
+      return;
+    }
+    final bytes = ByteData.view(file.readAsBytesSync().buffer);
+    final loader = FontLoader(_cjkFont)
+      ..addFont(Future<ByteData>.value(bytes));
+    await loader.load();
+  });
 
   test('按页绘制与 TextPainter 直接绘制逐像素一致', () async {
     final page = Paginator(pageHeight: 48)
@@ -193,5 +288,40 @@ void main() {
     }
     expect(firstNonWhiteRow, greaterThanOrEqualTo(0));
     expect(firstNonWhiteRow, lessThan(24));
+  });
+
+  test('center 对齐绘制在内容区水平居中', () async {
+    final bytes = await _renderAligned('center');
+    final row = _firstInkRow(bytes);
+    expect(row, greaterThanOrEqualTo(0));
+    expect(_firstInkColumn(bytes, row), closeTo((180 - 48) / 2, 2));
+  });
+
+  test('right 对齐绘制贴内容区右边', () async {
+    final bytes = await _renderAligned('right');
+    final row = _firstInkRow(bytes);
+    expect(_firstInkColumn(bytes, row), closeTo(180 - 48, 2));
+  });
+
+  test('justify 非末行拉伸到右缘、末行保持自然宽', () async {
+    final layout = _cjkLayout('justify');
+    expect(layout.lineCount, 2);
+    expect(layout.lines.first.width, closeTo(96, 0.01));
+    expect(layout.lines.first.justifyExtra, closeTo(4, 0.01));
+    expect(layout.lines.last.justifyExtra, 0);
+
+    final left = await _renderCjkPage('left');
+    final justified = await _renderCjkPage('justify');
+    final firstRow = _firstInkRow(justified);
+    expect(firstRow, greaterThanOrEqualTo(0));
+    // 拉伸后的行右缘比左对齐宽出余量 4px（字框取整允许 ±1px）。
+    final grown =
+        _lastInkColumn(justified, firstRow) - _lastInkColumn(left, firstRow);
+    expect(grown, closeTo(4, 1));
+    // 末行不拉伸，与左对齐完全一致。
+    expect(
+      _lastInkColumn(justified, firstRow + 24),
+      _lastInkColumn(left, firstRow + 24),
+    );
   });
 }

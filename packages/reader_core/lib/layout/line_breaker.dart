@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show TextLayout;
+import '../text/justify.dart';
 
 /// 一行文本的布局结果。
 class LineBox {
@@ -18,6 +19,8 @@ class LineBox {
     this.indent = 0,
     this.isLastLine = false,
     this.isHardBreak = false,
+    this.offsetX = 0,
+    this.justifyExtra = 0,
   });
 
   /// 行起始字符下标（半开区间，P1-23 精化）。
@@ -47,6 +50,12 @@ class LineBox {
   /// 是否以硬换行结束。
   final bool isHardBreak;
 
+  /// 行在内容区内的水平偏移，由 text-align 计算（§61.5）。
+  final double offsetX;
+
+  /// justify 需要分摊到行内的额外宽度；末行与硬换行行为 0。
+  final double justifyExtra;
+
   /// 行底。
   double get bottom => top + height;
 
@@ -58,6 +67,8 @@ class LineBox {
     double? indent,
     bool? isLastLine,
     bool? isHardBreak,
+    double? offsetX,
+    double? justifyExtra,
   }) => LineBox(
     start: start ?? this.start,
     end: end ?? this.end,
@@ -68,12 +79,15 @@ class LineBox {
     indent: indent ?? this.indent,
     isLastLine: isLastLine ?? this.isLastLine,
     isHardBreak: isHardBreak ?? this.isHardBreak,
+    offsetX: offsetX ?? this.offsetX,
+    justifyExtra: justifyExtra ?? this.justifyExtra,
   );
 
   @override
   String toString() =>
       'LineBox($start..$end, top=$top, h=$height, baseline=$baseline, w=$width, '
-      'indent=$indent, last=$isLastLine, hard=$isHardBreak)';
+      'indent=$indent, last=$isLastLine, hard=$isHardBreak, x=$offsetX, '
+      'justify=$justifyExtra)';
 }
 
 /// TextLayout 的测量结果。
@@ -245,18 +259,34 @@ abstract final class TextLayoutEngine {
     final indent = width.isFinite
         ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
         : 0.0;
-    if (text.isEmpty || indent <= 0) {
-      final lines = _measureSegment(
-        text: text,
-        width: width,
-        style: style,
-        textScaleFactor: textScaleFactor,
-        leadingDistribution: leadingDistribution,
-      );
-      return _result(text, lines, width);
-    }
+    final measured = text.isEmpty || indent <= 0
+        ? _measureSegment(
+            text: text,
+            width: width,
+            style: style,
+            textScaleFactor: textScaleFactor,
+            leadingDistribution: leadingDistribution,
+          )
+        : _measureWithIndent(
+            text: text,
+            width: width,
+            indent: indent,
+            style: style,
+            textScaleFactor: textScaleFactor,
+            leadingDistribution: leadingDistribution,
+          );
+    return _result(text, _align(text, measured, style.textAlign, width), width);
+  }
 
-    // 首行可用宽减少 text-indent；尾段用完整宽度重新断行，符合 §61.2。
+  /// 首行减宽断行，尾段用完整宽度重排后合并（§61.2）。
+  static List<LineBox> _measureWithIndent({
+    required String text,
+    required double width,
+    required double indent,
+    required ComputedStyle style,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+  }) {
     final firstWidth = math.max(1.0, width - indent);
     final head = _measureSegment(
       text: text,
@@ -266,7 +296,7 @@ abstract final class TextLayoutEngine {
       leadingDistribution: leadingDistribution,
     );
     if (head.isEmpty) {
-      return _result(text, const <LineBox>[], width);
+      return const <LineBox>[];
     }
     final first = head.first.copyWith(indent: indent);
     var remainderStart = first.end;
@@ -294,7 +324,50 @@ abstract final class TextLayoutEngine {
       );
     }
     lines[0] = lines[0].copyWith(isLastLine: rest.isEmpty);
-    return _result(text, lines, width);
+    return lines;
+  }
+
+  /// 按 text-align 计算每行水平偏移与 justify 分摊宽度（§61.5）。
+  ///
+  /// 行宽已含 text-indent 造成的减宽，比较基准是 `width - indent`；
+  /// justify 的末行与硬换行行按 start 对齐，不拉伸。
+  static List<LineBox> _align(
+    String text,
+    List<LineBox> lines,
+    CssTextAlign align,
+    double width,
+  ) {
+    final aligned = <LineBox>[];
+    for (final line in lines) {
+      final slack = width.isFinite
+          ? math.max(0.0, width - line.indent - line.width)
+          : 0.0;
+      aligned.add(switch (align) {
+        CssTextAlign.start || CssTextAlign.left => line.copyWith(
+          offsetX: line.indent,
+        ),
+        CssTextAlign.end || CssTextAlign.right => line.copyWith(
+          offsetX: line.indent + slack,
+        ),
+        CssTextAlign.center => line.copyWith(
+          offsetX: line.indent + slack / 2,
+        ),
+        CssTextAlign.justify => line.copyWith(
+          offsetX: line.indent,
+          justifyExtra: _justifyExtra(text, line, slack),
+        ),
+      });
+    }
+    return aligned;
+  }
+
+  /// 该行可用于 justify 的余量；没有可拉伸间隙时返回 0。
+  static double _justifyExtra(String text, LineBox line, double slack) {
+    if (slack <= 0 || line.isLastLine || line.isHardBreak) {
+      return 0;
+    }
+    final lineText = text.substring(line.start, line.end);
+    return justifyGapOffsets(lineText).isEmpty ? 0 : slack;
   }
 
   static List<LineBox> _measureSegment({
@@ -310,7 +383,6 @@ abstract final class TextLayoutEngine {
         style: textStyleFor(style, leadingDistribution: leadingDistribution),
       ),
       textDirection: TextDirection.ltr,
-      textAlign: _textAlign(style.textAlign),
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout(maxWidth: width);
 
@@ -386,11 +458,4 @@ abstract final class TextLayoutEngine {
     final index = ((weight / 100).round() - 1).clamp(0, 8);
     return FontWeight.values[index];
   }
-
-  static TextAlign _textAlign(CssTextAlign align) => switch (align) {
-    CssTextAlign.left || CssTextAlign.start => TextAlign.left,
-    CssTextAlign.right || CssTextAlign.end => TextAlign.right,
-    CssTextAlign.center => TextAlign.center,
-    CssTextAlign.justify => TextAlign.justify,
-  };
 }
