@@ -3,6 +3,8 @@
 /// 这里的类型只描述契约，不包含解析或布局实现；字段以《技术方案》§81 为依据。
 library;
 
+import '../../position/cfi.dart';
+
 /// 书籍元信息，来自 OPF 的 metadata 段。
 class BookMeta {
   /// 创建元信息。
@@ -58,6 +60,7 @@ class TocEntry {
     this.fragment,
     this.children = const <TocEntry>[],
     this.playOrder,
+    this.cfi,
   });
 
   /// 显示标题。
@@ -74,6 +77,9 @@ class TocEntry {
 
   /// NCX 的 playOrder；NAV 与兜底目录为 null。
   final int? playOrder;
+
+  /// 绑定后的 CFI；未绑定时为 null。
+  final EpubCfi? cfi;
 }
 
 /// 导入结果与可读性分级。
