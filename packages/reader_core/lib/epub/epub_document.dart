@@ -11,6 +11,7 @@ import 'epub_exception.dart';
 import 'footnote.dart';
 import '../parser/cfi_binder.dart';
 import '../parser/cfi_resolver.dart';
+import '../parser/block_builder.dart';
 import '../parser/document_parser.dart';
 import 'opf.dart';
 import 'toc.dart';
@@ -165,6 +166,10 @@ class EpubDocumentImpl implements EpubDocument {
 
   /// 目录来源：nav / ncx / spine。
   final String tocSource;
+
+  /// 把指定 spine 按 display 构建为块树。
+  BlockDocument parseBlocks(int spineIndex) =>
+      BlockBuilder.build(parseDocument(spineIndex));
 
   /// 把指定 spine 解析为节点树。
   ParsedDocument parseDocument(int spineIndex) {
