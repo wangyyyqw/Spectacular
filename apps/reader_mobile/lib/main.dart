@@ -169,11 +169,27 @@ class _ReaderAppState extends State<ReaderApp> {
           ],
         ),
         body: SafeArea(
-          child: ReaderPage(
-            source: DemoChapterSource(),
-            store: _store,
-            bookId: 'demo-30',
-            onSessionReady: _onSessionReady,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // ReaderPage 默认留白 20/16；把实际内容区传给示例源，
+              // 避免固定 480 高度在手机上留下半屏空白。
+              final width = (constraints.maxWidth - 40)
+                  .clamp(120, 2000)
+                  .toDouble();
+              final height = (constraints.maxHeight - 32)
+                  .clamp(120, 3000)
+                  .toDouble();
+              return ReaderPage(
+                key: ValueKey<String>('${width.toInt()}x${height.toInt()}'),
+                source: DemoChapterSource(
+                  contentWidth: width,
+                  contentHeight: height,
+                ),
+                store: _store,
+                bookId: 'demo-30',
+                onSessionReady: _onSessionReady,
+              );
+            },
           ),
         ),
       ),
