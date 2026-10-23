@@ -119,10 +119,15 @@ class ParsedDocument implements SpineDocument {
           next = elements[index - 1];
         }
         final assertion = step.assertion;
-        if (assertion != null && assertion.isNotEmpty) {
-          final byId = elementsById[assertion];
-          if (byId != null) {
-            next = byId;
+        if (next == null ||
+            (assertion != null &&
+                assertion.isNotEmpty &&
+                next.id != assertion)) {
+          if (assertion != null && assertion.isNotEmpty) {
+            final byId = elementsById[assertion];
+            if (byId != null) {
+              next = byId;
+            }
           }
         }
         if (next == null) {
