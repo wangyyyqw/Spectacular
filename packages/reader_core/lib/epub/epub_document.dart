@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import '../position/cfi.dart';
 import '../src/api/models.dart';
 import '../src/api/interfaces.dart';
 import 'archive_reader.dart';
@@ -9,6 +10,7 @@ import 'container.dart';
 import 'epub_exception.dart';
 import 'footnote.dart';
 import '../parser/cfi_binder.dart';
+import '../parser/cfi_resolver.dart';
 import 'opf.dart';
 import 'toc.dart';
 import 'resource_index.dart';
@@ -175,6 +177,24 @@ class EpubDocumentImpl implements EpubDocument {
       throw EpubException('E_SPINE_MISSING', '章节文件不存在：');
     }
     return CfiBinder.bind(xhtml: xhtml, spineIndex: spineIndex);
+  }
+
+  /// 在当前章节中容错解析 CFI；失败返回 warning 而不抛异常。
+  CfiResolution resolveCfi(int spineIndex, EpubCfi target) {
+    final item = spine[spineIndex];
+    final baseDir = p.posix.dirname(opfPath);
+    final resolved =
+        resources.resolve(item.href, baseDir: baseDir) ??
+        p.posix.normalize(p.posix.join(baseDir, item.href));
+    final xhtml = archive.readString(resolved);
+    if (xhtml == null) {
+      return const CfiResolution(warnings: <String>['章节文件不存在']);
+    }
+    return CfiResolver.resolve(
+      xhtml: xhtml,
+      target: target,
+      expectedSpineIndex: spineIndex,
+    );
   }
 
   /// 解析指定 spine 的注释锚点（单章，不解析跨文档目标）。
