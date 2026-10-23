@@ -1,5 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/toc_cfi.dart';
 import 'package:reader_core/position/cfi.dart';
+
+import '../support/corpus.dart';
 
 const List<String> _samples = <String>[
   'epubcfi(/6/4[chap01ref]!/4[body01]/10[para05]/3:10)',
@@ -67,6 +71,70 @@ void main() {
             expect(cfis[i]!.compareTo(cfis[k]!), lessThanOrEqualTo(0));
           }
         }
+      }
+    }
+  });
+
+  test('真实书目录绑定的 CFI round-trip 与序列化稳定', () async {
+    final corpus = findCorpusRoot();
+    if (corpus == null) {
+      return;
+    }
+    final opened = await openEpub(
+      readSampleBytes(corpus, 'real/zhushen-yuxi.epub')!,
+    );
+    final document = opened.document!;
+    final bound = TocCfiBinder.bind(
+      archive: document.archive,
+      spine: document.spine,
+      opfPath: document.opfPath,
+      toc: document.toc,
+      maxEntries: 20,
+    );
+    final cfis = bound.toc
+        .map((entry) => entry.cfi)
+        .whereType<EpubCfi>()
+        .take(10)
+        .toList();
+    expect(cfis, hasLength(10));
+    for (final cfi in cfis) {
+      final text = cfi.serialize();
+      final reparsed = EpubCfi.parse(text);
+      expect(reparsed, isNotNull, reason: text);
+      expect(reparsed!.serialize(), text);
+      expect(reparsed.compareTo(cfi), 0);
+      for (var i = 0; i < 100; i++) {
+        expect(cfi.serialize(), text);
+      }
+    }
+  });
+
+  test('范围/转义/side 的 parse→serialize→parse 语义一致', () {
+    const values = <String>[
+      'epubcfi(/6/4!/4/2/1:3[;s=b])',
+      'epubcfi(/6/4!/4/2/1:3[;s=a])',
+      'epubcfi(/6/4[chap^/01]!/4/2)',
+      'epubcfi(/6/4!/4/2,/2/1:0,/3/1:5)',
+    ];
+    for (final value in values) {
+      final first = EpubCfi.parse(value)!;
+      final second = EpubCfi.parse(first.serialize())!;
+      expect(second.serialize(), first.serialize());
+      expect(second.compareTo(first), 0);
+      expect(second.spine, first.spine);
+      expect(second.itemref, first.itemref);
+      expect(second.body, first.body);
+      expect(second.side, first.side);
+      expect(
+        second.steps.map((step) => step.toCfi()).toList(),
+        first.steps.map((step) => step.toCfi()).toList(),
+      );
+      if (first.isRange) {
+        expect(second.rangeStart!.serialize(), first.rangeStart!.serialize());
+        expect(second.rangeEnd!.serialize(), first.rangeEnd!.serialize());
+      }
+      for (var i = 0; i < 100; i++) {
+        expect(first.serialize(), first.serialize());
       }
     }
   });
