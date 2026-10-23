@@ -41,3 +41,7 @@ Uint8List buildZip(Map<String, String> files) {
   });
   return ZipEncoder().encodeBytes(archive);
 }
+
+/// 非 ZIP 的垃圾字节，用于错误路径测试。
+Uint8List buildGarbage() =>
+    Uint8List.fromList(List<int>.generate(128, (i) => i));
