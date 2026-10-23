@@ -19,6 +19,12 @@ LayoutConstraints _constraints({
   double maxHeight = _height,
 }) => LayoutConstraints(maxWidth: maxWidth, maxHeight: maxHeight);
 
+/// 尺寸断言：Ahem 的字形宽度在不同平台有微小取整差异，用 0.01 容差。
+void _expectSize(Size actual, double width, double height) {
+  expect(actual.width, closeTo(width, 0.01));
+  expect(actual.height, closeTo(height, 0.01));
+}
+
 Iterable<BlockFlow> _walk(BlockFlow root) sync* {
   yield root;
   for (final child in root.children) {
@@ -33,7 +39,7 @@ void main() {
     final block = _text('aa');
     final size = block.measure(_constraints());
     // Ahem 16px：两字 32 宽，行高 16×1.5=24。
-    expect(size, const Size(32, 24));
+    _expectSize(size, 32, 24);
     expect(block.size, size);
     expect(block.layout?.lineCount, 1);
   });
@@ -41,7 +47,7 @@ void main() {
   test('文本块宽度受约束，换行后变高', () {
     final block = _text('abcdefghijklmnop');
     final size = block.measure(_constraints(maxWidth: 64));
-    expect(size.width, 64);
+    expect(size.width, closeTo(64, 0.01));
     expect(block.layout?.lineCount, 4);
     expect(size.height, closeTo(96, 0.01));
   });
@@ -49,12 +55,10 @@ void main() {
   test('两层容器高度相加、宽度取最大', () {
     final root = ColumnFlowBlock([_text('aa'), _text('bbbb')]);
     final size = root.measure(_constraints());
-    expect(size.width, 64);
+    expect(size.width, closeTo(64, 0.01));
     expect(size.height, closeTo(48, 0.01));
-    expect(root.children.map((child) => child.size), <Size>[
-      const Size(32, 24),
-      const Size(64, 24),
-    ]);
+    _expectSize(root.children[0].size, 32, 24);
+    _expectSize(root.children[1].size, 64, 24);
   });
 
   test('三层嵌套块尺寸正确', () {
@@ -62,8 +66,8 @@ void main() {
     final root = ColumnFlowBlock([mid, _text('cccc')]);
     final size = root.measure(_constraints());
 
-    expect(mid.size, const Size(32, 48));
-    expect(size.width, 64);
+    _expectSize(mid.size, 32, 48);
+    expect(size.width, closeTo(64, 0.01));
     expect(size.height, closeTo(72, 0.01));
   });
 
@@ -95,8 +99,8 @@ void main() {
     final wide = block.measure(_constraints(maxWidth: 320));
     final narrow = block.measure(_constraints(maxWidth: 64));
 
-    expect(wide, const Size(256, 24));
-    expect(narrow.width, 64);
+    _expectSize(wide, 256, 24);
+    expect(narrow.width, closeTo(64, 0.01));
     expect(narrow.height, closeTo(96, 0.01));
     expect(block.layoutCount, 2);
   });
