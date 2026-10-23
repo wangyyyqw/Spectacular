@@ -1,0 +1,141 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_ui/virtual_pager.dart';
+
+PageContent _page(int spine, int index) => PageContent(
+  spineIndex: spine,
+  pageIndex: index,
+  slices: const <PageBlockSlice>[],
+  usedHeight: 0,
+  pageHeight: 100,
+  topPadding: 0,
+);
+
+void main() {
+  late List<int> counts;
+  late List<int> loads;
+  late VirtualPager pager;
+
+  setUp(() {
+    counts = <int>[2, 3, 2];
+    loads = <int>[];
+    pager = VirtualPager(
+      spineCount: counts.length,
+      loader: (spine) async {
+        loads.add(spine);
+        return <PageContent>[
+          for (var i = 0; i < counts[spine]; i++) _page(spine, i),
+        ];
+      },
+    );
+  });
+
+  test('跨章连续翻页页码递增、无重复断号', () async {
+    await pager.initialize();
+    final visited = <(int, int)>[];
+    visited.add((pager.current!.spineIndex, pager.current!.pageIndex));
+    while (await pager.next()) {
+      final page = pager.current!;
+      visited.add((page.spineIndex, page.pageIndex));
+      expect(page.virtualIndex, visited.length - 1);
+    }
+    expect(visited, <(int, int)>[
+      (0, 0),
+      (0, 1),
+      (1, 0),
+      (1, 1),
+      (1, 2),
+      (2, 0),
+      (2, 1),
+    ]);
+    expect(pager.mappedPageCount, 7);
+    expect(pager.currentVirtualPage, 6);
+    expect(loads, <int>[0, 1, 2]);
+    expect(await pager.next(), isFalse);
+  });
+
+  test('向前翻页页码递减，回到首页停止', () async {
+    await pager.initialize();
+    while (await pager.next()) {}
+    final visited = <(int, int)>[];
+    while (true) {
+      final page = pager.current!;
+      visited.add((page.spineIndex, page.pageIndex));
+      if (!await pager.previous()) {
+        break;
+      }
+    }
+    expect(visited, <(int, int)>[
+      (2, 1),
+      (2, 0),
+      (1, 2),
+      (1, 1),
+      (1, 0),
+      (0, 1),
+      (0, 0),
+    ]);
+    expect(pager.currentVirtualPage, 0);
+    expect(await pager.previous(), isFalse);
+  });
+
+  test('前后各预取 1 页，章边界加载相邻章', () async {
+    await pager.initialize();
+    expect(pager.prefetchedPages.map((page) => page.pageIndex), contains(1));
+    await pager.next(); // 页 0.1，章末，预取下一章
+    expect(loads, contains(1));
+    final prefetched = pager.prefetchedPages;
+    expect(
+      prefetched.map((page) => (page.spineIndex, page.pageIndex)),
+      containsAll(<(int, int)>[(0, 0), (1, 0)]),
+    );
+  });
+
+  test('边界章不加载越界章节', () async {
+    await pager.initialize();
+    expect(loads.contains(-1), isFalse);
+    while (await pager.next()) {}
+    expect(loads.contains(3), isFalse);
+    expect(pager.current!.spineIndex, 2);
+    expect(pager.current!.pageIndex, 1);
+  });
+
+  test('指定起始章初始化并保持页码连续', () async {
+    await pager.initialize(startSpine: 1);
+    expect(loads, containsAll(<int>[0, 1]));
+    expect(pager.currentVirtualPage, 2);
+    expect((pager.current!.spineIndex, pager.current!.pageIndex), (1, 0));
+  });
+
+  test('goTo 跳转后前后翻页仍连续', () async {
+    await pager.initialize();
+    expect(await pager.goTo(2, 1), isTrue);
+    expect(pager.currentVirtualPage, 6);
+    expect(await pager.previous(), isTrue);
+    expect(pager.currentVirtualPage, 5);
+    expect((pager.current!.spineIndex, pager.current!.pageIndex), (2, 0));
+  });
+
+  test('空章不产生虚拟页且不崩溃', () async {
+    counts = <int>[1, 0, 1];
+    pager = VirtualPager(
+      spineCount: counts.length,
+      loader: (spine) async => <PageContent>[
+        for (var i = 0; i < counts[spine]; i++) _page(spine, i),
+      ],
+    );
+    await pager.initialize();
+    expect(pager.mappedPageCount, 1);
+    expect(await pager.next(), isTrue);
+    expect(pager.current!.spineIndex, 2);
+    expect(pager.current!.pageIndex, 0);
+    expect(pager.currentVirtualPage, 1);
+  });
+
+  test('越界 goTo 返回 false', () async {
+    await pager.initialize();
+    expect(await pager.goTo(-1, 0), isFalse);
+    expect(await pager.goTo(3, 0), isFalse);
+    expect(await pager.goTo(0, 99), isFalse);
+    expect(pager.currentVirtualPage, 0);
+  });
+}
