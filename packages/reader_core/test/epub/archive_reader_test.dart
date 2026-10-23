@@ -13,7 +13,12 @@ void main() {
   final skip = corpus == null ? '本地样本库缺失（test_corpus/ 不入库）' : null;
 
   test('合规样本通过 OCF 校验（含真实 EPUB2 诸神愚戏）', () {
-    for (final name in <String>['basic.epub', 'styles.epub', 'toc-ncx.epub', 'broken-resource.epub']) {
+    for (final name in <String>[
+      'basic.epub',
+      'styles.epub',
+      'toc-ncx.epub',
+      'broken-resource.epub',
+    ]) {
       final archive = EpubArchive.fromBytes(readSampleBytes(corpus, name)!);
       final report = archive.validateOcf();
       expect(report.errors, isEmpty, reason: '$name: ${report.errors}');
