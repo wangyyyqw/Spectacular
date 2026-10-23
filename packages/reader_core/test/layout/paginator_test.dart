@@ -143,6 +143,52 @@ void _crossPageTests() {
     expect(strict.pages[1].slices.single.startLine, 1);
   });
 
+  test('单行超过页高时不切行', () {
+    final tall = PageBlock(
+      layout: TextLayoutEngine.layout(
+        text: '大字',
+        style: ComputedStyle(const <String, String>{
+          'font-size': '200px',
+          'line-height': '1',
+          'font-family': 'Ahem',
+        }),
+        maxWidth: 600,
+      ),
+    );
+    final result = Paginator(pageHeight: 24).measureChapter(blocks: [tall]);
+    expect(result.pages, hasLength(1));
+    expect(result.pages.single.slices, hasLength(1));
+    expect(result.pages.single.slices.single.startLine, 0);
+    expect(result.pages.single.slices.single.endLine, 1);
+  });
+
+  test('页底刚好一行时放下，不提前切', () {
+    final result = Paginator(pageHeight: 48)
+        .measureChapter(blocks: [_block('a\nb')]);
+    expect(result.pages, hasLength(1));
+    expect(result.pages.single.slices.single.endLine, 2);
+    expect(result.pages.single.usedHeight, 48);
+  });
+
+  test('页底一行都放不下时整块下移', () {
+    final result = Paginator(pageHeight: 48)
+        .measureChapter(blocks: [_block('a\nb'), _block('c')]);
+    expect(result.pages, hasLength(2));
+    expect(result.pages[0].slices.single.endLine, 2);
+    expect(result.pages[1].slices.single.startLine, 0);
+    expect(result.pages[1].slices.single.endLine, 1);
+    expect(result.pages[0].usedHeight, 48);
+  });
+
+  test('尾段只有一个字符正常产出单字行', () {
+    final result = Paginator(pageHeight: 48)
+        .measureChapter(blocks: [_block('a\nb\nc')]);
+    expect(result.pages, hasLength(2));
+    expect(result.pages[1].slices.single.startLine, 2);
+    expect(result.pages[1].slices.single.endLine, 3);
+    expect(result.pages[1].slices.single.lines, hasLength(1));
+  });
+
   test('跨页后 pageBreakAfter 只结束末页', () {
     final result = Paginator(pageHeight: 48)
         .measureChapter(blocks: [_block('a\nb\nc', after: true)]);
