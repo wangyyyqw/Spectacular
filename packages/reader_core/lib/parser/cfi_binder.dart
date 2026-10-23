@@ -155,15 +155,15 @@ abstract final class CfiBinder {
 
   static String _sanitize(String text) =>
       text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {
-        const known = <String, String>{
-          'amp': '&',
-          'lt': '<',
-          'gt': '>',
-          'quot': '"',
-          'apos': "'",
-          'nbsp': ' ',
-        };
-        return known[match[1]] ?? match[0]!;
+        final name = match[1]!;
+        if (name == 'nbsp') {
+          return ' ';
+        }
+        const xmlKnown = <String>['amp', 'lt', 'gt', 'quot', 'apos'];
+        if (xmlKnown.contains(name)) {
+          return match[0]!;
+        }
+        return ' ';
       });
 
   static String _stripBom(String text) =>
