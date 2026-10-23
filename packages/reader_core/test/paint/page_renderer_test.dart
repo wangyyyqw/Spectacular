@@ -169,8 +169,7 @@ void main() {
       return;
     }
     final bytes = ByteData.view(file.readAsBytesSync().buffer);
-    final loader = FontLoader(_cjkFont)
-      ..addFont(Future<ByteData>.value(bytes));
+    final loader = FontLoader(_cjkFont)..addFont(Future<ByteData>.value(bytes));
     await loader.load();
   });
 

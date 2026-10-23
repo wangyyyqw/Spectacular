@@ -343,15 +343,11 @@ abstract final class TextLayoutEngine {
           ? math.max(0.0, width - line.indent - line.width)
           : 0.0;
       aligned.add(switch (align) {
-        CssTextAlign.start || CssTextAlign.left => line.copyWith(
-          offsetX: line.indent,
-        ),
-        CssTextAlign.end || CssTextAlign.right => line.copyWith(
-          offsetX: line.indent + slack,
-        ),
-        CssTextAlign.center => line.copyWith(
-          offsetX: line.indent + slack / 2,
-        ),
+        CssTextAlign.start ||
+        CssTextAlign.left => line.copyWith(offsetX: line.indent),
+        CssTextAlign.end ||
+        CssTextAlign.right => line.copyWith(offsetX: line.indent + slack),
+        CssTextAlign.center => line.copyWith(offsetX: line.indent + slack / 2),
         CssTextAlign.justify => line.copyWith(
           offsetX: line.indent,
           justifyExtra: _justifyExtra(text, line, slack),
