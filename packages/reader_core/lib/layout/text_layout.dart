@@ -84,6 +84,7 @@ abstract final class TextLayoutEngine {
     required ComputedStyle style,
     required double maxWidth,
     double textScaleFactor = 1,
+    TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
   }) {
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
     final painter = TextPainter(
@@ -92,7 +93,7 @@ abstract final class TextLayoutEngine {
         style: TextStyle(
           fontSize: style.fontSize,
           height: style.lineHeightFactor,
-          leadingDistribution: TextLeadingDistribution.even,
+          leadingDistribution: leadingDistribution,
           fontWeight: _fontWeight(style.fontWeight),
           fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
           fontFamily: style.fontFamily,
