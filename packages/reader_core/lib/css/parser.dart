@@ -87,8 +87,32 @@ class InlineStyles {
 abstract final class CssParser {
   static final RegExp _propertyPattern = RegExp(r'^-?[a-zA-Z][a-zA-Z0-9-]*$');
 
+  static final RegExp _syntaxErrorPattern = RegExp(r'^\d+:\d+:');
+
   /// 解析一段 CSS。
   static CssStylesheet parse(String css) {
+    final base = _parseSingle(css);
+    final hasSyntaxErrors = base.warnings.any(_syntaxErrorPattern.hasMatch);
+    if (!hasSyntaxErrors) {
+      return base;
+    }
+    final recovered = _parseRecovered(css);
+    if (recovered.rules.length <= base.rules.length &&
+        recovered.imports.length <= base.imports.length) {
+      return base;
+    }
+    return CssStylesheet(
+      rules: recovered.rules,
+      imports: recovered.imports,
+      warnings: List<String>.unmodifiable(<String>[
+        ...base.warnings,
+        ...recovered.warnings,
+        '检测到语法错误，已分块恢复：${base.rules.length} 条 → ${recovered.rules.length} 条规则',
+      ]),
+    );
+  }
+
+  static CssStylesheet _parseSingle(String css) {
     final errors = <csslib.Message>[];
     final StyleSheet sheet;
     try {
@@ -158,6 +182,93 @@ abstract final class CssParser {
       imports: List<CssImport>.unmodifiable(imports),
       warnings: List<String>.unmodifiable(warnings),
     );
+  }
+
+  /// 按顶层花括号分块，尽量保住语法错误之后的规则。
+  static CssStylesheet _parseRecovered(String css) {
+    final rules = <CssRule>[];
+    final imports = <CssImport>[];
+    final warnings = <String>[];
+    final chunks = _topLevelChunks(css);
+    for (var i = 0; i < chunks.length; i++) {
+      final chunk = chunks[i];
+      final result = _parseSingle(chunk);
+      rules.addAll(result.rules);
+      imports.addAll(result.imports);
+      for (final warning in result.warnings) {
+        warnings.add('分块 ${i + 1}: $warning');
+      }
+    }
+    return CssStylesheet(
+      rules: List<CssRule>.unmodifiable(rules),
+      imports: List<CssImport>.unmodifiable(imports),
+      warnings: List<String>.unmodifiable(warnings),
+    );
+  }
+
+  static List<String> _topLevelChunks(String css) {
+    final chunks = <String>[];
+    var start = 0;
+    var depth = 0;
+    var inString = false;
+    var quote = '';
+    var inComment = false;
+    for (var i = 0; i < css.length; i++) {
+      final char = css[i];
+      if (inComment) {
+        if (char == '*' && i + 1 < css.length && css[i + 1] == '/') {
+          inComment = false;
+          i += 1;
+        }
+        continue;
+      }
+      if (inString) {
+        if (char == '\\') {
+          i += 1;
+        } else if (char == quote) {
+          inString = false;
+        }
+        continue;
+      }
+      if (char == '/' && i + 1 < css.length && css[i + 1] == '*') {
+        inComment = true;
+        i += 1;
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        inString = true;
+        quote = char;
+        continue;
+      }
+      if (char == '{') {
+        depth += 1;
+      } else if (char == '}') {
+        if (depth == 0) {
+          final chunk = css.substring(start, i).trim();
+          if (chunk.isNotEmpty) {
+            chunks.add(chunk);
+          }
+          start = i + 1;
+        } else {
+          depth -= 1;
+          if (depth == 0) {
+            chunks.add(css.substring(start, i + 1).trim());
+            start = i + 1;
+          }
+        }
+      } else if (char == ';' && depth == 0) {
+        final chunk = css.substring(start, i + 1).trim();
+        if (chunk.isNotEmpty) {
+          chunks.add(chunk);
+        }
+        start = i + 1;
+      }
+    }
+    final tail = css.substring(start).trim();
+    if (tail.isNotEmpty) {
+      chunks.add(tail);
+    }
+    return chunks;
   }
 
   /// 解析 style 属性。

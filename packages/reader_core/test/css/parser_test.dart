@@ -90,6 +90,16 @@ void main() {
     expect(styles.links, <String>['css/main.css', 'css/extra.css']);
   });
 
+  test('语法错误后分块恢复后续规则', () {
+    const css =
+        'p { color: red; } } .good { color: blue; } .tail { margin: 0; }';
+    final result = CssParser.parse(css);
+    final selectors = result.rules.map((rule) => rule.selector).toList();
+    expect(selectors, contains('.good'));
+    expect(selectors, contains('.tail'));
+    expect(result.warnings, isNotEmpty);
+  });
+
   test('style 属性声明解析', () {
     final declarations = CssParser.parseStyleAttribute(
       'color: #333; margin: 1em !important',
