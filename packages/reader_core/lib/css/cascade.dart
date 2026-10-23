@@ -69,6 +69,8 @@ abstract final class Cascade {
     required List<CascadeRule> rules,
     List<CssDeclaration> inlineDeclarations = const <CssDeclaration>[],
     ComputedStyle? parent,
+    double rootFontSize = 16,
+    double containingWidth = 0,
   }) {
     final winners = <String, _Winner>{};
     final sorted =
@@ -155,6 +157,10 @@ abstract final class Cascade {
     return ComputedStyle(
       Map<String, String>.unmodifiable(values),
       hasExplicitTextColor: explicitTextColor,
+      parent: parent,
+      explicitProperties: winners.keys.toSet(),
+      rootFontSize: rootFontSize,
+      containingWidth: containingWidth,
     );
   }
 
