@@ -255,13 +255,15 @@ extension TocFallback on TocParser {
           opfPath: opfPath,
           item: navItem,
         );
-        if (result.entries.isNotEmpty) {
+        final sanitized = _sanitize(result, package);
+        if (sanitized.entries.isNotEmpty) {
           return TocResult(
-            entries: result.entries,
-            source: 'nav',
-            warnings: <String>[...warnings, ...result.warnings],
+            entries: sanitized.entries,
+            source: sanitized.source,
+            warnings: <String>[...warnings, ...sanitized.warnings],
           );
         }
+        warnings.addAll(sanitized.warnings);
         warnings.add('NAV 目录为空，尝试 NCX');
       } on EpubException catch (error) {
         warnings.add('NAV 解析失败（${error.code}），尝试 NCX');
@@ -276,13 +278,15 @@ extension TocFallback on TocParser {
           package: package,
           opfPath: opfPath,
         );
-        if (result.entries.isNotEmpty) {
+        final sanitized = _sanitize(result, package);
+        if (sanitized.entries.isNotEmpty) {
           return TocResult(
-            entries: result.entries,
-            source: 'ncx',
-            warnings: <String>[...warnings, ...result.warnings],
+            entries: sanitized.entries,
+            source: sanitized.source,
+            warnings: <String>[...warnings, ...sanitized.warnings],
           );
         }
+        warnings.addAll(sanitized.warnings);
         warnings.add('NCX 目录为空，使用 spine 兜底');
       } on EpubException catch (error) {
         warnings.add('NCX 解析失败（${error.code}），使用 spine 兜底');
@@ -290,9 +294,33 @@ extension TocFallback on TocParser {
     }
 
     warnings.add('未找到可用目录，使用 spine 兜底');
+    return _sanitize(
+      TocResult(
+        entries: fallbackToc(package.spine),
+        source: 'spine',
+        warnings: warnings,
+      ),
+      package,
+    );
+  }
+
+  static TocResult _sanitize(TocResult result, OpfPackage package) {
+    final stats = TocSanitizeStats();
+    final entries = TocSanitizer.sanitize(
+      result.entries,
+      spineCount: package.spine.length,
+      stats: stats,
+    );
+    final warnings = <String>[...result.warnings];
+    if (stats.duplicates > 0) {
+      warnings.add('目录去重：${stats.duplicates} 项重复目标');
+    }
+    if (stats.dropped > 0) {
+      warnings.add('目录移除：${stats.dropped} 项目标无效');
+    }
     return TocResult(
-      entries: fallbackToc(package.spine),
-      source: 'spine',
+      entries: entries,
+      source: result.source,
       warnings: warnings,
     );
   }
@@ -431,4 +459,116 @@ String _sanitizeEntities(String text) {
     final replacement = known[match[1]];
     return replacement ?? match[0]!;
   });
+}
+
+/// 目录清洗统计。
+class TocSanitizeStats {
+  /// 被移除的目标无效项。
+  int dropped = 0;
+
+  /// 被合并的重复目标项。
+  int duplicates = 0;
+}
+
+/// 目录清洗：去重、过滤无效 spine、归一化 fragment，保留层级。
+abstract final class TocSanitizer {
+  /// 清洗目录；重复目标合并到首次出现项的子项。
+  static List<TocEntry> sanitize(
+    List<TocEntry> entries, {
+    required int spineCount,
+    TocSanitizeStats? stats,
+  }) {
+    final counter = stats ?? TocSanitizeStats();
+    final seen = <String, _TocNode>{};
+
+    _TocNode? convert(TocEntry entry) {
+      final fragment = _normalizeFragment(entry.fragment);
+      final valid = entry.spineIndex >= 0 && entry.spineIndex < spineCount;
+      final key = valid ? '${entry.spineIndex}#${fragment ?? ''}' : null;
+
+      if (key != null && seen.containsKey(key)) {
+        counter.duplicates += 1;
+        final existing = seen[key]!;
+        for (final child in entry.children) {
+          final converted = convert(child);
+          if (converted != null) {
+            existing.children.add(converted);
+          }
+        }
+        return null;
+      }
+
+      if (!valid && entry.children.isEmpty) {
+        counter.dropped += 1;
+        return null;
+      }
+
+      final node = _TocNode(
+        title: entry.title,
+        spineIndex: entry.spineIndex,
+        fragment: fragment,
+        playOrder: entry.playOrder,
+      );
+      if (key != null) {
+        seen[key] = node;
+      }
+      for (final child in entry.children) {
+        final converted = convert(child);
+        if (converted != null) {
+          node.children.add(converted);
+        }
+      }
+      return node;
+    }
+
+    final roots = <_TocNode>[];
+    for (final entry in entries) {
+      final node = convert(entry);
+      if (node != null) {
+        roots.add(node);
+      }
+    }
+    return roots.map((node) => node.toEntry()).toList(growable: false);
+  }
+
+  static String? _normalizeFragment(String? fragment) {
+    if (fragment == null) {
+      return null;
+    }
+    var value = fragment.trim();
+    if (value.startsWith('#')) {
+      value = value.substring(1);
+    }
+    if (value.contains('%')) {
+      try {
+        value = Uri.decodeFull(value);
+      } on FormatException {
+        // 保留原值。
+      }
+    }
+    return value.isEmpty ? null : value;
+  }
+}
+
+class _TocNode {
+  _TocNode({
+    required this.title,
+    required this.spineIndex,
+    required this.fragment,
+    required this.playOrder,
+  });
+
+  final String title;
+  final int spineIndex;
+  final String? fragment;
+  final int? playOrder;
+  final List<_TocNode> children = <_TocNode>[];
+
+  TocEntry toEntry() => TocEntry(
+    title: title,
+    spineIndex: spineIndex,
+    fragment: fragment,
+    playOrder: playOrder,
+    children: children.map((child) => child.toEntry()).toList(growable: false),
+  );
 }
