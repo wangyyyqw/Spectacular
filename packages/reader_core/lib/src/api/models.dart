@@ -210,7 +210,10 @@ abstract interface class EpubNode {}
 abstract interface class Element implements EpubNode {}
 
 /// 文本块节点（行分割输入）。
-abstract interface class TextBlockNode implements EpubNode {}
+abstract interface class TextBlockNode implements EpubNode {
+  /// 聚合后的可测量文本。
+  String get text;
+}
 
 /// 计算后的样式。
 abstract interface class ComputedStyle {}
