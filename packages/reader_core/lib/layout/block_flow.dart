@@ -84,6 +84,14 @@ abstract class BlockFlow {
   /// 阶段一进入次数，用于验证“测量阶段无尺寸反复变更”。
   int get layoutCount => _layoutCount;
 
+  /// 是否脱离文档流（绝对/固定定位、浮动）。
+  ///
+  /// 脱离流的盒子照常测量，但不推进父容器的块流高度（§60.3）。
+  bool get isOutOfFlow => false;
+
+  /// 测量分支（由 [resolveFlowBranch] 判定）。
+  FlowBranch get branch => FlowBranch.block;
+
   Size _size = Size.zero;
   LayoutConstraints? _constraints;
   int _layoutCount = 0;
@@ -167,6 +175,9 @@ class ColumnFlowBlock extends BlockFlow {
       child.measure(
         LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: remaining),
       );
+      if (child.isOutOfFlow) {
+        continue;
+      }
       if (remaining.isFinite) {
         remaining = math.max(0.0, remaining - child.size.height);
       }
@@ -179,8 +190,223 @@ class ColumnFlowBlock extends BlockFlow {
     var height = 0.0;
     for (final child in _children) {
       width = math.max(width, child.size.width);
-      height += child.size.height;
+      if (!child.isOutOfFlow) {
+        height += child.size.height;
+      }
     }
     return constraints.constrain(Size(width, height));
   }
+}
+
+/// 测量分支，判定顺序见 [resolveFlowBranch]（§60.2）。
+enum FlowBranch {
+  /// 绝对/固定定位，先摘出文档流。
+  absolute,
+
+  /// 浮动。
+  float,
+
+  /// 表格。
+  table,
+
+  /// 行内（行内块与行内容器）。
+  inline,
+
+  /// 常规块级。
+  block,
+
+  /// `display: none`，不测量。
+  none,
+}
+
+/// 按 §60.2 的顺序判定测量分支：绝对/固定定位 → 浮动 → 表格 → 不显示 → 行内 → 块级。
+///
+/// 竖排（writing-mode）分支尚未接入，统一按水平排版处理（P5 竖排重做）。
+FlowBranch resolveFlowBranch(ComputedStyle style) {
+  final position = style.position;
+  if (position == CssPosition.absolute || position == CssPosition.fixed) {
+    return FlowBranch.absolute;
+  }
+  if (style.cssFloat != CssFloat.none) {
+    return FlowBranch.float;
+  }
+  final display = style.display;
+  if (display == CssDisplay.table ||
+      display == CssDisplay.tableRow ||
+      display == CssDisplay.tableCell) {
+    return FlowBranch.table;
+  }
+  if (display == CssDisplay.none) {
+    return FlowBranch.none;
+  }
+  if (display == CssDisplay.inline || display == CssDisplay.inlineBlock) {
+    return FlowBranch.inline;
+  }
+  return FlowBranch.block;
+}
+
+/// 按样式分派创建测量盒：文本内容给 [text]，容器内容给 [children]。
+BlockFlow createFlowBox({
+  required ComputedStyle style,
+  String? text,
+  List<StyledRun> runs = const <StyledRun>[],
+  List<BlockFlow> children = const <BlockFlow>[],
+}) {
+  final content = text != null
+      ? TextFlowBlock(text: text, style: style, runs: runs)
+      : ColumnFlowBlock(children);
+  return switch (resolveFlowBranch(style)) {
+    FlowBranch.absolute => AbsoluteFlowBlock(content),
+    FlowBranch.float => FloatFlowBlock(content),
+    FlowBranch.table => TableFlowBlock(content),
+    FlowBranch.inline => InlineFlowBlock(text != null ? [content] : children),
+    FlowBranch.none => HiddenFlowBlock(),
+    FlowBranch.block => content,
+  };
+}
+
+/// 绝对/固定定位盒：按容器约束独立测量，不占流高度（§60.2 第 1 条）。
+///
+/// 阅微这里按 `position: absolute` 的 computed width 新建容器约束；我们还未解析
+/// `width`，先用容器约束，等宽度解析接入后再换成自身宽度。
+class AbsoluteFlowBlock extends BlockFlow {
+  /// 包裹内容盒。
+  AbsoluteFlowBlock(this.content);
+
+  /// 被测内容。
+  final BlockFlow content;
+
+  @override
+  FlowBranch get branch => FlowBranch.absolute;
+
+  @override
+  bool get isOutOfFlow => true;
+
+  @override
+  List<BlockFlow> get children => <BlockFlow>[content];
+
+  @override
+  void onLayout(LayoutConstraints constraints) {
+    content.measure(
+      LayoutConstraints(
+        maxWidth: constraints.maxWidth,
+        maxHeight: constraints.maxHeight,
+      ),
+    );
+  }
+
+  @override
+  Size calculateSize(LayoutConstraints constraints) => content.size;
+}
+
+/// 浮动盒：按可用宽做 fit-content 收缩，不推进父容器块流（§60.2 第 2 条、§60.5）。
+class FloatFlowBlock extends BlockFlow {
+  /// 包裹内容盒。
+  FloatFlowBlock(this.content);
+
+  /// 被测内容。
+  final BlockFlow content;
+
+  @override
+  FlowBranch get branch => FlowBranch.float;
+
+  @override
+  bool get isOutOfFlow => true;
+
+  @override
+  List<BlockFlow> get children => <BlockFlow>[content];
+
+  @override
+  void onLayout(LayoutConstraints constraints) {
+    // 按可用宽测量即得 fit-content：内容窄时不换行、宽时在可用宽处折行。
+    content.measure(
+      LayoutConstraints(
+        maxWidth: constraints.maxWidth,
+        maxHeight: constraints.maxHeight,
+      ),
+    );
+  }
+
+  @override
+  Size calculateSize(LayoutConstraints constraints) => content.size;
+}
+
+/// 表格盒：宽度对齐内容区，本阶段按纵向测量（单元格布局见 P3-18）。
+class TableFlowBlock extends BlockFlow {
+  /// 包裹内容盒。
+  TableFlowBlock(this.content);
+
+  /// 被测内容。
+  final BlockFlow content;
+
+  @override
+  FlowBranch get branch => FlowBranch.table;
+
+  @override
+  List<BlockFlow> get children => <BlockFlow>[content];
+
+  @override
+  void onLayout(LayoutConstraints constraints) {
+    content.measure(
+      LayoutConstraints(
+        maxWidth: constraints.maxWidth,
+        maxHeight: constraints.maxHeight,
+      ),
+    );
+  }
+
+  @override
+  Size calculateSize(LayoutConstraints constraints) => content.size;
+}
+
+/// 行内（含行内块）容器：宽高取子节点最大值，不求和（§60.4）。
+///
+/// 真正的并排换行留到行内布局任务；这里按 §60.4 的尺寸口径合成。
+class InlineFlowBlock extends BlockFlow {
+  /// 创建行内容器。
+  InlineFlowBlock([List<BlockFlow> children = const <BlockFlow>[]])
+    : _children = List<BlockFlow>.unmodifiable(children);
+
+  final List<BlockFlow> _children;
+
+  @override
+  FlowBranch get branch => FlowBranch.inline;
+
+  @override
+  List<BlockFlow> get children => _children;
+
+  @override
+  void onLayout(LayoutConstraints constraints) {
+    for (final child in _children) {
+      child.measure(
+        LayoutConstraints(
+          maxWidth: constraints.maxWidth,
+          maxHeight: constraints.maxHeight,
+        ),
+      );
+    }
+  }
+
+  @override
+  Size calculateSize(LayoutConstraints constraints) {
+    var width = 0.0;
+    var height = 0.0;
+    for (final child in _children) {
+      width = math.max(width, child.size.width);
+      height = math.max(height, child.size.height);
+    }
+    return constraints.constrain(Size(width, height));
+  }
+}
+
+/// `display: none` 盒：不测量子节点，尺寸为零。
+class HiddenFlowBlock extends BlockFlow {
+  @override
+  FlowBranch get branch => FlowBranch.none;
+
+  @override
+  void onLayout(LayoutConstraints constraints) {}
+
+  @override
+  Size calculateSize(LayoutConstraints constraints) => Size.zero;
 }

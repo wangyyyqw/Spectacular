@@ -3,6 +3,25 @@ import 'dart:ui' show Color;
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
 enum CssTextAlign { start, end, left, right, center, justify }
 
+/// 定位方式（§60.2 第 1 条：absolute/fixed 先摘出流）。
+enum CssPosition { static, relative, absolute, fixed, sticky }
+
+/// 浮动方向（§60.2 第 2 条）。
+enum CssFloat { none, left, right }
+
+/// 显示类型，只保留测量分派需要的一档。
+enum CssDisplay {
+  block,
+  inline,
+  inlineBlock,
+  table,
+  tableRow,
+  tableCell,
+  flex,
+  listItem,
+  none,
+}
+
 /// 四边长度（逻辑像素）。
 class CssEdges {
   /// 创建四边。
@@ -166,6 +185,12 @@ class ComputedStyle {
       containingWidth: containingWidth,
     );
 
+    // position/float/display 不继承，按 CSS 初始值兜底（§60.2 分派用）。
+    final position =
+        _parsePosition(explicitValue('position')) ?? CssPosition.static;
+    final cssFloat = _parseFloat(explicitValue('float')) ?? CssFloat.none;
+    final display = _parseDisplay(explicitValue('display')) ?? CssDisplay.block;
+
     return ComputedStyle._(
       values: values,
       hasExplicitTextColor: hasExplicitTextColor,
@@ -180,6 +205,9 @@ class ComputedStyle {
       textIndent: textIndent,
       letterSpacing: letterSpacing,
       margin: margin,
+      position: position,
+      cssFloat: cssFloat,
+      display: display,
       explicitProperties: explicit,
     );
   }
@@ -198,6 +226,9 @@ class ComputedStyle {
     required this.textIndent,
     required this.letterSpacing,
     required this.margin,
+    required this.position,
+    required this.cssFloat,
+    required this.display,
     required this.explicitProperties,
   });
 
@@ -242,6 +273,15 @@ class ComputedStyle {
   /// 四边 margin（逻辑像素）。
   final CssEdges margin;
 
+  /// 定位方式（不继承，初始 `static`）。
+  final CssPosition position;
+
+  /// 浮动方向（不继承，初始 `none`）。
+  final CssFloat cssFloat;
+
+  /// 显示类型（不继承，初始 `block`）。
+  final CssDisplay display;
+
   /// 元素自身层叠出的属性集合。
   final Set<String> explicitProperties;
 
@@ -255,7 +295,8 @@ class ComputedStyle {
   String toString() =>
       'ComputedStyle(fontSize=$fontSize, lineHeight=$lineHeight, '
       'color=$color, weight=$fontWeight, italic=$italic, align=$textAlign, '
-      'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin)';
+      'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin, '
+      'position=$position, float=$cssFloat, display=$display)';
 
   static CssEdges _resolveMargin(
     Map<String, String> values,
@@ -410,6 +451,42 @@ class ComputedStyle {
         'right' => CssTextAlign.right,
         'center' => CssTextAlign.center,
         'justify' => CssTextAlign.justify,
+        _ => null,
+      };
+
+  static CssPosition? _parsePosition(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'static' => CssPosition.static,
+        'relative' => CssPosition.relative,
+        'absolute' => CssPosition.absolute,
+        'fixed' => CssPosition.fixed,
+        'sticky' => CssPosition.sticky,
+        _ => null,
+      };
+
+  static CssFloat? _parseFloat(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'none' => CssFloat.none,
+        'left' || 'inline-start' => CssFloat.left,
+        'right' || 'inline-end' => CssFloat.right,
+        _ => null,
+      };
+
+  static CssDisplay? _parseDisplay(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'block' || 'flow-root' || 'grid' => CssDisplay.block,
+        'inline' => CssDisplay.inline,
+        'inline-block' => CssDisplay.inlineBlock,
+        'table' ||
+        'inline-table' ||
+        'table-row-group' ||
+        'table-header-group' ||
+        'table-footer-group' => CssDisplay.table,
+        'table-row' => CssDisplay.tableRow,
+        'table-cell' => CssDisplay.tableCell,
+        'flex' || 'inline-flex' => CssDisplay.flex,
+        'list-item' => CssDisplay.listItem,
+        'none' => CssDisplay.none,
         _ => null,
       };
 

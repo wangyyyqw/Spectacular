@@ -180,4 +180,23 @@ void main() {
     expect(child.color, const Color(0xFF445566));
     expect(child.margin.top, 0);
   });
+
+  test('position/float/display 解析且不继承', () {
+    final parsed = style(
+      'p',
+      'p { position: absolute; float: left; display: table; }',
+    );
+    expect(parsed.position, CssPosition.absolute);
+    expect(parsed.cssFloat, CssFloat.left);
+    expect(parsed.display, CssDisplay.table);
+
+    final parent = style(
+      'parent',
+      'div { display: inline; position: fixed; float: right; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.position, CssPosition.static, reason: 'position 不继承');
+    expect(child.cssFloat, CssFloat.none, reason: 'float 不继承');
+    expect(child.display, CssDisplay.block, reason: 'display 不继承');
+  });
 }
