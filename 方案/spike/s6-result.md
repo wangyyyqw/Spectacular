@@ -41,5 +41,5 @@ SQL
 
 ## 4. 待办
 
-- Android 真机补测 FTS5 与 trigram（P0-10 的 Android 侧）。
+- Android 真机 FTS5 与 trigram 已于 2026-10-23 补测通过（P0-10 的 Android 侧完成）。
 - 搜索实现按 §66 建 2-gram 索引；若改用 FTS5，必须显式 `tokenize='trigram'` 并处理 <3 字查询。
