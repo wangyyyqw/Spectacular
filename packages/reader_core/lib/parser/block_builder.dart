@@ -112,6 +112,8 @@ class BlockDocument implements SpineDocument {
         for (final child in value.children) {
           walk(child);
         }
+      } else if (value is TextBlockNode) {
+        buffers.add(value.text);
       }
     }
 

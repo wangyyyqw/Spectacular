@@ -13,6 +13,7 @@ import '../parser/cfi_binder.dart';
 import '../parser/cfi_resolver.dart';
 import '../parser/block_builder.dart';
 import '../parser/document_parser.dart';
+import '../parser/text_aggregator.dart';
 import 'opf.dart';
 import 'toc.dart';
 import 'resource_index.dart';
@@ -166,6 +167,10 @@ class EpubDocumentImpl implements EpubDocument {
 
   /// 目录来源：nav / ncx / spine。
   final String tocSource;
+
+  /// 把指定 spine 聚合为可测量文本块树。
+  BlockDocument aggregateText(int spineIndex) =>
+      TextAggregator.aggregate(parseBlocks(spineIndex));
 
   /// 把指定 spine 按 display 构建为块树。
   BlockDocument parseBlocks(int spineIndex) =>
