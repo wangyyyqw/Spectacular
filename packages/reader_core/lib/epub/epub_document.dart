@@ -6,6 +6,7 @@ import 'archive_reader.dart';
 import 'container.dart';
 import 'epub_exception.dart';
 import 'opf.dart';
+import 'toc.dart';
 import 'resource_index.dart';
 
 /// 打开结果：成功时带文档，失败时只带报告。
@@ -71,13 +72,19 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
       manifest: package.manifest,
       opfPath: container.rootfilePath,
     );
-    final toc = _fallbackToc(package.spine);
+    final tocResult = TocFallback.build(
+      archive: archive,
+      package: package,
+      opfPath: container.rootfilePath,
+    );
+    warnings.addAll(tocResult.warnings);
     final document = EpubDocumentImpl(
       archive: archive,
       package: package,
       resources: resources,
       opfPath: container.rootfilePath,
-      toc: toc,
+      toc: tocResult.entries,
+      tocSource: tocResult.source,
       report: ImportReport(
         ok: true,
         warnings: List<String>.unmodifiable(warnings),
@@ -121,6 +128,7 @@ class EpubDocumentImpl implements EpubDocument {
     required this.resources,
     required this.opfPath,
     required List<TocEntry> toc,
+    required this.tocSource,
     required this.report,
   }) : toc = List<TocEntry>.unmodifiable(toc);
 
@@ -148,21 +156,11 @@ class EpubDocumentImpl implements EpubDocument {
   @override
   final List<TocEntry> toc;
 
+  /// 目录来源：nav / ncx / spine。
+  final String tocSource;
+
   @override
   Future<SpineDocument> readSpine(int spineIndex) {
     throw UnimplementedError('P1-14 起实现文档树解析');
   }
-}
-
-List<TocEntry> _fallbackToc(List<SpineItem> spine) {
-  final entries = <TocEntry>[];
-  for (final item in spine) {
-    if (!item.linear) {
-      continue;
-    }
-    final name = item.href.split('/').last;
-    final title = name.isEmpty ? '第 ${item.index + 1} 节' : name;
-    entries.add(TocEntry(title: title, spineIndex: item.index));
-  }
-  return entries;
 }
