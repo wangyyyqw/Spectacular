@@ -107,11 +107,13 @@ abstract final class TextLayoutEngine {
     final metrics = painter.computeLineMetrics();
     final lines = <LineBox>[];
     var top = 0.0;
-    var cursor = 0;
     for (final metric in metrics) {
-      final boundary = painter.getLineBoundary(
-        TextPosition(offset: math.min(cursor, text.length)),
+      // 用行框垂直中点取该行内的字符位置，再取边界；
+      // 直接拿“上一行 end”做位置在硬换行/空行处会落回上一行。
+      final position = painter.getPositionForOffset(
+        Offset(0, top + metric.height / 2),
       );
+      final boundary = painter.getLineBoundary(position);
       lines.add(
         LineBox(
           start: boundary.start,
@@ -123,7 +125,6 @@ abstract final class TextLayoutEngine {
         ),
       );
       top += metric.height;
-      cursor = math.max(cursor + 1, boundary.end);
     }
 
     return TextLayoutResult(
