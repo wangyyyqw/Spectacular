@@ -92,6 +92,12 @@ abstract class BlockFlow {
   /// 测量分支（由 [resolveFlowBranch] 判定）。
   FlowBranch get branch => FlowBranch.block;
 
+  /// 块的外边距（§60.3）。
+  ///
+  /// 默认零；文本块取样式里的 margin，容器给出与首末子块折叠后的值。
+  /// 脱离流的盒（绝对定位、浮动）不参与块流折叠。
+  CssEdges get margin => CssEdges.zero;
+
   Size _size = Size.zero;
   LayoutConstraints? _constraints;
   int _layoutCount = 0;
@@ -138,6 +144,9 @@ class TextFlowBlock extends BlockFlow {
   TextLayoutResult? get layout => _layout;
 
   @override
+  CssEdges get margin => style.margin;
+
+  @override
   void onLayout(LayoutConstraints constraints) {
     _layout = TextLayoutEngine.layout(
       text: text,
@@ -158,19 +167,40 @@ class TextFlowBlock extends BlockFlow {
 }
 
 /// 纵向流式容器：子块依次向下排，高度相加、宽度取最大（§60.1、§60.4）。
+///
+/// 相邻子块的上下 margin 按 CSS 2.2 折叠（§60.3）；首块的上 margin 与末块的
+/// 下 margin 会与容器自身 margin 折叠后逸出容器，不计入内容高度。
 class ColumnFlowBlock extends BlockFlow {
   /// 创建容器。
-  ColumnFlowBlock([List<BlockFlow> children = const <BlockFlow>[]])
-    : _children = List<BlockFlow>.unmodifiable(children);
+  ColumnFlowBlock([
+    List<BlockFlow> children = const <BlockFlow>[],
+    CssEdges margin = CssEdges.zero,
+  ]) : _children = List<BlockFlow>.unmodifiable(children),
+       _ownMargin = margin;
 
   final List<BlockFlow> _children;
+  final CssEdges _ownMargin;
+  final List<double> _childTops = <double>[];
+  var _collapsedMargin = CssEdges.zero;
+  var _contentHeight = 0.0;
 
   @override
   List<BlockFlow> get children => _children;
 
+  /// 各流内子块顶边相对容器内容区顶部的偏移（按出现顺序）。
+  List<double> get childTops => List<double>.unmodifiable(_childTops);
+
+  @override
+  CssEdges get margin => _collapsedMargin;
+
   @override
   void onLayout(LayoutConstraints constraints) {
+    _childTops.clear();
     var remaining = constraints.maxHeight;
+    var cursor = 0.0;
+    var previousBottom = 0.0;
+    BlockFlow? firstChild;
+    BlockFlow? lastChild;
     for (final child in _children) {
       child.measure(
         LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: remaining),
@@ -178,24 +208,50 @@ class ColumnFlowBlock extends BlockFlow {
       if (child.isOutOfFlow) {
         continue;
       }
+      final gap = firstChild == null
+          ? 0.0
+          : collapseMargins(previousBottom, child.margin.top);
+      _childTops.add(cursor + gap);
+      cursor += gap + child.size.height;
       if (remaining.isFinite) {
-        remaining = math.max(0.0, remaining - child.size.height);
+        remaining = math.max(0.0, remaining - gap - child.size.height);
       }
+      previousBottom = child.margin.bottom;
+      firstChild ??= child;
+      lastChild = child;
     }
+    _contentHeight = cursor;
+    _collapsedMargin = CssEdges(
+      top: firstChild == null
+          ? _ownMargin.top
+          : collapseMargins(_ownMargin.top, firstChild.margin.top),
+      right: _ownMargin.right,
+      bottom: lastChild == null
+          ? _ownMargin.bottom
+          : collapseMargins(_ownMargin.bottom, lastChild.margin.bottom),
+      left: _ownMargin.left,
+    );
   }
 
   @override
   Size calculateSize(LayoutConstraints constraints) {
     var width = 0.0;
-    var height = 0.0;
     for (final child in _children) {
       width = math.max(width, child.size.width);
-      if (!child.isOutOfFlow) {
-        height += child.size.height;
-      }
     }
-    return constraints.constrain(Size(width, height));
+    return constraints.constrain(Size(width, _contentHeight));
   }
+}
+
+/// CSS 2.2 相邻外边距折叠（§60.3）：正正取大、负负取小、正负相加。
+double collapseMargins(double first, double second) {
+  if (first >= 0 && second >= 0) {
+    return math.max(first, second);
+  }
+  if (first <= 0 && second <= 0) {
+    return math.min(first, second);
+  }
+  return first + second;
 }
 
 /// 测量分支，判定顺序见 [resolveFlowBranch]（§60.2）。
@@ -254,7 +310,7 @@ BlockFlow createFlowBox({
 }) {
   final content = text != null
       ? TextFlowBlock(text: text, style: style, runs: runs)
-      : ColumnFlowBlock(children);
+      : ColumnFlowBlock(children, style.margin);
   return switch (resolveFlowBranch(style)) {
     FlowBranch.absolute => AbsoluteFlowBlock(content),
     FlowBranch.float => FloatFlowBlock(content),
@@ -341,6 +397,9 @@ class TableFlowBlock extends BlockFlow {
 
   @override
   FlowBranch get branch => FlowBranch.table;
+
+  @override
+  CssEdges get margin => content.margin;
 
   @override
   List<BlockFlow> get children => <BlockFlow>[content];
