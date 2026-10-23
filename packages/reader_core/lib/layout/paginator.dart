@@ -1,3 +1,4 @@
+import '../css/computed_style.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'text_layout.dart';
 
@@ -10,6 +11,9 @@ class PageBlock {
     this.pageBreakAfter = false,
     this.startCfi,
     this.endCfi,
+    this.style,
+    this.spaceBefore = 0,
+    this.spaceAfter = 0,
   });
 
   /// 行布局结果。
@@ -26,6 +30,15 @@ class PageBlock {
 
   /// 块结束 CFI（可选）。
   final String? endCfi;
+
+  /// 块样式（绘制用；P1-28 起可选）。
+  final ComputedStyle? style;
+
+  /// 段前间距（逻辑像素，绘制用）。
+  final double spaceBefore;
+
+  /// 段后间距（逻辑像素，绘制用）。
+  final double spaceAfter;
 
   /// 块高度。
   double get height => layout.height;

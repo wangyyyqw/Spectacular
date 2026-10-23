@@ -90,15 +90,7 @@ abstract final class TextLayoutEngine {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
-        style: TextStyle(
-          fontSize: style.fontSize,
-          height: style.lineHeightFactor,
-          leadingDistribution: leadingDistribution,
-          fontWeight: _fontWeight(style.fontWeight),
-          fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
-          fontFamily: style.fontFamily,
-          color: style.color,
-        ),
+        style: textStyleFor(style, leadingDistribution: leadingDistribution),
       ),
       textDirection: TextDirection.ltr,
       textAlign: _textAlign(style.textAlign),
@@ -136,6 +128,20 @@ abstract final class TextLayoutEngine {
       maxWidth: width,
     );
   }
+
+  /// 从计算样式生成绘制/测量用 TextStyle。
+  static TextStyle textStyleFor(
+    ComputedStyle style, {
+    TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+  }) => TextStyle(
+    fontSize: style.fontSize,
+    height: style.lineHeightFactor,
+    leadingDistribution: leadingDistribution,
+    fontWeight: _fontWeight(style.fontWeight),
+    fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
+    fontFamily: style.fontFamily,
+    color: style.color,
+  );
 
   static FontWeight _fontWeight(int weight) {
     final index = ((weight / 100).round() - 1).clamp(0, 8);
