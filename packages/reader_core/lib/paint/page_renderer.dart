@@ -1,10 +1,9 @@
-import 'dart:math' as math;
-
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
+import '../text/justify.dart';
 
 /// 按页绘制文本与背景。
 class PagePainter {
@@ -16,19 +15,14 @@ class PagePainter {
 
   /// 绘制一页。
   ///
-  /// [contentWidth] 用于 text-align 的水平定位；不传时取页面宽。
-  void paint(
-    Canvas canvas,
-    PageContent page, {
-    required Size pageSize,
-    double? contentWidth,
-  }) {
+  /// 行的水平位置由布局阶段按 text-align 算好（[LineBox.offsetX]）；
+  /// justify 行把余量按间隙分摊到左侧字符的字距上（§8.4）。
+  void paint(Canvas canvas, PageContent page, {required Size pageSize}) {
     canvas.drawRect(
       Rect.fromLTWH(0, 0, pageSize.width, pageSize.height),
       Paint()..color = background,
     );
 
-    final width = contentWidth ?? pageSize.width;
     var y = page.topPadding;
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
@@ -48,18 +42,10 @@ class PagePainter {
         );
         if (lineText.isNotEmpty) {
           final painter = TextPainter(
-            text: TextSpan(text: lineText, style: textStyle),
+            text: _lineSpan(lineText, textStyle, line),
             textDirection: TextDirection.ltr,
-            textAlign: TextAlign.left,
           )..layout();
-          final indent = math.max(0.0, line.indent);
-          final available = math.max(0.0, width - indent);
-          final x = switch (style.textAlign) {
-            CssTextAlign.center => indent + (available - line.width) / 2,
-            CssTextAlign.right || CssTextAlign.end => width - line.width,
-            _ => indent,
-          };
-          painter.paint(canvas, Offset(x, y));
+          painter.paint(canvas, Offset(line.offsetX, y));
         }
         y += line.height;
       }
@@ -67,5 +53,32 @@ class PagePainter {
         y += slice.block.spaceAfter;
       }
     }
+  }
+
+  /// justify 行按间隙分摊余量：只给“间隙左侧字符”加字距，末字后不加。
+  InlineSpan _lineSpan(String text, TextStyle textStyle, LineBox line) {
+    final gaps = line.justifyExtra > 0
+        ? justifyGapOffsets(text)
+        : const <int>[];
+    if (gaps.isEmpty) {
+      return TextSpan(text: text, style: textStyle);
+    }
+    final spacing =
+        (textStyle.letterSpacing ?? 0) + line.justifyExtra / gaps.length;
+    final stretched = textStyle.copyWith(letterSpacing: spacing);
+    final gapStarts = gaps.toSet();
+    final children = <InlineSpan>[];
+    var offset = 0;
+    for (final rune in text.runes) {
+      final char = String.fromCharCode(rune);
+      children.add(
+        TextSpan(
+          text: char,
+          style: gapStarts.contains(offset) ? stretched : null,
+        ),
+      );
+      offset += char.length;
+    }
+    return TextSpan(style: textStyle, children: children);
   }
 }
