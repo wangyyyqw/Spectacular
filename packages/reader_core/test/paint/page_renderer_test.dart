@@ -113,6 +113,44 @@ int _lastInkColumn(ByteData bytes, int row) {
   return -1;
 }
 
+/// 最后一个有墨迹的像素行；没有时返回 -1。
+int _lastInkRow(ByteData bytes) {
+  final width = _size.width.round();
+  for (var y = _size.height.round() - 1; y >= 0; y--) {
+    for (var x = 0; x < width; x++) {
+      if (bytes.getUint32((y * width + x) * 4) != 0xFFFFFFFF) {
+        return y;
+      }
+    }
+  }
+  return -1;
+}
+
+/// 把一段文本排成一页并绘制。
+Future<ByteData> _renderText(
+  String text, {
+  List<StyledRun> runs = const <StyledRun>[],
+}) {
+  final style = ComputedStyle(const <String, String>{
+    'font-size': '16px',
+    'line-height': '1.5',
+    'font-family': _font,
+  });
+  final layout = TextLayoutEngine.layout(
+    text: text,
+    style: style,
+    maxWidth: 180,
+    runs: runs,
+  );
+  final page = Paginator(pageHeight: 100)
+      .measureChapter(
+        blocks: [PageBlock(layout: layout, style: style)],
+      )
+      .pages
+      .single;
+  return _renderPage(page);
+}
+
 /// 用给定对齐方式排一行 3 字（Ahem 16px，行宽 48）并返回绘制结果。
 Future<ByteData> _renderAligned(String align) {
   final style = ComputedStyle(<String, String>{
@@ -322,5 +360,24 @@ void main() {
       _lastInkColumn(justified, firstRow + 24),
       _lastInkColumn(left, firstRow + 24),
     );
+  });
+
+  test('行内大字号 run 绘制出更高的墨迹', () async {
+    final plain = await _renderText('ab');
+    final mixed = await _renderText(
+      'ab',
+      runs: [
+        StyledRun(
+          start: 1,
+          end: 2,
+          style: ComputedStyle(const <String, String>{
+            'font-size': '32px',
+            'line-height': '1.5',
+            'font-family': _font,
+          }),
+        ),
+      ],
+    );
+    expect(_lastInkRow(mixed), greaterThan(_lastInkRow(plain)));
   });
 }

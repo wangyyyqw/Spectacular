@@ -16,6 +16,7 @@ class PagePainter {
   /// 绘制一页。
   ///
   /// 行的水平位置由布局阶段按 text-align 算好（[LineBox.offsetX]）；
+  /// 行内样式取自 [TextLayoutResult.runs]（混排字号、行内元素）；
   /// justify 行把余量按间隙分摊到左侧字符的字距上（§8.4）。
   void paint(Canvas canvas, PageContent page, {required Size pageSize}) {
     canvas.drawRect(
@@ -42,7 +43,7 @@ class PagePainter {
         );
         if (lineText.isNotEmpty) {
           final painter = TextPainter(
-            text: _lineSpan(lineText, textStyle, line),
+            text: _lineSpan(slice.block.layout, line, textStyle),
             textDirection: TextDirection.ltr,
           )..layout();
           painter.paint(canvas, Offset(line.offsetX, y));
@@ -55,30 +56,64 @@ class PagePainter {
     }
   }
 
-  /// justify 行按间隙分摊余量：只给“间隙左侧字符”加字距，末字后不加。
-  InlineSpan _lineSpan(String text, TextStyle textStyle, LineBox line) {
+  /// 组装一行的 span：行内样式区间 + justify 间隙字距。
+  InlineSpan _lineSpan(
+    TextLayoutResult layout,
+    LineBox line,
+    TextStyle baseStyle,
+  ) {
+    final lineText = layout.text.substring(line.start, line.end);
+    final runs = layout.runs;
     final gaps = line.justifyExtra > 0
-        ? justifyGapOffsets(text)
+        ? justifyGapOffsets(lineText)
         : const <int>[];
-    if (gaps.isEmpty) {
-      return TextSpan(text: text, style: textStyle);
+    if (runs.isEmpty && gaps.isEmpty) {
+      return TextSpan(text: lineText, style: baseStyle);
     }
-    final spacing =
-        (textStyle.letterSpacing ?? 0) + line.justifyExtra / gaps.length;
-    final stretched = textStyle.copyWith(letterSpacing: spacing);
+    if (gaps.isEmpty) {
+      return TextSpan(
+        style: baseStyle,
+        children: buildStyledSpans(
+          text: layout.text,
+          start: line.start,
+          end: line.end,
+          runs: runs,
+          baseStyle: baseStyle,
+          styleOf: (runStyle) => TextLayoutEngine.textStyleFor(runStyle),
+        ),
+      );
+    }
+    // justify 行逐字符铺开，样式区间与间隙字距一起处理。
+    final spacing = line.justifyExtra / gaps.length;
     final gapStarts = gaps.toSet();
+    final resolved = <int, TextStyle>{};
+    TextStyle styleAt(int offset) {
+      for (var i = 0; i < runs.length; i++) {
+        final run = runs[i];
+        if (offset >= run.start && offset < run.end) {
+          return resolved[i] ??= TextLayoutEngine.textStyleFor(run.style);
+        }
+      }
+      return baseStyle;
+    }
+
     final children = <InlineSpan>[];
     var offset = 0;
-    for (final rune in text.runes) {
+    for (final rune in lineText.runes) {
       final char = String.fromCharCode(rune);
+      final style = styleAt(line.start + offset);
       children.add(
         TextSpan(
           text: char,
-          style: gapStarts.contains(offset) ? stretched : null,
+          style: gapStarts.contains(offset)
+              ? style.copyWith(
+                  letterSpacing: (style.letterSpacing ?? 0) + spacing,
+                )
+              : style,
         ),
       );
       offset += char.length;
     }
-    return TextSpan(style: textStyle, children: children);
+    return TextSpan(style: baseStyle, children: children);
   }
 }
