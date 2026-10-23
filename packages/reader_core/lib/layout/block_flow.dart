@@ -170,16 +170,27 @@ class TextFlowBlock extends BlockFlow {
 ///
 /// 相邻子块的上下 margin 按 CSS 2.2 折叠（§60.3）；首块的上 margin 与末块的
 /// 下 margin 会与容器自身 margin 折叠后逸出容器，不计入内容高度。
+/// 页根（body）容器用 [ColumnFlowBlock.body] 创建，会钳制首个块级子元素的负
+/// `margin-top`（§60.7），避免首页首行被顶出内容区。
 class ColumnFlowBlock extends BlockFlow {
   /// 创建容器。
   ColumnFlowBlock([
     List<BlockFlow> children = const <BlockFlow>[],
     CssEdges margin = CssEdges.zero,
+    bool clampFirstNegativeTopMargin = false,
   ]) : _children = List<BlockFlow>.unmodifiable(children),
-       _ownMargin = margin;
+       _ownMargin = margin,
+       _clampFirstNegativeTopMargin = clampFirstNegativeTopMargin;
+
+  /// 页根（body）容器：首个块级子元素的负 `margin-top` 钳到 0（§60.7）。
+  factory ColumnFlowBlock.body([
+    List<BlockFlow> children = const <BlockFlow>[],
+    CssEdges margin = CssEdges.zero,
+  ]) => ColumnFlowBlock(children, margin, true);
 
   final List<BlockFlow> _children;
   final CssEdges _ownMargin;
+  final bool _clampFirstNegativeTopMargin;
   final List<double> _childTops = <double>[];
   var _collapsedMargin = CssEdges.zero;
   var _contentHeight = 0.0;
@@ -224,13 +235,22 @@ class ColumnFlowBlock extends BlockFlow {
     _collapsedMargin = CssEdges(
       top: firstChild == null
           ? _ownMargin.top
-          : collapseMargins(_ownMargin.top, firstChild.margin.top),
+          : collapseMargins(_ownMargin.top, _firstChildTopMargin(firstChild)),
       right: _ownMargin.right,
       bottom: lastChild == null
           ? _ownMargin.bottom
           : collapseMargins(_ownMargin.bottom, lastChild.margin.bottom),
       left: _ownMargin.left,
     );
+  }
+
+  /// 逸出到容器外的首块上 margin；页根容器按 §60.7 钳制负值。
+  double _firstChildTopMargin(BlockFlow firstChild) {
+    final top = firstChild.margin.top;
+    if (!_clampFirstNegativeTopMargin) {
+      return top;
+    }
+    return clampFirstElementNegativeTopMargin(top, isBodyFirstElement: true);
   }
 
   @override
@@ -242,6 +262,15 @@ class ColumnFlowBlock extends BlockFlow {
     return constraints.constrain(Size(width, _contentHeight));
   }
 }
+
+/// 首元素负 margin 钳制（§60.7）。
+///
+/// `body` 的首个块级子元素若带负 `margin-top`，钳到 0：正文首行留在内容区内，
+/// 不会被顶出页顶。其它元素原样返回，负 margin 仍可把块上移。
+double clampFirstElementNegativeTopMargin(
+  double marginTop, {
+  required bool isBodyFirstElement,
+}) => isBodyFirstElement && marginTop < 0 ? 0 : marginTop;
 
 /// CSS 2.2 相邻外边距折叠（§60.3）：正正取大、负负取小、正负相加。
 double collapseMargins(double first, double second) {
