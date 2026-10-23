@@ -2,7 +2,7 @@
 
 本目录是 P0-06 的产物：一组体积很小、可重复生成、可自动校验的 EPUB 样本，用于导入、解析、排版与容错测试。
 
-**版权声明：所有样本的正文均为本项目自写原创文字，不含任何受版权保护的书籍段落，也不含从网络抓取的第三方内容。图片由生成脚本用标准库现场绘制。除 `broken-resource.epub` 标记为「自建测试样本」外，其余样本按 CC0-1.0 放弃著作权。**
+**版权声明：`test_corpus/` 根目录的 6 个自建样本正文均为本项目自写原创文字，按 CC0-1.0 放弃著作权（`broken-resource` 为「自建测试样本」）；`test_corpus/real/` 下的 5 个真实书籍样本由用户提供，版权归原作者/出版方所有，仅用于本项目本地测试，不得再分发。**
 
 ## 1. 目录结构
 
@@ -15,14 +15,20 @@ test_corpus/                 # 只放样本、清单与说明
 ├── table.epub
 ├── toc-ncx.epub
 ├── broken-resource.epub
-└── cjk-vertical.epub
+├── cjk-vertical.epub
+└── real/                    # 真实书籍样本（Git LFS）
+    ├── zhushen-yuxi.epub
+    ├── ludingji-1.epub
+    ├── mj-003.epub
+    ├── monk-and-robot.epub
+    └── shiji-yuewei.epub
 
 tests/corpus/                # 生成与校验脚本
-├── build_epubs.py           # 重新生成全部样本与 manifest
+├── build_epubs.py           # 重新生成 6 个自建样本与 manifest
 └── verify_epubs.sh          # 校验样本与 manifest
 ```
 
-`test_corpus/` 中不放脚本、构建中间产物或临时文件；解包与打包过程都在系统临时目录完成。
+`test_corpus/` 中不放脚本、构建中间产物或临时文件；解包与打包过程都在系统临时目录完成。`real/` 下的文件使用 Git LFS，克隆后需执行 `git lfs pull` 才能通过校验。
 
 ## 2. 分类与样本清单
 
@@ -39,17 +45,34 @@ tests/corpus/                # 生成与校验脚本
 
 `broken-resource.epub` 是**故意**不合规的样本：ZIP 本身完整，但 manifest 中的 `images/missing.png` 没有写进压缩包，`toc.ncx` 的第二个 `navPoint` 指向不存在的 `text/chapter3.xhtml`。它只用于容错测试，不要拿它当正常渲染基线。
 
+### 2.1 真实样本（按 CSS 风格挑选）
+
+用户要求补 5 个真实 EPUB，其中必须包含《诸神愚戏》。其余 4 个按 CSS 样式覆盖挑选，目标是用有限体积覆盖不同的真实排版路径：
+
+| id | 文件 | 书名 | 版本 | CSS 风格 |
+|---|---|---|---|---|
+| `zhushen-yuxi` | `real/zhushen-yuxi.epub` | 诸神愚戏（典藏版 1-2） | EPUB2 | 127 个 CSS 属性；竖排、111 处 `@font-face`、69 处浮动、47 处表格、flex、背景图、绝对定位、transform、filter |
+| `ludingji-1` | `real/ludingji-1.epub` | 鹿鼎記1 青木堂主 | EPUB2 | 繁体传统小说；ruby/transform；章节拆分 |
+| `mj-003` | `real/mj-003.epub` | 搂在怀里的校花，竟是黑帮老大？ | EPUB2 | 网络小说紧凑排版；96 处 `@font-face`、浮动、表格、背景图 |
+| `monk-and-robot` | `real/monk-and-robot.epub` | 僧与机器人的漫游 | EPUB3 | 现代简洁排版；flex、绝对定位、背景图，无内嵌字体 |
+| `shiji-yuewei` | `real/shiji-yuewei.epub` | 史记（阅微版） | EPUB2 | 古籍注释排版；内嵌字体、浮动、表格、背景图，接近参考实现风格 |
+
+选样依据：先统计每本 CSS 的规则数、声明数、唯一属性数与特性标签（竖排、`@font-face`、浮动、表格、ruby、flex、背景图、绝对定位等），再按“特性互补 + 体积可控”挑选。`zhushen-yuxi` 是压力最大的一本，其 `mimetype` 被压缩，属于真实世界的不规范样本，`manifest.json` 用 `ocf_compliant: false` 标注；校验脚本对该标记只记录、不判失败。
+
+> 版权与使用限制：这 5 本均为受版权保护的书籍，由用户从本机下载目录提供，仅用于本项目测试。不得公开分发、上传到公开仓库或用于其他用途；若仓库转为公开，必须先移除 `test_corpus/real/` 与对应 manifest 记录。
+
 ## 3. 来源与许可
 
 | 项目 | 说明 |
 |---|---|
-| 正文 | 本项目自写原创短篇与说明性文字，无第三方来源 |
-| 许可 | CC0-1.0（放弃著作权）；`broken-resource` 为「自建测试样本」 |
-| 图片 | 生成脚本用 PNG 规范现场绘制 8×8 纯色图，无外部素材 |
-| 字体 | 样本不内嵌字体，只引用通用 `serif` |
-| 外部依赖 | 无。生成只用 Python 标准库与系统 `zip` 命令 |
+| 自建样本正文 | 本项目自写原创短篇与说明性文字，无第三方来源 |
+| 自建样本许可 | CC0-1.0（放弃著作权）；`broken-resource` 为「自建测试样本」 |
+| 真实样本 | `real/` 下 5 本受版权保护的书籍，由用户提供、授权用于本项目测试；不得再分发 |
+| 图片 | 自建样本的 PNG 由脚本现场绘制；真实样本的图片/音频来自原书 |
+| 字体 | 自建样本不内嵌字体；真实样本含内嵌字体（尤其 `zhushen-yuxi`、`shiji-yuewei`） |
+| 外部依赖 | 生成只用 Python 标准库与系统 `zip`；真实样本通过 Git LFS 存储 |
 
-选择自写文本而不是直接下载公版书，是为了让每个样本的篇幅、章节数和待测特性都可控，同时避免把整本公版书带进仓库。若后续需要真实公版书做长文与性能基线，应单独记录 Project Gutenberg 的来源 URL、下载日期与许可，并在 manifest 中逐条登记，不要覆盖本目录的现有样本。
+自建文本的作用是让篇幅、章节数和待测特性可控；真实样本用于验证实际书籍的样式与结构。两者都必须在 manifest 中登记来源与许可。若后续需要更多公版书，应单独记录 Project Gutenberg 的来源 URL、下载日期与许可，不要覆盖现有样本。
 
 ## 4. OCF 打包约定
 
@@ -112,21 +135,33 @@ bash tests/corpus/verify_epubs.sh
 | `id` | string | 稳定标识，用于测试用例引用，不随文件名变化 |
 | `file` | string | 文件名，**相对 `test_corpus/` 目录** |
 | `title` | string | 书名，与 OPF 中的 `dc:title` 一致 |
-| `language` | string | 语言标签，均为 `zh-CN` |
+| `language` | string | 语言标签；自建样本为 `zh-CN`，真实样本沿用原书（如 `zh`、`zh-wr`） |
 | `source` | string | 内容来源说明 |
 | `license` | string | 许可；破损样本固定为「自建测试样本」 |
 | `features` | array | 覆盖特性标签，供按能力筛选样本 |
 | `sha256` | string | 整个 `.epub` 文件的 SHA-256（64 位小写十六进制） |
 | `size_bytes` | number | 文件字节数 |
+| `kind` | string | 可选；`real` 表示真实书籍样本，不受 200KB 限制 |
+| `storage` | string | 可选；`git-lfs` 表示文件由 Git LFS 存储 |
+| `ocf_compliant` | boolean | 可选；`false` 表示真实样本存在已知 OCF 不规范（如 mimetype 被压缩），校验时记录但不失败 |
+| `style_profile` | string | 可选；真实样本的 CSS 风格简述，供挑选样本时参考 |
 
 ## 8. 覆盖范围与后续
 
-当前 6 个样本满足 P0-06 的最低要求，覆盖导入主路径、常见样式、表格与图片、EPUB2 目录、破损资源以及中文竖排。它们**不是**《技术方案》§45.3 所列 15 组样本的全集，以下能力尚未入库，后续按需补充：
+当前共 11 个样本：6 个自建最小样本 + 5 个真实书籍样本。真实样本补上了自建样本缺的部分能力：
 
-- 内嵌字体与 normal/bold/700 字重；
-- 浮动绕排、图跨页、全屏图页；
-- 20 万字超长单章与 200 张图的性能样本；
+- 内嵌字体（`zhushen-yuxi` 111 处 `@font-face`、`mj-003` 96 处、`shiji-yuewei` 3 处）；
+- 浮动绕排、表格、背景图与绝对定位；
+- 竖排 CSS（`zhushen-yuxi`）；
+- 繁体中文与 ruby（`ludingji-1`）；
+- EPUB2 真实结构与大体量资源（最大 1677 个条目）。
+
+仍然缺少：
+
+- normal/bold/700 多字重同 family 的真实样本（S5 已有独立实验）；
+- 图跨页与全屏图页的固定样本；
+- 20 万字超长单章与 200 张图的性能基线样本；
 - 缺 OPF、非 ZIP、大小写路径错误等更极端的破损书；
 - 固定版式（应识别为非流式并提示）。
 
-新增样本时，请同步更新 `build_epubs.py`、`manifest.json` 与本文档，并保证 `verify_epubs.sh` 仍然通过。
+新增样本时，请同步更新 `manifest.json` 与本文档；真实样本需登记来源与版权限制、用 Git LFS 存储，并保证 `verify_epubs.sh` 仍然通过。

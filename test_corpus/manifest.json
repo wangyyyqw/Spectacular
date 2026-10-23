@@ -116,6 +116,121 @@
       ],
       "sha256": "5c457caefee417d4bcaba4ce5b49ce919997bd0e5289396c3244f3528b690b41",
       "size_bytes": 3143
+    },
+    {
+      "id": "zhushen-yuxi",
+      "file": "real/zhushen-yuxi.epub",
+      "title": "诸神愚戏（典藏版 1-2）",
+      "language": "zh-CN",
+      "source": "用户下载目录：XY-113诸神愚戏_典藏版_1_2.epub",
+      "license": "版权归原作者/出版方所有；由用户提供并授权用于本项目测试，不得再分发",
+      "features": [
+        "EPUB2",
+        "真实书籍",
+        "竖排 CSS",
+        "@font-face ×111",
+        "浮动 ×69",
+        "表格 ×47",
+        "flex",
+        "背景图",
+        "绝对定位",
+        "transform",
+        "filter",
+        "1677 条资源"
+      ],
+      "sha256": "e584167773b96e7fbe9c1b2b4506db40470d5ca6a17154761937fdbf6a5c8be3",
+      "size_bytes": 155677829,
+      "kind": "real",
+      "storage": "git-lfs",
+      "style_profile": "复杂现代排版：竖排、内嵌字体、浮动、表格、滤镜与变换并存，压力最大",
+      "ocf_compliant": false
+    },
+    {
+      "id": "ludingji-1",
+      "file": "real/ludingji-1.epub",
+      "title": "鹿鼎記1 青木堂主",
+      "language": "zh",
+      "source": "用户下载目录：金庸作品集_拆分/32_鹿鼎記1 青木堂主.epub",
+      "license": "版权归原作者/出版方所有；由用户提供并授权用于本项目测试，不得再分发",
+      "features": [
+        "EPUB2",
+        "真实书籍",
+        "繁体中文",
+        "ruby/transform",
+        "章节拆分",
+        "传统小说排版"
+      ],
+      "sha256": "546ace756252d93fcd87bf7308a688dd85c1537aa59459a2cced4a70293cf0a9",
+      "size_bytes": 17915693,
+      "kind": "real",
+      "storage": "git-lfs",
+      "style_profile": "繁体传统小说：ruby 注音与 transform 变换，检验中文竖排/注音相关样式"
+    },
+    {
+      "id": "mj-003",
+      "file": "real/mj-003.epub",
+      "title": "搂在怀里的校花，竟是黑帮老大？",
+      "language": "zh-CN",
+      "source": "用户下载目录：mj-003.搂在怀里的校花，竟是黑帮老大？1.0[明月几时有罐头][都市].epub",
+      "license": "版权归原作者/出版方所有；由用户提供并授权用于本项目测试，不得再分发",
+      "features": [
+        "EPUB2",
+        "真实书籍",
+        "@font-face ×96",
+        "浮动",
+        "表格",
+        "背景图",
+        "紧凑排版"
+      ],
+      "sha256": "2bca5cc66ea0a939826255359f8c3c9ee6c2098fec0536916a9340b13dc756e3",
+      "size_bytes": 6711358,
+      "kind": "real",
+      "storage": "git-lfs",
+      "style_profile": "网络小说风格：大量 @font-face、浮动与表格，CSS 体积小但覆盖密集"
+    },
+    {
+      "id": "monk-and-robot",
+      "file": "real/monk-and-robot.epub",
+      "title": "僧与机器人的漫游",
+      "language": "zh-wr",
+      "source": "用户下载目录：僧与机器人的漫游.epub",
+      "license": "版权归原作者/出版方所有；由用户提供并授权用于本项目测试，不得再分发",
+      "features": [
+        "EPUB3",
+        "真实书籍",
+        "flex",
+        "绝对定位",
+        "背景图",
+        "现代简洁排版"
+      ],
+      "sha256": "d0838e764552ffe591f33e9549bf94ca735f78d829e0bdc55b94581181e2427c",
+      "size_bytes": 1512883,
+      "kind": "real",
+      "storage": "git-lfs",
+      "style_profile": "现代简洁排版：flex、绝对定位与背景图，无内嵌字体，检验轻量样式路径"
+    },
+    {
+      "id": "shiji-yuewei",
+      "file": "real/shiji-yuewei.epub",
+      "title": "史记（阅微版）",
+      "language": "zh-CN",
+      "source": "用户下载目录：史记(阅微版) (司马迁)Chinese (z-library.sk, 1lib.sk, z-lib.sk).epub",
+      "license": "版权归原作者/出版方所有；由用户提供并授权用于本项目测试，不得再分发",
+      "features": [
+        "EPUB2",
+        "真实书籍",
+        "@font-face",
+        "浮动",
+        "表格",
+        "背景图",
+        "注释排版",
+        "阅微精排版"
+      ],
+      "sha256": "459e974c05cd46a55bda08c37efdf39894d38e3ce7706fd644ca9e3b0c5802db",
+      "size_bytes": 65448495,
+      "kind": "real",
+      "storage": "git-lfs",
+      "style_profile": "古籍注释排版：内嵌字体、浮动、表格与背景图，接近技术方案的参考实现风格"
     }
   ]
 }
