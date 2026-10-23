@@ -1,0 +1,236 @@
+import 'package:csslib/parser.dart' as csslib;
+import 'package:csslib/visitor.dart';
+import 'package:html/parser.dart' as html_parser;
+
+/// 一条 CSS 声明。
+class CssDeclaration {
+  /// 创建声明。
+  const CssDeclaration({
+    required this.property,
+    required this.value,
+    this.important = false,
+  });
+
+  /// 属性名（小写）。
+  final String property;
+
+  /// 原始值（已 trim）。
+  final String value;
+
+  /// 是否 `!important`。
+  final bool important;
+}
+
+/// 一条规则。
+class CssRule {
+  /// 创建规则。
+  const CssRule({
+    required this.selector,
+    required this.declarations,
+    this.media,
+  });
+
+  /// 选择器文本。
+  final String selector;
+
+  /// 声明列表。
+  final List<CssDeclaration> declarations;
+
+  /// `@media` 条件；顶层规则为 null。
+  final String? media;
+}
+
+/// `@import` 记录。
+class CssImport {
+  /// 创建导入。
+  const CssImport({required this.url, this.media});
+
+  /// 导入地址（原样，未解析相对路径）。
+  final String url;
+
+  /// 媒体条件。
+  final String? media;
+}
+
+/// 解析结果。
+class CssStylesheet {
+  /// 创建结果。
+  const CssStylesheet({
+    required this.rules,
+    required this.imports,
+    required this.warnings,
+  });
+
+  /// 规则。
+  final List<CssRule> rules;
+
+  /// 导入。
+  final List<CssImport> imports;
+
+  /// 解析告警（含 csslib 错误与被跳过的声明）。
+  final List<String> warnings;
+}
+
+/// XHTML 中提取出的样式来源。
+class InlineStyles {
+  /// 创建结果。
+  const InlineStyles({required this.css, required this.links});
+
+  /// 所有 `<style>` 的 CSS 文本（按文档顺序拼接）。
+  final String css;
+
+  /// `<link rel="stylesheet">` 的 href。
+  final List<String> links;
+}
+
+/// CSS 基础解析器。
+abstract final class CssParser {
+  static final RegExp _propertyPattern = RegExp(r'^-?[a-zA-Z][a-zA-Z0-9-]*$');
+
+  /// 解析一段 CSS。
+  static CssStylesheet parse(String css) {
+    final errors = <csslib.Message>[];
+    final StyleSheet sheet;
+    try {
+      sheet = csslib.parse(css, errors: errors);
+    } catch (error) {
+      return CssStylesheet(
+        rules: const <CssRule>[],
+        imports: const <CssImport>[],
+        warnings: <String>['CSS 解析异常：$error'],
+      );
+    }
+
+    final rules = <CssRule>[];
+    final imports = <CssImport>[];
+    final warnings = <String>[for (final message in errors) message.describe];
+
+    void collect(List<TreeNode> nodes, {String? media}) {
+      for (final node in nodes) {
+        if (node is RuleSet) {
+          final selector = node.selectorGroup?.span?.text.trim() ?? '';
+          if (selector.isEmpty) {
+            warnings.add('跳过无选择器的规则');
+            continue;
+          }
+          final declarations = _declarations(node.declarationGroup, warnings);
+          if (declarations.isEmpty) {
+            continue;
+          }
+          rules.add(
+            CssRule(
+              selector: selector,
+              declarations: declarations,
+              media: media,
+            ),
+          );
+        } else if (node is MediaDirective) {
+          final query = node.mediaQueries
+              .map((item) => item.span.text.trim())
+              .where((item) => item.isNotEmpty)
+              .join(', ');
+          collect(
+            node.rules,
+            media: media == null ? query : '$media and $query',
+          );
+        } else if (node is ImportDirective) {
+          final mediaText = node.mediaQueries
+              .map((item) => item.span.text.trim())
+              .where((item) => item.isNotEmpty)
+              .join(', ');
+          imports.add(
+            CssImport(
+              url: _unquote(node.import),
+              media: mediaText.isEmpty ? null : mediaText,
+            ),
+          );
+        } else if (node is CssComment || node is CommentDefinition) {
+          continue;
+        } else if (node is Directive) {
+          warnings.add('跳过暂不支持的指令：${node.runtimeType}');
+        }
+      }
+    }
+
+    collect(sheet.topLevels);
+    return CssStylesheet(
+      rules: List<CssRule>.unmodifiable(rules),
+      imports: List<CssImport>.unmodifiable(imports),
+      warnings: List<String>.unmodifiable(warnings),
+    );
+  }
+
+  /// 解析 style 属性。
+  static List<CssDeclaration> parseStyleAttribute(String style) {
+    final sheet = parse('x{$style}');
+    if (sheet.rules.isEmpty) {
+      return const <CssDeclaration>[];
+    }
+    return sheet.rules.first.declarations;
+  }
+
+  /// 从 XHTML 中提取 `<style>` 与 `<link rel=stylesheet>`。
+  static InlineStyles extractFromXhtml(String xhtml) {
+    final document = html_parser.parse(xhtml);
+    final css = StringBuffer();
+    final links = <String>[];
+    for (final element in document.querySelectorAll('style')) {
+      css.writeln(element.text);
+    }
+    for (final element in document.querySelectorAll('link')) {
+      final rel = element.attributes['rel']?.toLowerCase().trim() ?? '';
+      if (!rel.split(RegExp(r'\s+')).contains('stylesheet')) {
+        continue;
+      }
+      final href = element.attributes['href']?.trim() ?? '';
+      if (href.isNotEmpty) {
+        links.add(href);
+      }
+    }
+    return InlineStyles(css: css.toString(), links: links);
+  }
+
+  static List<CssDeclaration> _declarations(
+    DeclarationGroup group,
+    List<String> warnings,
+  ) {
+    final result = <CssDeclaration>[];
+    for (final node in group.declarations) {
+      if (node is! Declaration) {
+        warnings.add('跳过嵌套规则：${node.runtimeType}');
+        continue;
+      }
+      final property = node.property.trim();
+      if (!_propertyPattern.hasMatch(property)) {
+        warnings.add('跳过非法属性名：$property');
+        continue;
+      }
+      var value = node.expression?.span?.text.trim() ?? '';
+      while (value.endsWith(';')) {
+        value = value.substring(0, value.length - 1).trim();
+      }
+      if (value.isEmpty) {
+        warnings.add('跳过空值声明：$property');
+        continue;
+      }
+      result.add(
+        CssDeclaration(
+          property: property.toLowerCase(),
+          value: value,
+          important: node.important,
+        ),
+      );
+    }
+    return result;
+  }
+
+  static String _unquote(String value) {
+    var result = value.trim();
+    if (result.length >= 2 &&
+        ((result.startsWith('"') && result.endsWith('"')) ||
+            (result.startsWith("'") && result.endsWith("'")))) {
+      result = result.substring(1, result.length - 1);
+    }
+    return result;
+  }
+}
