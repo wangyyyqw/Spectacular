@@ -168,8 +168,12 @@ p { margin: 0; }
       });
       final textStyle = TextLayoutEngine.textStyleFor(style);
       expect(textStyle.fontFamily, FontFamilyAliases.song);
-      expect(textStyle.fontFamilyFallback,
-          [FontFamilyAliases.hei, 'SourceHan']);
+      // 声明链映射后追加默认 CJK 链（P3-04）。
+      expect(textStyle.fontFamilyFallback, [
+        FontFamilyAliases.hei,
+        'SourceHan',
+        'Noto Sans CJK SC',
+      ]);
     });
 
     test('书内注册引擎族（bi_ 前缀）不受别名影响', () {

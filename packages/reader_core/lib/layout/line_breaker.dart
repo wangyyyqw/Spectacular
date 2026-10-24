@@ -1049,9 +1049,9 @@ abstract final class TextLayoutEngine {
     fontFamily: style.fontFamily == null
         ? null
         : FontFamilyAliases.mapFamilies([style.fontFamily!]).single,
-    fontFamilyFallback: style.fontFamilyFallback.isEmpty
-        ? null
-        : FontFamilyAliases.mapFamilies(style.fontFamilyFallback),
+    // 回退链（P3-04，§68.4）：声明族之后追加默认 CJK 链，缺字由引擎
+    // 按序兜底（运行期不做逐字覆盖检测，§28.4）。
+    fontFamilyFallback: _fallbackChain(style),
     letterSpacing: style.letterSpacing,
     wordSpacing: style.wordSpacing,
     decoration: _decoration(style.textDecoration),
@@ -1075,6 +1075,21 @@ abstract final class TextLayoutEngine {
     CssTextDecoration.lineThrough => TextDecoration.lineThrough,
     CssTextDecoration.overline => TextDecoration.overline,
   };
+
+  /// 回退链（P3-04）：声明的 fallback 经别名映射后，追加默认 CJK 链
+  /// （去重，且不与主族重复）。声明链为空时返回默认链。
+  static List<String>? _fallbackChain(ComputedStyle style) {
+    final chain = FontFamilyAliases.mapFamilies(style.fontFamilyFallback);
+    final primary = style.fontFamily == null
+        ? null
+        : FontFamilyAliases.mapFamilies([style.fontFamily!]).single;
+    for (final family in FontFamilyAliases.defaultChain) {
+      if (family != primary && !chain.contains(family)) {
+        chain.add(family);
+      }
+    }
+    return chain.isEmpty ? null : chain;
+  }
 
   static FontWeight _fontWeight(int weight) {
     final index = ((weight / 100).round() - 1).clamp(0, 8);

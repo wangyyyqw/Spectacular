@@ -91,23 +91,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "f75d77e35af5fc2e29c6c4374c844d20fdd9ac88481f97ac7c51b4bda8830740",
+      "bookHash": "17963c157608d533a39a5e7b7509feaca4274aaff151ae82a5dc547f1b44fd40",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "dc3ae91f11cb791305b09ae7a32ae82d962b4ce4a84d3f0f2496956008ec6641",
-          "inkPixels": 55728,
-          "lineCount": 23,
-          "textLength": 130,
-          "summary": "表格与插图样例下面这张表使用 colsp…×8 像素的 PNG 测试图片放大显示。"
+          "layoutHash": "fe65d7ea7b1307f055b839ddd590c23f949411c072eeafbc8e12c820cd297ea6",
+          "inkPixels": 49215,
+          "lineCount": 20,
+          "textLength": 105,
+          "summary": "表格与插图样例下面这张表使用 colsp…笋溪桥村8晾晒三日野蜂蜜北坡岩下3陶罐装"
         },
         {
           "index": 1,
-          "layoutHash": "aaaf862318122740e84049536c2f13ddd4e42ee22429a50e5c3f1e3b35b2b1f3",
-          "inkPixels": 14019,
-          "lineCount": 3,
-          "textLength": 53,
-          "summary": "图片位于 images/teal.png…st 中的图片资源能否被正确解析与绘制。"
+          "layoutHash": "542276829f7e5ed33a3e1fef8ea664993114ae14cca480175af91310669df1c4",
+          "inkPixels": 21621,
+          "lineCount": 6,
+          "textLength": 78,
+          "summary": "￼图一：8×8 像素的 PNG 测试图片…st 中的图片资源能否被正确解析与绘制。"
         }
       ]
     },
@@ -161,12 +161,12 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "e1341e026cdac90db90a21ed71a9f08ac485d03a38e7b0f1d7eb7c7ca248f163",
+      "bookHash": "a3dd8a51632596c4953068645255ec0aaea273598bd552495359c0a5eb488ba9",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "19fe091ad259b363679183fd844721034ec45edeb22745264314e042897bf7ff",
-          "inkPixels": 76366,
+          "layoutHash": "e6de9cc72f1a8ecb7f49791f813c08dada29cced77c53f384a186356f64addac",
+          "inkPixels": 78540,
           "lineCount": 15,
           "textLength": 234,
           "summary": "竖排与注音这一段用于检查竖排方向。文字应…一组阿拉伯数字：2026 年 10 月。"
