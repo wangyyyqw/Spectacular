@@ -2,6 +2,8 @@ import 'package:csslib/parser.dart' as csslib;
 import 'package:csslib/visitor.dart';
 import 'package:html/parser.dart' as html_parser;
 
+import 'font_face.dart';
+
 /// 一条 CSS 声明。
 class CssDeclaration {
   /// 创建声明。
@@ -59,6 +61,7 @@ class CssStylesheet {
     required this.rules,
     required this.imports,
     required this.warnings,
+    this.fontFaces = const <CssFontFace>[],
   });
 
   /// 规则。
@@ -69,6 +72,10 @@ class CssStylesheet {
 
   /// 解析告警（含 csslib 错误与被跳过的声明）。
   final List<String> warnings;
+
+  /// `@font-face` 声明（P3-01，声明顺序；去重由
+  /// [CssFontFaceRegistry] 负责）。
+  final List<CssFontFace> fontFaces;
 }
 
 /// XHTML 中提取出的样式来源。
@@ -107,7 +114,7 @@ abstract final class CssParser {
         '首字下沉以内置近似（段首大字）渲染',
     ];
     if (!hasSyntaxErrors) {
-      return diagnostics.isEmpty
+      return diagnostics.isEmpty && base.fontFaces.isEmpty
           ? base
           : CssStylesheet(
               rules: base.rules,
@@ -116,6 +123,7 @@ abstract final class CssParser {
                 ...base.warnings,
                 ...diagnostics,
               ]),
+              fontFaces: base.fontFaces,
             );
     }
     final recovered = _parseRecovered(css);
@@ -128,6 +136,7 @@ abstract final class CssParser {
           ...base.warnings,
           ...diagnostics,
         ]),
+        fontFaces: base.fontFaces,
       );
     }
     return CssStylesheet(
@@ -139,6 +148,9 @@ abstract final class CssParser {
         ...diagnostics,
         '检测到语法错误，已分块恢复：${base.rules.length} 条 → ${recovered.rules.length} 条规则',
       ]),
+      // @font-face 提取与规则语法无关（独立扫描器），base 全文已提取完整；
+      // 分块恢复会重扫到相同块，不重复并入。
+      fontFaces: base.fontFaces,
     );
   }
 
@@ -158,6 +170,9 @@ abstract final class CssParser {
     final rules = <CssRule>[];
     final imports = <CssImport>[];
     final warnings = <String>[for (final message in errors) message.describe];
+    // @font-face 不走 csslib（其 FontFaceDirective 不公开声明组），
+    // 由提取器自行扫描；collect 里对 FontFaceDirective 静默跳过。
+    final fontFaces = CssFontFaceExtractor.extract(css, warnings);
 
     void collect(List<TreeNode> nodes, {String? media}) {
       for (final node in nodes) {
@@ -200,6 +215,9 @@ abstract final class CssParser {
           );
         } else if (node is CssComment || node is CommentDefinition) {
           continue;
+        } else if (node is FontFaceDirective) {
+          // 已由 CssFontFaceExtractor 处理，静默跳过。
+          continue;
         } else if (node is Directive) {
           warnings.add('跳过暂不支持的指令：${node.runtimeType}');
         }
@@ -211,6 +229,7 @@ abstract final class CssParser {
       rules: List<CssRule>.unmodifiable(rules),
       imports: List<CssImport>.unmodifiable(imports),
       warnings: List<String>.unmodifiable(warnings),
+      fontFaces: List<CssFontFace>.unmodifiable(fontFaces),
     );
   }
 
