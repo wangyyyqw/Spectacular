@@ -306,6 +306,22 @@ void _p205BoundaryTests() {
       );
       _expectCoverage(layout, text);
     });
+
+    test('开口符不落行尾（D22 后移，P7-07）', () {
+      // D22 strict：开口符不在行尾。三字行宽下断点恰在开口符之后，
+      // 引擎应把开口符一并移到下一行（S4 场景 3）。
+      for (final open in <String>['（', '「', '『', '【', '《']) {
+        final text = '中文$open内文';
+        final layout = _cjkLayout(text, 48);
+        final lines = _texts(layout);
+        expect(
+          lines.every((line) => !line.endsWith(open)),
+          isTrue,
+          reason: '$open 落行尾: $lines',
+        );
+        _expectCoverage(layout, text);
+      }
+    });
   });
 
   group('长词与空格', () {
