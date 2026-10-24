@@ -1,15 +1,18 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
+import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -137,6 +140,72 @@ class EpubChapterSource
             (_overrides.padding?.bottom ?? 0),
       );
 
+  /// 构建满屏图页：整页单块 + 背景图 cover（复用 P2-13 背景管线与
+  /// PagePainter.imageLookup），边距归零（用未扣设置页边距的基准尺寸）。
+  /// 解码由 ReaderPage 的 imageCache 异步完成，revision 触发重绘。
+  List<PageContent> _buildFullBleedPages(
+    int spineIndex,
+    String imageSrc,
+    String paginationKey,
+  ) {
+    final width = math.max(80.0, baseContentWidth);
+    final height = math.max(120.0, baseContentHeight);
+    final item = document.spine[spineIndex];
+    final chapterBase = p.posix.dirname(
+      document.resources.resolve(item.href, baseDir: p.posix.dirname(
+        document.opfPath,
+      )) ??
+          item.href,
+    );
+    final imageUrl = document.resources
+            .resolve(imageSrc, baseDir: chapterBase) ??
+        imageSrc;
+    final blockStyle = ComputedStyle(<String, String>{
+      ...baseStyle.values,
+      'background-image': 'url($imageUrl)',
+      'background-size': 'cover',
+      'background-repeat': 'no-repeat',
+    });
+    // 整页高的空行块：无 runs（不画字），块盒即整页，背景铺满。
+    final layout = TextLayoutResult(
+      text: '',
+      lines: [
+        LineBox(
+          start: 0,
+          end: 0,
+          top: 0,
+          height: height,
+          baseline: height,
+          width: width,
+        ),
+      ],
+      width: width,
+      height: height,
+      maxWidth: width,
+      runs: const <StyledRun>[],
+    );
+    final pages = Paginator(pageHeight: height)
+        .measureChapter(
+          blocks: [
+            PageBlock(layout: layout, style: blockStyle),
+          ],
+          spineIndex: spineIndex,
+        )
+        .pages;
+    _pageIndexCache[paginationKey] = PageIndex.from(
+      ChapterPagination(
+        spineIndex: spineIndex,
+        pages: pages,
+        pageHeight: height,
+        totalHeight: 0,
+      ),
+      [
+        PageBlock(layout: layout, style: blockStyle),
+      ],
+    ).encode();
+    return pages;
+  }
+
   /// 文本块样式：书籍样式叠加阅读器覆盖。
   ComputedStyle get style =>
       _overrides.apply(baseStyle, containingWidth: contentWidth);
@@ -188,12 +257,50 @@ class EpubChapterSource
   @override
   int get chapterCount => document.spine.length;
 
+  /// 满屏判定缓存（P3-10）：spineIndex → 分析结果；聚合文本含 U+FFFC
+  /// 才做深度分析，普通文字章零开销。
+  final Map<int, FullBleedChapter> _fullBleedCache = <int, FullBleedChapter>{};
+
+  /// 章节是否走满屏路径（单图无正文无宽高属性，§8.6）。
+  FullBleedChapter fullBleedAnalysis(int spineIndex) {
+    return _fullBleedCache.putIfAbsent(spineIndex, () {
+      final aggregated = _documentCache.putIfAbsent(
+        spineIndex,
+        () => document.aggregateText(
+          spineIndex,
+          whiteSpace: style.whiteSpace,
+        ),
+      );
+      if (!aggregated.plainText.contains('\uFFFC')) {
+        return const FullBleedChapter(
+          imageCount: 0,
+          hasVisibleText: true,
+          singleImageSrc: null,
+          singleImageHasDimensions: false,
+        );
+      }
+      return analyzeFullBleed(document.parseBlocks(spineIndex));
+    });
+  }
+
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
     final paginationKey = _paginationKey(spineIndex);
     final cachedPages = _pageCache[paginationKey];
     if (cachedPages != null) {
       return cachedPages;
+    }
+    // 满屏图页（P3-10，§8.6）：单图无正文无宽高属性 → 整页单块、
+    // 边距归零、背景图 cover。先于普通聚合判定。
+    final fullBleed = fullBleedAnalysis(spineIndex);
+    if (fullBleed.isFullBleed) {
+      final pages = _buildFullBleedPages(
+        spineIndex,
+        fullBleed.singleImageSrc!,
+        paginationKey,
+      );
+      _pageCache[paginationKey] = pages;
+      return pages;
     }
     // document 层（P7-23）：聚合结果按章缓存。
     final document = _documentCache.putIfAbsent(
