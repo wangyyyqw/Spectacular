@@ -366,3 +366,99 @@ class TableGridLayout {
     return null;
   }
 }
+
+/// 一页内的表格切片（P3-20，§26.2）。
+class TablePageSlice {
+  const TablePageSlice({
+    required this.firstRow,
+    required this.lastRow,
+    required this.drawnHeight,
+    required this.clippedRowHeight,
+  });
+
+  /// 本页首行（含）。
+  final int firstRow;
+
+  /// 本页末行（不含）。
+  final int lastRow;
+
+  /// 本页表格占用的高度。
+  final double drawnHeight;
+
+  /// 本页末行被裁剪时的高度（行放不下按整页裁剪，绘制只画此高）；
+  /// 行完整放入时为 0。
+  final double clippedRowHeight;
+
+  /// 行区间是否为空。
+  bool get isEmpty => firstRow >= lastRow;
+}
+
+/// 表格跨页切分（P3-20，技术方案 §26.2 的一期口径）。
+///
+/// - 行放不下时在**行边界**切页（无重复行、无丢行）；
+/// - 列宽由整表测量决定（P3-17），切页后各页不重算；
+/// - 单行高于整页：独占一页并按页高裁剪（[TablePageSlice.clippedRowHeight]
+///   记录已绘制高度，绘制只画裁剪段）；
+/// - 表头不重复（一期，§26.4 P1 优化保留）。
+abstract final class TablePaginator {
+  /// 按页高切分行区间。
+  static List<TablePageSlice> paginateRows({
+    required List<double> rowHeights,
+    required double pageHeight,
+  }) {
+    final slices = <TablePageSlice>[];
+    var firstRow = 0;
+    var used = 0.0;
+    for (var row = 0; row < rowHeights.length; row++) {
+      final height = rowHeights[row];
+      if (height > pageHeight) {
+        // 单行超页：先收掉前面的切片，再独占一页裁剪。
+        if (row > firstRow) {
+          slices.add(
+            TablePageSlice(
+              firstRow: firstRow,
+              lastRow: row,
+              drawnHeight: used,
+              clippedRowHeight: 0,
+            ),
+          );
+        }
+        slices.add(
+          TablePageSlice(
+            firstRow: row,
+            lastRow: row + 1,
+            drawnHeight: pageHeight,
+            clippedRowHeight: pageHeight,
+          ),
+        );
+        firstRow = row + 1;
+        used = 0;
+        continue;
+      }
+      if (used + height > pageHeight && row > firstRow) {
+        slices.add(
+          TablePageSlice(
+            firstRow: firstRow,
+            lastRow: row,
+            drawnHeight: used,
+            clippedRowHeight: 0,
+          ),
+        );
+        firstRow = row;
+        used = 0;
+      }
+      used += height;
+    }
+    if (firstRow < rowHeights.length) {
+      slices.add(
+        TablePageSlice(
+          firstRow: firstRow,
+          lastRow: rowHeights.length,
+          drawnHeight: used,
+          clippedRowHeight: 0,
+        ),
+      );
+    }
+    return slices;
+  }
+}

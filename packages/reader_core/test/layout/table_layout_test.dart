@@ -274,5 +274,54 @@ void main() {
         expect(layout.hitTest(const Offset(500, 12)), isNull);
       });
     });
+
+    group('表格跨页切分（P3-20）', () {
+      test('长表格跨 3 页：行区间衔接无重复、无丢行', () {
+        // 9 行 × 30 高，页高 80（每页 2 行）→ 5 页。
+        final heights = List<double>.filled(9, 30);
+        final slices = TablePaginator.paginateRows(
+          rowHeights: heights,
+          pageHeight: 80,
+        );
+        // 行区间连续衔接：每片 first == 上一片 last。
+        for (var i = 1; i < slices.length; i++) {
+          expect(slices[i].firstRow, slices[i - 1].lastRow,
+              reason: '无重复行、无丢行');
+        }
+        expect(slices.first.firstRow, 0);
+        expect(slices.last.lastRow, 9);
+        expect(slices.every((s) => s.drawnHeight <= 80.01), isTrue);
+        expect(slices.every((s) => s.clippedRowHeight == 0), isTrue);
+      });
+
+      test('单行高于整页：独占一页并记录裁剪高度', () {
+        final slices = TablePaginator.paginateRows(
+          rowHeights: [250, 30, 30],
+          pageHeight: 100,
+        );
+        expect(slices, hasLength(2));
+        expect(slices[0].firstRow, 0);
+        expect(slices[0].lastRow, 1);
+        expect(slices[0].clippedRowHeight, 100, reason: '裁剪段记录已绘制高度');
+        expect(slices[0].drawnHeight, 100);
+        expect(slices[1].firstRow, 1);
+        expect(slices[1].lastRow, 3);
+        expect(slices[1].drawnHeight, 60);
+      });
+
+      test('恰好填满与空表边界', () {
+        // 3 行 × 30，页高 90 → 恰好 1 页。
+        final exact = TablePaginator.paginateRows(
+          rowHeights: [30, 30, 30],
+          pageHeight: 90,
+        );
+        expect(exact, hasLength(1));
+        expect(exact.single.lastRow, 3);
+        expect(exact.single.drawnHeight, 90);
+
+        expect(TablePaginator.paginateRows(rowHeights: [], pageHeight: 90),
+            isEmpty);
+      });
+    });
   });
 }
