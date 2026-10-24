@@ -16,42 +16,48 @@
       "layoutHash": "5bc07c97ffa34e06ed6ae41adc15ffb6143664b0e7c2b53b143e1c7c8925b3ca",
       "inkPixels": 129540,
       "lineCount": 24,
-      "textLength": 384
+      "textLength": 384,
+      "summary": "第1章第1段：山中有雾，雾里有灯。灯下有…版快照的固定样本段落，字句不随版本变化。"
     },
     {
       "index": 1,
       "layoutHash": "dc03f9d6dfde7bebede53af0b678be0a86b1779b491f0193fe2ef9dc5a3ab1e1",
       "inkPixels": 43193,
       "lineCount": 8,
-      "textLength": 128
+      "textLength": 128,
+      "summary": "第1章第7段：山中有雾，雾里有灯。灯下有…版快照的固定样本段落，字句不随版本变化。"
     },
     {
       "index": 2,
       "layoutHash": "378f5b03a4d1b9ddcf66930e327f45af9f8f84c94173ed1b7048cdd6830665ea",
       "inkPixels": 129756,
       "lineCount": 24,
-      "textLength": 384
+      "textLength": 384,
+      "summary": "第2章第1段：山中有雾，雾里有灯。灯下有…版快照的固定样本段落，字句不随版本变化。"
     },
     {
       "index": 3,
       "layoutHash": "4fdcea72d9c6ae96c5991044ba81451801b564de30b796e6dc4e8134ab8a3ae5",
       "inkPixels": 43265,
       "lineCount": 8,
-      "textLength": 128
+      "textLength": 128,
+      "summary": "第2章第7段：山中有雾，雾里有灯。灯下有…版快照的固定样本段落，字句不随版本变化。"
     },
     {
       "index": 4,
       "layoutHash": "f5b0621c0bfd7da65a668d36c208aa9dd4398ba6b841a8f947abf79b0ae95bf1",
       "inkPixels": 129846,
       "lineCount": 24,
-      "textLength": 384
+      "textLength": 384,
+      "summary": "第3章第1段：山中有雾，雾里有灯。灯下有…版快照的固定样本段落，字句不随版本变化。"
     },
     {
       "index": 5,
       "layoutHash": "81bae79befefc9cd57b2956837252f5f9f3788180271224a20f593d297698746",
       "inkPixels": 43295,
       "lineCount": 8,
-      "textLength": 128
+      "textLength": 128,
+      "summary": "第3章第7段：山中有雾，雾里有灯。灯下有…版快照的固定样本段落，字句不随版本变化。"
     }
   ]
 }
