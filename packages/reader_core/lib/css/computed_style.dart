@@ -217,6 +217,40 @@ enum CssBoxSizing { contentBox, borderBox }
 /// 边框线型（CSS `border-style<border-style>`）。
 enum CssBorderStyle { none, solid, dashed, dotted, double }
 
+/// 文本溢出（CSS `text-overflow`；P2-37 抽样：clip/ellipsis 两值，
+/// 其余取值按 clip）。
+enum CssTextOverflow { clip, ellipsis }
+
+/// 块阴影（CSS `box-shadow`；P2-37 抽样：仅首个阴影，blur 与 spread
+/// 解析后不消费、inset 不支持——限定见 P2-37 测试报告）。
+class CssBoxShadow {
+  /// 创建阴影。
+  const CssBoxShadow({
+    required this.offsetX,
+    required this.offsetY,
+    required this.color,
+  });
+
+  /// 水平偏移（右为正）。
+  final double offsetX;
+
+  /// 垂直偏移（下为正）。
+  final double offsetY;
+
+  /// 阴影色。
+  final Color color;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssBoxShadow &&
+      other.offsetX == offsetX &&
+      other.offsetY == offsetY &&
+      other.color == color;
+
+  @override
+  int get hashCode => Object.hash(offsetX, offsetY, color);
+}
+
 /// 一条边框：宽度、线型、颜色。
 class CssBorderSide {
   /// 创建边框。
@@ -434,6 +468,20 @@ class ComputedStyle {
         ? parent?.initialLetterLines
         : _parseInitialLetter(rawInitialLetter) ??
               parent?.initialLetterLines;
+    // P2-37 抽样属性（均不继承）：opacity 初始 1；text-overflow 初始
+    // clip；box-shadow 初始无。
+    final rawOpacity = explicitValue('opacity');
+    final opacity = rawOpacity == null
+        ? 1.0
+        : (double.tryParse(rawOpacity.trim()) ?? 1.0).clamp(0.0, 1.0);
+    final rawTextOverflow = explicitValue('text-overflow');
+    final textOverflow = rawTextOverflow == null
+        ? CssTextOverflow.clip
+        : _parseTextOverflow(rawTextOverflow);
+    final boxShadow = _parseBoxShadow(
+      explicitValue('box-shadow'),
+      fontSize: fontSize,
+    );
 
     var textIndent = parent?.textIndent ?? 0.0;
     final rawTextIndent = explicitValue('text-indent');
@@ -712,6 +760,9 @@ class ComputedStyle {
       textJustify: textJustify,
       textAlignLast: textAlignLast,
       initialLetterLines: initialLetterLines,
+      opacity: opacity,
+      textOverflow: textOverflow,
+      boxShadow: boxShadow,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
@@ -776,6 +827,9 @@ class ComputedStyle {
     required this.textJustify,
     required this.textAlignLast,
     required this.initialLetterLines,
+    required this.opacity,
+    required this.textOverflow,
+    required this.boxShadow,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
@@ -900,6 +954,15 @@ class ComputedStyle {
 
   /// 首字下沉跨行数（继承；null = normal；P7-28 近似）。
   final double? initialLetterLines;
+
+  /// 元素不透明度（0～1，不继承，初始 1；P2-37）。
+  final double opacity;
+
+  /// 文本溢出处理（不继承，初始 clip；P2-37，限定 clip/ellipsis）。
+  final CssTextOverflow textOverflow;
+
+  /// 块阴影（不继承，初始无；P2-37，仅首个阴影、blur 不消费）。
+  final CssBoxShadow? boxShadow;
 
   /// 词间距（逻辑像素，继承，初始 0）。
   final double wordSpacing;
@@ -1639,6 +1702,66 @@ class ComputedStyle {
       return null;
     }
     return double.tryParse(tokens.first);
+  }
+
+  /// `text-overflow` 解析（P2-37）：ellipsis / clip，其余取值按 clip。
+  static CssTextOverflow _parseTextOverflow(String raw) => switch (
+    raw.trim().toLowerCase()
+  ) {
+    'ellipsis' => CssTextOverflow.ellipsis,
+    _ => CssTextOverflow.clip,
+  };
+
+  /// `box-shadow` 解析（P2-37 限定）：`none` 或空 → null；否则取
+  /// 「颜色 + 两个长度」组合——`inset` 前缀、blur/spread 长度忽略
+  /// （只画偏移投影）。多阴影只取首个。
+  static CssBoxShadow? _parseBoxShadow(String? raw, {required double fontSize}) {
+    if (raw == null) {
+      return null;
+    }
+    final text = raw.trim().toLowerCase();
+    if (text.isEmpty || text == 'none') {
+      return null;
+    }
+    // 多阴影只取首个（P2-37 限定）：先按逗号分段。
+    final first = text.split(',')[0].trim();
+    if (first.isEmpty) {
+      return null;
+    }
+    final lengths = <double>[];
+    Color? color;
+    for (final token in first.split(RegExp(r'\s+'))) {
+      if (token == 'inset') {
+        continue; // 不支持内阴影，跳过标记。
+      }
+      final parsed = _parseColor(token);
+      if (parsed != null) {
+        color ??= parsed;
+        continue;
+      }
+      if (lengths.length < 4) {
+        final length = _resolveLength(
+          token,
+          fontSize: fontSize,
+          parentFontSize: fontSize,
+          rootFontSize: 16,
+          percentBase: fontSize,
+        );
+        if (length != null) {
+          lengths.add(length);
+        }
+      }
+    }
+    if (lengths.length < 2) {
+      return null;
+    }
+    // 只消费 offset-x/offset-y；blur（lengths[2]）/spread（lengths[3]）
+    // 解析后丢弃（P2-37 限定）。
+    return CssBoxShadow(
+      offsetX: lengths[0],
+      offsetY: lengths[1],
+      color: color ?? const Color(0xFF000000),
+    );
   }
 
   static CssTextTransform? _parseTextTransform(String raw) =>
