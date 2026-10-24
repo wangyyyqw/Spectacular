@@ -6,7 +6,7 @@
 > 执行时机：P7.1～P7.2（规格回填）建议在 P3 大规模开发前完成，避免新代码建立在旧规格上；其余模块可与 P3～P6 穿插，无强制先后。
 > 规则：勾选任务后运行 `perl tool/render_plan.pl` 同步主文档总览与进度；字段口径见主文档 §0.3～§0.4。
 
-> 进度：7 / 32 项 · 22h / 102h（22%）
+> 进度：8 / 32 项 · 24h / 102h（24%）
 
 ---
 
@@ -63,7 +63,7 @@
   - 验收：D22 场景清单逐条有本项目断言；发现的未覆盖项转为缺陷登记或新规则编号（进 P7-06 矩阵）；S4 结论本身维持不变
   - 参考：[参考/reeden/reports/150-epub-typography.md](../../参考/reeden/reports/150-epub-typography.md) §0-#3（D22）；[方案/spike/s4-result.md](../spike/s4-result.md)（S4 实测）
 
-- [ ] **P7-08 S5 字重结论补测 italic 维度** ｜ 2h
+- [x] **P7-08 S5 字重结论补测 italic 维度** ｜ 2h
   - 目标：S5 只实测了 regular+bold；对照 Reeden 字体注册模型（缓存键 family→(weight, italic)→字形、合成粗斜体路径）补测 regular/italic/bold-italic 组合，确认 `fontStyle` 也能按 family 正确选中
   - 产出：S5 补测记录（`方案/spike/` 或验收记录）
   - 依赖：P0-08

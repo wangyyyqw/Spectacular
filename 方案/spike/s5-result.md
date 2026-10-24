@@ -72,4 +72,22 @@ S5 device=macOS regular_control=0 bold_face_effect=4147
 | iOS 模拟器（iPhone 18 Pro，iOS 27.0） | 通过 | 集成测试 `bold_face_effect=4122` |
 | Android 真机（MEIZU 20，Android 16） | 通过 | 集成测试 `S5 device=android bold_face_effect=4152` |
 
+## 6. P7-08 补测：italic 维度（2026-10-24）
+
+> 背景：S5 原实验只覆盖 regular+bold；Reeden 注册模型是 family→(weight, italic) 二元组（550 号 §3），italic 维度未验证。
+> 口径：CJK 测试字体（SourceHan Serif SC）无真斜体文件，验证目标改为「**(weight, italic) 二元组被引擎完整消费**」——仅注册 regular/bold 时 `fontStyle: italic` 触发合成倾斜（synthetic oblique），倾斜发生即证明 italic 维度未被丢弃；italic 之下权重仍能选面。
+
+**结论：方案 A 扩展到 italic 成立，无需拆 family 后备。**
+
+| 用例 | 断言 | 结果 |
+|---|---|---|
+| 对照：同参数两次渲染 | 像素差 = 0 | ✅ |
+| italic 维度被消费（400 normal vs italic） | 像素差 >100（合成倾斜生效） | ✅ |
+| italic 之下权重仍选面（400i vs 700i） | 像素差 >100（bold 字面被选中） | ✅ |
+| bold-italic 组合（400n vs 700i） | 像素差 >100（两维同时生效） | ✅ |
+
+- 位置：`packages/reader_core/test/paint/font_style_matrix_test.dart`（4 例）。
+- **限制与登记**：真斜体文件的选面路径（italic 文件被优先于合成倾斜选中）无法用现有字体验证——P3-02 接入含真斜体的内嵌字体样本时补验；若那时不成立，后备为「按 (weight,italic) 拆 family 名 + 样式层映射」，预估 ≤4h（映射表 + ComputedStyle 一层转换，参照 §28.2 方案 B）。
+- 技术方案 §28.2 的方案 A/B 结论维持，补充说明「italic 维度经合成倾斜路径验证」。
+
 按用户 2026-10-23 授权（《P0 文档》附录 A-06），P0-08 以 iOS 模拟器 + 桌面口径完成；Android 真机复测列入后续真机任务。
