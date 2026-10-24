@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 import 'reader_session.dart';
 import 'reader_view.dart';
+import 'theme/reader_theme.dart';
 
 /// 最小可运行的阅读页：打开、分页、绘制、翻页与进度恢复。
 class ReaderPage extends StatefulWidget {
@@ -20,6 +22,8 @@ class ReaderPage extends StatefulWidget {
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     this.onSessionReady,
     this.imageCache,
+    this.theme,
+    this.overrides,
   });
 
   /// 章节页来源。
@@ -43,16 +47,52 @@ class ReaderPage extends StatefulWidget {
   /// 图片解码缓存（可选）；传入后背景图按需解码并触发重绘。
   final DecodedImageCache? imageCache;
 
+  /// 阅读主题（可选）：背景色与正文色成对定义（P2-23）。
+  final ReaderTheme? theme;
+
+  /// 阅读器设置覆盖（可选）：字号/行高/对齐/页边距（P2-22/P2-24）。
+  final ReaderOverrides? overrides;
+
   @override
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
 class _ReaderPageState extends State<ReaderPage> {
   late final ReaderSession _session;
-  late final PagePainter _painter = PagePainter(
-    background: widget.background,
+  late PagePainter _painter = _buildPainter();
+
+  PagePainter _buildPainter() => PagePainter(
+    background: widget.theme?.background ?? widget.background,
     imageLookup: widget.imageCache?.lookup,
+    textColor: widget.theme?.text,
   );
+
+  /// 设置与主题合并后的有效覆盖（主题补正文/背景色，设置优先）。
+  ReaderOverrides _effectiveOverrides() {
+    final base = widget.overrides ?? const ReaderOverrides();
+    final theme = widget.theme;
+    if (theme == null) {
+      return base;
+    }
+    return base.copyWith(
+      textColor: base.textColor ?? theme.text,
+      backgroundColor: base.backgroundColor ?? theme.background,
+    );
+  }
+
+  /// 页边距：设置优先，其次 ReaderPage.padding。
+  EdgeInsets _effectivePadding() {
+    final edges = widget.overrides?.padding;
+    if (edges == null) {
+      return widget.padding;
+    }
+    return EdgeInsets.fromLTRB(
+      edges.left,
+      edges.top,
+      edges.right,
+      edges.bottom,
+    );
+  }
 
   /// 已预取过的页键（spine*100000 + pageIndex），避免重复预取。
   int _prefetchedPageKey = -1;
@@ -110,7 +150,25 @@ class _ReaderPageState extends State<ReaderPage> {
       bookId: widget.bookId,
     );
     widget.onSessionReady?.call(_session);
-    unawaited(_session.open());
+    unawaited(
+      _session.open().then(
+        (_) => _session.applyOverrides(_effectiveOverrides()),
+      ),
+    );
+  }
+
+  @override
+  void didUpdateWidget(ReaderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.theme != widget.theme ||
+        oldWidget.background != widget.background ||
+        oldWidget.imageCache != widget.imageCache) {
+      setState(() => _painter = _buildPainter());
+    }
+    if (oldWidget.overrides != widget.overrides ||
+        oldWidget.theme != widget.theme) {
+      unawaited(_session.applyOverrides(_effectiveOverrides()));
+    }
   }
 
   @override
@@ -138,12 +196,15 @@ class _ReaderPageState extends State<ReaderPage> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final size = Size(constraints.maxWidth, constraints.maxHeight);
-            _schedulePrefetch(page, size.width - widget.padding.horizontal);
+            _schedulePrefetch(
+              page,
+              size.width - _effectivePadding().horizontal,
+            );
             return Stack(
               fit: StackFit.expand,
               children: [
                 Padding(
-                  padding: widget.padding,
+                  padding: _effectivePadding(),
                   child: ClipRect(
                     child: CustomPaint(
                       painter: _ReaderPageCustomPainter(
