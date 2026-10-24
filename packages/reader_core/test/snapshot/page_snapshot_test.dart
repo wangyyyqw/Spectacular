@@ -60,7 +60,8 @@ String? describeFirstDifference(
       return '首个不同页号 $i：版式哈希 ${page['layoutHash']} != '
           '${base['layoutHash']}；像素差 '
           '${(page['inkPixels'] as int) - (base['inkPixels'] as int)}'
-          '（当前 ${page['inkPixels']} / 基线 ${base['inkPixels']}）';
+          '（当前 ${page['inkPixels']} / 基线 ${base['inkPixels']}）；'
+          '摘要 ${page['summary'] ?? ''}';
     }
   }
   if (currentPages.length != basePages.length) {

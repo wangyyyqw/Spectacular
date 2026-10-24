@@ -75,6 +75,7 @@ class PageRecord {
     required this.inkPixels,
     required this.lineCount,
     required this.textLength,
+    this.summary = '',
   });
 
   /// 页序号（从 0 开始）。
@@ -92,6 +93,9 @@ class PageRecord {
   /// 可见字符数。
   final int textLength;
 
+  /// 页首尾文本摘要（定位元素用，不参与哈希）。
+  final String summary;
+
   /// JSON。
   Map<String, Object?> toJson() => <String, Object?>{
     'index': index,
@@ -99,6 +103,7 @@ class PageRecord {
     'inkPixels': inkPixels,
     'lineCount': lineCount,
     'textLength': textLength,
+    'summary': summary,
   };
 }
 
@@ -329,7 +334,7 @@ Future<BookSnapshot> snapshotBook(
   final records = <PageRecord>[];
   for (var i = 0; i < pages.length; i++) {
     final page = pages[i];
-    final textLength = pageVisibleText(page).length;
+    final text = pageVisibleText(page);
     records.add(
       PageRecord(
         index: i,
@@ -339,7 +344,8 @@ Future<BookSnapshot> snapshotBook(
           0,
           (sum, slice) => sum + (slice.endLine - slice.startLine),
         ),
-        textLength: textLength,
+        textLength: text.length,
+        summary: _summaryOf(text),
       ),
     );
   }
@@ -356,4 +362,12 @@ String pageVisibleText(PageContent page) {
     }
   }
   return buffer.toString();
+}
+
+/// 页首尾摘要（前 20 + 后 20 字符），用于差异定位，不参与哈希。
+String _summaryOf(String text) {
+  if (text.length <= 40) {
+    return text;
+  }
+  return '${text.substring(0, 20)}…${text.substring(text.length - 20)}';
 }
