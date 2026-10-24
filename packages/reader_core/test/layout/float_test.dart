@@ -1,3 +1,5 @@
+import 'dart:ui' show Rect;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/block_flow.dart';
@@ -185,6 +187,53 @@ void main() {
       root.measure(_constraints());
       expect(root.floats.items, isEmpty);
       expect(paragraph.size.width, lessThanOrEqualTo(320.5));
+    });
+
+    test('跨页浮图连续三页：占用逐页裁剪续用，用尽后全宽恢复（P3-15）', () {
+      // 浮动高 250，页高 100：第 1 页占用全高，第 2 页剩 150，第 3 页
+      // 剩 50，第 4 页用尽。
+      final entry = FloatOccupancy()
+        ..insert(
+          BoxOccupied(
+            rect: const Rect.fromLTWH(0, 0, 120, 250),
+            baseline: 0,
+            side: FloatSide.left,
+          ),
+        );
+      final pages = FloatOccupancy.sliceAcrossPages(entry, <double>[
+        100,
+        100,
+        100,
+        100,
+      ]);
+      expect(pages, hasLength(4));
+      expect(pages[0].contentWidthAt(0, 100, 320), 200);
+      expect(pages[1].contentWidthAt(0, 100, 320), 200,
+          reason: '跨页剩余在下一页重新登记');
+      expect(pages[1].items.single.rect.height, 150,
+          reason: '精确裁剪（§48.3 第 2 条）');
+      expect(pages[2].contentWidthAt(0, 100, 320), 200);
+      expect(pages[2].items.single.rect.height, 50);
+      expect(pages[3].items, isEmpty, reason: '浮动用尽后不再约束');
+      expect(pages[3].contentWidthAt(0, 100, 320), 320);
+    });
+
+    test('分页游标不被浮动吞掉：容器内容高与浮动无关', () {
+      const text = '第一段有足够多的文字用来占据确定的高度，绕排不影响游标推进。';
+      final withFloat = ColumnFlowBlock([
+        _floatBox('浮', 'left'),
+        createFlowBox(style: _style(const {}), text: text),
+        createFlowBox(style: _style(const {}), text: text),
+      ]);
+      final withoutFloat = ColumnFlowBlock([
+        createFlowBox(style: _style(const {}), text: text),
+        createFlowBox(style: _style(const {}), text: text),
+      ]);
+      withFloat.measure(_constraints());
+      withoutFloat.measure(_constraints());
+      // 短文本收窄后行数不变：浮动摘流不推进 cursor，容器内容高一致
+      //（分页游标不被占位吞掉）。
+      expect(withFloat.size.height, withoutFloat.size.height);
     });
   });
 }
