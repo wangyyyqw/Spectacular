@@ -59,6 +59,7 @@ class _ReaderAppState extends State<ReaderApp> {
       GlobalKey<ScaffoldMessengerState>();
   ReaderSession? _session;
   ReaderProgress? _lastProgress;
+  String? _lastLayoutKey;
   String? _lastError;
   bool _exporting = false;
 
@@ -171,29 +172,49 @@ class _ReaderAppState extends State<ReaderApp> {
             ),
           ],
         ),
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // ReaderPage 默认留白 20/16；把实际内容区传给示例源，
-              // 避免固定 480 高度在手机上留下半屏空白。
-              final width = (constraints.maxWidth - 40)
-                  .clamp(120, 2000)
-                  .toDouble();
-              final height = (constraints.maxHeight - 32)
-                  .clamp(120, 3000)
-                  .toDouble();
-              return ReaderPage(
-                key: ValueKey<String>('${width.toInt()}x${height.toInt()}'),
-                source: DemoChapterSource(
-                  contentWidth: width,
-                  contentHeight: height,
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            // ReaderPage 默认留白 20/16；把实际内容区传给示例源，
+            // 避免固定 480 高度在手机上留下半屏空白。
+            final width = (constraints.maxWidth - 40)
+                .clamp(120, 2000)
+                .toDouble();
+            // 全面屏手势区用 viewPadding 兜住（SafeArea 在 edge-to-edge 下为 0）。
+            final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+            final height = (constraints.maxHeight - 32 - bottomInset)
+                .clamp(120, 3000)
+                .toDouble();
+            // 每档尺寸只记一次，便于真机验收核对内容区与手势区（P2-36）。
+            final layoutKey =
+                '${constraints.maxWidth}x${constraints.maxHeight}'
+                '-${bottomInset.toStringAsFixed(1)}';
+            if (layoutKey != _lastLayoutKey) {
+              _lastLayoutKey = layoutKey;
+              unawaited(
+                ReaderLog.instance.log(
+                  'layout',
+                  fields: <String, Object?>{
+                    'constraints_w': constraints.maxWidth,
+                    'constraints_h': constraints.maxHeight,
+                    'padding_bottom': bottomInset,
+                    'content_width': width,
+                    'content_height': height,
+                    'dpr': MediaQuery.devicePixelRatioOf(context),
+                  },
                 ),
-                store: widget.store,
-                bookId: 'demo-30',
-                onSessionReady: _onSessionReady,
               );
-            },
-          ),
+            }
+            return ReaderPage(
+              key: ValueKey<String>('${width.toInt()}x${height.toInt()}'),
+              source: DemoChapterSource(
+                contentWidth: width,
+                contentHeight: height,
+              ),
+              store: widget.store,
+              bookId: 'demo-30',
+              onSessionReady: _onSessionReady,
+            );
+          },
         ),
       ),
     );
