@@ -8,6 +8,7 @@ import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
 import 'background_image.dart';
 import 'line_spans.dart';
+import 'paragraph_cache.dart';
 
 /// 页面绘制阶段（P2-29）：顺序固定为
 /// 背景 → 块背景 → 块边框 → 文本 → 装饰 → 选区。
@@ -69,6 +70,7 @@ class PagePainter {
     this.selection,
     this.selectionColor = const Color(0x330066FF),
     this.onPhase,
+    this.paragraphCache,
   });
 
   /// 页面背景色。
@@ -92,6 +94,9 @@ class PagePainter {
 
   /// 阶段回调（测试用）：每个绘制阶段开始时触发一次。
   final void Function(PagePaintPhase phase)? onPhase;
+
+  /// 行排版缓存（可选）：按页/行缓存 TextPainter，重排时由调用方清空（P2-30）。
+  final ParagraphCache? paragraphCache;
 
   /// 绘制一页。
   ///
@@ -142,27 +147,35 @@ class PagePainter {
     }
 
     _notifyPhase(PagePaintPhase.text);
-    for (final geometry in geometries) {
+    for (var sliceIndex = 0; sliceIndex < geometries.length; sliceIndex++) {
+      final geometry = geometries[sliceIndex];
       if (geometry.hidden) {
         continue;
       }
       canvas.save();
       geometry.clip(canvas);
+      final layout = geometry.slice.block.layout;
       var lineY = geometry.y + geometry.leading;
       for (
         var lineIndex = geometry.slice.startLine;
         lineIndex < geometry.slice.endLine;
         lineIndex++
       ) {
-        final layout = geometry.slice.block.layout;
         final line = layout.lines[lineIndex];
         final lineText = layout.text.substring(line.start, line.end);
         if (lineText.isNotEmpty) {
           _paintLineText(
             canvas,
-            layout,
-            line,
-            geometry.style,
+            _linePainterFor(
+              page,
+              sliceIndex,
+              lineIndex,
+              layout,
+              line,
+              geometry.textStyle,
+            ),
+            lineText,
+            _lineRuns(layout, line),
             geometry.textStyle,
             line.offsetX + geometry.leftInset,
             lineY,
@@ -174,29 +187,36 @@ class PagePainter {
     }
 
     _notifyPhase(PagePaintPhase.decoration);
-    for (final geometry in geometries) {
+    for (var sliceIndex = 0; sliceIndex < geometries.length; sliceIndex++) {
+      final geometry = geometries[sliceIndex];
       if (geometry.hidden ||
           geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
         continue;
       }
       canvas.save();
       geometry.clip(canvas);
+      final layout = geometry.slice.block.layout;
       var lineY = geometry.y + geometry.leading;
       for (
         var lineIndex = geometry.slice.startLine;
         lineIndex < geometry.slice.endLine;
         lineIndex++
       ) {
-        final layout = geometry.slice.block.layout;
         final line = layout.lines[lineIndex];
         final lineText = layout.text.substring(line.start, line.end);
         if (lineText.isNotEmpty) {
           _paintLineEmphasis(
             canvas,
-            layout,
-            line,
+            _linePainterFor(
+              page,
+              sliceIndex,
+              lineIndex,
+              layout,
+              line,
+              geometry.textStyle,
+            ),
+            lineText,
             geometry.style,
-            geometry.textStyle,
             line.offsetX + geometry.leftInset,
             lineY,
           );
@@ -209,7 +229,7 @@ class PagePainter {
     _notifyPhase(PagePaintPhase.selection);
     final selection = this.selection;
     if (selection != null) {
-      _paintSelection(canvas, geometries, selection);
+      _paintSelection(canvas, page, geometries, selection);
     }
   }
 
@@ -257,6 +277,7 @@ class PagePainter {
   /// 画选区（P2-29）：按切片序号 + 块内字符范围取排版盒，最后统一覆盖。
   void _paintSelection(
     Canvas canvas,
+    PageContent page,
     List<_SliceGeometry> geometries,
     PageSelection selection,
   ) {
@@ -280,10 +301,14 @@ class PagePainter {
         final start = math.max(range.start, line.start);
         final end = math.min(range.end, line.end);
         if (end > start) {
-          final painter = TextPainter(
-            text: _lineSpan(layout, line, geometry.textStyle),
-            textDirection: TextDirection.ltr,
-          )..layout();
+          final painter = _linePainterFor(
+            page,
+            range.sliceIndex,
+            lineIndex,
+            layout,
+            line,
+            geometry.textStyle,
+          );
           final boxes = painter.getBoxesForSelection(
             TextSelection(
               baseOffset: start - line.start,
@@ -547,29 +572,49 @@ class PagePainter {
     }
   }
 
+  /// 取一行的排版结果：有段落缓存时复用（P2-30），否则新建并布局。
+  TextPainter _linePainterFor(
+    PageContent page,
+    int sliceIndex,
+    int lineIndex,
+    TextLayoutResult layout,
+    LineBox line,
+    TextStyle baseStyle,
+  ) {
+    TextPainter build() => TextPainter(
+      text: _lineSpan(layout, line, baseStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final cache = paragraphCache;
+    if (cache == null) {
+      return build();
+    }
+    final key =
+        '${page.spineIndex}:${page.pageIndex}:$sliceIndex:$lineIndex:'
+        '${baseStyle.fontSize}:${baseStyle.height}:'
+        '${baseStyle.letterSpacing}:${baseStyle.wordSpacing}:'
+        '${baseStyle.color?.toARGB32()}:'
+        '${line.justifyExtra.toStringAsFixed(3)}';
+    return cache.obtain(key, build: build);
+  }
+
   /// 画一行：有上下标（基线偏移）时按段分别绘制，其余情况整行一次绘制。
   ///
   /// 与阅微 `BaselineShift` 一致：偏移段在正常基线基础上整体上下移动
   /// （super −0.4em、sub +0.15em），行高与行宽不受影响。
   void _paintLineText(
     Canvas canvas,
-    TextLayoutResult layout,
-    LineBox line,
-    ComputedStyle style,
+    TextPainter painter,
+    String lineText,
+    List<_LineRun> runs,
     TextStyle baseStyle,
     double x,
     double y,
   ) {
-    final lineText = layout.text.substring(line.start, line.end);
     if (lineText.isEmpty) {
       return;
     }
-    final runs = _lineRuns(layout, line);
     final hasShift = runs.any((run) => run.baselineShift != 0);
-    final painter = TextPainter(
-      text: _lineSpan(layout, line, baseStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
     if (!hasShift) {
       painter.paint(canvas, Offset(x, y));
       return;
@@ -604,22 +649,16 @@ class PagePainter {
   /// 画一行着重号（装饰阶段，P2-29）。
   void _paintLineEmphasis(
     Canvas canvas,
-    TextLayoutResult layout,
-    LineBox line,
+    TextPainter painter,
+    String lineText,
     ComputedStyle style,
-    TextStyle baseStyle,
     double x,
     double y,
   ) {
-    final lineText = layout.text.substring(line.start, line.end);
     if (lineText.isEmpty ||
         style.textEmphasisStyle == CssTextEmphasisStyle.none) {
       return;
     }
-    final painter = TextPainter(
-      text: _lineSpan(layout, line, baseStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
     _paintEmphasis(canvas, lineText, style, painter, x, y);
   }
 

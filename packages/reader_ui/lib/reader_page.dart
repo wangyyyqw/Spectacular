@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
+import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 import 'reader_session.dart';
@@ -25,6 +26,7 @@ class ReaderPage extends StatefulWidget {
     this.imageCache,
     this.theme,
     this.overrides,
+    this.paragraphCache,
   });
 
   /// 章节页来源。
@@ -54,18 +56,25 @@ class ReaderPage extends StatefulWidget {
   /// 阅读器设置覆盖（可选）：字号/行高/对齐/页边距（P2-22/P2-24）。
   final ReaderOverrides? overrides;
 
+  /// 行段落缓存（可选）：注入后重排会清空旧段落（P2-30）。
+  final ParagraphCache? paragraphCache;
+
   @override
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
 class _ReaderPageState extends State<ReaderPage> {
   late final ReaderSession _session;
+  late final ParagraphCache _paragraphCache =
+      widget.paragraphCache ?? ParagraphCache(maxEntries: 256);
+  late final bool _ownsParagraphCache = widget.paragraphCache == null;
   late PagePainter _painter = _buildPainter();
 
   PagePainter _buildPainter() => PagePainter(
     background: widget.theme?.background ?? widget.background,
     imageLookup: widget.imageCache?.lookup,
     textColor: widget.theme?.text,
+    paragraphCache: _paragraphCache,
   );
 
   /// 设置与主题合并后的有效覆盖（主题补正文/背景色，设置优先）。
@@ -166,6 +175,10 @@ class _ReaderPageState extends State<ReaderPage> {
         oldWidget.imageCache != widget.imageCache) {
       setState(() => _painter = _buildPainter());
     }
+    if (oldWidget.overrides != widget.overrides) {
+      // 重排：旧段落缓存全部失效（P2-30）。
+      _paragraphCache.clear();
+    }
     if (oldWidget.overrides != widget.overrides ||
         oldWidget.theme != widget.theme) {
       unawaited(_session.applyOverrides(_effectiveOverrides()));
@@ -176,6 +189,9 @@ class _ReaderPageState extends State<ReaderPage> {
   void dispose() {
     _session.cancelPendingLoads();
     _session.dispose();
+    if (_ownsParagraphCache) {
+      _paragraphCache.dispose();
+    }
     super.dispose();
   }
 
