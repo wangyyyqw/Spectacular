@@ -237,6 +237,7 @@ Future<List<PageContent>> paginateSnapshot(
     final blocks = <PageBlock>[];
     // 块级 UA 覆盖（P7-03）：与应用侧 EpubChapterSource 同一条路径。
     final uaStyles = <String, ComputedStyle>{};
+    var figureSeq = 0;
     ComputedStyle styleFor(String tag) {
       final cached = uaStyles[tag];
       if (cached != null) {
@@ -249,7 +250,7 @@ Future<List<PageContent>> paginateSnapshot(
       );
       return uaStyles[tag] = overlaid ?? style;
     }
-    void collect(EpubNode epubNode, String blockTag) {
+    void collect(EpubNode epubNode, String blockTag, {int groupId = 0}) {
       if (epubNode is TextBlockNode) {
         final text = epubNode.text;
         if (text.trim().isEmpty) {
@@ -267,16 +268,23 @@ Future<List<PageContent>> paginateSnapshot(
               layout: layout,
               style: blockStyle,
               containingWidth: spec.contentSize.width,
+              groupId: groupId,
             ),
           );
         }
       } else if (epubNode is BlockNode) {
+        // 整组不可切（P7-26）：figure（图+题注）内的块标记同组。
+        var childGroup = groupId;
+        if (epubNode.tag == 'figure') {
+          figureSeq += 1;
+          childGroup = figureSeq;
+        }
         for (final child in epubNode.children) {
-          collect(child, epubNode.tag);
+          collect(child, epubNode.tag, groupId: childGroup);
         }
       } else if (epubNode is InlineNode) {
         for (final child in epubNode.children) {
-          collect(child, blockTag);
+          collect(child, blockTag, groupId: groupId);
         }
       }
     }

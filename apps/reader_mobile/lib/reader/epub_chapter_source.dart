@@ -144,6 +144,7 @@ class EpubChapterSource
     // 块级 UA 覆盖（P7-03）：标题/引用/列表等按标签叠加默认样式，
     // em 相对阅读器基准字号解算；同一标签只构造一次。
     final uaStyles = <String, ComputedStyle>{};
+    var figureSeq = 0;
     ComputedStyle styleFor(String tag) {
       final cached = uaStyles[tag];
       if (cached != null) {
@@ -156,7 +157,7 @@ class EpubChapterSource
       );
       return uaStyles[tag] = overlaid ?? style;
     }
-    void collect(EpubNode node, String blockTag) {
+    void collect(EpubNode node, String blockTag, {int groupId = 0}) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
         final text = node.text;
@@ -176,16 +177,23 @@ class EpubChapterSource
               style: blockStyle,
               containingWidth: contentWidth,
               startCfi: cfi,
+              groupId: groupId,
             ),
           );
         }
       } else if (node is BlockNode) {
+        // 整组不可切（P7-26）：figure（图+题注）内的块标记同组。
+        var childGroup = groupId;
+        if (node.tag == 'figure') {
+          figureSeq += 1;
+          childGroup = figureSeq;
+        }
         for (final child in node.children) {
-          collect(child, node.tag);
+          collect(child, node.tag, groupId: childGroup);
         }
       } else if (node is InlineNode) {
         for (final child in node.children) {
-          collect(child, blockTag);
+          collect(child, blockTag, groupId: groupId);
         }
       }
     }
