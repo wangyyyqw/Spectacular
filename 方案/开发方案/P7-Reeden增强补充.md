@@ -6,7 +6,7 @@
 > 执行时机：P7.1～P7.2（规格回填）建议在 P3 大规模开发前完成，避免新代码建立在旧规格上；其余模块可与 P3～P6 穿插，无强制先后。
 > 规则：勾选任务后运行 `perl tool/render_plan.pl` 同步主文档总览与进度；字段口径见主文档 §0.3～§0.4。
 
-> 进度：20 / 32 项 · 65h / 102h（64%）
+> 进度：21 / 32 项 · 68h / 102h（67%）
 
 ---
 
@@ -158,7 +158,7 @@
   - 验收：豁免白名单有逐条单测（数字/符号/多个空格）；两开关均关闭时输出与原文逐字符一致；整理不改变分页结果（同设置页数不变）
   - 参考：[参考/reeden/reports/150-epub-typography.md](../../参考/reeden/reports/150-epub-typography.md) §0-#5（空格整理两条行为文案）；[技术方案 §38.2](../技术方案.md)（混排规则）
 
-- [ ] **P7-21 text-justify 四值与 text-align-last** ｜ 3h
+- [x] **P7-21 text-justify 四值与 text-align-last** ｜ 3h
   - 目标：解析 `text-justify` 的 inter-word / inter-character / distribute / justify-all 四值并映射到现有 gap 对齐（inter-character 与 distribute 走全 gap 分配、inter-word 只拉伸空格）；补 `text-align-last` 控制末行对齐
   - 产出：属性解析与对齐映射 + 用例
   - 依赖：P2-20

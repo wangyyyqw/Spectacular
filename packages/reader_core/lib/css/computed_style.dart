@@ -3,6 +3,19 @@ import 'dart:ui' show Color;
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
 enum CssTextAlign { start, end, left, right, center, justify }
 
+/// 两端对齐的拉伸方式（CSS `text-justify`；P7-21，CSS Text 3）。
+///
+/// `auto`：现状行为——含 CJK 的行全 gap 分配、西文行只拉伸词间空格；
+/// `interWord`：只拉伸词间空格；`interCharacter`/`distribute`：全 gap
+/// 分配（不豁免拉丁词内）；`justifyAll`：gap 同 auto，末行也拉伸。
+enum CssTextJustify {
+  auto,
+  interWord,
+  interCharacter,
+  distribute,
+  justifyAll,
+}
+
 /// 定位方式（§60.2 第 1 条：absolute/fixed 先摘出流）。
 enum CssPosition { static, relative, absolute, fixed, sticky }
 
@@ -405,6 +418,17 @@ class ComputedStyle {
     final textAlign = rawAlign == null
         ? (parent?.textAlign ?? CssTextAlign.start)
         : _parseTextAlign(rawAlign) ?? parent?.textAlign ?? CssTextAlign.start;
+    final rawJustify = explicitValue('text-justify');
+    final textJustify = rawJustify == null
+        ? (parent?.textJustify ?? CssTextJustify.auto)
+        : _parseTextJustify(rawJustify) ??
+              parent?.textJustify ??
+              CssTextJustify.auto;
+    // text-align-last：auto → null（末行按 start 对齐，现状）。
+    final rawAlignLast = explicitValue('text-align-last');
+    final textAlignLast = rawAlignLast == null
+        ? (parent?.textAlignLast)
+        : _parseTextAlign(rawAlignLast) ?? parent?.textAlignLast;
 
     var textIndent = parent?.textIndent ?? 0.0;
     final rawTextIndent = explicitValue('text-indent');
@@ -680,6 +704,8 @@ class ComputedStyle {
       hangingPunctuation: hangingPunctuation,
       textSpacingTrim: textSpacingTrim,
       textAutospace: textAutospace,
+      textJustify: textJustify,
+      textAlignLast: textAlignLast,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
@@ -741,6 +767,8 @@ class ComputedStyle {
     required this.hangingPunctuation,
     required this.textSpacingTrim,
     required this.textAutospace,
+    required this.textJustify,
+    required this.textAlignLast,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
@@ -856,6 +884,12 @@ class ComputedStyle {
 
   /// 中西文自动间距（继承，初始 none；P7-20）。
   final CssTextAutospace textAutospace;
+
+  /// 两端对齐拉伸方式（继承，初始 auto；P7-21）。
+  final CssTextJustify textJustify;
+
+  /// 末行对齐（继承；null = auto，末行按 start；P7-21）。
+  final CssTextAlign? textAlignLast;
 
   /// 词间距（逻辑像素，继承，初始 0）。
   final double wordSpacing;
@@ -1567,6 +1601,17 @@ class ComputedStyle {
         //（§38.2），书内显式 normal/ideograph-alpha 才启用。
         'normal' || 'ideograph-alpha' => CssTextAutospace.normal,
         'no-autospace' || 'none' => CssTextAutospace.none,
+        _ => null,
+      };
+
+  static CssTextJustify? _parseTextJustify(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'auto' || 'normal' => CssTextJustify.auto,
+        'inter-word' => CssTextJustify.interWord,
+        'inter-character' => CssTextJustify.interCharacter,
+        'distribute' => CssTextJustify.distribute,
+        'justify-all' => CssTextJustify.justifyAll,
+        // none/unsafe 等按 auto 处理（一期语义）。
         _ => null,
       };
 

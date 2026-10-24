@@ -1,6 +1,7 @@
+import '../css/computed_style.dart';
 import '../text/script.dart';
 
-/// 两端对齐的可分配间隙（§8.4，P2-19）。
+/// 两端对齐的可分配间隙（§8.4，P2-19；P7-21 增加 text-justify 模式）。
 ///
 /// 返回「间隙左侧字符」的代码单元偏移：绘制时给这些字符加额外字距，间距只
 /// 落在字符之间，末字之后不产生间隙。
@@ -10,13 +11,20 @@ import '../text/script.dart';
 /// 被加字距；这里改用 [isCjkCodePoint]（只含真正的 CJK 区块），再按
 /// 「拉丁字母/数字内部不拆」扣除。
 ///
-/// 规则：
+/// 规则（[mode] 为 `auto` 时，即现状）：
 /// 1. 取相邻字符 `(i, i+1)` 之间；
 /// 2. 跳过含换行的间隙；
 /// 3. 跳过两侧都是拉丁字母/数字的间隙，不拆英文单词；
 /// 4. 纯中文 n 字 → n-1 个 gap；末字之后不设 gap；
 /// 5. 不含 CJK 的行改为拉伸词间空格（西文不拆词内字距）。
-List<int> cjkJustifyGapOffsets(String text) {
+///
+/// [mode] 覆盖（P7-21）：`interWord` 只拉伸词间空格；
+/// `interCharacter`/`distribute` 全 gap 分配（不豁免拉丁词内）；
+/// `justifyAll` 与 `auto` 相同（末行拉伸在分页对齐层处理）。
+List<int> cjkJustifyGapOffsets(
+  String text, {
+  CssTextJustify mode = CssTextJustify.auto,
+}) {
   if (text.length < 2) {
     return const <int>[];
   }
@@ -28,11 +36,18 @@ List<int> cjkJustifyGapOffsets(String text) {
     if (i < runes.length - 1) {
       final left = runes[i];
       final right = runes[i + 1];
-      final stretchable = hasCjk
-          ? left != 0x0A &&
-                right != 0x0A &&
-                !(isJustifyWordCodePoint(left) && isJustifyWordCodePoint(right))
-          : left == 0x20;
+      final stretchable = switch (mode) {
+        CssTextJustify.interWord => left == 0x20,
+        CssTextJustify.interCharacter ||
+        CssTextJustify.distribute => left != 0x0A && right != 0x0A,
+        CssTextJustify.auto ||
+        CssTextJustify.justifyAll => hasCjk
+            ? left != 0x0A &&
+                  right != 0x0A &&
+                  !(isJustifyWordCodePoint(left) &&
+                      isJustifyWordCodePoint(right))
+            : left == 0x20,
+      };
       if (stretchable) {
         offsets.add(offset);
       }
