@@ -4,6 +4,7 @@ import 'dart:ui' show BoxHeightStyle;
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
+import '../css/font_face.dart';
 import '../src/api/models.dart' show TextLayout;
 import 'cjk_justify.dart';
 import 'autospace.dart';
@@ -1043,10 +1044,14 @@ abstract final class TextLayoutEngine {
     leadingDistribution: leadingDistribution,
     fontWeight: _fontWeight(style.fontWeight),
     fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
-    fontFamily: style.fontFamily,
+    // 别名映射（P3-03）：宋体/黑体/楷体等中文族名与 serif/sans-serif
+    // 泛型映射到内置规范名；未命中原样保留（显式回退引擎处理）。
+    fontFamily: style.fontFamily == null
+        ? null
+        : FontFamilyAliases.mapFamilies([style.fontFamily!]).single,
     fontFamilyFallback: style.fontFamilyFallback.isEmpty
         ? null
-        : style.fontFamilyFallback,
+        : FontFamilyAliases.mapFamilies(style.fontFamilyFallback),
     letterSpacing: style.letterSpacing,
     wordSpacing: style.wordSpacing,
     decoration: _decoration(style.textDecoration),
