@@ -57,6 +57,112 @@ class CssEdges {
   String toString() => 'CssEdges($top,$right,$bottom,$left)';
 }
 
+/// 边框线型（CSS `border-style<border-style>`）。
+enum CssBorderStyle { none, solid, dashed, dotted, double }
+
+/// 一条边框：宽度、线型、颜色。
+class CssBorderSide {
+  /// 创建边框。
+  const CssBorderSide({
+    this.width = 0,
+    this.style = CssBorderStyle.none,
+    this.color = const Color(0xFF000000),
+  });
+
+  /// 无边框。
+  static const none = CssBorderSide();
+
+  /// 线宽（逻辑像素）。
+  final double width;
+
+  /// 线型。
+  final CssBorderStyle style;
+
+  /// 颜色。
+  final Color color;
+
+  /// 是否需要绘制。
+  bool get isVisible => style != CssBorderStyle.none && width > 0;
+
+  /// 换颜色。
+  CssBorderSide withColor(Color value) =>
+      CssBorderSide(width: width, style: style, color: value);
+
+  @override
+  String toString() => 'CssBorderSide($width,$style,$color)';
+}
+
+/// 四边边框与四角圆角。
+class CssBorders {
+  /// 创建边框集合。
+  const CssBorders({
+    this.top = CssBorderSide.none,
+    this.right = CssBorderSide.none,
+    this.bottom = CssBorderSide.none,
+    this.left = CssBorderSide.none,
+    this.topLeftRadius = 0,
+    this.topRightRadius = 0,
+    this.bottomRightRadius = 0,
+    this.bottomLeftRadius = 0,
+  });
+
+  /// 无边框、无圆角。
+  static const none = CssBorders();
+
+  /// 上边框。
+  final CssBorderSide top;
+
+  /// 右边框。
+  final CssBorderSide right;
+
+  /// 下边框。
+  final CssBorderSide bottom;
+
+  /// 左边框。
+  final CssBorderSide left;
+
+  /// 左上圆角。
+  final double topLeftRadius;
+
+  /// 右上圆角。
+  final double topRightRadius;
+
+  /// 右下圆角。
+  final double bottomRightRadius;
+
+  /// 左下圆角。
+  final double bottomLeftRadius;
+
+  /// 是否有任意可见边框。
+  bool get hasBorder =>
+      top.isVisible || right.isVisible || bottom.isVisible || left.isVisible;
+
+  /// 是否有任意圆角。
+  bool get hasRadius =>
+      topLeftRadius > 0 ||
+      topRightRadius > 0 ||
+      bottomRightRadius > 0 ||
+      bottomLeftRadius > 0;
+
+  /// 四边是否完全一致（同宽/同线型/同色），圆角绘制的前提。
+  bool get isUniform =>
+      top.isVisible &&
+      top.width == right.width &&
+      top.width == bottom.width &&
+      top.width == left.width &&
+      top.style == right.style &&
+      top.style == bottom.style &&
+      top.style == left.style &&
+      top.color == right.color &&
+      top.color == bottom.color &&
+      top.color == left.color;
+
+  @override
+  String toString() =>
+      'CssBorders($top,$right,$bottom,$left,'
+      'radii=$topLeftRadius/$topRightRadius/$bottomRightRadius/$bottomLeftRadius)';
+}
+
 /// 一次算完的不可变样式。
 ///
 /// P1-21 最小字段集：字号、行高、颜色、字重、斜体、text-align、margin。
@@ -193,6 +299,19 @@ class ComputedStyle {
     final cssFloat = _parseFloat(explicitValue('float')) ?? CssFloat.none;
     final display = _parseDisplay(explicitValue('display')) ?? CssDisplay.block;
 
+    // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
+    final backgroundColor =
+        _parseColor(explicitValue('background-color') ?? '') ??
+        const Color(0x00000000);
+    final backgroundImage = _parseUrl(explicitValue('background-image'));
+    final borders = _resolveBorders(
+      values,
+      explicit,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+      color: color,
+    );
+
     return ComputedStyle._(
       values: values,
       hasExplicitTextColor: hasExplicitTextColor,
@@ -210,6 +329,9 @@ class ComputedStyle {
       position: position,
       cssFloat: cssFloat,
       display: display,
+      backgroundColor: backgroundColor,
+      backgroundImage: backgroundImage,
+      borders: borders,
       explicitProperties: explicit,
     );
   }
@@ -231,6 +353,9 @@ class ComputedStyle {
     required this.position,
     required this.cssFloat,
     required this.display,
+    required this.backgroundColor,
+    required this.backgroundImage,
+    required this.borders,
     required this.explicitProperties,
   });
 
@@ -292,6 +417,15 @@ class ComputedStyle {
   /// 显示类型（不继承，初始 `block`）。
   final CssDisplay display;
 
+  /// 背景色（不继承，初始透明）。
+  final Color backgroundColor;
+
+  /// 背景图 URL（`background-image: url(...)` 的解析结果，绘制留资源任务）。
+  final String? backgroundImage;
+
+  /// 四边边框与四角圆角。
+  final CssBorders borders;
+
   /// 元素自身层叠出的属性集合。
   final Set<String> explicitProperties;
 
@@ -307,7 +441,268 @@ class ComputedStyle {
       'color=$color, weight=$fontWeight, italic=$italic, align=$textAlign, '
       'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin, '
       'families=$fontFamilies, position=$position, float=$cssFloat, '
-      'display=$display)';
+      'display=$display, bg=$backgroundColor, borders=$borders)';
+
+  /// 解析 `border` / `border-*` / `border-radius`（§65 背景与边框组）。
+  static CssBorders _resolveBorders(
+    Map<String, String> values,
+    Set<String> explicit, {
+    required double fontSize,
+    required double rootFontSize,
+    required Color color,
+  }) {
+    String? value(String property) =>
+        explicit.contains(property) ? values[property] : null;
+
+    double? length(String raw) => switch (raw.trim().toLowerCase()) {
+      'thin' => 1,
+      'medium' => 3,
+      'thick' => 5,
+      _ => _resolveLength(
+        raw,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: rootFontSize,
+        percentBase: 0,
+      ),
+    };
+
+    CssBorderSide? parseSide(String raw) {
+      final tokens = raw.trim().split(RegExp(r'\s+'));
+      var width = 0.0;
+      var style = CssBorderStyle.none;
+      var sideColor = color;
+      var sawToken = false;
+      for (final token in tokens) {
+        if (token.isEmpty) {
+          continue;
+        }
+        final parsedStyle = _parseBorderStyle(token);
+        if (parsedStyle != null) {
+          style = parsedStyle;
+          sawToken = true;
+          continue;
+        }
+        final parsedColor = _parseColor(token);
+        final parsedWidth = length(token);
+        if (parsedWidth != null && RegExp(r'^[+-]?[\d.]').hasMatch(token)) {
+          width = parsedWidth;
+          sawToken = true;
+        } else if (parsedColor != null) {
+          sideColor = parsedColor;
+          sawToken = true;
+        }
+      }
+      return sawToken
+          ? CssBorderSide(width: width, style: style, color: sideColor)
+          : null;
+    }
+
+    final initial = CssBorderSide(
+      width: 0,
+      style: CssBorderStyle.none,
+      color: color,
+    );
+    var sides = <CssBorderSide>[initial, initial, initial, initial];
+
+    final shorthand = parseSide(value('border') ?? '');
+    if (shorthand != null) {
+      sides = List<CssBorderSide>.filled(4, shorthand);
+    }
+
+    void applyWidths(String property) {
+      final raw = value(property);
+      if (raw == null) {
+        return;
+      }
+      final parts = _expandFour(raw.split(RegExp(r'\s+')));
+      for (var i = 0; i < parts.length; i++) {
+        final width = length(parts[i]);
+        if (width != null) {
+          sides[i] = CssBorderSide(
+            width: width,
+            style: sides[i].style,
+            color: sides[i].color,
+          );
+        }
+      }
+    }
+
+    void applyStyles(String property) {
+      final raw = value(property);
+      if (raw == null) {
+        return;
+      }
+      final parts = _expandFour(raw.split(RegExp(r'\s+')));
+      for (var i = 0; i < parts.length; i++) {
+        final style = _parseBorderStyle(parts[i]);
+        if (style != null) {
+          sides[i] = CssBorderSide(
+            width: sides[i].width,
+            style: style,
+            color: sides[i].color,
+          );
+        }
+      }
+    }
+
+    void applyColors(String property) {
+      final raw = value(property);
+      if (raw == null) {
+        return;
+      }
+      final parts = _expandFour(raw.split(RegExp(r'\s+')));
+      for (var i = 0; i < parts.length; i++) {
+        final parsed = _parseColor(parts[i]);
+        if (parsed != null) {
+          sides[i] = CssBorderSide(
+            width: sides[i].width,
+            style: sides[i].style,
+            color: parsed,
+          );
+        }
+      }
+    }
+
+    applyWidths('border-width');
+    applyStyles('border-style');
+    applyColors('border-color');
+
+    const sides4 = <(int, String)>[
+      (0, 'top'),
+      (1, 'right'),
+      (2, 'bottom'),
+      (3, 'left'),
+    ];
+    for (final (index, name) in sides4) {
+      final parsed = parseSide(value('border-$name') ?? '');
+      if (parsed != null) {
+        sides[index] = parsed;
+      }
+    }
+    for (final (index, name) in sides4) {
+      final rawWidth = value('border-$name-width');
+      if (rawWidth != null) {
+        final width = length(rawWidth);
+        if (width != null) {
+          sides[index] = CssBorderSide(
+            width: width,
+            style: sides[index].style,
+            color: sides[index].color,
+          );
+        }
+      }
+      final rawStyle = value('border-$name-style');
+      if (rawStyle != null) {
+        final style = _parseBorderStyle(rawStyle);
+        if (style != null) {
+          sides[index] = CssBorderSide(
+            width: sides[index].width,
+            style: style,
+            color: sides[index].color,
+          );
+        }
+      }
+      final rawColor = value('border-$name-color');
+      if (rawColor != null) {
+        final parsed = _parseColor(rawColor);
+        if (parsed != null) {
+          sides[index] = CssBorderSide(
+            width: sides[index].width,
+            style: sides[index].style,
+            color: parsed,
+          );
+        }
+      }
+    }
+    // 只写了线型没写宽度时按 CSS medium（3px）处理。
+    sides = [
+      for (final side in sides)
+        side.style != CssBorderStyle.none && side.width == 0
+            ? CssBorderSide(width: 3, style: side.style, color: side.color)
+            : side,
+    ];
+
+    var radii = <double>[0, 0, 0, 0];
+    final radiusRaw = value('border-radius');
+    if (radiusRaw != null) {
+      final tokens = radiusRaw.trim().split(RegExp(r'\s+'));
+      final slash = tokens.indexOf('/');
+      final parts = _expandFour(slash >= 0 ? tokens.sublist(0, slash) : tokens);
+      for (var i = 0; i < parts.length && i < 4; i++) {
+        radii[i] = length(parts[i]) ?? 0;
+      }
+    }
+    const corners = <(int, String)>[
+      (0, 'top-left'),
+      (1, 'top-right'),
+      (2, 'bottom-right'),
+      (3, 'bottom-left'),
+    ];
+    for (final (index, name) in corners) {
+      final raw = value('border-$name-radius');
+      if (raw != null) {
+        radii[index] = length(raw) ?? radii[index];
+      }
+    }
+
+    return CssBorders(
+      top: sides[0],
+      right: sides[1],
+      bottom: sides[2],
+      left: sides[3],
+      topLeftRadius: radii[0],
+      topRightRadius: radii[1],
+      bottomRightRadius: radii[2],
+      bottomLeftRadius: radii[3],
+    );
+  }
+
+  /// 把 1–4 个值按 CSS 规则展开成上/右/下/左。
+  static List<String> _expandFour(List<String> values) {
+    final parts = values.where((part) => part.isNotEmpty).toList();
+    return switch (parts.length) {
+      1 => <String>[parts[0], parts[0], parts[0], parts[0]],
+      2 => <String>[parts[0], parts[1], parts[0], parts[1]],
+      3 => <String>[parts[0], parts[1], parts[2], parts[1]],
+      >= 4 => parts.sublist(0, 4),
+      _ => const <String>[],
+    };
+  }
+
+  static CssBorderStyle? _parseBorderStyle(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'none' || 'hidden' => CssBorderStyle.none,
+        'solid' => CssBorderStyle.solid,
+        'dashed' => CssBorderStyle.dashed,
+        'dotted' => CssBorderStyle.dotted,
+        'double' => CssBorderStyle.double,
+        _ => null,
+      };
+
+  /// 解析 `background-image` 的 url；渐变与 none 返回 null。
+  static String? _parseUrl(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim();
+    final lower = value.toLowerCase();
+    if (value.isEmpty ||
+        lower == 'none' ||
+        lower.startsWith('linear-gradient') ||
+        lower.startsWith('radial-gradient')) {
+      return null;
+    }
+    final match = RegExp(
+      r'''url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)''',
+      caseSensitive: false,
+    ).firstMatch(value);
+    if (match == null) {
+      return null;
+    }
+    final url = (match[1] ?? match[2] ?? match[3])?.trim();
+    return url == null || url.isEmpty ? null : url;
+  }
 
   static CssEdges _resolveMargin(
     Map<String, String> values,

@@ -218,4 +218,45 @@ void main() {
     expect(none.fontFamily, isNull);
     expect(none.fontFamilyFallback, isEmpty);
   });
+
+  test('背景与边框属性解析', () {
+    final parsed = style(
+      'p',
+      'p { background-color: #112233; background-image: url("bg.png"); '
+          'border: 2px solid #FF0000; border-radius: 8px; }',
+    );
+    expect(parsed.backgroundColor, const Color(0xFF112233));
+    expect(parsed.backgroundImage, 'bg.png');
+    expect(parsed.borders.top.width, 2);
+    expect(parsed.borders.top.style, CssBorderStyle.solid);
+    expect(parsed.borders.top.color, const Color(0xFFFF0000));
+    expect(parsed.borders.isUniform, isTrue);
+    expect(parsed.borders.topLeftRadius, 8);
+    expect(parsed.borders.bottomRightRadius, 8);
+
+    final four = style(
+      'p',
+      'p { border-width: 1px 2px; border-style: dashed solid; '
+          'border-top-color: #00FF00; }',
+    );
+    expect(four.borders.top.width, 1);
+    expect(four.borders.right.width, 2);
+    expect(four.borders.bottom.width, 1);
+    expect(four.borders.left.width, 2);
+    expect(four.borders.top.style, CssBorderStyle.dashed);
+    expect(four.borders.right.style, CssBorderStyle.solid);
+    expect(four.borders.top.color, const Color(0xFF00FF00));
+    expect(four.borders.isUniform, isFalse);
+
+    final radii = style('p', 'p { border-radius: 4px 0 8px; }');
+    expect(radii.borders.topLeftRadius, 4);
+    expect(radii.borders.topRightRadius, 0);
+    expect(radii.borders.bottomRightRadius, 8);
+    expect(radii.borders.bottomLeftRadius, 0);
+
+    final plain = style('p', 'p { color: red; }');
+    expect(plain.borders.hasBorder, isFalse);
+    expect(plain.backgroundColor.a, 0);
+    expect(plain.backgroundImage, isNull);
+  });
 }
