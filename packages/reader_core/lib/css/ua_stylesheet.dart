@@ -22,6 +22,13 @@ area, basefont, datalist, noframes, param { display: none; }
 /* ==== 页面（15.3.2；边距由阅读器设置接管，Reeden 630 号 §4-3）==== */
 body { margin: 0; }
 
+/* ==== 排版前注入（P7-25；对照 Reeden 必配注入样式，630 号 §4-3）====
+   html/body 基础约束 + body 建立 BFC（flow-root）：阻断作者页面的
+   裸 float/负 margin 污染整章——块流引擎中由「页根容器钳制首元素负
+   margin（§60.7）+ UA origin 优先级」承担同一语义。 */
+html, body { overflow: hidden; min-height: 0; height: auto; }
+body { display: flow-root; }
+
 /* ==== 流内容（15.3.3）==== */
 /* 段落上下边距：段距按阅读器设置归一（技术方案 §7.5 第 3 条），
    覆盖层暂不启用 p 的默认段距，登记待 P4-21 设置项接入。 */

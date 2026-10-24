@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
+import 'package:reader_core/layout/block_flow.dart';
 import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/position/cfi.dart';
 
@@ -40,14 +41,46 @@ void main() {
       expect(style.values['page-break-after'], 'avoid');
     });
 
-    test('层叠可消费：noscript 声明 display:none', () {
-      final style = Cascade.compute(
-        element: _element('noscript'),
-        ancestors: const <ParsedElement>[],
-        rules: uaRules(),
-      );
-      expect(style.values['display'], 'none');
-    });
+  test('层叠可消费：noscript 声明 display:none', () {
+    final style = Cascade.compute(
+      element: _element('noscript'),
+      ancestors: const <ParsedElement>[],
+      rules: uaRules(),
+    );
+    expect(style.values['display'], 'none');
+  });
+
+  test('排版前注入规则在 UA 表中且可层叠（P7-25）', () {
+    // 注入语义：html/body 基础约束 + body flow-root（BFC 阻断）。
+    expect(uaStylesheetCss, contains('body { display: flow-root; }'));
+    expect(uaStylesheetCss, contains('overflow: hidden'));
+    final bodyStyle = Cascade.compute(
+      element: _element('body'),
+      ancestors: const <ParsedElement>[],
+      rules: uaRules(),
+    );
+    expect(bodyStyle.values['display'], 'flow-root');
+    expect(bodyStyle.values['margin'], '0');
+  });
+
+  test('body flow-root 语义：页根钳制首元素负 margin 不越出（对齐注入）', () {
+    // ColumnFlowBlock.body（§60.7）即块流引擎的 flow-root 承载体；
+    // 作者裸负 margin 在页根被钳 0，不污染整章（P2-09 语义对齐）。
+    final body = ColumnFlowBlock.body(<BlockFlow>[
+      TextFlowBlock(
+        text: 'aa',
+        style: ComputedStyle(const <String, String>{
+          'font-size': '16px',
+          'line-height': '1.5',
+          'font-family': 'Ahem',
+          'margin-top': '-20px',
+        }),
+      ),
+    ]);
+    body.measure(const LayoutConstraints(maxWidth: 320, maxHeight: 480));
+    expect(body.childTops.first, 0, reason: '负 margin 被页根钳制');
+    expect(body.size.height, 24);
+  });
   });
 
   group('UaBlockDefaults 覆盖层', () {
