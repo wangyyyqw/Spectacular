@@ -58,6 +58,9 @@ class ResourceIndex {
   /// 大小写冲突的路径（小写形式）。
   final Set<String> conflicts;
 
+  /// 经兜底级（小写/文件名/media-type）命中的次数（P3-26 L1 修复计数）。
+  int fallbackHits = 0;
+
   /// 索引条目数。
   int get length => _exact.length;
 
@@ -99,6 +102,7 @@ class ResourceIndex {
       }
       final hit = _lower[lowerCandidate];
       if (hit != null) {
+        fallbackHits += 1;
         return hit;
       }
     }
@@ -125,6 +129,7 @@ class ResourceIndex {
       final typed = _byMediaType[type] ?? const <String>[];
       for (final path in typed) {
         if (p.posix.basename(path) == baseName) {
+          fallbackHits += 1;
           return path;
         }
       }
@@ -132,6 +137,7 @@ class ResourceIndex {
       if (tail != null) {
         for (final path in typed) {
           if (path.toLowerCase().endsWith(tail)) {
+            fallbackHits += 1;
             return path;
           }
         }
@@ -185,6 +191,7 @@ class ResourceIndex {
       }
       final actual = sniffMediaType(bytes);
       if (actual != null && classifyMediaType(actual) == expected) {
+        fallbackHits += 1;
         return name;
       }
     }

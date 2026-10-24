@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/archive_reader.dart';
 import 'package:reader_core/epub/container.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/importer.dart';
 import 'package:reader_core/epub/opf.dart';
 
 import '../support/corpus.dart';
@@ -63,8 +64,16 @@ void main() {
       'OEBPS/c1.xhtml': _chapter,
     });
     final result = await openEpub(bytes);
-    expect(result.ok, isFalse);
-    expect(result.report.errorCode, 'E_CONTAINER_MISSING');
+    // P3-26 §55.1：无 OPF 时按文件名排序拼 XHTML 章节（L3）——比直接
+    // 拒绝有价值；完全无 XHTML 时才拒绝（readability_test 样本 D）。
+    expect(result.ok, isTrue, reason: result.report.message);
+    expect(result.report.readabilityLevel, EpubReadability.l3);
+    expect(
+      result.report.warnings.any(
+        (w) => w.startsWith('E_CONTAINER_FALLBACK') && w.contains('排序'),
+      ),
+      isTrue,
+    );
   });
 
   test('parseWithFallback 正常路径无诊断', () {

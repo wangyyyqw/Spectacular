@@ -18,6 +18,7 @@ import '../parser/text_aggregator.dart';
 import 'opf.dart';
 import 'toc.dart';
 import 'font_obfuscation.dart';
+import 'importer.dart';
 import 'resource_index.dart';
 
 /// 打开结果：成功时带文档，失败时只带报告。
@@ -45,6 +46,7 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
         report: ImportReport(
           ok: false,
           errorCode: 'E_OCF',
+          readabilityLevel: EpubReadability.l4,
           message: ocf.errors.join('；'),
           warnings: ocf.warnings,
         ),
@@ -55,33 +57,114 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
     warnings.addAll(archive.diagnostics);
 
     // P7-12：container.xml 缺失/损坏时按候选路径扫描 OPF 兜底（诊断
-    // 进 warnings，不静默）；全部候选失败保留原拒绝路径。
-    final containerParsed = EpubContainer.parseWithFallback(archive);
-    final container = containerParsed.$1;
-    final containerDiagnostic = containerParsed.$2;
+    // 进 warnings，不静默）；全部候选失败走 L3 拼装（P3-26）。
+    ContainerInfo container;
+    String? containerDiagnostic;
+    try {
+      final containerParsed = EpubContainer.parseWithFallback(archive);
+      container = containerParsed.$1;
+      containerDiagnostic = containerParsed.$2;
+    } on EpubException catch (error) {
+      final fallbackPackage = buildFallbackPackage(archive);
+      if (fallbackPackage == null) {
+        return EpubOpenResult(
+          report: ImportReport(
+            ok: false,
+            errorCode: error.code,
+            message: error.message,
+            warnings: warnings,
+          ),
+        );
+      }
+      warnings.add(
+        'E_CONTAINER_FALLBACK: 无 OPF，按文件名排序拼出 '
+            ' 个章节（结构异常，进度与目录不可靠）',
+      );
+      return await _finishOpen(
+        archive: archive,
+        package: fallbackPackage,
+        opfPath: 'fallback.opf',
+        warnings: warnings,
+      );
+    }
     if (containerDiagnostic != null) {
       warnings.add(containerDiagnostic);
     }
-    final opfString = archive.readString(container.rootfilePath);
+    var opfString = archive.readString(container.rootfilePath);
     if (opfString == null) {
-      return EpubOpenResult(
-        report: ImportReport(
-          ok: false,
-          errorCode: 'E_OPF_MISSING',
-          message: 'OPF 不存在：${container.rootfilePath}',
-          warnings: warnings,
-        ),
+      // L3 兜底（P3-26，§55.1）：无 OPF 时按文件名排序拼 XHTML 章节，
+      // 比直接拒绝有价值；结构异常记 L3。
+      final fallbackPackage = buildFallbackPackage(archive);
+      if (fallbackPackage == null) {
+        return EpubOpenResult(
+          report: ImportReport(
+            ok: false,
+            errorCode: 'E_OPF_MISSING',
+            readabilityLevel: EpubReadability.l4,
+            message: 'OPF 不存在：${container.rootfilePath}',
+            warnings: warnings,
+          ),
+        );
+      }
+      warnings.add(
+        'E_CONTAINER_FALLBACK: 无 OPF，按文件名排序拼出 '
+            '${fallbackPackage.spine.length} 个章节（结构异常，进度与目录不可靠）',
+      );
+      return await _finishOpen(
+        archive: archive,
+        package: fallbackPackage,
+        opfPath: container.rootfilePath,
+        warnings: warnings,
       );
     }
     final package = OpfParser.parse(opfString);
     warnings.addAll(package.warnings);
+    return await _finishOpen(
+      archive: archive,
+      package: package,
+      opfPath: container.rootfilePath,
+      warnings: warnings,
+      opfString: opfString,
+    );
+  } on EpubException catch (error) {
+    return EpubOpenResult(
+      report: ImportReport(
+        ok: false,
+        errorCode: error.code,
+        message: error.message,
+        warnings: warnings,
+        readabilityLevel: EpubReadability.l4,
+      ),
+    );
+  } catch (error) {
+    return EpubOpenResult(
+      report: ImportReport(
+        ok: false,
+        errorCode: 'E_INTERNAL',
+        readabilityLevel: EpubReadability.l4,
+        message: '打开失败：$error',
+        warnings: warnings,
+      ),
+    );
+  }
+}
 
+/// 打开的收尾段（P3-26）：spine 校验 → 资源探测 → 分级。
+Future<EpubOpenResult> _finishOpen({
+  required EpubArchive archive,
+  required OpfPackage package,
+  required String opfPath,
+  required List<String> warnings,
+  String? opfString,
+}) async {
+  {
     if (package.spine.isEmpty) {
       return EpubOpenResult(
         report: ImportReport(
           ok: false,
           errorCode: 'E_SPINE_EMPTY',
-          message: 'spine 为空，无法阅读',
+          readabilityLevel: EpubReadability.l4,
+          message: 'spine 为空，无法分页',
           warnings: warnings,
         ),
       );
@@ -90,49 +173,67 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
     final resources = ResourceIndex.build(
       archive: archive,
       manifest: package.manifest,
-      opfPath: container.rootfilePath,
+      opfPath: opfPath,
     );
     final tocResult = TocFallback.build(
       archive: archive,
       package: package,
-      opfPath: container.rootfilePath,
+      opfPath: opfPath,
     );
     warnings.addAll(tocResult.warnings);
     // 字体混淆信息（P3-05）：encryption.xml + FairPlay 检测。
     final fontEncryption = _parseFontEncryption(archive, warnings);
+    // 导入期探测与分级（P3-26）：spine 缺失 + 图片/字体资源可解性。
+    final probe = probeImport(
+      archive: archive,
+      package: package,
+      resources: resources,
+      opfDir: opfPath.contains('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '',
+    );
+    if (probe.missingSpineItems > 0) {
+      warnings.add(
+        'E_SPINE_MISSING: ${probe.missingSpineItems} 个章节文件不存在',
+      );
+    }
+    if (probe.missingResources > 0) {
+      warnings.add(
+        'E_RESOURCE_MISSING: ${probe.missingResources} 个图片/字体资源缺失',
+      );
+    }
+    if (probe.repairedRefs > 0) {
+      warnings.add(
+        'E_RESOURCE_REPAIRED: 已自动修复 ${probe.repairedRefs} 处引用',
+      );
+    }
+    final level = EpubReadability.grade(
+      ok: true,
+      warnings: warnings,
+      spineCount: package.spine.length,
+      missingSpineItems: probe.missingSpineItems,
+      missingResources: probe.missingResources,
+      repairedRefs: probe.repairedRefs,
+      // 目录退化 = 有 tocId/nav 但退化为 spine 顺序；书本身无目录不算。
+      tocFallbackUsed: tocResult.source == 'spine' &&
+          (package.tocId != null ||
+              package.manifest.any(
+                (item) => item.properties.contains('nav'),
+              )),
+    );
     final document = EpubDocumentImpl(
       archive: archive,
       package: package,
       resources: resources,
-      opfPath: container.rootfilePath,
+      opfPath: opfPath,
       toc: tocResult.entries,
       tocSource: tocResult.source,
       fontEncryption: fontEncryption,
       report: ImportReport(
         ok: true,
         warnings: List<String>.unmodifiable(warnings),
-        readabilityLevel: warnings.isEmpty ? 0 : 1,
+        readabilityLevel: level,
       ),
     );
     return EpubOpenResult(document: document, report: document.report);
-  } on EpubException catch (error) {
-    return EpubOpenResult(
-      report: ImportReport(
-        ok: false,
-        errorCode: error.code,
-        message: error.message,
-        warnings: warnings,
-      ),
-    );
-  } catch (error) {
-    return EpubOpenResult(
-      report: ImportReport(
-        ok: false,
-        errorCode: 'E_INTERNAL',
-        message: '打开失败：$error',
-        warnings: warnings,
-      ),
-    );
   }
 }
 
