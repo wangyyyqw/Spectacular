@@ -106,6 +106,9 @@ class CssBackgroundPosition {
 /// 背景绘制区域（CSS background-origin 的基础）。
 enum CssBackgroundOrigin { borderBox, paddingBox, contentBox }
 
+/// 背景裁剪区域（CSS background-clip）。
+enum CssBackgroundClip { borderBox, paddingBox, contentBox, text }
+
 /// 清除浮动（CSS clear）。
 enum CssClear { none, left, right, both }
 
@@ -519,6 +522,9 @@ class ComputedStyle {
     final backgroundOrigin =
         _parseBackgroundOrigin(explicitValue('background-origin')) ??
         CssBackgroundOrigin.paddingBox;
+    final backgroundClip =
+        _parseBackgroundClip(explicitValue('background-clip')) ??
+        CssBackgroundClip.borderBox;
     final clear = _parseClear(explicitValue('clear')) ?? CssClear.none;
     final rawCollapse = explicitValue('border-collapse');
     final borderCollapse = rawCollapse == null
@@ -639,6 +645,7 @@ class ComputedStyle {
       backgroundSize: backgroundSize,
       backgroundPosition: backgroundPosition,
       backgroundOrigin: backgroundOrigin,
+      backgroundClip: backgroundClip,
       clear: clear,
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
@@ -695,6 +702,7 @@ class ComputedStyle {
     required this.backgroundSize,
     required this.backgroundPosition,
     required this.backgroundOrigin,
+    required this.backgroundClip,
     required this.clear,
     required this.borderCollapse,
     required this.borderSpacing,
@@ -824,6 +832,9 @@ class ComputedStyle {
 
   /// 背景绘制区域（`background-origin`，初始 padding-box）。
   final CssBackgroundOrigin backgroundOrigin;
+
+  /// 背景裁剪区域（`background-clip`，初始 border-box）。
+  final CssBackgroundClip backgroundClip;
 
   /// 清除浮动（`clear`，不继承）。
   final CssClear clear;
@@ -1626,6 +1637,15 @@ class ComputedStyle {
       y: parseOne(tokens[1]),
     );
   }
+
+  static CssBackgroundClip? _parseBackgroundClip(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'border-box' || 'border' => CssBackgroundClip.borderBox,
+        'padding-box' || 'padding' => CssBackgroundClip.paddingBox,
+        'content-box' || 'content' => CssBackgroundClip.contentBox,
+        'text' => CssBackgroundClip.text,
+        _ => null,
+      };
 
   static CssBackgroundOrigin? _parseBackgroundOrigin(String? raw) =>
       switch (raw?.trim().toLowerCase()) {

@@ -146,7 +146,11 @@ class PagePainter {
       ),
     );
     if (style.backgroundColor.a != 0) {
+      // 背景色按 background-clip 裁剪区域绘制（P3：origin/clip 语义）。
+      canvas.save();
+      canvas.clipRect(_backgroundClipRect(box, style));
       canvas.drawRRect(rounded, Paint()..color = style.backgroundColor);
+      canvas.restore();
     }
     final image = _resolveBackgroundImage(style);
     if (image == null) {
@@ -158,20 +162,60 @@ class PagePainter {
         rounded.brRadiusX > 0 ||
         rounded.blRadiusX > 0;
     canvas.save();
+    canvas.clipRect(_backgroundClipRect(box, style));
     if (roundedCorners) {
       canvas.clipRRect(rounded);
-    } else {
-      canvas.clipRect(box);
     }
     paintBackgroundImage(
       canvas,
       image,
-      box,
+      _backgroundOriginRect(box, style),
       repeat: style.backgroundRepeat,
       size: style.backgroundSize,
       position: style.backgroundPosition,
     );
     canvas.restore();
+  }
+
+  /// 背景裁剪区域：border-box / padding-box / content-box。
+  ///
+  /// `background-clip: text` 需要按文字轮廓裁剪，当前按 padding-box 降级。
+  Rect _backgroundClipRect(Rect box, ComputedStyle style) {
+    switch (style.backgroundClip) {
+      case CssBackgroundClip.borderBox:
+        return box;
+      case CssBackgroundClip.text:
+      case CssBackgroundClip.paddingBox:
+        return _deflateByBox(box, style, includePadding: false);
+      case CssBackgroundClip.contentBox:
+        return _deflateByBox(box, style, includePadding: true);
+    }
+  }
+
+  /// 背景定位区域（background-origin）：决定 size/position 的解算基准。
+  Rect _backgroundOriginRect(Rect box, ComputedStyle style) {
+    switch (style.backgroundOrigin) {
+      case CssBackgroundOrigin.borderBox:
+        return box;
+      case CssBackgroundOrigin.paddingBox:
+        return _deflateByBox(box, style, includePadding: false);
+      case CssBackgroundOrigin.contentBox:
+        return _deflateByBox(box, style, includePadding: true);
+    }
+  }
+
+  Rect _deflateByBox(
+    Rect box,
+    ComputedStyle style, {
+    required bool includePadding,
+  }) {
+    final padding = includePadding ? style.padding : CssEdges.zero;
+    return Rect.fromLTRB(
+      box.left + style.borders.left.width + padding.left,
+      box.top + style.borders.top.width + padding.top,
+      box.right - style.borders.right.width - padding.right,
+      box.bottom - style.borders.bottom.width - padding.bottom,
+    );
   }
 
   /// 取块背景图：未声明 `background-image` 或调用方暂无该图时返回 null。
