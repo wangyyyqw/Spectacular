@@ -55,6 +55,13 @@ class BookFontLoader {
   final Map<String, Map<String, RegisteredFontFace>> _registered =
       <String, Map<String, RegisteredFontFace>>{};
 
+  /// 已播报过的降级键（P3-06）：同一 (族, 原因) 只进一次 result.warnings，
+  /// 供 UI「提示只出现一次」口径；完整记录见 [degradationLog]。
+  final Set<String> _degradationSeen = <String>{};
+
+  /// 全量降级记录（含重复），供诊断导出。
+  final List<String> degradationLog = <String>[];
+
   /// 引擎族名：`bi_<bookId>_<cssFamily>`（技术方案 §68.1 命名）。
   String engineFamilyName(String cssFamily) => 'bi_${bookId}_$cssFamily';
 
@@ -134,7 +141,11 @@ class BookFontLoader {
 
       if (cache.isEmpty) {
         if (existing == null) {
-          warnings.add('字体族 $cssFamily 无可加载 face，回退链继续');
+          _warn(
+            warnings,
+            '字体族 $cssFamily 无可加载 face，回退链继续',
+            'E_FONT_LOAD_FAILED: 字体族 $cssFamily 无可加载 face，回退链继续',
+          );
         }
         continue;
       }
@@ -162,7 +173,11 @@ class BookFontLoader {
         _registered[engineName] = cache;
         engineFamilies[cssFamily] = engineName;
       } catch (error) {
-        warnings.add('字体族 $cssFamily 注册失败：$error');
+        _warn(
+          warnings,
+          '字体族 $cssFamily 注册失败：$error',
+          'E_FONT_LOAD_FAILED: 字体族 $cssFamily 注册失败：$error',
+        );
       }
     }
     return BookFontLoadResult(
@@ -173,6 +188,15 @@ class BookFontLoader {
 
   static String _faceKey(CssFontFace face) => 'w${face.normalizedWeight ?? 400}'
       'i${face.normalizedStyle == 'italic' ? 1 : 0}';
+
+  /// 降级告警去重（P3-06）：同一原因只进一次 result.warnings（UI
+  /// 「提示只出现一次」），完整记录进 [degradationLog] 供导出。
+  void _warn(List<String> warnings, String key, String message) {
+    degradationLog.add(message);
+    if (_degradationSeen.add(key)) {
+      warnings.add(message);
+    }
+  }
 
   /// 按来源顺序取第一个可用的 url 字节；local 来源在 P3-03 接入系统
   /// 字体映射前不可加载，记告警跳过。
@@ -189,9 +213,11 @@ class BookFontLoader {
         continue;
       }
       if (source.isUnsupportedFormat) {
-        warnings.add(
-          '字体族 ${face.family} 的 ${source.ref} 格式不支持'
-          '（${source.format}），跳过',
+        _warn(
+          warnings,
+          '${face.family}|unsupported|${source.ref}',
+          'E_FONT_UNSUPPORTED: 字体族 ${face.family} 的 ${source.ref} '
+              '格式不支持（${source.format}），跳过',
         );
         continue;
       }
@@ -200,9 +226,19 @@ class BookFontLoader {
         if (bytes != null && bytes.isNotEmpty) {
           return bytes;
         }
-        warnings.add('字体族 ${face.family} 的 ${source.ref} 资源缺失，跳过');
+        _warn(
+          warnings,
+          '${face.family}|missing|${source.ref}',
+          'E_FONT_LOAD_FAILED: 字体族 ${face.family} 的 ${source.ref} '
+              '资源缺失，跳过',
+        );
       } catch (error) {
-        warnings.add('字体族 ${face.family} 的 ${source.ref} 读取失败：$error');
+        _warn(
+          warnings,
+          '${face.family}|read-error|${source.ref}',
+          'E_FONT_LOAD_FAILED: 字体族 ${face.family} 的 ${source.ref} '
+              '读取失败：$error',
+        );
       }
     }
     return null;
