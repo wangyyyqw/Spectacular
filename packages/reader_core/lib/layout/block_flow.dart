@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import 'box_model.dart';
+import 'float_occupancy.dart';
 import 'line_breaker.dart';
 
 /// 块级盒的测量约束（§60.1）。
@@ -256,6 +257,8 @@ class ColumnFlowBlock extends BlockFlow {
   final CssEdges _borders;
   final bool _clampFirstNegativeTopMargin;
   final List<double> _childTops = <double>[];
+  final List<double> _childLefts = <double>[];
+  final FloatOccupancy _floats = FloatOccupancy();
   var _collapsedMargin = CssEdges.zero;
   var _contentHeight = 0.0;
 
@@ -274,12 +277,21 @@ class ColumnFlowBlock extends BlockFlow {
   /// 各流内子块顶边相对容器内容区顶部的偏移（按出现顺序）。
   List<double> get childTops => List<double>.unmodifiable(_childTops);
 
+  /// 各流内子块左边相对容器内容区左边的偏移（P3-13：被左浮动收窄时 >0）。
+  List<double> get childLefts => List<double>.unmodifiable(_childLefts);
+
+  /// 本容器的浮动占用（P3-13）：容器测量时登记，跨页衔接（P3-15）与
+  /// 绘制消费。
+  FloatOccupancy get floats => _floats;
+
   @override
   CssEdges get margin => _collapsedMargin;
 
   @override
   void onLayout(LayoutConstraints constraints) {
     _childTops.clear();
+    _childLefts.clear();
+    _floats.clear();
     final childWidth = math.max(0.0, constraints.maxWidth - _horizontalInset);
     var remaining = constraints.maxHeight;
     var cursor = 0.0;
@@ -292,22 +304,77 @@ class ColumnFlowBlock extends BlockFlow {
     BlockFlow? firstChild;
     BlockFlow? lastChild;
     for (final child in _children) {
-      child.measure(
-        LayoutConstraints(maxWidth: childWidth, maxHeight: remaining),
-      );
-      if (child.isOutOfFlow) {
+      // 浮动分支（P3-13，§48.2）：fit-content 测量后按当前位置登记
+      // 占用；不推进块流、不进顶位表（childTops 只覆盖流内子块）、
+      // 不参与 margin 折叠——位置由 [floats] 的占用矩形承载。
+      if (child.branch == FlowBranch.float && child is FloatFlowBlock) {
+        child.measure(
+          LayoutConstraints(
+            maxWidth: childWidth,
+            maxHeight: remaining.isFinite ? remaining : double.infinity,
+          ),
+        );
+        final width = child.size.width;
+        final left = child.side == FloatSide.left
+            ? child.margin.left
+            : math.max(0.0, childWidth - width - child.margin.right);
+        _floats.insert(
+          BoxOccupied(
+            rect: Rect.fromLTWH(left, cursor + child.margin.top, width,
+                child.size.height),
+            baseline: cursor,
+            side: child.side,
+          ),
+        );
         continue;
       }
+      if (child.branch == FlowBranch.absolute) {
+        child.measure(
+          LayoutConstraints(maxWidth: childWidth, maxHeight: remaining),
+        );
+        continue;
+      }
+      final gap = firstChild == null
+          ? 0.0
+          : collapseMargins(previousBottom, child.margin.top);
+      final top = cursor + gap;
+      // 绕排收窄（P3-13，§48.2 createPlaceholders 的容器侧等价）：
+      // 首趟按全宽测量，按块高度区间查占用；浮动收窄了可用宽才重测
+      // （最多 3 趟收敛）——无浮动的树保持单次测量不变量。
+      var available = childWidth;
+      child.measure(
+        LayoutConstraints(maxWidth: available, maxHeight: remaining),
+      );
+      var pass = 0;
+      while (true) {
+        final bottom = top + child.size.height;
+        final narrowed = math.max(
+          0.0,
+          childWidth -
+              _floats.occupiedLeftAt(top, bottom) -
+              _floats.occupiedRightAt(top, bottom, childWidth),
+        );
+        if (narrowed >= available - 0.5 || pass >= 2) {
+          break;
+        }
+        available = narrowed;
+        child.measure(
+          LayoutConstraints(maxWidth: available, maxHeight: remaining),
+        );
+        pass += 1;
+      }
+      final leftInset = _floats.occupiedLeftAt(
+        top,
+        top + child.size.height,
+      );
       final selfCollapsing =
           child.size.height == 0 && child.verticalInsets == 0;
+      _childTops.add(top);
+      _childLefts.add(leftInset);
       if (selfCollapsing) {
         // 穿透（P7-24，CSS 2.2 §8.3.1）：零高且无垂直 padding/border
         // 的块不推进流——其上下 margin 与前块下 margin 合并后向前
         // 携带（或作为首块向上逸出进容器顶 margin）。
-        final gap = firstChild == null
-            ? 0.0
-            : collapseMargins(previousBottom, child.margin.top);
-        _childTops.add(cursor + gap);
         final merged = collapseMargins(child.margin.top, child.margin.bottom);
         if (firstChild == null) {
           previousBottom = 0;
@@ -315,10 +382,6 @@ class ColumnFlowBlock extends BlockFlow {
           previousBottom = collapseMargins(previousBottom, merged);
         }
       } else {
-        final gap = firstChild == null
-            ? 0.0
-            : collapseMargins(previousBottom, child.margin.top);
-        _childTops.add(cursor + gap);
         cursor += gap + child.size.height;
         if (remaining.isFinite) {
           remaining = math.max(0.0, remaining - gap - child.size.height);
@@ -450,7 +513,7 @@ BlockFlow createFlowBox({
       : ColumnFlowBlock.styled(children: children, style: style);
   return switch (resolveFlowBranch(style)) {
     FlowBranch.absolute => AbsoluteFlowBlock(content),
-    FlowBranch.float => FloatFlowBlock(content),
+    FlowBranch.float => FloatFlowBlock(content, style),
     FlowBranch.table => TableFlowBlock(content),
     FlowBranch.inline => InlineFlowBlock(text != null ? [content] : children),
     FlowBranch.none => HiddenFlowBlock(),
@@ -493,12 +556,22 @@ class AbsoluteFlowBlock extends BlockFlow {
 }
 
 /// 浮动盒：按可用宽做 fit-content 收缩，不推进父容器块流（§60.2 第 2 条、§60.5）。
+///
+/// 容器测量时把它登记进 [FloatOccupancy]，后续流内块按区间收窄宽度绕排
+/// （P3-13 createPlaceholders 分支）。
 class FloatFlowBlock extends BlockFlow {
   /// 包裹内容盒。
-  FloatFlowBlock(this.content);
+  FloatFlowBlock(this.content, this.style);
 
   /// 被测内容。
   final BlockFlow content;
+
+  /// 浮动盒自身样式（float 方向与 margin 来源）。
+  final ComputedStyle style;
+
+  /// 浮动方向。
+  FloatSide get side =>
+      style.cssFloat == CssFloat.right ? FloatSide.right : FloatSide.left;
 
   @override
   FlowBranch get branch => FlowBranch.float;

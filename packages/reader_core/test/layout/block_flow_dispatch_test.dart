@@ -195,7 +195,9 @@ void main() {
     // 流内只有 table + inline + block：24 × 3。
     expect(root.size.height, closeTo(72, 0.01));
     expect(root.size.width, closeTo(64, 0.01));
-    expect(_walk(root).every((node) => node.layoutCount <= 1), isTrue);
+    // 有浮动的树允许绕排收窄重测（P3-13，有界 ≤3 且确定性）；无浮动的
+    // 树仍严格单次测量（block_flow_test 不变量）。
+    expect(_walk(root).every((node) => node.layoutCount <= 3), isTrue);
   });
 
   test('绝对定位按容器宽测量但不推进容器高度', () {
