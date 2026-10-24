@@ -200,6 +200,12 @@ abstract final class UaBlockDefaults {
           'margin-bottom': '1em',
           'padding-left': '40px',
         },
+        // 列表项（P3-23）：flat 管线无 ul 盒子，margin-left 40px 近似
+        // ul padding-left 缩进；标记由章节源按列表类型赋值绘制。
+        'li': <String, String>{
+          'margin-left': '40px',
+          'list-style-type': 'disc',
+        },
         'ol': <String, String>{
           'margin-top': '1em',
           'margin-bottom': '1em',

@@ -62,6 +62,10 @@ class PageSelection {
 
 /// 按页绘制文本与背景。
 class PagePainter {
+  /// 列表标记 gutter（P3-23）：标记距文本左缘的距离（UA li margin-left
+  /// 40px 的内半区）。
+  static const double markerGutter = 20;
+
   /// 创建绘制器。
   const PagePainter({
     this.background = const Color(0xFFFFFFFF),
@@ -174,6 +178,18 @@ class PagePainter {
           final lineText = layout.text.substring(line.start, line.end);
           if (lineText.isNotEmpty) {
             final x = line.offsetX + geometry.leftInset;
+            // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
+            if (lineIndex == 0 &&
+                geometry.slice.block.listMarker != null) {
+              _paintListMarker(
+                canvas,
+                geometry,
+                marker: geometry.slice.block.listMarker!,
+                textX: x,
+                lineTop: lineY,
+                lineHeight: line.height,
+              );
+            }
             if (_needsEllipsis(geometry, line)) {
               _paintEllipsizedLine(
                 canvas,
@@ -407,6 +423,34 @@ class PagePainter {
 
   /// 省略号截断绘制（P2-37）：裁掉超出部分，右缘补「…」。
   /// 布局结果不改（CFI/选区仍按原文），截断只在绘制层发生。
+  /// 列表标记绘制（P3-23）：块首行文本左缘再往左一个 gutter（UA li
+  /// margin-left 40px 的内半区），垂直居中于首行。
+  void _paintListMarker(
+    Canvas canvas,
+    _SliceGeometry geometry, {
+    required String marker,
+    required double textX,
+    required double lineTop,
+    required double lineHeight,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(text: marker, style: geometry.textStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final x = math.max(
+      geometry.box.left + 1,
+      geometry.box.left + textX - markerGutter,
+    );
+    painter.paint(
+      canvas,
+      Offset(
+        x,
+        lineTop + (lineHeight - painter.height) / 2,
+      ),
+    );
+    painter.dispose();
+  }
+
   void _paintEllipsizedLine(
     Canvas canvas,
     PageContent page,

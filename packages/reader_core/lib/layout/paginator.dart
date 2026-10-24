@@ -22,6 +22,7 @@ class PageBlock {
     this.leftInset = 0,
     this.breakInsideAvoid = false,
     this.breakAfterAvoid = false,
+    this.listMarker,
     this.groupId = 0,
   });
 
@@ -40,6 +41,7 @@ class PageBlock {
     double spaceBefore = 0,
     double spaceAfter = 0,
     int groupId = 0,
+    String? listMarker,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -57,6 +59,7 @@ class PageBlock {
       bottomInset: model.borders.bottom + model.padding.bottom,
       leftInset: model.borders.left + model.padding.left,
       groupId: groupId,
+      listMarker: listMarker,
     );
   }
 
@@ -98,6 +101,11 @@ class PageBlock {
 
   /// 块后避免分页（`break-after: avoid`）：标题不落页底（P3-22）。
   final bool breakAfterAvoid;
+
+  /// 列表标记文本（P3-23）：'•'/'1.' 等；null 非列表项。绘制在块首行
+  /// 左侧 gutter（UA li margin-left 的 40px 内），由章节源按列表类型
+  /// 与序号赋值。
+  final String? listMarker;
 
   /// 整组不可切标记（P7-26）：非 0 时同组连续块是原子单元——整组放
   /// 不下当前页时整体下移；组高于整页时按序切。0 = 无组。
