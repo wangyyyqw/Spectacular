@@ -40,7 +40,7 @@ void main() {
     expect(archive.contains('META-INF/container.xml'), isTrue);
   }, skip: skip);
 
-  test('CRC 错误在打开时报告为 E_ARCHIVE', () {
+  test('全部条目损坏：截断档拒绝（P7-15）', () {
     final content = utf8.encode('hello epub content with crc check');
     final file = ArchiveFile('x.txt', content.length, content)
       ..compression = CompressionType.none;
@@ -58,17 +58,64 @@ void main() {
         isA<EpubException>().having(
           (e) => e.code,
           'code',
-          anyOf('E_ARCHIVE', 'E_CRC'),
+          'E_ZIP_ENTRY_TRUNCATED',
         ),
       ),
     );
   });
 
-  test('非 ZIP 字节报告为 E_ARCHIVE', () {
+  test('部分条目损坏：跳过坏条目恢复并记诊断（P7-15）', () {
+    final zip = _twoEntryZip();
+    // 翻转第二个条目（bad.txt）的内容字节。
+    final bad = utf8.encode('bad content payload here');
+    final index = _indexOf(zip, bad);
+    expect(index, greaterThan(0));
+    zip[index] ^= 0xFF;
+
+    final archive = EpubArchive.fromBytes(zip);
+    expect(archive.contains('good.txt'), isTrue);
+    expect(archive.contains('bad.txt'), isFalse, reason: '坏条目被跳过');
+    expect(
+      archive.diagnostics.any((d) => d.startsWith('E_ZIP_ENTRY_TRUNCATED')),
+      isTrue,
+    );
+    expect(archive.diagnostics.any((d) => d.contains('bad.txt')), isTrue);
+  });
+
+  test('局部头偏移错位：扫描修补后恢复（P7-15）', () {
+    final zip = _twoEntryZip();
+    // 把中心目录里 bad.txt 的局部头偏移改错 3 字节。
+    final patched = _shiftCentralOffset(zip, 'bad.txt', 3);
+    expect(patched, isNotNull);
+    final archive = EpubArchive.fromBytes(patched!);
+    expect(archive.contains('good.txt'), isTrue);
+    expect(archive.readString('bad.txt'), isNotNull, reason: '修补后条目可读');
+    expect(
+      archive.diagnostics.any((d) => d.startsWith('E_ZIP_LOCAL_HEADER')),
+      isTrue,
+    );
+  });
+
+  test('EOCD 缺失：不可恢复档拒绝（P7-15）', () {
+    final zip = _twoEntryZip();
+    final cut = Uint8List.sublistView(zip, 0, zip.length - 24);
+    expect(
+      () => EpubArchive.fromBytes(cut),
+      throwsA(
+        isA<EpubException>().having(
+          (e) => e.code,
+          'code',
+          anyOf('E_ZIP_EOCD_MISSING', 'E_ARCHIVE'),
+        ),
+      ),
+    );
+  });
+
+  test('非 ZIP 字节按档拒绝', () {
     final garbage = Uint8List.fromList(List<int>.generate(128, (i) => i));
     expect(
       () => EpubArchive.fromBytes(garbage),
-      throwsA(isA<EpubException>().having((e) => e.code, 'code', 'E_ARCHIVE')),
+      throwsA(isA<EpubException>()),
     );
   });
 
@@ -111,4 +158,55 @@ int _indexOf(List<int> haystack, List<int> needle) {
     return i;
   }
   return -1;
+}
+
+/// 两个 store 条目的最小 ZIP（字节可控，便于故障注入，P7-15）。
+Uint8List _twoEntryZip() {
+  final good = utf8.encode('good content payload here');
+  final bad = utf8.encode('bad content payload here');
+  final archive = Archive()
+    ..addFile(
+      ArchiveFile('good.txt', good.length, good)
+        ..compression = CompressionType.none,
+    )
+    ..addFile(
+      ArchiveFile('bad.txt', bad.length, bad)
+        ..compression = CompressionType.none,
+    );
+  return Uint8List.fromList(ZipEncoder().encode(archive));
+}
+
+/// 把中心目录中 [name] 条目的局部头偏移偏移 [delta] 字节（P7-15）。
+Uint8List? _shiftCentralOffset(Uint8List zip, String name, int delta) {
+  final data = ByteData.sublistView(zip);
+  var eocd = -1;
+  for (var i = zip.length - 22; i >= 0; i--) {
+    if (data.getUint32(i, Endian.little) == 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) {
+    return null;
+  }
+  var cursor = data.getUint32(eocd + 16, Endian.little);
+  for (var i = 0; i < data.getUint16(eocd + 10, Endian.little); i++) {
+    final nameLength = data.getUint16(cursor + 28, Endian.little);
+    final extraLength = data.getUint16(cursor + 30, Endian.little);
+    final commentLength = data.getUint16(cursor + 32, Endian.little);
+    final entryName = utf8.decode(
+      zip.sublist(cursor + 46, cursor + 46 + nameLength),
+    );
+    if (entryName == name) {
+      final out = Uint8List.fromList(zip);
+      ByteData.sublistView(out).setUint32(
+        cursor + 42,
+        data.getUint32(cursor + 42, Endian.little) + delta,
+        Endian.little,
+      );
+      return out;
+    }
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return null;
 }

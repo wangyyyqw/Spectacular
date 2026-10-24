@@ -50,6 +50,8 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
       );
     }
     warnings.addAll(ocf.warnings);
+    // ZIP 恢复档诊断（P7-15）并入报告。
+    warnings.addAll(archive.diagnostics);
 
     // P7-12：container.xml 缺失/损坏时按候选路径扫描 OPF 兜底（诊断
     // 进 warnings，不静默）；全部候选失败保留原拒绝路径。
