@@ -88,6 +88,7 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_RESOURCE_DECODE_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§50.2 图片/资源解码失败', reservedFor: 'P3-08'),
     EpubCodeSpec('E_FONT_UNSUPPORTED', EpubErrorCategory.resource, EpubErrorSeverity.informational, '§68.6 ttc/woff 不支持（详情页展示，不弹窗）', reservedFor: 'P3-06'),
     EpubCodeSpec('E_FONT_OBFUSCATION_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§5.3 解混淆失败回退字体', reservedFor: 'P3-05'),
+    EpubCodeSpec('E_FONT_LOAD_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§68.6 字体加载失败/缺失回退系统字体（提示只一次）', reservedFor: 'P3-06'),
     EpubCodeSpec('E_FAIRPLAY_ENCRYPTION', EpubErrorCategory.resource, EpubErrorSeverity.informational, '§5.3 Apple FairPlay 加密检测到，不支持解密（Reeden 120 号同口径）', reservedFor: 'P3-05'),
     // ---- 预留：排版与渲染（P6）----
     EpubCodeSpec('E_LAYOUT_ABORTED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§71.5 分页被取消/异常', reservedFor: 'P6-12'),

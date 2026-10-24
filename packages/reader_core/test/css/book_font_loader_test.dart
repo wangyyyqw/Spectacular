@@ -152,7 +152,64 @@ void main() {
       expect(result.engineFamilies['D'], 'bi_t7_D');
     });
   });
+
+  group('字体加载失败降级（P3-06，§68.6）', () {
+    test('字体不可用时页面仍可读：走回退链渲染出墨', () async {
+      final loader = BookFontLoader(bookId: 'd1');
+      final faces = _parse(
+        '@font-face { font-family: Gone; src: url("missing.otf"); }',
+      );
+      final result = await loader.load(faces, resolveBytes: _fileBytes);
+      expect(loader.engineFamily('Gone'), isNull);
+      expect(
+        result.warnings.any((w) => w.startsWith('E_FONT_LOAD_FAILED')),
+        isTrue,
+      );
+      // 族不可用 → 消费方沿用原族名 → 引擎按回退链兜底，页面可读。
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': 'Gone',
+      });
+      final painter = TextPainter()
+        ..textDirection = TextDirection.ltr
+        ..text = TextSpan(text: '坏字体回退后仍可读', style: _textStyleOf(style))
+        ..layout();
+      expect(painter.width, greaterThan(0));
+    });
+
+    test('提示只出现一次：同原因二次加载不重复告警，日志保留全量', () async {
+      final loader = BookFontLoader(bookId: 'd2');
+      final faces = _parse('''
+@font-face { font-family: Bad; src: url("x.woff2") format("woff2"), url("missing.ttf"); }
+''');
+      final first = await loader.load(faces, resolveBytes: _fileBytes);
+      final firstWarnings = first.warnings
+          .where((w) => w.startsWith('E_'))
+          .toList();
+      expect(
+        firstWarnings.any((w) => w.startsWith('E_FONT_UNSUPPORTED')),
+        isTrue,
+      );
+      expect(
+        firstWarnings.any((w) => w.startsWith('E_FONT_LOAD_FAILED')),
+        isTrue,
+      );
+
+      final second = await loader.load(faces, resolveBytes: _fileBytes);
+      expect(
+        second.warnings.where((w) => w.startsWith('E_')),
+        isEmpty,
+        reason: '同一 (族,原因) 只提示一次',
+      );
+      expect(loader.degradationLog.length, firstWarnings.length * 2,
+          reason: 'degradationLog 保留全量记录');
+    });
+  });
 }
+
+/// 与生产同路径的 TextStyle 构造（经别名映射与回退链）。
+TextStyle _textStyleOf(ComputedStyle style) => TextLayoutEngine.textStyleFor(style);
 
 Future<ByteData> _render(String fontFamily, int weight) async {
   final size = const Size(240, 160);
