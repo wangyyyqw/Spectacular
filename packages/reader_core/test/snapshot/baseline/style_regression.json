@@ -60,23 +60,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "94a656aff22151322072234ccb68b0497be64d53ae10f3d4b0bb011960f5a503",
+      "bookHash": "f3fa929401246cf86a23bda277f059dda4d120e14cb84cb5c653543cd250de27",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "739900bcc0926b1dbb42cad887c852d6718f32b28ee066097a6e8dde426f6bbd",
-          "inkPixels": 110611,
-          "lineCount": 21,
-          "textLength": 282,
-          "summary": "样式练习册这一段用来验证首行缩进与两端对…之间的距离应当明显拉开。三、外边距与引用"
+          "layoutHash": "c9f8a810f21e7ae4c6db1780635973ab8ada4df813b903b44e87d4afb973693e",
+          "inkPixels": 104447,
+          "lineCount": 20,
+          "textLength": 274,
+          "summary": "样式练习册这一段用来验证首行缩进与两端对…边距也更大。段落之间的距离应当明显拉开。"
         },
         {
           "index": 1,
-          "layoutHash": "011c695b903fc75d90d883ba8ab828cb677f70141bad537217b10d5f53ac5824",
-          "inkPixels": 27964,
-          "lineCount": 5,
-          "textLength": 80,
-          "summary": "引用的文字整体向内缩进，左右各留出空白，…用来观察前面的外边距是否把段落推得过远。"
+          "layoutHash": "be1f572fa760be0cd1327a73199106fbcbd96f630d6a0201d6bb526c98acf036",
+          "inkPixels": 34128,
+          "lineCount": 6,
+          "textLength": 88,
+          "summary": "三、外边距与引用引用的文字整体向内缩进，…用来观察前面的外边距是否把段落推得过远。"
         }
       ]
     },

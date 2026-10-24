@@ -21,6 +21,7 @@ class PageBlock {
     this.bottomInset = 0,
     this.leftInset = 0,
     this.breakInsideAvoid = false,
+    this.breakAfterAvoid = false,
     this.groupId = 0,
   });
 
@@ -47,6 +48,7 @@ class PageBlock {
       pageBreakBefore: pageBreakBefore ?? style.pageBreakBefore,
       pageBreakAfter: pageBreakAfter ?? style.pageBreakAfter,
       breakInsideAvoid: style.breakInsideAvoid,
+      breakAfterAvoid: style.breakAfterAvoid,
       startCfi: startCfi,
       endCfi: endCfi,
       spaceBefore: spaceBefore,
@@ -93,6 +95,9 @@ class PageBlock {
 
   /// 块内禁止分页（`break-inside: avoid`）：能整块放入新页时不在当前页拆开。
   final bool breakInsideAvoid;
+
+  /// 块后避免分页（`break-after: avoid`）：标题不落页底（P3-22）。
+  final bool breakAfterAvoid;
 
   /// 整组不可切标记（P7-26）：非 0 时同组连续块是原子单元——整组放
   /// 不下当前页时整体下移；组高于整页时按序切。0 = 无组。
@@ -406,6 +411,25 @@ class Paginator {
           blockExtent > available + tolerance &&
           blockExtent <= pageHeight + tolerance) {
         record();
+      }
+
+      // break-after: avoid（P3-22，Reeden 510 §3.3 优先级「avoid before
+      // （标题不落页底）」）：本块能整块放进当前页、但放完之后剩余高度
+      // 不足下一块的首行时，把本块推到下一页与后文同页——标题不孤立在
+      // 页底。优先级低于强制断页（force 已在上面 record）与 avoid-inside。
+      if (block.breakAfterAvoid &&
+          slices.isNotEmpty &&
+          blockIndex + 1 < blocks.length &&
+          blockExtent <= available + tolerance &&
+          blockExtent <= pageHeight + tolerance) {
+        final next = blocks[blockIndex + 1];
+        final nextNeed = next.leadingExtent +
+            (next.layout.lines.isEmpty
+                ? 0.0
+                : next.layout.lines.first.height);
+        if (available - blockExtent < nextNeed) {
+          record();
+        }
       }
 
       var lineStart = 0;
