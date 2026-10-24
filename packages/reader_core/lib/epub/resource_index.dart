@@ -150,6 +150,93 @@ class ResourceIndex {
     return archive.readBytes(path);
   }
 
+  /// 第 7 级：内容嗅探修复（P3-25，§54）。
+  ///
+  /// 六级链路全部未命中时，按「同主名 + 嗅探类型匹配」找资源：扩展名
+  /// 缺失/错误、media-type 声明错误的书籍靠字节魔数兜底。只对
+  /// [expectedMediaType] 可归类（图片/字体，见 [classifyMediaType]）的
+  /// 引用尝试，候选限定同主名条目，不读全库。未命中返回 null。
+  String? sniffResolve(
+    EpubArchive archive,
+    String href, {
+    String? baseDir,
+    String? mediaType,
+  }) {
+    final expected = classifyMediaType(mediaType);
+    if (expected == null) {
+      return null;
+    }
+    final cleaned = _stripQueryAndFragment(href).replaceAll('\\', '/');
+    final decoded = _decode(cleaned);
+    final baseName = p.posix.basename(cleaned);
+    final decodedBase = p.posix.basename(decoded);
+    String stemOf(String name) {
+      final dot = name.lastIndexOf('.');
+      return dot < 0 ? name : name.substring(0, dot);
+    }
+    final stems = <String>{stemOf(baseName).toLowerCase(), stemOf(decodedBase).toLowerCase()};
+    for (final name in archive.names) {
+      if (!stems.contains(stemOf(p.posix.basename(name)).toLowerCase())) {
+        continue;
+      }
+      final bytes = archive.readBytes(name);
+      if (bytes == null || bytes.isEmpty) {
+        continue;
+      }
+      final actual = sniffMediaType(bytes);
+      if (actual != null && classifyMediaType(actual) == expected) {
+        return name;
+      }
+    }
+    return null;
+  }
+
+  /// media-type 归类：图片 / 字体 / 其他（null）。嗅探比对按类匹配，
+  /// 不纠结 image/png 还是 image/x-png 的声明差异。
+  static String? classifyMediaType(String? mediaType) {
+    final type = mediaType?.trim().toLowerCase() ?? '';
+    if (type.startsWith('image/')) {
+      return 'image';
+    }
+    const fontTypes = <String>{
+      'application/x-font-ttf', 'application/x-font-opentype',
+      'application/x-font-woff', 'application/vnd.ms-opentype',
+      'application/font-woff', 'font/ttf', 'font/otf', 'font/woff',
+      'application/octet-stream',
+    };
+    if (fontTypes.contains(type)) {
+      return 'font';
+    }
+    return null;
+  }
+
+  /// 按字节魔数嗅探媒体类型（P3-25）；不支持/损坏返回 null。
+  static String? sniffMediaType(Uint8List bytes) {
+    if (bytes.length < 12) {
+      return null;
+    }
+    if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E) {
+      return 'image/png';
+    }
+    if (bytes[0] == 0xFF && bytes[1] == 0xD8) {
+      return 'image/jpeg';
+    }
+    if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
+      return 'image/gif';
+    }
+    if (bytes[0] == 0x52 && bytes[8] == 0x57 &&
+        bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) {
+      return 'image/webp';
+    }
+    final version = (bytes[0] << 24) | (bytes[1] << 16) |
+        (bytes[2] << 8) | bytes[3];
+    if (version == 0x00010000 || version == 0x4F54544F ||
+        version == 0x74727565) {
+      return 'font/otf';
+    }
+    return null;
+  }
+
   static String _stripQueryAndFragment(String value) {
     var result = value;
     final hash = result.indexOf('#');
