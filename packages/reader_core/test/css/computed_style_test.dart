@@ -539,10 +539,7 @@ void main() {
     expect(defaults.borderSpacing.left, 0);
     expect(defaults.top, isNull);
 
-    final parent = style(
-      'parent',
-      'div { text-shadow: 1px 1px 0 #000000; }',
-    );
+    final parent = style('parent', 'div { text-shadow: 1px 1px 0 #000000; }');
     final child = style('p', 'p { color: red; }', parent: parent);
     expect(child.textShadow, hasLength(1), reason: 'text-shadow 继承');
   });

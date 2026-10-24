@@ -67,7 +67,11 @@ void paintBackgroundImage(
       : bounds.top + originY;
   final stepX = repeatX ? tile.width : 0.0;
   final stepY = repeatY ? tile.height : 0.0;
-  for (var y = startY; y < bounds.bottom; y += stepY == 0 ? bounds.bottom : stepY) {
+  for (
+    var y = startY;
+    y < bounds.bottom;
+    y += stepY == 0 ? bounds.bottom : stepY
+  ) {
     for (
       var x = startX;
       x < bounds.right;
