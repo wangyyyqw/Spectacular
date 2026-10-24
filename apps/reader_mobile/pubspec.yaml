@@ -49,6 +49,7 @@ dependencies:
   share_plus: ^13.3.1
   # 测试直构 EPUB ZIP（test/m1_integration_test.dart 双路径样本）。
   archive: ^4.0.0
+  file_picker: ^13.2.0
 
 dev_dependencies:
   flutter_test:
