@@ -121,4 +121,22 @@ void main() {
     });
     expect(bordered.borders.left.width, 4);
   });
+
+  test('blockquote 包裹段落：容器左右边距叠加到子块（flat 管线）', () async {
+    final source = await EpubChapterSource.open(_buildEpub(
+      '<blockquote><p>引用段落文字</p></blockquote>'
+      '<blockquote><p>外层引用</p>'
+      '<blockquote><p>嵌套引用</p></blockquote></blockquote>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    final flat = blocks.firstWhere((b) => b.layout.text.contains('引用段落'));
+    expect(flat.style?.margin.left, closeTo(40, 0.5),
+        reason: '容器 blockquote 边距传递给 p 子块');
+    expect(flat.style?.margin.right, closeTo(40, 0.5));
+    final nested = blocks.firstWhere((b) => b.layout.text.contains('嵌套引用'));
+    expect(nested.style?.margin.left, closeTo(80, 0.5),
+        reason: '两层 blockquote 各 40px 叠加');
+  });
 }

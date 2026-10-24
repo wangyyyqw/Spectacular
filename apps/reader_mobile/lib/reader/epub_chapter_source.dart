@@ -315,8 +315,9 @@ class EpubChapterSource
     // em 相对阅读器基准字号解算；同一标签只构造一次（styles 层）。
     final uaStyles = <String, ComputedStyle>{};
     var figureSeq = 0;
-    ComputedStyle styleFor(String tag) {
-      final cached = uaStyles[tag];
+    ComputedStyle styleFor(String tag, {int quoteDepth = 0}) {
+      final key = quoteDepth > 0 ? 'quote$quoteDepth/$tag' : tag;
+      final cached = uaStyles[key];
       if (cached != null) {
         return cached;
       }
@@ -325,7 +326,25 @@ class EpubChapterSource
         tag,
         containingWidth: contentWidth,
       );
-      return uaStyles[tag] = overlaid ?? style;
+      if (quoteDepth == 0) {
+        return uaStyles[key] = overlaid ?? style;
+      }
+      // 引用容器（M2）：flat 管线无 blockquote 盒子，容器的左右边距
+      // 按嵌套深度叠加到子块声明上（WHATWG 15.3.3 一层 40px）。
+      final fallback = overlaid ?? style;
+      final extra = 40.0 * quoteDepth;
+      final declarations = <String, String>{
+        ...UaBlockDefaults.declarationsFor(tag),
+        'margin-left': '${fallback.margin.left + extra}px',
+        'margin-right': '${fallback.margin.right + extra}px',
+      };
+      return uaStyles[key] = ComputedStyle(
+        declarations,
+        parent: style,
+        explicitProperties: declarations.keys.toSet(),
+        containingWidth: contentWidth,
+        rootFontSize: style.fontSize,
+      );
     }
 
     void collect(
@@ -333,6 +352,7 @@ class EpubChapterSource
       String blockTag, {
       int groupId = 0,
       _ListContext? list,
+      int quoteDepth = 0,
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
@@ -340,7 +360,7 @@ class EpubChapterSource
         if (text.trim().isEmpty) {
           return;
         }
-        final blockStyle = styleFor(blockTag);
+        final blockStyle = styleFor(blockTag, quoteDepth: quoteDepth);
         // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
         String? marker;
         if (blockTag == 'li' && list != null) {
@@ -377,17 +397,27 @@ class EpubChapterSource
         } else if (node.tag == 'li' && list != null) {
           childList = list;
         }
+        // 引用深度（M2）：blockquote 每层 +1，容器左右边距叠加到子块。
+        final childQuoteDepth =
+            node.tag == 'blockquote' ? quoteDepth + 1 : quoteDepth;
         for (final child in node.children) {
           collect(
             child,
             node.tag,
             groupId: childGroup,
             list: childList,
+            quoteDepth: childQuoteDepth,
           );
         }
       } else if (node is InlineNode) {
         for (final child in node.children) {
-          collect(child, blockTag, groupId: groupId, list: list);
+          collect(
+            child,
+            blockTag,
+            groupId: groupId,
+            list: list,
+            quoteDepth: quoteDepth,
+          );
         }
       }
     }

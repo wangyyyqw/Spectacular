@@ -130,7 +130,7 @@ class PagePainter {
       _withOpacity(canvas, geometry, () {
         _paintBackground(
           canvas,
-          geometry.box,
+          geometry.marginBox,
           geometry.style,
           startsBlock: geometry.startsBlock,
           endsBlock: geometry.endsBlock,
@@ -149,7 +149,7 @@ class PagePainter {
       _withOpacity(canvas, geometry, () {
         _paintBorders(
           canvas,
-          geometry.box,
+          geometry.marginBox,
           geometry.style,
           startsBlock: geometry.startsBlock,
           endsBlock: geometry.endsBlock,
@@ -306,7 +306,10 @@ class PagePainter {
           endsBlock: slice.endLine == slice.block.layout.lineCount,
           hidden: style.visibility != CssVisibility.visible,
           leading: slice.leadingExtent,
-          leftInset: slice.leftInset,
+          // flat 管线（P3-30 真机验收）：box.left 恒 0，块级 margin.left
+          // 折算进左内缩——文本 x、标记 gutter、选区、省略宽度同步右移；
+          // margin.right 与 padding.right 同样暂不参与右侧收窄。
+          leftInset: slice.leftInset + style.margin.left,
           upExtent: upExtent,
           downExtent: downExtent,
           pageWidth: pageSize.width,
@@ -406,7 +409,7 @@ class PagePainter {
       return;
     }
     canvas.drawRect(
-      geometry.box.translate(shadow.offsetX, shadow.offsetY),
+      geometry.marginBox.translate(shadow.offsetX, shadow.offsetY),
       Paint()..color = shadow.color,
     );
   }
@@ -1041,6 +1044,11 @@ class _SliceGeometry {
 
   /// 背景/边框盒子（含首尾内缩）。
   Rect get box => Rect.fromLTWH(0, y, pageWidth, slice.height);
+
+  /// 背景/边框盒子（margin 修正）：flat 管线 box.left 恒 0，块级
+  /// margin.left 折算进左缘，使背景与边框跟文本 x（已含 margin）对齐。
+  Rect get marginBox =>
+      Rect.fromLTRB(style.margin.left, y, pageWidth, y + slice.height);
 
   /// 按切片裁剪；上下标越界时放宽上下边。
   void clip(Canvas canvas) {
