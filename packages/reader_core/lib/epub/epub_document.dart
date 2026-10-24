@@ -212,12 +212,9 @@ Future<EpubOpenResult> _finishOpen({
       missingSpineItems: probe.missingSpineItems,
       missingResources: probe.missingResources,
       repairedRefs: probe.repairedRefs,
-      // 目录退化 = 有 tocId/nav 但退化为 spine 顺序；书本身无目录不算。
-      tocFallbackUsed: tocResult.source == 'spine' &&
-          (package.tocId != null ||
-              package.manifest.any(
-                (item) => item.properties.contains('nav'),
-              )),
+      // 目录退化（P3-28）：声明了目录源（tocId→ncx，nav 属性→nav）但
+      // 实际未达成；书本身无目录声明不算退化。
+      tocFallbackUsed: _tocDegraded(package, tocResult.source),
     );
     final document = EpubDocumentImpl(
       archive: archive,
@@ -429,4 +426,15 @@ class EpubDocumentImpl implements EpubDocument {
   Future<SpineDocument> readSpine(int spineIndex) {
     throw UnimplementedError('P1-14 起实现文档树解析');
   }
+}
+
+/// 目录退化判定（P3-28）：声明了目录源（tocId→期望 ncx，EPUB3 nav→
+/// 期望 nav）但实际回落到更低层级（spine 顺序）。
+bool _tocDegraded(OpfPackage package, String actualSource) {
+  if (package.tocId != null) {
+    return actualSource != 'ncx';
+  }
+  final hasNav =
+      package.manifest.any((item) => item.properties.contains('nav'));
+  return hasNav && actualSource != 'nav';
 }
