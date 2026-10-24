@@ -96,4 +96,108 @@ void main() {
       expect(result.tableWidth, 0);
     });
   });
+
+  group('TableGridMeasurer 行高与回填（P3-18）', () {
+    double textHeight(String text, double fontSize, double width) {
+      // 近似：每行宽 = 字号 × 字数（全角），行高 = 1.5。
+      final perLine = (width / fontSize).floor().clamp(1, 1 << 20);
+      final lines = (text.length / perLine).ceil();
+      return lines * fontSize * 1.5;
+    }
+
+    test('不同字号混排：行高取最大', () {
+      final rows = <List<TableCellSpec>>[
+        [
+          TableCellSpec(
+            naturalWidth: 100,
+            measureHeight: (w) => textHeight('小字内容', 14, w),
+          ),
+          TableCellSpec(
+            naturalWidth: 120,
+            measureHeight: (w) => textHeight('大字标题', 22, w),
+          ),
+        ],
+      ];
+      final result = TableGridMeasurer.measureGrid(
+        rows: rows,
+        columnSpecified: [null, null],
+        containerWidth: 320,
+      );
+      // auto 表保持自然宽 [100,120]：小字 1 行 21，大字 1 行 33 → 行高 33。
+      expect(result.rowHeights.single, closeTo(33, 0.01));
+    });
+
+    test('跨列单元格宽度回填：按跨列之和测高', () {
+      final rows = <List<TableCellSpec>>[
+        [
+          TableCellSpec(
+            naturalWidth: 150,
+            measureHeight: (w) => textHeight('甲', 16, w),
+          ),
+          TableCellSpec(
+            naturalWidth: 150,
+            measureHeight: (w) => textHeight('乙', 16, w),
+          ),
+        ],
+        [
+          TableCellSpec(
+            naturalWidth: 120,
+            measureHeight: (w) => textHeight(
+                '跨两列的长内容会在回填后的宽度下计算行数，宽度足够则行数更少', 16, w),
+            colspan: 2,
+          ),
+        ],
+      ];
+      final result = TableGridMeasurer.measureGrid(
+        rows: rows,
+        columnSpecified: [null, null],
+        containerWidth: 320,
+      );
+      // 列各 150；第 2 行跨列回填宽 300 → 30 字每行 18 字 → 2 行 48。
+      expect(result.rowHeights[0], closeTo(24, 0.01));
+      expect(result.rowHeights[1], closeTo(48, 0.01),
+          reason: '回填宽度 300 下两行放下');
+    });
+
+    test('单元格内容不溢出：行高 ≥ 内容高', () {
+      final rows = <List<TableCellSpec>>[
+        [
+          TableCellSpec(
+            naturalWidth: 200,
+            measureHeight: (w) => textHeight('很长很长的内容会折成多行，行高必须包住全部内容高度', 16, w),
+          ),
+        ],
+      ];
+      final result = TableGridMeasurer.measureGrid(
+        rows: rows,
+        columnSpecified: [null],
+        containerWidth: 320,
+      );
+      final width = result.columnWidths.single;
+      expect(
+        result.rowHeights.single,
+        greaterThanOrEqualTo(
+          rows.first.single.measureHeight(width) - 0.01,
+        ),
+      );
+    });
+
+    test('colspan 越界按已知列回填兜底，不崩溃', () {
+      final rows = <List<TableCellSpec>>[
+        [
+          TableCellSpec(
+            naturalWidth: 100,
+            measureHeight: (w) => 24,
+            colspan: 5,
+          ),
+        ],
+      ];
+      final result = TableGridMeasurer.measureGrid(
+        rows: rows,
+        columnSpecified: [null, null],
+        containerWidth: 320,
+      );
+      expect(result.rowHeights.single, 24);
+    });
+  });
 }

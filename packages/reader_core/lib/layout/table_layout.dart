@@ -116,3 +116,106 @@ abstract final class TableMeasurer {
     return TableMeasureResult(columnWidths: widths, tableWidth: total);
   }
 }
+
+/// 单元格测量规格（P3-18）。
+class TableCellSpec {
+  const TableCellSpec({
+    required this.naturalWidth,
+    required this.measureHeight,
+    this.colspan = 1,
+  });
+
+  /// max-content 自然宽（第一遍按全宽测得）。
+  final double naturalWidth;
+
+  /// 内容在给定宽下的高度（含单元格 padding）。
+  final double Function(double width) measureHeight;
+
+  /// 跨列数（colspan，P3-19 消费；≥2 时宽度回填为跨列之和）。
+  final int colspan;
+}
+
+/// 表格整表测量结果。
+class TableGridMeasureResult {
+  const TableGridMeasureResult({
+    required this.columnWidths,
+    required this.rowHeights,
+    required this.tableWidth,
+  });
+
+  /// 每列最终宽。
+  final List<double> columnWidths;
+
+  /// 每行最终高（行内最大，跨列单元格按回填宽度测高参与取大）。
+  final List<double> rowHeights;
+
+  /// 表格最终宽。
+  final double tableWidth;
+}
+
+/// 整表测量：列宽（[TableMeasurer]）→ 行高（单元格按回填宽度测高取
+/// 最大，P3-18，技术方案 §62.3～§62.4）。
+abstract final class TableGridMeasurer {
+  /// 测量整表。
+  ///
+  /// [rows] 行 × 单元格；列宽分配只统计 colspan==1 的单元格自然宽，
+  /// 跨列单元格宽度回填为跨列之和并按该宽度测高参与行高取大——内容
+  /// 在回填宽度下的高度即其行内占高，保证内容不溢出。
+  static TableGridMeasureResult measureGrid({
+    required List<List<TableCellSpec>> rows,
+    required List<double?> columnSpecified,
+    double? tableWidthPx,
+    double? tableWidthPercent,
+    required double containerWidth,
+  }) {
+    // 列宽：只取单列单元格的自然宽。
+    final columnCount = columnSpecified.length;
+    final naturalWidths = <List<double>>[];
+    for (final row in rows) {
+      final natural = List<double>.filled(columnCount, 0);
+      for (var c = 0; c < row.length && c < columnCount; c++) {
+        final cell = row[c];
+        if (cell.colspan == 1) {
+          natural[c] = cell.naturalWidth;
+        }
+      }
+      naturalWidths.add(natural);
+    }
+    final columns = TableMeasurer.measureColumns(
+      naturalWidths: naturalWidths,
+      specifiedWidths: columnSpecified,
+      tableWidthPx: tableWidthPx,
+      tableWidthPercent: tableWidthPercent,
+      containerWidth: containerWidth,
+    );
+
+    // 行高：逐行取单元格高度最大值；跨列单元格宽度回填为跨列之和。
+    final rowHeights = <double>[];
+    for (final row in rows) {
+      var height = 0.0;
+      for (var c = 0; c < row.length; c++) {
+        final cell = row[c];
+        var width = 0.0;
+        var ok = true;
+        for (var k = 0; k < cell.colspan && ok; k++) {
+          final index = c + k;
+          if (index >= columnCount) {
+            ok = false; // 跨列越界按已知列回填，不崩溃。
+            break;
+          }
+          width += columns.columnWidths[index];
+        }
+        if (!ok || width <= 0) {
+          width = cell.naturalWidth; // 越界/零宽兜底用自然宽。
+        }
+        height = math.max(height, cell.measureHeight(width));
+      }
+      rowHeights.add(height);
+    }
+    return TableGridMeasureResult(
+      columnWidths: columns.columnWidths,
+      rowHeights: rowHeights,
+      tableWidth: columns.tableWidth,
+    );
+  }
+}
