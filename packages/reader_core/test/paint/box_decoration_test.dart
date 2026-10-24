@@ -28,7 +28,13 @@ Future<ByteData> _render(String text, ComputedStyle style) async {
   final layout = _layout(text, style);
   final page = Paginator(pageHeight: _height.toDouble())
       .measureChapter(
-        blocks: [PageBlock(layout: layout, style: style)],
+        blocks: [
+          PageBlock.styled(
+            layout: layout,
+            style: style,
+            containingWidth: _width.toDouble(),
+          ),
+        ],
       )
       .pages
       .single;
@@ -152,8 +158,8 @@ void main() {
     expect(_isWhite(_pixel(bytes, 1, 1)), isTrue, reason: '圆角外应露出页面背景');
     expect(_isRed(_pixel(bytes, 20, 24)), isTrue, reason: '圆角内填充背景色');
     expect(_isBlack(_pixel(bytes, 120, 0)), isTrue, reason: '上边框');
-    // 块首切片的高度含 2px 上边框，下边框随之落在 48..50。
-    expect(_isBlack(_pixel(bytes, 120, 49)), isTrue, reason: '下边框');
+    // 切片高度 = 上内缩 2 + 两行 48 + 下内缩 2 = 52，下边框落在 50..52。
+    expect(_isBlack(_pixel(bytes, 120, 51)), isTrue, reason: '下边框');
     expect(_isBlack(_pixel(bytes, 1, 24)), isTrue, reason: '左边框');
     expect(_isBlack(_pixel(bytes, 238, 24)), isTrue, reason: '右边框');
   });

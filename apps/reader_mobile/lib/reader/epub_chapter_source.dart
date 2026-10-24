@@ -77,7 +77,13 @@ class EpubChapterSource implements ReaderChapterSource {
           maxWidth: contentWidth,
         );
         if (layout.lineCount > 0) {
-          blocks.add(PageBlock(layout: layout, style: style));
+          blocks.add(
+            PageBlock.styled(
+              layout: layout,
+              style: style,
+              containingWidth: contentWidth,
+            ),
+          );
         }
       } else if (node is BlockNode) {
         for (final child in node.children) {

@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show TextLayout;
 import '../text/justify.dart';
+import '../text/script_fallback.dart';
 
 /// 一行文本的布局结果。
 class LineBox {
@@ -267,6 +268,7 @@ class LineBreaker {
   ///
   /// 宽度低于 3em 时钳制到 3em；无限宽保持单行断行。
   /// [runs] 为行内样式区间，用于混排字号与行内元素；未覆盖部分沿用 [style]。
+  /// [hasGlyph] 非空时按字形覆盖把 `style.fontFamilies` 切分成族分段（P2-12）。
   TextLayoutResult layout({
     required String text,
     required ComputedStyle style,
@@ -274,6 +276,7 @@ class LineBreaker {
     double textScaleFactor = 1,
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
     List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
   }) {
     // nowrap/pre 不软换行：按无限宽测量，得到单行（硬换行仍生效）。
     final wraps =
@@ -287,6 +290,7 @@ class LineBreaker {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: runs,
+      hasGlyph: hasGlyph,
     );
   }
 }
@@ -299,7 +303,7 @@ abstract final class TextLayoutEngine {
   /// 行高使用 CSS 语义（`fontSize × factor`），并显式设置 even 行距分布。
   ///
   /// 默认使用 [LineBreaker] 执行 3em 宽度下限；需要观察告警时传入自定义
-  /// [lineBreaker]。
+  /// [lineBreaker]。[hasGlyph] 非空时启用按字形覆盖的字体族分段（P2-12）。
   static TextLayoutResult layout({
     required String text,
     required ComputedStyle style,
@@ -308,6 +312,7 @@ abstract final class TextLayoutEngine {
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
     LineBreaker? lineBreaker,
     List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
   }) {
     return (lineBreaker ?? LineBreaker()).layout(
       text: text,
@@ -316,6 +321,7 @@ abstract final class TextLayoutEngine {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: runs,
+      hasGlyph: hasGlyph,
     );
   }
 
@@ -326,12 +332,27 @@ abstract final class TextLayoutEngine {
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
   }) {
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
     final indent = width.isFinite
         ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
         : 0.0;
     final ordered = _normalizeRuns(runs, text.length);
+    // P2-12：按字形覆盖叠加字体族分段。未传 hasGlyph 或未声明 font-family 时
+    // 走原路径，行为与之前完全一致。
+    final styled = hasGlyph == null || style.fontFamilies.isEmpty
+        ? ordered
+        : _applyScriptFallback(
+            runs: ordered,
+            scriptRuns: buildScriptFontRuns(
+              text,
+              style.fontFamilies,
+              hasGlyph: hasGlyph,
+            ),
+            baseStyle: style,
+            length: text.length,
+          );
     // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
     var measuredEnd = text.length;
     while (measuredEnd > 0 && text.codeUnitAt(measuredEnd - 1) == 10) {
@@ -347,7 +368,7 @@ abstract final class TextLayoutEngine {
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
-            runs: ordered,
+            runs: styled,
           )
         : _measureWithIndent(
             text: measuredText,
@@ -356,13 +377,13 @@ abstract final class TextLayoutEngine {
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
-            runs: ordered,
+            runs: styled,
           );
     return _result(
       text,
       _align(measuredText, measured, style.textAlign, width),
       width,
-      ordered,
+      styled,
     );
   }
 
@@ -382,6 +403,130 @@ abstract final class TextLayoutEngine {
     ordered.sort((a, b) => a.start.compareTo(b.start));
     return ordered;
   }
+
+  /// 把字形覆盖分段叠加到调用方的 [runs] 上，返回升序、互不重叠的样式区间。
+  ///
+  /// 行内样式优先：调用方区间（混排字号、上下标等）只在自身计算样式上叠加
+  /// font-family，字号/字重/颜色等保持原值；调用方未覆盖的文本以 [baseStyle]
+  /// 兜底后再叠加。相邻且同源的片段会合并，尽量不把调用方区间打碎。
+  static List<StyledRun> _applyScriptFallback({
+    required List<StyledRun> runs,
+    required List<ScriptFontRun> scriptRuns,
+    required ComputedStyle baseStyle,
+    required int length,
+  }) {
+    if (scriptRuns.isEmpty) {
+      return runs;
+    }
+    // 用两种区间的全部端点把文本切成互不重叠的小段。
+    final cuts = <int>{0, length};
+    for (final run in runs) {
+      cuts.add(run.start);
+      cuts.add(run.end);
+    }
+    for (final run in scriptRuns) {
+      cuts.add(run.start);
+      cuts.add(run.end);
+    }
+    final boundaries = cuts.toList()..sort();
+
+    // 同一来源样式 + 同一族复用同一实例，便于按对象身份合并相邻片段。
+    final cache = <String, ComputedStyle>{};
+    ComputedStyle withFamily(ComputedStyle source, String family) =>
+        cache.putIfAbsent(
+          '${identityHashCode(source)}|$family',
+          () => _styleWithFontFamily(source, family),
+        );
+
+    final merged = <StyledRun>[];
+    int? openStart;
+    int? openEnd;
+    ComputedStyle? openStyle;
+    void flush() {
+      final start = openStart;
+      final end = openEnd;
+      final style = openStyle;
+      if (start != null && end != null && style != null) {
+        merged.add(StyledRun(start: start, end: end, style: style));
+      }
+      openStart = null;
+      openEnd = null;
+      openStyle = null;
+    }
+
+    var scriptIndex = 0;
+    for (var i = 0; i + 1 < boundaries.length; i++) {
+      final start = boundaries[i];
+      final end = boundaries[i + 1];
+      if (end <= start) {
+        continue;
+      }
+      while (scriptIndex < scriptRuns.length &&
+          scriptRuns[scriptIndex].end <= start) {
+        scriptIndex += 1;
+      }
+      final family =
+          scriptIndex < scriptRuns.length &&
+              scriptRuns[scriptIndex].start <= start
+          ? scriptRuns[scriptIndex].family
+          : null;
+      final style = _segmentStyle(
+        _owningRun(runs, start, end),
+        family,
+        baseStyle,
+        withFamily,
+      );
+      if (style == null) {
+        flush(); // 无族的空隙不产出区间
+      } else if (openStyle != null &&
+          identical(openStyle, style) &&
+          openEnd == start) {
+        openEnd = end; // 同源同族，继续延伸
+      } else {
+        flush();
+        openStart = start;
+        openEnd = end;
+        openStyle = style;
+      }
+    }
+    flush();
+    return merged;
+  }
+
+  /// 完整覆盖 `[start, end)` 的调用方区间；重叠时取升序首个（与绘制一致）。
+  static StyledRun? _owningRun(List<StyledRun> runs, int start, int end) {
+    for (final run in runs) {
+      if (run.start <= start && run.end >= end) {
+        return run;
+      }
+    }
+    return null;
+  }
+
+  /// 小段的最终样式；无调用方区间且无族时返回 null（该段不产出区间）。
+  static ComputedStyle? _segmentStyle(
+    StyledRun? owner,
+    String? family,
+    ComputedStyle baseStyle,
+    ComputedStyle Function(ComputedStyle source, String family) withFamily,
+  ) {
+    final source = owner?.style ?? baseStyle;
+    if (family == null) {
+      return owner == null ? null : source;
+    }
+    return withFamily(source, family);
+  }
+
+  /// 只覆盖 font-family，其余字段继承 [source]（行内字号、字重等保持原值）。
+  static ComputedStyle _styleWithFontFamily(
+    ComputedStyle source,
+    String family,
+  ) => ComputedStyle(
+    <String, String>{'font-family': family},
+    parent: source,
+    explicitProperties: const <String>{'font-family'},
+    hasExplicitTextColor: source.hasExplicitTextColor,
+  );
 
   /// 取 `[start, end)` 范围内的样式区间，偏移改为相对起点。
   static List<StyledRun> _sliceRuns(List<StyledRun> runs, int start, int end) {
