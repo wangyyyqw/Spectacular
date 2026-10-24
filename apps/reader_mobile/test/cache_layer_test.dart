@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' show Color;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -81,6 +82,43 @@ void main() {
     expect(changed, isTrue);
     final after = await source.loadChapter(0);
     expect(identical(before, after), isFalse);
+  });
+
+  test('失效日志：四类诱因可区分且带 old/new（P7-27）', () async {
+    final source = await openSource();
+    await source.loadChapter(0);
+    source.invalidationLog.clear();
+
+    // ① configChanged（排版字段）。
+    await source.applyOverrides(const ReaderOverrides(fontSize: 20));
+    await source.loadChapter(0);
+    // ② 颜色不产生日志（零失效）。
+    await source.applyOverrides(
+      const ReaderOverrides(
+        fontSize: 20,
+        textColor: Color(0xFF333333),
+      ),
+    );
+    // ③ viewportSizeChanged。
+    await source.applyContentSize(width: 300, height: 440);
+    await source.loadChapter(0);
+    // ④ indexCorrupted（写入坏索引后触发）。
+    source.clearPaginationCache();
+    source.injectPageIndexForTest(0, Uint8List.fromList(<int>[1, 2, 3]));
+    await source.loadChapter(0);
+
+    final reasons = source.invalidationLog
+        .map((line) => line.split('|').first.trim())
+        .toList(growable: false);
+    expect(reasons, contains('configChanged'));
+    expect(reasons, contains('viewportSizeChanged'));
+    expect(reasons, contains('indexCorrupted'));
+    expect(reasons.where((r) => r == 'configChanged'), hasLength(1),
+        reason: '颜色变化不产生失效日志');
+    // 日志带 old/new 上下文。
+    final configLine = source.invalidationLog
+        .firstWhere((line) => line.startsWith('configChanged'));
+    expect(configLine, contains(' -> '));
   });
 
   test('页索引重放命中：页缓存清空后仍按索引直接出页（分页状态机跳过）', () async {
