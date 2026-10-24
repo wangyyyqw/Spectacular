@@ -106,6 +106,9 @@ abstract class BlockFlow {
   /// 脱离流的盒（绝对定位、浮动）不参与块流折叠。
   CssEdges get margin => CssEdges.zero;
 
+  /// 自身样式（clear 判定用，§48.3 第 3 条）；无样式返回 null。
+  ComputedStyle? get style => null;
+
   Size _size = Size.zero;
   LayoutConstraints? _constraints;
   int _layoutCount = 0;
@@ -141,6 +144,7 @@ class TextFlowBlock extends BlockFlow {
   final String text;
 
   /// 计算样式。
+  @override
   final ComputedStyle style;
 
   /// 行内样式区间。
@@ -218,12 +222,14 @@ class ColumnFlowBlock extends BlockFlow {
     CssEdges margin,
     bool clampFirstNegativeTopMargin,
     CssEdges padding,
-    CssEdges borders,
-  ) : _children = List<BlockFlow>.unmodifiable(children),
+    CssEdges borders, [
+    ComputedStyle? style,
+  ]) : _children = List<BlockFlow>.unmodifiable(children),
       _ownMargin = margin,
       _clampFirstNegativeTopMargin = clampFirstNegativeTopMargin,
       _padding = padding,
-      _borders = borders;
+      _borders = borders,
+      _style = style;
 
   /// 按样式创建容器：padding/border/margin 取自 [style]。
   ///
@@ -243,6 +249,7 @@ class ColumnFlowBlock extends BlockFlow {
       bottom: style.borders.bottom.width,
       left: style.borders.left.width,
     ),
+    style,
   );
 
   /// 页根（body）容器：首个块级子元素的负 `margin-top` 钳到 0（§60.7）。
@@ -256,6 +263,7 @@ class ColumnFlowBlock extends BlockFlow {
   final CssEdges _padding;
   final CssEdges _borders;
   final bool _clampFirstNegativeTopMargin;
+  final ComputedStyle? _style;
   final List<double> _childTops = <double>[];
   final List<double> _childLefts = <double>[];
   final FloatOccupancy _floats = FloatOccupancy();
@@ -283,6 +291,11 @@ class ColumnFlowBlock extends BlockFlow {
   /// 本容器的浮动占用（P3-13）：容器测量时登记，跨页衔接（P3-15）与
   /// 绘制消费。
   FloatOccupancy get floats => _floats;
+
+  double _maxFloatBottom(FloatSide side) => _floats.maxBottom(side);
+
+  @override
+  ComputedStyle? get style => _style;
 
   @override
   CssEdges get margin => _collapsedMargin;
@@ -337,7 +350,30 @@ class ColumnFlowBlock extends BlockFlow {
       final gap = firstChild == null
           ? 0.0
           : collapseMargins(previousBottom, child.margin.top);
-      final top = cursor + gap;
+      var top = cursor + gap;
+      // clear 语义（P3-14，§48.3 第 3 条）：clear:left/right/both 把块顶
+      // 推到对应侧浮动底部之下，并把已满足的占用移除（不再约束后续内容）。
+      final clear = child.style?.clear ?? CssClear.none;
+      if (clear != CssClear.none) {
+        final wantLeft = clear == CssClear.left || clear == CssClear.both;
+        final wantRight = clear == CssClear.right || clear == CssClear.both;
+        var floor = top;
+        if (wantLeft) {
+          floor = math.max(floor, _maxFloatBottom(FloatSide.left));
+        }
+        if (wantRight) {
+          floor = math.max(floor, _maxFloatBottom(FloatSide.right));
+        }
+        if (floor > top) {
+          top = floor;
+          if (wantLeft) {
+            _floats.removeSatisfiedBelow(top, FloatSide.left);
+          }
+          if (wantRight) {
+            _floats.removeSatisfiedBelow(top, FloatSide.right);
+          }
+        }
+      }
       // 绕排收窄（P3-13，§48.2 createPlaceholders 的容器侧等价）：
       // 首趟按全宽测量，按块高度区间查占用；浮动收窄了可用宽才重测
       // （最多 3 趟收敛）——无浮动的树保持单次测量不变量。
@@ -382,9 +418,12 @@ class ColumnFlowBlock extends BlockFlow {
           previousBottom = collapseMargins(previousBottom, merged);
         }
       } else {
-        cursor += gap + child.size.height;
+        // clear 推移也推进块流（推到浮动底部之下后，后续内容从本块底
+        // 部继续）。
+        final advanced = top + child.size.height - cursor;
+        cursor = top + child.size.height;
         if (remaining.isFinite) {
-          remaining = math.max(0.0, remaining - gap - child.size.height);
+          remaining = math.max(0.0, remaining - advanced);
         }
         previousBottom = child.margin.bottom;
       }
@@ -567,6 +606,7 @@ class FloatFlowBlock extends BlockFlow {
   final BlockFlow content;
 
   /// 浮动盒自身样式（float 方向与 margin 来源）。
+  @override
   final ComputedStyle style;
 
   /// 浮动方向。

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/block_flow.dart';
+import 'package:reader_core/layout/float_occupancy.dart';
 
 LayoutConstraints _constraints({double maxWidth = 320}) =>
     LayoutConstraints(maxWidth: maxWidth, maxHeight: 10000);
@@ -105,6 +106,85 @@ void main() {
       root.measure(_constraints());
       expect(root.layoutCount, 1);
       expect(root.children.every((c) => c.layoutCount == 1), isTrue);
+    });
+
+    test('clear:left：块顶推到左浮底部之下，且该浮动不再约束后续内容', () {
+      final floatBox = _floatBox('浮', 'left');
+      final short = createFlowBox(
+        style: _style(const {}),
+        text: '与浮动同区的短段。',
+      );
+      final cleared = createFlowBox(
+        style: _style({'clear': 'left'}),
+        text: '被 clear:left 推到浮动下方的段落，位置应在浮动底部之下。',
+      );
+      final follower = createFlowBox(
+        style: _style(const {}),
+        text: 'clear 之后的段落应恢复整行宽度，不再被已满足的浮动收窄。',
+      );
+      final root = ColumnFlowBlock([floatBox, short, cleared, follower]);
+      root.measure(_constraints());
+
+      final floatRect = root.floats.items.single.rect;
+      final clearedTop = root.childTops[1];
+      expect(clearedTop, greaterThanOrEqualTo(floatRect.bottom),
+          reason: 'clear:left 推到左浮底部之下');
+
+      // 该浮动已被移除：后续段不被收窄（childLefts 全 0）。
+      expect(root.childLefts.last, 0);
+      expect(follower.size.width, lessThanOrEqualTo(320.5));
+    });
+
+    test('clear:right：只等右侧浮动', () {
+      // 左浮内容长到换行（更高），右浮较短：clear:right 推到右浮底部
+      // 后，左浮仍在高度区间内继续约束。
+      final leftFloat = _floatBox('左浮动内容足够长会折成多行因此变得更高一些了', 'left');
+      final rightFloat = _floatBox('右', 'right');
+      final cleared = createFlowBox(
+        style: _style({'clear': 'right'}),
+        text: 'clear:right 只等右侧浮动结束，左侧浮动仍可继续约束本块。',
+      );
+      final root = ColumnFlowBlock([leftFloat, rightFloat, cleared]);
+      root.measure(_constraints());
+
+      final sides = root.floats.items.map((item) => item.side).toSet();
+      expect(sides, contains(FloatSide.left), reason: '左浮未满足前保留');
+      expect(sides, isNot(contains(FloatSide.right)), reason: '右浮已满足移除');
+      expect(root.childLefts.last, greaterThan(0),
+          reason: '左侧浮动仍在约束，块被左收窄');
+    });
+
+    test('clear:both：两侧都推到浮动底部', () {
+      final leftFloat = _floatBox('左', 'left');
+      final rightFloat = _floatBox('右', 'right');
+      final cleared = createFlowBox(
+        style: _style({'clear': 'both'}),
+        text: 'clear:both 的段落要等到左右两侧浮动全部结束，位于两者底部之下。',
+      );
+      final root = ColumnFlowBlock([leftFloat, rightFloat, cleared]);
+      root.measure(_constraints());
+
+      final clearedTop = root.childTops.last;
+      for (final item in root.floats.items.toList()) {
+        expect(clearedTop, greaterThanOrEqualTo(item.rect.bottom),
+            reason: '${item.side} 浮动底部之上不应放块');
+      }
+      expect(root.floats.items, isEmpty, reason: '满足后占用全部移除');
+    });
+
+    test('绝对定位不参与 occupiedList（§48.3 第 4 条）', () {
+      final absolute = createFlowBox(
+        style: _style({'position': 'absolute'}),
+        text: '绝对定位内容不进占用表',
+      );
+      final paragraph = createFlowBox(
+        style: _style(const {}),
+        text: '旁边的普通段落与绝对定位内容互不影响，宽度保持全宽。',
+      );
+      final root = ColumnFlowBlock([absolute, paragraph]);
+      root.measure(_constraints());
+      expect(root.floats.items, isEmpty);
+      expect(paragraph.size.width, lessThanOrEqualTo(320.5));
     });
   });
 }
