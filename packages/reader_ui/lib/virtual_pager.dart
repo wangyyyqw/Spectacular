@@ -123,6 +123,8 @@ class VirtualPager {
   }
 
   /// 初始化；[startSpine] 之前章节会顺序加载用于计算连续页码。
+  ///
+  /// 目标章为空时向后跳到第一个有页的章（P2-32）。
   Future<void> initialize({int startSpine = 0}) async {
     if (_initialized) {
       return;
@@ -132,7 +134,12 @@ class VirtualPager {
       await _loadSpine(spine);
     }
     _rebuildMapping();
-    final first = _realToVirtual[(target, 0)];
+    var first = _realToVirtual[(target, 0)];
+    for (var spine = target + 1; first == null && spine < spineCount; spine++) {
+      await _loadSpine(spine);
+      _rebuildMapping();
+      first = _realToVirtual[(spine, 0)];
+    }
     _currentVirtual = first ?? 0;
     _initialized = true;
     await _prefetchAround();
@@ -164,7 +171,7 @@ class VirtualPager {
     return false;
   }
 
-  /// 上一页。
+  /// 上一页：章首继续向前加载上一章（跳过空章），直到文档开头（P2-32）。
   Future<bool> previous() async {
     _ensureInitialized();
     if (hasPrevious) {
@@ -172,10 +179,27 @@ class VirtualPager {
       await _prefetchAround();
       return true;
     }
+    final currentPage = current;
+    if (currentPage == null) {
+      return false;
+    }
+    var prevSpine = currentPage.spineIndex - 1;
+    while (prevSpine >= 0) {
+      await _loadSpine(prevSpine);
+      _rebuildMapping();
+      if (hasPrevious) {
+        _currentVirtual -= 1;
+        await _prefetchAround();
+        return true;
+      }
+      prevSpine -= 1;
+    }
     return false;
   }
 
   /// 跳到指定章页。
+  ///
+  /// [pageIndex] 超出该章页数时钳制到末页；空章向后找第一个有页的章（P2-32）。
   Future<bool> goTo(int spineIndex, int pageIndex) async {
     _ensureInitialized();
     if (spineIndex < 0 || spineIndex >= spineCount) {
@@ -187,13 +211,24 @@ class VirtualPager {
       }
     }
     _rebuildMapping();
-    final target = _realToVirtual[(spineIndex, pageIndex)];
-    if (target == null) {
-      return false;
+    for (var spine = spineIndex; spine < spineCount; spine++) {
+      if (!_loadedSpines.contains(spine)) {
+        await _loadSpine(spine);
+        _rebuildMapping();
+      }
+      final pages = _spinePages[spine];
+      if (pages == null || pages.isEmpty) {
+        continue;
+      }
+      final index = pageIndex < pages.length ? pageIndex : pages.length - 1;
+      final target = _realToVirtual[(spine, index)];
+      if (target != null) {
+        _currentVirtual = target;
+        await _prefetchAround();
+        return true;
+      }
     }
-    _currentVirtual = target;
-    await _prefetchAround();
-    return true;
+    return false;
   }
 
   Future<void> _loadSpine(int spine) async {

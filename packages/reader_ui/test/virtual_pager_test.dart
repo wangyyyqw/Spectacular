@@ -131,11 +131,12 @@ void main() {
     expect(pager.currentVirtualPage, 1);
   });
 
-  test('越界 goTo 返回 false', () async {
+  test('越界 goTo：章节越界返回 false，页码越界钳制到章末页（P2-32）', () async {
     await pager.initialize();
     expect(await pager.goTo(-1, 0), isFalse);
     expect(await pager.goTo(3, 0), isFalse);
-    expect(await pager.goTo(0, 99), isFalse);
-    expect(pager.currentVirtualPage, 0);
+    expect(await pager.goTo(0, 99), isTrue);
+    expect(pager.current!.spineIndex, 0);
+    expect(pager.current!.pageIndex, 1, reason: '0 章共 2 页，钳制到末页');
   });
 }
