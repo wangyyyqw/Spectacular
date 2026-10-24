@@ -199,4 +199,23 @@ void main() {
     expect(child.cssFloat, CssFloat.none, reason: 'float 不继承');
     expect(child.display, CssDisplay.block, reason: 'display 不继承');
   });
+
+  test('font-family 列表、fallback 链与继承', () {
+    final parsed = style('p', 'p { font-family: "Book Serif", Ahem, serif; }');
+    expect(parsed.fontFamilies, <String>['Book Serif', 'Ahem', 'serif']);
+    expect(parsed.fontFamily, 'Book Serif');
+    expect(parsed.fontFamilyFallback, <String>['Ahem', 'serif']);
+
+    final parent = style('parent', 'div { font-family: A, B; }');
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.fontFamilies, <String>['A', 'B'], reason: 'font-family 继承');
+
+    final quoted = style('p', "p { font-family: 'A, B', C; }");
+    expect(quoted.fontFamilies, <String>['A, B', 'C'], reason: '引号内逗号不切分');
+
+    final none = style('p', 'p { color: red; }');
+    expect(none.fontFamilies, isEmpty);
+    expect(none.fontFamily, isNull);
+    expect(none.fontFamilyFallback, isEmpty);
+  });
 }

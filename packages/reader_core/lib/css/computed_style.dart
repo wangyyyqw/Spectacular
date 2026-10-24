@@ -137,8 +137,10 @@ class ComputedStyle {
         ? (parent?.italic ?? false)
         : _isItalic(rawStyle);
 
-    final fontFamily =
-        explicitValue('font-family')?._firstFamily() ?? parent?.fontFamily;
+    final rawFamily = explicitValue('font-family');
+    final fontFamilies = rawFamily == null
+        ? (parent?.fontFamilies ?? const <String>[])
+        : _parseFontFamilies(rawFamily);
 
     final rawAlign = explicitValue('text-align');
     final textAlign = rawAlign == null
@@ -200,7 +202,7 @@ class ComputedStyle {
       color: color,
       fontWeight: weight,
       italic: italic,
-      fontFamily: fontFamily,
+      fontFamilies: fontFamilies,
       textAlign: textAlign,
       textIndent: textIndent,
       letterSpacing: letterSpacing,
@@ -221,7 +223,7 @@ class ComputedStyle {
     required this.color,
     required this.fontWeight,
     required this.italic,
-    required this.fontFamily,
+    required this.fontFamilies,
     required this.textAlign,
     required this.textIndent,
     required this.letterSpacing,
@@ -258,8 +260,16 @@ class ComputedStyle {
   /// 是否斜体。
   final bool italic;
 
-  /// 首选字体族（未解析 fallback 链）。
-  final String? fontFamily;
+  /// 字体族列表（font-family 声明顺序，首项优先）。
+  final List<String> fontFamilies;
+
+  /// 首选字体族；未声明时为 null。
+  String? get fontFamily => fontFamilies.isEmpty ? null : fontFamilies.first;
+
+  /// fallback 链（首项之后的家族）。
+  List<String> get fontFamilyFallback => fontFamilies.length <= 1
+      ? const <String>[]
+      : List<String>.unmodifiable(fontFamilies.sublist(1));
 
   /// 文本对齐。
   final CssTextAlign textAlign;
@@ -296,7 +306,8 @@ class ComputedStyle {
       'ComputedStyle(fontSize=$fontSize, lineHeight=$lineHeight, '
       'color=$color, weight=$fontWeight, italic=$italic, align=$textAlign, '
       'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin, '
-      'position=$position, float=$cssFloat, display=$display)';
+      'families=$fontFamilies, position=$position, float=$cssFloat, '
+      'display=$display)';
 
   static CssEdges _resolveMargin(
     Map<String, String> values,
@@ -560,18 +571,33 @@ class ComputedStyle {
   }
 }
 
-extension on String {
-  String? _firstFamily() {
-    final value = trim();
-    if (value.isEmpty) {
-      return null;
+/// 解析 font-family 列表：按逗号切分，忽略引号内的逗号，去掉引号与空白。
+List<String> _parseFontFamilies(String raw) {
+  final families = <String>[];
+  final buffer = StringBuffer();
+  var quote = '';
+  for (final char in raw.split('')) {
+    if (quote.isEmpty && (char == '"' || char == "'")) {
+      quote = char;
+      continue;
     }
-    final first = value.split(',').first.trim();
-    if (first.length >= 2 &&
-        ((first.startsWith('"') && first.endsWith('"')) ||
-            (first.startsWith("'") && first.endsWith("'")))) {
-      return first.substring(1, first.length - 1);
+    if (quote.isNotEmpty && char == quote) {
+      quote = '';
+      continue;
     }
-    return first;
+    if (quote.isEmpty && char == ',') {
+      final family = buffer.toString().trim();
+      if (family.isNotEmpty) {
+        families.add(family);
+      }
+      buffer.clear();
+      continue;
+    }
+    buffer.write(char);
   }
+  final last = buffer.toString().trim();
+  if (last.isNotEmpty) {
+    families.add(last);
+  }
+  return List<String>.unmodifiable(families);
 }

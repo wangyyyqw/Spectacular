@@ -588,6 +588,9 @@ abstract final class TextLayoutEngine {
     fontWeight: _fontWeight(style.fontWeight),
     fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
     fontFamily: style.fontFamily,
+    fontFamilyFallback: style.fontFamilyFallback.isEmpty
+        ? null
+        : style.fontFamilyFallback,
     letterSpacing: style.letterSpacing,
     color: style.color,
   );
