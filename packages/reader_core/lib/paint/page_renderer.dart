@@ -117,15 +117,21 @@ class PagePainter {
       if (geometry.hidden) {
         continue;
       }
+      // 阴影可溢出块外：画在块裁剪之外（自带透明层），先影后景。
+      _withOpacity(canvas, geometry, () {
+        _paintBoxShadow(canvas, geometry);
+      });
       canvas.save();
       geometry.clip(canvas);
-      _paintBackground(
-        canvas,
-        geometry.box,
-        geometry.style,
-        startsBlock: geometry.startsBlock,
-        endsBlock: geometry.endsBlock,
-      );
+      _withOpacity(canvas, geometry, () {
+        _paintBackground(
+          canvas,
+          geometry.box,
+          geometry.style,
+          startsBlock: geometry.startsBlock,
+          endsBlock: geometry.endsBlock,
+        );
+      });
       canvas.restore();
     }
 
@@ -136,13 +142,15 @@ class PagePainter {
       }
       canvas.save();
       geometry.clip(canvas);
-      _paintBorders(
-        canvas,
-        geometry.box,
-        geometry.style,
-        startsBlock: geometry.startsBlock,
-        endsBlock: geometry.endsBlock,
-      );
+      _withOpacity(canvas, geometry, () {
+        _paintBorders(
+          canvas,
+          geometry.box,
+          geometry.style,
+          startsBlock: geometry.startsBlock,
+          endsBlock: geometry.endsBlock,
+        );
+      });
       canvas.restore();
     }
 
@@ -154,36 +162,53 @@ class PagePainter {
       }
       canvas.save();
       geometry.clip(canvas);
-      final layout = geometry.slice.block.layout;
-      var lineY = geometry.y + geometry.leading;
-      for (
-        var lineIndex = geometry.slice.startLine;
-        lineIndex < geometry.slice.endLine;
-        lineIndex++
-      ) {
-        final line = layout.lines[lineIndex];
-        final lineText = layout.text.substring(line.start, line.end);
-        if (lineText.isNotEmpty) {
-          _paintLineText(
-            canvas,
-            _linePainterFor(
-              page,
-              sliceIndex,
-              lineIndex,
-              layout,
-              line,
-              geometry.textStyle,
-              punctCompression: geometry.punctCompression,
-            ),
-            lineText,
-            _lineRuns(layout, line),
-            geometry.textStyle,
-            line.offsetX + geometry.leftInset,
-            lineY,
-          );
+      _withOpacity(canvas, geometry, () {
+        final layout = geometry.slice.block.layout;
+        var lineY = geometry.y + geometry.leading;
+        for (
+          var lineIndex = geometry.slice.startLine;
+          lineIndex < geometry.slice.endLine;
+          lineIndex++
+        ) {
+          final line = layout.lines[lineIndex];
+          final lineText = layout.text.substring(line.start, line.end);
+          if (lineText.isNotEmpty) {
+            final x = line.offsetX + geometry.leftInset;
+            if (_needsEllipsis(geometry, line)) {
+              _paintEllipsizedLine(
+                canvas,
+                page,
+                sliceIndex,
+                layout,
+                line,
+                lineText,
+                geometry,
+                x,
+                lineY,
+              );
+            } else {
+              _paintLineText(
+                canvas,
+                _linePainterFor(
+                  page,
+                  sliceIndex,
+                  lineIndex,
+                  layout,
+                  line,
+                  geometry.textStyle,
+                  punctCompression: geometry.punctCompression,
+                ),
+                lineText,
+                _lineRuns(layout, line),
+                geometry.textStyle,
+                x,
+                lineY,
+              );
+            }
+          }
+          lineY += line.height;
         }
-        lineY += line.height;
-      }
+      });
       canvas.restore();
     }
 
@@ -335,6 +360,103 @@ class PagePainter {
         lineY += line.height;
       }
     }
+  }
+
+  /// 元素不透明度（P2-37）：opacity < 1 时把本几何的绘制收进透明层，
+  /// 块背景/边框/文本三层各自包一层（层内内容互不穿透）。
+  void _withOpacity(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    void Function() body,
+  ) {
+    final opacity = geometry.style.opacity;
+    if (opacity >= 1) {
+      body();
+      return;
+    }
+    canvas.saveLayer(
+      geometry.box.inflate(64),
+      Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+    );
+    body();
+    canvas.restore();
+  }
+
+  /// 块阴影（P2-37 限定）：整块落在一页时画偏移投影（先影后景，背景
+  /// 覆盖重叠部分）；blur/spread/inset 不支持；跨页切片不重复投影。
+  void _paintBoxShadow(Canvas canvas, _SliceGeometry geometry) {
+    final shadow = geometry.style.boxShadow;
+    if (shadow == null || !geometry.startsBlock || !geometry.endsBlock) {
+      return;
+    }
+    canvas.drawRect(
+      geometry.box.translate(shadow.offsetX, shadow.offsetY),
+      Paint()..color = shadow.color,
+    );
+  }
+
+  /// 是否需要省略号截断（P2-37）：ellipsis 模式下行宽超出块内容区。
+  bool _needsEllipsis(_SliceGeometry geometry, LineBox line) {
+    if (geometry.style.textOverflow != CssTextOverflow.ellipsis) {
+      return false;
+    }
+    final available =
+        geometry.box.width - geometry.leftInset - line.offsetX;
+    return line.width > available + 0.5;
+  }
+
+  /// 省略号截断绘制（P2-37）：裁掉超出部分，右缘补「…」。
+  /// 布局结果不改（CFI/选区仍按原文），截断只在绘制层发生。
+  void _paintEllipsizedLine(
+    Canvas canvas,
+    PageContent page,
+    int sliceIndex,
+    TextLayoutResult layout,
+    LineBox line,
+    String lineText,
+    _SliceGeometry geometry,
+    double x,
+    double y,
+  ) {
+    final available = geometry.box.width - geometry.leftInset - line.offsetX;
+    // 省略号占位后，文本可见区再收窄一个省略号宽。
+    final ellipsis = TextPainter(
+      text: TextSpan(text: '…', style: geometry.textStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final visible = available - ellipsis.width;
+    if (visible <= 0) {
+      ellipsis.paint(
+        canvas,
+        Offset(geometry.box.right - ellipsis.width, y),
+      );
+      ellipsis.dispose();
+      return;
+    }
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(geometry.box.left + x, y, visible, line.height),
+    );
+    _paintLineText(
+      canvas,
+      _linePainterFor(
+        page,
+        sliceIndex,
+        geometry.slice.startLine,
+        layout,
+        line,
+        geometry.textStyle,
+        punctCompression: geometry.punctCompression,
+      ),
+      lineText,
+      _lineRuns(layout, line),
+      geometry.textStyle,
+      x,
+      y,
+    );
+    canvas.restore();
+    ellipsis.paint(canvas, Offset(geometry.box.left + x + visible, y));
+    ellipsis.dispose();
   }
 
   /// 画块背景：跨页切片只在块真正开始/结束时带上下圆角。
