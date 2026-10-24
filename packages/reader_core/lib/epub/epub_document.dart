@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import '../css/computed_style.dart';
 import '../position/cfi.dart';
 import '../src/api/models.dart';
 import '../src/api/interfaces.dart';
@@ -169,8 +170,13 @@ class EpubDocumentImpl implements EpubDocument {
   final String tocSource;
 
   /// 把指定 spine 聚合为可测量文本块树。
-  BlockDocument aggregateText(int spineIndex) =>
-      TextAggregator.aggregate(parseBlocks(spineIndex));
+  ///
+  /// [whiteSpace] 决定空白与换行如何保留（默认 `normal`）。
+  BlockDocument aggregateText(
+    int spineIndex, {
+    CssWhiteSpace whiteSpace = CssWhiteSpace.normal,
+  }) =>
+      TextAggregator.aggregate(parseBlocks(spineIndex), whiteSpace: whiteSpace);
 
   /// 把指定 spine 按 display 构建为块树。
   BlockDocument parseBlocks(int spineIndex) =>

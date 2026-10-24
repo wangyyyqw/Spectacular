@@ -275,7 +275,11 @@ class LineBreaker {
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
     List<StyledRun> runs = const <StyledRun>[],
   }) {
-    final width = effectiveWidth(style, maxWidth);
+    // nowrap/pre 不软换行：按无限宽测量，得到单行（硬换行仍生效）。
+    final wraps =
+        style.whiteSpace != CssWhiteSpace.nowrap &&
+        style.whiteSpace != CssWhiteSpace.pre;
+    final width = wraps ? effectiveWidth(style, maxWidth) : double.infinity;
     return TextLayoutEngine._layoutRaw(
       text: text,
       style: style,

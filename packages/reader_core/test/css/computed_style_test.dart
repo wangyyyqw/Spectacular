@@ -398,4 +398,25 @@ void main() {
     expect(child.padding.top, 0, reason: 'padding 不继承');
     expect(child.boxSizing, CssBoxSizing.contentBox, reason: 'box-sizing 不继承');
   });
+
+  test('visibility 与 white-space 解析且继承', () {
+    final parsed = style(
+      'p',
+      'p { visibility: hidden; white-space: pre-wrap; }',
+    );
+    expect(parsed.visibility, CssVisibility.hidden);
+    expect(parsed.whiteSpace, CssWhiteSpace.preWrap);
+
+    final parent = style(
+      'parent',
+      'div { visibility: collapse; white-space: nowrap; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.visibility, CssVisibility.collapse, reason: 'visibility 继承');
+    expect(child.whiteSpace, CssWhiteSpace.nowrap, reason: 'white-space 继承');
+
+    final fallback = style('p', 'p { visibility: bogus; white-space: bogus; }');
+    expect(fallback.visibility, CssVisibility.visible);
+    expect(fallback.whiteSpace, CssWhiteSpace.normal);
+  });
 }

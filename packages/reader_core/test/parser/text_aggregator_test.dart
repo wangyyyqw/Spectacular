@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/document_parser.dart';
@@ -112,4 +113,61 @@ void main() {
     expect(aggregated.plainText, isNotEmpty);
     expect(_texts(aggregated.root), isNotEmpty);
   }, skip: skip);
+
+  group('white-space 模式', () {
+    BlockDocument aggregateWith(String body, CssWhiteSpace whiteSpace) =>
+        TextAggregator.aggregate(
+          BlockBuilder.build(
+            DocumentParser.parse(
+              xhtml: '<html><body>$body</body></html>',
+              spineIndex: 0,
+            ),
+          ),
+          whiteSpace: whiteSpace,
+        );
+
+    test('normal 折叠空白与换行', () {
+      final text = _onlyText(
+        aggregateWith('<p id="p">a  b\n c</p>', CssWhiteSpace.normal),
+      );
+      expect(text.text, 'a b c');
+      expect(text.hardBreaks, isEmpty);
+    });
+
+    test('nowrap 同样折叠空白，只影响换行阶段', () {
+      final text = _onlyText(
+        aggregateWith('<p id="p">a  b\n c</p>', CssWhiteSpace.nowrap),
+      );
+      expect(text.text, 'a b c');
+    });
+
+    test('pre 保留空格与换行并记录强制换行位置', () {
+      final text = _onlyText(
+        aggregateWith('<p id="p">a  b\nc</p>', CssWhiteSpace.pre),
+      );
+      expect(text.text, 'a  b\nc');
+      expect(text.hardBreaks, <int>[4]);
+    });
+
+    test('pre-wrap 保留空格与换行', () {
+      final text = _onlyText(
+        aggregateWith('<p id="p">a  b\nc</p>', CssWhiteSpace.preWrap),
+      );
+      expect(text.text, 'a  b\nc');
+      expect(text.hardBreaks, <int>[4]);
+    });
+
+    test('pre-line 折叠空格但保留换行', () {
+      final text = _onlyText(
+        aggregateWith('<p id="p">a  b\nc</p>', CssWhiteSpace.preLine),
+      );
+      expect(text.text, 'a b\nc');
+      expect(text.hardBreaks, <int>[3]);
+    });
+
+    test('pre 标签始终按 pre 处理', () {
+      final text = _onlyText(_aggregate('<pre id="p">a  b</pre>'));
+      expect(text.text, 'a  b');
+    });
+  });
 }
