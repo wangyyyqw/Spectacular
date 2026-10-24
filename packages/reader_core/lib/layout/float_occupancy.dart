@@ -73,6 +73,25 @@ class FloatOccupancy {
     );
   }
 
+  /// 跨页浮动切分（P3-15，§48.4）：按页高逐页切分占用。
+  ///
+  /// [entry] 是首页入页时的占用（容器测量产物）；返回每页入页时的
+  /// 占用表——下一页以裁剪后的剩余重新登记（y 归零，§48.1「占位元素
+  /// 在分页时被切开」）。页数超出浮动存活范围后为空表（全宽恢复）。
+  static List<FloatOccupancy> sliceAcrossPages(
+    FloatOccupancy entry,
+    List<double> pageHeights,
+  ) {
+    final pages = <FloatOccupancy>[entry];
+    var current = entry;
+    for (var i = 0; i < pageHeights.length - 1; i++) {
+      final (:next, :consumed) = current.take(pageHeights[i]);
+      pages.add(next);
+      current = next;
+    }
+    return pages;
+  }
+
   /// 区间 [top, bottom) 与矩形相交判定（贴边不相交）。
   static bool _spans(Rect rect, double top, double bottom) =>
       rect.top < bottom && rect.bottom > top;
