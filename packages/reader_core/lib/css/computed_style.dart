@@ -28,6 +28,12 @@ enum CssVisibility { visible, hidden, collapse }
 /// 空白与换行处理（CSS white-space 属性）。
 enum CssWhiteSpace { normal, nowrap, pre, preWrap, preLine }
 
+/// 标点悬挂（CSS `hanging-punctuation`；P7-18，CSS Text 4）。
+///
+/// 本引擎只实现 `allow-end` 语义：两端对齐的非末行行尾句读挂到版心
+/// 右缘外；`none`（默认）关闭。其余取值（allow-start 等）按 none 处理。
+enum CssHangingPunctuation { none, allowEnd }
+
 /// 文本大小写变换（CSS text-transform 属性）。
 enum CssTextTransform { none, uppercase, lowercase, capitalize }
 
@@ -446,6 +452,12 @@ class ComputedStyle {
         : _parseWhiteSpace(rawWhiteSpace) ??
               parent?.whiteSpace ??
               CssWhiteSpace.normal;
+    final rawHanging = explicitValue('hanging-punctuation');
+    final hangingPunctuation = rawHanging == null
+        ? (parent?.hangingPunctuation ?? CssHangingPunctuation.none)
+        : _parseHangingPunctuation(rawHanging) ??
+              parent?.hangingPunctuation ??
+              CssHangingPunctuation.none;
 
     // 字符级属性：word-spacing/text-transform 继承，vertical-align 不继承（P2-16）。
     final rawWordSpacing = explicitValue('word-spacing');
@@ -640,6 +652,7 @@ class ComputedStyle {
       display: display,
       visibility: visibility,
       whiteSpace: whiteSpace,
+      hangingPunctuation: hangingPunctuation,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
@@ -698,6 +711,7 @@ class ComputedStyle {
     required this.display,
     required this.visibility,
     required this.whiteSpace,
+    required this.hangingPunctuation,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
@@ -804,6 +818,9 @@ class ComputedStyle {
 
   /// 空白处理（继承，初始 normal）。
   final CssWhiteSpace whiteSpace;
+
+  /// 标点悬挂（继承，初始 none；P7-18）。
+  final CssHangingPunctuation hangingPunctuation;
 
   /// 词间距（逻辑像素，继承，初始 0）。
   final double wordSpacing;
@@ -1490,6 +1507,14 @@ class ComputedStyle {
         'pre' => CssWhiteSpace.pre,
         'pre-wrap' || 'break-spaces' => CssWhiteSpace.preWrap,
         'pre-line' => CssWhiteSpace.preLine,
+        _ => null,
+      };
+
+  static CssHangingPunctuation? _parseHangingPunctuation(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'allow-end' => CssHangingPunctuation.allowEnd,
+        'none' => CssHangingPunctuation.none,
+        // allow-start/force-end/force-start 等按 none 处理（一期语义）。
         _ => null,
       };
 
