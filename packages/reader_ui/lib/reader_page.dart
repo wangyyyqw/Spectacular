@@ -110,6 +110,9 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 图片缓存版本号，解码完成后触发重绘。
   int _imageRevision = 0;
 
+  /// 上一次布局的正文区尺寸（旋转/窗口变化检测，P2-31）。
+  Size? _lastContentSize;
+
   /// 预取本页引用的背景图；解码完成后 setState，占位替换为真图。
   void _prefetchPageImages(PageContent page, double displayWidth) {
     final cache = widget.imageCache;
@@ -136,6 +139,32 @@ class _ReaderPageState extends State<ReaderPage> {
             setState(() => _imageRevision = cache.revision);
           }),
     );
+  }
+
+  /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
+  void _scheduleContentSize(Size pageSize) {
+    final padding = _effectivePadding();
+    final content = Size(
+      pageSize.width - padding.horizontal,
+      pageSize.height - padding.vertical,
+    );
+    if (content.width <= 0 || content.height <= 0) {
+      return;
+    }
+    if (_lastContentSize == content) {
+      return;
+    }
+    _lastContentSize = content;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(
+          _session.applyContentSize(
+            width: content.width,
+            height: content.height,
+          ),
+        );
+      }
+    });
   }
 
   void _schedulePrefetch(PageContent page, double displayWidth) {
@@ -233,6 +262,7 @@ class _ReaderPageState extends State<ReaderPage> {
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         _schedulePrefetch(page, size.width - _effectivePadding().horizontal);
+        _scheduleContentSize(size);
         return Stack(
           fit: StackFit.expand,
           children: [
