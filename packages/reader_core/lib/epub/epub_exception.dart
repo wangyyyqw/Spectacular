@@ -81,7 +81,7 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_LAYOUT_ABORTED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§71.5 分页被取消/异常', reservedFor: 'P6-12'),
     EpubCodeSpec('E_LAYOUT_RENDER_FAILED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§71.5 单页绘制异常', reservedFor: 'P6-12'),
     // ---- 预留：标注（P4）----
-    EpubCodeSpec('E_ANNOTATION_RELOCATE_FAILED', EpubErrorCategory.annotation, EpubErrorSeverity.informational, '§30.4 CFI 失效且文本搜索无果（置灰保留）', reservedFor: 'P7-14'),
+    EpubCodeSpec('E_ANNOTATION_RELOCATE_FAILED', EpubErrorCategory.annotation, EpubErrorSeverity.informational, '§30.4 CFI 失效且三级重定位无果（置灰保留）；三级实现在 position/relocator.dart（P7-14），码串消费在存储层', reservedFor: 'P4-17'),
     EpubCodeSpec('E_ANNOTATION_STORE_FAILED', EpubErrorCategory.annotation, EpubErrorSeverity.recoverable, '§30.2 写库失败', reservedFor: 'P4-17'),
     // ---- 预留：TTS（P6，暂缓）----
     EpubCodeSpec('E_TTS_NO_ENGINE', EpubErrorCategory.tts, EpubErrorSeverity.fatal, '§69.7 无 TTS 引擎', reservedFor: 'P6-04'),
