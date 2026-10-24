@@ -6,7 +6,7 @@
 > 执行时机：P7.1～P7.2（规格回填）建议在 P3 大规模开发前完成，避免新代码建立在旧规格上；其余模块可与 P3～P6 穿插，无强制先后。
 > 规则：勾选任务后运行 `perl tool/render_plan.pl` 同步主文档总览与进度；字段口径见主文档 §0.3～§0.4。
 
-> 进度：22 / 32 项 · 71h / 102h（70%）
+> 进度：23 / 32 项 · 73h / 102h（72%）
 
 ---
 
@@ -186,7 +186,7 @@
   - 验收：三类边界快照与 CSS 2.2 外边距折叠规范行为一致；偏差项有缺陷登记与修复
   - 参考：[参考/reeden/reports/140-epub-layout.md](../../参考/reeden/reports/140-epub-layout.md)（MarginStrut 与塌陷）；[CSS 2.2 外边距折叠](https://www.w3.org/TR/CSS22/box.html#collapsing-margins)（规范）
 
-- [ ] **P7-25 BFC 阻断注入** ｜ 2h
+- [x] **P7-25 BFC 阻断注入** ｜ 2h
   - 目标：排版前对 html/body 注入基础约束（overflow/min-height 归零、body 加 flow-root 或等价 BFC 阻断），防止作者页面的裸 float 污染整章布局
   - 产出：注入规则（随 UA 层下发）+ 用例
   - 依赖：P2-15
