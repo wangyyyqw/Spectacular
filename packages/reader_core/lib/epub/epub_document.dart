@@ -17,6 +17,7 @@ import '../parser/document_parser.dart';
 import '../parser/text_aggregator.dart';
 import 'opf.dart';
 import 'toc.dart';
+import 'font_obfuscation.dart';
 import 'resource_index.dart';
 
 /// 打开结果：成功时带文档，失败时只带报告。
@@ -97,6 +98,8 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
       opfPath: container.rootfilePath,
     );
     warnings.addAll(tocResult.warnings);
+    // 字体混淆信息（P3-05）：encryption.xml + FairPlay 检测。
+    final fontEncryption = _parseFontEncryption(archive, warnings);
     final document = EpubDocumentImpl(
       archive: archive,
       package: package,
@@ -104,6 +107,7 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
       opfPath: container.rootfilePath,
       toc: tocResult.entries,
       tocSource: tocResult.source,
+      fontEncryption: fontEncryption,
       report: ImportReport(
         ok: true,
         warnings: List<String>.unmodifiable(warnings),
@@ -138,6 +142,37 @@ abstract final class EpubDocumentFactory {
   static Future<EpubOpenResult> open(Uint8List bytes) => openEpub(bytes);
 }
 
+/// 解析 `META-INF/encryption.xml` 与 FairPlay 标记（P3-05）。
+///
+/// 诊断走码表：`E_FAIRPLAY_ENCRYPTION`（检测到不解密）、
+/// `E_FONT_OBFUSCATION_FAILED` 不在此处（读取期失败才升码）。
+FontEncryptionMap _parseFontEncryption(
+  EpubArchive archive,
+  List<String> warnings,
+) {
+  final encryptionXml = archive.readString('META-INF/encryption.xml');
+  if (encryptionXml == null) {
+    return const FontEncryptionMap.empty();
+  }
+  if (archive.readBytes('META-INF/sinf.xml') != null) {
+    warnings.add(
+      'E_FAIRPLAY_ENCRYPTION: 检测到 Apple FairPlay 加密'
+      '（META-INF/sinf.xml），不支持解密，相关资源按原样读取',
+    );
+  }
+  final map = FontEncryptionMap.parse(encryptionXml);
+  if (map.isEmpty) {
+    warnings.add('E_FONT_OBFUSCATION_FAILED: encryption.xml 解析失败，'
+        '字体混淆信息不可用');
+    return map;
+  }
+  for (final uri in map.unknownAlgorithms) {
+    warnings.add('E_FONT_OBFUSCATION_FAILED: encryption.xml 含不支持'
+        '的加密算法 $uri，对应资源按原样读取');
+  }
+  return map;
+}
+
 /// [EpubDocument] 的默认实现。
 class EpubDocumentImpl implements EpubDocument {
   /// 创建文档。
@@ -149,7 +184,41 @@ class EpubDocumentImpl implements EpubDocument {
     required List<TocEntry> toc,
     required this.tocSource,
     required this.report,
+    this.fontEncryption = const FontEncryptionMap.empty(),
   }) : toc = List<TocEntry>.unmodifiable(toc);
+
+  /// 字体混淆声明（P3-05）：ZIP 内路径 → 算法；无加密声明时为空表。
+  final FontEncryptionMap fontEncryption;
+
+  /// 读取字体资源字节；混淆资源按 encryption.xml 声明的算法解混淆
+  /// （P3-05）。[cache] 提供时解混淆产物按（路径+长度）键落盘，缓存
+  /// 命中不重复解密；原书字节始终不动。资源不存在返回 null。
+  Future<Uint8List?> readFontBytes(
+    String href, {
+    DirectoryFontCache? cache,
+  }) async {
+    final path = resources.resolve(href, baseDir: p.posix.dirname(opfPath));
+    if (path == null) {
+      return null;
+    }
+    final raw = archive.readBytes(path);
+    if (raw == null) {
+      return null;
+    }
+    final algorithm = fontEncryption.entries[path];
+    if (algorithm == null) {
+      return raw;
+    }
+    Future<Uint8List> decrypt() async => FontObfuscator.deobfuscate(
+          raw,
+          identifier: package.meta.identifier,
+          algorithm: algorithm,
+        );
+    if (cache != null) {
+      return cache.getOrCompute('$path:${raw.length}', decrypt);
+    }
+    return decrypt();
+  }
 
   /// ZIP 容器。
   final EpubArchive archive;
