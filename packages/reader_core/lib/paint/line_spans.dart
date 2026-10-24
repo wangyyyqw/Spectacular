@@ -32,8 +32,9 @@ InlineSpan buildLineSpan({
       : baseStyle.copyWith(color: textColor);
   final lineText = layout.text.substring(line.start, line.end);
   final runs = layout.runs;
+  // 与测量期同模式取 gap（P7-21：text-justify 模式随行携带）。
   final gaps = line.justifyExtra > 0
-      ? cjkJustifyGapOffsets(lineText)
+      ? cjkJustifyGapOffsets(lineText, mode: line.justifyMode)
       : const <int>[];
   // 挤压/自动间距与测量同条件：仅纯文本行（runs 为空）。
   final plain = runs.isEmpty && lineText.length >= 2;

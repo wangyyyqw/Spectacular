@@ -25,6 +25,7 @@ class LineBox {
     this.isHardBreak = false,
     this.offsetX = 0,
     this.justifyExtra = 0,
+    this.justifyMode = CssTextJustify.auto,
   });
 
   /// 行起始字符下标（半开区间，P1-23 精化）。
@@ -60,6 +61,10 @@ class LineBox {
   /// justify 需要分摊到行内的额外宽度；末行与硬换行行为 0。
   final double justifyExtra;
 
+  /// 本行的 justify 拉伸方式（P7-21）：绘制端按同一模式取 gap，
+  /// 与测量期的 justifyExtra 一致。
+  final CssTextJustify justifyMode;
+
   /// 行底。
   double get bottom => top + height;
 
@@ -73,6 +78,7 @@ class LineBox {
     bool? isHardBreak,
     double? offsetX,
     double? justifyExtra,
+    CssTextJustify? justifyMode,
   }) => LineBox(
     start: start ?? this.start,
     end: end ?? this.end,
@@ -85,6 +91,7 @@ class LineBox {
     isHardBreak: isHardBreak ?? this.isHardBreak,
     offsetX: offsetX ?? this.offsetX,
     justifyExtra: justifyExtra ?? this.justifyExtra,
+    justifyMode: justifyMode ?? this.justifyMode,
   );
 
   @override
@@ -654,7 +661,8 @@ abstract final class TextLayoutEngine {
   /// 按 text-align 计算每行水平偏移与 justify 分摊宽度（§61.5）。
   ///
   /// 行宽已含 text-indent 造成的减宽，比较基准是 `width - indent`；
-  /// justify 的末行与硬换行行按 start 对齐，不拉伸。
+  /// justify 的末行与硬换行行按 start 对齐，不拉伸——除非
+  /// `text-align-last` 指定（P7-21）或 `text-justify: justify-all`。
   static List<LineBox> _align(
     String text,
     List<LineBox> lines,
@@ -672,26 +680,64 @@ abstract final class TextLayoutEngine {
       punct,
       style,
     );
+    final mode = style.textJustify;
+    // 末行（含硬换行）的对齐：text-align-last 优先，缺省 start。
+    // text-justify: justify-all 或 text-align-last: justify 时末行参与拉伸。
+    final lastMayJustify =
+        mode == CssTextJustify.justifyAll ||
+        style.textAlignLast == CssTextAlign.justify;
     final aligned = <LineBox>[];
     for (final line in lines) {
       final slack = width.isFinite
           ? math.max(0.0, width - line.indent - line.width)
           : 0.0;
-      aligned.add(switch (style.textAlign) {
+      final isFinal = line.isLastLine || line.isHardBreak;
+      // text-align-last:auto 语义（P7-21）：justify 文本的末行按 start；
+      // 其余对齐延续 text-align。显式 textAlignLast 覆盖。
+      final align = isFinal
+          ? (style.textAlignLast ??
+                (style.textAlign == CssTextAlign.justify
+                    ? CssTextAlign.start
+                    : style.textAlign))
+          : style.textAlign;
+      // 拉伸余量：justify 对齐；或末行在 justify-all / align-last:
+      // justify 下参与拉伸（对齐仍是 start，通过 justifyExtra 拉伸）。
+      // 其余对齐保持 0（否则左对齐行也会被绘制端拉伸）。
+      final stretch =
+          align == CssTextAlign.justify || (isFinal && lastMayJustify);
+      final justifyExtra = stretch
+          ? _justifyExtra(
+              text,
+              line,
+              slack,
+              mode: mode,
+              hanging: hanging,
+              punctWidthOf: punctWidthOf,
+              lastMayJustify: lastMayJustify,
+            )
+          : 0.0;
+      aligned.add(switch (align) {
         CssTextAlign.start ||
-        CssTextAlign.left => line.copyWith(offsetX: line.indent),
+        CssTextAlign.left => line.copyWith(
+          offsetX: line.indent,
+          justifyExtra: justifyExtra,
+          justifyMode: mode,
+        ),
         CssTextAlign.end ||
-        CssTextAlign.right => line.copyWith(offsetX: line.indent + slack),
-        CssTextAlign.center => line.copyWith(offsetX: line.indent + slack / 2),
+        CssTextAlign.right => line.copyWith(
+          offsetX: line.indent + slack,
+          justifyExtra: justifyExtra,
+          justifyMode: mode,
+        ),
+        CssTextAlign.center => line.copyWith(
+          offsetX: line.indent + slack / 2,
+          justifyExtra: justifyExtra,
+          justifyMode: mode,
+        ),
         CssTextAlign.justify => line.copyWith(
           offsetX: line.indent,
-          justifyExtra: _justifyExtra(
-            text,
-            line,
-            slack,
-            hanging: hanging,
-            punctWidthOf: punctWidthOf,
-          ),
+          justifyExtra: justifyExtra,
+          justifyMode: mode,
         ),
       });
     }
@@ -701,22 +747,32 @@ abstract final class TextLayoutEngine {
   /// 该行可用于 justify 的余量；没有可拉伸间隙时返回 0。
   ///
   /// 悬挂开启且行尾为悬挂句读时，余量加句读宽度（P7-18）。
+  /// 末行/硬换行仅在 `lastMayJustify`（justify-all 或 align-last:
+  /// justify）时参与拉伸（P7-21）。
   static double _justifyExtra(
     String text,
     LineBox line,
     double slack, {
+    required CssTextJustify mode,
     required bool hanging,
     required double Function(String) punctWidthOf,
+    required bool lastMayJustify,
   }) {
-    if (slack < 0 || line.isLastLine || line.isHardBreak) {
+    if (slack < 0) {
+      return 0;
+    }
+    final isFinal = line.isLastLine || line.isHardBreak;
+    if (isFinal && !lastMayJustify) {
       return 0;
     }
     final lineText = text.substring(line.start, line.end);
-    final gaps = cjkJustifyGapOffsets(lineText);
+    final gaps = cjkJustifyGapOffsets(lineText, mode: mode);
     if (gaps.isEmpty) {
       return 0;
     }
-    if (hanging && lineText.isNotEmpty) {
+    if (hanging &&
+        !isFinal &&
+        lineText.isNotEmpty) {
       // 悬挂句读均为单个 UTF-16 码元（U+2026 与 CJK 句读区）。
       final lastChar = String.fromCharCode(
         lineText.codeUnitAt(lineText.length - 1),
