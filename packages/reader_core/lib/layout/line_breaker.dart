@@ -791,8 +791,17 @@ abstract final class TextLayoutEngine {
         : style.fontFamilyFallback,
     letterSpacing: style.letterSpacing,
     wordSpacing: style.wordSpacing,
+    decoration: _decoration(style.textDecoration),
+    decorationColor: style.color,
     color: style.color,
   );
+
+  static TextDecoration _decoration(CssTextDecoration value) => switch (value) {
+    CssTextDecoration.none => TextDecoration.none,
+    CssTextDecoration.underline => TextDecoration.underline,
+    CssTextDecoration.lineThrough => TextDecoration.lineThrough,
+    CssTextDecoration.overline => TextDecoration.overline,
+  };
 
   static FontWeight _fontWeight(int weight) {
     final index = ((weight / 100).round() - 1).clamp(0, 8);

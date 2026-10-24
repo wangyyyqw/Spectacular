@@ -34,6 +34,15 @@ enum CssTextTransform { none, uppercase, lowercase, capitalize }
 /// 行内垂直对齐（CSS vertical-align 属性）。
 enum CssVerticalAlign { baseline, subscript, superscript, middle, top, bottom }
 
+/// 文本装饰线（CSS text-decoration 属性，P2-17）。
+enum CssTextDecoration { none, underline, lineThrough, overline }
+
+/// 着重号样式（CSS text-emphasis-style 属性，P2-17）。
+enum CssTextEmphasisStyle { none, dot, filled, open }
+
+/// 着重号位置（CSS text-emphasis-position 属性）。
+enum CssTextEmphasisPosition { over, under }
+
 /// 四边长度（逻辑像素）。
 class CssEdges {
   /// 创建四边。
@@ -380,6 +389,37 @@ class ComputedStyle {
         _parseVerticalAlign(explicitValue('vertical-align')) ??
         CssVerticalAlign.baseline;
 
+    // 装饰与分页属性（P2-17）：text-decoration 不继承，text-emphasis 继承。
+    final textDecoration =
+        _parseTextDecoration(explicitValue('text-decoration')) ??
+        CssTextDecoration.none;
+    final rawEmphasis =
+        explicitValue('text-emphasis-style') ?? explicitValue('text-emphasis');
+    final textEmphasisStyle = rawEmphasis == null
+        ? (parent?.textEmphasisStyle ?? CssTextEmphasisStyle.none)
+        : _parseTextEmphasisStyle(rawEmphasis) ??
+              parent?.textEmphasisStyle ??
+              CssTextEmphasisStyle.none;
+    final rawEmphasisPosition = explicitValue('text-emphasis-position');
+    final textEmphasisPosition = rawEmphasisPosition == null
+        ? (parent?.textEmphasisPosition ?? CssTextEmphasisPosition.over)
+        : _parseTextEmphasisPosition(rawEmphasisPosition) ??
+              parent?.textEmphasisPosition ??
+              CssTextEmphasisPosition.over;
+    final rawEmphasisColor = explicitValue('text-emphasis-color');
+    final textEmphasisColor = rawEmphasisColor == null
+        ? parent?.textEmphasisColor
+        : _parseColor(rawEmphasisColor) ?? parent?.textEmphasisColor;
+    final pageBreakBefore = _parsePageBreak(
+      explicitValue('page-break-before') ?? explicitValue('break-before'),
+    );
+    final pageBreakAfter = _parsePageBreak(
+      explicitValue('page-break-after') ?? explicitValue('break-after'),
+    );
+    final rawBreakInside =
+        explicitValue('break-inside') ?? explicitValue('page-break-inside');
+    final breakInsideAvoid = rawBreakInside?.trim().toLowerCase() == 'avoid';
+
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
     final backgroundColor =
         _parseColor(explicitValue('background-color') ?? '') ??
@@ -442,6 +482,13 @@ class ComputedStyle {
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
+      textDecoration: textDecoration,
+      textEmphasisStyle: textEmphasisStyle,
+      textEmphasisPosition: textEmphasisPosition,
+      textEmphasisColor: textEmphasisColor,
+      pageBreakBefore: pageBreakBefore,
+      pageBreakAfter: pageBreakAfter,
+      breakInsideAvoid: breakInsideAvoid,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
       borders: borders,
@@ -479,6 +526,13 @@ class ComputedStyle {
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
+    required this.textDecoration,
+    required this.textEmphasisStyle,
+    required this.textEmphasisPosition,
+    required this.textEmphasisColor,
+    required this.pageBreakBefore,
+    required this.pageBreakAfter,
+    required this.breakInsideAvoid,
     required this.backgroundColor,
     required this.backgroundImage,
     required this.borders,
@@ -566,6 +620,27 @@ class ComputedStyle {
   /// 行内垂直对齐（不继承，初始 baseline）。
   final CssVerticalAlign verticalAlign;
 
+  /// 文本装饰线（`text-decoration`，不继承）。
+  final CssTextDecoration textDecoration;
+
+  /// 着重号样式（继承，初始 none）。
+  final CssTextEmphasisStyle textEmphasisStyle;
+
+  /// 着重号位置（继承，初始 over）。
+  final CssTextEmphasisPosition textEmphasisPosition;
+
+  /// 着重号颜色；null 表示跟随文字颜色。
+  final Color? textEmphasisColor;
+
+  /// 块前强制分页（`page-break-before: always` 等）。
+  final bool pageBreakBefore;
+
+  /// 块后强制分页。
+  final bool pageBreakAfter;
+
+  /// 块内禁止分页（`break-inside: avoid`）。
+  final bool breakInsideAvoid;
+
   /// 行内基线偏移（逻辑像素，正值向下）：sup -0.4em、sub +0.15em（与阅微 BaselineShift 同值）。
   double get verticalAlignShift => switch (verticalAlign) {
     CssVerticalAlign.superscript => -0.4 * fontSize,
@@ -623,7 +698,9 @@ class ComputedStyle {
       'families=$fontFamilies, position=$position, float=$cssFloat, '
       'display=$display, visibility=$visibility, whiteSpace=$whiteSpace, '
       'wordSpacing=$wordSpacing, transform=$textTransform, '
-      'valign=$verticalAlign, '
+      'valign=$verticalAlign, decoration=$textDecoration, '
+      'emphasis=$textEmphasisStyle/$textEmphasisPosition, '
+      'break=$pageBreakBefore/$pageBreakAfter/avoid=$breakInsideAvoid, '
       'bg=$backgroundColor, borders=$borders, '
       'size=$width/$height, min=$minWidth/$minHeight, '
       'max=$maxWidth/$maxHeight, padding=$padding, boxSizing=$boxSizing)';
@@ -1179,6 +1256,62 @@ class ComputedStyle {
         'capitalize' => CssTextTransform.capitalize,
         _ => null,
       };
+
+  static CssTextDecoration? _parseTextDecoration(String? raw) {
+    final value = raw?.trim().toLowerCase();
+    if (value == null) {
+      return null;
+    }
+    if (value == 'none') {
+      return CssTextDecoration.none;
+    }
+    if (value.contains('underline')) {
+      return CssTextDecoration.underline;
+    }
+    if (value.contains('line-through')) {
+      return CssTextDecoration.lineThrough;
+    }
+    if (value.contains('overline')) {
+      return CssTextDecoration.overline;
+    }
+    return null;
+  }
+
+  static CssTextEmphasisStyle? _parseTextEmphasisStyle(String raw) {
+    // 简写（text-emphasis）可能带颜色/位置，取第一个样式关键字。
+    for (final token in raw.trim().toLowerCase().split(RegExp(r'\s+'))) {
+      switch (token) {
+        case 'none':
+          return CssTextEmphasisStyle.none;
+        case 'dot':
+          return CssTextEmphasisStyle.dot;
+        case 'filled' || 'sesame':
+          return CssTextEmphasisStyle.filled;
+        case 'open' || 'circle':
+          return CssTextEmphasisStyle.open;
+      }
+    }
+    return null;
+  }
+
+  static CssTextEmphasisPosition? _parseTextEmphasisPosition(String raw) {
+    final value = raw.trim().toLowerCase();
+    if (value.contains('under')) {
+      return CssTextEmphasisPosition.under;
+    }
+    if (value.contains('over')) {
+      return CssTextEmphasisPosition.over;
+    }
+    return null;
+  }
+
+  static bool _parsePageBreak(String? raw) {
+    final value = raw?.trim().toLowerCase();
+    return value == 'always' ||
+        value == 'page' ||
+        value == 'left' ||
+        value == 'right';
+  }
 
   static CssVerticalAlign? _parseVerticalAlign(String? raw) =>
       switch (raw?.trim().toLowerCase()) {

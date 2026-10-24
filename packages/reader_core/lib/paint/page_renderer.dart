@@ -109,6 +109,7 @@ class PagePainter {
             canvas,
             slice.block.layout,
             line,
+            style,
             textStyle,
             line.offsetX + leftInset,
             lineY,
@@ -317,6 +318,7 @@ class PagePainter {
     Canvas canvas,
     TextLayoutResult layout,
     LineBox line,
+    ComputedStyle style,
     TextStyle baseStyle,
     double x,
     double y,
@@ -333,6 +335,7 @@ class PagePainter {
     )..layout();
     if (!hasShift) {
       painter.paint(canvas, Offset(x, y));
+      _paintEmphasis(canvas, lineText, style, painter, x, y);
       return;
     }
     // 上下标：用整行的排版结果取出每段的 x，再按段的基线偏移绘制。
@@ -355,6 +358,52 @@ class PagePainter {
       segmentPainter.paint(
         canvas,
         Offset(x + boxes.first.left, y + segment.baselineShift),
+      );
+    }
+    _paintEmphasis(canvas, lineText, style, painter, x, y);
+  }
+
+  /// 画着重号（P2-17）：按字符取排版盒，在上/下方画实心或空心点。
+  ///
+  /// 参考阅微 `TextEmphasisDisplay`：字号取 `fontSize / 2` 区域，位置 over/under，
+  /// 颜色缺省跟随文字颜色。
+  void _paintEmphasis(
+    Canvas canvas,
+    String lineText,
+    ComputedStyle style,
+    TextPainter painter,
+    double x,
+    double y,
+  ) {
+    final emphasis = style.textEmphasisStyle;
+    if (emphasis == CssTextEmphasisStyle.none) {
+      return;
+    }
+    final radius = math.max(1.0, style.fontSize * 0.08);
+    final paint = Paint()..color = style.textEmphasisColor ?? style.color;
+    if (emphasis == CssTextEmphasisStyle.open) {
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.0, style.fontSize * 0.05);
+    }
+    for (var i = 0; i < lineText.length; i++) {
+      if (lineText[i].trim().isEmpty) {
+        continue;
+      }
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: i, extentOffset: i + 1),
+      );
+      if (boxes.isEmpty) {
+        continue;
+      }
+      final box = boxes.first;
+      final centerY = style.textEmphasisPosition == CssTextEmphasisPosition.over
+          ? y + box.top + style.fontSize * 0.15
+          : y + box.bottom - style.fontSize * 0.15;
+      canvas.drawCircle(
+        Offset(x + (box.left + box.right) / 2, centerY),
+        radius,
+        paint,
       );
     }
   }

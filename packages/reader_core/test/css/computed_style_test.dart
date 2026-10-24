@@ -455,4 +455,50 @@ void main() {
     expect(plain.textTransform, CssTextTransform.none);
     expect(plain.verticalAlign, CssVerticalAlign.baseline);
   });
+
+  test('text-decoration / text-emphasis / 分页属性解析', () {
+    final deco = style(
+      'p',
+      'p { text-decoration: underline; text-emphasis: dot; '
+          'text-emphasis-position: under; text-emphasis-color: #FF0000; }',
+    );
+    expect(deco.textDecoration, CssTextDecoration.underline);
+    expect(deco.textEmphasisStyle, CssTextEmphasisStyle.dot);
+    expect(deco.textEmphasisPosition, CssTextEmphasisPosition.under);
+    expect(deco.textEmphasisColor, const Color(0xFFFF0000));
+
+    final through = style('p', 'p { text-decoration: line-through; }');
+    expect(through.textDecoration, CssTextDecoration.lineThrough);
+    final overline = style('p', 'p { text-decoration: overline; }');
+    expect(overline.textDecoration, CssTextDecoration.overline);
+    final none = style('p', 'p { text-decoration: none; }');
+    expect(none.textDecoration, CssTextDecoration.none);
+
+    final filled = style('p', 'p { text-emphasis: filled; }');
+    expect(filled.textEmphasisStyle, CssTextEmphasisStyle.filled);
+    final open = style('p', 'p { text-emphasis-style: open; }');
+    expect(open.textEmphasisStyle, CssTextEmphasisStyle.open);
+
+    final breaks = style(
+      'p',
+      'p { page-break-before: always; break-after: page; '
+          'page-break-inside: avoid; }',
+    );
+    expect(breaks.pageBreakBefore, isTrue);
+    expect(breaks.pageBreakAfter, isTrue);
+    expect(breaks.breakInsideAvoid, isTrue);
+    final auto = style('p', 'p { page-break-before: auto; }');
+    expect(auto.pageBreakBefore, isFalse);
+
+    // text-emphasis 继承，text-decoration 不继承。
+    final parent = style(
+      'parent',
+      'div { text-decoration: underline; text-emphasis: dot; '
+          'text-emphasis-position: under; }',
+    );
+    final child = style('p', 'p { color: #00FF00; }', parent: parent);
+    expect(child.textDecoration, CssTextDecoration.none, reason: '不继承');
+    expect(child.textEmphasisStyle, CssTextEmphasisStyle.dot);
+    expect(child.textEmphasisPosition, CssTextEmphasisPosition.under);
+  });
 }
