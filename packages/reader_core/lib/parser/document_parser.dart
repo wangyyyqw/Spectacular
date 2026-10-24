@@ -1,10 +1,20 @@
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
+import 'package:xml/xml.dart' as xml;
 
 import '../position/cfi.dart';
 import '../src/api/interfaces.dart';
 import '../src/api/models.dart';
 import 'cfi_resolver.dart';
+
+/// 解析路径选择（P7-11 双路径）。
+///
+/// 严格 XML 解析作为**校验闸门**：合法 XHTML 命中 [strict]（命名空间
+/// 与 `epub:type` 语义可用）；失败自动回退 html5lib 容错解析
+/// （[tolerantFallback]），带降级诊断。转换层始终走 html5lib——它提供
+/// sourceSpan 源偏移，是 CFI 绑定与失效容错的坐标基础；`package:xml`
+/// 不带偏移，直接转换会破坏 CFI（对照 Reeden 双路径动机，500 号 §1）。
+enum DocumentParserChoice { strict, tolerantFallback }
 
 /// 解析后的节点基类。
 sealed class ParsedNode implements EpubNode {
@@ -69,6 +79,8 @@ class ParsedDocument implements SpineDocument {
     required this.source,
     required this.textNodes,
     required this.elementsById,
+    required this.parserChoice,
+    this.parseDiagnostics = const <String>[],
   }) : plainText = textNodes.map((node) => node.text).join();
 
   @override
@@ -85,6 +97,19 @@ class ParsedDocument implements SpineDocument {
 
   /// id → 元素。
   final Map<String, ParsedElement> elementsById;
+
+  /// 解析路径（P7-11）：作为章节缓存键的一部分，回读缓存时据此判断
+  /// 旧结果可否复用（两条路径的 DOM 结构可能不同）。
+  final DocumentParserChoice parserChoice;
+
+  /// 解析期降级诊断（如严格解析失败的原因摘要）。
+  final List<String> parseDiagnostics;
+
+  /// 排版缓存的路径分量：两条路径可区分。
+  String get parserCacheKey => switch (parserChoice) {
+    DocumentParserChoice.strict => 'strict',
+    DocumentParserChoice.tolerantFallback => 'tolerant',
+  };
 
   @override
   final String plainText;
@@ -159,10 +184,25 @@ class ParsedDocument implements SpineDocument {
 /// 把 XHTML 解析为节点模型，并在解析期绑定 CFI。
 abstract final class DocumentParser {
   /// 解析 XHTML。
+  ///
+  /// 先用严格 XML 校验（P7-11 双路径）：合法命中 [DocumentParserChoice.strict]；
+  /// 失败回退 html5lib 容错解析并记录降级诊断（诊断码
+  /// `E_DOCUMENT_TOLERANT_FALLBACK`）。
   static ParsedDocument parse({
     required String xhtml,
     required int spineIndex,
   }) {
+    var choice = DocumentParserChoice.strict;
+    final diagnostics = <String>[];
+    try {
+      xml.XmlDocument.parse(xhtml);
+    } on xml.XmlException catch (error) {
+      choice = DocumentParserChoice.tolerantFallback;
+      diagnostics.add(
+        'E_DOCUMENT_TOLERANT_FALLBACK: 严格 XML 解析失败（${error.message}），'
+        '已回退容错解析',
+      );
+    }
     final document = html_parser.parse(xhtml, generateSpans: true);
     final body = document.body;
     if (body == null) {
@@ -235,6 +275,8 @@ abstract final class DocumentParser {
       source: xhtml,
       textNodes: List<ParsedText>.unmodifiable(textNodes),
       elementsById: Map<String, ParsedElement>.unmodifiable(elementsById),
+      parserChoice: choice,
+      parseDiagnostics: List<String>.unmodifiable(diagnostics),
     );
   }
 }

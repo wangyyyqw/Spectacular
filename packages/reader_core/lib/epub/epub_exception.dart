@@ -67,6 +67,7 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_TOC_NAV_MISSING', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 回退链第 3 步'),
     EpubCodeSpec('E_TOC_NAV_XML', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 NAV 损坏走退化目录'),
     EpubCodeSpec('E_TOC_NAV_EMPTY', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 toc 为空走退化目录'),
+    EpubCodeSpec('E_DOCUMENT_TOLERANT_FALLBACK', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 XHTML 严格解析失败回退容错（P7-11 双路径）'),
     // ---- 预留：资源与字体（P3）----
     EpubCodeSpec('E_RESOURCE_MISSING', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§54.3 资源找不到', reservedFor: 'P3-25'),
     EpubCodeSpec('E_RESOURCE_DECODE_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§50.2 图片/资源解码失败', reservedFor: 'P3-08'),
