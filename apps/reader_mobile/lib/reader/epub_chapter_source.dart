@@ -6,7 +6,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -60,6 +60,12 @@ class EpubChapterSource implements RestylableChapterSource {
 
   ReaderOverrides _overrides = const ReaderOverrides();
 
+  /// 段落布局缓存（P2-26）：同一文本+样式的重复测量直接复用。
+  final TextLayoutCache _layoutCache = TextLayoutCache();
+
+  /// 章节分页缓存：设置不变时重复进入章节不再重排。
+  final Map<int, List<PageContent>> _pageCache = <int, List<PageContent>>{};
+
   /// 当前阅读器设置。
   ReaderOverrides get overrides => _overrides;
 
@@ -86,6 +92,9 @@ class EpubChapterSource implements RestylableChapterSource {
   @override
   Future<void> applyOverrides(ReaderOverrides overrides) async {
     _overrides = overrides;
+    // 设置变化：段落缓存与分页缓存都要失效（P2-24 重排）。
+    _layoutCache.clear();
+    _pageCache.clear();
   }
 
   @override
@@ -93,6 +102,10 @@ class EpubChapterSource implements RestylableChapterSource {
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final cachedPages = _pageCache[spineIndex];
+    if (cachedPages != null) {
+      return cachedPages;
+    }
     final aggregated = document.aggregateText(
       spineIndex,
       whiteSpace: style.whiteSpace,
@@ -105,7 +118,7 @@ class EpubChapterSource implements RestylableChapterSource {
         if (text.trim().isEmpty) {
           return;
         }
-        final layout = TextLayoutEngine.layout(
+        final layout = _layoutCache.layout(
           text: text,
           style: style,
           maxWidth: contentWidth,
@@ -132,8 +145,10 @@ class EpubChapterSource implements RestylableChapterSource {
     }
 
     collect(aggregated.root);
-    return Paginator(pageHeight: contentHeight)
+    final pages = Paginator(pageHeight: contentHeight)
         .measureChapter(blocks: blocks, spineIndex: spineIndex)
         .pages;
+    _pageCache[spineIndex] = pages;
+    return pages;
   }
 }

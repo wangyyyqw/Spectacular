@@ -857,6 +857,16 @@ class ComputedStyle {
   /// 左定位偏移。
   final CssLength? left;
 
+  /// 影响文本测量的样式指纹（P2-26 段落缓存键的一部分）。
+  ///
+  /// 只含参与 [TextLayoutEngine] 测量的字段；颜色/装饰/背景不在此列。
+  String get layoutFingerprint =>
+      'fs=$fontSize;lh=$lineHeight;ls=$letterSpacing;ws=$wordSpacing;'
+      'ta=${textAlign.name};ti=$textIndent;tt=${textTransform.name};'
+      'wsp=${whiteSpace.name};fw=$fontWeight;it=$italic;'
+      'ff=${fontFamilies.join(",")};'
+      'disp=${display.name};vis=${visibility.name}';
+
   /// 行内基线偏移（逻辑像素，正值向下）：sup -0.4em、sub +0.15em（与阅微 BaselineShift 同值）。
   double get verticalAlignShift => switch (verticalAlign) {
     CssVerticalAlign.superscript => -0.4 * fontSize,
