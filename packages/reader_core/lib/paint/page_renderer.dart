@@ -6,7 +6,7 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
-import '../text/justify.dart';
+import '../layout/cjk_justify.dart';
 import 'background_image.dart';
 
 /// 按页绘制文本与背景。
@@ -510,7 +510,7 @@ class PagePainter {
     final lineText = layout.text.substring(line.start, line.end);
     final runs = layout.runs;
     final gaps = line.justifyExtra > 0
-        ? justifyGapOffsets(lineText)
+        ? cjkJustifyGapOffsets(lineText)
         : const <int>[];
     if (runs.isEmpty && gaps.isEmpty) {
       return TextSpan(text: lineText, style: baseStyle);

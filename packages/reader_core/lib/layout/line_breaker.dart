@@ -4,7 +4,7 @@ import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show TextLayout;
-import '../text/justify.dart';
+import 'cjk_justify.dart';
 import '../text/script_fallback.dart';
 
 /// 一行文本的布局结果。
@@ -684,7 +684,7 @@ abstract final class TextLayoutEngine {
       return 0;
     }
     final lineText = text.substring(line.start, line.end);
-    return justifyGapOffsets(lineText).isEmpty ? 0 : slack;
+    return cjkJustifyGapOffsets(lineText).isEmpty ? 0 : slack;
   }
 
   static List<LineBox> _measureSegment({
