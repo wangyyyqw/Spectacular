@@ -1,0 +1,57 @@
+{
+  "spec": {
+    "pageWidth": 320.0,
+    "pageHeight": 600.0,
+    "devicePixelRatio": 2.0,
+    "fontFamily": "SnapshotSerif",
+    "fontSize": 16.0,
+    "lineHeight": 1.5,
+    "margin": 12.0
+  },
+  "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
+  "bookHash": "e7278398b839c3eaddef9a9fa2d98bd1e8584cf5fd3fa4a1fc77bec095ed5539",
+  "pages": [
+    {
+      "index": 0,
+      "layoutHash": "5bc07c97ffa34e06ed6ae41adc15ffb6143664b0e7c2b53b143e1c7c8925b3ca",
+      "inkPixels": 129540,
+      "lineCount": 24,
+      "textLength": 384
+    },
+    {
+      "index": 1,
+      "layoutHash": "dc03f9d6dfde7bebede53af0b678be0a86b1779b491f0193fe2ef9dc5a3ab1e1",
+      "inkPixels": 43193,
+      "lineCount": 8,
+      "textLength": 128
+    },
+    {
+      "index": 2,
+      "layoutHash": "378f5b03a4d1b9ddcf66930e327f45af9f8f84c94173ed1b7048cdd6830665ea",
+      "inkPixels": 129756,
+      "lineCount": 24,
+      "textLength": 384
+    },
+    {
+      "index": 3,
+      "layoutHash": "4fdcea72d9c6ae96c5991044ba81451801b564de30b796e6dc4e8134ab8a3ae5",
+      "inkPixels": 43265,
+      "lineCount": 8,
+      "textLength": 128
+    },
+    {
+      "index": 4,
+      "layoutHash": "f5b0621c0bfd7da65a668d36c208aa9dd4398ba6b841a8f947abf79b0ae95bf1",
+      "inkPixels": 129846,
+      "lineCount": 24,
+      "textLength": 384
+    },
+    {
+      "index": 5,
+      "layoutHash": "81bae79befefc9cd57b2956837252f5f9f3788180271224a20f593d297698746",
+      "inkPixels": 43295,
+      "lineCount": 8,
+      "textLength": 128
+    }
+  ]
+}
