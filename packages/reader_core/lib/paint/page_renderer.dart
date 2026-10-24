@@ -163,7 +163,14 @@ class PagePainter {
     } else {
       canvas.clipRect(box);
     }
-    paintTiledBackgroundImage(canvas, image, box);
+    paintBackgroundImage(
+      canvas,
+      image,
+      box,
+      repeat: style.backgroundRepeat,
+      size: style.backgroundSize,
+      position: style.backgroundPosition,
+    );
     canvas.restore();
   }
 

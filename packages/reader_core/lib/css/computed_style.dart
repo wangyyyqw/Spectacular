@@ -43,6 +43,77 @@ enum CssTextEmphasisStyle { none, dot, filled, open }
 /// 着重号位置（CSS text-emphasis-position 属性）。
 enum CssTextEmphasisPosition { over, under }
 
+/// 文本阴影（CSS text-shadow，P2-18：P0 收口补全）。
+class CssTextShadow {
+  /// 创建阴影。
+  const CssTextShadow({
+    required this.offsetX,
+    required this.offsetY,
+    required this.blur,
+    this.color,
+  });
+
+  /// 水平偏移（像素）。
+  final double offsetX;
+
+  /// 垂直偏移（像素）。
+  final double offsetY;
+
+  /// 模糊半径（像素）。
+  final double blur;
+
+  /// 阴影颜色；null 表示跟随文字颜色。
+  final Color? color;
+}
+
+/// 背景平铺方式（CSS background-repeat）。
+enum CssBackgroundRepeat { repeat, repeatX, repeatY, noRepeat }
+
+/// 背景尺寸模式（CSS background-size）。
+enum CssBackgroundSizeMode { auto, cover, contain, explicit }
+
+/// 背景尺寸：关键字或明确宽高（auto 表示该维按比例）。
+class CssBackgroundSize {
+  /// 关键字尺寸。
+  const CssBackgroundSize.keyword(this.mode)
+    : width = null,
+      height = null;
+
+  /// 明确尺寸（可为 auto）。
+  const CssBackgroundSize.explicit({this.width, this.height})
+    : mode = CssBackgroundSizeMode.explicit;
+
+  /// 模式。
+  final CssBackgroundSizeMode mode;
+
+  /// 宽（explicit 模式）。
+  final CssLength? width;
+
+  /// 高（explicit 模式）。
+  final CssLength? height;
+}
+
+/// 背景位置（CSS background-position，关键字已折算成百分比/像素）。
+class CssBackgroundPosition {
+  /// 创建位置。
+  const CssBackgroundPosition({required this.x, required this.y});
+
+  /// 水平位置。
+  final CssLength x;
+
+  /// 垂直位置。
+  final CssLength y;
+}
+
+/// 背景绘制区域（CSS background-origin 的基础）。
+enum CssBackgroundOrigin { borderBox, paddingBox, contentBox }
+
+/// 清除浮动（CSS clear）。
+enum CssClear { none, left, right, both }
+
+/// 表格边框合并（CSS border-collapse）。
+enum CssBorderCollapse { separate, collapse }
+
 /// 四边长度（逻辑像素）。
 class CssEdges {
   /// 创建四边。
@@ -420,6 +491,66 @@ class ComputedStyle {
         explicitValue('break-inside') ?? explicitValue('page-break-inside');
     final breakInsideAvoid = rawBreakInside?.trim().toLowerCase() == 'avoid';
 
+    // P0 收口补全（P2-18）：text-shadow、背景子属性、定位偏移、clear、表格边框。
+    final rawShadow = explicitValue('text-shadow');
+    final textShadow = rawShadow == null
+        ? (parent?.textShadow ?? const <CssTextShadow>[])
+        : _parseTextShadows(rawShadow, fontSize: fontSize) ??
+              parent?.textShadow ??
+              const <CssTextShadow>[];
+    final backgroundRepeat =
+        _parseBackgroundRepeat(explicitValue('background-repeat')) ??
+        CssBackgroundRepeat.repeat;
+    final backgroundSize =
+        _parseBackgroundSize(
+          explicitValue('background-size'),
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
+        const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto);
+    final backgroundPosition =
+        _parseBackgroundPosition(
+          explicitValue('background-position'),
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
+        const CssBackgroundPosition(
+          x: CssLength(0, isPercent: true),
+          y: CssLength(0, isPercent: true),
+        );
+    final backgroundOrigin =
+        _parseBackgroundOrigin(explicitValue('background-origin')) ??
+        CssBackgroundOrigin.paddingBox;
+    final clear = _parseClear(explicitValue('clear')) ?? CssClear.none;
+    final rawCollapse = explicitValue('border-collapse');
+    final borderCollapse = rawCollapse == null
+        ? (parent?.borderCollapse ?? CssBorderCollapse.separate)
+        : _parseBorderCollapse(rawCollapse) ??
+              parent?.borderCollapse ??
+              CssBorderCollapse.separate;
+    final rawSpacing = explicitValue('border-spacing');
+    final borderSpacing = rawSpacing == null
+        ? (parent?.borderSpacing ?? CssEdges.zero)
+        : _parseBorderSpacing(
+                rawSpacing,
+                fontSize: fontSize,
+                rootFontSize: rootFontSize,
+              ) ??
+              parent?.borderSpacing ??
+              CssEdges.zero;
+    final top =
+        _parseOffset(explicitValue('top'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        parent?.top;
+    final right =
+        _parseOffset(explicitValue('right'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        parent?.right;
+    final bottom =
+        _parseOffset(explicitValue('bottom'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        parent?.bottom;
+    final left =
+        _parseOffset(explicitValue('left'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        parent?.left;
+
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
     final backgroundColor =
         _parseColor(explicitValue('background-color') ?? '') ??
@@ -489,6 +620,18 @@ class ComputedStyle {
       pageBreakBefore: pageBreakBefore,
       pageBreakAfter: pageBreakAfter,
       breakInsideAvoid: breakInsideAvoid,
+      textShadow: textShadow,
+      backgroundRepeat: backgroundRepeat,
+      backgroundSize: backgroundSize,
+      backgroundPosition: backgroundPosition,
+      backgroundOrigin: backgroundOrigin,
+      clear: clear,
+      borderCollapse: borderCollapse,
+      borderSpacing: borderSpacing,
+      top: top,
+      right: right,
+      bottom: bottom,
+      left: left,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
       borders: borders,
@@ -533,6 +676,18 @@ class ComputedStyle {
     required this.pageBreakBefore,
     required this.pageBreakAfter,
     required this.breakInsideAvoid,
+    required this.textShadow,
+    required this.backgroundRepeat,
+    required this.backgroundSize,
+    required this.backgroundPosition,
+    required this.backgroundOrigin,
+    required this.clear,
+    required this.borderCollapse,
+    required this.borderSpacing,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.left,
     required this.backgroundColor,
     required this.backgroundImage,
     required this.borders,
@@ -641,6 +796,42 @@ class ComputedStyle {
   /// 块内禁止分页（`break-inside: avoid`）。
   final bool breakInsideAvoid;
 
+  /// 文本阴影列表（继承，空表示无阴影）。
+  final List<CssTextShadow> textShadow;
+
+  /// 背景平铺方式（`background-repeat`，初始 repeat）。
+  final CssBackgroundRepeat backgroundRepeat;
+
+  /// 背景尺寸（`background-size`，初始 auto）。
+  final CssBackgroundSize backgroundSize;
+
+  /// 背景位置（`background-position`，初始 0% 0%）。
+  final CssBackgroundPosition backgroundPosition;
+
+  /// 背景绘制区域（`background-origin`，初始 padding-box）。
+  final CssBackgroundOrigin backgroundOrigin;
+
+  /// 清除浮动（`clear`，不继承）。
+  final CssClear clear;
+
+  /// 表格边框合并（`border-collapse`，继承）。
+  final CssBorderCollapse borderCollapse;
+
+  /// 表格边框间距（`border-spacing`，继承；top/bottom 存垂直，left/right 存水平）。
+  final CssEdges borderSpacing;
+
+  /// 上定位偏移（`top`，未继承；null 表示未声明）。
+  final CssLength? top;
+
+  /// 右定位偏移。
+  final CssLength? right;
+
+  /// 下定位偏移。
+  final CssLength? bottom;
+
+  /// 左定位偏移。
+  final CssLength? left;
+
   /// 行内基线偏移（逻辑像素，正值向下）：sup -0.4em、sub +0.15em（与阅微 BaselineShift 同值）。
   double get verticalAlignShift => switch (verticalAlign) {
     CssVerticalAlign.superscript => -0.4 * fontSize,
@@ -701,6 +892,8 @@ class ComputedStyle {
       'valign=$verticalAlign, decoration=$textDecoration, '
       'emphasis=$textEmphasisStyle/$textEmphasisPosition, '
       'break=$pageBreakBefore/$pageBreakAfter/avoid=$breakInsideAvoid, '
+      'shadow=${textShadow.length}, bgRepeat=$backgroundRepeat, '
+      'bgSize=${backgroundSize.mode}, clear=$clear, '
       'bg=$backgroundColor, borders=$borders, '
       'size=$width/$height, min=$minWidth/$minHeight, '
       'max=$maxWidth/$maxHeight, padding=$padding, boxSizing=$boxSizing)';
@@ -1256,6 +1449,243 @@ class ComputedStyle {
         'capitalize' => CssTextTransform.capitalize,
         _ => null,
       };
+
+  static List<CssTextShadow>? _parseTextShadows(
+    String raw, {
+    required double fontSize,
+  }) {
+    final value = raw.trim().toLowerCase();
+    if (value == 'none') {
+      return const <CssTextShadow>[];
+    }
+    final shadows = <CssTextShadow>[];
+    for (final part in raw.split(',')) {
+      final tokens = part.trim().split(RegExp(r'\s+'));
+      var offsetX = 0.0;
+      var offsetY = 0.0;
+      var blur = 0.0;
+      var lengthIndex = 0;
+      Color? color;
+      for (final token in tokens) {
+        if (token.isEmpty) {
+          continue;
+        }
+        final parsedColor = _parseColor(token);
+        if (parsedColor != null) {
+          color = parsedColor;
+          continue;
+        }
+        final length = _resolveCssLength(
+          token,
+          fontSize: fontSize,
+          rootFontSize: fontSize,
+        );
+        if (length == null || length.isPercent) {
+          continue;
+        }
+        final px = length.resolve(0) ?? 0;
+        switch (lengthIndex) {
+          case 0:
+            offsetX = px;
+          case 1:
+            offsetY = px;
+          case 2:
+            blur = px;
+        }
+        lengthIndex += 1;
+      }
+      if (lengthIndex == 0) {
+        continue;
+      }
+      shadows.add(
+        CssTextShadow(
+          offsetX: offsetX,
+          offsetY: offsetY,
+          blur: blur,
+          color: color,
+        ),
+      );
+    }
+    return shadows;
+  }
+
+  static CssBackgroundRepeat? _parseBackgroundRepeat(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'repeat' => CssBackgroundRepeat.repeat,
+        'repeat-x' => CssBackgroundRepeat.repeatX,
+        'repeat-y' => CssBackgroundRepeat.repeatY,
+        'no-repeat' => CssBackgroundRepeat.noRepeat,
+        _ => null,
+      };
+
+  static CssBackgroundSize? _parseBackgroundSize(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final value = raw?.trim().toLowerCase();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    switch (value) {
+      case 'cover':
+        return const CssBackgroundSize.keyword(CssBackgroundSizeMode.cover);
+      case 'contain':
+        return const CssBackgroundSize.keyword(CssBackgroundSizeMode.contain);
+    }
+    final tokens = value.split(RegExp(r'\s+'));
+    final width = _parseSizeToken(
+      tokens.isNotEmpty ? tokens[0] : null,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+    final height = _parseSizeToken(
+      tokens.length > 1 ? tokens[1] : null,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+    if (width == null && height == null) {
+      return null;
+    }
+    return CssBackgroundSize.explicit(width: width, height: height);
+  }
+
+  static CssLength? _parseSizeToken(
+    String? token, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (token == null || token.isEmpty) {
+      return null;
+    }
+    if (token == 'auto') {
+      return const CssLength.auto();
+    }
+    return _resolveCssLength(
+      token,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+  }
+
+  static CssBackgroundPosition? _parseBackgroundPosition(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final value = raw?.trim().toLowerCase();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    final tokens = value.split(RegExp(r'\s+'));
+    CssLength parseOne(String token) {
+      switch (token) {
+        case 'left':
+          return const CssLength(0, isPercent: true);
+        case 'right':
+          return const CssLength(100, isPercent: true);
+        case 'top':
+          return const CssLength(0, isPercent: true);
+        case 'bottom':
+          return const CssLength(100, isPercent: true);
+        case 'center':
+          return const CssLength(50, isPercent: true);
+      }
+      return _resolveCssLength(
+            token,
+            fontSize: fontSize,
+            rootFontSize: rootFontSize,
+          ) ??
+          const CssLength(50, isPercent: true);
+    }
+
+    const center = CssLength(50, isPercent: true);
+    if (tokens.length == 1) {
+      final token = tokens.first;
+      if (token == 'top' || token == 'bottom') {
+        return CssBackgroundPosition(x: center, y: parseOne(token));
+      }
+      return CssBackgroundPosition(x: parseOne(token), y: center);
+    }
+    return CssBackgroundPosition(
+      x: parseOne(tokens[0]),
+      y: parseOne(tokens[1]),
+    );
+  }
+
+  static CssBackgroundOrigin? _parseBackgroundOrigin(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'border-box' || 'border' => CssBackgroundOrigin.borderBox,
+        'padding-box' || 'padding' => CssBackgroundOrigin.paddingBox,
+        'content-box' || 'content' => CssBackgroundOrigin.contentBox,
+        _ => null,
+      };
+
+  static CssClear? _parseClear(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'none' => CssClear.none,
+        'left' => CssClear.left,
+        'right' => CssClear.right,
+        'both' => CssClear.both,
+        _ => null,
+      };
+
+  static CssBorderCollapse? _parseBorderCollapse(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'separate' => CssBorderCollapse.separate,
+        'collapse' => CssBorderCollapse.collapse,
+        _ => null,
+      };
+
+  static CssEdges? _parseBorderSpacing(
+    String raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+'));
+    double? parse(String? token) {
+      if (token == null || token.isEmpty) {
+        return null;
+      }
+      final length = _resolveCssLength(
+        token,
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+      );
+      return length?.resolve(0);
+    }
+
+    final horizontal = parse(tokens.isNotEmpty ? tokens[0] : null);
+    if (horizontal == null) {
+      return null;
+    }
+    final vertical = parse(tokens.length > 1 ? tokens[1] : null) ?? horizontal;
+    return CssEdges(
+      top: vertical,
+      right: horizontal,
+      bottom: vertical,
+      left: horizontal,
+    );
+  }
+
+  static CssLength? _parseOffset(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'auto') {
+      return null;
+    }
+    return _resolveCssLength(
+      value,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+  }
 
   static CssTextDecoration? _parseTextDecoration(String? raw) {
     final value = raw?.trim().toLowerCase();
