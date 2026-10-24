@@ -161,6 +161,60 @@ class CssFontFaceRegistry {
   }
 }
 
+/// 中文/通用字体族别名映射（P3-03，技术方案 §68.3）。
+///
+/// 两级模型中的**内置别名级**（Reeden 150 号 §0-#9）：全局生效；
+/// 按书覆盖级留给后续版本。映射目标是内置字族的规范名
+/// （`builtin_song/kai/hei`），内置字族未注册时由引擎回退系统字体。
+abstract final class FontFamilyAliases {
+  /// 内置字族规范名（P4 内置字体资产接入后生效；未注册时引擎走
+  /// 系统默认字体，不会豆腐块）。
+  static const song = 'builtin_song';
+  static const kai = 'builtin_kai';
+  static const hei = 'builtin_hei';
+
+  static const Map<String, String> _table = <String, String>{
+    // 宋体系（含 CSS 泛型 serif）
+    '宋体': song, 'simsun': song, 'songti': song, 'st': song,
+    'song': song, 'serif': song,
+    '思源宋体': song, 'sourcehanserif': song, 'sourcehanserifsc': song,
+    'sourcehanserifcn': song, 'sourcehanseriftc': song,
+    'notoserifcjksc': song, 'notoserifcjk': song,
+    // 楷体系
+    '楷体': kai, 'kaiti': kai, 'kt': kai, 'stkaiti': kai, 'kai': kai,
+    // 黑体系（含 CSS 泛型 sans-serif）
+    '黑体': hei, 'simhei': hei, 'heiti': hei, 'sans-serif': hei,
+    '微软雅黑': hei, 'microsoftyahei': hei, 'yahei': hei,
+    '苹方': hei, 'pingfang': hei, 'pingfangsc': hei,
+    '思源黑体': hei, 'sourcehansans': hei, 'sourcehansanssc': hei,
+    'sourcehansanscn': hei, 'sourcehansanstc': hei,
+    'notosanscjksc': hei, 'notosanscjk': hei,
+  };
+
+  /// 解析单个族名：命中返回内置规范名，未命中返回 null（显式回退，
+  /// 保留原名交引擎处理）。
+  ///
+  /// 匹配规则：先全等、再小写全等、最后去空格小写比较；**不做包含
+  /// 匹配**——「宋体黑」这类名字不会被错误命中（技术方案 §68.3）。
+  static String? resolve(String family) {
+    final raw = family.trim();
+    if (_table.containsKey(raw)) {
+      return _table[raw];
+    }
+    final lower = raw.toLowerCase();
+    if (_table.containsKey(lower)) {
+      return _table[lower];
+    }
+    final squeezed = lower.replaceAll(RegExp(r'\s+'), '');
+    return _table[squeezed];
+  }
+
+  /// 映射族列表：命中别名替换，未命中原样保留（显式回退）。
+  static List<String> mapFamilies(List<String> families) => <String>[
+        for (final family in families) resolve(family) ?? family,
+      ];
+}
+
 /// 从 CSS 文本提取 `@font-face` 块并解析成 [CssFontFace]。
 ///
 /// csslib 的 `FontFaceDirective` 不公开声明组，这里自带一层

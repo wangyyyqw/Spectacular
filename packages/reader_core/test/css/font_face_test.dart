@@ -1,6 +1,9 @@
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 void main() {
   group('CssFontFaceExtractor', () {
@@ -120,6 +123,106 @@ p { margin: 0; }
       final sheet = CssParser.parse(css);
       expect(sheet.rules, hasLength(2));
       expect(sheet.fontFaces.single.family, 'F');
+    });
+  });
+
+  group('FontFamilyAliases 中文别名映射（P3-03）', () {
+    test('§68.3 别名表全等命中', () {
+      expect(FontFamilyAliases.resolve('宋体'), FontFamilyAliases.song);
+      expect(FontFamilyAliases.resolve('楷体'), FontFamilyAliases.kai);
+      expect(FontFamilyAliases.resolve('黑体'), FontFamilyAliases.hei);
+      expect(FontFamilyAliases.resolve('serif'), FontFamilyAliases.song);
+      expect(FontFamilyAliases.resolve('sans-serif'), FontFamilyAliases.hei);
+      expect(FontFamilyAliases.resolve('simsun'), FontFamilyAliases.song);
+    });
+
+    test('小写与去空格匹配', () {
+      expect(FontFamilyAliases.resolve('SIMSUN'), FontFamilyAliases.song);
+      expect(
+        FontFamilyAliases.resolve('Microsoft YaHei'),
+        FontFamilyAliases.hei,
+      );
+      expect(
+        FontFamilyAliases.resolve('Noto Serif CJK SC'),
+        FontFamilyAliases.song,
+      );
+    });
+
+    test('不做包含匹配：宋体黑不命中', () {
+      expect(FontFamilyAliases.resolve('宋体黑'), isNull);
+      expect(FontFamilyAliases.resolve('宋体黑体'), isNull);
+      expect(FontFamilyAliases.resolve('MySerif'), isNull);
+    });
+
+    test('未命中原样保留（显式回退）', () {
+      expect(FontFamilyAliases.resolve('三极花朝体'), isNull);
+      expect(FontFamilyAliases.mapFamilies(['三极花朝体', '宋体']),
+          ['三极花朝体', FontFamilyAliases.song]);
+    });
+
+    test('textStyleFor 集成：主族与 fallback 都映射', () {
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': '宋体, 黑体, SourceHan',
+      });
+      final textStyle = TextLayoutEngine.textStyleFor(style);
+      expect(textStyle.fontFamily, FontFamilyAliases.song);
+      expect(textStyle.fontFamilyFallback,
+          [FontFamilyAliases.hei, 'SourceHan']);
+    });
+
+    test('书内注册引擎族（bi_ 前缀）不受别名影响', () {
+      expect(FontFamilyAliases.resolve('bi_1_songti'), isNull);
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': 'bi_1_songti',
+      });
+      expect(TextLayoutEngine.textStyleFor(style).fontFamily, 'bi_1_songti');
+    });
+
+    test('10 组常见字体名全部能映射或显式回退', () {
+      const samples = <String>[
+        '宋体', '黑体', '楷体', '仿宋', '微软雅黑', '苹方',
+        'Source Han Serif CN', 'Noto Sans CJK SC', 'serif', 'sans-serif',
+      ];
+      final mapped = <String, String?>{
+        for (final name in samples) name: FontFamilyAliases.resolve(name),
+      };
+      // 每一项要么映射到内置规范名，要么明确返回 null（保留原名回退），
+      // 不存在歧义结果。
+      for (final entry in mapped.entries) {
+        expect(
+          entry.value == null ||
+              entry.value == FontFamilyAliases.song ||
+              entry.value == FontFamilyAliases.kai ||
+              entry.value == FontFamilyAliases.hei,
+          isTrue,
+          reason: '${entry.key} → ${entry.value}',
+        );
+      }
+      expect(mapped['宋体'], FontFamilyAliases.song);
+      expect(mapped['Source Han Serif CN'], FontFamilyAliases.song);
+      // 仿宋不在表内：显式回退（保留原名），后续版本按需补。
+      expect(mapped['仿宋'], isNull);
+    });
+
+    test('映射后渲染可用：族名交引擎回退仍出墨，无异常', () async {
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': '宋体',
+      });
+      final textStyle = TextLayoutEngine.textStyleFor(style);
+      expect(textStyle.fontFamily, FontFamilyAliases.song);
+      // 内置字族未注册时引擎回退系统默认；测试环境渲染应正常产出
+      // 文本像素（不崩溃、不留白）——豆腐块判定在 P3-30 真机核销。
+      final painter = TextPainter()
+        ..textDirection = TextDirection.ltr
+        ..text = TextSpan(text: '宋体回退测试', style: textStyle)
+        ..layout();
+      expect(painter.width, greaterThan(0));
     });
   });
 
