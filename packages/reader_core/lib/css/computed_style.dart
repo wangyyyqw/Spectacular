@@ -978,7 +978,12 @@ class ComputedStyle {
       'ta=${textAlign.name};ti=$textIndent;tt=${textTransform.name};'
       'wsp=${whiteSpace.name};fw=$fontWeight;it=$italic;'
       'ff=${fontFamilies.join(",")};'
-      'disp=${display.name};vis=${visibility.name}';
+      'disp=${display.name};vis=${visibility.name};'
+      // P7-18~21 新增排版输入（影响缓存内的 justifyExtra/行宽）：缺失
+      // 会撞键（P7-29 检查清单第 1 条的修正项）。
+      'hp=${hangingPunctuation.name};ts=${textSpacingTrim.name};'
+      'as=${textAutospace.name};tj=${textJustify.name};'
+      'al=${textAlignLast?.name ?? "auto"};il=${initialLetterLines ?? 0}';
 
   /// 行内基线偏移（逻辑像素，正值向下）：sup -0.4em、sub +0.15em（与阅微 BaselineShift 同值）。
   double get verticalAlignShift => switch (verticalAlign) {
