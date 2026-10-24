@@ -429,6 +429,11 @@ class ComputedStyle {
     final textAlignLast = rawAlignLast == null
         ? (parent?.textAlignLast)
         : _parseTextAlign(rawAlignLast) ?? parent?.textAlignLast;
+    final rawInitialLetter = explicitValue('initial-letter');
+    final initialLetterLines = rawInitialLetter == null
+        ? parent?.initialLetterLines
+        : _parseInitialLetter(rawInitialLetter) ??
+              parent?.initialLetterLines;
 
     var textIndent = parent?.textIndent ?? 0.0;
     final rawTextIndent = explicitValue('text-indent');
@@ -706,6 +711,7 @@ class ComputedStyle {
       textAutospace: textAutospace,
       textJustify: textJustify,
       textAlignLast: textAlignLast,
+      initialLetterLines: initialLetterLines,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
@@ -769,6 +775,7 @@ class ComputedStyle {
     required this.textAutospace,
     required this.textJustify,
     required this.textAlignLast,
+    required this.initialLetterLines,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
@@ -890,6 +897,9 @@ class ComputedStyle {
 
   /// 末行对齐（继承；null = auto，末行按 start；P7-21）。
   final CssTextAlign? textAlignLast;
+
+  /// 首字下沉跨行数（继承；null = normal；P7-28 近似）。
+  final double? initialLetterLines;
 
   /// 词间距（逻辑像素，继承，初始 0）。
   final double wordSpacing;
@@ -1614,6 +1624,17 @@ class ComputedStyle {
         // none/unsafe 等按 auto 处理（一期语义）。
         _ => null,
       };
+
+  /// `initial-letter` 解析（P7-28；CSS Initial Letter）：`normal` → null；
+  /// `<n>`（可带第二值，忽略）→ 跨行数 n。近似实现只消费首字放大，
+  /// 多行对齐随浮动布局（P3）落地。
+  static double? _parseInitialLetter(String raw) {
+    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+'));
+    if (tokens.isEmpty || tokens.first == 'normal') {
+      return null;
+    }
+    return double.tryParse(tokens.first);
+  }
 
   static CssTextTransform? _parseTextTransform(String raw) =>
       switch (raw.trim().toLowerCase()) {
