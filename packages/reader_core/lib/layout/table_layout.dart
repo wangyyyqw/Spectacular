@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 
 /// 表格列宽两遍测量（P3-17，技术方案 §8.5、CSS Tables 3 的简化口径）。
 ///
@@ -168,7 +169,9 @@ abstract final class TableGridMeasurer {
     double? tableWidthPercent,
     required double containerWidth,
   }) {
-    // 列宽：只取单列单元格的自然宽。
+    // 列宽：只取单列单元格的自然宽；
+    // 跨列单元格自然宽超出跨列单列自然宽之和的溢出部分，按比例摊给
+    // 跨列（P3-19，colspan 参与列宽分配——HTML 表格模型简化口径）。
     final columnCount = columnSpecified.length;
     final naturalWidths = <List<double>>[];
     for (final row in rows) {
@@ -180,6 +183,36 @@ abstract final class TableGridMeasurer {
         }
       }
       naturalWidths.add(natural);
+    }
+    for (var r = 0; r < rows.length; r++) {
+      final row = rows[r];
+      for (var c = 0; c < row.length && c < columnCount; c++) {
+        final cell = row[c];
+        if (cell.colspan <= 1) {
+          continue;
+        }
+        var spannedNatural = 0.0;
+        var touched = false;
+        for (var k = 0; k < cell.colspan && c + k < columnCount; k++) {
+          spannedNatural += naturalWidths[r][c + k];
+          touched = true;
+        }
+        if (!touched) {
+          continue;
+        }
+        final excess = cell.naturalWidth - spannedNatural;
+        if (excess <= 0) {
+          continue;
+        }
+        for (var k = 0; k < cell.colspan && c + k < columnCount; k++) {
+          final index = c + k;
+          final base = naturalWidths[r][index];
+          naturalWidths[r][index] = base +
+              (spannedNatural > 0
+                  ? excess * base / spannedNatural
+                  : excess / cell.colspan);
+        }
+      }
     }
     final columns = TableMeasurer.measureColumns(
       naturalWidths: naturalWidths,
@@ -217,5 +250,119 @@ abstract final class TableGridMeasurer {
       rowHeights: rowHeights,
       tableWidth: columns.tableWidth,
     );
+  }
+}
+
+/// 表格单元格几何（P3-19：colspan 的绘制与命中按合并区域）。
+class TableCellRect {
+  const TableCellRect({
+    required this.row,
+    required this.cellIndex,
+    required this.rect,
+  });
+
+  /// 行号。
+  final int row;
+
+  /// 行内单元格序号（合并区域指向该跨列单元格本身）。
+  final int cellIndex;
+
+  /// 合并区域矩形（表内坐标，x/y 为前缀和）。
+  final Rect rect;
+}
+
+/// 表格布局几何：单元格矩形与命中测试。
+///
+/// 命中按合并区域：落在跨列单元格范围内的点命中该单元格本身（不拆
+/// 到单列）。
+class TableGridLayout {
+  /// 从测量结果构建。
+  TableGridLayout({
+    required List<List<TableCellSpec>> rows,
+    required List<double> columnWidths,
+    required List<double> rowHeights,
+  }) : _rows = List.unmodifiable(rows),
+       _columnWidths = List.unmodifiable(columnWidths),
+       _rowHeights = List.unmodifiable(rowHeights) {
+    var x = 0.0;
+    for (final width in columnWidths) {
+      _columnX.add(x);
+      x += width;
+    }
+    _columnX.add(x);
+    var y = 0.0;
+    for (final height in rowHeights) {
+      _rowY.add(y);
+      y += height;
+    }
+    _rowY.add(y);
+  }
+
+  final List<List<TableCellSpec>> _rows;
+  final List<double> _columnWidths;
+  final List<double> _rowHeights;
+  final List<double> _columnX = <double>[];
+  final List<double> _rowY = <double>[];
+
+  /// 表格总尺寸。
+  Size get size => Size(_columnX.last, _rowY.last);
+
+  /// 单元格合并区域矩形；越界返回 null。
+  TableCellRect? cellRectAt(int row, int cellIndex) {
+    if (row < 0 || row >= _rows.length) {
+      return null;
+    }
+    final cells = _rows[row];
+    if (cellIndex < 0 || cellIndex >= cells.length) {
+      return null;
+    }
+    var x = _columnX.first;
+    // 前面单元格占的列数累加得本格起点列。
+    var startColumn = 0;
+    for (var i = 0; i < cellIndex; i++) {
+      startColumn += cells[i].colspan;
+    }
+    if (startColumn >= _columnWidths.length) {
+      return null;
+    }
+    final span = cells[cellIndex].colspan;
+    final endColumn =
+        math.min(startColumn + span, _columnWidths.length);
+    x = _columnX[startColumn];
+    final width = _columnX[endColumn] - _columnX[startColumn];
+    return TableCellRect(
+      row: row,
+      cellIndex: cellIndex,
+      rect: Rect.fromLTWH(
+        x,
+        _rowY[row],
+        width,
+        _rowHeights[row],
+      ),
+    );
+  }
+
+  /// 命中测试：返回 (行, 行内单元格序号)；表外返回 null。
+  ///
+  /// 跨列单元格按合并区域整体命中（HTML colspan 语义）。
+  (int, int)? hitTest(Offset point) {
+    if (point.dy < 0 ||
+        point.dy >= _rowY.last ||
+        point.dx < 0 ||
+        point.dx >= _columnX.last) {
+      return null;
+    }
+    var row = 0;
+    while (row < _rowHeights.length && point.dy >= _rowY[row + 1]) {
+      row += 1;
+    }
+    final cells = _rows[row];
+    for (var i = 0; i < cells.length; i++) {
+      final rect = cellRectAt(row, i);
+      if (rect != null && rect.rect.contains(point)) {
+        return (row, i);
+      }
+    }
+    return null;
   }
 }

@@ -199,5 +199,80 @@ void main() {
       );
       expect(result.rowHeights.single, 24);
     });
+
+    group('colspan 参与列宽、几何与命中（P3-19）', () {
+      TableCellSpec cell(
+        double naturalWidth, {
+        int colspan = 1,
+        double Function(double)? measureHeight,
+      }) =>
+          TableCellSpec(
+            naturalWidth: naturalWidth,
+            measureHeight: measureHeight ?? (w) => 24,
+            colspan: colspan,
+          );
+
+      test('colspan 自然宽溢出按比例摊给跨列', () {
+        // 三列单列自然 50；第二行跨三列自然 300 → 溢出 150 摊给三列。
+        final rows = <List<TableCellSpec>>[
+          [cell(50), cell(50), cell(50)],
+          [cell(300, colspan: 3)],
+        ];
+        final result = TableGridMeasurer.measureGrid(
+          rows: rows,
+          columnSpecified: [null, null, null],
+          containerWidth: 480,
+        );
+        expect(result.columnWidths[0], closeTo(100, 0.01));
+        expect(result.columnWidths[1], closeTo(100, 0.01));
+        expect(result.columnWidths[2], closeTo(100, 0.01));
+      });
+
+      test('colspan=3 合并区域矩形：x 为前列前缀和，宽为跨列之和', () {
+        final rows = <List<TableCellSpec>>[
+          [cell(100), cell(100), cell(100)],
+          [cell(300, colspan: 3)],
+        ];
+        final result = TableGridMeasurer.measureGrid(
+          rows: rows,
+          columnSpecified: [null, null, null],
+          containerWidth: 480,
+        );
+        final layout = TableGridLayout(
+          rows: rows,
+          columnWidths: result.columnWidths,
+          rowHeights: result.rowHeights,
+        );
+        final merged = layout.cellRectAt(1, 0)!;
+        expect(merged.rect.left, 0);
+        expect(merged.rect.width, closeTo(300, 0.01));
+        final single = layout.cellRectAt(0, 2)!;
+        expect(single.rect.left, closeTo(200, 0.01));
+        expect(single.rect.width, closeTo(100, 0.01));
+      });
+
+      test('命中测试按合并区域：span 内的点命中跨列单元格本身', () {
+        final rows = <List<TableCellSpec>>[
+          [cell(100), cell(100), cell(100)],
+          [cell(300, colspan: 3)],
+        ];
+        final result = TableGridMeasurer.measureGrid(
+          rows: rows,
+          columnSpecified: [null, null, null],
+          containerWidth: 480,
+        );
+        final layout = TableGridLayout(
+          rows: rows,
+          columnWidths: result.columnWidths,
+          rowHeights: result.rowHeights,
+        );
+        // 第 2 行中部（合并区域中间）→ (1, 0)。
+        expect(layout.hitTest(const Offset(150, 36)), (1, 0));
+        // 第 1 行第三列 → (0, 2)。
+        expect(layout.hitTest(const Offset(250, 12)), (0, 2));
+        // 表外 → null。
+        expect(layout.hitTest(const Offset(500, 12)), isNull);
+      });
+    });
   });
 }
