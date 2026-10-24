@@ -9,6 +9,56 @@ import '../layout/text_layout.dart';
 import 'background_image.dart';
 import 'line_spans.dart';
 
+/// 页面绘制阶段（P2-29）：顺序固定为
+/// 背景 → 块背景 → 块边框 → 文本 → 装饰 → 选区。
+enum PagePaintPhase {
+  /// 页面底色与背景。
+  background,
+
+  /// 块背景（含背景图）。
+  blockBackground,
+
+  /// 块边框。
+  blockBorder,
+
+  /// 正文文本。
+  text,
+
+  /// 装饰（着重号等附加墨迹）。
+  decoration,
+
+  /// 选区高亮，覆盖在所有内容之上。
+  selection,
+}
+
+/// 页内选区的一段：切片序号 + 块内字符范围（`[start, end)`）。
+class SelectedTextRange {
+  /// 创建选区段。
+  const SelectedTextRange({
+    required this.sliceIndex,
+    required this.start,
+    required this.end,
+  });
+
+  /// 页内切片序号。
+  final int sliceIndex;
+
+  /// 块内起始字符偏移。
+  final int start;
+
+  /// 块内结束字符偏移（不含）。
+  final int end;
+}
+
+/// 页内选区（P2-29）：按切片序号定位，绘制在文本与装饰之上。
+class PageSelection {
+  /// 创建选区。
+  const PageSelection(this.ranges);
+
+  /// 选区段。
+  final List<SelectedTextRange> ranges;
+}
+
 /// 按页绘制文本与背景。
 class PagePainter {
   /// 创建绘制器。
@@ -16,6 +66,9 @@ class PagePainter {
     this.background = const Color(0xFFFFFFFF),
     this.imageLookup,
     this.textColor,
+    this.selection,
+    this.selectionColor = const Color(0x330066FF),
+    this.onPhase,
   });
 
   /// 页面背景色。
@@ -31,17 +84,139 @@ class PagePainter {
   /// 正文颜色覆盖（主题用）：只改绘制颜色，不影响布局与分页（P2-23）。
   final Color? textColor;
 
+  /// 页内选区（可选）：最后绘制，覆盖文本与装饰（P2-29）。
+  final PageSelection? selection;
+
+  /// 选区高亮色。
+  final Color selectionColor;
+
+  /// 阶段回调（测试用）：每个绘制阶段开始时触发一次。
+  final void Function(PagePaintPhase phase)? onPhase;
+
   /// 绘制一页。
   ///
   /// 行的水平位置由布局阶段按 text-align 算好（[LineBox.offsetX]）；
   /// 行内样式取自 [TextLayoutResult.runs]（混排字号、行内元素）；
   /// justify 行把余量按间隙分摊到左侧字符的字距上（§8.4）。
   void paint(Canvas canvas, PageContent page, {required Size pageSize}) {
+    final geometries = _sliceGeometries(page, pageSize);
+
+    _notifyPhase(PagePaintPhase.background);
     canvas.drawRect(
       Rect.fromLTWH(0, 0, pageSize.width, pageSize.height),
       Paint()..color = background,
     );
 
+    _notifyPhase(PagePaintPhase.blockBackground);
+    for (final geometry in geometries) {
+      if (geometry.hidden) {
+        continue;
+      }
+      canvas.save();
+      geometry.clip(canvas);
+      _paintBackground(
+        canvas,
+        geometry.box,
+        geometry.style,
+        startsBlock: geometry.startsBlock,
+        endsBlock: geometry.endsBlock,
+      );
+      canvas.restore();
+    }
+
+    _notifyPhase(PagePaintPhase.blockBorder);
+    for (final geometry in geometries) {
+      if (geometry.hidden) {
+        continue;
+      }
+      canvas.save();
+      geometry.clip(canvas);
+      _paintBorders(
+        canvas,
+        geometry.box,
+        geometry.style,
+        startsBlock: geometry.startsBlock,
+        endsBlock: geometry.endsBlock,
+      );
+      canvas.restore();
+    }
+
+    _notifyPhase(PagePaintPhase.text);
+    for (final geometry in geometries) {
+      if (geometry.hidden) {
+        continue;
+      }
+      canvas.save();
+      geometry.clip(canvas);
+      var lineY = geometry.y + geometry.leading;
+      for (
+        var lineIndex = geometry.slice.startLine;
+        lineIndex < geometry.slice.endLine;
+        lineIndex++
+      ) {
+        final layout = geometry.slice.block.layout;
+        final line = layout.lines[lineIndex];
+        final lineText = layout.text.substring(line.start, line.end);
+        if (lineText.isNotEmpty) {
+          _paintLineText(
+            canvas,
+            layout,
+            line,
+            geometry.style,
+            geometry.textStyle,
+            line.offsetX + geometry.leftInset,
+            lineY,
+          );
+        }
+        lineY += line.height;
+      }
+      canvas.restore();
+    }
+
+    _notifyPhase(PagePaintPhase.decoration);
+    for (final geometry in geometries) {
+      if (geometry.hidden ||
+          geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
+        continue;
+      }
+      canvas.save();
+      geometry.clip(canvas);
+      var lineY = geometry.y + geometry.leading;
+      for (
+        var lineIndex = geometry.slice.startLine;
+        lineIndex < geometry.slice.endLine;
+        lineIndex++
+      ) {
+        final layout = geometry.slice.block.layout;
+        final line = layout.lines[lineIndex];
+        final lineText = layout.text.substring(line.start, line.end);
+        if (lineText.isNotEmpty) {
+          _paintLineEmphasis(
+            canvas,
+            layout,
+            line,
+            geometry.style,
+            geometry.textStyle,
+            line.offsetX + geometry.leftInset,
+            lineY,
+          );
+        }
+        lineY += line.height;
+      }
+      canvas.restore();
+    }
+
+    _notifyPhase(PagePaintPhase.selection);
+    final selection = this.selection;
+    if (selection != null) {
+      _paintSelection(canvas, geometries, selection);
+    }
+  }
+
+  void _notifyPhase(PagePaintPhase phase) => onPhase?.call(phase);
+
+  /// 预计算每片切片的几何与样式（P2-29：各阶段共用同一份坐标）。
+  List<_SliceGeometry> _sliceGeometries(PageContent page, Size pageSize) {
     // 上下标的基线偏移会超出切片矩形：统计本页最大上下偏移，放宽裁剪。
     var upExtent = 0.0;
     var downExtent = 0.0;
@@ -54,75 +229,82 @@ class PagePainter {
         }
       }
     }
-
+    final geometries = <_SliceGeometry>[];
     var y = page.topPadding;
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
-      final textStyle = TextLayoutEngine.textStyleFor(style);
-      final startsBlock = slice.startLine == 0;
-      final endsBlock = slice.endLine == slice.block.layout.lineCount;
-      // 几何全部来自分页切片（P2-14 补全）：段前/段后间距与首尾内缩已计入
-      // slice.height，绘制与命中不再各算一套。
-      final leading = slice.leadingExtent;
-      final leftInset = slice.leftInset;
-      // 跨页块只画本页可见的行（§60.8）：裁剪后即使字号/行高有浮点误差，
-      // 墨迹也不会越到下一块或下一页。
-      canvas.save();
-      final clip = slice.clipRect(y, pageSize.width);
-      canvas.clipRect(
-        Rect.fromLTRB(
-          clip.left,
-          clip.top - upExtent,
-          clip.right,
-          clip.bottom + downExtent,
+      geometries.add(
+        _SliceGeometry(
+          slice: slice,
+          y: y,
+          style: style,
+          textStyle: TextLayoutEngine.textStyleFor(style),
+          startsBlock: slice.startLine == 0,
+          endsBlock: slice.endLine == slice.block.layout.lineCount,
+          hidden: style.visibility != CssVisibility.visible,
+          leading: slice.leadingExtent,
+          leftInset: slice.leftInset,
+          upExtent: upExtent,
+          downExtent: downExtent,
+          pageWidth: pageSize.width,
         ),
       );
-      // visibility: hidden / collapse 只保留布局空间，不画背景、边框与文字（P2-15）。
-      final hidden = style.visibility != CssVisibility.visible;
-      // 背景与边框铺满切片盒子（含首尾内缩）。
-      final box = Rect.fromLTWH(0, y, pageSize.width, slice.height);
-      if (!hidden) {
-        _paintBackground(
-          canvas,
-          box,
-          style,
-          startsBlock: startsBlock,
-          endsBlock: endsBlock,
-        );
-        _paintBorders(
-          canvas,
-          box,
-          style,
-          startsBlock: startsBlock,
-          endsBlock: endsBlock,
-        );
+      y += slice.height;
+    }
+    return geometries;
+  }
+
+  /// 画选区（P2-29）：按切片序号 + 块内字符范围取排版盒，最后统一覆盖。
+  void _paintSelection(
+    Canvas canvas,
+    List<_SliceGeometry> geometries,
+    PageSelection selection,
+  ) {
+    final paint = Paint()..color = selectionColor;
+    for (final range in selection.ranges) {
+      if (range.sliceIndex < 0 || range.sliceIndex >= geometries.length) {
+        continue;
       }
-      var lineY = y + leading;
+      final geometry = geometries[range.sliceIndex];
+      if (geometry.hidden || range.end <= range.start) {
+        continue;
+      }
+      final layout = geometry.slice.block.layout;
+      var lineY = geometry.y + geometry.leading;
       for (
-        var lineIndex = slice.startLine;
-        lineIndex < slice.endLine;
+        var lineIndex = geometry.slice.startLine;
+        lineIndex < geometry.slice.endLine;
         lineIndex++
       ) {
-        final line = slice.block.layout.lines[lineIndex];
-        final lineText = slice.block.layout.text.substring(
-          line.start,
-          line.end,
-        );
-        if (!hidden && lineText.isNotEmpty) {
-          _paintLine(
-            canvas,
-            slice.block.layout,
-            line,
-            style,
-            textStyle,
-            line.offsetX + leftInset,
-            lineY,
+        final line = layout.lines[lineIndex];
+        final start = math.max(range.start, line.start);
+        final end = math.min(range.end, line.end);
+        if (end > start) {
+          final painter = TextPainter(
+            text: _lineSpan(layout, line, geometry.textStyle),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          final boxes = painter.getBoxesForSelection(
+            TextSelection(
+              baseOffset: start - line.start,
+              extentOffset: end - line.start,
+            ),
           );
+          final x = line.offsetX + geometry.leftInset;
+          for (final box in boxes) {
+            canvas.drawRect(
+              Rect.fromLTWH(
+                x + box.left,
+                lineY + box.top,
+                box.right - box.left,
+                box.bottom - box.top,
+              ),
+              paint,
+            );
+          }
         }
         lineY += line.height;
       }
-      canvas.restore();
-      y += slice.height;
     }
   }
 
@@ -369,7 +551,7 @@ class PagePainter {
   ///
   /// 与阅微 `BaselineShift` 一致：偏移段在正常基线基础上整体上下移动
   /// （super −0.4em、sub +0.15em），行高与行宽不受影响。
-  void _paintLine(
+  void _paintLineText(
     Canvas canvas,
     TextLayoutResult layout,
     LineBox line,
@@ -390,7 +572,6 @@ class PagePainter {
     )..layout();
     if (!hasShift) {
       painter.paint(canvas, Offset(x, y));
-      _paintEmphasis(canvas, lineText, style, painter, x, y);
       return;
     }
     // 上下标：用整行的排版结果取出每段的 x，再按段的基线偏移绘制。
@@ -418,6 +599,27 @@ class PagePainter {
         Offset(x + boxes.first.left, y + segment.baselineShift),
       );
     }
+  }
+
+  /// 画一行着重号（装饰阶段，P2-29）。
+  void _paintLineEmphasis(
+    Canvas canvas,
+    TextLayoutResult layout,
+    LineBox line,
+    ComputedStyle style,
+    TextStyle baseStyle,
+    double x,
+    double y,
+  ) {
+    final lineText = layout.text.substring(line.start, line.end);
+    if (lineText.isEmpty ||
+        style.textEmphasisStyle == CssTextEmphasisStyle.none) {
+      return;
+    }
+    final painter = TextPainter(
+      text: _lineSpan(layout, line, baseStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
     _paintEmphasis(canvas, lineText, style, painter, x, y);
   }
 
@@ -540,4 +742,51 @@ class _LineSegment {
   final int end;
   final ComputedStyle? style;
   final double baselineShift;
+}
+
+/// 一片切片在本页的几何与样式（P2-29：各绘制阶段共用同一份坐标）。
+class _SliceGeometry {
+  _SliceGeometry({
+    required this.slice,
+    required this.y,
+    required this.style,
+    required this.textStyle,
+    required this.startsBlock,
+    required this.endsBlock,
+    required this.hidden,
+    required this.leading,
+    required this.leftInset,
+    required this.upExtent,
+    required this.downExtent,
+    required this.pageWidth,
+  });
+
+  final PageBlockSlice slice;
+  final double y;
+  final ComputedStyle style;
+  final TextStyle textStyle;
+  final bool startsBlock;
+  final bool endsBlock;
+  final bool hidden;
+  final double leading;
+  final double leftInset;
+  final double upExtent;
+  final double downExtent;
+  final double pageWidth;
+
+  /// 背景/边框盒子（含首尾内缩）。
+  Rect get box => Rect.fromLTWH(0, y, pageWidth, slice.height);
+
+  /// 按切片裁剪；上下标越界时放宽上下边。
+  void clip(Canvas canvas) {
+    final clip = slice.clipRect(y, pageWidth);
+    canvas.clipRect(
+      Rect.fromLTRB(
+        clip.left,
+        clip.top - upExtent,
+        clip.right,
+        clip.bottom + downExtent,
+      ),
+    );
+  }
 }
