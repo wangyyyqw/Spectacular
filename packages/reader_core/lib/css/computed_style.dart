@@ -28,6 +28,12 @@ enum CssVisibility { visible, hidden, collapse }
 /// 空白与换行处理（CSS white-space 属性）。
 enum CssWhiteSpace { normal, nowrap, pre, preWrap, preLine }
 
+/// 文本大小写变换（CSS text-transform 属性）。
+enum CssTextTransform { none, uppercase, lowercase, capitalize }
+
+/// 行内垂直对齐（CSS vertical-align 属性）。
+enum CssVerticalAlign { baseline, subscript, superscript, middle, top, bottom }
+
 /// 四边长度（逻辑像素）。
 class CssEdges {
   /// 创建四边。
@@ -351,6 +357,29 @@ class ComputedStyle {
               parent?.whiteSpace ??
               CssWhiteSpace.normal;
 
+    // 字符级属性：word-spacing/text-transform 继承，vertical-align 不继承（P2-16）。
+    final rawWordSpacing = explicitValue('word-spacing');
+    final wordSpacing = rawWordSpacing == null
+        ? (parent?.wordSpacing ?? 0.0)
+        : _resolveLength(
+                rawWordSpacing,
+                fontSize: fontSize,
+                parentFontSize: fontSize,
+                rootFontSize: rootFontSize,
+                percentBase: 0,
+              ) ??
+              parent?.wordSpacing ??
+              0.0;
+    final rawTransform = explicitValue('text-transform');
+    final textTransform = rawTransform == null
+        ? (parent?.textTransform ?? CssTextTransform.none)
+        : _parseTextTransform(rawTransform) ??
+              parent?.textTransform ??
+              CssTextTransform.none;
+    final verticalAlign =
+        _parseVerticalAlign(explicitValue('vertical-align')) ??
+        CssVerticalAlign.baseline;
+
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
     final backgroundColor =
         _parseColor(explicitValue('background-color') ?? '') ??
@@ -410,6 +439,9 @@ class ComputedStyle {
       display: display,
       visibility: visibility,
       whiteSpace: whiteSpace,
+      wordSpacing: wordSpacing,
+      textTransform: textTransform,
+      verticalAlign: verticalAlign,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
       borders: borders,
@@ -444,6 +476,9 @@ class ComputedStyle {
     required this.display,
     required this.visibility,
     required this.whiteSpace,
+    required this.wordSpacing,
+    required this.textTransform,
+    required this.verticalAlign,
     required this.backgroundColor,
     required this.backgroundImage,
     required this.borders,
@@ -522,6 +557,22 @@ class ComputedStyle {
   /// 空白处理（继承，初始 normal）。
   final CssWhiteSpace whiteSpace;
 
+  /// 词间距（逻辑像素，继承，初始 0）。
+  final double wordSpacing;
+
+  /// 文本大小写变换（继承，初始 none）。
+  final CssTextTransform textTransform;
+
+  /// 行内垂直对齐（不继承，初始 baseline）。
+  final CssVerticalAlign verticalAlign;
+
+  /// 行内基线偏移（逻辑像素，正值向下）：sup -0.4em、sub +0.15em（与阅微 BaselineShift 同值）。
+  double get verticalAlignShift => switch (verticalAlign) {
+    CssVerticalAlign.superscript => -0.4 * fontSize,
+    CssVerticalAlign.subscript => 0.15 * fontSize,
+    _ => 0,
+  };
+
   /// 背景色（不继承，初始透明）。
   final Color backgroundColor;
 
@@ -571,6 +622,8 @@ class ComputedStyle {
       'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin, '
       'families=$fontFamilies, position=$position, float=$cssFloat, '
       'display=$display, visibility=$visibility, whiteSpace=$whiteSpace, '
+      'wordSpacing=$wordSpacing, transform=$textTransform, '
+      'valign=$verticalAlign, '
       'bg=$backgroundColor, borders=$borders, '
       'size=$width/$height, min=$minWidth/$minHeight, '
       'max=$maxWidth/$maxHeight, padding=$padding, boxSizing=$boxSizing)';
@@ -1115,6 +1168,26 @@ class ComputedStyle {
         'pre' => CssWhiteSpace.pre,
         'pre-wrap' || 'break-spaces' => CssWhiteSpace.preWrap,
         'pre-line' => CssWhiteSpace.preLine,
+        _ => null,
+      };
+
+  static CssTextTransform? _parseTextTransform(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'none' => CssTextTransform.none,
+        'uppercase' => CssTextTransform.uppercase,
+        'lowercase' => CssTextTransform.lowercase,
+        'capitalize' => CssTextTransform.capitalize,
+        _ => null,
+      };
+
+  static CssVerticalAlign? _parseVerticalAlign(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'baseline' => CssVerticalAlign.baseline,
+        'sub' => CssVerticalAlign.subscript,
+        'super' => CssVerticalAlign.superscript,
+        'middle' => CssVerticalAlign.middle,
+        'top' || 'text-top' => CssVerticalAlign.top,
+        'bottom' || 'text-bottom' => CssVerticalAlign.bottom,
         _ => null,
       };
 
