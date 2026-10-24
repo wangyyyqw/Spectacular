@@ -6,6 +6,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
@@ -69,11 +70,31 @@ class EpubChapterSource
   /// 段落布局缓存（P2-26）：同一文本+样式的重复测量直接复用。
   final TextLayoutCache _layoutCache = TextLayoutCache();
 
-  /// 章节分页缓存：设置不变时重复进入章节不再重排。
-  final Map<int, List<PageContent>> _pageCache = <int, List<PageContent>>{};
+  /// 排版缓存三层（P7-23；对照 Reeden document/styles/pagination，
+  /// 550 号 §0）：
+  /// - document：聚合后的章节文本（解析+聚合结果），键=spineIndex；
+  /// - styles：块级样式由 [styleFor] 按（基准+覆盖）即时派生，缓存键
+  ///   只含影响该层的最小变量集（字号/行高/对齐/边距/几何）；
+  /// - pagination：页缓存与页索引，键=spineIndex+排版指纹（几何+设置
+  ///   排版字段）。主题颜色不进任何键 → 切主题零重排。
+  final Map<int, BlockDocument> _documentCache = <int, BlockDocument>{};
+  final Map<String, List<PageContent>> _pageCache = <String, List<PageContent>>{};
+  final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};
+
+  /// 排版层指纹（P7-23）：几何 + 设置的排版字段；颜色不参与（绘制层
+  /// 即时生效，不失效任何缓存）。
+  String _paginationKey(int spineIndex) =>
+      '$spineIndex@${contentWidth.toString()}x${contentHeight.toString()}'
+      '|${_overrides.fingerprint}';
 
   /// 当前阅读器设置。
   ReaderOverrides get overrides => _overrides;
+
+  /// 仅清空页缓存（保留页索引）：供冷启动重放路径测试与 P7-27 续排
+  /// 使用——页索引仍在时 loadChapter 直接按边界出页。
+  void clearPaginationCache() {
+    _pageCache.clear();
+  }
 
   /// 正文区宽：优先用阅读页实测值（已扣页边距），否则基础宽扣设置页边距。
   double get contentWidth =>
@@ -101,10 +122,15 @@ class EpubChapterSource
 
   @override
   Future<void> applyOverrides(ReaderOverrides overrides) async {
+    final previous = _overrides;
     _overrides = overrides;
-    // 设置变化：段落缓存与分页缓存都要失效（P2-24 重排）。
-    _layoutCache.clear();
-    _pageCache.clear();
+    // 失效矩阵（P7-23）：只有排版字段（字号/行高/对齐/边距）变化才
+    // 失效 pagination 层与段落缓存；颜色变化零重排（绘制层即时生效）。
+    if (previous.fingerprint != overrides.fingerprint) {
+      _layoutCache.clear();
+      _pageCache.clear();
+      _pageIndexCache.clear();
+    }
   }
 
   @override
@@ -121,9 +147,10 @@ class EpubChapterSource
     if (previousWidth == nextWidth && previousHeight == nextHeight) {
       return false;
     }
-    // 尺寸变化等同重排：段落与分页缓存全部失效（P2-31）。
+    // 尺寸变化等同重排：几何进排版键（P7-23 矩阵「几何全失效」）。
     _layoutCache.clear();
     _pageCache.clear();
+    _pageIndexCache.clear();
     return true;
   }
 
@@ -132,17 +159,22 @@ class EpubChapterSource
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
-    final cachedPages = _pageCache[spineIndex];
+    final paginationKey = _paginationKey(spineIndex);
+    final cachedPages = _pageCache[paginationKey];
     if (cachedPages != null) {
       return cachedPages;
     }
-    final aggregated = document.aggregateText(
+    // document 层（P7-23）：聚合结果按章缓存。
+    final document = _documentCache.putIfAbsent(
       spineIndex,
-      whiteSpace: style.whiteSpace,
+      () => this.document.aggregateText(
+        spineIndex,
+        whiteSpace: style.whiteSpace,
+      ),
     );
     final blocks = <PageBlock>[];
     // 块级 UA 覆盖（P7-03）：标题/引用/列表等按标签叠加默认样式，
-    // em 相对阅读器基准字号解算；同一标签只构造一次。
+    // em 相对阅读器基准字号解算；同一标签只构造一次（styles 层）。
     final uaStyles = <String, ComputedStyle>{};
     var figureSeq = 0;
     ComputedStyle styleFor(String tag) {
@@ -157,6 +189,7 @@ class EpubChapterSource
       );
       return uaStyles[tag] = overlaid ?? style;
     }
+
     void collect(EpubNode node, String blockTag, {int groupId = 0}) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
@@ -198,11 +231,34 @@ class EpubChapterSource
       }
     }
 
-    collect(aggregated.root, 'body');
+    collect(document.root, 'body');
+    // pagination 层（P7-23）：先试页索引重放（P7-22），跳过分页状态
+    // 机；索引缺失/损坏/schema 不匹配时静默重排并回写索引。
+    final cachedIndexBytes = _pageIndexCache[paginationKey];
+    if (cachedIndexBytes != null) {
+      final index = PageIndex.decode(cachedIndexBytes);
+      if (index != null) {
+        final replayed = PageIndex.apply(index, blocks, spineIndex: spineIndex);
+        if (replayed != null) {
+          _pageCache[paginationKey] = replayed;
+          return replayed;
+        }
+      }
+      _pageIndexCache.remove(paginationKey);
+    }
     final pages = Paginator(pageHeight: contentHeight)
         .measureChapter(blocks: blocks, spineIndex: spineIndex)
         .pages;
-    _pageCache[spineIndex] = pages;
+    _pageCache[paginationKey] = pages;
+    _pageIndexCache[paginationKey] = PageIndex.from(
+      ChapterPagination(
+        spineIndex: spineIndex,
+        pages: pages,
+        pageHeight: contentHeight,
+        totalHeight: 0,
+      ),
+      blocks,
+    ).encode();
     return pages;
   }
 }
