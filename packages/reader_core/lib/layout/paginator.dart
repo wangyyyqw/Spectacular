@@ -20,6 +20,7 @@ class PageBlock {
     this.topInset = 0,
     this.bottomInset = 0,
     this.leftInset = 0,
+    this.breakInsideAvoid = false,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -29,8 +30,8 @@ class PageBlock {
     required TextLayoutResult layout,
     required ComputedStyle style,
     required double containingWidth,
-    bool pageBreakBefore = false,
-    bool pageBreakAfter = false,
+    bool? pageBreakBefore,
+    bool? pageBreakAfter,
     String? startCfi,
     String? endCfi,
     double spaceBefore = 0,
@@ -40,8 +41,9 @@ class PageBlock {
     return PageBlock(
       layout: layout,
       style: style,
-      pageBreakBefore: pageBreakBefore,
-      pageBreakAfter: pageBreakAfter,
+      pageBreakBefore: pageBreakBefore ?? style.pageBreakBefore,
+      pageBreakAfter: pageBreakAfter ?? style.pageBreakAfter,
+      breakInsideAvoid: style.breakInsideAvoid,
       startCfi: startCfi,
       endCfi: endCfi,
       spaceBefore: spaceBefore,
@@ -84,6 +86,9 @@ class PageBlock {
 
   /// 内容区左内缩（border.left + padding.left）。
   final double leftInset;
+
+  /// 块内禁止分页（`break-inside: avoid`）：能整块放入新页时不在当前页拆开。
+  final bool breakInsideAvoid;
 
   /// 块高度（内容区行高之和）。
   double get height => layout.height;
@@ -337,6 +342,16 @@ class Paginator {
         continue;
       }
       if (block.pageBreakBefore) {
+        record();
+      }
+
+      // break-inside: avoid：能整块放进新页时先收页，不在当前页拆开（P2-17）。
+      final blockExtent =
+          block.leadingExtent + block.height + block.trailingExtent;
+      if (block.breakInsideAvoid &&
+          slices.isNotEmpty &&
+          blockExtent > available + tolerance &&
+          blockExtent <= pageHeight + tolerance) {
         record();
       }
 
