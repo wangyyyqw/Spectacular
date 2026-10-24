@@ -615,6 +615,12 @@ class ComputedStyle {
         explicitValue('break-inside') ?? explicitValue('page-break-inside');
     final breakInsideAvoid = rawBreakInside?.trim().toLowerCase() == 'avoid';
 
+    // avoid 档位（P3-22，Reeden 510 §3.3：avoid before（标题不落页底））。
+    final breakAfterAvoidRaw =
+        explicitValue('break-after') ?? explicitValue('page-break-after');
+    final breakAfterAvoid =
+        breakAfterAvoidRaw?.trim().toLowerCase() == 'avoid';
+
     // P0 收口补全（P2-18）：text-shadow、背景子属性、定位偏移、clear、表格边框。
     final rawShadow = explicitValue('text-shadow');
     final textShadow = rawShadow == null
@@ -773,6 +779,7 @@ class ComputedStyle {
       pageBreakBefore: pageBreakBefore,
       pageBreakAfter: pageBreakAfter,
       breakInsideAvoid: breakInsideAvoid,
+      breakAfterAvoid: breakAfterAvoid,
       textShadow: textShadow,
       backgroundRepeat: backgroundRepeat,
       backgroundSize: backgroundSize,
@@ -840,6 +847,7 @@ class ComputedStyle {
     required this.pageBreakBefore,
     required this.pageBreakAfter,
     required this.breakInsideAvoid,
+    required this.breakAfterAvoid,
     required this.textShadow,
     required this.backgroundRepeat,
     required this.backgroundSize,
@@ -993,6 +1001,9 @@ class ComputedStyle {
 
   /// 块内禁止分页（`break-inside: avoid`）。
   final bool breakInsideAvoid;
+
+  /// 块后避免分页（`break-after: avoid`，标题不落页底，P3-22）。
+  final bool breakAfterAvoid;
 
   /// 文本阴影列表（继承，空表示无阴影）。
   final List<CssTextShadow> textShadow;

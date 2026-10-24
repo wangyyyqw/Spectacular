@@ -94,4 +94,53 @@ void main() {
     expect(auto.pageBreakAfter, isFalse);
     expect(auto.breakInsideAvoid, isFalse);
   });
+
+  // ---- avoid 档位（P3-22，Reeden 510 §3.3：标题不落页底）----
+
+  test('break-after: avoid：标题不孤立在页底，与后文同页', () {
+    // 页高 72：首段 2 行（48），标题只剩 24 可放——放完标题后剩余 0，
+    // 不足正文首行 → avoid 把标题推到下一页与正文同页（标题不落页底）。
+    final pages = Paginator(pageHeight: 72)
+        .measureChapter(
+          blocks: [
+            _block('p1\np2', _style(const {})),
+            _block('标题', _style(const {'break-after': 'avoid'})),
+            _block('bb\ncc\ndd', _style(const {})),
+          ],
+        )
+        .pages;
+    expect(pages, hasLength(3));
+    expect(pages[0].slices.single.block.layout.text, 'p1\np2');
+    expect(pages[1].slices.first.block.layout.text, '标题',
+        reason: '标题推到下一页与正文同页');
+    expect(pages[2].slices.first.block.layout.text, 'bb\ncc\ndd');
+  });
+
+  test('break-after: avoid：后文首行放得下时不推页', () {
+    final pages = Paginator(pageHeight: 200)
+        .measureChapter(
+          blocks: [
+            _block('aa', _style(const {'break-after': 'avoid'})),
+            _block('bb', _style(const {})),
+          ],
+        )
+        .pages;
+    expect(pages, hasLength(1));
+    expect(pages.single.slices.first.block.layout.text, 'aa');
+    expect(pages.single.slices.last.block.layout.text, 'bb');
+  });
+
+  test('avoid 优先级低于强制断页：avoid + before:always 仍强制断', () {
+    final pages = Paginator(pageHeight: 96)
+        .measureChapter(
+          blocks: [
+            _block('aa', _style(const {'break-after': 'avoid'})),
+            _block('bb', _style(const {'page-break-before': 'always'})),
+          ],
+        )
+        .pages;
+    expect(pages, hasLength(2));
+    expect(pages[0].slices.single.block.layout.text, 'aa',
+        reason: '强制断页优先生效，标题留在首页');
+  });
 }
