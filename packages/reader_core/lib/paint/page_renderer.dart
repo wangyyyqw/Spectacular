@@ -38,6 +38,19 @@ class PagePainter {
       Paint()..color = background,
     );
 
+    // 上下标的基线偏移会超出切片矩形：统计本页最大上下偏移，放宽裁剪。
+    var upExtent = 0.0;
+    var downExtent = 0.0;
+    for (final slice in page.slices) {
+      for (final run in slice.block.layout.runs) {
+        if (run.baselineShift < 0) {
+          upExtent = math.max(upExtent, -run.baselineShift);
+        } else if (run.baselineShift > 0) {
+          downExtent = math.max(downExtent, run.baselineShift);
+        }
+      }
+    }
+
     var y = page.topPadding;
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
@@ -51,7 +64,15 @@ class PagePainter {
       // 跨页块只画本页可见的行（§60.8）：裁剪后即使字号/行高有浮点误差，
       // 墨迹也不会越到下一块或下一页。
       canvas.save();
-      canvas.clipRect(slice.clipRect(y, pageSize.width));
+      final clip = slice.clipRect(y, pageSize.width);
+      canvas.clipRect(
+        Rect.fromLTRB(
+          clip.left,
+          clip.top - upExtent,
+          clip.right,
+          clip.bottom + downExtent,
+        ),
+      );
       // visibility: hidden / collapse 只保留布局空间，不画背景、边框与文字（P2-15）。
       final hidden = style.visibility != CssVisibility.visible;
       // 背景与边框铺满切片盒子（含首尾内缩）。
@@ -84,11 +105,14 @@ class PagePainter {
           line.end,
         );
         if (!hidden && lineText.isNotEmpty) {
-          final painter = TextPainter(
-            text: _lineSpan(slice.block.layout, line, textStyle),
-            textDirection: TextDirection.ltr,
-          )..layout();
-          painter.paint(canvas, Offset(line.offsetX + leftInset, lineY));
+          _paintLine(
+            canvas,
+            slice.block.layout,
+            line,
+            textStyle,
+            line.offsetX + leftInset,
+            lineY,
+          );
         }
         lineY += line.height;
       }
@@ -285,6 +309,98 @@ class PagePainter {
     }
   }
 
+  /// 画一行：有上下标（基线偏移）时按段分别绘制，其余情况整行一次绘制。
+  ///
+  /// 与阅微 `BaselineShift` 一致：偏移段在正常基线基础上整体上下移动
+  /// （super −0.4em、sub +0.15em），行高与行宽不受影响。
+  void _paintLine(
+    Canvas canvas,
+    TextLayoutResult layout,
+    LineBox line,
+    TextStyle baseStyle,
+    double x,
+    double y,
+  ) {
+    final lineText = layout.text.substring(line.start, line.end);
+    if (lineText.isEmpty) {
+      return;
+    }
+    final runs = _lineRuns(layout, line);
+    final hasShift = runs.any((run) => run.baselineShift != 0);
+    final painter = TextPainter(
+      text: _lineSpan(layout, line, baseStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    if (!hasShift) {
+      painter.paint(canvas, Offset(x, y));
+      return;
+    }
+    // 上下标：用整行的排版结果取出每段的 x，再按段的基线偏移绘制。
+    for (final segment in _lineSegments(lineText.length, runs)) {
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: segment.start, extentOffset: segment.end),
+      );
+      if (boxes.isEmpty) {
+        continue;
+      }
+      final segmentPainter = TextPainter(
+        text: TextSpan(
+          text: lineText.substring(segment.start, segment.end),
+          style: segment.style == null
+              ? baseStyle
+              : TextLayoutEngine.textStyleFor(segment.style!),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      segmentPainter.paint(
+        canvas,
+        Offset(x + boxes.first.left, y + segment.baselineShift),
+      );
+    }
+  }
+
+  /// 取与本行相交的样式区间（行内局部坐标）。
+  List<_LineRun> _lineRuns(TextLayoutResult layout, LineBox line) {
+    final runs = <_LineRun>[];
+    for (final run in layout.runs) {
+      final start = math.max(run.start, line.start);
+      final end = math.min(run.end, line.end);
+      if (end > start) {
+        runs.add(
+          _LineRun(
+            start - line.start,
+            end - line.start,
+            run.style,
+            run.baselineShift,
+          ),
+        );
+      }
+    }
+    return runs;
+  }
+
+  /// 把行文本按样式区间切成连续段，区间外的空隙用基础样式。
+  List<_LineSegment> _lineSegments(int length, List<_LineRun> runs) {
+    final segments = <_LineSegment>[];
+    var cursor = 0;
+    for (final run in runs) {
+      if (run.start > cursor) {
+        segments.add(_LineSegment(cursor, run.start, null, 0));
+      }
+      final start = math.max(run.start, cursor);
+      if (run.end > start) {
+        segments.add(
+          _LineSegment(start, run.end, run.style, run.baselineShift),
+        );
+      }
+      cursor = math.max(cursor, run.end);
+    }
+    if (cursor < length) {
+      segments.add(_LineSegment(cursor, length, null, 0));
+    }
+    return segments;
+  }
+
   /// 组装一行的 span：行内样式区间 + justify 间隙字距。
   InlineSpan _lineSpan(
     TextLayoutResult layout,
@@ -345,4 +461,24 @@ class PagePainter {
     }
     return TextSpan(style: baseStyle, children: children);
   }
+}
+
+/// 行内一段样式区间（行内局部坐标，带基线偏移）。
+class _LineRun {
+  const _LineRun(this.start, this.end, this.style, this.baselineShift);
+
+  final int start;
+  final int end;
+  final ComputedStyle style;
+  final double baselineShift;
+}
+
+/// 行内绘制段：样式为 null 时用基础样式。
+class _LineSegment {
+  const _LineSegment(this.start, this.end, this.style, this.baselineShift);
+
+  final int start;
+  final int end;
+  final ComputedStyle? style;
+  final double baselineShift;
 }

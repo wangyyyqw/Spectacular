@@ -419,4 +419,40 @@ void main() {
     expect(fallback.visibility, CssVisibility.visible);
     expect(fallback.whiteSpace, CssWhiteSpace.normal);
   });
+
+  test('word-spacing / text-transform / vertical-align 解析与继承', () {
+    final parsed = style(
+      'p',
+      'p { word-spacing: 8px; text-transform: uppercase; '
+          'vertical-align: super; }',
+    );
+    expect(parsed.wordSpacing, 8);
+    expect(parsed.textTransform, CssTextTransform.uppercase);
+    expect(parsed.verticalAlign, CssVerticalAlign.superscript);
+    expect(parsed.verticalAlignShift, closeTo(-6.4, 0.01));
+
+    final em = style(
+      'p',
+      'p { word-spacing: 0.5em; text-transform: capitalize; '
+          'vertical-align: sub; }',
+    );
+    expect(em.wordSpacing, 8);
+    expect(em.textTransform, CssTextTransform.capitalize);
+    expect(em.verticalAlignShift, closeTo(2.4, 0.01));
+
+    final parent = style(
+      'parent',
+      'div { word-spacing: 4px; text-transform: lowercase; '
+          'vertical-align: super; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.wordSpacing, 4, reason: 'word-spacing 继承');
+    expect(child.textTransform, CssTextTransform.lowercase);
+    expect(child.verticalAlign, CssVerticalAlign.baseline, reason: '不继承');
+
+    final plain = style('p', 'p { color: red; }');
+    expect(plain.wordSpacing, 0);
+    expect(plain.textTransform, CssTextTransform.none);
+    expect(plain.verticalAlign, CssVerticalAlign.baseline);
+  });
 }

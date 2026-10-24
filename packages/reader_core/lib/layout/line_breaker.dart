@@ -101,6 +101,7 @@ class StyledRun {
     required this.start,
     required this.end,
     required this.style,
+    this.baselineShift = 0,
   });
 
   /// 起始偏移（UTF-16，含）。
@@ -111,6 +112,36 @@ class StyledRun {
 
   /// 该区间的计算样式。
   final ComputedStyle style;
+
+  /// 行内基线偏移（逻辑像素，正值向下）：上下标用，0 表示不偏移。
+  final double baselineShift;
+}
+
+/// 按 CSS `text-transform` 变换文本（P2-16）。
+///
+/// `capitalize` 按空白分词，把每个词的首字符转大写（标点边界按空白近似）。
+String applyTextTransform(String text, CssTextTransform transform) =>
+    switch (transform) {
+      CssTextTransform.none => text,
+      CssTextTransform.uppercase => text.toUpperCase(),
+      CssTextTransform.lowercase => text.toLowerCase(),
+      CssTextTransform.capitalize => _capitalizeWords(text),
+    };
+
+String _capitalizeWords(String text) {
+  final buffer = StringBuffer();
+  var atWordStart = true;
+  for (final rune in text.runes) {
+    final char = String.fromCharCode(rune);
+    if (char.trim().isEmpty) {
+      buffer.write(char);
+      atWordStart = true;
+    } else {
+      buffer.write(atWordStart ? char.toUpperCase() : char);
+      atWordStart = false;
+    }
+  }
+  return buffer.toString();
 }
 
 /// 把 `[start, end)` 按样式区间切成连续 span（§61.1 的行内 run）。
@@ -334,6 +365,8 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
   }) {
+    // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
+    text = applyTextTransform(text, style.textTransform);
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
     final indent = width.isFinite
         ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
@@ -397,7 +430,14 @@ abstract final class TextLayoutEngine {
       final start = run.start.clamp(0, length);
       final end = run.end.clamp(start, length);
       if (end > start) {
-        ordered.add(StyledRun(start: start, end: end, style: run.style));
+        ordered.add(
+          StyledRun(
+            start: start,
+            end: end,
+            style: run.style,
+            baselineShift: run.baselineShift,
+          ),
+        );
       }
     }
     ordered.sort((a, b) => a.start.compareTo(b.start));
@@ -442,16 +482,25 @@ abstract final class TextLayoutEngine {
     int? openStart;
     int? openEnd;
     ComputedStyle? openStyle;
+    var openShift = 0.0;
     void flush() {
       final start = openStart;
       final end = openEnd;
       final style = openStyle;
       if (start != null && end != null && style != null) {
-        merged.add(StyledRun(start: start, end: end, style: style));
+        merged.add(
+          StyledRun(
+            start: start,
+            end: end,
+            style: style,
+            baselineShift: openShift,
+          ),
+        );
       }
       openStart = null;
       openEnd = null;
       openStyle = null;
+      openShift = 0;
     }
 
     var scriptIndex = 0;
@@ -470,23 +519,22 @@ abstract final class TextLayoutEngine {
               scriptRuns[scriptIndex].start <= start
           ? scriptRuns[scriptIndex].family
           : null;
-      final style = _segmentStyle(
-        _owningRun(runs, start, end),
-        family,
-        baseStyle,
-        withFamily,
-      );
+      final owner = _owningRun(runs, start, end);
+      final style = _segmentStyle(owner, family, baseStyle, withFamily);
+      final shift = owner?.baselineShift ?? 0;
       if (style == null) {
         flush(); // 无族的空隙不产出区间
       } else if (openStyle != null &&
           identical(openStyle, style) &&
+          openShift == shift &&
           openEnd == start) {
-        openEnd = end; // 同源同族，继续延伸
+        openEnd = end; // 同源同族同偏移，继续延伸
       } else {
         flush();
         openStart = start;
         openEnd = end;
         openStyle = style;
+        openShift = shift;
       }
     }
     flush();
@@ -540,6 +588,7 @@ abstract final class TextLayoutEngine {
             start: runStart - start,
             end: runEnd - start,
             style: run.style,
+            baselineShift: run.baselineShift,
           ),
         );
       }
@@ -741,6 +790,7 @@ abstract final class TextLayoutEngine {
         ? null
         : style.fontFamilyFallback,
     letterSpacing: style.letterSpacing,
+    wordSpacing: style.wordSpacing,
     color: style.color,
   );
 
