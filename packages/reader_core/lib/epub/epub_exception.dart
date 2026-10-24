@@ -70,6 +70,8 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_DOCUMENT_TOLERANT_FALLBACK', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 XHTML 严格解析失败回退容错（P7-11 双路径）'),
     EpubCodeSpec('E_CONTAINER_FALLBACK', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 container.xml 不可用回退扫描 OPF（P7-12）'),
     EpubCodeSpec('E_MANIFEST_MEDIA_TYPE_INFERRED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 manifest 项缺 media-type 按扩展名推断（P7-12）'),
+    EpubCodeSpec('E_TOC_TARGET_OUTSIDE_SPINE', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 目录项目标不在 spine 降级到最近章节（P7-13）'),
+    EpubCodeSpec('E_SPINE_ALL_NON_LINEAR', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 spine 全部非 linear 退化目录包含全部项（P7-13）'),
     // ---- 预留：资源与字体（P3）----
     EpubCodeSpec('E_RESOURCE_MISSING', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§54.3 资源找不到', reservedFor: 'P3-25'),
     EpubCodeSpec('E_RESOURCE_DECODE_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§50.2 图片/资源解码失败', reservedFor: 'P3-08'),

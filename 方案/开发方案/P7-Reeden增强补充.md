@@ -6,7 +6,7 @@
 > 执行时机：P7.1～P7.2（规格回填）建议在 P3 大规模开发前完成，避免新代码建立在旧规格上；其余模块可与 P3～P6 穿插，无强制先后。
 > 规则：勾选任务后运行 `perl tool/render_plan.pl` 同步主文档总览与进度；字段口径见主文档 §0.3～§0.4。
 
-> 进度：12 / 32 项 · 36h / 102h（35%）
+> 进度：13 / 32 项 · 39h / 102h（38%）
 
 ---
 
@@ -100,7 +100,7 @@
   - 验收：container.xml 损坏样本可打开并带 containerFallback 诊断；media-type 推断样本不误判（xml/css/ncx/nav 四类资源归类正确）
   - 参考：[参考/reeden/reports/500-spec-parse.md](../../参考/reeden/reports/500-spec-parse.md) §1.1（Fallback: found OEBPS/content.opf）；[技术方案 §12](../技术方案.md)（容错表）
 
-- [ ] **P7-13 目录健壮性补强** ｜ 3h
+- [x] **P7-13 目录健壮性补强** ｜ 3h
   - 目标：显式处理两类坏目录：目录项 href 不在 spine（tocTargetOutsideSpine，跳转时降级到最近章）、spine 全部非 linear（回退全 spine 包含非 linear 项）；避免静默丢目录项或空目录
   - 产出：`epub/toc.dart` 校验与降级 + 用例
   - 依赖：P1-07

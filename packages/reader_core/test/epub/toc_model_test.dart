@@ -86,7 +86,9 @@ void main() {
     expect(result.report.warnings.any((w) => w.contains('目录去重')), isTrue);
   });
 
-  test('目标无效的叶子被移除，有效子项保留', () async {
+  test('目标无效的叶子降级保留（P7-13 起不再静默移除）', () async {
+    // P1 期行为：无效叶被清洗器移除。P7-13 起改为降级到最近可定位
+    // 章节（条目保留、跳转可用，去向记录在诊断告警）。
     const nav = '''
 <ol>
   <li><a href="missing.xhtml#x">坏项</a>
@@ -98,10 +100,18 @@ void main() {
     final result = await openEpub(buildZip(_files(2, _nav(nav))));
     expect(result.ok, isTrue);
     final toc = result.document!.toc;
-    expect(toc, hasLength(1));
-    expect(toc.single.spineIndex, -1);
-    expect(toc.single.children.single.title, '好项');
-    expect(result.report.warnings.any((w) => w.contains('目录移除')), isTrue);
+    // 坏项（#x）与另一个坏项（#y）fragment 不同不合并，均降级到 spine#0。
+    expect(toc, hasLength(2));
+    expect(toc[0].title, '坏项');
+    expect(toc[0].spineIndex, 0, reason: '降级到最近可定位章节');
+    expect(toc[0].children.single.title, '好项');
+    expect(toc[1].spineIndex, 0);
+    expect(
+      result.report.warnings.any(
+        (w) => w.startsWith('E_TOC_TARGET_OUTSIDE_SPINE'),
+      ),
+      isTrue,
+    );
   });
 
   test('fragment 百分号解码并保留', () async {
