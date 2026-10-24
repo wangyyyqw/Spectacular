@@ -1,5 +1,6 @@
 import 'computed_style.dart';
 import 'parser.dart';
+import 'reader_contract.dart';
 import 'selector.dart';
 import '../parser/document_parser.dart';
 
@@ -13,14 +14,28 @@ class CascadeRule {
     : selectors = SelectorParser.parse(rule.selector);
 
   /// 从多规则样式表批量创建。
+  ///
+  /// 作者 origin（P7-17）：私有钩子过滤——`-reader-*` 属性剥除、
+  /// `:-reader-*` 伪类规则整条丢弃，警告写入 [warnings]（可空收集器）。
   static List<CascadeRule> fromStylesheet(
     CssStylesheet sheet, {
     required CascadeOrigin origin,
     int startOrder = 0,
-  }) => <CascadeRule>[
-    for (var i = 0; i < sheet.rules.length; i++)
-      CascadeRule(rule: sheet.rules[i], origin: origin, order: startOrder + i),
-  ];
+    List<String>? warnings,
+  }) {
+    var rules = sheet.rules;
+    if (origin == CascadeOrigin.author) {
+      final (cleaned, contractWarnings) = ReaderContract.filterAuthorStylesheet(
+        rules,
+      );
+      rules = cleaned;
+      warnings?.addAll(contractWarnings);
+    }
+    return <CascadeRule>[
+      for (var i = 0; i < rules.length; i++)
+        CascadeRule(rule: rules[i], origin: origin, order: startOrder + i),
+    ];
+  }
 
   /// 原始规则。
   final CssRule rule;
