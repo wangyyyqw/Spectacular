@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -31,6 +32,7 @@ class EpubReaderPage extends StatefulWidget {
 
 class _EpubReaderPageState extends State<EpubReaderPage> {
   EpubChapterSource? _source;
+  DecodedImageCache? _imageCache;
   Object? _error;
   bool _loading = true;
 
@@ -48,6 +50,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       }
       setState(() {
         _source = source;
+        _imageCache = DecodedImageCache(
+          loadBytes: (url) => _loadImageBytes(source, url),
+        );
         _loading = false;
       });
     } catch (error) {
@@ -58,6 +63,12 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _imageCache?.clear();
+    super.dispose();
   }
 
   @override
@@ -73,6 +84,42 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       source: _source!,
       store: widget.store,
       bookId: widget.bookId,
+      imageCache: _imageCache,
     );
   }
+}
+
+/// 从 EPUB 归档读取图片字节：先按原样路径找，再按 OPF 目录解析，
+/// 最后按各 spine 章节目录逐个尝试（背景图 URL 相对所在章节）。
+Future<Uint8List?> _loadImageBytes(EpubChapterSource source, String url) async {
+  final document = source.document;
+  final direct = document.archive.readBytes(url);
+  if (direct != null) {
+    return direct;
+  }
+  final resolved = document.resources.resolve(url);
+  if (resolved != null) {
+    final bytes = document.archive.readBytes(resolved);
+    if (bytes != null) {
+      return bytes;
+    }
+  }
+  var tried = 0;
+  for (final item in document.spine) {
+    if (tried >= 64) {
+      break;
+    }
+    tried += 1;
+    final slash = item.href.lastIndexOf('/');
+    final baseDir = slash < 0 ? '' : item.href.substring(0, slash);
+    final candidate = document.resources.resolve(url, baseDir: baseDir);
+    if (candidate == null) {
+      continue;
+    }
+    final bytes = document.archive.readBytes(candidate);
+    if (bytes != null) {
+      return bytes;
+    }
+  }
+  return null;
 }
