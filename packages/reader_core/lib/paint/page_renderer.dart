@@ -623,24 +623,59 @@ class PagePainter {
     if (!borders.hasBorder) {
       return;
     }
-    // 四边一致且实线：用整框描边，圆角生效（与阅微整框描边路径一致）。
+    // 四边一致且实线：整块（首尾都在本页）用整框描边，圆角生效
+    //（与阅微整框描边路径一致）。
     if (borders.isUniform && borders.top.style == CssBorderStyle.solid) {
-      final half = borders.top.width / 2;
-      canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          box.deflate(half),
-          topLeft: Radius.circular(startsBlock ? borders.topLeftRadius : 0),
-          topRight: Radius.circular(startsBlock ? borders.topRightRadius : 0),
-          bottomRight: Radius.circular(
-            endsBlock ? borders.bottomRightRadius : 0,
+      if (startsBlock && endsBlock) {
+        final half = borders.top.width / 2;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            box.deflate(half),
+            topLeft: Radius.circular(borders.topLeftRadius),
+            topRight: Radius.circular(borders.topRightRadius),
+            bottomRight: Radius.circular(borders.bottomRightRadius),
+            bottomLeft: Radius.circular(borders.bottomLeftRadius),
           ),
-          bottomLeft: Radius.circular(endsBlock ? borders.bottomLeftRadius : 0),
-        ),
-        Paint()
-          ..color = borders.top.color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = borders.top.width,
+          Paint()
+            ..color = borders.top.color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = borders.top.width,
+        );
+        return;
+      }
+      // 跨页切片（P3-24，CSS box-decoration-break: slice 语义）：左右
+      // 边框全长续绘，顶边只在块首切片、底边只在块尾切片——切片边界
+      // 处不画水平边（圆角只在真实首尾出现）。
+      _paintSide(
+        canvas,
+        borders.left,
+        Offset(box.left + borders.left.width / 2, box.top),
+        Offset(box.left + borders.left.width / 2, box.bottom),
       );
+      _paintSide(
+        canvas,
+        borders.right,
+        Offset(box.right - borders.right.width / 2, box.top),
+        Offset(box.right - borders.right.width / 2, box.bottom),
+      );
+      if (startsBlock) {
+        final inset = borders.top.width / 2;
+        _paintSide(
+          canvas,
+          borders.top,
+          Offset(box.left, box.top + inset),
+          Offset(box.right, box.top + inset),
+        );
+      }
+      if (endsBlock) {
+        final inset = borders.bottom.width / 2;
+        _paintSide(
+          canvas,
+          borders.bottom,
+          Offset(box.left, box.bottom - inset),
+          Offset(box.right, box.bottom - inset),
+        );
+      }
       return;
     }
     // 分边绘制：宽度/线型/颜色不同时按边画，圆角只在圆角样本的整框路径里用。
