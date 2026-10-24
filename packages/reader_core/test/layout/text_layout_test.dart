@@ -95,7 +95,8 @@ void main() {
   });
 
   test('字号与行高被消费', () {
-    final text = '第一行\n第二行';
+    // ASCII 文本：Ahem 全覆盖，不触发 CJK 回退链换字体（度量稳定）。
+    final text = 'First line\nSecond line';
     final style16 = _style(fontSize: 16);
     final style20 = _style(fontSize: 20);
     final layout16 = TextLayoutEngine.layout(

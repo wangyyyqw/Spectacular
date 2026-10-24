@@ -213,6 +213,14 @@ abstract final class FontFamilyAliases {
   static List<String> mapFamilies(List<String> families) => <String>[
         for (final family in families) resolve(family) ?? family,
       ];
+
+  /// 默认 CJK 回退链（技术方案 §68.4；userFont 级随用户导入字体
+  /// 任务插入头部）。追加在声明族之后，缺字时引擎按序兜底。
+  static const List<String> defaultChain = <String>[
+    song,
+    hei,
+    'Noto Sans CJK SC',
+  ];
 }
 
 /// 从 CSS 文本提取 `@font-face` 块并解析成 [CssFontFace]。

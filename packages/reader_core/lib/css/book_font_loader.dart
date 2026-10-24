@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart' show ByteData, FontLoader;
 
 import 'font_face.dart';
+import '../text/font_coverage.dart';
 
 /// 一个已注册的 face 记录（缓存键：weight+italic）。
 class RegisteredFontFace {
@@ -69,6 +70,24 @@ class BookFontLoader {
     return faces == null
         ? const <String, RegisteredFontFace>{}
         : Map.unmodifiable(faces);
+  }
+
+  final Map<String, FontCoverage?> _coverageCache =
+      <String, FontCoverage?>{};
+
+  /// 书内字体的字形覆盖（P3-04）：按 w400 face（无则首个 face）的
+  /// 字节解析 cmap。诊断用途——缺失字符清单导出；运行期缺字仍由
+  /// fontFamilyFallback 兜底（技术方案 §28.4）。解析失败返回 null。
+  FontCoverage? coverage(String cssFamily) {
+    final engineName = engineFamilyName(cssFamily);
+    if (!_registered.containsKey(engineName)) {
+      return null;
+    }
+    return _coverageCache.putIfAbsent(engineName, () {
+      final faces = _registered[engineName]!;
+      final face = faces['w400i0'] ?? faces.values.first;
+      return FontCoverage.parse(face.bytes);
+    });
   }
 
   /// 按声明加载书内字体。
