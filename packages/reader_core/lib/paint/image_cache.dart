@@ -3,14 +3,18 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'image_size.dart';
+
 /// 图片字节加载器（宿主负责从 EPUB 归档/文件系统读取，失败返回 null）。
 typedef ImageBytesLoader = Future<Uint8List?> Function(String url);
 
-/// 图片解码缓存（P3 图片管线的最小实现）。
+/// 图片解码缓存（P3 图片管线，§50.2 六环节）。
 ///
 /// - 键为 `url`，同一 URL 的解码结果复用；按 LRU 淘汰，受条数与字节上限约束；
 /// - 解码时按 `显示宽 × DPR` 调用 `instantiateImageCodec(targetWidth:)` 降采样，
-///   避免大图整张进内存（技术方案 §50.3）；
+///   并**封顶原图宽**（不放大，§50.2 目标像素尺寸口径）；原始尺寸单独缓存，
+///   排版算占位不等解码（§50.3 优化 3，P3-07）；
+/// - 并发去重：同一 URL 的在途解码复用同一 Future（§50.3 优化 2）；
 /// - 绘制路径用同步的 [lookup] 取已解码图片，未解码时由调用方画占位。
 class DecodedImageCache {
   /// 创建缓存。
@@ -32,6 +36,9 @@ class DecodedImageCache {
   final LinkedHashMap<String, _CacheEntry> _entries =
       LinkedHashMap<String, _CacheEntry>();
   final Map<String, Future<ui.Image?>> _pending = <String, Future<ui.Image?>>{};
+  /// 原始尺寸缓存（P3-07）：键 url；读过头后不再重复解析。
+  final Map<String, ImageIntrinsicSize?> _intrinsic =
+      <String, ImageIntrinsicSize?>{};
   int _bytes = 0;
   int _revision = 0;
 
@@ -43,6 +50,9 @@ class DecodedImageCache {
 
   /// 缓存版本号（每解码成功一次 +1，宿主可用它触发重绘）。
   int get revision => _revision;
+
+  /// 原始尺寸（已读过头则直接返回）；未读过且字节在途时返回 null。
+  ImageIntrinsicSize? intrinsicOf(String url) => _intrinsic[url];
 
   /// 同步取已解码图片；未命中返回 null（并提升 LRU 顺序）。
   ui.Image? lookup(String url) {
@@ -56,8 +66,8 @@ class DecodedImageCache {
 
   /// 解码并缓存一张图片。
   ///
-  /// [displayWidth] 是布局宽（逻辑像素），[devicePixelRatio] 用于换算物理像素；
-  /// 字节缺失或解码失败返回 null，不抛异常（容错：§12）。
+  /// [displayWidth] 是布局宽（逻辑像素），[devicePixelRatio] 用于换算物理像素，
+  /// 封顶原图宽（P3-08）；字节缺失或解码失败返回 null，不抛异常（容错：§12）。
   Future<ui.Image?> load(
     String url, {
     required double displayWidth,
@@ -71,8 +81,7 @@ class DecodedImageCache {
     if (pending != null) {
       return pending;
     }
-    final targetWidth = math.max(1, (displayWidth * devicePixelRatio).ceil());
-    final future = _decodeAndStore(url, targetWidth);
+    final future = _decodeAndStore(url, displayWidth * devicePixelRatio);
     _pending[url] = future;
     return future.whenComplete(() => _pending.remove(url));
   }
@@ -107,11 +116,22 @@ class DecodedImageCache {
     _bytes = 0;
   }
 
-  Future<ui.Image?> _decodeAndStore(String url, int targetWidth) async {
+  Future<ui.Image?> _decodeAndStore(String url, double target) async {
     try {
       final bytes = await loadBytes(url);
       if (bytes == null || bytes.isEmpty) {
         return null;
+      }
+      // 封顶原图宽（P3-08，§50.2）：显示宽×DPR 超过原图时不放大解码；
+      // 原始尺寸顺手缓存（§50.3 优化 3）。
+      var intrinsic = _intrinsic[url];
+      if (!_intrinsic.containsKey(url)) {
+        intrinsic = ImageSizeParser.readImageSize(bytes);
+        _intrinsic[url] = intrinsic;
+      }
+      var targetWidth = math.max(1, target.ceil());
+      if (intrinsic != null && targetWidth > intrinsic.width) {
+        targetWidth = intrinsic.width;
       }
       final codec = await ui.instantiateImageCodec(
         bytes,
