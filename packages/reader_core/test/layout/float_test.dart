@@ -236,4 +236,129 @@ void main() {
       expect(withFloat.size.height, withoutFloat.size.height);
     });
   });
+
+  group('浮动边界用例（P3-16）', () {
+    test('窄容器：浮动挤占后文本列极窄仍可排且不越界', () {
+      final floatBox = _floatBox('浮动', 'left');
+      final paragraph = createFlowBox(
+        style: _style(const {}),
+        text: '窄容器里浮动占据了大部分宽度，文本列被挤到极窄也要逐字换行不越界。',
+      );
+      final root = ColumnFlowBlock([floatBox, paragraph]);
+      final size = root.measure(_constraints(maxWidth: 80));
+      expect(size.width, lessThanOrEqualTo(80.5));
+      expect(size.height.isFinite, isTrue);
+      expect(size.height, greaterThan(0));
+      final floatRect = root.floats.items.single.rect;
+      expect(floatRect.width, lessThanOrEqualTo(80.0));
+    });
+
+    test('浮动高于一页：测量钳制不崩溃，跨页切分逐页登记', () {
+      // 浮动内容高 300（多行），页高 100 约束下测量被钳制。
+      final floatBox = _floatBox('高于一页的浮动内容会换很多行因此非常高', 'left');
+      final root = ColumnFlowBlock([
+        floatBox,
+        createFlowBox(style: _style(const {}), text: '普通段落。'),
+      ]);
+      final size = root.measure(
+        LayoutConstraints(maxWidth: 320, maxHeight: 100),
+      );
+      expect(size.height, lessThanOrEqualTo(100.5),
+          reason: '容器内容高不超过一页（浮动摘流不推进）');
+      expect(root.floats.items.single.rect.height,
+          lessThanOrEqualTo(100.0), reason: '浮动测量被 maxHeight 钳制');
+
+      // 跨页切分：钳制后的浮动按页逐页登记剩余。
+      final pages = FloatOccupancy.sliceAcrossPages(
+        root.floats,
+        <double>[100, 100, 100],
+      );
+      expect(pages, hasLength(3));
+    });
+
+    test('浮动嵌套：内层浮动登记进内层容器，外层整体作为一个占用', () {
+      final innerFloat = _floatBox('内', 'right');
+      final innerRoot = ColumnFlowBlock([
+        innerFloat,
+        createFlowBox(style: _style(const {}), text: '内层正文，与内层浮动绕排。'),
+      ]);
+      final outerFloat = FloatFlowBlock(
+        innerRoot,
+        _style({'float': 'left'}),
+      );
+      final outer = ColumnFlowBlock([
+        outerFloat,
+        createFlowBox(
+          style: _style(const {}),
+          text: '外层正文把整个内层容器当作一个浮动处理，宽度按外层收窄。',
+        ),
+      ]);
+      outer.measure(_constraints());
+
+      expect(outer.floats.items, hasLength(1), reason: '外层只登记外浮');
+      expect(outer.floats.items.single.side, FloatSide.left);
+      // 内层自己的占用在内层容器里。
+      expect(innerRoot.floats.items.single.side, FloatSide.right);
+    });
+
+    test('浮动内图片占位（多看图组 D27/D28）：图+题注整组登记为一个占用', () {
+      // 图组 = figure（图占位文本 + 题注）整体作为浮动内容；
+      // 整组不切语义（P7-26 groupId）在浮动粒度天然成立。
+      final figure = ColumnFlowBlock.styled(
+        children: [
+          createFlowBox(
+            style: _style({'font-size': '48px', 'line-height': '3'}),
+            text: '\uFFFC',
+          ),
+          createFlowBox(
+            style: _style({'font-size': '12px'}),
+            text: '图 1：题注',
+          ),
+        ],
+        style: _style(const {}),
+      );
+      final floatGroup = FloatFlowBlock(figure, _style({'float': 'left'}));
+      final root = ColumnFlowBlock([
+        floatGroup,
+        createFlowBox(
+          style: _style(const {}),
+          text: '图组旁边的正文按整组的宽高绕排，不会插入图与题注之间。',
+        ),
+      ]);
+      root.measure(_constraints());
+
+      expect(root.floats.items, hasLength(1));
+      final rect = root.floats.items.single.rect;
+      expect(rect.height, greaterThan(72), reason: '整组高 = 图 + 题注');
+      expect(root.childLefts.last, closeTo(rect.width, 0.5),
+          reason: '正文左缘 = 整组右缘');
+    });
+
+    test('异常输入不崩溃：空浮动、零宽容器、负 margin', () {
+      expect(
+        () => ColumnFlowBlock([
+          _floatBox('', 'left'),
+          createFlowBox(style: _style(const {}), text: '正文。'),
+        ]).measure(_constraints()),
+        returnsNormally,
+      );
+      expect(
+        () => ColumnFlowBlock([
+          _floatBox('浮动', 'right'),
+          createFlowBox(style: _style(const {}), text: '正文。'),
+        ]).measure(_constraints(maxWidth: 0)),
+        returnsNormally,
+      );
+      expect(
+        () => ColumnFlowBlock([
+          FloatFlowBlock(
+            createFlowBox(style: _style(const {}), text: '内容'),
+            _style({'float': 'left', 'margin-left': '-40px'}),
+          ),
+          createFlowBox(style: _style(const {}), text: '负 margin 浮动旁的正文。'),
+        ]).measure(_constraints()),
+        returnsNormally,
+      );
+    });
+  });
 }
