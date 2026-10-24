@@ -75,9 +75,7 @@ enum CssBackgroundSizeMode { auto, cover, contain, explicit }
 /// 背景尺寸：关键字或明确宽高（auto 表示该维按比例）。
 class CssBackgroundSize {
   /// 关键字尺寸。
-  const CssBackgroundSize.keyword(this.mode)
-    : width = null,
-      height = null;
+  const CssBackgroundSize.keyword(this.mode) : width = null, height = null;
 
   /// 明确尺寸（可为 auto）。
   const CssBackgroundSize.explicit({this.width, this.height})
@@ -539,16 +537,32 @@ class ComputedStyle {
               parent?.borderSpacing ??
               CssEdges.zero;
     final top =
-        _parseOffset(explicitValue('top'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        _parseOffset(
+          explicitValue('top'),
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
         parent?.top;
     final right =
-        _parseOffset(explicitValue('right'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        _parseOffset(
+          explicitValue('right'),
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
         parent?.right;
     final bottom =
-        _parseOffset(explicitValue('bottom'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        _parseOffset(
+          explicitValue('bottom'),
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
         parent?.bottom;
     final left =
-        _parseOffset(explicitValue('left'), fontSize: fontSize, rootFontSize: rootFontSize) ??
+        _parseOffset(
+          explicitValue('left'),
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
         parent?.left;
 
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。

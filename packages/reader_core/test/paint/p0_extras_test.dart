@@ -53,18 +53,18 @@ Future<ByteData> _render(
     style: style,
     maxWidth: 200,
   );
-  final page = Paginator(
-    pageHeight: 120,
-  ).measureChapter(
-    blocks: [
-      PageBlock.styled(layout: layout, style: style, containingWidth: 200),
-    ],
-  ).pages.single;
+  final page = Paginator(pageHeight: 120)
+      .measureChapter(
+        blocks: [
+          PageBlock.styled(layout: layout, style: style, containingWidth: 200),
+        ],
+      )
+      .pages
+      .single;
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  const PagePainter(
-    imageLookup: _lookup,
-  ).paint(canvas, page, pageSize: _pageSize);
+  const PagePainter(imageLookup: _lookup)
+      .paint(canvas, page, pageSize: _pageSize);
   final rendered = await recorder.endRecording().toImage(200, 120);
   final data = await rendered.toByteData(format: ui.ImageByteFormat.rawRgba);
   rendered.dispose();
@@ -75,8 +75,7 @@ ui.Image? _currentImage;
 
 ui.Image? _lookup(String url) => url == 'bg://checker' ? _currentImage : null;
 
-int _pixel(ByteData bytes, int x, int y) =>
-    bytes.getUint32((y * 200 + x) * 4);
+int _pixel(ByteData bytes, int x, int y) => bytes.getUint32((y * 200 + x) * 4);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -136,10 +135,7 @@ void main() {
     );
     final shadowed = await _render(
       'aa',
-      _style(const {
-        'text-shadow': '6px 6px 0 #FF0000',
-        'font-family': 'Ahem',
-      }),
+      _style(const {'text-shadow': '6px 6px 0 #FF0000', 'font-family': 'Ahem'}),
       null,
     );
     // 阴影应出现在字形右下方 6px 处：找红色像素。
