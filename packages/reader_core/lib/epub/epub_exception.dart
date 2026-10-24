@@ -72,6 +72,11 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_MANIFEST_MEDIA_TYPE_INFERRED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 manifest 项缺 media-type 按扩展名推断（P7-12）'),
     EpubCodeSpec('E_TOC_TARGET_OUTSIDE_SPINE', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 目录项目标不在 spine 降级到最近章节（P7-13）'),
     EpubCodeSpec('E_SPINE_ALL_NON_LINEAR', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 spine 全部非 linear 退化目录包含全部项（P7-13）'),
+    // ---- ZIP 诊断四档（P7-15；对照 Reeden kkf 0-7 的四类可修复档）----
+    EpubCodeSpec('E_ZIP_EOCD_MISSING', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§55.3 EOCD/中心目录缺失（不可恢复档）'),
+    EpubCodeSpec('E_ZIP_LOCAL_HEADER', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§55.3 局部头损坏/错位（偏移修补恢复档）'),
+    EpubCodeSpec('E_ZIP_ENTRY_TRUNCATED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 条目截断/损坏（跳过坏条目恢复档）'),
+    EpubCodeSpec('E_ZIP_NAME_ENCODING', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§54 文件名传统编码错位（资源索引大小写容错兜底）'),
     // ---- 预留：资源与字体（P3）----
     EpubCodeSpec('E_RESOURCE_MISSING', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§54.3 资源找不到', reservedFor: 'P3-25'),
     EpubCodeSpec('E_RESOURCE_DECODE_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§50.2 图片/资源解码失败', reservedFor: 'P3-08'),
