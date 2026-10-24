@@ -40,6 +40,13 @@ enum CssHangingPunctuation { none, allowEnd }
 /// 字距）；`normal`（默认）关闭。其余取值按 normal 处理。
 enum CssTextSpacingTrim { normal, trimAdjacent }
 
+/// 中西文自动间距（CSS `text-autospace`；P7-20，语义子集）。
+///
+/// `normal`（书内显式声明）在 CJK↔拉丁边界插 0.125em 视觉间距；
+/// **未声明默认 none**——与 §38.2「书里有什么就是什么」一致（与规范
+/// 初始值 normal=启用的偏差在解析层注明）；`no-autospace` 显式关闭。
+enum CssTextAutospace { none, normal }
+
 /// 文本大小写变换（CSS text-transform 属性）。
 enum CssTextTransform { none, uppercase, lowercase, capitalize }
 
@@ -470,6 +477,12 @@ class ComputedStyle {
         : _parseTextSpacingTrim(rawTrim) ??
               parent?.textSpacingTrim ??
               CssTextSpacingTrim.normal;
+    final rawAutospace = explicitValue('text-autospace');
+    final textAutospace = rawAutospace == null
+        ? (parent?.textAutospace ?? CssTextAutospace.none)
+        : _parseTextAutospace(rawAutospace) ??
+              parent?.textAutospace ??
+              CssTextAutospace.none;
 
     // 字符级属性：word-spacing/text-transform 继承，vertical-align 不继承（P2-16）。
     final rawWordSpacing = explicitValue('word-spacing');
@@ -666,6 +679,7 @@ class ComputedStyle {
       whiteSpace: whiteSpace,
       hangingPunctuation: hangingPunctuation,
       textSpacingTrim: textSpacingTrim,
+      textAutospace: textAutospace,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
@@ -726,6 +740,7 @@ class ComputedStyle {
     required this.whiteSpace,
     required this.hangingPunctuation,
     required this.textSpacingTrim,
+    required this.textAutospace,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
@@ -838,6 +853,9 @@ class ComputedStyle {
 
   /// 标点挤压（继承，初始 normal；P7-19）。
   final CssTextSpacingTrim textSpacingTrim;
+
+  /// 中西文自动间距（继承，初始 none；P7-20）。
+  final CssTextAutospace textAutospace;
 
   /// 词间距（逻辑像素，继承，初始 0）。
   final double wordSpacing;
@@ -1540,6 +1558,15 @@ class ComputedStyle {
         'trim-adjacent' => CssTextSpacingTrim.trimAdjacent,
         'normal' || 'space-all' => CssTextSpacingTrim.normal,
         // space-first/trim-start 等按 normal 处理（一期语义）。
+        _ => null,
+      };
+
+  static CssTextAutospace? _parseTextAutospace(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        // 规范的 normal（初始值）含义为启用；本引擎未声明默认 none
+        //（§38.2），书内显式 normal/ideograph-alpha 才启用。
+        'normal' || 'ideograph-alpha' => CssTextAutospace.normal,
+        'no-autospace' || 'none' => CssTextAutospace.none,
         _ => null,
       };
 
