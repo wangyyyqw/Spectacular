@@ -21,11 +21,13 @@ class PageBlock {
     this.bottomInset = 0,
     this.leftInset = 0,
     this.breakInsideAvoid = false,
+    this.groupId = 0,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
   ///
-  /// [containingWidth] 是百分比 padding 的解算基准（通常是正文区宽）。
+  /// [containingWidth] 是百分比 padding 的解算基准（通常是正文区宽）；
+  /// [groupId] 为整组不可切标记（P7-26，同组连续块是原子单元）。
   factory PageBlock.styled({
     required TextLayoutResult layout,
     required ComputedStyle style,
@@ -36,6 +38,7 @@ class PageBlock {
     String? endCfi,
     double spaceBefore = 0,
     double spaceAfter = 0,
+    int groupId = 0,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -51,6 +54,7 @@ class PageBlock {
       topInset: model.borders.top + model.padding.top,
       bottomInset: model.borders.bottom + model.padding.bottom,
       leftInset: model.borders.left + model.padding.left,
+      groupId: groupId,
     );
   }
 
@@ -89,6 +93,10 @@ class PageBlock {
 
   /// 块内禁止分页（`break-inside: avoid`）：能整块放入新页时不在当前页拆开。
   final bool breakInsideAvoid;
+
+  /// 整组不可切标记（P7-26）：非 0 时同组连续块是原子单元——整组放
+  /// 不下当前页时整体下移；组高于整页时按序切。0 = 无组。
+  final int groupId;
 
   /// 块高度（内容区行高之和）。
   double get height => layout.height;
@@ -305,6 +313,16 @@ class Paginator {
   /// 浮点容差（像素）。
   final double tolerance;
 
+  /// 组 [groupId] 自 [index] 起的连续成员总占高（leading+height+trailing）。
+  static double _groupExtent(List<PageBlock> blocks, int index, int groupId) {
+    var extent = 0.0;
+    for (var i = index; i < blocks.length && blocks[i].groupId == groupId; i++) {
+      extent +=
+          blocks[i].leadingExtent + blocks[i].height + blocks[i].trailingExtent;
+    }
+    return extent;
+  }
+
   /// 对一章块列表分页。
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
@@ -348,7 +366,8 @@ class Paginator {
       firstPage = false;
     }
 
-    for (final block in blocks) {
+    for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      final block = blocks[blockIndex];
       // display: none 的块不占位（P2-15）。
       if (block.style?.display == CssDisplay.none) {
         continue;
@@ -358,6 +377,17 @@ class Paginator {
       if (pages.length >= maxPages) {
         truncated = true;
         break;
+      }
+      // 整组不可切（P7-26，对照 Reeden D28「图和题注、画廊整组不切开」）：
+      // 组首块放不下当前页、且整组能放进一个新页时先收页整体下移；
+      // 组高于整页时按序切（不强制）。
+      if (block.groupId != 0 &&
+          (blockIndex == 0 || blocks[blockIndex - 1].groupId != block.groupId)) {
+        final groupExtent = _groupExtent(blocks, blockIndex, block.groupId);
+        if (groupExtent > available + tolerance &&
+            groupExtent <= pageHeight + tolerance) {
+          record();
+        }
       }
       totalHeight += block.height + block.leadingExtent + block.trailingExtent;
       final lines = block.layout.lines;
@@ -461,7 +491,7 @@ class Paginator {
   }
 }
 
-/// 异步增量分页：每产出一页就让出事件循环，并响应取消。
+  /// 异步增量分页：每产出一页就让出事件循环，并响应取消。
 extension PaginatorStreaming on Paginator {
   /// 逐页产出本章内容。
   Stream<PageContent> paginate({
