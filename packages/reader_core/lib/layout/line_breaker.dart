@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show BoxHeightStyle;
 
 import 'package:flutter/painting.dart';
 
@@ -751,7 +752,85 @@ abstract final class TextLayoutEngine {
         isHardBreak: hardBreak,
       );
     }
-    return lines;
+    return _applyBorrowedLeading(painter, lines, runs);
+  }
+
+  /// 上下标借行距（P7-09，Reeden 630 号 §2-3 / fixups N5）：
+  /// `baselineShift` 只平移墨迹，不参与行盒计算——墨迹越出所在行盒
+  /// 才把该行撑高（先借后撑）。只在含 `baselineShift != 0` 的行调用
+  /// `getBoxesForSelection` 取字形框：上下标区间短且低频，属 §8.2
+  /// 「段落内小范围使用」的例外。
+  static List<LineBox> _applyBorrowedLeading(
+    TextPainter painter,
+    List<LineBox> lines,
+    List<StyledRun> runs,
+  ) {
+    if (!runs.any((run) => run.baselineShift != 0)) {
+      return lines;
+    }
+    final growUps = List<double>.filled(lines.length, 0, growable: false);
+    final growDowns = List<double>.filled(lines.length, 0, growable: false);
+    var grew = false;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final lineBottom = line.top + line.height;
+      for (final run in runs) {
+        if (run.baselineShift == 0) {
+          continue;
+        }
+        final start = math.max(run.start, line.start);
+        final end = math.min(run.end, line.end);
+        if (end <= start) {
+          continue;
+        }
+        final boxes = painter.getBoxesForSelection(
+          TextSelection(baseOffset: start, extentOffset: end),
+          boxHeightStyle: BoxHeightStyle.tight,
+        );
+        for (final box in boxes) {
+          // 跨行 run 只统计落在本行的框。
+          if (box.top >= lineBottom || box.bottom <= line.top) {
+            continue;
+          }
+          final inkTop = box.top + run.baselineShift;
+          final inkBottom = box.bottom + run.baselineShift;
+          if (inkTop < line.top - 0.01) {
+            growUps[i] = math.max(growUps[i], line.top - inkTop);
+          }
+          if (inkBottom > lineBottom + 0.01) {
+            growDowns[i] = math.max(growDowns[i], inkBottom - lineBottom);
+          }
+        }
+      }
+      if (growUps[i] > 0 || growDowns[i] > 0) {
+        grew = true;
+      }
+    }
+    if (!grew) {
+      return lines;
+    }
+    // 撑高后重排 top/baseline：向上生长抬高基线，后续行顺延。
+    var top = 0.0;
+    final adjusted = <LineBox>[];
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final ascent = line.baseline - line.top;
+      final height = line.height + growUps[i] + growDowns[i];
+      adjusted.add(
+        LineBox(
+          start: line.start,
+          end: line.end,
+          top: top,
+          height: height,
+          baseline: top + ascent + growUps[i],
+          width: line.width,
+          isLastLine: line.isLastLine,
+          isHardBreak: line.isHardBreak,
+        ),
+      );
+      top += height;
+    }
+    return adjusted;
   }
 
   static TextLayoutResult _result(
