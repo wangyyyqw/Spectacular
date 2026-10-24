@@ -71,7 +71,9 @@ void main() {
 
   final enabled = Platform.environment['BUDGET_RUN'] == '1';
   // 预算断言在独立进程跑（tool/bench/budget_check.dart），避免与其它测试并发争抢 CPU。
-  final skip = enabled ? null : '默认跳过（预算检查请运行 dart tool/bench/budget_check.dart）';
+  final skip = enabled
+      ? null
+      : '默认跳过（预算检查请运行 dart tool/bench/budget_check.dart）';
 
   test('性能预算：单页构建 / 缓存命中 / 首屏', () {
     final style = _style();
