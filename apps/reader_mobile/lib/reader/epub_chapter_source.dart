@@ -87,6 +87,22 @@ class EpubChapterSource
       '$spineIndex@${contentWidth.toString()}x${contentHeight.toString()}'
       '|${_overrides.fingerprint}';
 
+  /// 失效与续排日志（P7-27；对照 Reeden 失效诊断带 old/new——
+  /// 「批量排版缓存失效. 因为屏幕尺寸变更. old: 」）。
+  ///
+  /// 每条：`reason | oldKey -> newKey`，能回答「这次失效是谁引起的、
+  /// 丢了哪几层」。四类诱因可区分：
+  /// `configChanged`（设置排版字段）/ `viewportSizeChanged`（几何）/
+  /// `indexMissing`（页索引缺失或损坏）/ `indexSchemaMismatch`（换代）。
+  final List<String> invalidationLog = <String>[];
+
+  void _logInvalidation(String reason, String oldKey, String newKey) {
+    if (invalidationLog.length >= 200) {
+      invalidationLog.removeAt(0);
+    }
+    invalidationLog.add('$reason | $oldKey -> $newKey');
+  }
+
   /// 当前阅读器设置。
   ReaderOverrides get overrides => _overrides;
 
@@ -94,6 +110,11 @@ class EpubChapterSource
   /// 使用——页索引仍在时 loadChapter 直接按边界出页。
   void clearPaginationCache() {
     _pageCache.clear();
+  }
+
+  /// 测试钩子：注入索引字节（可注入损坏字节验证容错路径）。
+  void injectPageIndexForTest(int spineIndex, Uint8List bytes) {
+    _pageIndexCache[_paginationKey(spineIndex)] = bytes;
   }
 
   /// 正文区宽：优先用阅读页实测值（已扣页边距），否则基础宽扣设置页边距。
@@ -127,6 +148,11 @@ class EpubChapterSource
     // 失效矩阵（P7-23）：只有排版字段（字号/行高/对齐/边距）变化才
     // 失效 pagination 层与段落缓存；颜色变化零重排（绘制层即时生效）。
     if (previous.fingerprint != overrides.fingerprint) {
+      _logInvalidation(
+        'configChanged',
+        previous.fingerprint,
+        overrides.fingerprint,
+      );
       _layoutCache.clear();
       _pageCache.clear();
       _pageIndexCache.clear();
@@ -148,6 +174,11 @@ class EpubChapterSource
       return false;
     }
     // 尺寸变化等同重排：几何进排版键（P7-23 矩阵「几何全失效」）。
+    _logInvalidation(
+      'viewportSizeChanged',
+      '${previousWidth.toString()}x${previousHeight.toString()}',
+      '${nextWidth.toString()}x${nextHeight.toString()}',
+    );
     _layoutCache.clear();
     _pageCache.clear();
     _pageIndexCache.clear();
@@ -243,6 +274,9 @@ class EpubChapterSource
           _pageCache[paginationKey] = replayed;
           return replayed;
         }
+        _logInvalidation('indexSchemaMismatch', paginationKey, paginationKey);
+      } else {
+        _logInvalidation('indexCorrupted', paginationKey, paginationKey);
       }
       _pageIndexCache.remove(paginationKey);
     }
