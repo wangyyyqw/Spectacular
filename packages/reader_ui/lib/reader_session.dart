@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/position/cfi.dart';
 
 import 'virtual_pager.dart';
 
@@ -58,6 +60,13 @@ abstract interface class ReaderChapterSource {
   Future<List<PageContent>> loadChapter(int spineIndex);
 }
 
+/// 支持按设置重排的章节源（P2-24）：字号/行高/页边距变化后原地重排。
+abstract interface class RestylableChapterSource
+    implements ReaderChapterSource {
+  /// 应用阅读器覆盖设置；调用方随后应重新加载章节。
+  Future<void> applyOverrides(ReaderOverrides overrides);
+}
+
 /// 最小阅读会话：打开/恢复、翻页、保存进度。
 class ReaderSession extends ChangeNotifier {
   /// 创建会话。
@@ -77,6 +86,7 @@ class ReaderSession extends ChangeNotifier {
   final String bookId;
 
   VirtualPager? _pager;
+  ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
   Object? _error;
   bool _disposed = false;
@@ -183,6 +193,96 @@ class ReaderSession extends ChangeNotifier {
       await _persist();
     }
     return changed;
+  }
+
+  /// 当前设置。
+  ReaderOverrides get overrides => _overrides;
+
+  /// 当前布局指纹（P2-24）。
+  String get layoutFingerprint => _overrides.fingerprint;
+
+  /// 应用阅读器设置：指纹变化时重排章节并按 CFI 恢复位置（§21、§17.4）。
+  Future<void> applyOverrides(ReaderOverrides next) async {
+    if (next.fingerprint == _overrides.fingerprint) {
+      _overrides = next;
+      return;
+    }
+    final currentPage = _pager?.current?.content;
+    final spine = currentPage?.spineIndex ?? 0;
+    final targetCfi = _firstCfiOf(currentPage);
+    _overrides = next;
+    final src = source;
+    if (src is! RestylableChapterSource) {
+      _notify();
+      return;
+    }
+    _loading = true;
+    _notify();
+    try {
+      await src.applyOverrides(next);
+      final pages = await src.loadChapter(spine);
+      final pager = VirtualPager(
+        spineCount: src.chapterCount,
+        loader: src.loadChapter,
+      );
+      await pager.initialize();
+      await pager.goTo(spine, _locatePage(pages, targetCfi));
+      _pager = pager;
+      _error = null;
+    } catch (error) {
+      _error = error;
+    } finally {
+      _loading = false;
+      _notify();
+      await _persist();
+    }
+  }
+
+  /// 当前页的定位 CFI：优先取「在本页起始的块」，纯续页时退化为第一片。
+  static String? _firstCfiOf(PageContent? page) {
+    if (page == null) {
+      return null;
+    }
+    for (final slice in page.slices) {
+      if (slice.startLine != 0) {
+        continue;
+      }
+      final cfi = slice.block.startCfi;
+      if (cfi != null && cfi.isNotEmpty) {
+        return cfi;
+      }
+    }
+    for (final slice in page.slices) {
+      final cfi = slice.block.startCfi;
+      if (cfi != null && cfi.isNotEmpty) {
+        return cfi;
+      }
+    }
+    return null;
+  }
+
+  /// 在新分页结果里找第一个起点 CFI ≥ [cfi] 的页；找不到则取末页。
+  static int _locatePage(List<PageContent> pages, String? cfi) {
+    if (pages.isEmpty) {
+      return 0;
+    }
+    final target = cfi == null ? null : EpubCfi.parse(cfi);
+    if (target == null) {
+      return pages.first.pageIndex;
+    }
+    for (final page in pages) {
+      for (final slice in page.slices) {
+        final value = slice.block.startCfi;
+        if (value == null) {
+          continue;
+        }
+        final parsed = EpubCfi.parse(value);
+        if (parsed != null && parsed.compareTo(target) >= 0) {
+          return page.pageIndex;
+        }
+      }
+    }
+    return pages.last.pageIndex;
   }
 
   Future<void> _persist() async {

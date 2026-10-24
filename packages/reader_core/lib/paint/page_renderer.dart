@@ -15,6 +15,7 @@ class PagePainter {
   const PagePainter({
     this.background = const Color(0xFFFFFFFF),
     this.imageLookup,
+    this.textColor,
   });
 
   /// 页面背景色。
@@ -26,6 +27,9 @@ class PagePainter {
   /// 也不在每帧重复解码。默认 null 时 `background-image` 一律不绘制，
   /// 既有页面像素保持不变。
   final ui.Image? Function(String url)? imageLookup;
+
+  /// 正文颜色覆盖（主题用）：只改绘制颜色，不影响布局与分页（P2-23）。
+  final Color? textColor;
 
   /// 绘制一页。
   ///
@@ -402,7 +406,10 @@ class PagePainter {
           text: lineText.substring(segment.start, segment.end),
           style: segment.style == null
               ? baseStyle
-              : TextLayoutEngine.textStyleFor(segment.style!),
+              : (textColor == null
+                    ? TextLayoutEngine.textStyleFor(segment.style!)
+                    : TextLayoutEngine.textStyleFor(segment.style!)
+                          .copyWith(color: textColor)),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
@@ -431,7 +438,8 @@ class PagePainter {
       return;
     }
     final radius = math.max(1.0, style.fontSize * 0.08);
-    final paint = Paint()..color = style.textEmphasisColor ?? style.color;
+    final paint = Paint()
+      ..color = style.textEmphasisColor ?? textColor ?? style.color;
     if (emphasis == CssTextEmphasisStyle.open) {
       paint
         ..style = PaintingStyle.stroke
@@ -506,7 +514,12 @@ class PagePainter {
     TextLayoutResult layout,
     LineBox line,
     TextStyle baseStyle,
-  ) => buildLineSpan(layout: layout, line: line, baseStyle: baseStyle);
+  ) => buildLineSpan(
+    layout: layout,
+    line: line,
+    baseStyle: baseStyle,
+    textColor: textColor,
+  );
 }
 
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
