@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
@@ -140,23 +141,39 @@ class EpubChapterSource
       whiteSpace: style.whiteSpace,
     );
     final blocks = <PageBlock>[];
-    void collect(EpubNode node) {
+    // 块级 UA 覆盖（P7-03）：标题/引用/列表等按标签叠加默认样式，
+    // em 相对阅读器基准字号解算；同一标签只构造一次。
+    final uaStyles = <String, ComputedStyle>{};
+    ComputedStyle styleFor(String tag) {
+      final cached = uaStyles[tag];
+      if (cached != null) {
+        return cached;
+      }
+      final overlaid = UaBlockDefaults.apply(
+        style,
+        tag,
+        containingWidth: contentWidth,
+      );
+      return uaStyles[tag] = overlaid ?? style;
+    }
+    void collect(EpubNode node, String blockTag) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
         final text = node.text;
         if (text.trim().isEmpty) {
           return;
         }
+        final blockStyle = styleFor(blockTag);
         final layout = _layoutCache.layout(
           text: text,
-          style: style,
+          style: blockStyle,
           maxWidth: contentWidth,
         );
         if (layout.lineCount > 0) {
           blocks.add(
             PageBlock.styled(
               layout: layout,
-              style: style,
+              style: blockStyle,
               containingWidth: contentWidth,
               startCfi: cfi,
             ),
@@ -164,16 +181,16 @@ class EpubChapterSource
         }
       } else if (node is BlockNode) {
         for (final child in node.children) {
-          collect(child);
+          collect(child, node.tag);
         }
       } else if (node is InlineNode) {
         for (final child in node.children) {
-          collect(child);
+          collect(child, blockTag);
         }
       }
     }
 
-    collect(aggregated.root);
+    collect(aggregated.root, 'body');
     final pages = Paginator(pageHeight: contentHeight)
         .measureChapter(blocks: blocks, spineIndex: spineIndex)
         .pages;

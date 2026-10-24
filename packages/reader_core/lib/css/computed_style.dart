@@ -323,14 +323,21 @@ class ComputedStyle {
           fontSize;
     }
 
-    var lineHeight = parent?.lineHeight ?? fontSize * _defaultLineHeightFactor;
+    // 行高继承（CSS 2.1 §10.8）：无单位因子按子元素自身字号重算；
+    // px/百分比在父级已算成绝对值，按绝对量继承。
+    final inheritedUnitlessLineHeight = parent?.unitlessLineHeightFactor;
+    var lineHeight = inheritedUnitlessLineHeight != null
+        ? fontSize * inheritedUnitlessLineHeight
+        : (parent?.lineHeight ?? fontSize * _defaultLineHeightFactor);
     double? lineHeightFactor;
+    double? unitlessLineHeightFactor;
     final rawLineHeight = explicitValue('line-height');
     if (rawLineHeight != null) {
       final unitless = double.tryParse(rawLineHeight.trim());
       if (unitless != null) {
         lineHeight = fontSize * unitless;
         lineHeightFactor = unitless;
+        unitlessLineHeightFactor = unitless;
       } else {
         final percent = _parsePercent(rawLineHeight);
         if (percent != null) {
@@ -350,6 +357,8 @@ class ComputedStyle {
           }
         }
       }
+    } else {
+      unitlessLineHeightFactor = inheritedUnitlessLineHeight;
     }
     lineHeightFactor ??= fontSize == 0 ? null : lineHeight / fontSize;
 
@@ -617,6 +626,7 @@ class ComputedStyle {
       fontSize: fontSize,
       lineHeight: lineHeight,
       lineHeightFactor: lineHeightFactor,
+      unitlessLineHeightFactor: unitlessLineHeightFactor,
       color: color,
       fontWeight: weight,
       italic: italic,
@@ -674,6 +684,7 @@ class ComputedStyle {
     required this.fontSize,
     required this.lineHeight,
     required this.lineHeightFactor,
+    required this.unitlessLineHeightFactor,
     required this.color,
     required this.fontWeight,
     required this.italic,
@@ -740,6 +751,12 @@ class ComputedStyle {
 
   /// 行高相对字号的倍数。
   final double? lineHeightFactor;
+
+  /// 无单位行高因子（`line-height: 1.5`）；px/百分比来源为 null。
+  ///
+  /// 继承语义（CSS 2.1 §10.8）：无单位因子随继承传递并按子元素自身字号
+  /// 重算；px/百分比继承的是父级已解算的绝对行高。
+  final double? unitlessLineHeightFactor;
 
   /// 最终文字颜色。
   final Color color;
