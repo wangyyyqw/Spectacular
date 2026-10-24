@@ -183,11 +183,21 @@ class ParsedDocument implements SpineDocument {
 
 /// 把 XHTML 解析为节点模型，并在解析期绑定 CFI。
 abstract final class DocumentParser {
+  /// DOM 嵌套深度上限（P7-16；对照 Reeden nestingTooDeep 防线，
+  /// 兼顾本解析器 convert 的递归栈深）。超限子树展平为文本。
+  static const int maxDomDepth = 500;
+
+  /// 单个属性值长度上限（P7-16；对照 Reeden SVG 单段 65536 字符——
+  /// data URI 炸弹经属性进入）。超限截断并记诊断。
+  static const int maxAttributeValueLength = 65536;
+
   /// 解析 XHTML。
   ///
   /// 先用严格 XML 校验（P7-11 双路径）：合法命中 [DocumentParserChoice.strict]；
   /// 失败回退 html5lib 容错解析并记录降级诊断（诊断码
-  /// `E_DOCUMENT_TOLERANT_FALLBACK`）。
+  /// `E_DOCUMENT_TOLERANT_FALLBACK`）。压力防护（P7-16）：嵌套超
+  /// [maxDomDepth] 的子树展平为文本（`E_DOM_NESTING_TOO_DEEP`），
+  /// 属性值超 [maxAttributeValueLength] 截断（`E_ATTRIBUTE_TRUNCATED`）。
   static ParsedDocument parse({
     required String xhtml,
     required int spineIndex,
@@ -208,6 +218,8 @@ abstract final class DocumentParser {
     if (body == null) {
       throw const FormatException('XHTML 缺少 body');
     }
+    var depthClamped = 0;
+    var attributesTruncated = 0;
     final textNodes = <ParsedText>[];
     final elementsById = <String, ParsedElement>{};
 
@@ -223,10 +235,13 @@ abstract final class DocumentParser {
     int offsetEnd(dom.Node node) =>
         node.sourceSpan?.end.offset ?? offsetStart(node);
 
-    ParsedElement convert(dom.Element element, List<CfiStep> path) {
+    ParsedElement convert(dom.Element element, List<CfiStep> path, int depth) {
       final attributes = <String, String>{
         for (final entry in element.attributes.entries)
-          entry.key.toString(): entry.value,
+          entry.key.toString(): _capAttributeValue(
+            entry.value,
+            () => attributesTruncated += 1,
+          ),
       };
       final node = ParsedElement(
         tag: element.localName ?? '',
@@ -241,6 +256,26 @@ abstract final class DocumentParser {
         elementsById.putIfAbsent(id, () => node);
       }
 
+      // 嵌套超限：子树不再下钻，文本展平保留可读内容（P7-16）。
+      if (depth >= maxDomDepth) {
+        depthClamped += 1;
+        final flat = element.text;
+        if (flat.isNotEmpty) {
+          final text = ParsedText(
+            text: flat,
+            start: offsetStart(element),
+            end: offsetEnd(element),
+            cfi: build(<CfiStep>[
+              ...path,
+              CfiStep(1),
+            ]),
+          );
+          node.children.add(text);
+          textNodes.add(text);
+        }
+        return node;
+      }
+
       var elementIndex = 0;
       var textIndex = 0;
       for (final child in element.nodes) {
@@ -251,7 +286,7 @@ abstract final class DocumentParser {
             elementIndex * 2,
             assertion: childId == null || childId.isEmpty ? null : childId,
           );
-          node.children.add(convert(child, <CfiStep>[...path, step]));
+          node.children.add(convert(child, <CfiStep>[...path, step], depth + 1));
         } else if (child is dom.Text) {
           textIndex += 1;
           final step = CfiStep(textIndex * 2 - 1);
@@ -268,7 +303,19 @@ abstract final class DocumentParser {
       return node;
     }
 
-    final root = convert(body, const <CfiStep>[]);
+    final root = convert(body, const <CfiStep>[], 0);
+    if (depthClamped > 0) {
+      diagnostics.add(
+        'E_DOM_NESTING_TOO_DEEP: $depthClamped 处嵌套超过 $maxDomDepth 层，'
+        '子树已展平为文本',
+      );
+    }
+    if (attributesTruncated > 0) {
+      diagnostics.add(
+        'E_ATTRIBUTE_TRUNCATED: $attributesTruncated 处属性值超过'
+        ' $maxAttributeValueLength 字符，已截断',
+      );
+    }
     return ParsedDocument(
       spineIndex: spineIndex,
       root: root,
@@ -278,5 +325,14 @@ abstract final class DocumentParser {
       parserChoice: choice,
       parseDiagnostics: List<String>.unmodifiable(diagnostics),
     );
+  }
+
+  /// 属性值长度钳制（P7-16）：超限截断并计数（data URI 炸弹防线）。
+  static String _capAttributeValue(String value, void Function() onTruncate) {
+    if (value.length <= maxAttributeValueLength) {
+      return value;
+    }
+    onTruncate();
+    return value.substring(0, maxAttributeValueLength);
   }
 }

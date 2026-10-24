@@ -265,6 +265,7 @@ class ChapterPagination {
     required this.pages,
     required this.pageHeight,
     required this.totalHeight,
+    this.truncated = false,
   });
 
   /// 章节序号。
@@ -278,10 +279,16 @@ class ChapterPagination {
 
   /// 所有块总高度。
   final double totalHeight;
+
+  /// 是否因页数上限截断（P7-16：单章 20000 页截断，渐进提示不中断）。
+  final bool truncated;
 }
 
 /// 按块推进的分页器状态机。
 class Paginator {
+  /// 单章页数上限（P7-16；对照 Reeden 20000 页截断防线）。
+  static const int maxPagesPerChapter = 20000;
+
   /// 创建分页器。
   Paginator({
     required this.pageHeight,
@@ -302,6 +309,7 @@ class Paginator {
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
     int spineIndex = 0,
+    int maxPages = maxPagesPerChapter,
   }) {
     final pages = <PageContent>[];
     var slices = <PageBlockSlice>[];
@@ -309,10 +317,19 @@ class Paginator {
     var available = pageHeight - topPadding;
     var firstPage = true;
     var totalHeight = 0.0;
+    var truncated = false;
 
     void record() {
       // 空页不记录，避免零长度页。
       if (slices.isEmpty) {
+        return;
+      }
+      // 页数上限（P7-16）：达到上限不再产出页，丢弃在途切片并标记
+      // 截断——行间收页同样受限，页数恰为上限。
+      if (pages.length >= maxPages) {
+        truncated = true;
+        slices = <PageBlockSlice>[];
+        used = 0;
         return;
       }
       pages.add(
@@ -335,6 +352,12 @@ class Paginator {
       // display: none 的块不占位（P2-15）。
       if (block.style?.display == CssDisplay.none) {
         continue;
+      }
+      // 页数上限截断（P7-16，对照 Reeden「一章超过 20000 页，章节在
+      // 这里截断」）：达到上限即停止推进，已产出页保留。
+      if (pages.length >= maxPages) {
+        truncated = true;
+        break;
       }
       totalHeight += block.height + block.leadingExtent + block.trailingExtent;
       final lines = block.layout.lines;
@@ -422,13 +445,18 @@ class Paginator {
       }
     }
 
-    record();
+    // 收尾：未达上限时记录末页；已截断则丢弃在途部分页（P7-16
+    // 截断语义——页数恰为上限，已产出页保留）。
+    if (pages.length < maxPages) {
+      record();
+    }
 
     return ChapterPagination(
       spineIndex: spineIndex,
       pages: List<PageContent>.unmodifiable(pages),
       pageHeight: pageHeight,
       totalHeight: totalHeight,
+      truncated: truncated,
     );
   }
 }
