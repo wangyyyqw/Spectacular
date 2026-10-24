@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -91,6 +95,38 @@ String? _firstCfi(PageContent? page) {
     }
   }
   return null;
+}
+
+/// 构造「标签不闭合」章节的最小 EPUB（P7-11 双路径集成样本）。
+Uint8List _buildBrokenChapterEpub() {
+  final files = <String, String>{
+    'mimetype': 'application/epub+zip',
+    'META-INF/container.xml':
+        '<?xml version="1.0"?><container><rootfiles>'
+        '<rootfile full-path="OEBPS/content.opf"/></rootfiles></container>',
+    'OEBPS/content.opf':
+        '<?xml version="1.0"?><package '
+        'xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+        'unique-identifier="bid"><metadata '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        '<dc:identifier id="bid">urn:uuid:p7-0001</dc:identifier>'
+        '<dc:title>P7</dc:title><dc:language>zh</dc:language></metadata>'
+        '<manifest><item id="c1" href="c1.xhtml" '
+        'media-type="application/xhtml+xml"/></manifest>'
+        '<spine><itemref idref="c1"/></spine></package>',
+    // 段落未闭合：严格 XML 失败 → 容错回退（P7-11）。
+    'OEBPS/c1.xhtml':
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+        '<p>第一段没有闭合标签'
+        '<p>第二段也没有闭合'
+        '</body></html>',
+  };
+  final archive = Archive();
+  files.forEach((name, content) {
+    final bytes = utf8.encode(content);
+    archive.addFile(ArchiveFile(name, bytes.length, bytes));
+  });
+  return ZipEncoder().encodeBytes(archive);
 }
 
 void main() {
@@ -204,6 +240,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(session.layoutFingerprint, fingerprint);
     expect(session.error, isNull);
+  }, skip: Platform.environment['M1_INTEGRATION'] == '0');
+
+  testWidgets('P7 集成：冷启动页索引重放 + 双路径坏书可打开', (tester) async {
+    final source = await _openSource();
+    if (source == null) {
+      // ignore: avoid_print
+      print('SKIP 本地样本库缺失（test_corpus/ 不入库）');
+      return;
+    }
+
+    // 冷启动重放（P7-22/23）：清页缓存后同章按页索引直接出页，
+    // 页数与几何一致，不重跑分页状态机。
+    final first = await source.loadChapter(0);
+    expect(first, isNotEmpty);
+    source.clearPaginationCache();
+    final replayed = await source.loadChapter(0);
+    expect(replayed, hasLength(first.length));
+    for (var i = 0; i < first.length; i++) {
+      expect(replayed[i].pageIndex, first[i].pageIndex);
+      expect(replayed[i].usedHeight, closeTo(first[i].usedHeight, 0.01));
+    }
+
+    // 双路径解析（P7-11）：标签不闭合的章节经容错回退仍可打开并阅读。
+    final broken = _buildBrokenChapterEpub();
+    final opened = await openEpub(broken);
+    expect(opened.ok, isTrue, reason: opened.report.message);
+    final brokenSource = opened.document;
+    expect(brokenSource, isNotNull);
+    final pages = await EpubChapterSource.open(broken);
+    final brokenPages = await pages.loadChapter(0);
+    expect(brokenPages, isNotEmpty, reason: '容错路径仍应产出可读页');
   }, skip: Platform.environment['M1_INTEGRATION'] == '0');
 
   testWidgets('真实书冒烟：诸神愚戏打开→首页绘制→翻一页（REAL_EPUB=1）', (tester) async {
