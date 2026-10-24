@@ -82,6 +82,33 @@ void main() {
     expect(cache.lookup('b'), isNotNull);
   });
 
+  test('LRU 连续翻 50 页内存不持续增长（P3-11 验收）', () async {
+    final bytes = await _pngBytes(40, 30);
+    final cache = DecodedImageCache(
+      loadBytes: (url) async => bytes,
+      maxEntries: 8,
+      maxBytes: 1 << 20,
+    );
+    for (var i = 0; i < 50; i++) {
+      await cache.load('page-$i', displayWidth: 40);
+    }
+    expect(cache.length, 8);
+    expect(cache.byteCount, lessThanOrEqualTo(1 << 20),
+        reason: '内存受上限约束，不随页数增长');
+  });
+
+  test('fullResolution 按原图宽解码（P3-11 原图预览）', () async {
+    final bytes = await _pngBytes(100, 80);
+    final cache = DecodedImageCache(loadBytes: (url) async => bytes);
+    final image = await cache.load(
+      'orig',
+      displayWidth: 10,
+      fullResolution: true,
+    );
+    expect(image!.width, 100, reason: '跳过降采样');
+    expect(image.height, 80);
+  });
+
   test('clear 释放全部条目', () async {
     final bytes = await _pngBytes(10, 10);
     final cache = DecodedImageCache(loadBytes: (url) async => bytes);
