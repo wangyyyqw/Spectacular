@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/text_layout.dart';
-import 'package:reader_core/text/justify.dart';
+import 'package:reader_core/layout/cjk_justify.dart';
 
 const _cjkFamily = 'P202Align';
 
@@ -128,7 +128,7 @@ void main() {
     expect(layout.lineCount, greaterThan(1));
     for (final line in layout.lines.take(layout.lineCount - 1)) {
       final lineText = layout.text.substring(line.start, line.end);
-      expect(justifyGapOffsets(lineText), isNotEmpty);
+      expect(cjkJustifyGapOffsets(lineText), isNotEmpty);
       expect(line.justifyExtra, greaterThan(0));
     }
     expect(layout.lines.last.justifyExtra, 0);
