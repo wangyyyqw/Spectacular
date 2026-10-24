@@ -87,7 +87,9 @@ OpfPackage? buildFallbackPackage(EpubArchive archive) {
   ];
   return OpfPackage(
     meta: BookMeta(
-      title: '未命名书籍',
+      // 标题留空：调用方（书库导入）按 文件名→未命名书籍 兜底，避免
+      // 占位标题抢占 fallbackTitle（P3-30 真机验收发现）。
+      title: '',
       author: '',
       language: '',
       identifier: 'fallback:',
