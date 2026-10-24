@@ -93,15 +93,16 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 页边距：设置优先，其次 ReaderPage.padding。
   EdgeInsets _effectivePadding() {
     final edges = widget.overrides?.padding;
-    if (edges == null) {
-      return widget.padding;
+    final base = edges == null
+        ? widget.padding
+        : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
+    // 全面屏（edge-to-edge）下系统手势区不参与 MediaQuery.padding，
+    // 用 viewPadding 兜住，避免正文最后一行压到手势条下方（P2-36 真机）。
+    final bottomInset = MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0;
+    if (bottomInset <= 0) {
+      return base;
     }
-    return EdgeInsets.fromLTRB(
-      edges.left,
-      edges.top,
-      edges.right,
-      edges.bottom,
-    );
+    return base + EdgeInsets.only(bottom: bottomInset);
   }
 
   /// 已预取过的页键（spine*100000 + pageIndex），避免重复预取。
