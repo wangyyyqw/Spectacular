@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -67,6 +69,30 @@ abstract interface class RestylableChapterSource
   Future<void> applyOverrides(ReaderOverrides overrides);
 }
 
+/// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
+class ReaderAnchor {
+  /// 创建锚点；[cfi] 为空表示没有可恢复位置。
+  const ReaderAnchor({this.cfi, this.charOffset = 0});
+
+  /// 块级 CFI。
+  final String? cfi;
+
+  /// 块内字符偏移（首行起点）。
+  final int charOffset;
+
+  /// 是否为空锚点。
+  bool get isEmpty => cfi == null;
+}
+
+/// 可应用正文区尺寸的章节源（旋转/窗口变化，P2-31）。
+abstract interface class ResizableChapterSource implements ReaderChapterSource {
+  /// 应用正文区尺寸；返回是否真的发生变化（变化后调用方重新加载章节）。
+  Future<bool> applyContentSize({
+    required double width,
+    required double height,
+  });
+}
+
 /// 最小阅读会话：打开/恢复、翻页、保存进度。
 class ReaderSession extends ChangeNotifier {
   /// 创建会话。
@@ -91,6 +117,9 @@ class ReaderSession extends ChangeNotifier {
 
   /// 异步任务代号：取消或开始新任务后，旧任务不再回写状态（P2-27）。
   int _generation = 0;
+
+  double? _contentWidth;
+  double? _contentHeight;
   Object? _error;
   bool _disposed = false;
 
@@ -244,42 +273,114 @@ class ReaderSession extends ChangeNotifier {
   /// 当前布局指纹（P2-24）。
   String get layoutFingerprint => _overrides.fingerprint;
 
-  /// 应用阅读器设置：指纹变化时重排章节并按 CFI 恢复位置（§21、§17.4）。
+  /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
+  ReaderAnchor _anchorOf(PageContent? page) {
+    for (final slice in page?.slices ?? const <PageBlockSlice>[]) {
+      if (slice.startLine != 0) {
+        continue;
+      }
+      final cfi = slice.block.startCfi;
+      if (cfi != null && cfi.isNotEmpty) {
+        return ReaderAnchor(cfi: cfi, charOffset: _lineStartOffset(slice));
+      }
+    }
+    for (final slice in page?.slices ?? const <PageBlockSlice>[]) {
+      final cfi = slice.block.startCfi;
+      if (cfi != null && cfi.isNotEmpty) {
+        return ReaderAnchor(cfi: cfi, charOffset: _lineStartOffset(slice));
+      }
+    }
+    return const ReaderAnchor();
+  }
+
+  static int _lineStartOffset(PageBlockSlice slice) {
+    final layout = slice.block.layout;
+    if (slice.startLine < 0 || slice.startLine >= layout.lines.length) {
+      return 0;
+    }
+    return layout.lines[slice.startLine].start;
+  }
+
+  /// 应用阅读器设置：指纹变化时重排章节并按锚点恢复位置（§21、§17.4）。
   Future<void> applyOverrides(ReaderOverrides next) async {
     if (next.fingerprint == _overrides.fingerprint) {
       _overrides = next;
       return;
     }
-    final generation = ++_generation;
     final currentPage = _pager?.current?.content;
     final spine = currentPage?.spineIndex ?? 0;
-    final targetCfi = _firstCfiOf(currentPage);
+    final anchor = _anchorOf(currentPage);
     _overrides = next;
     final src = source;
     if (src is! RestylableChapterSource) {
       _notify();
       return;
     }
+    final generation = ++_generation;
+    await _reloadChapter(
+      generation: generation,
+      spine: spine,
+      anchor: anchor,
+      prepare: () => src.applyOverrides(next),
+    );
+  }
+
+  /// 应用新的正文区尺寸（旋转/窗口变化，P2-31）。
+  ///
+  /// 尺寸变化时重排当前章节并按锚点恢复；尺寸未变时直接返回。
+  Future<void> applyContentSize({
+    required double width,
+    required double height,
+  }) async {
+    if (_contentWidth == width && _contentHeight == height) {
+      return;
+    }
+    _contentWidth = width;
+    _contentHeight = height;
+    final src = source;
+    if (src is! ResizableChapterSource) {
+      return;
+    }
+    final currentPage = _pager?.current?.content;
+    final spine = currentPage?.spineIndex ?? 0;
+    final anchor = _anchorOf(currentPage);
+    final generation = ++_generation;
+    final changed = await src.applyContentSize(width: width, height: height);
+    if (!changed || generation != _generation) {
+      return;
+    }
+    await _reloadChapter(generation: generation, spine: spine, anchor: anchor);
+  }
+
+  /// 重载当前章节并回到锚点；失败时不丢弃旧页（避免闪空白）。
+  Future<void> _reloadChapter({
+    required int generation,
+    required int spine,
+    required ReaderAnchor anchor,
+    Future<void> Function()? prepare,
+  }) async {
     _loading = true;
     _notify();
     try {
-      await src.applyOverrides(next);
-      if (generation != _generation) {
-        return;
+      if (prepare != null) {
+        await prepare();
+        if (generation != _generation) {
+          return;
+        }
       }
-      final pages = await src.loadChapter(spine);
+      final pages = await source.loadChapter(spine);
       if (generation != _generation) {
         return;
       }
       final pager = VirtualPager(
-        spineCount: src.chapterCount,
-        loader: src.loadChapter,
+        spineCount: source.chapterCount,
+        loader: source.loadChapter,
       );
       await pager.initialize();
       if (generation != _generation) {
         return;
       }
-      await pager.goTo(spine, _locatePage(pages, targetCfi));
+      await pager.goTo(spine, _locatePage(pages, anchor));
       if (generation != _generation) {
         return;
       }
@@ -299,38 +400,18 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
-  /// 当前页的定位 CFI：优先取「在本页起始的块」，纯续页时退化为第一片。
-  static String? _firstCfiOf(PageContent? page) {
-    if (page == null) {
-      return null;
-    }
-    for (final slice in page.slices) {
-      if (slice.startLine != 0) {
-        continue;
-      }
-      final cfi = slice.block.startCfi;
-      if (cfi != null && cfi.isNotEmpty) {
-        return cfi;
-      }
-    }
-    for (final slice in page.slices) {
-      final cfi = slice.block.startCfi;
-      if (cfi != null && cfi.isNotEmpty) {
-        return cfi;
-      }
-    }
-    return null;
-  }
-
-  /// 在新分页结果里找第一个起点 CFI ≥ [cfi] 的页；找不到则取末页。
-  static int _locatePage(List<PageContent> pages, String? cfi) {
+  /// 在新分页里按锚点定位：优先找包含「块 CFI + 近似行」的页，
+  /// 找不到该行时退化为块所在页，再退化为 CFI ≥ 目标的页。
+  static int _locatePage(List<PageContent> pages, ReaderAnchor anchor) {
     if (pages.isEmpty) {
       return 0;
     }
+    final cfi = anchor.cfi;
     final target = cfi == null ? null : EpubCfi.parse(cfi);
     if (target == null) {
       return pages.first.pageIndex;
     }
+    var fallback = -1;
     for (final page in pages) {
       for (final slice in page.slices) {
         final value = slice.block.startCfi;
@@ -338,12 +419,35 @@ class ReaderSession extends ChangeNotifier {
           continue;
         }
         final parsed = EpubCfi.parse(value);
-        if (parsed != null && parsed.compareTo(target) >= 0) {
-          return page.pageIndex;
+        if (parsed == null) {
+          continue;
+        }
+        final comparison = parsed.compareTo(target);
+        if (comparison == 0) {
+          if (_sliceContainsOffset(slice, anchor.charOffset)) {
+            return page.pageIndex;
+          }
+          if (fallback < 0) {
+            fallback = page.pageIndex;
+          }
+        } else if (comparison > 0 && fallback < 0) {
+          fallback = page.pageIndex;
         }
       }
     }
-    return pages.last.pageIndex;
+    return fallback >= 0 ? fallback : pages.last.pageIndex;
+  }
+
+  static bool _sliceContainsOffset(PageBlockSlice slice, int offset) {
+    final layout = slice.block.layout;
+    final last = math.min(slice.endLine, layout.lines.length);
+    for (var i = slice.startLine; i < last; i++) {
+      final line = layout.lines[i];
+      if (offset >= line.start && offset <= line.end) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _persist() async {

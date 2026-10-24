@@ -12,7 +12,8 @@ import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_ui/reader_session.dart';
 
 /// 从 EPUB 文档读取章节并提供分页结果。
-class EpubChapterSource implements RestylableChapterSource {
+class EpubChapterSource
+    implements RestylableChapterSource, ResizableChapterSource {
   EpubChapterSource._({
     required this.document,
     required this.baseContentWidth,
@@ -60,6 +61,10 @@ class EpubChapterSource implements RestylableChapterSource {
 
   ReaderOverrides _overrides = const ReaderOverrides();
 
+  /// 阅读页传入的正文区尺寸（旋转/窗口变化后由 ReaderSession 设置）。
+  double? _viewportContentWidth;
+  double? _viewportContentHeight;
+
   /// 段落布局缓存（P2-26）：同一文本+样式的重复测量直接复用。
   final TextLayoutCache _layoutCache = TextLayoutCache();
 
@@ -69,21 +74,25 @@ class EpubChapterSource implements RestylableChapterSource {
   /// 当前阅读器设置。
   ReaderOverrides get overrides => _overrides;
 
-  /// 正文区宽：基础宽扣除设置页边距。
-  double get contentWidth => math.max(
-    80,
-    baseContentWidth -
-        (_overrides.padding?.left ?? 0) -
-        (_overrides.padding?.right ?? 0),
-  );
+  /// 正文区宽：优先用阅读页实测值（已扣页边距），否则基础宽扣设置页边距。
+  double get contentWidth =>
+      _viewportContentWidth ??
+      math.max(
+        80,
+        baseContentWidth -
+            (_overrides.padding?.left ?? 0) -
+            (_overrides.padding?.right ?? 0),
+      );
 
-  /// 正文区高：基础高扣除设置页边距。
-  double get contentHeight => math.max(
-    120,
-    baseContentHeight -
-        (_overrides.padding?.top ?? 0) -
-        (_overrides.padding?.bottom ?? 0),
-  );
+  /// 正文区高：优先用阅读页实测值（已扣页边距），否则基础高扣设置页边距。
+  double get contentHeight =>
+      _viewportContentHeight ??
+      math.max(
+        120,
+        baseContentHeight -
+            (_overrides.padding?.top ?? 0) -
+            (_overrides.padding?.bottom ?? 0),
+      );
 
   /// 文本块样式：书籍样式叠加阅读器覆盖。
   ComputedStyle get style =>
@@ -95,6 +104,26 @@ class EpubChapterSource implements RestylableChapterSource {
     // 设置变化：段落缓存与分页缓存都要失效（P2-24 重排）。
     _layoutCache.clear();
     _pageCache.clear();
+  }
+
+  @override
+  Future<bool> applyContentSize({
+    required double width,
+    required double height,
+  }) async {
+    final nextWidth = math.max(80.0, width);
+    final nextHeight = math.max(120.0, height);
+    final previousWidth = contentWidth;
+    final previousHeight = contentHeight;
+    _viewportContentWidth = nextWidth;
+    _viewportContentHeight = nextHeight;
+    if (previousWidth == nextWidth && previousHeight == nextHeight) {
+      return false;
+    }
+    // 尺寸变化等同重排：段落与分页缓存全部失效（P2-31）。
+    _layoutCache.clear();
+    _pageCache.clear();
+    return true;
   }
 
   @override
