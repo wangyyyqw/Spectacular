@@ -501,4 +501,49 @@ void main() {
     expect(child.textEmphasisStyle, CssTextEmphasisStyle.dot);
     expect(child.textEmphasisPosition, CssTextEmphasisPosition.under);
   });
+
+  test('P0 收口属性：text-shadow / 背景子属性 / 定位 / clear / 表格边框', () {
+    final parsed = style(
+      'p',
+      'p { text-shadow: 2px 3px 4px #FF0000; background-repeat: no-repeat; '
+          'background-size: cover; background-position: center; '
+          'background-origin: content-box; clear: both; '
+          'border-collapse: collapse; border-spacing: 6px 4px; '
+          'top: 10px; left: 20%; }',
+    );
+    expect(parsed.textShadow, hasLength(1));
+    expect(parsed.textShadow.single.offsetX, 2);
+    expect(parsed.textShadow.single.offsetY, 3);
+    expect(parsed.textShadow.single.blur, 4);
+    expect(parsed.textShadow.single.color, const Color(0xFFFF0000));
+    expect(parsed.backgroundRepeat, CssBackgroundRepeat.noRepeat);
+    expect(parsed.backgroundSize.mode, CssBackgroundSizeMode.cover);
+    expect(parsed.backgroundPosition.x.value, 50);
+    expect(parsed.backgroundOrigin, CssBackgroundOrigin.contentBox);
+    expect(parsed.clear, CssClear.both);
+    expect(parsed.borderCollapse, CssBorderCollapse.collapse);
+    expect(parsed.borderSpacing.left, 6);
+    expect(parsed.borderSpacing.top, 4);
+    expect(parsed.top?.value, 10);
+    expect(parsed.left?.isPercent, isTrue);
+    expect(parsed.left?.value, 20);
+
+    final defaults = style('p', 'p { color: red; }');
+    expect(defaults.textShadow, isEmpty);
+    expect(defaults.backgroundRepeat, CssBackgroundRepeat.repeat);
+    expect(defaults.backgroundSize.mode, CssBackgroundSizeMode.auto);
+    expect(defaults.backgroundPosition.x.value, 0);
+    expect(defaults.backgroundOrigin, CssBackgroundOrigin.paddingBox);
+    expect(defaults.clear, CssClear.none);
+    expect(defaults.borderCollapse, CssBorderCollapse.separate);
+    expect(defaults.borderSpacing.left, 0);
+    expect(defaults.top, isNull);
+
+    final parent = style(
+      'parent',
+      'div { text-shadow: 1px 1px 0 #000000; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.textShadow, hasLength(1), reason: 'text-shadow 继承');
+  });
 }

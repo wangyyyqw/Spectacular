@@ -793,6 +793,16 @@ abstract final class TextLayoutEngine {
     wordSpacing: style.wordSpacing,
     decoration: _decoration(style.textDecoration),
     decorationColor: style.color,
+    shadows: style.textShadow.isEmpty
+        ? null
+        : [
+            for (final shadow in style.textShadow)
+              Shadow(
+                color: shadow.color ?? style.color,
+                offset: Offset(shadow.offsetX, shadow.offsetY),
+                blurRadius: shadow.blur,
+              ),
+          ],
     color: style.color,
   );
 
