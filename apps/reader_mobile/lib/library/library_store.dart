@@ -18,6 +18,7 @@ class BookEntry {
     required this.addedAt,
     this.lastReadAt,
     this.spineCount,
+    this.readabilityLevel = 0,
   });
 
   /// 唯一标识（导入时间 + 随机数）。
@@ -41,6 +42,9 @@ class BookEntry {
   /// 章节数（打开结果携带，书架展示用）。
   final int? spineCount;
 
+  /// 可读性分级（P3-26，0~4）：L2/L3 书架显示「结构异常」角标。
+  final int readabilityLevel;
+
   /// 封面占位色：由 id 派生的稳定色相（§37.3 四级回退的第 4 级）。
   int get coverHue => id.hashCode.abs() % 360;
 
@@ -52,6 +56,7 @@ class BookEntry {
     'addedAt': addedAt.millisecondsSinceEpoch,
     'lastReadAt': lastReadAt?.millisecondsSinceEpoch,
     'spineCount': spineCount,
+    'readabilityLevel': readabilityLevel,
   };
 
   static BookEntry? fromJson(Map<String, dynamic> json) {
@@ -77,6 +82,9 @@ class BookEntry {
           ? DateTime.fromMillisecondsSinceEpoch(lastReadAt)
           : null,
       spineCount: spineCount is int ? spineCount : null,
+      readabilityLevel: json['readabilityLevel'] is int
+          ? json['readabilityLevel'] as int
+          : 0,
     );
   }
 
@@ -94,10 +102,13 @@ class BookEntry {
 /// 导入失败的对外错误（UI 直接展示 message）。
 class LibraryImportException implements Exception {
   /// 创建错误。
-  const LibraryImportException(this.message);
+  const LibraryImportException(this.message, {this.errorCode});
 
   /// 用户可读原因（来自 ImportReport 或 IO）。
   final String message;
+
+  /// 结构化错误码（P3-27：UI 据此映射拒绝文案）。
+  final String? errorCode;
 
   @override
   String toString() => message;
@@ -212,7 +223,10 @@ class LibraryStore {
     final document = result.document;
     if (document == null) {
       final detail = result.report.message ?? result.report.errorCode ?? '未知错误';
-      throw LibraryImportException('无法导入：$detail');
+      throw LibraryImportException(
+        '无法导入：$detail',
+        errorCode: result.report.errorCode,
+      );
     }
     final id = _newId();
     String filePath = '';
@@ -234,6 +248,7 @@ class LibraryStore {
       filePath: filePath,
       addedAt: DateTime.now(),
       spineCount: document.spine.length,
+      readabilityLevel: result.report.readabilityLevel,
     );
     _items[id] = entry;
     await _persist();
