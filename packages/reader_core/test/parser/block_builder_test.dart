@@ -141,6 +141,18 @@ void main() {
     expect(doc.plainText, isNot(contains('.x{}')));
   });
 
+  test('noscript 等 UA 隐藏元素不进入节点树（P7-03）', () {
+    final doc = _build(
+      '<noscript>请开启 JavaScript</noscript>'
+      '<datalist id="dl"><option value="1"/></datalist>'
+      '<p id="p">ok</p>',
+    );
+    expect(_block(doc.root, 'p'), isNotNull);
+    expect(doc.plainText, isNot(contains('JavaScript')));
+    expect(BlockBuilder.displayFor('noscript'), DisplayMode.none);
+    expect(BlockBuilder.displayFor('param'), DisplayMode.none);
+  });
+
   test('直接文本保留在块容器中', () {
     final doc = _build('<div id="d">text<span id="s">s</span></div>');
     final div = _block(doc.root, 'd')!;

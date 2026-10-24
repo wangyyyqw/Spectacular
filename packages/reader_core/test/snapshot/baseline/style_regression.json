@@ -21,28 +21,28 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "c56b60a358b16d73dac128ad6cee5789c09d304615fbf034e774bd13ac377100",
+      "bookHash": "800888a9bad34250e376c3966ded97727903773a1ef6dbe992aea7028268a991",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "087510e7ac66f8465fb801f10898646228a66dceaed5d0efc033baf5596ddd16",
-          "inkPixels": 87778,
+          "layoutHash": "007b2595de9d2a8b953380952a043ba0e913f8764bc97e1ac8b87bdeb468b544",
+          "inkPixels": 93104,
           "lineCount": 18,
           "textLength": 252,
           "summary": "第一章 山径清晨的雾还没有散，石阶从村口…方。院门虚掩着，门后传来柴火噼啪的响声。"
         },
         {
           "index": 1,
-          "layoutHash": "e41c344580c2e472d44e044bfb867f2e3d7acc5136db19c977ddda8256d2793d",
-          "inkPixels": 82750,
+          "layoutHash": "4ea19b9474501be58aff4fee05e34e13eb0307af28d0d06a70164e53138ab225",
+          "inkPixels": 89103,
           "lineCount": 18,
           "textLength": 232,
           "summary": "第二章 溪桥溪水从两块大石之间穿过，声音…漂走，转眼就看不见了，像从来没有存在过。"
         },
         {
           "index": 2,
-          "layoutHash": "136619f640ef7fa3d2411c06d042c3a74ef70918253c2b4e14dec13a49e49044",
-          "inkPixels": 77766,
+          "layoutHash": "eadaac0faf6438c8ccfbef0a42468fe2de405ccc98da29ff403c98823f075743",
+          "inkPixels": 83433,
           "lineCount": 16,
           "textLength": 225,
           "summary": "第三章 归灯下山的时候，日头已经偏西。阿…那条石阶上，一步一步，数着二十七间屋顶。"
@@ -60,23 +60,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "fda48c22ea0224637374aaefcb7654314bd51e0c7c6f70c914257e27ef6a350a",
+      "bookHash": "94a656aff22151322072234ccb68b0497be64d53ae10f3d4b0bb011960f5a503",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "2d28813c32e0e68f076a3419e2e25c6be5b0b700016bede90b3fe70c248a7b21",
-          "inkPixels": 111022,
-          "lineCount": 24,
-          "textLength": 331,
-          "summary": "样式练习册这一段用来验证首行缩进与两端对…段用来检查 margin 的四方向取值。"
+          "layoutHash": "739900bcc0926b1dbb42cad887c852d6718f32b28ee066097a6e8dde426f6bbd",
+          "inkPixels": 110611,
+          "lineCount": 21,
+          "textLength": 282,
+          "summary": "样式练习册这一段用来验证首行缩进与两端对…之间的距离应当明显拉开。三、外边距与引用"
         },
         {
           "index": 1,
-          "layoutHash": "e760a36eaabe4651a8dfcb0c3dddb5504d0254747029fd0add79e2ab04f67699",
-          "inkPixels": 12315,
-          "lineCount": 2,
-          "textLength": 31,
-          "summary": "最后一段回到普通样式，用来观察前面的外边距是否把段落推得过远。"
+          "layoutHash": "011c695b903fc75d90d883ba8ab828cb677f70141bad537217b10d5f53ac5824",
+          "inkPixels": 27964,
+          "lineCount": 5,
+          "textLength": 80,
+          "summary": "引用的文字整体向内缩进，左右各留出空白，…用来观察前面的外边距是否把段落推得过远。"
         }
       ]
     },
@@ -91,23 +91,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "fc9eb4eea46317af381d5f6e3a1b2b369a4e0d814748158bd28d6d4dbe8fa896",
+      "bookHash": "f75d77e35af5fc2e29c6c4374c844d20fdd9ac88481f97ac7c51b4bda8830740",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "97355a43261fb914da3397c74b33e81dfabf2b50c8736688b9f5767397f40eea",
-          "inkPixels": 51015,
-          "lineCount": 24,
-          "textLength": 157,
-          "summary": "表格与插图样例下面这张表使用 colsp…ages/teal.png，仅用于验证 "
+          "layoutHash": "dc3ae91f11cb791305b09ae7a32ae82d962b4ce4a84d3f0f2496956008ec6641",
+          "inkPixels": 55728,
+          "lineCount": 23,
+          "textLength": 130,
+          "summary": "表格与插图样例下面这张表使用 colsp…×8 像素的 PNG 测试图片放大显示。"
         },
         {
           "index": 1,
-          "layoutHash": "acd5b37033873d5711e6abaa6eecd3e00dbdd973594107e56a082514aa25fcd8",
-          "inkPixels": 8267,
-          "lineCount": 2,
-          "textLength": 26,
-          "summary": "manifest 中的图片资源能否被正确解析与绘制。"
+          "layoutHash": "aaaf862318122740e84049536c2f13ddd4e42ee22429a50e5c3f1e3b35b2b1f3",
+          "inkPixels": 14019,
+          "lineCount": 3,
+          "textLength": 53,
+          "summary": "图片位于 images/teal.png…st 中的图片资源能否被正确解析与绘制。"
         }
       ]
     },
@@ -122,28 +122,28 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "70fa8ef247e09826fb7e0d88ea950e9780a68ad0f9c1577f5d56bda40babcb03",
+      "bookHash": "6970d1e5cbeb16968312efefc4f78eeb32e287d3b406f2e4e8ed4197c7897eb8",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "c84374a76f72bbc4574bcf8faa69f5b3f92a9b361e42d38d8d5cece7d20a4898",
-          "inkPixels": 46014,
+          "layoutHash": "9b294387b8f213939fac5b2406df5d6910286816aa8144bbb78c09917ba95e72",
+          "inkPixels": 51773,
           "lineCount": 9,
           "textLength": 134,
           "summary": "第一章 旧纸书架的第三层放着一叠旧纸，边…记着米、盐、灯油，还有一笔给木匠的工钱。"
         },
         {
           "index": 1,
-          "layoutHash": "7f6b48303f8c51a54a6338173cf84a2457a8f9826922eef55868d306b4c0029a",
-          "inkPixels": 48914,
+          "layoutHash": "6b9f2525c3ccd68bd09ef111ea87f180fd64d86ecd6720795cbd29d6368a3131",
+          "inkPixels": 54781,
           "lineCount": 11,
           "textLength": 148,
           "summary": "第二章 旧信账目中间夹着一封信，没有信封…期。它夹在账目里，像一个没有讲完的句子。"
         },
         {
           "index": 2,
-          "layoutHash": "d3d7b654f1db1e0f5771bde406b3d7933a91ebcf59f4542506037f93222d0b2c",
-          "inkPixels": 48808,
+          "layoutHash": "11619432b2941e17ded224d595a6379ab0f7e7776171abad28b7aa8fb3c1af9b",
+          "inkPixels": 54543,
           "lineCount": 10,
           "textLength": 139,
           "summary": "第三章 旧灯旧纸的最下面是一张灯会的图样…了。只剩这叠纸，被人用棉线重新缝过一回。"
@@ -161,12 +161,12 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "7eaea578525e25ffedce42f32341b8aaced2235178c32729eff694f4d36d3b9c",
+      "bookHash": "e1341e026cdac90db90a21ed71a9f08ac485d03a38e7b0f1d7eb7c7ca248f163",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "049850d7495627ae1f0c6a368177e211601b02b29d78af55e07e7cd1762f97bf",
-          "inkPixels": 70333,
+          "layoutHash": "19fe091ad259b363679183fd844721034ec45edeb22745264314e042897bf7ff",
+          "inkPixels": 76366,
           "lineCount": 15,
           "textLength": 234,
           "summary": "竖排与注音这一段用于检查竖排方向。文字应…一组阿拉伯数字：2026 年 10 月。"

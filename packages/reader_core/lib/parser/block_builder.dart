@@ -172,6 +172,14 @@ abstract final class BlockBuilder {
     'link',
     'base',
     'template',
+    // UA display:none（WHATWG HTML 15.3.1；P7-03）：noscript 按
+    // 脚本可用解析为原始文本，样式须与 DOM 层一致，同样不渲染。
+    'noscript',
+    'area',
+    'basefont',
+    'datalist',
+    'noframes',
+    'param',
   };
 
   /// 构建块树。

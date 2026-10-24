@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/painting.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
@@ -234,38 +235,53 @@ Future<List<PageContent>> paginateSnapshot(
   for (var spine = 0; spine < document.spine.length; spine++) {
     final aggregated = document.aggregateText(spine);
     final blocks = <PageBlock>[];
-    void collect(EpubNode epubNode) {
+    // 块级 UA 覆盖（P7-03）：与应用侧 EpubChapterSource 同一条路径。
+    final uaStyles = <String, ComputedStyle>{};
+    ComputedStyle styleFor(String tag) {
+      final cached = uaStyles[tag];
+      if (cached != null) {
+        return cached;
+      }
+      final overlaid = UaBlockDefaults.apply(
+        style,
+        tag,
+        containingWidth: spec.contentSize.width,
+      );
+      return uaStyles[tag] = overlaid ?? style;
+    }
+    void collect(EpubNode epubNode, String blockTag) {
       if (epubNode is TextBlockNode) {
         final text = epubNode.text;
         if (text.trim().isEmpty) {
           return;
         }
+        final blockStyle = styleFor(blockTag);
         final layout = TextLayoutEngine.layout(
           text: text,
-          style: style,
+          style: blockStyle,
           maxWidth: spec.contentSize.width,
         );
         if (layout.lineCount > 0) {
           blocks.add(
             PageBlock.styled(
               layout: layout,
-              style: style,
+              style: blockStyle,
               containingWidth: spec.contentSize.width,
             ),
           );
         }
       } else if (epubNode is BlockNode) {
         for (final child in epubNode.children) {
-          collect(child);
+          collect(child, epubNode.tag);
         }
       } else if (epubNode is InlineNode) {
         for (final child in epubNode.children) {
-          collect(child);
+          collect(child, blockTag);
         }
       }
     }
 
-    collect(aggregated.root);
+    collect(aggregated.root, 'body');
     pages.addAll(
       Paginator(pageHeight: spec.contentSize.height)
           .measureChapter(blocks: blocks, spineIndex: spine)
