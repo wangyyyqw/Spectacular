@@ -67,11 +67,14 @@ class DecodedImageCache {
   /// 解码并缓存一张图片。
   ///
   /// [displayWidth] 是布局宽（逻辑像素），[devicePixelRatio] 用于换算物理像素，
-  /// 封顶原图宽（P3-08）；字节缺失或解码失败返回 null，不抛异常（容错：§12）。
+  /// 封顶原图宽（P3-08）；[fullResolution] 为 true 时跳过降采样按原图宽解码
+  /// （P3-11 原图预览专用，调用方应使用独立缓存实例避免挤占阅读缓存）；
+  /// 字节缺失或解码失败返回 null，不抛异常（容错：§12）。
   Future<ui.Image?> load(
     String url, {
     required double displayWidth,
     double devicePixelRatio = 1,
+    bool fullResolution = false,
   }) {
     final cached = lookup(url);
     if (cached != null) {
@@ -81,7 +84,10 @@ class DecodedImageCache {
     if (pending != null) {
       return pending;
     }
-    final future = _decodeAndStore(url, displayWidth * devicePixelRatio);
+    final future = _decodeAndStore(
+      url,
+      fullResolution ? double.infinity : displayWidth * devicePixelRatio,
+    );
     _pending[url] = future;
     return future.whenComplete(() => _pending.remove(url));
   }
@@ -129,13 +135,13 @@ class DecodedImageCache {
         intrinsic = ImageSizeParser.readImageSize(bytes);
         _intrinsic[url] = intrinsic;
       }
-      var targetWidth = math.max(1, target.ceil());
-      if (intrinsic != null && targetWidth > intrinsic.width) {
+      var targetWidth = target.isFinite ? math.max(1, target.ceil()) : 0;
+      if (intrinsic != null && (targetWidth == 0 || targetWidth > intrinsic.width)) {
         targetWidth = intrinsic.width;
       }
       final codec = await ui.instantiateImageCodec(
         bytes,
-        targetWidth: targetWidth,
+        targetWidth: targetWidth > 0 ? targetWidth : null,
       );
       final frame = await codec.getNextFrame();
       codec.dispose();
