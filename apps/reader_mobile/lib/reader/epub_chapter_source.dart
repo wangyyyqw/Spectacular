@@ -60,7 +60,10 @@ class EpubChapterSource implements ReaderChapterSource {
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
-    final aggregated = document.aggregateText(spineIndex);
+    final aggregated = document.aggregateText(
+      spineIndex,
+      whiteSpace: style.whiteSpace,
+    );
     final blocks = <PageBlock>[];
     void collect(EpubNode node) {
       if (node is TextBlockNode) {

@@ -22,6 +22,12 @@ enum CssDisplay {
   none,
 }
 
+/// 可见性（CSS visibility 属性）。
+enum CssVisibility { visible, hidden, collapse }
+
+/// 空白与换行处理（CSS white-space 属性）。
+enum CssWhiteSpace { normal, nowrap, pre, preWrap, preLine }
+
 /// 四边长度（逻辑像素）。
 class CssEdges {
   /// 创建四边。
@@ -331,6 +337,20 @@ class ComputedStyle {
     final cssFloat = _parseFloat(explicitValue('float')) ?? CssFloat.none;
     final display = _parseDisplay(explicitValue('display')) ?? CssDisplay.block;
 
+    // visibility 与 white-space 是可继承属性（P2-15）。
+    final rawVisibility = explicitValue('visibility');
+    final visibility = rawVisibility == null
+        ? (parent?.visibility ?? CssVisibility.visible)
+        : _parseVisibility(rawVisibility) ??
+              parent?.visibility ??
+              CssVisibility.visible;
+    final rawWhiteSpace = explicitValue('white-space');
+    final whiteSpace = rawWhiteSpace == null
+        ? (parent?.whiteSpace ?? CssWhiteSpace.normal)
+        : _parseWhiteSpace(rawWhiteSpace) ??
+              parent?.whiteSpace ??
+              CssWhiteSpace.normal;
+
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
     final backgroundColor =
         _parseColor(explicitValue('background-color') ?? '') ??
@@ -388,6 +408,8 @@ class ComputedStyle {
       position: position,
       cssFloat: cssFloat,
       display: display,
+      visibility: visibility,
+      whiteSpace: whiteSpace,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
       borders: borders,
@@ -420,6 +442,8 @@ class ComputedStyle {
     required this.position,
     required this.cssFloat,
     required this.display,
+    required this.visibility,
+    required this.whiteSpace,
     required this.backgroundColor,
     required this.backgroundImage,
     required this.borders,
@@ -492,6 +516,12 @@ class ComputedStyle {
   /// 显示类型（不继承，初始 `block`）。
   final CssDisplay display;
 
+  /// 可见性（继承，初始 visible）。
+  final CssVisibility visibility;
+
+  /// 空白处理（继承，初始 normal）。
+  final CssWhiteSpace whiteSpace;
+
   /// 背景色（不继承，初始透明）。
   final Color backgroundColor;
 
@@ -540,7 +570,8 @@ class ComputedStyle {
       'color=$color, weight=$fontWeight, italic=$italic, align=$textAlign, '
       'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin, '
       'families=$fontFamilies, position=$position, float=$cssFloat, '
-      'display=$display, bg=$backgroundColor, borders=$borders, '
+      'display=$display, visibility=$visibility, whiteSpace=$whiteSpace, '
+      'bg=$backgroundColor, borders=$borders, '
       'size=$width/$height, min=$minWidth/$minHeight, '
       'max=$maxWidth/$maxHeight, padding=$padding, boxSizing=$boxSizing)';
 
@@ -1066,6 +1097,24 @@ class ComputedStyle {
         'none' => CssFloat.none,
         'left' || 'inline-start' => CssFloat.left,
         'right' || 'inline-end' => CssFloat.right,
+        _ => null,
+      };
+
+  static CssVisibility? _parseVisibility(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'visible' => CssVisibility.visible,
+        'hidden' => CssVisibility.hidden,
+        'collapse' => CssVisibility.collapse,
+        _ => null,
+      };
+
+  static CssWhiteSpace? _parseWhiteSpace(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'normal' => CssWhiteSpace.normal,
+        'nowrap' => CssWhiteSpace.nowrap,
+        'pre' => CssWhiteSpace.pre,
+        'pre-wrap' || 'break-spaces' => CssWhiteSpace.preWrap,
+        'pre-line' => CssWhiteSpace.preLine,
         _ => null,
       };
 

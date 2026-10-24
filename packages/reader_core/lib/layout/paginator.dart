@@ -261,6 +261,10 @@ class Paginator {
     }
 
     for (final block in blocks) {
+      // display: none 的块不占位（P2-15）。
+      if (block.style?.display == CssDisplay.none) {
+        continue;
+      }
       totalHeight += block.height;
       final lines = block.layout.lines;
       if (lines.isEmpty) {

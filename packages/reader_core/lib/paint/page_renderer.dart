@@ -58,22 +58,26 @@ class PagePainter {
                 clip.bottom + topInset,
               ),
       );
+      // visibility: hidden / collapse 只保留布局空间，不画背景、边框与文字（P2-15）。
+      final hidden = style.visibility != CssVisibility.visible;
       // 背景与边框仍铺满边框盒：块首切片的高度含 topInset。
       final box = Rect.fromLTWH(0, y, pageSize.width, slice.height + topInset);
-      _paintBackground(
-        canvas,
-        box,
-        style,
-        startsBlock: startsBlock,
-        endsBlock: endsBlock,
-      );
-      _paintBorders(
-        canvas,
-        box,
-        style,
-        startsBlock: startsBlock,
-        endsBlock: endsBlock,
-      );
+      if (!hidden) {
+        _paintBackground(
+          canvas,
+          box,
+          style,
+          startsBlock: startsBlock,
+          endsBlock: endsBlock,
+        );
+        _paintBorders(
+          canvas,
+          box,
+          style,
+          startsBlock: startsBlock,
+          endsBlock: endsBlock,
+        );
+      }
       var lineY = y + topInset;
       for (
         var lineIndex = slice.startLine;
@@ -85,7 +89,7 @@ class PagePainter {
           line.start,
           line.end,
         );
-        if (lineText.isNotEmpty) {
+        if (!hidden && lineText.isNotEmpty) {
           final painter = TextPainter(
             text: _lineSpan(slice.block.layout, line, textStyle),
             textDirection: TextDirection.ltr,
