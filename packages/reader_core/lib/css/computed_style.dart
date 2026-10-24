@@ -34,6 +34,12 @@ enum CssWhiteSpace { normal, nowrap, pre, preWrap, preLine }
 /// 右缘外；`none`（默认）关闭。其余取值（allow-start 等）按 none 处理。
 enum CssHangingPunctuation { none, allowEnd }
 
+/// 标点挤压（CSS `text-spacing-trim`；P7-19，CSS Text 4 语义子集）。
+///
+/// `trimAdjacent` 时相邻全角标点挤掉中间整格空白（前标点加 -0.5em
+/// 字距）；`normal`（默认）关闭。其余取值按 normal 处理。
+enum CssTextSpacingTrim { normal, trimAdjacent }
+
 /// 文本大小写变换（CSS text-transform 属性）。
 enum CssTextTransform { none, uppercase, lowercase, capitalize }
 
@@ -458,6 +464,12 @@ class ComputedStyle {
         : _parseHangingPunctuation(rawHanging) ??
               parent?.hangingPunctuation ??
               CssHangingPunctuation.none;
+    final rawTrim = explicitValue('text-spacing-trim');
+    final textSpacingTrim = rawTrim == null
+        ? (parent?.textSpacingTrim ?? CssTextSpacingTrim.normal)
+        : _parseTextSpacingTrim(rawTrim) ??
+              parent?.textSpacingTrim ??
+              CssTextSpacingTrim.normal;
 
     // 字符级属性：word-spacing/text-transform 继承，vertical-align 不继承（P2-16）。
     final rawWordSpacing = explicitValue('word-spacing');
@@ -653,6 +665,7 @@ class ComputedStyle {
       visibility: visibility,
       whiteSpace: whiteSpace,
       hangingPunctuation: hangingPunctuation,
+      textSpacingTrim: textSpacingTrim,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
@@ -712,6 +725,7 @@ class ComputedStyle {
     required this.visibility,
     required this.whiteSpace,
     required this.hangingPunctuation,
+    required this.textSpacingTrim,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
@@ -821,6 +835,9 @@ class ComputedStyle {
 
   /// 标点悬挂（继承，初始 none；P7-18）。
   final CssHangingPunctuation hangingPunctuation;
+
+  /// 标点挤压（继承，初始 normal；P7-19）。
+  final CssTextSpacingTrim textSpacingTrim;
 
   /// 词间距（逻辑像素，继承，初始 0）。
   final double wordSpacing;
@@ -1515,6 +1532,14 @@ class ComputedStyle {
         'allow-end' => CssHangingPunctuation.allowEnd,
         'none' => CssHangingPunctuation.none,
         // allow-start/force-end/force-start 等按 none 处理（一期语义）。
+        _ => null,
+      };
+
+  static CssTextSpacingTrim? _parseTextSpacingTrim(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'trim-adjacent' => CssTextSpacingTrim.trimAdjacent,
+        'normal' || 'space-all' => CssTextSpacingTrim.normal,
+        // space-first/trim-start 等按 normal 处理（一期语义）。
         _ => null,
       };
 
