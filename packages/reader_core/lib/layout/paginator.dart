@@ -2,6 +2,7 @@ import 'dart:ui' show Offset, Rect;
 
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
+import 'box_model.dart';
 import 'text_layout.dart';
 
 /// 一个待分页的文本块。
@@ -16,7 +17,40 @@ class PageBlock {
     this.style,
     this.spaceBefore = 0,
     this.spaceAfter = 0,
+    this.topInset = 0,
+    this.bottomInset = 0,
+    this.leftInset = 0,
   });
+
+  /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
+  ///
+  /// [containingWidth] 是百分比 padding 的解算基准（通常是正文区宽）。
+  factory PageBlock.styled({
+    required TextLayoutResult layout,
+    required ComputedStyle style,
+    required double containingWidth,
+    bool pageBreakBefore = false,
+    bool pageBreakAfter = false,
+    String? startCfi,
+    String? endCfi,
+    double spaceBefore = 0,
+    double spaceAfter = 0,
+  }) {
+    final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
+    return PageBlock(
+      layout: layout,
+      style: style,
+      pageBreakBefore: pageBreakBefore,
+      pageBreakAfter: pageBreakAfter,
+      startCfi: startCfi,
+      endCfi: endCfi,
+      spaceBefore: spaceBefore,
+      spaceAfter: spaceAfter,
+      topInset: model.borders.top + model.padding.top,
+      bottomInset: model.borders.bottom + model.padding.bottom,
+      leftInset: model.borders.left + model.padding.left,
+    );
+  }
 
   /// 行布局结果。
   final TextLayoutResult layout;
@@ -42,8 +76,23 @@ class PageBlock {
   /// 段后间距（逻辑像素，绘制用）。
   final double spaceAfter;
 
-  /// 块高度。
+  /// 内容区上内缩（border.top + padding.top）。
+  final double topInset;
+
+  /// 内容区下内缩（border.bottom + padding.bottom）。
+  final double bottomInset;
+
+  /// 内容区左内缩（border.left + padding.left）。
+  final double leftInset;
+
+  /// 块高度（内容区行高之和）。
   double get height => layout.height;
+
+  /// 块首行之前的额外高度（段前间距 + 上内缩）。
+  double get leadingExtent => spaceBefore + topInset;
+
+  /// 块末行之后的额外高度（下内缩 + 段后间距）。
+  double get trailingExtent => bottomInset + spaceAfter;
 }
 
 /// 页内一个块切片；P1-25 只放整块，P1-26 会按行切。
@@ -54,6 +103,9 @@ class PageBlockSlice {
     required this.startLine,
     required this.endLine,
     required this.height,
+    this.leadingExtent = 0,
+    this.trailingExtent = 0,
+    this.leftInset = 0,
   });
 
   /// 来源块。
@@ -65,8 +117,17 @@ class PageBlockSlice {
   /// 结束行（不含）。
   final int endLine;
 
-  /// 本切片高度。
+  /// 本切片高度（含首尾额外高度）。
   final double height;
+
+  /// 首行之前的额外高度（段前间距 + 上内缩），只在块首切片出现。
+  final double leadingExtent;
+
+  /// 末行之后的额外高度（下内缩 + 段后间距），只在块尾切片出现。
+  final double trailingExtent;
+
+  /// 行内容的左内缩（border.left + padding.left）。
+  final double leftInset;
 
   /// 切片行。
   Iterable<LineBox> get lines =>
@@ -161,7 +222,12 @@ class PageContent implements PageSlice {
     for (var i = 0; i < slices.length; i++) {
       final slice = slices[i];
       if (offset.dy >= y && offset.dy < y + slice.height) {
-        var lineY = y;
+        // 首尾内缩区不命中文字（P2-14 补全：命中几何与绘制几何一致）。
+        final lineStartY = y + slice.leadingExtent;
+        if (offset.dy < lineStartY) {
+          return null;
+        }
+        var lineY = lineStartY;
         for (
           var lineIndex = slice.startLine;
           lineIndex < slice.endLine;
@@ -265,7 +331,7 @@ class Paginator {
       if (block.style?.display == CssDisplay.none) {
         continue;
       }
-      totalHeight += block.height;
+      totalHeight += block.height + block.leadingExtent + block.trailingExtent;
       final lines = block.layout.lines;
       if (lines.isEmpty) {
         continue;
@@ -276,12 +342,15 @@ class Paginator {
 
       var lineStart = 0;
       while (lineStart < lines.length) {
+        final isBlockStart = lineStart == 0;
+        // 段前间距与上内缩只在块首切片出现（P2-14 补全：分页几何含盒模型内缩）。
+        final leading = isBlockStart ? block.leadingExtent : 0.0;
         var fitEnd = lineStart;
-        var sliceHeight = 0.0;
+        var linesHeight = 0.0;
         while (fitEnd < lines.length) {
           final lineHeight = lines[fitEnd].height;
-          if (sliceHeight + lineHeight <= available + tolerance) {
-            sliceHeight += lineHeight;
+          if (leading + linesHeight + lineHeight <= available + tolerance) {
+            linesHeight += lineHeight;
             fitEnd += 1;
           } else {
             break;
@@ -295,16 +364,32 @@ class Paginator {
             continue;
           }
           // 单行高于整页：强制放一行，避免死循环；P1-26 之后由渲染层裁切。
-          sliceHeight = lines[lineStart].height;
+          linesHeight = lines[lineStart].height;
           fitEnd = lineStart + 1;
         }
 
+        var trailing = 0.0;
+        if (fitEnd == lines.length) {
+          // 下内缩与段后间距只在块尾切片出现；放不下时退一行到下一页。
+          trailing = block.trailingExtent;
+          if (leading + linesHeight + trailing > available + tolerance &&
+              fitEnd - lineStart > 1) {
+            fitEnd -= 1;
+            linesHeight -= lines[fitEnd].height;
+            trailing = 0;
+          }
+        }
+
+        final sliceHeight = leading + linesHeight + trailing;
         slices.add(
           PageBlockSlice(
             block: block,
             startLine: lineStart,
             endLine: fitEnd,
             height: sliceHeight,
+            leadingExtent: leading,
+            trailingExtent: trailing,
+            leftInset: block.leftInset,
           ),
         );
         used += sliceHeight;

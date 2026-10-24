@@ -1,20 +1,31 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
-import '../layout/box_model.dart';
 import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
 import '../text/justify.dart';
+import 'background_image.dart';
 
 /// 按页绘制文本与背景。
 class PagePainter {
   /// 创建绘制器。
-  const PagePainter({this.background = const Color(0xFFFFFFFF)});
+  const PagePainter({
+    this.background = const Color(0xFFFFFFFF),
+    this.imageLookup,
+  });
 
   /// 页面背景色。
   final Color background;
+
+  /// 背景图按 URL 取图的回调；返回 null 表示当前没有可用图片（跳过绘制）。
+  ///
+  /// 图片解码与缓存属于调用方的资源层职责：绘制过程中不碰网络与文件 IO，
+  /// 也不在每帧重复解码。默认 null 时 `background-image` 一律不绘制，
+  /// 既有页面像素保持不变。
+  final ui.Image? Function(String url)? imageLookup;
 
   /// 绘制一页。
   ///
@@ -32,36 +43,19 @@ class PagePainter {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
       final textStyle = TextLayoutEngine.textStyleFor(style);
       final startsBlock = slice.startLine == 0;
-      if (startsBlock) {
-        y += slice.block.spaceBefore;
-      }
-      // 盒模型内缩：文字内容从边框盒的内容区左上角起笔，边框不再压住首字符。
-      final model = BoxModel.fromStyle(style, containingWidth: pageSize.width);
-      final leftInset = model.borders.left + model.padding.left;
-      // 上边框/上内边距只在块首出现，续页切片从页顶直接接排。
-      final topInset = startsBlock
-          ? model.borders.top + model.padding.top
-          : 0.0;
       final endsBlock = slice.endLine == slice.block.layout.lineCount;
+      // 几何全部来自分页切片（P2-14 补全）：段前/段后间距与首尾内缩已计入
+      // slice.height，绘制与命中不再各算一套。
+      final leading = slice.leadingExtent;
+      final leftInset = slice.leftInset;
       // 跨页块只画本页可见的行（§60.8）：裁剪后即使字号/行高有浮点误差，
       // 墨迹也不会越到下一块或下一页。
       canvas.save();
-      final clip = slice.clipRect(y, pageSize.width);
-      // 块首内容整体下移 topInset，裁剪矩形下沿同步延伸，避免末行被切掉。
-      canvas.clipRect(
-        topInset == 0
-            ? clip
-            : Rect.fromLTRB(
-                clip.left,
-                clip.top,
-                clip.right,
-                clip.bottom + topInset,
-              ),
-      );
+      canvas.clipRect(slice.clipRect(y, pageSize.width));
       // visibility: hidden / collapse 只保留布局空间，不画背景、边框与文字（P2-15）。
       final hidden = style.visibility != CssVisibility.visible;
-      // 背景与边框仍铺满边框盒：块首切片的高度含 topInset。
-      final box = Rect.fromLTWH(0, y, pageSize.width, slice.height + topInset);
+      // 背景与边框铺满切片盒子（含首尾内缩）。
+      final box = Rect.fromLTWH(0, y, pageSize.width, slice.height);
       if (!hidden) {
         _paintBackground(
           canvas,
@@ -78,7 +72,7 @@ class PagePainter {
           endsBlock: endsBlock,
         );
       }
-      var lineY = y + topInset;
+      var lineY = y + leading;
       for (
         var lineIndex = slice.startLine;
         lineIndex < slice.endLine;
@@ -98,15 +92,16 @@ class PagePainter {
         }
         lineY += line.height;
       }
-      y = lineY;
       canvas.restore();
-      if (endsBlock) {
-        y += slice.block.spaceAfter;
-      }
+      y += slice.height;
     }
   }
 
   /// 画块背景：跨页切片只在块真正开始/结束时带上下圆角。
+  ///
+  /// 顺序与阅微 `CSSBackgroundNode.draw()` 一致：先铺背景色，再画背景图。
+  /// 背景图按 CSS 默认（左上、原生尺寸、repeat）平铺，并裁剪到块盒子；
+  /// 有圆角时按同一圆角矩形裁剪，圆角外不露图。
   void _paintBackground(
     Canvas canvas,
     Rect box,
@@ -114,25 +109,49 @@ class PagePainter {
     required bool startsBlock,
     required bool endsBlock,
   }) {
-    if (style.backgroundColor.a == 0) {
+    final rounded = RRect.fromRectAndCorners(
+      box,
+      topLeft: Radius.circular(startsBlock ? style.borders.topLeftRadius : 0),
+      topRight: Radius.circular(startsBlock ? style.borders.topRightRadius : 0),
+      bottomRight: Radius.circular(
+        endsBlock ? style.borders.bottomRightRadius : 0,
+      ),
+      bottomLeft: Radius.circular(
+        endsBlock ? style.borders.bottomLeftRadius : 0,
+      ),
+    );
+    if (style.backgroundColor.a != 0) {
+      canvas.drawRRect(rounded, Paint()..color = style.backgroundColor);
+    }
+    final image = _resolveBackgroundImage(style);
+    if (image == null) {
       return;
     }
-    canvas.drawRRect(
-      RRect.fromRectAndCorners(
-        box,
-        topLeft: Radius.circular(startsBlock ? style.borders.topLeftRadius : 0),
-        topRight: Radius.circular(
-          startsBlock ? style.borders.topRightRadius : 0,
-        ),
-        bottomRight: Radius.circular(
-          endsBlock ? style.borders.bottomRightRadius : 0,
-        ),
-        bottomLeft: Radius.circular(
-          endsBlock ? style.borders.bottomLeftRadius : 0,
-        ),
-      ),
-      Paint()..color = style.backgroundColor,
-    );
+    final roundedCorners =
+        rounded.tlRadiusX > 0 ||
+        rounded.trRadiusX > 0 ||
+        rounded.brRadiusX > 0 ||
+        rounded.blRadiusX > 0;
+    canvas.save();
+    if (roundedCorners) {
+      canvas.clipRRect(rounded);
+    } else {
+      canvas.clipRect(box);
+    }
+    paintTiledBackgroundImage(canvas, image, box);
+    canvas.restore();
+  }
+
+  /// 取块背景图：未声明 `background-image` 或调用方暂无该图时返回 null。
+  ///
+  /// 图片解码与缓存由调用方的资源层负责，这里只做一次查表，不做 IO。
+  ui.Image? _resolveBackgroundImage(ComputedStyle style) {
+    final url = style.backgroundImage;
+    final lookup = imageLookup;
+    if (url == null || lookup == null) {
+      return null;
+    }
+    return lookup(url);
   }
 
   /// 画四边边框：贴合块边界，不改变行布局（§65 边框不侵占行布局）。
