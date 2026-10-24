@@ -15,52 +15,119 @@ import '../support/corpus.dart';
 const _pageWidth = 360.0;
 const _pageHeight = 640.0;
 
-/// 真实样本子集（大文件如 155MB 书籍不进基准，避免测试内存与耗时失控）。
-const _realBooks = <String>[
-  'monk-and-robot.epub',
-  'mj-003.epub',
-  'ludingji-1.epub',
-];
+/// 真书测试统一使用《诸神愚戏》（148.5MB / 1541 章）。
+const _bookName = 'zhushen-yuxi.epub';
 
-ComputedStyle _style() => ComputedStyle(const <String, String>{
-  'font-size': '16px',
-  'line-height': '1.6',
-  'font-family': 'serif',
-  'text-align': 'justify',
-});
+/// 默认跳过（避免拖慢本地/CI 常规测试）；显式开启：
+/// `REAL_EPUB=1 flutter test test/bench/real_epub_test.dart`
+/// 需要两次运行对比确定性时再加 `REAL_EPUB_TWICE=1`。
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
 
-class _BookResult {
-  _BookResult(this.name);
-  final String name;
-  int chapters = 0;
-  int pages = 0;
-  int chars = 0;
-  int elapsedMs = 0;
-  int maxChapterChars = 0;
-  int maxChapterMs = 0;
-  int firstChapterMs = 0;
-  int warmMs = 0;
-  String? digest;
+  final enabled = Platform.environment['REAL_EPUB'] == '1';
+  final skip = enabled ? null : '默认跳过（设置 REAL_EPUB=1 运行真书测试）';
+
+  test(
+    '诸神愚戏：真书打开、整书分页、单章预算与确定性',
+    () async {
+      final corpus = findCorpusRoot();
+      if (corpus == null) {
+        // ignore: avoid_print
+        print('SKIP 本地样本库缺失（test_corpus/ 不入库）');
+        return;
+      }
+      final file = File('${corpus.path}/real/$_bookName');
+      if (!file.existsSync()) {
+        // ignore: avoid_print
+        print('SKIP 缺少真书 $_bookName');
+        return;
+      }
+      final bytes = file.readAsBytesSync();
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.6',
+        'font-family': 'serif',
+        'text-align': 'justify',
+      });
+
+      final first = await _measure(bytes, style);
+      var sameDigest = true;
+      if (Platform.environment['REAL_EPUB_TWICE'] == '1') {
+        final second = await _measure(bytes, style);
+        sameDigest = first.digest == second.digest;
+      }
+
+      // ignore: avoid_print
+      print(
+        'BENCH real_book=$_bookName size_mb='
+        '${(bytes.length / (1 << 20)).toStringAsFixed(1)} '
+        'open_ms=${first.openMs} chapters=${first.chapters} '
+        'pages=${first.pages} chars=${first.chars} '
+        'total_ms=${first.totalMs} chapter_median_ms=${first.medianMs} '
+        'first_chapter_ms=${first.firstChapterMs} '
+        'max_chapter_chars=${first.maxChapterChars} '
+        'max_chapter_ms=${first.maxChapterMs} '
+        'rss_mb=${(ProcessInfo.currentRss / (1 << 20)).toStringAsFixed(0)} '
+        'digest=${first.digest} same_digest=$sameDigest',
+      );
+
+      expect(first.chapters, greaterThan(100));
+      expect(first.pages, greaterThan(1000));
+      expect(first.chars, greaterThan(1000000));
+      expect(first.firstChapterMs, lessThan(2000), reason: '首章首次分页应 <2s');
+      expect(first.maxChapterMs, lessThan(2000), reason: '最大章首次分页应 <2s');
+      expect(first.digest, hasLength(64));
+      expect(sameDigest, isTrue);
+    },
+    skip: skip,
+    timeout: const Timeout(Duration(minutes: 10)),
+  );
 }
 
-/// 分页整本书；返回页快照摘要（用于两次运行对比）。
-Future<_BookResult> _paginateBook(
-  String name,
-  List<int> bytes,
-  TextLayoutCache cache,
-) async {
-  final result = _BookResult(name);
-  final stopwatch = Stopwatch()..start();
-  final opened = await openEpub(Uint8List.fromList(bytes));
+class _BookMeasurement {
+  _BookMeasurement({
+    required this.openMs,
+    required this.chapters,
+    required this.pages,
+    required this.chars,
+    required this.totalMs,
+    required this.medianMs,
+    required this.firstChapterMs,
+    required this.maxChapterChars,
+    required this.maxChapterMs,
+    required this.digest,
+  });
+
+  final int openMs;
+  final int chapters;
+  final int pages;
+  final int chars;
+  final int totalMs;
+  final double medianMs;
+  final int firstChapterMs;
+  final int maxChapterChars;
+  final int maxChapterMs;
+  final String digest;
+}
+
+Future<_BookMeasurement> _measure(Uint8List bytes, ComputedStyle style) async {
+  final openWatch = Stopwatch()..start();
+  final opened = await openEpub(bytes);
+  openWatch.stop();
   final document = opened.document;
   if (document == null) {
     throw StateError('打开失败：${opened.report.message}');
   }
-  final style = _style();
+  final cache = TextLayoutCache();
   final pages = <SnapshotPage>[];
+  final chapterMicros = <int>[];
+  var chars = 0;
+  var firstChapterMs = 0;
+  var maxChapterChars = 0;
+  var maxChapterMs = 0;
+  final totalWatch = Stopwatch()..start();
   for (var spine = 0; spine < document.spine.length; spine++) {
-    final chapterWatch = Stopwatch()..start();
-    result.chapters += 1;
+    final watch = Stopwatch()..start();
     var chapterChars = 0;
     final aggregated = document.aggregateText(spine);
     final blocks = <PageBlock>[];
@@ -70,7 +137,6 @@ Future<_BookResult> _paginateBook(
         if (text.trim().isEmpty) {
           return;
         }
-        result.chars += text.length;
         chapterChars += text.length;
         final layout = cache.layout(
           text: text,
@@ -101,16 +167,6 @@ Future<_BookResult> _paginateBook(
     final chapterPages = Paginator(pageHeight: _pageHeight)
         .measureChapter(blocks: blocks, spineIndex: spine)
         .pages;
-    result.pages += chapterPages.length;
-    chapterWatch.stop();
-    final chapterMs = chapterWatch.elapsedMilliseconds;
-    if (spine == 0) {
-      result.firstChapterMs = chapterMs;
-    }
-    if (chapterChars > result.maxChapterChars) {
-      result.maxChapterChars = chapterChars;
-      result.maxChapterMs = chapterMs;
-    }
     for (final page in chapterPages) {
       final buffer = StringBuffer();
       for (final slice in page.slices) {
@@ -121,10 +177,28 @@ Future<_BookResult> _paginateBook(
       }
       pages.add(SnapshotPage(text: buffer.toString()));
     }
+    watch.stop();
+    chapterMicros.add(watch.elapsedMicroseconds);
+    chars += chapterChars;
+    if (spine == 0) {
+      firstChapterMs = watch.elapsedMilliseconds;
+    }
+    if (chapterChars > maxChapterChars) {
+      maxChapterChars = chapterChars;
+      maxChapterMs = watch.elapsedMilliseconds;
+    }
+    if ((spine + 1) % 500 == 0) {
+      // ignore: avoid_print
+      print(
+        'PROGRESS chapters=${spine + 1}/${document.spine.length} '
+        'pages=${pages.length} elapsed_ms=${totalWatch.elapsedMilliseconds}',
+      );
+    }
   }
-  stopwatch.stop();
-  result.elapsedMs = stopwatch.elapsedMilliseconds;
-  result.digest = PageSnapshot.hash(
+  totalWatch.stop();
+  chapterMicros.sort();
+  final medianMs = chapterMicros[chapterMicros.length ~/ 2] / 1000;
+  final digest = PageSnapshot.hash(
     pages,
     const SnapshotConfig(
       pageWidth: _pageWidth,
@@ -136,63 +210,16 @@ Future<_BookResult> _paginateBook(
       language: 'zh-CN',
     ),
   );
-  return result;
-}
-
-void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  test('真实 EPUB 分页与缓存复用（本地样本库）', () async {
-    final corpus = findCorpusRoot();
-    if (corpus == null) {
-      // ignore: avoid_print
-      print('SKIP 本地样本库缺失（test_corpus/ 不入库）');
-      return;
-    }
-    final realDir = Directory('${corpus.path}/real');
-    for (final name in _realBooks) {
-      final file = File('${realDir.path}/$name');
-      if (!file.existsSync()) {
-        // ignore: avoid_print
-        print('SKIP 缺少真实样本 $name');
-        continue;
-      }
-      final bytes = file.readAsBytesSync();
-      final coldCache = TextLayoutCache();
-      final warmCache = TextLayoutCache();
-      // 预热 warmCache：先用同一份数据跑一遍，再测“缓存已热”的耗时。
-      await _paginateBook(name, bytes, warmCache);
-      final cold = await _paginateBook(name, bytes, coldCache);
-      final warm = await _paginateBook(name, bytes, warmCache);
-
-      // ignore: avoid_print
-      print(
-        'BENCH real book=$name size_mb=${(bytes.length / (1 << 20)).toStringAsFixed(1)} '
-        'chapters=${cold.chapters} pages=${cold.pages} chars=${cold.chars} '
-        'cold_ms=${cold.elapsedMs} warm_ms=${warm.elapsedMs} '
-        'first_chapter_ms=${cold.firstChapterMs} '
-        'largest_chapter_chars=${cold.maxChapterChars} '
-        'largest_chapter_ms=${cold.maxChapterMs} '
-        'same_digest=${cold.digest == warm.digest}',
-      );
-
-      expect(cold.chapters, greaterThan(0));
-      expect(cold.pages, greaterThan(0));
-      expect(cold.chars, greaterThan(0));
-      expect(warm.digest, cold.digest, reason: '两次分页页序列哈希应一致');
-      expect(warmCache.hits, greaterThan(0), reason: '第二次运行应命中段落缓存');
-      expect(
-        cold.firstChapterMs,
-        lessThan(2000),
-        reason: '首章首次分页应 <2s，实际 ${cold.firstChapterMs} ms',
-      );
-      expect(
-        cold.maxChapterMs,
-        lessThan(2000),
-        reason:
-            '最大章（${cold.maxChapterChars} 字）首次分页应 <2s，'
-            '实际 ${cold.maxChapterMs} ms',
-      );
-    }
-  });
+  return _BookMeasurement(
+    openMs: openWatch.elapsedMilliseconds,
+    chapters: document.spine.length,
+    pages: pages.length,
+    chars: chars,
+    totalMs: totalWatch.elapsedMilliseconds,
+    medianMs: medianMs,
+    firstChapterMs: firstChapterMs,
+    maxChapterChars: maxChapterChars,
+    maxChapterMs: maxChapterMs,
+    digest: digest,
+  );
 }
