@@ -311,6 +311,7 @@ class PagePainter {
             line,
             geometry.textStyle,
             punctCompression: geometry.punctCompression,
+          textAutospace: geometry.textAutospace,
           );
           final boxes = painter.getBoxesForSelection(
             TextSelection(
@@ -584,6 +585,7 @@ class PagePainter {
     LineBox line,
     TextStyle baseStyle, {
     bool punctCompression = false,
+    bool textAutospace = false,
   }) {
     TextPainter build() => TextPainter(
       text: _lineSpan(
@@ -591,6 +593,7 @@ class PagePainter {
         line,
         baseStyle,
         punctCompression: punctCompression,
+        textAutospace: textAutospace,
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -765,12 +768,14 @@ class PagePainter {
     LineBox line,
     TextStyle baseStyle, {
     bool punctCompression = false,
+    bool textAutospace = false,
   }) => buildLineSpan(
     layout: layout,
     line: line,
     baseStyle: baseStyle,
     textColor: textColor,
     punctCompression: punctCompression,
+    textAutospace: textAutospace,
   );
 }
 
@@ -819,6 +824,10 @@ class _SliceGeometry {
   /// 标点挤压开关（P7-19，源自 style.textSpacingTrim）。
   bool get punctCompression =>
       style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent;
+
+  /// 中西文自动间距开关（P7-20，源自 style.textAutospace）。
+  bool get textAutospace =>
+      style.textAutospace == CssTextAutospace.normal;
 
   final bool startsBlock;
   final bool endsBlock;

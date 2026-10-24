@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show TextLayout;
 import 'cjk_justify.dart';
+import 'autospace.dart';
 import 'punct_trim.dart';
 import '../text/script_fallback.dart';
 
@@ -754,36 +755,46 @@ abstract final class TextLayoutEngine {
     return width;
   }
 
-  /// 挤压 span（P7-19）：相邻全角标点的前标点加 -0.5em 字距。
-  static TextSpan _compressedSpan(
+  /// 纯文本段的逐字符 span（P7-19/P7-20）：相邻全角标点前标点加
+  /// -0.5em（挤压）、CJK↔拉丁边界加 +0.125em（自动间距），同字符
+  /// 代数叠加；无需调整时返回单 span。
+  static TextSpan _plainSpan(
     String text,
     ComputedStyle style,
     TextStyle baseStyle,
     double textScaleFactor,
   ) {
-    final offsets = punctCompressionOffsets(
-      text,
-      em: style.fontSize,
-      advanceOf: punctAdvanceMeasurer(baseStyle, textScaleFactor),
-    );
-    if (offsets.isEmpty) {
+    final advanceOf = punctAdvanceMeasurer(baseStyle, textScaleFactor);
+    final em = style.fontSize;
+    final compressOffsets = style.textSpacingTrim ==
+            CssTextSpacingTrim.trimAdjacent
+        ? punctCompressionOffsets(text, em: em, advanceOf: advanceOf)
+        : const <int>[];
+    final autospace = style.textAutospace == CssTextAutospace.normal
+        ? autospaceOffsets(text)
+        : const <int>[];
+    if (compressOffsets.isEmpty && autospace.isEmpty) {
       return TextSpan(text: text, style: baseStyle);
     }
-    final spacing = punctCompressionSpacing(style.fontSize);
-    final starts = offsets.toSet();
+    final compressionSpacing = punctCompressionSpacing(em);
+    final boundarySpacing = autospaceSpacing(em);
+    final compressStarts = compressOffsets.toSet();
+    final autospaceStarts = autospace.toSet();
     final children = <InlineSpan>[];
     var offset = 0;
     for (final rune in text.runes) {
       final char = String.fromCharCode(rune);
-      final isStart = starts.contains(offset);
+      final extra =
+          (compressStarts.contains(offset) ? compressionSpacing : 0.0) +
+          (autospaceStarts.contains(offset) ? boundarySpacing : 0.0);
       children.add(
         TextSpan(
           text: char,
-          style: isStart
-              ? baseStyle.copyWith(
-                  letterSpacing: (baseStyle.letterSpacing ?? 0) + spacing,
-                )
-              : baseStyle,
+          style: extra == 0
+              ? baseStyle
+              : baseStyle.copyWith(
+                  letterSpacing: (baseStyle.letterSpacing ?? 0) + extra,
+                ),
         ),
       );
       offset += char.length;
@@ -803,15 +814,17 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution: leadingDistribution,
     );
-    // 标点挤压（P7-19）：只作用于无行内样式区间的纯文本段（测量与
-    // 绘制同规则，见 buildLineSpan）；挤压影响行宽，须在测量期生效。
+    // 标点挤压（P7-19）与中西文间距（P7-20）：只作用于无行内样式
+    // 区间的纯文本段（测量与绘制同规则，见 buildLineSpan）；两者都
+    // 影响行宽，须在测量期生效。
     final compress =
         runs.isEmpty &&
-        style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent;
+        (style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent ||
+            style.textAutospace == CssTextAutospace.normal);
     final painter = TextPainter(
       text: runs.isEmpty
           ? (compress
-                ? _compressedSpan(text, style, baseStyle, textScaleFactor)
+                ? _plainSpan(text, style, baseStyle, textScaleFactor)
                 : TextSpan(text: text, style: baseStyle))
           : TextSpan(
               style: baseStyle,

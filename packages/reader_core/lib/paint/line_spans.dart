@@ -1,5 +1,6 @@
 import 'package:flutter/painting.dart';
 
+import '../layout/autospace.dart';
 import '../layout/cjk_justify.dart';
 import '../layout/line_breaker.dart';
 import '../layout/punct_trim.dart';
@@ -23,6 +24,7 @@ InlineSpan buildLineSpan({
   required TextStyle baseStyle,
   Color? textColor,
   bool punctCompression = false,
+  bool textAutospace = false,
 }) {
   // 主题覆盖文字色：不改样式表，只在绘制时替换颜色，避免重新分页（P2-23）。
   final effectiveBase = textColor == null
@@ -33,19 +35,23 @@ InlineSpan buildLineSpan({
   final gaps = line.justifyExtra > 0
       ? cjkJustifyGapOffsets(lineText)
       : const <int>[];
-  // 挤压与测量同条件：仅纯文本行（runs 为空）。
+  // 挤压/自动间距与测量同条件：仅纯文本行（runs 为空）。
+  final plain = runs.isEmpty && lineText.length >= 2;
   final compressionOffsets =
-      punctCompression && runs.isEmpty && lineText.length >= 2
+      punctCompression && plain
       ? punctCompressionOffsets(
           lineText,
           em: baseStyle.fontSize ?? 0,
           advanceOf: punctAdvanceMeasurer(baseStyle, 1),
         )
       : const <int>[];
-  if (runs.isEmpty && gaps.isEmpty && compressionOffsets.isEmpty) {
+  final autospace = textAutospace && plain
+      ? autospaceOffsets(lineText)
+      : const <int>[];
+  if (runs.isEmpty && gaps.isEmpty && compressionOffsets.isEmpty && autospace.isEmpty) {
     return TextSpan(text: lineText, style: effectiveBase);
   }
-  if (gaps.isEmpty && compressionOffsets.isEmpty) {
+  if (gaps.isEmpty && compressionOffsets.isEmpty && autospace.isEmpty) {
     return TextSpan(
       style: effectiveBase,
       children: buildStyledSpans(
@@ -58,14 +64,17 @@ InlineSpan buildLineSpan({
       ),
     );
   }
-  // justify / 挤压行逐字符铺开，样式区间与两类字距一起处理。
+  // justify / 挤压 / 自动间距行逐字符铺开，三类字距代数叠加。
   final spacing = justifyGapSpacing(line.justifyExtra, gaps.length);
   final compressionSpacing =
       compressionOffsets.isEmpty
           ? 0.0
           : punctCompressionSpacing(baseStyle.fontSize ?? 0);
+  final boundarySpacing =
+      autospace.isEmpty ? 0.0 : autospaceSpacing(baseStyle.fontSize ?? 0);
   final gapStarts = gaps.toSet();
   final compressStarts = compressionOffsets.toSet();
+  final autospaceStarts = autospace.toSet();
   final resolved = <int, TextStyle>{};
   TextStyle styleAt(int offset) {
     for (var i = 0; i < runs.length; i++) {
@@ -87,7 +96,8 @@ InlineSpan buildLineSpan({
     final style = styleAt(line.start + offset);
     final extraSpacing =
         (gapStarts.contains(offset) ? spacing : 0.0) +
-        (compressStarts.contains(offset) ? compressionSpacing : 0.0);
+        (compressStarts.contains(offset) ? compressionSpacing : 0.0) +
+        (autospaceStarts.contains(offset) ? boundarySpacing : 0.0);
     children.add(
       TextSpan(
         text: char,
