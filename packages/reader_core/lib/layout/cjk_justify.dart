@@ -67,3 +67,9 @@ bool isJustifyWordCodePoint(int codePoint) {
   }
   return false;
 }
+
+/// 逐 gap 的字距增量：`ls = extra / gapCount`（§8.4，P2-20）。
+///
+/// gap 数为 0 或余量非正时返回 0，调用方据此跳过拉伸。
+double justifyGapSpacing(double extra, int gapCount) =>
+    gapCount <= 0 || extra <= 0 ? 0 : extra / gapCount;

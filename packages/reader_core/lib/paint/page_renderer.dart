@@ -6,8 +6,8 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
-import '../layout/cjk_justify.dart';
 import 'background_image.dart';
+import 'line_spans.dart';
 
 /// 按页绘制文本与背景。
 class PagePainter {
@@ -501,66 +501,12 @@ class PagePainter {
     return segments;
   }
 
-  /// 组装一行的 span：行内样式区间 + justify 间隙字距。
+  /// 组装一行的 span：行内样式区间 + justify 间隙字距（实现见 line_spans.dart）。
   InlineSpan _lineSpan(
     TextLayoutResult layout,
     LineBox line,
     TextStyle baseStyle,
-  ) {
-    final lineText = layout.text.substring(line.start, line.end);
-    final runs = layout.runs;
-    final gaps = line.justifyExtra > 0
-        ? cjkJustifyGapOffsets(lineText)
-        : const <int>[];
-    if (runs.isEmpty && gaps.isEmpty) {
-      return TextSpan(text: lineText, style: baseStyle);
-    }
-    if (gaps.isEmpty) {
-      return TextSpan(
-        style: baseStyle,
-        children: buildStyledSpans(
-          text: layout.text,
-          start: line.start,
-          end: line.end,
-          runs: runs,
-          baseStyle: baseStyle,
-          styleOf: (runStyle) => TextLayoutEngine.textStyleFor(runStyle),
-        ),
-      );
-    }
-    // justify 行逐字符铺开，样式区间与间隙字距一起处理。
-    final spacing = line.justifyExtra / gaps.length;
-    final gapStarts = gaps.toSet();
-    final resolved = <int, TextStyle>{};
-    TextStyle styleAt(int offset) {
-      for (var i = 0; i < runs.length; i++) {
-        final run = runs[i];
-        if (offset >= run.start && offset < run.end) {
-          return resolved[i] ??= TextLayoutEngine.textStyleFor(run.style);
-        }
-      }
-      return baseStyle;
-    }
-
-    final children = <InlineSpan>[];
-    var offset = 0;
-    for (final rune in lineText.runes) {
-      final char = String.fromCharCode(rune);
-      final style = styleAt(line.start + offset);
-      children.add(
-        TextSpan(
-          text: char,
-          style: gapStarts.contains(offset)
-              ? style.copyWith(
-                  letterSpacing: (style.letterSpacing ?? 0) + spacing,
-                )
-              : style,
-        ),
-      );
-      offset += char.length;
-    }
-    return TextSpan(style: baseStyle, children: children);
-  }
+  ) => buildLineSpan(layout: layout, line: line, baseStyle: baseStyle);
 }
 
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
