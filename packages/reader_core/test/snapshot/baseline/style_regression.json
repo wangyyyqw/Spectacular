@@ -172,6 +172,121 @@
           "summary": "竖排与注音这一段用于检查竖排方向。文字应…一组阿拉伯数字：2026 年 10 月。"
         }
       ]
+    },
+    "gen:dense-punct": {
+      "spec": {
+        "pageWidth": 320.0,
+        "pageHeight": 600.0,
+        "devicePixelRatio": 2.0,
+        "fontFamily": "SnapshotSerif",
+        "fontSize": 16.0,
+        "lineHeight": 1.5,
+        "margin": 12.0
+      },
+      "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
+      "bookHash": "61c15c16eeaf5e310d144b1342c035e108494318e92d38e4f410ad893603dc95",
+      "pages": [
+        {
+          "index": 0,
+          "layoutHash": "0b5c3fb049041b41f11810382234f86034f43449da185f51830bd2e957e19740",
+          "inkPixels": 122322,
+          "lineCount": 24,
+          "textLength": 408,
+          "summary": "他说：「好吧，那就这样办。」她点了点头，…家你看看我，我看看你，谁都没有再说话……"
+        }
+      ]
+    },
+    "gen:deep-list": {
+      "spec": {
+        "pageWidth": 320.0,
+        "pageHeight": 600.0,
+        "devicePixelRatio": 2.0,
+        "fontFamily": "SnapshotSerif",
+        "fontSize": 16.0,
+        "lineHeight": 1.5,
+        "margin": 12.0
+      },
+      "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
+      "bookHash": "b3449b7adadd49b9488c165d3123249aa1b0d6282f7c19d009b0df40d8ae62ca",
+      "pages": [
+        {
+          "index": 0,
+          "layoutHash": "6fa09795194ef42e313b8fa9bb59b646291fb9dde86d4b150f377096b6dfa594",
+          "inkPixels": 31938,
+          "lineCount": 11,
+          "textLength": 69,
+          "summary": "第三章 深层列表第一层甲第二层甲一第三层…收束段落，用来观察列表与正文之间的间距。"
+        }
+      ]
+    },
+    "gen:bare-table": {
+      "spec": {
+        "pageWidth": 320.0,
+        "pageHeight": 600.0,
+        "devicePixelRatio": 2.0,
+        "fontFamily": "SnapshotSerif",
+        "fontSize": 16.0,
+        "lineHeight": 1.5,
+        "margin": 12.0
+      },
+      "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
+      "bookHash": "06ea25d8671d1ae5927201f93f8197b41d9064c6b02732ad56d9b733b8f96402",
+      "pages": [
+        {
+          "index": 0,
+          "layoutHash": "fff0966ccdad2dba4473b6ab859d1c30a6cb043b5d2c316d4957ad1d93ef416f",
+          "inkPixels": 23617,
+          "lineCount": 12,
+          "textLength": 47,
+          "summary": "第四章 裸表格甲乙丙123四五六表格没有… 与样式属性，是网文最常见的裸表格形态。"
+        }
+      ]
+    },
+    "gen:sup-footnote": {
+      "spec": {
+        "pageWidth": 320.0,
+        "pageHeight": 600.0,
+        "devicePixelRatio": 2.0,
+        "fontFamily": "SnapshotSerif",
+        "fontSize": 16.0,
+        "lineHeight": 1.5,
+        "margin": 12.0
+      },
+      "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
+      "bookHash": "37ea9f4096faa30f8a5f8974b2028171b024fa7efb3b03dd79c06e200dc0a93b",
+      "pages": [
+        {
+          "index": 0,
+          "layoutHash": "df1efd80bfd24fce14761dcdc3161b7b25c8824236b39ede17fe2efbcd432dc9",
+          "inkPixels": 88304,
+          "lineCount": 15,
+          "textLength": 250,
+          "summary": "这一段的句子里带有脚注编号[0]，上标借…邻行的行高应保持一致，否则就是行距跳变。"
+        }
+      ]
+    },
+    "gen:drop-cap": {
+      "spec": {
+        "pageWidth": 320.0,
+        "pageHeight": 600.0,
+        "devicePixelRatio": 2.0,
+        "fontFamily": "SnapshotSerif",
+        "fontSize": 16.0,
+        "lineHeight": 1.5,
+        "margin": 12.0
+      },
+      "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
+      "bookHash": "88867fdba7d8ae2f991b64720efee866dd9c203c0b355d202ce808620f306f40",
+      "pages": [
+        {
+          "index": 0,
+          "layoutHash": "2b8fbfe9aeb38f7ab4011cc9023e1ca71779c2781fd9ef424c73f1a8c7f29e2c",
+          "inkPixels": 48565,
+          "lineCount": 11,
+          "textLength": 147,
+          "summary": "山中有雾，雾里有灯。灯下有人，人读旧书。…山径、石阶、院门与柴火，构成清晨的画面。"
+        }
+      ]
     }
   }
 }

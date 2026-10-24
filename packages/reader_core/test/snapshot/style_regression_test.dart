@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/corpus.dart';
+import 'p7_samples.dart';
 import 'snapshot_harness.dart';
 
 /// P2-33 样式回归：5 本样本整书渲染，与提交入库的基线逐页对照。
@@ -85,24 +86,18 @@ Future<void> main() async {
 
     final diffs = <_BookDiff>[];
     final snapshots = <String, Map<String, Object?>>{};
-    for (final file in _samples) {
-      final sample = File('${corpus.path}/$file');
-      if (!sample.existsSync()) {
-        // ignore: avoid_print
-        print('SKIP 缺少样本 $file');
-        continue;
-      }
-      final snapshot = await snapshotBook(sample.readAsBytesSync(), _spec);
-      snapshots[file] = <String, Object?>{
+    Future<void> snapshotOne(String name, Uint8List bytes) async {
+      final snapshot = await snapshotBook(bytes, _spec);
+      snapshots[name] = <String, Object?>{
         'spec': snapshot.spec,
         'specId': snapshot.specId,
         'bookHash': snapshot.bookHash,
         'pages': snapshot.pages.map((p) => p.toJson()).toList(growable: false),
       };
 
-      final base = baselineBooks[file] as Map<String, dynamic>?;
+      final base = baselineBooks[name] as Map<String, dynamic>?;
       final diff = _BookDiff(
-        file: file,
+        file: name,
         pages: snapshot.pages.length,
         baselinePages: (base?['pages'] as List?)?.length,
         bookHash: snapshot.bookHash,
@@ -130,6 +125,21 @@ Future<void> main() async {
         }
       }
       diffs.add(diff);
+    }
+
+    for (final file in _samples) {
+      final sample = File('${corpus.path}/$file');
+      if (!sample.existsSync()) {
+        // ignore: avoid_print
+        print('SKIP 缺少样本 $file');
+        continue;
+      }
+      await snapshotOne(file, sample.readAsBytesSync());
+    }
+    // P7-31 生成样本（合成内容，无本地依赖，永远参与回归）。
+    final generated = buildP7SampleEpubs();
+    for (final entry in generated.entries) {
+      await snapshotOne(entry.key, entry.value);
     }
 
     // 更新基线：STYLE_REGRESSION_UPDATE=1。
