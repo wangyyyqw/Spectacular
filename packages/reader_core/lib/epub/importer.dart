@@ -180,3 +180,57 @@ ImportProbeResult probeImport({
   );
 }
 
+
+/// 拒绝文案（P3-27，§55.3）：L4 拒绝时给可读原因与下一步建议。
+///
+/// 由 P7-05 码表驱动——只做码→文案映射，不散落手写文案（§82.4）；
+/// 不暴露堆栈与技术术语。
+class RejectionMessage {
+  const RejectionMessage({required this.title, required this.suggestion});
+
+  /// 一句话原因。
+  final String title;
+
+  /// 下一步建议。
+  final String suggestion;
+}
+
+abstract final class EpubRejectionMessages {
+  /// 按错误码映射文案；未知码回退通用文案（不泄漏内部信息）。
+  static RejectionMessage forCode(String? code, String? detail) {
+    switch (code) {
+      case 'E_ARCHIVE':
+        return const RejectionMessage(
+          title: '这不是 EPUB 文件（无法解压）',
+          suggestion: '请确认文件完整后重新下载或导入',
+        );
+      case 'E_OCF':
+      case 'E_CONTAINER_MISSING':
+        return const RejectionMessage(
+          title: '缺少必要的书籍描述文件，可能不是标准 EPUB',
+          suggestion: '尝试用其他来源重新获取这本书',
+        );
+      case 'E_OPF_MISSING':
+        return const RejectionMessage(
+          title: '书籍结构损坏：找不到书籍信息文件',
+          suggestion: '这本书的内部文件缺失，请重新下载',
+        );
+      case 'E_SPINE_EMPTY':
+        return const RejectionMessage(
+          title: '书籍没有阅读顺序，无法分页',
+          suggestion: '这本书的章节列表为空，请换一个版本试试',
+        );
+      case 'E_FAIRPLAY_ENCRYPTION':
+        return const RejectionMessage(
+          title: '本书受版权保护（DRM），无法打开',
+          suggestion: '请在购买该书的平台阅读',
+        );
+      case 'E_INTERNAL':
+      default:
+        return const RejectionMessage(
+          title: '书内容无法解析，可能是加密或格式异常',
+          suggestion: '请确认这本书未加密，或换一个来源',
+        );
+    }
+  }
+}

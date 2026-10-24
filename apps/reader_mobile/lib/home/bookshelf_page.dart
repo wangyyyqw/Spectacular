@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import 'package:reader_core/epub/importer.dart';
+
 import '../library/library_store.dart';
 import '../reader/epub_reader_page.dart';
 import '../storage/file_progress_store.dart';
@@ -94,7 +96,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     } on LibraryImportException catch (error) {
       if (mounted) {
-        setState(() => _error = error.message);
+        // P3-27：拒绝文案由码表驱动，给原因与建议，不暴露堆栈。
+        final friendly = EpubRejectionMessages.forCode(
+          error.errorCode,
+          error.message,
+        );
+        setState(() => _error = '${friendly.title}。${friendly.suggestion}');
       }
     } catch (error) {
       if (mounted) {
@@ -268,23 +275,57 @@ class _BookCard extends StatelessWidget {
       ),
       alignment: Alignment.center,
       padding: const EdgeInsets.all(8),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Stack(
         children: [
-          Text(
-            _coverGlyph(entry.title),
-            style: theme.textTheme.headlineMedium?.copyWith(
-              color: Colors.white,
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                _coverGlyph(entry.title),
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                entry.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.white70,
+                ),
+              ),
+            ],
+          ),
+          // L2/L3 结构异常角标（P3-27，§55.2：必须让用户知道书被修复过）。
+          if (entry.readabilityLevel >= 2)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Tooltip(
+                message: entry.readabilityLevel >= 3
+                    ? '结构异常：进度与目录可能不可靠'
+                    : '部分内容降级：目录或资源缺失',
+                child: Container(
+                  key: const ValueKey<String>('book-damaged-badge'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    entry.readabilityLevel >= 3 ? '结构异常' : '部分降级',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            entry.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-          ),
         ],
       ),
     );
