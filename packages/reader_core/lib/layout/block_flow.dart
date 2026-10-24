@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show immutable, protected;
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
+import 'box_model.dart';
 import 'line_breaker.dart';
 
 /// 块级盒的测量约束（§60.1）。
@@ -139,19 +140,28 @@ class TextFlowBlock extends BlockFlow {
   final List<StyledRun> runs;
 
   TextLayoutResult? _layout;
+  BoxModel? _boxModel;
 
   /// 阶段一产出的行布局；未测量时为空。
   TextLayoutResult? get layout => _layout;
+
+  /// 阶段一产出的盒模型；未测量时为空。
+  BoxModel? get boxModel => _boxModel;
 
   @override
   CssEdges get margin => style.margin;
 
   @override
   void onLayout(LayoutConstraints constraints) {
+    final model = BoxModel.fromStyle(
+      style,
+      containingWidth: constraints.maxWidth,
+    );
+    _boxModel = model;
     _layout = TextLayoutEngine.layout(
       text: text,
       style: style,
-      maxWidth: constraints.maxWidth,
+      maxWidth: model.resolveContentWidth(constraints.maxWidth),
       runs: runs,
     );
   }
@@ -159,10 +169,20 @@ class TextFlowBlock extends BlockFlow {
   @override
   Size calculateSize(LayoutConstraints constraints) {
     final layout = _layout;
-    if (layout == null || layout.lineCount == 0) {
+    final model = _boxModel;
+    if (layout == null || model == null || layout.lineCount == 0) {
       return constraints.constrain(Size.zero);
     }
-    return constraints.constrain(Size(layout.width, layout.height));
+    // 声明宽是块级定宽，直接作为内容宽；auto 时沿用实测行宽（既有收缩语义）。
+    final contentWidth = model.contentWidth == null
+        ? layout.width
+        : model.resolveContentWidth(constraints.maxWidth);
+    return constraints.constrain(
+      Size(
+        model.borderBoxWidth(contentWidth),
+        model.borderBoxHeight(layout.height),
+      ),
+    );
   }
 }
 
@@ -178,9 +198,45 @@ class ColumnFlowBlock extends BlockFlow {
     List<BlockFlow> children = const <BlockFlow>[],
     CssEdges margin = CssEdges.zero,
     bool clampFirstNegativeTopMargin = false,
-  ]) : _children = List<BlockFlow>.unmodifiable(children),
-       _ownMargin = margin,
-       _clampFirstNegativeTopMargin = clampFirstNegativeTopMargin;
+  ]) : this._(
+         children,
+         margin,
+         clampFirstNegativeTopMargin,
+         CssEdges.zero,
+         CssEdges.zero,
+       );
+
+  ColumnFlowBlock._(
+    List<BlockFlow> children,
+    CssEdges margin,
+    bool clampFirstNegativeTopMargin,
+    CssEdges padding,
+    CssEdges borders,
+  ) : _children = List<BlockFlow>.unmodifiable(children),
+      _ownMargin = margin,
+      _clampFirstNegativeTopMargin = clampFirstNegativeTopMargin,
+      _padding = padding,
+      _borders = borders;
+
+  /// 按样式创建容器：padding/border/margin 取自 [style]。
+  ///
+  /// 子块在内容区（扣掉 padding 与 border）内排布，自身尺寸含 padding/border。
+  factory ColumnFlowBlock.styled({
+    required List<BlockFlow> children,
+    required ComputedStyle style,
+    bool clampFirstNegativeTopMargin = false,
+  }) => ColumnFlowBlock._(
+    children,
+    style.margin,
+    clampFirstNegativeTopMargin,
+    style.padding,
+    CssEdges(
+      top: style.borders.top.width,
+      right: style.borders.right.width,
+      bottom: style.borders.bottom.width,
+      left: style.borders.left.width,
+    ),
+  );
 
   /// 页根（body）容器：首个块级子元素的负 `margin-top` 钳到 0（§60.7）。
   factory ColumnFlowBlock.body([
@@ -190,10 +246,18 @@ class ColumnFlowBlock extends BlockFlow {
 
   final List<BlockFlow> _children;
   final CssEdges _ownMargin;
+  final CssEdges _padding;
+  final CssEdges _borders;
   final bool _clampFirstNegativeTopMargin;
   final List<double> _childTops = <double>[];
   var _collapsedMargin = CssEdges.zero;
   var _contentHeight = 0.0;
+
+  /// padding + border 的水平总和。
+  double get _horizontalInset => _padding.horizontal + _borders.horizontal;
+
+  /// padding + border 的垂直总和。
+  double get _verticalInset => _padding.vertical + _borders.vertical;
 
   @override
   List<BlockFlow> get children => _children;
@@ -207,6 +271,7 @@ class ColumnFlowBlock extends BlockFlow {
   @override
   void onLayout(LayoutConstraints constraints) {
     _childTops.clear();
+    final childWidth = math.max(0.0, constraints.maxWidth - _horizontalInset);
     var remaining = constraints.maxHeight;
     var cursor = 0.0;
     var previousBottom = 0.0;
@@ -214,7 +279,7 @@ class ColumnFlowBlock extends BlockFlow {
     BlockFlow? lastChild;
     for (final child in _children) {
       child.measure(
-        LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: remaining),
+        LayoutConstraints(maxWidth: childWidth, maxHeight: remaining),
       );
       if (child.isOutOfFlow) {
         continue;
@@ -259,7 +324,9 @@ class ColumnFlowBlock extends BlockFlow {
     for (final child in _children) {
       width = math.max(width, child.size.width);
     }
-    return constraints.constrain(Size(width, _contentHeight));
+    return constraints.constrain(
+      Size(width + _horizontalInset, _contentHeight + _verticalInset),
+    );
   }
 }
 
@@ -339,7 +406,7 @@ BlockFlow createFlowBox({
 }) {
   final content = text != null
       ? TextFlowBlock(text: text, style: style, runs: runs)
-      : ColumnFlowBlock(children, style.margin);
+      : ColumnFlowBlock.styled(children: children, style: style);
   return switch (resolveFlowBranch(style)) {
     FlowBranch.absolute => AbsoluteFlowBlock(content),
     FlowBranch.float => FloatFlowBlock(content),

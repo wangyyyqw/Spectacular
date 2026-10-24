@@ -78,6 +78,32 @@ Rect? _inkBounds(ByteData bytes, {int x0 = 0, int x1 = _width}) {
         );
 }
 
+/// 指定行上首个满足条件的像素列；没有返回 -1。
+int _firstColumnWhere(
+  ByteData bytes,
+  int y,
+  bool Function(Color) test, {
+  int x0 = 0,
+  int x1 = _width,
+}) {
+  for (var x = x0; x < x1; x++) {
+    if (test(_pixel(bytes, x, y))) {
+      return x;
+    }
+  }
+  return -1;
+}
+
+/// 首个满足条件的像素行；没有返回 -1。
+int _firstRowWhere(ByteData bytes, bool Function(Color) test) {
+  for (var y = 0; y < _height; y++) {
+    if (_firstColumnWhere(bytes, y, test) >= 0) {
+      return y;
+    }
+  }
+  return -1;
+}
+
 /// 某一行上黑色像素的连续段数。
 int _inkRuns(ByteData bytes, int y) {
   var runs = 0;
@@ -126,7 +152,8 @@ void main() {
     expect(_isWhite(_pixel(bytes, 1, 1)), isTrue, reason: '圆角外应露出页面背景');
     expect(_isRed(_pixel(bytes, 20, 24)), isTrue, reason: '圆角内填充背景色');
     expect(_isBlack(_pixel(bytes, 120, 0)), isTrue, reason: '上边框');
-    expect(_isBlack(_pixel(bytes, 120, 47)), isTrue, reason: '下边框');
+    // 块首切片的高度含 2px 上边框，下边框随之落在 48..50。
+    expect(_isBlack(_pixel(bytes, 120, 49)), isTrue, reason: '下边框');
     expect(_isBlack(_pixel(bytes, 1, 24)), isTrue, reason: '左边框');
     expect(_isBlack(_pixel(bytes, 238, 24)), isTrue, reason: '右边框');
   });
@@ -162,7 +189,7 @@ void main() {
       expect(bordered.lines[i].end, plain.lines[i].end);
     }
 
-    // 文本缩进 20px 后，只留左右边框，文字墨迹应与无边框样本完全一致。
+    // 文本缩进 20px、左右边框各 6px：行布局不变，但文字墨迹让开左边框右移 6px。
     final indented = _style(const {
       'text-indent': '20px',
       'border-left': '6px solid #000000',
@@ -179,7 +206,9 @@ void main() {
       x0: 10,
       x1: 230,
     );
-    expect(borderedInk, plainInk, reason: '文字位置不因边框改变');
+    expect(borderedInk!.left, plainInk!.left + 6, reason: '文字让开左边框内缩 6px');
+    expect(borderedInk.top, plainInk.top, reason: '左右边框不影响行高与行位');
+    expect(borderedInk.right, plainInk.right + 6, reason: '整行墨迹随内容区内缩平移');
   });
 
   test('背景色铺满块区域且不越出内容区', () async {
@@ -190,5 +219,84 @@ void main() {
     final green = _pixel(bytes, 220, 10);
     expect(green.g, greaterThan(0.9));
     expect(_isWhite(_pixel(bytes, 220, 100)), isTrue, reason: '块外仍是页面背景');
+  });
+
+  test('边框内缩：文字不再压在边框上', () async {
+    // 红色边框与黑色文字分开统计，便于定位文字墨迹的真实左边界。
+    final bytes = await _render(
+      'aa',
+      _style(const {'border': '6px solid #FF0000'}),
+    );
+
+    expect(_isRed(_pixel(bytes, 0, 15)), isTrue, reason: '左边框占据 0..6');
+    expect(_isRed(_pixel(bytes, 5, 15)), isTrue, reason: '左边框内沿');
+    expect(_isRed(_pixel(bytes, 120, 3)), isTrue, reason: '上边框占据 0..6');
+    final textLeft = _firstColumnWhere(bytes, 15, _isBlack);
+    expect(
+      textLeft,
+      greaterThanOrEqualTo(6),
+      reason: '文字左边界应让开 6px 边框，不再压住首字符',
+    );
+    final textTop = _firstRowWhere(bytes, _isBlack);
+    expect(textTop, greaterThanOrEqualTo(6), reason: '首行墨迹应让开上边框 6px');
+  });
+
+  test('内边距内缩：文字避开 8px 内边距且背景铺满全宽', () async {
+    final bytes = await _render(
+      'aa',
+      _style(const {'padding': '8px', 'background-color': '#00FF00'}),
+    );
+
+    // 背景仍铺满边框盒：内边距区域也填色，始终覆盖整行宽。
+    expect(_pixel(bytes, 1, 1).g, greaterThan(0.9), reason: '左内边距区域有背景色');
+    expect(
+      _pixel(bytes, _width - 2, 1).g,
+      greaterThan(0.9),
+      reason: '右内边距区域有背景色',
+    );
+    final textLeft = _firstColumnWhere(bytes, 15, _isBlack);
+    expect(textLeft, greaterThanOrEqualTo(8), reason: '文字左边界应让开 8px 内边距');
+    final textTop = _firstRowWhere(bytes, _isBlack);
+    expect(textTop, greaterThanOrEqualTo(8), reason: '首行墨迹应让开上内边距 8px');
+  });
+
+  test('边框与内边距叠加：文字左边界与首行顶部各让开 8px', () async {
+    final bytes = await _render(
+      'aa',
+      _style(const {'border': '4px solid #FF0000', 'padding': '4px'}),
+    );
+
+    expect(_isRed(_pixel(bytes, 2, 15)), isTrue, reason: '左边框占据 0..4');
+    final textLeft = _firstColumnWhere(bytes, 15, _isBlack);
+    expect(
+      textLeft,
+      greaterThanOrEqualTo(8),
+      reason: '4px 边框 + 4px 内边距后文字左边界让开 8px',
+    );
+    final textTop = _firstRowWhere(bytes, _isBlack);
+    expect(
+      textTop,
+      greaterThanOrEqualTo(8),
+      reason: '4px 边框 + 4px 内边距后首行墨迹让开 8px',
+    );
+  });
+
+  test('无 padding/边框：文字位置与无样式基线一致', () async {
+    final baseline = await _render('aa', _style(const {}));
+    final explicitZero = await _render(
+      'aa',
+      _style(const {
+        'padding': '0px',
+        'border': 'none',
+        'box-sizing': 'content-box',
+      }),
+    );
+
+    expect(
+      _inkBounds(explicitZero),
+      _inkBounds(baseline),
+      reason: '零内缩不应改变文字像素位置',
+    );
+    expect(_inkBounds(baseline)!.left, 0, reason: '无内缩时文字从行首起笔');
   });
 }

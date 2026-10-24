@@ -57,6 +57,38 @@ class CssEdges {
   String toString() => 'CssEdges($top,$right,$bottom,$left)';
 }
 
+/// 尺寸值：像素 / 百分比 / auto。
+///
+/// 解析层只记录数值与单位标记，百分比按基准长度解算留到盒模型计算时。
+class CssLength {
+  /// 创建尺寸值；[isPercent] 为 true 时 [value] 是百分比数字（如 50 表示 50%）。
+  const CssLength(this.value, {this.isAuto = false, this.isPercent = false});
+
+  /// 关键字 `auto`。
+  const CssLength.auto() : value = 0, isAuto = true, isPercent = false;
+
+  /// 数值（像素或百分比数字）。
+  final double value;
+
+  /// 是否为关键字 `auto`。
+  final bool isAuto;
+
+  /// 是否为百分比。
+  final bool isPercent;
+
+  /// 按基准长度解算像素；auto 返回 null。
+  double? resolve(double base) =>
+      isAuto ? null : (isPercent ? value * base / 100 : value);
+
+  @override
+  String toString() => isAuto
+      ? 'CssLength(auto)'
+      : (isPercent ? 'CssLength($value%)' : 'CssLength($value)');
+}
+
+/// 盒模型尺寸基准（CSS `box-sizing`）。
+enum CssBoxSizing { contentBox, borderBox }
+
 /// 边框线型（CSS `border-style<border-style>`）。
 enum CssBorderStyle { none, solid, dashed, dotted, double }
 
@@ -312,6 +344,33 @@ class ComputedStyle {
       color: color,
     );
 
+    // 尺寸、内边距与 box-sizing 均不继承，未声明时按初始值兜底（P2-14 盒模型）。
+    CssLength? dimension(String property) {
+      final raw = explicitValue(property);
+      return raw == null
+          ? null
+          : _resolveCssLength(
+              raw,
+              fontSize: fontSize,
+              rootFontSize: rootFontSize,
+            );
+    }
+
+    final width = dimension('width');
+    final height = dimension('height');
+    final minWidth = dimension('min-width');
+    final maxWidth = dimension('max-width');
+    final minHeight = dimension('min-height');
+    final maxHeight = dimension('max-height');
+    final padding = _resolvePadding(
+      values,
+      explicit,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+      containingWidth: containingWidth,
+    );
+    final boxSizing = _parseBoxSizing(explicitValue('box-sizing'));
+
     return ComputedStyle._(
       values: values,
       hasExplicitTextColor: hasExplicitTextColor,
@@ -332,6 +391,14 @@ class ComputedStyle {
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
       borders: borders,
+      width: width,
+      height: height,
+      minWidth: minWidth,
+      maxWidth: maxWidth,
+      minHeight: minHeight,
+      maxHeight: maxHeight,
+      padding: padding,
+      boxSizing: boxSizing,
       explicitProperties: explicit,
     );
   }
@@ -356,6 +423,14 @@ class ComputedStyle {
     required this.backgroundColor,
     required this.backgroundImage,
     required this.borders,
+    required this.width,
+    required this.height,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.minHeight,
+    required this.maxHeight,
+    required this.padding,
+    required this.boxSizing,
     required this.explicitProperties,
   });
 
@@ -426,6 +501,30 @@ class ComputedStyle {
   /// 四边边框与四角圆角。
   final CssBorders borders;
 
+  /// 指定宽度；null 表示未声明（等同于 auto）。
+  final CssLength? width;
+
+  /// 指定高度；null 表示未声明（等同于 auto）。
+  final CssLength? height;
+
+  /// 最小宽度。
+  final CssLength? minWidth;
+
+  /// 最大宽度；`max-width: none` 时为 null。
+  final CssLength? maxWidth;
+
+  /// 最小高度。
+  final CssLength? minHeight;
+
+  /// 最大高度；`max-height: none` 时为 null。
+  final CssLength? maxHeight;
+
+  /// 四边内边距（逻辑像素，百分比已按 containingWidth 解算，负值钳 0）。
+  final CssEdges padding;
+
+  /// 盒模型尺寸基准（不继承，初始 `content-box`）。
+  final CssBoxSizing boxSizing;
+
   /// 元素自身层叠出的属性集合。
   final Set<String> explicitProperties;
 
@@ -441,7 +540,99 @@ class ComputedStyle {
       'color=$color, weight=$fontWeight, italic=$italic, align=$textAlign, '
       'indent=$textIndent, letterSpacing=$letterSpacing, margin=$margin, '
       'families=$fontFamilies, position=$position, float=$cssFloat, '
-      'display=$display, bg=$backgroundColor, borders=$borders)';
+      'display=$display, bg=$backgroundColor, borders=$borders, '
+      'size=$width/$height, min=$minWidth/$minHeight, '
+      'max=$maxWidth/$maxHeight, padding=$padding, boxSizing=$boxSizing)';
+
+  /// 解析 `width` / `height` / `min-*` / `max-*` 为尺寸值。
+  ///
+  /// `auto` 解析为 [CssLength.auto]，`none`（仅 max-* 合法）视为未设上限返回
+  /// null；百分比保留标记不在此层解算。
+  static CssLength? _resolveCssLength(
+    String raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty) {
+      return null;
+    }
+    if (value == 'auto') {
+      return const CssLength.auto();
+    }
+    if (value == 'none') {
+      return null;
+    }
+    final percent = _parsePercent(value);
+    if (percent != null) {
+      return CssLength(percent, isPercent: true);
+    }
+    final resolved = _resolveLength(
+      value,
+      fontSize: fontSize,
+      parentFontSize: fontSize,
+      rootFontSize: rootFontSize,
+      percentBase: 0,
+    );
+    return resolved == null ? null : CssLength(resolved);
+  }
+
+  /// 解析 `padding` 简写与 `padding-*` 长写；百分比按 [containingWidth] 解算。
+  static CssEdges _resolvePadding(
+    Map<String, String> values,
+    Set<String> explicit, {
+    required double fontSize,
+    required double rootFontSize,
+    required double containingWidth,
+  }) {
+    String? value(String property) =>
+        explicit.contains(property) ? values[property] : null;
+
+    // padding 不允许负值，负值按 CSS 规范钳到 0。
+    double padding(String raw) {
+      final resolved = _resolveLength(
+        raw,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: rootFontSize,
+        percentBase: containingWidth,
+      );
+      return resolved == null || resolved < 0 ? 0 : resolved;
+    }
+
+    final sides = <double>[0, 0, 0, 0];
+    final shorthand = value('padding');
+    if (shorthand != null) {
+      final parts = _expandFour(shorthand.trim().split(RegExp(r'\s+')));
+      for (var i = 0; i < parts.length && i < 4; i++) {
+        sides[i] = padding(parts[i]);
+      }
+    }
+    const names = <(int, String)>[
+      (0, 'top'),
+      (1, 'right'),
+      (2, 'bottom'),
+      (3, 'left'),
+    ];
+    for (final (index, name) in names) {
+      final raw = value('padding-$name');
+      if (raw != null) {
+        sides[index] = padding(raw);
+      }
+    }
+    return CssEdges(
+      top: sides[0],
+      right: sides[1],
+      bottom: sides[2],
+      left: sides[3],
+    );
+  }
+
+  /// 解析 `box-sizing`；只认 `border-box`，其余（含未声明）回退 contentBox。
+  static CssBoxSizing _parseBoxSizing(String? raw) =>
+      raw?.trim().toLowerCase() == 'border-box'
+      ? CssBoxSizing.borderBox
+      : CssBoxSizing.contentBox;
 
   /// 解析 `border` / `border-*` / `border-radius`（§65 背景与边框组）。
   static CssBorders _resolveBorders(
