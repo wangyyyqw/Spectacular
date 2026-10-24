@@ -18,6 +18,7 @@ my @stages = (
     { n => 4, file => 'P4-M3-业务闭环.md' },
     { n => 5, file => 'P5-M4-高级排版.md' },
     { n => 6, file => 'P6-M5-打磨与发布.md' },
+    { n => 7, file => 'P7-Reeden增强补充.md' },
 );
 
 my @errors;
@@ -88,7 +89,9 @@ for my $st (@stages) {
 }
 
 my %required = map { $_ => 1 } qw(目标 产出 依赖 验收 参考);
-push @errors, "任务总数应为 200，实际 " . scalar(@tasks) unless @tasks == 200;
+# 任务总数上限 400：v1.1（2026-10-24）起允许增补任务（P7 Reeden 增强阶段 32 项），下限仍为原基线 200。
+push @errors, "任务总数应在 200～400，实际 " . scalar(@tasks)
+    if @tasks < 200 || @tasks > 400;
 
 my $total_hours = 0;
 my %pos;
@@ -113,8 +116,7 @@ for my $st (@stages) {
     push @errors, "P$st->{n} 标称 $want_cnt 项/$want_h h，实际 $got_cnt 项/$got_h h"
         unless $got_cnt == $want_cnt && $got_h == $want_h;
 }
-push @errors, "总工时应为 640h，实际 ${total_hours}h" unless $total_hours == 640;
-
+# 总工时不再做 640h 硬校验：P0～P6 维持 640h 基线，P7 增补工时单列（各阶段标称仍逐一核对）。
 my $done_total = 0;
 my $done_hours = 0;
 for my $t (@tasks) {
@@ -159,8 +161,8 @@ for my $st (@stages) {
         $stage_hours{$st->{n}} // 0, $stage_done_hours{$st->{n}} // 0,
         $st->{file}, $main_rel, $st->{file});
 }
-$progress .= sprintf("| 合计 | %d | %d | %dh | %dh | 7 个阶段文件 |\n",
-    scalar(@tasks), $done_total, $total_hours, $done_hours);
+$progress .= sprintf("| 合计 | %d | %d | %dh | %dh | %d 个阶段文件 |\n",
+    scalar(@tasks), $done_total, $total_hours, $done_hours, scalar(@stages));
 $progress .= sprintf("\n- [%s] 总进度：%d / %d 项，%dh / %dh（%s%%）\n",
     $done_total == @tasks ? 'x' : ' ', $done_total, scalar(@tasks),
     $done_hours, $total_hours, $pct);
@@ -194,4 +196,4 @@ if (@errors) {
 open my $out, '>:encoding(UTF-8)', $main_path or die "无法写入 $main_path: $!";
 print $out $new;
 close $out;
-print "OK：200 项 / ${total_hours}h，已完成 ${done_total} 项 / ${done_hours}h（${pct}%），主文档与 7 个阶段文件已同步。\n";
+print "OK：" . scalar(@tasks) . " 项 / ${total_hours}h，已完成 ${done_total} 项 / ${done_hours}h（${pct}%），主文档与 " . scalar(@stages) . " 个阶段文件已同步。\n";
