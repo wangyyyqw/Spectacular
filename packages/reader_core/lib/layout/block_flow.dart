@@ -90,6 +90,12 @@ abstract class BlockFlow {
   /// 脱离流的盒子照常测量，但不推进父容器的块流高度（§60.3）。
   bool get isOutOfFlow => false;
 
+  /// 自身垂直 padding + border（margin 穿透折叠判定用；P7-24）。
+  ///
+  /// 自塌陷盒 = 高度 0 且自身无垂直 padding/border——其上下 margin
+  /// 折叠为一体并与相邻 margin 合并（CSS 2.2 §8.3.1）。
+  double get verticalInsets => 0;
+
   /// 测量分支（由 [resolveFlowBranch] 判定）。
   FlowBranch get branch => FlowBranch.block;
 
@@ -260,6 +266,9 @@ class ColumnFlowBlock extends BlockFlow {
   double get _verticalInset => _padding.vertical + _borders.vertical;
 
   @override
+  double get verticalInsets => _verticalInset;
+
+  @override
   List<BlockFlow> get children => _children;
 
   /// 各流内子块顶边相对容器内容区顶部的偏移（按出现顺序）。
@@ -274,7 +283,12 @@ class ColumnFlowBlock extends BlockFlow {
     final childWidth = math.max(0.0, constraints.maxWidth - _horizontalInset);
     var remaining = constraints.maxHeight;
     var cursor = 0.0;
+    // 携带的「前块有效下 margin」：自塌陷子块把自己的上下 margin 与
+    // 前块下 margin 合并后向前传递（P7-24 穿透折叠，CSS 2.2 §8.3.1）。
     var previousBottom = 0.0;
+    // 首末子块的「有效逸出 margin」：自塌陷链的上/下 margin 合并值。
+    double? firstEffectiveTop;
+    double? lastEffectiveBottom;
     BlockFlow? firstChild;
     BlockFlow? lastChild;
     for (final child in _children) {
@@ -284,38 +298,65 @@ class ColumnFlowBlock extends BlockFlow {
       if (child.isOutOfFlow) {
         continue;
       }
-      final gap = firstChild == null
-          ? 0.0
-          : collapseMargins(previousBottom, child.margin.top);
-      _childTops.add(cursor + gap);
-      cursor += gap + child.size.height;
-      if (remaining.isFinite) {
-        remaining = math.max(0.0, remaining - gap - child.size.height);
+      final selfCollapsing =
+          child.size.height == 0 && child.verticalInsets == 0;
+      if (selfCollapsing) {
+        // 穿透（P7-24，CSS 2.2 §8.3.1）：零高且无垂直 padding/border
+        // 的块不推进流——其上下 margin 与前块下 margin 合并后向前
+        // 携带（或作为首块向上逸出进容器顶 margin）。
+        final gap = firstChild == null
+            ? 0.0
+            : collapseMargins(previousBottom, child.margin.top);
+        _childTops.add(cursor + gap);
+        final merged = collapseMargins(child.margin.top, child.margin.bottom);
+        if (firstChild == null) {
+          previousBottom = 0;
+        } else {
+          previousBottom = collapseMargins(previousBottom, merged);
+        }
+      } else {
+        final gap = firstChild == null
+            ? 0.0
+            : collapseMargins(previousBottom, child.margin.top);
+        _childTops.add(cursor + gap);
+        cursor += gap + child.size.height;
+        if (remaining.isFinite) {
+          remaining = math.max(0.0, remaining - gap - child.size.height);
+        }
+        previousBottom = child.margin.bottom;
       }
-      previousBottom = child.margin.bottom;
+      final effectiveTop = selfCollapsing
+          ? collapseMargins(child.margin.top, child.margin.bottom)
+          : child.margin.top;
+      final effectiveBottom = selfCollapsing
+          ? collapseMargins(child.margin.top, child.margin.bottom)
+          : child.margin.bottom;
+      firstEffectiveTop ??= effectiveTop;
+      lastEffectiveBottom = effectiveBottom;
       firstChild ??= child;
       lastChild = child;
     }
     _contentHeight = cursor;
+    // 首块逸出 margin：页根容器对负值钳制（§60.7，P2-09）——自塌陷
+    // 链的合并逸出值同样钳制。
+    final escapedTop = firstEffectiveTop == null
+        ? null
+        : (_clampFirstNegativeTopMargin
+              ? clampFirstElementNegativeTopMargin(
+                  firstEffectiveTop,
+                  isBodyFirstElement: true,
+                )
+              : firstEffectiveTop);
     _collapsedMargin = CssEdges(
       top: firstChild == null
           ? _ownMargin.top
-          : collapseMargins(_ownMargin.top, _firstChildTopMargin(firstChild)),
+          : collapseMargins(_ownMargin.top, escapedTop ?? 0),
       right: _ownMargin.right,
       bottom: lastChild == null
           ? _ownMargin.bottom
-          : collapseMargins(_ownMargin.bottom, lastChild.margin.bottom),
+          : collapseMargins(_ownMargin.bottom, lastEffectiveBottom ?? 0),
       left: _ownMargin.left,
     );
-  }
-
-  /// 逸出到容器外的首块上 margin；页根容器按 §60.7 钳制负值。
-  double _firstChildTopMargin(BlockFlow firstChild) {
-    final top = firstChild.margin.top;
-    if (!_clampFirstNegativeTopMargin) {
-      return top;
-    }
-    return clampFirstElementNegativeTopMargin(top, isBodyFirstElement: true);
   }
 
   @override
