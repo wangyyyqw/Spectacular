@@ -41,3 +41,6 @@ jobs:
 
       - name: 各包分析与测试
         run: bash tool/run_all.sh
+
+      - name: 性能预算检查
+        run: dart tool/bench/budget_check.dart
