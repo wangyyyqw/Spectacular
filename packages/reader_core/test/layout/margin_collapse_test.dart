@@ -135,6 +135,35 @@ void main() {
     expect(empty.margin.bottom, 7);
   });
 
+  test('零高空容器夹在兄弟间：margin 穿透折叠（P7-24/MarginStrut 对照）', () {
+    // CSS 2.2：无 border/padding/height 的空块自身上下 margin 折叠，
+    // 兄弟间隙 = collapse(前块 bottom=4, 空 top=10, 空 bottom=30,
+    // 后块 top=6) = 30（穿透折叠，不是 10+30 的独立间隙）。
+    final empty = ColumnFlowBlock(
+      const <BlockFlow>[],
+      const CssEdges(top: 10, right: 0, bottom: 30, left: 0),
+    );
+    final before = _text('aa', bottom: 4);
+    final after = _text('bb', top: 6);
+    final outer = ColumnFlowBlock(<BlockFlow>[before, empty, after]);
+    outer.measure(_constraints);
+
+    expect(outer.childTops[2], closeTo(24 + 30, 0.01),
+        reason: '穿透后单一间隙 30');
+    expect(outer.size.height, closeTo(24 + 30 + 24, 0.01));
+  });
+
+  test('负 margin 相邻对：折叠后基线推进与边界包含（P7-24/MarginStrut 对照）', () {
+    final first = _text('aa', bottom: -6);
+    final second = _text('bb', top: -10);
+    final outer = ColumnFlowBlock([first, second]);
+    outer.measure(_constraints);
+
+    // 负负取更负：gap = -10；第二块上移。
+    expect(outer.childTops[1], closeTo(24 - 10, 0.01));
+    expect(outer.size.height, closeTo(24 - 10 + 24, 0.01));
+  });
+
   test('基线推进等于前块高度加折叠间距', () {
     final first = _text('aa', bottom: 20);
     final second = _text('bb', top: 8);
