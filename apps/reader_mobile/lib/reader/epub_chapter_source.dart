@@ -328,7 +328,12 @@ class EpubChapterSource
       return uaStyles[tag] = overlaid ?? style;
     }
 
-    void collect(EpubNode node, String blockTag, {int groupId = 0}) {
+    void collect(
+      EpubNode node,
+      String blockTag, {
+      int groupId = 0,
+      _ListContext? list,
+    }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
         final text = node.text;
@@ -336,6 +341,11 @@ class EpubChapterSource
           return;
         }
         final blockStyle = styleFor(blockTag);
+        // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
+        String? marker;
+        if (blockTag == 'li' && list != null) {
+          marker = list.nextMarker();
+        }
         final layout = _layoutCache.layout(
           text: text,
           style: blockStyle,
@@ -349,6 +359,7 @@ class EpubChapterSource
               containingWidth: contentWidth,
               startCfi: cfi,
               groupId: groupId,
+              listMarker: marker,
             ),
           );
         }
@@ -359,12 +370,24 @@ class EpubChapterSource
           figureSeq += 1;
           childGroup = figureSeq;
         }
+        // 列表上下文（P3-23）：ul/ol 开新层，li 沿用所在列表。
+        _ListContext? childList = list;
+        if (node.tag == 'ul' || node.tag == 'ol') {
+          childList = _ListContext(node.tag, (list?.depth ?? -1) + 1);
+        } else if (node.tag == 'li' && list != null) {
+          childList = list;
+        }
         for (final child in node.children) {
-          collect(child, node.tag, groupId: childGroup);
+          collect(
+            child,
+            node.tag,
+            groupId: childGroup,
+            list: childList,
+          );
         }
       } else if (node is InlineNode) {
         for (final child in node.children) {
-          collect(child, blockTag, groupId: groupId);
+          collect(child, blockTag, groupId: groupId, list: list);
         }
       }
     }
@@ -401,5 +424,29 @@ class EpubChapterSource
       blocks,
     ).encode();
     return pages;
+  }
+}
+
+/// 列表上下文（P3-23）：类型 + 嵌套深度 + ol 序号计数。
+class _ListContext {
+  _ListContext(this.type, this.depth);
+
+  /// 'ul' 或 'ol'。
+  final String type;
+
+  /// 嵌套深度（0 起）。
+  final int depth;
+
+  int _olCounter = 0;
+
+  /// 当前项的标记文本；ol 递增序号，ul 按深度取 disc→circle→square
+  ///（Reeden 630 §0-#4 嵌套类型轮换）。
+  String nextMarker() {
+    if (type == 'ol') {
+      _olCounter += 1;
+      return '$_olCounter.';
+    }
+    const bullets = <String>['•', '○', '▪'];
+    return bullets[depth.clamp(0, 2)];
   }
 }
