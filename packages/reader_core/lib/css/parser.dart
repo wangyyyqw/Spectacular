@@ -90,16 +90,45 @@ abstract final class CssParser {
   static final RegExp _syntaxErrorPattern = RegExp(r'^\d+:\d+:');
 
   /// 解析一段 CSS。
+  ///
+  /// 伪元素近似诊断（P7-28）：`::first-letter`（首字下沉的最常见载体）
+  /// 不在支持集内——规则不生效并记 `E_FIRST_LETTER_APPROXIMATED`，
+  /// 提示上层以内置近似（段首大字 run）渲染。
   static CssStylesheet parse(String css) {
     final base = _parseSingle(css);
     final hasSyntaxErrors = base.warnings.any(_syntaxErrorPattern.hasMatch);
+    final firstLetterRules = base.rules
+        .where((rule) => rule.selector.contains('::first-letter'))
+        .map((rule) => rule.selector)
+        .toList(growable: false);
+    final diagnostics = <String>[
+      for (final selector in firstLetterRules)
+        'E_FIRST_LETTER_APPROXIMATED: 伪元素 $selector 不支持，'
+        '首字下沉以内置近似（段首大字）渲染',
+    ];
     if (!hasSyntaxErrors) {
-      return base;
+      return diagnostics.isEmpty
+          ? base
+          : CssStylesheet(
+              rules: base.rules,
+              imports: base.imports,
+              warnings: List<String>.unmodifiable(<String>[
+                ...base.warnings,
+                ...diagnostics,
+              ]),
+            );
     }
     final recovered = _parseRecovered(css);
     if (recovered.rules.length <= base.rules.length &&
         recovered.imports.length <= base.imports.length) {
-      return base;
+      return CssStylesheet(
+        rules: base.rules,
+        imports: base.imports,
+        warnings: List<String>.unmodifiable(<String>[
+          ...base.warnings,
+          ...diagnostics,
+        ]),
+      );
     }
     return CssStylesheet(
       rules: recovered.rules,
@@ -107,6 +136,7 @@ abstract final class CssParser {
       warnings: List<String>.unmodifiable(<String>[
         ...base.warnings,
         ...recovered.warnings,
+        ...diagnostics,
         '检测到语法错误，已分块恢复：${base.rules.length} 条 → ${recovered.rules.length} 条规则',
       ]),
     );
