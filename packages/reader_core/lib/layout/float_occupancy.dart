@@ -54,6 +54,25 @@ class FloatOccupancy {
     _items.clear();
   }
 
+  /// 某侧浮动的最大底边（无则 0）——clear 语义的推移目标（§48.3 第 3 条）。
+  double maxBottom(FloatSide side) {
+    var bottom = 0.0;
+    for (final item in _items) {
+      if (item.side == side && item.rect.bottom > bottom) {
+        bottom = item.rect.bottom;
+      }
+    }
+    return bottom;
+  }
+
+  /// 移除某侧底边不超过 [y] 的占用（clear 满足后这些浮动不再约束
+  /// 后续内容，§48.3 第 3 条）。
+  void removeSatisfiedBelow(double y, FloatSide side) {
+    _items.removeWhere(
+      (item) => item.side == side && item.rect.bottom <= y,
+    );
+  }
+
   /// 区间 [top, bottom) 与矩形相交判定（贴边不相交）。
   static bool _spans(Rect rect, double top, double bottom) =>
       rect.top < bottom && rect.bottom > top;
