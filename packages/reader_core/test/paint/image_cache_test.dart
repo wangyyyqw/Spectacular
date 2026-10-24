@@ -91,4 +91,50 @@ void main() {
     expect(cache.byteCount, 0);
     expect(cache.lookup('a'), isNull);
   });
+
+  test('3000×4000 大图按显示宽×DPR 解码，内存 < 原图 25%（P3-08 验收）',
+      () async {
+    final bytes = await _pngBytes(3000, 4000);
+    final originalBytes = 3000 * 4000 * 4;
+    final cache = DecodedImageCache(
+      loadBytes: (url) async => bytes,
+    );
+    final image = await cache.load('big', displayWidth: 600, devicePixelRatio: 2);
+    expect(image, isNotNull);
+    expect(image!.width, 1200, reason: '600 × DPR 2 → targetWidth 1200');
+    expect(image.height, 1600, reason: '等比降采样');
+    final decodedBytes = image.width * image.height * 4;
+    expect(decodedBytes, lessThan(originalBytes * 0.25),
+        reason: '1200×1600×4 = 7.68MB，原图 48MB 的 16%');
+    expect(cache.intrinsicOf('big'), isNotNull);
+    expect(cache.intrinsicOf('big')!.width, 3000, reason: '原始尺寸单独缓存');
+  });
+
+  test('显示宽×DPR 超过原图宽时封顶原图宽，不放大解码', () async {
+    final bytes = await _pngBytes(100, 80);
+    final cache = DecodedImageCache(loadBytes: (url) async => bytes);
+    final image = await cache.load('small', displayWidth: 500, devicePixelRatio: 3);
+    expect(image!.width, 100, reason: 'targetWidth 1500 封顶到原图宽 100');
+    expect(image.height, 80);
+  });
+
+  test('并发同 URL 解码去重：共享同一 Future', () async {
+    final bytes = await _pngBytes(50, 50);
+    var loads = 0;
+    final cache = DecodedImageCache(
+      loadBytes: (url) async {
+        loads += 1;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return bytes;
+      },
+    );
+    final results = await Future.wait(<Future<ui.Image?>>[
+      cache.load('same', displayWidth: 50),
+      cache.load('same', displayWidth: 50),
+      cache.load('same', displayWidth: 50),
+    ]);
+    expect(loads, 1, reason: '在途解码去重');
+    expect(results[0], isNotNull);
+    expect(identical(results[1], results[0]), isTrue);
+  });
 }
