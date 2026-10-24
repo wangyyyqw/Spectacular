@@ -51,7 +51,14 @@ Future<EpubOpenResult> openEpub(Uint8List bytes) async {
     }
     warnings.addAll(ocf.warnings);
 
-    final container = EpubContainer.parse(archive);
+    // P7-12：container.xml 缺失/损坏时按候选路径扫描 OPF 兜底（诊断
+    // 进 warnings，不静默）；全部候选失败保留原拒绝路径。
+    final containerParsed = EpubContainer.parseWithFallback(archive);
+    final container = containerParsed.$1;
+    final containerDiagnostic = containerParsed.$2;
+    if (containerDiagnostic != null) {
+      warnings.add(containerDiagnostic);
+    }
     final opfString = archive.readString(container.rootfilePath);
     if (opfString == null) {
       return EpubOpenResult(

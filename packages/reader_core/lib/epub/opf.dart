@@ -89,6 +89,7 @@ abstract final class OpfParser {
     final meta = _parseMetadata(metadata, uniqueId);
 
     final manifest = <OpfManifestItem>[];
+    final manifestWarnings = <String>[];
     final manifestElement = _firstElement(document, 'manifest');
     if (manifestElement != null) {
       for (final element in manifestElement.childElements.where(
@@ -103,11 +104,22 @@ abstract final class OpfParser {
             .split(RegExp(r'\s+'))
             .where((value) => value.isNotEmpty)
             .toList(growable: false);
+        var mediaType = element.getAttribute('media-type')?.trim() ?? '';
+        if (mediaType.isEmpty) {
+          // P7-12：media-type 缺失按扩展名推断（对照 Reeden
+          // manifestMediaTypeInferred 诊断），推断失败保持空并告警。
+          mediaType = inferMediaType(href);
+          manifestWarnings.add(
+            'E_MANIFEST_MEDIA_TYPE_INFERRED: manifest 项 $id（$href）'
+            '缺少 media-type，按扩展名推断为'
+            '${mediaType.isEmpty ? '未知（保持为空）' : mediaType}',
+          );
+        }
         manifest.add(
           OpfManifestItem(
             id: id,
             href: href,
-            mediaType: element.getAttribute('media-type') ?? '',
+            mediaType: mediaType,
             properties: properties,
           ),
         );
@@ -146,9 +158,37 @@ abstract final class OpfParser {
       manifest: manifest,
       spine: spine,
       version: version,
-      warnings: warnings,
+      warnings: <String>[...manifestWarnings, ...warnings],
       tocId: spineElement?.getAttribute('toc')?.trim(),
     );
+  }
+
+  /// 按扩展名推断 media-type（P7-12）；未识别返回空串。
+  ///
+  /// 覆盖 EPUB 常见四类（XHTML/CSS/NCX/OPF）与字体、图片；
+  /// nav 属 XHTML（properties 含 nav），无需单独推断。
+  static String inferMediaType(String href) {
+    final dot = href.lastIndexOf('.');
+    if (dot < 0 || dot + 1 >= href.length) {
+      return '';
+    }
+    final extension = href.substring(dot + 1).toLowerCase();
+    return switch (extension) {
+      'xhtml' || 'html' || 'htm' => 'application/xhtml+xml',
+      'css' => 'text/css',
+      'ncx' => 'application/x-dtbncx+xml',
+      'opf' => 'application/oebps-package+xml',
+      'js' => 'text/javascript',
+      'otf' => 'application/vnd.ms-opentype',
+      'ttf' => 'application/font-sfnt',
+      'woff' => 'application/font-woff',
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'gif' => 'image/gif',
+      'svg' => 'image/svg+xml',
+      'webp' => 'image/webp',
+      _ => '',
+    };
   }
 
   static BookMeta _parseMetadata(XmlElement? metadata, String? uniqueId) {

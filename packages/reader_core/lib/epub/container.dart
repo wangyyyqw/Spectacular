@@ -74,4 +74,44 @@ abstract final class EpubContainer {
     }
     return result;
   }
+
+  /// container.xml 失败时的回退扫描候选（P7-12；对照 Reeden 500 号
+  /// §1.3 的 "Fallback: found OEBPS/content.opf"）。
+  static const List<String> _fallbackCandidates = <String>[
+    'OEBPS/content.opf',
+    'OEBPS/package.opf',
+    'content.opf',
+  ];
+
+  /// 解析容器；container.xml 缺失/损坏/无 rootfile 时按候选路径扫描
+  /// OPF 兜底，末位兜底扫描全库首个 `.opf`（跳过 META-INF）。
+  ///
+  /// 返回容器信息与降级诊断（正常路径诊断为 null）；全部失败抛出原
+  /// [EpubException]（拒绝路径不变）。
+  static (ContainerInfo, String?) parseWithFallback(EpubArchive archive) {
+    try {
+      return (parse(archive), null);
+    } on EpubException catch (error) {
+      for (final candidate in _fallbackCandidates) {
+        if (archive.readBytes(candidate) != null) {
+          return (
+            ContainerInfo(rootfilePath: candidate),
+            'E_CONTAINER_FALLBACK: container.xml 不可用（${error.code}），'
+                '回退扫描命中 $candidate',
+          );
+        }
+      }
+      for (final name in archive.names) {
+        final lower = name.toLowerCase();
+        if (lower.endsWith('.opf') && !lower.startsWith('meta-inf/')) {
+          return (
+            ContainerInfo(rootfilePath: name),
+            'E_CONTAINER_FALLBACK: container.xml 不可用（${error.code}），'
+                '全库扫描命中 $name',
+          );
+        }
+      }
+      rethrow;
+    }
+  }
 }

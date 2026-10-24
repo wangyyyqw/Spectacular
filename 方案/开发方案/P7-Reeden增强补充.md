@@ -6,7 +6,7 @@
 > 执行时机：P7.1～P7.2（规格回填）建议在 P3 大规模开发前完成，避免新代码建立在旧规格上；其余模块可与 P3～P6 穿插，无强制先后。
 > 规则：勾选任务后运行 `perl tool/render_plan.pl` 同步主文档总览与进度；字段口径见主文档 §0.3～§0.4。
 
-> 进度：11 / 32 项 · 33h / 102h（32%）
+> 进度：12 / 32 项 · 36h / 102h（35%）
 
 ---
 
@@ -93,7 +93,7 @@
   - 验收：命名空间完好的书保留 `epub:type`（脚注/pagebreak 语义可用）；标签不闭合的书可打开并带降级诊断；两条路径产出的缓存键可区分
   - 参考：[参考/reeden/reports/500-spec-parse.md](../../参考/reeden/reports/500-spec-parse.md) §1（双路径证据与动机）；[技术方案 §12](../技术方案.md)（容错表）
 
-- [ ] **P7-12 容器与 OPF 回退扫描** ｜ 3h
+- [x] **P7-12 容器与 OPF 回退扫描** ｜ 3h
   - 目标：container.xml 缺失/损坏时按候选路径扫描兜底（`OEBPS/content.opf`、`content.opf` 等）；manifest 项缺 media-type 时按扩展名推断；两者均记诊断不静默
   - 产出：`epub/container.dart`、`epub/opf.dart` 回退分支 + 用例
   - 依赖：P1-01、P1-02
