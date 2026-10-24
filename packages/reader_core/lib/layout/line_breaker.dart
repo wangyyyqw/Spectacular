@@ -415,7 +415,7 @@ abstract final class TextLayoutEngine {
           );
     return _result(
       text,
-      _align(measuredText, measured, style.textAlign, width),
+      _align(measuredText, measured, style, width),
       width,
       styled,
     );
@@ -656,15 +656,26 @@ abstract final class TextLayoutEngine {
   static List<LineBox> _align(
     String text,
     List<LineBox> lines,
-    CssTextAlign align,
+    ComputedStyle style,
     double width,
   ) {
+    // 标点悬挂（P7-18）：`hanging-punctuation: allow-end` 时，两端
+    // 对齐的非末行行尾句读挂到版心右缘外——该行的可分配余量加上
+    // 句读 advance，末字（句读）落在右缘之外；末行与硬换行不悬挂
+    // （_justifyExtra 内判定）。书内显式 CSS 优先：只有声明了
+    // allow-end 才启用（默认 none）。
+    final hanging = style.hangingPunctuation == CssHangingPunctuation.allowEnd;
+    final punctWidths = <String, double>{};
+    double punctWidthOf(String punct) => punctWidths[punct] ??= _measureChar(
+      punct,
+      style,
+    );
     final aligned = <LineBox>[];
     for (final line in lines) {
       final slack = width.isFinite
           ? math.max(0.0, width - line.indent - line.width)
           : 0.0;
-      aligned.add(switch (align) {
+      aligned.add(switch (style.textAlign) {
         CssTextAlign.start ||
         CssTextAlign.left => line.copyWith(offsetX: line.indent),
         CssTextAlign.end ||
@@ -672,7 +683,13 @@ abstract final class TextLayoutEngine {
         CssTextAlign.center => line.copyWith(offsetX: line.indent + slack / 2),
         CssTextAlign.justify => line.copyWith(
           offsetX: line.indent,
-          justifyExtra: _justifyExtra(text, line, slack),
+          justifyExtra: _justifyExtra(
+            text,
+            line,
+            slack,
+            hanging: hanging,
+            punctWidthOf: punctWidthOf,
+          ),
         ),
       });
     }
@@ -680,12 +697,60 @@ abstract final class TextLayoutEngine {
   }
 
   /// 该行可用于 justify 的余量；没有可拉伸间隙时返回 0。
-  static double _justifyExtra(String text, LineBox line, double slack) {
-    if (slack <= 0 || line.isLastLine || line.isHardBreak) {
+  ///
+  /// 悬挂开启且行尾为悬挂句读时，余量加句读宽度（P7-18）。
+  static double _justifyExtra(
+    String text,
+    LineBox line,
+    double slack, {
+    required bool hanging,
+    required double Function(String) punctWidthOf,
+  }) {
+    if (slack < 0 || line.isLastLine || line.isHardBreak) {
       return 0;
     }
     final lineText = text.substring(line.start, line.end);
-    return cjkJustifyGapOffsets(lineText).isEmpty ? 0 : slack;
+    final gaps = cjkJustifyGapOffsets(lineText);
+    if (gaps.isEmpty) {
+      return 0;
+    }
+    if (hanging && lineText.isNotEmpty) {
+      // 悬挂句读均为单个 UTF-16 码元（U+2026 与 CJK 句读区）。
+      final lastChar = String.fromCharCode(
+        lineText.codeUnitAt(lineText.length - 1),
+      );
+      if (hangableTrailingPunctuation.contains(lastChar)) {
+        return slack + punctWidthOf(lastChar);
+      }
+    }
+    return slack;
+  }
+
+  /// 行尾可悬挂的句读（P7-18；Reeden 150 号 §0-#5 悬挂行为——行尾
+  /// 句号、逗号挂到版心外）。
+  static const Set<String> hangableTrailingPunctuation = <String>{
+    '，',
+    '。',
+    '、',
+    '；',
+    '：',
+    '？',
+    '！',
+    '…',
+  };
+
+  /// 单字符 advance 测量（悬挂余量用；每次 layout 内缓存）。
+  static double _measureChar(String char, ComputedStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: char,
+        style: textStyleFor(style, leadingDistribution: TextLeadingDistribution.even),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
   }
 
   static List<LineBox> _measureSegment({
