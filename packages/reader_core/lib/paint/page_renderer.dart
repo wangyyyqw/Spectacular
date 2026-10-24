@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
+import '../layout/box_model.dart';
 import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
 import '../text/justify.dart';
@@ -30,16 +31,35 @@ class PagePainter {
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
       final textStyle = TextLayoutEngine.textStyleFor(style);
-      if (slice.startLine == 0) {
+      final startsBlock = slice.startLine == 0;
+      if (startsBlock) {
         y += slice.block.spaceBefore;
       }
+      // 盒模型内缩：文字内容从边框盒的内容区左上角起笔，边框不再压住首字符。
+      final model = BoxModel.fromStyle(style, containingWidth: pageSize.width);
+      final leftInset = model.borders.left + model.padding.left;
+      // 上边框/上内边距只在块首出现，续页切片从页顶直接接排。
+      final topInset = startsBlock
+          ? model.borders.top + model.padding.top
+          : 0.0;
+      final endsBlock = slice.endLine == slice.block.layout.lineCount;
       // 跨页块只画本页可见的行（§60.8）：裁剪后即使字号/行高有浮点误差，
       // 墨迹也不会越到下一块或下一页。
       canvas.save();
-      canvas.clipRect(slice.clipRect(y, pageSize.width));
-      final startsBlock = slice.startLine == 0;
-      final endsBlock = slice.endLine == slice.block.layout.lineCount;
-      final box = Rect.fromLTWH(0, y, pageSize.width, slice.height);
+      final clip = slice.clipRect(y, pageSize.width);
+      // 块首内容整体下移 topInset，裁剪矩形下沿同步延伸，避免末行被切掉。
+      canvas.clipRect(
+        topInset == 0
+            ? clip
+            : Rect.fromLTRB(
+                clip.left,
+                clip.top,
+                clip.right,
+                clip.bottom + topInset,
+              ),
+      );
+      // 背景与边框仍铺满边框盒：块首切片的高度含 topInset。
+      final box = Rect.fromLTWH(0, y, pageSize.width, slice.height + topInset);
       _paintBackground(
         canvas,
         box,
@@ -54,6 +74,7 @@ class PagePainter {
         startsBlock: startsBlock,
         endsBlock: endsBlock,
       );
+      var lineY = y + topInset;
       for (
         var lineIndex = slice.startLine;
         lineIndex < slice.endLine;
@@ -69,10 +90,11 @@ class PagePainter {
             text: _lineSpan(slice.block.layout, line, textStyle),
             textDirection: TextDirection.ltr,
           )..layout();
-          painter.paint(canvas, Offset(line.offsetX, y));
+          painter.paint(canvas, Offset(line.offsetX + leftInset, lineY));
         }
-        y += line.height;
+        lineY += line.height;
       }
+      y = lineY;
       canvas.restore();
       if (endsBlock) {
         y += slice.block.spaceAfter;

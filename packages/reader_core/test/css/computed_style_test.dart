@@ -259,4 +259,143 @@ void main() {
     expect(plain.backgroundColor.a, 0);
     expect(plain.backgroundImage, isNull);
   });
+
+  test('width/height 的 px、em、百分比与 auto', () {
+    final px = style('p', 'p { width: 120px; height: 2em; }');
+    expect(px.width?.value, 120);
+    expect(px.width?.isPercent, isFalse);
+    expect(px.width?.isAuto, isFalse);
+    expect(px.width?.resolve(300), 120);
+    expect(px.height?.value, 32, reason: 'em 按元素自身字号换算');
+
+    final percent = style('p', 'p { width: 50%; height: 25%; }');
+    expect(percent.width?.isPercent, isTrue);
+    expect(percent.width?.value, 50);
+    expect(percent.width?.resolve(400), 200);
+    expect(percent.height?.isPercent, isTrue);
+    expect(percent.height?.value, 25, reason: '百分比不解算成像素');
+
+    final auto = style('p', 'p { width: auto; }');
+    expect(auto.width?.isAuto, isTrue);
+    expect(auto.width?.resolve(300), isNull);
+    expect(auto.height, isNull, reason: '未声明 height 为 null');
+  });
+
+  test('min/max 尺寸与 max-* 的 none', () {
+    final parsed = style(
+      'p',
+      'p { min-width: 10px; max-width: 80%; min-height: 1em; '
+          'max-height: none; }',
+    );
+    expect(parsed.minWidth?.value, 10);
+    expect(parsed.maxWidth?.isPercent, isTrue);
+    expect(parsed.maxWidth?.value, 80);
+    expect(parsed.maxWidth?.resolve(500), 400);
+    expect(parsed.minHeight?.value, 16);
+    expect(parsed.maxHeight, isNull, reason: 'max-height: none 视为未设上限');
+
+    final plain = style('p', 'p { color: red; }');
+    expect(plain.width, isNull);
+    expect(plain.minWidth, isNull);
+    expect(plain.maxWidth, isNull);
+  });
+
+  test('padding 简写 1–4 值展开', () {
+    final one = style('p', 'p { padding: 5px; }');
+    expect(one.padding.top, 5);
+    expect(one.padding.right, 5);
+    expect(one.padding.bottom, 5);
+    expect(one.padding.left, 5);
+
+    final two = style('p', 'p { padding: 1px 2px; }');
+    expect(two.padding.top, 1);
+    expect(two.padding.right, 2);
+    expect(two.padding.bottom, 1);
+    expect(two.padding.left, 2);
+
+    final three = style('p', 'p { padding: 1px 2px 3px; }');
+    expect(three.padding.top, 1);
+    expect(three.padding.right, 2);
+    expect(three.padding.bottom, 3);
+    expect(three.padding.left, 2);
+
+    final four = style('p', 'p { padding: 1px 2px 3px 4px; }');
+    expect(four.padding.top, 1);
+    expect(four.padding.right, 2);
+    expect(four.padding.bottom, 3);
+    expect(four.padding.left, 4);
+  });
+
+  test('padding 长写覆盖简写', () {
+    final overridden = style(
+      'p',
+      'p { padding: 5px; padding-left: 2em; padding-bottom: 0; }',
+    );
+    expect(overridden.padding.top, 5);
+    expect(overridden.padding.right, 5);
+    expect(overridden.padding.bottom, 0);
+    expect(overridden.padding.left, 32);
+  });
+
+  test('负 padding 钳 0', () {
+    final negative = style('p', 'p { padding: -4px 8px; }');
+    expect(negative.padding.top, 0);
+    expect(negative.padding.right, 8);
+    expect(negative.padding.bottom, 0);
+    expect(negative.padding.left, 8);
+
+    final longhand = style('p', 'p { padding-top: -1em; }');
+    expect(longhand.padding.top, 0);
+  });
+
+  test('百分比 padding 按 containingWidth 解算', () {
+    final percent = style('p', 'p { padding: 10% 5%; }', containingWidth: 200);
+    expect(percent.padding.top, 20);
+    expect(percent.padding.right, 10);
+    expect(percent.padding.bottom, 20);
+    expect(percent.padding.left, 10);
+
+    final longhand = style('p', 'p { padding-top: 25%; }', containingWidth: 80);
+    expect(longhand.padding.top, 20);
+  });
+
+  test('box-sizing 解析与回退', () {
+    expect(
+      style('p', 'p { box-sizing: border-box; }').boxSizing,
+      CssBoxSizing.borderBox,
+    );
+    expect(
+      style('p', 'p { box-sizing: content-box; }').boxSizing,
+      CssBoxSizing.contentBox,
+    );
+    expect(
+      style('p', 'p { box-sizing: padding-box; }').boxSizing,
+      CssBoxSizing.contentBox,
+      reason: '其余值回退 contentBox',
+    );
+  });
+
+  test('尺寸/内边距/box-sizing 默认值且不继承', () {
+    final initial = ComputedStyle(const <String, String>{});
+    expect(initial.width, isNull);
+    expect(initial.height, isNull);
+    expect(initial.minWidth, isNull);
+    expect(initial.maxWidth, isNull);
+    expect(initial.minHeight, isNull);
+    expect(initial.maxHeight, isNull);
+    expect(initial.padding.top, 0);
+    expect(initial.padding.right, 0);
+    expect(initial.padding.bottom, 0);
+    expect(initial.padding.left, 0);
+    expect(initial.boxSizing, CssBoxSizing.contentBox);
+
+    final parent = style(
+      'parent',
+      'div { width: 100px; padding: 10px; box-sizing: border-box; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.width, isNull, reason: 'width 不继承');
+    expect(child.padding.top, 0, reason: 'padding 不继承');
+    expect(child.boxSizing, CssBoxSizing.contentBox, reason: 'box-sizing 不继承');
+  });
 }
