@@ -77,6 +77,11 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_ZIP_LOCAL_HEADER', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§55.3 局部头损坏/错位（偏移修补恢复档）'),
     EpubCodeSpec('E_ZIP_ENTRY_TRUNCATED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 条目截断/损坏（跳过坏条目恢复档）'),
     EpubCodeSpec('E_ZIP_NAME_ENCODING', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§54 文件名传统编码错位（资源索引大小写容错兜底）'),
+    // ---- 压力防护（P7-16；对照 Reeden 四道防线）----
+    EpubCodeSpec('E_DOM_NESTING_TOO_DEEP', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 DOM 嵌套超 500 层子树展平为文本'),
+    EpubCodeSpec('E_ATTRIBUTE_TRUNCATED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 属性值超 65536 字符截断（SVG/data URI 炸弹防线）'),
+    EpubCodeSpec('E_PAGINATION_TRUNCATED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 单章超 20000 页截断（渐进提示不中断）'),
+    EpubCodeSpec('E_REGEX_SLOW_SUSPENDED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 用户正则超 1s 预算挂起（不卡 UI）'),
     // ---- 预留：资源与字体（P3）----
     EpubCodeSpec('E_RESOURCE_MISSING', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§54.3 资源找不到', reservedFor: 'P3-25'),
     EpubCodeSpec('E_RESOURCE_DECODE_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§50.2 图片/资源解码失败', reservedFor: 'P3-08'),
