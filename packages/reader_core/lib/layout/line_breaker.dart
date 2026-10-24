@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show TextLayout;
 import 'cjk_justify.dart';
+import 'punct_trim.dart';
 import '../text/script_fallback.dart';
 
 /// 一行文本的布局结果。
@@ -753,6 +754,43 @@ abstract final class TextLayoutEngine {
     return width;
   }
 
+  /// 挤压 span（P7-19）：相邻全角标点的前标点加 -0.5em 字距。
+  static TextSpan _compressedSpan(
+    String text,
+    ComputedStyle style,
+    TextStyle baseStyle,
+    double textScaleFactor,
+  ) {
+    final offsets = punctCompressionOffsets(
+      text,
+      em: style.fontSize,
+      advanceOf: punctAdvanceMeasurer(baseStyle, textScaleFactor),
+    );
+    if (offsets.isEmpty) {
+      return TextSpan(text: text, style: baseStyle);
+    }
+    final spacing = punctCompressionSpacing(style.fontSize);
+    final starts = offsets.toSet();
+    final children = <InlineSpan>[];
+    var offset = 0;
+    for (final rune in text.runes) {
+      final char = String.fromCharCode(rune);
+      final isStart = starts.contains(offset);
+      children.add(
+        TextSpan(
+          text: char,
+          style: isStart
+              ? baseStyle.copyWith(
+                  letterSpacing: (baseStyle.letterSpacing ?? 0) + spacing,
+                )
+              : baseStyle,
+        ),
+      );
+      offset += char.length;
+    }
+    return TextSpan(style: baseStyle, children: children);
+  }
+
   static List<LineBox> _measureSegment({
     required String text,
     required double width,
@@ -765,9 +803,16 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution: leadingDistribution,
     );
+    // 标点挤压（P7-19）：只作用于无行内样式区间的纯文本段（测量与
+    // 绘制同规则，见 buildLineSpan）；挤压影响行宽，须在测量期生效。
+    final compress =
+        runs.isEmpty &&
+        style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent;
     final painter = TextPainter(
       text: runs.isEmpty
-          ? TextSpan(text: text, style: baseStyle)
+          ? (compress
+                ? _compressedSpan(text, style, baseStyle, textScaleFactor)
+                : TextSpan(text: text, style: baseStyle))
           : TextSpan(
               style: baseStyle,
               children: buildStyledSpans(

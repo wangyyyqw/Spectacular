@@ -2,13 +2,19 @@ import 'package:flutter/painting.dart';
 
 import '../layout/cjk_justify.dart';
 import '../layout/line_breaker.dart';
+import '../layout/punct_trim.dart';
 import '../layout/text_layout.dart';
 
-/// 组装一行的 span：行内样式区间 + justify 间隙字距（P2-20）。
+/// 组装一行的 span：行内样式区间 + justify 间隙字距（P2-20）+ 标点
+/// 挤压（P7-19）。
 ///
 /// justify 行把余量 `extra` 均分到每个可分配 gap（`ls = extra / gaps.length`），
 /// 只给「间隙左侧字符」加单字符 `SpanStyle` 并保留原 `letterSpacing`；末字之后
 /// 不加字距，因此不会在右缘留下多余间距（S3 结论）。
+///
+/// 挤压（[punctCompression]）只作用于无行内样式区间的纯文本行，与测量
+/// 期（`_measureSegment`）同规则：相邻全角标点的前标点加 -0.5em 字距；
+/// 与 justify 同字符叠加时字距代数相加。
 ///
 /// 与阅微 `adaptiveJustify` 同构；差异只在 gap 判定（见 `cjk_justify.dart`）。
 InlineSpan buildLineSpan({
@@ -16,6 +22,7 @@ InlineSpan buildLineSpan({
   required LineBox line,
   required TextStyle baseStyle,
   Color? textColor,
+  bool punctCompression = false,
 }) {
   // 主题覆盖文字色：不改样式表，只在绘制时替换颜色，避免重新分页（P2-23）。
   final effectiveBase = textColor == null
@@ -26,10 +33,19 @@ InlineSpan buildLineSpan({
   final gaps = line.justifyExtra > 0
       ? cjkJustifyGapOffsets(lineText)
       : const <int>[];
-  if (runs.isEmpty && gaps.isEmpty) {
+  // 挤压与测量同条件：仅纯文本行（runs 为空）。
+  final compressionOffsets =
+      punctCompression && runs.isEmpty && lineText.length >= 2
+      ? punctCompressionOffsets(
+          lineText,
+          em: baseStyle.fontSize ?? 0,
+          advanceOf: punctAdvanceMeasurer(baseStyle, 1),
+        )
+      : const <int>[];
+  if (runs.isEmpty && gaps.isEmpty && compressionOffsets.isEmpty) {
     return TextSpan(text: lineText, style: effectiveBase);
   }
-  if (gaps.isEmpty) {
+  if (gaps.isEmpty && compressionOffsets.isEmpty) {
     return TextSpan(
       style: effectiveBase,
       children: buildStyledSpans(
@@ -42,9 +58,14 @@ InlineSpan buildLineSpan({
       ),
     );
   }
-  // justify 行逐字符铺开，样式区间与间隙字距一起处理。
+  // justify / 挤压行逐字符铺开，样式区间与两类字距一起处理。
   final spacing = justifyGapSpacing(line.justifyExtra, gaps.length);
+  final compressionSpacing =
+      compressionOffsets.isEmpty
+          ? 0.0
+          : punctCompressionSpacing(baseStyle.fontSize ?? 0);
   final gapStarts = gaps.toSet();
+  final compressStarts = compressionOffsets.toSet();
   final resolved = <int, TextStyle>{};
   TextStyle styleAt(int offset) {
     for (var i = 0; i < runs.length; i++) {
@@ -64,14 +85,17 @@ InlineSpan buildLineSpan({
   for (final rune in lineText.runes) {
     final char = String.fromCharCode(rune);
     final style = styleAt(line.start + offset);
+    final extraSpacing =
+        (gapStarts.contains(offset) ? spacing : 0.0) +
+        (compressStarts.contains(offset) ? compressionSpacing : 0.0);
     children.add(
       TextSpan(
         text: char,
-        style: gapStarts.contains(offset)
-            ? style.copyWith(
-                letterSpacing: (style.letterSpacing ?? 0) + spacing,
-              )
-            : style,
+        style: extraSpacing == 0
+            ? style
+            : style.copyWith(
+                letterSpacing: (style.letterSpacing ?? 0) + extraSpacing,
+              ),
       ),
     );
     offset += char.length;

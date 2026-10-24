@@ -173,6 +173,7 @@ class PagePainter {
               layout,
               line,
               geometry.textStyle,
+              punctCompression: geometry.punctCompression,
             ),
             lineText,
             _lineRuns(layout, line),
@@ -214,6 +215,7 @@ class PagePainter {
               layout,
               line,
               geometry.textStyle,
+              punctCompression: geometry.punctCompression,
             ),
             lineText,
             geometry.style,
@@ -308,6 +310,7 @@ class PagePainter {
             layout,
             line,
             geometry.textStyle,
+            punctCompression: geometry.punctCompression,
           );
           final boxes = painter.getBoxesForSelection(
             TextSelection(
@@ -579,10 +582,16 @@ class PagePainter {
     int lineIndex,
     TextLayoutResult layout,
     LineBox line,
-    TextStyle baseStyle,
-  ) {
+    TextStyle baseStyle, {
+    bool punctCompression = false,
+  }) {
     TextPainter build() => TextPainter(
-      text: _lineSpan(layout, line, baseStyle),
+      text: _lineSpan(
+        layout,
+        line,
+        baseStyle,
+        punctCompression: punctCompression,
+      ),
       textDirection: TextDirection.ltr,
     )..layout();
     final cache = paragraphCache;
@@ -754,12 +763,14 @@ class PagePainter {
   InlineSpan _lineSpan(
     TextLayoutResult layout,
     LineBox line,
-    TextStyle baseStyle,
-  ) => buildLineSpan(
+    TextStyle baseStyle, {
+    bool punctCompression = false,
+  }) => buildLineSpan(
     layout: layout,
     line: line,
     baseStyle: baseStyle,
     textColor: textColor,
+    punctCompression: punctCompression,
   );
 }
 
@@ -804,6 +815,11 @@ class _SliceGeometry {
   final double y;
   final ComputedStyle style;
   final TextStyle textStyle;
+
+  /// 标点挤压开关（P7-19，源自 style.textSpacingTrim）。
+  bool get punctCompression =>
+      style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent;
+
   final bool startsBlock;
   final bool endsBlock;
   final bool hidden;
