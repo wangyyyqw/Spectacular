@@ -88,11 +88,39 @@ class ReaderSession extends ChangeNotifier {
   VirtualPager? _pager;
   ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
+
+  /// 异步任务代号：取消或开始新任务后，旧任务不再回写状态（P2-27）。
+  int _generation = 0;
   Object? _error;
   bool _disposed = false;
 
   /// 是否加载中。
   bool get loading => _loading;
+
+  /// 首屏是否已就绪（有可绘制内容）。
+  bool get hasContent => page != null;
+
+  /// 整书进度（按章节位置估算，0～1），用于加载态进度条。
+  double get bookProgress {
+    final value = progress;
+    if (value == null) {
+      return 0;
+    }
+    final count = source.chapterCount;
+    if (count <= 0) {
+      return 0;
+    }
+    return ((value.spineIndex + 1) / count).clamp(0.0, 1.0);
+  }
+
+  /// 取消尚未完成的打开/重排/翻页任务。
+  ///
+  /// 取消后旧任务不会再改写 [page]、[error]、[loading]，可安全重新打开。
+  void cancelPendingLoads() {
+    _generation += 1;
+    _loading = false;
+    _notify();
+  }
 
   /// 打开错误。
   Object? get error => _error;
@@ -140,6 +168,7 @@ class ReaderSession extends ChangeNotifier {
     if (_loading || _pager != null) {
       return;
     }
+    final generation = ++_generation;
     _loading = true;
     _error = null;
     _notify();
@@ -152,15 +181,27 @@ class ReaderSession extends ChangeNotifier {
         loader: source.loadChapter,
       );
       await pager.initialize();
+      if (generation != _generation) {
+        return;
+      }
       final saved = await store.load(bookId);
+      if (generation != _generation) {
+        return;
+      }
       if (saved != null) {
         await pager.goTo(saved.spineIndex, saved.pageIndex);
+        if (generation != _generation) {
+          return;
+        }
       }
       _pager = pager;
       _loading = false;
       _notify();
       await _persist();
     } catch (error) {
+      if (generation != _generation) {
+        return;
+      }
       _error = error;
       _loading = false;
       _notify();
@@ -173,8 +214,9 @@ class ReaderSession extends ChangeNotifier {
     if (pager == null) {
       return false;
     }
+    final generation = _generation;
     final changed = await pager.next();
-    if (changed) {
+    if (changed && generation == _generation) {
       _notify();
       await _persist();
     }
@@ -187,8 +229,9 @@ class ReaderSession extends ChangeNotifier {
     if (pager == null) {
       return false;
     }
+    final generation = _generation;
     final changed = await pager.previous();
-    if (changed) {
+    if (changed && generation == _generation) {
       _notify();
       await _persist();
     }
@@ -207,6 +250,7 @@ class ReaderSession extends ChangeNotifier {
       _overrides = next;
       return;
     }
+    final generation = ++_generation;
     final currentPage = _pager?.current?.content;
     final spine = currentPage?.spineIndex ?? 0;
     final targetCfi = _firstCfiOf(currentPage);
@@ -220,21 +264,38 @@ class ReaderSession extends ChangeNotifier {
     _notify();
     try {
       await src.applyOverrides(next);
+      if (generation != _generation) {
+        return;
+      }
       final pages = await src.loadChapter(spine);
+      if (generation != _generation) {
+        return;
+      }
       final pager = VirtualPager(
         spineCount: src.chapterCount,
         loader: src.loadChapter,
       );
       await pager.initialize();
+      if (generation != _generation) {
+        return;
+      }
       await pager.goTo(spine, _locatePage(pages, targetCfi));
+      if (generation != _generation) {
+        return;
+      }
       _pager = pager;
       _error = null;
     } catch (error) {
+      if (generation != _generation) {
+        return;
+      }
       _error = error;
     } finally {
-      _loading = false;
-      _notify();
-      await _persist();
+      if (generation == _generation) {
+        _loading = false;
+        _notify();
+        await _persist();
+      }
     }
   }
 
@@ -300,6 +361,7 @@ class ReaderSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    _generation += 1; // 丢弃未完成任务
     _disposed = true;
     super.dispose();
   }

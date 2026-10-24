@@ -9,6 +9,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 import 'reader_session.dart';
 import 'reader_view.dart';
 import 'theme/reader_theme.dart';
+import 'loading_skeleton.dart';
 
 /// 最小可运行的阅读页：打开、分页、绘制、翻页与进度恢复。
 class ReaderPage extends StatefulWidget {
@@ -173,6 +174,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    _session.cancelPendingLoads();
     _session.dispose();
     super.dispose();
   }
@@ -182,48 +184,73 @@ class _ReaderPageState extends State<ReaderPage> {
     return AnimatedBuilder(
       animation: _session,
       builder: (context, _) {
-        if (_session.loading) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final error = _session.error;
-        if (error != null) {
-          return Center(child: Text('打开失败：$error'));
-        }
-        final page = _session.page;
-        if (page == null) {
-          return const Center(child: Text('无内容'));
-        }
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final size = Size(constraints.maxWidth, constraints.maxHeight);
-            _schedulePrefetch(
-              page,
-              size.width - _effectivePadding().horizontal,
-            );
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Padding(
-                  padding: _effectivePadding(),
-                  child: ClipRect(
-                    child: CustomPaint(
-                      painter: _ReaderPageCustomPainter(
-                        page: page,
-                        painter: _painter,
-                        pageSize: size,
-                        imageRevision: _imageRevision,
-                      ),
-                    ),
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: _buildBody(context),
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final page = _session.page;
+    if (page == null) {
+      final error = _session.error;
+      if (error != null) {
+        return Center(
+          key: const ValueKey<String>('reader-error'),
+          child: Text('打开失败：$error'),
+        );
+      }
+      if (_session.loading) {
+        return ReaderLoadingSkeleton(
+          progress: _session.bookProgress > 0 ? _session.bookProgress : null,
+        );
+      }
+      return const Center(
+        key: ValueKey<String>('reader-empty'),
+        child: Text('无内容'),
+      );
+    }
+    return LayoutBuilder(
+      key: ValueKey<String>('reader-page-${page.spineIndex}-${page.pageIndex}'),
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        _schedulePrefetch(page, size.width - _effectivePadding().horizontal);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Padding(
+              padding: _effectivePadding(),
+              child: ClipRect(
+                child: CustomPaint(
+                  painter: _ReaderPageCustomPainter(
+                    page: page,
+                    painter: _painter,
+                    pageSize: size,
+                    imageRevision: _imageRevision,
                   ),
                 ),
-                ReaderView(
-                  onPrevious: () => unawaited(_session.previous()),
-                  onNext: () => unawaited(_session.next()),
-                  child: const SizedBox.expand(),
+              ),
+            ),
+            ReaderView(
+              onPrevious: () => unawaited(_session.previous()),
+              onNext: () => unawaited(_session.next()),
+              child: const SizedBox.expand(),
+            ),
+            // 翻页/重排时保留旧页，只在顶部显示细进度条（P2-27）。
+            if (_session.loading)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LinearProgressIndicator(
+                  value: _session.bookProgress > 0
+                      ? _session.bookProgress
+                      : null,
                 ),
-              ],
-            );
-          },
+              ),
+          ],
         );
       },
     );

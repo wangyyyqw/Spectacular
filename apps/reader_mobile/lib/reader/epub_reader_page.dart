@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_core/paint/image_cache.dart';
+import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -73,14 +74,26 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 打开书期间先出骨架；就绪后由 ReaderPage 平滑接管（P2-27）。
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const ReaderLoadingSkeleton();
     }
     final error = _error;
     if (error != null) {
-      return Center(child: Text('打开失败：$error'));
+      return Center(
+        key: const ValueKey<String>('epub-open-error'),
+        child: Text('打开失败：$error'),
+      );
     }
     return ReaderPage(
+      key: const ValueKey<String>('reader-page'),
       source: _source!,
       store: widget.store,
       bookId: widget.bookId,
