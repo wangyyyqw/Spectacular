@@ -1,12 +1,21 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'epub_chapter_source.dart';
+
+/// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
+///
+/// 字号/行高/对齐默认不覆盖，跟随书籍 CSS；用户设置面板接入后由
+/// `ReaderOverrides` 覆盖作者声明（reader origin 高于 author）。
+const ReaderOverrides defaultReaderOverrides = ReaderOverrides(
+  paragraphSpacing: 10,
+);
 
 /// 从内存 EPUB 打开的最小阅读页。
 class EpubReaderPage extends StatefulWidget {
@@ -98,6 +107,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       store: widget.store,
       bookId: widget.bookId,
       imageCache: _imageCache,
+      overrides: defaultReaderOverrides,
     );
   }
 }
