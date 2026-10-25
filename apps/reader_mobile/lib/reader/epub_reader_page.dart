@@ -5,6 +5,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -31,6 +32,7 @@ class EpubReaderPage extends StatefulWidget {
     this.annotations,
     this.settings,
     this.onSettingsChanged,
+    this.onSearch,
   });
 
   /// EPUB 字节。
@@ -53,6 +55,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 设置变化（调用方持久化）。
   final ValueChanged<ReaderSettings>? onSettingsChanged;
+
+  /// 搜索回调（P4-26）：由调用方接入索引。
+  final Future<List<SearchPanelResult>> Function(String query)? onSearch;
 
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
@@ -149,6 +154,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       onInkModeChanged: (enabled) => widget.onSettingsChanged?.call(
         settings.copyWithInkMode(enabled),
       ),
+      onSearch: widget.onSearch,
     );
   }
 }

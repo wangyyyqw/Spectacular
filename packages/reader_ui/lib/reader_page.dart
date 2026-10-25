@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
@@ -16,6 +17,7 @@ import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
+import 'panels/search_panel.dart';
 import 'panels/settings_panel.dart';
 import 'theme/reader_background.dart';
 import 'theme/reader_environment.dart';
@@ -46,6 +48,7 @@ class ReaderPage extends StatefulWidget {
     this.inkMode = false,
     this.onBackgroundChanged,
     this.onInkModeChanged,
+    this.onSearch,
     this.onSessionReady,
     this.imageCache,
     this.theme,
@@ -77,6 +80,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 墨水屏开关变化。
   final ValueChanged<bool>? onInkModeChanged;
+
+  /// 搜索回调（P4-26）；为 null 时菜单不显示搜索入口。
+  final Future<List<SearchPanelResult>> Function(String query)? onSearch;
 
   /// 背景变化（P4-22）：调用方负责持久化。
   final ValueChanged<String>? onBackgroundChanged;
@@ -134,6 +140,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
+
+  /// 搜索命中的临时高亮（P4-26，§29.4：3 秒后消失）。
+  ReaderAnnotation? _tempHighlight;
+  Timer? _tempHighlightTimer;
 
   /// 当前阅读环境（P4-23）。
   ReaderEnvironment get _environment =>
@@ -375,6 +385,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               : _applyBackground,
           inkMode: _inkMode,
           onInkModeChanged: _applyInkMode,
+          onSearch: widget.onSearch,
+          onSearchSelect: (result) => unawaited(_applySearchResult(result)),
           onResetSettings: _resetSettings,
         ),
       ),
@@ -510,6 +522,53 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         endPageIndex: selection.endPageIndex,
       );
       _selectionSpineIndex = prevPage.spineIndex;
+    });
+  }
+
+  /// 应用搜索结果（P4-26，§29.4）：跳到命中位置并临时高亮 3 秒。
+  Future<void> _applySearchResult(SearchPanelResult result) async {
+    final cfi = result.cfi;
+    if (cfi == null) {
+      return;
+    }
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    final offset = cfiCharOffset(cfi) ?? 0;
+    final endCfi = cfiWithCharOffset(cfi, offset + result.matchLength);
+    await _session.jumpToCfi(cfi, title: result.chapterTitle);
+    if (!mounted) {
+      return;
+    }
+    _tempHighlightTimer?.cancel();
+    setState(() {
+      _tempHighlight = ReaderAnnotation(
+        id: 'search-hit',
+        type: ReaderAnnotationType.highlight,
+        startCfi: cfi,
+        endCfi: endCfi,
+        quote: result.context,
+        color: 0xFFFFC107,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      _relocatedSpineIndex = _session.page?.spineIndex;
+      _resolvedAnnotations = <ReaderAnnotation>[
+        ..._resolvedAnnotations,
+        _tempHighlight!,
+      ];
+    });
+    _tempHighlightTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _tempHighlight = null;
+        _resolvedAnnotations = <ReaderAnnotation>[
+          for (final item in _resolvedAnnotations)
+            if (item.id != 'search-hit') item,
+        ];
+      });
     });
   }
 
@@ -861,6 +920,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _paragraphCache.dispose();
     }
     _selectionEdgeTimer?.cancel();
+    _tempHighlightTimer?.cancel();
     _backgroundImage?.dispose();
     _tocScrollController.dispose();
     super.dispose();
@@ -960,11 +1020,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
             // 标注装饰层（P4-18）：高亮底色 + 笔记标记，在正文之上、选区之下。
-            if (_resolvedAnnotations.isNotEmpty)
+            if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
               Positioned.fill(
                 child: AnnotationLayer(
                   page: page,
-                  annotations: _resolvedAnnotations,
+                  annotations: <ReaderAnnotation>[
+                    ..._resolvedAnnotations,
+                    ?_tempHighlight,
+                  ],
                   inkMode: _inkMode,
                 ),
               ),
@@ -1092,6 +1155,8 @@ class _ReaderMenuSheet extends StatefulWidget {
     this.inkMode = false,
     this.onBackgroundChanged,
     this.onInkModeChanged,
+    this.onSearch,
+    this.onSearchSelect,
   });
 
   final List<TocEntry> entries;
@@ -1109,13 +1174,15 @@ class _ReaderMenuSheet extends StatefulWidget {
   final ValueChanged<String>? onBackgroundChanged;
   final bool inkMode;
   final ValueChanged<bool>? onInkModeChanged;
+  final Future<List<SearchPanelResult>> Function(String query)? onSearch;
+  final ValueChanged<SearchPanelResult>? onSearchSelect;
 
   @override
   State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
 }
 
 class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
-  int _view = 0; // 0=菜单 1=目录 2=书签 3=设置
+  int _view = 0; // 0=菜单 1=目录 2=书签 3=设置 4=搜索
   Future<List<ReaderBookmark>>? _bookmarksFuture;
 
   void _showView(int view) {
@@ -1138,6 +1205,18 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
         onBack: () => _showView(0),
         onSelect: (entry) => Navigator.of(context).pop(entry),
       );
+    }
+    if (_view == 4) {
+      final search = widget.onSearch;
+      if (search == null) {
+        _view = 0;
+      } else {
+        return SearchPanel(
+          onSearch: search,
+          onSelect: (result) => widget.onSearchSelect?.call(result),
+          onBack: () => _showView(0),
+        );
+      }
     }
     if (_view == 3) {
       return SettingsPanel(
@@ -1215,6 +1294,14 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
                 leading: const Icon(Icons.bookmarks_outlined),
                 title: const Text('书签'),
                 onTap: () => _showView(2),
+              ),
+            if (widget.onSearch != null)
+              ListTile(
+                key: const ValueKey<String>('menu-search'),
+                leading: const Icon(Icons.search),
+                title: const Text('搜索'),
+                subtitle: const Text('在本书正文中查找'),
+                onTap: () => _showView(4),
               ),
             ListTile(
               key: const ValueKey<String>('menu-settings'),

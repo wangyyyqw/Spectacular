@@ -131,10 +131,8 @@ class SearchService {
     return text.substring(start, end);
   }
 
-  Future<int> _countGram(int bookId, String gram) async {
-    final hits = await store.lookup(bookId, gram);
-    return hits.length;
-  }
+  Future<int> _countGram(int bookId, String gram) =>
+      store.countGram(bookId, gram);
 
   Future<ChapterText?> _loadChapter(
     int bookId,
