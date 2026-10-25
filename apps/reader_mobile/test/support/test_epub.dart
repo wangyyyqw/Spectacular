@@ -4,7 +4,15 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 /// 测试用最小 EPUB 构造（应用层测试共享）。
-Uint8List buildTestEpub({String title = '测试书', String author = '测试作者'}) {
+///
+/// [cover] 为 true 时附带一张 JPEG 封面并在 OPF 里按
+/// `<meta name="cover">` 声明（§37.3 第 2 级）。
+Uint8List buildTestEpub({
+  String title = '测试书',
+  String author = '测试作者',
+  bool cover = false,
+  String? identifier,
+}) {
   final chapter =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title>'
@@ -16,13 +24,17 @@ Uint8List buildTestEpub({String title = '测试书', String author = '测试作�
       '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
       'unique-identifier="bid"><metadata '
       'xmlns:dc="http://purl.org/dc/elements/1.1/">'
-      '<dc:identifier id="bid">urn:uuid:app-shell-0001</dc:identifier>'
+      '<dc:identifier id="bid">'
+      '${identifier ?? 'urn:uuid:test-${title.hashCode}'}</dc:identifier>'
       '<dc:title>$title</dc:title>'
       '<dc:creator>$author</dc:creator>'
       '<dc:language>zh</dc:language>'
       '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>'
+      '${cover ? '<meta name="cover" content="cover-img"/>' : ''}'
       '</metadata><manifest>'
       '<item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>'
+      '${cover ? '<item id="cover-img" href="cover.jpg" '
+          'media-type="image/jpeg"/>' : ''}'
       '</manifest><spine><itemref idref="c1"/></spine></package>';
   final container =
       '<?xml version="1.0" encoding="UTF-8"?>'
@@ -41,5 +53,9 @@ Uint8List buildTestEpub({String title = '测试书', String author = '测试作�
     final bytes = utf8.encode(content);
     archive.addFile(ArchiveFile(name, bytes.length, bytes));
   });
+  if (cover) {
+    final bytes = Uint8List.fromList(<int>[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
+    archive.addFile(ArchiveFile('OEBPS/cover.jpg', bytes.length, bytes));
+  }
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }

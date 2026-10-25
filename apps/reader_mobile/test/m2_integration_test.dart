@@ -4,7 +4,9 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:drift/native.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 import 'support/test_epub.dart';
@@ -180,7 +182,12 @@ void main() {
   test('M2 集成：容错书经书库导入分级落库', () async {
     final tempDir = await Directory.systemTemp.createTemp('m2_library');
     addTearDown(() => tempDir.delete(recursive: true));
-    final store = LibraryStore(directoryProvider: () async => tempDir);
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final store = LibraryStore(
+      database: db,
+      directoryProvider: () async => tempDir,
+    );
 
     // 样本 A（引用可修复）→ L1。
     final entryA = await store.importBytes(

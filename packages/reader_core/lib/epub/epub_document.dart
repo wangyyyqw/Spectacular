@@ -345,6 +345,83 @@ class EpubDocumentImpl implements EpubDocument {
   /// 目录来源：nav / ncx / spine。
   final String tocSource;
 
+  /// 封面资源在 ZIP 内的路径（§37.3 降级链第 1～3 级）。
+  ///
+  /// 1. manifest 项 `properties` 含 `cover-image`（EPUB3）；
+  /// 2. OPF `<meta name="cover">` 指向的 manifest 项（content 也可能是 href）；
+  /// 3. spine 首个 linear 文档里的第一张图。
+  ///
+  /// 三条都失败返回 null，第 4 级「书名首字 + 派生色」占位由 UI 负责。
+  String? get coverResourcePath {
+    final opfDir = p.posix.dirname(opfPath);
+    for (final item in package.manifest) {
+      if (!item.properties.contains('cover-image')) {
+        continue;
+      }
+      final path = resources.resolve(item.href, baseDir: opfDir);
+      if (path != null) {
+        return path;
+      }
+    }
+    final coverId = package.coverItemId;
+    if (coverId != null) {
+      final item = package.itemById(coverId);
+      if (item != null) {
+        final path = resources.resolve(item.href, baseDir: opfDir);
+        if (path != null) {
+          return path;
+        }
+      }
+      final direct = resources.resolve(coverId, baseDir: opfDir);
+      if (direct != null) {
+        return direct;
+      }
+    }
+    for (final item in package.spine) {
+      if (!item.linear) {
+        continue;
+      }
+      final documentPath = resources.resolve(item.href, baseDir: opfDir);
+      if (documentPath == null) {
+        continue;
+      }
+      final xhtml = archive.readString(documentPath);
+      if (xhtml == null) {
+        continue;
+      }
+      final href = _firstImageHref(xhtml);
+      if (href == null) {
+        continue;
+      }
+      final path = resources.resolve(
+        href,
+        baseDir: p.posix.dirname(documentPath),
+      );
+      if (path != null) {
+        return path;
+      }
+    }
+    return null;
+  }
+
+  /// 读取封面字节；无封面或资源缺失返回 null。
+  Uint8List? readCoverBytes() {
+    final path = coverResourcePath;
+    return path == null ? null : archive.readBytes(path);
+  }
+
+  /// 首个 `<img src>` / `<image href|xlink:href>` 的引用。
+  static String? _firstImageHref(String xhtml) {
+    final match = _imageHrefPattern.firstMatch(xhtml);
+    final href = match?.group(1)?.trim();
+    return href == null || href.isEmpty ? null : href;
+  }
+
+  static final RegExp _imageHrefPattern = RegExp(
+    r'''<(?:img|image)\b[^>]*?\b(?:xlink:)?(?:src|href)\s*=\s*["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+
   /// 把指定 spine 聚合为可测量文本块树。
   ///
   /// [whiteSpace] 决定空白与换行如何保留（默认 `normal`）。

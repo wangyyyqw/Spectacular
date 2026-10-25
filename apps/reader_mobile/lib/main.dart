@@ -57,9 +57,23 @@ Future<void> main() async {
 
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
+  // 书库走 drift（P4-04）：数据库不可用时退回内存模式，书架为空但可启动。
+  final library = database == null
+      ? LibraryStore.memory()
+      : LibraryStore(database: database);
+  if (database != null) {
+    // 旧版 books.json 一次性迁入 drift（幂等）。
+    final migrated = await library.migrateLegacyJson();
+    if (migrated > 0) {
+      await log.log(
+        'library_migrated',
+        fields: <String, Object?>{'books': migrated},
+      );
+    }
+  }
   runApp(
     ReaderApp(
-      library: LibraryStore(),
+      library: library,
       progressStore: FileReaderProgressStore(),
     ),
   );
