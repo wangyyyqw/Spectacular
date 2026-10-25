@@ -602,6 +602,12 @@ class EpubChapterSource
     'background-color', 'border-left', 'border-right',
     'padding-left', 'padding-right', 'margin-left', 'margin-right',
   };
+
+  /// 标题标签族：阅读器字号/行高覆盖不作用于标题（标题排版跟随书籍
+  /// 样式族，段距也保留自身间距）。
+  static const _headingTags = <String>{
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  };
   /// 图片显示尺寸：width/height 属性（% 或 px）优先，缺边按原始宽高比
   /// 补齐；CSS class 尺寸（textiE1 的 width:100%）flat 管线暂不解析，
   /// 无属性时按全宽近似。高超出页高时钳制（contain 绘制不变形）。
@@ -1576,12 +1582,28 @@ class EpubChapterSource
             : '${before ?? ''}$text${after ?? ''}';
         // 链末位即当前块上下文（P8-02：链式级联含全部祖先）；
         // 首末容器位（P8-05c）供上下边框拼合。
-        final blockStyle = styleForChain(
+        final tag = ancestors.isEmpty ? 'body' : ancestors.last.tag;
+        final isHeading = _headingTags.contains(tag);
+        // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
+        // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
+        // 标题不参与——标题字号/行高继续跟随书籍样式族。
+        var blockStyle = styleForChain(
           ancestors,
           quoteDepth: quoteDepth,
           firstInContainer: firstInContainer,
           lastInContainer: lastInContainer,
         );
+        if (!isHeading) {
+          blockStyle = overrides.applyTypography(
+            blockStyle,
+            containingWidth: contentWidth,
+          );
+        }
+        // 段间距（阅读器设置优先）：只作用于正文段落；标题与列表项保留
+        // 书籍自身的间距族。null 时沿用块 margin 并交给相邻折叠。
+        final paragraphSpacing = isHeading || tag == 'li'
+            ? null
+            : overrides.paragraphSpacing;
         // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
         String? marker;
         if (ancestors.isNotEmpty && ancestors.last.tag == 'li' &&
@@ -1617,11 +1639,11 @@ class EpubChapterSource
               startCfi: cfi,
               groupId: groupId,
               listMarker: marker,
-              // P8-05：块级上下边距（含负值）进分页几何——UA/作者的
-              // margin-top/bottom 首次生效；相邻段 margin 折叠暂不做
-              //（记录为 flat 近似）。
-              spaceBefore: blockStyle.margin.top,
-              spaceAfter: blockStyle.margin.bottom,
+              // 块级上下边距进分页几何（含负值）：作者/UA margin 生效，
+              // 阅读器段距设置优先；相邻段在分页层折叠取大
+              //（PageBlock.collapseAdjacentMargins）。
+              spaceBefore: paragraphSpacing ?? blockStyle.margin.top,
+              spaceAfter: paragraphSpacing ?? blockStyle.margin.bottom,
               // P8-08：注音标注透传渲染层。
               rubies: node is TextContentNode && node.rubies.isNotEmpty
                   ? [

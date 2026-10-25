@@ -12,6 +12,7 @@ class ReaderOverrides {
   const ReaderOverrides({
     this.fontSize,
     this.lineHeight,
+    this.paragraphSpacing,
     this.textAlign,
     this.padding,
     this.textColor,
@@ -23,6 +24,11 @@ class ReaderOverrides {
 
   /// 行高倍数（相对字号）。
   final double? lineHeight;
+
+  /// 段间距（逻辑像素，段与段之间的空隙）。
+  ///
+  /// null 表示不覆盖：沿用书籍/UA 的段上下边距并按相邻折叠取大。
+  final double? paragraphSpacing;
 
   /// 对齐方式。
   final CssTextAlign? textAlign;
@@ -40,19 +46,62 @@ class ReaderOverrides {
   bool get isEmpty =>
       fontSize == null &&
       lineHeight == null &&
+      paragraphSpacing == null &&
       textAlign == null &&
       padding == null &&
       textColor == null &&
       backgroundColor == null;
 
-  /// 影响排版的设置指纹（字号/行高/对齐/页边距；颜色不参与布局，P2-24）。
+  /// 影响排版的设置指纹（字号/行高/段距/对齐/页边距；颜色不参与布局，
+  /// P2-24）。
   String get fingerprint => [
     'fs=${fontSize ?? '-'}',
     'lh=${lineHeight ?? '-'}',
+    'ps=${paragraphSpacing ?? '-'}',
     'align=${textAlign?.name ?? '-'}',
     'pad=${padding == null ? '-' : '${padding!.top},${padding!.right},'
               '${padding!.bottom},${padding!.left}'}',
   ].join(';');
+
+  /// 正文字体排版声明（字号/行高/对齐）：阅读器设置优先于作者 CSS。
+  Map<String, String> typographyDeclarations() {
+    final values = <String, String>{};
+    final size = fontSize;
+    if (size != null) {
+      values['font-size'] = _px(size);
+    }
+    final height = lineHeight;
+    if (height != null) {
+      values['line-height'] = '$height';
+    }
+    final align = textAlign;
+    if (align != null) {
+      values['text-align'] = _alignCss(align);
+    }
+    return values;
+  }
+
+  /// 在正文块样式之上应用字体排版覆盖（字号/行高/对齐）。
+  ///
+  /// 用于覆盖作者 CSS 的显式声明——阅读器设置属于更高的 origin
+  /// （CSS §7.5 reader origin 高于 author），必须作用在级联结果之上；
+  /// 只覆盖这三项，页边距与颜色走各自通道。
+  ComputedStyle applyTypography(
+    ComputedStyle base, {
+    double? containingWidth,
+  }) {
+    final declarations = typographyDeclarations();
+    if (declarations.isEmpty) {
+      return base;
+    }
+    return ComputedStyle(
+      declarations,
+      parent: base,
+      explicitProperties: declarations.keys.toSet(),
+      containingWidth: containingWidth ?? 0,
+      rootFontSize: base.fontSize,
+    );
+  }
 
   /// 转成 CSS 声明（覆盖层用显式属性合并）。
   Map<String, String> toCssDeclarations() {
@@ -108,6 +157,7 @@ class ReaderOverrides {
   ReaderOverrides copyWith({
     double? fontSize,
     double? lineHeight,
+    double? paragraphSpacing,
     CssTextAlign? textAlign,
     CssEdges? padding,
     Color? textColor,
@@ -115,6 +165,7 @@ class ReaderOverrides {
   }) => ReaderOverrides(
     fontSize: fontSize ?? this.fontSize,
     lineHeight: lineHeight ?? this.lineHeight,
+    paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     textAlign: textAlign ?? this.textAlign,
     padding: padding ?? this.padding,
     textColor: textColor ?? this.textColor,
