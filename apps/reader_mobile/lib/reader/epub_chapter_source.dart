@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -268,6 +270,110 @@ class EpubChapterSource
       <String, ImageIntrinsicSize>{};
   final Set<String> _imageIntrinsicMiss = <String>{};
 
+  /// 作者样式表缓存：CSS 文件 URL → 解析结果（跨章共享）；章节 → 该章
+  /// link 的样式表序列（文档顺序，级联后声明覆盖先声明）。
+  final Map<String, CssStylesheet> _cssSheetCache = <String, CssStylesheet>{};
+  final Map<int, List<CssStylesheet>> _chapterSheetCache =
+      <int, List<CssStylesheet>>{};
+
+  /// 章节作者样式表（真实书适配）：提取章节 `<link rel=stylesheet>`
+  /// 与 `<style>`，按文档顺序解析；CSS 文件字节按 URL 缓存。
+  List<CssStylesheet> _chapterStylesheets(int spineIndex) {
+    return _chapterSheetCache.putIfAbsent(spineIndex, () {
+      final item = document.spine[spineIndex];
+      final xhtmlPath =
+          document.resources.resolve(
+                item.href,
+                baseDir: p.posix.dirname(document.opfPath),
+              ) ??
+          item.href;
+      final xhtmlBytes = document.archive.readBytes(xhtmlPath);
+      if (xhtmlBytes == null) {
+        return const <CssStylesheet>[];
+      }
+      final inline = CssParser.extractFromXhtml(
+        utf8.decode(xhtmlBytes, allowMalformed: true),
+      );
+      final chapterBase = p.posix.dirname(xhtmlPath);
+      final sheets = <CssStylesheet>[];
+      for (final href in inline.links) {
+        final url =
+            document.resources.resolve(href, baseDir: chapterBase) ??
+                href;
+        sheets.add(
+          _cssSheetCache.putIfAbsent(url, () {
+            final bytes = document.archive.readBytes(url);
+            if (bytes == null) {
+              return const CssStylesheet(
+                rules: [],
+                imports: [],
+                warnings: [],
+              );
+            }
+            return CssParser.parse(
+              utf8.decode(bytes, allowMalformed: true),
+            );
+          }),
+        );
+      }
+      if (inline.css.isNotEmpty) {
+        sheets.add(CssParser.parse(inline.css));
+      }
+      return sheets;
+    });
+  }
+
+  /// 匹配作者声明：仅支持单复合选择器（`p`、`p.cls`、`.cls`），后代/
+  /// 子/伪类选择器与 `@media` 内规则跳过；保持文档顺序，后声明覆盖
+  /// 先声明（CSS 级联的同优先级语义）。
+  static Map<String, String> _authorDeclarations(
+    List<CssStylesheet> sheets,
+    String tag,
+    String? classes,
+  ) {
+    final merged = <String, String>{};
+    final classSet = (classes ?? '')
+        .split(RegExp(r'\s+'))
+        .where((c) => c.isNotEmpty)
+        .toSet();
+    for (final sheet in sheets) {
+      for (final rule in sheet.rules) {
+        if (rule.media != null) {
+          continue;
+        }
+        for (final raw in rule.selector.split(',')) {
+          final selector = raw.trim();
+          if (selector.isEmpty ||
+              selector.contains(' ') ||
+              selector.contains('>') ||
+              selector.contains(':')) {
+            continue;
+          }
+          final dot = selector.indexOf('.');
+          final selectorTag = dot < 0 ? selector : selector.substring(0, dot);
+          final selectorClasses = dot < 0
+              ? const <String>{}
+              : selector
+                  .substring(dot + 1)
+                  .split('.')
+                  .where((c) => c.isNotEmpty)
+                  .toSet();
+          if (selectorTag.isNotEmpty && selectorTag != tag) {
+            continue;
+          }
+          if (selectorClasses.isNotEmpty &&
+              !selectorClasses.every(classSet.contains)) {
+            continue;
+          }
+          for (final declaration in rule.declarations) {
+            merged[declaration.property] = declaration.value;
+          }
+        }
+      }
+    }
+    return merged;
+  }
+
   /// 图片显示尺寸：width/height 属性（% 或 px）优先，缺边按原始宽高比
   /// 补齐；CSS class 尺寸（textiE1 的 width:100%）flat 管线暂不解析，
   /// 无属性时按全宽近似。高超出页高时钳制（contain 绘制不变形）。
@@ -478,37 +584,60 @@ class EpubChapterSource
       blocks.add(PageBlock(layout: layout, style: blockStyle));
     }
 
-    // 块级 UA 覆盖（P7-03）：标题/引用/列表等按标签叠加默认样式，
-    // em 相对阅读器基准字号解算；同一标签只构造一次（styles 层）。
+    // 块级样式（P7-03 + 真实书适配）：UA 标签默认 + 作者 CSS（标签/
+    // class 规则，级联后声明覆盖先声明）叠加；em 相对阅读器基准字号
+    // 解算；同（标签, class, 引用深度）只构造一次。
+    final sheets = _chapterStylesheets(spineIndex);
     final uaStyles = <String, ComputedStyle>{};
     var figureSeq = 0;
-    ComputedStyle styleFor(String tag, {int quoteDepth = 0}) {
-      final key = quoteDepth > 0 ? 'quote$quoteDepth/$tag' : tag;
+    ComputedStyle styleFor(
+      String tag, {
+      Map<String, String>? attributes,
+      int quoteDepth = 0,
+    }) {
+      final classes = attributes?['class'];
+      final key = '$tag|$classes|$quoteDepth';
       final cached = uaStyles[key];
       if (cached != null) {
         return cached;
       }
-      final overlaid = UaBlockDefaults.apply(
-        style,
-        tag,
-        containingWidth: contentWidth,
-      );
+      final declarations = <String, String>{
+        ...UaBlockDefaults.declarationsFor(tag),
+        ..._authorDeclarations(sheets, tag, classes),
+      };
+      if (declarations.isEmpty && quoteDepth == 0) {
+        return uaStyles[key] = style;
+      }
       if (quoteDepth == 0) {
-        return uaStyles[key] = overlaid ?? style;
+        return uaStyles[key] = ComputedStyle(
+          declarations,
+          parent: style,
+          explicitProperties: declarations.keys.toSet(),
+          containingWidth: contentWidth,
+          rootFontSize: style.fontSize,
+        );
       }
       // 引用容器（M2）：flat 管线无 blockquote 盒子，容器的左右边距
       // 按嵌套深度叠加到子块声明上（WHATWG 15.3.3 一层 40px）。
-      final fallback = overlaid ?? style;
+      final fallback = declarations.isEmpty
+          ? style
+          : ComputedStyle(
+              declarations,
+              parent: style,
+              explicitProperties: declarations.keys.toSet(),
+              containingWidth: contentWidth,
+              rootFontSize: style.fontSize,
+            );
       final extra = 40.0 * quoteDepth;
-      final declarations = <String, String>{
-        ...UaBlockDefaults.declarationsFor(tag),
+      final quoteDeclarations = <String, String>{
+        ...declarations,
         'margin-left': '${fallback.margin.left + extra}px',
         'margin-right': '${fallback.margin.right + extra}px',
       };
       return uaStyles[key] = ComputedStyle(
-        declarations,
+        quoteDeclarations,
         parent: style,
-        explicitProperties: declarations.keys.toSet(),
+        explicitProperties: quoteDeclarations.keys.toSet(),
         containingWidth: contentWidth,
         rootFontSize: style.fontSize,
       );
@@ -517,6 +646,7 @@ class EpubChapterSource
     void collect(
       EpubNode node,
       String blockTag, {
+      Map<String, String>? attributes,
       int groupId = 0,
       _ListContext? list,
       int quoteDepth = 0,
@@ -527,7 +657,11 @@ class EpubChapterSource
         if (text.trim().isEmpty) {
           return;
         }
-        final blockStyle = styleFor(blockTag, quoteDepth: quoteDepth);
+        final blockStyle = styleFor(
+          blockTag,
+          attributes: attributes,
+          quoteDepth: quoteDepth,
+        );
         // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
         String? marker;
         if (blockTag == 'li' && list != null) {
@@ -573,10 +707,12 @@ class EpubChapterSource
         // 引用深度（M2）：blockquote 每层 +1，容器左右边距叠加到子块。
         final childQuoteDepth =
             node.tag == 'blockquote' ? quoteDepth + 1 : quoteDepth;
+        // 作者 CSS（真实书适配）：块自身属性（class/style）供样式匹配。
         for (final child in node.children) {
           collect(
             child,
             node.tag,
+            attributes: node.attributes,
             groupId: childGroup,
             list: childList,
             quoteDepth: childQuoteDepth,
@@ -587,6 +723,7 @@ class EpubChapterSource
           collect(
             child,
             blockTag,
+            attributes: attributes,
             groupId: groupId,
             list: list,
             quoteDepth: quoteDepth,
@@ -595,7 +732,7 @@ class EpubChapterSource
       }
     }
 
-    collect(document.root, 'body');
+    collect(document.root, 'body', attributes: document.root.attributes);
     // pagination 层（P7-23）：先试页索引重放（P7-22），跳过分页状态
     // 机；索引缺失/损坏/schema 不匹配时静默重排并回写索引。
     final cachedIndexBytes = _pageIndexCache[paginationKey];
