@@ -4,6 +4,7 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/text/segmenter.dart';
 
 /// 页内选区（P4-15）：起止命中点，按阅读顺序归一。
@@ -215,6 +216,52 @@ abstract final class SelectionOps {
       lastChar = text.substring(text.length - 1);
     }
     return buffer.toString();
+  }
+
+  /// 选区起止 CFI（标注存储用，§30.2）：块级 CFI + 块内字符偏移。
+  static ({String start, String end})? cfiOf(
+    ReaderSelection selection,
+  ) {
+    final startCfi = selection.start.lineBox.slice.block.startCfi;
+    final endCfi = selection.end.lineBox.slice.block.startCfi;
+    if (startCfi == null || startCfi.isEmpty) {
+      return null;
+    }
+    final startOffset =
+        selection.start.lineBox.textOffset + selection.start.charOffset;
+    final endOffset =
+        selection.end.lineBox.textOffset + selection.end.charOffset;
+    return (
+      start: cfiWithCharOffset(startCfi, startOffset),
+      end: cfiWithCharOffset(endCfi ?? startCfi, endOffset),
+    );
+  }
+
+  /// 选区前后文（各约 20 字，重定位兜底用，§30.2）。
+  static ({String? before, String? after}) contextOf(
+    PageContent page,
+    ReaderSelection selection,
+  ) {
+    final boxes = TextHitTester.lineBoxes(page);
+    final startBox = _boxFor(boxes, selection.start);
+    final endBox = _boxFor(boxes, selection.end);
+    final text = startBox.slice.block.layout.text;
+    final startOffset = (startBox.textOffset + selection.start.charOffset).clamp(
+      0,
+      text.length,
+    );
+    final endOffset = (endBox.textOffset + selection.end.charOffset).clamp(
+      0,
+      text.length,
+    );
+    final beforeStart = startOffset - 20 < 0 ? 0 : startOffset - 20;
+    final afterEnd = endOffset + 20 > text.length ? text.length : endOffset + 20;
+    return (
+      before: startOffset > beforeStart
+          ? text.substring(beforeStart, startOffset)
+          : null,
+      after: afterEnd > endOffset ? text.substring(endOffset, afterEnd) : null,
+    );
   }
 
   /// 选区包围盒（页内坐标；菜单定位用）。

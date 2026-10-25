@@ -82,6 +82,21 @@ class CfiSegment {
   }
 }
 
+/// 给块级 CFI 追加/替换字符偏移（标注区间端点用，§30.2）。
+///
+/// `epubcfi(/6/4!/4/2/1)` + 3 → `epubcfi(/6/4!/4/2/1:3)`；已有偏移时替换。
+/// 输入不是 `epubcfi(...)` 形态时原样返回。
+String cfiWithCharOffset(String cfi, int charOffset) {
+  final trimmed = cfi.trim();
+  if (!trimmed.startsWith('epubcfi(') || !trimmed.endsWith(')')) {
+    return cfi;
+  }
+  return trimmed.replaceFirstMapped(
+    RegExp(r'(:[0-9]+)?\)$'),
+    (_) => ':$charOffset)',
+  );
+}
+
 /// CFI → spine 序号（§34.2）。
 ///
 /// 规范形态 `epubcfi(/6/4!/4/2/1)`：第一段第一步是 package 的 spine 元素，
