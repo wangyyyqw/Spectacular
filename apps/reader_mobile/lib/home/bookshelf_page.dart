@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:reader_core/epub/importer.dart';
 import '../library/library_store.dart';
 import '../reader/epub_reader_page.dart';
 import '../storage/file_progress_store.dart';
+import '../storage/import_queue.dart';
 
 /// 书架页：书籍网格、EPUB 导入、点击进入阅读、长按删除。
 class BookshelfPage extends StatefulWidget {
@@ -16,7 +18,8 @@ class BookshelfPage extends StatefulWidget {
     super.key,
     required this.library,
     required this.progressStore,
-    this.pickEpubFile = _pickWithFilePicker,
+    this.pickEpubFiles = _pickWithFilePicker,
+    this.readFile = _readFile,
   });
 
   /// 书架存储。
@@ -25,18 +28,23 @@ class BookshelfPage extends StatefulWidget {
   /// 阅读进度存储（进阅读页用）。
   final FileReaderProgressStore progressStore;
 
-  /// 选文件入口（默认 file_picker；测试注入）。
-  final Future<String?> Function() pickEpubFile;
+  /// 选文件入口（默认 file_picker 多选；测试注入）。
+  final Future<List<String>> Function() pickEpubFiles;
 
-  static Future<String?> _pickWithFilePicker() async {
+  /// 读取文件字节（默认 dart:io；测试注入以便在 FakeAsync 中同步返回）。
+  final Future<Uint8List> Function(String path) readFile;
+
+  static Future<Uint8List> _readFile(String path) => File(path).readAsBytes();
+
+  static Future<List<String>> _pickWithFilePicker() async {
     final files = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: <String>['epub'],
     );
-    if (files.isEmpty) {
-      return null;
-    }
-    return files.single.path;
+    return <String>[
+      for (final file in files)
+        if (file.path != null) file.path!,
+    ];
   }
 
   @override
@@ -45,20 +53,69 @@ class BookshelfPage extends StatefulWidget {
 
 class _BookshelfPageState extends State<BookshelfPage> {
   List<BookEntry>? _books;
-  bool _importing = false;
+  late final ImportQueue _queue;
+  final List<ImportJob> _batch = <ImportJob>[];
+  int _reportedJobs = 0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     widget.library.addListener(_reload);
+    _queue = ImportQueue(widget.library)..addListener(_onQueueChanged);
     _reload();
   }
 
   @override
   void dispose() {
     widget.library.removeListener(_reload);
+    _queue
+      ..removeListener(_onQueueChanged)
+      ..dispose();
     super.dispose();
+  }
+
+  /// 队列变化：刷新进度；一批任务全部结束时汇总提示。
+  void _onQueueChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+    if (!_queue.isIdle || _batch.length == _reportedJobs) {
+      return;
+    }
+    _reportedJobs = _batch.length;
+    _showImportSummary();
+  }
+
+  void _showImportSummary() {
+    final succeeded = _batch
+        .where((job) => job.status == ImportStatus.succeeded)
+        .length;
+    ImportJob? failed;
+    for (final job in _batch) {
+      if (job.status == ImportStatus.failed) {
+        failed = job;
+        break;
+      }
+    }
+    final cancelled = _batch
+        .where((job) => job.status == ImportStatus.cancelled)
+        .length;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (succeeded > 0) {
+      messenger?.showSnackBar(SnackBar(content: Text('已导入 $succeeded 本书')));
+    }
+    if (failed != null) {
+      // P3-27：拒绝文案由码表驱动，给原因与建议，不暴露堆栈。
+      final friendly = EpubRejectionMessages.forCode(
+        failed.errorCode,
+        failed.error ?? '',
+      );
+      setState(() => _error = '${friendly.title}。${friendly.suggestion}');
+    } else if (succeeded == 0 && cancelled > 0) {
+      messenger?.showSnackBar(const SnackBar(content: Text('已取消导入')));
+    }
   }
 
   void _reload() {
@@ -71,46 +128,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
   }
 
+  /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
-    if (_importing) {
+    final paths = await widget.pickEpubFiles();
+    if (paths.isEmpty || !mounted) {
       return;
     }
     setState(() {
-      _importing = true;
       _error = null;
+      _batch.clear();
+      _reportedJobs = 0;
     });
-    try {
-      final path = await widget.pickEpubFile();
-      if (path == null) {
-        return;
-      }
-      final bytes = await File(path).readAsBytes();
-      final entry = await widget.library.importBytes(
-        bytes,
-        fallbackTitle: path.split(Platform.pathSeparator).last,
-      );
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('已导入《${entry.title}》')),
+    for (final path in paths) {
+      try {
+        final bytes = await widget.readFile(path);
+        _batch.add(
+          _queue.enqueue(
+            bytes,
+            fallbackTitle: path.split(Platform.pathSeparator).last,
+          ),
         );
+      } catch (error) {
+        if (mounted) {
+          setState(() => _error = '读取文件失败：$error');
+        }
       }
-    } on LibraryImportException catch (error) {
-      if (mounted) {
-        // P3-27：拒绝文案由码表驱动，给原因与建议，不暴露堆栈。
-        final friendly = EpubRejectionMessages.forCode(
-          error.errorCode,
-          error.message,
-        );
-        setState(() => _error = '${friendly.title}。${friendly.suggestion}');
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _error = '导入失败：$error');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _importing = false);
-      }
+    }
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -158,40 +203,105 @@ class _BookshelfPageState extends State<BookshelfPage> {
   @override
   Widget build(BuildContext context) {
     final books = _books;
+    final busy = _queue.isBusy;
     return Scaffold(
       appBar: AppBar(title: const Text('书架')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _importing ? null : _import,
-        icon: _importing
+        onPressed: busy ? null : _import,
+        icon: busy
             ? const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.add),
-        label: Text(_importing ? '导入中…' : '导入 EPUB'),
+        label: Text(busy ? '导入中…' : '导入 EPUB'),
       ),
-      body: _error != null
-          ? _ErrorPane(message: _error!, onRetry: _import)
-          : books == null
-          ? const Center(child: CircularProgressIndicator())
-          : books.isEmpty
-          ? const _EmptyPane()
-          : RefreshIndicator(
-              onRefresh: () async => _reload(),
-              child: GridView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  childAspectRatio: 0.62,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                ),
-                itemCount: books.length,
-                itemBuilder: (context, index) =>
-                    _BookCard(entry: books[index], onOpen: _open, onRemove: _confirmRemove),
+      body: Column(
+        children: [
+          if (busy)
+            _ImportBanner(
+              queue: _queue,
+              onCancel: () {
+                final job = _queue.activeJob;
+                if (job != null) {
+                  _queue.cancel(job.id);
+                }
+              },
+            ),
+          Expanded(
+            child: _error != null
+                ? _ErrorPane(message: _error!, onRetry: _import)
+                : books == null
+                ? const Center(child: CircularProgressIndicator())
+                : books.isEmpty
+                ? const _EmptyPane()
+                : RefreshIndicator(
+                    onRefresh: () async => _reload(),
+                    child: GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: 0.62,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                      ),
+                      itemCount: books.length,
+                      itemBuilder: (context, index) => _BookCard(
+                        entry: books[index],
+                        onOpen: _open,
+                        onRemove: _confirmRemove,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 导入进度条：当前任务名 + 进度 + 取消（P4-03）。
+class _ImportBanner extends StatelessWidget {
+  const _ImportBanner({required this.queue, required this.onCancel});
+
+  final ImportQueue queue;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final job = queue.activeJob;
+    final theme = Theme.of(context);
+    final label = job == null
+        ? '等待导入（排队 ${queue.pendingCount} 本）'
+        : '正在导入：${job.fallbackTitle ?? '书籍'}'
+            '${queue.pendingCount > 0 ? '（排队 ${queue.pendingCount} 本）' : ''}';
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(value: job?.progress),
+                ],
               ),
             ),
+            TextButton(onPressed: onCancel, child: const Text('取消')),
+          ],
+        ),
+      ),
     );
   }
 }
