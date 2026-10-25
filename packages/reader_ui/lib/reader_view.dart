@@ -146,6 +146,7 @@ class ReaderView extends StatefulWidget {
     this.onPrevious,
     this.onNext,
     this.onToggleToolbar,
+    this.onLongPressAt,
     this.onGesture,
     this.pageIndex,
     this.pageCount,
@@ -163,6 +164,9 @@ class ReaderView extends StatefulWidget {
 
   /// 中间区域点击：工具栏。
   final VoidCallback? onToggleToolbar;
+
+  /// 长按位置（相对阅读视图左上角，P4-14 命中测试用）。
+  final ValueChanged<Offset>? onLongPressAt;
 
   /// 手势观测回调（测试/埋点）。
   final ValueChanged<ReaderGesture>? onGesture;
@@ -232,6 +236,9 @@ class _ReaderViewState extends State<ReaderView> {
             } else {
               _turn(_interpreter.tapIntent(gesture));
             }
+          },
+          onLongPressStart: (details) {
+            widget.onLongPressAt?.call(details.localPosition);
           },
           onHorizontalDragStart: (_) {
             _dragDx = 0;

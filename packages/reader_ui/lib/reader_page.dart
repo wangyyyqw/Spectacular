@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:reader_core/api.dart';
 import 'package:flutter/services.dart';
+import 'package:reader_core/api.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
@@ -296,6 +297,27 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _showToast(created == null ? '该位置已有书签' : '已添加书签');
   }
 
+  /// 长按命中文字行并复制整行（P4-14 命中测试的真实调用点）。
+  Future<void> _copyLineAt(Offset localPosition) async {
+    final page = _session.page;
+    if (page == null) {
+      return;
+    }
+    final padding = _effectivePadding();
+    final hit = TextHitTester.hitTest(
+      page,
+      localPosition - Offset(padding.left, padding.top),
+    );
+    final text = hit?.lineBox.text.trim() ?? '';
+    if (text.isEmpty) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      _showToast('已复制整行');
+    }
+  }
+
   void _showToast(String message) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger?.showSnackBar(
@@ -390,6 +412,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onPrevious: () => unawaited(_session.previous()),
               onNext: () => unawaited(_session.next()),
               onToggleToolbar: () => unawaited(_openReaderMenu()),
+              onLongPressAt: (position) => unawaited(
+                _copyLineAt(position),
+              ),
               child: const SizedBox.expand(),
             ),
             // 页脚页码（P8-10 页家具 6 槽第一槽）。
