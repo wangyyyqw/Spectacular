@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -534,6 +535,27 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
+  /// 复制一段（P4-29 无障碍动作）。
+  void _copyBlock(String text) {
+    if (text.isEmpty) {
+      return;
+    }
+    unawaited(Clipboard.setData(ClipboardData(text: text)));
+    _showToast('已复制本段');
+  }
+
+  /// 翻页播报（P4-29，§67.5）：只在无障碍开启时播报，避免干扰普通用户。
+  void _announcePageChange(PageContent page, int totalPages) {
+    if (!(MediaQuery.maybeAccessibleNavigationOf(context) ?? false)) {
+      return;
+    }
+    SemanticsService.sendAnnouncement(
+      View.of(context),
+      '第 ${page.pageIndex + 1} 页，共 $totalPages 页',
+      TextDirection.ltr,
+    );
+  }
+
   /// 应用搜索结果（P4-26，§29.4）：跳到命中位置并临时高亮 3 秒。
   Future<void> _applySearchResult(SearchPanelResult result) async {
     final cfi = result.cfi;
@@ -960,15 +982,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final pageKey = page == null ? null : '${page.spineIndex}/${page.pageIndex}';
     if (pageKey != null && _lastFocusedPageKey != pageKey) {
       _lastFocusedPageKey = pageKey;
+      final focusedPage = page;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_semanticsFirstFocus.canRequestFocus) {
+        if (!mounted || focusedPage == null) {
           return;
         }
         final route = ModalRoute.of(context);
         if (route != null && route.isCurrent == false) {
           return;
         }
-        _semanticsFirstFocus.requestFocus();
+        if (_semanticsFirstFocus.canRequestFocus) {
+          _semanticsFirstFocus.requestFocus();
+        }
+        _announcePageChange(focusedPage, _session.chapterPageCount);
       });
     }
 
@@ -1053,6 +1079,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   page: page,
                   pageWidth: size.width - _effectivePadding().horizontal,
                   firstNodeFocus: _semanticsFirstFocus,
+                  onNextPage: () => unawaited(_session.next()),
+                  onPreviousPage: () => unawaited(_session.previous()),
+                  onCopyBlock: _copyBlock,
                 ),
               ),
             ),
