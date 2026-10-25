@@ -133,7 +133,7 @@ bdo { unicode-bidi: isolate-override; }
 hr { color: gray; margin-top: 0.5em; margin-bottom: 0.5em; }
 
 /* ==== 嵌入内容（15.4）==== */
-img, video { display: inline-block; }
+img, video { display: inline; }
 audio, canvas, embed, iframe, object { display: none; }
 
 /* ==== ruby（CSS Ruby 1；注音排版属 P8-08）==== */

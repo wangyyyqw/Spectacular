@@ -427,10 +427,17 @@ class EpubChapterSource
     return result;
   }
 
-  static String _chainKey(List<SelectorElement> chain) => [
-    for (final view in chain)
-      '${view.tag}#${view.attributes['id'] ?? ''}.${(view.attributes['class'] ?? '').trim()}',
-  ].join('>');
+  static String _chainKey(List<SelectorElement> chain) {
+    final parts = <String>[];
+    for (final view in chain) {
+      final attrKeys = view.attributes.keys.toList()..sort();
+      final attrs = [
+        for (final key in attrKeys) '$key=${view.attributes[key]}',
+      ].join(';');
+      parts.add('${view.tag}|$attrs');
+    }
+    return parts.join('>');
+  }
 
   /// 祖先传导的盒类近似属性：flat 无嵌套盒子，容器面板（背景/左右
   /// 边框/左右内边距）由后代块拼合呈现（P3-30 marginBox 路径消费）。
@@ -1021,9 +1028,21 @@ class EpubChapterSource
         },
         const <SelectorElement>[],
       );
-      final declared = chainStyle([view]).values['float']?.toLowerCase();
+      final imgStyle = chainStyle([view]);
+      final declared = imgStyle.values['float']?.toLowerCase();
       if (declared == 'left' || declared == 'right') {
         return declared == 'left' ? FloatSide.left : FloatSide.right;
+      }
+      // P8-06：display:inline-block 的小图按左浮近似——后续文字绕排
+      // 右侧，获得「头像+名」类并排视觉（flat 无行内盒的真实近似）。
+      // 限定显式小尺寸（宽属性 ≤200px），大图仍走普通块。
+      if (imgStyle.display == CssDisplay.inlineBlock) {
+        final widthAttr = double.tryParse(
+          (attributes['width'] ?? '').replaceAll(RegExp(r'[^0-9.]'), ''),
+        );
+        if (widthAttr != null && widthAttr > 0 && widthAttr <= 200) {
+          return FloatSide.left;
+        }
       }
       return null;
     }
@@ -1423,6 +1442,15 @@ class EpubChapterSource
           );
         }
       } else if (node is BlockNode) {
+        // display:none 容器子树剔除（P8-07，WHATWG 15.3.1 语义）：容器
+        // 自身样式为 none 时整棵子树不产出（含 [hidden]/input[type=
+        // hidden]/dialog:not([open]) 等经级联命中的形态）。
+        if (chainStyle(<SelectorElement>[
+          ...ancestors,
+          _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
+        ]).display == CssDisplay.none) {
+          return;
+        }
         // 折叠出的纯图块（真实书适配）：构造背景图块（contain 居中），
         // 块高按属性尺寸/原始宽高比换算。
         if (node.tag == 'img' && node.children.isEmpty) {
