@@ -70,6 +70,28 @@ Future<void> main() async {
         fields: <String, Object?>{'books': migrated},
       );
     }
+    // P4-05：清理数据库里已不存在的书目录/旧格式孤儿文件。
+    final swept = await library.sweepOrphans();
+    if (swept.removed > 0) {
+      await log.log(
+        'library_swept',
+        fields: <String, Object?>{
+          'entries': swept.removed,
+          'bytes': swept.bytes,
+        },
+      );
+    }
+    // 旧书封面回填放后台，不拖慢启动。
+    unawaited(
+      library.backfillCovers().then((filled) async {
+        if (filled > 0) {
+          await log.log(
+            'covers_backfilled',
+            fields: <String, Object?>{'books': filled},
+          );
+        }
+      }),
+    );
   }
   runApp(
     ReaderApp(
