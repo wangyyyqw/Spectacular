@@ -14,6 +14,7 @@ import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
+import 'panels/settings_panel.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_layer.dart';
@@ -35,6 +36,8 @@ class ReaderPage extends StatefulWidget {
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     this.bookmarks,
     this.annotations,
+    this.onOverridesChanged,
+    this.onThemeChanged,
     this.onSessionReady,
     this.imageCache,
     this.theme,
@@ -51,6 +54,12 @@ class ReaderPage extends StatefulWidget {
 
   /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
   final ReaderAnnotationStore? annotations;
+
+  /// 排版设置变化（P4-21）：调用方负责持久化。
+  final ValueChanged<ReaderOverrides>? onOverridesChanged;
+
+  /// 主题变化（P4-21）：调用方负责持久化。
+  final ValueChanged<String>? onThemeChanged;
 
   /// 进度存储。
   final ReaderProgressStore store;
@@ -93,17 +102,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late final bool _ownsParagraphCache = widget.paragraphCache == null;
   late PagePainter _painter = _buildPainter();
 
+  /// 当前排版设置（P4-21：设置面板可改，初始来自 widget.overrides）。
+  late ReaderOverrides _overrides;
+
+  /// 当前主题（P4-21：设置面板可切）。
+  late ReaderTheme? _theme;
+
   PagePainter _buildPainter() => PagePainter(
-    background: widget.theme?.background ?? widget.background,
+    background: _theme?.background ?? widget.background,
     imageLookup: widget.imageCache?.lookup,
-    textColor: widget.theme?.text,
+    textColor: _theme?.text,
     paragraphCache: _paragraphCache,
   );
 
   /// 设置与主题合并后的有效覆盖（主题补正文/背景色，设置优先）。
   ReaderOverrides _effectiveOverrides() {
-    final base = widget.overrides ?? const ReaderOverrides();
-    final theme = widget.theme;
+    final base = _overrides;
+    final theme = _theme;
     if (theme == null) {
       return base;
     }
@@ -115,7 +130,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 页边距：设置优先，其次 ReaderPage.padding。
   EdgeInsets _effectivePadding() {
-    final edges = widget.overrides?.padding;
+    final edges = _overrides.padding;
     final base = edges == null
         ? widget.padding
         : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
@@ -229,6 +244,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _overrides = widget.overrides ?? ReaderSettingsDefaults.overrides;
+    _theme = widget.theme;
     // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
     // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
     unawaited(
@@ -253,6 +270,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.theme != widget.theme) {
+      _theme = widget.theme;
+    }
+    if (oldWidget.overrides != widget.overrides &&
+        widget.overrides != null) {
+      _overrides = widget.overrides!;
+    }
     if (oldWidget.theme != widget.theme ||
         oldWidget.background != widget.background ||
         oldWidget.imageCache != widget.imageCache) {
@@ -285,6 +309,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           scrollController: _tocScrollController,
           bookmarks: widget.bookmarks,
           hasCfi: _session.currentCfi != null,
+          overrides: _overrides,
+          themeId: (_theme ?? ReaderTheme.white).id,
+          onOverridesChanged: _applyOverrides,
+          onThemeChanged: _applyTheme,
+          onResetSettings: _resetSettings,
         ),
       ),
     );
@@ -420,6 +449,33 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       );
       _selectionSpineIndex = prevPage.spineIndex;
     });
+  }
+
+  /// 应用排版设置（P4-21）：立即重排 + 通知外部持久化。
+  void _applyOverrides(ReaderOverrides next) {
+    if (next.fingerprint == _overrides.fingerprint) {
+      return;
+    }
+    setState(() => _overrides = next);
+    unawaited(_session.applyOverrides(_effectiveOverrides()));
+    widget.onOverridesChanged?.call(next);
+  }
+
+  /// 切换主题（P4-21）：不重排，只重绘并通知外部持久化。
+  void _applyTheme(String themeId) {
+    final theme = ReaderTheme.byId(themeId);
+    setState(() {
+      _theme = theme;
+      _painter = _buildPainter();
+    });
+    unawaited(_session.applyOverrides(_effectiveOverrides()));
+    widget.onThemeChanged?.call(themeId);
+  }
+
+  /// 恢复默认设置（P4-21）。
+  void _resetSettings() {
+    _applyOverrides(ReaderSettingsDefaults.overrides);
+    _applyTheme(ReaderSettingsDefaults.themeId);
   }
 
   /// 重新加载全书标注（P4-18）并重定位到当前章（P4-20）。
@@ -708,7 +764,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         // 背景铺满窗口（P8-10 收尾）：加载骨架/错误态/正文页统一以主题
         // 背景色打底，避免 padding 外区域透出窗口黑底。
         return ColoredBox(
-          color: widget.theme?.background ?? widget.background,
+          color: _theme?.background ?? widget.background,
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             child: _buildBody(context),
@@ -832,7 +888,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 11,
-                      color: (widget.theme?.text ?? const Color(0xFF757575))
+                      color: (_theme?.text ?? const Color(0xFF757575))
                           .withValues(alpha: 0.55),
                     ),
                   ),
@@ -914,6 +970,11 @@ class _ReaderMenuSheet extends StatefulWidget {
     required this.scrollController,
     required this.bookmarks,
     required this.hasCfi,
+    required this.overrides,
+    required this.themeId,
+    required this.onOverridesChanged,
+    required this.onThemeChanged,
+    required this.onResetSettings,
   });
 
   final List<TocEntry> entries;
@@ -922,13 +983,18 @@ class _ReaderMenuSheet extends StatefulWidget {
   final ScrollController scrollController;
   final ReaderBookmarkStore? bookmarks;
   final bool hasCfi;
+  final ReaderOverrides overrides;
+  final String themeId;
+  final ValueChanged<ReaderOverrides> onOverridesChanged;
+  final ValueChanged<String> onThemeChanged;
+  final VoidCallback onResetSettings;
 
   @override
   State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
 }
 
 class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
-  int _view = 0; // 0=菜单 1=目录 2=书签
+  int _view = 0; // 0=菜单 1=目录 2=书签 3=设置
   Future<List<ReaderBookmark>>? _bookmarksFuture;
 
   void _showView(int view) {
@@ -950,6 +1016,16 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
         scrollController: widget.scrollController,
         onBack: () => _showView(0),
         onSelect: (entry) => Navigator.of(context).pop(entry),
+      );
+    }
+    if (_view == 3) {
+      return SettingsPanel(
+        overrides: widget.overrides,
+        themeId: widget.themeId,
+        onBack: () => _showView(0),
+        onOverridesChanged: widget.onOverridesChanged,
+        onThemeChanged: widget.onThemeChanged,
+        onReset: widget.onResetSettings,
       );
     }
     if (_view == 2) {
@@ -1015,6 +1091,13 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
                 title: const Text('书签'),
                 onTap: () => _showView(2),
               ),
+            ListTile(
+              key: const ValueKey<String>('menu-settings'),
+              leading: const Icon(Icons.tune),
+              title: const Text('设置'),
+              subtitle: const Text('字号 · 行高 · 段距 · 页边距 · 主题'),
+              onTap: () => _showView(3),
+            ),
             const SizedBox(height: 8),
           ],
         ),

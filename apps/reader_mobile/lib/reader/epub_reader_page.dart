@@ -9,6 +9,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'epub_chapter_source.dart';
+import 'reader_settings.dart';
 
 /// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
 ///
@@ -28,6 +29,8 @@ class EpubReaderPage extends StatefulWidget {
     required this.store,
     this.bookmarks,
     this.annotations,
+    this.settings,
+    this.onSettingsChanged,
   });
 
   /// EPUB 字节。
@@ -44,6 +47,12 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
   final ReaderAnnotationStore? annotations;
+
+  /// 初始阅读设置（P4-21）。
+  final ReaderSettings? settings;
+
+  /// 设置变化（调用方持久化）。
+  final ValueChanged<ReaderSettings>? onSettingsChanged;
 
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
@@ -110,6 +119,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         child: Text('打开失败：$error'),
       );
     }
+    final settings = widget.settings ?? ReaderSettings.defaults;
     return ReaderPage(
       key: const ValueKey<String>('reader-page'),
       source: _source!,
@@ -118,7 +128,14 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       imageCache: _imageCache,
       bookmarks: widget.bookmarks,
       annotations: widget.annotations,
-      overrides: defaultReaderOverrides,
+      overrides: settings.overrides,
+      theme: settings.theme,
+      onOverridesChanged: (overrides) => widget.onSettingsChanged?.call(
+        ReaderSettings.fromOverrides(overrides, themeId: settings.themeId),
+      ),
+      onThemeChanged: (themeId) => widget.onSettingsChanged?.call(
+        settings.copyWithTheme(themeId),
+      ),
     );
   }
 }
