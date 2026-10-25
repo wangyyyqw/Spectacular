@@ -59,3 +59,42 @@ Uint8List buildTestEpub({
   }
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
+
+/// 构造带导入告警的 EPUB：manifest 项缺 media-type（按扩展名推断），
+/// 触发 `E_MANIFEST_MEDIA_TYPE_INFERRED`。
+Uint8List buildWarningEpub({
+  String title = '告警书',
+  String identifier = 'urn:uuid:warning-book',
+}) {
+  final chapter =
+      '<?xml version="1.0" encoding="UTF-8"?>'
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title>'
+      '</head><body><p>正文</p></body></html>';
+  final opf =
+      '<?xml version="1.0" encoding="UTF-8"?>'
+      '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+      'unique-identifier="uid"><metadata '
+      'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+      '<dc:identifier id="uid">$identifier</dc:identifier>'
+      '<dc:title>$title</dc:title><dc:language>zh</dc:language></metadata>'
+      '<manifest><item id="c1" href="c1.xhtml"/></manifest>'
+      '<spine><itemref idref="c1"/></spine></package>';
+  final container =
+      '<?xml version="1.0" encoding="UTF-8"?>'
+      '<container version="1.0" '
+      'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+      '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+      'media-type="application/oebps-package+xml"/></rootfiles></container>';
+  final files = <String, String>{
+    'mimetype': 'application/epub+zip',
+    'META-INF/container.xml': container,
+    'OEBPS/content.opf': opf,
+    'OEBPS/c1.xhtml': chapter,
+  };
+  final archive = Archive();
+  files.forEach((name, content) {
+    final bytes = utf8.encode(content);
+    archive.addFile(ArchiveFile(name, bytes.length, bytes));
+  });
+  return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+}

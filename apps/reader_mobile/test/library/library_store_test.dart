@@ -80,6 +80,38 @@ void main() {
     expect(await store.list(), hasLength(1));
   });
 
+  test('导入报告落库：诊断码与分级（P4-06）', () async {
+    final dir = Directory.systemTemp.createTempSync('library_reports');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final entry = await store.importBytes(buildWarningEpub());
+    final reports = await store.importReports(entry.id);
+    expect(reports, isNotEmpty);
+    final manifest = reports.firstWhere(
+      (item) => item.code == 'E_MANIFEST_MEDIA_TYPE_INFERRED',
+    );
+    expect(manifest.severity, 1, reason: 'recoverable 映射为警告');
+    expect(manifest.message, contains('media-type'));
+    expect(
+      reports.map((item) => item.code),
+      contains('IMPORT_WARNING'),
+      reason: '没有诊断码的告警也要落库，不能丢',
+    );
+  });
+
+  test('干净书没有错误级报告明细', () async {
+    final dir = Directory.systemTemp.createTempSync('library_reports_ok');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final entry = await store.importBytes(buildTestEpub(title: '干净书'));
+    final reports = await store.importReports(entry.id);
+    expect(
+      reports.where((item) => item.severity >= 2),
+      isEmpty,
+      reason: '干净书不应有错误级报告',
+    );
+  });
+
   test('坏 EPUB 导入抛可读错误，不入库', () async {
     final dir = Directory.systemTemp.createTempSync('library_bad');
     addTearDown(() => dir.deleteSync(recursive: true));
