@@ -10,6 +10,7 @@ import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
+import 'annotations/annotation.dart';
 import 'panels/bookmark_panel.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
@@ -31,6 +32,7 @@ class ReaderPage extends StatefulWidget {
     this.background = const Color(0xFFFFFFFF),
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     this.bookmarks,
+    this.annotations,
     this.onSessionReady,
     this.imageCache,
     this.theme,
@@ -44,6 +46,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
   final ReaderBookmarkStore? bookmarks;
+
+  /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
+  final ReaderAnnotationStore? annotations;
 
   /// 进度存储。
   final ReaderProgressStore store;
@@ -353,6 +358,20 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     PageContent page,
     ReaderSelection selection,
   ) => <SelectionAction>[
+    if (widget.annotations != null)
+      SelectionAction(
+        id: 'highlight',
+        label: '高亮',
+        onTap: () => unawaited(
+          _saveAnnotation(page, selection, ReaderAnnotationType.highlight),
+        ),
+      ),
+    if (widget.annotations != null)
+      SelectionAction(
+        id: 'note',
+        label: '笔记',
+        onTap: () => unawaited(_addNote(page, selection)),
+      ),
     SelectionAction(
       id: 'copy',
       label: '复制',
@@ -361,6 +380,78 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     SelectionAction(id: 'select-all', label: '全选', onTap: () => _selectAll(page)),
     SelectionAction(id: 'dismiss', label: '取消', onTap: _clearSelection),
   ];
+
+  /// 保存高亮/笔记（P4-17）：CFI 区间 + 原文 + 前后文。
+  Future<void> _saveAnnotation(
+    PageContent page,
+    ReaderSelection selection,
+    ReaderAnnotationType type, {
+    String? note,
+  }) async {
+    final store = widget.annotations;
+    if (store == null) {
+      return;
+    }
+    final cfi = SelectionOps.cfiOf(selection);
+    final quote = SelectionOps.textOf(page, selection);
+    if (cfi == null || quote.isEmpty) {
+      _showToast('当前位置不支持标注');
+      return;
+    }
+    final context = SelectionOps.contextOf(page, selection);
+    final created = await store.add(
+      type: type,
+      startCfi: cfi.start,
+      endCfi: cfi.end,
+      quote: quote,
+      contextBefore: context.before,
+      contextAfter: context.after,
+      color: type == ReaderAnnotationType.highlight ? 0xFFFFEB3B : null,
+      note: note,
+    );
+    if (!mounted) {
+      return;
+    }
+    _clearSelection();
+    _showToast(created == null ? '该位置已有标注' : (type == ReaderAnnotationType.note ? '已添加笔记' : '已高亮'));
+  }
+
+  /// 输入笔记正文后保存（P4-17）。
+  Future<void> _addNote(PageContent page, ReaderSelection selection) async {
+    final controller = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('笔记'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          decoration: const InputDecoration(hintText: '写点什么…'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (note == null || note.trim().isEmpty) {
+      return;
+    }
+    await _saveAnnotation(
+      page,
+      selection,
+      ReaderAnnotationType.note,
+      note: note.trim(),
+    );
+  }
 
   Future<void> _copySelection(PageContent page, ReaderSelection selection) async {
     final text = SelectionOps.textOf(page, selection);

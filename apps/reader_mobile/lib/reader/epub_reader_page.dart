@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/loading_skeleton.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -26,6 +27,7 @@ class EpubReaderPage extends StatefulWidget {
     required this.bookId,
     required this.store,
     this.bookmarks,
+    this.annotations,
   });
 
   /// EPUB 字节。
@@ -39,6 +41,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
   final ReaderBookmarkStore? bookmarks;
+
+  /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
+  final ReaderAnnotationStore? annotations;
 
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
@@ -112,6 +117,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       bookId: widget.bookId,
       imageCache: _imageCache,
       bookmarks: widget.bookmarks,
+      annotations: widget.annotations,
       overrides: defaultReaderOverrides,
     );
   }

@@ -261,6 +261,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           bookId: entry.id,
           store: widget.progressStore,
           bookmarks: widget.library.bookmarkStore(entry.id),
+          annotations: widget.library.annotationStore(entry.id),
         ),
       ),
     );
