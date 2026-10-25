@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/epub/epub_document.dart';
 
@@ -387,12 +388,29 @@ class LibraryStore {
       _notify();
       return;
     }
-    // §37.4：先删库行（级联清子表），再删书目录；删文件失败留孤儿目录，
-    // 启动扫描可清理。
+    // §37.4：先删库行（级联清子表），再删书目录与旧格式原书文件；
+    // 删文件失败留孤儿，启动扫描可清理。
     final db = _db!;
+    final rows = await (db.select(
+      db.books,
+    )..where((table) => table.uuid.equals(id))).get();
+    final sourcePaths = <String>[
+      for (final row in rows)
+        if (row.sourcePath != null) row.sourcePath!,
+    ];
     await (db.delete(
       db.books,
     )..where((table) => table.uuid.equals(id))).go();
+    for (final path in sourcePaths) {
+      final file = File(path);
+      if (await file.exists()) {
+        try {
+          await file.delete();
+        } catch (_) {
+          // 占用失败留孤儿，启动扫描清理。
+        }
+      }
+    }
     _notify();
     final root = await _root();
     final directory = Directory('${root.path}/books/$id');
@@ -403,6 +421,127 @@ class LibraryStore {
         // 权限/占用失败：下次启动扫描清理。
       }
     }
+  }
+
+  /// 启动扫描：清理数据库中不存在的书目录与旧格式孤儿文件（§37.4）。
+  ///
+  /// 返回清理的条目数与释放的字节数；失败项跳过（下次启动再试）。
+  Future<({int removed, int bytes})> sweepOrphans() async {
+    if (_isMemory) {
+      return (removed: 0, bytes: 0);
+    }
+    final db = _db!;
+    final root = await _root();
+    final booksDirectory = Directory('${root.path}/books');
+    if (!await booksDirectory.exists()) {
+      return (removed: 0, bytes: 0);
+    }
+    final rows = await db.select(db.books).get();
+    final knownIds = <String>{for (final row in rows) row.uuid};
+    final knownFiles = <String>{
+      for (final row in rows)
+        if (row.sourcePath != null) row.sourcePath!,
+    };
+    var removed = 0;
+    var bytes = 0;
+    await for (final entity in booksDirectory.list(followLinks: false)) {
+      if (entity is Directory) {
+        // 新格式：books/<uuid>/；未知 uuid 即孤儿目录。
+        if (knownIds.contains(p.basename(entity.path))) {
+          continue;
+        }
+        bytes += await _sizeOf(entity);
+        try {
+          await entity.delete(recursive: true);
+          removed += 1;
+        } catch (_) {
+          // 占用/权限失败：保留，下次启动再试。
+        }
+      } else if (entity is File) {
+        // 旧格式：books/<id>.epub；只留数据库引用中的文件。
+        if (knownFiles.contains(entity.path)) {
+          continue;
+        }
+        try {
+          bytes += await entity.length();
+          await entity.delete();
+          removed += 1;
+        } catch (_) {
+          // 同上。
+        }
+      }
+    }
+    return (removed: removed, bytes: bytes);
+  }
+
+  Future<int> _sizeOf(FileSystemEntity entity) async {
+    var total = 0;
+    if (entity is File) {
+      try {
+        total += await entity.length();
+      } catch (_) {
+        // 单个文件不可读时忽略大小。
+      }
+      return total;
+    }
+    if (entity is Directory) {
+      await for (final child in entity.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (child is File) {
+          try {
+            total += await child.length();
+          } catch (_) {
+            // 同上。
+          }
+        }
+      }
+    }
+    return total;
+  }
+
+  /// 给缺封面的旧书补提取封面（迁移后的一次性回填，幂等）。
+  ///
+  /// 只处理 `cover_path` 为空的书；单本失败不影响其它书。
+  Future<int> backfillCovers() async {
+    if (_isMemory) {
+      return 0;
+    }
+    final db = _db!;
+    final rows = await (db.select(
+      db.books,
+    )..where((table) => table.coverPath.isNull())).get();
+    var filled = 0;
+    for (final row in rows) {
+      final sourcePath = row.sourcePath;
+      if (sourcePath == null || !await File(sourcePath).exists()) {
+        continue;
+      }
+      try {
+        final bytes = await File(sourcePath).readAsBytes();
+        final document = (await openEpub(bytes)).document;
+        final coverBytes = document?.readCoverBytes();
+        if (document == null || coverBytes == null || coverBytes.isEmpty) {
+          continue;
+        }
+        final root = await _root();
+        final directory = Directory('${root.path}/books/${row.uuid}');
+        await directory.create(recursive: true);
+        final extension = _coverExtension(document.coverResourcePath);
+        final coverFile = File('${directory.path}/cover.$extension');
+        await coverFile.writeAsBytes(coverBytes, flush: true);
+        await (db.update(db.books)..where((table) => table.id.equals(row.id)))
+            .write(BooksCompanion(coverPath: Value(coverFile.path)));
+        filled += 1;
+      } catch (_) {
+        // 单本解析失败跳过，不影响其它书。
+      }
+    }
+    if (filled > 0) {
+      _notify();
+    }
+    return filled;
   }
 
   /// 把旧版 `books.json` 一次性迁入 drift（幂等：库非空直接返回 0）。

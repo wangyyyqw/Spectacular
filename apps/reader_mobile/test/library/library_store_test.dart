@@ -122,6 +122,84 @@ void main() {
     expect(second.id, isNot(books.first.id));
   });
 
+  test('删除旧格式迁移书：原书文件一并删除', () async {
+    final dir = Directory.systemTemp.createTempSync('library_remove_legacy');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final epubFile = File('${dir.path}/books/legacy-del.epub')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(buildTestEpub(title: '待删旧书'));
+    File('${dir.path}/books.json').writeAsStringSync(
+      '{"books":[{"id":"legacy-del","title":"待删旧书","author":"作者",'
+      '"filePath":"${epubFile.path}","addedAt":1700000000000}]}',
+    );
+    final store = _open(dir).store;
+    await store.migrateLegacyJson();
+    await store.remove('legacy-del');
+    expect(await store.list(), isEmpty);
+    expect(epubFile.existsSync(), isFalse, reason: '磁盘不留孤儿原书');
+  });
+
+  test('孤儿扫描：删未入库目录与旧格式文件，保留在册书籍', () async {
+    final dir = Directory.systemTemp.createTempSync('library_sweep');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final entry = await store.importBytes(buildTestEpub(title: '在册书'));
+
+    // 制造孤儿：未知 uuid 目录 + 未引用的旧格式 epub。
+    final orphanDir = Directory('${dir.path}/books/orphan-dir')
+      ..createSync(recursive: true);
+    File('${orphanDir.path}/a.bin').writeAsBytesSync(List<int>.filled(16, 1));
+    final orphanFile = File('${dir.path}/books/orphan.epub')
+      ..writeAsBytesSync(List<int>.filled(8, 2));
+
+    final swept = await store.sweepOrphans();
+    expect(swept.removed, 2);
+    expect(swept.bytes, 24);
+    expect(orphanDir.existsSync(), isFalse);
+    expect(orphanFile.existsSync(), isFalse);
+    expect(File(entry.filePath).existsSync(), isTrue, reason: '在册书不受影响');
+    expect(await store.list(), hasLength(1));
+  });
+
+  test('孤儿扫描不误删旧格式在册文件（迁移场景）', () async {
+    final dir = Directory.systemTemp.createTempSync('library_sweep_keep');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final epubFile = File('${dir.path}/books/legacy.epub')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(buildTestEpub(title: '旧格式'));
+    File('${dir.path}/books.json').writeAsStringSync(
+      '{"books":[{"id":"legacy-keep","title":"旧格式","author":"作者",'
+      '"filePath":"${epubFile.path}","addedAt":1700000000000}]}',
+    );
+    final store = _open(dir).store;
+    await store.migrateLegacyJson();
+    final swept = await store.sweepOrphans();
+    expect(swept.removed, 0, reason: '数据库引用中的文件必须保留');
+    expect(epubFile.existsSync(), isTrue);
+  });
+
+  test('封面回填：给缺封面的旧书补提封面', () async {
+    final dir = Directory.systemTemp.createTempSync('library_backfill');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final withCover = buildTestEpub(title: '可回填', cover: true);
+    final epubFile = File('${dir.path}/books/legacy-cover.epub')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(withCover);
+    File('${dir.path}/books.json').writeAsStringSync(
+      '{"books":[{"id":"legacy-cover","title":"可回填","author":"作者",'
+      '"filePath":"${epubFile.path}","addedAt":1700000000000}]}',
+    );
+    final store = _open(dir).store;
+    await store.migrateLegacyJson();
+    expect((await store.list()).single.coverPath, isNull, reason: '迁移不带封面');
+
+    expect(await store.backfillCovers(), 1);
+    final entry = (await store.list()).single;
+    expect(entry.coverPath, isNotNull);
+    expect(File(entry.coverPath!).existsSync(), isTrue);
+    expect(await store.backfillCovers(), 0, reason: '幂等：已有封面不再处理');
+  });
+
   test('旧版 books.json 一次性迁入 drift 且幂等', () async {
     final dir = Directory.systemTemp.createTempSync('library_migrate');
     addTearDown(() => dir.deleteSync(recursive: true));
