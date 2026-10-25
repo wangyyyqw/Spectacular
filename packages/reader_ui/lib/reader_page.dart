@@ -17,6 +17,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
 import 'a11y/semantics_layer.dart';
+import 'page_furniture/page_furniture.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
@@ -209,6 +210,42 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return base + EdgeInsets.only(bottom: bottomInset);
   }
 
+  /// 正文区 padding：在页边距基础上让出页眉/页脚槽（设计稿 .page-header/footer）。
+  EdgeInsets _bodyPadding() {
+    final base = _effectivePadding();
+    if (!widget.showPageFooter) {
+      return base;
+    }
+    return base + const EdgeInsets.only(
+      top: PageFurniture.headerHeight + PageFurniture.headerGap,
+      bottom: PageFurniture.footerHeight + PageFurniture.footerGap,
+    );
+  }
+
+  /// 章标题：目录里有就用目录名，否则退回「第 N 章」。
+  String _chapterTitleOf(int spineIndex) {
+    final source = widget.source;
+    if (source is TocChapterSource) {
+      for (final row in flattenToc(source.toc)) {
+        if (row.entry.spineIndex == spineIndex) {
+          return row.entry.title;
+        }
+      }
+    }
+    return '第 ${spineIndex + 1} 章';
+  }
+
+  /// 全书进度（0..1）：章进度 + 章内页进度。
+  double _bookProgressOf(PageContent page) {
+    final chapters = widget.source.chapterCount;
+    if (chapters <= 0) {
+      return 0;
+    }
+    final pagesInChapter = _session.chapterPageCount;
+    final within = pagesInChapter <= 0 ? 0.0 : (page.pageIndex + 1) / pagesInChapter;
+    return ((page.spineIndex + within) / chapters).clamp(0.0, 1.0);
+  }
+
   /// 已预取过的页键（spine*100000 + pageIndex），避免重复预取。
   int _prefetchedPageKey = -1;
 
@@ -249,9 +286,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
   void _scheduleContentSize(Size pageSize) {
     final padding = _effectivePadding();
+    final reserved = widget.showPageFooter ? PageFurniture.reservedHeight : 0.0;
     final content = Size(
       pageSize.width - padding.horizontal,
-      pageSize.height - padding.vertical,
+      pageSize.height - padding.vertical - reserved,
     );
     if (content.width <= 0 || content.height <= 0) {
       return;
@@ -1054,13 +1092,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       key: ValueKey<String>('reader-page-${page.spineIndex}-${page.pageIndex}'),
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        _schedulePrefetch(page, size.width - _effectivePadding().horizontal);
+        final padding = _effectivePadding();
+        _schedulePrefetch(page, size.width - padding.horizontal);
         _scheduleContentSize(size);
         return Stack(
           fit: StackFit.expand,
           children: [
             Padding(
-              padding: _effectivePadding(),
+              padding: _bodyPadding(),
               child: ClipRect(
                 child: CustomPaint(
                   painter: _ReaderPageCustomPainter(
@@ -1115,27 +1154,35 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onTripleTapAt: _selection == null ? null : _selectSentenceAt,
               child: const SizedBox.expand(),
             ),
-            // 页脚页码（P8-10 页家具 6 槽第一槽）。
-            if (widget.showPageFooter)
+            // 页眉/页脚（P8-10 页家具；样式对齐设计稿 §page-header/footer）。
+            if (widget.showPageFooter) ...[
               Positioned(
-                left: widget.padding.horizontal / 2,
-                right: widget.padding.horizontal / 2,
-                bottom: 4,
+                left: padding.left,
+                right: padding.right,
+                top: padding.top,
                 child: IgnorePointer(
-                  child: Text(
-                    '第${page.spineIndex + 1}/${widget.source.chapterCount}章 '
-                    '· ${page.pageIndex + 1}/${_session.chapterPageCount}页',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color:
-                          (_effectiveTheme?.text ?? const Color(0xFF757575))
-                          // 墨水屏不用灰度过渡：页脚保持纯黑（§42.2）。
-                          .withValues(alpha: _inkMode ? 1 : 0.55),
-                    ),
+                  child: ReaderPageHeader(
+                    theme: _effectiveTheme,
+                    title: _chapterTitleOf(page.spineIndex),
+                    pageLabel:
+                        '${page.pageIndex + 1}/${_session.chapterPageCount}',
+                    inkMode: _inkMode,
                   ),
                 ),
               ),
+              Positioned(
+                left: padding.left,
+                right: padding.right,
+                bottom: padding.bottom,
+                child: IgnorePointer(
+                  child: ReaderPageFooter(
+                    theme: _effectiveTheme,
+                    progress: _bookProgressOf(page),
+                    inkMode: _inkMode,
+                  ),
+                ),
+              ),
+            ],
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
             if (_selection != null) ...[
               Positioned.fill(
