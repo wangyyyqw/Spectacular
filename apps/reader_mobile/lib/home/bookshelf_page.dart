@@ -9,6 +9,7 @@ import 'package:reader_core/epub/importer.dart';
 
 import '../library/library_store.dart';
 import '../reader/epub_reader_page.dart';
+import '../reader/reader_settings.dart';
 import 'book_detail_sheet.dart';
 import '../storage/import_queue.dart';
 
@@ -90,6 +91,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   static const _viewKey = 'bookshelf.grid';
 
   List<_ShelfItem>? _items;
+
+  /// 阅读设置缓存（P4-21）。
+  ReaderSettings? _settings;
   late final ImportQueue _queue;
   final List<ImportJob> _batch = <ImportJob>[];
   int _reportedJobs = 0;
@@ -249,7 +253,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
+  /// 读取并缓存阅读设置（P4-21）。
+  Future<void> _loadReaderSettings() async {
+    final settings = await ReaderSettingsStore(widget.library).load();
+    if (mounted) {
+      setState(() => _settings = settings);
+    }
+  }
+
+  /// 保存阅读设置（P4-21）。
+  Future<void> _saveReaderSettings(ReaderSettings settings) async {
+    setState(() => _settings = settings);
+    await ReaderSettingsStore(widget.library).save(settings);
+  }
+
   Future<void> _open(BookEntry entry) async {
+    if (_settings == null) {
+      await _loadReaderSettings();
+    }
+    if (!mounted) {
+      return;
+    }
     final bytes = await widget.library.readBytes(entry);
     if (!mounted) {
       return;
@@ -262,6 +286,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
           store: widget.progressStore,
           bookmarks: widget.library.bookmarkStore(entry.id),
           annotations: widget.library.annotationStore(entry.id),
+          settings: _settings ?? ReaderSettings.defaults,
+          onSettingsChanged: _saveReaderSettings,
         ),
       ),
     );
