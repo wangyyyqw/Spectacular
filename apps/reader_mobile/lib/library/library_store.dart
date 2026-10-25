@@ -214,12 +214,18 @@ class LibraryStore {
 
   /// 导入 EPUB 字节：先打开校验（拿元数据与诊断报告），成功落盘
   /// `books/<id>.epub` 并入库；失败抛 [LibraryImportException]。
+  ///
+  /// [onProgress] 上报阶段进度 0～1（解析 → 落盘 → 入库），供导入队列
+  /// 展示；取消由调用方决定（本方法不中断，落盘后由调用方清理）。
   Future<BookEntry> importBytes(
     Uint8List bytes, {
     String? fallbackTitle,
+    void Function(double progress)? onProgress,
   }) async {
     await _ensureLoaded();
+    onProgress?.call(0.1);
     final result = await openEpub(bytes);
+    onProgress?.call(0.6);
     final document = result.document;
     if (document == null) {
       final detail = result.report.message ?? result.report.errorCode ?? '未知错误';
@@ -238,6 +244,7 @@ class LibraryStore {
       await file.writeAsBytes(bytes, flush: true);
       filePath = file.path;
     }
+    onProgress?.call(0.85);
     final title = document.meta.title.trim().isEmpty
         ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
         : document.meta.title.trim();
@@ -252,6 +259,7 @@ class LibraryStore {
     );
     _items[id] = entry;
     await _persist();
+    onProgress?.call(1);
     _notify();
     return entry;
   }

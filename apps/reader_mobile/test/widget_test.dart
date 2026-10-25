@@ -59,7 +59,7 @@ void main() {
         home: BookshelfPage(
           library: library,
           progressStore: FileReaderProgressStore.memory(),
-          pickEpubFile: () async => entry.filePath,
+          pickEpubFiles: () async => <String>[entry.filePath],
         ),
       ),
     );
