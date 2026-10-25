@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
 
@@ -9,6 +12,7 @@ import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
 import 'storage/db.dart';
+import 'storage/drift_progress_store.dart';
 import 'storage/file_progress_store.dart';
 
 Future<void> main() async {
@@ -93,12 +97,26 @@ Future<void> main() async {
       }),
     );
   }
-  runApp(
-    ReaderApp(
-      library: library,
-      progressStore: FileReaderProgressStore(),
-    ),
-  );
+  // P4-10：进度写 reading_progress 表；数据库不可用时退回内存存储。
+  final ReaderProgressStore progressStore;
+  if (database == null) {
+    progressStore = FileReaderProgressStore.memory();
+  } else {
+    final driftStore = DriftProgressStore(database);
+    // 旧版 reader_progress.json 一次性迁入表（幂等）。
+    final support = await getApplicationSupportDirectory();
+    final migrated = await driftStore.migrateLegacyJson(
+      File(p.join(support.path, 'reader_progress.json')),
+    );
+    if (migrated > 0) {
+      await log.log(
+        'progress_migrated',
+        fields: <String, Object?>{'entries': migrated},
+      );
+    }
+    progressStore = driftStore;
+  }
+  runApp(ReaderApp(library: library, progressStore: progressStore));
 }
 
 /// 应用壳：四底栏（书架/统计/书评/我的）+ EPUB 导入 + 阅读页。
@@ -110,7 +128,7 @@ class ReaderApp extends StatelessWidget {
   final LibraryStore library;
 
   /// 进度存储。
-  final FileReaderProgressStore progressStore;
+  final ReaderProgressStore progressStore;
 
   @override
   Widget build(BuildContext context) {

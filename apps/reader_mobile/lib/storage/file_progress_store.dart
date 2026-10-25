@@ -74,6 +74,7 @@ class FileReaderProgressStore implements ReaderProgressStore {
   }
 
   /// 清除某书的进度（删书时调用）。
+  @override
   Future<void> clear(String bookId) async {
     await _ensureLoaded();
     if (_items.remove(bookId) == null) {
@@ -83,6 +84,7 @@ class FileReaderProgressStore implements ReaderProgressStore {
   }
 
   /// 全部已存进度（统计页用；键为 bookId）。
+  @override
   Future<Map<String, ReaderProgress>> snapshot() async {
     await _ensureLoaded();
     return Map<String, ReaderProgress>.unmodifiable(_items);

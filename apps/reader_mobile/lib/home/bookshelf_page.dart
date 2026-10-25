@@ -3,13 +3,13 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import 'package:reader_core/epub/importer.dart';
 
 import '../library/library_store.dart';
 import '../reader/epub_reader_page.dart';
 import 'book_detail_sheet.dart';
-import '../storage/file_progress_store.dart';
 import '../storage/import_queue.dart';
 
 /// 书架排序方式（P4-08）。
@@ -60,7 +60,7 @@ class BookshelfPage extends StatefulWidget {
   final LibraryStore library;
 
   /// 阅读进度存储（进阅读页用）。
-  final FileReaderProgressStore progressStore;
+  final ReaderProgressStore progressStore;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;

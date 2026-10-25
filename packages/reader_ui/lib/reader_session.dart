@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,12 @@ abstract interface class ReaderProgressStore {
 
   /// 保存进度。
   Future<void> save(String bookId, ReaderProgress progress);
+
+  /// 清除某书进度（删书时调用）。
+  Future<void> clear(String bookId);
+
+  /// 全部进度快照（统计页用）。
+  Future<Map<String, ReaderProgress>> snapshot();
 }
 
 /// 内存进度存储（测试/未接持久化时使用）。
@@ -51,6 +58,15 @@ class MemoryReaderProgressStore implements ReaderProgressStore {
   Future<void> save(String bookId, ReaderProgress progress) async {
     _items[bookId] = progress;
   }
+
+  @override
+  Future<void> clear(String bookId) async {
+    _items.remove(bookId);
+  }
+
+  @override
+  Future<Map<String, ReaderProgress>> snapshot() async =>
+      Map<String, ReaderProgress>.unmodifiable(_items);
 }
 
 /// 章节页来源。
@@ -100,7 +116,11 @@ class ReaderSession extends ChangeNotifier {
     required this.source,
     required this.store,
     required this.bookId,
+    this.persistInterval = defaultPersistInterval,
   });
+
+  /// 进度写入节流间隔（P4-10，§76.6）。
+  static const Duration defaultPersistInterval = Duration(seconds: 2);
 
   /// 章节来源。
   final ReaderChapterSource source;
@@ -110,6 +130,9 @@ class ReaderSession extends ChangeNotifier {
 
   /// 书籍标识。
   final String bookId;
+
+  /// 进度写入节流间隔：间隔内的连续翻页合并成一次写库。
+  final Duration persistInterval;
 
   VirtualPager? _pager;
   ReaderOverrides _overrides = const ReaderOverrides();
@@ -122,6 +145,12 @@ class ReaderSession extends ChangeNotifier {
   double? _contentHeight;
   Object? _error;
   bool _disposed = false;
+  Timer? _persistTimer;
+  ReaderProgress? _lastPersisted;
+  int _persistWrites = 0;
+
+  /// 已写库次数（节流验收用：连续翻 100 页应 ≤5 次）。
+  int get persistWriteCount => _persistWrites;
 
   /// 是否加载中。
   bool get loading => _loading;
@@ -234,8 +263,9 @@ class ReaderSession extends ChangeNotifier {
       }
       _pager = pager;
       _loading = false;
+      // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
+      _lastPersisted = progress;
       _notify();
-      await _persist();
     } catch (error) {
       if (generation != _generation) {
         return;
@@ -256,7 +286,7 @@ class ReaderSession extends ChangeNotifier {
     final changed = await pager.next();
     if (changed && generation == _generation) {
       _notify();
-      await _persist();
+      _persist();
     }
     return changed;
   }
@@ -271,7 +301,7 @@ class ReaderSession extends ChangeNotifier {
     final changed = await pager.previous();
     if (changed && generation == _generation) {
       _notify();
-      await _persist();
+      _persist();
     }
     return changed;
   }
@@ -404,7 +434,7 @@ class ReaderSession extends ChangeNotifier {
       if (generation == _generation) {
         _loading = false;
         _notify();
-        await _persist();
+        _persist();
       }
     }
   }
@@ -459,11 +489,36 @@ class ReaderSession extends ChangeNotifier {
     return false;
   }
 
-  Future<void> _persist() async {
+  /// 调度进度写入（P4-10）：值变化才写，2 秒内的多次翻页合并成一次。
+  ///
+  /// 首次变化立即落盘（leading），避免「翻一页就退出」的短会话丢进度；
+  /// 之后的连续变化走 trailing 合并。
+  void _persist() {
     final value = progress;
-    if (value != null) {
-      await store.save(bookId, value);
+    if (value == null || value == _lastPersisted) {
+      return;
     }
+    if (_lastPersisted == null) {
+      unawaited(_flushProgress());
+      return;
+    }
+    _persistTimer?.cancel();
+    _persistTimer = Timer(persistInterval, () => unawaited(_flushProgress()));
+  }
+
+  /// 立即落盘（生命周期切后台/退出阅读页/强杀前调用）。
+  Future<void> flushProgress() => _flushProgress();
+
+  Future<void> _flushProgress() async {
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    final value = progress;
+    if (value == null || value == _lastPersisted) {
+      return;
+    }
+    _lastPersisted = value;
+    _persistWrites += 1;
+    await store.save(bookId, value);
   }
 
   void _notify() {
@@ -475,6 +530,15 @@ class ReaderSession extends ChangeNotifier {
   @override
   void dispose() {
     _generation += 1; // 丢弃未完成任务
+    // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
+    final value = progress;
+    if (value != null && value != _lastPersisted) {
+      _lastPersisted = value;
+      _persistWrites += 1;
+      unawaited(store.save(bookId, value));
+    }
+    _persistTimer?.cancel();
+    _persistTimer = null;
     _disposed = true;
     super.dispose();
   }

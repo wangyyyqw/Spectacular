@@ -80,6 +80,8 @@ void main() {
     expect(session.currentVirtualPage, 59);
     expect(await session.next(), isFalse);
 
+    // P4-10：进度写入节流，测试里显式落盘再断言。
+    await session.flushProgress();
     final saved = await store.load('book-1');
     expect(saved, const ReaderProgress(spineIndex: 29, pageIndex: 1));
 
