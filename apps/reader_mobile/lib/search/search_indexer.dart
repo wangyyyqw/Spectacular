@@ -1,6 +1,6 @@
-import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import 'chapter_text.dart';
 import 'search_index_store.dart';
 
 /// 2-gram 索引构建任务（P4-24，§66.1）：逐章写入，可中断续建。
@@ -48,29 +48,10 @@ class SearchIndexer {
   }
 
   /// 章节纯文本（§66.1：块间插 `\n`，同块多页切片只取一次）。
+  ///
+  /// 与查询期定位共用 [ChapterText]，保证索引偏移与命中定位一致。
   Future<String> _plainTextOf(int spineIndex) async {
     final pages = await source.loadChapter(spineIndex);
-    final blocks = <PageBlock>[];
-    final seen = <Object>{};
-    for (final page in pages) {
-      for (final slice in page.slices) {
-        final block = slice.block;
-        if (seen.add(block)) {
-          blocks.add(block);
-        }
-      }
-    }
-    final buffer = StringBuffer();
-    for (final block in blocks) {
-      final text = block.layout.text;
-      if (text.isEmpty) {
-        continue;
-      }
-      if (buffer.isNotEmpty) {
-        buffer.write('\n');
-      }
-      buffer.write(text);
-    }
-    return buffer.toString();
+    return ChapterText.fromPages(pages).text;
   }
 }

@@ -13,13 +13,16 @@ Uint8List buildTestEpub({
   String author = '测试作者',
   bool cover = false,
   String? identifier,
+  List<String>? paragraphs,
 }) {
+  final body = (paragraphs ?? const <String>[
+    '这是用于应用壳测试的段落，内容足够长以便分页。',
+    '第二章稍后展开。',
+  ]).map((text) => '<p>$text</p>').join();
   final chapter =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title>'
-      '</head><body><h1>第一章 简单正文</h1>'
-      '<p>这是用于应用壳测试的段落，内容足够长以便分页。</p>'
-      '<p>第二章稍后展开。</p></body></html>';
+      '</head><body><h1>第一章 简单正文</h1>$body</body></html>';
   final opf =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
