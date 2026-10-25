@@ -12,7 +12,37 @@ import 'book_detail_sheet.dart';
 import '../storage/file_progress_store.dart';
 import '../storage/import_queue.dart';
 
-/// 书架页：书籍网格、EPUB 导入、点击进入阅读、长按看详情。
+/// 书架排序方式（P4-08）。
+enum BookSortOrder {
+  /// 最近阅读优先（默认）。
+  recent('最近阅读', 'recent'),
+
+  /// 导入时间倒序。
+  added('导入时间', 'added'),
+
+  /// 书名升序。
+  title('书名', 'title');
+
+  const BookSortOrder(this.label, this.value);
+
+  /// 菜单文案。
+  final String label;
+
+  /// 持久化值。
+  final String value;
+
+  /// 按持久化值还原，未知值回退最近阅读。
+  static BookSortOrder fromValue(String? value) {
+    for (final order in values) {
+      if (order.value == value) {
+        return order;
+      }
+    }
+    return recent;
+  }
+}
+
+/// 书架页：书籍网格/列表、EPUB 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
   const BookshelfPage({
@@ -53,11 +83,16 @@ class BookshelfPage extends StatefulWidget {
 }
 
 class _BookshelfPageState extends State<BookshelfPage> {
+  static const _sortKey = 'bookshelf.sort';
+  static const _viewKey = 'bookshelf.grid';
+
   List<BookEntry>? _books;
   late final ImportQueue _queue;
   final List<ImportJob> _batch = <ImportJob>[];
   int _reportedJobs = 0;
   String? _error;
+  BookSortOrder _sort = BookSortOrder.recent;
+  bool _grid = true;
 
   @override
   void initState() {
@@ -65,6 +100,45 @@ class _BookshelfPageState extends State<BookshelfPage> {
     widget.library.addListener(_reload);
     _queue = ImportQueue(widget.library)..addListener(_onQueueChanged);
     _reload();
+    _loadPreferences();
+  }
+
+  /// 读持久化的排序与视图模式（settings 表）。
+  Future<void> _loadPreferences() async {
+    final sort = await widget.library.getSetting(_sortKey);
+    final grid = await widget.library.getSetting(_viewKey);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _sort = BookSortOrder.fromValue(sort);
+      _grid = grid != 'false';
+    });
+  }
+
+  Future<void> _setSort(BookSortOrder order) async {
+    setState(() => _sort = order);
+    await widget.library.setSetting(_sortKey, order.value);
+  }
+
+  Future<void> _toggleView() async {
+    final grid = !_grid;
+    setState(() => _grid = grid);
+    await widget.library.setSetting(_viewKey, '$grid');
+  }
+
+  /// 按当前排序方式排序（list() 默认最近阅读优先）。
+  List<BookEntry> _sorted(List<BookEntry> books) {
+    final sorted = List<BookEntry>.of(books);
+    switch (_sort) {
+      case BookSortOrder.recent:
+        break;
+      case BookSortOrder.added:
+        sorted.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+      case BookSortOrder.title:
+        sorted.sort((a, b) => a.title.compareTo(b.title));
+    }
+    return sorted;
   }
 
   @override
@@ -218,8 +292,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget build(BuildContext context) {
     final books = _books;
     final busy = _queue.isBusy;
+    final ordered = books == null ? null : _sorted(books);
     return Scaffold(
-      appBar: AppBar(title: const Text('书架')),
+      appBar: AppBar(
+        title: const Text('书架'),
+        actions: <Widget>[
+          PopupMenuButton<BookSortOrder>(
+            tooltip: '排序',
+            icon: const Icon(Icons.sort),
+            initialValue: _sort,
+            onSelected: _setSort,
+            itemBuilder: (_) => <PopupMenuEntry<BookSortOrder>>[
+              for (final order in BookSortOrder.values)
+                PopupMenuItem<BookSortOrder>(
+                  value: order,
+                  child: Text(order.label),
+                ),
+            ],
+          ),
+          IconButton(
+            tooltip: _grid ? '列表视图' : '网格视图',
+            onPressed: _toggleView,
+            icon: Icon(_grid ? Icons.view_list_outlined : Icons.grid_view),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: busy ? null : _import,
         icon: busy
@@ -252,22 +349,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 ? const _EmptyPane()
                 : RefreshIndicator(
                     onRefresh: () async => _reload(),
-                    child: GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        childAspectRatio: 0.62,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                      ),
-                      itemCount: books.length,
-                      itemBuilder: (context, index) => _BookCard(
-                        entry: books[index],
-                        onOpen: _open,
-                        onLongPress: _openBookDetail,
-                      ),
-                    ),
+                    child: _grid
+                        ? GridView.builder(
+                            key: const ValueKey<String>('bookshelf-grid'),
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              childAspectRatio: 0.62,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                            ),
+                            itemCount: ordered!.length,
+                            itemBuilder: (context, index) => _BookCard(
+                              entry: ordered[index],
+                              onOpen: _open,
+                              onLongPress: _openBookDetail,
+                            ),
+                          )
+                        : ListView.builder(
+                            key: const ValueKey<String>('bookshelf-list'),
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                            itemCount: ordered!.length,
+                            itemBuilder: (context, index) => _BookRow(
+                              entry: ordered[index],
+                              onOpen: _open,
+                              onLongPress: _openBookDetail,
+                            ),
+                          ),
                   ),
           ),
         ],
@@ -316,6 +425,86 @@ class _ImportBanner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 列表视图的一行（P4-08）：封面缩略 + 标题/作者 + 状态。
+class _BookRow extends StatelessWidget {
+  const _BookRow({
+    required this.entry,
+    required this.onOpen,
+    required this.onLongPress,
+  });
+
+  final BookEntry entry;
+  final Future<void> Function(BookEntry) onOpen;
+  final Future<void> Function(BookEntry) onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final placeholder = Container(
+      width: 48,
+      height: 68,
+      decoration: BoxDecoration(
+        color: HSLColor.fromAHSL(
+          1,
+          entry.coverHue.toDouble(),
+          0.42,
+          0.38,
+        ).toColor(),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        entry.title.isEmpty ? '书' : entry.title.characters.first,
+        style: theme.textTheme.titleMedium?.copyWith(color: Colors.white),
+      ),
+    );
+    final cover = entry.coverPath == null
+        ? placeholder
+        : ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Image.file(
+              File(entry.coverPath!),
+              width: 48,
+              height: 68,
+              fit: BoxFit.cover,
+              cacheWidth: 144,
+              errorBuilder: (_, _, _) => placeholder,
+            ),
+          );
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      leading: cover,
+      title: Text(
+        entry.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyMedium,
+      ),
+      subtitle: Text(
+        [
+          entry.author.isEmpty ? '未知作者' : entry.author,
+          if (entry.spineCount != null) '${entry.spineCount} 章',
+          if (entry.status == BookReadingStatus.reading) '在读',
+        ].join(' · '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.outline,
+        ),
+      ),
+      trailing: entry.readabilityLevel >= 2
+          ? Icon(
+              Icons.report_problem_outlined,
+              color: theme.colorScheme.error,
+              size: 18,
+            )
+          : null,
+      onTap: () => onOpen(entry),
+      onLongPress: () => onLongPress(entry),
     );
   }
 }
