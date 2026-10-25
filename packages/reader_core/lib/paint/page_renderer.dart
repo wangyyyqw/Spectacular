@@ -4,7 +4,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
+import '../layout/line_breaker.dart';
 import '../layout/paginator.dart';
+import '../layout/table_layout.dart';
 import '../layout/text_layout.dart';
 import 'background_image.dart';
 import 'line_spans.dart';
@@ -166,6 +168,15 @@ class PagePainter {
       }
       canvas.save();
       geometry.clip(canvas);
+      // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
+      final tableSpec = geometry.slice.block.table;
+      if (tableSpec != null) {
+        _withOpacity(canvas, geometry, () {
+          _paintTable(canvas, geometry, tableSpec);
+        });
+        canvas.restore();
+        continue;
+      }
       _withOpacity(canvas, geometry, () {
         final layout = geometry.slice.block.layout;
         var lineY = geometry.y + geometry.leading;
@@ -422,6 +433,63 @@ class PagePainter {
     final available =
         geometry.box.width - geometry.leftInset - line.offsetX;
     return line.width > available + 0.5;
+  }
+
+  /// 表格切片绘制（flat 管线接入）：网格线（1px 灰，Reeden 630 裸表格
+  /// 补 border 近似）+ 逐格文字（格内按对齐方式排布，顶部对齐）。
+  void _paintTable(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    TableRenderSpec spec,
+  ) {
+    const pad = 3.0;
+    final top = geometry.y + geometry.leading;
+    final height = spec.rowYs.last;
+    final gridPaint = Paint()
+      ..color = const ui.Color(0xFF9E9E9E)
+      ..strokeWidth = 1;
+    for (final x in spec.columnXs) {
+      canvas.drawLine(
+        ui.Offset(x, top),
+        ui.Offset(x, top + height),
+        gridPaint,
+      );
+    }
+    for (final y in spec.rowYs) {
+      canvas.drawLine(
+        ui.Offset(0, top + y),
+        ui.Offset(spec.tableWidth, top + y),
+        gridPaint,
+      );
+    }
+    for (final cell in spec.cells) {
+      if (cell.layout.lineCount == 0) {
+        continue;
+      }
+      final textStyle = TextLayoutEngine.textStyleFor(cell.style);
+      final innerWidth = cell.rect.width - pad * 2;
+      var lineY = top + cell.rect.top + pad;
+      for (var i = 0; i < cell.layout.lineCount; i++) {
+        final line = cell.layout.lines[i];
+        final text = cell.layout.text.substring(line.start, line.end);
+        if (text.isNotEmpty) {
+          final painter = TextPainter(
+            text: TextSpan(text: text, style: textStyle),
+            textDirection: TextDirection.ltr,
+          )..layout(maxWidth: innerWidth);
+          var x = cell.rect.left + pad;
+          if (cell.style.textAlign == CssTextAlign.center) {
+            x = cell.rect.left + (cell.rect.width - painter.width) / 2;
+          } else if (cell.style.textAlign == CssTextAlign.right ||
+              cell.style.textAlign == CssTextAlign.justify) {
+            x = cell.rect.right - pad - painter.width;
+          }
+          painter.paint(canvas, ui.Offset(x, lineY));
+          painter.dispose();
+        }
+        lineY += line.height;
+      }
+    }
   }
 
   /// 省略号截断绘制（P2-37）：裁掉超出部分，右缘补「…」。

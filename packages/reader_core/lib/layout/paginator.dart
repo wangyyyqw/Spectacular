@@ -3,6 +3,7 @@ import 'dart:ui' show Offset, Rect;
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'box_model.dart';
+import 'table_layout.dart' show TableRenderSpec;
 import 'text_layout.dart';
 
 /// 一个待分页的文本块。
@@ -24,6 +25,7 @@ class PageBlock {
     this.breakAfterAvoid = false,
     this.listMarker,
     this.groupId = 0,
+    this.table,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -110,6 +112,11 @@ class PageBlock {
   /// 整组不可切标记（P7-26）：非 0 时同组连续块是原子单元——整组放
   /// 不下当前页时整体下移；组高于整页时按序切。0 = 无组。
   final int groupId;
+
+  /// 表格渲染载荷（flat 管线接入）：非 null 时本块是一页表格切片，
+  /// layout 为空文本单行盒（高度=切片高，仅参与分页几何），绘制层
+  /// 走表格分支（网格线 + 逐格文字）。
+  final TableRenderSpec? table;
 
   /// 块高度（内容区行高之和）。
   double get height => layout.height;

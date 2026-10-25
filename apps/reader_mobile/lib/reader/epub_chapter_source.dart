@@ -14,6 +14,7 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/full_bleed.dart';
@@ -671,52 +672,10 @@ class EpubChapterSource
     gatherImageSrcs(document.root);
     final blocks = <PageBlock>[];
 
-    void collectImageBlock(BlockNode node) {
-      // src 键名兼容 SVG <image xlink:href> 折叠链。
-      final src = node.attributes['src'] ?? node.attributes['xlink:href'];
-      if (src == null || src.isEmpty) {
-        return;
-      }
-      final url =
-          this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
-      final size = _resolveImageDisplaySize(
-        node.attributes,
-        imageSizes[url],
-        contentWidth,
-        contentHeight,
-      );
-      final blockStyle = ComputedStyle(<String, String>{
-        ...baseStyle.values,
-        'background-image': 'url($url)',
-        'background-size': 'contain',
-        'background-position': 'center center',
-        'background-repeat': 'no-repeat',
-      });
-      // 空行盒块：无 runs（不画字），块盒即图片显示区，背景按 contain
-      // 居中绘制（块高按原图比例换算时恰好铺满，不变形）。
-      final layout = TextLayoutResult(
-        text: '',
-        lines: [
-          LineBox(
-            start: 0,
-            end: 0,
-            top: 0,
-            height: size.$2,
-            baseline: size.$2,
-            width: contentWidth,
-          ),
-        ],
-        width: contentWidth,
-        height: size.$2,
-        maxWidth: contentWidth,
-        runs: const <StyledRun>[],
-      );
-      blocks.add(PageBlock(layout: layout, style: blockStyle));
-    }
-
     // 块级样式（P7-03 + 真实书适配）：UA 标签默认 + 作者 CSS（标签/
     // class 规则，级联后声明覆盖先声明）叠加；em 相对阅读器基准字号
-    // 解算；同（标签, class, 引用深度）只构造一次。
+    // 解算；同（标签, class, 引用深度）只构造一次。声明于收集闭包之前
+    // （表格/图片收集也要按标签取样式）。
     final sheets = _chapterStylesheets(spineIndex);
     await _ensureBookFonts(sheets);
     final uaStyles = <String, ComputedStyle>{};
@@ -778,6 +737,327 @@ class EpubChapterSource
       );
     }
 
+    void collectImageBlock(BlockNode node) {
+      // src 键名兼容 SVG <image xlink:href> 折叠链。
+      final src = node.attributes['src'] ?? node.attributes['xlink:href'];
+      if (src == null || src.isEmpty) {
+        return;
+      }
+      final url =
+          this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
+      final size = _resolveImageDisplaySize(
+        node.attributes,
+        imageSizes[url],
+        contentWidth,
+        contentHeight,
+      );
+      final blockStyle = ComputedStyle(<String, String>{
+        ...baseStyle.values,
+        'background-image': 'url($url)',
+        'background-size': 'contain',
+        'background-position': 'center center',
+        'background-repeat': 'no-repeat',
+      });
+      // 空行盒块：无 runs（不画字），块盒即图片显示区，背景按 contain
+      // 居中绘制（块高按原图比例换算时恰好铺满，不变形）。
+      final layout = TextLayoutResult(
+        text: '',
+        lines: [
+          LineBox(
+            start: 0,
+            end: 0,
+            top: 0,
+            height: size.$2,
+            baseline: size.$2,
+            width: contentWidth,
+          ),
+        ],
+        width: contentWidth,
+        height: size.$2,
+        maxWidth: contentWidth,
+        runs: const <StyledRun>[],
+      );
+      blocks.add(PageBlock(layout: layout, style: blockStyle));
+    }
+
+    /// 表格收集（flat 管线接入）：聚合树 tr/td → 格自然宽/测高闭包 →
+    /// 两遍列宽 + 网格 + 行边界切分；每页片产出一个带渲染载荷的块。
+    /// 嵌套表/行分组（thead/tbody）按树序展开；caption 暂并入文字流。
+    void collectTable(BlockNode tableNode) {
+      const cellPad = 3.0;
+      final rows = <List<BlockNode>>[];
+      void walkRows(EpubNode node) {
+        if (node is! BlockNode) {
+          return;
+        }
+        if (node.tag == 'tr') {
+          final cells = node.children
+              .whereType<BlockNode>()
+              .where((c) => c.tag == 'td' || c.tag == 'th')
+              .toList();
+          if (cells.isNotEmpty) {
+            rows.add(cells);
+          }
+          return;
+        }
+        if (node.tag == 'td' || node.tag == 'th') {
+          return;
+        }
+        for (final child in node.children) {
+          walkRows(child);
+        }
+      }
+
+      walkRows(tableNode);
+      if (rows.isEmpty) {
+        // 无行的表格（构建异常）：退化为文字流（格样式近似）。
+        void emitText(EpubNode node) {
+          if (node is TextBlockNode) {
+            if (node.text.trim().isNotEmpty) {
+              final cellStyle = styleFor('td');
+              final result = _layoutCache.layout(
+                text: node.text,
+                style: cellStyle,
+                maxWidth: contentWidth,
+              );
+              if (result.lineCount > 0) {
+                blocks.add(
+                  PageBlock.styled(
+                    layout: result,
+                    style: cellStyle,
+                    containingWidth: contentWidth,
+                  ),
+                );
+              }
+            }
+          } else if (node is BlockNode) {
+            for (final child in node.children) {
+              emitText(child);
+            }
+          } else if (node is InlineNode) {
+            for (final child in node.children) {
+              emitText(child);
+            }
+          }
+        }
+
+        for (final child in tableNode.children) {
+          emitText(child);
+        }
+        return;
+      }
+
+      // 格文本与样式：子树文本按序拼接（格内嵌套块以空行分隔）。
+      String cellTextOf(BlockNode cell) {
+        final buffer = StringBuffer();
+        void walkText(EpubNode node) {
+          if (node is TextBlockNode) {
+            if (node.text.trim().isNotEmpty) {
+              if (buffer.isNotEmpty) {
+                buffer.write('\n');
+              }
+              buffer.write(node.text.trim());
+            }
+          } else if (node is BlockNode) {
+            for (final child in node.children) {
+              walkText(child);
+            }
+          } else if (node is InlineNode) {
+            for (final child in node.children) {
+              walkText(child);
+            }
+          }
+        }
+
+        walkText(cell);
+        return buffer.toString();
+      }
+
+      // 列声明宽：首行 td/th 的 width 属性（px）近似列声明。
+      final columnSpecified = <double?>[];
+      for (final cell in rows.first) {
+        final raw = cell.attributes['width'];
+        final value = raw == null ? null : double.tryParse(raw.trim());
+        columnSpecified.add(value);
+      }
+      final tableWidthRaw = tableNode.attributes['width'];
+      double? tableWidthPx;
+      double? tableWidthPercent;
+      if (tableWidthRaw != null) {
+        final trimmed = tableWidthRaw.trim();
+        if (trimmed.endsWith('%')) {
+          tableWidthPercent =
+              (double.tryParse(trimmed.substring(0, trimmed.length - 1)) ??
+                  100) /
+              100;
+        } else {
+          tableWidthPx = double.tryParse(trimmed);
+        }
+      }
+
+      // 每格：样式、全宽自然测量、按宽测高闭包。
+      final cellStyles = <List<ComputedStyle>>[];
+      final specs = <List<TableCellSpec>>[];
+      final cellTexts = <List<String>>[];
+      for (final row in rows) {
+        final styles = <ComputedStyle>[];
+        final rowSpecs = <TableCellSpec>[];
+        final texts = <String>[];
+        for (final cell in row) {
+          final cellStyle = styleFor(
+            cell.tag,
+            attributes: cell.attributes,
+          );
+          final text = cellTextOf(cell);
+          final colspan = int.tryParse(
+                cell.attributes['colspan']?.trim() ?? '',
+              ) ??
+              1;
+          double naturalWidth(double width, ComputedStyle cs) {
+            if (text.isEmpty) {
+              return 0;
+            }
+            final measured = _layoutCache.layout(
+              text: text,
+              style: cs,
+              maxWidth: width,
+            );
+            var widest = 0.0;
+            for (final line in measured.lines) {
+              widest = math.max(widest, line.width);
+            }
+            return widest + cellPad * 2;
+          }
+
+          styles.add(cellStyle);
+          texts.add(text);
+          rowSpecs.add(
+            TableCellSpec(
+              naturalWidth: naturalWidth(contentWidth, cellStyle),
+              colspan: colspan,
+              measureHeight: (width) {
+                if (text.isEmpty) {
+                  return cellStyle.lineHeight * 0.6;
+                }
+                return _layoutCache
+                        .layout(
+                          text: text,
+                          style: cellStyle,
+                          maxWidth: math.max(8.0, width - cellPad * 2),
+                        )
+                        .height +
+                    cellPad * 2;
+              },
+            ),
+          );
+        }
+        cellStyles.add(styles);
+        cellTexts.add(texts);
+        specs.add(rowSpecs);
+      }
+
+      final measured = TableGridMeasurer.measureGrid(
+        rows: specs,
+        columnSpecified: columnSpecified,
+        tableWidthPx: tableWidthPx,
+        tableWidthPercent: tableWidthPercent,
+        containerWidth: contentWidth,
+      );
+      final grid = TableGridLayout(
+        rows: specs,
+        columnWidths: measured.columnWidths,
+        rowHeights: measured.rowHeights,
+      );
+      // 格终布局（按最终列宽）与渲染格。
+      final allCells = <TableCellRender>[];
+      for (var r = 0; r < rows.length; r++) {
+        for (var c = 0; c < rows[r].length; c++) {
+          final rect = grid.cellRectAt(r, c);
+          if (rect == null) {
+            continue;
+          }
+          final text = cellTexts[r][c];
+          final cellStyle = cellStyles[r][c];
+          final layout = text.isEmpty
+              ? null
+              : _layoutCache.layout(
+                  text: text,
+                  style: cellStyle,
+                  maxWidth: math.max(8.0, rect.rect.width - cellPad * 2),
+                );
+          if (layout == null || layout.lineCount == 0) {
+            continue;
+          }
+          allCells.add(
+            TableCellRender(
+              row: r,
+              rect: rect.rect,
+              layout: layout,
+              style: cellStyle,
+            ),
+          );
+        }
+      }
+      // 行边界切分（P3-20）：以正文页高为页。
+      final slices = TablePaginator.paginateRows(
+        rowHeights: measured.rowHeights,
+        pageHeight: contentHeight,
+      );
+      final gridRowYs = grid.rowYs;
+      final gridColumnXs = grid.columnXs;
+      for (final slice in slices) {
+        final sliceTop = gridRowYs[slice.firstRow];
+        final sliceHeight = slice.clippedRowHeight > 0
+            ? slice.clippedRowHeight
+            : slice.drawnHeight;
+        final cells = allCells
+            .where((cell) =>
+                cell.row >= slice.firstRow && cell.row < slice.lastRow)
+            .map(
+              (cell) => TableCellRender(
+                row: cell.row,
+                rect: cell.rect.translate(0, -sliceTop),
+                layout: cell.layout,
+                style: cell.style,
+              ),
+            )
+            .toList();
+        blocks.add(
+          PageBlock(
+            layout: TextLayoutResult(
+              text: '',
+              lines: [
+                LineBox(
+                  start: 0,
+                  end: 0,
+                  top: 0,
+                  height: sliceHeight,
+                  baseline: sliceHeight,
+                  width: measured.tableWidth,
+                ),
+              ],
+              width: measured.tableWidth,
+              height: sliceHeight,
+              maxWidth: measured.tableWidth,
+              runs: const <StyledRun>[],
+            ),
+            style: styleFor('table', attributes: tableNode.attributes),
+            table: TableRenderSpec(
+              cells: cells,
+              columnXs: gridColumnXs,
+              rowYs: [
+                for (var r = slice.firstRow; r <= slice.lastRow; r++)
+                  gridRowYs[r] - sliceTop,
+                if (slice.clippedRowHeight > 0)
+                  slice.clippedRowHeight,
+              ],
+              tableWidth: measured.tableWidth,
+            ),
+          ),
+        );
+      }
+    }
+
     void collect(
       EpubNode node,
       String blockTag, {
@@ -830,6 +1110,45 @@ class EpubChapterSource
         // 块高按属性尺寸/原始宽高比换算。
         if (node.tag == 'img' && node.children.isEmpty) {
           collectImageBlock(node);
+          return;
+        }
+        // 表格块（flat 管线接入）：格布局测量 + 行边界切分 + 渲染载荷。
+        if (node.tag == 'table') {
+          collectTable(node);
+          return;
+        }
+        // 分隔线 hr：空行块 + 下边框（绘制层 _paintBorders 画线）。
+        if (node.tag == 'hr' && node.children.isEmpty) {
+          final hrStyle = ComputedStyle(<String, String>{
+            ...UaBlockDefaults.declarationsFor('hr'),
+            'border-bottom': '1px solid #B0B0B0',
+          }, parent: style, explicitProperties: <String>{
+            ...UaBlockDefaults.declarationsFor('hr').keys,
+            'border-bottom',
+          }, rootFontSize: style.fontSize);
+          blocks.add(
+            PageBlock.styled(
+              layout: TextLayoutResult(
+                text: '',
+                lines: [
+                  LineBox(
+                    start: 0,
+                    end: 0,
+                    top: 0,
+                    height: 1,
+                    baseline: 1,
+                    width: contentWidth,
+                  ),
+                ],
+                width: contentWidth,
+                height: 1,
+                maxWidth: contentWidth,
+                runs: const <StyledRun>[],
+              ),
+              style: hrStyle,
+              containingWidth: contentWidth,
+            ),
+          );
           return;
         }
         // 整组不可切（P7-26）：figure（图+题注）内的块标记同组。
