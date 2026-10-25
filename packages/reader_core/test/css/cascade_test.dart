@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/parser/document_parser.dart';
 
 const _xhtml = '''
@@ -14,21 +15,24 @@ const _xhtml = '''
 
 void main() {
   final document = DocumentParser.parse(xhtml: _xhtml, spineIndex: 0);
-  final paths = <String, List<ParsedElement>>{};
-  void walk(ParsedElement element, List<ParsedElement> path) {
-    final id = element.id;
+  final viewOwner = <ParsedNode, ParsedElementView>{};
+  final rootView = ParsedElementView.wrap(document.root, viewOwner);
+  final paths = <String, List<SelectorElement>>{};
+  void walk(SelectorElement element, List<SelectorElement> path) {
+    final id = element.attributes['id'];
     if (id != null) {
-      paths[id] = List<ParsedElement>.unmodifiable(path);
+      paths[id] = List<SelectorElement>.unmodifiable(path);
     }
-    for (final child in element.children.whereType<ParsedElement>()) {
-      walk(child, <ParsedElement>[...path, element]);
+    for (final child in element.childElements) {
+      walk(child, <SelectorElement>[...path, element]);
     }
   }
 
-  walk(document.root, const <ParsedElement>[]);
+  walk(rootView, const <SelectorElement>[]);
 
-  ParsedElement el(String id) => document.elementById(id)!;
-  List<ParsedElement> anc(String id) => paths[id]!;
+  ParsedElementView el(String id) =>
+      viewOwner[document.elementById(id)]!;
+  List<SelectorElement> anc(String id) => paths[id]!;
 
   CascadeRule rule(
     String css, {

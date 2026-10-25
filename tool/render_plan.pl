@@ -19,6 +19,7 @@ my @stages = (
     { n => 5, file => 'P5-M4-高级排版.md' },
     { n => 6, file => 'P6-M5-打磨与发布.md' },
     { n => 7, file => 'P7-Reeden增强补充.md' },
+    { n => 8, file => 'P8-引擎完备.md' },
 );
 
 my @errors;

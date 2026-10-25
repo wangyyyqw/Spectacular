@@ -2,7 +2,6 @@ import 'computed_style.dart';
 import 'parser.dart';
 import 'reader_contract.dart';
 import 'selector.dart';
-import '../parser/document_parser.dart';
 
 /// 样式来源。
 enum CascadeOrigin { userAgent, author, inline }
@@ -79,8 +78,8 @@ abstract final class Cascade {
   /// [ancestors] 从根到父；[rules] 可乱序传入，按 `order` 稳定排序；
   /// [inlineDeclarations] 为 style 属性；[parent] 用于继承。
   static ComputedStyle compute({
-    required ParsedElement element,
-    required List<ParsedElement> ancestors,
+    required SelectorElement element,
+    required List<SelectorElement> ancestors,
     required List<CascadeRule> rules,
     List<CssDeclaration> inlineDeclarations = const <CssDeclaration>[],
     ComputedStyle? parent,

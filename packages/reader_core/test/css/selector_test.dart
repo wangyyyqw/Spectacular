@@ -16,21 +16,23 @@ const _xhtml = '''
 
 void main() {
   final document = DocumentParser.parse(xhtml: _xhtml, spineIndex: 0);
-  final paths = <String, List<ParsedElement>>{};
-  void walk(ParsedElement element, List<ParsedElement> path) {
-    final id = element.id;
+  final viewOwner = <ParsedNode, ParsedElementView>{};
+  final rootView = ParsedElementView.wrap(document.root, viewOwner);
+  final paths = <String, List<SelectorElement>>{};
+  void walk(SelectorElement element, List<SelectorElement> path) {
+    final id = element.attributes['id'];
     if (id != null) {
-      paths[id] = List<ParsedElement>.unmodifiable(path);
+      paths[id] = List<SelectorElement>.unmodifiable(path);
     }
-    for (final child in element.children.whereType<ParsedElement>()) {
-      walk(child, <ParsedElement>[...path, element]);
+    for (final child in element.childElements) {
+      walk(child, <SelectorElement>[...path, element]);
     }
   }
 
-  walk(document.root, const <ParsedElement>[]);
+  walk(rootView, const <SelectorElement>[]);
 
-  ParsedElement element(String id) => document.elementById(id)!;
-  List<ParsedElement> ancestors(String id) => paths[id]!;
+  SelectorElement element(String id) => viewOwner[document.elementById(id)]!;
+  List<SelectorElement> ancestors(String id) => paths[id]!;
 
   bool match(String selector, String id) {
     final list = SelectorParser.parse(selector);
@@ -108,17 +110,43 @@ void main() {
     expect(match('DiV > P', 'p1'), isTrue);
   });
 
-  test('不支持的选择器跳过并记录 warning', () {
+  test('P8-01 升级后支持的选择器（属性/伪类/兄弟）', () {
     for (final selector in <String>[
       'p[title]',
       'p:first-child',
-      'p:hover',
       'div + p',
       'div ~ p',
+    ]) {
+      final result = SelectorParser.parse(selector);
+      expect(result.selectors, isNotEmpty, reason: selector);
+    }
+    // 交互态伪类解析成功但永不匹配。
+    expect(match('p:hover', 'p1'), isFalse);
+  });
+
+  test('仍不支持的选择器跳过并记录 warning', () {
+    for (final selector in <String>[
+      'p::before',
+      'p:nth-of-type(2)',
+      'p:has(a)',
     ]) {
       final result = SelectorParser.parse(selector);
       expect(result.selectors, isEmpty, reason: selector);
       expect(result.warnings, isNotEmpty, reason: selector);
     }
+  });
+
+  test('P8-01 兄弟组合器匹配语义', () {
+    // mid 内：p2 之后相邻 span sp2。
+    expect(match('p + span', 'sp2'), isTrue);
+    expect(match('p ~ span', 'sp2'), isTrue);
+    // root 内：p1 是首子，无前兄弟。
+    expect(match('span + p', 'p1'), isFalse);
+  });
+
+  test('P8-01 属性选择器匹配', () {
+    expect(match('p[title]', 'p1'), isFalse, reason: 'p1 无 title 属性');
+    expect(match('div[class~=box]', 'mid'), isTrue);
+    expect(match('div[class="main"]', 'root'), isTrue);
   });
 }

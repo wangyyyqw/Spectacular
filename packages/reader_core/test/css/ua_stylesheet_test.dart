@@ -1,18 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/layout/block_flow.dart';
 import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/position/cfi.dart';
 
-ParsedElement _element(String tag) => ParsedElement(
-      tag: tag,
-      attributes: const <String, String>{},
-      children: const <ParsedNode>[],
-      start: 0,
-      end: 0,
-      cfi: EpubCfi.parse('epubcfi(/6/2!/4/2/1:0)')!,
+final Map<ParsedNode, ParsedElementView> _viewOwner =
+    <ParsedNode, ParsedElementView>{};
+
+ParsedElementView _element(
+  String tag, [
+  Map<String, String> attrs = const <String, String>{},
+]) => ParsedElementView.wrap(
+      ParsedElement(
+        tag: tag,
+        attributes: attrs,
+        children: const <ParsedNode>[],
+        start: 0,
+        end: 0,
+        cfi: EpubCfi.parse('epubcfi(/6/2!/4/2/1:0)')!,
+      ),
+      _viewOwner,
     );
 
 /// P7-03：UA 默认样式表——规则可解析、可层叠，块级覆盖层按标签叠加，
@@ -33,7 +43,7 @@ void main() {
     test('层叠可消费：h1 命中字号与避页底声明', () {
       final style = Cascade.compute(
         element: _element('h1'),
-        ancestors: const <ParsedElement>[],
+        ancestors: const <SelectorElement>[],
         rules: uaRules(),
       );
       expect(style.values['font-size'], '2em');
@@ -44,7 +54,7 @@ void main() {
   test('层叠可消费：noscript 声明 display:none', () {
     final style = Cascade.compute(
       element: _element('noscript'),
-      ancestors: const <ParsedElement>[],
+      ancestors: const <SelectorElement>[],
       rules: uaRules(),
     );
     expect(style.values['display'], 'none');
@@ -56,7 +66,7 @@ void main() {
     expect(uaStylesheetCss, contains('overflow: hidden'));
     final bodyStyle = Cascade.compute(
       element: _element('body'),
-      ancestors: const <ParsedElement>[],
+      ancestors: const <SelectorElement>[],
       rules: uaRules(),
     );
     expect(bodyStyle.values['display'], 'flow-root');
