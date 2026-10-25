@@ -138,6 +138,19 @@ void main() {
         reason: 'clear 推到浮动底边之下');
   });
 
+  test('P8-06 inline-block 小图并排：按左浮近似绕排', () async {
+    final source = await EpubChapterSource.open(_buildEpub(
+      '<p><img src="img.png" class="avatar" width="80px"/></p>'
+      '<p>头像旁边的名字与简介文字，应当在图片右侧绕排换行。</p>',
+      css: 'img.avatar { display: inline-block; }',
+    ));
+    final slices = (await source.loadChapter(0)).first.slices;
+    expect(slices.where((s) => s.overlay), hasLength(1),
+        reason: 'inline-block 小图走浮动覆盖切片');
+    expect(slices.where((s) => !s.overlay && s.leftInset > 0), isNotEmpty,
+        reason: '后续文字绕排右缩');
+  });
+
   test('无浮动章节仍走 Paginator 原路径', () async {
     final source = await EpubChapterSource.open(_buildEpub(
       '<p>普通章节正文，无任何浮动元素，分页路径不受影响。</p>',

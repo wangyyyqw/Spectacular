@@ -249,4 +249,34 @@ void main() {
         .first;
     expect(block.style!.textIndent, 0.0, reason: '无作者 CSS 无首行缩进');
   });
+
+  test('P8-07 display:none 容器子树剔除', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'div.secret { display: none; }',
+      '<p>可见段。</p>'
+      '<div class="secret"><p>隐藏段一。</p><p>隐藏段二。</p></div>'
+      '<p>又见段。</p>',
+    ));
+    final texts = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .map((b) => b.layout.text)
+        .toList();
+    expect(texts.any((t) => t.contains('隐藏')), isFalse,
+        reason: 'display:none 容器整棵子树不产出');
+    expect(texts.any((t) => t.contains('可见')), isTrue);
+    expect(texts.any((t) => t.contains('又见')), isTrue);
+  });
+
+  test('P8-07 [hidden] 属性元素剔除（UA 规则）', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      '',
+      '<p>前段。</p><p hidden="">隐藏段。</p><p>后段。</p>',
+    ));
+    final texts = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .map((b) => b.layout.text)
+        .toList();
+    expect(texts.any((t) => t.contains('隐藏段')), isFalse,
+        reason: '[hidden] 经 UA 规则 display:none 剔除');
+  });
 }
