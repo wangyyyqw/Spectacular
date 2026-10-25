@@ -13,13 +13,27 @@ import 'package:reader_core/text/segmenter.dart';
 /// 与拖拽时由 [selectionRects] 换算。
 class ReaderSelection {
   /// 创建选区。
-  const ReaderSelection({required this.start, required this.end});
+  const ReaderSelection({
+    required this.start,
+    required this.end,
+    this.startPageIndex = 0,
+    this.endPageIndex = 0,
+  });
 
   /// 起点（文档顺序在前）。
   final TextHit start;
 
   /// 终点（文档顺序在后）。
   final TextHit end;
+
+  /// 起点所在页（章内页序号，§63.5：选区数据与页无关，页码只标记所在页）。
+  final int startPageIndex;
+
+  /// 终点所在页。
+  final int endPageIndex;
+
+  /// 是否跨页。
+  bool get isMultiPage => startPageIndex != endPageIndex;
 
   /// 空选区。
   bool get isCollapsed => _compare(start, end) == 0;
@@ -29,6 +43,38 @@ class ReaderSelection {
       _compare(a, b) <= 0
       ? ReaderSelection(start: a, end: b)
       : ReaderSelection(start: b, end: a);
+
+  /// 创建跨页选区（按页序归一）。
+  factory ReaderSelection.spanning({
+    required TextHit start,
+    required int startPageIndex,
+    required TextHit end,
+    required int endPageIndex,
+  }) {
+    if (startPageIndex < endPageIndex) {
+      return ReaderSelection(
+        start: start,
+        end: end,
+        startPageIndex: startPageIndex,
+        endPageIndex: endPageIndex,
+      );
+    }
+    if (startPageIndex > endPageIndex) {
+      return ReaderSelection(
+        start: end,
+        end: start,
+        startPageIndex: endPageIndex,
+        endPageIndex: startPageIndex,
+      );
+    }
+    final ordered = ReaderSelection.normalized(start, end);
+    return ReaderSelection(
+      start: ordered.start,
+      end: ordered.end,
+      startPageIndex: startPageIndex,
+      endPageIndex: endPageIndex,
+    );
+  }
 
   static int _compare(TextHit a, TextHit b) {
     final slice = a.sliceIndex.compareTo(b.sliceIndex);
@@ -176,6 +222,72 @@ abstract final class SelectionOps {
           box.rect.height * lineHighlightScale,
         ),
     ];
+  }
+
+  /// 给定页的选区几何（跨页时只算与当前页的交集，§63.5）。
+  ///
+  /// 返回 null 表示该页不在选区范围内。单页选区等价于 [geometryOf]。
+  static SelectionGeometry? geometryForPage(
+    PageContent page,
+    int pageIndex,
+    ReaderSelection selection,
+  ) {
+    if (pageIndex < selection.startPageIndex ||
+        pageIndex > selection.endPageIndex) {
+      return null;
+    }
+    final local = localSelectionOf(page, pageIndex, selection);
+    if (local == null) {
+      return null;
+    }
+    return geometryOf(page, local);
+  }
+
+  /// 该页内的局部选区：起点页从起点到页末，终点页从页首到终点，
+  /// 中间页整页；不在范围内返回 null。
+  static ReaderSelection? localSelectionOf(
+    PageContent page,
+    int pageIndex,
+    ReaderSelection selection,
+  ) {
+    if (pageIndex < selection.startPageIndex ||
+        pageIndex > selection.endPageIndex) {
+      return null;
+    }
+    final boxes = TextHitTester.lineBoxes(page);
+    if (boxes.isEmpty) {
+      return null;
+    }
+    final first = boxes.first;
+    final last = boxes.last;
+    final start = pageIndex == selection.startPageIndex
+        ? selection.start
+        : _hitAt(first, 0);
+    final end = pageIndex == selection.endPageIndex
+        ? selection.end
+        : _hitAt(last, last.text.length);
+    return ReaderSelection.normalized(start, end);
+  }
+
+  /// 跨页选区文本（按页顺序拼接，§63.5「复制文本完整有序」）。
+  static String textAcrossPages(
+    List<PageContent> pages,
+    ReaderSelection selection,
+  ) {
+    final buffer = StringBuffer();
+    for (var pageIndex = selection.startPageIndex;
+        pageIndex <= selection.endPageIndex;
+        pageIndex++) {
+      if (pageIndex < 0 || pageIndex >= pages.length) {
+        continue;
+      }
+      final local = localSelectionOf(pages[pageIndex], pageIndex, selection);
+      if (local == null) {
+        continue;
+      }
+      buffer.write(textOf(pages[pageIndex], local));
+    }
+    return buffer.toString();
   }
 
   /// 选区几何：逐行矩形 + 两个手柄中心（吸附到行起止，§63.3）。

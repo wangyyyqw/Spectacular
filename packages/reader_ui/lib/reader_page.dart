@@ -209,11 +209,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
 
-  /// 选区所属页（`spine/page`）：任何翻页（手势/程序/目录跳转）都会清选区。
-  String? _selectionPageKey;
-
   /// 全书标注（P4-18）：打开时加载，标注变更后刷新。
   List<ReaderAnnotation> _annotations = const <ReaderAnnotation>[];
+
+  /// 选区所属章（跨页选区跨翻页时不清，翻章才清）。
+  int? _selectionSpineIndex;
+
+  /// 边缘翻页去抖定时器（§63.5：300ms）。
+  Timer? _selectionEdgeTimer;
 
   @override
   void initState() {
@@ -316,6 +319,102 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _showToast(created == null ? '该位置已有书签' : '已添加书签');
   }
 
+  /// 拖拽产生的页内局部选区 → 全局跨页选区（P4-19）。
+  void _applyLocalSelection(ReaderSelection local) {
+    final page = _session.page;
+    if (page == null || _selection == null) {
+      return;
+    }
+    setState(() {
+      _selection = ReaderSelection.spanning(
+        start: local.start,
+        startPageIndex: page.pageIndex,
+        end: local.end,
+        endPageIndex: page.pageIndex,
+      );
+    });
+  }
+
+  /// 拖到页边 → 延时 300ms 翻页并扩展选区（§63.5）。
+  void _handleSelectionEdgeDrag(bool forward) {
+    _selectionEdgeTimer?.cancel();
+    _selectionEdgeTimer = Timer(const Duration(milliseconds: 300), () {
+      unawaited(forward ? _extendSelectionForward() : _extendSelectionBackward());
+    });
+  }
+
+  Future<void> _extendSelectionForward() async {
+    final selection = _selection;
+    final page = _session.page;
+    if (selection == null || page == null) {
+      return;
+    }
+    final changed = await _session.next();
+    if (!changed || !mounted) {
+      return;
+    }
+    final nextPage = _session.page;
+    if (nextPage == null) {
+      return;
+    }
+    final boxes = TextHitTester.lineBoxes(nextPage);
+    if (boxes.isEmpty) {
+      return;
+    }
+    final last = boxes.last;
+    setState(() {
+      _selection = ReaderSelection.spanning(
+        start: selection.start,
+        startPageIndex: selection.startPageIndex,
+        end: TextHit(
+          lineBox: last,
+          charOffset: last.text.length,
+          textOffset: last.textOffset + last.text.length,
+          atLineStart: false,
+          atLineEnd: true,
+        ),
+        endPageIndex: nextPage.pageIndex,
+      );
+      _selectionSpineIndex = nextPage.spineIndex;
+    });
+  }
+
+  Future<void> _extendSelectionBackward() async {
+    final selection = _selection;
+    final page = _session.page;
+    if (selection == null || page == null) {
+      return;
+    }
+    final changed = await _session.previous();
+    if (!changed || !mounted) {
+      return;
+    }
+    final prevPage = _session.page;
+    if (prevPage == null) {
+      return;
+    }
+    final boxes = TextHitTester.lineBoxes(prevPage);
+    if (boxes.isEmpty) {
+      return;
+    }
+    final first = boxes.first;
+    setState(() {
+      _selection = ReaderSelection.spanning(
+        start: TextHit(
+          lineBox: first,
+          charOffset: 0,
+          textOffset: first.textOffset,
+          atLineStart: true,
+          atLineEnd: false,
+        ),
+        startPageIndex: prevPage.pageIndex,
+        end: selection.end,
+        endPageIndex: selection.endPageIndex,
+      );
+      _selectionSpineIndex = prevPage.spineIndex;
+    });
+  }
+
   /// 重新加载全书标注（P4-18）。
   Future<void> _reloadAnnotations() async {
     final store = widget.annotations;
@@ -346,7 +445,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     setState(() {
       _selection = SelectionOps.wordAt(page, hit);
-      _selectionPageKey = '${page.spineIndex}/${page.pageIndex}';
+      _selectionSpineIndex = page.spineIndex;
     });
   }
 
@@ -367,7 +466,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     setState(() {
       _selection = SelectionOps.sentenceAt(page, hit);
-      _selectionPageKey = '${page.spineIndex}/${page.pageIndex}';
+      _selectionSpineIndex = page.spineIndex;
     });
   }
 
@@ -411,7 +510,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     final cfi = SelectionOps.cfiOf(selection);
-    final quote = SelectionOps.textOf(page, selection);
+    final quote = selection.isMultiPage
+        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
+        : SelectionOps.textOf(page, selection);
     if (cfi == null || quote.isEmpty) {
       _showToast('当前位置不支持标注');
       return;
@@ -475,7 +576,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _copySelection(PageContent page, ReaderSelection selection) async {
-    final text = SelectionOps.textOf(page, selection);
+    final text = selection.isMultiPage
+        ? SelectionOps.textAcrossPages(
+            await _session.chapterPages(),
+            selection,
+          )
+        : SelectionOps.textOf(page, selection);
     if (text.isEmpty) {
       return;
     }
@@ -495,7 +601,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final first = boxes.first;
     final last = boxes.last;
     setState(() {
-      _selectionPageKey = '${page.spineIndex}/${page.pageIndex}';
+      _selectionSpineIndex = page.spineIndex;
       _selection = ReaderSelection.normalized(
         TextHit(
           lineBox: first,
@@ -516,8 +622,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _clearSelection() {
+    _selectionEdgeTimer?.cancel();
+    _selectionEdgeTimer = null;
     if (_selection != null) {
-      setState(() => _selection = null);
+      setState(() {
+        _selection = null;
+        _selectionSpineIndex = null;
+      });
     }
   }
 
@@ -548,6 +659,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (_ownsParagraphCache) {
       _paragraphCache.dispose();
     }
+    _selectionEdgeTimer?.cancel();
     _tocScrollController.dispose();
     super.dispose();
   }
@@ -572,12 +684,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _buildBody(BuildContext context) {
     final page = _session.page;
-    // 页面换了但选区还在（程序化翻页/目录跳转）→ 下一帧清除。
-    if (page != null &&
-        _selection != null &&
-        _selectionPageKey != '${page.spineIndex}/${page.pageIndex}') {
+    // 页面不在选区范围内（翻章/跳转）→ 下一帧清除；跨页选区范围内保留。
+    // 回调里重新取最新状态：边缘翻页会先翻页再扩展选区，两者不能互相打断。
+    if (page != null && _selection != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        if (!mounted) {
+          return;
+        }
+        final current = _selection;
+        final currentPage = _session.page;
+        if (current == null || currentPage == null) {
+          return;
+        }
+        final sameSpine =
+            _selectionSpineIndex == null ||
+            _selectionSpineIndex == currentPage.spineIndex;
+        final inRange =
+            currentPage.pageIndex >= current.startPageIndex &&
+            currentPage.pageIndex <= current.endPageIndex;
+        if (!sameSpine || !inRange) {
           _clearSelection();
         }
       });
@@ -671,8 +796,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               Positioned.fill(
                 child: SelectionLayer(
                   page: page,
+                  pageIndex: page.pageIndex,
                   selection: _selection!,
-                  onChanged: (next) => setState(() => _selection = next),
+                  onChanged: _applyLocalSelection,
+                  onEdgeDrag: _handleSelectionEdgeDrag,
                 ),
               ),
               // 选区菜单（P4-16）：贴在选区上方，不遮挡选区。

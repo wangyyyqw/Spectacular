@@ -309,6 +309,17 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
+  /// 当前章全部分页（跨页复制/标注上下文用，P4-19）。
+  ///
+  /// 页缓存命中时无额外开销；无当前页时返回空列表。
+  Future<List<PageContent>> chapterPages() async {
+    final current = page;
+    if (current == null) {
+      return const <PageContent>[];
+    }
+    return source.loadChapter(current.spineIndex);
+  }
+
   /// 跳转加载中的目标章名（null = 不在跳转中，P4-12 全屏浮层用）。
   String? get jumpLoadingTitle => _jumpLoadingTitle;
 
