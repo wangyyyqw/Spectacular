@@ -82,6 +82,16 @@ class CfiSegment {
   }
 }
 
+/// 去掉 CFI 末尾的字符偏移，得到块级 CFI（标注区间端点比对用）。
+String cfiBase(String cfi) =>
+    cfi.trim().replaceFirst(RegExp(r':[0-9]+\)$'), ')');
+
+/// 取 CFI 末尾的字符偏移；没有偏移时返回 null。
+int? cfiCharOffset(String cfi) {
+  final match = RegExp(r':([0-9]+)\)$').firstMatch(cfi.trim());
+  return match == null ? null : int.tryParse(match.group(1)!);
+}
+
 /// 给块级 CFI 追加/替换字符偏移（标注区间端点用，§30.2）。
 ///
 /// `epubcfi(/6/4!/4/2/1)` + 3 → `epubcfi(/6/4!/4/2/1:3)`；已有偏移时替换。

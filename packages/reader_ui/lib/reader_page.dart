@@ -11,6 +11,7 @@ import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 import 'annotations/annotation.dart';
+import 'annotations/annotation_layer.dart';
 import 'panels/bookmark_panel.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
@@ -211,6 +212,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 选区所属页（`spine/page`）：任何翻页（手势/程序/目录跳转）都会清选区。
   String? _selectionPageKey;
 
+  /// 全书标注（P4-18）：打开时加载，标注变更后刷新。
+  List<ReaderAnnotation> _annotations = const <ReaderAnnotation>[];
+
   @override
   void initState() {
     super.initState();
@@ -228,6 +232,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       bookId: widget.bookId,
     );
     widget.onSessionReady?.call(_session);
+    unawaited(_reloadAnnotations());
     unawaited(
       _session.open().then(
         (_) => _session.applyOverrides(_effectiveOverrides()),
@@ -309,6 +314,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     _showToast(created == null ? '该位置已有书签' : '已添加书签');
+  }
+
+  /// 重新加载全书标注（P4-18）。
+  Future<void> _reloadAnnotations() async {
+    final store = widget.annotations;
+    if (store == null) {
+      return;
+    }
+    final items = await store.list();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _annotations = items);
   }
 
   /// 长按 → 选词（P4-15，§63.2：长按先试词，失败退到连续同类字符段）。
@@ -411,6 +429,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
     if (!mounted) {
       return;
+    }
+    if (created != null) {
+      unawaited(_reloadAnnotations());
     }
     _clearSelection();
     _showToast(created == null ? '该位置已有标注' : (type == ReaderAnnotationType.note ? '已添加笔记' : '已高亮'));
@@ -600,6 +621,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 ),
               ),
             ),
+            // 标注装饰层（P4-18）：高亮底色 + 笔记标记，在正文之上、选区之下。
+            if (_annotations.isNotEmpty)
+              Positioned.fill(
+                child: AnnotationLayer(
+                  page: page,
+                  annotations: _annotations,
+                ),
+              ),
             ReaderView(
               onPrevious: () {
                 _clearSelection();

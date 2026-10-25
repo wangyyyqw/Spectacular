@@ -152,6 +152,32 @@ abstract final class SelectionOps {
     );
   }
 
+  /// 行内字符区间的矩形（页内坐标，§63.4：1.1 倍行高垂直居中）。
+  ///
+  /// 选区高亮与标注高亮共用；[start]/[end] 是行内字符偏移（半开）。
+  static List<Rect> lineRectsFor(PageLineBox box, int start, int end) {
+    if (end <= start) {
+      return const <Rect>[];
+    }
+    final style = _styleFor(box.slice);
+    final painter = _painterFor(box, style: style);
+    final textBoxes = painter.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: end),
+    );
+    painter.dispose();
+    final top =
+        box.rect.top + (box.rect.height - box.rect.height * lineHighlightScale) / 2;
+    return <Rect>[
+      for (final textBox in textBoxes)
+        Rect.fromLTWH(
+          box.rect.left + textBox.left,
+          top,
+          textBox.right - textBox.left,
+          box.rect.height * lineHighlightScale,
+        ),
+    ];
+  }
+
   /// 选区几何：逐行矩形 + 两个手柄中心（吸附到行起止，§63.3）。
   static SelectionGeometry geometryOf(
     PageContent page,
@@ -161,30 +187,7 @@ abstract final class SelectionOps {
     final rects = <Rect>[];
     final covered = _coveredLines(boxes, selection);
     for (final entry in covered) {
-      final box = entry.box;
-      final style = _styleFor(box.slice);
-      final painter = _painterFor(box, style: style);
-      final start = entry.start;
-      final end = entry.end;
-      if (end > start) {
-        final textBoxes = painter.getBoxesForSelection(
-          TextSelection(baseOffset: start, extentOffset: end),
-        );
-        for (final textBox in textBoxes) {
-          final top =
-              box.rect.top +
-              (box.rect.height - box.rect.height * lineHighlightScale) / 2;
-          rects.add(
-            Rect.fromLTWH(
-              box.rect.left + textBox.left,
-              top,
-              textBox.right - textBox.left,
-              box.rect.height * lineHighlightScale,
-            ),
-          );
-        }
-      }
-      painter.dispose();
+      rects.addAll(lineRectsFor(entry.box, entry.start, entry.end));
     }
 
     final startBox = _boxFor(boxes, selection.start);

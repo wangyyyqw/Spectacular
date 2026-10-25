@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -104,6 +105,11 @@ void main() {
     expect(item.endCfi, contains('epubcfi('));
     expect(item.quote, isNotEmpty);
     expect(item.color, 0xFFFFEB3B);
+    expect(
+      find.byType(AnnotationLayer),
+      findsOneWidget,
+      reason: '保存后页面出现标注装饰层（P4-18）',
+    );
   });
 
   testWidgets('同一区间重复高亮提示已存在（P4-17）', (tester) async {
