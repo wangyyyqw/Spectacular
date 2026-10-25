@@ -170,4 +170,72 @@ void main() {
       expect(text.text, 'a  b');
     });
   });
+
+  group('纯图块折叠（真实书适配）', () {
+    BlockNode? soleImageBlock(EpubNode node) {
+      if (node is BlockNode && node.tag == 'img') {
+        return node;
+      }
+      final children = switch (node) {
+        BlockNode() => node.children,
+        InlineNode() => node.children,
+        _ => const <EpubNode>[],
+      };
+      for (final child in children) {
+        if (child is BlockNode) {
+          final found = soleImageBlock(child);
+          if (found != null) {
+            return found;
+          }
+        }
+      }
+      return null;
+    }
+
+    test('div 包裹单 img 折叠为 tag=img 块并保留属性', () {
+      final doc = _aggregate(
+        '<div><img alt="" src="../Images/a.png" width="40%"/></div>',
+      );
+      final image = soleImageBlock(doc.root);
+      expect(image, isNotNull, reason: 'div>img 应折叠为 img 块');
+      expect(image!.attributes['src'], '../Images/a.png');
+      expect(image.attributes['width'], '40%');
+      expect(_texts(doc.root), isEmpty, reason: '占位文本被丢弃');
+    });
+
+    test('多层 div 嵌套逐层折叠', () {
+      final doc = _aggregate(
+        '<div class="textdE1"><p><img src="b.jpg"/></p></div>',
+      );
+      final image = soleImageBlock(doc.root);
+      expect(image, isNotNull);
+      expect(image!.attributes['src'], 'b.jpg');
+      expect(image.attributes['class'], isNull);
+    });
+
+    test('svg 包 image 折叠并保留 xlink:href（真实书封面形态）', () {
+      final doc = _aggregate(
+        '<div style="text-align:center">'
+        '<svg viewBox="0 0 1000 1333" width="100%" height="100%">'
+        '<image xlink:href="../Images/cover.jpg" width="1000" height="1333"/>'
+        '</svg></div>',
+      );
+      final image = soleImageBlock(doc.root);
+      expect(image, isNotNull, reason: 'svg>image 纯图块应折叠');
+      expect(image!.attributes['xlink:href'], '../Images/cover.jpg');
+      expect(image.attributes['width'], '1000');
+    });
+
+    test('图文混合块不折叠（保留占位符）', () {
+      final doc = _aggregate('<p>前文<img src="c.png"/>后文</p>');
+      expect(soleImageBlock(doc.root), isNull);
+      expect(_onlyText(doc).text, contains('\uFFFC'));
+    });
+
+    test('多图块不折叠', () {
+      final doc = _aggregate('<div><img src="a.png"/><img src="b.png"/></div>');
+      // 多图 div 自身不折叠为 img 块，但保持为普通块（子层无折叠）。
+      expect(soleImageBlock(doc.root), isNull);
+    });
+  });
 }

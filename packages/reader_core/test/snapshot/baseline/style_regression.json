@@ -73,7 +73,7 @@
         {
           "index": 1,
           "layoutHash": "be1f572fa760be0cd1327a73199106fbcbd96f630d6a0201d6bb526c98acf036",
-          "inkPixels": 34128,
+          "inkPixels": 33431,
           "lineCount": 6,
           "textLength": 88,
           "summary": "三、外边距与引用引用的文字整体向内缩进，…用来观察前面的外边距是否把段落推得过远。"
@@ -91,23 +91,15 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "17963c157608d533a39a5e7b7509feaca4274aaff151ae82a5dc547f1b44fd40",
+      "bookHash": "10992c208e7901dd7da5b250324fdcf15e2337a8264bc30df2a3a35eb13da621",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "fe65d7ea7b1307f055b839ddd590c23f949411c072eeafbc8e12c820cd297ea6",
-          "inkPixels": 49215,
-          "lineCount": 20,
-          "textLength": 105,
-          "summary": "表格与插图样例下面这张表使用 colsp…笋溪桥村8晾晒三日野蜂蜜北坡岩下3陶罐装"
-        },
-        {
-          "index": 1,
-          "layoutHash": "542276829f7e5ed33a3e1fef8ea664993114ae14cca480175af91310669df1c4",
-          "inkPixels": 21621,
-          "lineCount": 6,
-          "textLength": 78,
-          "summary": "￼图一：8×8 像素的 PNG 测试图片…st 中的图片资源能否被正确解析与绘制。"
+          "layoutHash": "1c24aed3bb177471a8721f2351a0455100154d0ea4039251cbf723bbc5ee8e1e",
+          "inkPixels": 63234,
+          "lineCount": 23,
+          "textLength": 158,
+          "summary": "表格与插图样例下面这张表使用 colsp…st 中的图片资源能否被正确解析与绘制。"
         }
       ]
     },
