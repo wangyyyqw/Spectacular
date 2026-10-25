@@ -49,6 +49,8 @@ class SettingsPanel extends StatefulWidget {
     required this.onThemeChanged,
     this.backgroundId = 'none',
     this.onBackgroundChanged,
+    this.inkMode = false,
+    this.onInkModeChanged,
     this.onReset,
     this.onBack,
   });
@@ -70,6 +72,12 @@ class SettingsPanel extends StatefulWidget {
 
   /// 背景变化（纹理或纯色）。
   final ValueChanged<String>? onBackgroundChanged;
+
+  /// 墨水屏模式（P4-23）。
+  final bool inkMode;
+
+  /// 墨水屏开关变化。
+  final ValueChanged<bool>? onInkModeChanged;
 
   /// 恢复默认。
   final VoidCallback? onReset;
@@ -230,10 +238,22 @@ class _SettingsPanelState extends State<SettingsPanel> {
                         _backgroundChip(
                           key: 'settings-bg-${item.id}',
                           background: item,
-                          selected: item.id == widget.backgroundId,
+                          selected:
+                              !widget.inkMode && item.id == widget.backgroundId,
                           onTap: () => widget.onBackgroundChanged!(item.id),
                         ),
                     ],
+                  ),
+                ],
+                if (widget.onInkModeChanged != null) ...[
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    key: const ValueKey<String>('settings-ink-mode'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('墨水屏模式'),
+                    subtitle: const Text('纯黑白、禁用背景纹理、高亮改为下划线'),
+                    value: widget.inkMode,
+                    onChanged: widget.onInkModeChanged,
                   ),
                 ],
               ],

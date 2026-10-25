@@ -18,6 +18,7 @@ import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/settings_panel.dart';
 import 'theme/reader_background.dart';
+import 'theme/reader_environment.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_layer.dart';
@@ -42,7 +43,9 @@ class ReaderPage extends StatefulWidget {
     this.onOverridesChanged,
     this.onThemeChanged,
     this.backgroundId = 'none',
+    this.inkMode = false,
     this.onBackgroundChanged,
+    this.onInkModeChanged,
     this.onSessionReady,
     this.imageCache,
     this.theme,
@@ -68,6 +71,12 @@ class ReaderPage extends StatefulWidget {
 
   /// 初始背景 id（P4-22）。
   final String backgroundId;
+
+  /// 墨水屏模式（P4-23）：纯黑白、背景禁用、高亮改下划线。
+  final bool inkMode;
+
+  /// 墨水屏开关变化。
+  final ValueChanged<bool>? onInkModeChanged;
 
   /// 背景变化（P4-22）：调用方负责持久化。
   final ValueChanged<String>? onBackgroundChanged;
@@ -123,13 +132,34 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late String _backgroundId;
   ui.Image? _backgroundImage;
 
-  PagePainter _buildPainter() => PagePainter(
-    background: _theme?.background ?? widget.background,
-    pageBackgroundImage: _backgroundImage,
-    imageLookup: widget.imageCache?.lookup,
-    textColor: _theme?.text,
-    paragraphCache: _paragraphCache,
-  );
+  /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
+  late bool _inkMode;
+
+  /// 当前阅读环境（P4-23）。
+  ReaderEnvironment get _environment =>
+      ReaderEnvironment(isEink: _inkMode);
+
+  /// 生效主题（墨水屏强制纯黑白，P4-23）。
+  ReaderTheme? get _effectiveTheme {
+    final theme = _theme;
+    if (theme == null) {
+      return null;
+    }
+    return _environment.resolveTheme(theme);
+  }
+
+  PagePainter _buildPainter() {
+    final theme = _effectiveTheme;
+    return PagePainter(
+      background: theme?.background ?? widget.background,
+      pageBackgroundImage: _environment.allowsBackgroundImage
+          ? _backgroundImage
+          : null,
+      imageLookup: widget.imageCache?.lookup,
+      textColor: theme?.text,
+      paragraphCache: _paragraphCache,
+    );
+  }
 
   /// 设置与主题合并后的有效覆盖（主题补正文/背景色，设置优先）。
   ReaderOverrides _effectiveOverrides() {
@@ -263,6 +293,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _overrides = widget.overrides ?? ReaderSettingsDefaults.overrides;
     _theme = widget.theme;
     _backgroundId = widget.backgroundId;
+    _inkMode = widget.inkMode;
     unawaited(_loadBackground(_backgroundId));
     // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
     // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
@@ -290,6 +321,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.theme != widget.theme) {
       _theme = widget.theme;
+    }
+    if (oldWidget.inkMode != widget.inkMode) {
+      _inkMode = widget.inkMode;
+      _painter = _buildPainter();
+    }
+    if (oldWidget.backgroundId != widget.backgroundId) {
+      unawaited(_loadBackground(widget.backgroundId));
     }
     if (oldWidget.overrides != widget.overrides &&
         widget.overrides != null) {
@@ -335,6 +373,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           onBackgroundChanged: widget.onBackgroundChanged == null
               ? null
               : _applyBackground,
+          inkMode: _inkMode,
+          onInkModeChanged: _applyInkMode,
           onResetSettings: _resetSettings,
         ),
       ),
@@ -520,6 +560,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _backgroundImage = frame.image;
       _painter = _buildPainter();
     });
+  }
+
+  /// 切换墨水屏模式（P4-23）：纯黑白 + 禁用纹理，只重绘不重排。
+  void _applyInkMode(bool enabled) {
+    if (enabled == _inkMode) {
+      return;
+    }
+    setState(() {
+      _inkMode = enabled;
+      _painter = _buildPainter();
+    });
+    widget.onInkModeChanged?.call(enabled);
   }
 
   /// 切换背景（P4-22）：纹理只影响绘制层，不触发重排。
@@ -822,7 +874,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         // 背景铺满窗口（P8-10 收尾）：加载骨架/错误态/正文页统一以主题
         // 背景色打底，避免 padding 外区域透出窗口黑底。
         return ColoredBox(
-          color: _theme?.background ?? widget.background,
+          color: _effectiveTheme?.background ?? widget.background,
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             child: _buildBody(context),
@@ -913,6 +965,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 child: AnnotationLayer(
                   page: page,
                   annotations: _resolvedAnnotations,
+                  inkMode: _inkMode,
                 ),
               ),
             ReaderView(
@@ -946,8 +999,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 11,
-                      color: (_theme?.text ?? const Color(0xFF757575))
-                          .withValues(alpha: 0.55),
+                      color:
+                          (_effectiveTheme?.text ?? const Color(0xFF757575))
+                          // 墨水屏不用灰度过渡：页脚保持纯黑（§42.2）。
+                          .withValues(alpha: _inkMode ? 1 : 0.55),
                     ),
                   ),
                 ),
@@ -1034,7 +1089,9 @@ class _ReaderMenuSheet extends StatefulWidget {
     required this.onThemeChanged,
     required this.onResetSettings,
     this.backgroundId = 'none',
+    this.inkMode = false,
     this.onBackgroundChanged,
+    this.onInkModeChanged,
   });
 
   final List<TocEntry> entries;
@@ -1050,6 +1107,8 @@ class _ReaderMenuSheet extends StatefulWidget {
   final VoidCallback onResetSettings;
   final String backgroundId;
   final ValueChanged<String>? onBackgroundChanged;
+  final bool inkMode;
+  final ValueChanged<bool>? onInkModeChanged;
 
   @override
   State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
@@ -1085,6 +1144,8 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
         overrides: widget.overrides,
         themeId: widget.themeId,
         backgroundId: widget.backgroundId,
+        inkMode: widget.inkMode,
+        onInkModeChanged: widget.onInkModeChanged,
         onBack: () => _showView(0),
         onOverridesChanged: widget.onOverridesChanged,
         onThemeChanged: widget.onThemeChanged,
