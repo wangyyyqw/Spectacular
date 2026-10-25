@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' show Color;
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -82,6 +83,21 @@ void main() {
     final body = blocks.firstWhere((b) => b.layout.text.contains('正文'));
     expect(body.style!.textAlign, isNot(CssTextAlign.center),
         reason: 'class 规则不串扰到无 class 的 p');
+  });
+
+  test('行内样式区间：span 类规则着色进入混排 runs', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'span.hl { color: #fc8c23; font-weight: bold; }',
+      '<p>前文<span class="hl">高亮文字</span>后文</p>',
+    ));
+    final block = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .first;
+    final runs = block.layout.runs;
+    expect(runs, hasLength(1), reason: '高亮区间产出一条 StyledRun');
+    expect(block.layout.text.substring(runs.first.start, runs.first.end),
+        '高亮文字');
+    expect(runs.first.style.color, const Color(0xFFFC8C23));
   });
 
   test('无 link 的书不受影响（UA 默认路径）', () async {
