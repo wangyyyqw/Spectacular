@@ -91,6 +91,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       setState(() {
         _source = source;
         _imageCache = DecodedImageCache(
+          // P4-32：条数与字节双上限（§44.4 的 512 张按解码字节折算成 32 张
+          // + 48MB，避免大图书一次性吃满内存）。
+          maxEntries: 32,
           loadBytes: (url) => _loadImageBytes(source, url),
         );
         _loading = false;

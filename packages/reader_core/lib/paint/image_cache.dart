@@ -30,6 +30,9 @@ class DecodedImageCache {
   /// 条数上限。
   final int maxEntries;
 
+  /// 当前缓存条目数（P4-32 缓存报告用）。
+  int get entryCount => _entries.length;
+
   /// 解码后字节上限（按 `宽 × 高 × 4` 估算）。
   final int maxBytes;
 
