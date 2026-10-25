@@ -173,7 +173,10 @@ void main() {
         .expand((page) => page.slices.map((s) => s.block))
         .toList();
     expect(blocks.first.spaceBefore, 24, reason: 'margin-top 进 spaceBefore');
-    expect(blocks.first.spaceAfter, 16, reason: 'margin-bottom 进 spaceAfter');
+    // 相邻兄弟折叠（CSS 2.1 §8.3.1）：段后 16 与下段段前 24 折叠为 max=24，
+    // 落在下一块的 spaceBefore，上一块 spaceAfter 清零。
+    expect(blocks.first.spaceAfter, 0, reason: '折叠后段后距并入下段');
+    expect(blocks[1].spaceBefore, 24, reason: '相邻段距折叠取 max(16, 24)');
   });
 
   test('P8-05 负 margin 生效（段前距可为负）', () async {
@@ -185,7 +188,8 @@ void main() {
         .expand((page) => page.slices.map((s) => s.block))
         .toList();
     final tight = blocks.firstWhere((b) => b.layout.text.contains('上提'));
-    expect(tight.spaceBefore, -12, reason: '负 margin-top 保留负值');
+    // 折叠 = 正边距最大值 + 负边距最小值：上段段后 16 +（−12）= 4。
+    expect(tight.spaceBefore, 4, reason: '负 margin-top 与上段段后距折叠');
   });
 
   test('P8-05c 容器上下边框拼合：首块画上边框、末块画下边框', () async {
