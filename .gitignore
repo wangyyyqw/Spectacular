@@ -26,3 +26,7 @@ test_corpus/
 
 # 本地产物（APK 不提交）
 apps/reader_mobile/dist/
+
+# flutter 误建工程排除（P8-10 修复提交误生成）
+packages/reader_core/android/
+packages/reader_core/local.properties

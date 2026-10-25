@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
@@ -188,6 +189,13 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void initState() {
     super.initState();
+    // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
+    // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
+    unawaited(
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.immersiveSticky,
+      ),
+    );
     _session = ReaderSession(
       source: widget.source,
       store: widget.store,
@@ -221,6 +229,8 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     _session.cancelPendingLoads();
     _session.dispose();
     if (_ownsParagraphCache) {
