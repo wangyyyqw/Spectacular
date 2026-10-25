@@ -280,6 +280,22 @@ class PagePainter {
       canvas.restore();
     }
 
+    // 注音趟（P8-08）：ruby 主文本区间上方绘制注音（50% 字号、区间
+    // 居中；行内字符定位按 TextPainter 逐字符累进近似）。
+    for (final geometry in geometries) {
+      if (geometry.hidden) {
+        continue;
+      }
+      final rubies = geometry.slice.block.rubies;
+      if (rubies == null || rubies.isEmpty) {
+        continue;
+      }
+      canvas.save();
+      geometry.clip(canvas);
+      _paintRubies(canvas, geometry, rubies);
+      canvas.restore();
+    }
+
     _notifyPhase(PagePaintPhase.selection);
     final selection = this.selection;
     if (selection != null) {
@@ -440,6 +456,65 @@ class PagePainter {
         geometry.rightInset -
         line.offsetX;
     return line.width > available + 0.5;
+  }
+
+  /// 注音绘制（P8-08，CSS Ruby 1 flat 近似）：定位主文本区间所在行，
+  /// 逐字符累进求区间起点 x，注音按 50% 字号居中画在行顶上方。
+  void _paintRubies(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    List<RubyAnnotation> rubies,
+  ) {
+    final layout = geometry.slice.block.layout;
+    final rubyStyle = geometry.textStyle.copyWith(
+      fontSize: geometry.textStyle.fontSize != null
+          ? geometry.textStyle.fontSize! * 0.5
+          : null,
+    );
+    for (final ruby in rubies) {
+      // 找覆盖区间起点的行。
+      LineBox? hostLine;
+      var hostIndex = geometry.slice.startLine;
+      var lineY = geometry.y + geometry.leading;
+      for (;
+        hostIndex < geometry.slice.endLine;
+        hostIndex++
+      ) {
+        final line = layout.lines[hostIndex];
+        if (ruby.start >= line.start && ruby.start < line.end) {
+          hostLine = line;
+          break;
+        }
+        lineY += line.height;
+      }
+      if (hostLine == null) {
+        continue;
+      }
+      final lineStart = hostLine.start;
+      final prefix = layout.text.substring(lineStart, ruby.start);
+      final painter = TextPainter(
+        text: TextSpan(text: prefix, style: geometry.textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final x0 = geometry.leftInset + hostLine.offsetX + painter.width;
+      painter.dispose();
+      final basePainter = TextPainter(
+        text: TextSpan(
+          text: layout.text.substring(ruby.start, ruby.end),
+          style: geometry.textStyle,
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final baseWidth = basePainter.width;
+      basePainter.dispose();
+      final rubyPainter = TextPainter(
+        text: TextSpan(text: ruby.text, style: rubyStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final rx = x0 + (baseWidth - rubyPainter.width) / 2;
+      rubyPainter.paint(canvas, ui.Offset(rx, lineY - rubyPainter.height));
+      rubyPainter.dispose();
+    }
   }
 
   /// 表格切片绘制（flat 管线接入）：网格线（1px 灰，Reeden 630 裸表格

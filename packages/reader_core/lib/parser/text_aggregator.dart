@@ -58,6 +58,21 @@ class InlineMark {
   final List<MarkSubject> chain;
 }
 
+/// 注音标注（P8-08，CSS Ruby 1 flat 近似）：主文本区间 + 注音文本。
+class RubyMark {
+  /// 创建注音标注。
+  const RubyMark({required this.start, required this.end, required this.text});
+
+  /// 主文本区间起始（聚合文本坐标系，含）。
+  final int start;
+
+  /// 结束偏移（半开）。
+  final int end;
+
+  /// 注音文本（rt 子文本拼接，多 rt 以空格连接）。
+  final String text;
+}
+
 /// 聚合后的文本块。
 class TextContentNode implements TextBlockNode {
   /// 创建文本块。
@@ -69,6 +84,7 @@ class TextContentNode implements TextBlockNode {
     required this.start,
     required this.end,
     this.inlineMarks = const <InlineMark>[],
+    this.rubies = const <RubyMark>[],
   });
 
   @override
@@ -82,6 +98,9 @@ class TextContentNode implements TextBlockNode {
 
   /// 行内样式标记（真实书适配）。
   final List<InlineMark> inlineMarks;
+
+  /// 注音标注（P8-08）：ruby 主文本区间 + 注音串。
+  final List<RubyMark> rubies;
 
   /// 文本块 CFI（取首个来源文本节点的 CFI）。
   final EpubCfi cfi;
@@ -141,6 +160,26 @@ abstract final class TextAggregator {
     'b', 'strong', 'em', 'i', 'u', 's', 'strike', 'del', 'ins',
     'code', 'sub', 'sup', 'small', 'big', 'mark', 'font', 'cite', 'q',
   };
+
+  /// 行内子树纯文本（P8-08：rt/rtc 注音捕获用）。
+  static String inlineTextOf(EpubNode node) {
+    final buffer = StringBuffer();
+    void walk(EpubNode value) {
+      if (value is ParsedText) {
+        buffer.write(value.text);
+      } else if (value is InlineNode) {
+        for (final child in value.children) {
+          walk(child);
+        }
+      } else if (value is TextBlockNode) {
+        buffer.write(value.text);
+      }
+    }
+
+    walk(node);
+    return buffer.toString();
+  }
+
   /// 聚合一个章节。
   ///
   /// [whiteSpace] 决定空白与换行如何保留；`<pre>` 标签始终按 `pre` 处理。
@@ -195,6 +234,17 @@ abstract final class TextAggregator {
         accumulator.addBreak();
         return;
       }
+      // 注音捕获（P8-08，CSS Ruby 1）：rp（括号）完全忽略；rt/rtc 文本
+      // 不进主流，暂存为注音；ruby 收口时把主文本区间 + 注音串记为
+      // RubyMark 供渲染层注音趟。
+      if (node.tag == 'rp') {
+        return;
+      }
+      if (node.tag == 'rt' || node.tag == 'rtc') {
+        accumulator.captureRubyText(inlineTextOf(node));
+        return;
+      }
+      final rubyStart = node.tag == 'ruby' ? accumulator.openMark() : -1;
       // 行内样式标记（真实书适配）：带 class 的元素与已知样式标签记录
       // 区间（含祖先链），样式解析由章节源按作者 CSS 完成。
       final markable =
@@ -223,6 +273,9 @@ abstract final class TextAggregator {
             accumulator.addRawText(child.text);
           }
         }
+      }
+      if (rubyStart >= 0) {
+        accumulator.closeRuby(rubyStart);
       }
       if (markable) {
         accumulator.closeMark(markStart, node, ancestors);
@@ -313,6 +366,12 @@ class _TextAccumulator {
 
   /// 行内样式标记（真实书适配）：visitInline 按 open/close 记录。
   final List<InlineMark> marks = <InlineMark>[];
+
+  /// 注音标注（P8-08）：ruby 主文本区间 + 注音串。
+  final List<RubyMark> rubies = <RubyMark>[];
+
+  /// 当前 ruby 捕获的注音片段（rt 顺序）。
+  final List<String> _rubyTextParts = <String>[];
   bool _pendingSpace = false;
   int? _lastCodeUnit;
   ParsedText? _firstText;
@@ -442,6 +501,23 @@ class _TextAccumulator {
     images.add(node);
   }
 
+  /// 注音捕获（P8-08）：rt/rtc 文本不进主流，暂存待 ruby 收口。
+  void captureRubyText(String text) {
+    if (text.trim().isNotEmpty) {
+      _rubyTextParts.add(text.trim());
+    }
+  }
+
+  /// ruby 收口：主文本区间 [start, 缓冲当前位置) + 暂存注音串。
+  void closeRuby(int start) {
+    final end = _buffer.length;
+    final annotation = _rubyTextParts.join(' ');
+    _rubyTextParts.clear();
+    if (end > start && annotation.isNotEmpty) {
+      rubies.add(RubyMark(start: start, end: end, text: annotation));
+    }
+  }
+
   /// 写一个换行并记录强制换行位置（块首换行忽略）。
   void _writeBreak() {
     if (_buffer.isEmpty) {
@@ -464,6 +540,9 @@ class _TextAccumulator {
       inlineMarks: marks.isEmpty
           ? const <InlineMark>[]
           : List<InlineMark>.unmodifiable(marks),
+      rubies: rubies.isEmpty
+          ? const <RubyMark>[]
+          : List<RubyMark>.unmodifiable(rubies),
       cfi: _firstText?.cfi ?? fallbackCfi,
       start: _firstText?.start ?? fallbackStart,
       end: _lastText?.end ?? fallbackEnd,
@@ -472,6 +551,7 @@ class _TextAccumulator {
     _runs.clear();
     _hardBreaks.clear();
     marks.clear();
+    rubies.clear();
     _firstText = null;
     _lastText = null;
     return content;

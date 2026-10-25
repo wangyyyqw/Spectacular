@@ -28,6 +28,7 @@ class PageBlock {
     this.groupId = 0,
     this.table,
     this.floatSide,
+    this.rubies,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -46,6 +47,7 @@ class PageBlock {
     double spaceAfter = 0,
     int groupId = 0,
     String? listMarker,
+    List<RubyAnnotation>? rubies,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -64,6 +66,7 @@ class PageBlock {
       leftInset: model.borders.left + model.padding.left,
       groupId: groupId,
       listMarker: listMarker,
+      rubies: rubies,
     );
   }
 
@@ -123,6 +126,10 @@ class PageBlock {
   /// 浮动方向（flat 管线接入）：非 null 时本块是浮动元素（通常为
   /// 图片块），由浮动感知分页登记占位并以覆盖切片渲染——不占流高。
   final FloatSide? floatSide;
+
+  /// 注音标注（P8-08）：ruby/rt 结构（主文本区间 + 注音串），
+  /// 渲染层注音趟在主文本区间上方绘制（50% 字号、居中）。
+  final List<RubyAnnotation>? rubies;
 
   /// 块高度（内容区行高之和）。
   double get height => layout.height;

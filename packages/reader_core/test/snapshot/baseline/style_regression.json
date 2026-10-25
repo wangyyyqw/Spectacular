@@ -153,14 +153,14 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "a3dd8a51632596c4953068645255ec0aaea273598bd552495359c0a5eb488ba9",
+      "bookHash": "ca56ddb072244b0f27ba45ce25da7482ea766ae3448c77fadcec140323365ab9",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "e6de9cc72f1a8ecb7f49791f813c08dada29cced77c53f384a186356f64addac",
-          "inkPixels": 78540,
+          "layoutHash": "dba3743c910a216dc4a5d4f443046086b8af338883f63b4dadf70ae5d81d21a4",
+          "inkPixels": 74740,
           "lineCount": 15,
-          "textLength": 234,
+          "textLength": 221,
           "summary": "竖排与注音这一段用于检查竖排方向。文字应…一组阿拉伯数字：2026 年 10 月。"
         }
       ]
