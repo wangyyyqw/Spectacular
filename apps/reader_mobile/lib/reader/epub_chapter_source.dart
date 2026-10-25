@@ -427,6 +427,146 @@ class EpubChapterSource
     return result;
   }
 
+  /// 伪元素生成内容（P8-09）：作者规则 `X::before/::after { content: … }`
+  /// 的主选择器 X 匹配链末元素时返回 content 值——字符串字面量或
+  /// attr(name)；计数器/open-quote 等返回 null（记录为不支持）。
+  static String? _pseudoContent(
+    List<CssStylesheet> sheets,
+    List<SelectorElement> ancestors,
+    String pseudo,
+  ) {
+    if (ancestors.isEmpty) {
+      return null;
+    }
+    for (final sheet in sheets) {
+      for (final rule in sheet.rules) {
+        for (final raw in rule.selector.split(',')) {
+          final selector = raw.trim();
+          if (!selector.endsWith(pseudo)) {
+            continue;
+          }
+          final main = selector.substring(0, selector.length - pseudo.length);
+          if (main.isEmpty) {
+            continue;
+          }
+          final parsed = SelectorParser.parse(main);
+          if (parsed.selectors.isEmpty) {
+            continue;
+          }
+          var matched = false;
+          for (final complex in parsed.selectors) {
+            if (complex.matches(ancestors.last, ancestors.sublist(0, ancestors.length - 1))) {
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
+            continue;
+          }
+          for (final declaration in rule.declarations) {
+            if (declaration.property != 'content') {
+              continue;
+            }
+            final value = declaration.value.trim();
+            final quote = value.isNotEmpty ? value[0] : '';
+            final isQuoted =
+                (quote == '"' || quote == "'") &&
+                value.length >= 2 &&
+                value.endsWith(quote);
+            if (isQuoted) {
+              return value.substring(1, value.length - 1);
+            }
+            final attrMatch = RegExp(
+              r'^attr\(\s*([a-zA-Z-]+)\s*\)$',
+            ).firstMatch(value);
+            if (attrMatch != null) {
+              return ancestors.last.attributes[attrMatch.group(1)!] ?? '';
+            }
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// ::first-letter（P8-09）：命中规则的声明合成首字符 run（字号/
+  /// 颜色/字重放大），借用行内 run 机制排版（行高随之撑起）。
+  StyledRun? _firstLetterRun(
+    List<CssStylesheet> sheets,
+    List<SelectorElement> ancestors,
+    String text,
+    ComputedStyle baseStyle,
+  ) {
+    if (ancestors.isEmpty || text.isEmpty) {
+      return null;
+    }
+    final declarations = <String, String>{};
+    for (final sheet in sheets) {
+      for (final rule in sheet.rules) {
+        for (final raw in rule.selector.split(',')) {
+          final selector = raw.trim();
+          if (!selector.endsWith('::first-letter')) {
+            continue;
+          }
+          final main = selector.substring(
+            0,
+            selector.length - '::first-letter'.length,
+          );
+          if (main.isEmpty) {
+            continue;
+          }
+          final parsed = SelectorParser.parse(main);
+          if (parsed.selectors.isEmpty) {
+            continue;
+          }
+          var matched = false;
+          for (final complex in parsed.selectors) {
+            if (complex.matches(
+              ancestors.last,
+              ancestors.sublist(0, ancestors.length - 1),
+            )) {
+              matched = true;
+              break;
+            }
+          }
+          if (matched) {
+            for (final declaration in rule.declarations) {
+              declarations[declaration.property] = declaration.value;
+            }
+          }
+        }
+      }
+    }
+    if (declarations.isEmpty) {
+      return null;
+    }
+    // 首字符 = 首个非空白字符。
+    var start = 0;
+    while (start < text.length &&
+        _isWhitespace(text.codeUnitAt(start))) {
+      start += 1;
+    }
+    if (start >= text.length) {
+      return null;
+    }
+    return StyledRun(
+      start: start,
+      end: start + 1,
+      style: ComputedStyle(
+        declarations,
+        parent: baseStyle,
+        explicitProperties: declarations.keys.toSet(),
+        containingWidth: contentWidth,
+        rootFontSize: baseStyle.fontSize,
+      ),
+    );
+  }
+
+  static bool _isWhitespace(int codeUnit) =>
+      codeUnit == 0x20 || codeUnit == 0x09 || codeUnit == 0x0A ||
+      codeUnit == 0x0D;
+
   static String _chainKey(List<SelectorElement> chain) {
     final parts = <String>[];
     for (final view in chain) {
@@ -1400,6 +1540,14 @@ class EpubChapterSource
         if (text.trim().isEmpty) {
           return;
         }
+        // 伪元素生成内容（P8-09）：::before/::after 的 content（字符串/
+        // attr()）拼进块首尾（flat 近似：CFI 偏移不含生成文本，记录）。
+        final before = _pseudoContent(sheets, ancestors, '::before');
+        final after = _pseudoContent(sheets, ancestors, '::after');
+        final effectiveText =
+            (before == null && after == null) || node is! TextContentNode
+            ? text
+            : '${before ?? ''}$text${after ?? ''}';
         // 链末位即当前块上下文（P8-02：链式级联含全部祖先）；
         // 首末容器位（P8-05c）供上下边框拼合。
         final blockStyle = styleForChain(
@@ -1414,12 +1562,22 @@ class EpubChapterSource
             list != null) {
           marker = list.nextMarker();
         }
-        // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排。
-        final runs = node is TextContentNode
+        // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排；
+        // ::first-letter（P8-09）：命中规则时首字符放大 run 追加。
+        var runs = node is TextContentNode
             ? resolveInlineRuns(node.inlineMarks)
             : const <StyledRun>[];
+        final firstLetter = _firstLetterRun(
+          sheets,
+          ancestors,
+          effectiveText,
+          blockStyle,
+        );
+        if (firstLetter != null) {
+          runs = [...runs, firstLetter];
+        }
         final layout = _layoutCache.layout(
-          text: text,
+          text: effectiveText,
           style: blockStyle,
           maxWidth: contentWidth,
           runs: runs,
@@ -1438,6 +1596,17 @@ class EpubChapterSource
               //（记录为 flat 近似）。
               spaceBefore: blockStyle.margin.top,
               spaceAfter: blockStyle.margin.bottom,
+              // P8-08：注音标注透传渲染层。
+              rubies: node is TextContentNode && node.rubies.isNotEmpty
+                  ? [
+                      for (final ruby in node.rubies)
+                        RubyAnnotation(
+                          start: ruby.start,
+                          end: ruby.end,
+                          text: ruby.text,
+                        ),
+                    ]
+                  : null,
             ),
           );
         }

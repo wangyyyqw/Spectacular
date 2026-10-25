@@ -27,6 +27,7 @@ class ReaderPage extends StatefulWidget {
     this.theme,
     this.overrides,
     this.paragraphCache,
+    this.showPageFooter = true,
   });
 
   /// 章节页来源。
@@ -43,6 +44,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 正文区外边距。
   final EdgeInsets padding;
+
+  /// 页脚页码（P8-10 页家具 6 槽的第一槽；槽模板与设置项后续接入）。
+  final bool showPageFooter;
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
@@ -285,6 +289,25 @@ class _ReaderPageState extends State<ReaderPage> {
               onNext: () => unawaited(_session.next()),
               child: const SizedBox.expand(),
             ),
+            // 页脚页码（P8-10 页家具 6 槽第一槽）。
+            if (widget.showPageFooter)
+              Positioned(
+                left: widget.padding.horizontal / 2,
+                right: widget.padding.horizontal / 2,
+                bottom: 4,
+                child: IgnorePointer(
+                  child: Text(
+                    '第${page.spineIndex + 1}/${widget.source.chapterCount}章 '
+                    '· ${page.pageIndex + 1}/${_session.chapterPageCount}页',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: (widget.theme?.text ?? const Color(0xFF757575))
+                          .withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              ),
             // 翻页/重排时保留旧页，只在顶部显示细进度条（P2-27）。
             if (_session.loading)
               Positioned(

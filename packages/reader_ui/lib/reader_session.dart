@@ -175,6 +175,15 @@ class ReaderSession extends ChangeNotifier {
   /// 已映射页数。
   int get mappedPageCount => _pager?.mappedPageCount ?? 0;
 
+  /// 当前章页数（P8-10 页家具；章未加载为 0）。
+  int get chapterPageCount {
+    final current = page;
+    if (current == null) {
+      return 0;
+    }
+    return _pager?.spinePages[current.spineIndex]?.length ?? 0;
+  }
+
   /// 当前页文本（用于测试/无障碍）。
   String get currentText {
     final value = page;

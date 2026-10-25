@@ -106,6 +106,26 @@ class LineBox {
 ///
 /// 混排字号、上下标、超出行高的行内元素都用它表达；区间必须升序且不重叠，
 /// 未覆盖的部分沿用块的样式。
+/// 注音标注（P8-08，CSS Ruby 1 flat 近似）：主文本区间 + 注音文本，
+/// 渲染层注音趟消费（区间字符上方、50% 字号、居中）。
+class RubyAnnotation {
+  /// 创建注音。
+  const RubyAnnotation({
+    required this.start,
+    required this.end,
+    required this.text,
+  });
+
+  /// 起始偏移（UTF-16，含，块文本坐标系）。
+  final int start;
+
+  /// 结束偏移（半开）。
+  final int end;
+
+  /// 注音文本。
+  final String text;
+}
+
 class StyledRun {
   /// 创建区间。
   const StyledRun({
