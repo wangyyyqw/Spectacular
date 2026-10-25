@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../css/computed_style.dart';
 import '../position/cfi.dart';
+import '../position/text_length.dart';
 import '../src/api/models.dart';
 import '../src/api/interfaces.dart';
 import 'archive_reader.dart';
@@ -402,6 +403,51 @@ class EpubDocumentImpl implements EpubDocument {
       }
     }
     return null;
+  }
+
+  /// 不参与进度计算的 spine 索引（§76.2）：`linear="no"` 与 nav 目录文档。
+  Set<int> get progressExcludedSpineIndexes {
+    final excluded = <int>{};
+    final navHrefs = <String>{
+      for (final item in package.manifest)
+        if (item.properties.contains('nav')) item.href,
+    };
+    for (var index = 0; index < package.spine.length; index++) {
+      final item = package.spine[index];
+      if (!item.linear || navHrefs.contains(item.href)) {
+        excluded.add(index);
+      }
+    }
+    return excluded;
+  }
+
+  /// 统计某章正文字符数（§22.3 轻量扫描，不做完整解析）。
+  int characterCountOf(int spineIndex) {
+    final item = spine[spineIndex];
+    final baseDir = p.posix.dirname(opfPath);
+    final resolved = resources.resolve(item.href, baseDir: baseDir);
+    final xhtml = resolved == null ? null : archive.readString(resolved);
+    return xhtml == null ? 0 : TextLengthScanner.count(xhtml);
+  }
+
+  /// 顺序统计各章正文字符数（导入期做）。
+  ///
+  /// 单章读取失败按 0 计（该章不参与进度）；每 [yieldEvery] 章让出一次
+  /// 事件循环，避免长时间占用 UI isolate。
+  Future<List<int>> countChapterCharacters({
+    void Function(int done, int total)? onProgress,
+    int yieldEvery = 50,
+  }) async {
+    final counts = List<int>.filled(spine.length, 0);
+    for (var index = 0; index < spine.length; index++) {
+      counts[index] = characterCountOf(index);
+      if (index % yieldEvery == yieldEvery - 1) {
+        onProgress?.call(index + 1, spine.length);
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+    onProgress?.call(spine.length, spine.length);
+    return counts;
   }
 
   /// 读取封面字节；无封面或资源缺失返回 null。

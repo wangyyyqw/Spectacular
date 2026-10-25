@@ -123,6 +123,39 @@ void main() {
     expect(await store.list(), isEmpty);
   });
 
+  test('导入统计字符数：books.char_count 与进度权重落地（P4-09）', () async {
+    final dir = Directory.systemTemp.createTempSync('library_chars');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final store = opened.store;
+    final entry = await store.importBytes(buildTestEpub(title: '字数书'));
+
+    final bookRow = (await opened.db.select(opened.db.books).get()).single;
+    expect(bookRow.charCount, greaterThan(0), reason: '导入期统计全书字符数');
+    final spineRows = await opened.db.select(opened.db.spineItems).get();
+    expect(spineRows, hasLength(1));
+    expect(spineRows.single.charCount, bookRow.charCount);
+    expect(spineRows.single.charStart, 0);
+
+    final weights = await store.progressWeights(entry.id);
+    expect(weights.estimated, isFalse);
+    expect(weights.total, bookRow.charCount);
+    expect(weights.percentOf(0), 0);
+    expect(
+      weights.percentOf(0, charOffsetInChapter: weights.total.toDouble()),
+      1,
+    );
+  });
+
+  test('progressWeights：无统计的旧书按章等权估算', () async {
+    final dir = Directory.systemTemp.createTempSync('library_chars_legacy');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final weights = await store.progressWeights('不存在');
+    expect(weights.total, 0);
+    expect(weights.estimated, isFalse);
+  });
+
   test('封面提取并缓存到书目录；无封面时为 null 交给占位', () async {
     final dir = Directory.systemTemp.createTempSync('library_cover');
     addTearDown(() => dir.deleteSync(recursive: true));

@@ -42,6 +42,9 @@ enum BookSortOrder {
   }
 }
 
+/// 书架条目 + 进度（P4-09：百分比由字符权重表算，章级粒度）。
+typedef _ShelfItem = ({BookEntry entry, int? percentInt});
+
 /// 书架页：书籍网格/列表、EPUB 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
@@ -86,13 +89,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
   static const _sortKey = 'bookshelf.sort';
   static const _viewKey = 'bookshelf.grid';
 
-  List<BookEntry>? _books;
+  List<_ShelfItem>? _items;
   late final ImportQueue _queue;
   final List<ImportJob> _batch = <ImportJob>[];
   int _reportedJobs = 0;
   String? _error;
   BookSortOrder _sort = BookSortOrder.recent;
   bool _grid = true;
+  int _reloadToken = 0;
 
   @override
   void initState() {
@@ -128,15 +132,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   /// 按当前排序方式排序（list() 默认最近阅读优先）。
-  List<BookEntry> _sorted(List<BookEntry> books) {
-    final sorted = List<BookEntry>.of(books);
+  List<_ShelfItem> _sorted(List<_ShelfItem> items) {
+    final sorted = List<_ShelfItem>.of(items);
     switch (_sort) {
       case BookSortOrder.recent:
         break;
       case BookSortOrder.added:
-        sorted.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+        sorted.sort((a, b) => b.entry.addedAt.compareTo(a.entry.addedAt));
       case BookSortOrder.title:
-        sorted.sort((a, b) => a.title.compareTo(b.title));
+        sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
     }
     return sorted;
   }
@@ -193,14 +197,25 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  void _reload() {
-    widget.library.list().then((books) {
-      if (mounted) {
-        setState(() {
-          _books = books;
-        });
+  Future<void> _reload() async {
+    // 递增 token：并发刷新时只让最后一次生效，避免旧结果覆盖新状态。
+    final token = ++_reloadToken;
+    final books = await widget.library.list();
+    final items = <_ShelfItem>[];
+    for (final book in books) {
+      int? percent;
+      final progress = await widget.progressStore.load(book.id);
+      if (progress != null) {
+        final weights = await widget.library.progressWeights(book.id);
+        if (weights.total > 0) {
+          percent = weights.percentInt(progress.spineIndex);
+        }
       }
-    });
+      items.add((entry: book, percentInt: percent));
+    }
+    if (mounted && token == _reloadToken) {
+      setState(() => _items = items);
+    }
   }
 
   /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
@@ -290,9 +305,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   @override
   Widget build(BuildContext context) {
-    final books = _books;
+    final items = _items;
     final busy = _queue.isBusy;
-    final ordered = books == null ? null : _sorted(books);
+    final ordered = items == null ? null : _sorted(items);
     return Scaffold(
       appBar: AppBar(
         title: const Text('书架'),
@@ -343,9 +358,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
           Expanded(
             child: _error != null
                 ? _ErrorPane(message: _error!, onRetry: _import)
-                : books == null
+                : items == null
                 ? const Center(child: CircularProgressIndicator())
-                : books.isEmpty
+                : items.isEmpty
                 ? const _EmptyPane()
                 : RefreshIndicator(
                     onRefresh: () async => _reload(),
@@ -362,7 +377,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             ),
                             itemCount: ordered!.length,
                             itemBuilder: (context, index) => _BookCard(
-                              entry: ordered[index],
+                              entry: ordered[index].entry,
+                              percentInt: ordered[index].percentInt,
                               onOpen: _open,
                               onLongPress: _openBookDetail,
                             ),
@@ -372,7 +388,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
                             itemCount: ordered!.length,
                             itemBuilder: (context, index) => _BookRow(
-                              entry: ordered[index],
+                              entry: ordered[index].entry,
+                              percentInt: ordered[index].percentInt,
                               onOpen: _open,
                               onLongPress: _openBookDetail,
                             ),
@@ -433,11 +450,13 @@ class _ImportBanner extends StatelessWidget {
 class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.entry,
+    required this.percentInt,
     required this.onOpen,
     required this.onLongPress,
   });
 
   final BookEntry entry;
+  final int? percentInt;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
 
@@ -488,7 +507,8 @@ class _BookRow extends StatelessWidget {
         [
           entry.author.isEmpty ? '未知作者' : entry.author,
           if (entry.spineCount != null) '${entry.spineCount} 章',
-          if (entry.status == BookReadingStatus.reading) '在读',
+          if (entry.status == BookReadingStatus.reading)
+            percentInt == null ? '在读' : '在读 $percentInt%',
         ].join(' · '),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
@@ -569,11 +589,13 @@ class _ErrorPane extends StatelessWidget {
 class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
+    required this.percentInt,
     required this.onOpen,
     required this.onLongPress,
   });
 
   final BookEntry entry;
+  final int? percentInt;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
 
@@ -662,9 +684,9 @@ class _BookCard extends StatelessWidget {
               errorBuilder: (_, _, _) => placeholder,
             ),
           if (entry.status == BookReadingStatus.reading)
-            const Align(
+            Align(
               alignment: Alignment.bottomLeft,
-              child: _ReadingBadge(),
+              child: _ReadingBadge(percentInt: percentInt),
             ),
         ],
       ),
@@ -700,11 +722,14 @@ class _BookCard extends StatelessWidget {
 
 /// 「在读」角标（P4-04：状态随进度自动更新）。
 class _ReadingBadge extends StatelessWidget {
-  const _ReadingBadge();
+  const _ReadingBadge({this.percentInt});
+
+  final int? percentInt;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final label = percentInt == null ? '在读' : '在读 $percentInt%';
     return Container(
       key: const ValueKey<String>('book-reading-badge'),
       margin: const EdgeInsets.all(6),
@@ -714,7 +739,7 @@ class _ReadingBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        '在读',
+        label,
         style: theme.textTheme.labelSmall?.copyWith(
           color: theme.colorScheme.onPrimary,
         ),
