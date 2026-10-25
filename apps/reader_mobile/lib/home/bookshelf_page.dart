@@ -228,7 +228,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
-    final paths = await widget.pickEpubFiles();
+    // ignore: avoid_print
+    print('[import] 开始选择文件');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在打开文件选择器…'), duration: Duration(seconds: 2)),
+      );
+    }
+    List<String> paths;
+    try {
+      paths = await widget.pickEpubFiles();
+    } catch (error) {
+      // ignore: avoid_print
+      print('[import] 选择文件失败：$error');
+      if (mounted) {
+        setState(() => _error = '选择文件失败：$error');
+      }
+      return;
+    }
+    // ignore: avoid_print
+    print('[import] 选中 ${paths.length} 个文件');
     if (paths.isEmpty || !mounted) {
       return;
     }
@@ -399,6 +418,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ],
           ),
           IconButton(
+            key: const ValueKey<String>('appbar-import'),
+            tooltip: '导入 EPUB',
+            onPressed: busy ? null : _import,
+            icon: const Icon(Icons.add),
+          ),
+          IconButton(
             tooltip: _grid ? '列表视图' : '网格视图',
             onPressed: _toggleView,
             icon: Icon(_grid ? Icons.view_list_outlined : Icons.grid_view),
@@ -434,7 +459,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 : items == null
                 ? const Center(child: CircularProgressIndicator())
                 : items.isEmpty
-                ? const _EmptyPane()
+                ? _EmptyPane(onImport: busy ? null : _import)
                 : RefreshIndicator(
                     onRefresh: () async => _reload(),
                     child: _grid
@@ -603,7 +628,10 @@ class _BookRow extends StatelessWidget {
 }
 
 class _EmptyPane extends StatelessWidget {
-  const _EmptyPane();
+  const _EmptyPane({this.onImport});
+
+  /// 空态里的显式导入入口（P4-34：真机上悬浮按钮命中区不可靠）。
+  final VoidCallback? onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -620,8 +648,15 @@ class _EmptyPane extends StatelessWidget {
           Text('书架还是空的', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
           Text(
-            '点击右下角「导入 EPUB」添加第一本书',
+            '点击下方按钮添加第一本书',
             style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            key: const ValueKey<String>('empty-import'),
+            onPressed: onImport,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('选择 EPUB 文件'),
           ),
         ],
       ),

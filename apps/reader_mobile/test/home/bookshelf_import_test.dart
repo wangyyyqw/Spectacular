@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/file_progress_store.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 
@@ -131,5 +134,41 @@ void main() {
     expect(find.text('山海小记'), findsWidgets);
     expect(find.text('第二本'), findsWidgets);
     expect((await library.list()).length, 2);
+  });
+
+  testWidgets('空态与标题栏都能发起导入（P4-34 真机 FAB 命中异常后的替代入口）',
+      (tester) async {
+    var pickCalls = 0;
+    final dir = Directory.systemTemp.createTempSync('shelf-entry');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final library = LibraryStore(
+      database: AppDatabase(NativeDatabase.memory()),
+      directoryProvider: () async => dir,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+          pickEpubFiles: () async {
+            pickCalls++;
+            return <String>[];
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 空态中央按钮。
+    expect(find.byKey(const ValueKey<String>('empty-import')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('empty-import')));
+    await tester.pumpAndSettle();
+    expect(pickCalls, 1);
+
+    // 标题栏入口。
+    expect(find.byKey(const ValueKey<String>('appbar-import')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('appbar-import')));
+    await tester.pumpAndSettle();
+    expect(pickCalls, 2);
   });
 }
