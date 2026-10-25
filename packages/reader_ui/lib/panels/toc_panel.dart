@@ -14,6 +14,7 @@ class TocPanel extends StatelessWidget {
     required this.currentSpineIndex,
     required this.onSelect,
     this.scrollController,
+    this.onBack,
     this.emptyHint = '本书没有目录',
   });
 
@@ -28,6 +29,9 @@ class TocPanel extends StatelessWidget {
 
   /// 滚动控制器（调用方缓存滚动位置，重开时保持）。
   final ScrollController? scrollController;
+
+  /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
+  final VoidCallback? onBack;
 
   /// 无目录时的提示。
   final String emptyHint;
@@ -45,6 +49,12 @@ class TocPanel extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Row(
               children: [
+                if (onBack != null)
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, size: 20),
+                    onPressed: onBack,
+                    tooltip: '返回',
+                  ),
                 Text('目录', style: theme.textTheme.titleMedium),
                 const Spacer(),
                 Text(

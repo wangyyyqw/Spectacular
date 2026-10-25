@@ -9,6 +9,7 @@ import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
+import 'panels/bookmark_panel.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
 import 'reader_view.dart';
@@ -25,6 +26,7 @@ class ReaderPage extends StatefulWidget {
     required this.bookId,
     this.background = const Color(0xFFFFFFFF),
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+    this.bookmarks,
     this.onSessionReady,
     this.imageCache,
     this.theme,
@@ -35,6 +37,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 章节页来源。
   final ReaderChapterSource source;
+
+  /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
+  final ReaderBookmarkStore? bookmarks;
 
   /// 进度存储。
   final ReaderProgressStore store;
@@ -233,13 +238,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  /// 点屏幕中央：阅读菜单（P4-11 先只给目录入口，P4-21 再补主题/排版）。
+  /// 点屏幕中央：阅读菜单（P4-11 目录；P4-13 书签；P4-21 再补主题/排版）。
   ///
-  /// 菜单与目录在同一个 sheet 内切换：真机上先 pop 菜单再开新 sheet 会被
-  /// 关闭动画吃掉（表现为点了没反应）。
+  /// 菜单 / 目录 / 书签在同一 sheet 内切换：真机上先 pop 菜单再开新 sheet 会
+  /// 被关闭动画吃掉（表现为点了没反应）。
   Future<void> _openReaderMenu() async {
-    final controller = _tocScrollController;
-    final spine = await showModalBottomSheet<TocEntry>(
+    final result = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       builder: (context) => FractionallySizedBox(
@@ -247,15 +251,56 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         child: _ReaderMenuSheet(
           entries: _session.toc,
           currentSpineIndex: _session.progress?.spineIndex ?? 0,
-          chapterIndex: _session.progress?.spineIndex ?? 0,
           chapterCount: widget.source.chapterCount,
-          scrollController: controller,
+          scrollController: _tocScrollController,
+          bookmarks: widget.bookmarks,
+          hasCfi: _session.currentCfi != null,
         ),
       ),
     );
-    if (spine != null) {
-      await _session.jumpToChapter(spine.spineIndex, title: spine.title);
+    if (!mounted || result == null) {
+      return;
     }
+    if (result is TocEntry) {
+      await _session.jumpToChapter(result.spineIndex, title: result.title);
+      return;
+    }
+    if (result == 'add-bookmark') {
+      await _addBookmark();
+      return;
+    }
+    if (result is ReaderBookmark) {
+      await _session.jumpToCfi(result.cfi, title: result.label);
+    }
+  }
+
+  /// 添加当前页书签（P4-13）。
+  Future<void> _addBookmark() async {
+    final store = widget.bookmarks;
+    final cfi = _session.currentCfi;
+    if (store == null || cfi == null) {
+      _showToast('当前位置不支持书签');
+      return;
+    }
+    final progress = _session.progress;
+    final spine = progress?.spineIndex ?? 0;
+    final page = progress?.pageIndex ?? 0;
+    final created = await store.add(
+      cfi: cfi,
+      spineIndex: spine,
+      label: '第 ${spine + 1} 章 · 第 ${page + 1} 页',
+    );
+    if (!mounted) {
+      return;
+    }
+    _showToast(created == null ? '该位置已有书签' : '已添加书签');
+  }
+
+  void _showToast(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 1)),
+    );
   }
 
   /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
@@ -412,42 +457,78 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.painter.background != painter.background;
 }
 
-/// 阅读菜单 sheet（P4-11）：菜单视图 ↔ 目录视图在同一 sheet 内切换。
+/// 阅读菜单 sheet（P4-11/P4-13）：菜单 / 目录 / 书签三个视图在同一 sheet
+/// 内切换，避免真机上「关掉 sheet 立刻开新 sheet」被关闭动画吞掉。
 ///
-/// 返回被选中目录项的 spine 序号（null = 只是关闭）。
+/// 返回：选中的 [TocEntry] / [ReaderBookmark] / `'add-bookmark'`（null = 关闭）。
 class _ReaderMenuSheet extends StatefulWidget {
   const _ReaderMenuSheet({
     required this.entries,
     required this.currentSpineIndex,
-    required this.chapterIndex,
     required this.chapterCount,
     required this.scrollController,
+    required this.bookmarks,
+    required this.hasCfi,
   });
 
   final List<TocEntry> entries;
   final int currentSpineIndex;
-  final int chapterIndex;
   final int chapterCount;
   final ScrollController scrollController;
+  final ReaderBookmarkStore? bookmarks;
+  final bool hasCfi;
 
   @override
   State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
 }
 
 class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
-  bool _showToc = false;
+  int _view = 0; // 0=菜单 1=目录 2=书签
+  Future<List<ReaderBookmark>>? _bookmarksFuture;
+
+  void _showView(int view) {
+    setState(() {
+      _view = view;
+      if (view == 2) {
+        _bookmarksFuture = widget.bookmarks?.list() ??
+            Future<List<ReaderBookmark>>.value(const <ReaderBookmark>[]);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_showToc) {
+    if (_view == 1) {
       return TocPanel(
         entries: widget.entries,
         currentSpineIndex: widget.currentSpineIndex,
         scrollController: widget.scrollController,
+        onBack: () => _showView(0),
         onSelect: (entry) => Navigator.of(context).pop(entry),
       );
     }
+    if (_view == 2) {
+      return FutureBuilder<List<ReaderBookmark>>(
+        future: _bookmarksFuture,
+        builder: (context, snapshot) {
+          final store = widget.bookmarks;
+          final items = snapshot.data ?? const <ReaderBookmark>[];
+          return BookmarkPanel(
+            bookmarks: items,
+            onBack: () => _showView(0),
+            onSelect: (bookmark) => Navigator.of(context).pop(bookmark),
+            onDelete: (bookmark) async {
+              await store?.remove(bookmark.id);
+              if (mounted) {
+                _showView(2);
+              }
+            },
+          );
+        },
+      );
+    }
     final theme = Theme.of(context);
+    final tocCount = flattenToc(widget.entries).length;
     return Material(
       color: theme.colorScheme.surface,
       child: SafeArea(
@@ -461,7 +542,7 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
                   Text('阅读菜单', style: theme.textTheme.titleSmall),
                   const Spacer(),
                   Text(
-                    '第 ${widget.chapterIndex + 1}/${widget.chapterCount} 章',
+                    '第 ${widget.currentSpineIndex + 1}/${widget.chapterCount} 章',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.outline,
                     ),
@@ -472,9 +553,23 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
             ListTile(
               leading: const Icon(Icons.menu_book_outlined),
               title: const Text('目录'),
-              subtitle: Text('共 ${flattenToc(widget.entries).length} 章'),
-              onTap: () => setState(() => _showToc = true),
+              subtitle: Text('共 $tocCount 章'),
+              onTap: () => _showView(1),
             ),
+            if (widget.bookmarks != null)
+              ListTile(
+                leading: const Icon(Icons.bookmark_add_outlined),
+                title: const Text('添加书签'),
+                enabled: widget.hasCfi,
+                subtitle: widget.hasCfi ? null : const Text('当前位置不支持书签'),
+                onTap: () => Navigator.of(context).pop('add-bookmark'),
+              ),
+            if (widget.bookmarks != null)
+              ListTile(
+                leading: const Icon(Icons.bookmarks_outlined),
+                title: const Text('书签'),
+                onTap: () => _showView(2),
+              ),
             const SizedBox(height: 8),
           ],
         ),

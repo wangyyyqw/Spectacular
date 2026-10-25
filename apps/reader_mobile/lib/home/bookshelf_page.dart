@@ -260,6 +260,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           bytes: bytes,
           bookId: entry.id,
           store: widget.progressStore,
+          bookmarks: widget.library.bookmarkStore(entry.id),
         ),
       ),
     );
