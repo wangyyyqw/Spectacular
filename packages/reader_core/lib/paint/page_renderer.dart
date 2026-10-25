@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
@@ -71,6 +72,7 @@ class PagePainter {
   /// 创建绘制器。
   const PagePainter({
     this.background = const Color(0xFFFFFFFF),
+    this.pageBackgroundImage,
     this.imageLookup,
     this.textColor,
     this.selection,
@@ -81,6 +83,11 @@ class PagePainter {
 
   /// 页面背景色。
   final Color background;
+
+  /// 整页背景纹理（P4-22）：平铺绘制在背景色之上、正文之下。
+  ///
+  /// 只影响绘制层，不进入排版指纹——换背景图不触发重排（§31.4）。
+  final ui.Image? pageBackgroundImage;
 
   /// 背景图按 URL 取图的回调；返回 null 表示当前没有可用图片（跳过绘制）。
   ///
@@ -113,10 +120,22 @@ class PagePainter {
     final geometries = _sliceGeometries(page, pageSize);
 
     _notifyPhase(PagePaintPhase.background);
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, pageSize.width, pageSize.height),
-      Paint()..color = background,
-    );
+    final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
+    canvas.drawRect(pageRect, Paint()..color = background);
+    // 背景纹理平铺在背景色之上、正文之下（P4-22，只影响绘制层）。
+    final pageBackground = this.pageBackgroundImage;
+    if (pageBackground != null) {
+      canvas.drawRect(
+        pageRect,
+        Paint()
+          ..shader = ImageShader(
+            pageBackground,
+            TileMode.repeated,
+            TileMode.repeated,
+            _identityMatrix4(),
+          ),
+      );
+    }
 
     _notifyPhase(PagePaintPhase.blockBackground);
     for (final geometry in geometries) {
@@ -1225,3 +1244,11 @@ class _SliceGeometry {
     );
   }
 }
+
+/// 单位变换矩阵（ImageShader 平铺用，P4-22）。
+Float64List _identityMatrix4() => Float64List.fromList(<double>[
+  1, 0, 0, 0, //
+  0, 1, 0, 0, //
+  0, 0, 1, 0, //
+  0, 0, 0, 1, //
+]);

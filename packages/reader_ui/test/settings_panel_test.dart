@@ -61,6 +61,32 @@ void main() {
     );
   });
 
+  testWidgets('背景选择：点纸纹回调背景 id（P4-22）', (tester) async {
+    final backgrounds = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            backgroundId: 'none',
+            onOverridesChanged: (_) {},
+            onThemeChanged: (_) {},
+            onBackgroundChanged: backgrounds.add,
+          ),
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-bg-wood')),
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('settings-bg-wood')));
+    await tester.pump();
+    expect(backgrounds.single, 'wood');
+  });
+
   testWidgets('设置面板支持返回按钮', (tester) async {
     var back = false;
     await tester.pumpWidget(

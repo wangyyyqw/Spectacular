@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
+import '../theme/reader_background.dart';
 import '../theme/reader_theme.dart';
 
 /// 阅读设置默认值（P4-21，与 Reeden/阅微的默认一致）。
@@ -46,6 +47,8 @@ class SettingsPanel extends StatefulWidget {
     required this.themeId,
     required this.onOverridesChanged,
     required this.onThemeChanged,
+    this.backgroundId = 'none',
+    this.onBackgroundChanged,
     this.onReset,
     this.onBack,
   });
@@ -61,6 +64,12 @@ class SettingsPanel extends StatefulWidget {
 
   /// 主题变化。
   final ValueChanged<String> onThemeChanged;
+
+  /// 当前背景 id（P4-22）。
+  final String backgroundId;
+
+  /// 背景变化（纹理或纯色）。
+  final ValueChanged<String>? onBackgroundChanged;
 
   /// 恢复默认。
   final VoidCallback? onReset;
@@ -209,6 +218,24 @@ class _SettingsPanelState extends State<SettingsPanel> {
                       ),
                   ],
                 ),
+                if (widget.onBackgroundChanged != null) ...[
+                  const SizedBox(height: 16),
+                  Text('背景', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      for (final item in ReaderBackground.all)
+                        _backgroundChip(
+                          key: 'settings-bg-${item.id}',
+                          background: item,
+                          selected: item.id == widget.backgroundId,
+                          onTap: () => widget.onBackgroundChanged!(item.id),
+                        ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -255,6 +282,33 @@ class _SettingsPanelState extends State<SettingsPanel> {
             onChanged: onChanged,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _backgroundChip({
+    required String key,
+    required ReaderBackground background,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return InkWell(
+      key: ValueKey<String>(key),
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Text(background.name, style: theme.textTheme.bodySmall),
       ),
     );
   }

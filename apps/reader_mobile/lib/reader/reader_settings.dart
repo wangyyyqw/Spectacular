@@ -14,6 +14,7 @@ class ReaderSettings {
     this.paragraphSpacing = ReaderSettingsDefaults.paragraphSpacing,
     this.horizontalPadding = ReaderSettingsDefaults.horizontalPadding,
     this.themeId = ReaderSettingsDefaults.themeId,
+    this.backgroundId = 'none',
   });
 
   /// 字号。
@@ -30,6 +31,9 @@ class ReaderSettings {
 
   /// 主题 id。
   final String themeId;
+
+  /// 背景 id（P4-22：none/paper/wood/gray）。
+  final String backgroundId;
 
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
@@ -54,6 +58,7 @@ class ReaderSettings {
   static ReaderSettings fromOverrides(
     ReaderOverrides overrides, {
     required String themeId,
+    String backgroundId = 'none',
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     lineHeight: overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight,
@@ -71,6 +76,17 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: id,
+    backgroundId: backgroundId,
+  );
+
+  /// 复制并替换背景。
+  ReaderSettings copyWithBackground(String id) => ReaderSettings(
+    fontSize: fontSize,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    backgroundId: id,
   );
 
   @override
@@ -80,7 +96,8 @@ class ReaderSettings {
       other.lineHeight == lineHeight &&
       other.paragraphSpacing == paragraphSpacing &&
       other.horizontalPadding == horizontalPadding &&
-      other.themeId == themeId;
+      other.themeId == themeId &&
+      other.backgroundId == backgroundId;
 
   @override
   int get hashCode => Object.hash(
@@ -89,6 +106,7 @@ class ReaderSettings {
     paragraphSpacing,
     horizontalPadding,
     themeId,
+    backgroundId,
   );
 }
 
@@ -105,6 +123,7 @@ class ReaderSettingsStore {
   static const String keyParagraphSpacing = 'reader.paragraphSpacing';
   static const String keyPadding = 'reader.padding';
   static const String keyThemeId = 'reader.themeId';
+  static const String keyBackgroundId = 'reader.backgroundId';
 
   /// 读取设置（缺失或非法值回落到默认）。
   Future<ReaderSettings> load() async {
@@ -120,6 +139,7 @@ class ReaderSettingsStore {
           ReaderSettingsDefaults.horizontalPadding,
       themeId: await _library.getSetting(keyThemeId) ??
           ReaderSettingsDefaults.themeId,
+      backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
     );
   }
 
@@ -142,6 +162,7 @@ class ReaderSettingsStore {
       settings.horizontalPadding.toStringAsFixed(1),
     );
     await _library.setSetting(keyThemeId, settings.themeId);
+    await _library.setSetting(keyBackgroundId, settings.backgroundId);
   }
 
   static double? _readDouble(String? value) {
