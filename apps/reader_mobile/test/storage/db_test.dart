@@ -102,7 +102,7 @@ void main() {
       await database.customSelect('PRAGMA user_version').getSingle().then(
         (row) => row.read<int>('user_version'),
       ),
-      3,
+      4,
     );
   });
 
@@ -187,7 +187,7 @@ void main() {
     expect(await database.select(database.importReports).get(), isEmpty);
   });
 
-  test('v1→v3 迁移：数据保留、新增 import_reports 与进度列', () async {
+  test('v1→v4 迁移：数据保留、新增 import_reports、进度列与搜索索引表', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -206,7 +206,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 3, reason: 'schema 已升到 v3');
+    expect(version.read<int>('user_version'), 4, reason: 'schema 已升到 v4');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
@@ -223,6 +223,23 @@ void main() {
       ),
     );
     expect((await database.select(database.importReports).get()).length, 1);
+
+    // P4-24：搜索索引两张表在迁移后可用。
+    final tables = await database
+        .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .get();
+    final tableNames = <String>{
+      for (final row in tables) row.read<String>('name'),
+    };
+    expect(tableNames, containsAll(<String>['chapter_text', 'search_grams']));
+    await database.into(database.chapterTexts).insert(
+      ChapterTextsCompanion.insert(
+        bookId: books.single.id,
+        spineIndex: 0,
+        chapterText: '迁移后可写正文',
+      ),
+    );
+    expect((await database.select(database.chapterTexts).get()).length, 1);
   });
 
   test('并发写入不锁超时', () async {
