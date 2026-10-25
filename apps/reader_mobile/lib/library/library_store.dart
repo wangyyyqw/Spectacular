@@ -194,6 +194,7 @@ class LibraryStore {
   final Future<Directory> Function()? _directoryProvider;
   final Map<String, Uint8List> _memoryBytes = <String, Uint8List>{};
   final Map<String, BookEntry> _memoryEntries = <String, BookEntry>{};
+  final Map<String, String> _memorySettings = <String, String>{};
   final List<void Function()> _listeners = <void Function()>[];
 
   bool get _isMemory => _db == null;
@@ -221,6 +222,30 @@ class LibraryStore {
     final directory = Directory('${root.path}/books/$id');
     await directory.create(recursive: true);
     return directory;
+  }
+
+  /// 读取设置（`settings` 表 key/value，值由调用方约定格式）。
+  Future<String?> getSetting(String key) async {
+    if (_isMemory) {
+      return _memorySettings[key];
+    }
+    final db = _db!;
+    final rows = await (db.select(
+      db.settingsTable,
+    )..where((table) => table.key.equals(key))).get();
+    return rows.isEmpty ? null : rows.single.value;
+  }
+
+  /// 写入设置（幂等 upsert）。
+  Future<void> setSetting(String key, String value) async {
+    if (_isMemory) {
+      _memorySettings[key] = value;
+      return;
+    }
+    final db = _db!;
+    await db.into(db.settingsTable).insertOnConflictUpdate(
+      SettingsTableCompanion.insert(key: key, value: value),
+    );
   }
 
   /// 全部条目（最近阅读优先，其次导入时间倒序）。
