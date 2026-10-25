@@ -7,6 +7,7 @@ import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
+import 'package:reader_ui/selection/selection_menu.dart';
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-size': '16px',
@@ -116,6 +117,83 @@ void main() {
       final hit = SelectionOps.charAt(page, const Offset(-500, -500));
       expect(hit.charOffset, 0);
       expect(hit.lineIndex, 0);
+    });
+  });
+
+  group('选句与菜单（P4-16）', () {
+    test('三击选句：中文长句边界正确（含跨软换行的句子）', () {
+      final page = _page('他说：“你来了。”我回答：“是的。”');
+      final boxes = TextHitTester.lineBoxes(page);
+      final hit = TextHitTester.hitTest(
+        page,
+        Offset(boxes.first.rect.left + 8, boxes.first.rect.center.dy),
+      )!;
+      final selection = SelectionOps.sentenceAt(page, hit);
+      final text = SelectionOps.textOf(page, selection);
+      expect(text, '他说：“你来了。”');
+    });
+
+    test('选区文本拼接：跨行中文不加空格', () {
+      final page = _page('一二三四五六七八九十一二三四五六七八九十');
+      final boxes = TextHitTester.lineBoxes(page);
+      expect(boxes.length, greaterThanOrEqualTo(2));
+      final selection = ReaderSelection.normalized(
+        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 1,
+            boxes.first.rect.center.dy))!,
+        TextHitTester.hitTest(page, Offset(boxes[1].rect.left + 40,
+            boxes[1].rect.center.dy))!,
+      );
+      final text = SelectionOps.textOf(page, selection);
+      expect(text.length, greaterThan(boxes.first.text.length));
+      expect(text.contains(' '), isFalse);
+    });
+
+    testWidgets('菜单渲染且动作可点击', (tester) async {
+      final page = _page('abcdefghij');
+      final boxes = TextHitTester.lineBoxes(page);
+      final selection = ReaderSelection.normalized(
+        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 10,
+            boxes.first.rect.center.dy))!,
+        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 60,
+            boxes.first.rect.center.dy))!,
+      );
+      final anchor = SelectionOps.boundsOf(page, selection);
+      var copied = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                SelectionMenu(
+                  actions: <SelectionAction>[
+                    SelectionAction(
+                      id: 'copy',
+                      label: '复制',
+                      onTap: () => copied = true,
+                    ),
+                    SelectionAction(id: 'dismiss', label: '取消', onTap: () {}),
+                  ],
+                  anchor: anchor,
+                  bounds: const Size(300, 400),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.byKey(const ValueKey<String>('selection-menu')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey<String>('selection-action-copy')));
+      expect(copied, isTrue);
+
+      // 菜单不遮挡选区（上方空间不足时翻到下方）。
+      final menuRect = tester.getRect(
+        find.byKey(const ValueKey<String>('selection-menu')),
+      );
+      expect(
+        menuRect.overlaps(anchor),
+        isFalse,
+        reason: '菜单不得覆盖选区',
+      );
     });
   });
 
