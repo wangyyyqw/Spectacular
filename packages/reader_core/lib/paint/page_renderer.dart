@@ -1203,9 +1203,14 @@ class _SliceGeometry {
   Rect get box => Rect.fromLTWH(0, y, pageWidth, slice.height);
 
   /// 背景/边框盒子（margin 修正）：flat 管线 box.left 恒 0，块级
-  /// margin.left 折算进左缘，使背景与边框跟文本 x（已含 margin）对齐。
-  Rect get marginBox =>
-      Rect.fromLTRB(style.margin.left, y, pageWidth, y + slice.height);
+  /// margin.left 折算进左缘，使背景与边框跟文本 x（已含 margin）对齐；
+  /// 右缘同步扣除 margin.right，与收窄后的排版宽度同界。
+  Rect get marginBox => Rect.fromLTRB(
+    style.margin.left,
+    y,
+    pageWidth - style.margin.right,
+    y + slice.height,
+  );
 
   /// 按切片裁剪；上下标越界时放宽上下边。
   void clip(Canvas canvas) {
