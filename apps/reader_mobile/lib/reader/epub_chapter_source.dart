@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' show Rect;
+import 'dart:ui' show Color, Rect;
 
 import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
@@ -382,6 +382,20 @@ class EpubChapterSource
       }
       return sheets;
     });
+  }
+
+  /// 边框线型名（P8-05c 拼合声明用）。
+  static String _borderStyleName(CssBorderStyle value) => switch (value) {
+        CssBorderStyle.solid => 'solid',
+        CssBorderStyle.dashed => 'dashed',
+        CssBorderStyle.dotted => 'dotted',
+        CssBorderStyle.double => 'double',
+        _ => 'solid',
+      };
+
+  /// 颜色转 #RRGGBB（P8-05c 拼合声明用）。
+  static String _colorToHex(Color color) {
+    return (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
   }
 
   /// 链缓存键（P8-02）：tag#id.class 按链拼接。
@@ -848,10 +862,13 @@ class EpubChapterSource
     }
 
     /// 块级样式入口（P8-02）：链式级联结果 + 容器盒类近似传导 +
-    /// 引用深度边距叠加。
+    /// 引用深度边距叠加。P8-05c：容器的上下边框拼合——首个后代块画
+    /// 上边框、末个画下边框（flat 无嵌套盒子的面板整框近似）。
     ComputedStyle styleForChain(
       List<SelectorElement> chain, {
       int quoteDepth = 0,
+      bool firstInContainer = false,
+      bool lastInContainer = false,
     }) {
       final computed = chainStyle(chain);
       // 容器盒类近似传导：flat 无嵌套盒子，祖先的背景/左右边框/
@@ -873,6 +890,22 @@ class EpubChapterSource
           final value = values[prop];
           if (value != null) {
             promoted[prop] = value;
+          }
+        }
+        // 上下边框拼合（P8-05c）：只画在容器首个/末个可见后代块上。
+        final isNearestContainer = i == chain.length - 2;
+        if (isNearestContainer) {
+          final top = ancStyle.borders.top;
+          if (firstInContainer && top.width > 0) {
+            promoted['border-top'] =
+                '${top.width}px ${_borderStyleName(top.style)} '
+                '#${_colorToHex(top.color)}';
+          }
+          final bottom = ancStyle.borders.bottom;
+          if (lastInContainer && bottom.width > 0) {
+            promoted['border-bottom'] =
+                '${bottom.width}px ${_borderStyleName(bottom.style)} '
+                '#${_colorToHex(bottom.color)}';
           }
         }
         extraLeft += ancStyle.padding.left + ancStyle.margin.left;
@@ -1339,6 +1372,8 @@ class EpubChapterSource
       _ListContext? list,
       int quoteDepth = 0,
       List<SelectorElement> ancestors = const <SelectorElement>[],
+      bool firstInContainer = false,
+      bool lastInContainer = false,
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
@@ -1346,8 +1381,14 @@ class EpubChapterSource
         if (text.trim().isEmpty) {
           return;
         }
-        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）。
-        final blockStyle = styleForChain(ancestors, quoteDepth: quoteDepth);
+        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）；
+        // 首末容器位（P8-05c）供上下边框拼合。
+        final blockStyle = styleForChain(
+          ancestors,
+          quoteDepth: quoteDepth,
+          firstInContainer: firstInContainer,
+          lastInContainer: lastInContainer,
+        );
         // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
         String? marker;
         if (ancestors.isNotEmpty && ancestors.last.tag == 'li' &&
@@ -1373,6 +1414,11 @@ class EpubChapterSource
               startCfi: cfi,
               groupId: groupId,
               listMarker: marker,
+              // P8-05：块级上下边距（含负值）进分页几何——UA/作者的
+              // margin-top/bottom 首次生效；相邻段 margin 折叠暂不做
+              //（记录为 flat 近似）。
+              spaceBefore: blockStyle.margin.top,
+              spaceAfter: blockStyle.margin.bottom,
             ),
           );
         }
@@ -1448,7 +1494,18 @@ class EpubChapterSource
         ];
         final selfView = _NodeView(node.tag, node.attributes, childViews);
         final childAncestors = <SelectorElement>[...ancestors, selfView];
+        // 首末容器位（P8-05c）：按块级子序标记，供上下边框拼合。
+        final blockChildren = <EpubNode>[
+          for (final child in node.children)
+            if (child is BlockNode) child,
+        ];
         for (final child in node.children) {
+          var childFirst = firstInContainer;
+          var childLast = lastInContainer;
+          if (child is BlockNode && blockChildren.isNotEmpty) {
+            childFirst = identical(child, blockChildren.first);
+            childLast = identical(child, blockChildren.last);
+          }
           collect(
             child,
             node.tag,
@@ -1457,6 +1514,8 @@ class EpubChapterSource
             list: childList,
             quoteDepth: childQuoteDepth,
             ancestors: childAncestors,
+            firstInContainer: childFirst,
+            lastInContainer: childLast,
           );
         }
       } else if (node is InlineNode) {
@@ -1469,6 +1528,8 @@ class EpubChapterSource
             list: list,
             quoteDepth: quoteDepth,
             ancestors: ancestors,
+            firstInContainer: firstInContainer,
+            lastInContainer: lastInContainer,
           );
         }
       }

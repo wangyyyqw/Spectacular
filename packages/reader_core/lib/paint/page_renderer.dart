@@ -320,9 +320,10 @@ class PagePainter {
           hidden: style.visibility != CssVisibility.visible,
           leading: slice.leadingExtent,
           // flat 管线（P3-30 真机验收）：box.left 恒 0，块级 margin.left
-          // 折算进左内缩——文本 x、标记 gutter、选区、省略宽度同步右移；
-          // margin.right 与 padding.right 同样暂不参与右侧收窄。
+          // 折算进左内缩——文本 x、标记 gutter、选区、省略宽度同步右移。
+          // P8-05：margin.right/padding.right 同步折算右内缩。
           leftInset: slice.leftInset + style.margin.left,
+          rightInset: style.margin.right + style.padding.right,
           upExtent: upExtent,
           downExtent: downExtent,
           pageWidth: pageSize.width,
@@ -434,8 +435,10 @@ class PagePainter {
     if (geometry.style.textOverflow != CssTextOverflow.ellipsis) {
       return false;
     }
-    final available =
-        geometry.box.width - geometry.leftInset - line.offsetX;
+    final available = geometry.box.width -
+        geometry.leftInset -
+        geometry.rightInset -
+        line.offsetX;
     return line.width > available + 0.5;
   }
 
@@ -537,7 +540,10 @@ class PagePainter {
     double x,
     double y,
   ) {
-    final available = geometry.box.width - geometry.leftInset - line.offsetX;
+    final available = geometry.box.width -
+        geometry.leftInset -
+        geometry.rightInset -
+        line.offsetX;
     // 省略号占位后，文本可见区再收窄一个省略号宽。
     final ellipsis = TextPainter(
       text: TextSpan(text: '…', style: geometry.textStyle),
@@ -1087,6 +1093,7 @@ class _SliceGeometry {
     required this.hidden,
     required this.leading,
     required this.leftInset,
+    required this.rightInset,
     required this.upExtent,
     required this.downExtent,
     required this.pageWidth,
@@ -1110,6 +1117,9 @@ class _SliceGeometry {
   final bool hidden;
   final double leading;
   final double leftInset;
+
+  /// 行内容右内缩（P8-05：margin.right + padding.right 参与右侧收窄）。
+  final double rightInset;
   final double upExtent;
   final double downExtent;
   final double pageWidth;
