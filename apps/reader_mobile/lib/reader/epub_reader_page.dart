@@ -131,11 +131,13 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       overrides: settings.overrides,
       theme: settings.theme,
       backgroundId: settings.backgroundId,
+      inkMode: settings.inkMode,
       onOverridesChanged: (overrides) => widget.onSettingsChanged?.call(
         ReaderSettings.fromOverrides(
           overrides,
           themeId: settings.themeId,
           backgroundId: settings.backgroundId,
+      inkMode: settings.inkMode,
         ),
       ),
       onThemeChanged: (themeId) => widget.onSettingsChanged?.call(
@@ -143,6 +145,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       ),
       onBackgroundChanged: (backgroundId) => widget.onSettingsChanged?.call(
         settings.copyWithBackground(backgroundId),
+      ),
+      onInkModeChanged: (enabled) => widget.onSettingsChanged?.call(
+        settings.copyWithInkMode(enabled),
       ),
     );
   }

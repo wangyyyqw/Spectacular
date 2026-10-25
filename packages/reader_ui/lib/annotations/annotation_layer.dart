@@ -17,6 +17,7 @@ class AnnotationLayer extends StatelessWidget {
     required this.annotations,
     this.highlightAlpha = 0.32,
     this.noteMarkerColor = const Color(0xFFFFC107),
+    this.inkMode = false,
   });
 
   /// 当前页。
@@ -31,6 +32,9 @@ class AnnotationLayer extends StatelessWidget {
   /// 笔记标记颜色。
   final Color noteMarkerColor;
 
+  /// 墨水屏模式（P4-23，§42.2）：高亮改为下划线，不画半透明色块。
+  final bool inkMode;
+
   @override
   Widget build(BuildContext context) {
     if (annotations.isEmpty) {
@@ -44,6 +48,7 @@ class AnnotationLayer extends StatelessWidget {
           lines: AnnotationDecorations.linesFor(page, annotations),
           highlightAlpha: highlightAlpha,
           noteMarkerColor: noteMarkerColor,
+          inkMode: inkMode,
         ),
       ),
     );
@@ -56,12 +61,14 @@ class _AnnotationPainter extends CustomPainter {
     required this.lines,
     required this.highlightAlpha,
     required this.noteMarkerColor,
+    required this.inkMode,
   });
 
   final PageContent page;
   final List<AnnotationLine> lines;
   final double highlightAlpha;
   final Color noteMarkerColor;
+  final bool inkMode;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -76,14 +83,30 @@ class _AnnotationPainter extends CustomPainter {
         line.startOffset,
         line.endOffset,
       );
-      final color = Color(line.annotation.color ?? 0xFFFFEB3B)
-          .withValues(alpha: highlightAlpha);
-      final paint = Paint()..color = color;
-      for (final rect in rects) {
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, const Radius.circular(2)),
-          paint,
-        );
+      if (inkMode) {
+        // 墨水屏只认黑白两级：高亮用 2px 黑色下划线（§42.2）。
+        final underline = Paint()
+          ..color = const Color(0xFF000000)
+          ..strokeWidth = 2
+          ..style = PaintingStyle.stroke;
+        for (final rect in rects) {
+          final y = rect.bottom - 1;
+          canvas.drawLine(
+            Offset(rect.left, y),
+            Offset(rect.right, y),
+            underline,
+          );
+        }
+      } else {
+        final color = Color(line.annotation.color ?? 0xFFFFEB3B)
+            .withValues(alpha: highlightAlpha);
+        final paint = Paint()..color = color;
+        for (final rect in rects) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(rect, const Radius.circular(2)),
+            paint,
+          );
+        }
       }
       if (line.annotation.type == ReaderAnnotationType.note && rects.isNotEmpty) {
         noteMarks.add(Offset(rects.last.right + 4, rects.last.center.dy));
@@ -98,6 +121,7 @@ class _AnnotationPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_AnnotationPainter oldDelegate) =>
+      oldDelegate.inkMode != inkMode ||
       oldDelegate.lines.length != lines.length ||
       oldDelegate.page.spineIndex != page.spineIndex ||
       oldDelegate.page.pageIndex != page.pageIndex ||
