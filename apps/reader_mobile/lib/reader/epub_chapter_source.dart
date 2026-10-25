@@ -860,6 +860,13 @@ class EpubChapterSource
       var extraLeft = 0.0;
       var extraRight = 0.0;
       for (var i = 0; i < chain.length - 1; i++) {
+        // 列表容器（ul/ol/li）的水平缩进由 li 的 UA margin-left 承担
+        // （flat 近似），不再经盒传导叠加（避免 40+40 双重缩进）。
+        final ancestorTag = chain[i].tag;
+        if (ancestorTag == 'ul' || ancestorTag == 'ol' ||
+            ancestorTag == 'li') {
+          continue;
+        }
         final ancStyle = chainStyle(chain.sublist(0, i + 1));
         final values = ancStyle.values;
         for (final prop in _promotedBoxProps) {

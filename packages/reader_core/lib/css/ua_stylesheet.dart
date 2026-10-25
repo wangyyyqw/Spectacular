@@ -13,55 +13,101 @@ import 'parser.dart';
 /// 2. [UaBlockDefaults]：当前「单一基准样式」管线可直接消费的块级
 ///    覆盖层（仅含当前排版/绘制栈已消费的物理属性）。
 const String uaStylesheetCss = '''
-/* ==== 隐藏元素（WHATWG HTML 15.3.1）==== */
+/* ==== 隐藏元素（WHATWG HTML 15.3.1；P8-03 对标 Reeden 630）==== */
 /* 解析器按脚本可用把 noscript 解析成原始文本，样式须与 DOM 层一致；
    与 Chrome 行为一致（Reeden 630 号 §2 差异 1）。 */
-noscript { display: none; }
-area, basefont, datalist, noframes, param { display: none; }
+noscript { display: none !important; }
+area, base, basefont, datalist, head, link, meta, noembed, noframes,
+param, rp, script, style, template, title { display: none; }
+[hidden] { display: none; }
+input[type=hidden] { display: none; }
+dialog:not([open]) { display: none; }
 
 /* ==== 页面（15.3.2；边距由阅读器设置接管，Reeden 630 号 §4-3）==== */
+html, body { display: block; }
 body { margin: 0; }
 
 /* ==== 排版前注入（P7-25；对照 Reeden 必配注入样式，630 号 §4-3）====
    html/body 基础约束 + body 建立 BFC（flow-root）：阻断作者页面的
-   裸 float/负 margin 污染整章——块流引擎中由「页根容器钳制首元素负
-   margin（§60.7）+ UA origin 优先级」承担同一语义。 */
+   裸 float/负 margin 污染整章。 */
 html, body { overflow: hidden; min-height: 0; height: auto; }
 body { display: flow-root; }
 
 /* ==== 流内容（15.3.3）==== */
-/* 段落上下边距：段距按阅读器设置归一（技术方案 §7.5 第 3 条），
-   覆盖层暂不启用 p 的默认段距，登记待 P4-21 设置项接入。 */
 p { margin-top: 1em; margin-bottom: 1em; }
-blockquote, figure { margin-top: 1em; margin-bottom: 1em; margin-left: 40px; margin-right: 40px; }
-pre { margin-top: 1em; margin-bottom: 1em; }
+blockquote, figure, listing, plaintext, pre, xmp {
+  margin-top: 1em; margin-bottom: 1em;
+}
+blockquote, figure { margin-left: 40px; margin-right: 40px; }
+address { font-style: italic; }
+pre { white-space: pre; }
+
+/* ==== 表现属性（15.3.3 表；P8-03 属性选择器落地）==== */
+p[align=left], div[align=left], h1[align=left], h2[align=left],
+h3[align=left], h4[align=left], h5[align=left], h6[align=left],
+table[align=left] { text-align: left; }
+p[align=center], div[align=center], h1[align=center], h2[align=center],
+h3[align=center], h4[align=center], h5[align=center], h6[align=center],
+table[align=center] { text-align: center; }
+p[align=right], div[align=right], h1[align=right], h2[align=right],
+h3[align=right], h4[align=right], h5[align=right], h6[align=right],
+table[align=right] { text-align: right; }
+center { text-align: center; }
 
 /* ==== 分节与标题（15.3.6）==== */
 /* 字号 2.00/1.50/1.17/1.00/0.83/0.67em、上下边距 0.67/0.83/1.00/
    1.33/1.67/2.33em 取自 WHATWG 渲染建议；
    标题避开页底（break-after: avoid）采纳自 Reeden（architecture 6.3，
-   630 号 §2 差异 5），一期用 P0 属性 page-break-after 表达。 */
+   630 号 §2 差异 5）。 */
 h1 { font-size: 2em; font-weight: bold; margin-top: 0.67em; margin-bottom: 0.67em; page-break-after: avoid; }
 h2 { font-size: 1.5em; font-weight: bold; margin-top: 0.83em; margin-bottom: 0.83em; page-break-after: avoid; }
 h3 { font-size: 1.17em; font-weight: bold; margin-top: 1em; margin-bottom: 1em; page-break-after: avoid; }
 h4 { font-size: 1em; font-weight: bold; margin-top: 1.33em; margin-bottom: 1.33em; page-break-after: avoid; }
 h5 { font-size: 0.83em; font-weight: bold; margin-top: 1.67em; margin-bottom: 1.67em; page-break-after: avoid; }
 h6 { font-size: 0.67em; font-weight: bold; margin-top: 2.33em; margin-bottom: 2.33em; page-break-after: avoid; }
+hgroup > p { margin-top: 1em; margin-bottom: 1em; }
 
-/* ==== 列表（15.3.7）==== */
-/* 嵌套类型 disc→circle→square（CSS Lists 3 §4.3；标记绘制属 P3-23），
-   嵌套选择器为样式表路径预留；覆盖层只取缩进与边距。 */
+/* ==== 列表（15.3.7；嵌套类型 disc→circle→square，CSS Lists 3 §4.3）==== */
+li { display: list-item; }
+/* 刻意差异（flat 管线近似）：WHATWG li 默认 margin 0、缩进来自
+   ul 的 padding；flat 无嵌套盒子，li 自带 40px 左边距承担缩进
+   （P3-23 标记 gutter 语义），与旧 UaBlockDefaults 一致。 */
+li { margin-left: 40px; }
+ul ul, ul ol, ol ul, ol ol { margin-top: 0; margin-bottom: 0; }
 ul, ol { margin-top: 1em; margin-bottom: 1em; padding-left: 40px; }
 dl { margin-top: 1em; margin-bottom: 1em; }
 dd { margin-left: 40px; }
+dd + dt, dt + dt { margin-top: 0.5em; }
 dt { font-weight: bold; }
+ul { list-style-type: disc; }
+ol { list-style-type: decimal; }
+ul[type=none], ol[type=none] { list-style-type: none; }
+ul[type=disc] { list-style-type: disc; }
+ul[type=circle] { list-style-type: circle; }
+ul[type=square] { list-style-type: square; }
+ol[type=decimal] { list-style-type: decimal; }
+ol[type=lower-roman] { list-style-type: lower-roman; }
+ol[type=upper-roman] { list-style-type: upper-roman; }
+ol[type=lower-alpha] { list-style-type: lower-alpha; }
+ol[type=upper-alpha] { list-style-type: upper-alpha; }
 
 /* ==== 表格（15.3.8；边框绘制与列宽属 P3-17～P3-21）==== */
-/* th 加粗居中与 td/th 的 1px 内边距、2px 边距取自 WHATWG；
-   裸表格网格线（无作者样式时补默认边框）随 P3 表格任务落地。 */
+table { display: table; border-spacing: 2px; border-collapse: separate; }
+tr { display: table-row; }
+td, th { display: table-cell; padding: 1px; }
+thead, tbody, tfoot { display: table-row-group; }
+colgroup, col { display: table-column; }
+caption { display: table-caption; text-align: center; }
 th { font-weight: bold; text-align: center; }
+table, td, th { border-color: gray; }
+td[nowrap], th[nowrap] { white-space: nowrap; }
 
-/* ==== 短语内容（15.3.4；行内 run 样式随逐 run 层接线启用）==== */
+/* ==== 表单（15.3.10；真实书极少，最小集）==== */
+fieldset { margin: 0 2px; padding: 0.35em 0.75em 0.625em; }
+legend { padding: 0 2px; }
+input, select, button, textarea { font-size: 0.83em; }
+
+/* ==== 短语内容（15.3.4）==== */
 b, strong { font-weight: bolder; }
 i, em, cite, dfn, var { font-style: italic; }
 code, kbd, samp, tt { font-family: monospace; }
@@ -73,16 +119,24 @@ sup { font-size: 0.83em; vertical-align: super; }
 u, ins { text-decoration: underline; }
 del, s, strike { text-decoration: line-through; }
 mark { background-color: yellow; color: black; }
+abbr[title] { text-decoration: dotted underline; }
+nobr { white-space: nowrap; }
+br[clear=all], br[clear=both] { clear: both; }
+br[clear=left] { clear: left; }
+br[clear=right] { clear: right; }
 
-/* ==== hr（15.3.11；边框绘制属 P3-24）==== */
-hr { margin-top: 0.5em; margin-bottom: 0.5em; }
+/* ==== 双向文字（15.3.5）==== */
+bdi, output { unicode-bidi: isolate; }
+bdo { unicode-bidi: isolate-override; }
 
-/* ==== 居中（15.3.3 表现属性；div[align] 需属性选择器，随 P7-04 评估）==== */
-center { text-align: center; }
+/* ==== hr（15.3.11）==== */
+hr { color: gray; margin-top: 0.5em; margin-bottom: 0.5em; }
 
-/* ==== ruby（CSS Ruby 1；注音排版属 P5-01～P5-04）==== */
-/* Reeden 的注音盒是独立块容器，故把继承来的段首缩进归零并限 50% 字号
-   （630 号 §2 差异 4）；本项目是行内覆盖模型，先登记规则待 P5 接线。 */
+/* ==== 嵌入内容（15.4）==== */
+img, video { display: inline-block; }
+audio, canvas, embed, iframe, object { display: none; }
+
+/* ==== ruby（CSS Ruby 1；注音排版属 P8-08）==== */
 rt { font-size: 50%; text-indent: 0; }
 ''';
 
