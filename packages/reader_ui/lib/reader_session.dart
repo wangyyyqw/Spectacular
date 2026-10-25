@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import 'virtual_pager.dart';
@@ -281,6 +282,9 @@ class ReaderSession extends ChangeNotifier {
     _generation += 1;
     _jumpLoadingTitle = title ?? '书签位置';
     _notify();
+    final trace = readerTraceEnabled
+        ? ReaderTrace.instance.start(ReaderTraceName.chapterJump, bookId: bookId)
+        : null;
     try {
       final changed = await pager.goTo(spine, 0);
       if (token != _jumpToken) {
@@ -302,6 +306,7 @@ class ReaderSession extends ChangeNotifier {
       _persist();
       return changed || pageIndex != 0;
     } finally {
+      trace?.stop();
       if (token == _jumpToken) {
         _jumpLoadingTitle = null;
         _notify();
@@ -338,6 +343,9 @@ class ReaderSession extends ChangeNotifier {
     _generation += 1;
     _jumpLoadingTitle = title ?? '第 ${spineIndex + 1} 章';
     _notify();
+    final trace = readerTraceEnabled
+        ? ReaderTrace.instance.start(ReaderTraceName.chapterJump, bookId: bookId)
+        : null;
     try {
       final changed = await pager.goTo(spineIndex, 0);
       if (token != _jumpToken) {
@@ -349,6 +357,7 @@ class ReaderSession extends ChangeNotifier {
       }
       return changed;
     } finally {
+      trace?.stop();
       if (token == _jumpToken) {
         _jumpLoadingTitle = null;
         _notify();

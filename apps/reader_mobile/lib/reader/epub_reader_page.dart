@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
+import 'package:reader_core/perf/trace.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/panels/search_panel.dart';
@@ -69,6 +70,11 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   Object? _error;
   bool _loading = true;
 
+  /// 打开书埋点（P4-31）：从 initState 到首帧渲染完成。
+  late final ReaderTraceHandle? _openTrace = readerTraceEnabled
+      ? ReaderTrace.instance.start(ReaderTraceName.bookOpen, bookId: widget.bookId)
+      : null;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +87,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       if (!mounted) {
         return;
       }
+      source.bookIdForTrace = widget.bookId;
       setState(() {
         _source = source;
         _imageCache = DecodedImageCache(
@@ -88,6 +95,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         );
         _loading = false;
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openTrace?.stop());
     } catch (error) {
       if (mounted) {
         setState(() {
