@@ -98,6 +98,41 @@ void main() {
     expect(restored.currentText, contains('第29章'));
   });
 
+  test('目录跳转：jumpToChapter 定位到目标章首屏（P4-11）', () async {
+    final session = ReaderSession(
+      source: FakeSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'toc-book',
+    );
+    await session.open();
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 0));
+
+    expect(await session.jumpToChapter(5), isTrue);
+    expect(session.progress, const ReaderProgress(spineIndex: 5, pageIndex: 0));
+    expect(session.page, isNotNull);
+    expect(
+      session.currentVirtualPage,
+      10,
+      reason: '每章 2 页 → 第 5 章首页是第 11 页（0 基 10）',
+    );
+
+    // 越界章节不动（pager 返回 false）。
+    expect(await session.jumpToChapter(99), isFalse);
+    expect(session.progress?.spineIndex, 5);
+    session.dispose();
+  });
+
+  test('章节源无目录能力时 toc 为空', () async {
+    final session = ReaderSession(
+      source: FakeSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'no-toc',
+    );
+    await session.open();
+    expect(session.toc, isEmpty);
+    session.dispose();
+  });
+
   test('恢复后回到首页 previous 停止', () async {
     final source = FakeSource();
     final store = MemoryReaderProgressStore();

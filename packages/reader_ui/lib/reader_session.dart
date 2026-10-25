@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:reader_core/api.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
@@ -76,6 +77,27 @@ abstract interface class ReaderChapterSource {
 
   /// 加载一章的页。
   Future<List<PageContent>> loadChapter(int spineIndex);
+}
+
+/// 能提供目录的章节源（P4-11）：章节数之外的目录树。
+abstract interface class TocChapterSource implements ReaderChapterSource {
+  /// 目录项（嵌套结构，每项自带目标 spine 序号）。
+  List<TocEntry> get toc;
+}
+
+/// 目录项 + 层级（P4-11：面板按层级缩进展示）。
+typedef TocRow = ({TocEntry entry, int depth});
+
+/// 把目录树展开成线性行（深度优先，depth 从 1 起）。
+List<TocRow> flattenToc(List<TocEntry> entries, {int depth = 1}) {
+  final rows = <TocRow>[];
+  for (final entry in entries) {
+    rows.add((entry: entry, depth: depth));
+    if (entry.children.isNotEmpty) {
+      rows.addAll(flattenToc(entry.children, depth: depth + 1));
+    }
+  }
+  return rows;
 }
 
 /// 支持按设置重排的章节源（P2-24）：字号/行高/页边距变化后原地重排。
@@ -185,6 +207,34 @@ class ReaderSession extends ChangeNotifier {
 
   /// 当前页。
   PageContent? get page => _pager?.current?.content;
+
+  /// 目录（源不支持目录时为空）。
+  List<TocEntry> get toc {
+    final source = this.source;
+    return source is TocChapterSource
+        ? source.toc
+        : const <TocEntry>[];
+  }
+
+  /// 跳转到指定章节首屏（目录点击用，P4-11）。
+  ///
+  /// 自增校验与其它异步操作一致：过期结果不会覆盖当前状态。
+  Future<bool> jumpToChapter(int spineIndex) async {
+    final pager = _pager;
+    if (pager == null) {
+      return false;
+    }
+    final generation = _generation;
+    final changed = await pager.goTo(spineIndex, 0);
+    if (generation != _generation) {
+      return false;
+    }
+    if (changed) {
+      _notify();
+      _persist();
+    }
+    return changed;
+  }
 
   /// 当前进度。
   ReaderProgress? get progress {
