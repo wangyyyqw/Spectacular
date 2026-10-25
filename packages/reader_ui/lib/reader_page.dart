@@ -15,6 +15,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 
 import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
+import 'a11y/semantics_layer.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
@@ -1016,6 +1017,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     painter: _painter,
                     imageRevision: _imageRevision,
                   ),
+                ),
+              ),
+            ),
+            // 正文语义层（P4-27）：读屏用，不接收指针事件。
+            Positioned.fill(
+              child: Padding(
+                padding: _effectivePadding(),
+                child: ReaderSemanticsLayer(
+                  page: page,
+                  pageWidth: size.width - _effectivePadding().horizontal,
                 ),
               ),
             ),
