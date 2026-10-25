@@ -14,6 +14,7 @@ import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
+import 'package:reader_core/paint/image_size.dart';
 import 'package:reader_ui/reader_session.dart';
 
 /// 从 EPUB 文档读取章节并提供分页结果。
@@ -261,6 +262,66 @@ class EpubChapterSource
   /// 才做深度分析，普通文字章零开销。
   final Map<int, FullBleedChapter> _fullBleedCache = <int, FullBleedChapter>{};
 
+  /// 图片原始尺寸缓存（按解析后 URL，跨章复用）；读取失败记 miss 防
+  /// 重复解压。
+  final Map<String, ImageIntrinsicSize> _imageIntrinsicCache =
+      <String, ImageIntrinsicSize>{};
+  final Set<String> _imageIntrinsicMiss = <String>{};
+
+  /// 图片显示尺寸：width/height 属性（% 或 px）优先，缺边按原始宽高比
+  /// 补齐；CSS class 尺寸（textiE1 的 width:100%）flat 管线暂不解析，
+  /// 无属性时按全宽近似。高超出页高时钳制（contain 绘制不变形）。
+  (double, double) _resolveImageDisplaySize(
+    Map<String, String> attributes,
+    ImageIntrinsicSize? intrinsic,
+    double maxWidth,
+    double maxHeight,
+  ) {
+    double? parseLength(String? raw, double percentBase) {
+      if (raw == null) {
+        return null;
+      }
+      final value = raw.trim();
+      if (value.isEmpty) {
+        return null;
+      }
+      if (value.endsWith('%')) {
+        final pct = double.tryParse(value.substring(0, value.length - 1));
+        if (pct == null) {
+          return null;
+        }
+        return percentBase * pct / 100;
+      }
+      return double.tryParse(value.replaceAll('px', '').trim());
+    }
+
+    var width = parseLength(attributes['width'], maxWidth);
+    var height = parseLength(attributes['height'], maxHeight);
+    if (width != null && width > maxWidth) {
+      width = maxWidth;
+    }
+    if (height != null && height > maxHeight) {
+      height = maxHeight;
+    }
+    if (width == null && height == null) {
+      if (intrinsic == null) {
+        return (maxWidth, maxHeight * 0.6);
+      }
+      width = maxWidth;
+    }
+    if (width != null && height == null && intrinsic != null) {
+      height = width * intrinsic.height / intrinsic.width;
+    } else if (height != null && width == null && intrinsic != null) {
+      width = height * intrinsic.width / intrinsic.height;
+    }
+    width ??= maxWidth;
+    height ??= width * 0.75;
+    if (height > maxHeight) {
+      height = maxHeight;
+    }
+    return (width, height);
+  }
+
   /// 章节是否走满屏路径（单图无正文无宽高属性，§8.6）。
   FullBleedChapter fullBleedAnalysis(int spineIndex) {
     return _fullBleedCache.putIfAbsent(spineIndex, () {
@@ -271,7 +332,9 @@ class EpubChapterSource
           whiteSpace: style.whiteSpace,
         ),
       );
-      if (!aggregated.plainText.contains('\uFFFC')) {
+      // 纯图块折叠后 img 块不再产生 \uFFFC 占位文本，需同时扫描聚合树。
+      if (!aggregated.plainText.contains('\uFFFC') &&
+          !_treeHasImageBlock(aggregated.root)) {
         return const FullBleedChapter(
           imageCount: 0,
           hasVisibleText: true,
@@ -281,6 +344,19 @@ class EpubChapterSource
       }
       return analyzeFullBleed(document.parseBlocks(spineIndex));
     });
+  }
+
+  /// 聚合树中是否存在折叠出的 img 块。
+  static bool _treeHasImageBlock(BlockNode node) {
+    if (node.tag == 'img') {
+      return true;
+    }
+    for (final child in node.children) {
+      if (child is BlockNode && _treeHasImageBlock(child)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @override
@@ -310,7 +386,98 @@ class EpubChapterSource
         whiteSpace: style.whiteSpace,
       ),
     );
+    // 图片块（真实书适配）：聚合树中折叠出的 img 块 → 背景图块。
+    // 先预取章内图片的原始尺寸（同步按 URL 缓存，跨章复用），供
+    // collect 按属性宽/高与宽高比换算显示尺寸。
+    final spineItem = this.document.spine[spineIndex];
+    final chapterBase = p.posix.dirname(
+      this.document.resources.resolve(
+            spineItem.href,
+            baseDir: p.posix.dirname(this.document.opfPath),
+          ) ??
+          spineItem.href,
+    );
+    final imageSizes = <String, ImageIntrinsicSize>{};
+    void gatherImageSrcs(BlockNode node) {
+      if (node.tag == 'img' && node.children.isEmpty) {
+        // SVG 折叠链：<image xlink:href> 的属性整体保留，src 键名兼容。
+        final src = node.attributes['src'] ?? node.attributes['xlink:href'];
+        if (src != null && src.isNotEmpty) {
+          final url =
+              this.document.resources.resolve(src, baseDir: chapterBase) ??
+                  src;
+          if (!imageSizes.containsKey(url)) {
+            var size = _imageIntrinsicCache[url];
+            if (size == null && !_imageIntrinsicMiss.contains(url)) {
+              final bytes = this.document.archive.readBytes(url);
+              size = bytes == null
+                  ? null
+                  : ImageSizeParser.readImageSize(bytes);
+              if (size == null) {
+                _imageIntrinsicMiss.add(url);
+              } else {
+                _imageIntrinsicCache[url] = size;
+              }
+            }
+            if (size != null) {
+              imageSizes[url] = size;
+            }
+          }
+        }
+      }
+      for (final child in node.children) {
+        if (child is BlockNode) {
+          gatherImageSrcs(child);
+        }
+      }
+    }
+
+    gatherImageSrcs(document.root);
     final blocks = <PageBlock>[];
+
+    void collectImageBlock(BlockNode node) {
+      // src 键名兼容 SVG <image xlink:href> 折叠链。
+      final src = node.attributes['src'] ?? node.attributes['xlink:href'];
+      if (src == null || src.isEmpty) {
+        return;
+      }
+      final url =
+          this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
+      final size = _resolveImageDisplaySize(
+        node.attributes,
+        imageSizes[url],
+        contentWidth,
+        contentHeight,
+      );
+      final blockStyle = ComputedStyle(<String, String>{
+        ...baseStyle.values,
+        'background-image': 'url($url)',
+        'background-size': 'contain',
+        'background-position': 'center center',
+        'background-repeat': 'no-repeat',
+      });
+      // 空行盒块：无 runs（不画字），块盒即图片显示区，背景按 contain
+      // 居中绘制（块高按原图比例换算时恰好铺满，不变形）。
+      final layout = TextLayoutResult(
+        text: '',
+        lines: [
+          LineBox(
+            start: 0,
+            end: 0,
+            top: 0,
+            height: size.$2,
+            baseline: size.$2,
+            width: contentWidth,
+          ),
+        ],
+        width: contentWidth,
+        height: size.$2,
+        maxWidth: contentWidth,
+        runs: const <StyledRun>[],
+      );
+      blocks.add(PageBlock(layout: layout, style: blockStyle));
+    }
+
     // 块级 UA 覆盖（P7-03）：标题/引用/列表等按标签叠加默认样式，
     // em 相对阅读器基准字号解算；同一标签只构造一次（styles 层）。
     final uaStyles = <String, ComputedStyle>{};
@@ -384,6 +551,12 @@ class EpubChapterSource
           );
         }
       } else if (node is BlockNode) {
+        // 折叠出的纯图块（真实书适配）：构造背景图块（contain 居中），
+        // 块高按属性尺寸/原始宽高比换算。
+        if (node.tag == 'img' && node.children.isEmpty) {
+          collectImageBlock(node);
+          return;
+        }
         // 整组不可切（P7-26）：figure（图+题注）内的块标记同组。
         var childGroup = groupId;
         if (node.tag == 'figure') {

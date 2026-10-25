@@ -134,7 +134,7 @@ abstract final class TextAggregator {
         return;
       }
       if (node.tag == 'img' || node.tag == 'image') {
-        accumulator.addPlaceholder();
+        accumulator.addImage(node);
         return;
       }
       for (final child in node.children) {
@@ -160,7 +160,42 @@ abstract final class TextAggregator {
         accumulator.addRawText(child.text);
       }
     }
+    // 折叠判定必须在 flush（take 会清空缓冲）之前做，否则缓冲已空、
+    // 残留文本被误判为「只含图片占位」。
+    final imageOnly = accumulator.images.length == 1 && accumulator.hasOnlyImages;
     flush();
+
+    // 纯图块折叠（真实书适配）：块内唯一实质内容是一个 img/image（无
+    // 其他文本、无强制换行）时，丢弃占位文本、保留图片属性（src/width/
+    // height/class），产出 tag='img' 的块节点供章节源构造图片块。
+    if (imageOnly) {
+      final image = accumulator.images.single;
+      return BlockNode(
+        tag: 'img',
+        display: DisplayMode.block,
+        children: const <EpubNode>[],
+        cfi: block.cfi,
+        attributes: image.attributes,
+        start: block.start,
+        end: block.end,
+      );
+    }
+    // 外层容器折叠：聚合后子节点恰好是一个已折叠的 img 块（div>div>img）；
+    // 有任何文本内容时 children 会多于 1 个，不会误折叠。
+    if (children.length == 1 && children.single is BlockNode) {
+      final only = children.single as BlockNode;
+      if (only.tag == 'img' && only.children.isEmpty) {
+        return BlockNode(
+          tag: 'img',
+          display: DisplayMode.block,
+          children: const <EpubNode>[],
+          cfi: block.cfi,
+          attributes: only.attributes,
+          start: block.start,
+          end: block.end,
+        );
+      }
+    }
 
     return BlockNode(
       tag: block.tag,
@@ -189,10 +224,26 @@ class _TextAccumulator {
   final StringBuffer _buffer = StringBuffer();
   final List<TextRun> _runs = <TextRun>[];
   final List<int> _hardBreaks = <int>[];
+
+  /// 块内遇到的图片行内节点（`<img>`/`<image>`），供纯图块折叠判定。
+  final List<InlineNode> images = <InlineNode>[];
   bool _pendingSpace = false;
   int? _lastCodeUnit;
   ParsedText? _firstText;
   ParsedText? _lastText;
+
+  /// 缓冲是否只含图片占位（\uFFFC 与空白），无任何真实文本与换行。
+  bool get hasOnlyImages {
+    if (images.isEmpty) {
+      return false;
+    }
+    for (final char in _buffer.toString().split('')) {
+      if (char != '\uFFFC' && !_isCollapsibleWhitespace(char)) {
+        return false;
+      }
+    }
+    return _hardBreaks.isEmpty;
+  }
 
   void addText(ParsedText node) {
     final value = node.text;
@@ -265,6 +316,13 @@ class _TextAccumulator {
     _buffer.write('\uFFFC');
     _lastCodeUnit = 0xFFFC;
     _runs.add(TextRun(start: _buffer.length - 1, end: _buffer.length));
+  }
+
+  /// 行内图片：占位符照写（保持 CFI/选区语义），同时记录节点供纯图
+  /// 块折叠（图片属性在 InlineNode.attributes 上）。
+  void addImage(InlineNode node) {
+    addPlaceholder();
+    images.add(node);
   }
 
   /// 写一个换行并记录强制换行位置（块首换行忽略）。
