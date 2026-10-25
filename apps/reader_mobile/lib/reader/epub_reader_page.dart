@@ -130,11 +130,19 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       annotations: widget.annotations,
       overrides: settings.overrides,
       theme: settings.theme,
+      backgroundId: settings.backgroundId,
       onOverridesChanged: (overrides) => widget.onSettingsChanged?.call(
-        ReaderSettings.fromOverrides(overrides, themeId: settings.themeId),
+        ReaderSettings.fromOverrides(
+          overrides,
+          themeId: settings.themeId,
+          backgroundId: settings.backgroundId,
+        ),
       ),
       onThemeChanged: (themeId) => widget.onSettingsChanged?.call(
         settings.copyWithTheme(themeId),
+      ),
+      onBackgroundChanged: (backgroundId) => widget.onSettingsChanged?.call(
+        settings.copyWithBackground(backgroundId),
       ),
     );
   }

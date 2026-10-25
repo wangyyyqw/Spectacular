@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
+
 import 'package:flutter/services.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -15,6 +17,7 @@ import 'annotations/annotation_layer.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/settings_panel.dart';
+import 'theme/reader_background.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_layer.dart';
@@ -38,6 +41,8 @@ class ReaderPage extends StatefulWidget {
     this.annotations,
     this.onOverridesChanged,
     this.onThemeChanged,
+    this.backgroundId = 'none',
+    this.onBackgroundChanged,
     this.onSessionReady,
     this.imageCache,
     this.theme,
@@ -60,6 +65,12 @@ class ReaderPage extends StatefulWidget {
 
   /// 主题变化（P4-21）：调用方负责持久化。
   final ValueChanged<String>? onThemeChanged;
+
+  /// 初始背景 id（P4-22）。
+  final String backgroundId;
+
+  /// 背景变化（P4-22）：调用方负责持久化。
+  final ValueChanged<String>? onBackgroundChanged;
 
   /// 进度存储。
   final ReaderProgressStore store;
@@ -108,8 +119,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前主题（P4-21：设置面板可切）。
   late ReaderTheme? _theme;
 
+  /// 当前背景（P4-22）：纹理解码结果缓存在这里，换背景不重排。
+  late String _backgroundId;
+  ui.Image? _backgroundImage;
+
   PagePainter _buildPainter() => PagePainter(
     background: _theme?.background ?? widget.background,
+    pageBackgroundImage: _backgroundImage,
     imageLookup: widget.imageCache?.lookup,
     textColor: _theme?.text,
     paragraphCache: _paragraphCache,
@@ -246,6 +262,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _overrides = widget.overrides ?? ReaderSettingsDefaults.overrides;
     _theme = widget.theme;
+    _backgroundId = widget.backgroundId;
+    unawaited(_loadBackground(_backgroundId));
     // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
     // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
     unawaited(
@@ -313,6 +331,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           themeId: (_theme ?? ReaderTheme.white).id,
           onOverridesChanged: _applyOverrides,
           onThemeChanged: _applyTheme,
+          backgroundId: _backgroundId,
+          onBackgroundChanged: widget.onBackgroundChanged == null
+              ? null
+              : _applyBackground,
           onResetSettings: _resetSettings,
         ),
       ),
@@ -472,10 +494,45 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     widget.onThemeChanged?.call(themeId);
   }
 
+  /// 加载并应用背景（P4-22）：只解码一次并缓存，换背景不重排。
+  Future<void> _loadBackground(String id) async {
+    final background = ReaderBackground.byId(id);
+    final asset = background.asset;
+    if (asset == null) {
+      setState(() {
+        _backgroundId = background.id;
+        _backgroundImage?.dispose();
+        _backgroundImage = null;
+        _painter = _buildPainter();
+      });
+      return;
+    }
+    final data = await rootBundle.load(asset);
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+    final frame = await codec.getNextFrame();
+    if (!mounted) {
+      frame.image.dispose();
+      return;
+    }
+    setState(() {
+      _backgroundId = background.id;
+      _backgroundImage?.dispose();
+      _backgroundImage = frame.image;
+      _painter = _buildPainter();
+    });
+  }
+
+  /// 切换背景（P4-22）：纹理只影响绘制层，不触发重排。
+  void _applyBackground(String id) {
+    unawaited(_loadBackground(id));
+    widget.onBackgroundChanged?.call(id);
+  }
+
   /// 恢复默认设置（P4-21）。
   void _resetSettings() {
     _applyOverrides(ReaderSettingsDefaults.overrides);
     _applyTheme(ReaderSettingsDefaults.themeId);
+    _applyBackground(ReaderBackground.none.id);
   }
 
   /// 重新加载全书标注（P4-18）并重定位到当前章（P4-20）。
@@ -752,6 +809,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _paragraphCache.dispose();
     }
     _selectionEdgeTimer?.cancel();
+    _backgroundImage?.dispose();
     _tocScrollController.dispose();
     super.dispose();
   }
@@ -975,6 +1033,8 @@ class _ReaderMenuSheet extends StatefulWidget {
     required this.onOverridesChanged,
     required this.onThemeChanged,
     required this.onResetSettings,
+    this.backgroundId = 'none',
+    this.onBackgroundChanged,
   });
 
   final List<TocEntry> entries;
@@ -988,6 +1048,8 @@ class _ReaderMenuSheet extends StatefulWidget {
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
   final VoidCallback onResetSettings;
+  final String backgroundId;
+  final ValueChanged<String>? onBackgroundChanged;
 
   @override
   State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
@@ -1022,9 +1084,11 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
       return SettingsPanel(
         overrides: widget.overrides,
         themeId: widget.themeId,
+        backgroundId: widget.backgroundId,
         onBack: () => _showView(0),
         onOverridesChanged: widget.onOverridesChanged,
         onThemeChanged: widget.onThemeChanged,
+        onBackgroundChanged: widget.onBackgroundChanged,
         onReset: widget.onResetSettings,
       );
     }
