@@ -18,6 +18,7 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_index.dart';
+import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
@@ -285,6 +286,9 @@ class EpubChapterSource
     _pageIndexCache.clear();
     return true;
   }
+
+  /// 埋点用的书籍标识（P4-31）；由打开方按需设置。
+  String? bookIdForTrace;
 
   @override
   int get chapterCount => document.spine.length;
@@ -925,10 +929,24 @@ class EpubChapterSource
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final trace = readerTraceEnabled ? ReaderTrace.instance : null;
+    final traceBook = bookIdForTrace;
+    final watch = trace == null ? null : (Stopwatch()..start());
     final paginationKey = _paginationKey(spineIndex);
     final cachedPages = _pageCache[paginationKey];
     if (cachedPages != null) {
+      if (trace != null) {
+        trace.count(ReaderTraceCounter.pageCacheHit, bookId: traceBook);
+        trace.record(
+          ReaderTraceName.pageRenderReuse,
+          watch!.elapsedMicroseconds,
+          bookId: traceBook,
+        );
+      }
       return cachedPages;
+    }
+    if (trace != null) {
+      trace.count(ReaderTraceCounter.pageCacheMiss, bookId: traceBook);
     }
     // 满屏图页（P3-10，§8.6）：单图无正文无宽高属性 → 整页单块、
     // 边距归零、背景图 cover。先于普通聚合判定。
@@ -940,6 +958,13 @@ class EpubChapterSource
         paginationKey,
       );
       _pageCache[paginationKey] = pages;
+      if (trace != null) {
+        trace.record(
+          ReaderTraceName.chapterLayout,
+          watch!.elapsedMicroseconds,
+          bookId: traceBook,
+        );
+      }
       return pages;
     }
     // document 层（P7-23）：聚合结果按章缓存。
@@ -1831,6 +1856,13 @@ class EpubChapterSource
         .measureChapter(blocks: blocks, spineIndex: spineIndex)
         .pages;
     _pageCache[paginationKey] = pages;
+    if (trace != null) {
+      trace.record(
+        ReaderTraceName.chapterLayout,
+        watch!.elapsedMicroseconds,
+        bookId: traceBook,
+      );
+    }
     _pageIndexCache[paginationKey] = PageIndex.from(
       ChapterPagination(
         spineIndex: spineIndex,
