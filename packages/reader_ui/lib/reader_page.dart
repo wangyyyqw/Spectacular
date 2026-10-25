@@ -11,6 +11,8 @@ import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 import 'panels/bookmark_panel.dart';
+import 'selection/selection.dart';
+import 'selection/selection_layer.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
 import 'reader_view.dart';
@@ -197,6 +199,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 目录面板滚动位置（重开时保持，P4-11 验收）。
   final ScrollController _tocScrollController = ScrollController();
 
+  /// 当前页选区（P4-15）；翻页/点菜单时清除。
+  ReaderSelection? _selection;
+
   @override
   void initState() {
     super.initState();
@@ -297,8 +302,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _showToast(created == null ? '该位置已有书签' : '已添加书签');
   }
 
-  /// 长按命中文字行并复制整行（P4-14 命中测试的真实调用点）。
-  Future<void> _copyLineAt(Offset localPosition) async {
+  /// 长按 → 选词（P4-15，§63.2：长按先试词，失败退到连续同类字符段）。
+  void _selectWordAt(Offset localPosition) {
     final page = _session.page;
     if (page == null) {
       return;
@@ -308,13 +313,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       page,
       localPosition - Offset(padding.left, padding.top),
     );
-    final text = hit?.lineBox.text.trim() ?? '';
-    if (text.isEmpty) {
+    if (hit == null || hit.lineBox.text.trim().isEmpty) {
+      _clearSelection();
       return;
     }
-    await Clipboard.setData(ClipboardData(text: text));
-    if (mounted) {
-      _showToast('已复制整行');
+    setState(() {
+      _selection = SelectionOps.wordAt(page, hit);
+    });
+  }
+
+  void _clearSelection() {
+    if (_selection != null) {
+      setState(() => _selection = null);
     }
   }
 
@@ -409,12 +419,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
             ReaderView(
-              onPrevious: () => unawaited(_session.previous()),
-              onNext: () => unawaited(_session.next()),
-              onToggleToolbar: () => unawaited(_openReaderMenu()),
-              onLongPressAt: (position) => unawaited(
-                _copyLineAt(position),
-              ),
+              onPrevious: () {
+                _clearSelection();
+                unawaited(_session.previous());
+              },
+              onNext: () {
+                _clearSelection();
+                unawaited(_session.next());
+              },
+              onToggleToolbar: () {
+                _clearSelection();
+                unawaited(_openReaderMenu());
+              },
+              onLongPressAt: _selectWordAt,
               child: const SizedBox.expand(),
             ),
             // 页脚页码（P8-10 页家具 6 槽第一槽）。
@@ -434,6 +451,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           .withValues(alpha: 0.55),
                     ),
                   ),
+                ),
+              ),
+            // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
+            if (_selection != null)
+              Positioned.fill(
+                child: SelectionLayer(
+                  page: page,
+                  selection: _selection!,
+                  onChanged: (next) => setState(() => _selection = next),
                 ),
               ),
             // 翻页/重排时保留旧页，只在顶部显示细进度条（P2-27）。
