@@ -97,7 +97,35 @@ class EpubChapterSource
   /// - pagination：页缓存与页索引，键=spineIndex+排版指纹（几何+设置
   ///   排版字段）。主题颜色不进任何键 → 切主题零重排。
   final Map<int, BlockDocument> _documentCache = <int, BlockDocument>{};
-  final Map<String, List<PageContent>> _pageCache = <String, List<PageContent>>{};
+  /// 页缓存（key = paginationKey）：按章 LRU，上限 [pageCacheChapterLimit] 章
+  /// （§44.4：只留当前章 ±2）。
+  final Map<String, List<PageContent>> _pageCache =
+      <String, List<PageContent>>{};
+
+  /// LRU 顺序（最近使用的在末尾）。
+  final List<String> _pageCacheOrder = <String>[];
+
+  /// 页缓存保留的章数上限（当前章 ±2）。
+  static const int pageCacheChapterLimit = 5;
+
+  void _touchPageCache(String key) {
+    _pageCacheOrder.remove(key);
+    _pageCacheOrder.add(key);
+  }
+
+  void _putPageCache(String key, List<PageContent> pages) {
+    _pageCache[key] = pages;
+    _touchPageCache(key);
+    while (_pageCache.length > pageCacheChapterLimit) {
+      final oldest = _pageCacheOrder.removeAt(0);
+      _pageCache.remove(oldest);
+      _pageIndexCache.remove(oldest);
+    }
+  }
+
+  /// 缓存报告（P4-32）：页缓存章数与容量。
+  String get cacheReport =>
+      '页缓存 ${_pageCache.length}/$pageCacheChapterLimit 章';
   final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};
 
   /// 排版层指纹（P7-23）：几何 + 设置的排版字段；颜色不参与（绘制层
@@ -129,6 +157,7 @@ class EpubChapterSource
   /// 使用——页索引仍在时 loadChapter 直接按边界出页。
   void clearPaginationCache() {
     _pageCache.clear();
+    _pageCacheOrder.clear();
   }
 
   /// 测试钩子：注入索引字节（可注入损坏字节验证容错路径）。
@@ -257,6 +286,7 @@ class EpubChapterSource
       );
       _layoutCache.clear();
       _pageCache.clear();
+    _pageCacheOrder.clear();
       _pageIndexCache.clear();
     }
   }
@@ -283,6 +313,7 @@ class EpubChapterSource
     );
     _layoutCache.clear();
     _pageCache.clear();
+    _pageCacheOrder.clear();
     _pageIndexCache.clear();
     return true;
   }
@@ -935,6 +966,7 @@ class EpubChapterSource
     final paginationKey = _paginationKey(spineIndex);
     final cachedPages = _pageCache[paginationKey];
     if (cachedPages != null) {
+      _touchPageCache(paginationKey);
       if (trace != null) {
         trace.count(ReaderTraceCounter.pageCacheHit, bookId: traceBook);
         trace.record(
@@ -957,7 +989,7 @@ class EpubChapterSource
         fullBleed.singleImageSrc!,
         paginationKey,
       );
-      _pageCache[paginationKey] = pages;
+      _putPageCache(paginationKey, pages);
       if (trace != null) {
         trace.record(
           ReaderTraceName.chapterLayout,
@@ -1831,7 +1863,7 @@ class EpubChapterSource
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
     if (blocks.any((b) => b.floatSide != null)) {
       final floated = _paginateWithFloats(blocks, spineIndex);
-      _pageCache[paginationKey] = floated;
+      _putPageCache(paginationKey, floated);
       return floated;
     }
 
@@ -1843,7 +1875,7 @@ class EpubChapterSource
       if (index != null) {
         final replayed = PageIndex.apply(index, blocks, spineIndex: spineIndex);
         if (replayed != null) {
-          _pageCache[paginationKey] = replayed;
+          _putPageCache(paginationKey, replayed);
           return replayed;
         }
         _logInvalidation('indexSchemaMismatch', paginationKey, paginationKey);
@@ -1855,7 +1887,7 @@ class EpubChapterSource
     final pages = Paginator(pageHeight: contentHeight)
         .measureChapter(blocks: blocks, spineIndex: spineIndex)
         .pages;
-    _pageCache[paginationKey] = pages;
+    _putPageCache(paginationKey, pages);
     if (trace != null) {
       trace.record(
         ReaderTraceName.chapterLayout,

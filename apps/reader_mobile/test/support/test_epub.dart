@@ -64,6 +64,61 @@ Uint8List buildTestEpub({
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
 
+/// 多章测试书（P4-32/搜索类测试用）：每章一个 xhtml。
+Uint8List buildMultiChapterEpub({
+  required List<String> chapters,
+  String title = '多章测试书',
+  String? identifier,
+}) {
+  final buffer = StringBuffer();
+  final manifest = StringBuffer();
+  final spine = StringBuffer();
+  for (var i = 0; i < chapters.length; i++) {
+    final id = 'c${i + 1}';
+    manifest.write(
+      '<item id="$id" href="$id.xhtml" media-type="application/xhtml+xml"/>',
+    );
+    spine.write('<itemref idref="$id"/>');
+    buffer.write(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title>'
+      '</head><body><h1>第 ${i + 1} 章</h1><p>${chapters[i]}</p></body></html>',
+    );
+    buffer.write('\u0000');
+  }
+  final opf =
+      '<?xml version="1.0" encoding="UTF-8"?>'
+      '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+      'unique-identifier="bid"><metadata '
+      'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+      '<dc:identifier id="bid">'
+      '${identifier ?? 'urn:uuid:multi-${title.hashCode}'}</dc:identifier>'
+      '<dc:title>$title</dc:title><dc:language>zh</dc:language>'
+      '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>'
+      '</metadata><manifest>$manifest</manifest><spine>$spine</spine>'
+      '</package>';
+  final container =
+      '<?xml version="1.0" encoding="UTF-8"?>'
+      '<container version="1.0" '
+      'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+      '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+      'media-type="application/oebps-package+xml"/></rootfiles></container>';
+  final files = <String, String>{
+    'mimetype': 'application/epub+zip',
+    'META-INF/container.xml': container,
+    'OEBPS/content.opf': opf,
+  };
+  final parts = buffer.toString().split('\u0000');
+  for (var i = 0; i < chapters.length; i++) {
+    files['OEBPS/c${i + 1}.xhtml'] = parts[i];
+  }
+  final archive = Archive();
+  files.forEach((name, content) {
+    final bytes = utf8.encode(content);
+    archive.addFile(ArchiveFile(name, bytes.length, bytes));
+  });
+  return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+}
+
 /// 构造带导入告警的 EPUB：manifest 项缺 media-type（按扩展名推断），
 /// 触发 `E_MANIFEST_MEDIA_TYPE_INFERRED`。
 Uint8List buildWarningEpub({
