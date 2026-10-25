@@ -293,7 +293,6 @@ class _ReaderPageState extends State<ReaderPage> {
                   painter: _ReaderPageCustomPainter(
                     page: page,
                     painter: _painter,
-                    pageSize: size,
                     imageRevision: _imageRevision,
                   ),
                 ),
@@ -346,24 +345,23 @@ class _ReaderPageCustomPainter extends CustomPainter {
   const _ReaderPageCustomPainter({
     required this.page,
     required this.painter,
-    required this.pageSize,
     required this.imageRevision,
   });
 
   final PageContent page;
   final PagePainter painter;
-  final Size pageSize;
   final int imageRevision;
 
   @override
   void paint(Canvas canvas, Size size) {
-    painter.paint(canvas, page, pageSize: pageSize);
+    // 画布即正文区（Padding 已把画布收窄）；pageSize 必须同步取画布尺寸，
+    // 否则块的背景/边框/居中图按整窗宽计算 → 整体右移并压出右缘。
+    painter.paint(canvas, page, pageSize: size);
   }
 
   @override
   bool shouldRepaint(_ReaderPageCustomPainter oldDelegate) =>
       oldDelegate.page != page ||
-      oldDelegate.pageSize != pageSize ||
       oldDelegate.imageRevision != imageRevision ||
       oldDelegate.painter.background != painter.background;
 }
