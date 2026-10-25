@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -278,6 +279,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
+    // P4-24：后台建 2-gram 索引（断点续建，不阻塞打开）。
+    unawaited(
+      widget.library.ensureSearchIndex(entry.id, bytes).catchError((Object _) => 0),
+    );
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => EpubReaderPage(

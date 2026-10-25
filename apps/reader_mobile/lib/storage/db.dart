@@ -320,7 +320,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -345,6 +345,12 @@ class AppDatabase extends _$AppDatabase {
         await migrator.addColumn(readingProgress, readingProgress.pageIndex);
         version = 3;
       }
+      if (version < 4) {
+        // P4-24：全文搜索索引（章节原文 + 2-gram 倒排）。
+        await migrator.createTable(chapterTexts);
+        await migrator.createTable(searchGrams);
+        version = 4;
+      }
       await _createIndexes();
     },
     beforeOpen: (details) async {
@@ -362,6 +368,11 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_chapter_book '
       'ON chapters(book_id, order_index)',
+    );
+    // P4-24：2-gram 倒排按 (book, gram) 查询是热路径（§66.3）。
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_grams_lookup '
+      'ON search_grams(book_id, gram)',
     );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_anno_book ON annotations(book_id, type)',
