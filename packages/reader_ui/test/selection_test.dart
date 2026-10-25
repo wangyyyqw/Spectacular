@@ -219,6 +219,7 @@ void main() {
                 height: 400,
                 child: SelectionLayer(
                   page: page,
+                  pageIndex: 0,
                   selection: selection,
                   onChanged: (next) => setState(() => selection = next),
                 ),
@@ -267,6 +268,7 @@ void main() {
                 height: 400,
                 child: SelectionLayer(
                   page: page,
+                  pageIndex: 0,
                   selection: selection,
                   onChanged: (next) => setState(() => selection = next),
                 ),

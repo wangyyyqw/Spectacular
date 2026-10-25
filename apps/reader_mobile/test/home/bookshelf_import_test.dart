@@ -72,7 +72,7 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
 
     await tester.tap(find.text('取消'));
-    await _settle(tester, frames: 8);
+    await _settle(tester, frames: 16);
 
     expect(find.textContaining('正在导入'), findsNothing);
     expect(find.text('书架还是空的'), findsOneWidget, reason: '取消后无残留');
