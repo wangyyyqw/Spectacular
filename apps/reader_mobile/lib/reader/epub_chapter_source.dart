@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/book_font_loader.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
@@ -276,10 +278,138 @@ class EpubChapterSource
   final Map<int, List<CssStylesheet>> _chapterSheetCache =
       <int, List<CssStylesheet>>{};
 
+  /// 书内字体（P3-01/02 接入 flat 管线）：@font-face 注册器与引擎族名
+  /// 映射；bookId 由 OPF 路径派生（同书同族隔离，多书不串）。
+  BookFontLoader? _fontLoader;
+  final Set<String> _fontFacesSeen = <String>{};
+
+  String get _bookId => 'bk-${document.opfPath.hashCode}';
+
+  /// 注册章内 `@font-face`（真实书适配）：书内字体按 face 键去重后
+  /// 经 BookFontLoader 注册到引擎；字节解析沿用图片的多路径回退
+  /// （直读 → OPF 目录 → 各章节目录）。
+  Future<void> _ensureBookFonts(List<CssStylesheet> sheets) async {
+    final faces = <CssFontFace>[
+      for (final sheet in sheets) ...sheet.fontFaces,
+    ];
+    if (faces.isEmpty) {
+      return;
+    }
+    final loader = _fontLoader ??= BookFontLoader(bookId: _bookId);
+    final pending = <CssFontFace>[];
+    for (final face in faces) {
+      final key =
+          '${face.family}|${face.normalizedWeight}|${face.normalizedStyle}';
+      if (_fontFacesSeen.add(key)) {
+        pending.add(face);
+      }
+    }
+    if (pending.isEmpty) {
+      return;
+    }
+    await loader.load(pending, resolveBytes: (url) async {
+      final direct = document.archive.readBytes(url);
+      if (direct != null) {
+        return direct;
+      }
+      final resolved = document.resources.resolve(url);
+      if (resolved != null) {
+        final bytes = document.archive.readBytes(resolved);
+        if (bytes != null) {
+          return bytes;
+        }
+      }
+      for (final item in document.spine) {
+        final slash = item.href.lastIndexOf('/');
+        final baseDir = slash < 0 ? '' : item.href.substring(0, slash);
+        final candidate = document.resources.resolve(url, baseDir: baseDir);
+        if (candidate == null) {
+          continue;
+        }
+        final bytes = document.archive.readBytes(candidate);
+        if (bytes != null) {
+          return bytes;
+        }
+      }
+      return null;
+    });
+  }
+
+  /// 行内样式区间解析（真实书适配）：聚合标记按区间边界切分并叠加
+  /// 覆盖它的全部声明（嵌套 span 由内层覆盖外层同名属性），产出
+  /// StyledRun；无命中的区间丢弃（沿用块样式）。
+  static List<StyledRun> _resolveInlineRuns(
+    List<InlineMark> marks,
+    List<CssStylesheet> sheets,
+    ComputedStyle baseStyle,
+  ) {
+    if (marks.isEmpty) {
+      return const <StyledRun>[];
+    }
+    final boundaries = <int>{0};
+    for (final mark in marks) {
+      boundaries
+        ..add(mark.start)
+        ..add(mark.end);
+    }
+    final ordered = boundaries.toList()..sort();
+    final runs = <StyledRun>[];
+    for (var i = 0; i < ordered.length - 1; i++) {
+      final start = ordered[i];
+      final end = ordered[i + 1];
+      var declarations = <String, String>{};
+      for (final mark in marks) {
+        if (mark.start <= start && end <= mark.end) {
+          declarations.addAll(
+            _authorDeclarations(sheets, mark.tag, mark.classes.join(' ')),
+          );
+        }
+      }
+      if (declarations.isEmpty) {
+        continue;
+      }
+      // 阅读器基准为 parent：行内字号 em 相对块字号解算；颜色为显式
+      // 覆盖（fmsA3 等面板文字着色）。
+      runs.add(
+        StyledRun(
+          start: start,
+          end: end,
+          style: ComputedStyle(
+            declarations,
+            parent: baseStyle,
+            explicitProperties: declarations.keys.toSet(),
+            hasExplicitTextColor: declarations.containsKey('color'),
+            containingWidth: 0,
+            rootFontSize: baseStyle.fontSize,
+          ),
+        ),
+      );
+    }
+    return runs;
+  }
+
+  /// 把作者 font-family 声明中的书内字体族映射为引擎族名（已注册者），
+  /// 未命中的族原样保留（别名映射与默认 CJK 链兜底）。
+  String? _mapBookFontFamilies(String? raw) {    final loader = _fontLoader;
+    if (raw == null || loader == null) {
+      return raw;
+    }
+    final families = raw
+        .split(',')
+        .map((family) => family.trim().replaceAll('"', '').replaceAll("'", ''))
+        .where((family) => family.isNotEmpty)
+        .toList();
+    if (families.isEmpty) {
+      return raw;
+    }
+    return families
+        .map((family) => loader.engineFamily(family) ?? family)
+        .join(',');
+  }
+
   /// 章节作者样式表（真实书适配）：提取章节 `<link rel=stylesheet>`
   /// 与 `<style>`，按文档顺序解析；CSS 文件字节按 URL 缓存。
-  List<CssStylesheet> _chapterStylesheets(int spineIndex) {
-    return _chapterSheetCache.putIfAbsent(spineIndex, () {
+  List<CssStylesheet> _chapterStylesheets(int spineIndex) {    return _chapterSheetCache.putIfAbsent(spineIndex, () {
       final item = document.spine[spineIndex];
       final xhtmlPath =
           document.resources.resolve(
@@ -588,6 +718,7 @@ class EpubChapterSource
     // class 规则，级联后声明覆盖先声明）叠加；em 相对阅读器基准字号
     // 解算；同（标签, class, 引用深度）只构造一次。
     final sheets = _chapterStylesheets(spineIndex);
+    await _ensureBookFonts(sheets);
     final uaStyles = <String, ComputedStyle>{};
     var figureSeq = 0;
     ComputedStyle styleFor(
@@ -605,6 +736,10 @@ class EpubChapterSource
         ...UaBlockDefaults.declarationsFor(tag),
         ..._authorDeclarations(sheets, tag, classes),
       };
+      final mappedFamily = _mapBookFontFamilies(declarations['font-family']);
+      if (mappedFamily != null) {
+        declarations['font-family'] = mappedFamily;
+      }
       if (declarations.isEmpty && quoteDepth == 0) {
         return uaStyles[key] = style;
       }
@@ -667,10 +802,16 @@ class EpubChapterSource
         if (blockTag == 'li' && list != null) {
           marker = list.nextMarker();
         }
+        // 行内样式区间（真实书适配）：聚合标记 → 作者 CSS 声明 →
+        // StyledRun 混排（span 彩色文字/粗斜体等）。
+        final runs = node is TextContentNode
+            ? _resolveInlineRuns(node.inlineMarks, sheets, blockStyle)
+            : const <StyledRun>[];
         final layout = _layoutCache.layout(
           text: text,
           style: blockStyle,
           maxWidth: contentWidth,
+          runs: runs,
         );
         if (layout.lineCount > 0) {
           blocks.add(

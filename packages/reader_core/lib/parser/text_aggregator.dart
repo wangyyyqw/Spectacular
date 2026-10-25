@@ -16,6 +16,31 @@ class TextRun {
   final int end;
 }
 
+/// 一个行内样式标记（真实书适配）：聚合文本中的区间 + 来源元素结构
+/// （标签与 class）。样式解析由消费方（章节源）按作者 CSS 完成——
+/// 聚合器只记结构，不依赖 CSS 层。
+class InlineMark {
+  /// 创建标记。
+  const InlineMark({
+    required this.start,
+    required this.end,
+    required this.tag,
+    required this.classes,
+  });
+
+  /// 起始偏移（UTF-16，聚合文本坐标系，含）。
+  final int start;
+
+  /// 结束偏移（半开）。
+  final int end;
+
+  /// 来源元素标签（span/b/strong…）。
+  final String tag;
+
+  /// class 列表（文档顺序）。
+  final List<String> classes;
+}
+
 /// 聚合后的文本块。
 class TextContentNode implements TextBlockNode {
   /// 创建文本块。
@@ -26,6 +51,7 @@ class TextContentNode implements TextBlockNode {
     required this.cfi,
     required this.start,
     required this.end,
+    this.inlineMarks = const <InlineMark>[],
   });
 
   @override
@@ -36,6 +62,9 @@ class TextContentNode implements TextBlockNode {
 
   /// 强制换行位置（`<br>` 与保留的换行符在 text 中的下标）。
   final List<int> hardBreaks;
+
+  /// 行内样式标记（真实书适配）。
+  final List<InlineMark> inlineMarks;
 
   /// 文本块 CFI（取首个来源文本节点的 CFI）。
   final EpubCfi cfi;
@@ -89,6 +118,12 @@ class _WhiteSpaceMode {
 
 /// 把块树中的行内内容聚合为可测量文本。
 abstract final class TextAggregator {
+  /// 记录样式标记的标签（真实书适配）：这些标签的行内元素即使无 class
+  /// 也产标记（UA 语义样式：粗斜体/上下标/删除线等）。
+  static const _styleMarkTags = <String>{
+    'b', 'strong', 'em', 'i', 'u', 's', 'strike', 'del', 'ins',
+    'code', 'sub', 'sup', 'small', 'big', 'mark', 'font', 'cite', 'q',
+  };
   /// 聚合一个章节。
   ///
   /// [whiteSpace] 决定空白与换行如何保留；`<pre>` 标签始终按 `pre` 处理。
@@ -133,18 +168,27 @@ abstract final class TextAggregator {
         accumulator.addBreak();
         return;
       }
+      // 行内样式标记（真实书适配）：带 class 的元素与已知样式标签记录
+      // 区间，样式解析由章节源按作者 CSS 完成。
+      final markable =
+          node.attributes.containsKey('class') ||
+          _styleMarkTags.contains(node.tag);
+      final markStart = markable ? accumulator.openMark() : -1;
       if (node.tag == 'img' || node.tag == 'image') {
         accumulator.addImage(node);
-        return;
-      }
-      for (final child in node.children) {
-        if (child is ParsedText) {
-          accumulator.addText(child);
-        } else if (child is InlineNode) {
-          visitInline(child);
-        } else if (child is TextBlockNode) {
-          accumulator.addRawText(child.text);
+      } else {
+        for (final child in node.children) {
+          if (child is ParsedText) {
+            accumulator.addText(child);
+          } else if (child is InlineNode) {
+            visitInline(child);
+          } else if (child is TextBlockNode) {
+            accumulator.addRawText(child.text);
+          }
         }
+      }
+      if (markable) {
+        accumulator.closeMark(markStart, node);
       }
     }
 
@@ -227,10 +271,39 @@ class _TextAccumulator {
 
   /// 块内遇到的图片行内节点（`<img>`/`<image>`），供纯图块折叠判定。
   final List<InlineNode> images = <InlineNode>[];
+
+  /// 行内样式标记（真实书适配）：visitInline 按 open/close 记录。
+  final List<InlineMark> marks = <InlineMark>[];
   bool _pendingSpace = false;
   int? _lastCodeUnit;
   ParsedText? _firstText;
   ParsedText? _lastText;
+
+  /// 开一个样式标记：先把挂起空格落盘（与文本 run 坐标一致），返回
+  /// 缓冲当前位置。
+  int openMark() {
+    _flushPendingSpace();
+    return _buffer.length;
+  }
+
+  /// 关一个样式标记；区间为空（无文本）时丢弃。
+  void closeMark(int start, InlineNode node) {
+    final end = _buffer.length;
+    if (end <= start) {
+      return;
+    }
+    marks.add(
+      InlineMark(
+        start: start,
+        end: end,
+        tag: node.tag,
+        classes: (node.attributes['class'] ?? '')
+            .split(RegExp(r'\s+'))
+            .where((c) => c.isNotEmpty)
+            .toList(growable: false),
+      ),
+    );
+  }
 
   /// 缓冲是否只含图片占位（\uFFFC 与空白），无任何真实文本与换行。
   bool get hasOnlyImages {
@@ -245,6 +318,18 @@ class _TextAccumulator {
     return _hardBreaks.isEmpty;
   }
 
+  /// 把挂起的折叠空格补出来（行首与换行后不补）。
+  void _flushPendingSpace() {
+    if (!_pendingSpace) {
+      return;
+    }
+    _pendingSpace = false;
+    if (_buffer.isNotEmpty && _lastCodeUnit != 10) {
+      _buffer.write(' ');
+      _lastCodeUnit = 32;
+    }
+  }
+
   void addText(ParsedText node) {
     final value = node.text;
     if (value.isEmpty) {
@@ -255,23 +340,10 @@ class _TextAccumulator {
     final runStart = _buffer.length;
     var emitted = 0;
 
-    // 把挂起的折叠空格补出来（行首与换行后不补）。
-    void flushPendingSpace() {
-      if (!_pendingSpace) {
-        return;
-      }
-      _pendingSpace = false;
-      if (_buffer.isNotEmpty && _lastCodeUnit != 10) {
-        _buffer.write(' ');
-        _lastCodeUnit = 32;
-        emitted += 1;
-      }
-    }
-
     for (final char in value.split('')) {
       if (_isCollapsibleWhitespace(char)) {
         if (char == '\n' && mode.keepNewlines) {
-          flushPendingSpace();
+          _flushPendingSpace();
           _writeBreak();
           emitted += 1;
           continue;
@@ -280,13 +352,13 @@ class _TextAccumulator {
           _pendingSpace = true;
           continue;
         }
-        flushPendingSpace();
+        _flushPendingSpace();
         _buffer.write(char);
         _lastCodeUnit = char.codeUnitAt(0);
         emitted += 1;
         continue;
       }
-      flushPendingSpace();
+      _flushPendingSpace();
       _buffer.write(char);
       _lastCodeUnit = char.codeUnitAt(0);
       emitted += 1;
@@ -344,6 +416,9 @@ class _TextAccumulator {
       text: text,
       runs: List<TextRun>.unmodifiable(_runs),
       hardBreaks: List<int>.unmodifiable(_hardBreaks),
+      inlineMarks: marks.isEmpty
+          ? const <InlineMark>[]
+          : List<InlineMark>.unmodifiable(marks),
       cfi: _firstText?.cfi ?? fallbackCfi,
       start: _firstText?.start ?? fallbackStart,
       end: _lastText?.end ?? fallbackEnd,
@@ -351,6 +426,7 @@ class _TextAccumulator {
     _buffer.clear();
     _runs.clear();
     _hardBreaks.clear();
+    marks.clear();
     _firstText = null;
     _lastText = null;
     return content;
