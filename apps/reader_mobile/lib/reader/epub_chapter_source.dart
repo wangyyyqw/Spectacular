@@ -151,6 +151,23 @@ class EpubChapterSource
             (_overrides.padding?.bottom ?? 0),
       );
 
+  /// 块级左右水平内缩总量：外边距 + 内边距 + 边框。
+  ///
+  /// flat 管线把块级水平内缩折算进绘制左偏移（PagePainter 取
+  /// `slice.leftInset + style.margin.left`），排版宽度必须同步扣掉同一
+  /// 份内缩——否则带 margin/padding 的段落整体右移、压出正文区右缘被
+  /// 裁切（真机：作者 CSS `body`/`p` 各 1% 外边距 → 正文右偏且缺右缘
+  /// 字）。
+  double _horizontalInsetsOf(ComputedStyle style) =>
+      style.margin.horizontal +
+      style.padding.horizontal +
+      style.borders.left.width +
+      style.borders.right.width;
+
+  /// 文本块的排版宽度：正文区宽扣除块级左右水平内缩。
+  double _textWidthFor(ComputedStyle style) =>
+      math.max(24.0, contentWidth - _horizontalInsetsOf(style));
+
   /// 构建满屏图页：整页单块 + 背景图 cover（复用 P2-13 背景管线与
   /// PagePainter.imageLookup），边距归零（用未扣设置页边距的基准尺寸）。
   /// 解码由 ReaderPage 的 imageCache 异步完成，revision 触发重绘。
@@ -800,9 +817,17 @@ class EpubChapterSource
         final occupiedRight =
             occupancy.occupiedRightAt(y, y + probe, width);
         final narrowed = occupiedLeft > 0 || occupiedRight > 0;
+        // 块级水平内缩同样占宽（见 _textWidthFor）：窄批只减浮动占位。
+        final available = math.max(
+          24.0,
+          width - _horizontalInsetsOf(block.style ?? style),
+        );
         final batchWidth = narrowed
-            ? math.max(24.0, width - occupiedLeft - occupiedRight - gap * 2)
-            : width;
+            ? math.max(
+                24.0,
+                available - occupiedLeft - occupiedRight - gap * 2,
+              )
+            : available;
         final remaining = fullText.substring(charCursor);
         final measured = _layoutCache.layout(
           text: remaining,
@@ -1579,7 +1604,7 @@ class EpubChapterSource
         final layout = _layoutCache.layout(
           text: effectiveText,
           style: blockStyle,
-          maxWidth: contentWidth,
+          maxWidth: _textWidthFor(blockStyle),
           runs: runs,
         );
         if (layout.lineCount > 0) {
