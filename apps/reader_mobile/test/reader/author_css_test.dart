@@ -164,6 +164,49 @@ void main() {
     }
   });
 
+  test('P8-05 块级上下边距进分页几何', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'p { margin-top: 24px; margin-bottom: 16px; }',
+      '<p>第一段。</p><p>第二段。</p>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    expect(blocks.first.spaceBefore, 24, reason: 'margin-top 进 spaceBefore');
+    expect(blocks.first.spaceAfter, 16, reason: 'margin-bottom 进 spaceAfter');
+  });
+
+  test('P8-05 负 margin 生效（段前距可为负）', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'p.tight { margin-top: -12px; }',
+      '<p>普通段。</p><p class="tight">上提段。</p>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    final tight = blocks.firstWhere((b) => b.layout.text.contains('上提'));
+    expect(tight.spaceBefore, -12, reason: '负 margin-top 保留负值');
+  });
+
+  test('P8-05c 容器上下边框拼合：首块画上边框、末块画下边框', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'div.frame { border: 2px solid #333333; }',
+      '<div class="frame"><p>首段。</p><p>中段。</p><p>末段。</p></div>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    final first = blocks.firstWhere((b) => b.layout.text.contains('首段'));
+    final middle = blocks.firstWhere((b) => b.layout.text.contains('中段'));
+    final last = blocks.firstWhere((b) => b.layout.text.contains('末段'));
+    expect(first.style!.borders.top.width, 2, reason: '首块拼上边框');
+    expect(first.style!.borders.bottom.width, 0, reason: '首块无下边框');
+    expect(middle.style!.borders.top.width, 0);
+    expect(middle.style!.borders.bottom.width, 0, reason: '中块无上下框');
+    expect(last.style!.borders.bottom.width, 2, reason: '末块拼下边框');
+    expect(last.style!.borders.top.width, 0);
+  });
+
   test('无 link 的书不受影响（UA 默认路径）', () async {
     final archive = Archive();
     void addText(String name, String content) {
