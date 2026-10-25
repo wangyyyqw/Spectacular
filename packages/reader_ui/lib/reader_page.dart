@@ -12,6 +12,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 
 import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
+import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
@@ -211,6 +212,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 全书标注（P4-18）：打开时加载，标注变更后刷新。
   List<ReaderAnnotation> _annotations = const <ReaderAnnotation>[];
+
+  /// 可绘制的标注（P4-20：重定位后；失效标注保留数据但不绘制）。
+  List<ReaderAnnotation> _resolvedAnnotations = const <ReaderAnnotation>[];
+
+  /// 已重定位的章（换章或重排后重算）。
+  int? _relocatedSpineIndex;
 
   /// 选区所属章（跨页选区跨翻页时不清，翻章才清）。
   int? _selectionSpineIndex;
@@ -415,7 +422,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
-  /// 重新加载全书标注（P4-18）。
+  /// 重新加载全书标注（P4-18）并重定位到当前章（P4-20）。
   Future<void> _reloadAnnotations() async {
     final store = widget.annotations;
     if (store == null) {
@@ -426,6 +433,35 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     setState(() => _annotations = items);
+    await _relocateAnnotations();
+  }
+
+  /// 按当前章的分页重算标注位置（§30.4）：CFI 优先，失效按引文兜底。
+  Future<void> _relocateAnnotations() async {
+    final items = _annotations;
+    if (items.isEmpty) {
+      setState(() {
+        _resolvedAnnotations = const <ReaderAnnotation>[];
+        _relocatedSpineIndex = _session.page?.spineIndex;
+      });
+      return;
+    }
+    final spine = _session.page?.spineIndex;
+    final pages = await _session.chapterPages();
+    if (!mounted) {
+      return;
+    }
+    final relocations = AnnotationRelocator.relocate(
+      annotations: items,
+      pages: pages,
+    );
+    setState(() {
+      _resolvedAnnotations = <ReaderAnnotation>[
+        for (final relocation in relocations)
+          if (relocation.isResolved) relocation.resolved,
+      ];
+      _relocatedSpineIndex = spine;
+    });
   }
 
   /// 长按 → 选词（P4-15，§63.2：长按先试词，失败退到连续同类字符段）。
@@ -684,6 +720,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _buildBody(BuildContext context) {
     final page = _session.page;
+    // 换章（拼页/跳转）后重算标注位置；重排后块 CFI 不变，仍会 verified。
+    if (page != null &&
+        _annotations.isNotEmpty &&
+        _relocatedSpineIndex != page.spineIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_relocateAnnotations());
+        }
+      });
+    }
+
     // 页面不在选区范围内（翻章/跳转）→ 下一帧清除；跨页选区范围内保留。
     // 回调里重新取最新状态：边缘翻页会先翻页再扩展选区，两者不能互相打断。
     if (page != null && _selection != null) {
@@ -747,11 +794,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
             // 标注装饰层（P4-18）：高亮底色 + 笔记标记，在正文之上、选区之下。
-            if (_annotations.isNotEmpty)
+            if (_resolvedAnnotations.isNotEmpty)
               Positioned.fill(
                 child: AnnotationLayer(
                   page: page,
-                  annotations: _annotations,
+                  annotations: _resolvedAnnotations,
                 ),
               ),
             ReaderView(
