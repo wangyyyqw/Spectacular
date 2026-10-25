@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' show Rect;
 
 import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
@@ -11,6 +12,7 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -596,6 +598,218 @@ class EpubChapterSource
     return false;
   }
 
+  /// 浮动感知分页（flat 管线接入，引擎 FloatOccupancy 区间模型）：
+  /// - 浮动图不占流高，按侧登记占位，覆盖切片渲染（overlay/absoluteTop）；
+  /// - 文本按「同占位状态」行批切段——窄幅区间重测（行内样式区间不
+  ///   映射，记录为已知限制），区间外回全宽；
+  /// - clear：流游标推到该侧浮动底边并移除已满足占位；
+  /// - 页界：浮动不跨页（整块移下页），收页时占位清空。
+  List<PageContent> _paginateWithFloats(List<PageBlock> blocks, int spine) {
+    const gap = 8.0;
+    final width = contentWidth;
+    final height = contentHeight;
+    final pages = <PageContent>[];
+    var slices = <PageBlockSlice>[];
+    var y = 0.0;
+    final occupancy = FloatOccupancy();
+
+    void closePage() {
+      pages.add(
+        PageContent(
+          spineIndex: spine,
+          pageIndex: pages.length,
+          slices: List.unmodifiable(slices),
+          usedHeight: y,
+          pageHeight: height,
+          topPadding: 0,
+        ),
+      );
+      slices = <PageBlockSlice>[];
+      y = 0;
+      occupancy.clear();
+    }
+
+    for (final block in blocks) {
+      final floatSide = block.floatSide;
+      if (floatSide != null) {
+        final w = block.layout.width;
+        final h = block.height;
+        if (y > 0 && y + h > height) {
+          closePage();
+        }
+        final x0 = floatSide == FloatSide.left ? 0.0 : width - w;
+        occupancy.insert(
+          BoxOccupied(
+            rect: Rect.fromLTWH(x0, y, w, h),
+            baseline: y,
+            side: floatSide,
+          ),
+        );
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: 0,
+            endLine: block.layout.lineCount,
+            height: h,
+            overlay: true,
+            absoluteTop: y,
+            leftInset: x0,
+          ),
+        );
+        continue;
+      }
+      if (block.layout.lineCount == 0) {
+        // 空盒块（hr 等）：按普通流处理。
+        if (y + block.leadingExtent + block.height > height && y > 0) {
+          closePage();
+        }
+        y += block.leadingExtent + block.height + block.trailingExtent;
+        continue;
+      }
+      // clear（P3-14 语义）：推到该侧浮动底边并移除已满足占位；推移
+      // 量以空白垫片切片占位（渲染层按切片累计 y，空隙须显式承载）。
+      final clear = block.style?.clear ?? CssClear.none;
+      if (clear != CssClear.none) {
+        var bottom = y;
+        if (clear == CssClear.left || clear == CssClear.both) {
+          bottom = math.max(bottom, occupancy.maxBottom(FloatSide.left));
+        }
+        if (clear == CssClear.right || clear == CssClear.both) {
+          bottom = math.max(bottom, occupancy.maxBottom(FloatSide.right));
+        }
+        occupancy.removeSatisfiedBelow(bottom, FloatSide.left);
+        occupancy.removeSatisfiedBelow(bottom, FloatSide.right);
+        if (bottom > y) {
+          final delta = bottom - y;
+          final spacer = PageBlock(
+            layout: TextLayoutResult(
+              text: '',
+              lines: [
+                LineBox(
+                  start: 0,
+                  end: 0,
+                  top: 0,
+                  height: delta,
+                  baseline: delta,
+                  width: width,
+                ),
+              ],
+              width: width,
+              height: delta,
+              maxWidth: width,
+              runs: const <StyledRun>[],
+            ),
+            style: block.style,
+          );
+          slices.add(
+            PageBlockSlice(
+              block: spacer,
+              startLine: 0,
+              endLine: 1,
+              height: delta,
+            ),
+          );
+          y = bottom;
+        }
+      }
+      // 行批切段：同占位状态的行聚成一批，窄批重测。
+      final fullText = block.layout.text;
+      var charCursor = 0;
+      var leadingLeft = block.leadingExtent;
+      while (charCursor < fullText.length) {
+        final probe = block.layout.lines.first.height;
+        final occupiedLeft = occupancy.occupiedLeftAt(y, y + probe);
+        final occupiedRight =
+            occupancy.occupiedRightAt(y, y + probe, width);
+        final narrowed = occupiedLeft > 0 || occupiedRight > 0;
+        final batchWidth = narrowed
+            ? math.max(24.0, width - occupiedLeft - occupiedRight - gap * 2)
+            : width;
+        final remaining = fullText.substring(charCursor);
+        final measured = _layoutCache.layout(
+          text: remaining,
+          style: block.style ?? style,
+          maxWidth: batchWidth,
+        );
+        // 取行：直到批状态变化（下一行的占位区间不同）或页尽或文本尽。
+        var taken = 0;
+        var batchHeight = 0.0;
+        while (taken < measured.lineCount) {
+          final lineH = measured.lines[taken].height;
+          if (y + leadingLeft + batchHeight + lineH > height && y > 0) {
+            break;
+          }
+          final nextLeft = occupancy.occupiedLeftAt(
+            y + leadingLeft + batchHeight,
+            y + leadingLeft + batchHeight + lineH,
+          );
+          final nextRight = occupancy.occupiedRightAt(
+            y + leadingLeft + batchHeight,
+            y + leadingLeft + batchHeight + lineH,
+            width,
+          );
+          if ((nextLeft > 0 || nextRight > 0) != narrowed ||
+              (narrowed &&
+                  (nextLeft != occupiedLeft || nextRight != occupiedRight))) {
+            break;
+          }
+          batchHeight += lineH;
+          taken += 1;
+        }
+        if (taken == 0) {
+          // 首行就放不下：收页重试（页首必能放至少一行）。
+          closePage();
+          leadingLeft = 0;
+          continue;
+        }
+        final segLines = measured.lines.take(taken).toList();
+        final segText = remaining.substring(
+          0,
+          segLines.last.end,
+        );
+        final segLayout = TextLayoutResult(
+          text: segText,
+          lines: segLines,
+          width: batchWidth,
+          height: batchHeight,
+          maxWidth: batchWidth,
+          runs: const <StyledRun>[],
+        );
+        final segBlock = PageBlock(
+          layout: segLayout,
+          style: block.style,
+          startCfi: block.startCfi,
+          leftInset: narrowed ? occupiedLeft + gap : block.leftInset,
+        );
+        slices.add(
+          PageBlockSlice(
+            block: segBlock,
+            startLine: 0,
+            endLine: taken,
+            height: leadingLeft + batchHeight,
+            leadingExtent: leadingLeft,
+            trailingExtent: taken == measured.lineCount
+                ? block.trailingExtent
+                : 0,
+            leftInset: segBlock.leftInset,
+          ),
+        );
+        y += leadingLeft + batchHeight;
+        leadingLeft = 0;
+        charCursor += segText.length;
+        if (charCursor < fullText.length &&
+            y + (block.layout.lines.first.height) > height &&
+            y > 0) {
+          closePage();
+        }
+      }
+    }
+    if (slices.isNotEmpty || pages.isEmpty) {
+      closePage();
+    }
+    return pages;
+  }
+
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
     final paginationKey = _paginationKey(spineIndex);
@@ -695,6 +909,25 @@ class EpubChapterSource
         ...UaBlockDefaults.declarationsFor(tag),
         ..._authorDeclarations(sheets, tag, classes),
       };
+      // 内联 style 属性（真实书适配）：声明级最高优先级，简单 k:v 解析。
+      final inline = attributes?['style'];
+      if (inline != null && inline.isNotEmpty) {
+        for (final part in inline.split(';')) {
+          final colon = part.indexOf(':');
+          if (colon <= 0) {
+            continue;
+          }
+          final prop = part.substring(0, colon).trim().toLowerCase();
+          final value = part
+              .substring(colon + 1)
+              .trim()
+              .replaceAll('!important', '')
+              .trim();
+          if (prop.isNotEmpty && value.isNotEmpty && !prop.startsWith('-')) {
+            declarations[prop] = value;
+          }
+        }
+      }
       final mappedFamily = _mapBookFontFamilies(declarations['font-family']);
       if (mappedFamily != null) {
         declarations['font-family'] = mappedFamily;
@@ -737,6 +970,34 @@ class EpubChapterSource
       );
     }
 
+    /// 浮动方向检测（flat 管线接入）：内联 style `float:`、历史 `align`
+    /// 属性、作者 CSS class 规则三处来源。
+    FloatSide? floatSideOf(Map<String, String> attributes) {
+      final inline = attributes['style'] ?? '';
+      final inlineMatch = RegExp(
+        r'float\s*:\s*(left|right)',
+        caseSensitive: false,
+      ).firstMatch(inline);
+      if (inlineMatch != null) {
+        return inlineMatch.group(1)!.toLowerCase() == 'left'
+            ? FloatSide.left
+            : FloatSide.right;
+      }
+      final align = attributes['align']?.toLowerCase();
+      if (align == 'left' || align == 'right') {
+        return align == 'left' ? FloatSide.left : FloatSide.right;
+      }
+      final declared = _authorDeclarations(
+        sheets,
+        'img',
+        attributes['class'],
+      )['float']?.toLowerCase();
+      if (declared == 'left' || declared == 'right') {
+        return declared == 'left' ? FloatSide.left : FloatSide.right;
+      }
+      return null;
+    }
+
     void collectImageBlock(BlockNode node) {
       // src 键名兼容 SVG <image xlink:href> 折叠链。
       final src = node.attributes['src'] ?? node.attributes['xlink:href'];
@@ -745,12 +1006,25 @@ class EpubChapterSource
       }
       final url =
           this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
-      final size = _resolveImageDisplaySize(
+      var size = _resolveImageDisplaySize(
         node.attributes,
         imageSizes[url],
         contentWidth,
         contentHeight,
       );
+      final floatSide = floatSideOf(node.attributes);
+      if (floatSide != null) {
+        // 浮动图钳宽（≤45% 正文宽），高按原始比例换算（P3-12 绕排前提）。
+        final maxW = contentWidth * 0.45;
+        var w = size.$1;
+        var h = size.$2;
+        if (w > maxW) {
+          h = h * maxW / w;
+          w = maxW;
+        }
+        size = (w, h);
+      }
+      final blockWidth = floatSide != null ? size.$1 : contentWidth;
       final blockStyle = ComputedStyle(<String, String>{
         ...baseStyle.values,
         'background-image': 'url($url)',
@@ -769,15 +1043,17 @@ class EpubChapterSource
             top: 0,
             height: size.$2,
             baseline: size.$2,
-            width: contentWidth,
+            width: blockWidth,
           ),
         ],
-        width: contentWidth,
+        width: blockWidth,
         height: size.$2,
-        maxWidth: contentWidth,
+        maxWidth: blockWidth,
         runs: const <StyledRun>[],
       );
-      blocks.add(PageBlock(layout: layout, style: blockStyle));
+      blocks.add(
+        PageBlock(layout: layout, style: blockStyle, floatSide: floatSide),
+      );
     }
 
     /// 表格收集（flat 管线接入）：聚合树 tr/td → 格自然宽/测高闭包 →
@@ -1193,6 +1469,15 @@ class EpubChapterSource
     }
 
     collect(document.root, 'body', attributes: document.root.attributes);
+
+    // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
+    //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
+    if (blocks.any((b) => b.floatSide != null)) {
+      final floated = _paginateWithFloats(blocks, spineIndex);
+      _pageCache[paginationKey] = floated;
+      return floated;
+    }
+
     // pagination 层（P7-23）：先试页索引重放（P7-22），跳过分页状态
     // 机；索引缺失/损坏/schema 不匹配时静默重排并回写索引。
     final cachedIndexBytes = _pageIndexCache[paginationKey];

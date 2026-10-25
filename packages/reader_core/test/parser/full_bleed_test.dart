@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/parser/block_builder.dart';
+import 'package:reader_core/parser/document_parser.dart' show ParsedText;
 import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/position/cfi.dart';
@@ -117,5 +118,20 @@ void main() {
       _block('body', [_img(const <String, String>{})]),
     );
     expect(analyzeFullBleed(doc).isFullBleed, isFalse);
+  });
+
+  test('原始块树 ParsedText 正文计入（无尺寸单图+正文不误判满屏）', () {
+    // 真实链路（P3-30 真机验收发现）：parseBlocks 的树中文本是
+    // ParsedText（未实现 TextBlockNode），漏计会让整章只剩一页图。
+    final parsed = ParsedText(text: '正文内容', start: 0, end: 4, cfi: _cfi());
+    final doc = _doc(
+      _block('body', [
+        _block('p', [parsed]),
+        _img({'src': 'a.png'}),
+      ]),
+    );
+    final result = analyzeFullBleed(doc);
+    expect(result.hasVisibleText, isTrue);
+    expect(result.isFullBleed, isFalse);
   });
 }

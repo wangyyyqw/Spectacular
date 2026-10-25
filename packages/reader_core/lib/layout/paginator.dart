@@ -3,6 +3,7 @@ import 'dart:ui' show Offset, Rect;
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'box_model.dart';
+import 'float_occupancy.dart' show FloatSide;
 import 'table_layout.dart' show TableRenderSpec;
 import 'text_layout.dart';
 
@@ -26,6 +27,7 @@ class PageBlock {
     this.listMarker,
     this.groupId = 0,
     this.table,
+    this.floatSide,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -118,6 +120,10 @@ class PageBlock {
   /// 走表格分支（网格线 + 逐格文字）。
   final TableRenderSpec? table;
 
+  /// 浮动方向（flat 管线接入）：非 null 时本块是浮动元素（通常为
+  /// 图片块），由浮动感知分页登记占位并以覆盖切片渲染——不占流高。
+  final FloatSide? floatSide;
+
   /// 块高度（内容区行高之和）。
   double get height => layout.height;
 
@@ -139,6 +145,8 @@ class PageBlockSlice {
     this.leadingExtent = 0,
     this.trailingExtent = 0,
     this.leftInset = 0,
+    this.overlay = false,
+    this.absoluteTop,
   });
 
   /// 来源块。
@@ -161,6 +169,13 @@ class PageBlockSlice {
 
   /// 行内容的左内缩（border.left + padding.left）。
   final double leftInset;
+
+  /// 浮动覆盖切片（flat 管线接入）：不占流高，渲染在 [absoluteTop]
+  /// 处； Paginator 的流游标跳过其高度。
+  final bool overlay;
+
+  /// 覆盖切片的页内绝对 y（非覆盖切片为 null）。
+  final double? absoluteTop;
 
   /// 切片行。
   Iterable<LineBox> get lines =>
