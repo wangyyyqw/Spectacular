@@ -13,6 +13,7 @@ class ReaderSemanticsLayer extends StatelessWidget {
     super.key,
     required this.page,
     required this.pageWidth,
+    this.firstNodeFocus,
   });
 
   /// 当前页。
@@ -20,6 +21,10 @@ class ReaderSemanticsLayer extends StatelessWidget {
 
   /// 正文区宽度（页面级节点用）。
   final double pageWidth;
+
+  /// 首块节点的焦点（P4-28）：翻页后由阅读页请求，让键盘/读屏焦点落到新页
+  /// 第一个块；为 null 时节点不可聚焦。
+  final FocusNode? firstNodeFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -33,16 +38,22 @@ class ReaderSemanticsLayer extends StatelessWidget {
               top: node.rect.top,
               width: node.rect.width <= 0 ? 1 : node.rect.width,
               height: node.rect.height <= 0 ? 1 : node.rect.height,
-              child: Semantics(
-                key: ValueKey<String>(
-                  'page-semantics-${node.sortOrder.toInt()}',
+              child: FocusTraversalOrder(
+                order: NumericFocusOrder(node.sortOrder),
+                child: Focus(
+                  focusNode: node.sortOrder == 1 ? firstNodeFocus : null,
+                  child: Semantics(
+                    key: ValueKey<String>(
+                      'page-semantics-${node.sortOrder.toInt()}',
+                    ),
+                    container: true,
+                    header: node.isHeader,
+                    readOnly: true,
+                    sortKey: OrdinalSortKey(node.sortOrder),
+                    label: node.label,
+                    child: const SizedBox.expand(),
+                  ),
                 ),
-                container: true,
-                header: node.isHeader,
-                readOnly: true,
-                sortKey: OrdinalSortKey(node.sortOrder),
-                label: node.label,
-                child: const SizedBox.expand(),
               ),
             ),
         ],
