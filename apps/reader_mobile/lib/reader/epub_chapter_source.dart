@@ -987,7 +987,8 @@ class EpubChapterSource
     }
 
     gatherImageSrcs(document.root);
-    final blocks = <PageBlock>[];
+    // 可变：collect 之后按 CSS 相邻兄弟折叠上下边距，再交给分页。
+    var blocks = <PageBlock>[];
 
     // 块级样式（P8-02 链式级联）：UA（uaRules）+ 作者样式表（私有钩子
     // 契约过滤）+ 内联 style 三源进 Cascade.compute——特异性/!important/
@@ -1769,6 +1770,11 @@ class EpubChapterSource
         ),
       ],
     );
+
+    // 相邻块上下外边距折叠（CSS 2.1 §8.3.1）：段距取 max，而不是两段
+    // margin 相加。分页器、浮动分页与页索引重放共用这批块对象，
+    // PageIndex.from 按块身份记录块序号，必须先折叠再分页。
+    blocks = PageBlock.collapseAdjacentMargins(blocks);
 
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。

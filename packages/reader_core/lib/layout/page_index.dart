@@ -183,6 +183,8 @@ class PageIndex {
     if (index.entries.isEmpty) {
       return null;
     }
+    // 与分页器同口径：相邻块上下边距折叠，重放几何才与重排一致。
+    blocks = PageBlock.collapseAdjacentMargins(blocks);
     final pages = <PageContent>[];
     for (var i = 0; i < index.entries.length; i++) {
       final entry = index.entries[i];

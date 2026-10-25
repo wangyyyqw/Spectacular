@@ -2,6 +2,7 @@ import 'dart:ui' show Offset, Rect;
 
 import '../css/computed_style.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
+import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
 import 'float_occupancy.dart' show FloatSide;
 import 'table_layout.dart' show TableRenderSpec;
@@ -139,6 +140,65 @@ class PageBlock {
 
   /// 块末行之后的额外高度（下内缩 + 段后间距）。
   double get trailingExtent => bottomInset + spaceAfter;
+
+  /// 复制块并替换段前/段后间距（其余字段共享引用）。
+  PageBlock withSpacing({double? spaceBefore, double? spaceAfter}) =>
+      PageBlock(
+        layout: layout,
+        pageBreakBefore: pageBreakBefore,
+        pageBreakAfter: pageBreakAfter,
+        startCfi: startCfi,
+        endCfi: endCfi,
+        style: style,
+        spaceBefore: spaceBefore ?? this.spaceBefore,
+        spaceAfter: spaceAfter ?? this.spaceAfter,
+        topInset: topInset,
+        bottomInset: bottomInset,
+        leftInset: leftInset,
+        breakInsideAvoid: breakInsideAvoid,
+        breakAfterAvoid: breakAfterAvoid,
+        listMarker: listMarker,
+        groupId: groupId,
+        table: table,
+        floatSide: floatSide,
+        rubies: rubies,
+      );
+
+  /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线
+  /// 共用 [collapseMargins]）。
+  ///
+  /// flat 管线原本逐块累加 `spaceAfter + spaceBefore`：正文相邻两段各有
+  /// 1em 上下边距时，段距变成 2em（真机 32dp，浏览器应为 16dp）。折叠后
+  /// 空隙进入下一块的 `spaceBefore`、上一块 `spaceAfter` 清零，分页几何
+  /// （leading/trailing）与页索引重放因此自动一致。
+  ///
+  /// 幂等且最小拷贝：上一块 `spaceAfter` 已为 0 时不再重建任何块，因此
+  /// 对已折叠列表返回同一批对象（`PageIndex.from` 依赖块对象身份映射
+  /// 块序号，重复折叠不得更换对象）。
+  static List<PageBlock> collapseAdjacentMargins(List<PageBlock> blocks) {
+    if (blocks.length < 2) {
+      return blocks;
+    }
+    final result = <PageBlock>[blocks.first];
+    for (var i = 1; i < blocks.length; i++) {
+      final previous = result[i - 1];
+      final current = blocks[i];
+      if (previous.spaceAfter == 0) {
+        result.add(current);
+        continue;
+      }
+      result[i - 1] = previous.withSpacing(spaceAfter: 0);
+      result.add(
+        current.withSpacing(
+          spaceBefore: collapseMargins(
+            previous.spaceAfter,
+            current.spaceBefore,
+          ),
+        ),
+      );
+    }
+    return result;
+  }
 }
 
 /// 页内一个块切片；P1-25 只放整块，P1-26 会按行切。
@@ -378,6 +438,8 @@ class Paginator {
     var firstPage = true;
     var totalHeight = 0.0;
     var truncated = false;
+    // 相邻块上下边距折叠（CSS 2.1 §8.3.1）：段距不再按两段 margin 相加。
+    final flow = PageBlock.collapseAdjacentMargins(blocks);
 
     void record() {
       // 空页不记录，避免零长度页。
@@ -408,8 +470,8 @@ class Paginator {
       firstPage = false;
     }
 
-    for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
-      final block = blocks[blockIndex];
+    for (var blockIndex = 0; blockIndex < flow.length; blockIndex++) {
+      final block = flow[blockIndex];
       // display: none 的块不占位（P2-15）。
       if (block.style?.display == CssDisplay.none) {
         continue;
@@ -424,8 +486,8 @@ class Paginator {
       // 组首块放不下当前页、且整组能放进一个新页时先收页整体下移；
       // 组高于整页时按序切（不强制）。
       if (block.groupId != 0 &&
-          (blockIndex == 0 || blocks[blockIndex - 1].groupId != block.groupId)) {
-        final groupExtent = _groupExtent(blocks, blockIndex, block.groupId);
+          (blockIndex == 0 || flow[blockIndex - 1].groupId != block.groupId)) {
+        final groupExtent = _groupExtent(flow, blockIndex, block.groupId);
         if (groupExtent > available + tolerance &&
             groupExtent <= pageHeight + tolerance) {
           record();
@@ -456,10 +518,10 @@ class Paginator {
       // 页底。优先级低于强制断页（force 已在上面 record）与 avoid-inside。
       if (block.breakAfterAvoid &&
           slices.isNotEmpty &&
-          blockIndex + 1 < blocks.length &&
+          blockIndex + 1 < flow.length &&
           blockExtent <= available + tolerance &&
           blockExtent <= pageHeight + tolerance) {
-        final next = blocks[blockIndex + 1];
+        final next = flow[blockIndex + 1];
         final nextNeed = next.leadingExtent +
             (next.layout.lines.isEmpty
                 ? 0.0
@@ -585,7 +647,8 @@ extension PaginatorStreaming on Paginator {
     }
 
     var pageIndex = 0;
-    for (final block in blocks) {
+    // 与 measureChapter 同口径：相邻块上下边距折叠后再推进。
+    for (final block in PageBlock.collapseAdjacentMargins(blocks)) {
       if (token?.isCancelled ?? false) {
         return;
       }
