@@ -170,6 +170,8 @@ class ReaderSession extends ChangeNotifier {
   Timer? _persistTimer;
   ReaderProgress? _lastPersisted;
   int _persistWrites = 0;
+  int _jumpToken = 0;
+  String? _jumpLoadingTitle;
 
   /// 已写库次数（节流验收用：连续翻 100 页应 ≤5 次）。
   int get persistWriteCount => _persistWrites;
@@ -216,24 +218,40 @@ class ReaderSession extends ChangeNotifier {
         : const <TocEntry>[];
   }
 
-  /// 跳转到指定章节首屏（目录点击用，P4-11）。
+  /// 跳转加载中的目标章名（null = 不在跳转中，P4-12 全屏浮层用）。
+  String? get jumpLoadingTitle => _jumpLoadingTitle;
+
+  /// 跳转到指定章节首屏（目录点击用，P4-11/P4-12）。
   ///
-  /// 自增校验与其它异步操作一致：过期结果不会覆盖当前状态。
-  Future<bool> jumpToChapter(int spineIndex) async {
+  /// token 防竞态（§27.1）：每次跳转递增 token，任务完成时比对，与当前
+  /// token 不符直接丢弃结果——连续点多个目录项不会出现「后到的旧结果覆盖
+  /// 新位置」。跳转期间 [jumpLoadingTitle] 生效，由阅读页显示全屏浮层。
+  Future<bool> jumpToChapter(int spineIndex, {String? title}) async {
     final pager = _pager;
     if (pager == null) {
       return false;
     }
-    final generation = _generation;
-    final changed = await pager.goTo(spineIndex, 0);
-    if (generation != _generation) {
-      return false;
+    final token = ++_jumpToken;
+    // 跳转优先：让进行中的翻页/重排结果作废，避免旧结果回写。
+    _generation += 1;
+    _jumpLoadingTitle = title ?? '第 ${spineIndex + 1} 章';
+    _notify();
+    try {
+      final changed = await pager.goTo(spineIndex, 0);
+      if (token != _jumpToken) {
+        return false;
+      }
+      if (changed) {
+        _notify();
+        _persist();
+      }
+      return changed;
+    } finally {
+      if (token == _jumpToken) {
+        _jumpLoadingTitle = null;
+        _notify();
+      }
     }
-    if (changed) {
-      _notify();
-      _persist();
-    }
-    return changed;
   }
 
   /// 当前进度。

@@ -239,7 +239,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 关闭动画吃掉（表现为点了没反应）。
   Future<void> _openReaderMenu() async {
     final controller = _tocScrollController;
-    final spine = await showModalBottomSheet<int>(
+    final spine = await showModalBottomSheet<TocEntry>(
       context: context,
       isScrollControlled: true,
       builder: (context) => FractionallySizedBox(
@@ -254,7 +254,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       ),
     );
     if (spine != null) {
-      await _session.jumpToChapter(spine);
+      await _session.jumpToChapter(spine.spineIndex, title: spine.title);
     }
   }
 
@@ -378,6 +378,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       : null,
                 ),
               ),
+            // 跳章浮层（P4-12，§27.2）：目标章名 + 不确定进度，完成后淡出。
+            _JumpLoadingOverlay(title: _session.jumpLoadingTitle),
           ],
         );
       },
@@ -442,7 +444,7 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
         entries: widget.entries,
         currentSpineIndex: widget.currentSpineIndex,
         scrollController: widget.scrollController,
-        onSelect: (entry) => Navigator.of(context).pop(entry.spineIndex),
+        onSelect: (entry) => Navigator.of(context).pop(entry),
       );
     }
     final theme = Theme.of(context);
@@ -476,6 +478,55 @@ class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
             const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 跳章浮层（P4-12，§27.2）：目标章名 + 不确定进度转圈，完成后淡出。
+class _JumpLoadingOverlay extends StatelessWidget {
+  const _JumpLoadingOverlay({required this.title});
+
+  final String? title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final visible = title != null;
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: const Duration(milliseconds: 150),
+        child: visible
+            ? ColoredBox(
+                key: const ValueKey<String>('reader-jump-loading'),
+                color: theme.colorScheme.surface.withValues(alpha: 0.92),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                      const SizedBox(height: 14),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          '正在打开 $title',
+                          maxLines: 2,
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : const SizedBox.shrink(),
       ),
     );
   }

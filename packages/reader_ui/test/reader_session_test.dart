@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
@@ -36,15 +38,23 @@ PageContent _makePage(int spine, int page) {
 }
 
 class FakeSource implements ReaderChapterSource {
-  FakeSource({this.chapterCount = 30, this.pagesPerChapter = 2});
+  FakeSource({
+    this.chapterCount = 30,
+    this.pagesPerChapter = 2,
+    this.delay = Duration.zero,
+  });
   @override
   final int chapterCount;
   final int pagesPerChapter;
+  final Duration delay;
   final List<int> loads = <int>[];
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
     loads.add(spineIndex);
+    if (delay > Duration.zero) {
+      await Future<void>.delayed(delay);
+    }
     return <PageContent>[
       for (var i = 0; i < pagesPerChapter; i++) _makePage(spineIndex, i),
     ];
@@ -122,6 +132,40 @@ void main() {
     session.dispose();
   });
 
+  test('连续跳转只保留最后一次结果（token 防竞态，P4-12）', () async {
+    final session = ReaderSession(
+      source: FakeSource(delay: const Duration(milliseconds: 20)),
+      store: MemoryReaderProgressStore(),
+      bookId: 'race-book',
+    );
+    await session.open();
+
+    final first = session.jumpToChapter(5, title: '第五章');
+    final second = session.jumpToChapter(20, title: '第二十章');
+    expect(await first, isFalse, reason: '先发的跳转结果被丢弃');
+    expect(await second, isTrue);
+    expect(session.progress?.spineIndex, 20, reason: '最终停在最后一次目标');
+    expect(session.jumpLoadingTitle, isNull);
+    session.dispose();
+  });
+
+  test('跳转期间暴露目标章名，完成后清空（P4-12 浮层）', () async {
+    final session = ReaderSession(
+      source: FakeSource(delay: const Duration(milliseconds: 30)),
+      store: MemoryReaderProgressStore(),
+      bookId: 'loading-book',
+    );
+    await session.open();
+    expect(session.jumpLoadingTitle, isNull);
+
+    final pending = session.jumpToChapter(7, title: '第七章 出发');
+    expect(session.jumpLoadingTitle, '第七章 出发');
+    await pending;
+    expect(session.jumpLoadingTitle, isNull);
+    expect(session.progress?.spineIndex, 7);
+    session.dispose();
+  });
+
   test('章节源无目录能力时 toc 为空', () async {
     final session = ReaderSession(
       source: FakeSource(),
@@ -147,6 +191,46 @@ void main() {
       const ReaderProgress(spineIndex: 0, pageIndex: 0),
     );
     expect(await restored.previous(), isFalse);
+  });
+
+  testWidgets('跳转时显示目标章名浮层，完成后消失（P4-12）', (tester) async {
+    final source = FakeSource(delay: const Duration(milliseconds: 40));
+    late ReaderSession session;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 520,
+              child: ReaderPage(
+                source: source,
+                store: MemoryReaderProgressStore(),
+                bookId: 'jump-overlay',
+                onSessionReady: (value) => session = value,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('reader-jump-loading')), findsNothing);
+
+    final pending = session.jumpToChapter(5, title: '第五章 出发');
+    await tester.pump();
+    expect(find.textContaining('正在打开 第五章 出发'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('reader-jump-loading')),
+      findsOneWidget,
+    );
+
+    // 推进假时间让加载完成（不能直接 await pending：它等的是 fake timer）。
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    unawaited(pending);
+    expect(find.textContaining('正在打开'), findsNothing);
+    expect(session.progress?.spineIndex, 5);
   });
 
   testWidgets('阅读页可绘制并响应翻页', (tester) async {
