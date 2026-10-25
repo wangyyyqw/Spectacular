@@ -12,6 +12,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 
 import 'panels/bookmark_panel.dart';
 import 'selection/selection.dart';
+import 'selection/selection_menu.dart';
 import 'selection/selection_layer.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
@@ -202,6 +203,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
 
+  /// 选区所属页（`spine/page`）：任何翻页（手势/程序/目录跳转）都会清选区。
+  String? _selectionPageKey;
+
   @override
   void initState() {
     super.initState();
@@ -319,6 +323,83 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     setState(() {
       _selection = SelectionOps.wordAt(page, hit);
+      _selectionPageKey = '${page.spineIndex}/${page.pageIndex}';
+    });
+  }
+
+  /// 三击 → 选句（P4-16）。
+  void _selectSentenceAt(Offset localPosition) {
+    final page = _session.page;
+    if (page == null) {
+      return;
+    }
+    final padding = _effectivePadding();
+    final hit = TextHitTester.hitTest(
+      page,
+      localPosition - Offset(padding.left, padding.top),
+    );
+    if (hit == null || hit.lineBox.text.trim().isEmpty) {
+      _clearSelection();
+      return;
+    }
+    setState(() {
+      _selection = SelectionOps.sentenceAt(page, hit);
+      _selectionPageKey = '${page.spineIndex}/${page.pageIndex}';
+    });
+  }
+
+  /// 选区菜单动作（P4-16）：复制 / 全选 / 取消。
+  List<SelectionAction> _selectionActions(
+    PageContent page,
+    ReaderSelection selection,
+  ) => <SelectionAction>[
+    SelectionAction(
+      id: 'copy',
+      label: '复制',
+      onTap: () => unawaited(_copySelection(page, selection)),
+    ),
+    SelectionAction(id: 'select-all', label: '全选', onTap: () => _selectAll(page)),
+    SelectionAction(id: 'dismiss', label: '取消', onTap: _clearSelection),
+  ];
+
+  Future<void> _copySelection(PageContent page, ReaderSelection selection) async {
+    final text = SelectionOps.textOf(page, selection);
+    if (text.isEmpty) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) {
+      return;
+    }
+    _clearSelection();
+    _showToast('已复制');
+  }
+
+  void _selectAll(PageContent page) {
+    final boxes = TextHitTester.lineBoxes(page);
+    if (boxes.isEmpty) {
+      return;
+    }
+    final first = boxes.first;
+    final last = boxes.last;
+    setState(() {
+      _selectionPageKey = '${page.spineIndex}/${page.pageIndex}';
+      _selection = ReaderSelection.normalized(
+        TextHit(
+          lineBox: first,
+          charOffset: 0,
+          textOffset: first.textOffset,
+          atLineStart: true,
+          atLineEnd: false,
+        ),
+        TextHit(
+          lineBox: last,
+          charOffset: last.text.length,
+          textOffset: last.textOffset + last.text.length,
+          atLineStart: false,
+          atLineEnd: true,
+        ),
+      );
     });
   }
 
@@ -379,6 +460,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _buildBody(BuildContext context) {
     final page = _session.page;
+    // 页面换了但选区还在（程序化翻页/目录跳转）→ 下一帧清除。
+    if (page != null &&
+        _selection != null &&
+        _selectionPageKey != '${page.spineIndex}/${page.pageIndex}') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _clearSelection();
+        }
+      });
+    }
     if (page == null) {
       final error = _session.error;
       if (error != null) {
@@ -432,6 +523,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 unawaited(_openReaderMenu());
               },
               onLongPressAt: _selectWordAt,
+              onDoubleTapAt: _selection == null ? null : _selectWordAt,
+              onTripleTapAt: _selection == null ? null : _selectSentenceAt,
               child: const SizedBox.expand(),
             ),
             // 页脚页码（P8-10 页家具 6 槽第一槽）。
@@ -454,7 +547,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 ),
               ),
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
-            if (_selection != null)
+            if (_selection != null) ...[
               Positioned.fill(
                 child: SelectionLayer(
                   page: page,
@@ -462,6 +555,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   onChanged: (next) => setState(() => _selection = next),
                 ),
               ),
+              // 选区菜单（P4-16）：贴在选区上方，不遮挡选区。
+              SelectionMenu(
+                actions: _selectionActions(page, _selection!),
+                anchor: SelectionOps.boundsOf(page, _selection!),
+                bounds: size,
+              ),
+            ],
             // 翻页/重排时保留旧页，只在顶部显示细进度条（P2-27）。
             if (_session.loading)
               Positioned(

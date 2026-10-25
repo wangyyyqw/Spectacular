@@ -4,6 +4,7 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/text/segmenter.dart';
 
 /// 页内选区（P4-15）：起止命中点，按阅读顺序归一。
 ///
@@ -77,34 +78,57 @@ abstract final class SelectionOps {
   /// 选区高亮高度相对行高的比例（§63.4：1.1 倍，垂直居中）。
   static const double lineHighlightScale = 1.1;
 
-  /// 长按选词（§63.2）：先按引擎分词取词，失败退到连续同类字符段。
+  /// 长按/双击选词（§40.2）：CJK 连续段、拉丁数字连续段、其余单字符。
   ///
-  /// 只在命中行内取词（正文词不会跨行）；返回的选区两端吸附到词边界。
+  /// 只在命中行内取词（正文词不会跨硬换行）；两端吸附到词边界。
   static ReaderSelection wordAt(PageContent page, TextHit hit) {
     final box = hit.lineBox;
     final text = box.text;
     if (text.isEmpty) {
       return ReaderSelection(start: hit, end: hit);
     }
-    final painter = _painterFor(box);
-    final offset = hit.charOffset.clamp(0, text.length);
-    final range = painter.getWordBoundary(TextPosition(offset: offset));
-    painter.dispose();
-    var start = range.start;
-    var end = range.end;
-    if (start == end) {
-      // 引擎分词退化为空时，用连续同类字符段（CJK 或拉丁）。
-      final fallback = _fallbackWord(text, offset);
-      start = fallback.start;
-      end = fallback.end;
-    }
-    if (start >= end) {
+    final range = TextSegmenter.wordRangeAt(text, hit.charOffset);
+    if (range.isEmpty) {
       return ReaderSelection(start: hit, end: hit);
     }
     return ReaderSelection.normalized(
-      _hitAt(box, start),
-      _hitAt(box, end),
+      _hitAt(box, range.start),
+      _hitAt(box, range.end),
     );
+  }
+
+  /// 三击选句（§40.2）：按句末标点/换行切句，句子可跨排版软换行。
+  static ReaderSelection sentenceAt(PageContent page, TextHit hit) {
+    final boxes = TextHitTester.lineBoxes(page);
+    final box = hit.lineBox;
+    final blockText = box.slice.block.layout.text;
+    final offset = (box.textOffset + hit.charOffset).clamp(0, blockText.length);
+    final range = TextSegmenter.sentenceRangeAt(blockText, offset);
+    if (range.isEmpty) {
+      return ReaderSelection(start: hit, end: hit);
+    }
+    final start = _hitAtBlockOffset(boxes, box.sliceIndex, range.start, box);
+    final end = _hitAtBlockOffset(boxes, box.sliceIndex, range.end, box);
+    return ReaderSelection.normalized(start, end);
+  }
+
+  /// 块内字符偏移 → 页内命中（跨软换行时落在对应行）。
+  static TextHit _hitAtBlockOffset(
+    List<PageLineBox> boxes,
+    int sliceIndex,
+    int blockOffset,
+    PageLineBox fallback,
+  ) {
+    for (final box in boxes) {
+      if (box.sliceIndex != sliceIndex) {
+        continue;
+      }
+      if (blockOffset >= box.textOffset &&
+          blockOffset <= box.textOffset + box.text.length) {
+        return _hitAt(box, blockOffset - box.textOffset);
+      }
+    }
+    return _hitAt(fallback, blockOffset - fallback.textOffset);
   }
 
   /// 拖拽手柄时的字符级命中（不扩展，§63.2）。
@@ -171,6 +195,43 @@ abstract final class SelectionOps {
       startHandle: Offset(startRect.left, startBox.rect.top),
       endHandle: Offset(endRect.right, endBox.rect.bottom),
     );
+  }
+
+  /// 选区纯文本（跨行拼接；跨行且接拉丁字母时补空格）。
+  static String textOf(PageContent page, ReaderSelection selection) {
+    final boxes = TextHitTester.lineBoxes(page);
+    final covered = _coveredLines(boxes, selection);
+    final buffer = StringBuffer();
+    String? lastChar;
+    for (final entry in covered) {
+      final text = entry.box.text.substring(entry.start, entry.end);
+      if (text.isEmpty) {
+        continue;
+      }
+      if (lastChar != null && _needsSpace(lastChar, text)) {
+        buffer.write(' ');
+      }
+      buffer.write(text);
+      lastChar = text.substring(text.length - 1);
+    }
+    return buffer.toString();
+  }
+
+  /// 选区包围盒（页内坐标；菜单定位用）。
+  static Rect boundsOf(PageContent page, ReaderSelection selection) {
+    final rects = geometryOf(page, selection).lineRects;
+    if (rects.isEmpty) {
+      return Rect.zero;
+    }
+    return rects.reduce((a, b) => a.expandToInclude(b));
+  }
+
+  static bool _needsSpace(String previous, String next) {
+    final a = previous.codeUnitAt(0);
+    final b = next.codeUnitAt(0);
+    final latinA = (a >= 0x30 && a <= 0x7A);
+    final latinB = (b >= 0x30 && b <= 0x7A);
+    return latinA && latinB;
   }
 
   static List<({PageLineBox box, int start, int end})> _coveredLines(
@@ -247,27 +308,6 @@ abstract final class SelectionOps {
     atLineEnd: charOffset == box.text.length,
   );
 
-  static ({int start, int end}) _fallbackWord(String text, int offset) {
-    if (offset < 0 || offset > text.length) {
-      return (start: 0, end: 0);
-    }
-    final index = offset >= text.length ? text.length - 1 : offset;
-    final isCjk = _isCjk(text.codeUnitAt(index));
-    var start = index;
-    var end = index + 1;
-    while (start > 0 && _isCjk(text.codeUnitAt(start - 1)) == isCjk) {
-      start -= 1;
-    }
-    while (end < text.length && _isCjk(text.codeUnitAt(end)) == isCjk) {
-      end += 1;
-    }
-    return (start: start, end: end);
-  }
-
-  static bool _isCjk(int codeUnit) =>
-      (codeUnit >= 0x4E00 && codeUnit <= 0x9FFF) ||
-      (codeUnit >= 0x3400 && codeUnit <= 0x4DBF) ||
-      (codeUnit >= 0x3040 && codeUnit <= 0x30FF);
 
   static TextPainter _painterFor(PageLineBox box, {TextStyle? style}) =>
       TextPainter(

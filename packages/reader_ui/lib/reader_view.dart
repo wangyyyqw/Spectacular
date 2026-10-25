@@ -147,6 +147,8 @@ class ReaderView extends StatefulWidget {
     this.onNext,
     this.onToggleToolbar,
     this.onLongPressAt,
+    this.onDoubleTapAt,
+    this.onTripleTapAt,
     this.onGesture,
     this.pageIndex,
     this.pageCount,
@@ -167,6 +169,12 @@ class ReaderView extends StatefulWidget {
 
   /// 长按位置（相对阅读视图左上角，P4-14 命中测试用）。
   final ValueChanged<Offset>? onLongPressAt;
+
+  /// 双击位置（P4-16 选词）；为 null 时不启用双击识别（单击不延迟）。
+  final ValueChanged<Offset>? onDoubleTapAt;
+
+  /// 三击位置（P4-16 选句）。
+  final ValueChanged<Offset>? onTripleTapAt;
 
   /// 手势观测回调（测试/埋点）。
   final ValueChanged<ReaderGesture>? onGesture;
@@ -190,6 +198,8 @@ class _ReaderViewState extends State<ReaderView> {
   );
   double _dragDx = 0;
   double _dragDy = 0;
+  Offset? _lastTapPosition;
+  DateTime? _doubleTapTime;
 
   bool get _atFirst => widget.pageIndex != null && widget.pageIndex! <= 0;
 
@@ -225,7 +235,29 @@ class _ReaderViewState extends State<ReaderView> {
         final width = constraints.maxWidth;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            _lastTapPosition = details.localPosition;
+          },
+          onDoubleTap: widget.onDoubleTapAt == null
+              ? null
+              : () {
+                  _doubleTapTime = DateTime.now();
+                  final position = _lastTapPosition;
+                  if (position != null) {
+                    widget.onDoubleTapAt!(position);
+                  }
+                },
           onTapUp: (details) {
+            // 三击：双击后 350ms 内再落一次 → 选句（P4-16，§63.2）。
+            final doubleTap = _doubleTapTime;
+            if (widget.onTripleTapAt != null &&
+                doubleTap != null &&
+                DateTime.now().difference(doubleTap) <
+                    const Duration(milliseconds: 350)) {
+              _doubleTapTime = null;
+              widget.onTripleTapAt!(details.localPosition);
+              return;
+            }
             final gesture = _interpreter.tapAt(
               details.localPosition,
               width: width,

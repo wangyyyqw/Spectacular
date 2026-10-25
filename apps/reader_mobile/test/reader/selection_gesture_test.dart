@@ -28,6 +28,7 @@ Uint8List _corpusBook(String name) {
 void main() {
   testWidgets('长按进入选词，拖拽手柄扩展选区，翻页清除（P4-15）', (tester) async {
     final source = await openTestChapterSource(_corpusBook('basic.epub'));
+    late ReaderSession session;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -39,6 +40,7 @@ void main() {
                 source: source,
                 store: MemoryReaderProgressStore(),
                 bookId: 'selection-gesture',
+                onSessionReady: (value) => session = value,
               ),
             ),
           ),
@@ -70,8 +72,8 @@ void main() {
       reason: '拖拽应改变选区终点',
     );
 
-    // 翻页清除选区。
-    await tester.tapAt(const Offset(320, 260)); // 右区 → 下一页
+    // 翻页清除选区（程序化翻页，避开菜单位置干扰）。
+    await tester.runAsync(() => session.next());
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing);
   });
