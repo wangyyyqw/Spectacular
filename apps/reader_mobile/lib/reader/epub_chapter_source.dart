@@ -363,8 +363,21 @@ class EpubChapterSource
       var declarations = <String, String>{};
       for (final mark in marks) {
         if (mark.start <= start && end <= mark.end) {
+          // 后代选择器（真实书对齐）：mark.chain 最外祖先 → 自身，
+          // 最右复合匹配自身，其余沿链回溯。
+          final chain = mark.chain;
+          if (chain.isEmpty) {
+            continue;
+          }
           declarations.addAll(
-            _authorDeclarations(sheets, mark.tag, mark.classes.join(' ')),
+            _authorDeclarations(
+              sheets,
+              (mark.tag.toLowerCase(), mark.classes.toSet()),
+              [
+                for (final subject in chain.take(chain.length - 1))
+                  (subject.tag.toLowerCase(), subject.classes),
+              ],
+            ),
           );
         }
       }
@@ -456,46 +469,163 @@ class EpubChapterSource
     });
   }
 
-  /// 匹配作者声明：仅支持单复合选择器（`p`、`p.cls`、`.cls`），后代/
-  /// 子/伪类选择器与 `@media` 内规则跳过；保持文档顺序，后声明覆盖
-  /// 先声明（CSS 级联的同优先级语义）。
+  /// 选择器匹配主体（真实书对齐）：标签 + class 集；块级与行内同构。
+  static (String, Set<String>) _subjectOf(String tag, String? classes) => (
+        tag.toLowerCase(),
+        (classes ?? '')
+            .split(RegExp(r'\s+'))
+            .where((c) => c.isNotEmpty)
+            .toSet(),
+      );
+
+  /// 祖先传导的继承类属性（CSS inherited properties 子集）。
+  static const _inheritedProps = <String>{
+    'color', 'font-family', 'font-size', 'font-style', 'font-weight',
+    'line-height', 'letter-spacing', 'word-spacing', 'text-align',
+    'text-indent', 'text-decoration', 'white-space',
+  };
+
+  /// 祖先传导的盒类近似属性：flat 无嵌套盒子，容器面板（背景/左右
+  /// 边框/左右内边距）由后代块拼合呈现（P3-30 marginBox 路径消费）。
+  static const _promotedBoxProps = <String>{
+    'background-color', 'border-left', 'border-right',
+    'padding-left', 'padding-right', 'margin-left', 'margin-right',
+  };
+
+  /// 复合选择器（`p.a.b` / `.a` / `p` / `*`）匹配主体。
+  static bool _matchesCompound(String compound, (String, Set<String>) subject) {
+    var selector = compound;
+    var isStar = false;
+    if (selector == '*' || selector.isEmpty) {
+      isStar = true;
+      selector = '';
+    }
+    final dot = selector.indexOf('.');
+    final selectorTag = (dot < 0 ? selector : selector.substring(0, dot))
+        .toLowerCase();
+    final selectorClasses = dot < 0
+        ? const <String>{}
+        : selector
+            .substring(dot + 1)
+            .split('.')
+            .where((c) => c.isNotEmpty)
+            .toSet();
+    if (!isStar && selectorTag.isNotEmpty && selectorTag != subject.$1) {
+      return false;
+    }
+    if (selectorClasses.isNotEmpty &&
+        !selectorClasses.every(subject.$2.contains)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// 完整选择器匹配（右到左）：最右复合匹配当前元素，其余复合沿祖先
+  /// 链回溯——后代组合器（空格）任意祖先、子代组合器（>）仅父级。
+  /// [ancestors] 为根 → 父的有序链。
+  static bool _matchesChain(
+    List<String> compounds,
+    List<bool> childBetween,
+    (String, Set<String>) current,
+    List<(String, Set<String>)> ancestors,
+  ) {
+    if (!_matchesCompound(compounds.last, current)) {
+      return false;
+    }
+    var selectorIndex = compounds.length - 2;
+    var ancestorIndex = ancestors.length - 1;
+    while (selectorIndex >= 0) {
+      final isChild = childBetween[selectorIndex];
+      if (isChild) {
+        if (ancestorIndex < 0 ||
+            !_matchesCompound(
+              compounds[selectorIndex],
+              ancestors[ancestorIndex],
+            )) {
+          return false;
+        }
+        ancestorIndex -= 1;
+      } else {
+        var matched = false;
+        while (ancestorIndex >= 0) {
+          if (_matchesCompound(
+            compounds[selectorIndex],
+            ancestors[ancestorIndex],
+          )) {
+            matched = true;
+            ancestorIndex -= 1;
+            break;
+          }
+          ancestorIndex -= 1;
+        }
+        if (!matched) {
+          return false;
+        }
+      }
+      selectorIndex -= 1;
+    }
+    return true;
+  }
+
+  /// 解析一段选择器：拆组合器（空格=后代、>=子代），含伪类/属性/#id/
+  /// 兄弟组合器的段返回 null（不支持，跳过）。
+  static (List<String>, List<bool>)? _parseSelector(String selector) {
+    final tokens = selector
+        .trim()
+        .replaceAll('>', ' > ')
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    final compounds = <String>[];
+    final childBetween = <bool>[];
+    var pendingChild = false;
+    for (final token in tokens) {
+      if (token == '>') {
+        if (compounds.isEmpty || pendingChild) {
+          return null; // 开头的 > 或连续组合器。
+        }
+        pendingChild = true;
+        continue;
+      }
+      if (token.contains(':') ||
+          token.contains('#') ||
+          token.contains('[') ||
+          token.contains('+') ||
+          token.contains('~')) {
+        return null;
+      }
+      if (compounds.isNotEmpty) {
+        childBetween.add(pendingChild);
+      }
+      compounds.add(token);
+      pendingChild = false;
+    }
+    if (compounds.isEmpty || pendingChild) {
+      return null;
+    }
+    return (compounds, childBetween);
+  }
+
+  /// 匹配作者声明（真实书对齐）：单复合 + 后代/子代组合器；@media 与
+  /// 不支持段跳过；保持文档顺序，后声明覆盖先声明（同优先级级联）。
+  /// [ancestors] 根→父链；[current] 当前元素。
   static Map<String, String> _authorDeclarations(
     List<CssStylesheet> sheets,
-    String tag,
-    String? classes,
+    (String, Set<String>) current,
+    List<(String, Set<String>)> ancestors,
   ) {
     final merged = <String, String>{};
-    final classSet = (classes ?? '')
-        .split(RegExp(r'\s+'))
-        .where((c) => c.isNotEmpty)
-        .toSet();
     for (final sheet in sheets) {
       for (final rule in sheet.rules) {
         if (rule.media != null) {
           continue;
         }
         for (final raw in rule.selector.split(',')) {
-          final selector = raw.trim();
-          if (selector.isEmpty ||
-              selector.contains(' ') ||
-              selector.contains('>') ||
-              selector.contains(':')) {
+          final parsed = _parseSelector(raw);
+          if (parsed == null) {
             continue;
           }
-          final dot = selector.indexOf('.');
-          final selectorTag = dot < 0 ? selector : selector.substring(0, dot);
-          final selectorClasses = dot < 0
-              ? const <String>{}
-              : selector
-                  .substring(dot + 1)
-                  .split('.')
-                  .where((c) => c.isNotEmpty)
-                  .toSet();
-          if (selectorTag.isNotEmpty && selectorTag != tag) {
-            continue;
-          }
-          if (selectorClasses.isNotEmpty &&
-              !selectorClasses.every(classSet.contains)) {
+          if (!_matchesChain(parsed.$1, parsed.$2, current, ancestors)) {
             continue;
           }
           for (final declaration in rule.declarations) {
@@ -886,10 +1016,11 @@ class EpubChapterSource
     gatherImageSrcs(document.root);
     final blocks = <PageBlock>[];
 
-    // 块级样式（P7-03 + 真实书适配）：UA 标签默认 + 作者 CSS（标签/
-    // class 规则，级联后声明覆盖先声明）叠加；em 相对阅读器基准字号
-    // 解算；同（标签, class, 引用深度）只构造一次。声明于收集闭包之前
-    // （表格/图片收集也要按标签取样式）。
+    // 块级样式（P7-03 + 真实书对齐）：UA 标签默认 + 祖先传导（继承类
+    // 属性 + 盒类近似：背景/左右边框/左右内边距透传给后代块——flat 无
+    // 嵌套盒子，容器面板由子块拼合）+ 作者 CSS（单复合/后代/子代）+
+    // 内联 style，级联后声明覆盖先声明；em 相对阅读器基准字号解算。
+    // 同（标签, class, 引用深度, 祖先链）只构造一次。
     final sheets = _chapterStylesheets(spineIndex);
     await _ensureBookFonts(sheets);
     final uaStyles = <String, ComputedStyle>{};
@@ -898,16 +1029,39 @@ class EpubChapterSource
       String tag, {
       Map<String, String>? attributes,
       int quoteDepth = 0,
+      List<(String, Set<String>)> ancestors = const [],
     }) {
       final classes = attributes?['class'];
-      final key = '$tag|$classes|$quoteDepth';
+      final chainKey = ancestors
+          .map((s) => '${s.$1}.${s.$2.join('_')}')
+          .join('>');
+      final key = '$tag|$classes|$quoteDepth|$chainKey';
       final cached = uaStyles[key];
       if (cached != null) {
         return cached;
       }
+      final current = _subjectOf(tag, classes);
+      final own = _authorDeclarations(sheets, current, ancestors);
+      // 祖先传导：逐级匹配祖先自身的规则，取继承类 + 盒近似类属性；
+      // 近祖先覆盖远祖先（CSS 继承就近原则）。
+      final inherited = <String, String>{};
+      for (var i = 0; i < ancestors.length; i++) {
+        final anc = _authorDeclarations(
+          sheets,
+          ancestors[i],
+          ancestors.sublist(0, i),
+        );
+        for (final entry in anc.entries) {
+          if (_inheritedProps.contains(entry.key) ||
+              _promotedBoxProps.contains(entry.key)) {
+            inherited[entry.key] = entry.value;
+          }
+        }
+      }
       final declarations = <String, String>{
         ...UaBlockDefaults.declarationsFor(tag),
-        ..._authorDeclarations(sheets, tag, classes),
+        ...inherited,
+        ...own,
       };
       // 内联 style 属性（真实书适配）：声明级最高优先级，简单 k:v 解析。
       final inline = attributes?['style'];
@@ -989,8 +1143,8 @@ class EpubChapterSource
       }
       final declared = _authorDeclarations(
         sheets,
-        'img',
-        attributes['class'],
+        _subjectOf('img', attributes['class']),
+        const <(String, Set<String>)>[],
       )['float']?.toLowerCase();
       if (declared == 'left' || declared == 'right') {
         return declared == 'left' ? FloatSide.left : FloatSide.right;
@@ -1341,6 +1495,7 @@ class EpubChapterSource
       int groupId = 0,
       _ListContext? list,
       int quoteDepth = 0,
+      List<(String, Set<String>)> ancestors = const [],
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
@@ -1352,6 +1507,10 @@ class EpubChapterSource
           blockTag,
           attributes: attributes,
           quoteDepth: quoteDepth,
+          // ancestors 链末位即当前块自身，匹配用父链（去掉末位）。
+          ancestors: ancestors.length > 1
+              ? ancestors.sublist(0, ancestors.length - 1)
+              : const <(String, Set<String>)>[],
         );
         // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
         String? marker;
@@ -1443,7 +1602,11 @@ class EpubChapterSource
         // 引用深度（M2）：blockquote 每层 +1，容器左右边距叠加到子块。
         final childQuoteDepth =
             node.tag == 'blockquote' ? quoteDepth + 1 : quoteDepth;
-        // 作者 CSS（真实书适配）：块自身属性（class/style）供样式匹配。
+        // 祖先链（真实书对齐）：块级元素入链，后代/子代选择器匹配用。
+        final childAncestors = <(String, Set<String>)>[
+          ...ancestors,
+          _subjectOf(node.tag, node.attributes['class']),
+        ];
         for (final child in node.children) {
           collect(
             child,
@@ -1452,6 +1615,7 @@ class EpubChapterSource
             groupId: childGroup,
             list: childList,
             quoteDepth: childQuoteDepth,
+            ancestors: childAncestors,
           );
         }
       } else if (node is InlineNode) {
@@ -1463,12 +1627,20 @@ class EpubChapterSource
             groupId: groupId,
             list: list,
             quoteDepth: quoteDepth,
+            ancestors: ancestors,
           );
         }
       }
     }
 
-    collect(document.root, 'body', attributes: document.root.attributes);
+    collect(
+      document.root,
+      'body',
+      attributes: document.root.attributes,
+      ancestors: [
+        _subjectOf('body', document.root.attributes['class']),
+      ],
+    );
 
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。

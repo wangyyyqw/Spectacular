@@ -100,6 +100,70 @@ void main() {
     expect(runs.first.style.color, const Color(0xFFFC8C23));
   });
 
+  test('后代选择器（块级）：div.panel p 命中且不串扰普通 p', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'div.panel p { text-indent: 2em; color: #33691E; }',
+      '<div class="panel"><p>面板内段落文字。</p></div><p>面板外普通段落。</p>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    final inside = blocks.firstWhere((b) => b.layout.text.contains('面板内'));
+    expect(inside.style!.textIndent, greaterThan(0), reason: 'div.panel p 缩进生效');
+    expect(inside.style!.color, const Color(0xFF33691E));
+    final outside = blocks.firstWhere((b) => b.layout.text.contains('面板外'));
+    expect(outside.style!.textIndent, 0.0, reason: '普通 p 不受影响');
+  });
+
+  test('后代选择器（行内）：h2.t b 命中标题内 b 元素', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'h2.t b { font-size: 1.5em; color: #880E4F; }',
+      '<h2 class="t">主标题<br/><b>副标题粗体</b></h2><p>正文。</p>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    final title = blocks.firstWhere((b) => b.layout.text.contains('副标题'));
+    final runs = title.layout.runs;
+    expect(runs, isNotEmpty, reason: 'b 元素产生样式区间');
+    final run = runs.firstWhere(
+      (r) => title.layout.text.substring(r.start, r.end) == '副标题粗体',
+    );
+    expect(run.style.fontSize, greaterThan(title.style!.fontSize),
+        reason: 'h2.t b 的 1.5em 字号命中');
+  });
+
+  test('子代组合器：div > p 命中直接子级、孙级不命中', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'div > p { color: #0D47A1; }',
+      '<div><section><p>孙级段落。</p></section><p>子级段落。</p></div>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    final child = blocks.firstWhere((b) => b.layout.text.contains('子级'));
+    expect(child.style!.color, const Color(0xFF0D47A1), reason: '直接子级命中');
+    final grand = blocks.firstWhere((b) => b.layout.text.contains('孙级'));
+    expect(grand.style!.color, isNot(const Color(0xFF0D47A1)),
+        reason: '孙级不命中（子代组合器）');
+  });
+
+  test('容器盒近似传导：div.panel 的背景色/内边距透传后代块', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'div.panel { background-color: #FFF3E0; padding-left: 12px; }',
+      '<div class="panel"><p>面板段落一。</p><p>面板段落二。</p></div>',
+    ));
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+    for (final block in blocks.where((b) => b.layout.text.contains('面板'))) {
+      expect(block.style!.backgroundColor, const Color(0xFFFFF3E0),
+          reason: '容器背景透传后代块');
+      expect(block.leftInset, greaterThanOrEqualTo(12),
+          reason: '容器 padding-left 折算后代左内缩');
+    }
+  });
+
   test('无 link 的书不受影响（UA 默认路径）', () async {
     final archive = Archive();
     void addText(String name, String content) {

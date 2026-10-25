@@ -16,9 +16,22 @@ class TextRun {
   final int end;
 }
 
-/// 一个行内样式标记（真实书适配）：聚合文本中的区间 + 来源元素结构
-/// （标签与 class）。样式解析由消费方（章节源）按作者 CSS 完成——
-/// 聚合器只记结构，不依赖 CSS 层。
+/// 行内样式标记的匹配主体（真实书适配）：标签 + class 集。链式组合
+/// 供后代/子代选择器匹配（块与行内层级同构）。
+class MarkSubject {
+  /// 创建主体。
+  const MarkSubject({required this.tag, required this.classes});
+
+  /// 标签名。
+  final String tag;
+
+  /// class 集。
+  final Set<String> classes;
+}
+
+/// 一个行内样式标记（真实书适配）：聚合文本中的区间 + 来源元素链
+/// （从最外祖先到自身，含块级与行内层级）。样式解析由消费方（章节
+/// 源）按作者 CSS 完成——聚合器只记结构，不依赖 CSS 层。
 class InlineMark {
   /// 创建标记。
   const InlineMark({
@@ -26,6 +39,7 @@ class InlineMark {
     required this.end,
     required this.tag,
     required this.classes,
+    this.chain = const <MarkSubject>[],
   });
 
   /// 起始偏移（UTF-16，聚合文本坐标系，含）。
@@ -39,6 +53,9 @@ class InlineMark {
 
   /// class 列表（文档顺序）。
   final List<String> classes;
+
+  /// 祖先链（最外 → 自身；块级与行内层级混排），后代选择器匹配用。
+  final List<MarkSubject> chain;
 }
 
 /// 聚合后的文本块。
@@ -145,9 +162,19 @@ abstract final class TextAggregator {
   static BlockNode _aggregateBlock(
     BlockNode block, {
     required _WhiteSpaceMode mode,
+    List<MarkSubject> chain = const <MarkSubject>[],
   }) {
     // `<pre>` 标签自带 `white-space: pre` 的 UA 语义。
     final effective = block.tag == 'pre' ? _WhiteSpaceMode.pre : mode;
+    // 后代选择器链（真实书对齐）：块级祖先（body→div→p…）入链。
+    final blockSubject = MarkSubject(
+      tag: block.tag,
+      classes: (block.attributes['class'] ?? '')
+          .split(RegExp(r'\s+'))
+          .where((c) => c.isNotEmpty)
+          .toSet(),
+    );
+    final subjectChain = <MarkSubject>[...chain, blockSubject];
     final accumulator = _TextAccumulator(
       mode: effective,
       fallbackCfi: block.cfi,
@@ -163,13 +190,13 @@ abstract final class TextAggregator {
       }
     }
 
-    void visitInline(InlineNode node) {
+    void visitInline(InlineNode node, List<MarkSubject> ancestors) {
       if (node.tag == 'br') {
         accumulator.addBreak();
         return;
       }
       // 行内样式标记（真实书适配）：带 class 的元素与已知样式标签记录
-      // 区间，样式解析由章节源按作者 CSS 完成。
+      // 区间（含祖先链），样式解析由章节源按作者 CSS 完成。
       final markable =
           node.attributes.containsKey('class') ||
           _styleMarkTags.contains(node.tag);
@@ -177,27 +204,39 @@ abstract final class TextAggregator {
       if (node.tag == 'img' || node.tag == 'image') {
         accumulator.addImage(node);
       } else {
+        final inlineChain = <MarkSubject>[
+          ...ancestors,
+          MarkSubject(
+            tag: node.tag,
+            classes: (node.attributes['class'] ?? '')
+                .split(RegExp(r'\s+'))
+                .where((c) => c.isNotEmpty)
+                .toSet(),
+          ),
+        ];
         for (final child in node.children) {
           if (child is ParsedText) {
             accumulator.addText(child);
           } else if (child is InlineNode) {
-            visitInline(child);
+            visitInline(child, inlineChain);
           } else if (child is TextBlockNode) {
             accumulator.addRawText(child.text);
           }
         }
       }
       if (markable) {
-        accumulator.closeMark(markStart, node);
+        accumulator.closeMark(markStart, node, ancestors);
       }
     }
 
     for (final child in block.children) {
       if (child is BlockNode) {
         flush();
-        children.add(_aggregateBlock(child, mode: effective));
+        children.add(
+          _aggregateBlock(child, mode: effective, chain: subjectChain),
+        );
       } else if (child is InlineNode) {
-        visitInline(child);
+        visitInline(child, subjectChain);
       } else if (child is ParsedText) {
         accumulator.addText(child);
       } else if (child is TextBlockNode) {
@@ -286,21 +325,27 @@ class _TextAccumulator {
     return _buffer.length;
   }
 
-  /// 关一个样式标记；区间为空（无文本）时丢弃。
-  void closeMark(int start, InlineNode node) {
+  /// 关一个样式标记；区间为空（无文本）时丢弃。链 = 祖先（块/行内）
+  /// + 自身，供后代/子代选择器匹配。
+  void closeMark(int start, InlineNode node, List<MarkSubject> ancestors) {
     final end = _buffer.length;
     if (end <= start) {
       return;
     }
+    final classes = (node.attributes['class'] ?? '')
+        .split(RegExp(r'\s+'))
+        .where((c) => c.isNotEmpty)
+        .toList(growable: false);
     marks.add(
       InlineMark(
         start: start,
         end: end,
         tag: node.tag,
-        classes: (node.attributes['class'] ?? '')
-            .split(RegExp(r'\s+'))
-            .where((c) => c.isNotEmpty)
-            .toList(growable: false),
+        classes: classes,
+        chain: List<MarkSubject>.unmodifiable([
+          ...ancestors,
+          MarkSubject(tag: node.tag, classes: classes.toSet()),
+        ]),
       ),
     );
   }
