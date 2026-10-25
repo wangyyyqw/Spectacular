@@ -36,6 +36,7 @@ class OpfPackage {
     required this.version,
     required this.warnings,
     this.tocId,
+    this.coverItemId,
   });
 
   /// 书籍元信息。
@@ -55,6 +56,10 @@ class OpfPackage {
 
   /// spine 的 toc 属性（NCX id），可为空。
   final String? tocId;
+
+  /// `<meta name="cover" content="...">` 的内容（§37.3 封面第 2 级）：
+  /// 多数 EPUB2 书写 manifest id，少数直接写 href。
+  final String? coverItemId;
 
   /// 按 ID 查 manifest 项。
   OpfManifestItem? itemById(String id) {
@@ -160,6 +165,7 @@ abstract final class OpfParser {
       version: version,
       warnings: <String>[...manifestWarnings, ...warnings],
       tocId: spineElement?.getAttribute('toc')?.trim(),
+      coverItemId: _parseCoverItemId(metadata),
     );
   }
 
@@ -189,6 +195,27 @@ abstract final class OpfParser {
       'webp' => 'image/webp',
       _ => '',
     };
+  }
+
+  /// 解析 `<meta name="cover" content="...">`（§37.3 封面第 2 级）。
+  static String? _parseCoverItemId(XmlElement? metadata) {
+    if (metadata == null) {
+      return null;
+    }
+    for (final element in metadata.childElements) {
+      if (element.name.local != 'meta') {
+        continue;
+      }
+      if ((element.getAttribute('name') ?? '').trim().toLowerCase() !=
+          'cover') {
+        continue;
+      }
+      final content = (element.getAttribute('content') ?? '').trim();
+      if (content.isNotEmpty) {
+        return content;
+      }
+    }
+    return null;
   }
 
   static BookMeta _parseMetadata(XmlElement? metadata, String? uniqueId) {

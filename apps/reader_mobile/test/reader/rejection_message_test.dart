@@ -5,7 +5,9 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/importer.dart';
+import 'package:drift/native.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/storage/db.dart';
 
 import '../support/test_epub.dart';
 
@@ -81,7 +83,10 @@ void main() {
     test('导入分级写入 BookEntry 并持久化', () async {
       final tempDir = await Directory.systemTemp.createTemp('library_p327');
       addTearDown(() => tempDir.delete(recursive: true));
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
       final store = LibraryStore(
+        database: db,
         directoryProvider: () async => tempDir,
       );
       final entry = await store.importBytes(
@@ -98,7 +103,10 @@ void main() {
     test('L2 书（spine 缺失）导入后 level=2', () async {
       final tempDir = await Directory.systemTemp.createTemp('library_p327b');
       addTearDown(() => tempDir.delete(recursive: true));
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
       final store = LibraryStore(
+        database: db,
         directoryProvider: () async => tempDir,
       );
       // 手工构造 spine 缺失书：manifest 两个章节只有一份文件。

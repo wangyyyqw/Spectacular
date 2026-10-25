@@ -373,7 +373,7 @@ class _BookCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cover = Container(
+    final placeholder = Container(
       decoration: BoxDecoration(
         color: HSLColor.fromAHSL(
           1,
@@ -439,6 +439,29 @@ class _BookCard extends StatelessWidget {
         ],
       ),
     );
+    // 封面（§37.3）：缓存文件优先，缺失/解码失败退回书名首字占位。
+    final cover = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (entry.coverPath == null)
+            placeholder
+          else
+            Image.file(
+              File(entry.coverPath!),
+              fit: BoxFit.cover,
+              cacheWidth: 320,
+              errorBuilder: (_, _, _) => placeholder,
+            ),
+          if (entry.status == BookReadingStatus.reading)
+            const Align(
+              alignment: Alignment.bottomLeft,
+              child: _ReadingBadge(),
+            ),
+        ],
+      ),
+    );
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () => onOpen(entry),
@@ -463,6 +486,31 @@ class _BookCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 「在读」角标（P4-04：状态随进度自动更新）。
+class _ReadingBadge extends StatelessWidget {
+  const _ReadingBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: const ValueKey<String>('book-reading-badge'),
+      margin: const EdgeInsets.all(6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '在读',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onPrimary,
+        ),
       ),
     );
   }
