@@ -8,10 +8,11 @@ import 'package:reader_core/epub/importer.dart';
 
 import '../library/library_store.dart';
 import '../reader/epub_reader_page.dart';
+import 'book_detail_sheet.dart';
 import '../storage/file_progress_store.dart';
 import '../storage/import_queue.dart';
 
-/// 书架页：书籍网格、EPUB 导入、点击进入阅读、长按删除。
+/// 书架页：书籍网格、EPUB 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
   const BookshelfPage({
@@ -176,6 +177,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
     await widget.library.touchLastRead(entry.id);
   }
 
+  /// 长按卡片：书籍详情 + 导入报告（P4-06），详情里可删除。
+  Future<void> _openBookDetail(BookEntry entry) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => BookDetailSheet(entry: entry, library: widget.library),
+    );
+    if (action == 'delete' && mounted) {
+      await _confirmRemove(entry);
+    }
+  }
+
   Future<void> _confirmRemove(BookEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -251,7 +265,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                       itemBuilder: (context, index) => _BookCard(
                         entry: books[index],
                         onOpen: _open,
-                        onRemove: _confirmRemove,
+                        onLongPress: _openBookDetail,
                       ),
                     ),
                   ),
@@ -364,11 +378,15 @@ class _ErrorPane extends StatelessWidget {
 }
 
 class _BookCard extends StatelessWidget {
-  const _BookCard({required this.entry, required this.onOpen, required this.onRemove});
+  const _BookCard({
+    required this.entry,
+    required this.onOpen,
+    required this.onLongPress,
+  });
 
   final BookEntry entry;
   final Future<void> Function(BookEntry) onOpen;
-  final Future<void> Function(BookEntry) onRemove;
+  final Future<void> Function(BookEntry) onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -465,7 +483,7 @@ class _BookCard extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () => onOpen(entry),
-      onLongPress: () => onRemove(entry),
+      onLongPress: () => onLongPress(entry),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

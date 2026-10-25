@@ -78,6 +78,37 @@ void main() {
     expect(find.text('书架还是空的'), findsOneWidget, reason: '取消后无残留');
   });
 
+  testWidgets('长按卡片看详情，详情里删除后书架清空', (tester) async {
+    final library = LibraryStore.memory();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: FileReaderProgressStore.memory(),
+          pickEpubFiles: () async => <String>[epubFile.path],
+          readFile: (path) async => File(path).readAsBytesSync(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.text('导入 EPUB'));
+    await _settle(tester, frames: 10);
+    expect(find.text('山海小记'), findsWidgets);
+
+    await tester.longPress(find.text('山海小记').first);
+    await _settle(tester);
+    expect(find.text('导入报告'), findsOneWidget, reason: '长按打开详情面板');
+
+    await tester.tap(find.text('删除本书'));
+    await _settle(tester);
+    expect(find.text('删除《山海小记》'), findsOneWidget, reason: '删除需要确认');
+
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await _settle(tester, frames: 10);
+    expect(await library.list(), isEmpty);
+    expect(find.text('书架还是空的'), findsOneWidget);
+  });
+
   testWidgets('多选两本：队列依次导入并刷新书架', (tester) async {
     final library = LibraryStore.memory();
     final second = File('${temp.path}/第二本.epub')

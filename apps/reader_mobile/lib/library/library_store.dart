@@ -6,6 +6,8 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:reader_core/api.dart';
+import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/epub/epub_document.dart';
 
 import '../storage/db.dart';
@@ -130,6 +132,30 @@ class BookEntry {
     readabilityLevel: readabilityLevel,
     coverPath: coverPath,
   );
+}
+
+/// 导入报告明细（P4-06，`import_reports` 表的一行）。
+@immutable
+class ImportReportEntry {
+  /// 创建条目。
+  const ImportReportEntry({
+    required this.code,
+    required this.severity,
+    required this.message,
+    this.offset,
+  });
+
+  /// 诊断码（P7-05 码表；非码表告警用 `IMPORT_WARNING`）。
+  final String code;
+
+  /// 分级：0 提示、1 警告、2 错误。
+  final int severity;
+
+  /// 人类可读信息。
+  final String message;
+
+  /// 相关文件内偏移（可空）。
+  final int? offset;
 }
 
 /// 导入失败的对外错误（UI 直接展示 message）。
@@ -315,7 +341,7 @@ class LibraryStore {
       _memoryEntries[id] = entry;
     } else {
       final db = _db!;
-      await db.into(db.books).insert(
+      final bookId = await db.into(db.books).insert(
         BooksCompanion.insert(
           uuid: id,
           title: title,
@@ -343,6 +369,8 @@ class LibraryStore {
           ),
         ),
       );
+      // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
+      await _writeImportReports(bookId, result.report);
     }
     onProgress?.call(1);
     _notify();
@@ -421,6 +449,84 @@ class LibraryStore {
         // 权限/占用失败：下次启动扫描清理。
       }
     }
+  }
+
+  /// `CODE: message` 形式的导入告警。
+  static final RegExp _diagnosticPattern = RegExp(
+    r'^([A-Z][A-Z0-9_]{2,}):\s*([\s\S]*)$',
+  );
+
+  /// 写入导入报告明细（P4-06）：每条告警一行，分级取 P7-05 码表。
+  Future<void> _writeImportReports(int bookId, ImportReport report) async {
+    if (report.warnings.isEmpty) {
+      return;
+    }
+    final db = _db!;
+    final createdAt = DateTime.now().millisecondsSinceEpoch;
+    await db.batch((batch) {
+      batch.insertAll(db.importReports, <ImportReportsCompanion>[
+        for (final warning in report.warnings)
+          _reportCompanion(bookId, warning, createdAt),
+      ]);
+    });
+  }
+
+  ImportReportsCompanion _reportCompanion(
+    int bookId,
+    String warning,
+    int createdAt,
+  ) {
+    final trimmed = warning.trim();
+    final match = _diagnosticPattern.firstMatch(trimmed);
+    final code = match?.group(1) ?? 'IMPORT_WARNING';
+    final message = ((match?.group(2) ?? trimmed)).trim();
+    final severity = switch (EpubCodeTable.byCode(code)?.severity) {
+      EpubErrorSeverity.fatal => 2,
+      EpubErrorSeverity.recoverable => 1,
+      EpubErrorSeverity.informational => 0,
+      null => 1,
+    };
+    return ImportReportsCompanion.insert(
+      bookId: bookId,
+      code: code,
+      severity: Value<int>(severity),
+      message: message.isEmpty ? trimmed : message,
+      createdAt: createdAt,
+    );
+  }
+
+  /// 读取某本书的导入报告明细（错误优先，其次按写入顺序）。
+  Future<List<ImportReportEntry>> importReports(String bookId) async {
+    if (_isMemory) {
+      return const <ImportReportEntry>[];
+    }
+    final db = _db!;
+    final bookRows = await (db.select(
+      db.books,
+    )..where((table) => table.uuid.equals(bookId))).get();
+    if (bookRows.isEmpty) {
+      return const <ImportReportEntry>[];
+    }
+    final rows =
+        await (db.select(db.importReports)
+              ..where((table) => table.bookId.equals(bookRows.single.id))
+              ..orderBy([
+                (table) => OrderingTerm(
+                  expression: table.severity,
+                  mode: OrderingMode.desc,
+                ),
+                (table) => OrderingTerm(expression: table.id),
+              ]))
+            .get();
+    return <ImportReportEntry>[
+      for (final row in rows)
+        ImportReportEntry(
+          code: row.code,
+          severity: row.severity,
+          message: row.message,
+          offset: row.offset,
+        ),
+    ];
   }
 
   /// 启动扫描：清理数据库中不存在的书目录与旧格式孤儿文件（§37.4）。
