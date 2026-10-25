@@ -142,6 +142,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
 
+  /// 已聚焦过的页（P4-28：每页只自动聚焦一次）。
+  String? _lastFocusedPageKey;
+
+  /// 新页首块焦点（P4-28）：翻页后把焦点落到第一块，读屏/键盘续读不跳段。
+  final FocusNode _semanticsFirstFocus = FocusNode(
+    debugLabel: 'reader-first-block',
+  );
+
   /// 搜索命中的临时高亮（P4-26，§29.4：3 秒后消失）。
   ReaderAnnotation? _tempHighlight;
   Timer? _tempHighlightTimer;
@@ -922,6 +930,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     _selectionEdgeTimer?.cancel();
     _tempHighlightTimer?.cancel();
+    _semanticsFirstFocus.dispose();
     _backgroundImage?.dispose();
     _tocScrollController.dispose();
     super.dispose();
@@ -947,6 +956,22 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _buildBody(BuildContext context) {
     final page = _session.page;
+    // 翻页后焦点落到新页首块（P4-28）；面板/弹层打开时不抢焦点。
+    final pageKey = page == null ? null : '${page.spineIndex}/${page.pageIndex}';
+    if (pageKey != null && _lastFocusedPageKey != pageKey) {
+      _lastFocusedPageKey = pageKey;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_semanticsFirstFocus.canRequestFocus) {
+          return;
+        }
+        final route = ModalRoute.of(context);
+        if (route != null && route.isCurrent == false) {
+          return;
+        }
+        _semanticsFirstFocus.requestFocus();
+      });
+    }
+
     // 换章（拼页/跳转）后重算标注位置；重排后块 CFI 不变，仍会 verified。
     if (page != null &&
         _annotations.isNotEmpty &&
@@ -1027,6 +1052,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 child: ReaderSemanticsLayer(
                   page: page,
                   pageWidth: size.width - _effectivePadding().horizontal,
+                  firstNodeFocus: _semanticsFirstFocus,
                 ),
               ),
             ),

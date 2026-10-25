@@ -102,6 +102,41 @@ void main() {
     }
   });
 
+  testWidgets('焦点遍历顺序与朗读顺序一致（P4-28）', (tester) async {
+    final firstFocus = FocusNode(debugLabel: 'first-block');
+    addTearDown(firstFocus.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 400,
+            child: ReaderSemanticsLayer(
+              page: _page(),
+              pageWidth: 320,
+              firstNodeFocus: firstFocus,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 每个语义节点都包了 FocusTraversalOrder，顺序号与朗读顺序一致。
+    final orders = tester
+        .widgetList<FocusTraversalOrder>(find.byType(FocusTraversalOrder))
+        .map((widget) => (widget.order as NumericFocusOrder).order)
+        .toList();
+    expect(orders, isNotEmpty);
+    expect(orders, orderedEquals(<double>[...orders]..sort()));
+    expect(orders.first, 0, reason: '页面节点在最前');
+
+    // 首块焦点节点可以请求焦点。
+    expect(firstFocus.canRequestFocus, isTrue);
+    firstFocus.requestFocus();
+    await tester.pump();
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'first-block');
+  });
+
   testWidgets('语义层外层是 IgnorePointer，不接收指针事件', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
