@@ -7,6 +7,9 @@ import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/book_font_loader.dart';
+import 'package:reader_core/css/cascade.dart';
+import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/css/ua_stylesheet.dart' show UaBlockDefaults, uaRules;
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -337,94 +340,6 @@ class EpubChapterSource
       return null;
     });
   }
-
-  /// 行内样式区间解析（真实书适配）：聚合标记按区间边界切分并叠加
-  /// 覆盖它的全部声明（嵌套 span 由内层覆盖外层同名属性），产出
-  /// StyledRun；无命中的区间丢弃（沿用块样式）。
-  static List<StyledRun> _resolveInlineRuns(
-    List<InlineMark> marks,
-    List<CssStylesheet> sheets,
-    ComputedStyle baseStyle,
-  ) {
-    if (marks.isEmpty) {
-      return const <StyledRun>[];
-    }
-    final boundaries = <int>{0};
-    for (final mark in marks) {
-      boundaries
-        ..add(mark.start)
-        ..add(mark.end);
-    }
-    final ordered = boundaries.toList()..sort();
-    final runs = <StyledRun>[];
-    for (var i = 0; i < ordered.length - 1; i++) {
-      final start = ordered[i];
-      final end = ordered[i + 1];
-      var declarations = <String, String>{};
-      for (final mark in marks) {
-        if (mark.start <= start && end <= mark.end) {
-          // 后代选择器（真实书对齐）：mark.chain 最外祖先 → 自身，
-          // 最右复合匹配自身，其余沿链回溯。
-          final chain = mark.chain;
-          if (chain.isEmpty) {
-            continue;
-          }
-          declarations.addAll(
-            _authorDeclarations(
-              sheets,
-              (mark.tag.toLowerCase(), mark.classes.toSet()),
-              [
-                for (final subject in chain.take(chain.length - 1))
-                  (subject.tag.toLowerCase(), subject.classes),
-              ],
-            ),
-          );
-        }
-      }
-      if (declarations.isEmpty) {
-        continue;
-      }
-      // 阅读器基准为 parent：行内字号 em 相对块字号解算；颜色为显式
-      // 覆盖（fmsA3 等面板文字着色）。
-      runs.add(
-        StyledRun(
-          start: start,
-          end: end,
-          style: ComputedStyle(
-            declarations,
-            parent: baseStyle,
-            explicitProperties: declarations.keys.toSet(),
-            hasExplicitTextColor: declarations.containsKey('color'),
-            containingWidth: 0,
-            rootFontSize: baseStyle.fontSize,
-          ),
-        ),
-      );
-    }
-    return runs;
-  }
-
-  /// 把作者 font-family 声明中的书内字体族映射为引擎族名（已注册者），
-  /// 未命中的族原样保留（别名映射与默认 CJK 链兜底）。
-  String? _mapBookFontFamilies(String? raw) {    final loader = _fontLoader;
-    if (raw == null || loader == null) {
-      return raw;
-    }
-    final families = raw
-        .split(',')
-        .map((family) => family.trim().replaceAll('"', '').replaceAll("'", ''))
-        .where((family) => family.isNotEmpty)
-        .toList();
-    if (families.isEmpty) {
-      return raw;
-    }
-    return families
-        .map((family) => loader.engineFamily(family) ?? family)
-        .join(',');
-  }
-
-  /// 章节作者样式表（真实书适配）：提取章节 `<link rel=stylesheet>`
-  /// 与 `<style>`，按文档顺序解析；CSS 文件字节按 URL 缓存。
   List<CssStylesheet> _chapterStylesheets(int spineIndex) {    return _chapterSheetCache.putIfAbsent(spineIndex, () {
       final item = document.spine[spineIndex];
       final xhtmlPath =
@@ -469,21 +384,39 @@ class EpubChapterSource
     });
   }
 
-  /// 选择器匹配主体（真实书对齐）：标签 + class 集；块级与行内同构。
-  static (String, Set<String>) _subjectOf(String tag, String? classes) => (
-        tag.toLowerCase(),
-        (classes ?? '')
-            .split(RegExp(r'\s+'))
-            .where((c) => c.isNotEmpty)
-            .toSet(),
-      );
+  /// 链缓存键（P8-02）：tag#id.class 按链拼接。
+  /// 内联 style 属性声明解析（P8-02）：`k:v; k2:v2 !important` →
+  /// 引擎 CssDeclaration（参与 inline 源级联）。
+  static List<CssDeclaration> _inlineDeclarationsOf(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return const <CssDeclaration>[];
+    }
+    final result = <CssDeclaration>[];
+    for (final part in raw.split(';')) {
+      final colon = part.indexOf(':');
+      if (colon <= 0) {
+        continue;
+      }
+      var value = part.substring(colon + 1).trim();
+      var important = false;
+      if (value.toLowerCase().endsWith('!important')) {
+        important = true;
+        value = value.substring(0, value.length - '!important'.length).trim();
+      }
+      final property = part.substring(0, colon).trim().toLowerCase();
+      if (property.isNotEmpty && value.isNotEmpty && !property.startsWith('-')) {
+        result.add(
+          CssDeclaration(property: property, value: value, important: important),
+        );
+      }
+    }
+    return result;
+  }
 
-  /// 祖先传导的继承类属性（CSS inherited properties 子集）。
-  static const _inheritedProps = <String>{
-    'color', 'font-family', 'font-size', 'font-style', 'font-weight',
-    'line-height', 'letter-spacing', 'word-spacing', 'text-align',
-    'text-indent', 'text-decoration', 'white-space',
-  };
+  static String _chainKey(List<SelectorElement> chain) => [
+    for (final view in chain)
+      '${view.tag}#${view.attributes['id'] ?? ''}.${(view.attributes['class'] ?? '').trim()}',
+  ].join('>');
 
   /// 祖先传导的盒类近似属性：flat 无嵌套盒子，容器面板（背景/左右
   /// 边框/左右内边距）由后代块拼合呈现（P3-30 marginBox 路径消费）。
@@ -491,152 +424,6 @@ class EpubChapterSource
     'background-color', 'border-left', 'border-right',
     'padding-left', 'padding-right', 'margin-left', 'margin-right',
   };
-
-  /// 复合选择器（`p.a.b` / `.a` / `p` / `*`）匹配主体。
-  static bool _matchesCompound(String compound, (String, Set<String>) subject) {
-    var selector = compound;
-    var isStar = false;
-    if (selector == '*' || selector.isEmpty) {
-      isStar = true;
-      selector = '';
-    }
-    final dot = selector.indexOf('.');
-    final selectorTag = (dot < 0 ? selector : selector.substring(0, dot))
-        .toLowerCase();
-    final selectorClasses = dot < 0
-        ? const <String>{}
-        : selector
-            .substring(dot + 1)
-            .split('.')
-            .where((c) => c.isNotEmpty)
-            .toSet();
-    if (!isStar && selectorTag.isNotEmpty && selectorTag != subject.$1) {
-      return false;
-    }
-    if (selectorClasses.isNotEmpty &&
-        !selectorClasses.every(subject.$2.contains)) {
-      return false;
-    }
-    return true;
-  }
-
-  /// 完整选择器匹配（右到左）：最右复合匹配当前元素，其余复合沿祖先
-  /// 链回溯——后代组合器（空格）任意祖先、子代组合器（>）仅父级。
-  /// [ancestors] 为根 → 父的有序链。
-  static bool _matchesChain(
-    List<String> compounds,
-    List<bool> childBetween,
-    (String, Set<String>) current,
-    List<(String, Set<String>)> ancestors,
-  ) {
-    if (!_matchesCompound(compounds.last, current)) {
-      return false;
-    }
-    var selectorIndex = compounds.length - 2;
-    var ancestorIndex = ancestors.length - 1;
-    while (selectorIndex >= 0) {
-      final isChild = childBetween[selectorIndex];
-      if (isChild) {
-        if (ancestorIndex < 0 ||
-            !_matchesCompound(
-              compounds[selectorIndex],
-              ancestors[ancestorIndex],
-            )) {
-          return false;
-        }
-        ancestorIndex -= 1;
-      } else {
-        var matched = false;
-        while (ancestorIndex >= 0) {
-          if (_matchesCompound(
-            compounds[selectorIndex],
-            ancestors[ancestorIndex],
-          )) {
-            matched = true;
-            ancestorIndex -= 1;
-            break;
-          }
-          ancestorIndex -= 1;
-        }
-        if (!matched) {
-          return false;
-        }
-      }
-      selectorIndex -= 1;
-    }
-    return true;
-  }
-
-  /// 解析一段选择器：拆组合器（空格=后代、>=子代），含伪类/属性/#id/
-  /// 兄弟组合器的段返回 null（不支持，跳过）。
-  static (List<String>, List<bool>)? _parseSelector(String selector) {
-    final tokens = selector
-        .trim()
-        .replaceAll('>', ' > ')
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
-        .toList();
-    final compounds = <String>[];
-    final childBetween = <bool>[];
-    var pendingChild = false;
-    for (final token in tokens) {
-      if (token == '>') {
-        if (compounds.isEmpty || pendingChild) {
-          return null; // 开头的 > 或连续组合器。
-        }
-        pendingChild = true;
-        continue;
-      }
-      if (token.contains(':') ||
-          token.contains('#') ||
-          token.contains('[') ||
-          token.contains('+') ||
-          token.contains('~')) {
-        return null;
-      }
-      if (compounds.isNotEmpty) {
-        childBetween.add(pendingChild);
-      }
-      compounds.add(token);
-      pendingChild = false;
-    }
-    if (compounds.isEmpty || pendingChild) {
-      return null;
-    }
-    return (compounds, childBetween);
-  }
-
-  /// 匹配作者声明（真实书对齐）：单复合 + 后代/子代组合器；@media 与
-  /// 不支持段跳过；保持文档顺序，后声明覆盖先声明（同优先级级联）。
-  /// [ancestors] 根→父链；[current] 当前元素。
-  static Map<String, String> _authorDeclarations(
-    List<CssStylesheet> sheets,
-    (String, Set<String>) current,
-    List<(String, Set<String>)> ancestors,
-  ) {
-    final merged = <String, String>{};
-    for (final sheet in sheets) {
-      for (final rule in sheet.rules) {
-        if (rule.media != null) {
-          continue;
-        }
-        for (final raw in rule.selector.split(',')) {
-          final parsed = _parseSelector(raw);
-          if (parsed == null) {
-            continue;
-          }
-          if (!_matchesChain(parsed.$1, parsed.$2, current, ancestors)) {
-            continue;
-          }
-          for (final declaration in rule.declarations) {
-            merged[declaration.property] = declaration.value;
-          }
-        }
-      }
-    }
-    return merged;
-  }
-
   /// 图片显示尺寸：width/height 属性（% 或 px）优先，缺边按原始宽高比
   /// 补齐；CSS class 尺寸（textiE1 的 width:100%）flat 管线暂不解析，
   /// 无属性时按全宽近似。高超出页高时钳制（contain 绘制不变形）。
@@ -1016,116 +803,162 @@ class EpubChapterSource
     gatherImageSrcs(document.root);
     final blocks = <PageBlock>[];
 
-    // 块级样式（P7-03 + 真实书对齐）：UA 标签默认 + 祖先传导（继承类
-    // 属性 + 盒类近似：背景/左右边框/左右内边距透传给后代块——flat 无
-    // 嵌套盒子，容器面板由子块拼合）+ 作者 CSS（单复合/后代/子代）+
-    // 内联 style，级联后声明覆盖先声明；em 相对阅读器基准字号解算。
-    // 同（标签, class, 引用深度, 祖先链）只构造一次。
+    // 块级样式（P8-02 链式级联）：UA（uaRules）+ 作者样式表（私有钩子
+    // 契约过滤）+ 内联 style 三源进 Cascade.compute——特异性/!important/
+    // @media/继承（18 项继承表）全部由引擎处理；flat 管线只补盒类近似
+    // 传导与引用深度。前缀缓存：同容器兄弟块共享祖先计算结果。
     final sheets = _chapterStylesheets(spineIndex);
     await _ensureBookFonts(sheets);
-    final uaStyles = <String, ComputedStyle>{};
+    final cascadeRules = <CascadeRule>[
+      ...uaRules(),
+      for (var i = 0; i < sheets.length; i++)
+        ...CascadeRule.fromStylesheet(
+          sheets[i],
+          origin: CascadeOrigin.author,
+          startOrder: 1000 + i * 10000,
+        ),
+    ];
+    final chainStyleCache = <String, ComputedStyle>{};
     var figureSeq = 0;
-    ComputedStyle styleFor(
-      String tag, {
-      Map<String, String>? attributes,
-      int quoteDepth = 0,
-      List<(String, Set<String>)> ancestors = const [],
-    }) {
-      final classes = attributes?['class'];
-      final chainKey = ancestors
-          .map((s) => '${s.$1}.${s.$2.join('_')}')
-          .join('>');
-      final key = '$tag|$classes|$quoteDepth|$chainKey';
-      final cached = uaStyles[key];
-      if (cached != null) {
-        return cached;
+
+    /// 链式级联样式（P8-02）：链上每级元素经 Cascade.compute（UA +
+    /// 作者 + 内联三源、特异性、!important、@media），继承语义由引擎
+    /// 的 18 项继承表保证；前缀缓存使同容器兄弟块共享祖先计算结果。
+    ComputedStyle chainStyle(List<SelectorElement> chain) {
+      if (chain.isEmpty) {
+        return style;
       }
-      final current = _subjectOf(tag, classes);
-      final own = _authorDeclarations(sheets, current, ancestors);
-      // 祖先传导：逐级匹配祖先自身的规则，取继承类 + 盒近似类属性；
-      // 近祖先覆盖远祖先（CSS 继承就近原则）。
-      final inherited = <String, String>{};
-      for (var i = 0; i < ancestors.length; i++) {
-        final anc = _authorDeclarations(
-          sheets,
-          ancestors[i],
-          ancestors.sublist(0, i),
-        );
-        for (final entry in anc.entries) {
-          if (_inheritedProps.contains(entry.key) ||
-              _promotedBoxProps.contains(entry.key)) {
-            inherited[entry.key] = entry.value;
-          }
-        }
-      }
-      final declarations = <String, String>{
-        ...UaBlockDefaults.declarationsFor(tag),
-        ...inherited,
-        ...own,
-      };
-      // 内联 style 属性（真实书适配）：声明级最高优先级，简单 k:v 解析。
-      final inline = attributes?['style'];
-      if (inline != null && inline.isNotEmpty) {
-        for (final part in inline.split(';')) {
-          final colon = part.indexOf(':');
-          if (colon <= 0) {
-            continue;
-          }
-          final prop = part.substring(0, colon).trim().toLowerCase();
-          final value = part
-              .substring(colon + 1)
-              .trim()
-              .replaceAll('!important', '')
-              .trim();
-          if (prop.isNotEmpty && value.isNotEmpty && !prop.startsWith('-')) {
-            declarations[prop] = value;
-          }
-        }
-      }
-      final mappedFamily = _mapBookFontFamilies(declarations['font-family']);
-      if (mappedFamily != null) {
-        declarations['font-family'] = mappedFamily;
-      }
-      if (declarations.isEmpty && quoteDepth == 0) {
-        return uaStyles[key] = style;
-      }
-      if (quoteDepth == 0) {
-        return uaStyles[key] = ComputedStyle(
-          declarations,
-          parent: style,
-          explicitProperties: declarations.keys.toSet(),
-          containingWidth: contentWidth,
+      final key = _chainKey(chain);
+      return chainStyleCache.putIfAbsent(key, () {
+        final parent = chain.length > 1
+            ? chainStyle(chain.sublist(0, chain.length - 1))
+            : style;
+        return Cascade.compute(
+          element: chain.last,
+          ancestors: chain.sublist(0, chain.length - 1),
+          rules: cascadeRules,
+          inlineDeclarations: _inlineDeclarationsOf(
+            chain.last.attributes['style'],
+          ),
+          parent: parent,
           rootFontSize: style.fontSize,
+          containingWidth: contentWidth,
         );
+      });
+    }
+
+    /// 块级样式入口（P8-02）：链式级联结果 + 容器盒类近似传导 +
+    /// 引用深度边距叠加。
+    ComputedStyle styleForChain(
+      List<SelectorElement> chain, {
+      int quoteDepth = 0,
+    }) {
+      final computed = chainStyle(chain);
+      // 容器盒类近似传导：flat 无嵌套盒子，祖先的背景/左右边框/
+      // 左右内边距透传给子块（子块自身声明优先；水平间距相加）。
+      final promoted = <String, String>{};
+      var extraLeft = 0.0;
+      var extraRight = 0.0;
+      for (var i = 0; i < chain.length - 1; i++) {
+        final ancStyle = chainStyle(chain.sublist(0, i + 1));
+        final values = ancStyle.values;
+        for (final prop in _promotedBoxProps) {
+          final value = values[prop];
+          if (value != null) {
+            promoted[prop] = value;
+          }
+        }
+        extraLeft += ancStyle.padding.left + ancStyle.margin.left;
+        extraRight += ancStyle.padding.right + ancStyle.margin.right;
       }
-      // 引用容器（M2）：flat 管线无 blockquote 盒子，容器的左右边距
-      // 按嵌套深度叠加到子块声明上（WHATWG 15.3.3 一层 40px）。
-      final fallback = declarations.isEmpty
-          ? style
-          : ComputedStyle(
-              declarations,
-              parent: style,
-              explicitProperties: declarations.keys.toSet(),
-              containingWidth: contentWidth,
-              rootFontSize: style.fontSize,
-            );
-      final extra = 40.0 * quoteDepth;
-      final quoteDeclarations = <String, String>{
-        ...declarations,
-        'margin-left': '${fallback.margin.left + extra}px',
-        'margin-right': '${fallback.margin.right + extra}px',
-      };
-      return uaStyles[key] = ComputedStyle(
-        quoteDeclarations,
+      // 引用深度（M2→P8-02 语义演进）：blockquote 的 UA 左右边距经
+      // 盒传导逐层累加（嵌套两层 80px，与 CSS 盒嵌套近似一致），
+      // quoteDepth 不再叠加（避免双重计算）。
+      if (promoted.isEmpty && extraLeft == 0 && extraRight == 0) {
+        return computed;
+      }
+      final declarations = <String, String>{...promoted, ...computed.values};
+      if (extraLeft > 0) {
+        declarations['margin-left'] = '${computed.margin.left + extraLeft}px';
+      }
+      if (extraRight > 0) {
+        declarations['margin-right'] = '${computed.margin.right + extraRight}px';
+      }
+      // 容器 padding/border 折算子块内缩（复用盒传导声明）。
+      return ComputedStyle(
+        declarations,
         parent: style,
-        explicitProperties: quoteDeclarations.keys.toSet(),
+        explicitProperties: declarations.keys.toSet(),
         containingWidth: contentWidth,
         rootFontSize: style.fontSize,
       );
     }
 
+    /// 兼容入口：按（标签, 属性）构造单元素视图走链式级联。
+    ComputedStyle styleFor(
+      String tag, {
+      Map<String, String>? attributes,
+      int quoteDepth = 0,
+    }) {
+      final self = _NodeView(
+        tag,
+        attributes ?? const <String, String>{},
+        const <SelectorElement>[],
+      );
+      return styleForChain(<SelectorElement>[self], quoteDepth: quoteDepth);
+    }
+
+    /// 行内样式区间（P8-02）：聚合标记链（块级 + 行内祖先 → 自身）转
+    /// 匹配视图走引擎级联；自身有显式声明的区间产出 StyledRun。
+    List<StyledRun> resolveInlineRuns(List<InlineMark> marks) {
+      if (marks.isEmpty) {
+        return const <StyledRun>[];
+      }
+      final boundaries = <int>{0};
+      for (final mark in marks) {
+        boundaries
+          ..add(mark.start)
+          ..add(mark.end);
+      }
+      final ordered = boundaries.toList()..sort();
+      final runs = <StyledRun>[];
+      for (var i = 0; i < ordered.length - 1; i++) {
+        final start = ordered[i];
+        final end = ordered[i + 1];
+        ComputedStyle? resolved;
+        for (final mark in marks) {
+          if (mark.start > start || end > mark.end || mark.chain.isEmpty) {
+            continue;
+          }
+          final viewChain = <SelectorElement>[
+            for (final subject in mark.chain.take(mark.chain.length - 1))
+              _NodeView(
+                subject.tag.toLowerCase(),
+                <String, String>{'class': subject.classes.join(' ')},
+                const <SelectorElement>[],
+              ),
+            _NodeView(
+              mark.tag.toLowerCase(),
+              <String, String>{'class': mark.classes.join(' ')},
+              const <SelectorElement>[],
+            ),
+          ];
+          final computed = chainStyle(viewChain);
+          if (computed.explicitProperties.isEmpty) {
+            continue;
+          }
+          // 内层（后遍历）覆盖外层同名属性。
+          resolved = computed;
+        }
+        if (resolved != null) {
+          runs.add(StyledRun(start: start, end: end, style: resolved));
+        }
+      }
+      return runs;
+    }
+
     /// 浮动方向检测（flat 管线接入）：内联 style `float:`、历史 `align`
-    /// 属性、作者 CSS class 规则三处来源。
+    /// 属性、作者 CSS class 规则三处来源（P8-02：CSS 规则经引擎级联）。
     FloatSide? floatSideOf(Map<String, String> attributes) {
       final inline = attributes['style'] ?? '';
       final inlineMatch = RegExp(
@@ -1141,11 +974,14 @@ class EpubChapterSource
       if (align == 'left' || align == 'right') {
         return align == 'left' ? FloatSide.left : FloatSide.right;
       }
-      final declared = _authorDeclarations(
-        sheets,
-        _subjectOf('img', attributes['class']),
-        const <(String, Set<String>)>[],
-      )['float']?.toLowerCase();
+      final view = _NodeView(
+        'img',
+        <String, String>{
+          if (attributes['class'] != null) 'class': attributes['class']!,
+        },
+        const <SelectorElement>[],
+      );
+      final declared = chainStyle([view]).values['float']?.toLowerCase();
       if (declared == 'left' || declared == 'right') {
         return declared == 'left' ? FloatSide.left : FloatSide.right;
       }
@@ -1495,7 +1331,7 @@ class EpubChapterSource
       int groupId = 0,
       _ListContext? list,
       int quoteDepth = 0,
-      List<(String, Set<String>)> ancestors = const [],
+      List<SelectorElement> ancestors = const <SelectorElement>[],
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
@@ -1503,24 +1339,17 @@ class EpubChapterSource
         if (text.trim().isEmpty) {
           return;
         }
-        final blockStyle = styleFor(
-          blockTag,
-          attributes: attributes,
-          quoteDepth: quoteDepth,
-          // ancestors 链末位即当前块自身，匹配用父链（去掉末位）。
-          ancestors: ancestors.length > 1
-              ? ancestors.sublist(0, ancestors.length - 1)
-              : const <(String, Set<String>)>[],
-        );
+        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）。
+        final blockStyle = styleForChain(ancestors, quoteDepth: quoteDepth);
         // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
         String? marker;
-        if (blockTag == 'li' && list != null) {
+        if (ancestors.isNotEmpty && ancestors.last.tag == 'li' &&
+            list != null) {
           marker = list.nextMarker();
         }
-        // 行内样式区间（真实书适配）：聚合标记 → 作者 CSS 声明 →
-        // StyledRun 混排（span 彩色文字/粗斜体等）。
+        // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排。
         final runs = node is TextContentNode
-            ? _resolveInlineRuns(node.inlineMarks, sheets, blockStyle)
+            ? resolveInlineRuns(node.inlineMarks)
             : const <StyledRun>[];
         final layout = _layoutCache.layout(
           text: text,
@@ -1602,11 +1431,16 @@ class EpubChapterSource
         // 引用深度（M2）：blockquote 每层 +1，容器左右边距叠加到子块。
         final childQuoteDepth =
             node.tag == 'blockquote' ? quoteDepth + 1 : quoteDepth;
-        // 祖先链（真实书对齐）：块级元素入链，后代/子代选择器匹配用。
-        final childAncestors = <(String, Set<String>)>[
-          ...ancestors,
-          _subjectOf(node.tag, node.attributes['class']),
+        // 祖先链（P8-02）：块级元素入链（含兄弟池视图），选择器匹配用。
+        final childViews = <SelectorElement>[
+          for (final child in node.children)
+            if (child is BlockNode)
+              _NodeView(child.tag, child.attributes, const <SelectorElement>[])
+            else if (child is InlineNode)
+              _NodeView(child.tag, child.attributes, const <SelectorElement>[]),
         ];
+        final selfView = _NodeView(node.tag, node.attributes, childViews);
+        final childAncestors = <SelectorElement>[...ancestors, selfView];
         for (final child in node.children) {
           collect(
             child,
@@ -1638,7 +1472,11 @@ class EpubChapterSource
       'body',
       attributes: document.root.attributes,
       ancestors: [
-        _subjectOf('body', document.root.attributes['class']),
+        _NodeView(
+          'body',
+          document.root.attributes,
+          const <SelectorElement>[],
+        ),
       ],
     );
 
@@ -1706,4 +1544,20 @@ class _ListContext {
     const bullets = <String>['•', '○', '▪'];
     return bullets[depth.clamp(0, 2)];
   }
+}
+
+/// 选择器匹配视图（P8-02）：flat 管线聚合树的节点适配 SelectorElement。
+/// 兄弟池（子代组合器回溯）只读属性层——子视图 childElements 为空表。
+class _NodeView implements SelectorElement {
+  /// 创建视图。
+  const _NodeView(this.tag, this.attributes, this.childElements);
+
+  @override
+  final String tag;
+
+  @override
+  final Map<String, String> attributes;
+
+  @override
+  final List<SelectorElement> childElements;
 }

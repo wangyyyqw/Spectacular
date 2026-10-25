@@ -98,6 +98,11 @@ abstract final class Cascade {
     var sequence = 0;
     for (final entry in sorted) {
       final rule = entry.$1;
+      // @media 过滤（P8-02）：条件不命中视口的规则不参与级联。
+      final media = rule.rule.media;
+      if (media != null && !mediaMatches(media, containingWidth)) {
+        continue;
+      }
       Specificity? matchedSpecificity;
       for (final selector in rule.selectors.selectors) {
         if (!selector.matches(element, ancestors)) {
@@ -176,6 +181,59 @@ abstract final class Cascade {
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
     );
+  }
+
+  /// @media 求值（P8-02，CSS 2.1 简化）：媒体类型 all/screen 命中、
+  /// print/speech 不命中（阅读器按屏媒渲染）；min/max-width(px) 对
+  /// 视口宽；逗号=或、and=与、not=非。
+  static bool mediaMatches(String media, double viewportWidth) {
+    for (final clause in media.split(',')) {
+      if (_mediaClause(clause.trim(), viewportWidth)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _mediaClause(String clause, double width) {
+    var text = clause;
+    var negate = false;
+    if (text.startsWith('not ')) {
+      negate = true;
+      text = text.substring(4).trim();
+    }
+    if (text.startsWith('only ')) {
+      text = text.substring(5).trim();
+    }
+    var result = true;
+    for (final part in text.split(RegExp(r'\s+and\s+'))) {
+      if (!_mediaFeature(part.trim(), width)) {
+        result = false;
+        break;
+      }
+    }
+    return negate ? !result : result;
+  }
+
+  static bool _mediaFeature(String feature, double width) {
+    final f = feature.toLowerCase();
+    if (f.isEmpty || f == 'all' || f == 'screen') {
+      return true;
+    }
+    if (f == 'print' || f == 'speech' || f == 'handheld' || f == 'aural') {
+      return false;
+    }
+    final m = RegExp(
+      r'\((min|max)-width\s*:\s*([\d.]+)(px|em)?\)',
+    ).firstMatch(f);
+    if (m == null) {
+      return false;
+    }
+    final isMin = m.group(1) == 'min';
+    final value = double.tryParse(m.group(2)!) ?? 0;
+    final unit = m.group(3);
+    final px = unit == 'em' ? value * 16 : value;
+    return isMin ? width >= px : width <= px;
   }
 
   static void _consider(
