@@ -11,8 +11,10 @@ class SelectionLayer extends StatelessWidget {
   const SelectionLayer({
     super.key,
     required this.page,
+    required this.pageIndex,
     required this.selection,
     required this.onChanged,
+    this.onEdgeDrag,
     this.color = const Color(0x4D5B8DEF),
     this.handleColor = const Color(0xFF5B8DEF),
   });
@@ -20,11 +22,20 @@ class SelectionLayer extends StatelessWidget {
   /// 当前页。
   final PageContent page;
 
+  /// 当前页序号（跨页选区按页拆分，§63.5）。
+  final int pageIndex;
+
   /// 当前选区。
   final ReaderSelection selection;
 
-  /// 选区变化回调（拖拽手柄）。
+  /// 选区变化回调（拖拽手柄，参数是该页的局部选区）。
   final ValueChanged<ReaderSelection> onChanged;
+
+  /// 拖到页边超时触发翻页（§63.5：延时 300ms 避免误触）。
+  final ValueChanged<bool>? onEdgeDrag;
+
+  /// 边缘热区高度（逻辑像素）：拖进底部/顶部这段区域即触发翻页。
+  static const double edgeHotZone = 48;
 
   /// 高亮颜色。
   final Color color;
@@ -34,7 +45,9 @@ class SelectionLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final geometry = SelectionOps.geometryOf(page, selection);
+    final geometry =
+        SelectionOps.geometryForPage(page, pageIndex, selection) ??
+        SelectionOps.geometryOf(page, selection);
     final hotSize =
         SelectionOps.handleDot + SelectionOps.handleTouchPadding * 2;
     return Stack(
@@ -88,6 +101,18 @@ class SelectionLayer extends StatelessWidget {
             return;
           }
           final local = box.globalToLocal(details.globalPosition);
+          final onEdge = onEdgeDrag;
+          if (onEdge != null) {
+            final height = box.size.height;
+            if (local.dy > height - edgeHotZone) {
+              onEdge(true);
+              return;
+            }
+            if (local.dy < edgeHotZone) {
+              onEdge(false);
+              return;
+            }
+          }
           onDrag(local);
         },
         child: Center(
@@ -105,11 +130,13 @@ class SelectionLayer extends StatelessWidget {
   }
 
   void _drag(ReaderSelection current, {required bool start, required Offset local}) {
-    // 拖拽是字符级（§63.2），命中已钳制在页内，不会越页。
+    // 拖拽是字符级（§63.2），命中已钳制在页内；跨页由边缘翻页扩展。
+    final localSelection =
+        SelectionOps.localSelectionOf(page, pageIndex, current) ?? current;
     final hit = SelectionOps.charAt(page, local);
     final next = start
-        ? ReaderSelection.normalized(hit, current.end)
-        : ReaderSelection.normalized(current.start, hit);
+        ? ReaderSelection.normalized(hit, localSelection.end)
+        : ReaderSelection.normalized(localSelection.start, hit);
     if (next.start != current.start || next.end != current.end) {
       onChanged(next);
     }
