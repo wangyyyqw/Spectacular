@@ -1,6 +1,57 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import '../css/computed_style.dart';
+import 'line_breaker.dart';
+
+/// 表格单元格的渲染载荷（flat 管线接入）：一格的文字排版结果与
+/// 计算样式，坐标为表格局部坐标系（含跨列合并区域）。
+class TableCellRender {
+  /// 创建渲染格。
+  const TableCellRender({
+    required this.row,
+    required this.rect,
+    required this.layout,
+    required this.style,
+  });
+
+  /// 所在行号（全表行号）。
+  final int row;
+
+  /// 合并区域矩形（表格局部坐标）。
+  final Rect rect;
+
+  /// 格内文字排版结果（按列宽测量）。
+  final TextLayoutResult layout;
+
+  /// 格计算样式（对齐/字体等，绘制层消费）。
+  final ComputedStyle style;
+}
+
+/// 一页表格切片的渲染规格：格载荷 + 网格线坐标 + 行区间。
+/// 由章节源测量产出、PageBlock.table 携带、PageRenderer 绘制。
+class TableRenderSpec {
+  /// 创建渲染规格。
+  const TableRenderSpec({
+    required this.cells,
+    required this.columnXs,
+    required this.rowYs,
+    required this.tableWidth,
+  });
+
+  /// 本切片内的格（行区间过滤 + 坐标已平移到切片顶）。
+  final List<TableCellRender> cells;
+
+  /// 列界坐标（含首 0 与末界，表格局部坐标）。
+  final List<double> columnXs;
+
+  /// 行界坐标（本切片内的行，含首 0 与末界，切片局部坐标）。
+  final List<double> rowYs;
+
+  /// 表格总宽。
+  final double tableWidth;
+}
+
 /// 表格列宽两遍测量（P3-17，技术方案 §8.5、CSS Tables 3 的简化口径）。
 ///
 /// 第一遍：单元格按全宽测出自然宽（max-content），列自然宽 = 行内最大；
@@ -306,6 +357,12 @@ class TableGridLayout {
 
   /// 表格总尺寸。
   Size get size => Size(_columnX.last, _rowY.last);
+
+  /// 列界坐标（含首 0 与末界，渲染层画竖线用）。
+  List<double> get columnXs => List<double>.unmodifiable(_columnX);
+
+  /// 行界坐标（含首 0 与末界，全表坐标；渲染层画横线用）。
+  List<double> get rowYs => List<double>.unmodifiable(_rowY);
 
   /// 单元格合并区域矩形；越界返回 null。
   TableCellRect? cellRectAt(int row, int cellIndex) {
