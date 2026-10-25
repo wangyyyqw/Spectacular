@@ -2655,6 +2655,28 @@ class $ReadingProgressTable extends ReadingProgress
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _spineIndexMeta = const VerificationMeta(
+    'spineIndex',
+  );
+  @override
+  late final GeneratedColumn<int> spineIndex = GeneratedColumn<int>(
+    'spine_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pageIndexMeta = const VerificationMeta(
+    'pageIndex',
+  );
+  @override
+  late final GeneratedColumn<int> pageIndex = GeneratedColumn<int>(
+    'page_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _percentMeta = const VerificationMeta(
     'percent',
   );
@@ -2682,6 +2704,8 @@ class $ReadingProgressTable extends ReadingProgress
   List<GeneratedColumn> get $columns => [
     bookId,
     locatorCfi,
+    spineIndex,
+    pageIndex,
     percent,
     updatedAt,
   ];
@@ -2710,6 +2734,18 @@ class $ReadingProgressTable extends ReadingProgress
       );
     } else if (isInserting) {
       context.missing(_locatorCfiMeta);
+    }
+    if (data.containsKey('spine_index')) {
+      context.handle(
+        _spineIndexMeta,
+        spineIndex.isAcceptableOrUnknown(data['spine_index']!, _spineIndexMeta),
+      );
+    }
+    if (data.containsKey('page_index')) {
+      context.handle(
+        _pageIndexMeta,
+        pageIndex.isAcceptableOrUnknown(data['page_index']!, _pageIndexMeta),
+      );
     }
     if (data.containsKey('percent')) {
       context.handle(
@@ -2742,6 +2778,14 @@ class $ReadingProgressTable extends ReadingProgress
         DriftSqlType.string,
         data['${effectivePrefix}locator_cfi'],
       )!,
+      spineIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}spine_index'],
+      ),
+      pageIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}page_index'],
+      ),
       percent: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}percent'],
@@ -2763,8 +2807,14 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   /// 书籍主键兼外键。
   final int bookId;
 
-  /// 位置 CFI。
+  /// 位置 CFI（P5 接入 CFI 后使用；当前存 `spine:i/page:j` 占位串）。
   final String locatorCfi;
+
+  /// spine 序号（P4-10：进度迁移到表内，书架/续读用）。
+  final int? spineIndex;
+
+  /// 章内页序号。
+  final int? pageIndex;
 
   /// 全书百分比（0～1）。
   final double percent;
@@ -2774,6 +2824,8 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   const ProgressRow({
     required this.bookId,
     required this.locatorCfi,
+    this.spineIndex,
+    this.pageIndex,
     required this.percent,
     required this.updatedAt,
   });
@@ -2782,6 +2834,12 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     final map = <String, Expression>{};
     map['book_id'] = Variable<int>(bookId);
     map['locator_cfi'] = Variable<String>(locatorCfi);
+    if (!nullToAbsent || spineIndex != null) {
+      map['spine_index'] = Variable<int>(spineIndex);
+    }
+    if (!nullToAbsent || pageIndex != null) {
+      map['page_index'] = Variable<int>(pageIndex);
+    }
     map['percent'] = Variable<double>(percent);
     map['updated_at'] = Variable<int>(updatedAt);
     return map;
@@ -2791,6 +2849,12 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return ReadingProgressCompanion(
       bookId: Value(bookId),
       locatorCfi: Value(locatorCfi),
+      spineIndex: spineIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(spineIndex),
+      pageIndex: pageIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pageIndex),
       percent: Value(percent),
       updatedAt: Value(updatedAt),
     );
@@ -2804,6 +2868,8 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return ProgressRow(
       bookId: serializer.fromJson<int>(json['bookId']),
       locatorCfi: serializer.fromJson<String>(json['locatorCfi']),
+      spineIndex: serializer.fromJson<int?>(json['spineIndex']),
+      pageIndex: serializer.fromJson<int?>(json['pageIndex']),
       percent: serializer.fromJson<double>(json['percent']),
       updatedAt: serializer.fromJson<int>(json['updatedAt']),
     );
@@ -2814,6 +2880,8 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return <String, dynamic>{
       'bookId': serializer.toJson<int>(bookId),
       'locatorCfi': serializer.toJson<String>(locatorCfi),
+      'spineIndex': serializer.toJson<int?>(spineIndex),
+      'pageIndex': serializer.toJson<int?>(pageIndex),
       'percent': serializer.toJson<double>(percent),
       'updatedAt': serializer.toJson<int>(updatedAt),
     };
@@ -2822,11 +2890,15 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   ProgressRow copyWith({
     int? bookId,
     String? locatorCfi,
+    Value<int?> spineIndex = const Value.absent(),
+    Value<int?> pageIndex = const Value.absent(),
     double? percent,
     int? updatedAt,
   }) => ProgressRow(
     bookId: bookId ?? this.bookId,
     locatorCfi: locatorCfi ?? this.locatorCfi,
+    spineIndex: spineIndex.present ? spineIndex.value : this.spineIndex,
+    pageIndex: pageIndex.present ? pageIndex.value : this.pageIndex,
     percent: percent ?? this.percent,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -2836,6 +2908,10 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
       locatorCfi: data.locatorCfi.present
           ? data.locatorCfi.value
           : this.locatorCfi,
+      spineIndex: data.spineIndex.present
+          ? data.spineIndex.value
+          : this.spineIndex,
+      pageIndex: data.pageIndex.present ? data.pageIndex.value : this.pageIndex,
       percent: data.percent.present ? data.percent.value : this.percent,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -2846,6 +2922,8 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return (StringBuffer('ProgressRow(')
           ..write('bookId: $bookId, ')
           ..write('locatorCfi: $locatorCfi, ')
+          ..write('spineIndex: $spineIndex, ')
+          ..write('pageIndex: $pageIndex, ')
           ..write('percent: $percent, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -2853,13 +2931,22 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   }
 
   @override
-  int get hashCode => Object.hash(bookId, locatorCfi, percent, updatedAt);
+  int get hashCode => Object.hash(
+    bookId,
+    locatorCfi,
+    spineIndex,
+    pageIndex,
+    percent,
+    updatedAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ProgressRow &&
           other.bookId == this.bookId &&
           other.locatorCfi == this.locatorCfi &&
+          other.spineIndex == this.spineIndex &&
+          other.pageIndex == this.pageIndex &&
           other.percent == this.percent &&
           other.updatedAt == this.updatedAt);
 }
@@ -2867,17 +2954,23 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
 class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   final Value<int> bookId;
   final Value<String> locatorCfi;
+  final Value<int?> spineIndex;
+  final Value<int?> pageIndex;
   final Value<double> percent;
   final Value<int> updatedAt;
   const ReadingProgressCompanion({
     this.bookId = const Value.absent(),
     this.locatorCfi = const Value.absent(),
+    this.spineIndex = const Value.absent(),
+    this.pageIndex = const Value.absent(),
     this.percent = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
   ReadingProgressCompanion.insert({
     this.bookId = const Value.absent(),
     required String locatorCfi,
+    this.spineIndex = const Value.absent(),
+    this.pageIndex = const Value.absent(),
     this.percent = const Value.absent(),
     required int updatedAt,
   }) : locatorCfi = Value(locatorCfi),
@@ -2885,12 +2978,16 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   static Insertable<ProgressRow> custom({
     Expression<int>? bookId,
     Expression<String>? locatorCfi,
+    Expression<int>? spineIndex,
+    Expression<int>? pageIndex,
     Expression<double>? percent,
     Expression<int>? updatedAt,
   }) {
     return RawValuesInsertable({
       if (bookId != null) 'book_id': bookId,
       if (locatorCfi != null) 'locator_cfi': locatorCfi,
+      if (spineIndex != null) 'spine_index': spineIndex,
+      if (pageIndex != null) 'page_index': pageIndex,
       if (percent != null) 'percent': percent,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -2899,12 +2996,16 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   ReadingProgressCompanion copyWith({
     Value<int>? bookId,
     Value<String>? locatorCfi,
+    Value<int?>? spineIndex,
+    Value<int?>? pageIndex,
     Value<double>? percent,
     Value<int>? updatedAt,
   }) {
     return ReadingProgressCompanion(
       bookId: bookId ?? this.bookId,
       locatorCfi: locatorCfi ?? this.locatorCfi,
+      spineIndex: spineIndex ?? this.spineIndex,
+      pageIndex: pageIndex ?? this.pageIndex,
       percent: percent ?? this.percent,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -2918,6 +3019,12 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     }
     if (locatorCfi.present) {
       map['locator_cfi'] = Variable<String>(locatorCfi.value);
+    }
+    if (spineIndex.present) {
+      map['spine_index'] = Variable<int>(spineIndex.value);
+    }
+    if (pageIndex.present) {
+      map['page_index'] = Variable<int>(pageIndex.value);
     }
     if (percent.present) {
       map['percent'] = Variable<double>(percent.value);
@@ -2933,6 +3040,8 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     return (StringBuffer('ReadingProgressCompanion(')
           ..write('bookId: $bookId, ')
           ..write('locatorCfi: $locatorCfi, ')
+          ..write('spineIndex: $spineIndex, ')
+          ..write('pageIndex: $pageIndex, ')
           ..write('percent: $percent, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -7017,6 +7126,8 @@ typedef $$ReadingProgressTableCreateCompanionBuilder =
     ReadingProgressCompanion Function({
       Value<int> bookId,
       required String locatorCfi,
+      Value<int?> spineIndex,
+      Value<int?> pageIndex,
       Value<double> percent,
       required int updatedAt,
     });
@@ -7024,6 +7135,8 @@ typedef $$ReadingProgressTableUpdateCompanionBuilder =
     ReadingProgressCompanion Function({
       Value<int> bookId,
       Value<String> locatorCfi,
+      Value<int?> spineIndex,
+      Value<int?> pageIndex,
       Value<double> percent,
       Value<int> updatedAt,
     });
@@ -7065,6 +7178,16 @@ class $$ReadingProgressTableFilterComposer
   });
   ColumnFilters<String> get locatorCfi => $composableBuilder(
     column: $table.locatorCfi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get spineIndex => $composableBuilder(
+    column: $table.spineIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get pageIndex => $composableBuilder(
+    column: $table.pageIndex,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7116,6 +7239,16 @@ class $$ReadingProgressTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get spineIndex => $composableBuilder(
+    column: $table.spineIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get pageIndex => $composableBuilder(
+    column: $table.pageIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get percent => $composableBuilder(
     column: $table.percent,
     builder: (column) => ColumnOrderings(column),
@@ -7163,6 +7296,14 @@ class $$ReadingProgressTableAnnotationComposer
     column: $table.locatorCfi,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get spineIndex => $composableBuilder(
+    column: $table.spineIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get pageIndex =>
+      $composableBuilder(column: $table.pageIndex, builder: (column) => column);
 
   GeneratedColumn<double> get percent =>
       $composableBuilder(column: $table.percent, builder: (column) => column);
@@ -7226,11 +7367,15 @@ class $$ReadingProgressTableTableManager
               ({
                 Value<int> bookId = const Value.absent(),
                 Value<String> locatorCfi = const Value.absent(),
+                Value<int?> spineIndex = const Value.absent(),
+                Value<int?> pageIndex = const Value.absent(),
                 Value<double> percent = const Value.absent(),
                 Value<int> updatedAt = const Value.absent(),
               }) => ReadingProgressCompanion(
                 bookId: bookId,
                 locatorCfi: locatorCfi,
+                spineIndex: spineIndex,
+                pageIndex: pageIndex,
                 percent: percent,
                 updatedAt: updatedAt,
               ),
@@ -7238,11 +7383,15 @@ class $$ReadingProgressTableTableManager
               ({
                 Value<int> bookId = const Value.absent(),
                 required String locatorCfi,
+                Value<int?> spineIndex = const Value.absent(),
+                Value<int?> pageIndex = const Value.absent(),
                 Value<double> percent = const Value.absent(),
                 required int updatedAt,
               }) => ReadingProgressCompanion.insert(
                 bookId: bookId,
                 locatorCfi: locatorCfi,
+                spineIndex: spineIndex,
+                pageIndex: pageIndex,
                 percent: percent,
                 updatedAt: updatedAt,
               ),

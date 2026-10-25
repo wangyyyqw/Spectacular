@@ -68,7 +68,7 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> {
+class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late final ReaderSession _session;
   late final ParagraphCache _paragraphCache =
       widget.paragraphCache ?? ParagraphCache(maxEntries: 256);
@@ -189,6 +189,7 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
     // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
     unawaited(
@@ -227,8 +228,19 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
+  /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      unawaited(_session.flushProgress());
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     _session.cancelPendingLoads();

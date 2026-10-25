@@ -174,7 +174,8 @@ void main() {
     await _tapRight(tester);
     expect(session.progress, atEnd);
 
-    // 恢复进度：重新打开同一 store，回到离开时的页。
+    // 恢复进度：节流写入后显式落盘（P4-10：2 秒窗口内的翻页会合并）。
+    await session.flushProgress();
     final reopened = ReaderSession(
       source: source,
       store: store,

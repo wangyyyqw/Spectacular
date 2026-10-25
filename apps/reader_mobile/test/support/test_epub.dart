@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 /// 测试用最小 EPUB 构造（应用层测试共享）。
 ///
@@ -97,4 +98,15 @@ Uint8List buildWarningEpub({
     archive.addFile(ArchiveFile(name, bytes.length, bytes));
   });
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+}
+
+/// 打开测试书并应用正文区尺寸（阅读会话测试用）。
+Future<EpubChapterSource> openTestChapterSource(
+  Uint8List bytes, {
+  double width = 320,
+  double height = 560,
+}) async {
+  final source = await EpubChapterSource.open(bytes);
+  await source.applyContentSize(width: width, height: height);
+  return source;
 }

@@ -166,8 +166,14 @@ class ReadingProgress extends Table {
   IntColumn get bookId =>
       integer().references(Books, #id, onDelete: KeyAction.cascade)();
 
-  /// 位置 CFI。
+  /// 位置 CFI（P5 接入 CFI 后使用；当前存 `spine:i/page:j` 占位串）。
   TextColumn get locatorCfi => text()();
+
+  /// spine 序号（P4-10：进度迁移到表内，书架/续读用）。
+  IntColumn get spineIndex => integer().nullable()();
+
+  /// 章内页序号。
+  IntColumn get pageIndex => integer().nullable()();
 
   /// 全书百分比（0～1）。
   RealColumn get percent => real().withDefault(const Constant(0))();
@@ -314,7 +320,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -329,6 +335,15 @@ class AppDatabase extends _$AppDatabase {
       if (version < 2) {
         await migrator.createTable(importReports);
         version = 2;
+      }
+      if (version < 3) {
+        // P4-10：进度迁入 reading_progress，补 spine/page 两列。
+        await migrator.addColumn(
+          readingProgress,
+          readingProgress.spineIndex,
+        );
+        await migrator.addColumn(readingProgress, readingProgress.pageIndex);
+        version = 3;
       }
       await _createIndexes();
     },

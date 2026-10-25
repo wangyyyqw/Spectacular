@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
-import '../storage/file_progress_store.dart';
 import 'bookshelf_page.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
@@ -16,7 +16,7 @@ class HomeShell extends StatefulWidget {
   final LibraryStore library;
 
   /// 进度存储。
-  final FileReaderProgressStore progressStore;
+  final ReaderProgressStore progressStore;
 
   @override
   State<HomeShell> createState() => _HomeShellState();

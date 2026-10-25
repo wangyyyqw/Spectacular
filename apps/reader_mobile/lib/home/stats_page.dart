@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
-import '../storage/file_progress_store.dart';
 
 /// 统计页：书量、在读、最近阅读（数据来自书架与进度存储的真值）。
 /// 阅读时长/热力图等埋点指标随 P4-31 落地。
@@ -14,7 +13,7 @@ class StatsPage extends StatefulWidget {
   final LibraryStore library;
 
   /// 进度存储。
-  final FileReaderProgressStore progressStore;
+  final ReaderProgressStore progressStore;
 
   @override
   State<StatsPage> createState() => _StatsPageState();
