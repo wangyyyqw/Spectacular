@@ -234,9 +234,14 @@ class _ReaderPageState extends State<ReaderPage> {
     return AnimatedBuilder(
       animation: _session,
       builder: (context, _) {
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          child: _buildBody(context),
+        // 背景铺满窗口（P8-10 收尾）：加载骨架/错误态/正文页统一以主题
+        // 背景色打底，避免 padding 外区域透出窗口黑底。
+        return ColoredBox(
+          color: widget.theme?.background ?? widget.background,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: _buildBody(context),
+          ),
         );
       },
     );
