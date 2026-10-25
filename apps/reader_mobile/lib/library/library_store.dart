@@ -260,6 +260,9 @@ class LibraryStore {
     return db == null ? null : DriftBookmarkStore(db, bookId);
   }
 
+  /// 书 uuid → 数据库内部 id（搜索按内部 id 查索引）。
+  Future<int?> internalBookId(String uuid) => _bookIdOfUuid(uuid);
+
   Future<int?> _bookIdOfUuid(String uuid) async {
     final db = _db;
     if (db == null) {

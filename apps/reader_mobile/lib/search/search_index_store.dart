@@ -109,6 +109,21 @@ class SearchIndexStore {
     });
   }
 
+  /// 某 gram 的命中数（选最稀有 gram 用，走 COUNT 不加载行）。
+  Future<int> countGram(int bookId, String gram) async {
+    final row = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS total FROM search_grams '
+          'WHERE book_id = ? AND gram = ?',
+          variables: <Variable<Object>>[
+            Variable<int>(bookId),
+            Variable<String>(gram),
+          ],
+        )
+        .getSingle();
+    return (row.data['total'] as int?) ?? 0;
+  }
+
   /// 某 gram 的全部命中（按章节与位置排序）。
   Future<List<SearchHit>> lookup(int bookId, String gram) async {
     final rows =

@@ -4,13 +4,16 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'package:reader_core/epub/importer.dart';
 
 import '../library/library_store.dart';
+import '../reader/epub_chapter_source.dart';
 import '../reader/epub_reader_page.dart';
 import '../reader/reader_settings.dart';
+import '../search/search_service.dart';
 import 'book_detail_sheet.dart';
 import '../storage/import_queue.dart';
 
@@ -254,6 +257,42 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
+  /// 构造本书的搜索回调（P4-26）：首次查询时打开章节源，之后复用。
+  Future<List<SearchPanelResult>> Function(String query)? _buildSearch(
+    BookEntry entry,
+    Uint8List bytes,
+  ) {
+    final store = widget.library.searchIndexStore();
+    if (store == null) {
+      return null;
+    }
+    SearchService? service;
+    int? bookId;
+    return (query) async {
+      bookId ??= await widget.library.internalBookId(entry.id);
+      final id = bookId;
+      if (id == null) {
+        return const <SearchPanelResult>[];
+      }
+      service ??= SearchService(
+        source: await EpubChapterSource.open(bytes),
+        store: store,
+      );
+      final results = await service!.search(id, query);
+      return <SearchPanelResult>[
+        for (final result in results)
+          SearchPanelResult(
+            spineIndex: result.spineIndex,
+            charOffset: result.charOffset,
+            chapterTitle: result.chapterTitle,
+            context: result.context,
+            matchLength: result.matchLength,
+            cfi: result.cfi,
+          ),
+      ];
+    };
+  }
+
   /// 读取并缓存阅读设置（P4-21）。
   Future<void> _loadReaderSettings() async {
     final settings = await ReaderSettingsStore(widget.library).load();
@@ -293,6 +332,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           annotations: widget.library.annotationStore(entry.id),
           settings: _settings ?? ReaderSettings.defaults,
           onSettingsChanged: _saveReaderSettings,
+          onSearch: _buildSearch(entry, bytes),
         ),
       ),
     );
