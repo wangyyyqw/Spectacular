@@ -1,4 +1,5 @@
 import 'block_builder.dart';
+import 'document_parser.dart' show ParsedText;
 import '../src/api/models.dart' show EpubNode, TextBlockNode;
 
 /// 满屏图页分析结果（P3-10，§8.6）。
@@ -68,6 +69,14 @@ FullBleedChapter analyzeFullBleed(BlockDocument document) {
       return;
     }
     if (node is TextBlockNode) {
+      if (node.text.trim().isNotEmpty) {
+        hasVisibleText = true;
+      }
+      return;
+    }
+    // 原始块树的文本节点是 ParsedText（未实现 TextBlockNode），
+    // 同样计入正文（否则「无尺寸单图 + 正文」被误判满屏丢正文）。
+    if (node is ParsedText) {
       if (node.text.trim().isNotEmpty) {
         hasVisibleText = true;
       }

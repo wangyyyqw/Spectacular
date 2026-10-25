@@ -307,10 +307,12 @@ class PagePainter {
     var y = page.topPadding;
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
+      // 浮动覆盖切片（flat 管线接入）：绝对定位，不推进流游标。
+      final sliceY = slice.overlay ? slice.absoluteTop! : y;
       geometries.add(
         _SliceGeometry(
           slice: slice,
-          y: y,
+          y: sliceY,
           style: style,
           textStyle: TextLayoutEngine.textStyleFor(style),
           startsBlock: slice.startLine == 0,
@@ -326,7 +328,9 @@ class PagePainter {
           pageWidth: pageSize.width,
         ),
       );
-      y += slice.height;
+      if (!slice.overlay) {
+        y += slice.height;
+      }
     }
     return geometries;
   }
