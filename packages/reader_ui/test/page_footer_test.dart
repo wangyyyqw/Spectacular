@@ -62,8 +62,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('第1/2章'), findsOneWidget, reason: '页脚章码');
-    expect(find.textContaining('1/3页'), findsOneWidget, reason: '页脚页码');
+    // 设计稿样式（P8-10）：页眉左标题右页码，页脚左时间电池右进度百分比。
+    expect(find.text('第 1 章'), findsOneWidget, reason: '页眉章标题');
+    expect(find.text('1/3'), findsOneWidget, reason: '页眉页码');
+    expect(
+      find.textContaining(RegExp(r'^\d{2}:\d{2}$')),
+      findsOneWidget,
+      reason: '页脚时钟',
+    );
+    expect(
+      find.textContaining(RegExp(r'%$')),
+      findsOneWidget,
+      reason: '页脚进度百分比',
+    );
   });
 
   testWidgets('showPageFooter=false 关闭页脚', (tester) async {
@@ -78,6 +89,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('第1/2章'), findsNothing);
+    expect(find.text('第 1 章'), findsNothing);
+    expect(find.textContaining(RegExp(r'%$')), findsNothing);
   });
 }

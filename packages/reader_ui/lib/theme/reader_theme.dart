@@ -28,6 +28,21 @@ class ReaderTheme {
   /// 正文颜色。
   final Color text;
 
+  /// 次要文字色（设计稿 `--sub`：正文色 45%）。
+  Color get sub => text.withValues(alpha: 0.45);
+
+  /// 分隔线色（设计稿 `--line`：正文色 12%）。
+  Color get line => text.withValues(alpha: 0.12);
+
+  /// 填充色（设计稿 `--fill`：正文色 8%，用于按钮/控件底）。
+  Color get fill => text.withValues(alpha: 0.08);
+
+  /// 强调色（设计稿 `--accent` #2B5B84；深色主题用浅蓝保证对比度）。
+  Color get accent =>
+      background.computeLuminance() < 0.35
+      ? const Color(0xFF7FB3E0)
+      : const Color(0xFF2B5B84);
+
   /// 相对亮度（WCAG）。
   double get luminance {
     final bg = _relativeLuminance(background);

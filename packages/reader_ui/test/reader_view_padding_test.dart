@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -61,6 +62,10 @@ void main() {
 
     final size = source.appliedSize;
     expect(size, isNotNull);
-    expect(size!.height, closeTo(200 - 16 * 2 - 20, 0.5));
+    // 页边距 16×2 + 手势条 20 + 页眉页脚槽（设计稿 20+16+14+20=70）。
+    expect(
+      size!.height,
+      closeTo(200 - 16 * 2 - 20 - PageFurniture.reservedHeight, 0.5),
+    );
   });
 }
