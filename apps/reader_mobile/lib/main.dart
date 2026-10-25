@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_ui.dart';
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
+import 'storage/db.dart';
 import 'storage/file_progress_store.dart';
 
 Future<void> main() async {
@@ -37,6 +38,22 @@ Future<void> main() async {
   };
   await log.initialize();
   await log.log('app_start');
+  // P4-01/P4-02：打开业务库（书库/进度/标注/搜索索引）。库损坏或版本
+  // 过新时记录错误并继续启动，不让数据库问题拖垮阅读。
+  final database = await AppDatabase.tryOpenDefault(
+    onError: (error, stack) => unawaited(
+      log.log(
+        'db_open_failed',
+        fields: <String, Object?>{'error': error, 'stack': stack},
+      ),
+    ),
+  );
+  if (database != null) {
+    await log.log(
+      'db_ready',
+      fields: <String, Object?>{'schema_version': database.schemaVersion},
+    );
+  }
 
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
