@@ -137,6 +137,54 @@ void main() {
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'first-block');
   });
 
+  testWidgets('语义动作：页级下一页/上一页，块级复制本段（P4-29）', (tester) async {
+    var next = 0;
+    var previous = 0;
+    final copied = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 400,
+            child: ReaderSemanticsLayer(
+              page: _page(),
+              pageWidth: 320,
+              onNextPage: () => next++,
+              onPreviousPage: () => previous++,
+              onCopyBlock: copied.add,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 页面级节点挂翻页动作。
+    final pageNode = tester.widget<Semantics>(
+      find.byKey(const ValueKey<String>('page-semantics-0')),
+    );
+    final pageActions = pageNode.properties.customSemanticsActions!;
+    expect(
+      pageActions.keys.map((action) => action.label),
+      containsAll(<String>['下一页', '上一页']),
+    );
+    pageActions[ReaderSemanticsLayer.nextPageAction]!();
+    pageActions[ReaderSemanticsLayer.previousPageAction]!();
+    expect(<int>[next, previous], <int>[1, 1]);
+
+    // 块级节点挂复制本段。
+    final blockNode = tester.widget<Semantics>(
+      find.byKey(const ValueKey<String>('page-semantics-1')),
+    );
+    final blockActions = blockNode.properties.customSemanticsActions!;
+    expect(
+      blockActions.keys.map((action) => action.label),
+      contains('复制本段'),
+    );
+    blockActions[ReaderSemanticsLayer.copyBlockAction]!();
+    expect(copied.single, '第一章 开局');
+  });
+
   testWidgets('语义层外层是 IgnorePointer，不接收指针事件', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
