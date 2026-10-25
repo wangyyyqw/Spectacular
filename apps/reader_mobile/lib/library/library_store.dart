@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/epub/epub_exception.dart';
+import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
 
 import '../storage/db.dart';
@@ -352,6 +353,17 @@ class LibraryStore {
       }
     }
     onProgress?.call(0.85);
+    // §22.3/§76.1：导入期顺序统计各章正文字符数，进度量化与后续搜索索引
+    // 共用同一次扫描。
+    final charCounts = await document.countChapterCharacters(
+      onProgress: (done, total) => onProgress?.call(
+        0.85 + 0.1 * (total == 0 ? 1 : done / total),
+      ),
+    );
+    final weights = ProgressWeights.fromCharCounts(
+      charCounts,
+      excluded: document.progressExcludedSpineIndexes,
+    );
     final entry = BookEntry(
       id: id,
       title: title,
@@ -385,6 +397,7 @@ class LibraryStore {
           sourcePath: Value(filePath),
           coverPath: Value(coverPath),
           spineCount: Value(document.spine.length),
+          charCount: Value(weights.totalCharacters),
           createdAt: entry.addedAt.millisecondsSinceEpoch,
           level: Value(result.report.readabilityLevel),
           warnings: Value(
@@ -396,6 +409,8 @@ class LibraryStore {
       );
       // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
       await _writeImportReports(bookId, result.report);
+      // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
+      await _writeSpineItems(bookId, document, charCounts, weights);
     }
     onProgress?.call(1);
     _notify();
@@ -474,6 +489,57 @@ class LibraryStore {
         // 权限/占用失败：下次启动扫描清理。
       }
     }
+  }
+
+  /// 写入 spine 行（§36.1）：字符数与章前累计供进度量化（§76.1）。
+  Future<void> _writeSpineItems(
+    int bookId,
+    EpubDocumentImpl document,
+    List<int> charCounts,
+    ProgressWeights weights,
+  ) async {
+    final db = _db!;
+    await db.batch((batch) {
+      batch.insertAll(db.spineItems, <SpineItemsCompanion>[
+        for (var index = 0; index < document.spine.length; index++)
+          SpineItemsCompanion.insert(
+            bookId: bookId,
+            spineIndex: index,
+            href: document.spine[index].href,
+            linear: Value<int>(document.spine[index].linear ? 1 : 0),
+            charCount: Value<int>(charCounts[index]),
+            charStart: Value<int>(weights.charStarts[index]),
+          ),
+      ]);
+    });
+  }
+
+  /// 读取某本书的进度权重表（§76.1）；未统计时按章等权估算。
+  Future<ProgressWeights> progressWeights(String bookId) async {
+    if (_isMemory) {
+      return ProgressWeights.fromCharCounts(const <int>[]);
+    }
+    final db = _db!;
+    final bookRows = await (db.select(
+      db.books,
+    )..where((table) => table.uuid.equals(bookId))).get();
+    if (bookRows.isEmpty) {
+      return ProgressWeights.fromCharCounts(const <int>[]);
+    }
+    final spineRows =
+        await (db.select(db.spineItems)
+              ..where((table) => table.bookId.equals(bookRows.single.id))
+              ..orderBy([
+                (table) => OrderingTerm(expression: table.spineIndex),
+              ]))
+            .get();
+    return ProgressWeights.fromCharCounts(
+      <int>[for (final row in spineRows) row.charCount ?? 0],
+      excluded: <int>{
+        for (final row in spineRows)
+          if (row.linear == 0) row.spineIndex,
+      },
+    );
   }
 
   /// `CODE: message` 形式的导入告警。
