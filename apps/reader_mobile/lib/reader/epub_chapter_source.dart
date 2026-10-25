@@ -29,7 +29,7 @@ import 'package:reader_ui/reader_session.dart';
 
 /// 从 EPUB 文档读取章节并提供分页结果。
 class EpubChapterSource
-    implements RestylableChapterSource, ResizableChapterSource {
+    implements RestylableChapterSource, ResizableChapterSource, TocChapterSource {
   EpubChapterSource._({
     required this.document,
     required this.baseContentWidth,
@@ -65,6 +65,10 @@ class EpubChapterSource
 
   /// 已打开文档。
   final EpubDocumentImpl document;
+
+  /// 目录（P4-11）：每项自带目标 spine 序号。
+  @override
+  List<TocEntry> get toc => document.toc;
 
   /// 原始正文区宽（未扣设置页边距）。
   final double baseContentWidth;

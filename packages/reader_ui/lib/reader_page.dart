@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_core/api.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -8,6 +9,7 @@ import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
+import 'panels/toc_panel.dart';
 import 'reader_session.dart';
 import 'reader_view.dart';
 import 'theme/reader_theme.dart';
@@ -186,6 +188,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
+  /// 目录面板滚动位置（重开时保持，P4-11 验收）。
+  final ScrollController _tocScrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -228,6 +233,31 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
+  /// 点屏幕中央：阅读菜单（P4-11 先只给目录入口，P4-21 再补主题/排版）。
+  ///
+  /// 菜单与目录在同一个 sheet 内切换：真机上先 pop 菜单再开新 sheet 会被
+  /// 关闭动画吃掉（表现为点了没反应）。
+  Future<void> _openReaderMenu() async {
+    final controller = _tocScrollController;
+    final spine = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.66,
+        child: _ReaderMenuSheet(
+          entries: _session.toc,
+          currentSpineIndex: _session.progress?.spineIndex ?? 0,
+          chapterIndex: _session.progress?.spineIndex ?? 0,
+          chapterCount: widget.source.chapterCount,
+          scrollController: controller,
+        ),
+      ),
+    );
+    if (spine != null) {
+      await _session.jumpToChapter(spine);
+    }
+  }
+
   /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -248,6 +278,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (_ownsParagraphCache) {
       _paragraphCache.dispose();
     }
+    _tocScrollController.dispose();
     super.dispose();
   }
 
@@ -313,6 +344,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             ReaderView(
               onPrevious: () => unawaited(_session.previous()),
               onNext: () => unawaited(_session.next()),
+              onToggleToolbar: () => unawaited(_openReaderMenu()),
               child: const SizedBox.expand(),
             ),
             // 页脚页码（P8-10 页家具 6 槽第一槽）。
@@ -376,4 +408,75 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.page != page ||
       oldDelegate.imageRevision != imageRevision ||
       oldDelegate.painter.background != painter.background;
+}
+
+/// 阅读菜单 sheet（P4-11）：菜单视图 ↔ 目录视图在同一 sheet 内切换。
+///
+/// 返回被选中目录项的 spine 序号（null = 只是关闭）。
+class _ReaderMenuSheet extends StatefulWidget {
+  const _ReaderMenuSheet({
+    required this.entries,
+    required this.currentSpineIndex,
+    required this.chapterIndex,
+    required this.chapterCount,
+    required this.scrollController,
+  });
+
+  final List<TocEntry> entries;
+  final int currentSpineIndex;
+  final int chapterIndex;
+  final int chapterCount;
+  final ScrollController scrollController;
+
+  @override
+  State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
+}
+
+class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
+  bool _showToc = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showToc) {
+      return TocPanel(
+        entries: widget.entries,
+        currentSpineIndex: widget.currentSpineIndex,
+        scrollController: widget.scrollController,
+        onSelect: (entry) => Navigator.of(context).pop(entry.spineIndex),
+      );
+    }
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              child: Row(
+                children: [
+                  Text('阅读菜单', style: theme.textTheme.titleSmall),
+                  const Spacer(),
+                  Text(
+                    '第 ${widget.chapterIndex + 1}/${widget.chapterCount} 章',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('目录'),
+              subtitle: Text('共 ${flattenToc(widget.entries).length} 章'),
+              onTap: () => setState(() => _showToc = true),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 }
