@@ -79,6 +79,49 @@ abstract interface class ReaderChapterSource {
   Future<List<PageContent>> loadChapter(int spineIndex);
 }
 
+/// 书签（P4-13）：位置用 CFI 存，重排后仍能定位。
+class ReaderBookmark {
+  /// 创建书签。
+  const ReaderBookmark({
+    required this.id,
+    required this.cfi,
+    required this.spineIndex,
+    required this.label,
+    required this.createdAt,
+  });
+
+  /// 唯一标识。
+  final String id;
+
+  /// 位置 CFI（重排稳定的唯一坐标）。
+  final String cfi;
+
+  /// 章节序号（列表排序/展示用，可由 CFI 推导）。
+  final int spineIndex;
+
+  /// 展示标签（章节名 + 页码）。
+  final String label;
+
+  /// 创建时间。
+  final DateTime createdAt;
+}
+
+/// 书签存储（P4-13）：阅读页通过它读写书签，app 层用数据库实现。
+abstract interface class ReaderBookmarkStore {
+  /// 全部书签（按位置排序）。
+  Future<List<ReaderBookmark>> list();
+
+  /// 添加书签；同一位置（同 CFI）已存在时不重复添加，返回 null。
+  Future<ReaderBookmark?> add({
+    required String cfi,
+    required int spineIndex,
+    required String label,
+  });
+
+  /// 删除书签。
+  Future<void> remove(String id);
+}
+
 /// 能提供目录的章节源（P4-11）：章节数之外的目录树。
 abstract interface class TocChapterSource implements ReaderChapterSource {
   /// 目录项（嵌套结构，每项自带目标 spine 序号）。
@@ -216,6 +259,54 @@ class ReaderSession extends ChangeNotifier {
     return source is TocChapterSource
         ? source.toc
         : const <TocEntry>[];
+  }
+
+  /// 当前页首个块的 CFI（书签/标注锚点用；无 CFI 时返回 null）。
+  String? get currentCfi => _anchorOf(page).cfi;
+
+  /// 跳到指定 CFI（书签跳转用，P4-13）：解析 spine 后在目标章内定位页。
+  ///
+  /// 与 [jumpToChapter] 共用 jumpToken 防竞态与跳转浮层。
+  Future<bool> jumpToCfi(String cfi, {String? title}) async {
+    final pager = _pager;
+    if (pager == null) {
+      return false;
+    }
+    final parsed = EpubCfi.parse(cfi);
+    final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+    if (spine == null || spine >= source.chapterCount) {
+      return false;
+    }
+    final token = ++_jumpToken;
+    _generation += 1;
+    _jumpLoadingTitle = title ?? '书签位置';
+    _notify();
+    try {
+      final changed = await pager.goTo(spine, 0);
+      if (token != _jumpToken) {
+        return false;
+      }
+      // 章节已分页：按 CFI 定位页号（重排后页号会变，CFI 不变）。
+      final pages = await source.loadChapter(spine);
+      if (token != _jumpToken) {
+        return false;
+      }
+      final pageIndex = _locatePage(pages, ReaderAnchor(cfi: cfi));
+      if (pageIndex != 0) {
+        await pager.goTo(spine, pageIndex);
+        if (token != _jumpToken) {
+          return false;
+        }
+      }
+      _notify();
+      _persist();
+      return changed || pageIndex != 0;
+    } finally {
+      if (token == _jumpToken) {
+        _jumpLoadingTitle = null;
+        _notify();
+      }
+    }
   }
 
   /// 跳转加载中的目标章名（null = 不在跳转中，P4-12 全屏浮层用）。

@@ -82,6 +82,24 @@ class CfiSegment {
   }
 }
 
+/// CFI → spine 序号（§34.2）。
+///
+/// 规范形态 `epubcfi(/6/4!/4/2/1)`：第一段第一步是 package 的 spine 元素，
+/// 第二步才是 itemref（步进 = (spineIndex + 1) × 2）；只有单步时按 itemref
+/// 处理。解析失败返回 null。
+int? spineIndexOfCfi(EpubCfi cfi) {
+  if (cfi.segments.isEmpty) {
+    return null;
+  }
+  final steps = cfi.segments.first.steps;
+  if (steps.isEmpty) {
+    return null;
+  }
+  final itemRef = steps.length >= 2 ? steps[1] : steps[0];
+  final index = itemRef.index ~/ 2 - 1;
+  return index < 0 ? null : index;
+}
+
 /// 已解析的 EPUB CFI。
 class EpubCfi implements Comparable<EpubCfi> {
   /// 从路径段创建。

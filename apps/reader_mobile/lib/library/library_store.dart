@@ -12,6 +12,7 @@ import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
 
 import '../storage/db.dart';
+import '../storage/drift_bookmark_store.dart';
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
 ///
@@ -247,6 +248,12 @@ class LibraryStore {
     await db.into(db.settingsTable).insertOnConflictUpdate(
       SettingsTableCompanion.insert(key: key, value: value),
     );
+  }
+
+  /// 某本书的书签存储（P4-13）；内存模式下没有书签能力时返回 null。
+  DriftBookmarkStore? bookmarkStore(String bookId) {
+    final db = _db;
+    return db == null ? null : DriftBookmarkStore(db, bookId);
   }
 
   /// 全部条目（最近阅读优先，其次导入时间倒序）。

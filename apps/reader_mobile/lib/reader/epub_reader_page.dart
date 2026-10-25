@@ -25,6 +25,7 @@ class EpubReaderPage extends StatefulWidget {
     required this.bytes,
     required this.bookId,
     required this.store,
+    this.bookmarks,
   });
 
   /// EPUB 字节。
@@ -35,6 +36,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 进度存储。
   final ReaderProgressStore store;
+
+  /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
+  final ReaderBookmarkStore? bookmarks;
 
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
@@ -107,6 +111,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       store: widget.store,
       bookId: widget.bookId,
       imageCache: _imageCache,
+      bookmarks: widget.bookmarks,
       overrides: defaultReaderOverrides,
     );
   }
