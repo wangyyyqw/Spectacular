@@ -70,6 +70,24 @@ void main() {
     expect(parsed.backgroundRepeat, CssBackgroundRepeat.repeatX);
   });
 
+  test('text-decoration 简写带线型与颜色（P9-18）', () {
+    final parsed = style(const <String, String>{
+      'text-decoration': 'underline dotted #ff0000',
+    });
+    expect(parsed.textDecoration, CssTextDecoration.underline);
+    expect(parsed.textDecorationStyle, CssTextDecorationStyle.dotted);
+    expect(parsed.textDecorationColor, const Color(0xFFFF0000));
+
+    final longhand = style(const <String, String>{
+      'text-decoration-line': 'line-through',
+      'text-decoration-style': 'wavy',
+      'text-decoration-color': '#00ff00',
+    });
+    expect(longhand.textDecoration, CssTextDecoration.lineThrough);
+    expect(longhand.textDecorationStyle, CssTextDecorationStyle.wavy);
+    expect(longhand.textDecorationColor, const Color(0xFF00FF00));
+  });
+
   test('list-style-type 长属性（P9-12）', () {
     expect(
       style(

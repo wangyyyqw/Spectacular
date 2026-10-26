@@ -70,6 +70,9 @@ enum CssVerticalAlign { baseline, subscript, superscript, middle, top, bottom }
 /// 文本装饰线（CSS text-decoration 属性，P2-17）。
 enum CssTextDecoration { none, underline, lineThrough, overline }
 
+/// 装饰线线型（CSS `text-decoration-style`，P9-18）。
+enum CssTextDecorationStyle { solid, double, dotted, dashed, wavy }
+
 /// 着重号样式（CSS text-emphasis-style 属性，P2-17）。
 enum CssTextEmphasisStyle { none, dot, filled, open }
 
@@ -641,9 +644,19 @@ class ComputedStyle {
         CssVerticalAlign.baseline;
 
     // 装饰与分页属性（P2-17）：text-decoration 不继承，text-emphasis 继承。
+    final rawDecoration =
+        explicitValue('text-decoration-line') ??
+        explicitValue('text-decoration');
     final textDecoration =
-        _parseTextDecoration(explicitValue('text-decoration')) ??
-        CssTextDecoration.none;
+        _parseTextDecoration(rawDecoration) ?? CssTextDecoration.none;
+    // 装饰线颜色/线型（P9-18）：简写里也能带（underline dotted #f00）。
+    final textDecorationStyle =
+        _parseTextDecorationStyle(explicitValue('text-decoration-style')) ??
+        _decorationStyleFromShorthand(rawDecoration) ??
+        CssTextDecorationStyle.solid;
+    final textDecorationColor =
+        _parseColor(explicitValue('text-decoration-color') ?? '') ??
+        _decorationColorFromShorthand(rawDecoration);
     final rawEmphasis =
         explicitValue('text-emphasis-style') ?? explicitValue('text-emphasis');
     final textEmphasisStyle = rawEmphasis == null
@@ -868,6 +881,8 @@ class ComputedStyle {
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
       tableLayout: tableLayout,
+      textDecorationStyle: textDecorationStyle,
+      textDecorationColor: textDecorationColor,
       customProperties: customProperties,
       top: top,
       right: right,
@@ -970,6 +985,8 @@ class ComputedStyle {
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
       tableLayout: tableLayout,
+      textDecorationStyle: textDecorationStyle,
+      textDecorationColor: textDecorationColor,
       customProperties: customProperties,
       top: top,
       right: right,
@@ -1049,6 +1066,8 @@ class ComputedStyle {
     required this.borderCollapse,
     required this.listStyleType,
     required this.tableLayout,
+    required this.textDecorationStyle,
+    required this.textDecorationColor,
     this.customProperties = const <String, String>{},
     required this.borderSpacing,
     required this.top,
@@ -1234,6 +1253,12 @@ class ComputedStyle {
 
   /// 表格列宽算法（`table-layout`，非继承；P9-17）。
   final CssTableLayout tableLayout;
+
+  /// 装饰线线型（`text-decoration-style`，P9-18）。
+  final CssTextDecorationStyle textDecorationStyle;
+
+  /// 装饰线颜色（`text-decoration-color`，null 表示跟随文字色）。
+  final Color? textDecorationColor;
 
   /// 上定位偏移（`top`，未继承；null 表示未声明）。
   final CssLength? top;
@@ -2454,6 +2479,44 @@ class ComputedStyle {
       fontSize: fontSize,
       rootFontSize: rootFontSize,
     );
+  }
+
+  static const Map<String, CssTextDecorationStyle> _decorationStyles =
+      <String, CssTextDecorationStyle>{
+        'solid': CssTextDecorationStyle.solid,
+        'double': CssTextDecorationStyle.double,
+        'dotted': CssTextDecorationStyle.dotted,
+        'dashed': CssTextDecorationStyle.dashed,
+        'wavy': CssTextDecorationStyle.wavy,
+      };
+
+  static CssTextDecorationStyle? _parseTextDecorationStyle(String? raw) =>
+      raw == null ? null : _decorationStyles[raw.trim().toLowerCase()];
+
+  static CssTextDecorationStyle? _decorationStyleFromShorthand(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    for (final token in raw.toLowerCase().split(RegExp(r'\s+'))) {
+      final style = _decorationStyles[token];
+      if (style != null) {
+        return style;
+      }
+    }
+    return null;
+  }
+
+  static Color? _decorationColorFromShorthand(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    for (final token in raw.split(RegExp(r'\s+'))) {
+      final color = _parseColor(token);
+      if (color != null) {
+        return color;
+      }
+    }
+    return null;
   }
 
   static CssTextDecoration? _parseTextDecoration(String? raw) {
