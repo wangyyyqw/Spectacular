@@ -233,6 +233,25 @@ class PagePainter {
         contentClip: true,
         () => _withEffects(canvas, geometry, () {
           final layout = geometry.slice.block.layout;
+          if (layout.isVertical) {
+            // 竖排：每行 = 一列，逐字符自上而下绘制（W22）。
+            _paintVerticalColumns(
+              canvas,
+              layout,
+              geometry.style,
+              textColorOverride: geometry.textColorOverride,
+              contentLeft:
+                  geometry.borderBox.left +
+                  geometry.style.padding.left +
+                  (geometry.style.borders.left.isVisible
+                      ? geometry.style.borders.left.width
+                      : 0),
+              contentTop: geometry.y + geometry.leading,
+              startLine: geometry.slice.startLine,
+              endLine: geometry.slice.endLine,
+            );
+            return;
+          }
           var lineY = geometry.y + geometry.leading;
           for (
             var lineIndex = geometry.slice.startLine;
@@ -1487,13 +1506,27 @@ class PagePainter {
     }
     for (final placement in line.inlineBoxes) {
       final style = _inlineBoxStyleOf(placement, runs) ?? geometry.style;
-      // 盒顶 = 基线 − 基线以上延伸（行顶由 LineBox.baseline 反映）。
-      final rect = Rect.fromLTWH(
-        x + placement.left,
-        lineY + line.baseline - placement.ascent,
-        placement.width,
-        placement.height,
-      );
+      final Rect rect;
+      if (placement.vertical) {
+        // 竖排 placement（W22）：`left` = 列内纵向偏移；`ascent` = 列的右延伸、
+        // `descent` = 列的左延伸；盒宽 = ascent + descent，基线取列中线。
+        final columnLeft = x + (line.columnX ?? line.offsetX);
+        final baselineX = columnLeft + line.width / 2;
+        rect = Rect.fromLTWH(
+          baselineX - placement.descent,
+          lineY + placement.left,
+          placement.ascent + placement.descent,
+          placement.height,
+        );
+      } else {
+        // 横排：盒顶 = 基线 − 基线以上延伸（行顶由 LineBox.baseline 反映）。
+        rect = Rect.fromLTWH(
+          x + placement.left,
+          lineY + line.baseline - placement.ascent,
+          placement.width,
+          placement.height,
+        );
+      }
       // inline-block 盒子同样可能是半透明（payload.style.effectiveOpacity）。
       final opacity = math.min(style.effectiveOpacity, 1.0);
       final layered = opacity < 1;
@@ -1586,6 +1619,23 @@ class PagePainter {
       canvas.clipRect(contentBox);
     }
     final layout = box.layout;
+    if (layout.isVertical) {
+      // 竖排行内盒内容：同样按列逐字符绘制（内容盒原点传入）。
+      _paintVerticalColumns(
+        canvas,
+        layout,
+        style,
+        textColorOverride: null,
+        contentLeft: contentLeft,
+        contentTop: contentTop,
+        startLine: 0,
+        endLine: layout.lineCount,
+      );
+      if (clipsContent) {
+        canvas.restore();
+      }
+      return;
+    }
     final textStyleBase = TextLayoutEngine.textStyleFor(style);
     var lineY = contentTop;
     for (var lineIndex = 0; lineIndex < layout.lineCount; lineIndex++) {
@@ -2218,6 +2268,107 @@ class PagePainter {
         '${textColorOverride?.toARGB32()}:'
         '${line.justifyExtra.toStringAsFixed(3)}';
     return cache.obtain(key, build: build);
+  }
+
+  /// 竖排文本：按列逐字符绘制（W22，CSS Writing Modes）。
+  ///
+  /// - 每行 = 一列：`columnX` 是列左缘（相对块内容左缘），`width` 是列宽
+  ///   （= 行高），列内字符自上而下；
+  /// - 纵向 advance 与正立/旋转由布局的
+  ///   [TextLayoutEngine.verticalGlyphMetrics] 给出（列长 = 逐字 advance 和，
+  ///   绘制端不再自己测量）；
+  /// - 正立（CJK/假名，或 `text-orientation: upright`）：字形居中于列宽；
+  /// - 旋转（拉丁/数字，`mixed`；或 `sideways` 全部）：顺时针 90°，让字面朝
+  ///   右（vertical-rl 阅读方向），旋转后横向宽度铺满列宽。
+  ///
+  /// 限制：竖排暂不画装饰线/text-emphasis/注音/列表标记/行尾省略号
+  /// （任务允许先跳过，装饰线方向语义另议）。
+  void _paintVerticalColumns(
+    Canvas canvas,
+    TextLayoutResult layout,
+    ComputedStyle style, {
+    required Color? textColorOverride,
+    required double contentLeft,
+    required double contentTop,
+    required int startLine,
+    required int endLine,
+  }) {
+    final metrics = TextLayoutEngine.verticalGlyphMetrics(layout.text, style);
+    if (metrics.isEmpty) {
+      return;
+    }
+    final baseStyle = TextLayoutEngine.textStyleFor(style);
+    final effectiveBase = textColorOverride == null
+        ? baseStyle
+        : baseStyle.copyWith(color: textColorOverride);
+    final runs = layout.runs;
+    for (var lineIndex = startLine; lineIndex < endLine; lineIndex++) {
+      final column = layout.lines[lineIndex];
+      if (!column.vertical) {
+        continue;
+      }
+      final columnLeft = contentLeft + (column.columnX ?? column.offsetX);
+      final columnWidth = column.width;
+      var y = contentTop;
+      for (final metric in metrics) {
+        if (metric.start < column.start) {
+          continue;
+        }
+        if (metric.start >= column.end) {
+          break;
+        }
+        final text = layout.text.substring(metric.start, metric.end);
+        if (text.isEmpty) {
+          continue;
+        }
+        final runStyle = _runStyleAtOffset(runs, metric.start);
+        final textStyle = runStyle == null
+            ? effectiveBase
+            : _verticalStyleOf(runStyle, textColorOverride);
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: textStyle),
+          textDirection: _textDirectionOf(layout),
+        )..layout();
+        if (metric.upright) {
+          // 正立：横向居中于列宽，纵向让字形盒中心落在本次 advance 的中点。
+          painter.paint(
+            canvas,
+            Offset(
+              columnLeft + (columnWidth - painter.width) / 2,
+              y - (painter.height - metric.advance) / 2,
+            ),
+          );
+        } else {
+          // 旋转 90°（顺时针）：旋转后字形横向占位 = 原行高、纵向占位 = 原字宽。
+          canvas.save();
+          canvas.translate(columnLeft + columnWidth / 2, y + metric.advance / 2);
+          canvas.rotate(math.pi / 2);
+          canvas.translate(-painter.width / 2, -painter.height / 2);
+          painter.paint(canvas, Offset.zero);
+          canvas.restore();
+        }
+        painter.dispose();
+        y += metric.advance;
+      }
+    }
+  }
+
+  /// 取某个字符偏移处的 run 样式（竖排逐字符绘制用）。
+  ComputedStyle? _runStyleAtOffset(List<StyledRun> runs, int offset) {
+    for (final run in runs) {
+      if (offset >= run.start && offset < run.end) {
+        return run.style;
+      }
+    }
+    return null;
+  }
+
+  /// 竖排单字符样式（含主题色覆盖）。
+  TextStyle _verticalStyleOf(ComputedStyle style, Color? textColorOverride) {
+    final textStyle = TextLayoutEngine.textStyleFor(style);
+    return textColorOverride == null
+        ? textStyle
+        : textStyle.copyWith(color: textColorOverride);
   }
 
   /// 画一行：有上下标（基线偏移）时按段分别绘制，其余情况整行一次绘制。
@@ -2943,11 +3094,16 @@ class _SliceGeometry {
     // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：
     // 声明了 width 的块背景与 overflow 裁剪都要收在声明宽内（Chromium 的
     // used width 口径）；auto 时与「页宽 − margin」等价。
+    // 竖排块（W22）：内容是「列带」，块宽收缩到列数×列宽（Chromium 实测
+    // 35 用例 .v 宽 98 = 4 列×24 + 边框），不能用页宽。
     final model = _boxModel;
     final left = block.bleedLeft ? 0.0 : style.margin.left;
+    final contentWidth = block.layout.isVertical
+        ? block.layout.width
+        : model.resolveContentWidth(pageWidth);
     final right = block.bleedRight
         ? pageWidth
-        : left + model.resolveContentWidth(pageWidth) + model.horizontalInset;
+        : left + contentWidth + model.horizontalInset;
     return Rect.fromLTRB(left, top, right, bottom);
   }
 

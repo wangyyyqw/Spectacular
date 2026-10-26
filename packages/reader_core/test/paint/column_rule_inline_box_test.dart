@@ -379,4 +379,67 @@ void main() {
     }
     expect(dark, greaterThan(20), reason: '内容盒内应有 payload 文字墨迹');
   });
+
+  test('固定高的行内盒：payload.clipsContent 时内容按内容盒裁剪', () async {
+    final boxStyle = ComputedStyle(<String, String>{
+      'font-size': '16px',
+      'line-height': '1.25',
+      'font-family': 'Ahem',
+      'color': '#000000',
+      'background-color': '#ffeecc',
+    });
+    // 内容 2 行（40px 高），但声明高 20 → clipsContent 为真。
+    final payloadLayout = TextLayoutEngine.layout(
+      text: 'abcd',
+      style: boxStyle,
+      maxWidth: 32,
+    );
+    expect(payloadLayout.lineCount, 2);
+    final payload = PageBlock(
+      layout: payloadLayout,
+      style: boxStyle,
+      declaredContentHeight: 20,
+    );
+    expect(payload.clipsContent, isTrue, reason: '声明高 20 < 内容高 40');
+    final placement = InlineBoxPlacement(
+      offset: 0,
+      left: 60,
+      width: 32,
+      height: 20,
+      ascent: 16,
+      descent: 4,
+      spec: InlineBoxSpec(
+        offset: 0,
+        width: 32,
+        height: 20,
+        payload: payload,
+      ),
+    );
+    final block = PageBlock(
+      layout: _syntheticLayout(text: 'x', inlineBoxes: [placement]),
+      style: ComputedStyle(<String, String>{
+        'font-size': '16px',
+        'font-family': 'Ahem',
+      }),
+    );
+    final data = await _render(block);
+    // 行顶 0、基线 42 → 盒顶 42−16 = 26，盒 26..46；内容盒与盒同高（无 padding/border）。
+    var inkInside = 0;
+    var inkBelow = 0;
+    for (var y = 0; y < _height; y++) {
+      for (var x = 60; x < 92; x++) {
+        if (_isBlank(data, x, y)) continue;
+        // 背景（#ffeecc）不算墨迹：只统计深色文字。
+        if (_r(data, x, y) < 120) {
+          if (y < 46) {
+            inkInside++;
+          } else {
+            inkBelow++;
+          }
+        }
+      }
+    }
+    expect(inkInside, greaterThan(10), reason: '第一行内容应画出');
+    expect(inkBelow, 0, reason: '超出声明高的第二行应被裁掉');
+  });
 }
