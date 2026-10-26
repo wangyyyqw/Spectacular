@@ -1132,8 +1132,23 @@ class EpubChapterSource
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
-    final pages = await _loadChapterPages(spineIndex);
+    var pages = await _loadChapterPages(spineIndex);
     final background = _pageBackgrounds[spineIndex];
+    if (pages.isEmpty) {
+      // 纯装饰章（制作页/书籍信息/作者签名：只有 display:none 标题 +
+      // 空段，靠 body 背景图呈现）必须仍产出一页（P9-21）。否则阅读器
+      // 认为该章没有页面，翻页/进度会跳过甚至越界。
+      pages = <PageContent>[
+        PageContent(
+          spineIndex: spineIndex,
+          pageIndex: 0,
+          slices: const <PageBlockSlice>[],
+          usedHeight: 0,
+          pageHeight: contentHeight,
+          topPadding: 0,
+        ),
+      ];
+    }
     if (background == null) {
       return pages;
     }

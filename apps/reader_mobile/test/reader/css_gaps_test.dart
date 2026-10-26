@@ -206,6 +206,19 @@ void main() {
     expect(paragraph.overlay, isFalse);
   });
 
+  test('纯装饰章仍产出一页并承载整页背景（P9-21）', () async {
+    final source = await open(
+      body:
+          '<h2 style="display: none;">制作页</h2><p><br/></p>',
+      css: 'body { background-image: url("../Images/i.png"); '
+          'background-size: cover; background-repeat: no-repeat; }',
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages, hasLength(1), reason: '空白章不能产出零页');
+    expect(pages.first.slices, isEmpty);
+    expect(pages.first.background?.imageUrl, 'OEBPS/Images/i.png');
+  });
+
   test('多看私有属性在真实管线生效（P9-13）', () async {
     final source = await open(
       body: '<p class="d">多看段落</p>',
