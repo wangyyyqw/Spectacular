@@ -415,8 +415,203 @@ class CssFilter {
       'CssFilter(${kind.name},$amount${shadow == null ? "" : ",$shadow"})';
 }
 
+/// `transform` 函数种类（绘制层按 [CssTransform.kind] 分派）。
+enum CssTransformKind {
+  /// `translate(x[, y])` / `translateX` / `translateY`。
+  translate,
+
+  /// `scale(x[, y])` / `scaleX` / `scaleY`。
+  scale,
+
+  /// `rotate(<angle>)`。
+  rotate,
+
+  /// `skew(ax[, ay])` / `skewX` / `skewY`。
+  skew,
+
+  /// `matrix(a, b, c, d, e, f)`。
+  matrix,
+}
+
+/// `transform` 里的单个变换函数（有序列表的一项，绘制层按声明顺序合成）。
+///
+/// 各 [kind] 使用哪些字段：
+/// - [CssTransformKind.translate]：[x]、[y]（[CssLength]，**百分比保留标记**，
+///   基准分别是边框盒**宽**/**高**，由绘制层 `resolve(宽/高)` 解算）；
+/// - [CssTransformKind.scale]：[sx]、[sy]（倍数；[sy] 为 null 表示同 [sx]）；
+/// - [CssTransformKind.rotate]：[angleDeg]；
+/// - [CssTransformKind.skew]：[axDeg]、[ayDeg]；
+/// - [CssTransformKind.matrix]：[values]（a,b,c,d,e,f 六个分量）。
+///
+/// 角度一律用度，CSS 顺时针为正（绘制层转弧度时注意 y 轴向下）。
+class CssTransform {
+  /// 创建变换（按 [kind] 取用对应字段，未用到的保持 null/0）。
+  const CssTransform({
+    required this.kind,
+    this.x,
+    this.y,
+    this.sx,
+    this.sy,
+    this.angleDeg,
+    this.axDeg = 0,
+    this.ayDeg = 0,
+    this.values,
+  });
+
+  /// 种类。
+  final CssTransformKind kind;
+
+  /// translate 的水平位移（百分比基准 = 边框盒宽）。
+  final CssLength? x;
+
+  /// translate 的垂直位移（百分比基准 = 边框盒高）。
+  final CssLength? y;
+
+  /// scale 的水平倍数。
+  final double? sx;
+
+  /// scale 的垂直倍数；null 表示同 [sx]。
+  final double? sy;
+
+  /// rotate 的角度（度）。
+  final double? angleDeg;
+
+  /// skew 的水平斜切角（度）。
+  final double axDeg;
+
+  /// skew 的垂直斜切角（度）。
+  final double ayDeg;
+
+  /// matrix 的六个分量 `[a, b, c, d, e, f]`。
+  final List<double>? values;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssTransform &&
+      other.kind == kind &&
+      other.x == x &&
+      other.y == y &&
+      other.sx == sx &&
+      other.sy == sy &&
+      other.angleDeg == angleDeg &&
+      other.axDeg == axDeg &&
+      other.ayDeg == ayDeg &&
+      _listEquals(other.values ?? const <double>[],
+          values ?? const <double>[]);
+
+  @override
+  int get hashCode => Object.hash(
+    kind,
+    x,
+    y,
+    sx,
+    sy,
+    angleDeg,
+    axDeg,
+    ayDeg,
+    Object.hashAll(values ?? const <double>[]),
+  );
+
+  @override
+  String toString() => switch (kind) {
+    CssTransformKind.translate => 'CssTransform.translate($x,$y)',
+    CssTransformKind.scale => 'CssTransform.scale($sx,${sy ?? sx})',
+    CssTransformKind.rotate => 'CssTransform.rotate(${angleDeg}deg)',
+    CssTransformKind.skew => 'CssTransform.skew(${axDeg}deg,${ayDeg}deg)',
+    CssTransformKind.matrix => 'CssTransform.matrix($values)',
+  };
+}
+
+/// 书写模式（CSS `writing-mode`）。
+enum CssWritingMode {
+  /// 横排，行自上而下（默认）。
+  horizontalTb,
+
+  /// 竖排，列从右向左（中文古籍/繁体书常见）。
+  verticalRl,
+
+  /// 竖排，列从左向右。
+  verticalLr,
+}
+
+/// 竖排时的字向（CSS `text-orientation`）。
+enum CssTextOrientation {
+  /// 默认：拉丁字母侧躺、CJK 直立。
+  mixed,
+
+  /// 全部直立。
+  upright,
+
+  /// 全部侧躺。
+  sideways,
+}
+
+/// 文本方向（CSS `direction`）。
+enum CssDirection {
+  /// 从左到右（默认）。
+  ltr,
+
+  /// 从右到左。
+  rtl,
+}
+
+/// 溢出处理（CSS `overflow`）。
+enum CssOverflow {
+  /// 默认：外溢内容照常绘制（不裁剪）。
+  visible,
+
+  /// 裁剪并允许滚动（静态分页下等价于裁剪）。
+  hidden,
+
+  /// 裁剪，禁止滚动。
+  clip,
+
+  /// 需要滚动条（静态分页下按 hidden 处理）。
+  auto,
+
+  /// 总是滚动条（静态分页下按 hidden 处理）。
+  scroll,
+}
+
+/// 连字符断行（CSS `hyphens`；`-epub-hyphens`/`-webkit-hyphens` 经别名表落到它）。
+enum CssHyphens {
+  /// 不自动断行（默认）。
+  none,
+
+  /// 只在显式软连字符（U+00AD）处断行。
+  manual,
+
+  /// 允许引擎按语言词典自动加连字符。
+  auto,
+}
+
+/// 断词/断行策略（CSS `word-break`）。
+enum CssWordBreak {
+  /// 默认：只在正常断行点断（CJK 任意处、拉丁按词）。
+  normal,
+
+  /// 任意字符处都可断（`break-all`，常用于长 URL/代码）。
+  breakAll,
+
+  /// 禁止 CJK 文本内部断行（`keep-all`）。
+  keepAll,
+}
+
+/// 长词换行策略（CSS `overflow-wrap`，旧名 `word-wrap`）。
+enum CssOverflowWrap {
+  /// 默认：只在正常断行点断。
+  normal,
+
+  /// 单词过长会溢出时，才在单词内部断行（`break-word`）。
+  breakWord,
+
+  /// 任意位置都可断行（`anywhere`，且会影响最小内容宽）。
+  anywhere,
+}
+
 /// 清除浮动（CSS clear）。
 enum CssClear { none, left, right, both }
+
 /// 表格列宽算法（CSS `table-layout`，P9-17）。
 enum CssTableLayout {
   /// 自动：按内容自然宽分配。
@@ -843,6 +1038,15 @@ class ComputedStyle {
         ? (parent?.color ?? const Color(0xFF000000))
         : (_parseColor(rawColor) ?? parent?.color ?? const Color(0xFF000000));
 
+    // 多列布局（W11，不继承）：column-count/width/gap/rule + `columns` 简写。
+    final columns = _resolveColumns(
+      values,
+      explicit,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+      color: color,
+    );
+
     final parentWeight = parent?.fontWeight ?? 400;
     final rawWeight = fontValue('font-weight');
     final weight = rawWeight == null
@@ -904,6 +1108,63 @@ class ComputedStyle {
       fontSize: fontSize,
       rootFontSize: rootFontSize,
     );
+
+    // transform 族（W11）：有序变换列表 + 原点。百分比一律保留标记，
+    // 绘制层按边框盒宽/高解算（不在这里换算成 px）。
+    final transforms = _parseTransforms(
+      explicitValue('transform') ?? explicitValue('-webkit-transform'),
+      fontSize: fontSize,
+    );
+    final transformOrigin = _parseTransformOrigin(
+      explicitValue('transform-origin'),
+      fontSize: fontSize,
+    );
+
+    // 书写模式族（W11）：writing-mode/text-orientation/direction 都继承。
+    final rawWritingMode = explicitValue('writing-mode');
+    final writingMode = rawWritingMode == null
+        ? (parent?.writingMode ?? CssWritingMode.horizontalTb)
+        : _parseWritingMode(rawWritingMode) ??
+              parent?.writingMode ??
+              CssWritingMode.horizontalTb;
+    final rawTextOrientation = explicitValue('text-orientation');
+    final textOrientation = rawTextOrientation == null
+        ? (parent?.textOrientation ?? CssTextOrientation.mixed)
+        : _parseTextOrientation(rawTextOrientation) ??
+              parent?.textOrientation ??
+              CssTextOrientation.mixed;
+    final rawDirection = explicitValue('direction');
+    final direction = rawDirection == null
+        ? (parent?.direction ?? CssDirection.ltr)
+        : _parseDirection(rawDirection) ?? parent?.direction ?? CssDirection.ltr;
+
+    // 断行族（W11，都继承）：hyphens / word-break / overflow-wrap。
+    final rawHyphens = explicitValue('hyphens');
+    final hyphens = rawHyphens == null
+        ? (parent?.hyphens ?? CssHyphens.manual)
+        : _parseHyphens(rawHyphens) ?? parent?.hyphens ?? CssHyphens.manual;
+    final rawWordBreak = explicitValue('word-break');
+    final wordBreak = rawWordBreak == null
+        ? (parent?.wordBreak ?? CssWordBreak.normal)
+        : _parseWordBreak(rawWordBreak) ??
+              parent?.wordBreak ??
+              CssWordBreak.normal;
+    // 旧名 `word-wrap` 与 `overflow-wrap` 同义（别名表里没登记，这里兜底）。
+    final rawOverflowWrap =
+        explicitValue('overflow-wrap') ?? explicitValue('word-wrap');
+    final overflowWrap = rawOverflowWrap == null
+        ? (parent?.overflowWrap ?? CssOverflowWrap.normal)
+        : _parseOverflowWrap(rawOverflowWrap) ??
+              parent?.overflowWrap ??
+              CssOverflowWrap.normal;
+
+    // overflow（W11，不继承，初始 visible）：绘制层据此决定是否裁剪外溢内容。
+    // `overflow-x`/`overflow-y` 只取一个值：优先 overflow 简写，其次 overflow-x。
+    final rawOverflow =
+        explicitValue('overflow') ?? explicitValue('overflow-x');
+    final overflow = rawOverflow == null
+        ? CssOverflow.visible
+        : _parseOverflow(rawOverflow);
 
     var textIndent = parent?.textIndent ?? 0.0;
     final rawTextIndent = explicitValue('text-indent');
@@ -1255,6 +1516,20 @@ class ComputedStyle {
       opacity: opacity,
       effectiveOpacity: effectiveOpacity,
       filters: filters,
+      transforms: transforms,
+      transformOriginX: transformOrigin.x,
+      transformOriginY: transformOrigin.y,
+      writingMode: writingMode,
+      textOrientation: textOrientation,
+      direction: direction,
+      hyphens: hyphens,
+      wordBreak: wordBreak,
+      overflowWrap: overflowWrap,
+      overflow: overflow,
+      columnCount: columns.count,
+      columnWidth: columns.width,
+      columnGap: columns.gap,
+      columnRule: columns.rule,
       textOverflow: textOverflow,
       boxShadow: boxShadow,
       wordSpacing: wordSpacing,
@@ -1373,6 +1648,20 @@ class ComputedStyle {
       opacity: opacity,
       effectiveOpacity: effectiveOpacity,
       filters: filters,
+      transforms: transforms,
+      transformOriginX: transformOriginX,
+      transformOriginY: transformOriginY,
+      writingMode: writingMode,
+      textOrientation: textOrientation,
+      direction: direction,
+      hyphens: hyphens,
+      wordBreak: wordBreak,
+      overflowWrap: overflowWrap,
+      overflow: overflow,
+      columnCount: columnCount,
+      columnWidth: columnWidth,
+      columnGap: columnGap,
+      columnRule: columnRule,
       textOverflow: textOverflow,
       boxShadow: boxShadow,
       wordSpacing: wordSpacing,
@@ -1462,6 +1751,20 @@ class ComputedStyle {
     required this.opacity,
     required this.effectiveOpacity,
     required this.filters,
+    required this.transforms,
+    required this.transformOriginX,
+    required this.transformOriginY,
+    required this.writingMode,
+    required this.textOrientation,
+    required this.direction,
+    required this.hyphens,
+    required this.wordBreak,
+    required this.overflowWrap,
+    required this.overflow,
+    required this.columnCount,
+    required this.columnWidth,
+    required this.columnGap,
+    required this.columnRule,
     required this.textOverflow,
     required this.boxShadow,
     required this.wordSpacing,
@@ -1628,6 +1931,54 @@ class ComputedStyle {
   /// 绘制层按声明顺序依次合成（先 blur 再 grayscale …）；每种滤镜的参数含义
   /// 见 [CssFilter] 与 [CssFilterKind]。
   final List<CssFilter> filters;
+
+  /// `transform` 的有序变换列表（非继承，初始空）。
+  ///
+  /// 每项按 [CssTransform.kind] 分派；translate 的百分比保留标记，绘制层
+  /// 以边框盒宽/高为基准解算。
+  final List<CssTransform> transforms;
+
+  /// `transform-origin` 的横轴位置（默认 50%，百分比基准 = 边框盒宽）。
+  final CssLength transformOriginX;
+
+  /// `transform-origin` 的纵轴位置（默认 50%，百分比基准 = 边框盒高）。
+  final CssLength transformOriginY;
+
+  /// 书写模式（继承，初始 [CssWritingMode.horizontalTb]）。
+  final CssWritingMode writingMode;
+
+  /// 竖排字向（继承，初始 [CssTextOrientation.mixed]）。
+  final CssTextOrientation textOrientation;
+
+  /// 文本方向（继承，初始 [CssDirection.ltr]）。
+  final CssDirection direction;
+
+  /// 连字符断行（继承，初始 [CssHyphens.manual]）。
+  final CssHyphens hyphens;
+
+  /// 断词策略（继承，初始 [CssWordBreak.normal]）。
+  final CssWordBreak wordBreak;
+
+  /// 长词换行策略（继承，初始 [CssOverflowWrap.normal]）。
+  final CssOverflowWrap overflowWrap;
+
+  /// 溢出处理（非继承，初始 [CssOverflow.visible]）。
+  ///
+  /// 绘制层用它区分「声明了 width 但 overflow: visible 的正常外溢」与
+  /// 「hidden/clip/auto/scroll 应裁剪」。
+  final CssOverflow overflow;
+
+  /// `column-count`（非继承）；null = auto（未声明或 auto）。
+  final int? columnCount;
+
+  /// `column-width`（非继承）；null = auto。百分比按可用宽解算。
+  final CssLength? columnWidth;
+
+  /// `column-gap` 像素值（非继承）；null = normal（布局层按 1em 处理）。
+  final double? columnGap;
+
+  /// `column-rule` 简写（非继承）；null = 无分隔线。复用 [CssBorderSide]。
+  final CssBorderSide? columnRule;
 
   /// 文本溢出处理（不继承，初始 clip；P2-37，限定 clip/ellipsis）。
   final CssTextOverflow textOverflow;
@@ -2862,6 +3213,509 @@ class ComputedStyle {
       offsetY: lengths[1],
       blur: lengths.length > 2 ? math.max(0, lengths[2]) : 0,
       color: color ?? const Color(0xFF000000),
+    );
+  }
+
+  /// 解析 `transform`（W11）：返回**有序**变换列表，`none`/空 → 空列表。
+  ///
+  /// 支持 translate/translateX/translateY、scale/scaleX/scaleY、rotate、
+  /// matrix、skew/skewX/skewY；`translate3d`/`perspective` 等未支持函数跳过。
+  static List<CssTransform> _parseTransforms(
+    String? raw, {
+    required double fontSize,
+  }) {
+    if (raw == null) {
+      return const <CssTransform>[];
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'none') {
+      return const <CssTransform>[];
+    }
+    final transforms = <CssTransform>[];
+    var index = 0;
+    while (index < value.length) {
+      final open = value.indexOf('(', index);
+      if (open < 0) {
+        break;
+      }
+      var nameStart = open;
+      while (nameStart > index) {
+        final code = value.codeUnitAt(nameStart - 1);
+        if (!((code >= 97 && code <= 122) || code == 45)) {
+          break;
+        }
+        nameStart -= 1;
+      }
+      final name = value.substring(nameStart, open).trim();
+      var depth = 0;
+      var close = -1;
+      for (var i = open; i < value.length; i++) {
+        final char = value[i];
+        if (char == '(') {
+          depth += 1;
+        } else if (char == ')') {
+          depth -= 1;
+          if (depth == 0) {
+            close = i;
+            break;
+          }
+        }
+      }
+      if (close < 0) {
+        break;
+      }
+      final transform = _parseTransformFunction(
+        name,
+        value.substring(open + 1, close),
+        fontSize: fontSize,
+      );
+      if (transform != null) {
+        transforms.add(transform);
+      }
+      index = close + 1;
+    }
+    return transforms;
+  }
+
+  /// 单个 transform 函数 → [CssTransform]；未知函数返回 null。
+  static CssTransform? _parseTransformFunction(
+    String name,
+    String args, {
+    required double fontSize,
+  }) {
+    final parts = _transformArgs(args);
+    switch (name) {
+      case 'translate':
+        return CssTransform(
+          kind: CssTransformKind.translate,
+          x: _transformLength(parts, 0, fontSize) ?? const CssLength(0),
+          y: _transformLength(parts, 1, fontSize) ?? const CssLength(0),
+        );
+      case 'translatex':
+        return CssTransform(
+          kind: CssTransformKind.translate,
+          x: _transformLength(parts, 0, fontSize) ?? const CssLength(0),
+          y: const CssLength(0),
+        );
+      case 'translatey':
+        return CssTransform(
+          kind: CssTransformKind.translate,
+          x: const CssLength(0),
+          y: _transformLength(parts, 0, fontSize) ?? const CssLength(0),
+        );
+      case 'scale':
+        return CssTransform(
+          kind: CssTransformKind.scale,
+          sx: _transformNumber(parts, 0) ?? 1,
+          sy: _transformNumber(parts, 1),
+        );
+      case 'scalex':
+        return CssTransform(
+          kind: CssTransformKind.scale,
+          sx: _transformNumber(parts, 0) ?? 1,
+          sy: 1,
+        );
+      case 'scaley':
+        return CssTransform(
+          kind: CssTransformKind.scale,
+          sx: 1,
+          sy: _transformNumber(parts, 0) ?? 1,
+        );
+      case 'rotate':
+        return CssTransform(
+          kind: CssTransformKind.rotate,
+          angleDeg: parts.isEmpty ? 0 : (_parseAngleDegrees(parts.first) ?? 0),
+        );
+      case 'skew':
+        return CssTransform(
+          kind: CssTransformKind.skew,
+          axDeg: parts.isEmpty ? 0 : (_parseAngleDegrees(parts[0]) ?? 0),
+          ayDeg: parts.length > 1 ? (_parseAngleDegrees(parts[1]) ?? 0) : 0,
+        );
+      case 'skewx':
+        return CssTransform(
+          kind: CssTransformKind.skew,
+          axDeg: parts.isEmpty ? 0 : (_parseAngleDegrees(parts.first) ?? 0),
+          ayDeg: 0,
+        );
+      case 'skewy':
+        return CssTransform(
+          kind: CssTransformKind.skew,
+          axDeg: 0,
+          ayDeg: parts.isEmpty ? 0 : (_parseAngleDegrees(parts.first) ?? 0),
+        );
+      case 'matrix':
+        final values = <double>[
+          for (final part in parts) double.tryParse(part) ?? 0,
+        ];
+        if (values.length < 6) {
+          return null;
+        }
+        return CssTransform(
+          kind: CssTransformKind.matrix,
+          values: values.sublist(0, 6),
+        );
+      default:
+        return null;
+    }
+  }
+
+  /// `transform-origin`：两个位置（默认 50% / 50%）。
+  ///
+  /// 单值 `top`/`bottom` 只改纵轴（横轴取 center），其余单值改横轴；
+  /// 第三个值（z 轴）忽略。百分比保留标记，基准 = 边框盒宽（x）/高（y）。
+  static ({CssLength x, CssLength y}) _parseTransformOrigin(
+    String? raw, {
+    required double fontSize,
+  }) {
+    const center = CssLength(50, isPercent: true);
+    if (raw == null) {
+      return (x: center, y: center);
+    }
+    final tokens = raw
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) {
+      return (x: center, y: center);
+    }
+    CssLength? lengthOf(String token) {
+      if (token == 'left' || token == 'top') {
+        return const CssLength(0, isPercent: true);
+      }
+      if (token == 'right' || token == 'bottom') {
+        return const CssLength(100, isPercent: true);
+      }
+      if (token == 'center') {
+        return center;
+      }
+      final percent = _parsePercent(token);
+      if (percent != null) {
+        return CssLength(percent, isPercent: true);
+      }
+      final value = _resolveLength(
+        token,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: 16,
+        percentBase: 0,
+      );
+      return value == null ? null : CssLength(value);
+    }
+
+    if (tokens.length == 1) {
+      final token = tokens.first;
+      final length = lengthOf(token) ?? center;
+      final verticalOnly = token == 'top' || token == 'bottom';
+      return verticalOnly ? (x: center, y: length) : (x: length, y: center);
+    }
+    return (
+      x: lengthOf(tokens[0]) ?? center,
+      y: lengthOf(tokens[1]) ?? center,
+    );
+  }
+
+  /// transform 参数：优先按逗号切分，单参数形式再按空白切（`translate(10px 20px)`）。
+  static List<String> _transformArgs(String raw) {
+    final byComma = _splitTopLevel(raw, ',')
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (byComma.length > 1) {
+      return byComma;
+    }
+    return raw
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+  }
+
+  /// transform 的长度参数：px/em 转像素，百分比保留标记（绘制层按盒宽/高解算）。
+  static CssLength? _transformLength(
+    List<String> parts,
+    int index,
+    double fontSize,
+  ) {
+    if (index >= parts.length) {
+      return null;
+    }
+    final token = parts[index];
+    final percent = _parsePercent(token);
+    if (percent != null) {
+      return CssLength(percent, isPercent: true);
+    }
+    final value = _resolveLength(
+      token,
+      fontSize: fontSize,
+      parentFontSize: fontSize,
+      rootFontSize: 16,
+      percentBase: 0,
+    );
+    return value == null ? null : CssLength(value);
+  }
+
+  /// transform 的倍数参数（scale）：`50%` → 0.5，纯数字原样。
+  static double? _transformNumber(List<String> parts, int index) {
+    if (index >= parts.length) {
+      return null;
+    }
+    final token = parts[index].trim();
+    final percent = _parsePercent(token);
+    if (percent != null) {
+      return percent / 100;
+    }
+    return double.tryParse(token);
+  }
+
+  /// 书写模式：含 CSS2 旧值（`tb-rl`/`lr-tb`）与简写（`rl`/`lr`）。
+  static CssWritingMode? _parseWritingMode(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'horizontal-tb' || 'lr-tb' || 'lr' || 'rl' => CssWritingMode.horizontalTb,
+      'vertical-rl' || 'tb-rl' => CssWritingMode.verticalRl,
+      'vertical-lr' || 'tb-lr' => CssWritingMode.verticalLr,
+      _ => null,
+    };
+  }
+
+  /// 竖排字向：`sideways-right` 等旧写法归到 sideways。
+  static CssTextOrientation? _parseTextOrientation(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'mixed' => CssTextOrientation.mixed,
+      'upright' => CssTextOrientation.upright,
+      'sideways' || 'sideways-right' || 'sideways-left' =>
+        CssTextOrientation.sideways,
+      _ => null,
+    };
+  }
+
+  /// 文本方向。
+  static CssDirection? _parseDirection(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'ltr' => CssDirection.ltr,
+      'rtl' => CssDirection.rtl,
+      _ => null,
+    };
+  }
+
+  /// `overflow`：取第一个值（`overflow: hidden auto` 这类两轴写法只支持首值）。
+  static CssOverflow _parseOverflow(String raw) {
+    for (final token in raw.trim().toLowerCase().split(RegExp(r'\s+'))) {
+      switch (token) {
+        case 'hidden':
+          return CssOverflow.hidden;
+        case 'clip':
+          return CssOverflow.clip;
+        case 'auto':
+          return CssOverflow.auto;
+        case 'scroll':
+          return CssOverflow.scroll;
+        case 'visible':
+          return CssOverflow.visible;
+      }
+    }
+    return CssOverflow.visible;
+  }
+
+  /// `hyphens`。
+  static CssHyphens? _parseHyphens(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'none' => CssHyphens.none,
+      'manual' => CssHyphens.manual,
+      'auto' => CssHyphens.auto,
+      _ => null,
+    };
+  }
+
+  /// `word-break`。
+  static CssWordBreak? _parseWordBreak(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'normal' => CssWordBreak.normal,
+      'break-all' => CssWordBreak.breakAll,
+      'keep-all' => CssWordBreak.keepAll,
+      _ => null,
+    };
+  }
+
+  /// `overflow-wrap`（含旧名 `word-wrap` 的取值）。
+  static CssOverflowWrap? _parseOverflowWrap(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'normal' => CssOverflowWrap.normal,
+      'break-word' => CssOverflowWrap.breakWord,
+      'anywhere' => CssOverflowWrap.anywhere,
+      _ => null,
+    };
+  }
+
+  /// 多列布局（`columns` 系列，W11）：count/width/gap/rule。
+  ///
+  /// `columns` 简写在本层展开（`columns: 3 60px`），整数值归 count、
+  /// 长度值归 width，与级联层无关（直接构造 ComputedStyle 也能吃到）。
+  static ({
+    int? count,
+    CssLength? width,
+    double? gap,
+    CssBorderSide? rule,
+  }) _resolveColumns(
+    Map<String, String> values,
+    Set<String> explicit, {
+    required double fontSize,
+    required double rootFontSize,
+    required Color color,
+  }) {
+    String? value(String property) =>
+        explicit.contains(property) ? values[property] : null;
+
+    var count = _parseColumnCount(value('column-count'));
+    var width = _parseColumnWidth(
+      value('column-width'),
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+    final shorthand = value('columns');
+    if (shorthand != null) {
+      for (final token in shorthand.trim().split(RegExp(r'\s+'))) {
+        if (token.isEmpty || token.toLowerCase() == 'auto') {
+          continue;
+        }
+        final parsedCount = _parseColumnCount(token);
+        if (parsedCount != null) {
+          count ??= parsedCount;
+          continue;
+        }
+        width ??= _parseColumnWidth(
+          token,
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        );
+      }
+    }
+    return (
+      count: count,
+      width: width,
+      gap: _parseColumnGap(
+        value('column-gap'),
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+      ),
+      rule: _parseColumnRule(
+        value('column-rule'),
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+        color: color,
+      ),
+    );
+  }
+
+  /// `column-count`：正整数；`auto` 或非法值返回 null。
+  static int? _parseColumnCount(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = int.tryParse(raw.trim());
+    return value == null || value < 1 ? null : value;
+  }
+
+  /// `column-width`：长度（px/em）；`auto` 返回 null。
+  static CssLength? _parseColumnWidth(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (raw == null) {
+      return null;
+    }
+    final token = raw.trim().toLowerCase();
+    if (token.isEmpty || token == 'auto' || token == 'normal') {
+      return null;
+    }
+    final percent = _parsePercent(token);
+    if (percent != null) {
+      return CssLength(percent, isPercent: true);
+    }
+    final value = _resolveLength(
+      token,
+      fontSize: fontSize,
+      parentFontSize: fontSize,
+      rootFontSize: rootFontSize,
+      percentBase: 0,
+    );
+    return value == null ? null : CssLength(value);
+  }
+
+  /// `column-gap`：像素值；`normal`/auto 返回 null（由布局层按 1em 处理）。
+  static double? _parseColumnGap(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (raw == null) {
+      return null;
+    }
+    final token = raw.trim().toLowerCase();
+    if (token.isEmpty || token == 'normal' || token == 'auto') {
+      return null;
+    }
+    return _resolveLength(
+      token,
+      fontSize: fontSize,
+      parentFontSize: fontSize,
+      rootFontSize: rootFontSize,
+      percentBase: 0,
+    );
+  }
+
+  /// `column-rule` 简写（`1px solid #999`）→ 复用 [CssBorderSide]。
+  static CssBorderSide? _parseColumnRule(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+    required Color color,
+  }) {
+    if (raw == null) {
+      return null;
+    }
+    var width = 0.0;
+    var style = CssBorderStyle.none;
+    var ruleColor = color;
+    var sawToken = false;
+    for (final token in raw.trim().split(RegExp(r'\s+'))) {
+      if (token.isEmpty) {
+        continue;
+      }
+      final parsedStyle = _parseBorderStyle(token);
+      if (parsedStyle != null) {
+        style = parsedStyle;
+        sawToken = true;
+        continue;
+      }
+      final parsedColor = _parseColor(token);
+      if (parsedColor != null) {
+        ruleColor = parsedColor;
+        sawToken = true;
+        continue;
+      }
+      final parsedWidth = _resolveLength(
+        token,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: rootFontSize,
+        percentBase: 0,
+      );
+      if (parsedWidth != null && RegExp(r'^[+-]?[\d.]').hasMatch(token)) {
+        width = parsedWidth;
+        sawToken = true;
+      }
+    }
+    if (!sawToken) {
+      return null;
+    }
+    // 与 border 一致：`none` 时宽度归零（Chrome 语义）。
+    return CssBorderSide(
+      width: style == CssBorderStyle.none ? 0 : width,
+      style: style,
+      color: ruleColor,
     );
   }
 
