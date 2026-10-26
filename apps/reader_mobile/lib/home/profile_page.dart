@@ -30,6 +30,44 @@ class _ProfilePageState extends State<ProfilePage> {
     }).catchError((_) {});
   }
 
+  Future<void> _clearLogs() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清理日志'),
+        content: const Text('将删除本机保存的全部诊断日志（含历史会话），确定吗？'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            key: const ValueKey<String>('logs-clear-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('清理'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      await ReaderLog.instance.clear();
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(const SnackBar(content: Text('日志已清理')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text('清理失败：$error')));
+      }
+    }
+  }
+
   Future<void> _exportLogs() async {
     if (_exporting) {
       return;
@@ -121,8 +159,15 @@ class _ProfilePageState extends State<ProfilePage> {
                         )
                       : const Icon(Icons.ios_share),
                   title: const Text('导出诊断日志'),
-                  subtitle: const Text('排查真机问题时随反馈附上'),
+                  subtitle: const Text('包含历史会话；排查真机问题时随反馈附上'),
                   onTap: _exporting ? null : _exportLogs,
+                ),
+                ListTile(
+                  key: const ValueKey<String>('logs-clear'),
+                  leading: const Icon(Icons.delete_sweep_outlined),
+                  title: const Text('清理日志'),
+                  subtitle: const Text('删除本机保存的全部诊断日志'),
+                  onTap: _exporting ? null : _clearLogs,
                 ),
               ],
             ),
