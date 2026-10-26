@@ -1,0 +1,5 @@
+{
+  "name": "10-background",
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.6; } .c { background-color: #ffeeaa; padding: 6px; } .g { background: linear-gradient(90deg, #ff0000, #0000ff); padding: 6px; color: #fff; }",
+  "html": "<p class=\"c\">纯色背景</p><p class=\"g\">线性渐变背景（引擎若降级为纯色请观察）</p>"
+}

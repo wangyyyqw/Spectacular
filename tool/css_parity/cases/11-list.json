@@ -1,0 +1,5 @@
+{
+  "name": "11-list",
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } ul, ol { margin: 6px 0; padding-left: 40px; line-height: 1.7; } .dq { list-style-type: lower-roman; } .al { list-style-type: lower-alpha; } .sq { list-style-type: square; }",
+  "html": "<ul><li>无序项一</li><li>无序项二</li></ul><ol><li>有序项一</li><li>有序项二</li></ol><ol class=\"dq\"><li>罗马一</li><li>罗马二</li></ol><ol class=\"al\"><li>字母一</li><li>字母二</li></ol><ul class=\"sq\"><li>方块一</li><li>方块二</li></ul>"
+}

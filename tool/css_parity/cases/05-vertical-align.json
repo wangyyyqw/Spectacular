@@ -1,0 +1,5 @@
+{
+  "name": "05-vertical-align",
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.8; } sup { font-size: 0.7em; vertical-align: super; } sub { font-size: 0.7em; vertical-align: sub; } .s { font-size: 12px; vertical-align: 6px; } .t { font-size: 12px; vertical-align: text-top; } .b { font-size: 12px; vertical-align: text-bottom; } .m { font-size: 12px; vertical-align: middle; }",
+  "html": "<p>基线对比 x<sup>2</sup> + y<sub>1</sub> 结束</p><p>偏移值 <span class=\"s\">上移6px</span> 与 <span class=\"t\">text-top</span> <span class=\"b\">text-bottom</span> <span class=\"m\">middle</span></p>"
+}
