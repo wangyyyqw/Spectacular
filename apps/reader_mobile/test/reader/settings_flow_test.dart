@@ -191,7 +191,7 @@ void main() {
     // 拖「上内」胶囊：数值随手走，但只重绘当前页 —— 不重排。
     await tester.drag(
       find.byKey(const ValueKey<String>('margin-top-inner')),
-      const Offset(120, 0),
+      const Offset(0, -120),
     );
     await tester.pumpAndSettle();
     expect(
@@ -237,7 +237,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const ValueKey<String>('margin-top-inner')),
-      const Offset(120, 0),
+      const Offset(0, -120),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('margin-apply')));
