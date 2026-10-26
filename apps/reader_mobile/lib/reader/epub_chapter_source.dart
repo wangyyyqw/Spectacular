@@ -420,21 +420,44 @@ class EpubChapterSource
       );
       final chapterBase = p.posix.dirname(xhtmlPath);
       final sheets = <CssStylesheet>[];
+      final visited = <String>{};
+
+      /// 加载一张样式表并先展开它的 @import（P9-10）：被导入的规则在
+      /// 层叠顺序上位于导入方之前，之前完全没加载等于整份样式丢失。
+      void loadSheet(String url, {int depth = 0}) {
+        if (depth > 8 || !visited.add(url)) {
+          return;
+        }
+        final sheet = _cssSheetCache.putIfAbsent(url, () {
+          final bytes = document.archive.readBytes(url);
+          if (bytes == null) {
+            return const CssStylesheet(rules: [], imports: [], warnings: []);
+          }
+          return _absolutizeSheet(
+            CssParser.parse(utf8.decode(bytes, allowMalformed: true)),
+            p.posix.dirname(url),
+          );
+        });
+        for (final imported in sheet.imports) {
+          final media = imported.media?.toLowerCase() ?? '';
+          if (media.contains('print') || media.contains('speech')) {
+            continue;
+          }
+          final target =
+              document.resources.resolve(
+                imported.url,
+                baseDir: p.posix.dirname(url),
+              ) ??
+              imported.url;
+          loadSheet(target, depth: depth + 1);
+        }
+        sheets.add(sheet);
+      }
+
       for (final href in inline.links) {
         final url =
             document.resources.resolve(href, baseDir: chapterBase) ?? href;
-        sheets.add(
-          _cssSheetCache.putIfAbsent(url, () {
-            final bytes = document.archive.readBytes(url);
-            if (bytes == null) {
-              return const CssStylesheet(rules: [], imports: [], warnings: []);
-            }
-            return _absolutizeSheet(
-              CssParser.parse(utf8.decode(bytes, allowMalformed: true)),
-              p.posix.dirname(url),
-            );
-          }),
-        );
+        loadSheet(url);
       }
       if (inline.css.isNotEmpty) {
         sheets.add(_absolutizeSheet(CssParser.parse(inline.css), chapterBase));
@@ -752,15 +775,17 @@ class EpubChapterSource
   static const _headingTags = <String>{
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   };
-  /// 图片显示尺寸：width/height 属性（% 或 px）优先，缺边按原始宽高比
-  /// 补齐；CSS class 尺寸（textiE1 的 width:100%）flat 管线暂不解析，
-  /// 无属性时按全宽近似。高超出页高时钳制（contain 绘制不变形）。
+  /// 图片显示尺寸（P9-08）：书籍 CSS 的 `width/height` 优先（px/%/em），
+  /// 其次 HTML `width/height` 属性，缺边按原始宽高比补齐；都没有时按全宽
+  /// 近似。高超出页高时钳制（contain 绘制不变形）。
   (double, double) _resolveImageDisplaySize(
     Map<String, String> attributes,
     ImageIntrinsicSize? intrinsic,
     double maxWidth,
-    double maxHeight,
-  ) {
+    double maxHeight, {
+    double? cssWidth,
+    double? cssHeight,
+  }) {
     double? parseLength(String? raw, double percentBase) {
       if (raw == null) {
         return null;
@@ -779,8 +804,8 @@ class EpubChapterSource
       return double.tryParse(value.replaceAll('px', '').trim());
     }
 
-    var width = parseLength(attributes['width'], maxWidth);
-    var height = parseLength(attributes['height'], maxHeight);
+    var width = cssWidth ?? parseLength(attributes['width'], maxWidth);
+    var height = cssHeight ?? parseLength(attributes['height'], maxHeight);
     if (width != null && width > maxWidth) {
       width = maxWidth;
     }
@@ -1399,7 +1424,16 @@ class EpubChapterSource
           resolved = computed;
         }
         if (resolved != null) {
-          runs.add(StyledRun(start: start, end: end, style: resolved));
+          runs.add(
+            StyledRun(
+              start: start,
+              end: end,
+              style: resolved,
+              // 上下标位移（P9-07）：引擎只提供位移量，必须由调用方写进
+              // run，否则 vertical-align: super/sub 在真书里不生效。
+              baselineShift: resolved.verticalAlignShift,
+            ),
+          );
         }
       }
       return runs;
@@ -1448,7 +1482,10 @@ class EpubChapterSource
       return null;
     }
 
-    void collectImageBlock(BlockNode node) {
+    void collectImageBlock(
+      BlockNode node,
+      List<SelectorElement> ancestors,
+    ) {
       // src 键名兼容 SVG <image xlink:href> 折叠链。
       final src = node.attributes['src'] ?? node.attributes['xlink:href'];
       if (src == null || src.isEmpty) {
@@ -1456,11 +1493,19 @@ class EpubChapterSource
       }
       final url =
           this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
+      // 图片自身 CSS（P9-08）：img.xxx { width: 36px; height: auto } 这类
+      // 声明的尺寸必须优先于表现属性，否则插图/头像会按整宽绘制。
+      final imageStyle = styleForChain(<SelectorElement>[
+        ...ancestors,
+        _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
+      ]);
       var size = _resolveImageDisplaySize(
         node.attributes,
         imageSizes[url],
         contentWidth,
         contentHeight,
+        cssWidth: imageStyle.width?.resolve(contentWidth),
+        cssHeight: imageStyle.height?.resolve(contentHeight),
       );
       final floatSide = floatSideOf(node.attributes);
       if (floatSide != null) {
@@ -1841,6 +1886,38 @@ class EpubChapterSource
         var runs = node is TextContentNode
             ? resolveInlineRuns(node.inlineMarks)
             : const <StyledRun>[];
+        // 行内图片（P9-06）：占位符 → 书内图片路径 + 书籍 CSS 尺寸。
+        final inlineImages = <InlineImageSpec>[];
+        if (node is TextContentNode && node.inlineImages.isNotEmpty) {
+          final shift = (before ?? '').length;
+          for (final mark in node.inlineImages) {
+            final attributesForImage = mark.node.attributes;
+            final src =
+                attributesForImage['src'] ?? attributesForImage['xlink:href'];
+            if (src == null || src.isEmpty) {
+              continue;
+            }
+            final url =
+                this.document.resources.resolve(src, baseDir: chapterBase) ??
+                    src;
+            final imageStyle = styleForChain(<SelectorElement>[
+              ...ancestors,
+              _NodeView(
+                mark.node.tag,
+                attributesForImage,
+                const <SelectorElement>[],
+              ),
+            ]);
+            inlineImages.add(
+              InlineImageSpec(
+                offset: mark.offset + shift,
+                url: url,
+                width: imageStyle.width?.resolve(contentWidth),
+                height: imageStyle.height?.resolve(contentWidth),
+              ),
+            );
+          }
+        }
         final firstLetter = _firstLetterRun(
           sheets,
           ancestors,
@@ -1881,6 +1958,8 @@ class EpubChapterSource
                         ),
                     ]
                   : null,
+              // P9-06：行内图片（U+FFFC 占位）透传给绘制层。
+              inlineImages: inlineImages,
             ),
           );
         }
@@ -1897,7 +1976,7 @@ class EpubChapterSource
         // 折叠出的纯图块（真实书适配）：构造背景图块（contain 居中），
         // 块高按属性尺寸/原始宽高比换算。
         if (node.tag == 'img' && node.children.isEmpty) {
-          collectImageBlock(node);
+          collectImageBlock(node, ancestors);
           return;
         }
         // 表格块（flat 管线接入）：格布局测量 + 行边界切分 + 渲染载荷。

@@ -73,6 +73,21 @@ class RubyMark {
   final String text;
 }
 
+/// 行内图片标记（P9-06）：聚合文本中 U+FFFC 占位符的下标与来源节点。
+///
+/// 混合文本里的 `<img>` 保留占位符参与排版，绘制层按 [offset] 把图片
+/// 画在占位符字形的位置上（否则只会看到一个豆腐块）。
+class InlineImageMark {
+  /// 创建标记。
+  const InlineImageMark({required this.offset, required this.node});
+
+  /// 占位符在聚合文本中的下标（UTF-16）。
+  final int offset;
+
+  /// 图片来源节点（src/width/height/class 等属性）。
+  final InlineNode node;
+}
+
 /// 聚合后的文本块。
 class TextContentNode implements TextBlockNode {
   /// 创建文本块。
@@ -85,6 +100,7 @@ class TextContentNode implements TextBlockNode {
     required this.end,
     this.inlineMarks = const <InlineMark>[],
     this.rubies = const <RubyMark>[],
+    this.inlineImages = const <InlineImageMark>[],
   });
 
   @override
@@ -98,6 +114,9 @@ class TextContentNode implements TextBlockNode {
 
   /// 行内样式标记（真实书适配）。
   final List<InlineMark> inlineMarks;
+
+  /// 行内图片（P9-06）：U+FFFC 占位符位置与图片节点。
+  final List<InlineImageMark> inlineImages;
 
   /// 注音标注（P8-08）：ruby 主文本区间 + 注音串。
   final List<RubyMark> rubies;
@@ -298,14 +317,15 @@ abstract final class TextAggregator {
     }
     // 折叠判定必须在 flush（take 会清空缓冲）之前做，否则缓冲已空、
     // 残留文本被误判为「只含图片占位」。
-    final imageOnly = accumulator.images.length == 1 && accumulator.hasOnlyImages;
+    final imageOnly =
+        accumulator.images.length == 1 && accumulator.hasOnlyImages;
     flush();
 
     // 纯图块折叠（真实书适配）：块内唯一实质内容是一个 img/image（无
     // 其他文本、无强制换行）时，丢弃占位文本、保留图片属性（src/width/
     // height/class），产出 tag='img' 的块节点供章节源构造图片块。
     if (imageOnly) {
-      final image = accumulator.images.single;
+      final image = accumulator.images.single.node;
       return BlockNode(
         tag: 'img',
         display: DisplayMode.block,
@@ -361,8 +381,9 @@ class _TextAccumulator {
   final List<TextRun> _runs = <TextRun>[];
   final List<int> _hardBreaks = <int>[];
 
-  /// 块内遇到的图片行内节点（`<img>`/`<image>`），供纯图块折叠判定。
-  final List<InlineNode> images = <InlineNode>[];
+  /// 块内遇到的图片行内节点（`<img>`/`<image>`），供纯图块折叠判定
+  /// 与行内图片绘制（P9-06）。
+  final List<InlineImageMark> images = <InlineImageMark>[];
 
   /// 行内样式标记（真实书适配）：visitInline 按 open/close 记录。
   final List<InlineMark> marks = <InlineMark>[];
@@ -498,7 +519,9 @@ class _TextAccumulator {
   /// 块折叠（图片属性在 InlineNode.attributes 上）。
   void addImage(InlineNode node) {
     addPlaceholder();
-    images.add(node);
+    images.add(
+      InlineImageMark(offset: _buffer.length - 1, node: node),
+    );
   }
 
   /// 注音捕获（P8-08）：rt/rtc 文本不进主流，暂存待 ruby 收口。
@@ -543,6 +566,9 @@ class _TextAccumulator {
       rubies: rubies.isEmpty
           ? const <RubyMark>[]
           : List<RubyMark>.unmodifiable(rubies),
+      inlineImages: images.isEmpty
+          ? const <InlineImageMark>[]
+          : List<InlineImageMark>.unmodifiable(images),
       cfi: _firstText?.cfi ?? fallbackCfi,
       start: _firstText?.start ?? fallbackStart,
       end: _lastText?.end ?? fallbackEnd,

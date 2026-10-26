@@ -374,9 +374,19 @@ class ComputedStyle {
     String? explicitValue(String property) =>
         explicit.contains(property) ? values[property] : null;
 
+    // `font` 简写（P9-09）：长属性缺失时从简写展开，否则整条简写会被
+    // 静默丢弃（书籍常用 `font: italic bold 16px/1.5 serif`）。
+    final shorthandFont = explicit.contains('font')
+        ? _parseFontShorthand(values['font'])
+        : null;
+    String? fontValue(String property) =>
+        explicit.contains(property)
+        ? values[property]
+        : shorthandFont?[property];
+
     final parentFontSize = parent?.fontSize ?? rootFontSize;
     var fontSize = parent?.fontSize ?? rootFontSize;
-    final rawFontSize = explicitValue('font-size');
+    final rawFontSize = fontValue('font-size');
     if (rawFontSize != null) {
       fontSize =
           _resolveLength(
@@ -397,7 +407,7 @@ class ComputedStyle {
         : (parent?.lineHeight ?? fontSize * _defaultLineHeightFactor);
     double? lineHeightFactor;
     double? unitlessLineHeightFactor;
-    final rawLineHeight = explicitValue('line-height');
+    final rawLineHeight = fontValue('line-height');
     if (rawLineHeight != null) {
       final unitless = double.tryParse(rawLineHeight.trim());
       if (unitless != null) {
@@ -433,17 +443,17 @@ class ComputedStyle {
         ? (parent?.color ?? const Color(0xFF000000))
         : (_parseColor(rawColor) ?? parent?.color ?? const Color(0xFF000000));
 
-    final rawWeight = explicitValue('font-weight');
+    final rawWeight = fontValue('font-weight');
     final weight = rawWeight == null
         ? (parent?.fontWeight ?? 400)
         : _parseFontWeight(rawWeight) ?? parent?.fontWeight ?? 400;
 
-    final rawStyle = explicitValue('font-style');
+    final rawStyle = fontValue('font-style');
     final italic = rawStyle == null
         ? (parent?.italic ?? false)
         : _isItalic(rawStyle);
 
-    final rawFamily = explicitValue('font-family');
+    final rawFamily = fontValue('font-family');
     final fontFamilies = rawFamily == null
         ? (parent?.fontFamilies ?? const <String>[])
         : _parseFontFamilies(rawFamily);
@@ -1566,6 +1576,99 @@ class ComputedStyle {
         _ => null,
       };
 
+  static final RegExp _fontSizePattern = RegExp(
+    r'^(\d*\.?\d+)(px|pt|pc|em|rem|%)?(?:/(\S+))?$',
+  );
+
+  /// 解析 `font` 简写（P9-09）：style/variant/weight/size[/line-height]/family。
+  ///
+  /// 只做阅读器需要的子集；`font: caption` 这类系统字体关键字返回 null
+  /// （交给默认值）。
+  static Map<String, String>? _parseFontShorthand(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim();
+    if (value.isEmpty) {
+      return null;
+    }
+    // 按引号与空白切词，保留带空格的字体名。
+    final tokens = <String>[];
+    final buffer = StringBuffer();
+    String? quote;
+    for (var i = 0; i < value.length; i++) {
+      final char = value[i];
+      if (quote != null) {
+        buffer.write(char);
+        if (char == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        quote = char;
+        buffer.write(char);
+        continue;
+      }
+      if (char == ' ' || char == '\t') {
+        if (buffer.isNotEmpty) {
+          tokens.add(buffer.toString());
+          buffer.clear();
+        }
+        continue;
+      }
+      buffer.write(char);
+    }
+    if (buffer.isNotEmpty) {
+      tokens.add(buffer.toString());
+    }
+    if (tokens.isEmpty) {
+      return null;
+    }
+
+    final result = <String, String>{};
+    var index = 0;
+    String? size;
+    String? lineHeight;
+    while (index < tokens.length) {
+      final token = tokens[index].toLowerCase();
+      if (token == 'italic' || token == 'oblique') {
+        result['font-style'] = token == 'oblique' ? 'italic' : token;
+      } else if (token == 'normal') {
+        // normal 可能是 style/weight/variant 的占位，忽略。
+      } else if (token == 'small-caps') {
+        // font-variant 暂无独立字段，忽略。
+      } else if (token == 'bold' || token == 'bolder' || token == 'lighter' ||
+          RegExp(r'^[1-9]00$').hasMatch(token)) {
+        result['font-weight'] = token;
+      } else {
+        final match = _fontSizePattern.firstMatch(tokens[index]);
+        final keyword = const <String>{
+          'xx-small', 'x-small', 'small', 'medium', 'large',
+          'x-large', 'xx-large', 'smaller', 'larger',
+        }.contains(token);
+        if (match != null || keyword) {
+          size = tokens[index];
+          lineHeight = match?.group(3);
+          break;
+        }
+      }
+      index += 1;
+    }
+    if (size == null) {
+      return null;
+    }
+    result['font-size'] = size.split('/').first;
+    if (lineHeight != null) {
+      result['line-height'] = lineHeight;
+    }
+    final family = tokens.skip(index + 1).join(' ').trim();
+    if (family.isNotEmpty) {
+      result['font-family'] = family;
+    }
+    return result;
+  }
+
   /// 解析 `background-image` 的 url；渐变与 none 返回 null。
   static String? _parseUrl(String? raw) {
     if (raw == null) {
@@ -1762,7 +1865,10 @@ class ComputedStyle {
         'end' => CssTextAlign.end,
         'left' => CssTextAlign.left,
         'right' => CssTextAlign.right,
-        'center' => CssTextAlign.center,
+        'center' || '-webkit-center' => CssTextAlign.center,
+        '-webkit-left' => CssTextAlign.left,
+        '-webkit-right' => CssTextAlign.right,
+        '-webkit-auto' || 'auto' => CssTextAlign.start,
         'justify' => CssTextAlign.justify,
         _ => null,
       };

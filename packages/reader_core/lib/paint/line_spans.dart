@@ -49,10 +49,20 @@ InlineSpan buildLineSpan({
   final autospace = textAutospace && plain
       ? autospaceOffsets(lineText)
       : const <int>[];
-  if (runs.isEmpty && gaps.isEmpty && compressionOffsets.isEmpty && autospace.isEmpty) {
+  // 行内图片占位符（P9-06）：占位字形本身要透明，图片由绘制层画在
+  // 同一位置，否则会看到豆腐块叠在图片上。
+  final hasPlaceholder = lineText.contains('\uFFFC');
+  if (!hasPlaceholder &&
+      runs.isEmpty &&
+      gaps.isEmpty &&
+      compressionOffsets.isEmpty &&
+      autospace.isEmpty) {
     return TextSpan(text: lineText, style: effectiveBase);
   }
-  if (gaps.isEmpty && compressionOffsets.isEmpty && autospace.isEmpty) {
+  if (!hasPlaceholder &&
+      gaps.isEmpty &&
+      compressionOffsets.isEmpty &&
+      autospace.isEmpty) {
     return TextSpan(
       style: effectiveBase,
       children: buildStyledSpans(
@@ -96,7 +106,10 @@ InlineSpan buildLineSpan({
   var offset = 0;
   for (final rune in lineText.runes) {
     final char = String.fromCharCode(rune);
-    final style = styleAt(line.start + offset);
+    final base = styleAt(line.start + offset);
+    final style = char == '\uFFFC'
+        ? base.copyWith(color: const Color(0x00000000))
+        : base;
     final extraSpacing =
         (gapStarts.contains(offset) ? spacing : 0.0) +
         (compressStarts.contains(offset) ? compressionSpacing : 0.0) +

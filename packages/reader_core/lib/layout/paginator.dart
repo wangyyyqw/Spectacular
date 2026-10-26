@@ -9,6 +9,29 @@ import 'page_background.dart';
 import 'table_layout.dart' show TableRenderSpec;
 import 'text_layout.dart';
 
+/// 行内图片（P9-06）：占位符下标 + 已解析成书内路径的图片地址。
+class InlineImageSpec {
+  /// 创建行内图片。
+  const InlineImageSpec({
+    required this.offset,
+    required this.url,
+    this.width,
+    this.height,
+  });
+
+  /// 占位符在块文本中的下标（UTF-16）。
+  final int offset;
+
+  /// 书内资源路径（绘制层用 imageLookup 查解码图）。
+  final String url;
+
+  /// 书籍 CSS 声明的显示宽（逻辑像素，null 表示按行高 1em 等比）。
+  final double? width;
+
+  /// 书籍 CSS 声明的显示高（逻辑像素）。
+  final double? height;
+}
+
 /// 一个待分页的文本块。
 class PageBlock {
   /// 创建块。
@@ -31,6 +54,7 @@ class PageBlock {
     this.table,
     this.floatSide,
     this.rubies,
+    this.inlineImages = const <InlineImageSpec>[],
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -50,6 +74,7 @@ class PageBlock {
     int groupId = 0,
     String? listMarker,
     List<RubyAnnotation>? rubies,
+    List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -69,6 +94,7 @@ class PageBlock {
       groupId: groupId,
       listMarker: listMarker,
       rubies: rubies,
+      inlineImages: inlineImages,
     );
   }
 
@@ -132,6 +158,10 @@ class PageBlock {
   /// 注音标注（P8-08）：ruby/rt 结构（主文本区间 + 注音串），
   /// 渲染层注音趟在主文本区间上方绘制（50% 字号、居中）。
   final List<RubyAnnotation>? rubies;
+
+  /// 行内图片（P9-06）：U+FFFC 占位符位置与图片地址，绘制层按占位符
+  /// 字形框画图。
+  final List<InlineImageSpec> inlineImages;
 
   /// 块高度（内容区行高之和）。
   double get height => layout.height;
