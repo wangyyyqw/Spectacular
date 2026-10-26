@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/table_layout.dart';
 
 void main() {
@@ -82,8 +83,7 @@ void main() {
         tableWidthPx: 240,
         containerWidth: 320,
       );
-      expect(result.columnWidths, [100, 80],
-          reason: '无 auto 列时不强制铺满表宽');
+      expect(result.columnWidths, [100, 80], reason: '无 auto 列时不强制铺满表宽');
     });
 
     test('空表返回零宽不崩溃', () {
@@ -142,8 +142,8 @@ void main() {
         [
           TableCellSpec(
             naturalWidth: 120,
-            measureHeight: (w) => textHeight(
-                '跨两列的长内容会在回填后的宽度下计算行数，宽度足够则行数更少', 16, w),
+            measureHeight: (w) =>
+                textHeight('跨两列的长内容会在回填后的宽度下计算行数，宽度足够则行数更少', 16, w),
             colspan: 2,
           ),
         ],
@@ -155,8 +155,7 @@ void main() {
       );
       // 列各 150；第 2 行跨列回填宽 300 → 30 字每行 18 字 → 2 行 48。
       expect(result.rowHeights[0], closeTo(24, 0.01));
-      expect(result.rowHeights[1], closeTo(48, 0.01),
-          reason: '回填宽度 300 下两行放下');
+      expect(result.rowHeights[1], closeTo(48, 0.01), reason: '回填宽度 300 下两行放下');
     });
 
     test('单元格内容不溢出：行高 ≥ 内容高', () {
@@ -164,7 +163,8 @@ void main() {
         [
           TableCellSpec(
             naturalWidth: 200,
-            measureHeight: (w) => textHeight('很长很长的内容会折成多行，行高必须包住全部内容高度', 16, w),
+            measureHeight: (w) =>
+                textHeight('很长很长的内容会折成多行，行高必须包住全部内容高度', 16, w),
           ),
         ],
       ];
@@ -176,9 +176,7 @@ void main() {
       final width = result.columnWidths.single;
       expect(
         result.rowHeights.single,
-        greaterThanOrEqualTo(
-          rows.first.single.measureHeight(width) - 0.01,
-        ),
+        greaterThanOrEqualTo(rows.first.single.measureHeight(width) - 0.01),
       );
     });
 
@@ -205,12 +203,11 @@ void main() {
         double naturalWidth, {
         int colspan = 1,
         double Function(double)? measureHeight,
-      }) =>
-          TableCellSpec(
-            naturalWidth: naturalWidth,
-            measureHeight: measureHeight ?? (w) => 24,
-            colspan: colspan,
-          );
+      }) => TableCellSpec(
+        naturalWidth: naturalWidth,
+        measureHeight: measureHeight ?? (w) => 24,
+        colspan: colspan,
+      );
 
       test('colspan 自然宽溢出按比例摊给跨列', () {
         // 三列单列自然 50；第二行跨三列自然 300 → 溢出 150 摊给三列。
@@ -285,8 +282,7 @@ void main() {
         );
         // 行区间连续衔接：每片 first == 上一片 last。
         for (var i = 1; i < slices.length; i++) {
-          expect(slices[i].firstRow, slices[i - 1].lastRow,
-              reason: '无重复行、无丢行');
+          expect(slices[i].firstRow, slices[i - 1].lastRow, reason: '无重复行、无丢行');
         }
         expect(slices.first.firstRow, 0);
         expect(slices.last.lastRow, 9);
@@ -319,8 +315,10 @@ void main() {
         expect(exact.single.lastRow, 3);
         expect(exact.single.drawnHeight, 90);
 
-        expect(TablePaginator.paginateRows(rowHeights: [], pageHeight: 90),
-            isEmpty);
+        expect(
+          TablePaginator.paginateRows(rowHeights: [], pageHeight: 90),
+          isEmpty,
+        );
       });
     });
   });
@@ -411,8 +409,11 @@ void main() {
         columnSpecified: const [null, null],
         containerWidth: 200,
       );
-      expect(result.rowHeights[1] + result.rowHeights[2],
-          closeTo(100, 0.01), reason: '跨行格高度回填为两行之和');
+      expect(
+        result.rowHeights[1] + result.rowHeights[2],
+        closeTo(100, 0.01),
+        reason: '跨行格高度回填为两行之和',
+      );
       expect(result.rowHeights[1], closeTo(50, 0.01));
       expect(result.rowHeights[2], closeTo(50, 0.01));
       expect(result.rowHeights[0], closeTo(20, 0.01), reason: '其它行不受影响');
@@ -458,9 +459,7 @@ void main() {
           ),
           const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
         ],
-        [
-          const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
-        ],
+        [const TableCellSpec(naturalWidth: 100, measureHeight: _h20)],
       ];
       final measured = TableGridMeasurer.measureGrid(
         rows: rows,
@@ -491,6 +490,223 @@ void main() {
         Offset(spanned.rect.left + 5, spanned.rect.bottom - 5),
       );
       expect(lower, (1, 0), reason: '合并区域下半段仍归跨行格');
+    });
+  });
+
+  group('自动布局列宽摊派（Chrome 实测口径）', () {
+    test('不跨列列取 min/max，跨列格只补差额（32 用例三列）', () {
+      // 32-table-colspan-rowspan 的自然宽（含 padding/border）：
+      // 列 0 = 跨两行 50；列 1 = 格A 33.34；列 2 = 第三列 50；
+      // 跨列表头 76 < 50+33.34，不产生差额；表宽 350 按列比例铺满。
+      final measured = TableGridMeasurer.measureGrid(
+        rows: <List<TableCellSpec>>[
+          <TableCellSpec>[
+            TableCellSpec(
+              naturalWidth: 76,
+              measureHeight: (_) => 26,
+              colspan: 2,
+            ),
+            TableCellSpec(naturalWidth: 50, measureHeight: (_) => 26),
+          ],
+          <TableCellSpec>[
+            TableCellSpec(
+              naturalWidth: 50,
+              measureHeight: (_) => 52,
+              rowspan: 2,
+            ),
+            TableCellSpec(naturalWidth: 33.34, measureHeight: (_) => 26),
+            TableCellSpec(naturalWidth: 50, measureHeight: (_) => 26),
+          ],
+          <TableCellSpec>[
+            TableCellSpec(naturalWidth: 33.34, measureHeight: (_) => 26),
+            TableCellSpec(naturalWidth: 50, measureHeight: (_) => 26),
+          ],
+        ],
+        columnSpecified: const <double?>[null, null, null],
+        tableWidthPercent: 1,
+        containerWidth: 350,
+      );
+      // 浏览器：130.86 / 87.27 / 130.88（容差 1px）。
+      expect(measured.columnWidths[0], closeTo(130.86, 1));
+      expect(measured.columnWidths[1], closeTo(87.27, 1));
+      expect(measured.columnWidths[2], closeTo(130.88, 1));
+      expect(measured.tableWidth, closeTo(350, 0.01));
+    });
+
+    test('跨列格超宽时按现有列宽比例补差额', () {
+      // 列自然宽 18.25 / 19.3，跨列表 170.89 → 差额 133.34 按比例摊派，
+      // 两列变为 83.06 / 87.83；表宽 349 再按比例铺满（浏览器 169.63/179.38）。
+      final measured = TableGridMeasurer.measureGrid(
+        rows: <List<TableCellSpec>>[
+          <TableCellSpec>[
+            TableCellSpec(
+              naturalWidth: 170.89,
+              measureHeight: (_) => 26,
+              colspan: 2,
+            ),
+          ],
+          <TableCellSpec>[
+            TableCellSpec(naturalWidth: 18.25, measureHeight: (_) => 26),
+            TableCellSpec(naturalWidth: 19.3, measureHeight: (_) => 26),
+          ],
+        ],
+        columnSpecified: const <double?>[null, null],
+        tableWidthPercent: 1,
+        containerWidth: 349,
+      );
+      expect(measured.columnWidths[0], closeTo(169.63, 1));
+      expect(measured.columnWidths[1], closeTo(179.38, 1));
+    });
+
+    test('跨列格比跨列列宽更窄时不改变列宽', () {
+      final measured = TableGridMeasurer.measureGrid(
+        rows: <List<TableCellSpec>>[
+          <TableCellSpec>[
+            TableCellSpec(
+              naturalWidth: 40,
+              measureHeight: (_) => 26,
+              colspan: 2,
+            ),
+          ],
+          <TableCellSpec>[
+            TableCellSpec(naturalWidth: 80, measureHeight: (_) => 26),
+            TableCellSpec(naturalWidth: 80, measureHeight: (_) => 26),
+          ],
+        ],
+        columnSpecified: const <double?>[null, null],
+        tableWidthPercent: 1,
+        containerWidth: 200,
+      );
+      expect(measured.columnWidths[0], closeTo(100, 0.01));
+      expect(measured.columnWidths[1], closeTo(100, 0.01));
+    });
+
+    test('rowspan 与 colspan 同时出现：网格占位与合并区域一致', () {
+      final rows = <List<TableCellSpec>>[
+        <TableCellSpec>[
+          TableCellSpec(
+            naturalWidth: 80,
+            measureHeight: (_) => 60,
+            colspan: 2,
+            rowspan: 2,
+          ),
+          TableCellSpec(naturalWidth: 50, measureHeight: (_) => 26),
+        ],
+        <TableCellSpec>[
+          TableCellSpec(naturalWidth: 50, measureHeight: (_) => 26),
+        ],
+        <TableCellSpec>[
+          TableCellSpec(naturalWidth: 40, measureHeight: (_) => 26),
+          TableCellSpec(naturalWidth: 40, measureHeight: (_) => 26),
+          TableCellSpec(naturalWidth: 40, measureHeight: (_) => 26),
+        ],
+      ];
+      final slots = tableCellSlots(rows, 3);
+      expect(slots[0][0].startColumn, 0);
+      expect(slots[0][0].colspan, 2);
+      expect(slots[0][0].rowspan, 2);
+      // 第 2 行首格跳过被 rowspan 占用的 0、1 列，落在第 3 列。
+      expect(slots[1][0].startColumn, 2);
+      expect(slots[2][0].startColumn, 0);
+
+      final measured = TableGridMeasurer.measureGrid(
+        rows: rows,
+        columnSpecified: const <double?>[null, null, null],
+        tableWidthPercent: 1,
+        containerWidth: 300,
+      );
+      final layout = TableGridLayout(
+        rows: rows,
+        columnWidths: measured.columnWidths,
+        rowHeights: measured.rowHeights,
+      );
+      final merged = layout.cellRectAt(0, 0)!;
+      expect(
+        merged.rect.width,
+        closeTo(measured.columnWidths[0] + measured.columnWidths[1], 0.01),
+      );
+      expect(
+        merged.rect.height,
+        closeTo(measured.rowHeights[0] + measured.rowHeights[1], 0.01),
+      );
+      expect(merged.rect.height, greaterThanOrEqualTo(60 - 0.01));
+    });
+
+    test('min-content 宽保证列不被压到内容以下', () {
+      final measured = TableGridMeasurer.measureGrid(
+        rows: <List<TableCellSpec>>[
+          <TableCellSpec>[
+            TableCellSpec(
+              naturalWidth: 200,
+              minWidth: 120,
+              measureHeight: (_) => 26,
+            ),
+            TableCellSpec(
+              naturalWidth: 100,
+              minWidth: 60,
+              measureHeight: (_) => 26,
+            ),
+          ],
+        ],
+        columnSpecified: const <double?>[null, null],
+        tableWidthPercent: 1,
+        containerWidth: 140,
+      );
+      // 表宽 140 < 自然宽和 300：两列仍不低于 min（120+60=180 > 140 →
+      // 按 min 比例压缩到 140）。
+      expect(measured.columnWidths[0], closeTo(140 * 120 / 180, 1));
+      expect(measured.columnWidths[1], closeTo(140 * 60 / 180, 1));
+    });
+  });
+
+  group('单元格内缩（border-collapse 半边框）', () {
+    ComputedStyle cellStyle(Map<String, String> overrides) =>
+        ComputedStyle(<String, String>{
+          'font-size': '13px',
+          'padding': '2px 4px',
+          'border': '4px solid #000',
+          ...overrides,
+        });
+
+    test('collapse：边框只分摊半条（水平/垂直各自减半）', () {
+      final inset = tableCellInsetFor(cellStyle(const {}), collapse: true);
+      // padding 水平 8、垂直 4；border 4px → 半条 2px/侧。
+      expect(inset.horizontal, closeTo(8 + 2 * 2, 0.01));
+      expect(inset.vertical, closeTo(4 + 2 * 2, 0.01));
+    });
+
+    test('separate：边框整条占位', () {
+      final inset = tableCellInsetFor(cellStyle(const {}), collapse: false);
+      expect(inset.horizontal, closeTo(8 + 4 * 2, 0.01));
+      expect(inset.vertical, closeTo(4 + 4 * 2, 0.01));
+    });
+
+    test('不可见边框（none/hidden）两种模式下都不计入', () {
+      for (final style in <String>['none', 'hidden']) {
+        final computed = cellStyle(<String, String>{'border-style': style});
+        for (final collapse in <bool>[true, false]) {
+          final inset = tableCellInsetFor(computed, collapse: collapse);
+          expect(
+            inset.horizontal,
+            closeTo(8, 0.01),
+            reason: '$style/$collapse',
+          );
+          expect(inset.vertical, closeTo(4, 0.01), reason: '$style/$collapse');
+        }
+      }
+    });
+
+    test('半边框与 cellRect 对齐（32 用例：格宽/格高各少 1px）', () {
+      // border 1px + padding 3px 5px：separate 下格高 = 行高 + 8，collapse
+      // 下 = 行高 + 8 + 1（每侧半条 0.5）。浏览器 cell rect 含左右各半条。
+      final style = cellStyle(const <String, String>{
+        'padding': '3px 5px',
+        'border': '1px solid #000',
+      });
+      final separate = tableCellInsetFor(style);
+      final collapse = tableCellInsetFor(style, collapse: true);
+      expect(separate.horizontal - collapse.horizontal, closeTo(1, 0.01));
+      expect(separate.vertical - collapse.vertical, closeTo(1, 0.01));
     });
   });
 }
