@@ -361,6 +361,49 @@ Map<String, Object?> _cellJson(
   };
 }
 
+/// 块文本（配对用）：把行内盒 payload（`display: inline-block` 的内容）
+/// 按插入点拼回 `layout.text`。引擎排版时把行内盒文字摘出了行文本，浏览器
+/// 的 textContent 仍包含它，不拼回去 compare 会认为段落文本不同、配不上。
+String _blockPairText(PageBlock block, {int depth = 0}) {
+  final layout = block.layout;
+  var text = layout.text;
+  if (depth > 4) {
+    return text;
+  }
+  final insertions = <int, String>{};
+  for (final line in layout.lines) {
+    for (final placement in line.inlineBoxes) {
+      final payload = placement.spec.payload;
+      if (payload is! PageBlock) {
+        continue;
+      }
+      final payloadText = _blockPairText(payload, depth: depth + 1);
+      if (payloadText.isEmpty) {
+        continue;
+      }
+      insertions[placement.offset] =
+          (insertions[placement.offset] ?? '') + payloadText;
+    }
+  }
+  if (insertions.isEmpty) {
+    return text;
+  }
+  final offsets = insertions.keys.toList()..sort();
+  final buffer = StringBuffer();
+  var cursor = 0;
+  for (final offset in offsets) {
+    final clamped = offset.clamp(0, text.length);
+    if (clamped < cursor) {
+      continue;
+    }
+    buffer.write(text.substring(cursor, clamped));
+    buffer.write(insertions[offset]);
+    cursor = clamped;
+  }
+  buffer.write(text.substring(cursor));
+  return buffer.toString();
+}
+
 Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
   final block = slice.block;
   final style = block.style;
@@ -429,7 +472,9 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
           height: boxHeight,
         );
   return <String, Object?>{
-    'text': block.layout.text,
+    'text': _blockPairText(block),
+    // 原始排版文本（行 start/end 的坐标系），排查用。
+    'layoutText': block.layout.text,
     'rect': _rectJson(
       left,
       top,

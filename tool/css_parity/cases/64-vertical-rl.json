@@ -1,0 +1,10 @@
+{
+  "name": "64-vertical-rl",
+  "tags": [
+    "writing-mode",
+    "text-orientation"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { border: 1px solid #999; margin: 8px 0; font-size: 15px; line-height: 1.6; } .vr { writing-mode: vertical-rl; text-orientation: mixed; height: 220px; } .vu { writing-mode: vertical-rl; text-orientation: upright; height: 200px; } .tb { writing-mode: horizontal-tb; }",
+  "html": "<div class=\"vr\">竖排从右向左：文字自上而下排列，列从右往左推进，标点随之旋转或直立。</div><div class=\"vu\">竖排 text-orientation: upright：所有字符（含拉丁）都应直立排列。</div><div class=\"tb\">横排对照：horizontal-tb 为默认书写模式。</div>"
+}

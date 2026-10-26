@@ -1,0 +1,10 @@
+{
+  "name": "63-columns-rule",
+  "tags": [
+    "column-count",
+    "column-width",
+    "column-rule"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { font-size: 14px; line-height: 1.5; margin: 8px 0; } .two { column-count: 2; column-width: 120px; column-gap: 18px; column-rule: 2px solid #cc0000; } .three { column-count: 3; column-rule: 1px dotted #3366cc; } .plain { column-count: 2; column-rule: 3px double #009900; }",
+  "html": "<div class=\"two\">两列 + 列间距 18px + 2px 红色实线分隔：这段文字需要在两列之间均衡分布，先填满第一列再排第二列，用于观察 column-rule 是否落在正确位置。补充文字让内容足够长。</div><div class=\"three\">三列 + 1px 蓝色点线：列数 3 时每列更窄，断行更频繁，观察分隔线数量与位置。</div><div class=\"plain\">两列 + 3px 绿色双线：双线分隔在窄列下是否还能画出来。</div>"
+}

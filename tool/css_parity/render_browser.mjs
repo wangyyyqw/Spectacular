@@ -62,7 +62,7 @@ const collectScript = `(() => {
       .sort((a, b) => a.y - b.y)
       .map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
   };
-  const textRects = (el) => {
+  const textRectsRaw = (el) => {
     const raw = [];
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let node;
@@ -74,15 +74,27 @@ const collectScript = `(() => {
         if (rect.width > 0 || rect.height > 0) raw.push(rectOf(rect));
       }
     }
-    return mergeLines(raw);
+    return raw.map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
   };
+  const textRects = (el) => mergeLines(textRectsRaw(el));
+  const inlineish = new Set(['inline', 'inline-block', 'inline-flex', 'inline-grid',
+    'inline-table', 'contents', 'none']);
+  const blockChild = (el) => Array.from(el.children).some(
+    (child) => !inlineish.has(getComputedStyle(child).display));
   const pick = (el) => {
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
+    const directText = Array.from(el.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent || '')
+      .join('')
+      .trim();
     const out = {
       tag: el.tagName.toLowerCase(),
+      directText,
+      container: directText.length === 0 && blockChild(el),
       cls: el.className || '',
-      text: (el.textContent || '').slice(0, 40),
+      text: (el.textContent || '').slice(0, 400),
       rect: { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2) },
       style: {
         fontSize: cs.fontSize,
@@ -115,9 +127,15 @@ const collectScript = `(() => {
         wordBreak: cs.wordBreak,
         overflowWrap: cs.overflowWrap,
         columnCount: cs.columnCount,
+        columnWidth: cs.columnWidth,
+        columnGap: cs.columnGap,
         listStylePosition: cs.listStylePosition,
       },
       lines: textRects(el),
+      rawLines: textRectsRaw(el),
+      columnRects: Array.from(el.getClientRects())
+        .filter((rect) => rect.width > 0)
+        .map((rect) => ({ x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), w: +rect.width.toFixed(2), h: +rect.height.toFixed(2) })),
     };
     return out;
   };
@@ -144,6 +162,10 @@ const collectScript = `(() => {
         border: [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth].join(' '),
       },
       lines: textRects(el),
+      rawLines: textRectsRaw(el),
+      columnRects: Array.from(el.getClientRects())
+        .filter((rect) => rect.width > 0)
+        .map((rect) => ({ x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), w: +rect.width.toFixed(2), h: +rect.height.toFixed(2) })),
     };
   };
   return {
