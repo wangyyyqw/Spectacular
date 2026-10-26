@@ -51,4 +51,24 @@ void main() {
     final results = await service.search('目标字');
     expect(results, hasLength(5));
   });
+
+  group('recenterOffset', () {
+    test('偏移超出排版文本长度时不抛 RangeError', () {
+      final text = '甲' * 2703;
+      // 扫描偏移来自更长的纯文本，远超排版文本长度（真机 2918 vs 2703）。
+      expect(() => recenterOffset(text, '关键词', 2918), returnsNormally);
+      expect(recenterOffset(text, '关键词', 2918), -1);
+    });
+
+    test('偏移在范围内时校正到真实位置', () {
+      final text = '${'甲' * 100}关键词${'乙' * 100}';
+      expect(recenterOffset(text, '关键词', 90), 100);
+    });
+
+    test('偏移差超过窗口时退回全章查找', () {
+      final text = '开头关键词${'乙' * 900}';
+      // 扫描偏移比真实位置大 500 字，两侧各 200 的窗口覆盖不到。
+      expect(recenterOffset(text, '关键词', 502), 2);
+    });
+  });
 }
