@@ -37,10 +37,10 @@ class EpubOpenResult {
 }
 
 /// 打开 EPUB；任何失败都转成 [ImportReport]，不抛未捕获异常。
-Future<EpubOpenResult> openEpub(Uint8List bytes) async {
+Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) async {
   final warnings = <String>[];
   try {
-    final archive = EpubArchive.fromBytes(bytes);
+    final archive = EpubArchive.fromBytes(bytes, verify: verifyCrc);
     final ocf = archive.validateOcf();
     if (!ocf.ok) {
       return EpubOpenResult(

@@ -44,8 +44,9 @@ class EpubChapterSource
     double contentWidth = 320,
     double contentHeight = 480,
     ComputedStyle? style,
+    bool verifyCrc = true,
   }) async {
-    final result = await openEpub(bytes);
+    final result = await openEpub(bytes, verifyCrc: verifyCrc);
     final document = result.document;
     if (document == null) {
       throw StateError(result.report.message ?? '打开 EPUB 失败');
