@@ -2390,6 +2390,9 @@ class EpubChapterSource
             verticalAlign: inlineBoxAlignOf(inlineStyle.verticalAlign),
             marginTop: inlineStyle.margin.top,
             marginBottom: inlineStyle.margin.bottom,
+            // 盒内内容高（可能超过声明盒高）：Chrome 把溢出内容计入行盒/
+            // 段落高度（53：120×34 盒、内部 2 行 → 段落高 54.38）。
+            contentHeight: layout.height,
             // 绘制载荷：盒子内部已构建好的块（背景/边框/文字都在其中），
             // 绘制层按 placement 矩形把它画在行内。
             payload: PageBlock.styled(
@@ -2458,6 +2461,7 @@ class EpubChapterSource
                   marginTop: boxSpec.marginTop,
                   marginBottom: boxSpec.marginBottom,
                   baselineOffset: boxSpec.baselineOffset,
+                  contentHeight: boxSpec.contentHeight,
                   payload: boxSpec.payload,
                 ),
           remapOffset: remap,
@@ -3817,6 +3821,7 @@ class EpubChapterSource
                     marginTop: existing.marginTop,
                     marginBottom: existing.marginBottom,
                     baselineOffset: existing.baselineOffset,
+                    contentHeight: existing.contentHeight,
                     payload: existing.payload,
                   ),
                 box,
