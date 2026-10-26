@@ -776,44 +776,67 @@ class ComputedStyle {
           fontSize;
     }
 
-    // 行高继承（CSS 2.1 §10.8）：无单位因子按子元素自身字号重算；
-    // px/百分比在父级已算成绝对值，按绝对量继承。
-    final inheritedUnitlessLineHeight = parent?.unitlessLineHeightFactor;
-    var lineHeight = inheritedUnitlessLineHeight != null
-        ? fontSize * inheritedUnitlessLineHeight
-        : (parent?.lineHeight ?? fontSize * _defaultLineHeightFactor);
+    // 行高（CSS 2.1 §10.8）：未声明时是 `normal`——没有固定倍数，由字体度量
+    // 决定。Flutter 在 `TextStyle(height: null)` 时用字体默认行高，与 Chrome
+    // 的 normal 一致，所以这里 `lineHeightFactor` 保持 null 表示 normal；
+    // [lineHeight] 只给近似像素值供几何兜底（表格单元格高度估算等）。
+    //
+    // 继承规则：无单位因子按子元素字号重算；px/百分比按父级算好的绝对值继承；
+    // 父级是 normal 时子级继续 normal（不会把近似的像素值继承下来）。
+    final parentNormal = parent == null || parent.lineHeightFactor == null;
+    var lineHeight = fontSize * _normalLineHeightFactor;
     double? lineHeightFactor;
     double? unitlessLineHeightFactor;
-    final rawLineHeight = fontValue('line-height');
-    if (rawLineHeight != null) {
-      final unitless = double.tryParse(rawLineHeight.trim());
+    var hasDeclaredLineHeight = false;
+
+    void applyDeclaredLineHeight(String raw) {
+      final unitless = double.tryParse(raw.trim());
       if (unitless != null) {
         lineHeight = fontSize * unitless;
         lineHeightFactor = unitless;
         unitlessLineHeightFactor = unitless;
-      } else {
-        final percent = _parsePercent(rawLineHeight);
-        if (percent != null) {
-          lineHeight = fontSize * percent / 100;
-          lineHeightFactor = percent / 100;
-        } else {
-          final resolved = _resolveLength(
-            rawLineHeight,
-            fontSize: fontSize,
-            parentFontSize: parentFontSize,
-            rootFontSize: rootFontSize,
-            percentBase: fontSize,
-          );
-          if (resolved != null) {
-            lineHeight = resolved;
-            lineHeightFactor = fontSize == 0 ? null : resolved / fontSize;
-          }
-        }
+        hasDeclaredLineHeight = true;
+        return;
       }
-    } else {
-      unitlessLineHeightFactor = inheritedUnitlessLineHeight;
+      final percent = _parsePercent(raw);
+      if (percent != null) {
+        lineHeight = fontSize * percent / 100;
+        lineHeightFactor = fontSize == 0 ? null : percent / 100;
+        hasDeclaredLineHeight = true;
+        return;
+      }
+      final resolved = _resolveLength(
+        raw,
+        fontSize: fontSize,
+        parentFontSize: parentFontSize,
+        rootFontSize: rootFontSize,
+        percentBase: fontSize,
+      );
+      if (resolved != null) {
+        lineHeight = resolved;
+        lineHeightFactor = fontSize == 0 ? null : resolved / fontSize;
+        hasDeclaredLineHeight = true;
+      }
+      // 解析不出（含显式 `normal`）→ 保持 normal。
     }
-    lineHeightFactor ??= fontSize == 0 ? null : lineHeight / fontSize;
+
+    final rawLineHeight = fontValue('line-height');
+    if (rawLineHeight != null) {
+      applyDeclaredLineHeight(rawLineHeight);
+    }
+    if (!hasDeclaredLineHeight && !parentNormal) {
+      final inheritedUnitless = parent.unitlessLineHeightFactor;
+      if (inheritedUnitless != null) {
+        lineHeight = fontSize * inheritedUnitless;
+        lineHeightFactor = inheritedUnitless;
+        unitlessLineHeightFactor = inheritedUnitless;
+      } else {
+        lineHeight = parent.lineHeight;
+        lineHeightFactor = fontSize == 0 ? null : lineHeight / fontSize;
+      }
+    }
+    // 注意：normal 时 lineHeightFactor 必须保持 null（TextStyle(height: null)
+    // 交给字体度量），不能再用 lineHeight/fontSize 反推因子。
 
     final rawColor = explicitValue('color');
     final color = rawColor == null
@@ -1298,9 +1321,16 @@ class ComputedStyle {
     final nextFontSize = fontSize ?? this.fontSize;
     final nextUnitless = lineHeightFactor ?? unitlessLineHeightFactor;
     final nextLineHeightFactor = lineHeightFactor ?? this.lineHeightFactor;
+    // 阅读器覆盖（lineHeightFactor 非空）→ 显式倍数；书籍自身的无单位因子
+    // 按新字号重算；两者都没有（CSS normal）→ 只更新像素兜底，因子仍为 null，
+    // 真实行高继续交给字体度量。
     final nextLineHeight = lineHeightFactor != null
         ? nextFontSize * lineHeightFactor
-        : (nextUnitless != null ? nextFontSize * nextUnitless : lineHeight);
+        : (nextUnitless != null
+              ? nextFontSize * nextUnitless
+              : (this.lineHeightFactor == null
+                    ? nextFontSize * _normalLineHeightFactor
+                    : lineHeight));
     final nextValues = <String, String>{
       ...values,
       if (fontSize != null) 'font-size': '${nextFontSize}px',
@@ -1481,7 +1511,13 @@ class ComputedStyle {
     required this.explicitProperties,
   });
 
-  static const _defaultLineHeightFactor = 1.5;
+  /// CSS `line-height: normal` 的近似倍数（仅用于 [lineHeight] 的像素兜底）。
+  ///
+  /// normal 的真实行高取决于字体度量，排版层用 `TextStyle(height: null)` 让
+  /// Flutter 取字体默认值（与 Chrome normal 一致）；这里只是给几何兜底
+  /// （表格单元格高度估算等）一个数值。1.437 = 内置思源宋体
+  /// (hhea ascent 1151 + descent 286) / 1000，Chrome 同字体实测约 1.44。
+  static const _normalLineHeightFactor = 1.437;
 
   /// 属性 → 层叠后的字符串值。
   final Map<String, String> values;
@@ -2344,17 +2380,14 @@ class ComputedStyle {
     // 首个参数若是颜色就是色标，否则是方向/形状前置参数。
     final stops = <CssGradientStop>[];
     var prelude = '';
-    final firstStop = _parseGradientStop(parts.first, fontSize: fontSize);
-    if (firstStop == null) {
+    final firstStops = _parseGradientStops(parts.first, fontSize: fontSize);
+    if (firstStops.isEmpty) {
       prelude = parts.first;
     } else {
-      stops.add(firstStop);
+      stops.addAll(firstStops);
     }
     for (var index = 1; index < parts.length; index++) {
-      final stop = _parseGradientStop(parts[index], fontSize: fontSize);
-      if (stop != null) {
-        stops.add(stop);
-      }
+      stops.addAll(_parseGradientStops(parts[index], fontSize: fontSize));
     }
     if (stops.length < 2) {
       return null;
@@ -2376,37 +2409,44 @@ class ComputedStyle {
     );
   }
 
-  /// 解析一个色标：`<color> [<percentage>|<length>]`；无颜色返回 null。
+  /// 解析一个色标段 → 0~2 个 [CssGradientStop]。
   ///
+  /// 支持 `<color> [<start> [<end>]]`：给了两个位置时按 CSS 语义展开成
+  /// **同色的两个色标**（区间色标），第二个位置小于第一个时钳到第一个。
   /// 百分比存 [CssGradientStop.position]（0–1）；像素/em 存
   /// [CssGradientStop.positionPx]，绘制层用 `fractionOf(extent)` 换算。
-  static CssGradientStop? _parseGradientStop(
+  static List<CssGradientStop> _parseGradientStops(
     String raw, {
     double fontSize = 16,
   }) {
     final text = raw.trim();
     if (text.isEmpty) {
-      return null;
+      return const <CssGradientStop>[];
     }
     final color = _firstColorIn(text);
     if (color == null) {
-      return null;
+      return const <CssGradientStop>[];
     }
-    // 位置：先去掉颜色函数（其内部可能含 `100%`）再取百分数/长度。
-    final withoutColor = text.replaceAll(
-      RegExp(r'(?:rgba?|hsla?)\([^)]*\)', caseSensitive: false),
-      ' ',
-    );
-    final percent = RegExp(r'([-+]?\d*\.?\d+)%').firstMatch(withoutColor);
-    if (percent != null) {
-      // 不钳制 0–1：repeating 渐变常用 >100% 的色标位置，钳掉会改周期。
-      return CssGradientStop(
-        color: color,
-        position: double.parse(percent.group(1)!) / 100,
-      );
-    }
+    // 位置：先去掉颜色函数（其内部可能含 `100%`）与色值 token，再按顺序
+    // 收集最多两个位置（百分比或长度）。
+    final withoutColor = text
+        .replaceAll(
+          RegExp(r'(?:rgba?|hsla?)\([^)]*\)', caseSensitive: false),
+          ' ',
+        )
+        .replaceAll(RegExp(r'#[0-9a-fA-F]+'), ' ');
+    // 位置按出现顺序收集（最多两个），每个位置各自保留量纲：`0` 这类
+    // 无单位零按长度解析，`50%` 按百分比，绘制层都能换算。
+    final positions = <CssGradientStop>[];
     for (final token in withoutColor.split(RegExp(r'\s+'))) {
-      if (token.isEmpty || token.startsWith('#') || token == 'transparent') {
+      if (token.isEmpty || token == 'transparent') {
+        continue;
+      }
+      final percent = _parsePercent(token);
+      if (percent != null) {
+        if (positions.length < 2) {
+          positions.add(CssGradientStop(color: color, position: percent / 100));
+        }
         continue;
       }
       final value = _resolveLength(
@@ -2416,11 +2456,30 @@ class ComputedStyle {
         rootFontSize: 16,
         percentBase: 0,
       );
-      if (value != null) {
-        return CssGradientStop(color: color, positionPx: value);
+      if (value != null && positions.length < 2) {
+        positions.add(CssGradientStop(color: color, positionPx: value));
       }
     }
-    return CssGradientStop(color: color);
+    if (positions.isEmpty) {
+      return <CssGradientStop>[CssGradientStop(color: color)];
+    }
+    if (positions.length == 1) {
+      return positions;
+    }
+    // 区间色标：第二个位置小于第一个时按 CSS 语义钳到第一个（区间宽 0）。
+    // 跨量纲（一个百分比一个长度）无法在解析期比较，保持原样交给绘制层。
+    final first = positions[0];
+    var second = positions[1];
+    if (first.position != null &&
+        second.position != null &&
+        second.position! < first.position!) {
+      second = CssGradientStop(color: color, position: first.position);
+    } else if (first.positionPx != null &&
+        second.positionPx != null &&
+        second.positionPx! < first.positionPx!) {
+      second = CssGradientStop(color: color, positionPx: first.positionPx);
+    }
+    return <CssGradientStop>[first, second];
   }
 
   /// 从一段声明里取首个颜色。
