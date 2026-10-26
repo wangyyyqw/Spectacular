@@ -31,22 +31,26 @@ PageBlock _verticalBlock(String text, {double height = 100}) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('竖排多列整块出一片：所有列都进切片、占高 = 块高', () {
+  test('竖排列带超页宽：按列分页、列不丢不重（声明 height 保持为列长）', () {
     final block = _verticalBlock('一二三四五六' * 17); // 102 字 → 17 列
     final layout = block.layout;
     expect(layout.isVertical, isTrue);
     expect(layout.lineCount, 17);
-    final page = Paginator(pageHeight: 400, pageWidth: 300)
+    final pages = Paginator(pageHeight: 400, pageWidth: 300)
         .measureChapter(blocks: [block])
-        .pages
-        .single;
-    expect(page.slices, hasLength(1));
-    final slice = page.slices.single;
-    expect(slice.overlay, isFalse);
-    expect(slice.startLine, 0);
-    expect(slice.endLine, layout.lineCount, reason: '17 列全部进切片');
-    expect(slice.height, closeTo(block.height, 0.01));
-    expect(page.usedHeight, closeTo(block.height, 0.01), reason: '列不额外占流高');
+        .pages;
+    // 声明 height 100 → 列长 100；17 列 × 24 = 408 > 页宽 300 → 12 列/页 → 2 页。
+    expect(pages, hasLength(2));
+    expect(pages.first.slices.single.block.layout.lineCount, 12);
+    expect(pages.last.slices.single.block.layout.lineCount, 5);
+    var cursor = 0;
+    for (final page in pages) {
+      for (final column in page.slices.single.block.layout.lines) {
+        expect(column.start, cursor);
+        cursor = column.end;
+      }
+    }
+    expect(cursor, layout.text.length, reason: '列不丢不重');
   });
 
   test('竖排整块切片高度含上下段距（与横排同口径）', () {
@@ -95,10 +99,17 @@ void main() {
         .measureChapter(blocks: [first, vertical])
         .pages;
     expect(pages.length, greaterThanOrEqualTo(2));
-    final last = pages.last;
-    final slice = last.slices.firstWhere((s) => s.block.layout.isVertical);
-    expect(slice.endLine, vertical.layout.lineCount, reason: '换页后列仍完整');
-    expect(slice.startLine, 0);
+    // 竖排跨页：按「列长 = 页高」重排后逐页分列，列区间首尾相接、覆盖全文。
+    var cursor = 0;
+    for (final page in pages) {
+      for (final slice in page.slices.where((s) => s.block.layout.isVertical)) {
+        for (final column in slice.block.layout.lines) {
+          expect(column.start, cursor, reason: '列区间首尾相接');
+          cursor = column.end;
+        }
+      }
+    }
+    expect(cursor, vertical.layout.text.length, reason: '列不丢不重');
   });
 
   test('两块竖排依次排列（页内纵向堆叠，列不串块）', () {
