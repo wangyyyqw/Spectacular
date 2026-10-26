@@ -1,0 +1,19 @@
+{
+  "name": "67-vertical-columns",
+  "tags": [
+    "writing-mode",
+    "text-orientation"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 16px; } .v { writing-mode: vertical-rl; text-orientation: mixed; line-height: 24px; border: 1px solid #999; }",
+  "html": "<div class=\"v\">竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照：验证垂直书写模式下的分页与列推进。每页从右向左排列，列内文字自上而下。竖排跨页对照</div>",
+  "expect": {
+    "pages": 1,
+    "pagesTolerance": 0,
+    "columnsUsed": 7,
+    "columnAdvance": 24,
+    "charsPerColumn": 49,
+    "firstBlockWidth": 168,
+    "direction": "page-internal right-to-left"
+  }
+}

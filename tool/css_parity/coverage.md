@@ -7,8 +7,8 @@
 
 - 审计条目 **116** 条，展开后属性名 **155** 个（同一条目里的多属性按名拆分）
 - 已覆盖 **123** 个（79.4%），未覆盖 **32** 个
-- 用例 **64** 个（编号 01–64）
-- 下一个可用用例编号：**65**（未覆盖表的「建议用例」按 1-2 属性/例分配）
+- 用例 **66** 个（编号 01–67）
+- 下一个可用用例编号：**68**（未覆盖表的「建议用例」按 1-2 属性/例分配）
 
 ## 1. 分组覆盖概览
 
@@ -36,38 +36,38 @@
 
 | 属性 | 审计编号 | 审计原文 | 建议用例 |
 | --- | --- | --- | --- |
-| `border-image` | #90 | border-image | 65 |
-| `line-break` | #91 | line-break | 65 |
-| `counter-reset` | #94 | counter-reset / counter-increment | 66 |
-| `counter-increment` | #94 | counter-reset / counter-increment | 66 |
-| `object-fit` | #95 | object-fit / object-position | 67 |
-| `object-position` | #95 | object-fit / object-position | 67 |
-| `backdrop-filter` | #96 | backdrop-filter | 68 |
-| `mix-blend-mode` | #97 | mix-blend-mode | 68 |
-| `z-index` | #98 | z-index | 69 |
-| `background-attachment` | #99 | background-attachment | 69 |
-| `justify-content` | #100 | justify-content / align-items | 70 |
-| `align-items` | #100 | justify-content / align-items | 70 |
-| `orphans` | #101 | orphans / widows | 71 |
-| `widows` | #101 | orphans / widows | 71 |
-| `ruby-align` | #103 | ruby-align | 72 |
-| `ruby-position` | #104 | ruby-position | 72 |
-| `tab-size` | #106 | tab-size | 73 |
-| `text-combine-upright` | #107 | text-combine-upright | 73 |
-| `font-kerning` | #108 | font-feature-settings / font-kerning / font-variant-ligatures | 74 |
-| `font-size-adjust` | #109 | font-size-adjust | 74 |
-| `outline` | #110 | outline | 75 |
-| `cursor` | #111 | cursor | 75 |
-| `user-select` | #112 | user-select / resize / will-change / contain | 76 |
-| `resize` | #112 | user-select / resize / will-change / contain | 76 |
-| `will-change` | #112 | user-select / resize / will-change / contain | 77 |
-| `contain` | #112 | user-select / resize / will-change / contain | 77 |
-| `scrollbar-width` | #113 | scrollbar-width / -ms-overflow-style | 78 |
-| `-ms-overflow-style` | #113 | scrollbar-width / -ms-overflow-style | 78 |
-| `box-decoration-break` | #114 | box-decoration-break | 79 |
-| `caption-side` | #115 | caption-side / empty-cells | 79 |
-| `empty-cells` | #115 | caption-side / empty-cells | 80 |
-| `aspect-ratio` | #116 | aspect-ratio | 80 |
+| `border-image` | #90 | border-image | 68 |
+| `line-break` | #91 | line-break | 68 |
+| `counter-reset` | #94 | counter-reset / counter-increment | 69 |
+| `counter-increment` | #94 | counter-reset / counter-increment | 69 |
+| `object-fit` | #95 | object-fit / object-position | 70 |
+| `object-position` | #95 | object-fit / object-position | 70 |
+| `backdrop-filter` | #96 | backdrop-filter | 71 |
+| `mix-blend-mode` | #97 | mix-blend-mode | 71 |
+| `z-index` | #98 | z-index | 72 |
+| `background-attachment` | #99 | background-attachment | 72 |
+| `justify-content` | #100 | justify-content / align-items | 73 |
+| `align-items` | #100 | justify-content / align-items | 73 |
+| `orphans` | #101 | orphans / widows | 74 |
+| `widows` | #101 | orphans / widows | 74 |
+| `ruby-align` | #103 | ruby-align | 75 |
+| `ruby-position` | #104 | ruby-position | 75 |
+| `tab-size` | #106 | tab-size | 76 |
+| `text-combine-upright` | #107 | text-combine-upright | 76 |
+| `font-kerning` | #108 | font-feature-settings / font-kerning / font-variant-ligatures | 77 |
+| `font-size-adjust` | #109 | font-size-adjust | 77 |
+| `outline` | #110 | outline | 78 |
+| `cursor` | #111 | cursor | 78 |
+| `user-select` | #112 | user-select / resize / will-change / contain | 79 |
+| `resize` | #112 | user-select / resize / will-change / contain | 79 |
+| `will-change` | #112 | user-select / resize / will-change / contain | 80 |
+| `contain` | #112 | user-select / resize / will-change / contain | 80 |
+| `scrollbar-width` | #113 | scrollbar-width / -ms-overflow-style | 81 |
+| `-ms-overflow-style` | #113 | scrollbar-width / -ms-overflow-style | 81 |
+| `box-decoration-break` | #114 | box-decoration-break | 82 |
+| `caption-side` | #115 | caption-side / empty-cells | 82 |
+| `empty-cells` | #115 | caption-side / empty-cells | 83 |
+| `aspect-ratio` | #116 | aspect-ratio | 83 |
 
 ## 3. 已覆盖清单
 
@@ -75,28 +75,28 @@
 
 | 属性 | 审计编号 | 覆盖用例 |
 | --- | --- | --- |
-| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64 |
-| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64 |
+| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67 |
+| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67 |
 | `color` | #3 | 10、26、28、29、37、62 |
 | `font-weight` | #4 | 07、12 |
 | `font-style` | #5 | 07 |
-| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64 |
+| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67 |
 | `font` | #7 | 58 |
 | `text-align` | #8 | 03、12、17、18、32 |
 | `text-indent` | #9 | 03、16、42、45 |
 | `letter-spacing` | #10 | 01、02 |
 | `word-spacing` | #11 | 02 |
-| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64 |
+| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67 |
 | `margin-top` | #13 | 46 |
 | `margin-right` | #13 | 14、23、38 |
 | `margin-bottom` | #13 | 46 |
 | `margin-left` | #13 | 23、38 |
-| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64 |
+| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67 |
 | `padding-top` | #15 | 23、48 |
 | `padding-right` | #15 | 47、48 |
 | `padding-bottom` | #15 | 47、49 |
 | `padding-left` | #15 | 11、16、30、31、49、54 |
-| `border` | #16 | 09、12、21、24、27、28、32、33、35、40、43、47、50、51、52、62、64 |
+| `border` | #16 | 09、12、21、24、27、28、32、33、35、40、43、47、50、51、52、62、64、66、67 |
 | `border-top` | #17 | 48 |
 | `border-right` | #17 | 48 |
 | `border-bottom` | #17 | 49 |
@@ -193,8 +193,8 @@
 | `column-width` | #85 | 63 |
 | `column-gap` | #85 | 34、63 |
 | `column-rule` | #85 | 34、63 |
-| `writing-mode` | #86 | 35、64 |
-| `text-orientation` | #87 | 64 |
+| `writing-mode` | #86 | 35、64、66、67 |
+| `text-orientation` | #87 | 64、66、67 |
 | `direction` | #88 | 61 |
 | `overflow` | #89 | 14、22、40 |
 | `overflow-x` | #89 | 62 |
@@ -242,7 +242,7 @@
 `computed_style.dart` 里有取值点、但审计 116 条未列出的属性
 （审计基线之后新增，需 T7 复核是否真的消费）：
 
-`-webkit-filter`、`-webkit-transform`、`font-variant-caps`
+`-webkit-filter`、`-webkit-transform`、`font-stretch`、`font-variant-caps`
 
 ## 6. 口径说明
 

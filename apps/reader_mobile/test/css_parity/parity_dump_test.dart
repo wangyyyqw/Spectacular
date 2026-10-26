@@ -613,8 +613,12 @@ void main() {
         final pages = await source.loadChapter(0);
         final page = pages.first;
 
+        // 用例可用 maxPages 指定导出页数（竖排跨页探针需要看全部分页）；
+        // 默认只导 2 页，供普通单/双页用例比对。
+        final maxPages =
+            (caseData['maxPages'] as num?)?.toInt() ?? _maxPages;
         final pageJson = <Map<String, Object?>>[
-          for (final item in pages.take(_maxPages)) _pageJson(item),
+          for (final item in pages.take(maxPages)) _pageJson(item),
         ];
         final nulls = <String>[];
         _collectNulls(pageJson, '', nulls);

@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 64 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
+当前 66 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（64 组）
+## 用例清单（66 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -104,8 +104,10 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 62 | word-wrap-content | word-wrap: break-word、::before/::after content、overflow-x |
 | 63 | columns-rule | column-count / column-width / column-rule（2/3 列） |
 | 64 | vertical-rl | writing-mode: vertical-rl + text-orientation（Chrome 支持、引擎布局未实现，engine_only） |
+| 66 | vertical-multipage | 竖排跨页：350×800、`vertical-rl`、无声明高、约 2100 字（engine_only；页内容高 786 → 每列 49 字、每页 14 列；期望 4 页 ±1） |
+| 67 | vertical-columns | 竖排页内列数：同参数 300 字（engine_only；期望 1 页 / 7 列 / 每列 49 字 / 首块宽 168） |
 
-浏览器渲染：64/64 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：66/66 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45 在用例 JSON 里标 `engine_only: true`：Chrome 尚未支持这两个属性，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
 
@@ -114,7 +116,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 64 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 66 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
@@ -141,6 +143,15 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
   （engine_only，等引擎实现竖排后去掉标记即可参与比较）。
+- `66-vertical-multipage` / `67-vertical-columns` 是竖排探针：浏览器不分页，
+  按 `engine_only` 只记录引擎行为，compare 会把「期望 vs 实测」并列：
+  - 页内容高按引擎实际口径：页面 800 − `topPadding` 14 = **786**，16px 竖排 →
+    每列 `floor(786/16)=49` 字、每页 `floor(350/24)=14` 列；
+  - 66（约 2100 字、无声明高）：期望 `ceil(2100/49)=43` 列 → 4 页（±1）；
+    引擎实测 **4 页 × 14 列、块 336×786**，在容差内、无 ⚠。66 在用例里设了
+    `maxPages: 4` 导出全部分页（默认只导 2 页，避免只看前两页误判总列数）；
+  - 67（300 字）：期望 `ceil(300/49)=7` 列、首块宽 `7×24=168`；引擎实测
+    **1 页、7 列、块 168×786**，无 ⚠（修列长前后从 15 列/360 宽收敛到此）。
 - 新增用例后重跑 `/usr/bin/python3 tool/css_parity/coverage.py` 即可刷新覆盖率、
   未覆盖分组与建议编号。注意审计文档仍在被 T7 修订，分组与数字以
   `coverage.md` 最新一次运行为准。
@@ -270,7 +281,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（64 用例全量重跑：失配 70 项 / 10 个用例 / 未配对 0）
+## 待收敛（66 用例全量重跑：失配 60 项 / 9 个用例 / 未配对 0）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -279,29 +290,26 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
 | 1 | hyphens | 22 | 20-hyphens-quotes |
-| 2 | font | 10 | 58-font-shorthand |
-| 3 | word-wrap | 9 | 62-word-wrap-content |
-| 4 | display | 6 | 53-display-position |
-| 5 | text-overflow | 6 | 40-text-overflow |
-| 6 | line-height | 5 | 37-filter-opacity |
-| 7 | font-variant | 4 | 15-font-variant-stretch |
-| 8 | text-indent | 4 | 16-text-indent-percent |
-| 9 | table | 2 | 12-table |
-| 10 | text-emphasis | 2 | 19-text-emphasis |
+| 2 | word-wrap | 9 | 62-word-wrap-content |
+| 3 | display | 6 | 53-display-position |
+| 4 | text-overflow | 6 | 40-text-overflow |
+| 5 | line-height | 5 | 37-filter-opacity |
+| 6 | font-variant | 4 | 15-font-variant-stretch |
+| 7 | text-indent | 4 | 16-text-indent-percent |
+| 8 | table | 2 | 12-table |
+| 9 | text-emphasis | 2 | 19-text-emphasis |
 
 1. **hyphens 22 / word-wrap 9 / text-overflow 6**：断字、长词换行与截断的
    口径差异见「已知口径差异」1–3。
-2. **display / position（6 项，53）**：行内盒基线与行宽已对齐（引擎
-   `baselineAbs` 54.25 vs 浏览器 54.19，差 0.06；行宽 260.35 vs 260.4），
-   剩 `.blk` 行数 2/1（builtin_song 拉丁 advance 比 Chrome 窄）、`absolute`
-   盒高 75/72（normal 行高取整）、末段 y 129.6/135.6 的行数差连锁。建议 T1/T2。
-3. **font（10 项，58）**：`font` 简写的字号/行高/字重组合在引擎侧只部分
-   生效，行宽与 y 有差。建议 T2。
-4. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
+2. **display / position（6 项，53）**：`.blk` 行数 2/1（builtin_song 拉丁
+   advance 比 Chrome 窄）、`absolute` 盒高 75/72（normal 行高取整）、末段 y
+   129.6/135.6 的行数差连锁。建议 T1/T2。
+3. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
    `font-variant`/ligatures 行宽（4）；负 `text-indent` 被钳 0（4）；
    `table` 表高 93 / 91（2）；`text-emphasis` 行高 68 / 70（2）。
-5. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`、
-   `35-writing-mode`、`53` 的行内盒基线与行宽均 0 失配；未配对 0。
+4. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`、
+   `35-writing-mode`、`58-font-shorthand` 均 0 项；`66/67` 竖排探针的
+   期望/实测已对齐（见下）；未配对 0。
 
 ## 已知口径差异（不计入收敛目标）
 
@@ -320,10 +328,11 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    不做 UA 词典；20 段落 1 行数已与浏览器一致（4 行），但逐行断点不同 →
    行宽逐行不等（引擎 274.2/286.7/351.3/253.0 vs 浏览器
    337.8/326.6/336/197.1）。建议 hyphens 维度只比「行数 + 行高」。
-3. **`text-overflow: ellipsis` 行宽**：引擎按「最长可放前缀 + …」截断，
-   `LineBox.width ≤ 内容宽`；浏览器 `getClientRects()` 报未截断整行宽。
-   compare 已按 `min(浏览器行宽, 内容宽)` 对两侧对称截断后比较，并在
-   报告里标注。
+3. **`text-overflow` 断点与行宽**：引擎按「最长可放前缀 + …」截断
+   （`LineBox.width ≤ 内容宽`），浏览器 `getClientRects()` 报未截断整行宽；
+   40 用例里 `white-space: normal` 段的断点还会受 autospace/挤压影响。
+   compare 对 ellipsis/clip 行宽按 `min(浏览器行宽, 内容宽)` 对称截断后比较，
+   断点漂移计入已知差异。
 4. **`border-collapse: collapse` 单元格**：单元格 rect 含左右各半条边框
    （引擎已按半条实现），与 Chrome 的 x 差 0.5px 落在 2px 容差内，不作失配。
 5. **`line-height: normal`**：引擎取 Flutter 字体度量的整数和（15px → 22），
@@ -332,6 +341,9 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 6. **transform**：浏览器 `getBoundingClientRect` 报变换后 bbox；dump 现按
    `transform` + `transform-origin` 计算轴对齐 bbox（`transformed: true`），
    compare 用 bbox 比 x/y/w/h 且不比较行内坐标（36-transform 21 → 0 失配）。
+7. **字体拉丁 advance**：内嵌 `builtin_song` 的拉丁字符 advance 比 Chrome
+   窄约 4–8%，同宽度盒子下换行位置不同（53 的 `display:block` 行数 2/1、
+   末段 y 129.6/135.6 即此连锁），属字体度量差，不在对照工具侧修正。
 
 ## 已知对照限制
 
