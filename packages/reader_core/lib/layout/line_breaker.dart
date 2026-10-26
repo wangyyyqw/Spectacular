@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show BoxHeightStyle;
 
 import 'package:flutter/painting.dart';
 
@@ -68,6 +67,12 @@ class LineBox {
 
   /// 行底。
   double get bottom => top + height;
+
+  /// 行实际占据的宽度：自然行宽 + justify 分摊宽度。
+  ///
+  /// [width] 是测量宽（不含 justifyExtra），绘制端按 gap 均分 [justifyExtra]
+  /// 后行尾正好落在版心右缘；对照浏览器时要用本值（浏览器量的是绘制宽）。
+  double get advanceWidth => width + justifyExtra;
 
   /// 复制并更新标志。
   LineBox copyWith({
@@ -211,6 +216,28 @@ List<InlineSpan> buildStyledSpans({
   return spans;
 }
 
+/// 单个行内盒的竖直度量（相对自身基线）。
+class _InlineBoxMetrics {
+  const _InlineBoxMetrics({
+    required this.ascent,
+    required this.descent,
+    required this.rawAscent,
+    required this.rawDescent,
+  });
+
+  /// 上沿：字体 ascent + 半行距（自身 line-height 盒）。
+  final double ascent;
+
+  /// 下沿：字体 descent + 半行距。
+  final double descent;
+
+  /// 字体原始 ascent（不含半行距）：`super`/`sub`/`text-top` 的参照。
+  final double rawAscent;
+
+  /// 字体原始 descent（不含半行距）。
+  final double rawDescent;
+}
+
 /// TextLayout 的测量结果。
 class TextLayoutResult implements TextLayout {
   /// 创建结果。
@@ -328,7 +355,8 @@ class LineBreaker {
 
   /// 按 [maxWidth] 测量 [text]。
   ///
-  /// 宽度低于 3em 时钳制到 3em；无限宽保持单行断行。
+  /// 宽度低于 3em 时钳制到 3em；`nowrap`/`pre` 不软换行（测量时按无限宽
+  /// 排一行），但 `maxWidth` 仍记录有限的内容宽，供对齐与诊断使用。
   /// [runs] 为行内样式区间，用于混排字号与行内元素；未覆盖部分沿用 [style]。
   /// [hasGlyph] 非空时按字形覆盖把 `style.fontFamilies` 切分成族分段（P2-12）。
   TextLayoutResult layout({
@@ -340,19 +368,20 @@ class LineBreaker {
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
   }) {
-    // nowrap/pre 不软换行：按无限宽测量，得到单行（硬换行仍生效）。
-    final wraps =
+    // nowrap/pre 不软换行：测量时不软换行，但内容宽保持有限值（P9-28：
+    // 无限宽会让对齐余量恒为 0，也让对照工具拿到 Infinity）。
+    final softWrap =
         style.whiteSpace != CssWhiteSpace.nowrap &&
         style.whiteSpace != CssWhiteSpace.pre;
-    final width = wraps ? effectiveWidth(style, maxWidth) : double.infinity;
     return TextLayoutEngine._layoutRaw(
       text: text,
       style: style,
-      maxWidth: width,
+      maxWidth: effectiveWidth(style, maxWidth),
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: runs,
       hasGlyph: hasGlyph,
+      softWrap: softWrap,
     );
   }
 }
@@ -395,14 +424,22 @@ abstract final class TextLayoutEngine {
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
+    bool softWrap = true,
   }) {
     // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
     text = applyTextTransform(text, style.textTransform);
+    // 内容宽恒为「有限」值，用于缩进/对齐/诊断；软换行关闭时只把 TextPainter
+    // 的排版宽放开到无限，让整段排成一行（硬换行仍生效）。
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
-    final indent = width.isFinite
+    final measureWidth = softWrap ? width : double.infinity;
+    final indent = softWrap && width.isFinite
         ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
         : 0.0;
-    final ordered = _normalizeRuns(runs, text.length);
+    final ordered = _applyVerticalAlign(
+      _normalizeRuns(runs, text.length),
+      style,
+      leadingDistribution,
+    );
     // P2-12：按字形覆盖叠加字体族分段。未传 hasGlyph 或未声明 font-family 时
     // 走原路径，行为与之前完全一致。
     final styled = hasGlyph == null || style.fontFamilies.isEmpty
@@ -428,7 +465,7 @@ abstract final class TextLayoutEngine {
     final measured = measuredText.isEmpty || indent <= 0
         ? _measureSegment(
             text: measuredText,
-            width: width,
+            width: measureWidth,
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
@@ -436,7 +473,7 @@ abstract final class TextLayoutEngine {
           )
         : _measureWithIndent(
             text: measuredText,
-            width: width,
+            width: measureWidth,
             indent: indent,
             style: style,
             textScaleFactor: textScaleFactor,
@@ -952,54 +989,54 @@ abstract final class TextLayoutEngine {
         isHardBreak: hardBreak,
       );
     }
-    return _applyBorrowedLeading(painter, lines, runs);
+    return _applyInlineVerticalBoxes(lines, runs, style, leadingDistribution);
   }
 
-  /// 上下标借行距（P7-09，Reeden 630 号 §2-3 / fixups N5）：
-  /// `baselineShift` 只平移墨迹，不参与行盒计算——墨迹越出所在行盒
-  /// 才把该行撑高（先借后撑）。只在含 `baselineShift != 0` 的行调用
-  /// `getBoxesForSelection` 取字形框：上下标区间短且低频，属 §8.2
-  /// 「段落内小范围使用」的例外。
-  static List<LineBox> _applyBorrowedLeading(
-    TextPainter painter,
+  /// 行内盒竖直几何（CSS 2.1 §10.8 的 CU 近似）。
+  ///
+  /// SkParagraph 的行盒已包含各 run 未偏移时的字体盒，但 `vertical-align`
+  /// 造成的竖直平移不参与行盒计算：上下标只挪墨迹、行高不变。这里对带
+  /// 偏移的 run 取「自身 line-height 盒」（含半行距）按偏移平移，越出
+  /// 当前行盒上/下沿才撑高——浏览器（Chromium）就是这么算的，`sup/sub`
+  /// 会把行撑高而不是借行距。
+  ///
+  /// 行盒只放大不缩小：块级 strut（根样式）始终参与，因此行高下限是
+  /// 根行高。
+  static List<LineBox> _applyInlineVerticalBoxes(
     List<LineBox> lines,
     List<StyledRun> runs,
+    ComputedStyle style,
+    TextLeadingDistribution leadingDistribution,
   ) {
     if (!runs.any((run) => run.baselineShift != 0)) {
       return lines;
     }
     final growUps = List<double>.filled(lines.length, 0, growable: false);
     final growDowns = List<double>.filled(lines.length, 0, growable: false);
+    final metrics = <ComputedStyle, _InlineBoxMetrics>{};
     var grew = false;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final lineBottom = line.top + line.height;
+      final ascent = line.baseline - line.top;
+      final descent = line.height - ascent;
       for (final run in runs) {
         if (run.baselineShift == 0) {
           continue;
         }
-        final start = math.max(run.start, line.start);
-        final end = math.min(run.end, line.end);
-        if (end <= start) {
+        if (math.min(run.end, line.end) <= math.max(run.start, line.start)) {
           continue;
         }
-        final boxes = painter.getBoxesForSelection(
-          TextSelection(baseOffset: start, extentOffset: end),
-          boxHeightStyle: BoxHeightStyle.tight,
+        final box = metrics[run.style] ??= _inlineBoxMetrics(
+          run.style,
+          leadingDistribution,
         );
-        for (final box in boxes) {
-          // 跨行 run 只统计落在本行的框。
-          if (box.top >= lineBottom || box.bottom <= line.top) {
-            continue;
-          }
-          final inkTop = box.top + run.baselineShift;
-          final inkBottom = box.bottom + run.baselineShift;
-          if (inkTop < line.top - 0.01) {
-            growUps[i] = math.max(growUps[i], line.top - inkTop);
-          }
-          if (inkBottom > lineBottom + 0.01) {
-            growDowns[i] = math.max(growDowns[i], inkBottom - lineBottom);
-          }
+        final top = run.baselineShift - box.ascent;
+        final bottom = run.baselineShift + box.descent;
+        if (top < -ascent - 0.01) {
+          growUps[i] = math.max(growUps[i], -ascent - top);
+        }
+        if (bottom > descent + 0.01) {
+          growDowns[i] = math.max(growDowns[i], bottom - descent);
         }
       }
       if (growUps[i] > 0 || growDowns[i] > 0) {
@@ -1032,6 +1069,119 @@ abstract final class TextLayoutEngine {
     }
     return adjusted;
   }
+
+  /// 把行内竖直对齐折算成 run 的基线偏移（CSS 2.1 §10.8）。
+  ///
+  /// 返回的 run 同时供行盒测量与绘制（`TextLayoutResult.runs`）使用，
+  /// 保证测量与绘制的基线位移一致。口径对齐 Chromium：
+  /// - `super` / `sub` 偏移由 `ComputedStyle.verticalAlignShift` 提供
+  ///   （父字号口径，P9-07），这里原样沿用；调用方漏写时按同一公式兜底；
+  /// - `text-top` / `text-bottom` 把行内盒上/下沿对齐父内容区上/下沿
+  ///   （`ComputedStyle` 只给 0，须在这里按字体度量补）；
+  /// - `middle` 把行内盒中线对齐父基线 + x-height/2。
+  static List<StyledRun> _applyVerticalAlign(
+    List<StyledRun> runs,
+    ComputedStyle style,
+    TextLeadingDistribution leadingDistribution,
+  ) {
+    if (runs.isEmpty ||
+        !runs.any(
+          (run) => run.style.verticalAlign != CssVerticalAlign.baseline,
+        )) {
+      return runs;
+    }
+    _InlineBoxMetrics? parentMetrics;
+    _InlineBoxMetrics parent() =>
+        parentMetrics ??= _inlineBoxMetrics(style, leadingDistribution);
+    final boxes = <ComputedStyle, _InlineBoxMetrics>{};
+    _InlineBoxMetrics boxOf(ComputedStyle runStyle) =>
+        boxes[runStyle] ??= _inlineBoxMetrics(runStyle, leadingDistribution);
+    double? xHeight;
+    var changed = false;
+    final aligned = <StyledRun>[];
+    for (final run in runs) {
+      final shift = switch (run.style.verticalAlign) {
+        CssVerticalAlign.baseline => run.baselineShift,
+        // 以 ComputedStyle 为唯一真源；调用方漏写时按同一公式兜底。
+        CssVerticalAlign.superscript =>
+          run.baselineShift != 0
+              ? run.baselineShift
+              : -(run.style.parentFontSize / 3 + 1),
+        CssVerticalAlign.subscript =>
+          run.baselineShift != 0
+              ? run.baselineShift
+              : run.style.parentFontSize / 5 + 1,
+        CssVerticalAlign.top => boxOf(run.style).ascent - parent().rawAscent,
+        CssVerticalAlign.bottom =>
+          parent().rawDescent - boxOf(run.style).descent,
+        CssVerticalAlign.middle =>
+          (boxOf(run.style).ascent - boxOf(run.style).descent) / 2 -
+              (xHeight ??= _xHeightFor(style)) / 2,
+      };
+      if (shift == run.baselineShift) {
+        aligned.add(run);
+        continue;
+      }
+      changed = true;
+      aligned.add(
+        StyledRun(
+          start: run.start,
+          end: run.end,
+          style: run.style,
+          baselineShift: shift,
+        ),
+      );
+    }
+    return changed ? aligned : runs;
+  }
+
+  /// 单个 run / 块级 strut 的竖直度量。
+  static _InlineBoxMetrics _inlineBoxMetrics(
+    ComputedStyle style,
+    TextLeadingDistribution leadingDistribution,
+  ) {
+    final box = _lineMetricsOf(
+      textStyleFor(style, leadingDistribution: leadingDistribution),
+    );
+    final raw = _lineMetricsOf(_rawTextStyleFor(style));
+    return _InlineBoxMetrics(
+      ascent: box.ascent,
+      descent: box.descent,
+      rawAscent: raw.ascent,
+      rawDescent: raw.descent,
+    );
+  }
+
+  /// 单字符 'x' 的段落度量（只为拿字体 ascent/descent，避免整段重排）。
+  static LineMetrics _lineMetricsOf(TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'x', style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final metrics = painter.computeLineMetrics().first;
+    painter.dispose();
+    return metrics;
+  }
+
+  /// 去掉 line-height 倍数的测量样式：取字体原始 ascent/descent。
+  static TextStyle _rawTextStyleFor(ComputedStyle style) {
+    final styled = textStyleFor(style);
+    return TextStyle(
+      fontSize: styled.fontSize,
+      fontWeight: styled.fontWeight,
+      fontStyle: styled.fontStyle,
+      fontFamily: styled.fontFamily,
+      fontFamilyFallback: styled.fontFamilyFallback,
+      letterSpacing: styled.letterSpacing,
+      wordSpacing: styled.wordSpacing,
+    );
+  }
+
+  /// x-height 近似（`vertical-align: middle` 用）：0.5em。
+  ///
+  /// Flutter 没有暴露 x-height；CJK 字体 x-height 约 0.5em。该偏差只影响
+  /// middle 行内元素的竖直位置，不影响行高（小字号盒仍落在 strut 内）。
+  static double _xHeightFor(ComputedStyle style) => style.fontSize * 0.5;
 
   static TextLayoutResult _result(
     String text,

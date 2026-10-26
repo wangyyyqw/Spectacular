@@ -179,7 +179,8 @@ void _p729KeyIntegrity() {
   final cache = TextLayoutCache();
   const text = '中文，中文「引号」与 English 混排';
   final base = _style();
-  final trim = _style(const {'text-spacing-trim': 'trim-adjacent'});
+  // 默认已是 trim-adjacent，用 space-all（不挤压）作为反向输入。
+  final trim = _style(const {'text-spacing-trim': 'space-all'});
   final autospace = _style(const {'text-autospace': 'normal'});
   final justifyAll = _style(const {'text-justify': 'justify-all'});
   final hanging = _style(const {'hanging-punctuation': 'allow-end'});

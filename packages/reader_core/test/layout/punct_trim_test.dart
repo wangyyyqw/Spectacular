@@ -41,10 +41,13 @@ void main() {
   });
 
   group('测量集成（TextLayoutEngine）', () {
+    // 未声明时默认已是 trim-adjacent（对齐 Chrome 初始值）；显式 `normal`
+    // 对应 space-all，作为「不挤压」的对照基线。
     final normal = ComputedStyle(const <String, String>{
       'font-size': '16px',
       'line-height': '1.5',
       'font-family': 'Ahem',
+      'text-spacing-trim': 'space-all',
     });
     final trimmed = ComputedStyle(const <String, String>{
       'font-size': '16px',
@@ -74,7 +77,7 @@ void main() {
       );
     });
 
-    test('默认 normal 输出与现状一致', () {
+    test('space-all 不做挤压：行宽 = 8 个全角字', () {
       const text = '「你好」，他说。';
       final plain = TextLayoutEngine.layout(
         text: text,
@@ -91,7 +94,7 @@ void main() {
         _parse('space-all'),
         CssTextSpacingTrim.normal,
       );
-      expect(_parse('trim-start'), CssTextSpacingTrim.normal);
+      expect(_parse('trim-start'), CssTextSpacingTrim.trimAdjacent);
       final child = ComputedStyle(
         const <String, String>{'color': 'red'},
         parent: trimmed,
