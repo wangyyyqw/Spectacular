@@ -481,6 +481,16 @@ class EpubDocumentImpl implements EpubDocument {
   BlockDocument parseBlocks(int spineIndex) =>
       BlockBuilder.build(parseDocument(spineIndex));
 
+  /// 取指定 spine 的原始 XHTML 字符串（轻量文本提取用，不解析）。
+  String? chapterXhtml(int spineIndex) {
+    final item = spine[spineIndex];
+    final baseDir = p.posix.dirname(opfPath);
+    final resolved =
+        resources.resolve(item.href, baseDir: baseDir) ??
+        p.posix.normalize(p.posix.join(baseDir, item.href));
+    return archive.readString(resolved);
+  }
+
   /// 把指定 spine 解析为节点树。
   ParsedDocument parseDocument(int spineIndex) {
     final item = spine[spineIndex];

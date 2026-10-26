@@ -74,8 +74,6 @@ void main() {
         'reading_progress',
         'user_fonts',
         'settings',
-        'chapter_text',
-        'search_grams',
         'import_reports',
       ]),
     );
@@ -92,7 +90,6 @@ void main() {
         'idx_chapter_book',
         'idx_anno_book',
         'idx_anno_quote',
-        'idx_grams_lookup',
         'idx_report_book',
       ]),
     );
@@ -102,7 +99,7 @@ void main() {
       await database.customSelect('PRAGMA user_version').getSingle().then(
         (row) => row.read<int>('user_version'),
       ),
-      4,
+      5,
     );
   });
 
@@ -149,29 +146,6 @@ void main() {
         updatedAt: const Value<int>(1),
       ),
     );
-    await database.into(database.chapterTexts).insert(
-      ChapterTextsCompanion(
-        bookId: Value<int>(bookId),
-        spineIndex: const Value<int>(0),
-        chapterText: const Value<String>('正文'),
-      ),
-    );
-    await database.into(database.searchGrams).insert(
-      SearchGramsCompanion(
-        bookId: Value<int>(bookId),
-        gram: const Value<String>('正文'),
-        spineIndex: const Value<int>(0),
-        charOffset: const Value<int>(0),
-      ),
-    );
-    await database.into(database.importReports).insert(
-      ImportReportsCompanion.insert(
-        bookId: bookId,
-        code: 'E001',
-        message: '修复项',
-        createdAt: 1,
-      ),
-    );
 
     await (database.delete(database.books)
           ..where((table) => table.id.equals(bookId)))
@@ -182,12 +156,10 @@ void main() {
     expect(await database.select(database.chapters).get(), isEmpty);
     expect(await database.select(database.annotations).get(), isEmpty);
     expect(await database.select(database.readingProgress).get(), isEmpty);
-    expect(await database.select(database.chapterTexts).get(), isEmpty);
-    expect(await database.select(database.searchGrams).get(), isEmpty);
     expect(await database.select(database.importReports).get(), isEmpty);
   });
 
-  test('v1→v4 迁移：数据保留、新增 import_reports、进度列与搜索索引表', () async {
+  test('v1→v5 迁移：数据保留、新增 import_reports、进度列、旧索引表不建', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -206,7 +178,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 4, reason: 'schema 已升到 v4');
+    expect(version.read<int>('user_version'), 5, reason: 'schema 已升到 v5');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
@@ -224,22 +196,15 @@ void main() {
     );
     expect((await database.select(database.importReports).get()).length, 1);
 
-    // P4-24：搜索索引两张表在迁移后可用。
+    // 搜索改为扫描式后，旧的倒排索引两张表不再创建。
     final tables = await database
         .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")
         .get();
     final tableNames = <String>{
       for (final row in tables) row.read<String>('name'),
     };
-    expect(tableNames, containsAll(<String>['chapter_text', 'search_grams']));
-    await database.into(database.chapterTexts).insert(
-      ChapterTextsCompanion.insert(
-        bookId: books.single.id,
-        spineIndex: 0,
-        chapterText: '迁移后可写正文',
-      ),
-    );
-    expect((await database.select(database.chapterTexts).get()).length, 1);
+    expect(tableNames, isNot(contains('chapter_text')));
+    expect(tableNames, isNot(contains('search_grams')));
   });
 
   test('并发写入不锁超时', () async {

@@ -223,53 +223,6 @@ class SettingsTable extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{key};
 }
 
-/// 章节原文表（§66.3）：供搜索上下文提取与命中校验。
-@DataClassName('ChapterTextRow')
-class ChapterTexts extends Table {
-  @override
-  String get tableName => 'chapter_text';
-
-  /// 所属书籍。
-  IntColumn get bookId =>
-      integer().references(Books, #id, onDelete: KeyAction.cascade)();
-
-  /// spine 序号。
-  IntColumn get spineIndex => integer()();
-
-  /// 章节纯文本（getter 名避开 `Table.text()` 冲突，列名仍为 text）。
-  TextColumn get chapterText => text().named('text')();
-
-  /// 全书字符偏移起点。
-  IntColumn get charStart => integer().withDefault(const Constant(0))();
-
-  @override
-  Set<Column<Object>> get primaryKey => <Column<Object>>{bookId, spineIndex};
-}
-
-/// 2-gram 倒排表（§66.3）：gram → 位置。
-///
-/// 方案里的 `WITHOUT ROWID` 优化 drift 表定义不支持声明，暂用普通表 +
-/// 索引（功能等价）；P4-19 搜索索引接入时若启用 FTS5 再切换 DDL。
-@DataClassName('SearchGramRow')
-class SearchGrams extends Table {
-  /// 所属书籍。
-  IntColumn get bookId =>
-      integer().references(Books, #id, onDelete: KeyAction.cascade)();
-
-  /// 2 字 gram。
-  TextColumn get gram => text()();
-
-  /// spine 序号。
-  IntColumn get spineIndex => integer()();
-
-  /// 章内字符偏移。
-  IntColumn get charOffset => integer()();
-
-  @override
-  Set<Column<Object>> get primaryKey =>
-      <Column<Object>>{bookId, gram, spineIndex, charOffset};
-}
-
 /// 导入报告明细表（v2，P4-06）：修复项 / 警告分级落库。
 @DataClassName('ImportReportRow')
 class ImportReports extends Table {
@@ -306,8 +259,6 @@ class ImportReports extends Table {
     ReadingProgress,
     UserFonts,
     SettingsTable,
-    ChapterTexts,
-    SearchGrams,
     ImportReports,
   ],
 )
@@ -320,7 +271,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -346,10 +297,14 @@ class AppDatabase extends _$AppDatabase {
         version = 3;
       }
       if (version < 4) {
-        // P4-24：全文搜索索引（章节原文 + 2-gram 倒排）。
-        await migrator.createTable(chapterTexts);
-        await migrator.createTable(searchGrams);
+        // P4-24 时期的搜索索引表已废弃（搜索改为扫描式），v4 只推进版本号。
         version = 4;
+      }
+      if (version < 5) {
+        // 搜索改为扫描式（对照 Reeden）：不再维护倒排索引，删表回收空间。
+        await customStatement('DROP TABLE IF EXISTS search_grams');
+        await customStatement('DROP TABLE IF EXISTS chapter_text');
+        version = 5;
       }
       await _createIndexes();
     },
@@ -369,21 +324,12 @@ class AppDatabase extends _$AppDatabase {
       'CREATE INDEX IF NOT EXISTS idx_chapter_book '
       'ON chapters(book_id, order_index)',
     );
-    // P4-24：2-gram 倒排按 (book, gram) 查询是热路径（§66.3）。
-    await customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_grams_lookup '
-      'ON search_grams(book_id, gram)',
-    );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_anno_book ON annotations(book_id, type)',
     );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_anno_quote '
       'ON annotations(book_id, quote)',
-    );
-    await customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_grams_lookup '
-      'ON search_grams(book_id, gram)',
     );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_report_book '

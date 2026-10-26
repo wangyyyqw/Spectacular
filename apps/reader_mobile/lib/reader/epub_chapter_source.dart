@@ -26,6 +26,7 @@ import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
+import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
 
 /// 从 EPUB 文档读取章节并提供分页结果。
@@ -702,16 +703,28 @@ class EpubChapterSource
     return (width, height);
   }
 
-  /// 章节纯文本（只解析聚合、不排版）：扫描式全文搜索用。
+  /// 章节纯文本缓存（轻量提取结果）。
+  final Map<int, String> _plainTextCache = <int, String>{};
+
+  /// 章节纯文本：扫描式全文搜索用。
   ///
-  /// 与 [loadChapter] + `ChapterText.fromPages` 的文本可能有细微差异（空白折叠
-  /// 方式不同），所以搜索命中后要按块级文本重新校验偏移，不能直接拿它算 CFI。
+  /// 走「原始 XHTML → 剥标签」的轻量路径，跳过完整解析与排版（156MB 全书
+  /// 约 2 秒 → 数百毫秒）。文本细节与排版结果可能有差异，所以搜索命中后要按
+  /// 块级文本重新校验偏移，不能直接拿它算 CFI。
   String chapterPlainText(int spineIndex) {
-    final aggregated = _documentCache.putIfAbsent(
-      spineIndex,
-      () => document.aggregateText(spineIndex, whiteSpace: style.whiteSpace),
-    );
-    return aggregated.plainText;
+    final cached = _plainTextCache[spineIndex];
+    if (cached != null) {
+      return cached;
+    }
+    String text;
+    try {
+      final xhtml = document.chapterXhtml(spineIndex);
+      text = xhtml == null ? '' : xhtmlToPlainText(xhtml);
+    } catch (_) {
+      text = '';
+    }
+    _plainTextCache[spineIndex] = text;
+    return text;
   }
 
   /// 章节是否走满屏路径（单图无正文无宽高属性，§8.6）。

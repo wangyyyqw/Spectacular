@@ -12,9 +12,6 @@ import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
 
 import '../storage/db.dart';
-import '../reader/epub_chapter_source.dart';
-import '../search/search_index_store.dart';
-import '../search/search_indexer.dart';
 import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
 
@@ -272,28 +269,6 @@ class LibraryStore {
       db.books,
     )..where((table) => table.uuid.equals(uuid))).get();
     return rows.isEmpty ? null : rows.single.id;
-  }
-
-  /// 某本书的搜索索引存储（P4-24）；内存模式返回 null。
-  SearchIndexStore? searchIndexStore() {
-    final db = _db;
-    return db == null ? null : SearchIndexStore(db);
-  }
-
-  /// 后台建全书 2-gram 索引（P4-24）：断点续建，可安全重复调用。
-  ///
-  /// 返回本次新增章数；内存模式或书不存在时返回 0。
-  Future<int> ensureSearchIndex(String bookUuid, Uint8List bytes) async {
-    final store = searchIndexStore();
-    if (store == null) {
-      return 0;
-    }
-    final bookId = await _bookIdOfUuid(bookUuid);
-    if (bookId == null) {
-      return 0;
-    }
-    final source = await EpubChapterSource.open(bytes);
-    return SearchIndexer(source: source, store: store).build(bookId);
   }
 
   /// 某本书的标注存储（P4-17）；内存模式下没有标注能力时返回 null。
