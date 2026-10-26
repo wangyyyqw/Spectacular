@@ -93,7 +93,10 @@ class InlineStyles {
 
 /// CSS 基础解析器。
 abstract final class CssParser {
-  static final RegExp _propertyPattern = RegExp(r'^-?[a-zA-Z][a-zA-Z0-9-]*$');
+  /// 属性名：标准属性、厂商前缀属性与自定义属性（`--token`，P9-14）。
+  static final RegExp _propertyPattern = RegExp(
+    r'^(?:--[a-zA-Z0-9-]+|-?[a-zA-Z][a-zA-Z0-9-]*)$',
+  );
 
   static final RegExp _syntaxErrorPattern = RegExp(r'^\d+:\d+:');
 
