@@ -41,23 +41,31 @@ class ReaderLog {
   Future<void> _initialize() async {
     try {
       final isFlutterTest = Platform.environment['FLUTTER_TEST'] == 'true';
-      _lines.add('=== Spectacular Reader log ===');
-      _lines.add('started_at=${DateTime.now().toIso8601String()}');
       if (isFlutterTest && !_customDirectory) {
         // widget test 没有 path_provider/device_info 插件，保留内存日志。
-        _lines.add('test_mode=true');
+        _lines
+          ..add('=== Spectacular Reader log ===')
+          ..add('started_at=${DateTime.now().toIso8601String()}')
+          ..add('test_mode=true')
+          ..add('--- events ---');
       } else {
         final directory = await _directoryProvider();
         await directory.create(recursive: true);
         _file = File('${directory.path}/reader_log.txt');
         await _file!.create(recursive: true);
+        // 保留上次运行的日志：把旧文件截到上限后再追加本次会话头。
+        await _trimIfOversize(_file!);
+        final header = StringBuffer()
+          ..writeln()
+          ..writeln('=== 新会话 ${DateTime.now().toIso8601String()} ===');
         final info = await _deviceInfoProvider();
         for (final entry in info.entries) {
-          _lines.add('${entry.key}=${entry.value}');
+          header.writeln('${entry.key}=${entry.value}');
         }
+        header.writeln('--- events ---');
+        _lines.addAll(header.toString().trimRight().split('\n'));
+        await _file!.writeAsString(header.toString(), mode: FileMode.append, flush: true);
       }
-      _lines.add('--- events ---');
-      await _writeAll();
     } catch (error, stackTrace) {
       debugPrint('ReaderLog init failed: $error\n$stackTrace');
     } finally {
@@ -88,10 +96,57 @@ class ReaderLog {
     await _append(line);
   }
 
-  /// 导出为文本。
+  /// 导出为文本：包含历史会话（读文件全量，内存行只是兜底）。
   Future<String> exportText() async {
     await initialize();
+    final file = _file;
+    if (file != null) {
+      try {
+        return await file.readAsString();
+      } catch (error) {
+        debugPrint('ReaderLog read failed: $error');
+      }
+    }
     return _lines.join('\n');
+  }
+
+  /// 清空日志（删除文件并清空内存缓存）。
+  Future<void> clear() async {
+    await initialize();
+    _lines.clear();
+    final file = _file;
+    if (file == null) {
+      return;
+    }
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+      await file.create(recursive: true);
+    } catch (error) {
+      debugPrint('ReaderLog clear failed: $error');
+    }
+  }
+
+  /// 历史日志上限：超过就只保留末尾一半，避免无限增长。
+  static const int maxLogBytes = 512 * 1024;
+
+  Future<void> _trimIfOversize(File file) async {
+    try {
+      final length = await file.length();
+      if (length <= maxLogBytes) {
+        return;
+      }
+      final content = await file.readAsString();
+      final keepFrom = content.length - maxLogBytes ~/ 2;
+      final kept = content.substring(keepFrom);
+      await file.writeAsString(
+        '[日志已截断，保留最近 ${maxLogBytes ~/ 2 ~/ 1024}KB]\n$kept',
+        flush: true,
+      );
+    } catch (error) {
+      debugPrint('ReaderLog trim failed: $error');
+    }
   }
 
   /// 确保日志文件存在并返回路径。
