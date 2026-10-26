@@ -107,6 +107,20 @@ void main() {
     expect(background.size.mode, CssBackgroundSizeMode.cover);
   });
 
+  test('多看私有属性在真实管线生效（P9-13）', () async {
+    final source = await open(
+      body: '<p class="d">多看段落</p>',
+      css:
+          'p.d { -duokan-text-indent: 2em; duokan-paragraph-align: center; '
+          'duokan-break-inside: avoid; }',
+    );
+    final pages = await source.loadChapter(0);
+    final style = pages.first.slices.first.block.style!;
+    expect(style.textIndent, 34);
+    expect(style.textAlign, CssTextAlign.center);
+    expect(style.breakInsideAvoid, isTrue);
+  });
+
   test('list-style-type 决定列表标记（P9-12）', () async {
     final roman = await open(
       body: '<ol><li class="r">一</li><li class="r">二</li></ol>',
