@@ -384,6 +384,17 @@ class MulticolGeometry {
   }
 }
 
+/// 竖排按页分栏的结果：每页的列块 + 每页占用高。
+class _VerticalSplit {
+  const _VerticalSplit({required this.chunks, required this.pageHeight});
+
+  /// 每页一个列块（列已按页内顺序重排 x）。
+  final List<PageBlock> chunks;
+
+  /// 每个列块在页内占用的高（= 页高或重排后的列长）。
+  final double pageHeight;
+}
+
 /// 绝对定位解算结果（页内坐标 + 可能 shrink-to-fit 后的块）。
 class _AbsolutePlacement {
   const _AbsolutePlacement({
@@ -951,14 +962,22 @@ class Paginator {
     flush();
     return widest;
   }
-  /// 竖排块跨页列流：列长 = 页高重排列 → 每页容纳 `floor(页宽/列宽)` 列，
-  /// 剩余列顺延下一页。返回每页一个列块（null 表示不适用，调用方走整块路径）。
-  List<PageBlock>? _verticalColumnChunks(PageBlock block, double available) {
+  /// 竖排块按页分栏：列长 = 本页可用高重新分列 → 每页容纳
+  /// `floor(页宽 / 列宽)` 列，剩余列顺延下一页。返回每页的列块与每页占高；
+  /// 列长与页高一致时返回 null（调用方走整块单页路径，保持原语义）。
+  _VerticalSplit? _verticalColumnChunks(PageBlock block, double available) {
     final style = block.style;
     if (style == null || pageWidth <= 0) {
       return null;
     }
-    final columnLength = math.max(1.0, available - block.leadingExtent);
+    // 列长：声明 height 且放得进本页时按声明值（作者意图），否则按页高。
+    final declaredHeight = style.height?.resolve(available);
+    final columnLength =
+        declaredHeight != null &&
+            declaredHeight > 0 &&
+            declaredHeight <= available
+        ? declaredHeight
+        : math.max(1.0, available - block.leadingExtent);
     // 屏蔽声明 height（否则 layout 会继续拿块高当列长）。
     final adjusted = ComputedStyle(
       <String, String>{'height': 'auto'},
@@ -979,9 +998,6 @@ class Paginator {
       return null;
     }
     final perPage = math.max(1, (pageWidth / columnWidth).floor());
-    if (perPage >= relaid.lineCount) {
-      return null; // 一页放得下全部列 → 走整块单页路径
-    }
     final chunks = <PageBlock>[];
     var start = 0;
     while (start < relaid.lineCount) {
@@ -989,7 +1005,11 @@ class Paginator {
       chunks.add(_verticalChunk(block, relaid, start, start + take));
       start += take;
     }
-    return chunks;
+    final pageHeight = math.min(
+      available,
+      block.leadingExtent + relaid.height + block.trailingExtent,
+    );
+    return _VerticalSplit(chunks: chunks, pageHeight: pageHeight);
   }
 
   /// 竖排分页的列块：抽出 `[start, end)` 列并把 columnX 重排到 0 起。
@@ -1274,30 +1294,32 @@ class Paginator {
         if (declaredHeight != null && declaredHeight > contentHeight) {
           contentHeight = declaredHeight;
         }
-        // 竖向内容超过本页可用高：按页高重排列（列长 = 页高），再按页宽分列，
-        // 一页容纳 floor(页宽 / 列宽) 列，剩余列顺延下一页（页序即阅读序）。
-        if (contentHeight > available + tolerance &&
-            pageWidth > 0 &&
-            block.style != null) {
-          final chunks = _verticalColumnChunks(block, available);
-          if (chunks != null) {
-            for (var i = 0; i < chunks.length; i++) {
+        // 需要跨页的两种情形：竖向内容高于本页，或列带总宽超过页宽。
+        // 处理：按页高重排列（列长 = 页高），再按页宽分列，一页容纳
+        // floor(页宽 / 列宽) 列，剩余列顺延下一页（页序即阅读序）。
+        final needsColumnSplit =
+            contentHeight > available + tolerance ||
+            (pageWidth > 0 &&
+                block.layout.width > pageWidth + tolerance);
+        if (needsColumnSplit && pageWidth > 0 && block.style != null) {
+          final split = _verticalColumnChunks(block, available);
+          if (split != null) {
+            for (var i = 0; i < split.chunks.length; i++) {
               if (i > 0) {
                 record();
               }
               slices.add(
                 PageBlockSlice(
-                  block: chunks[i],
+                  block: split.chunks[i],
                   startLine: 0,
-                  endLine: chunks[i].layout.lineCount,
-                  // 该页被竖排内容占满（painter 按 slice.height 推进 y）。
-                  height: available,
+                  endLine: split.chunks[i].layout.lineCount,
+                  height: split.pageHeight,
                   leftInset: block.leftInset,
                 ),
               );
             }
-            used += available;
-            available = 0;
+            used += split.pageHeight;
+            available -= split.pageHeight;
             continue;
           }
         }

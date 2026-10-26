@@ -2425,17 +2425,25 @@ abstract final class TextLayoutEngine {
       if (!hasPrev && !hasNext) {
         continue;
       }
+      // token 边界只取 ASCII 可见字符：`16px/1.6，中文…` 这类不能整段变
+      // 成不可断 token（CJK/全角标点/空白都视为边界）。
       var start = i;
-      while (start > 0 && !_isBreakGuardSpace(text[start - 1])) {
+      while (start > 0 && _isGuardTokenChar(text[start - 1])) {
         start -= 1;
       }
       var end = i + 1;
-      while (end < text.length && !_isBreakGuardSpace(text[end])) {
+      while (end < text.length && _isGuardTokenChar(text[end])) {
         end += 1;
       }
       ranges.add((start, end));
     }
     return _mergeRanges(ranges);
+  }
+
+  /// 是否 token 内字符（ASCII 可见字符）：守卫只在这类 token 内部生效。
+  static bool _isGuardTokenChar(String char) {
+    final code = char.codeUnitAt(0);
+    return code > 0x20 && code < 0x7F;
   }
 
   /// 是否空白（守卫只在 token 内部生效）。
