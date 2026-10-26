@@ -3,6 +3,7 @@ import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/parser/document_parser.dart';
 
 const _xhtml = '''
@@ -14,6 +15,29 @@ const _xhtml = '''
 ''';
 
 void main() {
+  test('作者盒类简写压过 UA 长属性（P9-27）', () {
+    final sheet = CssParser.parse(
+      'p { margin: 8px 0; padding: 3px 6px; border: 2px solid #3366cc; }',
+    );
+    final style = Cascade.compute(
+      element: _BareElement('p'),
+      ancestors: <SelectorElement>[_BareElement('body')],
+      rules: <CascadeRule>[
+        ...uaRules(),
+        ...CascadeRule.fromStylesheet(sheet, origin: CascadeOrigin.author),
+      ],
+      parent: ComputedStyle(const <String, String>{'font-size': '17px'}),
+      containingWidth: 350,
+    );
+    // UA 的 `p { margin: 1em 0 }` 是简写，作者简写必须整体胜出。
+    expect(style.margin.top, 8);
+    expect(style.margin.bottom, 8);
+    expect(style.margin.left, 0);
+    expect(style.padding.left, 6);
+    expect(style.borders.top.width, 2);
+    expect(style.borders.top.color.toARGB32(), 0xFF3366CC);
+  });
+
   final document = DocumentParser.parse(xhtml: _xhtml, spineIndex: 0);
   final viewOwner = <ParsedNode, ParsedElementView>{};
   final rootView = ParsedElementView.wrap(document.root, viewOwner);
@@ -242,4 +266,20 @@ void main() {
     expect(inherited['font-size'], '18px');
     expect(inherited.hasExplicitTextColor, isFalse);
   });
+}
+
+
+/// 最简元素视图（级联测试用：只要 tag/属性）。
+class _BareElement implements SelectorElement {
+  /// 创建元素。
+  const _BareElement(this.tag);
+
+  @override
+  final String tag;
+
+  @override
+  Map<String, String> get attributes => const <String, String>{};
+
+  @override
+  List<SelectorElement> get childElements => const <SelectorElement>[];
 }
