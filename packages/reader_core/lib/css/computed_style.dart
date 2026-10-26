@@ -22,6 +22,50 @@ enum CssTextJustify {
 /// 定位方式（§60.2 第 1 条：absolute/fixed 先摘出流）。
 enum CssPosition { static, relative, absolute, fixed, sticky }
 
+/// 绝对定位盒的解算结果（CSS 2.1 §10.3.7 / §10.6.4，非替换块级元素）。
+///
+/// 语义：`null` 一律表示 CSS 的 `auto`。
+/// - [left]/[right]/[top]/[bottom]：已按包含块尺寸解算的偏移（百分比已换算）；
+/// - [width]/[height]：已解算的尺寸；null 表示需要布局层 shrink-to-fit；
+/// - 两侧偏移都给了、尺寸是 auto 时，尺寸已由偏移推出；
+/// - 只给一侧偏移且尺寸已知时，另一侧偏移已推出（方便贴右/贴底）。
+/// - 左右都为 null 时用**静态位置**（布局层按正常流位置摆放）。
+class CssAbsoluteBox {
+  /// 创建解算结果。
+  const CssAbsoluteBox({
+    this.left,
+    this.right,
+    this.top,
+    this.bottom,
+    this.width,
+    this.height,
+  });
+
+  /// 左偏移（null = auto）。
+  final double? left;
+
+  /// 右偏移（null = auto）。
+  final double? right;
+
+  /// 上偏移（null = auto）。
+  final double? top;
+
+  /// 下偏移（null = auto）。
+  final double? bottom;
+
+  /// 宽度（null = auto，需要 shrink-to-fit）。
+  final double? width;
+
+  /// 高度（null = auto）。
+  final double? height;
+
+  @override
+  String toString() =>
+      'CssAbsoluteBox(l=${left ?? "auto"},r=${right ?? "auto"},'
+      't=${top ?? "auto"},b=${bottom ?? "auto"},'
+      'w=${width ?? "auto"},h=${height ?? "auto"})';
+}
+
 /// 浮动方向（§60.2 第 2 条）。
 enum CssFloat { none, left, right }
 
@@ -2259,6 +2303,116 @@ class ComputedStyle {
 
   /// 左定位偏移。
   final CssLength? left;
+
+  /// 是否脱离正常流（`position: absolute` / `fixed`）。
+  ///
+  /// 布局层（T1/T3）用它把块从正常流中摘出：绝对定位块不占行/页空间，
+  /// 位置改用 [resolveAbsoluteBox]；`fixed` 是相对页面（视口）定位，
+  /// 包含块取页面内容区。
+  bool get isOutOfFlow =>
+      position == CssPosition.absolute || position == CssPosition.fixed;
+
+  /// 解算绝对定位盒（仅 `position: absolute|fixed` 有意义，其余返回 null）。
+  ///
+  /// [containingWidth]/[containingHeight] 是**包含块的 padding box** 尺寸
+  /// （CSS 2.1 §10.1：最近 positioned 祖先的 padding box；flat 管线里通常
+  /// 传页面/正文内容区尺寸，由 T3 决定）。偏移与尺寸的百分比都按它解算。
+  ///
+  /// 规则（非替换块级元素）：
+  /// 1. `width` 声明值优先（受 min/max 约束）；`width: auto` 且左右偏移都非
+  ///    auto 时由 `cbW - left - right - 外边距/边框/内边距` 推出；
+  /// 2. 尺寸已知但只给一侧偏移时，另一侧由容器推出（贴右/贴底）；
+  /// 3. 左右偏移都 auto → 用静态位置（返回的 left/right 均为 null）；
+  /// 4. 竖向同理（top/bottom/height，百分比按 [containingHeight]）。
+  ///
+  /// 消费点：T1/T3 摆放绝对定位块时读它（不要再自己算百分比），
+  /// 绘制层只负责按最终矩形裁剪/绘制。
+  CssAbsoluteBox? resolveAbsoluteBox({
+    required double containingWidth,
+    required double containingHeight,
+  }) {
+    if (!isOutOfFlow) {
+      return null;
+    }
+    double? resolve(CssLength? length, double base) {
+      if (length == null) {
+        return null;
+      }
+      return length.resolve(base);
+    }
+
+    final horizontalEdges =
+        margin.horizontal +
+        padding.horizontal +
+        borders.left.width +
+        borders.right.width;
+    final verticalEdges =
+        margin.vertical +
+        padding.vertical +
+        borders.top.width +
+        borders.bottom.width;
+
+    var boxWidth = resolve(width, containingWidth);
+    var boxHeight = resolve(height, containingHeight);
+    var boxLeft = resolve(left, containingWidth);
+    var boxRight = resolve(right, containingWidth);
+    var boxTop = resolve(top, containingHeight);
+    var boxBottom = resolve(bottom, containingHeight);
+
+    // 1) 两侧偏移都有、尺寸 auto → 由偏移推出尺寸。
+    if (boxWidth == null && boxLeft != null && boxRight != null) {
+      boxWidth = math.max(
+        0,
+        containingWidth - boxLeft - boxRight - horizontalEdges,
+      );
+    }
+    if (boxHeight == null && boxTop != null && boxBottom != null) {
+      boxHeight = math.max(
+        0,
+        containingHeight - boxTop - boxBottom - verticalEdges,
+      );
+    }
+    // min/max 约束（CSS 2.1 §10.4）。
+    if (boxWidth != null) {
+      final minW = resolve(minWidth, containingWidth);
+      final maxW = resolve(maxWidth, containingWidth);
+      if (maxW != null && boxWidth > maxW) {
+        boxWidth = maxW;
+      }
+      if (minW != null && boxWidth < minW) {
+        boxWidth = minW;
+      }
+    }
+    if (boxHeight != null) {
+      final minH = resolve(minHeight, containingHeight);
+      final maxH = resolve(maxHeight, containingHeight);
+      if (maxH != null && boxHeight > maxH) {
+        boxHeight = maxH;
+      }
+      if (minH != null && boxHeight < minH) {
+        boxHeight = minH;
+      }
+    }
+    // 2) 尺寸已知、只给一侧偏移 → 推出另一侧（贴右/贴底）。
+    if (boxLeft == null && boxRight != null && boxWidth != null) {
+      boxLeft = containingWidth - boxRight - boxWidth - horizontalEdges;
+    } else if (boxRight == null && boxLeft != null && boxWidth != null) {
+      boxRight = containingWidth - boxLeft - boxWidth - horizontalEdges;
+    }
+    if (boxTop == null && boxBottom != null && boxHeight != null) {
+      boxTop = containingHeight - boxBottom - boxHeight - verticalEdges;
+    } else if (boxBottom == null && boxTop != null && boxHeight != null) {
+      boxBottom = containingHeight - boxTop - boxHeight - verticalEdges;
+    }
+    return CssAbsoluteBox(
+      left: boxLeft,
+      right: boxRight,
+      top: boxTop,
+      bottom: boxBottom,
+      width: boxWidth,
+      height: boxHeight,
+    );
+  }
 
   /// 影响文本测量的样式指纹（P2-26 段落缓存键的一部分）。
   ///

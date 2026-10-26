@@ -947,6 +947,104 @@ void main() {
     );
   });
 
+  test('position: absolute 的解算规则（W18 定位）', () {
+    final staticBox = style('p', 'p { top: 10px; left: 20px; }');
+    expect(staticBox.isOutOfFlow, isFalse);
+    expect(
+      staticBox.resolveAbsoluteBox(containingWidth: 300, containingHeight: 400),
+      isNull,
+      reason: '非 absolute/fixed 不参与解算',
+    );
+
+    // 基本偏移 + 声明尺寸。
+    final basic = style(
+      'p',
+      'p { position: absolute; top: 10px; left: 20px; '
+          'width: 120px; height: 30px; }',
+    );
+    expect(basic.isOutOfFlow, isTrue);
+    final box = basic.resolveAbsoluteBox(
+      containingWidth: 350,
+      containingHeight: 500,
+    )!;
+    expect(box.left, 20);
+    expect(box.top, 10);
+    expect(box.width, 120);
+    expect(box.height, 30);
+    // 尺寸已知时另一侧偏移由容器推出。
+    expect(box.right, 350 - 20 - 120);
+    expect(box.bottom, 500 - 10 - 30);
+
+    // 百分比按包含块尺寸解算。
+    final percent = style(
+      'p',
+      'p { position: absolute; left: 10%; top: 25%; }',
+    ).resolveAbsoluteBox(containingWidth: 200, containingHeight: 400)!;
+    expect(percent.left, 20);
+    expect(percent.top, 100);
+    expect(percent.width, isNull, reason: 'width: auto 且只有 left → 需要 shrink-to-fit');
+
+    // right + bottom（贴右下），宽高由声明给出 → left/top 反推。
+    final bottomRight = style(
+      'p',
+      'p { position: absolute; right: 8px; bottom: 12px; '
+          'width: 52px; height: 30px; }',
+    ).resolveAbsoluteBox(containingWidth: 350, containingHeight: 480)!;
+    expect(bottomRight.right, 8);
+    expect(bottomRight.bottom, 12);
+    expect(bottomRight.left, 350 - 8 - 52);
+    expect(bottomRight.top, 480 - 12 - 30);
+
+    // 53-display-position 的 .abs2：right/bottom + width，height auto。
+    final autoHeight = style(
+      'p',
+      'p { position: absolute; right: 12px; bottom: 16px; width: 80px; }',
+    ).resolveAbsoluteBox(containingWidth: 350, containingHeight: 800)!;
+    expect(autoHeight.left, 350 - 12 - 80, reason: '贴右 → left 反推为 258');
+    expect(autoHeight.width, 80);
+    expect(autoHeight.bottom, 16);
+    expect(autoHeight.top, isNull, reason: 'height: auto → 上边由内容高度 + bottom 决定');
+
+    // 两侧偏移都给、尺寸 auto → 尺寸由偏移推出（拉伸）。
+    final stretch = style(
+      'p',
+      'p { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }',
+    ).resolveAbsoluteBox(containingWidth: 350, containingHeight: 500)!;
+    expect(stretch.width, 350);
+    expect(stretch.height, 500);
+
+    // 外边距/边框/内边距要从拉伸尺寸里扣掉。
+    final edged = style(
+      'p',
+      'p { position: absolute; left: 10px; right: 10px; top: 0; bottom: 0; '
+          'margin: 4px 6px; padding: 2px 3px; border: 1px solid #000; }',
+    ).resolveAbsoluteBox(containingWidth: 350, containingHeight: 500)!;
+    // 水平边总 = margin 12 + padding 6 + border 2 = 20
+    expect(edged.width, 350 - 10 - 10 - 20);
+    // 垂直边总 = margin 8 + padding 4 + border 2 = 14
+    expect(edged.height, 500 - 0 - 0 - 14);
+
+    // min/max 约束参与。
+    final clamped = style(
+      'p',
+      'p { position: absolute; left: 0; width: 900px; max-width: 200px; }',
+    ).resolveAbsoluteBox(containingWidth: 350, containingHeight: 500)!;
+    expect(clamped.width, 200);
+
+    // fixed 也是脱离正常流（包含块=页面，由调用方传页面尺寸）。
+    final fixed = style(
+      'p',
+      'p { position: fixed; left: 5px; top: 6px; width: 10px; height: 11px; }',
+    );
+    expect(fixed.isOutOfFlow, isTrue);
+    final fixedBox = fixed.resolveAbsoluteBox(
+      containingWidth: 350,
+      containingHeight: 500,
+    )!;
+    expect(fixedBox.left, 5);
+    expect(fixedBox.top, 6);
+  });
+
   test('column-rule 线型（double/dotted/dashed/groove）不吞 columns（W18）', () {
     // 63-columns-rule 的 `.plain`：column-count 与 column-rule 必须各自生效。
     final doubled = style(
