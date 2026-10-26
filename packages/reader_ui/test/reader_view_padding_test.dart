@@ -38,11 +38,13 @@ class _SizingSource implements RestylableChapterSource, ResizableChapterSource {
 }
 
 void main() {
-  testWidgets('viewPadding.bottom 计入正文区高度，避免压到手势条', (tester) async {
+  testWidgets('状态栏与手势条安全区都计入正文区高度', (tester) async {
     final source = _SizingSource();
     await tester.pumpWidget(
       MediaQuery(
-        data: const MediaQueryData(viewPadding: EdgeInsets.only(bottom: 20)),
+        data: const MediaQueryData(
+          viewPadding: EdgeInsets.only(top: 44, bottom: 20),
+        ),
         child: MaterialApp(
           home: Scaffold(
             body: SizedBox(
@@ -62,10 +64,10 @@ void main() {
 
     final size = source.appliedSize;
     expect(size, isNotNull);
-    // 页边距 16×2 + 手势条 20 + 页眉页脚槽（设计稿 20+16+14+20=70）。
+    // 页边距 16×2 + 安全区（状态栏 44 + 手势条 20）+ 页眉页脚槽 70。
     expect(
       size!.height,
-      closeTo(200 - 16 * 2 - 20 - PageFurniture.reservedHeight, 0.5),
+      closeTo(200 - 16 * 2 - 44 - 20 - PageFurniture.reservedHeight, 0.5),
     );
   });
 }
