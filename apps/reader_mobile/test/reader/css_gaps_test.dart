@@ -120,6 +120,27 @@ void main() {
     expect(style.textIndent, closeTo(38, 0.5));
   });
 
+  test('表格单元格读取作者 CSS 与祖先选择器（P9-16）', () async {
+    final source = await open(
+      body:
+          '<table class="t"><tr><td class="a">甲</td><td>乙</td></tr></table>',
+      css:
+          'table.t td { padding: 2px 6px; background: #102030; '
+          'border: 1px solid #334455; }',
+    );
+    final pages = await source.loadChapter(0);
+    final spec = pages
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.table != null)
+        .table!;
+    final cell = spec.cells.firstWhere((item) => item.layout.text == '甲');
+    expect(cell.style.padding.left, 6);
+    expect(cell.style.padding.top, 2);
+    expect(cell.style.backgroundColor, const Color(0xFF102030));
+    expect(cell.style.borders.left.width, 1);
+  });
+
   test('多看私有属性在真实管线生效（P9-13）', () async {
     final source = await open(
       body: '<p class="d">多看段落</p>',

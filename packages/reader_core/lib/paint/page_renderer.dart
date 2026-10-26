@@ -602,40 +602,72 @@ class PagePainter {
     }
   }
 
-  /// 表格切片绘制（flat 管线接入）：网格线（1px 灰，Reeden 630 裸表格
-  /// 补 border 近似）+ 逐格文字（格内按对齐方式排布，顶部对齐）。
+  /// 表格切片绘制（P9-16）：表格/单元格底色与边框按 CSS 画，
+  /// 单元格文字按 padding + border 内缩、按 vertical-align 对齐。
+  ///
+  /// 不再无条件画 1px 灰色网格线：书籍常用 `td { border: none }` 的
+  /// 无框表（时间线/信息卡），统一补灰线会把无框表画成表格栅格。
   void _paintTable(
     Canvas canvas,
     _SliceGeometry geometry,
     TableRenderSpec spec,
   ) {
-    const pad = 3.0;
     final top = geometry.y + geometry.leading;
     final height = spec.rowYs.last;
-    final gridPaint = Paint()
-      ..color = const ui.Color(0xFF9E9E9E)
-      ..strokeWidth = 1;
-    for (final x in spec.columnXs) {
-      canvas.drawLine(
-        ui.Offset(x, top),
-        ui.Offset(x, top + height),
-        gridPaint,
+    // 表格原点与正文左缘对齐（P9-16）：列坐标是表格内的相对坐标，
+    // 左内缩（容器内边距）与 margin 必须叠加，否则表格压到页边距外。
+    final left = geometry.leftInset + geometry.style.margin.left;
+    final tableStyle = geometry.style;
+    if (tableStyle.backgroundColor.a > 0) {
+      canvas.drawRect(
+        Rect.fromLTWH(left, top, spec.tableWidth, height),
+        Paint()..color = tableStyle.backgroundColor,
       );
     }
-    for (final y in spec.rowYs) {
-      canvas.drawLine(
-        ui.Offset(0, top + y),
-        ui.Offset(spec.tableWidth, top + y),
-        gridPaint,
+    for (final cell in spec.cells) {
+      final style = cell.style;
+      final cellRect = Rect.fromLTWH(
+        left + cell.rect.left,
+        top + cell.rect.top,
+        cell.rect.width,
+        cell.rect.height,
       );
+      if (style.backgroundColor.a > 0) {
+        canvas.drawRect(
+          cellRect,
+          Paint()..color = style.backgroundColor,
+        );
+      }
+      _paintCellBorders(canvas, cellRect, style.borders);
     }
     for (final cell in spec.cells) {
       if (cell.layout.lineCount == 0) {
         continue;
       }
-      final textStyle = TextLayoutEngine.textStyleFor(cell.style);
-      final innerWidth = cell.rect.width - pad * 2;
-      var lineY = top + cell.rect.top + pad;
+      final style = cell.style;
+      final borders = style.borders;
+      final leftInset = style.padding.left + borders.left.width;
+      final rightInset = style.padding.right + borders.right.width;
+      final topInset = style.padding.top + borders.top.width;
+      final bottomInset = style.padding.bottom + borders.bottom.width;
+      final innerWidth = math.max(
+        8.0,
+        cell.rect.width - leftInset - rightInset,
+      );
+      final innerHeight = math.max(
+        0.0,
+        cell.rect.height - topInset - bottomInset,
+      );
+      final textHeight = cell.layout.height;
+      // 垂直对齐（P9-16）：书籍大量使用 td { vertical-align: top/middle }。
+      final freeSpace = math.max(0.0, innerHeight - textHeight);
+      final alignOffset = switch (style.verticalAlign) {
+        CssVerticalAlign.middle => freeSpace / 2,
+        CssVerticalAlign.bottom => freeSpace,
+        _ => 0.0,
+      };
+      final textStyle = TextLayoutEngine.textStyleFor(style);
+      var lineY = top + cell.rect.top + topInset + alignOffset;
       for (var i = 0; i < cell.layout.lineCount; i++) {
         final line = cell.layout.lines[i];
         final text = cell.layout.text.substring(line.start, line.end);
@@ -644,18 +676,60 @@ class PagePainter {
             text: TextSpan(text: text, style: textStyle),
             textDirection: TextDirection.ltr,
           )..layout(maxWidth: innerWidth);
-          var x = cell.rect.left + pad;
-          if (cell.style.textAlign == CssTextAlign.center) {
-            x = cell.rect.left + (cell.rect.width - painter.width) / 2;
-          } else if (cell.style.textAlign == CssTextAlign.right ||
-              cell.style.textAlign == CssTextAlign.justify) {
-            x = cell.rect.right - pad - painter.width;
+          final contentLeft = left + cell.rect.left + leftInset;
+          final contentRight = left + cell.rect.right - rightInset;
+          var x = contentLeft;
+          if (style.textAlign == CssTextAlign.center) {
+            x = contentLeft + (contentRight - contentLeft - painter.width) / 2;
+          } else if (style.textAlign == CssTextAlign.right ||
+              style.textAlign == CssTextAlign.justify) {
+            x = contentRight - painter.width;
           }
           painter.paint(canvas, ui.Offset(x, lineY));
           painter.dispose();
         }
         lineY += line.height;
       }
+    }
+  }
+
+  /// 单元格四边边框（P9-16）：只画可见边，颜色/线型取自单元格样式。
+  void _paintCellBorders(Canvas canvas, Rect rect, CssBorders borders) {
+    if (borders.top.isVisible) {
+      final inset = borders.top.width / 2;
+      _paintSide(
+        canvas,
+        borders.top,
+        ui.Offset(rect.left, rect.top + inset),
+        ui.Offset(rect.right, rect.top + inset),
+      );
+    }
+    if (borders.bottom.isVisible) {
+      final inset = borders.bottom.width / 2;
+      _paintSide(
+        canvas,
+        borders.bottom,
+        ui.Offset(rect.left, rect.bottom - inset),
+        ui.Offset(rect.right, rect.bottom - inset),
+      );
+    }
+    if (borders.left.isVisible) {
+      final inset = borders.left.width / 2;
+      _paintSide(
+        canvas,
+        borders.left,
+        ui.Offset(rect.left + inset, rect.top),
+        ui.Offset(rect.left + inset, rect.bottom),
+      );
+    }
+    if (borders.right.isVisible) {
+      final inset = borders.right.width / 2;
+      _paintSide(
+        canvas,
+        borders.right,
+        ui.Offset(rect.right - inset, rect.top),
+        ui.Offset(rect.right - inset, rect.bottom),
+      );
     }
   }
 
