@@ -763,6 +763,8 @@ class EpubChapterSource
   /// 祖先传导的盒类近似属性：flat 无嵌套盒子，容器面板（背景/左右
   /// 边框/左右内边距）由后代块拼合呈现（P3-30 marginBox 路径消费）。
   static const _promotedBoxProps = <String>{
+    // P9-22：容器上的 duokan-bleed 要传导到子块（横幅图出血）。
+    'duokan-bleed', '-duokan-bleed',
     'background-color', 'border-left', 'border-right',
     'padding-left', 'padding-right', 'margin-left', 'margin-right',
     // P9-03：容器的背景图与尺寸/平铺/定位一并透传，卡片纹理不再丢失。
@@ -1528,16 +1530,38 @@ class EpubChapterSource
           this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
       // 图片自身 CSS（P9-08）：img.xxx { width: 36px; height: auto } 这类
       // 声明的尺寸必须优先于表现属性，否则插图/头像会按整宽绘制。
+      // 折叠块的容器链（P9-22）：纯图块折叠丢掉的外层容器（如
+      // `div.textdE1 { duokan-bleed }`）在这里补回级联链。
+      final foldedChain = node.containerChain.isEmpty
+          ? ancestors
+          : <SelectorElement>[
+              for (final hint in node.containerChain)
+                _NodeView(
+                  hint.tag,
+                  hint.classes.isEmpty
+                      ? const <String, String>{}
+                      : <String, String>{'class': hint.classes},
+                  const <SelectorElement>[],
+                ),
+            ];
       final imageStyle = styleForChain(<SelectorElement>[
-        ...ancestors,
+        ...foldedChain,
         _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
       ]);
+      // 出血图（P9-22）：显示宽按页面宽（正文宽 + 页边距）计算，
+      // 否则横幅只按正文宽缩放，左右留白与多看/阅微不一致。
+      final bleed = imageStyle.bleed;
+      final pageInsetLeft = _overrides.padding?.left ?? 0;
+      final pageInsetRight = _overrides.padding?.right ?? 0;
+      final bleedWidth = contentWidth +
+          (bleed.left ? pageInsetLeft : 0) +
+          (bleed.right ? pageInsetRight : 0);
       var size = _resolveImageDisplaySize(
         node.attributes,
         imageSizes[url],
-        contentWidth,
+        bleedWidth,
         contentHeight,
-        cssWidth: imageStyle.width?.resolve(contentWidth),
+        cssWidth: imageStyle.width?.resolve(bleedWidth),
         cssHeight: imageStyle.height?.resolve(contentHeight),
       );
       final floatSide = floatSideOf(node.attributes);

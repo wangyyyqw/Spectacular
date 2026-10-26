@@ -769,8 +769,9 @@ class ComputedStyle {
               parent?.borderCollapse ??
               CssBorderCollapse.separate;
     // 多看出血（P9-22）：`duokan-bleed: left` 允许元素延伸到页面边距。
-    final rawBleed =
-        explicitValue('duokan-bleed') ?? explicitValue('-duokan-bleed');
+    // 出血常写在容器上（`div.x { duokan-bleed: lefttopright }`），
+    // 由 flat 管线的盒属性传导注入，因此从 values 读而不是只读显式值。
+    final rawBleed = values['duokan-bleed'] ?? values['-duokan-bleed'];
     final bleed = _parseBleed(rawBleed);
     // list-style-type（P9-12）：简写在层叠层已展开成长属性，这里只读
     // 长属性，继承与特异性才和 CSS 一致。
@@ -1837,26 +1838,22 @@ class ComputedStyle {
     return url == null || url.isEmpty ? null : url;
   }
 
-  /// 解析多看 `duokan-bleed`（P9-22）：auto/none 无出血，all 四边，
-  /// 或 left/right/top/bottom 组合。
+  /// 解析多看 `duokan-bleed`（P9-22）：auto/none 无出血，all 四边；
+  /// 多看常把方向连写（`lefttopright`），因此按子串判断而不是分词。
   static CssBleed _parseBleed(String? raw) {
     if (raw == null) {
       return CssBleed.none;
     }
-    final tokens = raw
-        .trim()
-        .toLowerCase()
-        .split(RegExp(r'\s+'))
-        .where((token) => token.isNotEmpty)
-        .toSet();
-    if (tokens.contains('all') || tokens.contains('both')) {
-      return const CssBleed(left: true, right: true, top: true, bottom: true);
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'none' || value == 'auto') {
+      return CssBleed.none;
     }
+    final all = value.contains('all') || value.contains('both');
     return CssBleed(
-      left: tokens.contains('left'),
-      right: tokens.contains('right'),
-      top: tokens.contains('top'),
-      bottom: tokens.contains('bottom'),
+      left: all || value.contains('left'),
+      right: all || value.contains('right'),
+      top: all || value.contains('top'),
+      bottom: all || value.contains('bottom'),
     );
   }
 

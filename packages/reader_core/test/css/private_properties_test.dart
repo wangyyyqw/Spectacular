@@ -47,6 +47,12 @@ void main() {
     expect(bleed.bleed.right, isTrue);
     expect(bleed.bleed.top, isFalse);
     expect(compute('duokan-bleed: auto').bleed.any, isFalse);
+    // 多看常把方向连写（真实书 `lefttopright`）。
+    final joined = compute('duokan-bleed: lefttopright');
+    expect(joined.bleed.left, isTrue);
+    expect(joined.bleed.top, isTrue);
+    expect(joined.bleed.right, isTrue);
+    expect(joined.bleed.bottom, isFalse);
     final all = compute('-duokan-bleed: all');
     expect(all.bleed.any, isTrue);
     expect(all.bleed.bottom, isTrue);

@@ -120,6 +120,24 @@ void main() {
     expect(style.textIndent, closeTo(38, 0.5));
   });
 
+  test('容器 duokan-bleed 让横幅图对齐页面边界（P9-22）', () async {
+    final source = await open(
+      body:
+          '<div class="wrap"><img class="pic" src="../Images/i.png"/></div>'
+          '<p>正文</p>',
+      css:
+          '.wrap { duokan-bleed: lefttopright; } '
+          'img.pic { width: 100%; }',
+    );
+    final pages = await source.loadChapter(0);
+    final imageBlock = pages.first.slices.first.block;
+    expect(imageBlock.bleedLeft, isTrue);
+    expect(imageBlock.bleedRight, isTrue);
+    // 页面宽 300（正文宽 260 + 页边距 20*2），1×1 图按宽等高出血到 300；
+    // 不出血时只有正文宽 260。
+    expect(imageBlock.height, closeTo(300, 1.0));
+  });
+
   test('表格单元格读取作者 CSS 与祖先选择器（P9-16）', () async {
     final source = await open(
       body:

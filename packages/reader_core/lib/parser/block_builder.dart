@@ -17,6 +17,7 @@ class BlockNode implements Element {
     required this.attributes,
     required this.start,
     required this.end,
+    this.containerChain = const <({String tag, String classes})>[],
   });
 
   /// 标签名。
@@ -39,6 +40,10 @@ class BlockNode implements Element {
 
   /// 源码结束偏移。
   final int end;
+
+  /// 折叠前的容器链（tag + class）：纯图块折叠会丢掉外层容器的样式，
+  /// 级联需要这条链还原容器上的 bleed/背景/边框（P9-22）。
+  final List<({String tag, String classes})> containerChain;
 
   /// id 属性。
   String? get id => attributes['id'];
