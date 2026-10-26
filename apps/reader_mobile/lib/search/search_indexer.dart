@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:reader_ui/reader_session.dart';
+
+import '../diagnostics/reader_log.dart';
 
 import 'chapter_text.dart';
 import 'search_index_store.dart';
@@ -32,6 +36,7 @@ class SearchIndexer {
     }
     var charStart = await store.indexedCharCount(bookId);
     var done = 0;
+    final watch = Stopwatch()..start();
     for (var spine = startSpine; spine < total; spine++) {
       final text = await _plainTextOf(spine);
       await store.saveChapter(
@@ -47,6 +52,17 @@ class SearchIndexer {
       // 一口气跑完，主线程会被占满，界面点不动（真机 156MB / 1541 章）。
       await Future<void>.delayed(Duration.zero);
     }
+    unawaited(
+      ReaderLog.instance.log(
+        'search_index_built',
+        fields: <String, Object?>{
+          'book': bookId,
+          'chapters': done,
+          'total': total,
+          'ms': watch.elapsedMilliseconds,
+        },
+      ),
+    );
     return done;
   }
 

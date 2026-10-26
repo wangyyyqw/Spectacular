@@ -15,6 +15,7 @@ import '../reader/epub_reader_page.dart';
 import '../reader/reader_settings.dart';
 import '../search/search_service.dart';
 import 'book_detail_sheet.dart';
+import '../diagnostics/reader_log.dart';
 import '../storage/import_queue.dart';
 
 /// 书架排序方式（P4-08）。
@@ -335,6 +336,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
   /// 保存阅读设置（P4-21）。
   Future<void> _saveReaderSettings(ReaderSettings settings) async {
     setState(() => _settings = settings);
+    unawaited(
+      ReaderLog.instance.log(
+        'user_settings',
+        fields: <String, Object?>{
+          'font_size': settings.fontSize,
+          'line_height': settings.lineHeight,
+          'paragraph_spacing': settings.paragraphSpacing,
+          'theme': settings.themeId,
+          'background': settings.backgroundId,
+          'ink_mode': settings.inkMode,
+        },
+      ),
+    );
     await ReaderSettingsStore(widget.library).save(settings);
   }
 
@@ -352,7 +366,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
         duration: const Duration(seconds: 2),
       ),
     );
+    final readWatch = Stopwatch()..start();
     final bytes = await widget.library.readBytes(entry);
+    readWatch.stop();
+    unawaited(
+      ReaderLog.instance.log(
+        'user_open_book',
+        fields: <String, Object?>{
+          'book': entry.title,
+          'bytes': bytes.length,
+          'read_ms': readWatch.elapsedMilliseconds,
+        },
+      ),
+    );
     if (!mounted) {
       return;
     }
