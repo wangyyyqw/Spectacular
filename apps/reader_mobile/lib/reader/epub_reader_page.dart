@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../diagnostics/reader_log.dart';
 import 'epub_chapter_source.dart';
 import 'reader_settings.dart';
 
@@ -91,8 +93,19 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   }
 
   Future<void> _open() async {
+    final watch = Stopwatch()..start();
     try {
       final source = await EpubChapterSource.open(widget.bytes);
+      unawaited(
+        ReaderLog.instance.log(
+          'epub_parse',
+          fields: <String, Object?>{
+            'kb': widget.bytes.length ~/ 1024,
+            'chapters': source.chapterCount,
+            'ms': watch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) {
         return;
       }
@@ -178,6 +191,9 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       bookTitle: widget.bookTitle,
       margins: settings.margins,
       onMarginsChanged: widget.onMarginsChanged,
+      onLog: (event, fields) => unawaited(
+        ReaderLog.instance.log(event, fields: fields),
+      ),
     );
   }
 }

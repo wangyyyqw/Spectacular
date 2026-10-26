@@ -64,6 +64,7 @@ class ReaderPage extends StatefulWidget {
     this.bookTitle = '阅读',
     this.margins,
     this.onMarginsChanged,
+    this.onLog,
   });
 
   /// 章节页来源。
@@ -120,6 +121,9 @@ class ReaderPage extends StatefulWidget {
   /// 页边距变化（调节器「保留」时回调，调用方持久化）。
   final ValueChanged<ReaderMargins>? onMarginsChanged;
 
+  /// 诊断日志回调（用户操作与耗时，由 app 层写入 ReaderLog）。
+  final void Function(String event, Map<String, Object?> fields)? onLog;
+
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
 
@@ -158,6 +162,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
+
+  /// 记录一条诊断日志（无回调时忽略）。
+  void _log(String event, [Map<String, Object?> fields = const {}]) {
+    widget.onLog?.call(event, fields);
+  }
 
   /// 缓存的安全区高度：只在首帧取一次，系统栏显隐不改变它。
   ///
@@ -501,6 +510,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
     final open = !_menuOpen;
+    _log('user_menu', <String, Object?>{'open': open});
     // 不切系统栏模式：菜单是浮层，切 edgeToEdge 会改 viewPadding → 正文重排。
     setState(() {
       _menuOpen = open;
@@ -513,6 +523,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 打开某个抽屉面板（底部四入口）。
   void _openDrawer(ReaderMenuEntry entry) {
+    _log('user_drawer', <String, Object?>{'panel': entry.name});
     setState(() {
       _drawer = entry;
       _drawerTab = _DrawerTab.content;
@@ -1231,10 +1242,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             ReaderView(
               onPrevious: () {
                 _clearSelection();
+                _log('user_page', <String, Object?>{'dir': 'prev'});
                 unawaited(_session.previous());
               },
               onNext: () {
                 _clearSelection();
+                _log('user_page', <String, Object?>{'dir': 'next'});
                 unawaited(_session.next());
               },
               onToggleToolbar: () {
@@ -1411,6 +1424,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     _previewMargins = null;
                   }),
                   onApply: (margins) {
+                    _log('user_margins', <String, Object?>{
+                      'left': margins.left,
+                      'right': margins.right,
+                      'top_outer': margins.topOuter,
+                      'top_inner': margins.topInner,
+                      'bottom_inner': margins.bottomInner,
+                      'bottom_outer': margins.bottomOuter,
+                    });
                     widget.onMarginsChanged?.call(margins);
                     setState(() {
                       _savedMargins = margins;
