@@ -354,6 +354,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onSettingsChanged: _saveReaderSettings,
           onSearch: _buildSearch(entry, bytes),
           bookTitle: entry.title,
+          onMarginsChanged: (margins) {
+            final current = _settings ?? ReaderSettings.defaults;
+            final next = current.copyWithMargins(margins);
+            setState(() => _settings = next);
+            unawaited(_saveReaderSettings(next));
+          },
         ),
       ),
     );

@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:drift/native.dart';
+import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/theme/reader_margins.dart';
 
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
@@ -108,5 +111,31 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect((await store.load()).themeId, 'sepia');
+  });
+
+  test('页边距（含上下外/内段）持久化往返（P8-10）', () async {
+    final dir = Directory.systemTemp.createTempSync('margin-settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => dir,
+    );
+    final store = ReaderSettingsStore(library);
+
+    expect((await store.load()).margins, isNull, reason: '默认没有自定义边距');
+
+    final margins = ReaderMargins.defaults(
+      safeTop: 41,
+      safeBottom: 16,
+      side: 22,
+      inner: 14,
+    ).copyWith(topOuter: 0, bottomOuter: 0);
+    await store.save(ReaderSettings.defaults.copyWithMargins(margins));
+
+    final reloaded = await store.load();
+    expect(reloaded.margins, margins);
+    expect(reloaded.margins!.top, 14, reason: '外段归零后只剩内段');
   });
 }
