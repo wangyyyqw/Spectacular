@@ -145,6 +145,15 @@ enum CssBackgroundClip { borderBox, paddingBox, contentBox, text }
 /// 清除浮动（CSS clear）。
 enum CssClear { none, left, right, both }
 
+/// 表格列宽算法（CSS `table-layout`，P9-17）。
+enum CssTableLayout {
+  /// 自动：按内容自然宽分配。
+  auto,
+
+  /// 固定：按 `col`/首行声明宽分配，剩余平分。
+  fixed,
+}
+
 /// 列表标记类型（CSS `list-style-type`，P9-12）。
 enum CssListStyleType {
   /// 实心圆点。
@@ -725,6 +734,9 @@ class ComputedStyle {
         : _parseListStyleType(rawListStyle) ??
               parent?.listStyleType ??
               CssListStyleType.disc;
+    final tableLayout =
+        _parseTableLayout(explicitValue('table-layout')) ??
+        CssTableLayout.auto;
     final rawSpacing = explicitValue('border-spacing');
     final borderSpacing = rawSpacing == null
         ? (parent?.borderSpacing ?? CssEdges.zero)
@@ -855,6 +867,7 @@ class ComputedStyle {
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      tableLayout: tableLayout,
       customProperties: customProperties,
       top: top,
       right: right,
@@ -956,6 +969,7 @@ class ComputedStyle {
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      tableLayout: tableLayout,
       customProperties: customProperties,
       top: top,
       right: right,
@@ -1034,6 +1048,7 @@ class ComputedStyle {
     required this.clear,
     required this.borderCollapse,
     required this.listStyleType,
+    required this.tableLayout,
     this.customProperties = const <String, String>{},
     required this.borderSpacing,
     required this.top,
@@ -1216,6 +1231,9 @@ class ComputedStyle {
 
   /// 自定义属性（`--token`，继承；P9-14）：`var()` 的取值表。
   final Map<String, String> customProperties;
+
+  /// 表格列宽算法（`table-layout`，非继承；P9-17）。
+  final CssTableLayout tableLayout;
 
   /// 上定位偏移（`top`，未继承；null 表示未声明）。
   final CssLength? top;
@@ -1754,6 +1772,14 @@ class ComputedStyle {
     final url = (match[1] ?? match[2] ?? match[3])?.trim();
     return url == null || url.isEmpty ? null : url;
   }
+
+  /// 解析 `table-layout`（P9-17）。
+  static CssTableLayout? _parseTableLayout(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'fixed' => CssTableLayout.fixed,
+        'auto' => CssTableLayout.auto,
+        _ => null,
+      };
 
   static const Map<String, CssListStyleType> _listStyleTypes =
       <String, CssListStyleType>{

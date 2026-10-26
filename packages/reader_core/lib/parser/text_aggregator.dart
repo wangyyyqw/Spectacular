@@ -308,6 +308,12 @@ abstract final class TextAggregator {
           _aggregateBlock(child, mode: effective, chain: subjectChain),
         );
       } else if (child is InlineNode) {
+        // 表格列声明（P9-17）：`colgroup/col` 是纯结构元素，没有文字，
+        // 放进聚合流会被丢弃；原样保留给表格布局读取列宽。
+        if (child.tag == 'colgroup' || child.tag == 'col') {
+          children.add(child);
+          continue;
+        }
         visitInline(child, subjectChain);
       } else if (child is ParsedText) {
         accumulator.addText(child);

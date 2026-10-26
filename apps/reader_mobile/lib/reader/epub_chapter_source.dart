@@ -1673,17 +1673,88 @@ class EpubChapterSource
         return buffer.toString();
       }
 
-      // 列声明宽：首行 td/th 的 width 属性（px）近似列声明。
-      final columnSpecified = <double?>[];
-      for (final cell in rows.first) {
-        final raw = cell.attributes['width'];
-        final value = raw == null ? null : double.tryParse(raw.trim());
-        columnSpecified.add(value);
+      // 列声明宽（P9-17）：`<col>` 的 CSS/属性宽优先，其次首行单元格；
+      // 表宽同样先看 CSS `width`，再看 HTML 属性。
+      // `<col>/<colgroup>` 在块树里是行内节点（UA display: table-column），
+      // 这里同时接受块节点与行内节点。
+      final columnElements = <({String tag, Map<String, String> attributes})>[];
+      void walkColumns(EpubNode node) {
+        if (node is BlockNode) {
+          if (node.tag == 'col') {
+            columnElements.add((tag: node.tag, attributes: node.attributes));
+            return;
+          }
+          for (final child in node.children) {
+            walkColumns(child);
+          }
+        } else if (node is InlineNode) {
+          if (node.tag == 'col') {
+            columnElements.add((tag: node.tag, attributes: node.attributes));
+            return;
+          }
+          for (final child in node.children) {
+            walkColumns(child);
+          }
+        }
       }
-      final tableWidthRaw = tableNode.attributes['width'];
+
+      walkColumns(tableNode);
+
+      double? declaredLength(
+        ComputedStyle style,
+        Map<String, String> attributes,
+      ) {
+        final css = style.width;
+        if (css != null && !css.isAuto) {
+          return css.isPercent
+              ? contentWidth * css.value / 100
+              : css.value;
+        }
+        final raw = attributes['width']?.trim();
+        if (raw == null || raw.isEmpty) {
+          return null;
+        }
+        if (raw.endsWith('%')) {
+          final percent = double.tryParse(
+            raw.substring(0, raw.length - 1),
+          );
+          return percent == null ? null : contentWidth * percent / 100;
+        }
+        return double.tryParse(raw.replaceAll(RegExp(r'[^0-9.]'), ''));
+      }
+
+      var columnCount = 0;
+      for (final row in rows) {
+        var count = 0;
+        for (final cell in row) {
+          count +=
+              int.tryParse(cell.attributes['colspan']?.trim() ?? '') ?? 1;
+        }
+        columnCount = math.max(columnCount, count);
+      }
+
+      final columnSpecified = <double?>[
+        for (var i = 0; i < columnCount; i += 1) null,
+      ];
+      for (var i = 0; i < columnElements.length && i < columnCount; i += 1) {
+        final column = columnElements[i];
+        columnSpecified[i] = declaredLength(
+          styleForChain(<SelectorElement>[
+            ...tableChain,
+            _NodeView(
+              column.tag,
+              column.attributes,
+              const <SelectorElement>[],
+            ),
+          ]),
+          column.attributes,
+        );
+      }
+
       double? tableWidthPx;
       double? tableWidthPercent;
-      if (tableWidthRaw != null) {
+      final tableWidthRaw = tableNode.attributes['width'];
+      if (tableWidthRaw != null && tableWidthRaw.trim().isNotEmpty) {
         final trimmed = tableWidthRaw.trim();
         if (trimmed.endsWith('%')) {
           tableWidthPercent =
@@ -1692,6 +1763,17 @@ class EpubChapterSource
               100;
         } else {
           tableWidthPx = double.tryParse(trimmed);
+        }
+      }
+      final cssTableWidth = tableStyle.width;
+      if (tableWidthPx == null &&
+          tableWidthPercent == null &&
+          cssTableWidth != null &&
+          !cssTableWidth.isAuto) {
+        if (cssTableWidth.isPercent) {
+          tableWidthPercent = cssTableWidth.value / 100;
+        } else {
+          tableWidthPx = cssTableWidth.value;
         }
       }
 
@@ -1766,17 +1848,110 @@ class EpubChapterSource
         specs.add(rowSpecs);
       }
 
-      final measured = TableGridMeasurer.measureGrid(
-        rows: specs,
-        columnSpecified: columnSpecified,
-        tableWidthPx: tableWidthPx,
-        tableWidthPercent: tableWidthPercent,
-        containerWidth: contentWidth,
-      );
+      // 首行单元格的 CSS/属性宽补齐尚未声明的列（P9-17）。
+      var firstRowColumn = 0;
+      for (var i = 0; i < rows.first.length; i += 1) {
+        final cell = rows.first[i];
+        final span =
+            int.tryParse(cell.attributes['colspan']?.trim() ?? '') ?? 1;
+        if (firstRowColumn < columnCount &&
+            columnSpecified[firstRowColumn] == null) {
+          columnSpecified[firstRowColumn] = declaredLength(
+            cellStyles.first[i],
+            cell.attributes,
+          );
+        }
+        firstRowColumn += span;
+      }
+
+      final fixedLayout = tableStyle.tableLayout == CssTableLayout.fixed;
+      final List<double> columnWidths;
+      final List<double> rowHeights;
+      final double tableWidthPxFinal;
+      if (fixedLayout) {
+        // `table-layout: fixed`：声明列保持声明宽，剩余空间平分给未声明列。
+        var target = tableWidthPercent != null
+            ? contentWidth * tableWidthPercent.clamp(0.0, 1.0)
+            : (tableWidthPx ?? contentWidth);
+        target = target.clamp(0.0, contentWidth);
+        final widths = List<double>.filled(columnCount, 0);
+        var specifiedTotal = 0.0;
+        var autoColumns = 0;
+        for (var c = 0; c < columnCount; c += 1) {
+          final specified = columnSpecified[c];
+          if (specified != null) {
+            widths[c] = specified;
+            specifiedTotal += specified;
+          } else {
+            autoColumns += 1;
+          }
+        }
+        if (autoColumns == 0) {
+          if (specifiedTotal > target && specifiedTotal > 0) {
+            final scale = target / specifiedTotal;
+            for (var c = 0; c < columnCount; c += 1) {
+              widths[c] *= scale;
+            }
+          }
+        } else {
+          final share = math.max(0.0, target - specifiedTotal) / autoColumns;
+          for (var c = 0; c < columnCount; c += 1) {
+            if (columnSpecified[c] == null) {
+              widths[c] = share;
+            }
+          }
+        }
+        columnWidths = widths;
+        tableWidthPxFinal = widths.fold(0.0, (sum, width) => sum + width);
+        final heights = <double>[];
+        for (var r = 0; r < rows.length; r += 1) {
+          var rowHeight = 0.0;
+          var column = 0;
+          for (var i = 0; i < rows[r].length; i += 1) {
+            final span =
+                int.tryParse(rows[r][i].attributes['colspan']?.trim() ?? '') ??
+                    1;
+            var cellWidth = 0.0;
+            for (var c = column; c < column + span && c < columnCount; c += 1) {
+              cellWidth += columnWidths[c];
+            }
+            column += span;
+            final style = cellStyles[r][i];
+            final text = cellTexts[r][i];
+            final measuredCell = text.isEmpty
+                ? null
+                : _layoutCache.layout(
+                    text: text,
+                    style: style,
+                    maxWidth: math.max(
+                      8.0,
+                      cellWidth - horizontalInset(style),
+                    ),
+                  );
+            final height =
+                (measuredCell?.height ?? style.lineHeight * 0.6) +
+                verticalInset(style);
+            rowHeight = math.max(rowHeight, height);
+          }
+          heights.add(rowHeight);
+        }
+        rowHeights = heights;
+      } else {
+        final measured = TableGridMeasurer.measureGrid(
+          rows: specs,
+          columnSpecified: columnSpecified,
+          tableWidthPx: tableWidthPx,
+          tableWidthPercent: tableWidthPercent,
+          containerWidth: contentWidth,
+        );
+        columnWidths = measured.columnWidths;
+        rowHeights = measured.rowHeights;
+        tableWidthPxFinal = measured.tableWidth;
+      }
       final grid = TableGridLayout(
         rows: specs,
-        columnWidths: measured.columnWidths,
-        rowHeights: measured.rowHeights,
+        columnWidths: columnWidths,
+        rowHeights: rowHeights,
       );
       // 格终布局（按最终列宽）与渲染格。
       final allCells = <TableCellRender>[];
@@ -1813,7 +1988,7 @@ class EpubChapterSource
       }
       // 行边界切分（P3-20）：以正文页高为页。
       final slices = TablePaginator.paginateRows(
-        rowHeights: measured.rowHeights,
+        rowHeights: rowHeights,
         pageHeight: contentHeight,
       );
       final gridRowYs = grid.rowYs;
@@ -1848,12 +2023,12 @@ class EpubChapterSource
                   top: 0,
                   height: sliceHeight,
                   baseline: sliceHeight,
-                  width: measured.tableWidth,
+                  width: tableWidthPxFinal,
                 ),
               ],
-              width: measured.tableWidth,
+              width: tableWidthPxFinal,
               height: sliceHeight,
-              maxWidth: measured.tableWidth,
+              maxWidth: tableWidthPxFinal,
               runs: const <StyledRun>[],
             ),
             table: TableRenderSpec(
@@ -1865,7 +2040,7 @@ class EpubChapterSource
                 if (slice.clippedRowHeight > 0)
                   slice.clippedRowHeight,
               ],
-              tableWidth: measured.tableWidth,
+              tableWidth: tableWidthPxFinal,
             ),
           ),
         );
