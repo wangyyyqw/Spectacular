@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -17,13 +16,23 @@ import 'chapter_text.dart';
 /// 取文本，不在搜索本身。
 class ScanSearchService {
   /// 创建服务。
-  ScanSearchService({required this.source, this.maxResults = 200});
+  ScanSearchService({
+    required this.source,
+    this.maxResults = 200,
+    this.onLog,
+  });
 
   /// 章节来源。
   final ReaderChapterSource source;
 
   /// 结果上限（防爆量）。
   final int maxResults;
+
+  /// 诊断日志回调（搜索耗时打点，由 app 层写入 ReaderLog）。
+  final void Function(String event, Map<String, Object?> fields)? onLog;
+
+  void _log(String event, Map<String, Object?> fields) =>
+      onLog?.call(event, fields);
 
   /// 上下文半径（前后各 12 字）。
   static const int contextRadius = 12;
@@ -37,17 +46,36 @@ class ScanSearchService {
     if (trimmed.isEmpty) {
       return const <SearchResult>[];
     }
+    final textWatch = Stopwatch()..start();
     final texts = await _collectTexts();
+    textWatch.stop();
     if (texts.isEmpty) {
       return const <SearchResult>[];
     }
-    final rawHits = await Isolate.run(
-      () => scanTexts(texts, trimmed, maxResults),
-    );
+    // 直接在主 isolate 扫描：368 万字符 indexOf 约十几毫秒，
+    // 而把 9MB 文本序列化传给 isolate 反而更贵（真机实测）。
+    final scanWatch = Stopwatch()..start();
+    final rawHits = scanTexts(texts, trimmed, maxResults);
+    scanWatch.stop();
+    _log('search_scan', <String, Object?>{
+      'query': trimmed,
+      'chapters': texts.length,
+      'hits': rawHits.length,
+      'extract_ms': textWatch.elapsedMilliseconds,
+      'scan_ms': scanWatch.elapsedMilliseconds,
+    });
     if (rawHits.isEmpty) {
       return const <SearchResult>[];
     }
-    return _expandHits(rawHits, trimmed);
+    final expandWatch = Stopwatch()..start();
+    final results = await _expandHits(rawHits, trimmed);
+    expandWatch.stop();
+    _log('search_done', <String, Object?>{
+      'query': trimmed,
+      'results': results.length,
+      'expand_ms': expandWatch.elapsedMilliseconds,
+    });
+    return results;
   }
 
   /// 逐章取纯文本：每章让出一次事件循环，避免长书把主线程占住。
@@ -188,7 +216,7 @@ class ScanHit {
       ScanHit(spineIndex: value[0], charOffset: value[1]);
 }
 
-/// isolate 内执行的线性扫描（顶层函数，避免捕获不可传递的对象）。
+/// 线性扫描章节纯文本（顶层函数，便于单独测试）。
 List<ScanHit> scanTexts(List<String> texts, String query, int maxResults) {
   final hits = <ScanHit>[];
   for (var spine = 0; spine < texts.length; spine++) {

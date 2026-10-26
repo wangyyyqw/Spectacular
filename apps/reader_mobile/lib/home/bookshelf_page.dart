@@ -301,6 +301,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return (query) async {
       service ??= ScanSearchService(
         source: await EpubChapterSource.open(bytes, verifyCrc: false),
+        onLog: (event, fields) => unawaited(
+          ReaderLog.instance.log(event, fields: fields),
+        ),
       );
       final results = await service!.search(query);
       return <SearchPanelResult>[
