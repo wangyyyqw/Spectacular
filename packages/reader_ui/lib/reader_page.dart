@@ -176,13 +176,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 是否在边距调节器里（全屏编辑态，压在菜单之上）。
   bool _editingMargins = false;
 
-  /// 调节器拖动中的预览值（非空时正文按它排版，取消即恢复）。
+  /// 调节器拖动中的预览值：只影响绘制，不参与分页（拖起来才不卡）。
   ReaderMargins? _previewMargins;
+
+  /// 已保存的页边距：参与分页；「保留」后才更新，更新即触发一次重排。
+  ReaderMargins? _savedMargins;
 
   /// 当前生效的页边距（未设置时按安全区 + padding 推导）。
   ReaderMargins get _activeMargins =>
       _previewMargins ??
-      widget.margins ??
+      _savedMargins ??
       ReaderMargins.defaults(
         safeTop: MediaQuery.maybeViewPaddingOf(context)?.top ?? 0,
         safeBottom: MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0,
@@ -251,14 +254,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 页边距：设置优先，其次 ReaderPage.padding。
-  EdgeInsets _effectivePadding() {
+  ///
+  /// [forLayout] 为 true 时只用已保存的边距（分页依据），忽略拖动预览值——
+  /// 这样拖动时只重绘当前页，不会每帧重排整章。
+  EdgeInsets _effectivePadding({bool forLayout = false}) {
     final edges = _overrides.padding;
     final base = edges == null
         ? widget.padding
         : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
     // 设置里显式给了页边距（含安全区两段）时直接用它：边距调节器允许把
     // 上下外段调到 0，让正文铺进安全区，所以这里不能再叠加 viewPadding。
-    final margins = _previewMargins ?? widget.margins;
+    final margins = forLayout
+        ? _savedMargins
+        : (_previewMargins ?? _savedMargins);
     if (margins != null) {
       return margins.toPadding();
     }
@@ -347,7 +355,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
   void _scheduleContentSize(Size pageSize) {
-    final padding = _effectivePadding();
+    final padding = _effectivePadding(forLayout: true);
     final reserved = widget.showPageFooter ? PageFurniture.reservedHeight : 0.0;
     final content = Size(
       pageSize.width - padding.horizontal,
@@ -410,6 +418,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _savedMargins = widget.margins;
     _overrides = widget.overrides ?? ReaderSettingsDefaults.overrides;
     _theme = widget.theme;
     _backgroundId = widget.backgroundId;
@@ -439,6 +448,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.margins != widget.margins && widget.margins != null) {
+      _savedMargins = widget.margins;
+    }
     if (oldWidget.theme != widget.theme) {
       _theme = widget.theme;
     }
@@ -1401,6 +1413,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   onApply: (margins) {
                     widget.onMarginsChanged?.call(margins);
                     setState(() {
+                      _savedMargins = margins;
                       _editingMargins = false;
                       _previewMargins = null;
                     });

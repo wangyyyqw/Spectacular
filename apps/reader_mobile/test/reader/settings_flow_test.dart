@@ -186,8 +186,9 @@ void main() {
     await tester.pumpAndSettle();
 
     final pagesBefore = session.chapterPageCount;
+    final heightBefore = session.contentHeight ?? 0;
 
-    // 拖「上内」胶囊：数值随手走，且正文按新边距重新分页（预览生效）。
+    // 拖「上内」胶囊：数值随手走，但只重绘当前页 —— 不重排。
     await tester.drag(
       find.byKey(const ValueKey<String>('margin-top-inner')),
       const Offset(120, 0),
@@ -203,6 +204,11 @@ void main() {
       findsNothing,
       reason: '数值已随拖动改变',
     );
+    expect(
+      session.layoutFingerprint,
+      before,
+      reason: '拖动阶段不重新分页（只调当前页）',
+    );
 
     // 取消：不应用，边距回到原样。
     await tester.tap(find.byKey(const ValueKey<String>('margin-cancel')));
@@ -211,8 +217,37 @@ void main() {
     expect(
       session.chapterPageCount,
       pagesBefore,
-      reason: '取消后分页恢复',
+      reason: '取消后分页不变',
     );
     expect(session.layoutFingerprint, before, reason: '取消后排版指纹不变');
+
+    // 再进一次：这次点「保留」→ 立即按新边距重排（不用重开阅读页）。
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-type')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-margin-editor')),
+      80,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-margin-editor')),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey<String>('margin-top-inner')),
+      const Offset(120, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('margin-apply')));
+    await tester.pumpAndSettle();
+    expect(applied, hasLength(1), reason: '保留回传一次');
+    expect(applied.single.topInner, greaterThan(12));
+    expect(
+      session.contentHeight ?? 0,
+      lessThan(heightBefore),
+      reason: '保留后正文区立即变小（按新边距重排），无需重开页面',
+    );
   });
 }

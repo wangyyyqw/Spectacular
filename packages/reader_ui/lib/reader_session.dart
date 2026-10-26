@@ -209,6 +209,9 @@ class ReaderSession extends ChangeNotifier {
 
   double? _contentWidth;
   double? _contentHeight;
+
+  /// 当前正文区高度（分页依据；测试与诊断用）。
+  double? get contentHeight => _contentHeight;
   Object? _error;
   bool _disposed = false;
   Timer? _persistTimer;
