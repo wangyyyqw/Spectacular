@@ -91,6 +91,45 @@ void main() {
     expect(style.italic, isTrue);
     expect(style.lineHeightFactor, 2);
   });
+
+  test('background 简写生成整页背景（P9-11）', () async {
+    final source = await open(
+      body: '<p>正文</p>',
+      css:
+          'body { background: #101820 url("../Images/i.png") no-repeat '
+          'center / cover; }',
+    );
+    final pages = await source.loadChapter(0);
+    final background = pages.first.background;
+    expect(background, isNotNull);
+    expect(background!.imageUrl, 'OEBPS/Images/i.png');
+    expect(background.repeat, CssBackgroundRepeat.noRepeat);
+    expect(background.size.mode, CssBackgroundSizeMode.cover);
+  });
+
+  test('list-style-type 决定列表标记（P9-12）', () async {
+    final roman = await open(
+      body: '<ol><li class="r">一</li><li class="r">二</li></ol>',
+      css: 'li.r { list-style-type: upper-roman; }',
+    );
+    final romanPages = await roman.loadChapter(0);
+    final romanMarkers = romanPages.first.slices
+        .map((slice) => slice.block.listMarker)
+        .whereType<String>()
+        .toList();
+    expect(romanMarkers, containsAll(<String>['I.', 'II.']));
+
+    final none = await open(
+      body: '<ul class="plain"><li>无标记</li></ul>',
+      css: 'ul.plain { list-style: none; }',
+    );
+    final nonePages = await none.loadChapter(0);
+    final markers = nonePages.first.slices
+        .map((slice) => slice.block.listMarker)
+        .whereType<String>()
+        .toList();
+    expect(markers, isEmpty);
+  });
 }
 
 Uint8List _book({

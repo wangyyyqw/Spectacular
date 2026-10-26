@@ -127,6 +127,24 @@ abstract final class Cascade {
           matchedSpecificity,
           sequence,
         );
+        // `list-style` 简写展开（P9-12）：不展开的话作者简写会被 UA 的
+        // `ul { list-style-type: disc }` 长属性按属性名抢先命中。
+        if (declaration.property == 'list-style') {
+          final keyword = ComputedStyle.parseListStyleTypeKeyword(
+            declaration.value,
+          );
+          if (keyword != null) {
+            _consider(
+              winners,
+              'list-style-type',
+              keyword.$2,
+              rule.origin,
+              _level(rule.origin, declaration.important),
+              matchedSpecificity,
+              sequence,
+            );
+          }
+        }
       }
     }
 

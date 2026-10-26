@@ -144,6 +144,36 @@ enum CssBackgroundClip { borderBox, paddingBox, contentBox, text }
 /// 清除浮动（CSS clear）。
 enum CssClear { none, left, right, both }
 
+/// 列表标记类型（CSS `list-style-type`，P9-12）。
+enum CssListStyleType {
+  /// 实心圆点。
+  disc,
+
+  /// 空心圆。
+  circle,
+
+  /// 方块。
+  square,
+
+  /// 阿拉伯数字。
+  decimal,
+
+  /// 小写罗马数字。
+  lowerRoman,
+
+  /// 大写罗马数字。
+  upperRoman,
+
+  /// 小写字母。
+  lowerAlpha,
+
+  /// 大写字母。
+  upperAlpha,
+
+  /// 不显示标记。
+  none,
+}
+
 /// 表格边框合并（CSS border-collapse）。
 enum CssBorderCollapse { separate, collapse }
 
@@ -638,19 +668,28 @@ class ComputedStyle {
         : _parseTextShadows(rawShadow, fontSize: fontSize) ??
               parent?.textShadow ??
               const <CssTextShadow>[];
+    // `background` 简写（P9-11）：repeat/position/size/color/image 全部
+    // 从简写回落，长属性优先；否则 `background: #fff url(x) no-repeat
+    // center/cover` 只会取到图与底色。
+    final backgroundShorthand = explicit.contains('background')
+        ? _parseBackgroundShorthand(values['background'])
+        : null;
+    String? backgroundValue(String property) => explicit.contains(property)
+        ? values[property]
+        : backgroundShorthand?[property];
     final backgroundRepeat =
-        _parseBackgroundRepeat(explicitValue('background-repeat')) ??
+        _parseBackgroundRepeat(backgroundValue('background-repeat')) ??
         CssBackgroundRepeat.repeat;
     final backgroundSize =
         _parseBackgroundSize(
-          explicitValue('background-size'),
+          backgroundValue('background-size'),
           fontSize: fontSize,
           rootFontSize: rootFontSize,
         ) ??
         const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto);
     final backgroundPosition =
         _parseBackgroundPosition(
-          explicitValue('background-position'),
+          backgroundValue('background-position'),
           fontSize: fontSize,
           rootFontSize: rootFontSize,
         ) ??
@@ -671,6 +710,14 @@ class ComputedStyle {
         : _parseBorderCollapse(rawCollapse) ??
               parent?.borderCollapse ??
               CssBorderCollapse.separate;
+    // list-style-type（P9-12）：简写在层叠层已展开成长属性，这里只读
+    // 长属性，继承与特异性才和 CSS 一致。
+    final rawListStyle = explicitValue('list-style-type');
+    final listStyleType = rawListStyle == null
+        ? (parent?.listStyleType ?? CssListStyleType.disc)
+        : _parseListStyleType(rawListStyle) ??
+              parent?.listStyleType ??
+              CssListStyleType.disc;
     final rawSpacing = explicitValue('border-spacing');
     final borderSpacing = rawSpacing == null
         ? (parent?.borderSpacing ?? CssEdges.zero)
@@ -711,16 +758,10 @@ class ComputedStyle {
         parent?.left;
 
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
-    // `background` 简写（P9-03）：书籍大量使用 `background: #fff url(...)`，
-    // 长属性缺失时从简写里取图与底色，否则整页背景图永远解析不到。
-    final backgroundShorthand = explicitValue('background');
     final backgroundColor =
-        _parseColor(explicitValue('background-color') ?? '') ??
-        _parseBackgroundShorthandColor(backgroundShorthand) ??
+        _parseColor(backgroundValue('background-color') ?? '') ??
         const Color(0x00000000);
-    final backgroundImage =
-        _parseUrl(explicitValue('background-image')) ??
-        _parseUrl(backgroundShorthand);
+    final backgroundImage = _parseUrl(backgroundValue('background-image'));
     final borders = _resolveBorders(
       values,
       explicit,
@@ -805,6 +846,7 @@ class ComputedStyle {
       clear: clear,
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
+      listStyleType: listStyleType,
       top: top,
       right: right,
       bottom: bottom,
@@ -904,6 +946,7 @@ class ComputedStyle {
       clear: clear,
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
+      listStyleType: listStyleType,
       top: top,
       right: right,
       bottom: bottom,
@@ -980,6 +1023,7 @@ class ComputedStyle {
     required this.backgroundClip,
     required this.clear,
     required this.borderCollapse,
+    required this.listStyleType,
     required this.borderSpacing,
     required this.top,
     required this.right,
@@ -1155,6 +1199,9 @@ class ComputedStyle {
 
   /// 表格边框间距（`border-spacing`，继承；top/bottom 存垂直，left/right 存水平）。
   final CssEdges borderSpacing;
+
+  /// 列表标记类型（`list-style-type`，继承；P9-12）。
+  final CssListStyleType listStyleType;
 
   /// 上定位偏移（`top`，未继承；null 表示未声明）。
   final CssLength? top;
@@ -1693,25 +1740,112 @@ class ComputedStyle {
     return url == null || url.isEmpty ? null : url;
   }
 
-  /// 从 `background` 简写里取底色（跳过 url() 与定位/平铺关键字）。
-  static Color? _parseBackgroundShorthandColor(String? raw) {
-    if (raw == null) {
-      return null;
-    }
-    final cleaned = raw.replaceAll(
-      RegExp(r'url\([^)]*\)', caseSensitive: false),
-      ' ',
-    );
-    for (final token in cleaned.split(RegExp(r'\s+'))) {
-      if (token.isEmpty) {
-        continue;
-      }
-      final color = _parseColor(token);
-      if (color != null) {
-        return color;
+  static const Map<String, CssListStyleType> _listStyleTypes =
+      <String, CssListStyleType>{
+        'disc': CssListStyleType.disc,
+        'circle': CssListStyleType.circle,
+        'square': CssListStyleType.square,
+        'decimal': CssListStyleType.decimal,
+        'decimal-leading-zero': CssListStyleType.decimal,
+        'lower-roman': CssListStyleType.lowerRoman,
+        'upper-roman': CssListStyleType.upperRoman,
+        'lower-alpha': CssListStyleType.lowerAlpha,
+        'lower-latin': CssListStyleType.lowerAlpha,
+        'upper-alpha': CssListStyleType.upperAlpha,
+        'upper-latin': CssListStyleType.upperAlpha,
+        'none': CssListStyleType.none,
+      };
+
+  /// 解析 `list-style-type` / `list-style`（P9-12）；未知类型返回 null。
+  static CssListStyleType? _parseListStyleType(String raw) =>
+      parseListStyleTypeKeyword(raw)?.$1;
+
+  /// 从 `list-style` 简写里取出类型关键字（层叠层展开简写用）。
+  static (CssListStyleType, String)? parseListStyleTypeKeyword(String raw) {
+    for (final token in raw.toLowerCase().split(RegExp(r'\s+'))) {
+      final type = _listStyleTypes[token];
+      if (type != null) {
+        return (type, token);
       }
     }
     return null;
+  }
+
+  static final RegExp _backgroundLengthToken = RegExp(
+    r'^[-+]?(\d*\.?\d+)(px|pt|pc|em|rem|%)?$',
+  );
+
+  static const _backgroundRepeatKeywords = <String>{
+    'repeat', 'repeat-x', 'repeat-y', 'no-repeat', 'space', 'round',
+  };
+
+  static const _backgroundPositionKeywords = <String>{
+    'left', 'right', 'center', 'top', 'bottom',
+  };
+
+  /// 解析 `background` 简写（P9-11）：拆分出 image/color/repeat/
+  /// position/size；attachment、渐变与多背景暂不支持（取第一层）。
+  static Map<String, String>? _parseBackgroundShorthand(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final result = <String, String>{};
+    final images = RegExp(
+      r'url\([^)]*\)',
+      caseSensitive: false,
+    ).allMatches(raw).map((match) => match.group(0)!).toList();
+    if (images.isNotEmpty) {
+      result['background-image'] = images.first;
+    }
+    var rest = raw;
+    for (final image in images) {
+      rest = rest.replaceFirst(image, ' ');
+    }
+    rest = rest.replaceAll(
+      RegExp(r'(?:\w+-)?gradient\([^)]*\)', caseSensitive: false),
+      ' ',
+    );
+    final tokens = rest
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    final positions = <String>[];
+    final sizes = <String>[];
+    var afterSlash = false;
+    for (final token in tokens) {
+      final lower = token.toLowerCase();
+      if (lower == '/') {
+        afterSlash = true;
+        continue;
+      }
+      if (afterSlash) {
+        sizes.add(token);
+        continue;
+      }
+      if (_backgroundRepeatKeywords.contains(lower)) {
+        result['background-repeat'] = lower;
+        continue;
+      }
+      if (const <String>{'scroll', 'fixed', 'local'}.contains(lower)) {
+        // background-attachment 无对应字段，静态分页下忽略。
+        continue;
+      }
+      if (_backgroundPositionKeywords.contains(lower) ||
+          _backgroundLengthToken.hasMatch(token)) {
+        positions.add(token);
+        continue;
+      }
+      if (_parseColor(token) != null) {
+        result['background-color'] = token;
+      }
+    }
+    if (positions.isNotEmpty) {
+      result['background-position'] = positions.take(2).join(' ');
+    }
+    if (sizes.isNotEmpty) {
+      result['background-size'] = sizes.join(' ');
+    }
+    return result.isEmpty ? null : result;
   }
 
   static CssEdges _resolveMargin(
