@@ -70,6 +70,23 @@ void main() {
     expect(parsed.backgroundRepeat, CssBackgroundRepeat.repeatX);
   });
 
+  test('background 简写里的渐变结构化（W2）', () {
+    final parsed = style(const <String, String>{
+      'background': 'linear-gradient(to right, #f00, rgba(0, 0, 255, 0.5)) '
+          'no-repeat center / cover',
+    });
+    final gradient = parsed.backgroundGradient;
+    expect(gradient, isA<CssLinearGradient>());
+    final linear = gradient! as CssLinearGradient;
+    expect(linear.angle, 90);
+    expect(linear.stops, hasLength(2));
+    expect(linear.stops.last.color.a, closeTo(0.5, 0.01));
+    // 简写的其余部分照旧解析：渐变不能污染 repeat/size 分词。
+    expect(parsed.backgroundRepeat, CssBackgroundRepeat.noRepeat);
+    expect(parsed.backgroundSize.mode, CssBackgroundSizeMode.cover);
+    expect(parsed.backgroundImage, isNull, reason: '渐变不是 url');
+  });
+
   test('text-decoration 简写带线型与颜色（P9-18）', () {
     final parsed = style(const <String, String>{
       'text-decoration': 'underline dotted #ff0000',

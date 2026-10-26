@@ -151,9 +151,272 @@ enum CssBackgroundOrigin { borderBox, paddingBox, contentBox }
 /// 背景裁剪区域（CSS background-clip）。
 enum CssBackgroundClip { borderBox, paddingBox, contentBox, text }
 
+/// 渐变色标（CSS `<color-stop>`）。
+///
+/// 位置三者择一：[position]（百分比换算的比例，普通渐变 0–1，repeating 渐变
+/// 可 >1）、[positionPx]（像素/em 已解算）或都为 null（自动分布）。
+/// 绘制层用 [fractionOf] 统一换算。
+class CssGradientStop {
+  /// 创建色标。
+  const CssGradientStop({required this.color, this.position, this.positionPx});
+
+  /// 颜色。
+  final Color color;
+
+  /// 位置比例（来自百分比；repeating 渐变可 >1）；null 表示未声明或像素位置。
+  final double? position;
+
+  /// 位置（像素，em 已按字号解算）；null 表示未声明或百分比位置。
+  final double? positionPx;
+
+  /// 换算成 0–1 比例：百分比直接返回；像素按 [extent]（渐变线长度或盒子
+  /// 尺寸）换算；未声明位置或 [extent] ≤ 0 时返回 null（由绘制层均分）。
+  double? fractionOf(double extent) {
+    if (position != null) {
+      return position;
+    }
+    final px = positionPx;
+    if (px == null || extent <= 0) {
+      return null;
+    }
+    return px / extent;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssGradientStop &&
+      other.color == color &&
+      other.position == position &&
+      other.positionPx == positionPx;
+
+  @override
+  int get hashCode => Object.hash(color, position, positionPx);
+
+  @override
+  String toString() =>
+      'CssGradientStop($color,${position ?? positionPx ?? "auto"})';
+}
+
+/// 背景渐变（`background-image: <gradient>` 的解析结果）。
+///
+/// 支持 `linear-gradient()` / `radial-gradient()` 及其 `repeating-` 变体
+/// （[repeating] 标记）；不支持 conic、多背景层。读取点：绘制层按
+/// [CssLinearGradient] / [CssRadialGradient] 分派，[stops] 至少 2 个，
+/// 位置用 [CssGradientStop.fractionOf] 换算。
+sealed class CssGradient {
+  const CssGradient({required this.stops, this.repeating = false});
+
+  /// 色标（按声明顺序，至少 2 个）。
+  final List<CssGradientStop> stops;
+
+  /// 是否 `repeating-linear-gradient` / `repeating-radial-gradient`。
+  ///
+  /// true 时绘制层按色标区间循环平铺（最后一个色标到第一个色标的距离
+  /// 即重复周期）。
+  final bool repeating;
+
+  @override
+  bool operator ==(Object other) =>
+      other.runtimeType == runtimeType &&
+      other is CssGradient &&
+      other.repeating == repeating &&
+      _listEquals(other.stops, stops);
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, repeating, Object.hashAll(stops));
+}
+
+/// 线性渐变。
+///
+/// [angle] 是 CSS 角度（0deg = 向上、90deg = 向右、顺时针），
+/// `to <side|corner>` 已折算成角度，未声明方向时按规范默认 180deg（向下）。
+final class CssLinearGradient extends CssGradient {
+  /// 创建线性渐变。
+  const CssLinearGradient({
+    required super.stops,
+    super.repeating,
+    this.angle = 180,
+  });
+
+  /// 渐变角度（度）。
+  final double angle;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssLinearGradient &&
+      super == other &&
+      other.angle == angle;
+
+  @override
+  int get hashCode =>
+      Object.hash(angle, repeating, Object.hashAll(stops));
+
+  @override
+  String toString() =>
+      'CssLinearGradient(${angle}deg,repeating=$repeating,$stops)';
+}
+
+/// 径向渐变形状。
+enum CssRadialShape { circle, ellipse }
+
+/// 径向渐变。
+///
+/// 不支持 extent 关键字（closest-side / farthest-corner 等）：绘制层按默认
+/// farthest-corner 近似。[centerX]/[centerY] 支持百分比（默认 50%）与像素。
+final class CssRadialGradient extends CssGradient {
+  /// 创建径向渐变。
+  const CssRadialGradient({
+    required super.stops,
+    super.repeating,
+    this.shape = CssRadialShape.ellipse,
+    this.centerX = const CssLength(50, isPercent: true),
+    this.centerY = const CssLength(50, isPercent: true),
+  });
+
+  /// 形状（`circle` / `ellipse`）。
+  final CssRadialShape shape;
+
+  /// 中心点水平位置（百分比按盒子宽解算）。
+  final CssLength centerX;
+
+  /// 中心点垂直位置（百分比按盒子高解算）。
+  final CssLength centerY;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssRadialGradient &&
+      super == other &&
+      other.shape == shape &&
+      other.centerX == centerX &&
+      other.centerY == centerY;
+
+  @override
+  int get hashCode => Object.hash(
+    shape,
+    centerX,
+    centerY,
+    repeating,
+    Object.hashAll(stops),
+  );
+
+  @override
+  String toString() =>
+      'CssRadialGradient(${shape.name},repeating=$repeating,'
+      '$centerX/$centerY,$stops)';
+}
+
+/// 滤镜函数种类（CSS `filter`）。
+///
+/// 绘制层映射建议（T4）：blur → `ImageFilter.blur`；grayscale/sepia/
+/// brightness/contrast/saturate/hueRotate/invert/opacity → `ColorFilter.matrix`
+/// （或 saveLayer 的 alpha）；dropShadow → Skia 无原生 drop-shadow，按
+/// 「blur + 偏移重绘形状」近似。
+enum CssFilterKind {
+  /// `blur(<length>)`：高斯模糊。
+  blur,
+
+  /// `grayscale()`：去色。
+  grayscale,
+
+  /// `sepia()`：褐色调。
+  sepia,
+
+  /// `brightness()`：亮度倍数。
+  brightness,
+
+  /// `contrast()`：对比度倍数。
+  contrast,
+
+  /// `saturate()`：饱和度倍数。
+  saturate,
+
+  /// `hue-rotate(<angle>)`：色相旋转（度）。
+  hueRotate,
+
+  /// `invert()`：反相。
+  invert,
+
+  /// `opacity()`：整体透明度（滤镜函数，非 `opacity` 属性）。
+  opacity,
+
+  /// `drop-shadow(...)`：投影（见 [CssFilter.shadow]）。
+  dropShadow,
+}
+
+/// `filter: drop-shadow()` 的阴影（只有偏移/模糊/颜色，没有 spread/inset）。
+class CssDropShadow {
+  /// 创建投影。
+  const CssDropShadow({
+    required this.offsetX,
+    required this.offsetY,
+    this.blur = 0,
+    this.color = const Color(0xFF000000),
+  });
+
+  /// 水平偏移（右为正）。
+  final double offsetX;
+
+  /// 垂直偏移（下为正）。
+  final double offsetY;
+
+  /// 模糊半径（≥0）。
+  final double blur;
+
+  /// 阴影色。
+  final Color color;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssDropShadow &&
+      other.offsetX == offsetX &&
+      other.offsetY == offsetY &&
+      other.blur == blur &&
+      other.color == color;
+
+  @override
+  int get hashCode => Object.hash(offsetX, offsetY, blur, color);
+
+  @override
+  String toString() =>
+      'CssDropShadow($offsetX,$offsetY,blur=$blur,$color)';
+}
+
+/// CSS `filter` 里的单个滤镜（有序列表的一项，按声明顺序合成）。
+///
+/// [amount] 的单位随 [kind]：blur 为像素半径；grayscale/sepia/invert/opacity
+/// 为 0–1 比例（CSS 允许 >1，绘制层自行钳制）；brightness/contrast/saturate
+/// 为倍数（1 = 原样）；hueRotate 为角度（度）；dropShadow 不使用该字段。
+class CssFilter {
+  /// 创建滤镜。
+  const CssFilter({required this.kind, this.amount = 0, this.shadow});
+
+  /// 滤镜种类。
+  final CssFilterKind kind;
+
+  /// 数值参数（含义见类注释）。
+  final double amount;
+
+  /// `drop-shadow` 的参数；其余种类为 null。
+  final CssDropShadow? shadow;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssFilter &&
+      other.kind == kind &&
+      other.amount == amount &&
+      other.shadow == shadow;
+
+  @override
+  int get hashCode => Object.hash(kind, amount, shadow);
+
+  @override
+  String toString() =>
+      'CssFilter(${kind.name},$amount${shadow == null ? "" : ",$shadow"})';
+}
+
 /// 清除浮动（CSS clear）。
 enum CssClear { none, left, right, both }
-
 /// 表格列宽算法（CSS `table-layout`，P9-17）。
 enum CssTableLayout {
   /// 自动：按内容自然宽分配。
@@ -192,6 +455,12 @@ enum CssListStyleType {
   /// 不显示标记。
   none,
 }
+
+/// 列表标记位置（CSS `list-style-position`；W2）。
+///
+/// `outside`（初始值）：标记在内容框外，正文首行不缩进、换行不绕标记；
+/// `inside`：标记作为首行内联内容，换行文字绕到标记下方。
+enum CssListStylePosition { inside, outside }
 
 /// 表格边框合并（CSS border-collapse）。
 enum CssBorderCollapse { separate, collapse }
@@ -270,14 +539,19 @@ enum CssBorderStyle { none, solid, dashed, dotted, double }
 /// 其余取值按 clip）。
 enum CssTextOverflow { clip, ellipsis }
 
-/// 块阴影（CSS `box-shadow`；P2-37 抽样：仅首个阴影，blur 与 spread
-/// 解析后不消费、inset 不支持——限定见 P2-37 测试报告）。
+/// 块阴影（CSS `box-shadow`）。
+///
+/// 只取首个阴影（多阴影的下标/层叠顺序留给后续任务）；blur/spread/inset
+/// 都保留，绘制层直接消费。
 class CssBoxShadow {
   /// 创建阴影。
   const CssBoxShadow({
     required this.offsetX,
     required this.offsetY,
     required this.color,
+    this.blur = 0,
+    this.spread = 0,
+    this.inset = false,
   });
 
   /// 水平偏移（右为正）。
@@ -289,15 +563,39 @@ class CssBoxShadow {
   /// 阴影色。
   final Color color;
 
+  /// 模糊半径（≥0；未声明为 0）。
+  final double blur;
+
+  /// 扩张半径（可为负；未声明为 0）。
+  final double spread;
+
+  /// 是否为内阴影（`inset` 关键字）。
+  final bool inset;
+
   @override
   bool operator ==(Object other) =>
       other is CssBoxShadow &&
       other.offsetX == offsetX &&
       other.offsetY == offsetY &&
-      other.color == color;
+      other.color == color &&
+      other.blur == blur &&
+      other.spread == spread &&
+      other.inset == inset;
 
   @override
-  int get hashCode => Object.hash(offsetX, offsetY, color);
+  int get hashCode => Object.hash(
+    offsetX,
+    offsetY,
+    color,
+    blur,
+    spread,
+    inset,
+  );
+
+  @override
+  String toString() =>
+      'CssBoxShadow($offsetX,$offsetY,blur=$blur,spread=$spread,'
+      'inset=$inset,$color)';
 }
 
 /// 一条边框：宽度、线型、颜色。
@@ -565,6 +863,9 @@ class ComputedStyle {
     final opacity = rawOpacity == null
         ? 1.0
         : (double.tryParse(rawOpacity.trim()) ?? 1.0).clamp(0.0, 1.0);
+    // opacity 不继承，但父级半透明整体作用于子树：沿级联父链做乘积，
+    // 章节源/绘制层读 [effectiveOpacity] 才能与浏览器合成结果一致。
+    final effectiveOpacity = (parent?.effectiveOpacity ?? 1.0) * opacity;
     final rawTextOverflow = explicitValue('text-overflow');
     final textOverflow = rawTextOverflow == null
         ? CssTextOverflow.clip
@@ -572,6 +873,13 @@ class ComputedStyle {
     final boxShadow = _parseBoxShadow(
       explicitValue('box-shadow'),
       fontSize: fontSize,
+    );
+    // filter（W5）：有序滤镜列表，非继承，初始空；多看的 `-webkit-filter`
+    // 也接住（真实书大量使用）。
+    final filters = _parseFilters(
+      explicitValue('filter') ?? explicitValue('-webkit-filter'),
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
     );
 
     var textIndent = parent?.textIndent ?? 0.0;
@@ -674,13 +982,20 @@ class ComputedStyle {
               parent?.textTransform ??
               CssTextTransform.none;
     final rawVerticalAlign = explicitValue('vertical-align');
+    final normalizedVerticalAlign = rawVerticalAlign == null
+        ? null
+        : CssPropertyAliases.normalizeValue(rawVerticalAlign);
     final verticalAlign =
-        _parseVerticalAlign(
-          rawVerticalAlign == null
-              ? null
-              : CssPropertyAliases.normalizeValue(rawVerticalAlign),
-        ) ??
-        CssVerticalAlign.baseline;
+        _parseVerticalAlign(normalizedVerticalAlign) ?? CssVerticalAlign.baseline;
+    // `vertical-align: <length> | <percentage>`（W2）：关键字取值时为 null；
+    // 百分比按**本元素行高**解算（Chrome 实测 17px/1.6 → 行高 27.2，10% = 2.72px）。
+    // 字段保留 CSS 符号（正=向上），`verticalAlignShift` 再翻成「正值向下」。
+    final verticalAlignLength = _parseVerticalAlignLength(
+      normalizedVerticalAlign,
+      lineHeight: lineHeight,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
 
     // 装饰与分页属性（P2-17）：text-decoration 不继承，text-emphasis 继承。
     final rawDecoration =
@@ -791,6 +1106,13 @@ class ComputedStyle {
         : _parseListStyleType(rawListStyle) ??
               parent?.listStyleType ??
               CssListStyleType.disc;
+    // list-style-position（W2）：不继承，初始 outside；`list-style` 简写里的
+    // inside/outside 由层叠层展开成长属性（与 list-style-type 同一条路径）。
+    final listStylePosition =
+        _parseListStylePosition(
+          explicitValue('list-style-position'),
+        ) ??
+        CssListStylePosition.outside;
     final tableLayout =
         _parseTableLayout(explicitValue('table-layout')) ??
         CssTableLayout.auto;
@@ -837,7 +1159,13 @@ class ComputedStyle {
     final backgroundColor =
         _parseColor(backgroundValue('background-color') ?? '') ??
         const Color(0x00000000);
-    final backgroundImage = _parseUrl(backgroundValue('background-image'));
+    final backgroundImageValue = backgroundValue('background-image');
+    final backgroundImage = _parseUrl(backgroundImageValue);
+    // 渐变结构（W2）：url 与渐变互斥——同一 background-image 只会命中一个。
+    final backgroundGradient = _parseGradient(
+      backgroundImageValue,
+      fontSize: fontSize,
+    );
     final borders = _resolveBorders(
       values,
       explicit,
@@ -902,11 +1230,14 @@ class ComputedStyle {
       textAlignLast: textAlignLast,
       initialLetterLines: initialLetterLines,
       opacity: opacity,
+      effectiveOpacity: effectiveOpacity,
+      filters: filters,
       textOverflow: textOverflow,
       boxShadow: boxShadow,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
+      verticalAlignLength: verticalAlignLength,
       textDecoration: textDecoration,
       textEmphasisStyle: textEmphasisStyle,
       textEmphasisPosition: textEmphasisPosition,
@@ -925,6 +1256,7 @@ class ComputedStyle {
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      listStylePosition: listStylePosition,
       tableLayout: tableLayout,
       textDecorationStyle: textDecorationStyle,
       textDecorationColor: textDecorationColor,
@@ -936,6 +1268,7 @@ class ComputedStyle {
       left: left,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
+      backgroundGradient: backgroundGradient,
       borders: borders,
       width: width,
       height: height,
@@ -1008,11 +1341,14 @@ class ComputedStyle {
       textAlignLast: textAlignLast,
       initialLetterLines: initialLetterLines,
       opacity: opacity,
+      effectiveOpacity: effectiveOpacity,
+      filters: filters,
       textOverflow: textOverflow,
       boxShadow: boxShadow,
       wordSpacing: wordSpacing,
       textTransform: textTransform,
       verticalAlign: verticalAlign,
+      verticalAlignLength: verticalAlignLength,
       textDecoration: textDecoration,
       textEmphasisStyle: textEmphasisStyle,
       textEmphasisPosition: textEmphasisPosition,
@@ -1031,6 +1367,7 @@ class ComputedStyle {
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      listStylePosition: listStylePosition,
       tableLayout: tableLayout,
       textDecorationStyle: textDecorationStyle,
       textDecorationColor: textDecorationColor,
@@ -1042,6 +1379,7 @@ class ComputedStyle {
       left: left,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
+      backgroundGradient: backgroundGradient,
       borders: borders,
       width: width,
       height: height,
@@ -1092,11 +1430,14 @@ class ComputedStyle {
     required this.textAlignLast,
     required this.initialLetterLines,
     required this.opacity,
+    required this.effectiveOpacity,
+    required this.filters,
     required this.textOverflow,
     required this.boxShadow,
     required this.wordSpacing,
     required this.textTransform,
     required this.verticalAlign,
+    required this.verticalAlignLength,
     required this.textDecoration,
     required this.textEmphasisStyle,
     required this.textEmphasisPosition,
@@ -1114,6 +1455,7 @@ class ComputedStyle {
     required this.clear,
     required this.borderCollapse,
     required this.listStyleType,
+    required this.listStylePosition,
     required this.tableLayout,
     required this.textDecorationStyle,
     required this.textDecorationColor,
@@ -1126,6 +1468,7 @@ class ComputedStyle {
     required this.left,
     required this.backgroundColor,
     required this.backgroundImage,
+    required this.backgroundGradient,
     required this.borders,
     required this.width,
     required this.height,
@@ -1235,6 +1578,21 @@ class ComputedStyle {
   /// 元素不透明度（0～1，不继承，初始 1；P2-37）。
   final double opacity;
 
+  /// 沿级联父链累计后的不透明度（含本元素），供合成使用。
+  ///
+  /// `opacity` 不继承，但父级半透明会整体作用于子树：Chrome 的
+  /// `getComputedStyle` 只报各自的值（父 0.5 / 子 0.4），实际合成是 0.2。
+  /// 因此构造时做乘积：`父.effectiveOpacity * opacity`，根元素为自身值。
+  /// 读取点：章节源应把 `chainStyle(chain).effectiveOpacity` 传给绘制层/合成；
+  /// 注意 flat 管线用阅读器基准样式重建块样式时父链会丢，重建后的值不累计祖先。
+  final double effectiveOpacity;
+
+  /// `filter` 的有序滤镜列表（非继承，初始空）。
+  ///
+  /// 绘制层按声明顺序依次合成（先 blur 再 grayscale …）；每种滤镜的参数含义
+  /// 见 [CssFilter] 与 [CssFilterKind]。
+  final List<CssFilter> filters;
+
   /// 文本溢出处理（不继承，初始 clip；P2-37，限定 clip/ellipsis）。
   final CssTextOverflow textOverflow;
 
@@ -1249,6 +1607,13 @@ class ComputedStyle {
 
   /// 行内垂直对齐（不继承，初始 baseline）。
   final CssVerticalAlign verticalAlign;
+
+  /// `vertical-align: <length> | <percentage>` 的数值偏移（W2）。
+  ///
+  /// 单位像素，保留 CSS 符号（正 = 向上抬高）；关键字取值时为 null。
+  /// 百分比已按本元素行高解算。读取点：行内 run 的基线位移取
+  /// [verticalAlignShift]（已翻成「正值向下」），不要直接用本字段参与布局。
+  final double? verticalAlignLength;
 
   /// 文本装饰线（`text-decoration`，不继承）。
   final CssTextDecoration textDecoration;
@@ -1304,6 +1669,9 @@ class ComputedStyle {
   /// 列表标记类型（`list-style-type`，继承；P9-12）。
   final CssListStyleType listStyleType;
 
+  /// 列表标记位置（`list-style-position`，非继承，初始 outside；W2）。
+  final CssListStylePosition listStylePosition;
+
   /// 自定义属性（`--token`，继承；P9-14）：`var()` 的取值表。
   final Map<String, String> customProperties;
 
@@ -1346,25 +1714,41 @@ class ComputedStyle {
       'as=${textAutospace.name};tj=${textJustify.name};'
       'al=${textAlignLast?.name ?? "auto"};il=${initialLetterLines ?? 0}';
 
-  /// 行内基线偏移（逻辑像素，正值向下）：按**父级字号**算。
+  /// 行内基线偏移（逻辑像素，正值向下）。
   ///
+  /// `vertical-align: <length> | <percentage>` 直接取该数值的相反数
+  /// （CSS 正值是向上抬高）；其余按关键字算：
   /// Chrome 实测（headless 155，Source Han Serif / Times / Courier 同值，
   /// 父字号 8–100px 线性拟合）：`sup = -(父字号/3 + 1)`、
   /// `sub = 父字号/5 + 1`；本引擎 17px 父字号下即 -6.66 / +4.39，
   /// 与浏览器逐像素一致。子元素自身字号（如 UA 的 `sup{font-size:0.83em}`）
   /// 不参与计算——0.7em / 2em 子字号实测偏移不变。
-  /// 其余取值不产生基线偏移，text-top/text-bottom/middle 由行排版层按行盒处理。
-  double get verticalAlignShift => switch (verticalAlign) {
-    CssVerticalAlign.superscript => -(parentFontSize / 3 + 1),
-    CssVerticalAlign.subscript => parentFontSize / 5 + 1,
-    _ => 0,
-  };
+  /// 其余关键字不产生基线偏移，text-top/text-bottom/middle 由行排版层按行盒处理。
+  double get verticalAlignShift {
+    final length = verticalAlignLength;
+    if (length != null) {
+      return -length;
+    }
+    return switch (verticalAlign) {
+      CssVerticalAlign.superscript => -(parentFontSize / 3 + 1),
+      CssVerticalAlign.subscript => parentFontSize / 5 + 1,
+      _ => 0,
+    };
+  }
 
   /// 背景色（不继承，初始透明）。
   final Color backgroundColor;
 
   /// 背景图 URL（`background-image: url(...)` 的解析结果，绘制留资源任务）。
   final String? backgroundImage;
+
+  /// 背景渐变（`background-image: linear-gradient(...)` / `radial-gradient(...)`）。
+  ///
+  /// 不继承，初始 null；与 [backgroundImage]（url）互斥。读取点：绘制层
+  /// 优先判 `backgroundGradient != null`，再按 CssLinearGradient /
+  /// CssRadialGradient 分派画渐变；章节源做「渐变文字取首色」等兜底时
+  /// 可读 `backgroundGradient!.stops.first.color`。
+  final CssGradient? backgroundGradient;
 
   /// 四边边框与四角圆角。
   final CssBorders borders;
@@ -1732,12 +2116,19 @@ class ComputedStyle {
         }
       }
     }
-    // 只写了线型没写宽度时按 CSS medium（3px）处理。
+    // 线型归一（Chrome 语义，W2 实测）：
+    // - `border-style: none/hidden` 的计算宽度为 0——`border: 4px hidden`
+    //   浏览器 borderTopWidth=0px、盒子不长，这里同步清零，避免盒模型把
+    //   5px/4px 的「不可见边框」算进内缩；
+    // - 只写线型没写宽度时按 CSS medium（3px）。
     sides = [
       for (final side in sides)
-        side.style != CssBorderStyle.none && side.width == 0
-            ? CssBorderSide(width: 3, style: side.style, color: side.color)
-            : side,
+        if (side.style == CssBorderStyle.none)
+          CssBorderSide(style: CssBorderStyle.none, color: side.color)
+        else if (side.width == 0)
+          CssBorderSide(width: 3, style: side.style, color: side.color)
+        else
+          side,
     ];
 
     var radii = <double>[0, 0, 0, 0];
@@ -1787,10 +2178,16 @@ class ComputedStyle {
     };
   }
 
+  /// 解析 `border-style`。
+  ///
+  /// `groove/ridge/inset/outset` 引擎不做立体浮雕绘制，按 **solid** 降级
+  /// （Chrome 4px 实测同宽同色，视觉差异仅在明暗；T4 可按需再实现浮雕）。
+  /// `none`/`hidden` → none（宽度在 [_resolveBorders] 里归零）。
   static CssBorderStyle? _parseBorderStyle(String raw) =>
       switch (raw.trim().toLowerCase()) {
         'none' || 'hidden' => CssBorderStyle.none,
-        'solid' => CssBorderStyle.solid,
+        'solid' || 'groove' || 'ridge' || 'inset' || 'outset' =>
+          CssBorderStyle.solid,
         'dashed' => CssBorderStyle.dashed,
         'dotted' => CssBorderStyle.dotted,
         'double' => CssBorderStyle.double,
@@ -1915,6 +2312,500 @@ class ComputedStyle {
     return url == null || url.isEmpty ? null : url;
   }
 
+  /// 解析 `background-image` 的渐变（W2）。
+  ///
+  /// 支持 `linear-gradient()` 与 `radial-gradient()`（含 `to <side|corner>`、
+  /// 角度单位、`circle/ellipse [at <position>]`、`<color> [<percentage>]` 色标）。
+  /// 不支持 repeating-*/conic/多背景层/像素位置色标——返回 null 或按均分处理
+  /// （见各类型注释）。
+  static CssGradient? _parseGradient(String? raw, {double fontSize = 16}) {
+    if (raw == null) {
+      return null;
+    }
+    final match = RegExp(
+      r'^(repeating-)?(linear|radial)-gradient\((.*)\)$',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(raw.trim());
+    if (match == null) {
+      return null;
+    }
+    final repeating = match.group(1) != null;
+    final kind = match.group(2)!.toLowerCase();
+    final parts = _splitTopLevel(match.group(3)!, ',');
+    // 多背景层（`linear-gradient(...), linear-gradient(...)`）不支持：只要
+    // 顶层分组里还出现 gradient( 就放弃，避免把两层拼成一层画错。
+    if (parts.any((part) => part.toLowerCase().contains('-gradient('))) {
+      return null;
+    }
+    if (parts.length < 2) {
+      return null;
+    }
+    // 首个参数若是颜色就是色标，否则是方向/形状前置参数。
+    final stops = <CssGradientStop>[];
+    var prelude = '';
+    final firstStop = _parseGradientStop(parts.first, fontSize: fontSize);
+    if (firstStop == null) {
+      prelude = parts.first;
+    } else {
+      stops.add(firstStop);
+    }
+    for (var index = 1; index < parts.length; index++) {
+      final stop = _parseGradientStop(parts[index], fontSize: fontSize);
+      if (stop != null) {
+        stops.add(stop);
+      }
+    }
+    if (stops.length < 2) {
+      return null;
+    }
+    if (kind == 'linear') {
+      return CssLinearGradient(
+        angle: _parseGradientAngle(prelude),
+        repeating: repeating,
+        stops: stops,
+      );
+    }
+    final radial = _parseRadialPrelude(prelude, fontSize: fontSize);
+    return CssRadialGradient(
+      stops: stops,
+      repeating: repeating,
+      shape: radial.shape,
+      centerX: radial.x,
+      centerY: radial.y,
+    );
+  }
+
+  /// 解析一个色标：`<color> [<percentage>|<length>]`；无颜色返回 null。
+  ///
+  /// 百分比存 [CssGradientStop.position]（0–1）；像素/em 存
+  /// [CssGradientStop.positionPx]，绘制层用 `fractionOf(extent)` 换算。
+  static CssGradientStop? _parseGradientStop(
+    String raw, {
+    double fontSize = 16,
+  }) {
+    final text = raw.trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    final color = _firstColorIn(text);
+    if (color == null) {
+      return null;
+    }
+    // 位置：先去掉颜色函数（其内部可能含 `100%`）再取百分数/长度。
+    final withoutColor = text.replaceAll(
+      RegExp(r'(?:rgba?|hsla?)\([^)]*\)', caseSensitive: false),
+      ' ',
+    );
+    final percent = RegExp(r'([-+]?\d*\.?\d+)%').firstMatch(withoutColor);
+    if (percent != null) {
+      // 不钳制 0–1：repeating 渐变常用 >100% 的色标位置，钳掉会改周期。
+      return CssGradientStop(
+        color: color,
+        position: double.parse(percent.group(1)!) / 100,
+      );
+    }
+    for (final token in withoutColor.split(RegExp(r'\s+'))) {
+      if (token.isEmpty || token.startsWith('#') || token == 'transparent') {
+        continue;
+      }
+      final value = _resolveLength(
+        token,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: 16,
+        percentBase: 0,
+      );
+      if (value != null) {
+        return CssGradientStop(color: color, positionPx: value);
+      }
+    }
+    return CssGradientStop(color: color);
+  }
+
+  /// 从一段声明里取首个颜色。
+  ///
+  /// `rgba(0, 0, 0, 0.5)` 内部含空格与逗号，不能按空白分词：先按颜色函数
+  /// 整段匹配，再退回按空白切词找 `#hex`/`transparent`。
+  static Color? _firstColorIn(String text) {
+    final function = RegExp(
+      r'(?:rgba?|hsla?)\([^)]*\)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (function != null) {
+      final color = _parseColor(function.group(0)!);
+      if (color != null) {
+        return color;
+      }
+    }
+    for (final token in text.split(RegExp(r'\s+'))) {
+      if (token.isEmpty || token.contains('(')) {
+        continue;
+      }
+      final color = _parseColor(token);
+      if (color != null) {
+        return color;
+      }
+    }
+    return null;
+  }
+
+  /// 线性渐变方向 → CSS 角度（0 = 向上，顺时针；未声明默认 180）。
+  static double _parseGradientAngle(String prelude) {
+    final text = prelude.trim().toLowerCase();
+    if (text.isEmpty) {
+      return 180;
+    }
+    final angle = RegExp(
+      r'^([-+]?\d*\.?\d+)(deg|grad|rad|turn)$',
+    ).firstMatch(text);
+    if (angle != null) {
+      final value = double.parse(angle.group(1)!);
+      return switch (angle.group(2)) {
+        'grad' => value * 0.9,
+        'rad' => value * 180 / math.pi,
+        'turn' => value * 360,
+        _ => value,
+      };
+    }
+    if (!text.startsWith('to ')) {
+      return 180;
+    }
+    final sides = text.substring(3).split(RegExp(r'\s+')).toSet();
+    final right = sides.contains('right');
+    final left = sides.contains('left');
+    final top = sides.contains('top');
+    final bottom = sides.contains('bottom');
+    if (top && right) {
+      return 45;
+    }
+    if (top && left) {
+      return 315;
+    }
+    if (bottom && right) {
+      return 135;
+    }
+    if (bottom && left) {
+      return 225;
+    }
+    if (right) {
+      return 90;
+    }
+    if (left) {
+      return 270;
+    }
+    return top ? 0 : 180;
+  }
+
+  /// 径向渐变前置参数：`[circle|ellipse] [at <position>]`。
+  static ({CssRadialShape shape, CssLength x, CssLength y}) _parseRadialPrelude(
+    String prelude, {
+    required double fontSize,
+  }) {
+    var shape = CssRadialShape.ellipse;
+    var x = const CssLength(50, isPercent: true);
+    var y = const CssLength(50, isPercent: true);
+    final text = prelude.trim().toLowerCase();
+    if (text.isEmpty) {
+      return (shape: shape, x: x, y: y);
+    }
+    final tokens = text.split(RegExp(r'\s+'));
+    final at = tokens.indexOf('at');
+    final head = at >= 0 ? tokens.sublist(0, at) : tokens;
+    if (head.contains('circle')) {
+      shape = CssRadialShape.circle;
+    }
+    if (at < 0) {
+      return (shape: shape, x: x, y: y);
+    }
+    final positionTokens = tokens.sublist(at + 1);
+    CssLength? positionOf(String token) => switch (token) {
+      'left' || 'top' => const CssLength(0, isPercent: true),
+      'center' => const CssLength(50, isPercent: true),
+      'right' || 'bottom' => const CssLength(100, isPercent: true),
+      _ => _gradientPositionLength(token, fontSize: fontSize),
+    };
+    final parsed = <CssLength>[];
+    for (final token in positionTokens) {
+      final value = positionOf(token);
+      if (value != null) {
+        parsed.add(value);
+      }
+    }
+    if (parsed.isEmpty) {
+      return (shape: shape, x: x, y: y);
+    }
+    if (parsed.length == 1) {
+      if (positionTokens.first == 'top' || positionTokens.first == 'bottom') {
+        y = parsed.first;
+      } else {
+        x = parsed.first;
+      }
+    } else {
+      x = parsed[0];
+      y = parsed[1];
+    }
+    return (shape: shape, x: x, y: y);
+  }
+
+  /// 渐变位置里的长度：百分比保留比例，像素/em 直接解算。
+  static CssLength? _gradientPositionLength(
+    String token, {
+    required double fontSize,
+  }) {
+    final percent = _parsePercent(token);
+    if (percent != null) {
+      return CssLength(percent, isPercent: true);
+    }
+    final resolved = _resolveLength(
+      token,
+      fontSize: fontSize,
+      parentFontSize: fontSize,
+      rootFontSize: 16,
+      percentBase: 0,
+    );
+    return resolved == null ? null : CssLength(resolved);
+  }
+
+  /// 取首个 `linear-gradient(...)` / `radial-gradient(...)` 原文（配对括号）。
+  ///
+  /// 供 `background` 简写使用：正则 `[^)]*` 会被色标里的 `rgba(...)` 截断。
+  static String? _firstGradientFunction(String text) {
+    final match = RegExp(
+      r'(?:repeating-)?(?:-[a-z]+-)?(?:linear|radial)-gradient\(',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) {
+      return null;
+    }
+    var depth = 0;
+    for (var i = match.end - 1; i < text.length; i++) {
+      final char = text[i];
+      if (char == '(') {
+        depth += 1;
+      } else if (char == ')') {
+        depth -= 1;
+        if (depth == 0) {
+          return text.substring(match.start, i + 1);
+        }
+      }
+    }
+    return null;
+  }
+
+  /// 按顶层分隔符切分：括号内的分隔符不切（`rgba(...)`、嵌套函数）。
+  static List<String> _splitTopLevel(String text, String separator) {
+    final parts = <String>[];
+    var depth = 0;
+    var start = 0;
+    for (var i = 0; i < text.length; i++) {
+      final char = text[i];
+      if (char == '(') {
+        depth += 1;
+      } else if (char == ')') {
+        depth -= 1;
+      } else if (depth == 0 && char == separator) {
+        parts.add(text.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    parts.add(text.substring(start).trim());
+    return parts;
+  }
+
+  /// 解析 `filter`（W5）：返回**有序**滤镜列表，`none`/空 → 空列表。
+  ///
+  /// 支持 blur/grayscale/sepia/brightness/contrast/saturate/hue-rotate/
+  /// invert/opacity/drop-shadow；`url(...)` 等 SVG 引用与未知函数跳过。
+  static List<CssFilter> _parseFilters(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (raw == null) {
+      return const <CssFilter>[];
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'none') {
+      return const <CssFilter>[];
+    }
+    final filters = <CssFilter>[];
+    var index = 0;
+    while (index < value.length) {
+      final open = value.indexOf('(', index);
+      if (open < 0) {
+        break;
+      }
+      // 函数名：从 '(' 往前取 a-z 与 '-'（hue-rotate / drop-shadow）。
+      var nameStart = open;
+      while (nameStart > index) {
+        final code = value.codeUnitAt(nameStart - 1);
+        if (!((code >= 97 && code <= 122) || code == 45)) {
+          break;
+        }
+        nameStart -= 1;
+      }
+      final name = value.substring(nameStart, open).trim();
+      // 配对括号（drop-shadow 的 rgba(...) 是嵌套的）。
+      var depth = 0;
+      var close = -1;
+      for (var i = open; i < value.length; i++) {
+        final char = value[i];
+        if (char == '(') {
+          depth += 1;
+        } else if (char == ')') {
+          depth -= 1;
+          if (depth == 0) {
+            close = i;
+            break;
+          }
+        }
+      }
+      if (close < 0) {
+        break;
+      }
+      final filter = _parseFilterFunction(
+        name,
+        value.substring(open + 1, close).trim(),
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+      );
+      if (filter != null) {
+        filters.add(filter);
+      }
+      index = close + 1;
+    }
+    return filters;
+  }
+
+  /// 单个滤镜函数 → [CssFilter]；未知/不支持的函数返回 null。
+  static CssFilter? _parseFilterFunction(
+    String name,
+    String args, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final kind = switch (name) {
+      'blur' => CssFilterKind.blur,
+      'grayscale' => CssFilterKind.grayscale,
+      'sepia' => CssFilterKind.sepia,
+      'brightness' => CssFilterKind.brightness,
+      'contrast' => CssFilterKind.contrast,
+      'saturate' => CssFilterKind.saturate,
+      'hue-rotate' => CssFilterKind.hueRotate,
+      'invert' => CssFilterKind.invert,
+      'opacity' => CssFilterKind.opacity,
+      'drop-shadow' => CssFilterKind.dropShadow,
+      _ => null,
+    };
+    if (kind == null) {
+      return null;
+    }
+    if (kind == CssFilterKind.dropShadow) {
+      final shadow = _parseDropShadow(
+        args,
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+      );
+      return shadow == null
+          ? null
+          : CssFilter(kind: kind, shadow: shadow);
+    }
+    if (kind == CssFilterKind.blur) {
+      final radius = args.isEmpty
+          ? 0.0
+          : (_resolveLength(
+                  args,
+                  fontSize: fontSize,
+                  parentFontSize: fontSize,
+                  rootFontSize: rootFontSize,
+                  percentBase: 0,
+                ) ??
+                0.0);
+      return CssFilter(kind: kind, amount: math.max(0, radius));
+    }
+    if (kind == CssFilterKind.hueRotate) {
+      return CssFilter(
+        kind: kind,
+        amount: args.isEmpty ? 0 : (_parseAngleDegrees(args) ?? 0),
+      );
+    }
+    // 其余：grayscale/sepia/invert/opacity 与 brightness/contrast/saturate
+    // 缺省都是 1（CSS 规范），百分比按 /100 归一。
+    return CssFilter(kind: kind, amount: _filterAmount(args, fallback: 1));
+  }
+
+  /// 滤镜数值参数：`50%` → 0.5，纯数字原样，缺省取 [fallback]。
+  static double _filterAmount(String args, {required double fallback}) {
+    final text = args.trim();
+    if (text.isEmpty) {
+      return fallback;
+    }
+    final percent = _parsePercent(text);
+    if (percent != null) {
+      return percent / 100;
+    }
+    return double.tryParse(text) ?? fallback;
+  }
+
+  /// 角度参数 → 度（deg/grad/rad/turn）。
+  static double? _parseAngleDegrees(String raw) {
+    final match = RegExp(
+      r'^([-+]?\d*\.?\d+)(deg|grad|rad|turn)?$',
+    ).firstMatch(raw.trim());
+    if (match == null) {
+      return null;
+    }
+    final value = double.parse(match.group(1)!);
+    return switch (match.group(2)) {
+      'grad' => value * 0.9,
+      'rad' => value * 180 / math.pi,
+      'turn' => value * 360,
+      _ => value,
+    };
+  }
+
+  /// `drop-shadow(<offset-x> <offset-y> [<blur>] [<color>])` 解析。
+  static CssDropShadow? _parseDropShadow(
+    String args, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final color = _firstColorIn(args);
+    final rest = args.replaceAll(
+      RegExp(r'(?:rgba?|hsla?)\([^)]*\)', caseSensitive: false),
+      ' ',
+    );
+    final lengths = <double>[];
+    for (final token in rest.split(RegExp(r'\s+'))) {
+      if (token.isEmpty || token.startsWith('#') || token == 'transparent') {
+        continue;
+      }
+      if (lengths.length >= 3) {
+        continue;
+      }
+      final value = _resolveLength(
+        token,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: rootFontSize,
+        percentBase: 0,
+      );
+      if (value != null) {
+        lengths.add(value);
+      }
+    }
+    if (lengths.length < 2) {
+      return null;
+    }
+    return CssDropShadow(
+      offsetX: lengths[0],
+      offsetY: lengths[1],
+      blur: lengths.length > 2 ? math.max(0, lengths[2]) : 0,
+      color: color ?? const Color(0xFF000000),
+    );
+  }
+
   /// 解析多看 `duokan-bleed`（P9-22）：auto/none 无出血，all 四边；
   /// 多看常把方向连写（`lefttopright`），因此按子串判断而不是分词。
   static CssBleed _parseBleed(String? raw) {
@@ -1973,6 +2864,24 @@ class ComputedStyle {
     return null;
   }
 
+  /// 解析 `list-style-position`；未知值返回 null（调用方按 outside 兜底）。
+  static CssListStylePosition? _parseListStylePosition(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'inside' => CssListStylePosition.inside,
+        'outside' => CssListStylePosition.outside,
+        _ => null,
+      };
+
+  /// 从 `list-style` 简写里取出 inside/outside 关键字（层叠层展开用）。
+  static String? parseListStylePositionKeyword(String raw) {
+    for (final token in raw.toLowerCase().split(RegExp(r'\s+'))) {
+      if (token == 'inside' || token == 'outside') {
+        return token;
+      }
+    }
+    return null;
+  }
+
   static final RegExp _backgroundLengthToken = RegExp(
     r'^[-+]?(\d*\.?\d+)(px|pt|pc|em|rem|%)?$',
   );
@@ -1986,7 +2895,8 @@ class ComputedStyle {
   };
 
   /// 解析 `background` 简写（P9-11）：拆分出 image/color/repeat/
-  /// position/size；attachment、渐变与多背景暂不支持（取第一层）。
+  /// position/size；attachment 与多背景暂不支持（取第一层）。渐变（W2）
+  /// 原样放进 `background-image`，由 [_parseGradient] 结构化。
   static Map<String, String>? _parseBackgroundShorthand(String? raw) {
     if (raw == null) {
       return null;
@@ -1999,12 +2909,23 @@ class ComputedStyle {
     if (images.isNotEmpty) {
       result['background-image'] = images.first;
     }
+    // 渐变：配对括号截取，避免色标里的 rgba(...) 把串截断；只有没有 url
+    // 时才当作 image（一层背景只能有一个 image）。
+    final gradient = _firstGradientFunction(raw);
+    if (images.isEmpty && gradient != null) {
+      result['background-image'] = gradient;
+    }
     var rest = raw;
     for (final image in images) {
       rest = rest.replaceFirst(image, ' ');
     }
+    if (gradient != null) {
+      rest = rest.replaceFirst(gradient, ' ');
+    }
+    // 其余层/重复前缀残留的渐变片段统一清掉，避免污染 position/size 分词。
     rest = rest.replaceAll(
-      RegExp(r'(?:\w+-)?gradient\([^)]*\)', caseSensitive: false),
+      RegExp(r'(?:repeating-)?(?:-[a-z]+-)?(?:linear|radial)-gradient\(',
+          caseSensitive: false),
       ' ',
     );
     final tokens = rest
@@ -2341,9 +3262,10 @@ class ComputedStyle {
     _ => CssTextOverflow.clip,
   };
 
-  /// `box-shadow` 解析（P2-37 限定）：`none` 或空 → null；否则取
-  /// 「颜色 + 两个长度」组合——`inset` 前缀、blur/spread 长度忽略
-  /// （只画偏移投影）。多阴影只取首个。
+  /// `box-shadow` 解析：`none` 或空 → null；否则解析「颜色 + 1~4 个长度」。
+  ///
+  /// 长度顺序按规范：offset-x offset-y [blur [spread]]；`inset` 可按规范
+  /// 出现在首/尾。多阴影只取首个。
   static CssBoxShadow? _parseBoxShadow(String? raw, {required double fontSize}) {
     if (raw == null) {
       return null;
@@ -2352,44 +3274,55 @@ class ComputedStyle {
     if (text.isEmpty || text == 'none') {
       return null;
     }
-    // 多阴影只取首个（P2-37 限定）：先按逗号分段。
-    final first = text.split(',')[0].trim();
+    // 多阴影只取首个：先按顶层逗号分段（rgba(...) 内的逗号不切）。
+    final first = _splitTopLevel(text, ',').first.trim();
     if (first.isEmpty) {
       return null;
     }
+    // 颜色函数内部有空格与逗号，整段取色后再按空白分词量长度。
+    final color = _firstColorIn(first);
+    final rest = first.replaceAll(
+      RegExp(r'(?:rgba?|hsla?)\([^)]*\)', caseSensitive: false),
+      ' ',
+    );
     final lengths = <double>[];
-    Color? color;
-    for (final token in first.split(RegExp(r'\s+'))) {
-      if (token == 'inset') {
-        continue; // 不支持内阴影，跳过标记。
-      }
-      final parsed = _parseColor(token);
-      if (parsed != null) {
-        color ??= parsed;
+    var inset = false;
+    for (final token in rest.split(RegExp(r'\s+'))) {
+      if (token.isEmpty) {
         continue;
       }
-      if (lengths.length < 4) {
-        final length = _resolveLength(
-          token,
-          fontSize: fontSize,
-          parentFontSize: fontSize,
-          rootFontSize: 16,
-          percentBase: fontSize,
-        );
-        if (length != null) {
-          lengths.add(length);
-        }
+      if (token == 'inset') {
+        inset = true;
+        continue;
+      }
+      if (token.startsWith('#') || token == 'transparent') {
+        continue;
+      }
+      if (lengths.length >= 4) {
+        continue;
+      }
+      final length = _resolveLength(
+        token,
+        fontSize: fontSize,
+        parentFontSize: fontSize,
+        rootFontSize: 16,
+        percentBase: fontSize,
+      );
+      if (length != null) {
+        lengths.add(length);
       }
     }
     if (lengths.length < 2) {
       return null;
     }
-    // 只消费 offset-x/offset-y；blur（lengths[2]）/spread（lengths[3]）
-    // 解析后丢弃（P2-37 限定）。
     return CssBoxShadow(
       offsetX: lengths[0],
       offsetY: lengths[1],
       color: color ?? const Color(0xFF000000),
+      // blur 不允许负值（CSS 语义）。
+      blur: lengths.length > 2 ? math.max(0, lengths[2]) : 0,
+      spread: lengths.length > 3 ? lengths[3] : 0,
+      inset: inset,
     );
   }
 
@@ -2753,6 +3686,36 @@ class ComputedStyle {
         _ => null,
       };
 
+  /// 解析 `vertical-align: <length> | <percentage>`（W2）。
+  ///
+  /// 百分比基准是本元素行高（Chrome 实测口径）；关键字返回 null。
+  /// 返回值保留 CSS 符号（正 = 向上抬高）。
+  static double? _parseVerticalAlignLength(
+    String? raw, {
+    required double lineHeight,
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty) {
+      return null;
+    }
+    final percent = _parsePercent(value);
+    if (percent != null) {
+      return lineHeight * percent / 100;
+    }
+    return _resolveLength(
+      value,
+      fontSize: fontSize,
+      parentFontSize: fontSize,
+      rootFontSize: rootFontSize,
+      percentBase: lineHeight,
+    );
+  }
+
   static CssDisplay? _parseDisplay(String? raw) =>
       switch (raw?.trim().toLowerCase()) {
         'block' || 'flow-root' || 'grid' => CssDisplay.block,
@@ -3036,4 +3999,20 @@ class _CalcEvaluator {
       _ => null,
     };
   }
+}
+
+/// 列表逐项相等（[CssGradient] 的 == / hashCode 用）。
+bool _listEquals<T>(List<T> a, List<T> b) {
+  if (identical(a, b)) {
+    return true;
+  }
+  if (a.length != b.length) {
+    return false;
+  }
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) {
+      return false;
+    }
+  }
+  return true;
 }

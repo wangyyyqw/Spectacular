@@ -316,6 +316,299 @@ void main() {
     expect(plain.backgroundImage, isNull);
   });
 
+  test('border-style 降级：groove/ridge/inset/outset → solid，none/hidden 宽度归零', () {
+    // Chrome 4px 实测：四种立体线型与 solid 同宽同色，只有明暗差异；
+    // none/hidden 的计算宽度为 0（`border: 4px hidden` 盒子不长）。
+    for (final value in const <String>[
+      'groove',
+      'ridge',
+      'inset',
+      'outset',
+    ]) {
+      final degraded = style('p', 'p { border: 4px $value #F00; }');
+      expect(degraded.borders.top.style, CssBorderStyle.solid, reason: value);
+      expect(degraded.borders.top.width, 4, reason: value);
+      expect(degraded.borders.isUniform, isTrue, reason: value);
+    }
+    final hidden = style('p', 'p { border: 4px hidden #F00; }');
+    expect(hidden.borders.top.style, CssBorderStyle.none);
+    expect(hidden.borders.top.width, 0, reason: 'hidden 计算宽度 0');
+    expect(hidden.borders.hasBorder, isFalse);
+    final none = style('p', 'p { border-width: 5px; border-style: none; }');
+    expect(none.borders.top.width, 0, reason: 'none 计算宽度 0');
+    // 只写线型不写宽度仍是 medium 3px。
+    final medium = style('p', 'p { border-style: solid; }');
+    expect(medium.borders.top.width, 3);
+  });
+
+  test('box-shadow 保留 blur/spread/inset', () {
+    final shadow = style(
+      'p',
+      'p { box-shadow: 2px 3px 4px 5px #112233 inset; }',
+    ).boxShadow;
+    expect(shadow, isNotNull);
+    expect(shadow!.offsetX, 2);
+    expect(shadow.offsetY, 3);
+    expect(shadow.blur, 4);
+    expect(shadow.spread, 5);
+    expect(shadow.inset, isTrue);
+    expect(shadow.color, const Color(0xFF112233));
+
+    // 未写 blur/spread 时默认 0，旧字段语义不变。
+    final basic = style('p', 'p { box-shadow: 1px 2px #000; }').boxShadow!;
+    expect(basic.blur, 0);
+    expect(basic.spread, 0);
+    expect(basic.inset, isFalse);
+    // 单值 + 颜色 + 无偏移的形态按 rgba 内部逗号不切分。
+    final rgba = style(
+      'p',
+      'p { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 3px 3px red; }',
+    ).boxShadow!;
+    expect(rgba.offsetY, 1);
+    expect(rgba.blur, 2);
+    expect(rgba.color.a, closeTo(0.5, 0.01));
+    expect(style('p', 'p { box-shadow: none; }').boxShadow, isNull);
+  });
+
+  test('text-shadow 的 blur 字段（W5 核对）', () {
+    // 绘制层需要 blur：三个长度按 offset-x / offset-y / blur 顺序解析。
+    final shadow = style(
+      'p',
+      'p { text-shadow: 1px 2px 3px #ff0000; }',
+    ).textShadow;
+    expect(shadow, hasLength(1));
+    expect(shadow.single.offsetX, 1);
+    expect(shadow.single.offsetY, 2);
+    expect(shadow.single.blur, 3);
+    expect(shadow.single.color, const Color(0xFFFF0000));
+    // 只写两个长度时 blur 默认 0；多阴影各自保留 blur。
+    final noBlur = style('p', 'p { text-shadow: 1px 1px #000; }').textShadow;
+    expect(noBlur.single.blur, 0);
+    final multi = style(
+      'p',
+      'p { text-shadow: 1px 1px 2px #000, 0 0 4px #fff; }',
+    ).textShadow;
+    expect(multi, hasLength(2));
+    expect(multi.first.blur, 2);
+    expect(multi.last.blur, 4);
+    expect(multi.last.offsetX, 0);
+  });
+
+  test('渐变结构：linear（角度/方向 + 色标）', () {
+    final deg = style(
+      'p',
+      'p { background-image: linear-gradient(45deg, #f00 0%, #00f 100%); }',
+    );
+    expect(deg.backgroundImage, isNull, reason: '渐变不是 url');
+    final linear = deg.backgroundGradient;
+    expect(linear, isA<CssLinearGradient>());
+    final byDeg = linear! as CssLinearGradient;
+    expect(byDeg.angle, 45);
+    expect(byDeg.stops, hasLength(2));
+    expect(byDeg.stops.first.color, const Color(0xFFFF0000));
+    expect(byDeg.stops.first.position, 0);
+    expect(byDeg.stops.last.color, const Color(0xFF0000FF));
+    expect(byDeg.stops.last.position, 1);
+
+    // 方向关键字与角度单位换算；rgba 内的逗号不切分色标。
+    final corner = style(
+      'p',
+      'p { background-image: '
+          'linear-gradient(to right top, #f00, rgba(0, 255, 0, 0.5) 40%, #00f); }',
+    ).backgroundGradient! as CssLinearGradient;
+    expect(corner.angle, 45);
+    expect(corner.stops, hasLength(3));
+    expect(corner.stops[1].color.a, closeTo(0.5, 0.01));
+    expect(corner.stops[1].position, closeTo(0.4, 0.001));
+
+    expect(
+      (style(
+                'p',
+                'p { background-image: linear-gradient(to bottom, #000, #fff); }',
+              ).backgroundGradient!
+              as CssLinearGradient)
+          .angle,
+      180,
+    );
+    expect(
+      (style(
+                'p',
+                'p { background-image: linear-gradient(0.25turn, #000, #fff); }',
+              ).backgroundGradient!
+              as CssLinearGradient)
+          .angle,
+      90,
+    );
+    // 未声明方向按规范默认 180（向下）。
+    expect(
+      (style(
+                'p',
+                'p { background-image: linear-gradient(#000, #fff); }',
+              ).backgroundGradient!
+              as CssLinearGradient)
+          .angle,
+      180,
+    );
+    expect(style('p', 'p { background-image: none; }').backgroundGradient, isNull);
+  });
+
+  test('渐变结构：radial（shape/position + 色标）', () {
+    final at = style(
+      'p',
+      'p { background-image: '
+          'radial-gradient(circle at 30% 70%, #f00, #00f 60%); }',
+    ).backgroundGradient! as CssRadialGradient;
+    expect(at.shape, CssRadialShape.circle);
+    expect(at.centerX.value, 30);
+    expect(at.centerX.isPercent, isTrue);
+    expect(at.centerY.value, 70);
+    expect(at.stops, hasLength(2));
+    expect(at.stops.last.position, closeTo(0.6, 0.001));
+
+    final plain = style(
+      'p',
+      'p { background-image: radial-gradient(#f00, #00f); }',
+    ).backgroundGradient! as CssRadialGradient;
+    expect(plain.shape, CssRadialShape.ellipse, reason: '默认 ellipse');
+    expect(plain.centerX.value, 50);
+    expect(plain.centerY.value, 50);
+    // 单值位置（top）只移动纵轴。
+    final top = style(
+      'p',
+      'p { background-image: radial-gradient(at top, #f00, #00f); }',
+    ).backgroundGradient! as CssRadialGradient;
+    expect(top.centerY.value, 0);
+    expect(top.centerX.value, 50);
+  });
+
+  test('repeating 渐变标记与像素色标换算（W5）', () {
+    final repeating = style(
+      'p',
+      'p { background-image: '
+          'repeating-linear-gradient(45deg, #f00 0px, #00f 10px); }',
+    ).backgroundGradient! as CssLinearGradient;
+    expect(repeating.repeating, isTrue);
+    expect(repeating.angle, 45);
+    // 像素位置保留在 positionPx，绘制层按渐变线长度换算成比例。
+    expect(repeating.stops.first.position, isNull);
+    expect(repeating.stops.first.positionPx, 0);
+    expect(repeating.stops.last.positionPx, 10);
+    expect(repeating.stops.last.fractionOf(100), closeTo(0.1, 0.001));
+    expect(repeating.stops.last.fractionOf(0), isNull, reason: 'extent 未知');
+
+    // 百分比色标：fractionOf 直接用比例，与 extent 无关。
+    final percent = style(
+      'p',
+      'p { background-image: '
+          'repeating-radial-gradient(circle, #f00 0%, #00f 25%); }',
+    ).backgroundGradient! as CssRadialGradient;
+    expect(percent.repeating, isTrue);
+    expect(percent.shape, CssRadialShape.circle);
+    expect(percent.stops.last.fractionOf(999), closeTo(0.25, 0.001));
+
+    // 非 repeating 形态标记为 false（不回归）。
+    final plain = style(
+      'p',
+      'p { background-image: linear-gradient(#f00, #00f); }',
+    ).backgroundGradient!;
+    expect(plain.repeating, isFalse);
+  });
+
+  test('filter 解析：有序滤镜列表与各函数参数（W5）', () {
+    // 单个 blur：长度按 px 解算。
+    final blur = style('p', 'p { filter: blur(2px); }').filters;
+    expect(blur, hasLength(1));
+    expect(blur.single.kind, CssFilterKind.blur);
+    expect(blur.single.amount, 2);
+
+    // 百分比归一：grayscale(100%) → 1；倍率函数按百分比换算。
+    final gray = style('p', 'p { filter: grayscale(100%); }').filters;
+    expect(gray.single.kind, CssFilterKind.grayscale);
+    expect(gray.single.amount, 1);
+    final sepia = style('p', 'p { filter: sepia(0.6); }').filters;
+    expect(sepia.single.amount, closeTo(0.6, 0.001));
+    final brightness = style(
+      'p',
+      'p { filter: brightness(150%); }',
+    ).filters;
+    expect(brightness.single.kind, CssFilterKind.brightness);
+    expect(brightness.single.amount, closeTo(1.5, 0.001));
+    final opacityFn = style('p', 'p { filter: opacity(0.4); }').filters;
+    expect(opacityFn.single.kind, CssFilterKind.opacity);
+    expect(opacityFn.single.amount, closeTo(0.4, 0.001));
+    final hue = style('p', 'p { filter: hue-rotate(0.25turn); }').filters;
+    expect(hue.single.kind, CssFilterKind.hueRotate);
+    expect(hue.single.amount, closeTo(90, 0.001));
+
+    // 多滤镜保持声明顺序。
+    final multi = style(
+      'p',
+      'p { filter: blur(1px) grayscale(50%) brightness(0.8); }',
+    ).filters;
+    expect(
+      multi.map((filter) => filter.kind).toList(),
+      <CssFilterKind>[
+        CssFilterKind.blur,
+        CssFilterKind.grayscale,
+        CssFilterKind.brightness,
+      ],
+    );
+    expect(multi[1].amount, closeTo(0.5, 0.001));
+    expect(multi[2].amount, closeTo(0.8, 0.001));
+
+    // drop-shadow：偏移/模糊/颜色，颜色函数内部逗号不切分。
+    final dropShadow = style(
+      'p',
+      'p { filter: drop-shadow(2px 3px 4px rgba(0, 0, 0, 0.5)); }',
+    ).filters.single;
+    expect(dropShadow.kind, CssFilterKind.dropShadow);
+    expect(dropShadow.shadow!.offsetX, 2);
+    expect(dropShadow.shadow!.offsetY, 3);
+    expect(dropShadow.shadow!.blur, 4);
+    expect(dropShadow.shadow!.color.a, closeTo(0.5, 0.01));
+
+    // 无参函数取规范默认 1；none → 空列表；不继承；-webkit-filter 兜底。
+    expect(
+      style('p', 'p { filter: brightness(); }').filters.single.amount,
+      1,
+    );
+    expect(style('p', 'p { filter: none; }').filters, isEmpty);
+    final parent = style('parent', 'div { filter: blur(2px); }');
+    expect(
+      style('p', 'p { color: red; }', parent: parent).filters,
+      isEmpty,
+      reason: 'filter 不继承',
+    );
+    final webkit = style('p', 'p { -webkit-filter: blur(3px); }').filters;
+    expect(webkit.single.kind, CssFilterKind.blur);
+    expect(webkit.single.amount, 3);
+  });
+
+  test('effectiveOpacity 沿父链累计（W5）', () {
+    expect(ComputedStyle(const <String, String>{}).effectiveOpacity, 1);
+    final parent = style('parent', 'div { opacity: 0.5; }');
+    expect(parent.opacity, 0.5);
+    expect(parent.effectiveOpacity, closeTo(0.5, 0.001));
+    final child = style('p', 'p { opacity: 0.4; }', parent: parent);
+    expect(child.opacity, closeTo(0.4, 0.001), reason: 'opacity 本身不继承');
+    expect(
+      child.effectiveOpacity,
+      closeTo(0.2, 0.001),
+      reason: '0.5 × 0.4，与浏览器合成一致',
+    );
+    // 子元素未声明 opacity 时，累计值仍带父级。
+    final inherited = style('p', 'p { color: red; }', parent: parent);
+    expect(inherited.opacity, 1);
+    expect(inherited.effectiveOpacity, closeTo(0.5, 0.001));
+    // withTypography 只改排版，不改合成值。
+    expect(
+      child
+          .withTypography(fontSize: 20)
+          .effectiveOpacity,
+      closeTo(0.2, 0.001),
+    );
+  });
+
   test('width/height 的 px、em、百分比与 auto', () {
     final px = style('p', 'p { width: 120px; height: 2em; }');
     expect(px.width?.value, 120);
@@ -631,6 +924,70 @@ void main() {
     expect(
       style('p', 'p { text-transform: small-caps; }').textTransform,
       CssTextTransform.none,
+    );
+  });
+
+  test('vertical-align: <length> / <percentage>（W2）', () {
+    final px = style('p', 'p { vertical-align: 10px; }');
+    expect(px.verticalAlign, CssVerticalAlign.baseline, reason: '枚举仍是 baseline');
+    expect(px.verticalAlignLength, 10);
+    expect(px.verticalAlignShift, -10, reason: 'CSS 正值向上，位移取负');
+
+    final em = style('p', 'p { font-size: 20px; vertical-align: -0.5em; }');
+    expect(em.verticalAlignLength, -10);
+    expect(em.verticalAlignShift, 10);
+
+    // 百分比按本元素行高：Chrome 实测 17px/1.6 → 行高 27.2，10% = 2.72px。
+    final percent = style(
+      'p',
+      'p { font-size: 17px; line-height: 1.6; vertical-align: 10%; }',
+    );
+    expect(percent.lineHeight, closeTo(27.2, 0.01));
+    expect(percent.verticalAlignLength, closeTo(2.72, 0.01));
+    expect(percent.verticalAlignShift, closeTo(-2.72, 0.01));
+
+    // 关键字不进长度分支，super/sub 仍走父字号公式。
+    final middle = style('p', 'p { vertical-align: middle; }');
+    expect(middle.verticalAlignLength, isNull);
+    expect(middle.verticalAlignShift, 0);
+    final sup = style('p', 'p { vertical-align: super; }');
+    expect(sup.verticalAlignLength, isNull);
+    expect(sup.verticalAlignShift, closeTo(-(16 / 3 + 1), 0.001));
+  });
+
+  test('list-style-position 解析、简写展开且不继承（W2）', () {
+    expect(
+      ComputedStyle(const <String, String>{}).listStylePosition,
+      CssListStylePosition.outside,
+      reason: '初始 outside',
+    );
+    expect(
+      style('p', 'p { list-style-position: inside; }').listStylePosition,
+      CssListStylePosition.inside,
+    );
+    // 简写在层叠层展开：`list-style: square inside` 两个长属性都要生效。
+    final shorthand = style('p', 'p { list-style: square inside; }');
+    expect(shorthand.listStyleType, CssListStyleType.square);
+    expect(shorthand.listStylePosition, CssListStylePosition.inside);
+    expect(
+      style('p', 'p { list-style: none outside; }').listStylePosition,
+      CssListStylePosition.outside,
+    );
+
+    final parent = style('parent', 'div { list-style-position: inside; }');
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(
+      child.listStylePosition,
+      CssListStylePosition.outside,
+      reason: 'list-style-position 不继承',
+    );
+    // 未知值回退 outside。
+    expect(
+      style(
+        'p',
+        'p { list-style-position: bogus; }',
+      ).listStylePosition,
+      CssListStylePosition.outside,
     );
   });
 

@@ -252,6 +252,22 @@ abstract final class Cascade {
           sequence,
         );
       }
+      // position 同属 `list-style` 简写（W2）：`list-style: square inside`
+      // 里的 inside 也要能被绘制/排版读成 list-style-position。
+      final position = ComputedStyle.parseListStylePositionKeyword(
+        declaration.value,
+      );
+      if (position != null) {
+        _consider(
+          winners,
+          'list-style-position',
+          position,
+          origin,
+          level,
+          specificity,
+          sequence,
+        );
+      }
     }
   }
 
