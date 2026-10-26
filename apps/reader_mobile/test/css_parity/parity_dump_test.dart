@@ -416,6 +416,9 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
     lines.add(<String, Object?>{
       'x': _n(left + line.offsetX),
       'y': _n(top + line.top),
+      // 页内绝对基线（行盒 baseline 是块内相对值），供与浏览器墨迹推算的
+      // 行基线直接比较。
+      'baselineAbs': _n(top + line.baseline),
       'w': _n(line.advanceWidth),
       'h': _n(line.height),
     });
@@ -486,6 +489,11 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
     // 配对用角色：表格块 / 列表项块（有标记）/ 普通块。浏览器端 ul、ol
     // 等容器不参与配对，li 只与列表项块配对（列表项无标记时由
     // compare.py 的兜底轮次处理）。
+    // 是否含行内盒（inline-block 等）：这类块行基线受盒撑高影响，
+    // 行级用基线与浏览器比更稳；普通块仍用行盒顶 + 容差。
+    'hasInlineBox': block.layout.lines.any(
+      (line) => line.inlineBoxes.isNotEmpty,
+    ),
     'role': block.table != null
         ? 'table'
         : (block.listMarker != null ? 'li' : 'block'),

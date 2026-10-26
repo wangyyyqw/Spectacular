@@ -30,7 +30,8 @@ from PIL import Image, ImageChops
 OUT = pathlib.Path(os.environ.get('CSS_PARITY_OUT', '/tmp/css_parity'))
 CASES = pathlib.Path(__file__).resolve().parent / 'cases'
 TOL = 1.5  # 块/单元格几何允许误差（逻辑像素）
-WIDTH_TOL = 4.0  # 行宽允许误差（断行取整）
+WIDTH_TOL = 4.0
+BASELINE_TOL = 1.5  # 行宽允许误差（断行取整）
 STYLE_EPS = 0.01
 PIXEL_FLAG = 0.02  # 视觉差异判定阈值（差异像素占比）
 TABLE_TAGS = {'td', 'th', 'tr', 'tbody', 'thead', 'tfoot', 'caption', 'col', 'colgroup'}
@@ -267,7 +268,8 @@ def line_tolerance(engine_style):
     return max(TOL, (float(line_height) - float(font_size)) / 2 + 0.5)
 
 
-def compare_lines(browser_lines, engine_lines, tol, width_cap=None, sample=None):
+def compare_lines(browser_lines, engine_lines, tol, width_cap=None,
+                  use_baseline=False):
     """逐行比 y/x/宽。
 
     [width_cap] 用于 `text-overflow: ellipsis|clip`：浏览器量到的是整行
@@ -280,6 +282,14 @@ def compare_lines(browser_lines, engine_lines, tol, width_cap=None, sample=None)
         pos = f'第{index + 1}行'
         for key, limit in (('y', tol), ('x', TOL), ('w', WIDTH_TOL)):
             a, b = left.get(key), right.get(key)
+            if (key == 'y' and use_baseline
+                    and left.get('baseline') is not None
+                    and right.get('baselineAbs') is not None):
+                # 行级 y：浏览器 rect 顶受字形盒模型影响（=基线−墨迹 ascent），
+                # 直接比基线更稳；浏览器 baseline 由 rect.y+墨迹 ascent 反推，
+                # 引擎导出页内绝对基线。
+                a, b = left['baseline'], right['baselineAbs']
+                limit = BASELINE_TOL
             if a is None or b is None:
                 problems.append(f'{pos} {key}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}（缺失）')
                 continue
@@ -644,8 +654,12 @@ def diff_single_page(name, browser, engine, meta):
                 # 与浏览器 getClientRects（已含变换）不可直接比。
                 transformed_blocks.append(label)
             else:
-                found.extend(compare_lines(el.get('lines') or [], block.get('lines') or [],
-                                           tol, width_cap=width_cap))
+                found.extend(compare_lines(
+                    el.get('lines') or [], block.get('lines') or [], tol,
+                    width_cap=width_cap,
+                    use_baseline=bool(block.get('hasInlineBox')
+                                      or is_vertical(block.get('style'))
+                                      or is_vertical(el.get('style')))))
         found.extend(compare_style(el.get('style') or {}, block.get('style') or {}))
         found.extend(compare_transform(el.get('style'), block.get('style')))
         found.extend(compare_runs(elements, block))
