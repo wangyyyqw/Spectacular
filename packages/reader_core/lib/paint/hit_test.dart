@@ -14,6 +14,7 @@ class PageLineBox {
     required this.rect,
     required this.text,
     required this.textOffset,
+    required this.blockTextOffset,
     required this.slice,
   });
 
@@ -29,8 +30,11 @@ class PageLineBox {
   /// 行文本。
   final String text;
 
-  /// 行首在块文本中的字符下标。
+  /// 行首在整页文本中的字符下标（选区/全选/复制用，P9-28）。
   final int textOffset;
+
+  /// 行首在所属块文本中的字符下标（CFI 与块内映射用）。
+  final int blockTextOffset;
 
   /// 所属切片。
   final PageBlockSlice slice;
@@ -129,6 +133,10 @@ abstract final class TextHitTester {
   static List<PageLineBox> lineBoxes(PageContent page) {
     final boxes = <PageLineBox>[];
     var flowY = page.topPadding;
+    // 页内文本偏移（P9-28）：选区/全选/复制用的是「整页文本坐标系」，
+    // 之前每块都从 line.start 起算，多块页面上偏移互相重叠，全选范围会
+    // 小于已选范围、跨块复制也会错位。
+    var pageOffset = 0;
     for (var sliceIndex = 0; sliceIndex < page.slices.length; sliceIndex++) {
       final slice = page.slices[sliceIndex];
       final sliceY = slice.overlay ? (slice.absoluteTop ?? flowY) : flowY;
@@ -151,7 +159,8 @@ abstract final class TextHitTester {
               line.height,
             ),
             text: text,
-            textOffset: line.start,
+            textOffset: pageOffset + line.start,
+            blockTextOffset: line.start,
             slice: slice,
           ),
         );
@@ -160,6 +169,7 @@ abstract final class TextHitTester {
       if (!slice.overlay) {
         flowY += slice.height;
       }
+      pageOffset += layout.text.length;
     }
     return boxes;
   }

@@ -150,7 +150,10 @@ abstract final class SelectionOps {
     final boxes = TextHitTester.lineBoxes(page);
     final box = hit.lineBox;
     final blockText = box.slice.block.layout.text;
-    final offset = (box.textOffset + hit.charOffset).clamp(0, blockText.length);
+    final offset = (box.blockTextOffset + hit.charOffset).clamp(
+      0,
+      blockText.length,
+    );
     final range = TextSegmenter.sentenceRangeAt(blockText, offset);
     if (range.isEmpty) {
       return ReaderSelection(start: hit, end: hit);
@@ -171,12 +174,12 @@ abstract final class SelectionOps {
       if (box.sliceIndex != sliceIndex) {
         continue;
       }
-      if (blockOffset >= box.textOffset &&
-          blockOffset <= box.textOffset + box.text.length) {
-        return _hitAt(box, blockOffset - box.textOffset);
+      if (blockOffset >= box.blockTextOffset &&
+          blockOffset <= box.blockTextOffset + box.text.length) {
+        return _hitAt(box, blockOffset - box.blockTextOffset);
       }
     }
-    return _hitAt(fallback, blockOffset - fallback.textOffset);
+    return _hitAt(fallback, blockOffset - fallback.blockTextOffset);
   }
 
   /// 拖拽手柄时的字符级命中（不扩展，§63.2）。
@@ -343,9 +346,9 @@ abstract final class SelectionOps {
       return null;
     }
     final startOffset =
-        selection.start.lineBox.textOffset + selection.start.charOffset;
+        selection.start.lineBox.blockTextOffset + selection.start.charOffset;
     final endOffset =
-        selection.end.lineBox.textOffset + selection.end.charOffset;
+        selection.end.lineBox.blockTextOffset + selection.end.charOffset;
     return (
       start: cfiWithCharOffset(startCfi, startOffset),
       end: cfiWithCharOffset(endCfi ?? startCfi, endOffset),
@@ -361,11 +364,13 @@ abstract final class SelectionOps {
     final startBox = _boxFor(boxes, selection.start);
     final endBox = _boxFor(boxes, selection.end);
     final text = startBox.slice.block.layout.text;
-    final startOffset = (startBox.textOffset + selection.start.charOffset).clamp(
+    final startOffset =
+        (startBox.blockTextOffset + selection.start.charOffset).clamp(
       0,
       text.length,
     );
-    final endOffset = (endBox.textOffset + selection.end.charOffset).clamp(
+    final endOffset =
+        (endBox.blockTextOffset + selection.end.charOffset).clamp(
       0,
       text.length,
     );

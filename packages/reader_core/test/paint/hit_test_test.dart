@@ -39,6 +39,27 @@ PageBlockSlice _slice(PageBlock block, {double leading = 0}) => PageBlockSlice(
 );
 
 void main() {
+  test('行盒文本偏移按页累计（P9-28）', () {
+    final first = _block('第一段文字');
+    final second = _block('第二段更长的文字内容');
+    final page = _page(<PageBlockSlice>[
+      _slice(first),
+      _slice(second),
+    ]);
+    final boxes = TextHitTester.lineBoxes(page);
+    expect(boxes.length, greaterThanOrEqualTo(2));
+    // 第二块的行偏移应接在第一块文本之后，不能回退到 0。
+    final secondBlockBoxes =
+        boxes.where((box) => box.slice.block == second).toList();
+    expect(secondBlockBoxes.first.textOffset,
+        greaterThanOrEqualTo(first.layout.text.length));
+    final last = boxes.last;
+    expect(
+      last.textOffset + last.text.length,
+      first.layout.text.length + second.layout.text.length,
+    );
+  });
+
   group('字符级命中测试（P4-14）', () {
     test('行内坐标映射到正确字符（逐字符中心）', () {
       final block = _block('abcdefgh');

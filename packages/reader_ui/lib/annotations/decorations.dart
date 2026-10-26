@@ -74,8 +74,10 @@ abstract final class AnnotationDecorations {
         if (blockBase == endBase) {
           to = endOffset;
         }
-        final lineStart = box.textOffset;
-        final lineEnd = box.textOffset + box.text.length;
+        // 标注偏移是块内坐标；行盒的 textOffset 是整页坐标，
+        // 块内基址要用 blockTextOffset（P9-28）。
+        final lineStart = box.blockTextOffset;
+        final lineEnd = box.blockTextOffset + box.text.length;
         final overlapStart = from > lineStart ? from : lineStart;
         final overlapEnd = to < lineEnd ? to : lineEnd;
         if (overlapEnd <= overlapStart) {
