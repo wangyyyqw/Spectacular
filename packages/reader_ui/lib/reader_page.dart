@@ -215,13 +215,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final base = edges == null
         ? widget.padding
         : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
-    // 全面屏（edge-to-edge）下系统手势区不参与 MediaQuery.padding，
-    // 用 viewPadding 兜住，避免正文最后一行压到手势条下方（P2-36 真机）。
-    final bottomInset = MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0;
-    if (bottomInset <= 0) {
+    // 安全区：顶部（状态栏/挖孔）与底部（手势条）都不放正文/页眉页脚。
+    // 沉浸模式下系统栏隐藏，但切口高度仍由 viewPadding 提供；菜单唤出系统栏
+    // 后 viewPadding 变大，布局自动重建（P2-36 真机 + 设计稿 52px 顶部留白）。
+    final viewPadding = MediaQuery.maybeViewPaddingOf(context);
+    final topInset = viewPadding?.top ?? 0;
+    final bottomInset = viewPadding?.bottom ?? 0;
+    if (topInset <= 0 && bottomInset <= 0) {
       return base;
     }
-    return base + EdgeInsets.only(bottom: bottomInset);
+    return base + EdgeInsets.only(top: topInset, bottom: bottomInset);
   }
 
   /// 正文区 padding：在页边距基础上让出页眉/页脚槽（设计稿 .page-header/footer）。
@@ -440,8 +443,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
+    final open = !_menuOpen;
+    // 菜单态需要状态栏（设计稿 .sysbar）；阅读态回到沉浸全屏。
+    unawaited(
+      SystemChrome.setEnabledSystemUIMode(
+        open ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
+      ),
+    );
     setState(() {
-      _menuOpen = !_menuOpen;
+      _menuOpen = open;
       if (!_menuOpen) {
         _drawer = null;
         _drawerTab = _DrawerTab.content;
