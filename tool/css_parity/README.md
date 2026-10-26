@@ -270,7 +270,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（64 用例全量重跑：失配 73 项 / 10 个用例 / 未配对 0）
+## 待收敛（64 用例全量重跑：失配 70 项 / 10 个用例 / 未配对 0）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -280,8 +280,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 | --- | --- | --- | --- |
 | 1 | hyphens | 22 | 20-hyphens-quotes |
 | 2 | font | 10 | 58-font-shorthand |
-| 3 | display | 9 | 53-display-position |
-| 4 | word-wrap | 9 | 62-word-wrap-content |
+| 3 | word-wrap | 9 | 62-word-wrap-content |
+| 4 | display | 6 | 53-display-position |
 | 5 | text-overflow | 6 | 40-text-overflow |
 | 6 | line-height | 5 | 37-filter-opacity |
 | 7 | font-variant | 4 | 15-font-variant-stretch |
@@ -291,17 +291,17 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 
 1. **hyphens 22 / word-wrap 9 / text-overflow 6**：断字、长词换行与截断的
    口径差异见「已知口径差异」1–3。
-2. **display / position（9 项，53）**：`inline-block` 行内盒已参与行高
-   （T1 改动后块高 54.4 与浏览器一致），剩：首行基线 54.2 / 60.4（引擎基线
-   偏大约一个块顶）、首行宽 260.4 / 256.0（引擎不含盒后空格）、`display:block`
-   行数 2/3 与 absolute 盒高、末尾段落 y 连锁。建议 T1/T2 继续。
+2. **display / position（6 项，53）**：行内盒基线与行宽已对齐（引擎
+   `baselineAbs` 54.25 vs 浏览器 54.19，差 0.06；行宽 260.35 vs 260.4），
+   剩 `.blk` 行数 2/1（builtin_song 拉丁 advance 比 Chrome 窄）、`absolute`
+   盒高 75/72（normal 行高取整）、末段 y 129.6/135.6 的行数差连锁。建议 T1/T2。
 3. **font（10 项，58）**：`font` 简写的字号/行高/字重组合在引擎侧只部分
    生效，行宽与 y 有差。建议 T2。
 4. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
    `font-variant`/ligatures 行宽（4）；负 `text-indent` 被钳 0（4）；
    `table` 表高 93 / 91（2）；`text-emphasis` 行高 68 / 70（2）。
 5. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`、
-   `35-writing-mode` 均 0 项；未配对 0。
+   `35-writing-mode`、`53` 的行内盒基线与行宽均 0 失配；未配对 0。
 
 ## 已知口径差异（不计入收敛目标）
 
@@ -347,7 +347,9 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   **含行内盒 / 竖排的块改比基线**（浏览器 `baseline = rect.y + 字体 ascent`，
   引擎 dump 导出 `baselineAbs = 块顶 + line.baseline`）；其余块仍用行盒顶 +
   原有容差。实测 Chrome 画笔基线是 `rect.y + fontBoundingBoxAscent(20)`，
-  墨迹 ascent（14.23）只定位字形墨迹顶，直接用会整体偏 5–6px。
+  墨迹 ascent（14.23）只定位字形墨迹顶，直接用会整体偏 5–6px；引擎按
+  「基线 = 盒内最后一行基线」（ascent = contentHeight − half-leading − fontDescent）
+  修正后，53 的首行基线与浏览器差 0.06px。
 - 块配对是「文本 + 角色」启发式：`li` 内含子列表时浏览器元素文本是引擎块的
   超集，只能按「部分配对」比块顶与前几行；角色判断依赖 dump 的 `role`，
   列表项无标记时按文本兜底。
