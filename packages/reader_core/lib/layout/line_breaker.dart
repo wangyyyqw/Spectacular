@@ -275,6 +275,7 @@ class InlineBoxSpec {
     this.marginBottom = 0,
     this.baselineOffset = 0,
     this.contentHeight,
+    this.contentBaseline,
     this.payload,
   });
 
@@ -304,6 +305,10 @@ class InlineBoxSpec {
   /// Chrome 口径：盒内内容溢出时，行盒/段落高度取**内容高**（超出盒高的部分
   /// 计入基线以上延伸），见 cases/53（120×34 盒、内部 2 行 54.38 → p 高 54.38）。
   final double? contentHeight;
+
+  /// 盒内**最后一行的基线**相对盒边框盒顶的距离（`overflow: visible` 的
+  /// inline-block 基线，CSS 2.1 §10.8.1）。为空时退回按字体内边距近似。
+  final double? contentBaseline;
 
   /// 绘制层用的引用（片段、样式等由上层决定）。
   final Object? payload;
@@ -1930,14 +1935,43 @@ abstract final class TextLayoutEngine {
             style,
             textScaleFactor,
           );
+      // 基线口径（CSS 2.1 §10.8.1 + Chrome 实测 cases/53）：`overflow: visible`
+      // 的 inline-block 基线 = 盒内**最后一行的基线**，因此基线相对盒内容顶
+      // = contentHeight − (half-leading + fontDescent)（T5 实测 48.19）。
+      final spec = mark.spec;
+      final contentHeight = spec.contentHeight ?? spec.height;
+      final boxHeight = math.max(spec.outerHeight, contentHeight);
+      var ascent = spec.ascent;
+      var descent = spec.descent;
+      if (spec.verticalAlign == InlineBoxVerticalAlign.baseline) {
+        final declaredBaseline = spec.contentBaseline;
+        if (declaredBaseline != null) {
+          // 调用方给了盒内最后一行基线（相对盒边框盒顶）→ 直接用。
+          ascent = spec.marginTop + declaredBaseline - spec.baselineOffset;
+          descent = math.max(0.0, boxHeight - ascent);
+        } else {
+          final metrics = _fontBoxMetrics(baseStyle, textScaleFactor);
+          final fontBoxHeight = metrics.ascent + metrics.descent;
+          final halfLeading = math.max(
+            0.0,
+            (line.height - fontBoxHeight) / 2,
+          );
+          final sink = math.min(
+            contentHeight,
+            halfLeading + metrics.descent,
+          );
+          ascent = spec.marginTop + (contentHeight - sink) - spec.baselineOffset;
+          descent = math.max(0.0, boxHeight - ascent);
+        }
+      }
       final placement = InlineBoxPlacement(
         offset: mark.index,
         left: line.offsetX + math.max(0.0, dx),
-        width: mark.spec.width,
-        height: mark.spec.height,
-        ascent: mark.spec.ascent,
-        descent: mark.spec.descent,
-        spec: mark.spec,
+        width: spec.width,
+        height: spec.height,
+        ascent: ascent,
+        descent: descent,
+        spec: spec,
       );
       perLine[lineIndex].add(placement);
       final lineAscent = line.baseline - line.top;
@@ -2353,6 +2387,27 @@ abstract final class TextLayoutEngine {
       top += line.height;
     }
     return result;
+  }
+
+  /// 字体盒（不含 leading）的 ascent/descent：用于行盒基线与 half-leading 解算。
+  ///
+  /// `height` 置空后 `preferredLineHeight` 即字体盒高（Chrome 的
+  /// fontBoundingBoxAscent/Descent 同口径，实测 17px 内置宋 = 20/5）。
+  static ({double ascent, double descent}) _fontBoxMetrics(
+    TextStyle baseStyle,
+    double textScaleFactor,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'x', style: baseStyle.copyWith(height: null)),
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.linear(textScaleFactor),
+    )..layout();
+    final ascent = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
+    final descent = math.max(0.0, painter.height - ascent);
+    painter.dispose();
+    return (ascent: ascent, descent: descent);
   }
 
   /// 含 `/`（SOLIDUS）的 token 区间（升序、已合并重叠）；两侧都是空白时不算。

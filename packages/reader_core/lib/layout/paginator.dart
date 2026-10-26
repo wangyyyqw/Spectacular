@@ -951,6 +951,105 @@ class Paginator {
     flush();
     return widest;
   }
+  /// 竖排块跨页列流：列长 = 页高重排列 → 每页容纳 `floor(页宽/列宽)` 列，
+  /// 剩余列顺延下一页。返回每页一个列块（null 表示不适用，调用方走整块路径）。
+  List<PageBlock>? _verticalColumnChunks(PageBlock block, double available) {
+    final style = block.style;
+    if (style == null || pageWidth <= 0) {
+      return null;
+    }
+    final columnLength = math.max(1.0, available - block.leadingExtent);
+    // 屏蔽声明 height（否则 layout 会继续拿块高当列长）。
+    final adjusted = ComputedStyle(
+      <String, String>{'height': 'auto'},
+      parent: style,
+      explicitProperties: const <String>{'height'},
+      hasExplicitTextColor: style.hasExplicitTextColor,
+    );
+    final relaid = TextLayoutEngine.layout(
+      text: block.layout.text,
+      style: adjusted,
+      maxWidth: columnLength,
+    );
+    if (relaid.lineCount == 0 || relaid.lines.isEmpty) {
+      return null;
+    }
+    final columnWidth = relaid.lines.first.width;
+    if (columnWidth <= 0) {
+      return null;
+    }
+    final perPage = math.max(1, (pageWidth / columnWidth).floor());
+    if (perPage >= relaid.lineCount) {
+      return null; // 一页放得下全部列 → 走整块单页路径
+    }
+    final chunks = <PageBlock>[];
+    var start = 0;
+    while (start < relaid.lineCount) {
+      final take = math.min(perPage, relaid.lineCount - start);
+      chunks.add(_verticalChunk(block, relaid, start, start + take));
+      start += take;
+    }
+    return chunks;
+  }
+
+  /// 竖排分页的列块：抽出 `[start, end)` 列并把 columnX 重排到 0 起。
+  static PageBlock _verticalChunk(
+    PageBlock source,
+    TextLayoutResult layout,
+    int start,
+    int end,
+  ) {
+    final columns = <LineBox>[];
+    final count = end - start;
+    final columnWidth = layout.lines.first.width;
+    final rl = layout.writingMode == CssWritingMode.verticalRl;
+    var offset = 0.0;
+    for (var i = start; i < end; i++) {
+      final line = layout.lines[i];
+      // rl：首列排在最右（页内从右向左推进）；lr：从最左开始。
+      final columnX = rl ? (count - 1 - (i - start)) * columnWidth : offset;
+      columns.add(
+        LineBox(
+          start: line.start,
+          end: line.end,
+          top: 0,
+          height: line.height,
+          baseline: 0,
+          width: line.width,
+          offsetX: columnX,
+          columnIndex: i - start,
+          columnX: columnX,
+          vertical: true,
+          isLastLine: line.isLastLine,
+          isHardBreak: line.isHardBreak,
+        ),
+      );
+      offset += line.width;
+    }
+    return PageBlock(
+      layout: TextLayoutResult(
+        text: layout.text,
+        lines: List<LineBox>.unmodifiable(columns),
+        width: offset,
+        height: layout.height,
+        maxWidth: layout.maxWidth,
+        runs: layout.runs,
+        isRtl: layout.isRtl,
+        writingMode: layout.writingMode,
+      ),
+      startCfi: source.startCfi,
+      endCfi: source.endCfi,
+      style: source.style,
+      topInset: source.topInset,
+      bottomInset: source.bottomInset,
+      leftInset: source.leftInset,
+      bleedLeft: source.bleedLeft,
+      bleedRight: source.bleedRight,
+      containerSides: source.containerSides,
+      effectiveOpacity: source.effectiveOpacity,
+    );
+  }
+
   /// 对一章块列表分页。
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
@@ -1174,6 +1273,33 @@ class Paginator {
         final declaredHeight = block.style?.height?.resolve(contentHeight);
         if (declaredHeight != null && declaredHeight > contentHeight) {
           contentHeight = declaredHeight;
+        }
+        // 竖向内容超过本页可用高：按页高重排列（列长 = 页高），再按页宽分列，
+        // 一页容纳 floor(页宽 / 列宽) 列，剩余列顺延下一页（页序即阅读序）。
+        if (contentHeight > available + tolerance &&
+            pageWidth > 0 &&
+            block.style != null) {
+          final chunks = _verticalColumnChunks(block, available);
+          if (chunks != null) {
+            for (var i = 0; i < chunks.length; i++) {
+              if (i > 0) {
+                record();
+              }
+              slices.add(
+                PageBlockSlice(
+                  block: chunks[i],
+                  startLine: 0,
+                  endLine: chunks[i].layout.lineCount,
+                  // 该页被竖排内容占满（painter 按 slice.height 推进 y）。
+                  height: available,
+                  leftInset: block.leftInset,
+                ),
+              );
+            }
+            used += available;
+            available = 0;
+            continue;
+          }
         }
         final extent = block.leadingExtent + contentHeight + block.trailingExtent;
         if (extent > available + tolerance && slices.isNotEmpty) {

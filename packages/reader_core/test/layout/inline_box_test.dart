@@ -36,9 +36,13 @@ void main() {
     expect(box.left, closeTo(32, 0.5), reason: '盒在 "ab" 之后（2 字 × 16）');
     // 后续文字紧随盒右缘：整行宽 = 2 字 + 盒 + 2 字。
     expect(line.width, closeTo(32 + 120 + 32, 1));
-    // 行高按盒高撑开（baseline 模式：盒底对齐基线 → 下行延伸 0）。
+    // 行高按盒高撑开；基线 = 盒内最后一行的基线（CSS 10.8.1，overflow:visible），
+    // 所以基线略高于盒底（下沉量 = half-leading + 字体 descent）。
     expect(line.height, greaterThanOrEqualTo(40 - 0.01));
-    expect(line.baseline - line.top, closeTo(40, 0.5));
+    final box2 = line.inlineBoxes.single;
+    expect(box2.ascent + box2.descent, greaterThanOrEqualTo(40 - 0.01));
+    expect(line.baseline - line.top, closeTo(box2.ascent, 0.01));
+    expect(box2.descent, greaterThan(0), reason: '基线不在盒底（半行距下沉）');
   });
 
   test('行内盒放不下时整块换行（不劈开）', () {
@@ -133,8 +137,8 @@ void main() {
       ],
     );
     final box = layout.lines.single.inlineBoxes.single;
-    expect(box.ascent, closeTo(60, 0.01));
-    expect(box.descent, closeTo(10, 0.01));
+    expect(box.ascent + box.descent, closeTo(70, 0.01), reason: '盒高 50 + 上下 margin 10/10');
+    expect(box.ascent, greaterThan(50), reason: '含上 margin 且基线在盒底之上');
     expect(layout.lines.single.height, greaterThanOrEqualTo(70 - 0.01));
   });
 
@@ -179,11 +183,12 @@ void main() {
     expect(box.left, closeTo(96, 0.5));
     expect(box.width, 120);
     expect(box.height, 34);
-    expect(box.ascent, 34, reason: 'baseline 对齐：盒底落在基线上');
-    expect(box.descent, 0);
-    // 盒比行高（27.2）高 → 行盒被撑到 ≥34。
+    // 基线 = 盒内最后一行基线（Chrome 实测：基线在盒底之上约半行距 + descent）。
+    expect(box.ascent, lessThan(34));
+    expect(box.ascent + box.descent, greaterThanOrEqualTo(34));
+    expect(line.baseline - line.top, closeTo(box.ascent, 0.01));
+    // 盒比行高（24）高 → 行盒被撑到 ≥34。
     expect(line.height, greaterThanOrEqualTo(34));
-    expect(line.baseline - line.top, closeTo(34, 0.5));
   });
 
   test('行盒高 = max(行高, 盒 margin box 高)（Chrome 口径，不是 ascent+descent 相加）', () {
@@ -198,7 +203,8 @@ void main() {
     );
     final tallLine = tall.lines.single;
     expect(tallLine.height, closeTo(60, 0.01), reason: '盒高 60 > 行高 24');
-    expect(tallLine.baseline - tallLine.top, closeTo(60, 0.01));
+    final tallBox = tallLine.inlineBoxes.single;
+    expect(tallLine.baseline - tallLine.top, closeTo(tallBox.ascent, 0.01));
 
     // 盒比行高矮 → 行盒高保持行高，不多算盒的 ascent+descent。
     final small = TextLayoutEngine.layout(
@@ -223,7 +229,11 @@ void main() {
     );
     final line = layout.lines.single;
     expect(line.height, closeTo(54.38, 0.01), reason: 'Chrome：盒内溢出计入行盒高');
-    expect(line.baseline - line.top, closeTo(54.38, 0.01));
+    final overflowBox = line.inlineBoxes.single;
+    // 基线 = 盒内最后一行基线：比行盒底高出一段（half-leading + 字体 descent）。
+    expect(overflowBox.ascent, lessThan(54.38));
+    expect(overflowBox.ascent + overflowBox.descent, closeTo(54.38, 0.01));
+    expect(line.baseline - line.top, closeTo(overflowBox.ascent, 0.01));
   });
 
   test('盒占位进入行宽：advance ≈ 文字宽 + 盒宽（T3 的 A/B 口径）', () {
