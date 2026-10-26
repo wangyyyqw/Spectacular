@@ -76,6 +76,11 @@ Future<ByteData> _renderPage({String? body, String? css}) async {
   return bytes!;
 }
 
+/// 边框色近似判定：CSS 行高是小数时（如 1.7×15 = 25.5），卡片底边会落在
+/// 半像素上，抗锯齿让边缘行不再是纯色；这里按「明显偏绿」判定。
+bool _isGreenish(Color color) =>
+    color.g > 0.35 && color.r < 0.6 && color.b < 0.6;
+
 Color _pixel(ByteData bytes, int x, int y) {
   final offset = (y * _pageSize.width.toInt() + x) * 4;
   return Color.fromARGB(
@@ -120,7 +125,6 @@ void main() {
   test('卡片四边框闭合且背景连成一片（P9-25）', () async {
     final bytes = await _renderPage();
     const red = Color(0xFFFF0000);
-    const green = Color(0xFF00FF00);
 
     var redColumns = 0;
     var greenRows = 0;
@@ -137,7 +141,7 @@ void main() {
     for (var y = 0; y < _pageSize.height.toInt(); y++) {
       var hits = 0;
       for (var x = 0; x < _pageSize.width.toInt(); x++) {
-        if (_pixel(bytes, x, y) == green) {
+        if (_isGreenish(_pixel(bytes, x, y))) {
           hits += 1;
         }
       }
@@ -157,7 +161,7 @@ void main() {
       for (var x = _pageSize.width.toInt() - 20;
           x < _pageSize.width.toInt();
           x++) {
-        if (_pixel(bytes, x, y) == green) {
+        if (_isGreenish(_pixel(bytes, x, y))) {
           greenRightBand += 1;
         }
       }
