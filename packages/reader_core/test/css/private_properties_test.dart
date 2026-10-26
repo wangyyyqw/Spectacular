@@ -34,6 +34,13 @@ void main() {
     expect(compute('duokan-break-inside: avoid').breakInsideAvoid, isTrue);
   });
 
+  test('多看段前后距与方向族映射', () {
+    final margins = compute('duokan-margin-before: 12px; duokan-margin-after: 6px');
+    expect(margins.margin.top, 12);
+    expect(margins.margin.bottom, 6);
+    expect(compute('duokan-padding-before: 3px').padding.top, 3);
+  });
+
   test('多看渐变文字取首色当纯色', () {
     expect(
       compute('-duokan-text-fill: linear-gradient(#ffd700, #b0904d)').color,

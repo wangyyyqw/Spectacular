@@ -22,6 +22,16 @@ abstract final class CssPropertyAliases {
     'duokan-text-shadow': 'text-shadow',
     'duokan-text-decoration': 'text-decoration',
     'duokan-font-weight': 'font-weight',
+    // 多看排版方向族（竖排 P5 未接入，先按标准属性保存）。
+    'duokan-writing-mode': 'writing-mode',
+    'duokan-writing-orientation': 'writing-mode',
+    'duokan-text-orientation': 'writing-mode',
+    'duokan-block-progression': 'writing-mode',
+    // 多看段前后距。
+    'duokan-margin-before': 'margin-top',
+    'duokan-margin-after': 'margin-bottom',
+    'duokan-padding-before': 'padding-top',
+    'duokan-padding-after': 'padding-bottom',
     'epub-writing-mode': 'writing-mode',
     'epub-text-emphasis': 'text-emphasis',
     'epub-text-emphasis-style': 'text-emphasis-style',
