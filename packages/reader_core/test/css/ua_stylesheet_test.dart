@@ -60,6 +60,21 @@ void main() {
     expect(style.values['display'], 'none');
   });
 
+  test('表格 UA：单元格竖直居中（td/th vertical-align: middle）', () {
+    // Chrome UA 实测：td/th 计算值 vertical-align: middle（经 tr/tbody 的
+    // inherit 得到），单元格文字默认竖直居中。
+    expect(uaStylesheetCss, contains('vertical-align: middle'));
+    for (final tag in const <String>['td', 'th']) {
+      final cell = Cascade.compute(
+        element: _element(tag),
+        ancestors: const <SelectorElement>[],
+        rules: uaRules(),
+      );
+      expect(cell.verticalAlign, CssVerticalAlign.middle, reason: tag);
+      expect(cell.values['display'], 'table-cell', reason: tag);
+    }
+  });
+
   test('排版前注入规则在 UA 表中且可层叠（P7-25）', () {
     // 注入语义：html/body 基础约束 + body flow-root（BFC 阻断）。
     expect(uaStylesheetCss, contains('body { display: flow-root; }'));
@@ -162,7 +177,7 @@ void main() {
       expect(child.lineHeight, 24);
     });
 
-    test('未声明行高时按绝对量继承（保持既有行为）', () {
+    test('未声明行高 = CSS normal：子级按自身字号重算', () {
       final style = ComputedStyle(const <String, String>{
         'font-size': '16px',
       });
@@ -171,10 +186,12 @@ void main() {
         parent: style,
         explicitProperties: const <String>{'font-size'},
       );
-      // 引擎默认因子不是显式无单位声明：子级继承绝对行高不放大，
-      // 与改动前行为一致（默认因子不参与跨字号重算）。
+      // normal 不是固定倍数，也没有可继承的像素值：子级用自己的字号求正常
+      // 行高（Chrome 同字体约 1.4em），因此会随字号放大。
       expect(child.fontSize, 32);
-      expect(child.lineHeight, style.lineHeight);
+      expect(style.lineHeightFactor, isNull);
+      expect(child.lineHeightFactor, isNull, reason: 'normal 逐级保持');
+      expect(child.lineHeight, closeTo(32 * 1.437, 0.001));
       expect(child.unitlessLineHeightFactor, isNull);
     });
   });

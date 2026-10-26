@@ -59,8 +59,11 @@ void main() {
   test('初始值表', () {
     final initial = ComputedStyle(const <String, String>{});
     expect(initial.fontSize, 16);
-    expect(initial.lineHeight, 24);
-    expect(initial.lineHeightFactor, 1.5);
+    // 未声明行高 = CSS `normal`：因子为 null（TextStyle(height: null) 交给
+    // 字体度量，Chrome 同字体约 1.41–1.44em）；像素值只是几何兜底近似。
+    expect(initial.lineHeightFactor, isNull);
+    expect(initial.unitlessLineHeightFactor, isNull);
+    expect(initial.lineHeight, closeTo(16 * 1.437, 0.001));
     expect(initial.color, const Color(0xFF000000));
     expect(initial.fontWeight, 400);
     expect(initial.italic, isFalse);
@@ -99,7 +102,55 @@ void main() {
       style('p', 'p { font-size: 20px; line-height: 30px; }').lineHeight,
       30,
     );
-    expect(base.lineHeightFactor, 1.5);
+    // 未声明 → CSS normal：因子为 null，像素值只是 1.437 的兜底近似。
+    expect(base.lineHeightFactor, isNull);
+    expect(base.lineHeight, closeTo(20 * 1.437, 0.001));
+  });
+
+  test('未声明行高 = CSS normal：显式 normal/继承/阅读器覆盖三条路径', () {
+    // 1) 显式 `line-height: normal` 与未声明等价（因子仍为 null）。
+    final explicitNormal = style(
+      'p',
+      'p { font-size: 20px; line-height: normal; }',
+    );
+    expect(explicitNormal.lineHeightFactor, isNull);
+    expect(explicitNormal.lineHeight, closeTo(20 * 1.437, 0.001));
+
+    // 2) 继承：父级 normal 时子级继续 normal（不继承近似的像素值）；
+    //    父级无单位因子按子字号重算；父级 px 按绝对值继承。
+    final normalParent = style('parent', 'div { font-size: 20px; }');
+    final normalChild = style(
+      'p',
+      'p { font-size: 10px; }',
+      parent: normalParent,
+    );
+    expect(normalChild.lineHeightFactor, isNull, reason: 'normal 逐级保持');
+    expect(normalChild.lineHeight, closeTo(10 * 1.437, 0.001));
+
+    final unitlessParent = style(
+      'parent',
+      'div { font-size: 20px; line-height: 1.8; }',
+    );
+    expect(unitlessParent.lineHeightFactor, 1.8);
+    final unitlessChild = style('p', 'p { font-size: 10px; }', parent: unitlessParent);
+    expect(unitlessChild.lineHeightFactor, closeTo(1.8, 0.001));
+    expect(unitlessChild.lineHeight, closeTo(18, 0.001));
+    expect(unitlessChild.unitlessLineHeightFactor, closeTo(1.8, 0.001));
+
+    final pxParent = style(
+      'parent',
+      'div { font-size: 20px; line-height: 30px; }',
+    );
+    final pxChild = style('p', 'p { font-size: 10px; }', parent: pxParent);
+    expect(pxChild.lineHeight, 30, reason: 'px 行高按绝对值继承');
+    expect(pxChild.lineHeightFactor, closeTo(3, 0.001), reason: '30/10');
+
+    // 3) 阅读器覆盖仍是显式的（ReaderOverrides 走 withTypography）。
+    final navigated = style('p', 'p { font-size: 20px; }').withTypography(
+      lineHeightFactor: 1.5,
+    );
+    expect(navigated.lineHeightFactor, 1.5, reason: '阅读器覆盖不能被 normal 吞掉');
+    expect(navigated.lineHeight, 30);
   });
 
   test('margin 四值/百分比/pt/覆盖', () {
@@ -512,6 +563,55 @@ void main() {
       'p { background-image: linear-gradient(#f00, #00f); }',
     ).backgroundGradient!;
     expect(plain.repeating, isFalse);
+  });
+
+  test('渐变区间色标：<color> <start> <end> 展开成两个同色 stop（W7）', () {
+    // 26-background-gradient 的 .rep 写法：像素区间 → 4 个 stop。
+    final stripes = style(
+      'p',
+      'p { background-image: repeating-linear-gradient('
+          '90deg, #000 0 4px, #fff 4px 8px); }',
+    ).backgroundGradient! as CssLinearGradient;
+    expect(stripes.repeating, isTrue);
+    expect(stripes.angle, 90);
+    expect(stripes.stops, hasLength(4));
+    expect(
+      [for (final stop in stripes.stops) stop.positionPx],
+      isNot(contains(isNull)),
+      reason: '四个 stop 都带像素位置',
+    );
+    expect(
+      [for (final stop in stripes.stops) stop.positionPx!.round()],
+      <int>[0, 4, 4, 8],
+    );
+    expect(
+      [for (final stop in stripes.stops) stop.color.toARGB32()],
+      <int>[0xFF000000, 0xFF000000, 0xFFFFFFFF, 0xFFFFFFFF],
+      reason: '同色成对',
+    );
+
+    // 百分比区间（.stripe 写法）→ 4 个 stop；首段写的是无单位 `0`，按长度
+    // 保留为 positionPx=0，换算后与 0% 等价（fractionOf 统一口径）。
+    final hardStops = style(
+      'p',
+      'p { background-image: linear-gradient('
+          '90deg, #ff0000 0 50%, #0000ff 50% 100%); }',
+    ).backgroundGradient!;
+    expect(hardStops.stops, hasLength(4));
+    expect(
+      [for (final stop in hardStops.stops) stop.fractionOf(100)],
+      <double>[0, 0.5, 0.5, 1],
+    );
+
+    // 第二个位置小于第一个：按 CSS 语义钳到第一个（区间宽度为 0）。
+    final clamped = style(
+      'p',
+      'p { background-image: linear-gradient(#fff 8px 4px, #000 20px); }',
+    ).backgroundGradient!;
+    expect(clamped.stops, hasLength(3));
+    expect(clamped.stops[0].positionPx, 8);
+    expect(clamped.stops[1].positionPx, 8);
+    expect(clamped.stops[2].positionPx, 20);
   });
 
   test('filter 解析：有序滤镜列表与各函数参数（W5）', () {

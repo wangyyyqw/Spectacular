@@ -94,7 +94,10 @@ ol[type=upper-alpha] { list-style-type: upper-alpha; }
 /* ==== 表格（15.3.8；边框绘制与列宽属 P3-17～P3-21）==== */
 table { display: table; border-spacing: 2px; border-collapse: separate; }
 tr { display: table-row; }
-td, th { display: table-cell; padding: 1px; }
+/* 单元格竖直居中（Chrome UA：td/th 为 `vertical-align: middle`，
+   经 tr/tbody 的 inherit 得到；这里直接写在单元格上，效果一致，
+   由表格排版层按单元格样式消费）。 */
+td, th { display: table-cell; padding: 1px; vertical-align: middle; }
 thead, tbody, tfoot { display: table-row-group; }
 colgroup, col { display: table-column; }
 caption { display: table-caption; text-align: center; }
