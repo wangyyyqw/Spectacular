@@ -3,6 +3,8 @@
 > 目的：把「引擎认了但没用」的属性全部摊开，按「影响 × 真实书频率」排出待修顺序。
 > 范围：`packages/reader_core/lib/css/*`（解析/层叠/计算）、`layout/*` 与 `paint/*`（布局与绘制）、`apps/reader_mobile/lib/reader/epub_chapter_source.dart`（flat 管线消费方）。
 > 本文只做审计，不包含任何代码改动。
+>
+> 基线提交 `abc6ed1` + 未提交改动（刷新于 2026-10-27 03:00）。C/D 分类与行号按当前工作树重算。
 
 ## 0. 结论摘要
 
@@ -10,19 +12,19 @@
 | --- | --- |
 | 真实书语料（`test_corpus/real/*.epub`） | 7 本，105 个 CSS 文件 |
 | 语料中出现的不同属性名 | 132 |
-| 引擎有类型化字段并参与布局/绘制的属性 | 69（其中 47 条完整、22 条只覆盖部分子特性） |
-| **解析出字段但零消费（占位式实现）** | **7**（`top`/`right`/`bottom`/`left`/`border-collapse`/`border-spacing`/`initial-letter`） |
-| **完全没有字段、值进 `values` 后被静默丢弃** | **40**（`transform`、`border-image`、`writing-mode`、`background-attachment`、`overflow`、`word-break` 等） |
-| 本文覆盖的属性条目总数 | **116**（69 + 7 + 40） |
-| 语料频率最高的缺失项 | `background-attachment`（218 次 / 3 本）、`border-collapse`（52 次 / 4 本）、`overflow`（25 次 / 4 本） |
+| 引擎有类型化字段并参与布局/绘制的属性 | 80（其中 55 条完整、25 条只覆盖部分子特性） |
+| **解析出字段但零消费（占位式实现）** | **9**（`right`/`bottom`/`initial-letter`/`transform`/`columns`/`writing-mode`/`text-orientation`/`direction`/`overflow`） |
+| **完全没有字段、值进 `values` 后被静默丢弃** | **27**（`border-image`、`line-break`、`background-attachment`、`text-combine-upright` 等） |
+| 本文覆盖的属性条目总数 | **116**（80 + 9 + 27） |
+| 语料频率最高的缺失项 | `background-attachment`（218 次 / 3 本）、`overflow`（25 次 / 4 本）、`transform`（21 次 / 2 本） |
 
 三个必须记住的判断：
 
-1. **引擎对未知属性是「静默接受」而不是「拒绝」。** 级联层 `Cascade._consider`（`packages/reader_core/lib/css/cascade.dart:446-469`）按属性名把任意 `property: value` 原样存进 `winners`，`ComputedStyle` 只对认识的属性做类型化解析，其余留在 `values` map 里无人读取。所以「支持 132 个属性」是假象，真正生效的是 69 个。
-2. **最大的实际风险不是「没实现的属性」，而是「解析了却不消费」。** 这类属性在代码审查、`values` dump、`parity_dump_test` 里都看起来「有值」，但布局/绘制一行都没读。典型：`top/right/bottom/left`（`position:absolute` 因此只摘出流、不定位）、`border-collapse`/`border-spacing`（表格永远按 `separate` 画双线）。详见第 4 章。
-3. **别名层会制造「伪支持」。** `property_aliases.dart` 把 `-epub-hyphens`、`-webkit-text-combine`、`webkit-line-break` 等重命名到标准属性，但 `hyphens`、`text-combine-upright`、`line-break` 本身零消费——改名后依旧被丢弃，且更难被发现。详见第 6 章。
+1. **引擎对未知属性是「静默接受」而不是「拒绝」。** 级联层 `Cascade._consider`（`packages/reader_core/lib/css/cascade.dart:488`）按属性名把任意 `property: value` 原样存进 `winners`，`ComputedStyle` 只对认识的属性做类型化解析，其余留在 `values` map 里无人读取。所以「支持 132 个属性」是假象，真正生效的是 80 个。
+2. **最大的实际风险不是「没实现的属性」，而是「解析了却不消费」。** 这类属性在代码审查、`values` dump、`parity_dump_test` 里都看起来「有值」，但布局/绘制一行都没读。典型：`right`/`bottom`（绝对定位只接了 top/left）、`initial-letter`、`transform`、`columns`、`writing-mode`、`overflow`。详见第 3.3 与第 4 章。
+3. **别名层会制造「伪支持」。** `property_aliases.dart` 把 `-webkit-text-combine`、`webkit-line-break`、`duokan-writing-mode` 等重命名到标准属性，但 `text-combine-upright`、`line-break` 没有字段，`writing-mode`/`text-orientation` 有字段无消费——改名后依旧不出效果。详见第 6 章。
 
-审计基线（2026-10-27）：`git HEAD 2daf15d` + 当时工作树。审计期间其他任务正在并发改动 `computed_style.dart`、`property_aliases.dart`、`line_breaker.dart`、`epub_chapter_source.dart`，并把 `tool/css_parity/cases/` 从 14 个扩到 43 个——本文行号已按审计收尾时的树校准，但**后续仍会漂移**；每行都附了函数/分支锚点，行号对不上时按锚点 `grep` 即可。
+基线提交 `abc6ed1` + 未提交改动（刷新于 2026-10-27 03:00）。未提交部分给 `computed_style.dart` 新增 transform、columns、writing-mode、text-orientation、direction、overflow、hyphens、word-break、overflow-wrap 字段与解析，`line_breaker.dart` 接入 `text-overflow: ellipsis` 与断词断字。本文的 C/D 分类与行号已按当前工作树重算，文中行号均经脚本校验不越界；`tool/css_parity/cases/` 已扩到 60 个。行号每行都附函数/分支锚点；并发改动会让行号漂移，定位时按锚点 `grep`，不要只信数字。
 
 审计只回答「有没有消费点」，不回答「数值差多少」。要数值结论请用 `tool/css_parity` 跑 `report.md`（该套件已覆盖本文 Top 20 中的 14 项，见第 7 章）。
 
@@ -33,7 +35,7 @@
 | 环节 | 做法 |
 | --- | --- |
 | 枚举「解析了什么」 | `computed_style.dart` 里所有 `explicitValue(...)` / `fontValue(...)` / `backgroundValue(...)` 取值点，加上盒模型专用入口 `_resolveMargin` / `_resolvePadding` / `_resolveBorders` / `dimension()` |
-| 枚举「层叠/继承认了什么」 | `cascade.dart:55`（18 项继承表）、`cascade.dart:240`（`_expandShorthand`：margin/padding/border/border-width/style/color）、`cascade.dart:149`（`list-style`） |
+| 枚举「层叠/继承认了什么」 | `cascade.dart:55`（23 项继承表）、`cascade.dart:281`（`_expandShorthand`：margin/padding/border/border-width/style/color）、`cascade.dart:245`（`list-style`） |
 | 枚举「UA 表声明了什么」 | `ua_stylesheet.dart`（`uaStylesheetCss` 完整规则集 + `UaBlockDefaults` 块级覆盖层） |
 | 判定「是否真正消费」 | 对每个类型化字段做全库检索（排除 `lib/css/`）：命中即视为消费，并记录第一个布局/绘制调用点；零命中判定为占位式 |
 | 判定「完全没有字段」 | 属性名以 `'<prop>'` / `"<prop>"` / `<prop>:` 形式在全库检索，0 命中即确认未处理 |
@@ -92,13 +94,13 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 | text-shadow | 60 | 5 | 完整 |
 | text-decoration | 57 | 6 | 完整 |
 | white-space | 54 | 3 | **部分：`pre`/`pre-wrap` 换行处理错误** |
-| **border-collapse** | **52** | **4** | **解析但零消费** |
+| **border-collapse** | **52** | **4** | 完整（collapse 半边框近似） |
 | position | 41 | 4 | **部分：只摘出流、不定位** |
 | text-transform | 40 | 3 | 完整 |
 | text-align-last | 28 | 1 | 完整 |
 | **overflow** | 25 | 4 | **完全未处理** |
 | clear | 25 | 2 | 完整 |
-| **transform** | 21 | 2 | **完全未处理** |
+| **transform** | 21 | 2 | **字段已解析、零消费** |
 | max-width | 21 | 4 | 完整 |
 | table-layout | 21 | 2 | 完整 |
 | box-sizing | 20 | 2 | 部分：宽度未计入 padding/border |
@@ -108,7 +110,7 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 | **word-break** | 12 | 5 | **完全未处理** |
 | page-break-before / after | 13 / 11 | 5 / 4 | 完整 |
 | **border-image** | 11 | 3 | **完全未处理** |
-| **writing-mode（含 6 条私有别名）** | 5 + 18 | 3 | **完全未处理** |
+| **writing-mode（含 6 条私有别名）** | 5 + 18 | 3 | **字段已解析、零消费** |
 | **font-variant** | 7 | 1 | **完全未处理** |
 | **orphans / widows** | 7 / 7 | 1 | **完全未处理** |
 | opacity | 5 | 1 | 部分：仅块级 |
@@ -138,7 +140,7 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 - **零消费**：解析出了字段，但除 `lib/css/` 外无人读取。
 - **未处理**：连字段都没有，值停在 `values` map 里。
 
-### 3.1 A 组：解析且真正参与布局/绘制（69 条）
+### 3.1 A 组：解析且真正参与布局/绘制（80 条）
 
 「解析位置」统一在 `packages/reader_core/lib/css/computed_style.dart`（下表简写为 `cs.dart`），
 「消费位置」在 `packages/reader_core/lib/layout`（`lb`=line_breaker, `bf`=block_flow, `pg`=paginator, `bm`=box_model）、
@@ -179,7 +181,7 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 | 31 | `background-image` | cs.dart:838 | pr:1021（`_resolveBackgroundImage`） | **部分** | 只支持单张 `url()`；渐变返回 null（cs.dart:1827 `_parseUrl`）；无多背景层 |
 | 32 | `background-repeat` | cs.dart:746 | pr:969 | 完整 | — |
 | 33 | `background-size` | cs.dart:749 | pr:970 | 完整 | `cover`/`contain`/显式尺寸均支持（`_parseBackgroundSize` cs.dart:2386） |
-| 34 | `background-position` | cs.dart:756 | pr:971 | 完整 | 三/四值语法部分支持（`_parseBackgroundPosition` cs.dart:2436） |
+| 34 | `background-position` | cs.dart:756 | pr:993 | 完整 | 三/四值语法部分支持（`_parseBackgroundPosition` cs.dart:2436） |
 | 35 | `background-origin` | cs.dart:767 | pr:993 | 完整 | — |
 | 36 | `background-clip` | cs.dart:770 | pr:980 | **部分** | `text` 降级为 `padding-box`（pr:978 注释） |
 | 37 | `background`（简写） | cs.dart:740（`_parseBackgroundShorthand` cs.dart:1922） | pr:969-971 | **部分** | 不含 `attachment`；不解析多背景逗号分层 |
@@ -190,7 +192,7 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 | 42 | `visibility` | cs.dart:622 | pr:440 | 完整 | `collapse` 按 `hidden` 处理 |
 | 43 | `white-space` | cs.dart:628 | lb:373-374 | **部分** | README 待收敛 #2：`pre`/`pre-wrap` 的 `\n` 未转硬断行；`pre-line` 折叠规则不完整 |
 | 44 | `list-style-type` | cs.dart:786 | ecs:2372（`nextMarker`） | **部分** | disc/circle/square/decimal/lower-roman/upper-roman/lower-alpha/upper-alpha；无 `counter()`/`symbols()` |
-| 45 | `list-style`（简写） | cascade.dart:149（展开为 `list-style-type`） | 同上 | 完整 | 只取类型关键字，`position`/`image` 丢弃（`parseListStyleTypeKeyword`） |
+| 45 | `list-style`（简写） | cascade.dart:245（展开为 `list-style-type`） | 同上 | 完整 | 只取类型关键字，`position`/`image` 丢弃（`parseListStyleTypeKeyword`） |
 | 46 | `table-layout` | cs.dart:793 | ecs:2119 | 完整 | — |
 | 47 | `text-decoration` / `-line` | cs.dart:686（`_parseTextDecoration` cs.dart:2602） | lb:1233（`_decoration` lb:1260） | 完整 | 多值合并（`underline line-through`）支持 |
 | 48 | `text-decoration-style` | cs.dart:691 | lb:1236（`_decorationStyle` lb:1250） | 完整 | — |
@@ -216,98 +218,122 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 | 68 | `text-overflow` | cs.dart:566 | pr:556（`_needsEllipsis`） | **部分** | 只支持 `ellipsis`；`clip` 之外无 `fade` |
 | 69 | `duokan-bleed` / `-duokan-bleed` | cs.dart:783（`_parseBleed` cs.dart:1852） | ecs:1660、1718、2459 | 完整 | 多看私有扩展，非标准 |
 
-### 3.2 B 组汇总：只消费一部分的 22 条
+| 70 | `top` | cs.dart:1413（`_parseOffset` cs.dart:4478） | bf:522；ecs:3284、3258（仅 absolute/fixed） | **部分** | 只对绝对/固定定位生效；常规流与 relative 不读 |
+| 71 | `left` | cs.dart:1434（`_parseOffset` cs.dart:4478） | ecs:3287、3259（仅 absolute/fixed） | **部分** | 同上；`right`/`bottom` 仍零消费 |
+| 72 | `border-collapse` | cs.dart:1375（`_parseBorderCollapse` cs.dart:4440） | ecs:2539（表格测量与拼接） | 完整 | `collapse` 半边框近似，未逐边求交 |
+| 73 | `border-spacing` | cs.dart:1402（`_parseBorderSpacing` cs.dart:4447） | ecs:2540、table_layout.dart:369 | 完整 | collapse 模式下按 0 处理 |
+| 74 | `filter` | cs.dart:1106（`_parseFilters` cs.dart:3030） | pr:760（`_withEffects`） | 完整 | 不支持 `url()` 滤镜；`backdrop-filter` 另见 D 组 |
+| 75 | `list-style-position` | cs.dart:1391 | ecs:3130、3361 | 完整 | inside/outside 已接入标记宽度 |
+| 76 | `content` | ecs:968（`_pseudoContent`） | ecs:3088-3093 | **部分** | 只取字符串与 `attr()`，`counter()`/`url()`/引号形式不支持 |
+| 77 | 逻辑属性 `margin-inline-start` 等 | property_aliases.dart:78-81 | margin 路径（cs.dart:2040 起） | 完整 | 横排 LTR 近似；RTL 会错边 |
+| 78 | `hyphens` | cs.dart:1143（`_parseHyphens` cs.dart:3522） | lb:563（`planSoftBreaks`）、pr:313（行尾连字符） | 完整 | 断点、行宽与行尾连字符都已绘制 |
+| 79 | `word-break` | cs.dart:1147（`_parseWordBreak` cs.dart:3532） | lb:563、lb:622 | 完整 | `keep-all`/`break-all` 已参与断点 |
+| 80 | `overflow-wrap` / `word-wrap` | cs.dart:1153（`_parseOverflowWrap` cs.dart:3542） | lb:562 | 完整 | 与 `word-break` 共用断点规划 |
+
+### 3.2 B 组汇总：只消费一部分的 25 条
 
 上表判定为「部分」的条目，按缺失性质归类：
 
-这 22 条与上表编号 4、7、19、21、22、29、31、36、37、38、39、43、44、53、54、55、56、58、61、66、67、68 一一对应，按缺失性质归为 5 类：
+这 25 条与上表编号 4、7、19、21、22、29、31、36、37、38、39、43、44、53、54、55、56、58、61、66、67、68、70、71、76 一一对应，按缺失性质归为 5 类：
 
 | 缺失性质 | 属性（对应编号） | 一句话后果 |
 | --- | --- | --- |
 | 值解析不全，值被丢后回退初始值 | `font-weight`(4)、`border-style`(19)、`border-radius`(21/22) | 加粗失效 / 该边边框整条消失 / 圆角变直角 |
 | 只实现一个或部分枚举成员 | `text-justify`(53)、`hanging-punctuation`(54)、`text-spacing-trim`(55)、`text-autospace`(56)、`text-emphasis-position`(58) | 声明了但落到默认分支 |
-| 消费点只覆盖一种布局上下文 | `vertical-align`(61)、`opacity`(66)、`box-shadow`(67)、`text-overflow`(68) | 行内上下标不扩行高 / 嵌套透明度不叠乘 / 阴影没模糊 / 非 ellipsis 不裁 |
-| 简写展开丢成员 | `font`(7)、`background`(37)、`list-style-type`(44) | `font: small-caps …` / `background: … fixed` 丢效果 / 自定义计数无解 |
+| 消费点只覆盖一种布局上下文 | `vertical-align`(61)、`opacity`(66)、`box-shadow`(67)、`text-overflow`(68)、`top`(70)、`left`(71) | 行内上下标不扩行高 / 嵌套透明度不叠乘 / 阴影没模糊 / 非 ellipsis 不裁 |
+| 简写展开丢成员 | `font`(7)、`background`(37)、`list-style-type`(44)、`content`(76) | `font: small-caps …` / `background: … fixed` 丢效果 / 自定义计数无解 |
 | 布局盒与绘制层近似 | `box-sizing`(29)、`display`(38)、`position`(39)、`background-image`(31)、`background-clip`(36)、`white-space`(43) | `border-box` 行宽超界 / `flex` 退化为块 / absolute 不定位 / 渐变丢失 / `pre` 挤成一行 |
 
-### 3.3 C 组：解析出字段但零消费（占位式实现，7 条）
+### 3.3 C 组：解析出字段但零消费（占位式实现，9 条）
 
 「解析位置」= 有类型化字段与解析函数；「消费位置」= 全库检索（排除 `lib/css/`）无任何读取点。
 
 | # | 属性 | 解析位置 | 字段 | 消费位置 | 判定 |
 | ---: | --- | --- | --- | --- | --- |
-| 70 | `top` | cs.dart:807（`_parseOffset` cs.dart:2545） | `ComputedStyle.top` cs.dart:1312 | **无**（`grep -rn "\.top\b"` 在 layout/paint 中只命中 `Rect.top`/`box.top`） | 零消费 |
-| 71 | `right` | cs.dart:814 | `ComputedStyle.right` cs.dart:1315 | **无**（`style.right` 0 命中） | 零消费 |
-| 72 | `bottom` | cs.dart:821 | `ComputedStyle.bottom` cs.dart:1318 | **无** | 零消费 |
-| 73 | `left` | cs.dart:828 | `ComputedStyle.left` cs.dart:1321 | **无** | 零消费 |
-| 74 | `border-collapse` | cs.dart:773（`_parseBorderCollapse` cs.dart:2507） | `ComputedStyle.borderCollapse` cs.dart:1288 | **无**（`.borderCollapse` 全库 0 命中） | 零消费 |
-| 75 | `border-spacing` | cs.dart:795（`_parseBorderSpacing` cs.dart:2514） | `ComputedStyle.borderSpacing` cs.dart:1291 | **无**（`.borderSpacing` 全库 0 命中） | 零消费 |
-| 76 | `initial-letter` | cs.dart:555（`_parseInitialLetter` cs.dart:2241） | `ComputedStyle.initialLetterLines` cs.dart:1222 | **无**（`.initialLetterLines` 除 css/ 外 0 命中） | 零消费 |
+| 81 | `right` | cs.dart:1420（`_parseOffset` cs.dart:4478） | `ComputedStyle.right` cs.dart:2081 | **无**（`style.right` 0 命中） | 零消费 |
+| 82 | `bottom` | cs.dart:1427 | `ComputedStyle.bottom` cs.dart:2084 | **无** | 零消费 |
+| 83 | `initial-letter` | cs.dart:1082（`_parseInitialLetter` cs.dart:4162） | `ComputedStyle.initialLetterLines` cs.dart:1915 | **无**（`.initialLetterLines` 除 css/ 外 0 命中） | 零消费 |
+| 84 | `transform` / `transform-origin` | cs.dart:1114、1118（`_parseTransforms` cs.dart:3223、`_parseTransformOrigin` cs.dart:3367） | `transforms` cs.dart:1939、`transformOriginX/Y` cs.dart:1942 | **无**（`.transforms` 0 命中） | 零消费 |
+| 85 | `columns` / `column-count` / `column-width` / `column-gap` / `column-rule` | cs.dart:1042（`_resolveColumns` cs.dart:3560） | `columnCount/Width/Gap/Rule` cs.dart:1972-1981 | **无**（四个字段在 layout/paint 0 命中） | 零消费 |
+| 86 | `writing-mode` | cs.dart:1124（`_parseWritingMode` cs.dart:3473） | `ComputedStyle.writingMode` cs.dart:1948 | **无**（`page_snapshot.dart:24` 的默认字符串不算消费） | 零消费 |
+| 87 | `text-orientation` | cs.dart:1130（`_parseTextOrientation` cs.dart:3483） | `ComputedStyle.textOrientation` cs.dart:1951 | **无** | 零消费 |
+| 88 | `direction` | cs.dart:1136（`_parseDirection` cs.dart:3494） | `ComputedStyle.direction` cs.dart:1954 | **无** | 零消费 |
+| 89 | `overflow`（含 `overflow-x`） | cs.dart:1163（`_parseOverflow` cs.dart:3503） | `ComputedStyle.overflow` cs.dart:1969 | **无**（绘制层尚未按此裁剪） | 零消费 |
 
 补充说明：
 
-- `top/right/bottom/left` 是**唯一一组「字段完整、语义明确、消费点为空」**的属性。`position:absolute` 的分支（bf:522、ecs:2355）只负责把元素摘出常规流，摘出后没有任何代码读 inset 去算位置，所以绝对定位元素最终落在由块流决定的位置上。这是当前最典型的「解析了但没消费」。
-- `border-collapse`/`border-spacing` 零消费的直接后果：`ua_stylesheet.dart:95` 声明 `table { border-spacing: 2px; border-collapse: separate }`，但绘制侧（pr:661 `_paintCellBorders`、ecs:2027/2099/2227 单元格拼接）根本不读这两个字段，表格边框恒按单元格各自四边画。真实书里 `border-collapse: collapse`（52 次 / 4 本）想消除的双线效果因此完全无效。
-- `initial-letter` 解析成行数（`_parseInitialLetter` 只认 `N` 或 `N M`），但没有任何绘制/布局代码读它 → 首字下沉章节完全无效果。
+- `top` / `left` 已从 C 组移入 A 组：章节源只在 `position: absolute/fixed` 时读它们，常规流与 `relative` 仍不定位。`right` / `bottom` 没有对应消费，留在 C 组。
+- `border-collapse` / `border-spacing` 已从 C 组移入 A 组：表格测量与单元格拼接已经读取，collapse 用半边框近似。
+- `transform`、`columns`、`writing-mode`、`text-orientation`、`direction`、`overflow` 在本轮工作树里完成「字段 + 解析」，但没有任何布局/绘制读取。它们比 D 组多走了一步，仍属占位式实现。
+- `overflow-x` 会并入 `overflow` 字段（cs.dart:1161），`overflow-y` 直接丢失；当前字段本身也没有消费点。
 
-### 3.4 D 组：连字段都没有，值被静默丢弃（40 条）
+### 3.4 D 组：连字段都没有，值被静默丢弃（27 条）
 
-这些属性在 CSS 里被 `Cascade._consider`（cascade.dart:446-469）按名字存入 `winners`，随后进入 `ComputedStyle.values`，但**没有对应类型化字段，也没有任何消费点**。`grep` 属性名在全库（排除 `ua_stylesheet.dart` 与 `property_aliases.dart`）0 命中。
+这些属性在 CSS 里被 `Cascade._consider`（cascade.dart:488）按名字存入 `winners`，随后进入 `ComputedStyle.values`，但**没有对应类型化字段，也没有任何消费点**。`grep` 属性名在全库（排除 `ua_stylesheet.dart` 与 `property_aliases.dart`）0 命中。
 
 | # | 属性 | 解析位置 | 消费位置 | 语料频次/书数 | 缺失后果 |
 | ---: | --- | --- | --- | --- | --- |
-| 77 | `transform` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 21 / 2 | `rotate`/`scale`/`translate` 封面、横幅、装饰线全部按未变换绘制 |
-| 78 | `border-image` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 11 / 3 | 图片边框（花纹分隔线、老式卡片）退化为 `border` 纯色或完全无边框 |
-| 79 | `writing-mode` | 别名层映射（property_aliases.dart:52-58） | 无（只有 `page_snapshot.dart:24` 的默认字符串 `'horizontal-tb'`） | 5 + 18 别名 / 3 | 竖排整章按横排渲染；`vertical-rl` 书（如 `test_corpus/cjk-vertical.epub`）完全错版 |
-| 80 | `text-orientation` | 别名层映射（property_aliases.dart:55、57） | 无（全库检索 0 命中） | 3 别名 / 2 | `upright`（直排标点/数字竖立）不生效 |
-| 81 | `columns` / `column-count` / `column-gap` / `column-rule` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 分栏排版不支持（分页阅读器里影响有限） |
-| 82 | `overflow` | 无（UA 表 `html, body { overflow: hidden }` 只是文本） | 无（全库检索 0 命中） | 25 / 4 | 溢出内容不裁剪、不产生滚动/裁切；`overflow:hidden` 无法用来裁掉装饰元素 |
-| 83 | `overflow-x` / `overflow-y` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 2 / 1 | 同上，按轴细分 |
-| 84 | `word-break` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 12 / 5 | `break-all` / `keep-all` 不生效：日文/长英文串不会按需求断行；`keep-all` 断错 CJK 换行点 |
-| 85 | `line-break` | 别名层映射（`duokan-line-break`/`webkit-line-break` → `line-break`） | 无（全库检索 0 命中） | 0（别名 6 处） | `strict`/`loose` 标点禁则严格度不生效，长标点序列断行点与 Chrome 不同 |
-| 86 | `font-variant` | 无（`font` 简写里的 `small-caps` 被显式丢弃，cs.dart:1793） | 无（全库检索 0 命中） | 7 / 1 | `small-caps` 小体大写字母全部按普通字重渲染 |
-| 87 | `hyphens` | 别名层映射（`epub-hyphens`/`webkit-hyphens` → `hyphens`） | 无（全库检索 0 命中） | 1 / 1 | 西文断字不生效，长词产生大段空隙 |
-| 88 | `quotes` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | `q` 元素与 `content: open-quote` 无引号（UA 表未给 `q` 规则） |
-| 89 | `counter-reset` / `counter-increment` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 自动编号目录、图表序号失效 |
-| 90 | `content` | 仅伪元素文本提取（ecs:750-767） | 部分（只取带引号或 `attr()` 的字面量） | 5 / 3 | `counter()`/`url()`/`open-quote` 形式全丢；`::before` 装饰内容常见于老式排版书 |
-| 91 | `object-fit` / `object-position` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 1 / 1 | 图片按 `contain` 拉伸近似（ecs `_resolveImageDisplaySize`），`cover`/`fill`/`none` 无法表达，插图裁切方式错 |
-| 92 | `filter` / `backdrop-filter` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 / 3 | 灰度/模糊/反色装饰失效（`-webkit-filter` 常见于「纸质底纹」书） |
-| 93 | `mix-blend-mode` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 叠加模式失效 |
-| 94 | `z-index` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 4 / 2 | 绝对定位元素的层叠顺序退化为遍历顺序 |
-| 95 | `background-attachment` | 无（`background` 简写也不解析，cs.dart:1922） | 无（全库检索 0 命中） | **218 / 3** | `fixed` 底纹按 scroll 处理（分页阅读器里合理降级，但需显式记录） |
-| 96 | `justify-content` / `align-items` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 14 / 13 | `display:flex` 容器退化为块，居中/两端排布失效（封面页、作者卡片） |
-| 97 | `orphans` / `widows` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 7 / 7 | 页底/页首孤行控制失效（分页器只做 `break-*`） |
-| 98 | `direction` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | RTL 段落不支持（中文书影响为 0） |
-| 99 | `unicode-bidi` | UA 表有（`bdi`/`bdo`），引擎未消费 | 无（全库检索 0 命中） | 0 | `bdo` 覆写不生效 |
-| 100 | `ruby-align` | 继承表有（cascade.dart:72） | 无（全库检索 0 命中） | 4 / 3 | 注音对齐方式不生效（注音本身由 `rt` 字号 50% 近似，ua_stylesheet.dart:140） |
-| 101 | `ruby-position` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 注音恒在上方 |
-| 102 | `list-style-position` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 2 / 1 | `inside` 标记不进入文本流，标记恒悬挂 |
-| 103 | `list-style-image` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 图片列表标记不支持 |
-| 104 | `tab-size` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | `pre` 里的制表符按固定宽近似 |
-| 105 | `text-combine-upright` | 别名层映射（`epub-text-combine`/`webkit-text-combine`/`ms-text-combine-horizontal`） | 无（全库检索 0 命中） | 4 别名 / 1 | 竖排「縦中横」（年份/数字横倒转）不支持 |
-| 106 | `font-feature-settings` / `font-kerning` / `font-variant-ligatures` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | OpenType 特性无法开启（中文书影响小） |
-| 107 | `font-size-adjust` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 字体 x-height 补偿不支持 |
-| 108 | `overflow-wrap` / `word-wrap` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 1 / 3 | 长 URL 溢出块宽 |
-| 109 | `outline` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 焦点框（阅读器无交互，影响 0） |
-| 110 | `cursor` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 3 / 2 | 指针形状（阅读器无交互，影响 0） |
-| 111 | `user-select` / `resize` / `will-change` / `contain` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 1 / 0 | 交互与渲染提示（阅读器无影响） |
-| 112 | `scrollbar-width` / `-ms-overflow-style` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 2 / 1 | 无滚动条（分页阅读器无影响） |
-| 113 | `box-decoration-break` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 1 / 1 | 跨页切片时边框/圆角/背景不重复，语义上接近当前「跨页不重复投影」的取舍 |
-| 114 | `caption-side` / `empty-cells` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 表格标题位置与空单元格边框 |
-| 115 | `aspect-ratio` | 无（值仅存 `values`，cascade.dart:446-469） | 无（全库检索 0 命中） | 0 | 图片容器比例约束 |
-| 116 | 逻辑属性 `margin-inline-start` 等 | 别名层映射到 `margin-left`（property_aliases.dart:72-75） | 由 `margin` 路径消费 | 1 / 1 | 已通过别名近似（横排 LTR 假设下正确） |
+| 90 | `border-image` | 无（值仅存 `values`） | 无 | 11 / 3 | 图片边框（花纹分隔线、老式卡片）退化为 `border` 纯色或完全无边框 |
+| 91 | `line-break` | 别名层映射（property_aliases.dart:47-48） | 无（全库检索 0 命中） | 0（别名 6 处） | `strict`/`loose` 标点禁则严格度不生效 |
+| 92 | `font-variant` | 无（`font` 简写里的 `small-caps` 被显式丢弃，cs.dart:2647） | 无 | 7 / 1 | `small-caps` 小体大写字母全部按普通字重渲染 |
+| 93 | `quotes` | 无（值仅存 `values`） | 无 | 0 | `q` 元素与 `content: open-quote` 无引号 |
+| 94 | `counter-reset` / `counter-increment` | 无（值仅存 `values`） | 无 | 0 | 自动编号目录、图表序号失效 |
+| 95 | `object-fit` / `object-position` | 无（值仅存 `values`） | 无 | 1 / 1 | 图片按 `contain` 拉伸近似，`cover`/`fill`/`none` 无法表达 |
+| 96 | `backdrop-filter` | 无（值仅存 `values`） | 无 | 3 / 2 | 背景模糊失效；`filter` 已实现，但 backdrop 是另一条绘制路径 |
+| 97 | `mix-blend-mode` | 无（值仅存 `values`） | 无 | 0 | 叠加模式失效 |
+| 98 | `z-index` | 无（值仅存 `values`） | 无 | 4 / 2 | 绝对定位元素的层叠顺序退化为遍历顺序 |
+| 99 | `background-attachment` | 无（`background` 简写也不解析，cs.dart:3866 注释） | 无（全库检索 0 命中） | **218 / 3** | `fixed` 底纹按 scroll 处理（分页阅读器里合理降级，但需显式记录） |
+| 100 | `justify-content` / `align-items` | 无（值仅存 `values`） | 无 | 14 / 13 | `display:flex` 容器退化为块，居中/两端排布失效 |
+| 101 | `orphans` / `widows` | 无（值仅存 `values`） | 无 | 7 / 7 | 页底/页首孤行控制失效 |
+| 102 | `unicode-bidi` | UA 表有（`bdi`/`bdo`），引擎未消费 | 无 | 0 | `bdo` 覆写不生效 |
+| 103 | `ruby-align` | 继承表有（cascade.dart:72） | 无 | 4 / 3 | 注音对齐方式不生效 |
+| 104 | `ruby-position` | 无（值仅存 `values`） | 无 | 0 | 注音恒在上方 |
+| 105 | `list-style-image` | 无（值仅存 `values`） | 无 | 0 | 图片列表标记不支持 |
+| 106 | `tab-size` | 无（值仅存 `values`） | 无 | 0 | `pre` 里的制表符按固定宽近似 |
+| 107 | `text-combine-upright` | 别名层映射（property_aliases.dart:73-75） | 无（全库检索 0 命中） | 4 别名 / 1 | 竖排「縦中横」（年份/数字横倒转）不支持 |
+| 108 | `font-feature-settings` / `font-kerning` / `font-variant-ligatures` | 无（值仅存 `values`） | 无 | 0 | OpenType 特性无法开启 |
+| 109 | `font-size-adjust` | 无（值仅存 `values`） | 无 | 0 | 字体 x-height 补偿不支持 |
+| 110 | `outline` | 无（值仅存 `values`） | 无 | 0 | 焦点框（阅读器无交互，影响 0） |
+| 111 | `cursor` | 无（值仅存 `values`） | 无 | 3 / 2 | 指针形状（阅读器无交互，影响 0） |
+| 112 | `user-select` / `resize` / `will-change` / `contain` | 无（值仅存 `values`） | 无 | 1 / 0 | 交互与渲染提示（阅读器无影响） |
+| 113 | `scrollbar-width` / `-ms-overflow-style` | 无（值仅存 `values`） | 无 | 2 / 1 | 无滚动条（分页阅读器无影响） |
+| 114 | `box-decoration-break` | 无（值仅存 `values`） | 无 | 1 / 1 | 跨页切片时边框/圆角/背景不重复，语义上接近当前取舍 |
+| 115 | `caption-side` / `empty-cells` | 无（值仅存 `values`） | 无 | 0 | 表格标题位置与空单元格边框 |
+| 116 | `aspect-ratio` | 无（值仅存 `values`） | 无 | 0 | 图片容器比例约束 |
 
-> 说明：D 组第 116 行是**正向案例**——逻辑属性通过别名映射到物理属性后确实生效。这也说明别名层本身是有效手段，问题只在于「映射目标是否有人消费」。
+> 本轮从 D 组移出的条目：`transform`、`columns`、`writing-mode`、`text-orientation`、`direction`、`overflow`/`overflow-x` 移入 C 组（字段已解析、消费为零）；`hyphens`、`word-break`、`overflow-wrap`/`word-wrap` 移入 A 组（断点与行尾连字符已消费）；`filter` 移入 A 组；`list-style-position`、`content`、逻辑属性移入 A 组；`backdrop-filter` 从原 `filter` 行拆出，留在 D 组。
 
----
+### 3.5 本轮 C/D 变更摘要
+
+| 变更 | 属性 | 旧分类 | 新分类 | 证据 |
+| --- | --- | --- | --- | --- |
+| 移入 A | `top` / `left` | C | A（部分） | ecs:3284、3108 只在 absolute/fixed 读 |
+| 移入 A | `border-collapse` / `border-spacing` | C | A | ecs:2539、2368 |
+| 移入 A | `filter` | D | A | pr:760 `_withEffects` |
+| 移入 A | `list-style-position` | D | A | ecs:3130、3361 |
+| 移入 A | `content` | D | A（部分） | ecs:968、3088 |
+| 移入 A | 逻辑属性 | D | A | property_aliases.dart:78-81 |
+| A 内更新 | `text-overflow` | A（部分） | A（部分，省略号截断进断行器） | lb:1128 `_applyTextOverflow`、pr:1261 |
+| 移入 A | `hyphens` | D | A | lb:563、609、pr:313 |
+| 移入 A | `word-break` | D | A | lb:563、622 |
+| 移入 A | `overflow-wrap` / `word-wrap` | D | A | lb:562 |
+| 移入 C | `transform` | D | C | cs.dart:1939、3223，零消费 |
+| 移入 C | `columns` 组 | D | C | cs.dart:1972-1981、3560，零消费 |
+| 移入 C | `writing-mode` | D | C | cs.dart:1948、3473，零消费 |
+| 移入 C | `text-orientation` | D | C | cs.dart:1951、3483，零消费 |
+| 移入 C | `direction` | D | C | cs.dart:1954、3494，零消费 |
+| 移入 C | `overflow` / `overflow-x` | D | C | cs.dart:1969、3503，零消费 |
+| 保持 D | `backdrop-filter` | D（原与 filter 同行） | D | 无字段；filter 已独立实现 |
 
 ## 4. 占位式实现专项（C 组 + 关键 D 组）
+
+> 下列条目录自审计基线，已修复的保留作对照；当前分类以第 3.3、3.4、3.5 节为准。
 
 ### 4.1 `top` / `right` / `bottom` / `left`（inset）
 
 - 浏览器语义：绝对定位盒相对包含块四边的偏移；`absolute` 下决定位置，`relative` 下做相对位移。
-- 引擎现状：`_parseOffset`（cs.dart:2545）把值解析成 `CssLength` 存进 `top/right/bottom/left` 四个字段；`resolveFlowBranch`（bf:522）把 `position:absolute/fixed` 摘成 `AbsoluteFlowBlock`，但**没有任何代码读这四个字段**。
-- 缺失子特性：全部。包括 `position:relative` 的偏移、`sticky`、`inset` 简写（`inset: 0`）。
+- 引擎现状：`_parseOffset`（cs.dart:4478）把值解析成 `CssLength` 存进四个字段。章节源在 `position: absolute/fixed` 时读 `top`（ecs:3284）与 `left`（ecs:3287），换算成覆盖切片的页内坐标；`right`/`bottom` 仍无消费。
+- 缺失子特性：`right`/`bottom`、`position: relative` 的偏移、`sticky`、`inset` 简写（`inset: 0`）。
 - 影响示例：`tool/css_parity/cases/09-box-model.json` 可加一组 `position:absolute; top:0; left:0` 的徽标块；真实书里封面页「书名贴在图片左上角」、章节装饰线全部错位。
 - 实现难度：**M**。需要给 `AbsoluteFlowBlock` 引入包含块概念，并在 paginator 定页后换算 y。
 - 建议文件：`packages/reader_core/lib/layout/block_flow.dart`（`AbsoluteFlowBlock`）、`packages/reader_core/lib/layout/paginator.dart`；消费入口在 `apps/reader_mobile/lib/reader/epub_chapter_source.dart:2252`。
@@ -315,41 +341,39 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 ### 4.2 `border-collapse` / `border-spacing`
 
 - 浏览器语义：`collapse` 合并相邻单元格边框为单线；`separate` 保留间距（`border-spacing`）。
-- 引擎现状：字段齐备（cs.dart:773/795），解析函数齐备（cs.dart:2507/2514），**零消费**。绘制侧 `_paintCellBorders`（pr:661）按单元格各自四边画，`ecs` 拼单元格时也不读间距。
-- 缺失子特性：`collapse` 的半宽边框分配、`border-spacing` 的两值（横/纵）形式。
-- 影响示例：真实语料 `border-collapse` 52 次 / 4 本、`border-spacing` 19 次 / 1 本；`tool/css_parity/cases/12-table.json` 已暴露「表格只能导出 1 个块」，补上 collapse 后可加双线对比行。
-- 实现难度：**M**（collapse 需要相邻边取 max 半宽；`separate` 只需把 spacing 加到单元格间距，属 S）。
+- 引擎现状：字段与解析齐备（cs.dart:2051/2054、4440/4447）。章节源在表格测量与拼接时读 `borderCollapse`（ecs:2539）与 `borderSpacing`（ecs:2540），collapse 用半边框近似，spacing 进入 `table_layout.dart`。
+- 缺失子特性：collapse 的相邻边精确求交（当前半宽近似）、`border-spacing` 的两值（横/纵）完整语义。
+- 影响示例：真实语料 `border-collapse` 52 次 / 4 本、`border-spacing` 19 次 / 1 本；双线已消除，边框宽度与 Chrome 仍有小差。
+- 实现难度：剩余收口 **S**（精确半宽分配）。
 - 建议文件：`packages/reader_core/lib/paint/page_renderer.dart`（`_paintCellBorders`）、`packages/reader_core/lib/layout/table_layout.dart`。
 
-### 4.3 `font-weight: bolder / lighter`（"解析了但解析失败"型占位）
+### 4.3 `font-weight: bolder / lighter`（已修复）
 
 - 浏览器语义：相对父元素字重上/下一档（`bolder` 从 400 → 700）。
-- 引擎现状：`_parseFontWeight`（cs.dart:2120）只有 `normal`/`bold`/数字分支，`bolder`/`lighter` 落到 `int.tryParse` 返回 null。构造函数的回退是 `parent?.fontWeight ?? 400`（cs.dart:525-528），于是 `bolder` 等于「不变」。
-- **实测验证**（临时探针，未落库）：`parent=400 bolder=400`；`font: bolder 16px serif` 结果 `weight=400`。
-- 影响：`ua_stylesheet.dart:111` 的 `b, strong { font-weight: bolder }` 完全失效 → **`<b>`/`<strong>` 不加粗**。这是本次审计中影响面最大的一条：`tool/css_parity/cases/07-font-weight-style.json` 只测了 300/700/900 数值字重，没有覆盖 `b/strong`。
-- 实现难度：**S**（补 `bolder`/`lighter` 的相对映射分支）。
-- 建议文件：`packages/reader_core/lib/css/computed_style.dart`（`_parseFontWeight` cs.dart:2120 + 构造分支 cs.dart:525）；验证用例加进 `tool/css_parity/cases/07-font-weight-style.json`。
+- 引擎现状：已修复。`_parseFontWeight`（cs.dart:4031 起）按父级映射 `bolder`/`lighter`，`<b>/<strong>` 正常加粗。
+- 剩余边界：1000 以上没有更高档，非整百字重按规范中点映射。
+- 验证：`tool/css_parity/cases/07-font-weight-style.json` 已覆盖 `b/strong`。
 
 ### 4.4 `initial-letter`（首字下沉）
 
 - 浏览器语义：段首字放大并占据 N 行。
-- 引擎现状：`_parseInitialLetter`（cs.dart:2241）解析出行数，字段 `initialLetterLines` 存在，**零消费**。
-- 影响示例：中文古籍/文艺类书常见首字下沉；`ecs` 里已有 `_firstLetterRun`（ecs:778）做首字提取，但没有放大逻辑，可复用该入口。
+- 引擎现状：`_parseInitialLetter`（cs.dart:4162）解析出行数，字段 `initialLetterLines` 存在（cs.dart:1915），**零消费**。
+- 影响示例：中文古籍/文艺类书常见首字下沉；`ecs` 里已有 `_firstLetterRun`（ecs:1034）做首字提取，但没有放大逻辑，可复用该入口。
 - 实现难度：**M**（要参与首行行高计算）。
 - 建议文件：`packages/reader_core/lib/layout/line_breaker.dart`（首行行盒）、`apps/reader_mobile/lib/reader/epub_chapter_source.dart`（`_firstLetterRun`）。
 
 ### 4.5 `writing-mode`（含 6 条私有别名）
 
 - 浏览器语义：`vertical-rl` 竖排、列方向从右到左、标点与数字竖排变形。
-- 引擎现状：别名层把 `duokan-writing-mode`、`epub-writing-mode`、`webkit-writing-mode` 等统一成 `writing-mode`（property_aliases.dart:52-58），继承表里也列了它（cascade.dart:66），但**没有任何字段与消费点**；`bf:519` 的注释直接写着「竖排（writing-mode）分支尚未接入，统一按水平排版处理」。
+- 引擎现状：别名层把多看族统一成 `writing-mode`（property_aliases.dart:56-62），工作树已新增 `CssWritingMode` 字段与解析（cs.dart:1948、3473），但**布局/绘制没有消费点**；`bf:519` 仍写着「竖排分支尚未接入」。
 - 影响示例：`test_corpus/cjk-vertical.epub` 是按竖排声明的书；真实语料 5 次 + 18 条私有别名 / 3 本。
-- 实现难度：**L**（竖排要重做行盒、标点旋转、注音位置、分页方向）。
-- 建议文件：`packages/reader_core/lib/layout/line_breaker.dart`、`packages/reader_core/lib/layout/paginator.dart`、`packages/reader_core/lib/css/computed_style.dart`（新增 `CssWritingMode` 字段）。
+- 实现难度：**L**（竖排要重做列布局、标点旋转、注音位置、分页方向）。最小可行方案见 [`docs/duokan-private-css.md`](duokan-private-css.md) 第 7 节。
+- 建议文件：`paginator.dart`、`line_breaker.dart`、`page_renderer.dart`、`epub_chapter_source.dart`；字段已在 `computed_style.dart`。
 
 ### 4.6 `overflow`（含 UA 表的 `hidden`）
 
 - 浏览器语义：内容超出盒时裁剪（hidden）/滚动（auto/scroll）。
-- 引擎现状：`ua_stylesheet.dart:33` 声明 `html, body { overflow: hidden }`，但这只是文本，`overflow` 无字段、无消费。
+- 引擎现状：工作树已新增 `CssOverflow` 字段与解析（cs.dart:1969、3503），但绘制层没有按它裁剪；`ua_stylesheet.dart:33` 的 `overflow: hidden` 仍只是文本。
 - 影响示例：作者用 `overflow:hidden` 裁掉绝对定位装饰（扫码/水印/花纹）的老式排版书会露出溢出的图；`tool/css_parity/cases/14-float-overflow.json` 已存在该主题用例。
 - 实现难度：**S**（块级 `clipRect`）。
 - 建议文件：`packages/reader_core/lib/paint/page_renderer.dart`（块绘制前 `canvas.clipRect`）。
@@ -357,7 +381,7 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 ### 4.7 `transform`
 
 - 浏览器语义：2D/3D 变换。
-- 引擎现状：无字段、无消费（`'transform'` 全库 0 命中）。
+- 引擎现状：工作树已新增 `CssTransform` 列表与 `transform-origin` 字段（cs.dart:1939/1942、3223/3367），但绘制层没有读取，仍无视觉效果。
 - 影响示例：书封/横幅图 `transform: scale(1.1)` 或 `rotate(-90deg)` 的装饰；21 次 / 2 本。
 - 实现难度：**M**（要落到 `canvas.transform`，且与分页切片的坐标变换交互）。
 - 建议文件：`packages/reader_core/lib/paint/page_renderer.dart`；解析新增于 `packages/reader_core/lib/css/computed_style.dart`。
@@ -369,11 +393,11 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 - 实现难度：**M**（九宫格切片 + `ImageShader`）。
 - 建议文件：`packages/reader_core/lib/paint/page_renderer.dart`（`_paintBorders` pr:1043 旁路）。
 
-### 4.9 `box-shadow` 的 blur / spread / inset
+### 4.9 `box-shadow` 的 blur / spread / inset（已修复）
 
-- 引擎现状：`CssBoxShadow` 只有 offset + color（cs.dart:273-296，注释明确「blur 与 spread 解析后不消费、inset 不支持」），`_paintBoxShadow`（pr:544）只 `drawRect`。
-- 影响示例：真实书 68 次 / 4 本，卡片阴影全变成硬边色块；`tool/css_parity/cases/13-shadow-opacity.json` 可扩展。
-- 实现难度：**S**（`canvas.drawShadow` 或 `MaskFilter.blur`）。
+- 引擎现状：已支持 offset/blur/spread/inset（cs.dart:739 起），`_paintBoxShadow` 与 `_paintInsetBoxShadow`（pr:993/1000 起）分别绘制外阴影与内阴影。
+- 剩余边界：多层阴影只取第一个；跨页切片不重复投影。
+- 实现难度：剩余收口 **S**。
 - 建议文件：`packages/reader_core/lib/paint/page_renderer.dart`。
 
 ### 4.10 `vertical-align` 的行内一侧
@@ -392,26 +416,43 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 
 | 排名 | 属性 / 缺陷 | 影响 | 证据（频次/书数 或 代码事实） | 成本 | 落点文件 |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | `font-weight: bolder/lighter` 不解析 → `<b>/<strong>` 不加粗 | P0 | UA 表 `ua_stylesheet.dart:111` 依赖；实测 `bolder=400` | S | `packages/reader_core/lib/css/computed_style.dart:2120`（`_parseFontWeight`）+ 用例 `tool/css_parity/cases/07-font-weight-style.json` |
-| 2 | `top/right/bottom/left` 零消费 → absolute 定位只有「摘出流」没有「定位」 | P0 | 字段齐备、`style.top` 全库 0 命中 | M | `packages/reader_core/lib/layout/block_flow.dart:521`（`AbsoluteFlowBlock`）、`packages/reader_core/lib/layout/paginator.dart` |
-| 3 | `border-collapse` / `border-spacing` 零消费 → 表格恒双线 | P0 | 字段齐备、`.borderCollapse` 0 命中；语料 52/4 本 + 19/1 本 | M | `packages/reader_core/lib/paint/page_renderer.dart:661`（`_paintCellBorders`）、`packages/reader_core/lib/layout/table_layout.dart` |
+| 1 | `font-weight: bolder/lighter` 不解析 → `<b>/<strong>` 不加粗 | P0（已修复） | `_parseFontWeight` 已按父级映射；用例 `07` 覆盖 | S | `packages/reader_core/lib/css/computed_style.dart:2120`（`_parseFontWeight`）+ 用例 `tool/css_parity/cases/07-font-weight-style.json` |
+| 2 | `top/right/bottom/left` 零消费 → absolute 定位只有「摘出流」没有「定位」 | P0（top/left 已部分修复） | ecs:3284/3287 只读 top/left；right/bottom 仍零 | M | `packages/reader_core/lib/layout/block_flow.dart:521`（`AbsoluteFlowBlock`）、`packages/reader_core/lib/layout/paginator.dart` |
+| 3 | `border-collapse` / `border-spacing` 零消费 → 表格恒双线 | P0（已修复，精度待收口） | ecs:2539/2540 已消费；语料 52/4 本 + 19/1 本 | M | `packages/reader_core/lib/paint/page_renderer.dart:661`（`_paintCellBorders`）、`packages/reader_core/lib/layout/table_layout.dart` |
 | 4 | `white-space: pre/pre-wrap` 换行未转硬断行 | P0 | README 待收敛 #2；语料 54/3 本 | S | `packages/reader_core/lib/layout/line_breaker.dart:373` |
 | 5 | `box-sizing: border-box` 行宽未扣 padding/border | P1 | README 待收敛 #5；语料 20/2 本 | S | `packages/reader_core/lib/layout/box_model.dart:41`、`packages/reader_core/lib/layout/line_breaker.dart:338`（`effectiveWidth`） |
 | 6 | `border-style` 的 `groove/ridge/inset/outset` 解析为 null → 边框整条消失 | P1 | `_parseBorderStyle` `cs.dart:1722` 只有 5 个分支；语料 `border-style` 280/5 本 | S | `packages/reader_core/lib/css/computed_style.dart:1722`、降级映射至 `packages/reader_core/lib/paint/page_renderer.dart:1139` |
 | 7 | `display: flex` 退化为 block，`justify-content`/`align-items` 无效 | P1 | `resolveFlowBranch` `bf:528` 无 flex 分支；语料 221/5 + 14/4 + 13/3 | L | `packages/reader_core/lib/layout/block_flow.dart:528`（新增 flex 分派） |
 | 8 | `border-radius` 只认单值、无椭圆/百分比 | P1 | `cs.dart:1676` 只取 `tokens` 循环；语料 560/6 本（最高频的「部分实现」） | M | `packages/reader_core/lib/css/computed_style.dart:1676`、`packages/reader_core/lib/paint/page_renderer.dart:935` |
-| 9 | `box-shadow` 无 blur/spread/inset | P1 | `cs.dart:273` 注释（「blur 与 spread 解析后不消费」）；语料 68/4 本 | S | `packages/reader_core/lib/paint/page_renderer.dart:544`（`_paintBoxShadow`） |
-| 10 | `overflow` 完全未处理（含 UA `overflow:hidden`） | P1 | 语料 25/4 本；`ua_stylesheet.dart:33` 声明无效 | S | `packages/reader_core/lib/paint/page_renderer.dart`（块绘制前 `clipRect`） |
+| 9 | `box-shadow` 无 blur/spread/inset | P1（已修复） | `_parseBoxShadow` 与 `_paintInsetBoxShadow` 已覆盖；多层阴影仍只取第一个 | S | `packages/reader_core/lib/paint/page_renderer.dart:544`（`_paintBoxShadow`） |
+| 10 | `overflow` 完全未处理（含 UA `overflow:hidden`） | P1（字段已解析、零消费） | 语料 25/4 本；cs.dart:1969 有字段，绘制未裁剪 | S | `packages/reader_core/lib/paint/page_renderer.dart`（块绘制前 `clipRect`） |
 | 11 | `vertical-align` 行内不扩行高（sup/sub/text-top） | P1 | README 待收敛 #3；语料 319/7 本 | M | `packages/reader_core/lib/layout/line_breaker.dart`（行高合成） |
-| 12 | `writing-mode` 无字段无消费（含 6 条私有别名） | P1（竖排书为 P0） | `bf:519` 注释「尚未接入」；语料 5 + 18 别名 / 3 本 | L | `packages/reader_core/lib/css/computed_style.dart`（新增字段）、`packages/reader_core/lib/layout/line_breaker.dart` |
-| 13 | `transform` 完全未处理 | P1 | 语料 21/2 本 | M | `packages/reader_core/lib/paint/page_renderer.dart` |
-| 14 | `word-break`（`break-all`/`keep-all`）未处理 | P1 | 语料 12/5 本 | S | `packages/reader_core/lib/layout/line_breaker.dart`（断行候选点） |
+| 12 | `writing-mode` 无字段无消费（含 6 条私有别名） | P1（竖排书为 P0；字段已解析） | `bf:519` 注释「尚未接入」；语料 5 + 18 别名 / 3 本 | L | `packages/reader_core/lib/css/computed_style.dart`（新增字段）、`packages/reader_core/lib/layout/line_breaker.dart` |
+| 13 | `transform` 完全未处理 | P1（字段已解析、零消费） | 语料 21/2 本 | M | `packages/reader_core/lib/paint/page_renderer.dart` |
+| 14 | `word-break`（`break-all`/`keep-all`）未处理 | P1（已消费） | 语料 12/5 本 | S | `packages/reader_core/lib/layout/line_breaker.dart`（断行候选点） |
 | 15 | `background-attachment` 未处理（简写里也丢） | P2（可显式声明不支持） | 语料 **218/3 本**（最高频缺失项） | S | `packages/reader_core/lib/css/computed_style.dart:1922`（`_parseBackgroundShorthand`）+ 文档化降级 |
 | 16 | `border-image` 未处理 | P1 | 语料 11/3 本 | M | `packages/reader_core/lib/paint/page_renderer.dart:1043`（`_paintBorders` 旁路） |
 | 17 | `initial-letter` 零消费（首字下沉） | P2 | 字段齐备、`.initialLetterLines` 0 命中 | M | `packages/reader_core/lib/layout/line_breaker.dart`、`apps/reader_mobile/lib/reader/epub_chapter_source.dart:676`（`_firstLetterRun`） |
 | 18 | `background-clip: text` 降级 + `duokan-text-fill` 渐变文字退化为纯色 | P2 | `pr:978` 注释；别名 `duokan-text-fill` 取首色标（property_aliases.dart:25） | M | `packages/reader_core/lib/paint/page_renderer.dart:980` |
 | 19 | `font-variant: small-caps` 丢弃（简写内也丢） | P2 | `cs.dart:1793` 显式忽略；语料 7/1 本 | M（需小型大写合成） | `packages/reader_core/lib/css/computed_style.dart:1793`（`small-caps` 丢弃分支）、`packages/reader_core/lib/layout/line_breaker.dart:1218`（`textStyleFor`） |
 | 20 | `orphans`/`widows` 未处理 | P2 | 语料 7/7 各 1 本 | M | `packages/reader_core/lib/layout/paginator.dart`（分页决策） |
+
+本轮状态刷新（按 `abc6ed1` + 未提交改动）：
+
+| 排名 | 当前状态 |
+| ---: | --- |
+| 1 | 已修复：`bolder`/`lighter` 按父级映射，`b/strong` 正常加粗 |
+| 2 | 部分修复：`top`/`left` 在 absolute/fixed 下生效；`right`/`bottom` 仍在 C 组 |
+| 3 | 已修复：`border-collapse`/`border-spacing` 进入表格测量与拼接，collapse 用半边框近似 |
+| 6 | 部分降级：`groove/ridge/inset/outset` 映射为 solid，不再整条消失，但与 Chrome 线型不同 |
+| 9 | 已修复：`box-shadow` 支持 blur/spread/inset，多层阴影仍只取第一个 |
+| 10 | 字段与解析已加，绘制仍未按 `overflow` 裁剪（C 组 #89） |
+| 12 | 字段与解析已加，布局/绘制仍不消费（C 组 #86） |
+| 13 | 字段与解析已加，绘制层仍不消费（C 组 #84） |
+| 14 | 已消费：`word-break` 进入断点规划（A 组 #79） |
+| 15 | 未变：`background-attachment` 仍无字段，按 scroll 降级 |
+| 17 | 未变：`initial-letter` 字段仍零消费（C 组 #83） |
+| 18 | 未变：`duokan-text-fill` 渐变仍取首色 |
 
 补充两条「低成本高确定性」的候补，若排期允许应与 Top 5 合并处理：
 
@@ -422,17 +463,17 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 
 ## 6. 别名层「伪支持」风险（必须先处理）
 
-`packages/reader_core/lib/css/property_aliases.dart` 把大量私有属性重命名到标准属性。审计发现**至少 5 个映射目标本身零消费**，等于把「明确不支持」变成「看起来支持」：
+`packages/reader_core/lib/css/property_aliases.dart` 把大量私有属性重命名到标准属性。审计发现**4 个映射目标本身零消费**，等于把「明确不支持」变成「看起来支持」：
 
 | 别名（含当前工作树新增） | 映射目标 | 目标是否有消费点 |
 | --- | --- | --- |
-| `duokan-line-break` / `webkit-line-break` | `line-break` | **否** |
-| `epub-hyphens` / `webkit-hyphens` | `hyphens` | **否** |
-| `epub-text-combine` / `webkit-text-combine` / `ms-text-combine-horizontal` | `text-combine-upright` | **否** |
-| `duokan-text-orientation` / `epub-text-orientation` | `text-orientation` | **否** |
-| `duokan-writing-mode` / `epub-writing-mode` / `webkit-writing-mode` / `duokan-block-progression` / `duokan-writing-orientation` | `writing-mode` | **否** |
+| `duokan-line-break` / `webkit-line-break` | `line-break` | **否**（无字段） |
+| `epub-hyphens` / `webkit-hyphens` | `hyphens` | **是**（断点与行尾连字符都已消费） |
+| `epub-text-combine` / `webkit-text-combine` / `ms-text-combine-horizontal` | `text-combine-upright` | **否**（无字段） |
+| `duokan-text-orientation` / `epub-text-orientation` | `text-orientation` | **否**（有字段，布局不读） |
+| `duokan-writing-mode` / `epub-writing-mode` / `webkit-writing-mode` / `duokan-block-progression` / `duokan-writing-orientation` | `writing-mode` | **否**（有字段，布局不读） |
 
-风险：这些别名让「私有属性兼容」的覆盖率数字变好看，但排版结果没有任何变化；后续排查「为什么竖排没生效」时会先怀疑别名，实际卡在消费点。建议给每个「别名目标」补一条消费点断言（或至少在该文件注释里标注「目标属性当前零消费」），避免继续扩大伪支持面。
+风险：这些别名让「私有属性兼容」的覆盖率数字变好看，但排版结果没有任何变化；后续排查「为什么竖排没生效」时会先怀疑别名，实际卡在消费点。竖排族已有字段，比纯别名好排查，但在消费点落地前仍是伪支持。建议给每个「别名目标」补一条消费点断言（或至少在该文件注释里标注「目标属性当前零消费」）。
 
 正向对照：`webkit-margin-start` → `margin-left`（property_aliases.dart:72-75）是**有效别名**的样板——目标属性有完整消费链，映射后立即生效。
 
@@ -440,13 +481,13 @@ grep -rnE "'transform'|\"transform\"|transform:" packages/reader_core/lib apps -
 
 ## 7. 与现有 parity 用例的对照
 
-审计期间 `tool/css_parity/cases/` 已从 14 个扩到 **43 个**（`01`–`43`），原计划的「新增用例」基本都已落地。对照结论：
+审计期间 `tool/css_parity/cases/` 已从 14 个扩到 **60 个**（`01`–`60`），原计划的「新增用例」基本都已落地。对照结论：
 
 | Top 20 条目 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
-| #1 `font-weight: bolder` / `<b>/<strong>` | `07-font-weight-style.json` | **未覆盖**：只有 300/700/900 数值字重 + italic + 字号，没有相对字重，也没有 `<b>/<strong>` |
+| #1 `font-weight: bolder` / `<b>/<strong>` | `07-font-weight-style.json` | **已覆盖**：用例含 `bolder`、`<b>`、`<strong>`，可作回归 |
 | #2 inset / `position:absolute` / `z-index` | `09-box-model.json`（只有普通盒与 `box-sizing`） | **未覆盖**：无绝对定位、无 inset、无 z-index |
-| #3 `border-collapse` / `border-spacing` | `12-table.json`（已用 `border-collapse: collapse`）、`32-table-colspan-rowspan.json`、`33-table-layout-fixed.json`、`43-multipage-table.json` | **已覆盖**——用例存在但引擎必然不符（字段零消费），可直接作为回归靶子 |
+| #3 `border-collapse` / `border-spacing` | `12-table.json`、`32-table-colspan-rowspan.json`、`33-table-layout-fixed.json`、`43-multipage-table.json` | **已覆盖**：字段已消费，双线消除，剩余半宽精度差异可继续对照 |
 | #4 `white-space: pre/pre-wrap` | `06-white-space.json`（`pre`/`nowrap`/`pre-wrap` 三态）、`40-text-overflow.json` | **已覆盖** |
 | #5 `box-sizing` | `09-box-model.json`（`.bb` 行）、`21-box-sizing.json`、`23-percent-padding-margin.json` | **已覆盖** |
 | #6 `border-style` 全枚举 | `25-border-style-all.json` | **已覆盖**（`groove/ridge/inset/outset` 应有对比行） |
@@ -549,5 +590,5 @@ done
 - **只做静态审计。** 除 §4.3 的 `bolder` 结论用一次性探针实测（`flutter test /tmp/...`，未落库、未改仓库）外，其余判定均来自源码阅读 + 全库检索。布局的实际数值偏差应以 `tool/css_parity` 的 `report.md` 为准。
 - **未覆盖 `@font-face` 描述符、`@supports`、`@page`、`@charset` 等 at-rule。** 它们不属于「CSS 属性」范畴，见 `font_face.dart` / `parser.dart` 的独立审计。
 - **未覆盖伪元素（`::before`/`::after`/`::first-letter`/`::first-line`）的样式作用域。** `content` 只在 D 组列了一条边缘观察。
-- **行号会漂移。** 基线是 `HEAD 2daf15d` + 当时工作树；并发改动正在修改 `computed_style.dart` 与 `property_aliases.dart`。定位时优先用文中给出的函数名/分支锚点。
+- **行号会漂移。** 基线提交 `abc6ed1` + 未提交改动；并发改动仍在修改 `computed_style.dart`、`line_breaker.dart`。定位时优先用文中给出的函数名/分支锚点。
 - **语料规模有限。** 7 本真实书只能给出量级参考；`duokan-*` 私有属性在非多看渠道的书里可能完全不存在。
