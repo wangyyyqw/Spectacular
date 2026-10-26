@@ -86,20 +86,16 @@ class ReaderOverrides {
   /// 用于覆盖作者 CSS 的显式声明——阅读器设置属于更高的 origin
   /// （CSS §7.5 reader origin 高于 author），必须作用在级联结果之上；
   /// 只覆盖这三项，页边距与颜色走各自通道。
-  ComputedStyle applyTypography(
-    ComputedStyle base, {
-    double? containingWidth,
-  }) {
-    final declarations = typographyDeclarations();
-    if (declarations.isEmpty) {
+  ComputedStyle applyTypography(ComputedStyle base) {
+    if (fontSize == null && lineHeight == null && textAlign == null) {
       return base;
     }
-    return ComputedStyle(
-      declarations,
-      parent: base,
-      explicitProperties: declarations.keys.toSet(),
-      containingWidth: containingWidth ?? 0,
-      rootFontSize: base.fontSize,
+    // 只改排版属性：重建 ComputedStyle 会把背景/边框/内外边距这些
+    // 非继承属性归零，书籍面板会整块消失（P9-01）。
+    return base.withTypography(
+      fontSize: fontSize,
+      lineHeightFactor: lineHeight,
+      textAlign: textAlign,
     );
   }
 

@@ -60,7 +60,9 @@ InlineSpan buildLineSpan({
         start: line.start,
         end: line.end,
         runs: runs,
-        baseStyle: baseStyle,
+        // 非 run 段必须用 effectiveBase：用 baseStyle 会让同一行出现
+        // “主题色 + 书籍色”混杂（P9-02 修复）。
+        baseStyle: effectiveBase,
         styleOf: (runStyle) => TextLayoutEngine.textStyleFor(runStyle),
       ),
     );

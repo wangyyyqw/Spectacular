@@ -137,6 +137,9 @@ class PagePainter {
       );
     }
 
+    // 书籍整页背景图（P9-04）：平铺在背景色/纹理之上、正文之下。
+    _paintBookPageBackground(canvas, page, pageRect);
+
     _notifyPhase(PagePaintPhase.blockBackground);
     for (final geometry in geometries) {
       if (geometry.hidden) {
@@ -243,6 +246,7 @@ class PagePainter {
                   line,
                   geometry.textStyle,
                   punctCompression: geometry.punctCompression,
+                  textColorOverride: geometry.textColorOverride,
                 ),
                 lineText,
                 _lineRuns(layout, line),
@@ -287,6 +291,7 @@ class PagePainter {
               line,
               geometry.textStyle,
               punctCompression: geometry.punctCompression,
+              textColorOverride: geometry.textColorOverride,
             ),
             lineText,
             geometry.style,
@@ -324,6 +329,55 @@ class PagePainter {
 
   void _notifyPhase(PagePaintPhase phase) => onPhase?.call(phase);
 
+  /// 主题文字色是否覆盖某个块（P9-02）。
+  ///
+  /// 浅色页：书籍显式声明的颜色照书（金标题、灰注释不再被刷黑），
+  /// 只有未声明的默认黑字跟随主题色。
+  /// 深色页：按技术方案 §7.5-5，把深色（亮度 ≤ 0.179）文字替换为主题色，
+  /// 浅色文字保留——否则黑字落在黑底上不可读。
+  Color? _textColorFor(ComputedStyle style) {
+    final theme = textColor;
+    if (theme == null) {
+      return null;
+    }
+    final darkText = style.color.computeLuminance() <= 0.179;
+    if (background.computeLuminance() < 0.35) {
+      return darkText ? theme : null;
+    }
+    if (style.hasExplicitTextColor) {
+      return null;
+    }
+    return darkText ? theme : null;
+  }
+
+  /// 画书籍整页背景图（P9-04）：`body`/`html` 的 `background-image`。
+  ///
+  /// 图片由调用方（阅读视图的图片缓存）在帧外解码，这里只查表 + 按
+  /// `background-size/repeat/position` 铺满页面矩形。
+  void _paintBookPageBackground(
+    Canvas canvas,
+    PageContent page,
+    Rect pageRect,
+  ) {
+    final spec = page.background;
+    final lookup = imageLookup;
+    if (spec == null || lookup == null) {
+      return;
+    }
+    final image = lookup(spec.imageUrl);
+    if (image == null) {
+      return;
+    }
+    paintBackgroundImage(
+      canvas,
+      image,
+      pageRect,
+      repeat: spec.repeat,
+      size: spec.size,
+      position: spec.position,
+    );
+  }
+
   /// 预计算每片切片的几何与样式（P2-29：各阶段共用同一份坐标）。
   List<_SliceGeometry> _sliceGeometries(PageContent page, Size pageSize) {
     // 上下标的基线偏移会超出切片矩形：统计本页最大上下偏移，放宽裁剪。
@@ -350,6 +404,7 @@ class PagePainter {
           y: sliceY,
           style: style,
           textStyle: TextLayoutEngine.textStyleFor(style),
+          textColorOverride: _textColorFor(style),
           startsBlock: slice.startLine == 0,
           endsBlock: slice.endLine == slice.block.layout.lineCount,
           hidden: style.visibility != CssVisibility.visible,
@@ -406,6 +461,7 @@ class PagePainter {
             line,
             geometry.textStyle,
             punctCompression: geometry.punctCompression,
+            textColorOverride: geometry.textColorOverride,
           textAutospace: geometry.textAutospace,
           );
           final boxes = painter.getBoxesForSelection(
@@ -666,6 +722,7 @@ class PagePainter {
         line,
         geometry.textStyle,
         punctCompression: geometry.punctCompression,
+        textColorOverride: geometry.textColorOverride,
       ),
       lineText,
       _lineRuns(layout, line),
@@ -962,6 +1019,7 @@ class PagePainter {
     TextStyle baseStyle, {
     bool punctCompression = false,
     bool textAutospace = false,
+    Color? textColorOverride,
   }) {
     TextPainter build() => TextPainter(
       text: _lineSpan(
@@ -970,6 +1028,7 @@ class PagePainter {
         baseStyle,
         punctCompression: punctCompression,
         textAutospace: textAutospace,
+        textColorOverride: textColorOverride,
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -982,6 +1041,7 @@ class PagePainter {
         '${baseStyle.fontSize}:${baseStyle.height}:'
         '${baseStyle.letterSpacing}:${baseStyle.wordSpacing}:'
         '${baseStyle.color?.toARGB32()}:'
+        '${textColorOverride?.toARGB32()}:'
         '${line.justifyExtra.toStringAsFixed(3)}';
     return cache.obtain(key, build: build);
   }
@@ -1145,11 +1205,12 @@ class PagePainter {
     TextStyle baseStyle, {
     bool punctCompression = false,
     bool textAutospace = false,
+    Color? textColorOverride,
   }) => buildLineSpan(
     layout: layout,
     line: line,
     baseStyle: baseStyle,
-    textColor: textColor,
+    textColor: textColorOverride,
     punctCompression: punctCompression,
     textAutospace: textAutospace,
   );
@@ -1191,12 +1252,16 @@ class _SliceGeometry {
     required this.upExtent,
     required this.downExtent,
     required this.pageWidth,
+    this.textColorOverride,
   });
 
   final PageBlockSlice slice;
   final double y;
   final ComputedStyle style;
   final TextStyle textStyle;
+
+  /// 主题文字色覆盖（null = 保留书籍颜色，见 PagePainter._textColorFor）。
+  final Color? textColorOverride;
 
   /// 标点挤压开关（P7-19，源自 style.textSpacingTrim）。
   bool get punctCompression =>

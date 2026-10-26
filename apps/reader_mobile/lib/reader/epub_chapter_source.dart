@@ -17,6 +17,7 @@ import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -106,6 +107,9 @@ class EpubChapterSource
 
   /// LRU 顺序（最近使用的在末尾）。
   final List<String> _pageCacheOrder = <String>[];
+
+  /// 章级整页背景（P9-04）：body 的 background-image，按章缓存。
+  final Map<int, PageBackground> _pageBackgrounds = <int, PageBackground>{};
 
   /// 页缓存保留的章数上限（当前章 ±2）。
   static const int pageCacheChapterLimit = 5;
@@ -398,13 +402,14 @@ class EpubChapterSource
       return null;
     });
   }
-  List<CssStylesheet> _chapterStylesheets(int spineIndex) {    return _chapterSheetCache.putIfAbsent(spineIndex, () {
+  List<CssStylesheet> _chapterStylesheets(int spineIndex) {
+    return _chapterSheetCache.putIfAbsent(spineIndex, () {
       final item = document.spine[spineIndex];
       final xhtmlPath =
           document.resources.resolve(
-                item.href,
-                baseDir: p.posix.dirname(document.opfPath),
-              ) ??
+            item.href,
+            baseDir: p.posix.dirname(document.opfPath),
+          ) ??
           item.href;
       final xhtmlBytes = document.archive.readBytes(xhtmlPath);
       if (xhtmlBytes == null) {
@@ -417,29 +422,124 @@ class EpubChapterSource
       final sheets = <CssStylesheet>[];
       for (final href in inline.links) {
         final url =
-            document.resources.resolve(href, baseDir: chapterBase) ??
-                href;
+            document.resources.resolve(href, baseDir: chapterBase) ?? href;
         sheets.add(
           _cssSheetCache.putIfAbsent(url, () {
             final bytes = document.archive.readBytes(url);
             if (bytes == null) {
-              return const CssStylesheet(
-                rules: [],
-                imports: [],
-                warnings: [],
-              );
+              return const CssStylesheet(rules: [], imports: [], warnings: []);
             }
-            return CssParser.parse(
-              utf8.decode(bytes, allowMalformed: true),
+            return _absolutizeSheet(
+              CssParser.parse(utf8.decode(bytes, allowMalformed: true)),
+              p.posix.dirname(url),
             );
           }),
         );
       }
       if (inline.css.isNotEmpty) {
-        sheets.add(CssParser.parse(inline.css));
+        sheets.add(_absolutizeSheet(CssParser.parse(inline.css), chapterBase));
       }
       return sheets;
     });
+  }
+
+  /// 相对 URL 需要解析的属性（P9-03）：背景图与列表标记图。
+  static const _urlProperties = <String>{
+    'background-image',
+    'background',
+    'list-style-image',
+    'list-style',
+  };
+
+  static final RegExp _cssUrlPattern = RegExp(r'url\(\s*([^)]*?)\s*\)');
+
+  /// 把样式表里的相对 `url()` 解析成书内绝对路径。
+  ///
+  /// 级联只保存声明字符串，绘制层用 `imageLookup(url)` 查解码图；不先解析
+  /// 的话 `url(../Images/x.jpg)` 与资源索引的键对不上，背景图永远画不出来。
+  CssStylesheet _absolutizeSheet(CssStylesheet sheet, String baseDir) {
+    if (sheet.rules.isEmpty) {
+      return sheet;
+    }
+    var changed = false;
+    final rules = <CssRule>[];
+    for (final rule in sheet.rules) {
+      var ruleChanged = false;
+      final declarations = <CssDeclaration>[];
+      for (final declaration in rule.declarations) {
+        if (_urlProperties.contains(declaration.property) &&
+            declaration.value.contains('url(')) {
+          final value = _resolveCssUrls(declaration.value, baseDir);
+          if (value != declaration.value) {
+            ruleChanged = true;
+            changed = true;
+            declarations.add(
+              CssDeclaration(
+                property: declaration.property,
+                value: value,
+                important: declaration.important,
+              ),
+            );
+            continue;
+          }
+        }
+        declarations.add(declaration);
+      }
+      rules.add(
+        ruleChanged
+            ? CssRule(
+                selector: rule.selector,
+                declarations: List.unmodifiable(declarations),
+                media: rule.media,
+              )
+            : rule,
+      );
+    }
+    if (!changed) {
+      return sheet;
+    }
+    return CssStylesheet(
+      rules: List.unmodifiable(rules),
+      imports: sheet.imports,
+      warnings: sheet.warnings,
+      fontFaces: sheet.fontFaces,
+    );
+  }
+
+  /// 解析声明值里的每个 `url()`；解析不到的资源保持原样。
+  String _resolveCssUrls(String value, String baseDir) {
+    return value.replaceAllMapped(_cssUrlPattern, (match) {
+      var raw = (match.group(1) ?? '').trim();
+      if (raw.length >= 2 &&
+          ((raw.startsWith('"') && raw.endsWith('"')) ||
+              (raw.startsWith("'") && raw.endsWith("'")))) {
+        raw = raw.substring(1, raw.length - 1).trim();
+      }
+      if (raw.isEmpty ||
+          raw.startsWith('data:') ||
+          raw.startsWith('http://') ||
+          raw.startsWith('https://')) {
+        return match.group(0) ?? '';
+      }
+      final resolved = document.resources.resolve(raw, baseDir: baseDir);
+      return resolved == null ? (match.group(0) ?? '') : 'url("$resolved")';
+    });
+  }
+
+  /// 从 body 的级联结果取整页背景；书籍未声明背景图时返回 null。
+  ///
+  /// 只取 `background-image` 与尺寸/平铺/定位：页面底色仍由阅读主题决定。
+  static PageBackground? _pageBackgroundFrom(ComputedStyle style) {
+    final url = style.backgroundImage;
+    if (url == null || url.isEmpty) {
+      return null;
+    }
+    return PageBackground(
+      imageUrl: url,
+      size: style.backgroundSize,
+      repeat: style.backgroundRepeat,
+      position: style.backgroundPosition,
+    );
   }
 
   /// 边框线型名（P8-05c 拼合声明用）。
@@ -642,6 +742,9 @@ class EpubChapterSource
   static const _promotedBoxProps = <String>{
     'background-color', 'border-left', 'border-right',
     'padding-left', 'padding-right', 'margin-left', 'margin-right',
+    // P9-03：容器的背景图与尺寸/平铺/定位一并透传，卡片纹理不再丢失。
+    'background-image', 'background-size', 'background-position',
+    'background-repeat', 'background-origin', 'background-clip',
   };
 
   /// 标题标签族：阅读器字号/行高覆盖不作用于标题（标题排版跟随书籍
@@ -986,6 +1089,18 @@ class EpubChapterSource
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final pages = await _loadChapterPages(spineIndex);
+    final background = _pageBackgrounds[spineIndex];
+    if (background == null) {
+      return pages;
+    }
+    return <PageContent>[
+      for (final page in pages) page.withBackground(background),
+    ];
+  }
+
+  /// 分页主体：产物不带整页背景，由 [loadChapter] 统一贴上。
+  Future<List<PageContent>> _loadChapterPages(int spineIndex) async {
     final trace = readerTraceEnabled ? ReaderTrace.instance : null;
     final traceBook = bookIdForTrace;
     final watch = trace == null ? null : (Stopwatch()..start());
@@ -1127,6 +1242,22 @@ class EpubChapterSource
       });
     }
 
+    // 整页背景（P9-04）：body 的 background-image 画在页面层，不透传到块上
+    // （透传会让每段文字各铺一次背景图）。
+    final bodyView = _NodeView(
+      'body',
+      document.root.attributes,
+      const <SelectorElement>[],
+    );
+    final bodyBackground = _pageBackgroundFrom(
+      chainStyle(<SelectorElement>[bodyView]),
+    );
+    if (bodyBackground != null) {
+      _pageBackgrounds[spineIndex] = bodyBackground;
+    } else {
+      _pageBackgrounds.remove(spineIndex);
+    }
+
     /// 块级样式入口（P8-02）：链式级联结果 + 容器盒类近似传导 +
     /// 引用深度边距叠加。P8-05c：容器的上下边框拼合——首个后代块画
     /// 上边框、末个画下边框（flat 无嵌套盒子的面板整框近似）。
@@ -1145,9 +1276,12 @@ class EpubChapterSource
       for (var i = 0; i < chain.length - 1; i++) {
         // 列表容器（ul/ol/li）的水平缩进由 li 的 UA margin-left 承担
         // （flat 近似），不再经盒传导叠加（避免 40+40 双重缩进）。
+        // body/html 的盒属性由阅读器接管（页面边距/整页背景走各自通道），
+        // 也不能透传到每个正文块——否则书籍 body 背景色会盖住主题背景。
         final ancestorTag = chain[i].tag;
         if (ancestorTag == 'ul' || ancestorTag == 'ol' ||
-            ancestorTag == 'li') {
+            ancestorTag == 'li' || ancestorTag == 'body' ||
+            ancestorTag == 'html') {
           continue;
         }
         final ancStyle = chainStyle(chain.sublist(0, i + 1));
@@ -1172,6 +1306,14 @@ class EpubChapterSource
             promoted['border-bottom'] =
                 '${bottom.width}px ${_borderStyleName(bottom.style)} '
                 '#${_colorToHex(bottom.color)}';
+          }
+          // 容器上下内边距同样拼合到首个/末个后代块上（P9-03）：
+          // 只透传左右内边距会让面板上下贴字，没有内边距的呼吸感。
+          if (firstInContainer && ancStyle.padding.top > 0) {
+            promoted['padding-top'] = '${ancStyle.padding.top}px';
+          }
+          if (lastInContainer && ancStyle.padding.bottom > 0) {
+            promoted['padding-bottom'] = '${ancStyle.padding.bottom}px';
           }
         }
         extraLeft += ancStyle.padding.left + ancStyle.margin.left;
@@ -1681,10 +1823,7 @@ class EpubChapterSource
           lastInContainer: lastInContainer,
         );
         if (!isHeading) {
-          blockStyle = overrides.applyTypography(
-            blockStyle,
-            containingWidth: contentWidth,
-          );
+          blockStyle = overrides.applyTypography(blockStyle);
         }
         // 段间距（阅读器设置优先）：只作用于正文段落；标题与列表项保留
         // 书籍自身的间距族。null 时沿用块 margin 并交给相邻折叠。

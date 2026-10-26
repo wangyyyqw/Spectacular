@@ -5,6 +5,7 @@ import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
 import 'float_occupancy.dart' show FloatSide;
+import 'page_background.dart';
 import 'table_layout.dart' show TableRenderSpec;
 import 'text_layout.dart';
 
@@ -295,6 +296,7 @@ class PageContent implements PageSlice {
     required this.usedHeight,
     required this.pageHeight,
     required this.topPadding,
+    this.background,
   });
 
   /// 章节序号。
@@ -314,6 +316,25 @@ class PageContent implements PageSlice {
 
   /// 首页顶部留白。
   final double topPadding;
+
+  /// 整页背景（书籍 body/html 的 background-image，P9-04）。
+  final PageBackground? background;
+
+  /// 换一份整页背景（分页结果复用，只改绘制层）。
+  PageContent withBackground(PageBackground? value) {
+    if (identical(background, value)) {
+      return this;
+    }
+    return PageContent(
+      spineIndex: spineIndex,
+      pageIndex: pageIndex,
+      slices: slices,
+      usedHeight: usedHeight,
+      pageHeight: pageHeight,
+      topPadding: topPadding,
+      background: value,
+    );
+  }
 
   /// 是否为空页。
   bool get isEmpty => slices.isEmpty;
