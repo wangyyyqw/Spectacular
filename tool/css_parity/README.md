@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 60 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
+当前 64 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（60 组）
+## 用例清单（64 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -100,8 +100,12 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 58 | font-shorthand | font 简写（含 700/italic、字号/行高） |
 | 59 | break-longhand | break-before / break-after / page-break-after（跨页） |
 | 60 | duokan-bleed | duokan-bleed / -duokan-bleed（Chrome 不支持，仅记录引擎行为） |
+| 61 | logical-properties | 逻辑属性 margin/padding/border-inline-* + direction: rtl |
+| 62 | word-wrap-content | word-wrap: break-word、::before/::after content、overflow-x |
+| 63 | columns-rule | column-count / column-width / column-rule（2/3 列） |
+| 64 | vertical-rl | writing-mode: vertical-rl + text-orientation（Chrome 支持、引擎布局未实现，engine_only） |
 
-浏览器渲染：60/60 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：64/64 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45 在用例 JSON 里标 `engine_only: true`：Chrome 尚未支持这两个属性，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
 
@@ -110,14 +114,14 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 60 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 64 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
-| 解析且消费（审计 A 组） | 102 | 94 | 92.2% |
-| 占位式（审计 C 组：有字段、零消费） | 15 | 10 | 66.7% |
-| 完全未处理（审计 D 组：无字段） | 38 | 5 | 13.2% |
-| **合计（116 条审计展开为 155 个属性名）** | **155** | **109** | **70.3%** |
+| 解析且消费（审计 A 组） | 102 | 102 | 100.0% |
+| 占位式（审计 C 组：有字段、零消费） | 15 | 15 | 100.0% |
+| 完全未处理（审计 D 组：无字段） | 38 | 6 | 15.8% |
+| **合计（116 条审计展开为 155 个属性名）** | **155** | **123** | **79.4%** |
 
 - 覆盖判定是「声明出现即算覆盖」；简写不自动覆盖长属性（`margin` 不算
   `margin-top`），所以 46–51 专门用长属性声明补齐。
@@ -126,13 +130,17 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   字体简写、分页长属性、多看出血）。其中 53 为测 `position` 同时声明了
   `top/right/bottom/left`（C 组占位属性），所以它「首次覆盖」的条目较多；
   逐条清单见 `coverage.md` 第 4 节。
-- A 组仍有 8 条未覆盖：`content`、逻辑属性 6 条
-  （`margin/padding/border-inline-*`）、`word-wrap`；`coverage.md` 已把它们
-  排到建议用例 61+（可按需继续补）。
+- A 组与 C 组已 100% 覆盖：61 覆盖逻辑属性 6 条 + `direction`，从 62 覆盖
+  `content`/`word-wrap`/`overflow-x`，63 覆盖 `column-count`/`column-width`/
+  `column-rule`，64 覆盖 `text-orientation`。未覆盖的 32 条全在 D 组
+  （引擎无字段），`coverage.md` 按 61+ 之后编号给出排期建议。
 - 未覆盖的主体在 D 组（引擎无字段）：`border-image`、`columns`、`overflow-x/y`、
   `line-break`、`counter-*`、`object-fit`、`backdrop-filter`、`mix-blend-mode`、
   `z-index`、`background-attachment`、`justify-content`/`align-items`、
   `orphans`/`widows` 等。
+- 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
+  61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
+  （engine_only，等引擎实现竖排后去掉标记即可参与比较）。
 - 新增用例后重跑 `/usr/bin/python3 tool/css_parity/coverage.py` 即可刷新覆盖率、
   未覆盖分组与建议编号。注意审计文档仍在被 T7 修订，分组与数字以
   `coverage.md` 最新一次运行为准。
@@ -189,6 +197,25 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 必须带 `--allow-file-access-from-files`，否则 `@font-face` 读不到本地 OTF，
 会回退系统字体导致字宽不可比。
 
+## 多列口径
+
+引擎把多列容器拆成「每列一个块」（首列块宽 = 列带总宽、其余 = 列宽，
+`layout.text` 是该列片段），浏览器只有一个元素。`compare.py` 的处理：
+
+- **分组**：用长文本双向子串（引擎块文本 ⊂ 元素文本 / 元素文本 ⊂ 块文本）
+  把同一容器的列块归到该元素，按 `rect.x` 排序合并成逻辑块；
+- **块级**：用列带并集 bbox（`min(x)/min(y)/max(x+w)-min(x)/max(y+h)-min(y)`）
+  与浏览器元素 rect 比 x/y/w/h（`34-columns` 的 c2 期望 x0 / w350 / h105）；
+- **列级**：引擎各列的行范围（`min(line.x)`、`max(line.x+line.w)`）与浏览器
+  未合并行按 x 聚类出的列带逐列比 x/宽；
+- **行级**：把各列的行按（y, x）拼接后与浏览器 `rawLines` 逐行比 y/x/宽，
+  行数用各列行数之和比（`34-columns` 的 c2：引擎 5+4 = 浏览器 9 行）；
+- 报告里单列「多列块合并比较」并给出每列 x/宽（如
+  `2 列，列 x/宽 = [0.0/154.0、183.0/154.0]`）。
+- **目标**：`34-columns` 几何失配 0（当前已达成，视觉 6.30% 来自列分隔线
+  绘制）；`63-columns-rule` 剩 6 项，原因是「两列 + 3px 双线」那个 div 引擎
+  只排出 1 列（列数 2/1、行数 3/2），属引擎 `column-rule` 取值缺口。
+
 ## 报告怎么读
 
 1. **Top 失配清单（按维度）**：先看这里，失配项数最多的属性组优先处理。
@@ -216,12 +243,18 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 5. **配对口径（ul/ol 抢 li）**：此前浏览器 `ul` 会与引擎 li 块配对，30-list
    因此多出 8 项块级 x/w/h/行数假差异。现按「文本 + 角色」配对，容器不参与，
    li 只对列表项块，配不上进「未配对」；30-list 几何失配 10 → 0。
-6. **块宽口径混用**：此前引擎块 `w` 报「最长行宽」，与浏览器的边框盒宽比，
+6. **容器元素错配**：`div.rtl` 这类「有块级子元素、自身无直接文本」的容器，
+   `textContent` 只是子段拼接，曾把引擎段落块配到容器上（61 的 7 项伪影）。
+   浏览器导出现在标记 `container`，compare 直接排除，配不上记未配对。
+7. **行内盒文本**：`display: inline-block` 的文字由引擎移到行内盒 payload，
+   块文本缺这段 → 段落配不上。dump 现按 `InlineBoxSpec.offset` 把 payload
+   文本拼回块 `text`（递归一层），53 的段落恢复配对。
+8. **块宽口径混用**：此前引擎块 `w` 报「最长行宽」，与浏览器的边框盒宽比，
    `pre`/`nowrap` 被当成 2 条永久假失配。现 dump 分开导出
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（60 用例全量重跑：失配 108 项 / 12 个用例 / 未配对 0）
+## 待收敛（64 用例全量重跑：失配 95 项 / 11 个用例 / 未配对 1）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -229,35 +262,32 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
-| 1 | display | 29 | 53-display-position |
+| 1 | display | 27 | 53-display-position |
 | 2 | hyphens | 22 | 20-hyphens-quotes |
-| 3 | column-count | 20 | 34-columns |
+| 3 | word-wrap | 9 | 62-word-wrap-content |
 | 4 | writing-mode | 8 | 35-writing-mode |
-| 5 | text-overflow | 6 | 40-text-overflow |
-| 6 | line-height | 5 | 37-filter-opacity |
-| 7 | font-variant | 4 | 15-font-variant-stretch |
-| 8 | text-indent | 4 | 16-text-indent-percent |
-| 9 | list-style-position | 3 | 30-list-style-position |
-| 10 | visibility | 3 | 54-visibility-list-style |
+| 5 | column-count | 6 | 63-columns-rule |
+| 6 | text-overflow | 6 | 40-text-overflow |
+| 7 | line-height | 5 | 37-filter-opacity |
+| 8 | font-variant | 4 | 15-font-variant-stretch |
+| 9 | text-indent | 4 | 16-text-indent-percent |
+| 10 | table | 2 | 12-table |
 
-1. **display / position（29 项，53）**：`inline-block` 未建模（h 54.4 / 27、
-   行数 2 / 1、首行 x 102 / 0）；`absolute` 只摘流不按 inset 定位
-   （`right/bottom` 块 y 734 / 96、x 258 / 0）；`relative` 偏移未生效
-   （x 18 / 0）。建议 T2。
-2. **未实现/部分实现属性组（hyphens 22 / column-count 20 / writing-mode 8）**：
-   `hyphens` 近似音节断词（见「已知口径差异」第 2 条）、`columns` 单列渲染
-   （行宽 350 vs 154/98）、`writing-mode` 横排（350×50 vs 98×202）。建议 T3。
-3. **text-overflow（6 项，40）**：`white-space: normal` 段的断行位置受
-   text-autospace / text-spacing-trim 影响（见「已知口径差异」第 1 条），
-   行数 6 / 5、行宽逐行 1~40px 不等；ellipsis/clip 行宽已按
-   `min(行宽, 内容宽)` 对称比较。
-4. **line-height（5 项，37）**：`line-height: normal` 的字体度量取整差异
-   （见「已知口径差异」第 5 条），块 y 逐块差 ~2px；normal 块几何已放宽到
-   2.5px 容差，剩余为累积位移。
-5. **其余单项（2–4 项）**：`font-variant`/ligatures 行宽 255 / 244（15）；
-   负 `text-indent` 被钳到 0（16：首行 x 34 / 0）；`list-style-position`
-   inside 未实现（30、54：浏览器 inside / 引擎 outside）；`table` 表高
-   93 / 91（12）；`text-emphasis` 行高 68 / 70（19）。
+1. **display / position（27 项，53）**：`inline-block` 盒的行内摆放未建模
+   （首行 x 102 / 0、行宽 100.4 / 256、行数 2 / 1、块高 54.4 / 40.2），
+   `absolute` 只摘流不按 inset 定位，`relative` 偏移未生效。建议 T2。
+2. **hyphens 22 / word-wrap 9 / text-overflow 6**：断字、长词换行与截断的
+   口径差异见「已知口径差异」1–3。
+3. **多列（6 项，63）**：`34-columns` 已 0 项；63 的「两列 + 3px 双线」div
+   引擎只排出 1 列（`column-rule: double` 取值缺口，已转 T2），其余两 div
+   已对齐。
+4. **其余单项（2–5 项）**：`writing-mode` 仍横排（8）；`line-height: normal`
+   取整（5）；`font-variant`/ligatures 行宽（4）；负 `text-indent` 被钳 0（4）；
+   `table` 表高 93 / 91（2）；`text-emphasis` 行高 68 / 70（2）。
+5. **已收敛**：`61-logical-properties` 由 36 → **0 项**（容器 `div.rtl` 不再
+   参与配对 + 引擎逻辑属性/方向已接线），视觉 6.24%；`34-columns` 0 项。
+6. **未配对 1 项**：63 的跨列尾部片段「出来。」（引擎切分与浏览器文本拼接
+   不同，配不上，不计失配）。
 
 ## 已知口径差异（不计入收敛目标）
 
@@ -297,9 +327,20 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   不一定同构，视觉差异大是预期现象，不作为失配计数。
 - 单元格配对依赖「(行,列) + 文本」：同一表格内文本完全重复的格只能按顺序配，
   极端表格需人工核对（当前用例无此情况）。
+- 容器元素（有块级子元素、自身无直接文本）不参与块配对，避免把子段拼接文本
+  当成段落；配不上时记「未配对」，不计失配。
 - 块配对是「文本 + 角色」启发式：`li` 内含子列表时浏览器元素文本是引擎块的
   超集，只能按「部分配对」比块顶与前几行；角色判断依赖 dump 的 `role`，
   列表项无标记时按文本兜底。
+- `::before`/`::after` 的 `content` 文本：引擎并进块文本（前缀与正文同一块），
+  浏览器没有对应元素 → 该块按「未配对」记录（62 用例 1 项），不计失配。
+- 多列布局：引擎按列拆块（每块是该列文本片段，首列块宽 = 列带总宽、其余 = 列宽），
+  浏览器只有一个元素；配对层用「长文本双向子串」把片段配到一个元素（浏览器
+  文本不再截断到 40 字），只比块顶 y，行宽/行数按列内口径跳过。
+- 多列片段偶有 1–2 块配不上（引擎跨行/跨列拼接后与浏览器文本不完全一致），
+  按「未配对」记录，不计失配。
+- 逻辑属性（`margin-inline-*` 等）与 `direction: rtl` 当前引擎未接入
+  （`logicalPhysicalMap` 无调用方），61 用例的差异是引擎缺口而非工具口径。
 - 引擎 `nowrap`/`pre` 的 `contentWidth` 可能是 Infinity，`bboxW` 导出为 null，
   块宽按「未知」跳过；T1 改成有限宽 measure 后会自动参与比较。
 - 浏览器渲染线程与引擎字体一致（同一 OTF），字宽可比；换字体需同步更新

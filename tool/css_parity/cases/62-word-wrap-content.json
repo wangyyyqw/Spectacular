@@ -1,0 +1,9 @@
+{
+  "name": "62-word-wrap-content",
+  "tags": [
+    "word-wrap",
+    "content"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } .ww { word-wrap: break-word; width: 220px; border: 1px solid #999; padding: 4px; } .ww2 { word-wrap: break-word; word-break: break-all; width: 220px; } .before::before { content: \"【前缀】\"; color: #cc0000; } .after::after { content: attr(data-tag) \" · \"; color: #0066cc; } .ovx { overflow-x: hidden; white-space: nowrap; width: 200px; }",
+  "html": "<p class=\"ww\">word-wrap: break-word 让超长单词在盒子内断开：Supercalifragilisticexpialidocious-Incomprehensibilities-Strengths 结束。</p><p class=\"ww2\">word-wrap 与 word-break 组合：ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 长串。</p><p class=\"before\">伪元素 ::before 的 content 前缀</p><p class=\"after\" data-tag=\"标签\">伪元素 ::after 用 attr() 取 content</p><p class=\"ovx\">overflow-x: hidden 的 nowrap 文本：这一行明显超过二百像素的盒子宽度</p>"
+}

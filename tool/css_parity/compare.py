@@ -18,6 +18,7 @@
   超过 N 时退出码为 2；默认 0 表示不启用（退出码 0）。
 """
 import argparse
+from collections import Counter
 import json
 import os
 import pathlib
@@ -72,6 +73,11 @@ def nkey(text, limit=16):
     return re.sub(r'\s+', '', str(text)).lower()[:limit]
 
 
+def nkey_long(text, limit=400):
+    """包含判断用的长文本键（去空白 + 转小写，不截断到 16）。"""
+    return re.sub(r'\s+', '', str(text)).lower()[:limit]
+
+
 def norm_enum(raw):
     """枚举值归一：contentBox → content-box。"""
     if raw is None:
@@ -100,10 +106,16 @@ def fmt(value):
 
 # ---------------------------------------------------------------- 配对
 def browser_elements(browser):
-    """可参与块配对的候选：有文字、且不是容器/表格内部元素。"""
+    """可参与块配对的候选：有文字、且不是容器/表格内部元素。
+
+    容器元素（有块级子元素、自身无直接文本，如 `<div><p/><p/></div>`）的
+    textContent 只是子块拼接，配给引擎段落块会产生假差异（61 的 div.rtl），
+    这里直接排除；配不上时由调用方记「未配对」。
+    """
     return [
         el for el in browser['elements']
         if str(el.get('text', '')).strip()
+        and not el.get('container')
         and el['tag'] not in TABLE_TAGS
         and el['tag'] not in CONTAINER_TAGS
     ]
@@ -172,6 +184,32 @@ def pair_element(block, elements, used):
     # （引擎对 list-style:none 的列表项没有 listMarker，role 只能是 block）。
     el = _pick(key, elements, used, exclude_tags={'li'})
     return el if el is not None else _pick(key, elements, used, tags={'li'})
+
+
+def pair_contained(block, elements, used):
+    """多列布局下引擎把一段文字拆成多个块，块文本是浏览器元素文本的子串。
+
+    返回 (元素, True)；只用于普通块，配不上返回 (None, False)。这种配对
+    只比块顶位置，行级不可比（每块只是一个列片段）。
+    """
+    if block_role(block) in ('li', 'table'):
+        return None, False
+    key = nkey_long(block.get('text', ''))
+    if len(key) < 6:
+        return None, False
+    best = None
+    for index, el in enumerate(elements):
+        if index in used:
+            continue
+        el_key = nkey_long(el.get('text', ''))
+        if key.startswith(el_key) or key in el_key or el_key in key:
+            score = abs(len(el_key) - len(key))
+            if best is None or score < best[0]:
+                best = (score, index)
+    if best is None:
+        return None, False
+    used.add(best[1])
+    return elements[best[1]], True
 
 
 # ---------------------------------------------------------------- 逐项比较
@@ -424,6 +462,92 @@ def compare_table_cells(browser, engine_blocks):
 
 
 # ---------------------------------------------------------------- 单页用例
+def column_count_of(el):
+    """浏览器元素的计算 column-count；`auto` 或无法解析按 1 处理。"""
+    try:
+        return int(str((el.get('style') or {}).get('columnCount', '')))
+    except ValueError:
+        return 1
+
+
+def browser_columns(el):
+    """从浏览器未合并行里按 x 聚出列带：(列左, 列宽)。"""
+    columns = {}
+    for line in el.get('rawLines') or []:
+        start = round(line['x'], 1)
+        end = line['x'] + line['w']
+        columns[start] = max(columns.get(start, 0.0), end - start)
+    return sorted(columns.items())
+
+
+def engine_columns(members):
+    """引擎每个列块的行范围：(列左, 列宽)。"""
+    columns = []
+    for member in members:
+        lines = member.get('lines') or []
+        if not lines:
+            continue
+        left = min(line['x'] for line in lines)
+        right = max(line['x'] + line['w'] for line in lines)
+        columns.append((round(left, 1), right - left))
+    return columns
+
+
+def compare_columns(el, members):
+    """多列块合并比较：列带并集 bbox + 每列 x/宽 + 逐行（绝对 x/y/宽）。
+
+    引擎把多列容器拆成「每列一个块」，浏览器只有一个元素；先把块按 x 排序
+    合并成逻辑块，块级用列带并集 bbox，行级用各列行拼接后与浏览器未合并行
+    逐行比。返回 (问题列表, 列描述)。
+    """
+    problems = []
+    style = el.get('style') or {}
+    rect_tol = 2.5 if str(style.get('lineHeight', '')).lower() == 'normal' else TOL
+    left = min(member['rect']['x'] for member in members)
+    top = min(member['rect']['y'] for member in members)
+    right = max(member['rect']['x'] + member['rect']['w'] for member in members)
+    bottom = max(member['rect']['y'] + member['rect']['h'] for member in members)
+    problems.extend(compare_rect(
+        el['rect'],
+        {'x': left, 'y': top, 'w': right - left, 'h': bottom - top},
+        tol=rect_tol,
+    ))
+    engine_cols = engine_columns(members)
+    chrome_cols = browser_columns(el)
+    if len(engine_cols) != len(chrome_cols):
+        problems.append(f'列数: 浏览器 {len(chrome_cols)} / 引擎 {len(engine_cols)}')
+    for index, ((left_e, width_e), (left_c, width_c)) in enumerate(
+        zip(engine_cols, chrome_cols)
+    ):
+        if abs(left_e - left_c) > TOL:
+            problems.append(f'第{index + 1}列 x: 浏览器 {fmt(left_c)} / 引擎 {fmt(left_e)}')
+        if abs(width_e - width_c) > WIDTH_TOL:
+            problems.append(f'第{index + 1}列 w: 浏览器 {fmt(width_c)} / 引擎 {fmt(width_e)}')
+    engine_lines = [line for member in members for line in member.get('lines') or []]
+    engine_lines.sort(key=lambda item: (round(item['y'], 1), item['x']))
+    chrome_lines = sorted(
+        el.get('rawLines') or [],
+        key=lambda item: (round(item['y'], 1), item['x']),
+    )
+    if len(engine_lines) != len(chrome_lines):
+        problems.append(
+            f'多列总行数: 浏览器 {len(chrome_lines)} / 引擎各列之和 {len(engine_lines)}'
+        )
+    for index, (left_line, right_line) in enumerate(zip(chrome_lines, engine_lines)):
+        pos = f'第{index + 1}行'
+        for key, limit in (('y', line_tolerance(members[0].get('style') or {})),
+                           ('x', TOL), ('w', WIDTH_TOL)):
+            if abs(left_line[key] - right_line[key]) > limit:
+                problems.append(
+                    f'{pos} {key}: 浏览器 {fmt(left_line[key])} / 引擎 {fmt(right_line[key])}'
+                )
+    desc = (
+        f'{len(members)} 列，列 x/宽 = '
+        f'[{"、".join(f"{fmt(l)}/{fmt(w)}" for l, w in engine_cols)}]'
+    )
+    return problems, desc
+
+
 def diff_single_page(name, browser, engine, meta):
     problems = []
     unpaired = []
@@ -443,8 +567,35 @@ def diff_single_page(name, browser, engine, meta):
     partial = []
     ellipsis = []
     transformed_blocks = []
+    # 多列容器：引擎每列一个块，浏览器一个元素。先按「块文本是元素文本片段」
+    # 把同一容器的列块归组，块级用列带并集 bbox、行级用各列行拼接后比较。
+    multicol_groups = {}
+    multi_columns = []
+    claimed = set()
+    for el in elements:
+        if column_count_of(el) <= 1:
+            continue
+        el_key = nkey_long(el['text'])
+        members = [
+            block for block in text_blocks
+            if id(block) not in claimed
+            and len(nkey_long(block['text'])) >= 4
+            and (
+                nkey_long(block['text']) in el_key
+                or el_key in nkey_long(block['text'])
+            )
+        ]
+        if not members:
+            continue
+        members.sort(key=lambda item: (item['rect']['x'], item['rect']['y']))
+        multicol_groups[id(el)] = (el, members)
+        claimed.update(id(member) for member in members)
     for block in text_blocks:
+        if id(block) in claimed:
+            continue
         el = pair_element(block, elements, used)
+        if el is None:
+            el, _ = pair_contained(block, elements, used)
         if el is None:
             unpaired.append(
                 f'块「{nkey(block["text"], 12)}」（角色 {block_role(block)}）'
@@ -487,6 +638,15 @@ def diff_single_page(name, browser, engine, meta):
         if found:
             problems.append(f'「{label}」')
             problems.extend(found)
+    # 多列容器：把同一容器的列块合并成逻辑块后比较。
+    for el, members in multicol_groups.values():
+        label = (str(el['text']).strip().replace('\n', ' ')[:24] or el['tag'])
+        found, desc = compare_columns(el, members)
+        found.extend(compare_style(el.get('style') or {}, members[0].get('style') or {}))
+        multi_columns.append(f'「{label}」{desc}')
+        if found:
+            problems.append(f'「{label}」（{desc}）')
+            problems.extend(found)
     if partial:
         lines.append(
             f'- 部分配对 {len(partial)} 个（浏览器元素含子块，只比块顶与前几行）：'
@@ -496,6 +656,11 @@ def diff_single_page(name, browser, engine, meta):
         lines.append(
             f'- ellipsis/clip 行宽按 min(行宽, 内容宽) 比较（{len(ellipsis)} 个元素）：'
             + '、'.join(ellipsis[:3])
+        )
+    if multi_columns:
+        lines.append(
+            f'- 多列块合并比较（列带并集 bbox + 每列 x/宽 + 逐行；{len(multi_columns)} 个）：'
+            + '；'.join(multi_columns[:3])
         )
     if transformed_blocks:
         lines.append(

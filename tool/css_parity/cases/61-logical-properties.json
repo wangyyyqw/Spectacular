@@ -1,0 +1,9 @@
+{
+  "name": "61-logical-properties",
+  "tags": [
+    "margin-inline-start",
+    "direction"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } .lp { margin-inline-start: 24px; margin-inline-end: 40px; padding-inline-start: 12px; padding-inline-end: 18px; border-inline-start: 4px solid #3366cc; border-inline-end: 6px dashed #cc3366; background-color: #eef3ff; } .rtl { direction: rtl; } .bidi { unicode-bidi: embed; }",
+  "html": "<p class=\"lp\">逻辑属性：margin-inline / padding-inline / border-inline 在 LTR 下对应左右边距与左右边框。</p><div class=\"rtl\"><p class=\"lp\">RTL 对照：direction: rtl 时 inline-start 应在右侧，边框、内边距应整体镜像。</p><p>RTL 普通段落：这段文字应从右向左排列，句末标点出现在左边。</p></div><p class=\"lp bidi\">unicode-bidi: embed 对照（引擎若忽略只记录几何）。</p>"
+}
