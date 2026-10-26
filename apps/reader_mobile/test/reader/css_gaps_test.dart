@@ -141,6 +141,49 @@ void main() {
     expect(cell.style.borders.left.width, 1);
   });
 
+  test('table-layout: fixed 按 col 声明宽分列（P9-17）', () async {
+    final source = await open(
+      body:
+          '<table class="t"><colgroup>'
+          '<col class="c1"/><col class="c2"/></colgroup>'
+          '<tr><td>甲</td><td>乙</td></tr></table>',
+      css:
+          'table.t { table-layout: fixed; width: 100%; } '
+          'table.t col.c1 { width: 70%; } '
+          'table.t col.c2 { width: 30%; }',
+    );
+    final pages = await source.loadChapter(0);
+    final spec = pages
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.table != null)
+        .table!;
+    expect(spec.columnXs.length, 3, reason: '两列三个列界');
+    final total = spec.columnXs.last;
+    expect(total, greaterThan(0));
+    expect(spec.columnXs[1] / total, closeTo(0.7, 0.03));
+  });
+
+  test('table-layout: fixed 未声明列平分剩余（P9-17）', () async {
+    final source = await open(
+      body:
+          '<table class="t">'
+          '<tr><td class="w">甲</td><td>乙</td></tr></table>',
+      css:
+          'table.t { table-layout: fixed; width: 100%; } '
+          'table.t td.w { width: 20%; }',
+    );
+    final pages = await source.loadChapter(0);
+    final spec = pages
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.table != null)
+        .table!;
+    final total = spec.columnXs.last;
+    expect(spec.columnXs[1] / total, closeTo(0.2, 0.03));
+    expect((total - spec.columnXs[1]) / total, closeTo(0.8, 0.03));
+  });
+
   test('多看私有属性在真实管线生效（P9-13）', () async {
     final source = await open(
       body: '<p class="d">多看段落</p>',
