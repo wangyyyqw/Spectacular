@@ -88,6 +88,7 @@ abstract final class TableMeasurer {
     double? tableWidthPx,
     double? tableWidthPercent,
     required double containerWidth,
+    double borderSpacingX = 0,
   }) {
     final columnCount = specifiedWidths.length;
     if (columnCount == 0) {
@@ -96,6 +97,9 @@ abstract final class TableMeasurer {
         tableWidth: 0,
       );
     }
+    // `border-spacing` 占表格内容区（列间 + 左右各一份，CSS Tables 3），
+    // 列宽只在「表宽 - 间距」里分配；表宽与返回宽度都含间距。
+    final spacingTotal = math.max(0.0, borderSpacingX) * (columnCount + 1);
     // 第一遍：列自然宽 = 行内最大。
     final natural = List<double>.filled(columnCount, 0);
     for (final row in naturalWidths) {
@@ -105,14 +109,16 @@ abstract final class TableMeasurer {
     }
     final naturalSum = natural.fold(0.0, (a, b) => a + b);
 
-    // 表格宽：声明优先（百分比 → px），auto = min(自然和, 容器)。
-    var tableWidth = naturalSum;
+    // 表格宽：声明优先（百分比 → px），auto = min（自然和 + 间距, 容器）。
+    var tableWidth = naturalSum + spacingTotal;
     if (tableWidthPercent != null) {
       tableWidth = containerWidth * tableWidthPercent.clamp(0.0, 1.0);
     } else if (tableWidthPx != null) {
       tableWidth = tableWidthPx;
     }
     tableWidth = tableWidth.clamp(0.0, containerWidth);
+    // 列宽可分配宽（扣掉间距占位）。
+    final available = math.max(0.0, tableWidth - spacingTotal);
 
     final widths = List<double>.filled(columnCount, 0);
     var specifiedTotal = 0.0;
@@ -127,16 +133,16 @@ abstract final class TableMeasurer {
         autoIndices.add(c);
       }
     }
-    if (specifiedTotal > tableWidth && specifiedTotal > 0) {
-      final scale = tableWidth / specifiedTotal;
+    if (specifiedTotal > available && specifiedTotal > 0) {
+      final scale = available / specifiedTotal;
       for (var c = 0; c < columnCount; c++) {
         if (specifiedWidths[c] != null) {
           widths[c] = widths[c] * scale;
         }
       }
-      specifiedTotal = tableWidth;
+      specifiedTotal = available;
     }
-    var remaining = math.max(0.0, tableWidth - specifiedTotal);
+    var remaining = math.max(0.0, available - specifiedTotal);
     if (autoIndices.isEmpty) {
       // 无 auto 列：声明值（已按表宽等比缩）即最终宽，不强制铺满表宽。
     } else {
@@ -164,7 +170,7 @@ abstract final class TableMeasurer {
         }
       }
     }
-    final total = widths.fold(0.0, (a, b) => a + b);
+    final total = widths.fold(0.0, (a, b) => a + b) + spacingTotal;
     return TableMeasureResult(columnWidths: widths, tableWidth: total);
   }
 }
@@ -175,6 +181,7 @@ class TableCellSpec {
     required this.naturalWidth,
     required this.measureHeight,
     this.colspan = 1,
+    this.rowspan = 1,
   });
 
   /// max-content 自然宽（第一遍按全宽测得）。
@@ -185,6 +192,117 @@ class TableCellSpec {
 
   /// 跨列数（colspan，P3-19 消费；≥2 时宽度回填为跨列之和）。
   final int colspan;
+
+  /// 跨行数（rowspan，≥2 时高度回填为跨行之和；跨页切开不拆分，见
+  /// [TablePaginator.paginateRows] 的已知限制）。
+  final int rowspan;
+}
+
+/// 单元格内容内缩（padding + 计入盒模型的边框）。
+class TableCellInset {
+  const TableCellInset({required this.horizontal, required this.vertical});
+
+  /// 左右内缩之和。
+  final double horizontal;
+
+  /// 上下内缩之和。
+  final double vertical;
+}
+
+/// 单元格内缩：`border-collapse: collapse` 时单元格边框折到格线上、不计入
+/// 格高/格宽（Chrome 实测 td 高 = 行高 + 上下 padding）；`separate` 时
+/// 边框照常占位。
+TableCellInset tableCellInsetFor(
+  ComputedStyle style, {
+  bool collapse = false,
+}) {
+  final padding = style.padding;
+  final borders = collapse
+      ? CssEdges.zero
+      : CssEdges(
+          top: style.borders.top.isVisible ? style.borders.top.width : 0,
+          right: style.borders.right.isVisible ? style.borders.right.width : 0,
+          bottom: style.borders.bottom.isVisible
+              ? style.borders.bottom.width
+              : 0,
+          left: style.borders.left.isVisible ? style.borders.left.width : 0,
+        );
+  return TableCellInset(
+    horizontal: padding.horizontal + borders.horizontal,
+    vertical: padding.vertical + borders.vertical,
+  );
+}
+
+/// 单元格在表格网格中的占位（rowspan 消费）。
+class TableCellSlot {
+  const TableCellSlot({
+    required this.row,
+    required this.cellIndex,
+    required this.startColumn,
+    required this.colspan,
+    required this.rowspan,
+  });
+
+  /// 行号。
+  final int row;
+
+  /// 行内单元格序号。
+  final int cellIndex;
+
+  /// 起始列（0 起；上一行 rowspan 占用的列会被跳过）。
+  final int startColumn;
+
+  /// 跨列数（≥1）。
+  final int colspan;
+
+  /// 跨行数（≥1）。
+  final int rowspan;
+
+  /// 结束列（不含）。
+  int get endColumn => startColumn + colspan;
+}
+
+/// 把「行 × 单元格」展开成网格占位：按 HTML 表格模型逐行分配起始列，
+/// 上一行 rowspan 覆盖的列跳过（rowspan 上限钳到剩余行数）。
+List<List<TableCellSlot>> tableCellSlots(
+  List<List<TableCellSpec>> rows,
+  int columnCount,
+) {
+  final occupied = <int, Set<int>>{}; // 行号 → 已被 rowspan 占用的列
+  final result = <List<TableCellSlot>>[];
+  for (var r = 0; r < rows.length; r++) {
+    final taken = occupied.putIfAbsent(r, () => <int>{});
+    final slots = <TableCellSlot>[];
+    var column = 0;
+    for (var i = 0; i < rows[r].length; i++) {
+      final cell = rows[r][i];
+      while (taken.contains(column)) {
+        column += 1;
+      }
+      final colspan = math.max(1, cell.colspan);
+      final rowspan = math.min(math.max(1, cell.rowspan), rows.length - r);
+      slots.add(
+        TableCellSlot(
+          row: r,
+          cellIndex: i,
+          startColumn: column,
+          colspan: colspan,
+          rowspan: rowspan,
+        ),
+      );
+      for (var k = 1; k < rowspan; k++) {
+        final below = occupied.putIfAbsent(r + k, () => <int>{});
+        for (var c = column; c < column + colspan; c++) {
+          if (c < columnCount) {
+            below.add(c);
+          }
+        }
+      }
+      column += colspan;
+    }
+    result.add(slots);
+  }
+  return result;
 }
 
 /// 表格整表测量结果。
@@ -210,58 +328,65 @@ class TableGridMeasureResult {
 abstract final class TableGridMeasurer {
   /// 测量整表。
   ///
-  /// [rows] 行 × 单元格；列宽分配只统计 colspan==1 的单元格自然宽，
-  /// 跨列单元格宽度回填为跨列之和并按该宽度测高参与行高取大——内容
-  /// 在回填宽度下的高度即其行内占高，保证内容不溢出。
+  /// 单元格按 [tableCellSlots] 展开成网格占位：`colspan` 的宽度回填为
+  /// 跨列之和（列宽分配时把自然宽溢出摊给跨列），`rowspan` 的高度回填
+  /// 为跨行之和（内容超出已分配行高时按 CSS 17.5.3 均摊到跨行各行）。
+  ///
+  /// [borderSpacingX]/[borderSpacingY] 为 `border-spacing`（separate 模式），
+  /// 横向进表宽与列宽分配、纵向进跨行高度与表高。
   static TableGridMeasureResult measureGrid({
     required List<List<TableCellSpec>> rows,
     required List<double?> columnSpecified,
     double? tableWidthPx,
     double? tableWidthPercent,
     required double containerWidth,
+    double borderSpacingX = 0,
+    double borderSpacingY = 0,
   }) {
-    // 列宽：只取单列单元格的自然宽；
-    // 跨列单元格自然宽超出跨列单列自然宽之和的溢出部分，按比例摊给
-    // 跨列（P3-19，colspan 参与列宽分配——HTML 表格模型简化口径）。
     final columnCount = columnSpecified.length;
+    final slots = tableCellSlots(rows, columnCount);
+    final spacingX = math.max(0.0, borderSpacingX);
+    final spacingY = math.max(0.0, borderSpacingY);
+
+    // 列宽：只取单列单元格的自然宽（按网格起始列归位）。
     final naturalWidths = <List<double>>[];
-    for (final row in rows) {
+    for (var r = 0; r < rows.length; r++) {
       final natural = List<double>.filled(columnCount, 0);
-      for (var c = 0; c < row.length && c < columnCount; c++) {
-        final cell = row[c];
-        if (cell.colspan == 1) {
-          natural[c] = cell.naturalWidth;
+      for (final slot in slots[r]) {
+        if (slot.colspan != 1 || slot.startColumn >= columnCount) {
+          continue;
         }
+        natural[slot.startColumn] = math.max(
+          natural[slot.startColumn],
+          rows[r][slot.cellIndex].naturalWidth,
+        );
       }
       naturalWidths.add(natural);
     }
+    // 跨列单元格自然宽超出跨列单列自然宽之和的溢出部分，按比例摊给跨列
+    // （P3-19，colspan 参与列宽分配——HTML 表格模型简化口径）。
     for (var r = 0; r < rows.length; r++) {
-      final row = rows[r];
-      for (var c = 0; c < row.length && c < columnCount; c++) {
-        final cell = row[c];
-        if (cell.colspan <= 1) {
+      for (final slot in slots[r]) {
+        if (slot.colspan <= 1) {
+          continue;
+        }
+        final end = math.min(slot.endColumn, columnCount);
+        final spanned = end - slot.startColumn;
+        if (spanned <= 0) {
           continue;
         }
         var spannedNatural = 0.0;
-        var touched = false;
-        for (var k = 0; k < cell.colspan && c + k < columnCount; k++) {
-          spannedNatural += naturalWidths[r][c + k];
-          touched = true;
+        for (var c = slot.startColumn; c < end; c++) {
+          spannedNatural += naturalWidths[r][c];
         }
-        if (!touched) {
-          continue;
-        }
-        final excess = cell.naturalWidth - spannedNatural;
+        final excess = rows[r][slot.cellIndex].naturalWidth - spannedNatural;
         if (excess <= 0) {
           continue;
         }
-        for (var k = 0; k < cell.colspan && c + k < columnCount; k++) {
-          final index = c + k;
-          final base = naturalWidths[r][index];
-          naturalWidths[r][index] = base +
-              (spannedNatural > 0
-                  ? excess * base / spannedNatural
-                  : excess / cell.colspan);
+        for (var c = slot.startColumn; c < end; c++) {
+          final base = naturalWidths[r][c];
+          naturalWidths[r][c] = base +
+              (spannedNatural > 0 ? excess * base / spannedNatural : excess / spanned);
         }
       }
     }
@@ -271,30 +396,53 @@ abstract final class TableGridMeasurer {
       tableWidthPx: tableWidthPx,
       tableWidthPercent: tableWidthPercent,
       containerWidth: containerWidth,
+      borderSpacingX: spacingX,
     );
 
-    // 行高：逐行取单元格高度最大值；跨列单元格宽度回填为跨列之和。
-    final rowHeights = <double>[];
-    for (final row in rows) {
-      var height = 0.0;
-      for (var c = 0; c < row.length; c++) {
-        final cell = row[c];
-        var width = 0.0;
-        var ok = true;
-        for (var k = 0; k < cell.colspan && ok; k++) {
-          final index = c + k;
-          if (index >= columnCount) {
-            ok = false; // 跨列越界按已知列回填，不崩溃。
-            break;
-          }
-          width += columns.columnWidths[index];
-        }
-        if (!ok || width <= 0) {
-          width = cell.naturalWidth; // 越界/零宽兜底用自然宽。
-        }
-        height = math.max(height, cell.measureHeight(width));
+    // 单元格宽：跨列宽度之和 + 列间距；越界/零宽时退回自然宽。
+    double cellWidthOf(TableCellSlot slot) {
+      final end = math.min(slot.endColumn, columnCount);
+      var width = 0.0;
+      for (var c = slot.startColumn; c < end; c++) {
+        width += columns.columnWidths[c];
       }
-      rowHeights.add(height);
+      width += spacingX * math.max(0, end - slot.startColumn - 1);
+      return width > 0 ? width : rows[slot.row][slot.cellIndex].naturalWidth;
+    }
+
+    // 行高：先按单行格取大。
+    final rowHeights = List<double>.filled(rows.length, 0);
+    for (var r = 0; r < rows.length; r++) {
+      for (final slot in slots[r]) {
+        if (slot.rowspan != 1) {
+          continue;
+        }
+        rowHeights[r] = math.max(
+          rowHeights[r],
+          rows[r][slot.cellIndex].measureHeight(cellWidthOf(slot)),
+        );
+      }
+    }
+    // 跨行格：内容高超出「跨行行高之和 + 行间距」时，差值均摊给跨行各行。
+    for (var r = 0; r < rows.length; r++) {
+      for (final slot in slots[r]) {
+        if (slot.rowspan <= 1) {
+          continue;
+        }
+        final span = math.min(slot.rowspan, rows.length - r);
+        final height = rows[r][slot.cellIndex].measureHeight(cellWidthOf(slot));
+        var current = spacingY * (span - 1);
+        for (var k = 0; k < span; k++) {
+          current += rowHeights[r + k];
+        }
+        if (height <= current) {
+          continue;
+        }
+        final extra = (height - current) / span;
+        for (var k = 0; k < span; k++) {
+          rowHeights[r + k] += extra;
+        }
+      }
     }
     return TableGridMeasureResult(
       columnWidths: columns.columnWidths,
@@ -304,7 +452,7 @@ abstract final class TableGridMeasurer {
   }
 }
 
-/// 表格单元格几何（P3-19：colspan 的绘制与命中按合并区域）。
+/// 表格单元格几何（P3-19：colspan 的绘制与命中按合并区域；rowspan 同理）。
 class TableCellRect {
   const TableCellRect({
     required this.row,
@@ -315,93 +463,107 @@ class TableCellRect {
   /// 行号。
   final int row;
 
-  /// 行内单元格序号（合并区域指向该跨列单元格本身）。
+  /// 行内单元格序号（合并区域指向该跨列/跨行单元格本身）。
   final int cellIndex;
 
-  /// 合并区域矩形（表内坐标，x/y 为前缀和）。
+  /// 合并区域矩形（表内坐标）。
   final Rect rect;
 }
 
 /// 表格布局几何：单元格矩形与命中测试。
 ///
-/// 命中按合并区域：落在跨列单元格范围内的点命中该单元格本身（不拆
-/// 到单列）。
+/// 坐标口径（含 `border-spacing` 时与浏览器一致）：
+/// - [columnXs] / [rowYs] 是「行/列带」边界，首项 0、末项为表宽/表高；
+/// - 单元格矩形 = 带起点 + 一份间距，跨列/跨行时覆盖整块合并区域。
 class TableGridLayout {
   /// 从测量结果构建。
   TableGridLayout({
     required List<List<TableCellSpec>> rows,
     required List<double> columnWidths,
     required List<double> rowHeights,
-  }) : _rows = List.unmodifiable(rows),
-       _columnWidths = List.unmodifiable(columnWidths),
-       _rowHeights = List.unmodifiable(rowHeights) {
+    double borderSpacingX = 0,
+    double borderSpacingY = 0,
+  }) : _columnWidths = List.unmodifiable(columnWidths),
+       _rowHeights = List.unmodifiable(rowHeights),
+       _spacingX = math.max(0.0, borderSpacingX),
+       _spacingY = math.max(0.0, borderSpacingY),
+       _slots = tableCellSlots(rows, columnWidths.length) {
     var x = 0.0;
-    for (final width in columnWidths) {
+    for (var c = 0; c < columnWidths.length; c++) {
       _columnX.add(x);
-      x += width;
+      x += _spacingX + columnWidths[c];
     }
-    _columnX.add(x);
+    _columnX.add(x + _spacingX);
     var y = 0.0;
-    for (final height in rowHeights) {
+    for (var r = 0; r < rowHeights.length; r++) {
       _rowY.add(y);
-      y += height;
+      y += _spacingY + rowHeights[r];
     }
-    _rowY.add(y);
+    _rowY.add(y + _spacingY);
   }
 
-  final List<List<TableCellSpec>> _rows;
+  final List<List<TableCellSlot>> _slots;
   final List<double> _columnWidths;
   final List<double> _rowHeights;
+  final double _spacingX;
+  final double _spacingY;
   final List<double> _columnX = <double>[];
   final List<double> _rowY = <double>[];
 
-  /// 表格总尺寸。
+  /// 表格总尺寸（含 border-spacing 的首尾占位）。
   Size get size => Size(_columnX.last, _rowY.last);
 
-  /// 列界坐标（含首 0 与末界，渲染层画竖线用）。
+  /// 列带边界坐标（含首 0 与末界）。
   List<double> get columnXs => List<double>.unmodifiable(_columnX);
 
-  /// 行界坐标（含首 0 与末界，全表坐标；渲染层画横线用）。
+  /// 行带边界坐标（含首 0 与末界，全表坐标）。
   List<double> get rowYs => List<double>.unmodifiable(_rowY);
+
+  /// 边框间距（横向、纵向）。
+  double get borderSpacingX => _spacingX;
+  double get borderSpacingY => _spacingY;
 
   /// 单元格合并区域矩形；越界返回 null。
   TableCellRect? cellRectAt(int row, int cellIndex) {
-    if (row < 0 || row >= _rows.length) {
+    if (row < 0 || row >= _slots.length) {
       return null;
     }
-    final cells = _rows[row];
-    if (cellIndex < 0 || cellIndex >= cells.length) {
+    final rowSlots = _slots[row];
+    if (cellIndex < 0 || cellIndex >= rowSlots.length) {
       return null;
     }
-    var x = _columnX.first;
-    // 前面单元格占的列数累加得本格起点列。
-    var startColumn = 0;
-    for (var i = 0; i < cellIndex; i++) {
-      startColumn += cells[i].colspan;
-    }
-    if (startColumn >= _columnWidths.length) {
+    final slot = rowSlots[cellIndex];
+    if (slot.startColumn >= _columnWidths.length) {
       return null;
     }
-    final span = cells[cellIndex].colspan;
-    final endColumn =
-        math.min(startColumn + span, _columnWidths.length);
-    x = _columnX[startColumn];
-    final width = _columnX[endColumn] - _columnX[startColumn];
+    final endColumn = math.min(slot.endColumn, _columnWidths.length);
+    final endRow = math.min(slot.row + slot.rowspan, _rowHeights.length);
+    // 宽高按「跨列/跨行之和 + 中间的间距」算，避免把表尾的外侧间距算进格内。
+    var width = 0.0;
+    for (var c = slot.startColumn; c < endColumn; c++) {
+      width += _columnWidths[c];
+    }
+    width += _spacingX * math.max(0, endColumn - slot.startColumn - 1);
+    var height = 0.0;
+    for (var r = slot.row; r < endRow; r++) {
+      height += _rowHeights[r];
+    }
+    height += _spacingY * math.max(0, endRow - slot.row - 1);
     return TableCellRect(
       row: row,
       cellIndex: cellIndex,
       rect: Rect.fromLTWH(
-        x,
-        _rowY[row],
+        _columnX[slot.startColumn] + _spacingX,
+        _rowY[slot.row] + _spacingY,
         width,
-        _rowHeights[row],
+        height,
       ),
     );
   }
 
   /// 命中测试：返回 (行, 行内单元格序号)；表外返回 null。
   ///
-  /// 跨列单元格按合并区域整体命中（HTML colspan 语义）。
+  /// 跨列/跨行单元格按合并区域整体命中（HTML colspan/rowspan 语义）。
   (int, int)? hitTest(Offset point) {
     if (point.dy < 0 ||
         point.dy >= _rowY.last ||
@@ -410,14 +572,30 @@ class TableGridLayout {
       return null;
     }
     var row = 0;
-    while (row < _rowHeights.length && point.dy >= _rowY[row + 1]) {
+    while (row + 1 < _rowY.length && point.dy >= _rowY[row + 1]) {
       row += 1;
     }
-    final cells = _rows[row];
-    for (var i = 0; i < cells.length; i++) {
+    if (row >= _slots.length) {
+      return null;
+    }
+    final rowSlots = _slots[row];
+    for (var i = 0; i < rowSlots.length; i++) {
       final rect = cellRectAt(row, i);
       if (rect != null && rect.rect.contains(point)) {
         return (row, i);
+      }
+    }
+    // rowspan 覆盖区：命中上方行的合并格。
+    for (var r = row - 1; r >= 0; r--) {
+      final slots = _slots[r];
+      for (var i = 0; i < slots.length; i++) {
+        if (slots[i].row + slots[i].rowspan <= row) {
+          continue;
+        }
+        final rect = cellRectAt(r, i);
+        if (rect != null && rect.rect.contains(point)) {
+          return (r, i);
+        }
       }
     }
     return null;
@@ -456,7 +634,9 @@ class TablePageSlice {
 /// - 列宽由整表测量决定（P3-17），切页后各页不重算；
 /// - 单行高于整页：独占一页并按页高裁剪（[TablePageSlice.clippedRowHeight]
 ///   记录已绘制高度，绘制只画裁剪段）；
-/// - 表头不重复（一期，§26.4 P1 优化保留）。
+/// - 表头不重复（一期，§26.4 P1 优化保留）；
+/// - `rowspan` 单元格跨页时按行边界切开（不拆分合并区域，跨页片段的合并
+///   区域收缩到本页行区间；真正的跨页合并留待后续，见 [TableRenderSpec]）。
 abstract final class TablePaginator {
   /// 按页高切分行区间。
   static List<TablePageSlice> paginateRows({

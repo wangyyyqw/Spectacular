@@ -204,6 +204,68 @@ void main() {
       expect(layout.lines[i].height, closeTo(plain.lines[i].height, 0.01));
     }
   });
+
+  test('长度型 vertical-align 撑高行盒（枚举仍是 baseline）', () {
+    const text = '基线对比 x2 结束';
+    final raised = _style(const {
+      'font-size': '12px',
+      'vertical-align': '20px',
+    });
+    final layout = _layout(
+      text,
+      runs: <StyledRun>[
+        StyledRun(
+          start: 6,
+          end: 7,
+          style: raised,
+          baselineShift: raised.verticalAlignShift,
+        ),
+      ],
+    );
+    // 枚举仍为 baseline，偏移只在 verticalAlignShift 上（= -20）。
+    expect(raised.verticalAlign, CssVerticalAlign.baseline);
+    expect(layout.runs.single.baselineShift, closeTo(-20, 0.01));
+    expect(layout.lines.single.height, greaterThan(40), reason: '上移 20 撑高行盒');
+  });
+
+  test('长度型下移同样撑高行盒', () {
+    const text = '基线对比 x2 结束';
+    final lowered = _style(const {'vertical-align': '-12px'});
+    final layout = _layout(
+      text,
+      runs: <StyledRun>[
+        StyledRun(
+          start: 6,
+          end: 7,
+          style: lowered,
+          baselineShift: lowered.verticalAlignShift,
+        ),
+      ],
+    );
+    expect(layout.runs.single.baselineShift, closeTo(12, 0.01));
+    expect(layout.lines.single.height, greaterThan(40), reason: '下移 12 撑高行盒');
+  });
+
+  test('小幅长度偏移不撑高（与 Chrome 一致）', () {
+    const text = '基线对比 x2 结束';
+    final plain = _layout(text);
+    final tiny = _style(const {'font-size': '12px', 'vertical-align': '2px'});
+    final layout = _layout(
+      text,
+      runs: <StyledRun>[
+        StyledRun(
+          start: 6,
+          end: 7,
+          style: tiny,
+          baselineShift: tiny.verticalAlignShift,
+        ),
+      ],
+    );
+    expect(
+      layout.lines.single.height,
+      closeTo(plain.lines.single.height, 0.01),
+    );
+  });
 }
 
 ComputedStyle _ahemStyle([double? fontSize]) => ComputedStyle(<String, String>{
@@ -211,7 +273,6 @@ ComputedStyle _ahemStyle([double? fontSize]) => ComputedStyle(<String, String>{
   'line-height': '1.5',
   'font-family': 'Ahem',
 });
-
 TextLayoutResult _ahemLayout(
   String text,
   double width, {

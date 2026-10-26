@@ -173,4 +173,32 @@ void main() {
     expect(model.resolveContentHeight(25, containingHeight: 100), 25);
     expect(model.borderBoxHeight(25), 25);
   });
+
+  test('border-style: none/hidden 的边宽按 0 计（Chrome 语义）', () {
+    final none = _model({
+      'width': '160px',
+      'border-width': '4px',
+      'border-style': 'none',
+      'padding': '2px',
+    });
+    expect(none.horizontalInset, 4, reason: '只有 padding 进盒模型');
+    expect(none.borderBoxWidth(none.contentWidth!), closeTo(164, 0.01));
+
+    // 未声明 border-style：宽度存在但不占位。
+    final implicitNone = _model({
+      'width': '160px',
+      'border-width': '4px',
+      'padding': '2px',
+    });
+    expect(implicitNone.horizontalInset, 4);
+
+    // 正常实线边框照常占位。
+    final solid = _model({
+      'width': '160px',
+      'border': '4px solid #000',
+      'padding': '2px',
+    });
+    expect(solid.horizontalInset, 12);
+    expect(solid.borderBoxWidth(solid.contentWidth!), closeTo(172, 0.01));
+  });
 }

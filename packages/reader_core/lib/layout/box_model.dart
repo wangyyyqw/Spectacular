@@ -30,11 +30,16 @@ class BoxModel {
     required double containingWidth,
   }) {
     final padding = style.padding;
+    // `border-style: none/hidden` 的边宽按 0 计（Chrome 语义）：边宽仍留在
+    // 计算样式里（绘制层判定可见性），但盒模型不占位，避免 hidden 边框
+    // 把内容挤偏、块宽撑大。
+    double visibleWidth(CssBorderSide side) =>
+        side.isVisible ? side.width : 0.0;
     final borders = CssEdges(
-      top: style.borders.top.width,
-      right: style.borders.right.width,
-      bottom: style.borders.bottom.width,
-      left: style.borders.left.width,
+      top: visibleWidth(style.borders.top),
+      right: visibleWidth(style.borders.right),
+      bottom: visibleWidth(style.borders.bottom),
+      left: visibleWidth(style.borders.left),
     );
     final horizontalInset = padding.horizontal + borders.horizontal;
     final verticalInset = padding.vertical + borders.vertical;

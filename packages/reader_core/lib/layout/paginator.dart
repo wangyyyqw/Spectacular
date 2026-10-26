@@ -62,6 +62,7 @@ class PageBlock {
     this.bleedLeft = false,
     this.bleedRight = false,
     this.containerSides = false,
+    this.declaredContentHeight,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -76,8 +77,8 @@ class PageBlock {
     bool? pageBreakAfter,
     String? startCfi,
     String? endCfi,
-    double spaceBefore = 0,
-    double spaceAfter = 0,
+    double? spaceBefore,
+    double? spaceAfter,
     int groupId = 0,
     String? listMarker,
     List<RubyAnnotation>? rubies,
@@ -100,8 +101,9 @@ class PageBlock {
       breakAfterAvoid: style.breakAfterAvoid,
       startCfi: startCfi,
       endCfi: endCfi,
-      spaceBefore: spaceBefore,
-      spaceAfter: spaceAfter,
+      // 调用方没给段距时按自身 margin 折（表格/图片块走这里；正文块显式传）。
+      spaceBefore: spaceBefore ?? style.margin.top,
+      spaceAfter: spaceAfter ?? style.margin.bottom,
       topInset: model.borders.top + model.padding.top,
       bottomInset: model.borders.bottom + model.padding.bottom,
       leftInset: model.borders.left + model.padding.left,
@@ -116,6 +118,12 @@ class PageBlock {
       bleedLeft: bleedLeft,
       bleedRight: bleedRight,
       containerSides: containerSides,
+      // 盒高约束（CSS height/min-height/max-height）：先按声明值解算，
+      // 未声明时等于测量高（行高之和）。
+      declaredContentHeight: model.resolveContentHeight(
+        layout.height,
+        containingHeight: 0,
+      ),
     );
   }
 
@@ -203,8 +211,25 @@ class PageBlock {
   /// 被拆成多块的卡片/面板拼回一片，块间缝隙不露页底、边框不断开。
   final bool containerSides;
 
-  /// 块高度（内容区行高之和）。
-  double get height => layout.height;
+  /// 声明高度解算后的内容盒高（`height`/`min-height`/`max-height`）；
+  /// null 表示未声明，按测量高。
+  ///
+  /// 只由 [PageBlock.styled] 赋值：直接构造的块（垫片、覆盖切片等）沿用
+  /// 测量高，行为与之前一致。
+  final double? declaredContentHeight;
+
+  /// 块内容区高度：声明高度优先（CSS 盒高约束），否则为行高之和。
+  ///
+  /// 大于行高之和时是块内留白（min-height/height 撑高）；小于行高之和时
+  /// 表示内容溢出盒高（`height`+`max-height`），分页按盒高裁剪内容。
+  double get height => declaredContentHeight ?? layout.height;
+
+  /// 测量高（行高之和），不受盒高声明影响。
+  double get measuredHeight => layout.height;
+
+  /// 内容是否被盒高裁掉（声明高度小于行高之和）：分页只排可见行，剩余
+  /// 行不进入下一页（`overflow: hidden/clip` 近似；真机渲染由切片裁剪）。
+  bool get clipsContent => height + 0.5 < layout.height;
 
   /// 块首行之前的额外高度（段前间距 + 上内缩）。
   double get leadingExtent => spaceBefore + topInset;
@@ -242,6 +267,7 @@ class PageBlock {
         bleedLeft: bleedLeft,
         bleedRight: bleedRight,
         containerSides: containerSides,
+        declaredContentHeight: declaredContentHeight,
       );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线
@@ -332,7 +358,11 @@ class PageBlockSlice {
   bool get continuesBefore => startLine > 0;
 
   /// 是否在块中部结束：后续行在下一页。
-  bool get continuesAfter => endLine < block.layout.lineCount;
+  ///
+  /// 内容被盒高裁掉（[PageBlock.clipsContent]）时后续行不会出现在下一页，
+  /// 因此不算「续到下页」。
+  bool get continuesAfter =>
+      endLine < block.layout.lineCount && !block.clipsContent;
 
   /// 页面坐标系中的可见裁剪矩形（§60.8）。
   ///
@@ -515,6 +545,29 @@ class Paginator {
   /// 浮点容差（像素）。
   final double tolerance;
 
+  /// 行高之和。
+  static double _lineExtent(List<LineBox> lines) {
+    var extent = 0.0;
+    for (final line in lines) {
+      extent += line.height;
+    }
+    return extent;
+  }
+
+  /// 盒高内可见的行数：从首行起累加，超过盒高即停（至少 1 行，避免死循环）。
+  static int _visibleLineCount(List<LineBox> lines, double boxHeight) {
+    var used = 0.0;
+    var count = 0;
+    for (final line in lines) {
+      if (used + line.height > boxHeight + 0.5 && count > 0) {
+        break;
+      }
+      used += line.height;
+      count += 1;
+    }
+    return count;
+  }
+
   /// 组 [groupId] 自 [index] 起的连续成员总占高（leading+height+trailing）。
   static double _groupExtent(List<PageBlock> blocks, int index, int groupId) {
     var extent = 0.0;
@@ -614,7 +667,9 @@ class Paginator {
       }
       totalHeight += block.height + block.leadingExtent + block.trailingExtent;
       final lines = block.layout.lines;
-      if (lines.isEmpty) {
+      // 空块（无行且无盒高）不占位；声明了高度的空块（height/min-height）
+      // 仍按盒高占位。
+      if (lines.isEmpty && block.height <= 0) {
         continue;
       }
       if (block.pageBreakBefore) {
@@ -650,14 +705,46 @@ class Paginator {
         }
       }
 
+      // 盒高约束（CSS height/min-height/max-height）：内容盒高可能高于
+      // 行高之和（盒内留白）或低于（内容溢出盒高，按盒高裁剪）。
+      final boxHeight = block.height;
+      final lineTotal = _lineExtent(lines);
+      final clipped = lineTotal > boxHeight + tolerance;
+      final lineLimit = clipped
+          ? _visibleLineCount(lines, boxHeight)
+          : lines.length;
+
+      // 盒能整块放进当前页：单切片按盒子高度占位（不按行高之和），声明
+      // 高度因此对后续块的位置生效；溢出盒高的行丢弃（overflow 近似）。
+      if (block.leadingExtent + boxHeight + block.trailingExtent <=
+          available + tolerance) {
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: 0,
+            endLine: lineLimit,
+            height: block.leadingExtent + boxHeight + block.trailingExtent,
+            leadingExtent: block.leadingExtent,
+            trailingExtent: block.trailingExtent,
+            leftInset: block.leftInset,
+          ),
+        );
+        used += block.leadingExtent + boxHeight + block.trailingExtent;
+        available -= block.leadingExtent + boxHeight + block.trailingExtent;
+        if (block.pageBreakAfter) {
+          record();
+        }
+        continue;
+      }
+
       var lineStart = 0;
-      while (lineStart < lines.length) {
+      while (lineStart < lineLimit) {
         final isBlockStart = lineStart == 0;
         // 段前间距与上内缩只在块首切片出现（P2-14 补全：分页几何含盒模型内缩）。
         final leading = isBlockStart ? block.leadingExtent : 0.0;
         var fitEnd = lineStart;
         var linesHeight = 0.0;
-        while (fitEnd < lines.length) {
+        while (fitEnd < lineLimit) {
           final lineHeight = lines[fitEnd].height;
           if (leading + linesHeight + lineHeight <= available + tolerance) {
             linesHeight += lineHeight;
@@ -679,7 +766,7 @@ class Paginator {
         }
 
         var trailing = 0.0;
-        if (fitEnd == lines.length) {
+        if (fitEnd == lineLimit) {
           // 下内缩与段后间距只在块尾切片出现；放不下时退一行到下一页。
           trailing = block.trailingExtent;
           if (leading + linesHeight + trailing > available + tolerance &&
@@ -690,7 +777,17 @@ class Paginator {
           }
         }
 
-        final sliceHeight = leading + linesHeight + trailing;
+        // 块尾切片按盒子高度收口：行比盒矮时补白到盒底（声明高度生效）；
+        // 跨页切开时各页仍按行高累计，末片再补足。
+        final boxTail = fitEnd == lineLimit && !clipped
+            ? math.max(0.0, boxHeight - lineTotal)
+            : 0.0;
+        final sliceHeight = leading + linesHeight + trailing + boxTail;
+        // 盒内留白也占页高：当前页放不下整盒时先把本块移到新页（页已非空）。
+        if (sliceHeight > available + tolerance && slices.isNotEmpty) {
+          record();
+          continue;
+        }
         slices.add(
           PageBlockSlice(
             block: block,
@@ -707,7 +804,7 @@ class Paginator {
         lineStart = fitEnd;
 
         // 本块还有行：当前页已满，记录后下一页继续。
-        if (lineStart < lines.length) {
+        if (lineStart < lineLimit) {
           record();
         }
       }
