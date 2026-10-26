@@ -462,6 +462,12 @@ def compare_table_cells(browser, engine_blocks):
 
 
 # ---------------------------------------------------------------- 单页用例
+def is_vertical(style):
+    """书写模式是否为竖排（引擎 `verticalRl` / 浏览器 `vertical-rl` 等）。"""
+    mode = str((style or {}).get('writingMode', '')).lower()
+    return mode not in ('', 'horizontal-tb', 'horizontaltb', 'horizontal_tb')
+
+
 def column_count_of(el):
     """浏览器元素的计算 column-count；`auto` 或无法解析按 1 处理。"""
     try:
@@ -567,6 +573,7 @@ def diff_single_page(name, browser, engine, meta):
     partial = []
     ellipsis = []
     transformed_blocks = []
+    vertical_blocks = []
     # 多列容器：引擎每列一个块，浏览器一个元素。先按「块文本是元素文本片段」
     # 把同一容器的列块归组，块级用列带并集 bbox、行级用各列行拼接后比较。
     multicol_groups = {}
@@ -579,7 +586,7 @@ def diff_single_page(name, browser, engine, meta):
         members = [
             block for block in text_blocks
             if id(block) not in claimed
-            and len(nkey_long(block['text'])) >= 4
+            and len(nkey_long(block['text'])) >= 1
             and (
                 nkey_long(block['text']) in el_key
                 or el_key in nkey_long(block['text'])
@@ -603,6 +610,9 @@ def diff_single_page(name, browser, engine, meta):
             continue
         label = (str(el['text']).strip().replace('\n', ' ')[:24] or el['tag'])
         tol = line_tolerance(block.get('style') or {})
+        vertical = is_vertical(block.get('style')) or is_vertical(el.get('style'))
+        if vertical:
+            vertical_blocks.append(label)
         found = []
         width_cap = ellipsis_width_cap(el.get('style'), block)
         if width_cap is not None:
@@ -615,7 +625,7 @@ def diff_single_page(name, browser, engine, meta):
             lines_e = block.get('lines') or []
             count = min(len(lines_b), len(lines_e))
             found.extend(compare_rect(el['rect'], engine_box_rect(block), keys=('y', 'x')))
-            if count:
+            if count and not vertical:
                 found.extend(compare_lines(lines_b[:count], lines_e[:count], tol,
                                            width_cap=width_cap))
         else:
@@ -625,7 +635,11 @@ def diff_single_page(name, browser, engine, meta):
                 # 0.5px 级差异（12-table 表高 93/91 即此），放宽到 2.5px。
                 rect_tol = 2.5
             found.extend(compare_rect(el['rect'], engine_box_rect(block), tol=rect_tol))
-            if block.get('transformed'):
+            if vertical:
+                # 竖排：浏览器 getClientRects 把整列合并成单行，逐行不可比；
+                # 只比块盒（x/y/w/h），行级跳过并在报告标注。
+                pass
+            elif block.get('transformed'):
                 # transform 块只比变换后 bbox：dump 的行坐标是变换前的，
                 # 与浏览器 getClientRects（已含变换）不可直接比。
                 transformed_blocks.append(label)
@@ -661,6 +675,11 @@ def diff_single_page(name, browser, engine, meta):
         lines.append(
             f'- 多列块合并比较（列带并集 bbox + 每列 x/宽 + 逐行；{len(multi_columns)} 个）：'
             + '；'.join(multi_columns[:3])
+        )
+    if vertical_blocks:
+        lines.append(
+            f'- 竖排块（只比块盒，不比较行级；{len(vertical_blocks)} 个）：'
+            + '、'.join(vertical_blocks[:3])
         )
     if transformed_blocks:
         lines.append(
@@ -730,7 +749,10 @@ def diff_multipage(name, browser, engine, meta):
             else:
                 engine_lines = block.get('lines') or []
                 browser_lines = el.get('lines') or []
-                found.extend(compare_pitch(browser_lines, engine_lines, tol))
+                if not (is_vertical(style) or is_vertical(el.get('style'))):
+                    found.extend(compare_pitch(browser_lines, engine_lines, tol))
+                else:
+                    notes.append(f'- 竖排块「{nkey(block["text"], 10)}」不比较行距')
                 slice_info = block.get('slice') or {}
                 if slice_info.get('continuesBefore'):
                     notes.append(

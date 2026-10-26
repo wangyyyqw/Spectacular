@@ -212,9 +212,19 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   行数用各列行数之和比（`34-columns` 的 c2：引擎 5+4 = 浏览器 9 行）；
 - 报告里单列「多列块合并比较」并给出每列 x/宽（如
   `2 列，列 x/宽 = [0.0/154.0、183.0/154.0]`）。
-- **目标**：`34-columns` 几何失配 0（当前已达成，视觉 6.30% 来自列分隔线
-  绘制）；`63-columns-rule` 剩 6 项，原因是「两列 + 3px 双线」那个 div 引擎
-  只排出 1 列（列数 2/1、行数 3/2），属引擎 `column-rule` 取值缺口。
+- **目标**：`34-columns`、`63-columns-rule` 几何失配均 0（已达成，视觉
+  6.29% / 5.09% 只剩列分隔线绘制差）；分组时列片段文本长度阈值取 1，避免
+  3 个字的尾列片段（如「出来。」）被漏掉、把 2 列误判成 1 列。
+
+## 竖排口径
+
+`writing-mode` 为 `vertical-rl` / `vertical-lr` 的块/元素：
+
+- 浏览器 `getClientRects()` 会把整列合并成单行，逐行比较没有意义；因此
+  **只比较块盒**（x/y/w/h），行级跳过，报告里单列「竖排块（只比块盒）」；
+- 当前 `35-writing-mode` 剩 2 项，都是块宽口径：竖排从左向右浏览器列带 44、
+  引擎 38（竖排块宽尚未完全等于列带总宽，T3 在修）；
+- 跨页用例里的竖排块同样不比较行距。
 
 ## 报告怎么读
 
@@ -254,7 +264,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（64 用例全量重跑：失配 95 项 / 11 个用例 / 未配对 1）
+## 待收敛（64 用例全量重跑：失配 92 项 / 10 个用例 / 未配对 0）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -262,32 +272,30 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
-| 1 | display | 27 | 53-display-position |
-| 2 | hyphens | 22 | 20-hyphens-quotes |
-| 3 | word-wrap | 9 | 62-word-wrap-content |
-| 4 | writing-mode | 8 | 35-writing-mode |
-| 5 | column-count | 6 | 63-columns-rule |
-| 6 | text-overflow | 6 | 40-text-overflow |
-| 7 | line-height | 5 | 37-filter-opacity |
-| 8 | font-variant | 4 | 15-font-variant-stretch |
-| 9 | text-indent | 4 | 16-text-indent-percent |
-| 10 | table | 2 | 12-table |
+| 1 | hyphens | 26 | 20-hyphens-quotes |
+| 2 | word-wrap | 25 | 62-word-wrap-content |
+| 3 | display | 17 | 53-display-position |
+| 4 | line-height | 5 | 37-filter-opacity |
+| 5 | text-overflow | 5 | 40-text-overflow |
+| 6 | font-variant | 4 | 15-font-variant-stretch |
+| 7 | text-indent | 4 | 16-text-indent-percent |
+| 8 | table | 2 | 12-table |
+| 9 | text-emphasis | 2 | 19-text-emphasis |
+| 10 | writing-mode | 2 | 35-writing-mode |
 
-1. **display / position（27 项，53）**：`inline-block` 盒的行内摆放未建模
-   （首行 x 102 / 0、行宽 100.4 / 256、行数 2 / 1、块高 54.4 / 40.2），
-   `absolute` 只摘流不按 inset 定位，`relative` 偏移未生效。建议 T2。
-2. **hyphens 22 / word-wrap 9 / text-overflow 6**：断字、长词换行与截断的
-   口径差异见「已知口径差异」1–3。
-3. **多列（6 项，63）**：`34-columns` 已 0 项；63 的「两列 + 3px 双线」div
-   引擎只排出 1 列（`column-rule: double` 取值缺口，已转 T2），其余两 div
-   已对齐。
-4. **其余单项（2–5 项）**：`writing-mode` 仍横排（8）；`line-height: normal`
-   取整（5）；`font-variant`/ligatures 行宽（4）；负 `text-indent` 被钳 0（4）；
-   `table` 表高 93 / 91（2）；`text-emphasis` 行高 68 / 70（2）。
-5. **已收敛**：`61-logical-properties` 由 36 → **0 项**（容器 `div.rtl` 不再
-   参与配对 + 引擎逻辑属性/方向已接线），视觉 6.24%；`34-columns` 0 项。
-6. **未配对 1 项**：63 的跨列尾部片段「出来。」（引擎切分与浏览器文本拼接
-   不同，配不上，不计失配）。
+1. **hyphens 26 / word-wrap 25**：断字与长词换行的口径差异见「已知口径差异」
+   1–3；这两个用例的差异以行宽/行数口径为主，建议按已知差异处理而非追平。
+2. **display / position（17 项，53）**：`inline-block` 盒的行内摆放未建模
+   （首行 x、行宽、行数、块高不同），`absolute` 只摘流不按 inset 定位，
+   `relative` 偏移未生效。建议 T2。
+3. **竖排（2 项，35）**：按竖排口径只比块盒，剩「竖排从左向右」块宽
+   44 / 38（竖排块宽还没完全等于列带总宽）；行级已跳过、视觉 4.02%。
+4. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
+   `text-overflow` 口径（5）；`font-variant`/ligatures 行宽（4）；
+   负 `text-indent` 被钳 0（4）；`table` 表高 93 / 91（2）；
+   `text-emphasis` 行高 68 / 70（2）。
+5. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`
+   均 **0 项**；未配对 0（容器排除 + 行内盒文本拼回 + 多列阈值修正后）。
 
 ## 已知口径差异（不计入收敛目标）
 
