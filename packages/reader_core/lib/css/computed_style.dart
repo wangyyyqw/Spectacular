@@ -1,5 +1,7 @@
-import 'property_aliases.dart';
+import 'dart:math' as math;
 import 'dart:ui' show Color;
+
+import 'property_aliases.dart';
 
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
 enum CssTextAlign { start, end, left, right, center, justify }
@@ -50,8 +52,12 @@ enum CssHangingPunctuation { none, allowEnd }
 
 /// 标点挤压（CSS `text-spacing-trim`；P7-19，CSS Text 4 语义子集）。
 ///
-/// `trimAdjacent` 时相邻全角标点挤掉中间整格空白（前标点加 -0.5em
-/// 字距）；`normal`（默认）关闭。其余取值按 normal 处理。
+/// [trimAdjacent]：相邻全角标点挤掉中间整格空白（前标点加 -0.5em 字距）。
+/// 这是 **未声明时的默认值**：Chrome 的 `text-spacing-trim` 初始值是
+/// `normal`，实测会把相邻全角标点折到半角（用例 01「：、」各 8.5px/17px），
+/// 所以默认必须开启才对得上浏览器。
+/// [normal]：不挤压，对应显式 `space-all`（成员名沿用旧枚举，改名会波及
+/// layout 层调用点，语义以本注释为准）。
 enum CssTextSpacingTrim { normal, trimAdjacent }
 
 /// 中西文自动间距（CSS `text-autospace`；P7-20，语义子集）。
@@ -450,7 +456,7 @@ class ComputedStyle {
     // `font` 简写（P9-09）：长属性缺失时从简写展开，否则整条简写会被
     // 静默丢弃（书籍常用 `font: italic bold 16px/1.5 serif`）。
     final shorthandFont = explicit.contains('font')
-        ? _parseFontShorthand(values['font'])
+        ? parseFontShorthand(values['font'])
         : null;
     String? fontValue(String property) =>
         explicit.contains(property)
@@ -516,10 +522,12 @@ class ComputedStyle {
         ? (parent?.color ?? const Color(0xFF000000))
         : (_parseColor(rawColor) ?? parent?.color ?? const Color(0xFF000000));
 
+    final parentWeight = parent?.fontWeight ?? 400;
     final rawWeight = fontValue('font-weight');
     final weight = rawWeight == null
-        ? (parent?.fontWeight ?? 400)
-        : _parseFontWeight(rawWeight) ?? parent?.fontWeight ?? 400;
+        ? parentWeight
+        : _parseFontWeight(rawWeight, parentWeight: parentWeight) ??
+              parentWeight;
 
     final rawStyle = fontValue('font-style');
     final italic = rawStyle == null
@@ -631,12 +639,14 @@ class ComputedStyle {
         : _parseHangingPunctuation(rawHanging) ??
               parent?.hangingPunctuation ??
               CssHangingPunctuation.none;
+    // 未声明时取 trimAdjacent：Chrome 初始值 `normal` 即折叠相邻全角标点
+    // （CSS Text 4），旧版把默认当关闭会让同一行宽下比浏览器宽出一个标点。
     final rawTrim = explicitValue('text-spacing-trim');
     final textSpacingTrim = rawTrim == null
-        ? (parent?.textSpacingTrim ?? CssTextSpacingTrim.normal)
+        ? (parent?.textSpacingTrim ?? CssTextSpacingTrim.trimAdjacent)
         : _parseTextSpacingTrim(rawTrim) ??
               parent?.textSpacingTrim ??
-              CssTextSpacingTrim.normal;
+              CssTextSpacingTrim.trimAdjacent;
     final rawAutospace = explicitValue('text-autospace');
     final textAutospace = rawAutospace == null
         ? (parent?.textAutospace ?? CssTextAutospace.none)
@@ -868,6 +878,7 @@ class ComputedStyle {
       values: values,
       hasExplicitTextColor: hasExplicitTextColor,
       fontSize: fontSize,
+      parentFontSize: parentFontSize,
       lineHeight: lineHeight,
       lineHeightFactor: lineHeightFactor,
       unitlessLineHeightFactor: unitlessLineHeightFactor,
@@ -973,6 +984,7 @@ class ComputedStyle {
       values: nextValues,
       hasExplicitTextColor: hasExplicitTextColor,
       fontSize: nextFontSize,
+      parentFontSize: parentFontSize,
       lineHeight: nextLineHeight,
       lineHeightFactor: nextLineHeightFactor,
       unitlessLineHeightFactor: nextUnitless,
@@ -1056,6 +1068,7 @@ class ComputedStyle {
     required this.values,
     required this.hasExplicitTextColor,
     required this.fontSize,
+    required this.parentFontSize,
     required this.lineHeight,
     required this.lineHeightFactor,
     required this.unitlessLineHeightFactor,
@@ -1135,6 +1148,12 @@ class ComputedStyle {
 
   /// 最终字号（逻辑像素）。
   final double fontSize;
+
+  /// 父级字号（逻辑像素）；根元素取 rootFontSize。
+  ///
+  /// `vertical-align: super/sub` 的基线偏移按父级字号算（Chrome 实测），
+  /// 与自身字号无关——`sup { font-size: 0.83em }` 不会让偏移跟着变小。
+  final double parentFontSize;
 
   /// 最终行高（逻辑像素）。
   final double lineHeight;
@@ -1327,10 +1346,17 @@ class ComputedStyle {
       'as=${textAutospace.name};tj=${textJustify.name};'
       'al=${textAlignLast?.name ?? "auto"};il=${initialLetterLines ?? 0}';
 
-  /// 行内基线偏移（逻辑像素，正值向下）：sup -0.4em、sub +0.15em（与阅微 BaselineShift 同值）。
+  /// 行内基线偏移（逻辑像素，正值向下）：按**父级字号**算。
+  ///
+  /// Chrome 实测（headless 155，Source Han Serif / Times / Courier 同值，
+  /// 父字号 8–100px 线性拟合）：`sup = -(父字号/3 + 1)`、
+  /// `sub = 父字号/5 + 1`；本引擎 17px 父字号下即 -6.66 / +4.39，
+  /// 与浏览器逐像素一致。子元素自身字号（如 UA 的 `sup{font-size:0.83em}`）
+  /// 不参与计算——0.7em / 2em 子字号实测偏移不变。
+  /// 其余取值不产生基线偏移，text-top/text-bottom/middle 由行排版层按行盒处理。
   double get verticalAlignShift => switch (verticalAlign) {
-    CssVerticalAlign.superscript => -0.4 * fontSize,
-    CssVerticalAlign.subscript => 0.15 * fontSize,
+    CssVerticalAlign.superscript => -(parentFontSize / 3 + 1),
+    CssVerticalAlign.subscript => parentFontSize / 5 + 1,
     _ => 0,
   };
 
@@ -1375,6 +1401,56 @@ class ComputedStyle {
 
   /// 是否包含原始属性。
   bool contains(String property) => values.containsKey(property.toLowerCase());
+
+  /// 内容盒宽（CSS 2.1 §10.3 简化）：给定包含块内容宽 [availableWidth]，
+  /// 返回该元素**用于文本排版的内容宽**（不含 padding/border）。
+  ///
+  /// 排版侧应直接用它当 `maxWidth`，不要再手写
+  /// `正文区宽 - margin - padding - border`：手写式丢掉了 `width` 与
+  /// `box-sizing`，`box-sizing: border-box; width: 200px; padding: 10px;
+  /// border: 3px` 会按 200px 排字（正确内容是 200-20-6=174px），行宽超出盒宽。
+  ///
+  /// 解算顺序：未声明 `width`（auto）取 `availableWidth` 扣 margin 与
+  /// padding/border；声明宽按 `box-sizing` 折成内容宽（border-box 扣左右
+  /// padding+border）；`min-width`/`max-width` 最后钳制（min 优先）；
+  /// 百分比按 [availableWidth] 解算。语义与 `BoxModel.resolveContentWidth`
+  /// 一致（两者应保持同步，后续可让 BoxModel 委托到这里）。
+  double contentBoxWidth(double availableWidth) {
+    final inset = padding.horizontal + borders.left.width + borders.right.width;
+    final autoWidth = math.max(
+      0.0,
+      availableWidth - inset - margin.horizontal,
+    );
+    final max = _contentBoxLength(maxWidth, availableWidth, inset);
+    final min = _contentBoxLength(minWidth, availableWidth, inset);
+    var result = _contentBoxLength(width, availableWidth, inset) ?? autoWidth;
+    if (max != null) {
+      result = math.min(result, max);
+    }
+    if (min != null) {
+      result = math.max(result, min);
+    }
+    return math.max(0.0, result);
+  }
+
+  /// 声明尺寸 → 内容宽：`border-box` 扣掉左右内缩；auto/未声明返回 null。
+  double? _contentBoxLength(
+    CssLength? length,
+    double availableWidth,
+    double inset,
+  ) {
+    if (length == null || length.isAuto) {
+      return null;
+    }
+    final declared = length.resolve(availableWidth);
+    if (declared == null) {
+      return null;
+    }
+    final value = boxSizing == CssBoxSizing.borderBox
+        ? declared - inset
+        : declared;
+    return math.max(0.0, value);
+  }
 
   @override
   String toString() =>
@@ -1728,8 +1804,9 @@ class ComputedStyle {
   /// 解析 `font` 简写（P9-09）：style/variant/weight/size[/line-height]/family。
   ///
   /// 只做阅读器需要的子集；`font: caption` 这类系统字体关键字返回 null
-  /// （交给默认值）。
-  static Map<String, String>? _parseFontShorthand(String? raw) {
+  /// （交给默认值）。级联层（`Cascade._expandShorthand`）复用同一个解析器，
+  /// 把简写拆成长属性后再按属性名比优先级。
+  static Map<String, String>? parseFontShorthand(String? raw) {
     if (raw == null) {
       return null;
     }
@@ -2108,13 +2185,32 @@ class ComputedStyle {
     return double.tryParse(value.substring(0, value.length - 1).trim());
   }
 
-  static int? _parseFontWeight(String raw) {
+  /// 解析 `font-weight`（CSS Fonts 4 §2.2.1）。
+  ///
+  /// `bolder`/`lighter` 是**相对父级**的关键字，按 [parentWeight] 映射
+  /// （根元素无父级时按初始值 400）：
+  /// - bolder：<350→400、350–549→700、≥550→900
+  /// - lighter：<550→100、550–749→400、≥750→700
+  ///
+  /// 阈值取规范映射表（100–900 每档）的中点，非整百字重（如 450）也落在
+  /// 期望档位：规范表 bolder 400–500→700、lighter 600–700→400。
+  static int? _parseFontWeight(String raw, {int parentWeight = 400}) {
     final value = raw.trim().toLowerCase();
     if (value == 'normal') {
       return 400;
     }
     if (value == 'bold') {
       return 700;
+    }
+    if (value == 'bolder') {
+      return parentWeight < 350
+          ? 400
+          : (parentWeight < 550 ? 700 : 900);
+    }
+    if (value == 'lighter') {
+      return parentWeight < 550
+          ? 100
+          : (parentWeight < 750 ? 400 : 700);
     }
     final parsed = int.tryParse(value);
     if (parsed == null) {
@@ -2186,11 +2282,23 @@ class ComputedStyle {
         _ => null,
       };
 
+  /// 解析 `text-spacing-trim`（CSS Text 4）。
+  ///
+  /// 与 Chrome 对齐：`normal`（规范初始值）会折叠相邻全角标点，因此映射到
+  /// [CssTextSpacingTrim.trimAdjacent]；只有显式 `space-all` 才不挤压。
+  /// `space-first`/`trim-start`/`trim-both` 的行首半角细节本引擎未实现，
+  /// 按 `normal` 的相邻折叠近似；`auto` 按规范等同 `normal`。
   static CssTextSpacingTrim? _parseTextSpacingTrim(String raw) =>
       switch (raw.trim().toLowerCase()) {
-        'trim-adjacent' => CssTextSpacingTrim.trimAdjacent,
-        'normal' || 'space-all' => CssTextSpacingTrim.normal,
-        // space-first/trim-start 等按 normal 处理（一期语义）。
+        'trim-adjacent' ||
+        'normal' ||
+        'auto' ||
+        'space-first' ||
+        'trim-start' ||
+        'trim-both' ||
+        'trim-all' => CssTextSpacingTrim.trimAdjacent,
+        // `space-all`：全部全角标点保持全角，即不挤压。
+        'space-all' => CssTextSpacingTrim.normal,
         _ => null,
       };
 

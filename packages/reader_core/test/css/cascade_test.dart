@@ -255,6 +255,24 @@ void main() {
     );
   });
 
+  test('UA b/strong 的相对字重 bolder 在级联层生效', () {
+    // UA 表用 `b, strong { font-weight: bolder }`；不解析相对字重时
+    // <b>/<strong> 会回退成父级字重，粗体完全丢失。
+    ComputedStyle tag(String name, {required int parentWeight}) =>
+        Cascade.compute(
+          element: _BareElement(name),
+          ancestors: <SelectorElement>[_BareElement('p')],
+          rules: uaRules(),
+          parent: ComputedStyle(<String, String>{
+            'font-weight': '$parentWeight',
+          }),
+        );
+    expect(tag('b', parentWeight: 400).fontWeight, 700);
+    expect(tag('strong', parentWeight: 400).fontWeight, 700);
+    expect(tag('b', parentWeight: 700).fontWeight, 900, reason: 'bolder(700)');
+    expect(tag('b', parentWeight: 100).fontWeight, 400, reason: 'bolder(100)');
+  });
+
   test('继承字段清单与显式文字色标记', () {
     expect(Cascade.inheritedProperties, hasLength(18));
     final parent = compute(

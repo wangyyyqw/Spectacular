@@ -118,61 +118,24 @@ abstract final class Cascade {
       }
       for (final declaration in rule.rule.declarations) {
         sequence += 1;
-        _consider(
+        _considerDeclaration(
           winners,
-          declaration.property,
-          declaration.value,
+          declaration,
           rule.origin,
-          _level(rule.origin, declaration.important),
           matchedSpecificity,
           sequence,
         );
-        // 盒类简写展开（P9-27）：浏览器在级联前把简写拆成长属性，同名
-        // 长属性才能按优先级正确压过 UA 声明。不展开时作者 `p{margin:8px 0}`
-        // 会输给 UA 的 `p{margin:1em 0}` 拆出的 margin-top。
-        for (final longhand in _expandShorthand(
-          declaration.property,
-          declaration.value,
-        ).entries) {
-          _consider(
-            winners,
-            longhand.key,
-            longhand.value,
-            rule.origin,
-            _level(rule.origin, declaration.important),
-            matchedSpecificity,
-            sequence,
-          );
-        }
-        // `list-style` 简写展开（P9-12）：不展开的话作者简写会被 UA 的
-        // `ul { list-style-type: disc }` 长属性按属性名抢先命中。
-        if (declaration.property == 'list-style') {
-          final keyword = ComputedStyle.parseListStyleTypeKeyword(
-            declaration.value,
-          );
-          if (keyword != null) {
-            _consider(
-              winners,
-              'list-style-type',
-              keyword.$2,
-              rule.origin,
-              _level(rule.origin, declaration.important),
-              matchedSpecificity,
-              sequence,
-            );
-          }
-        }
       }
     }
 
     for (final declaration in inlineDeclarations) {
       sequence += 1;
-      _consider(
+      // 内联 style 同样展开简写：flat 管线重建样式时会把继承来的长属性
+      // 标成显式，内联 `font`/`margin` 简写不展开就会被那些长属性顶掉。
+      _considerDeclaration(
         winners,
-        declaration.property,
-        declaration.value,
+        declaration,
         CascadeOrigin.inline,
-        _level(CascadeOrigin.inline, declaration.important),
         const Specificity(1, 0, 0, 0),
         sequence,
       );
@@ -235,7 +198,64 @@ abstract final class Cascade {
     );
   }
 
-  /// 盒类简写 → 长属性（P9-27）：与浏览器一致，在级联阶段展开，
+  /// 一条声明进候选集：原文 + 简写展开，共用来源/优先级/序号。
+  ///
+  /// 简写展开（P9-27）：浏览器在级联前把简写拆成长属性，同名长属性才能
+  /// 按优先级正确压过 UA 声明。不展开时作者 `p{margin:8px 0}` 会输给 UA
+  /// 的 `p{margin:1em 0}` 拆出的 margin-top；`font` 简写同理（不展开会被
+  /// UA/继承来的 font-size 等长属性顶掉）。
+  static void _considerDeclaration(
+    Map<String, _Winner> winners,
+    CssDeclaration declaration,
+    CascadeOrigin origin,
+    Specificity specificity,
+    int sequence,
+  ) {
+    final level = _level(origin, declaration.important);
+    _consider(
+      winners,
+      declaration.property,
+      declaration.value,
+      origin,
+      level,
+      specificity,
+      sequence,
+    );
+    for (final longhand in _expandShorthand(
+      declaration.property,
+      declaration.value,
+    ).entries) {
+      _consider(
+        winners,
+        longhand.key,
+        longhand.value,
+        origin,
+        level,
+        specificity,
+        sequence,
+      );
+    }
+    // `list-style` 简写展开（P9-12）：不展开的话作者简写会被 UA 的
+    // `ul { list-style-type: disc }` 长属性按属性名抢先命中。
+    if (declaration.property == 'list-style') {
+      final keyword = ComputedStyle.parseListStyleTypeKeyword(
+        declaration.value,
+      );
+      if (keyword != null) {
+        _consider(
+          winners,
+          'list-style-type',
+          keyword.$2,
+          origin,
+          level,
+          specificity,
+          sequence,
+        );
+      }
+    }
+  }
+
+  /// 盒类与 `font` 简写 → 长属性（P9-27）：与浏览器一致，在级联阶段展开，
   /// 这样作者简写与 UA 长属性按同一属性名比优先级。
   static Map<String, String> _expandShorthand(
     String property,
@@ -243,6 +263,10 @@ abstract final class Cascade {
   ) {
     const sides = <String>['top', 'right', 'bottom', 'left'];
     switch (property) {
+      case 'font':
+        // `font: 700 17px/1.6 serif` → font-size/family/weight/style/line-height。
+        return ComputedStyle.parseFontShorthand(value) ??
+            const <String, String>{};
       case 'margin':
       case 'padding':
         final parts = _splitFourValues(value);
