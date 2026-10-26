@@ -118,11 +118,22 @@ void main() {
         }
       }
       expect(inkRight, greaterThan(_width - 60), reason: '右缘应有省略号墨迹');
-      // 布局不被截断改变（CFI/分页仍按全文）。
+      // W13 契约：布局层负责截断（行宽含省略号 advance、不超内容宽），
+      // 原文不改写、start/end 仍是前缀坐标（CFI/分页按全文）。
       final layout = _layout('abcdefghijklmnopqrstuvwxyz', style, 200);
       expect(layout.lineCount, 1);
-      expect(layout.lines.first.width, closeTo(26 * 16, 0.5),
-          reason: 'nowrap 全宽测量不变');
+      expect(layout.lines.first.ellipsized, isTrue, reason: 'ellipsis 行应被标记');
+      expect(
+        layout.lines.first.width,
+        lessThanOrEqualTo(200.5),
+        reason: '行宽含省略号 advance，不超过内容宽',
+      );
+      expect(layout.lines.first.ellipsisWidth, greaterThan(0));
+      expect(
+        layout.text,
+        'abcdefghijklmnopqrstuvwxyz',
+        reason: '原文不改写，只截取前缀区间',
+      );
       // 解析：未知值回退 clip。
       expect(
         _style(const {'text-overflow': 'ellipsis'}).textOverflow.name,
