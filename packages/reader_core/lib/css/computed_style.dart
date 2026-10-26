@@ -1132,6 +1132,11 @@ class ComputedStyle {
     var hasDeclaredLineHeight = false;
 
     void applyDeclaredLineHeight(String raw) {
+      // 显式 `normal` 是**有效声明**：重置为 normal（不再继承父级绝对值）。
+      if (raw.trim().toLowerCase() == 'normal') {
+        hasDeclaredLineHeight = true;
+        return;
+      }
       final unitless = double.tryParse(raw.trim());
       if (unitless != null) {
         lineHeight = fontSize * unitless;
@@ -1314,6 +1319,23 @@ class ComputedStyle {
         : _parseFontVariantCaps(rawVariantCaps) ??
               parent?.fontVariantCaps ??
               CssFontVariantCaps.normal;
+
+    // font-stretch（继承，初始 100%）：关键字/百分比统一折成百分比数值。
+    final rawFontStretch = explicitValue('font-stretch');
+    final fontStretch = rawFontStretch == null
+        ? (parent?.fontStretch ?? 100.0)
+        : _parseFontStretch(rawFontStretch) ??
+              parent?.fontStretch ??
+              100.0;
+    // font-size-adjust（继承，初始 none）：none 必须显式重置为 null。
+    var fontSizeAdjust = parent?.fontSizeAdjust;
+    final rawSizeAdjust = explicitValue('font-size-adjust');
+    if (rawSizeAdjust != null) {
+      final token = rawSizeAdjust.trim().toLowerCase();
+      fontSizeAdjust = token == 'none'
+          ? null
+          : double.tryParse(token) ?? fontSizeAdjust;
+    }
 
     // quotes（W18，继承，初始 auto）：显式引号对 / none / auto 三态。
     final rawQuotes = explicitValue('quotes');
@@ -1710,6 +1732,8 @@ class ComputedStyle {
       overflowWrap: overflowWrap,
       fontVariantCaps: fontVariantCaps,
       quotes: quotes,
+      fontStretch: fontStretch,
+      fontSizeAdjust: fontSizeAdjust,
       overflow: overflow,
       columnCount: columns.count,
       columnWidth: columns.width,
@@ -1844,6 +1868,8 @@ class ComputedStyle {
       overflowWrap: overflowWrap,
       fontVariantCaps: fontVariantCaps,
       quotes: quotes,
+      fontStretch: fontStretch,
+      fontSizeAdjust: fontSizeAdjust,
       overflow: overflow,
       columnCount: columnCount,
       columnWidth: columnWidth,
@@ -1949,6 +1975,8 @@ class ComputedStyle {
     required this.overflowWrap,
     required this.fontVariantCaps,
     required this.quotes,
+    required this.fontStretch,
+    required this.fontSizeAdjust,
     required this.overflow,
     required this.columnCount,
     required this.columnWidth,
@@ -2179,6 +2207,18 @@ class ComputedStyle {
   ///
   /// 消费点在行内文本生成阶段：`<q>` 开/闭引号按嵌套层级取用。
   final CssQuotes quotes;
+
+  /// 字体拉伸（`font-stretch`，继承，初始 100 = normal）。
+  ///
+  /// 数值是百分比（75 = condensed、87.5 = semi-condensed、125 = expanded…），
+  /// 绘制层映射成 `FontVariation('wdth', fontStretch)`；字体无 wdth 轴时
+  /// 按原样绘制（不合成）。
+  final double fontStretch;
+
+  /// 字号调整（`font-size-adjust`，继承）；null = none（初始值）。
+  ///
+  /// 绘制层按 1em 的 x-height 比例换算字号；当前引擎不消费，先保留字段。
+  final double? fontSizeAdjust;
 
   /// 溢出处理（非继承，初始 [CssOverflow.visible]）。
   ///
@@ -2918,6 +2958,16 @@ class ComputedStyle {
   /// 只做阅读器需要的子集；`font: caption` 这类系统字体关键字返回 null
   /// （交给默认值）。级联层（`Cascade._expandShorthand`）复用同一个解析器，
   /// 把简写拆成长属性后再按属性名比优先级。
+  /// 解析 `font` 简写（CSS Fonts 3 §4.5）。
+  ///
+  /// 语义要点：
+  /// - 简写会**重置**未写出的子属性：`font-style`/`font-weight`/
+  ///   `font-variant-caps` → normal，`font-stretch` → normal（100%），
+  ///   `font-size-adjust` → none，`line-height` → normal；
+  /// - 尺寸之后的部分是字体族，必须有（缺失整条声明无效，返回 null）；
+  /// - `font: caption|icon|menu|message-box|small-caption|status-bar`
+  ///   （含 `-webkit-` 前缀）是系统字体关键字：整套字体属性取系统值，
+  ///   这里按 Chrome 实测（headless macOS）落成 16px / Arial / normal。
   static Map<String, String>? parseFontShorthand(String? raw) {
     if (raw == null) {
       return null;
@@ -2925,6 +2975,28 @@ class ComputedStyle {
     final value = raw.trim();
     if (value.isEmpty) {
       return null;
+    }
+    // 系统字体关键字：整条值只有一个 token。
+    final systemKey = value.toLowerCase().replaceFirst('-webkit-', '');
+    const systemFonts = <String>{
+      'caption',
+      'icon',
+      'menu',
+      'message-box',
+      'small-caption',
+      'status-bar',
+    };
+    if (systemFonts.contains(systemKey)) {
+      return const <String, String>{
+        'font-size': '16px',
+        'font-family': 'Arial',
+        'font-style': 'normal',
+        'font-weight': 'normal',
+        'font-variant-caps': 'normal',
+        'font-stretch': 'normal',
+        'font-size-adjust': 'none',
+        'line-height': 'normal',
+      };
     }
     // 按引号与空白切词，保留带空格的字体名。
     final tokens = <String>[];
@@ -2960,7 +3032,16 @@ class ComputedStyle {
       return null;
     }
 
-    final result = <String, String>{};
+    // 简写重置：未写出的子属性取初始值（否则父级/其它规则的
+    // font-weight/font-style/line-height 会漏进来）。
+    final result = <String, String>{
+      'font-style': 'normal',
+      'font-weight': 'normal',
+      'font-variant-caps': 'normal',
+      'font-stretch': 'normal',
+      'font-size-adjust': 'none',
+      'line-height': 'normal',
+    };
     var index = 0;
     String? size;
     String? lineHeight;
@@ -2969,13 +3050,21 @@ class ComputedStyle {
       if (token == 'italic' || token == 'oblique') {
         result['font-style'] = token == 'oblique' ? 'italic' : token;
       } else if (token == 'normal') {
-        // normal 可能是 style/weight/variant 的占位，忽略。
-      } else if (token == 'small-caps') {
-        // `font: small-caps 12px serif` 的 caps token 落到长属性。
-        result['font-variant-caps'] = 'small-caps';
+        // normal 是各子属性的占位，初始值已经写过。
+      } else if (token == 'small-caps' ||
+          token == 'all-small-caps' ||
+          token == 'petite-caps' ||
+          token == 'all-petite-caps' ||
+          token == 'unicase' ||
+          token == 'titling-caps') {
+        result['font-variant-caps'] = token;
       } else if (token == 'bold' || token == 'bolder' || token == 'lighter' ||
           RegExp(r'^[1-9]00$').hasMatch(token)) {
         result['font-weight'] = token;
+      } else if (_fontStretchKeywords.containsKey(token)) {
+        result['font-stretch'] = _fontStretchKeywords[token]!;
+      } else if (_fontStretchPercentPattern.hasMatch(token)) {
+        result['font-stretch'] = token;
       } else {
         final match = _fontSizePattern.firstMatch(tokens[index]);
         final keyword = const <String>{
@@ -2998,11 +3087,29 @@ class ComputedStyle {
       result['line-height'] = lineHeight;
     }
     final family = tokens.skip(index + 1).join(' ').trim();
-    if (family.isNotEmpty) {
-      result['font-family'] = family;
+    // 字体族是字体简写的必填部分（CSS Fonts 3 §4.5），缺失时整条声明无效。
+    if (family.isEmpty) {
+      return null;
     }
+    result['font-family'] = family;
     return result;
   }
+
+  /// `font-stretch` 关键字 → 百分比（CSS Fonts 4 §2.3）。
+  static const Map<String, String> _fontStretchKeywords = <String, String>{
+    'ultra-condensed': '50%',
+    'extra-condensed': '62.5%',
+    'condensed': '75%',
+    'semi-condensed': '87.5%',
+    'semi-expanded': '112.5%',
+    'expanded': '125%',
+    'extra-expanded': '150%',
+    'ultra-expanded': '200%',
+  };
+
+  static final RegExp _fontStretchPercentPattern = RegExp(
+    r'^(?:[5-9]\d|1\d\d|200)(?:\.\d+)?%$',
+  );
 
   /// 解析 `background-image` 的 url；渐变与 none 返回 null。
   static String? _parseUrl(String? raw) {
@@ -3896,6 +4003,23 @@ class ComputedStyle {
         case 'titling-caps':
           return CssFontVariantCaps.titlingCaps;
       }
+    }
+    return null;
+  }
+
+  /// `font-stretch`：关键字或百分比 → 百分比数值（50–200），非法返回 null。
+  static double? _parseFontStretch(String raw) {
+    final token = raw.trim().toLowerCase();
+    if (token == 'normal') {
+      return 100;
+    }
+    final keyword = _fontStretchKeywords[token];
+    if (keyword != null) {
+      return double.parse(keyword.replaceAll('%', ''));
+    }
+    final percent = _parsePercent(token);
+    if (percent != null && percent >= 50 && percent <= 200) {
+      return percent;
     }
     return null;
   }
