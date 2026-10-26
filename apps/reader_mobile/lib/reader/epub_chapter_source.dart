@@ -279,6 +279,24 @@ class EpubChapterSource
     CssFloat.none => null,
   };
 
+  /// 只改宽/最大宽的重建：`writingMode`/`isRtl` 必须一起带上，否则下游
+  /// （绘制/选区/分页）会把竖排块当横排处理（35-writing-mode 曾因此走错
+  /// 绘制路径）。
+  static TextLayoutResult withLayoutWidth(
+    TextLayoutResult source, {
+    double? width,
+    double? maxWidth,
+  }) => TextLayoutResult(
+    text: source.text,
+    lines: source.lines,
+    width: width ?? source.width,
+    height: source.height,
+    maxWidth: maxWidth ?? source.maxWidth,
+    runs: source.runs,
+    isRtl: source.isRtl,
+    writingMode: source.writingMode,
+  );
+
   /// 浮动文本块：`PageBlock.styled` 不透传 floatSide，这里按同一口径
   /// 直接构造（内缩 = 边框 + 内边距；声明高度走 [BoxModel] 解算）。
   PageBlock _floatedTextBlock({
@@ -2384,14 +2402,7 @@ class EpubChapterSource
           if (inlineStyle.width == null) {
             // 行内浮动没有声明宽时按 shrink-to-fit 处理：浮动盒宽 = 内容宽
             //（分页器读 maxWidth 当声明宽，不收缩会把整行都占掉）。
-            layout = TextLayoutResult(
-              text: layout.text,
-              lines: layout.lines,
-              width: layout.width,
-              height: layout.height,
-              maxWidth: layout.width,
-              runs: layout.runs,
-            );
+            layout = withLayoutWidth(layout, maxWidth: layout.width);
           }
           floatBlock = _floatedTextBlock(
             layout: layout,
@@ -3905,13 +3916,10 @@ class EpubChapterSource
                 inlineBoxes: inlineBoxes,
               );
         if (outOfFlowBoxWidth != null) {
-          layout = TextLayoutResult(
-            text: layout.text,
-            lines: layout.lines,
+          layout = withLayoutWidth(
+            layout,
             width: outOfFlowBoxWidth,
-            height: layout.height,
             maxWidth: outOfFlowBoxWidth,
-            runs: layout.runs,
           );
         }
         // 竖排（W19）：行排版层给出的 `layout.width` 是**列带总宽**
@@ -3921,14 +3929,7 @@ class EpubChapterSource
             layout.width.isFinite &&
             layout.width > 0 &&
             layout.width != layout.maxWidth) {
-          layout = TextLayoutResult(
-            text: layout.text,
-            lines: layout.lines,
-            width: layout.width,
-            height: layout.height,
-            maxWidth: layout.width,
-            runs: layout.runs,
-          );
+          layout = withLayoutWidth(layout, maxWidth: layout.width);
         }
         if (inlineFloats.isNotEmpty) {
           // 浮动块排在段落之前：分页时它们先占位，段落行按剩余宽度收窄。
