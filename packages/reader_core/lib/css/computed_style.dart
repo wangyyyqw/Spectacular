@@ -1,3 +1,4 @@
+import 'property_aliases.dart';
 import 'dart:ui' show Color;
 
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
@@ -620,8 +621,13 @@ class ComputedStyle {
         : _parseTextTransform(rawTransform) ??
               parent?.textTransform ??
               CssTextTransform.none;
+    final rawVerticalAlign = explicitValue('vertical-align');
     final verticalAlign =
-        _parseVerticalAlign(explicitValue('vertical-align')) ??
+        _parseVerticalAlign(
+          rawVerticalAlign == null
+              ? null
+              : CssPropertyAliases.normalizeValue(rawVerticalAlign),
+        ) ??
         CssVerticalAlign.baseline;
 
     // 装饰与分页属性（P2-17）：text-decoration 不继承，text-emphasis 继承。

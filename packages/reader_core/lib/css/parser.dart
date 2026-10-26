@@ -1,3 +1,4 @@
+import 'property_aliases.dart';
 import 'package:csslib/parser.dart' as csslib;
 import 'package:csslib/visitor.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -385,10 +386,16 @@ abstract final class CssParser {
         warnings.add('跳过空值声明：$property');
         continue;
       }
+      // 厂商私有属性在解析入口统一改名（P9-13）：多看/掌阅的
+      // `-duokan-text-indent` 等与标准属性语义一致，改名后各层无需兼容。
+      final (aliasProperty, aliasValue) = CssPropertyAliases.resolve(
+        property,
+        value,
+      );
       result.add(
         CssDeclaration(
-          property: property.toLowerCase(),
-          value: value,
+          property: aliasProperty,
+          value: aliasValue,
           important: node.important,
         ),
       );

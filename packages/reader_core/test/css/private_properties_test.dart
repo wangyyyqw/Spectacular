@@ -1,0 +1,64 @@
+import 'package:flutter/painting.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/cascade.dart';
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/css/ua_stylesheet.dart';
+
+/// P9-13：多看/掌阅私有属性在解析入口改名后，走标准属性链路生效。
+void main() {
+  ComputedStyle compute(String declarations) {
+    final rules = <CascadeRule>[
+      ...uaRules(),
+      ...CascadeRule.fromStylesheet(
+        CssParser.parse('p { $declarations }'),
+        origin: CascadeOrigin.author,
+        startOrder: 1000,
+      ),
+    ];
+    return Cascade.compute(
+      element: const _Element('p', <String, String>{}),
+      ancestors: const <SelectorElement>[],
+      rules: rules,
+    );
+  }
+
+  test('多看缩进/对齐/断行私有属性', () {
+    expect(compute('-duokan-text-indent: 2em').textIndent, 32);
+    expect(compute('duokan-text-indent: 1em').textIndent, 16);
+    expect(
+      compute('duokan-paragraph-align: center').textAlign,
+      CssTextAlign.center,
+    );
+    expect(compute('duokan-break-inside: avoid').breakInsideAvoid, isTrue);
+  });
+
+  test('多看渐变文字取首色当纯色', () {
+    expect(
+      compute('-duokan-text-fill: linear-gradient(#ffd700, #b0904d)').color,
+      const Color(0xFFFFD700),
+    );
+    expect(compute('duokan-text-color: #cbd5e1').color, const Color(0xFFCBD5E1));
+  });
+
+  test('vertical-align 私有值 duokan-middle-line', () {
+    expect(
+      compute('vertical-align: duokan-middle-line').verticalAlign,
+      CssVerticalAlign.middle,
+    );
+  });
+}
+
+class _Element implements SelectorElement {
+  const _Element(this.tag, this.attributes);
+
+  @override
+  final String tag;
+
+  @override
+  final Map<String, String> attributes;
+
+  @override
+  List<SelectorElement> get childElements => const <SelectorElement>[];
+}
