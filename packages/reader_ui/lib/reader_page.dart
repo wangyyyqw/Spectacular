@@ -159,6 +159,20 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
 
+  /// 缓存的安全区高度：只在首帧取一次，系统栏显隐不改变它。
+  ///
+  /// 菜单是浮层，开关时不能改 padding —— 否则 viewPadding 变化会触发重排。
+  double? _cachedSafeTop;
+  double? _cachedSafeBottom;
+
+  /// 顶部安全区（缓存值）。
+  double get _safeTop =>
+      _cachedSafeTop ??= MediaQuery.maybeViewPaddingOf(context)?.top ?? 0;
+
+  /// 底部安全区（缓存值）。
+  double get _safeBottom =>
+      _cachedSafeBottom ??= MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0;
+
   /// 是否在边距调节器里（全屏编辑态，压在菜单之上）。
   bool _editingMargins = false;
 
@@ -245,9 +259,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return margins.toPadding();
     }
     // 未设置时：安全区顶部（状态栏/挖孔）与底部（手势条）都不放正文。
-    final viewPadding = MediaQuery.maybeViewPaddingOf(context);
-    final topInset = viewPadding?.top ?? 0;
-    final bottomInset = viewPadding?.bottom ?? 0;
+    // 用缓存值而不是实时 MediaQuery —— 菜单开关、系统栏显隐都不该改排版。
+    final topInset = _safeTop;
+    final bottomInset = _safeBottom;
     if (topInset <= 0 && bottomInset <= 0) {
       return base;
     }
@@ -471,12 +485,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
     final open = !_menuOpen;
-    // 菜单态需要状态栏（设计稿 .sysbar）；阅读态回到沉浸全屏。
-    unawaited(
-      SystemChrome.setEnabledSystemUIMode(
-        open ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
-      ),
-    );
+    // 不切系统栏模式：菜单是浮层，切 edgeToEdge 会改 viewPadding → 正文重排。
     setState(() {
       _menuOpen = open;
       if (!_menuOpen) {
@@ -1360,6 +1369,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                     ),
               onCloseDrawer: _closeDrawer,
+              safeTop: _safeTop,
+              safeBottom: _safeBottom,
             ),
             // 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态。
             if (_editingMargins)
