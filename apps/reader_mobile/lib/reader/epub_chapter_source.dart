@@ -1554,9 +1554,37 @@ class EpubChapterSource
     /// 表格收集（flat 管线接入）：聚合树 tr/td → 格自然宽/测高闭包 →
     /// 两遍列宽 + 网格 + 行边界切分；每页片产出一个带渲染载荷的块。
     /// 嵌套表/行分组（thead/tbody）按树序展开；caption 暂并入文字流。
-    void collectTable(BlockNode tableNode) {
-      const cellPad = 3.0;
+    void collectTable(
+      BlockNode tableNode,
+      List<SelectorElement> ancestors,
+    ) {
+      // 表格自身与单元格样式必须走完整祖先链（P9-16）：书籍大量使用
+      // `table.t-head-tb td { padding: 0; border: none }` 这类后代选择器，
+      // 只拿 `td` 自身匹配会全部落空，单元格永远用 UA 的 3px 内边距。
+      final tableView = _NodeView(
+        'table',
+        tableNode.attributes,
+        const <SelectorElement>[],
+      );
+      final tableChain = <SelectorElement>[...ancestors, tableView];
+      final tableStyle = styleForChain(tableChain);
+
+      /// 单元格水平占位：左右内边距 + 左右边框。
+      double horizontalInset(ComputedStyle style) =>
+          style.padding.left +
+          style.padding.right +
+          style.borders.left.width +
+          style.borders.right.width;
+
+      /// 单元格垂直占位：上下内边距 + 上下边框。
+      double verticalInset(ComputedStyle style) =>
+          style.padding.top +
+          style.padding.bottom +
+          style.borders.top.width +
+          style.borders.bottom.width;
+
       final rows = <List<BlockNode>>[];
+      final rowNodes = <BlockNode>[];
       void walkRows(EpubNode node) {
         if (node is! BlockNode) {
           return;
@@ -1568,6 +1596,7 @@ class EpubChapterSource
               .toList();
           if (cells.isNotEmpty) {
             rows.add(cells);
+            rowNodes.add(node);
           }
           return;
         }
@@ -1670,15 +1699,22 @@ class EpubChapterSource
       final cellStyles = <List<ComputedStyle>>[];
       final specs = <List<TableCellSpec>>[];
       final cellTexts = <List<String>>[];
-      for (final row in rows) {
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        final row = rows[rowIndex];
+        final rowView = _NodeView(
+          rowNodes[rowIndex].tag,
+          rowNodes[rowIndex].attributes,
+          const <SelectorElement>[],
+        );
         final styles = <ComputedStyle>[];
         final rowSpecs = <TableCellSpec>[];
         final texts = <String>[];
         for (final cell in row) {
-          final cellStyle = styleFor(
-            cell.tag,
-            attributes: cell.attributes,
-          );
+          final cellStyle = styleForChain(<SelectorElement>[
+            ...tableChain,
+            rowView,
+            _NodeView(cell.tag, cell.attributes, const <SelectorElement>[]),
+          ]);
           final text = cellTextOf(cell);
           final colspan = int.tryParse(
                 cell.attributes['colspan']?.trim() ?? '',
@@ -1697,7 +1733,7 @@ class EpubChapterSource
             for (final line in measured.lines) {
               widest = math.max(widest, line.width);
             }
-            return widest + cellPad * 2;
+            return widest + horizontalInset(cs);
           }
 
           styles.add(cellStyle);
@@ -1714,10 +1750,13 @@ class EpubChapterSource
                         .layout(
                           text: text,
                           style: cellStyle,
-                          maxWidth: math.max(8.0, width - cellPad * 2),
+                          maxWidth: math.max(
+                            8.0,
+                            width - horizontalInset(cellStyle),
+                          ),
                         )
                         .height +
-                    cellPad * 2;
+                    verticalInset(cellStyle);
               },
             ),
           );
@@ -1754,7 +1793,10 @@ class EpubChapterSource
               : _layoutCache.layout(
                   text: text,
                   style: cellStyle,
-                  maxWidth: math.max(8.0, rect.rect.width - cellPad * 2),
+                  maxWidth: math.max(
+                    8.0,
+                    rect.rect.width - horizontalInset(cellStyle),
+                  ),
                 );
           if (layout == null || layout.lineCount == 0) {
             continue;
@@ -1794,7 +1836,9 @@ class EpubChapterSource
             )
             .toList();
         blocks.add(
-          PageBlock(
+          PageBlock.styled(
+            style: tableStyle,
+            containingWidth: contentWidth,
             layout: TextLayoutResult(
               text: '',
               lines: [
@@ -1812,7 +1856,6 @@ class EpubChapterSource
               maxWidth: measured.tableWidth,
               runs: const <StyledRun>[],
             ),
-            style: styleFor('table', attributes: tableNode.attributes),
             table: TableRenderSpec(
               cells: cells,
               columnXs: gridColumnXs,
@@ -1982,7 +2025,7 @@ class EpubChapterSource
         }
         // 表格块（flat 管线接入）：格布局测量 + 行边界切分 + 渲染载荷。
         if (node.tag == 'table') {
-          collectTable(node);
+          collectTable(node, ancestors);
           return;
         }
         // 分隔线 hr：空行块 + 下边框（绘制层 _paintBorders 画线）。

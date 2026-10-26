@@ -75,6 +75,7 @@ class PageBlock {
     String? listMarker,
     List<RubyAnnotation>? rubies,
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
+    TableRenderSpec? table,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -95,6 +96,7 @@ class PageBlock {
       listMarker: listMarker,
       rubies: rubies,
       inlineImages: inlineImages,
+      table: table,
     );
   }
 
