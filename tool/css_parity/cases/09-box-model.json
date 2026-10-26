@@ -1,0 +1,5 @@
+{
+  "name": "09-box-model",
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .box { margin: 10px 20px; padding: 8px 16px; border: 2px solid #3366cc; background-color: #eef3ff; border-radius: 6px; } .bb { box-sizing: border-box; width: 200px; padding: 10px; border: 3px solid #cc3366; }",
+  "html": "<p class=\"box\">盒模型：外边距 10/20、内边距 8/16、2px 蓝框、圆角 6px、浅底。</p><p class=\"bb\">border-box 宽 200px 含 padding 与 border</p>"
+}
