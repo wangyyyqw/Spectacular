@@ -177,6 +177,8 @@ class PagePainter {
           );
           // 内阴影画在背景之上、边框/文字之下（Chromium 的顺序）。
           _paintInsetBoxShadow(canvas, geometry);
+          // 多列分隔线：背景之上、正文之下（CSS Multicol §4 的绘制顺序）。
+          _paintColumnRules(canvas, geometry);
         }),
       );
     }
@@ -264,8 +266,20 @@ class PagePainter {
                 textColorOverride: geometry.textColorOverride,
               );
               final lineRuns = _lineRuns(layout, line);
-              // 行内元素盒（P9-24）：先铺背景/边框，再把文字画在上面。
-              _paintInlineBoxes(canvas, painter, lineRuns, x, lineY);
+              // 行内盒（P9-24 / W16）：布局层给了 placements 就按它画
+              // （否则回退到按 run 样式的旧口径），都画在文字之前。
+              if (line.inlineBoxes.isEmpty) {
+                _paintInlineBoxes(canvas, painter, lineRuns, x, lineY);
+              } else {
+                _paintInlineBoxPlacements(
+                  canvas,
+                  geometry,
+                  line,
+                  lineRuns,
+                  x,
+                  lineY,
+                );
+              }
               _paintLineText(
                 canvas,
                 painter,
@@ -577,6 +591,10 @@ class PagePainter {
       }
     }
   }
+
+  /// 布局结果对应的文字方向（RTL 段落测量按 rtl，绘制必须同向）。
+  static TextDirection _textDirectionOf(TextLayoutResult layout) =>
+      layout.isRtl ? TextDirection.rtl : TextDirection.ltr;
 
   /// 在块坐标系里执行 [body]。
   ///
@@ -984,6 +1002,49 @@ class PagePainter {
     ];
   }
 
+  /// 多列分隔线（`column-rule`，CSS Multicol §4）。
+  ///
+  /// 几何来自首列块的 [PageBlock.multicol]（其余列是 overlay 块，不重复画）；
+  /// 竖线 x = 上一列左缘 + 列宽 + gap/2（= 下一列左缘 − gap/2），高度 = 列带
+  /// 内容高（首列块的内容盒就是本页列带高）。线型复用边框的 [_paintSide]
+  /// （solid / double / dotted / dashed 与 `border-style` 同口径）。
+  void _paintColumnRules(Canvas canvas, _SliceGeometry geometry) {
+    final multicol = geometry.slice.block.multicol;
+    final rule = geometry.style.columnRule;
+    if (multicol == null || multicol.count < 2) {
+      return;
+    }
+    if (rule == null || !rule.isVisible) {
+      return;
+    }
+    final borders = geometry.style.borders;
+    final padding = geometry.style.padding;
+    final box = geometry.borderBox;
+    final left =
+        box.left +
+        (borders.left.isVisible ? borders.left.width : 0) +
+        padding.left;
+    final top =
+        box.top +
+        (borders.top.isVisible ? borders.top.width : 0) +
+        padding.top;
+    final bottom =
+        box.bottom -
+        (borders.bottom.isVisible ? borders.bottom.width : 0) -
+        padding.bottom;
+    if (bottom <= top) {
+      return;
+    }
+    // 设备像素吸附（Chromium 同样吸附）：1px 线落在 x.5 上才覆盖整整一个像素，
+    // 否则会摊成两列半透明灰。
+    final oddWidth = rule.width.round().isOdd;
+    for (var index = 1; index < multicol.count; index++) {
+      var x = left + multicol.leftOf(index) - multicol.gap / 2;
+      x = oddWidth ? (x - 0.5).roundToDouble() + 0.5 : x.roundToDouble();
+      _paintSide(canvas, rule, Offset(x, top), Offset(x, bottom));
+    }
+  }
+
   /// 外阴影（W2）：blur / spread 支持，多阴影取首个（样式层语义）。
   ///
   /// 形状 = 边框盒 + spread（圆角同比放大，Chromium 口径），再按
@@ -1103,7 +1164,7 @@ class PagePainter {
       final prefix = layout.text.substring(lineStart, ruby.start);
       final painter = TextPainter(
         text: TextSpan(text: prefix, style: geometry.textStyle),
-        textDirection: TextDirection.ltr,
+        textDirection: _textDirectionOf(layout),
       )..layout();
       final x0 = geometry.leftInset + hostLine.offsetX + painter.width;
       painter.dispose();
@@ -1112,13 +1173,13 @@ class PagePainter {
           text: layout.text.substring(ruby.start, ruby.end),
           style: geometry.textStyle,
         ),
-        textDirection: TextDirection.ltr,
+        textDirection: _textDirectionOf(layout),
       )..layout();
       final baseWidth = basePainter.width;
       basePainter.dispose();
       final rubyPainter = TextPainter(
         text: TextSpan(text: ruby.text, style: rubyStyle),
-        textDirection: TextDirection.ltr,
+        textDirection: _textDirectionOf(layout),
       )..layout();
       final rx = x0 + (baseWidth - rubyPainter.width) / 2;
       rubyPainter.paint(canvas, ui.Offset(rx, lineY - rubyPainter.height));
@@ -1213,7 +1274,9 @@ class PagePainter {
                     line: line,
                     baseStyle: textStyle,
                   ),
-            textDirection: TextDirection.ltr,
+            textDirection: cell.layout.isRtl
+                ? TextDirection.rtl
+                : TextDirection.ltr,
           )..layout(maxWidth: innerWidth);
           final contentLeft = left + cell.rect.left + leftInset;
           final contentRight = left + cell.rect.right - rightInset;
@@ -1404,6 +1467,173 @@ class PagePainter {
             ..strokeWidth = math.max(1.0, fontSize / 16),
         );
     }
+  }
+
+  /// 行内盒（W16）：按布局层 [LineBox.inlineBoxes] 的放置画盒背景/边框与内容。
+  ///
+  /// 样式优先级：payload 为 [ComputedStyle] 时用 payload；否则回退到插入点
+  /// 所在 run 的样式（inline-block span 的样式）。内容：payload 为 [String]
+  /// 时按盒居中单行绘制（其余 payload 结构等章节源约定后接入）。
+  void _paintInlineBoxPlacements(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    LineBox line,
+    List<_LineRun> runs,
+    double x,
+    double lineY,
+  ) {
+    if (line.inlineBoxes.isEmpty) {
+      return;
+    }
+    for (final placement in line.inlineBoxes) {
+      final style = _inlineBoxStyleOf(placement, runs) ?? geometry.style;
+      // 盒顶 = 基线 − 基线以上延伸（行顶由 LineBox.baseline 反映）。
+      final rect = Rect.fromLTWH(
+        x + placement.left,
+        lineY + line.baseline - placement.ascent,
+        placement.width,
+        placement.height,
+      );
+      // inline-block 盒子同样可能是半透明（payload.style.effectiveOpacity）。
+      final opacity = math.min(style.effectiveOpacity, 1.0);
+      final layered = opacity < 1;
+      if (layered) {
+        canvas.saveLayer(
+          rect.inflate(8),
+          Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+        );
+      }
+      _paintBackground(
+        canvas,
+        rect,
+        style,
+        startsBlock: true,
+        endsBlock: true,
+      );
+      _paintBorders(
+        canvas,
+        rect,
+        style,
+        startsBlock: true,
+        endsBlock: true,
+      );
+      final payload = placement.spec.payload;
+      if (payload is PageBlock) {
+        _paintInlineBoxContent(canvas, payload, rect);
+      } else if (payload is String && payload.isNotEmpty) {
+        final painter = TextPainter(
+          text: TextSpan(
+            text: payload,
+            style: TextLayoutEngine.textStyleFor(style),
+          ),
+          textDirection: style.isRtl ? TextDirection.rtl : TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )..layout(maxWidth: rect.width);
+        painter.paint(
+          canvas,
+          Offset(
+            rect.left + (rect.width - painter.width) / 2,
+            rect.top + (rect.height - painter.height) / 2,
+          ),
+        );
+        painter.dispose();
+      }
+      if (layered) {
+        canvas.restore();
+      }
+    }
+  }
+
+  /// 行内盒内容（payload = [PageBlock]）：内容盒内逐行画文字。
+  ///
+  /// `placement.width/height` 是边框盒尺寸，内容盒要再扣掉 payload 样式的
+  /// padding 与边框；行 x = 内容盒左缘 + `line.offsetX`，行 y 自内容盒顶按
+  /// `line.height` 累加，行内样式走 runs（颜色/字号/注音等）。
+  void _paintInlineBoxContent(
+    Canvas canvas,
+    PageBlock box,
+    Rect borderBox,
+  ) {
+    final style = box.style;
+    if (style == null) {
+      return;
+    }
+    final borders = style.borders;
+    final padding = style.padding;
+    final contentLeft =
+        borderBox.left + padding.left + (borders.left.isVisible ? borders.left.width : 0);
+    final contentTop =
+        borderBox.top + padding.top + (borders.top.isVisible ? borders.top.width : 0);
+    final contentRight =
+        borderBox.right - padding.right - (borders.right.isVisible ? borders.right.width : 0);
+    final contentWidth = math.max(1.0, contentRight - contentLeft);
+    final contentBottom =
+        borderBox.bottom - padding.bottom - (borders.bottom.isVisible ? borders.bottom.width : 0);
+    final contentBox = Rect.fromLTWH(
+      contentLeft,
+      contentTop,
+      contentWidth,
+      math.max(0.0, contentBottom - contentTop),
+    );
+    // 内容溢出裁剪（T3 契约）：固定高的 inline-block 声明高 < 内容高时
+    // `clipsContent` 为真（作者没写 overflow 也裁）；显式 overflow 非 visible
+    // 同样裁。裁剪区就是内容盒（= 声明内容高）。
+    final clipsContent =
+        box.clipsContent || style.overflow != CssOverflow.visible;
+    if (clipsContent) {
+      canvas.save();
+      canvas.clipRect(contentBox);
+    }
+    final layout = box.layout;
+    final textStyleBase = TextLayoutEngine.textStyleFor(style);
+    var lineY = contentTop;
+    for (var lineIndex = 0; lineIndex < layout.lineCount; lineIndex++) {
+      final line = layout.lines[lineIndex];
+      final text = layout.text.substring(line.start, line.end);
+      if (text.isNotEmpty) {
+        final runs = _lineRuns(layout, line);
+        final painter = TextPainter(
+          text: runs.isEmpty
+              ? TextSpan(text: text, style: textStyleBase)
+              : buildLineSpan(
+                  layout: layout,
+                  line: line,
+                  baseStyle: textStyleBase,
+                ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: contentWidth);
+        painter.paint(
+          canvas,
+          Offset(contentLeft + line.offsetX, lineY),
+        );
+        painter.dispose();
+      }
+      lineY += line.height;
+    }
+    if (clipsContent) {
+      canvas.restore();
+    }
+  }
+
+  /// 行内盒的样式：payload 是 [ComputedStyle] 就用它，否则取插入点所在 run。
+  ComputedStyle? _inlineBoxStyleOf(
+    InlineBoxPlacement placement,
+    List<_LineRun> runs,
+  ) {
+    final payload = placement.spec.payload;
+    if (payload is ComputedStyle) {
+      return payload;
+    }
+    if (payload is PageBlock) {
+      return payload.style;
+    }
+    for (final run in runs) {
+      if (placement.offset >= run.start && placement.offset < run.end) {
+        return run.style;
+      }
+    }
+    return null;
   }
 
   /// 行内元素盒（P9-24）：`display:inline-block` 的行内 span 的背景、
@@ -1972,7 +2202,9 @@ class PagePainter {
         textAutospace: textAutospace,
         textColorOverride: textColorOverride,
       ),
-      textDirection: TextDirection.ltr,
+      // 方向必须与布局层一致：RTL 段落测量按 rtl，绘制也要 rtl，
+      // 否则字形视觉顺序会反过来（61-logical-properties）。
+      textDirection: _textDirectionOf(layout),
     )..layout();
     final cache = paragraphCache;
     if (cache == null) {
@@ -2027,7 +2259,7 @@ class PagePainter {
                     : TextLayoutEngine.textStyleFor(segment.style!)
                           .copyWith(color: textColor)),
         ),
-        textDirection: TextDirection.ltr,
+        textDirection: painter.textDirection,
       )..layout();
       segmentPainter.paint(
         canvas,
