@@ -13,7 +13,7 @@ import '../library/library_store.dart';
 import '../reader/epub_chapter_source.dart';
 import '../reader/epub_reader_page.dart';
 import '../reader/reader_settings.dart';
-import '../search/search_service.dart';
+import '../search/scan_search_service.dart';
 import 'book_detail_sheet.dart';
 import '../diagnostics/reader_log.dart';
 import '../storage/import_queue.dart';
@@ -289,30 +289,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 构造本书的搜索回调（P4-26）：首次查询时打开章节源，之后复用。
+  /// 构造本书的搜索回调（P4-26）：扫描式搜索，不建索引。
+  ///
+  /// 对照 Reeden 2.0：查询时逐章取纯文本，丢进 isolate 线性扫描，命中章再
+  /// 走排版拿 CFI。大书首次查询只受「取文本」限制，不再有十几分钟的建索引。
   Future<List<SearchPanelResult>> Function(String query)? _buildSearch(
     BookEntry entry,
     Uint8List bytes,
   ) {
-    final store = widget.library.searchIndexStore();
-    if (store == null) {
-      return null;
-    }
-    SearchService? service;
-    int? bookId;
+    ScanSearchService? service;
     return (query) async {
-      bookId ??= await widget.library.internalBookId(entry.id);
-      final id = bookId;
-      if (id == null) {
-        return const <SearchPanelResult>[];
-      }
-      // 首次搜索时补建索引（断点续建；已建完则立即返回）。
-      await widget.library.ensureSearchIndex(entry.id, bytes);
-      service ??= SearchService(
-        source: await EpubChapterSource.open(bytes),
-        store: store,
+      service ??= ScanSearchService(
+        source: await EpubChapterSource.open(bytes, verifyCrc: false),
       );
-      final results = await service!.search(id, query);
+      final results = await service!.search(query);
       return <SearchPanelResult>[
         for (final result in results)
           SearchPanelResult(
