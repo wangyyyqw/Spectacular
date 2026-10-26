@@ -36,6 +36,21 @@ abstract final class ReaderSettingsDefaults {
   );
 }
 
+/// 设置面板的分段（设计稿把「主题 / 排版 / 设置」拆成三个抽屉面板）。
+enum SettingsSection {
+  /// 全部（旧菜单用）。
+  all,
+
+  /// 排版：字号/行高/段距/页边距。
+  type,
+
+  /// 主题与背景。
+  theme,
+
+  /// 其它开关（墨水屏 / 恢复默认）。
+  settings,
+}
+
 /// 设置面板（P4-21）：字号/行高/段距/页边距/主题，改动即时生效。
 ///
 /// 翻页动画等「不触发重排」的项按 §42.3 与排版参数分开，这里只放排版与主题。
@@ -53,6 +68,7 @@ class SettingsPanel extends StatefulWidget {
     this.onInkModeChanged,
     this.onReset,
     this.onBack,
+    this.section = SettingsSection.all,
   });
 
   /// 初始排版覆盖。
@@ -84,6 +100,9 @@ class SettingsPanel extends StatefulWidget {
 
   /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
   final VoidCallback? onBack;
+
+  /// 只渲染某一段（设计稿抽屉面板按段拆分）。
+  final SettingsSection section;
 
   @override
   State<SettingsPanel> createState() => _SettingsPanelState();
@@ -158,6 +177,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
               children: [
+                if (widget.section == SettingsSection.all ||
+                    widget.section == SettingsSection.type) ...[
                 _slider(
                   key: 'settings-font-size',
                   label: '字号',
@@ -210,7 +231,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     _emit();
                   },
                 ),
-                const SizedBox(height: 8),
+                ],
+                if (widget.section == SettingsSection.all ||
+                    widget.section == SettingsSection.theme) ...[
                 Text('主题', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 8),
                 Wrap(
@@ -245,6 +268,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     ],
                   ),
                 ],
+                ],
+                if (widget.section == SettingsSection.all ||
+                    widget.section == SettingsSection.settings) ...[
                 if (widget.onInkModeChanged != null) ...[
                   const SizedBox(height: 12),
                   SwitchListTile(
@@ -255,6 +281,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     value: widget.inkMode,
                     onChanged: widget.onInkModeChanged,
                   ),
+                ],
                 ],
               ],
             ),

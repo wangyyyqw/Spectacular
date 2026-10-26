@@ -353,6 +353,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           settings: _settings ?? ReaderSettings.defaults,
           onSettingsChanged: _saveReaderSettings,
           onSearch: _buildSearch(entry, bytes),
+          bookTitle: entry.title,
         ),
       ),
     );

@@ -57,7 +57,7 @@ void main() {
     // 菜单 → 设置 → 点纸纹背景。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('menu-settings')));
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-theme')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('settings-bg-paper')),

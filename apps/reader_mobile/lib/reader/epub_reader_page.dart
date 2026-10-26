@@ -34,6 +34,7 @@ class EpubReaderPage extends StatefulWidget {
     this.settings,
     this.onSettingsChanged,
     this.onSearch,
+    this.bookTitle = '阅读',
   });
 
   /// EPUB 字节。
@@ -56,6 +57,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 设置变化（调用方持久化）。
   final ValueChanged<ReaderSettings>? onSettingsChanged;
+
+  /// 书名（菜单顶部栏用）。
+  final String bookTitle;
 
   /// 搜索回调（P4-26）：由调用方接入索引。
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
@@ -166,6 +170,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         settings.copyWithInkMode(enabled),
       ),
       onSearch: widget.onSearch,
+      bookTitle: widget.bookTitle,
     );
   }
 }
