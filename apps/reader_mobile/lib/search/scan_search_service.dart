@@ -78,6 +78,68 @@ class ScanSearchService {
     return results;
   }
 
+  /// 流式搜索：逐章扫描、边扫边推（搜到就显示，不等全书扫完）。
+  ///
+  /// 每章产出一次「当前累计结果」，UI 逐批渲染；`total` 是章节总数，供进度显示。
+  Stream<ScanProgress> searchStream(String query) async* {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      yield const ScanProgress(results: <SearchResult>[], scanned: 0, total: 0);
+      return;
+    }
+    final source = this.source;
+    if (source is! EpubChapterSource) {
+      yield const ScanProgress(results: <SearchResult>[], scanned: 0, total: 0);
+      return;
+    }
+    final titles = _chapterTitles();
+    final total = source.chapterCount;
+    final results = <SearchResult>[];
+    final watch = Stopwatch()..start();
+    for (var spine = 0; spine < total; spine++) {
+      final text = _textCache[spine] ?? source.chapterPlainText(spine);
+      _textCache[spine] = text;
+      var from = 0;
+      var added = false;
+      while (results.length < maxResults) {
+        final at = text.indexOf(trimmed, from);
+        if (at < 0) {
+          break;
+        }
+        results.add(
+          SearchResult(
+            spineIndex: spine,
+            charOffset: at,
+            chapterTitle: titles[spine] ?? '',
+            context: _contextOf(text, at, trimmed.length),
+            matchLength: trimmed.length,
+          ),
+        );
+        from = at + trimmed.length;
+        added = true;
+      }
+      if (added) {
+        yield ScanProgress(
+          results: List<SearchResult>.of(results),
+          scanned: spine + 1,
+          total: total,
+          elapsedMs: watch.elapsedMilliseconds,
+        );
+      }
+      if (results.length >= maxResults) {
+        return;
+      }
+      // 每章让出一次事件循环，避免长书把主线程占住。
+      await Future<void>.delayed(Duration.zero);
+    }
+    _log('search_scan', <String, Object?>{
+      'query': trimmed,
+      'chapters': total,
+      'hits': results.length,
+      'extract_scan_ms': watch.elapsedMilliseconds,
+    });
+  }
+
   /// 逐章取纯文本：每章让出一次事件循环，避免长书把主线程占住。
   Future<List<String>> _collectTexts() async {
     final source = this.source;
@@ -272,4 +334,27 @@ class SearchResult {
 
   /// 命中位置的 CFI（块 CFI + 块内偏移）；无法定位时为 null。
   final String? cfi;
+}
+
+/// 流式搜索的一次进度快照。
+class ScanProgress {
+  /// 创建快照。
+  const ScanProgress({
+    required this.results,
+    required this.scanned,
+    required this.total,
+    this.elapsedMs = 0,
+  });
+
+  /// 当前累计结果。
+  final List<SearchResult> results;
+
+  /// 已扫描章数。
+  final int scanned;
+
+  /// 章节总数。
+  final int total;
+
+  /// 已耗时（毫秒）。
+  final int elapsedMs;
 }

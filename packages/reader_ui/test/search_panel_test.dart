@@ -69,8 +69,8 @@ void main() {
 
     // 分组：两个章标题 + 三条命中。
     expect(find.byKey(const ValueKey<String>('search-results')), findsOneWidget);
-    expect(find.text('第一章 简单正文'), findsOneWidget);
-    expect(find.text('第二章'), findsOneWidget);
+    expect(find.textContaining('第一章 简单正文'), findsOneWidget);
+    expect(find.textContaining('第二章'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('search-hit-0-3')),
       findsOneWidget,

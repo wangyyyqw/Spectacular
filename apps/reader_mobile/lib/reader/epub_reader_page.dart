@@ -40,6 +40,7 @@ class EpubReaderPage extends StatefulWidget {
     this.bookTitle = '阅读',
     this.onMarginsChanged,
     this.onResolveSearchCfi,
+    this.onSearchStream,
   });
 
   /// EPUB 字节。
@@ -71,6 +72,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 点开搜索命中时解析 CFI（扫描式搜索不算预置 CFI）。
   final Future<String?> Function(SearchPanelResult result)? onResolveSearchCfi;
+
+  /// 流式搜索（逐章推送结果）。
+  final Stream<SearchProgress> Function(String query)? onSearchStream;
 
   /// 搜索回调（P4-26）：由调用方接入索引。
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
@@ -210,6 +214,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         ReaderLog.instance.log(event, fields: fields),
       ),
       onResolveSearchCfi: widget.onResolveSearchCfi,
+      onSearchStream: widget.onSearchStream,
     );
   }
 }

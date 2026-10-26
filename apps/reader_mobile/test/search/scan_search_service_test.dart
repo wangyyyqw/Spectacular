@@ -73,4 +73,26 @@ void main() {
       expect(recenterOffset(text, '关键词', 502), 2);
     });
   });
+
+  test('流式搜索：逐章推送，搜到就出结果', () async {
+    final bytes = buildMultiChapterEpub(
+      title: '流式',
+      chapters: const <String>[
+        '第一章\n没有关键词。',
+        '第二章\n沈河出现了。',
+        '第三章\n沈河又出现了。',
+      ],
+    );
+    final source = await openTestChapterSource(bytes);
+    final service = ScanSearchService(source: source);
+
+    final batches = <ScanProgress>[];
+    await for (final progress in service.searchStream('沈河')) {
+      batches.add(progress);
+    }
+    expect(batches.length, greaterThanOrEqualTo(2), reason: '至少推送两次（两章命中）');
+    expect(batches.first.results, hasLength(1), reason: '第一批只有第二章的命中');
+    expect(batches.last.results, hasLength(2), reason: '最后一批累积两条');
+    expect(batches.last.scanned, greaterThan(batches.first.scanned));
+  });
 }

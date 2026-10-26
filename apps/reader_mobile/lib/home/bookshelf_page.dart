@@ -296,6 +296,38 @@ class _BookshelfPageState extends State<BookshelfPage> {
   /// 本书的扫描搜索服务（搜索与「点开命中算 CFI」共用）。
   ScanSearchService? _scanService;
 
+  /// 流式搜索（逐章推送，搜到就显示）。
+  Stream<SearchProgress> Function(String query) _buildSearchStream(
+    BookEntry entry,
+    Uint8List bytes,
+  ) {
+    return (query) async* {
+      _scanService ??= ScanSearchService(
+        source: await EpubChapterSource.open(bytes, verifyCrc: false),
+        onLog: (event, fields) => unawaited(
+          ReaderLog.instance.log(event, fields: fields),
+        ),
+      );
+      await for (final progress in _scanService!.searchStream(query)) {
+        yield SearchProgress(
+          results: <SearchPanelResult>[
+            for (final result in progress.results)
+              SearchPanelResult(
+                spineIndex: result.spineIndex,
+                charOffset: result.charOffset,
+                chapterTitle: result.chapterTitle,
+                context: result.context,
+                matchLength: result.matchLength,
+                cfi: result.cfi,
+              ),
+          ],
+          scanned: progress.scanned,
+          total: progress.total,
+        );
+      }
+    };
+  }
+
   Future<List<SearchPanelResult>> Function(String query)? _buildSearch(
     BookEntry entry,
     Uint8List bytes,
@@ -393,6 +425,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           settings: _settings ?? ReaderSettings.defaults,
           onSettingsChanged: _saveReaderSettings,
           onSearch: _buildSearch(entry, bytes),
+          onSearchStream: _buildSearchStream(entry, bytes),
           onResolveSearchCfi: (result) async {
             final service = _scanService;
             if (service == null) {
