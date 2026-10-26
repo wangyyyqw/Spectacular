@@ -125,6 +125,57 @@ List<int> _decorationRows(ByteData bytes, {int minRun = 100}) => [
     if (_longestRun(bytes, y) >= minRun) y,
 ];
 
+
+/// 装饰线所在行：与纯文本相比墨迹更多、且横向暗段最多的一行。
+int _decorationRow(ByteData decorated, ByteData plain) {
+  var bestRow = -1;
+  var bestRuns = 0;
+  for (var y = 0; y < _pageHeight.toInt(); y++) {
+    var diff = 0;
+    for (var x = 0; x < _pageWidth.toInt(); x++) {
+      if (_ink(decorated, x, y) && !_ink(plain, x, y)) diff++;
+    }
+    if (diff <= 2) continue;
+    var runs = 0;
+    var previous = false;
+    for (var x = 0; x < _pageWidth.toInt(); x++) {
+      final current = _ink(decorated, x, y);
+      if (current && !previous) runs++;
+      previous = current;
+    }
+    if (runs > bestRuns) {
+      bestRuns = runs;
+      bestRow = y;
+    }
+  }
+  return bestRow;
+}
+
+/// 某一行上「装饰新增墨迹」的横向暗段/间隔长度（排除字形笔画）。
+({List<int> runs, List<int> gaps}) _rowPattern(
+  ByteData decorated,
+  ByteData plain,
+  int y,
+) {
+  final runs = <int>[];
+  final gaps = <int>[];
+  var start = -1;
+  var previous = -1;
+  for (var x = 0; x < _pageWidth.toInt(); x++) {
+    if (!_ink(decorated, x, y) || _ink(plain, x, y)) continue;
+    if (start < 0) {
+      start = x;
+    } else if (x - previous > 1) {
+      runs.add(previous - start + 1);
+      gaps.add(x - previous - 1);
+      start = x;
+    }
+    previous = x;
+  }
+  if (start >= 0) runs.add(previous - start + 1);
+  return (runs: runs, gaps: gaps);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFont);
@@ -301,5 +352,80 @@ void main() {
       }),
     );
     expect(_inkRows(hidden), isEmpty);
+  });
+
+  test('下划线 dotted：方点 2px、间隔 2px（浏览器 17px 实测）', () async {
+    // 用无下伸部的拉丁文本，装饰线整行落在字形下缘之下，便于逐段测量。
+    final plain = await _render('abcd abcd abcd abcd', _style());
+    final dotted = await _render(
+      'abcd abcd abcd abcd',
+      _style(const {'text-decoration': 'underline dotted'}),
+    );
+    final row = _decorationRow(dotted, plain);
+    expect(row, greaterThanOrEqualTo(0), reason: '点线下划线应有额外墨迹');
+    final pattern = _rowPattern(dotted, plain, row);
+    // 点尺寸/间隔按 2px 取整；行首可能被字形左缘截掉半格，取中段样本。
+    final runs = pattern.runs.skip(1).take(4);
+    final gaps = pattern.gaps.skip(1).take(4);
+    expect(runs.every((run) => run == 2), isTrue, reason: '方点边长 2px');
+    expect(gaps.every((gap) => gap == 2), isTrue, reason: '点间隔 2px');
+  });
+
+  test('下划线 dashed：段长 6px、间隔 4px（浏览器 17px 实测）', () async {
+    final plain = await _render('abcd abcd abcd abcd', _style());
+    final dashed = await _render(
+      'abcd abcd abcd abcd',
+      _style(const {'text-decoration': 'underline dashed'}),
+    );
+    final row = _decorationRow(dashed, plain);
+    expect(row, greaterThanOrEqualTo(0), reason: '虚线下划线应有额外墨迹');
+    // 虚线可能与字形下缘同行，取「装饰新增」像素最多的行。
+    final pattern = _rowPattern(dashed, plain, row);
+    final runs = pattern.runs.skip(1).take(4);
+    final gaps = pattern.gaps.skip(1).take(4);
+    expect(runs.every((run) => run == 6), isTrue, reason: 'dash 6px');
+    expect(gaps.every((gap) => gap == 4), isTrue, reason: 'gap 4px');
+  });
+
+  test('下划线 wavy：波形带高约 5px（引擎原振幅远小于浏览器）', () async {
+    final plain = await _render('波浪线一二三四五', _style());
+    final wavy = await _render(
+      '波浪线一二三四五',
+      _style(const {'text-decoration': 'underline wavy'}),
+    );
+    var top = -1;
+    var bottom = -1;
+    for (var y = 0; y < _pageHeight.toInt(); y++) {
+      var diff = 0;
+      for (var x = 0; x < _pageWidth.toInt(); x++) {
+        if (_ink(wavy, x, y) && !_ink(plain, x, y)) diff++;
+      }
+      if (diff <= 2) continue;
+      if (top < 0) top = y;
+      bottom = y;
+    }
+    expect(top, greaterThanOrEqualTo(0), reason: '波浪下划线应有额外墨迹');
+    // 17px：峰谷高 2×0.1em + 笔画 0.1em ≈ 5.1px（浏览器 4x 实测 5.25）。
+    expect(bottom - top + 1, closeTo(5.1, 1.5));
+  });
+
+  test('点线/虚线/波浪不覆盖实线绘制路径（solid 仍是 1px 细线）', () async {
+    final plain = await _render('实线一二三四五', _style());
+    final solid = await _render(
+      '实线一二三四五',
+      _style(const {'text-decoration': 'underline'}),
+    );
+    var top = -1;
+    var bottom = -1;
+    for (var y = 0; y < _pageHeight.toInt(); y++) {
+      var diff = 0;
+      for (var x = 0; x < _pageWidth.toInt(); x++) {
+        if (_ink(solid, x, y) && !_ink(plain, x, y)) diff++;
+      }
+      if (diff <= 2) continue;
+      if (top < 0) top = y;
+      bottom = y;
+    }
+    expect(bottom - top + 1, lessThanOrEqualTo(2), reason: '实线下划线保持 1px');
   });
 }

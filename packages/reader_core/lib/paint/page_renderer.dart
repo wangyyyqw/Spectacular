@@ -159,6 +159,8 @@ class PagePainter {
           startsBlock: geometry.startsBlock,
           endsBlock: geometry.endsBlock,
         );
+        // 内阴影画在背景之上、边框/文字之下（Chromium 的顺序）。
+        _paintInsetBoxShadow(canvas, geometry);
       });
       canvas.restore();
     }
@@ -535,6 +537,10 @@ class PagePainter {
 
   /// 元素不透明度（P2-37）：opacity < 1 时把本几何的绘制收进透明层，
   /// 块背景/边框/文本三层各自包一层（层内内容互不穿透）。
+  ///
+  /// TODO(W2-嵌套 opacity)：Chromium 的 opacity 作用在元素组上，父级
+  /// opacity 会以乘积作用于子块；当前 PageBlock 只带块自身 opacity，
+  /// 祖先累计值待 T3 在 PageBlock 上提供（effectiveOpacity）后在此乘入。
   void _withOpacity(
     Canvas canvas,
     _SliceGeometry geometry,
@@ -553,18 +559,88 @@ class PagePainter {
     canvas.restore();
   }
 
-  /// 块阴影（P2-37 限定）：整块落在一页时画偏移投影（先影后景，背景
-  /// 覆盖重叠部分）；blur/spread/inset 不支持；跨页切片不重复投影。
+  /// 外阴影（W2）：blur / spread 支持，多阴影取首个（样式层语义）。
+  ///
+  /// 形状 = 边框盒 + spread（圆角同比放大，Chromium 口径），再按
+  /// (offsetX, offsetY) 平移；blur 用 MaskFilter（σ = blur/2，CSS 口径）。
+  /// 内阴影由 [_paintInsetBoxShadow] 在背景之后绘制。
+  /// 跨页切片不重复投影（首尾都在本页才画）。
   void _paintBoxShadow(Canvas canvas, _SliceGeometry geometry) {
     final shadow = geometry.style.boxShadow;
-    if (shadow == null || !geometry.startsBlock || !geometry.endsBlock) {
+    if (shadow == null ||
+        shadow.inset ||
+        !geometry.startsBlock ||
+        !geometry.endsBlock) {
       return;
     }
-    canvas.drawRect(
-      geometry.marginBox.translate(shadow.offsetX, shadow.offsetY),
-      Paint()..color = shadow.color,
+    final style = geometry.style;
+    final borders = style.borders;
+    final box = geometry.containerPaintBox;
+    final blur = math.max(0.0, shadow.blur);
+    final paint = Paint()..color = shadow.color;
+    if (blur > 0) {
+      paint.maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2);
+    }
+    canvas.drawRRect(
+      _shadowRRect(
+        borders,
+        box.inflate(shadow.spread).translate(shadow.offsetX, shadow.offsetY),
+        shadow.spread,
+      ),
+      paint,
     );
   }
+
+  /// 内阴影（W2）：裁到 padding-box（Chromium 实测：透明边框下阴影不进入
+  /// 边框区域），用「padding-box 外框 − 偏移/收缩后的洞」even-odd 挖洞后
+  /// 一起模糊；圆角内阴影按直角洞近似（书内罕见）。
+  void _paintInsetBoxShadow(Canvas canvas, _SliceGeometry geometry) {
+    final shadow = geometry.style.boxShadow;
+    if (shadow == null ||
+        !shadow.inset ||
+        !geometry.startsBlock ||
+        !geometry.endsBlock) {
+      return;
+    }
+    final style = geometry.style;
+    final box = geometry.containerPaintBox;
+    final paddingBox = _deflateByBox(box, style, includePadding: false);
+    final blur = math.max(0.0, shadow.blur);
+    final hole = paddingBox
+        .translate(shadow.offsetX, shadow.offsetY)
+        .inflate(-shadow.spread);
+    final margin = blur * 2 + 2;
+    final path = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(paddingBox.inflate(margin))
+      ..addRRect(_shadowRRect(style.borders, hole, 0));
+    final paint = Paint()..color = shadow.color;
+    if (blur > 0) {
+      paint.maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2);
+    }
+    canvas.save();
+    canvas.clipRect(paddingBox);
+    canvas.drawPath(path, paint);
+    canvas.restore();
+  }
+
+  /// 阴影形状：边框盒矩形 + 边框圆角（spread 沿半径同比放大，负值收敛到 0）。
+  RRect _shadowRRect(CssBorders borders, Rect rect, double radiusDelta) =>
+      RRect.fromRectAndCorners(
+        rect,
+        topLeft: Radius.circular(
+          math.max(0, borders.topLeftRadius + radiusDelta),
+        ),
+        topRight: Radius.circular(
+          math.max(0, borders.topRightRadius + radiusDelta),
+        ),
+        bottomRight: Radius.circular(
+          math.max(0, borders.bottomRightRadius + radiusDelta),
+        ),
+        bottomLeft: Radius.circular(
+          math.max(0, borders.bottomLeftRadius + radiusDelta),
+        ),
+      );
 
   /// 是否需要省略号截断（P2-37）：ellipsis 模式下行宽超出块内容区。
   bool _needsEllipsis(_SliceGeometry geometry, LineBox line) {
@@ -1021,6 +1097,11 @@ class PagePainter {
         endsBlock ? style.borders.bottomLeftRadius : 0,
       ),
     );
+    final roundedCorners =
+        rounded.tlRadiusX > 0 ||
+        rounded.trRadiusX > 0 ||
+        rounded.brRadiusX > 0 ||
+        rounded.blRadiusX > 0;
     if (style.backgroundColor.a != 0) {
       // 背景色按 background-clip 裁剪区域绘制（P3：origin/clip 语义）。
       canvas.save();
@@ -1028,15 +1109,29 @@ class PagePainter {
       canvas.drawRRect(rounded, Paint()..color = style.backgroundColor);
       canvas.restore();
     }
+    // 渐变背景（W2）：样式层把 `background-image: <gradient>` 解析成
+    // CssLinearGradient / CssRadialGradient。渐变几何按 background-origin
+    // 的定位区解算（默认 padding-box，与浏览器一致），裁剪与圆角沿用背景色。
+    final gradient = style.backgroundGradient;
+    if (gradient != null) {
+      final shader = _gradientShader(
+        gradient,
+        _backgroundOriginRect(box, style),
+      );
+      if (shader != null) {
+        canvas.save();
+        canvas.clipRect(_backgroundClipRect(box, style));
+        if (roundedCorners) {
+          canvas.clipRRect(rounded);
+        }
+        canvas.drawRect(box, Paint()..shader = shader);
+        canvas.restore();
+      }
+    }
     final image = _resolveBackgroundImage(style);
     if (image == null) {
       return;
     }
-    final roundedCorners =
-        rounded.tlRadiusX > 0 ||
-        rounded.trRadiusX > 0 ||
-        rounded.brRadiusX > 0 ||
-        rounded.blRadiusX > 0;
     canvas.save();
     canvas.clipRect(_backgroundClipRect(box, style));
     if (roundedCorners) {
@@ -1051,6 +1146,128 @@ class PagePainter {
       position: style.backgroundPosition,
     );
     canvas.restore();
+  }
+
+  /// 生成渐变 shader；色标不足 2 个时返回 null（按 background-color 降级）。
+  ///
+  /// 线性渐变（CSS 角度：0deg 向上、顺时针）按规范口径：渐变线过盒子中心，
+  /// 长度 = |w·sinθ| + |h·cosθ|。径向渐变默认 farthest-corner：
+  /// - circle：半径 = 中心到最远角的距离；
+  /// - ellipse：rx = dx·√2、ry = dy·√2（dx/dy 是中心到最远边的距离），
+  ///   与 Chromium 实测一致。
+  ///
+  /// 色标位置为 null 时按 CSS `<color-stop-list>` 规则在相邻已定位色标之间
+  /// 均分；位置整体单调递增。
+  Shader? _gradientShader(CssGradient gradient, Rect area) {
+    final resolved = _resolveGradientStops(gradient.stops);
+    if (resolved == null) {
+      return null;
+    }
+    final colors = [for (final stop in resolved) stop.color];
+    final stops = [for (final stop in resolved) stop.position];
+    switch (gradient) {
+      case CssLinearGradient():
+        final radians = gradient.angle * math.pi / 180;
+        final direction = Offset(math.sin(radians), -math.cos(radians));
+        final length =
+            area.width * direction.dx.abs() +
+            area.height * direction.dy.abs();
+        if (length <= 0) {
+          return null;
+        }
+        final half = direction * (length / 2);
+        return ui.Gradient.linear(
+          area.center - half,
+          area.center + half,
+          colors,
+          stops,
+        );
+      case CssRadialGradient():
+        final cx = gradient.centerX.resolve(area.width) ?? area.width / 2;
+        final cy = gradient.centerY.resolve(area.height) ?? area.height / 2;
+        final center = Offset(area.left + cx, area.top + cy);
+        final dx = math.max(cx, area.width - cx);
+        final dy = math.max(cy, area.height - cy);
+        if (dx <= 0 || dy <= 0) {
+          return null;
+        }
+        if (gradient.shape == CssRadialShape.circle) {
+          return ui.Gradient.radial(
+            center,
+            math.sqrt(dx * dx + dy * dy),
+            colors,
+            stops,
+          );
+        }
+        // 椭圆：radial() 只支持圆，用「渐变空间 y 压缩」把圆压成椭圆：
+        // 关于中心缩放 y（倍率 ry/rx），x 不变。
+        final rx = dx * math.sqrt2;
+        final ry = dy * math.sqrt2;
+        final scaleY = ry / rx;
+        final matrix = Float64List.fromList(<double>[
+          1, 0, 0, 0, //
+          0, scaleY, 0, 0, //
+          0, 0, 1, 0, //
+          0, center.dy * (1 - scaleY), 0, 1, //
+        ]);
+        return ui.Gradient.radial(
+          center,
+          rx,
+          colors,
+          stops,
+          TileMode.clamp,
+          matrix,
+        );
+    }
+  }
+
+  /// 解析色标位置（0–1）：未声明位置（null）在相邻已定位色标间均分。
+  ///
+  /// 首/尾未声明时分别钉在 0 / 1；位置单调递增（后一个不小于前一个）。
+  List<({Color color, double position})>? _resolveGradientStops(
+    List<CssGradientStop> stops,
+  ) {
+    if (stops.length < 2) {
+      return null;
+    }
+    final count = stops.length;
+    final positions = <double?>[for (final stop in stops) stop.position];
+    positions[0] ??= 0;
+    positions[count - 1] ??= 1;
+    var previous = 0.0;
+    for (var i = 0; i < count; i++) {
+      final value = positions[i];
+      if (value == null) {
+        continue;
+      }
+      final clamped = value < previous ? previous : value;
+      positions[i] = clamped;
+      previous = clamped;
+    }
+    // 未定位的连续段：在左右已定位点之间线性均分。
+    var cursor = 0;
+    while (cursor < count) {
+      if (positions[cursor] != null) {
+        cursor++;
+        continue;
+      }
+      final start = cursor - 1;
+      var end = cursor;
+      while (end < count && positions[end] == null) {
+        end++;
+      }
+      final from = positions[start]!;
+      final to = positions[end]!;
+      final step = (to - from) / (end - start);
+      for (var i = cursor; i < end; i++) {
+        positions[i] = from + step * (i - start);
+      }
+      cursor = end;
+    }
+    return [
+      for (var i = 0; i < count; i++)
+        (color: stops[i].color, position: positions[i]!),
+    ];
   }
 
   /// 背景裁剪区域：border-box / padding-box / content-box。
@@ -1364,15 +1581,19 @@ class PagePainter {
     }
   }
 
-  /// 重画 text-decoration 的实线（line-through / overline），位置对齐浏览器。
+  /// 重画 text-decoration 的线，位置与线型对齐浏览器。
   ///
   /// 引擎（Skia）按字体自带的 underline/strikeout 度量画线，与 Chromium
   /// 实测有固定偏差（思源宋体 17px：line-through 低约 2px、overline 低约
-  /// 1px，见 tool/css_parity 的 04-decoration）。这里按 Chromium 的口径重算：
+  /// 1px）；wavy 的振幅远小于浏览器、dotted 过细。这里按 Chromium 口径重算：
   /// - line-through 顶边 = 基线 − (ascent − descent) / 2
   /// - overline 顶边 = 基线 − (ascent + 线宽)
   /// - 线宽 = max(1, floor(字号 / 10))（思源宋体无下划线度量时 Chromium
   ///   同样按 1/10 em 兜底；10～30px 实测逐档一致）
+  /// - 点线：方点边长 = max(1, round(0.1em))，间隔同边长；虚线：dash = 3×点、
+  ///   gap = 2×点（17px 实测 6/4；24px 实测一致）
+  /// - 波浪：笔画 = 0.1em、峰谷高 = 2×笔画、周期 = 5×笔画；下划线波形带顶
+  ///   = 实线顶边 + 半个笔画（17px 4x 截图实测）
   ///
   /// ascent/descent 用「去掉 line-height 覆盖」的探针排版取字体本身度量：
   /// LineMetrics 的 ascent/descent 会按 height 等比缩放，直接拿来算会把
@@ -1380,7 +1601,7 @@ class PagePainter {
   ///
   /// 装饰线随 `text-decoration` 传播到行内子元素，因此基础样式的线覆盖整行
   /// （行尾空白不画），行内元素自己的线覆盖各自区间；上下标区间按 run 的
-  /// 基线偏移平移。点线/虚线/波浪/双线不在此处理（保留引擎线型）。
+  /// 基线偏移平移。双线未重画（保留引擎）。
   void _paintLineDecoration(
     Canvas canvas,
     TextPainter painter,
@@ -1396,9 +1617,10 @@ class PagePainter {
       return;
     }
     final runs = _lineRuns(layout, line);
-    final baseHasDecoration =
-        _isManualDecoration(style.textDecoration) &&
-        style.textDecorationStyle == CssTextDecorationStyle.solid;
+    final baseHasDecoration = _isManualDecoration(
+      style.textDecoration,
+      style.textDecorationStyle,
+    );
     final bands = <_DecorationBand>[];
     if (baseHasDecoration) {
       // 行尾空白不画装饰线（浏览器同样不画）。
@@ -1410,6 +1632,7 @@ class PagePainter {
             start: 0,
             end: end,
             decoration: style.textDecoration,
+            lineStyle: style.textDecorationStyle,
             color: style.textDecorationColor ?? style.color,
             fontSize: style.fontSize,
             baselineShift: 0,
@@ -1420,14 +1643,17 @@ class PagePainter {
       }
     }
     for (final run in runs) {
-      if (!_isManualDecoration(run.style.textDecoration) ||
-          run.style.textDecorationStyle != CssTextDecorationStyle.solid) {
+      if (!_isManualDecoration(
+        run.style.textDecoration,
+        run.style.textDecorationStyle,
+      )) {
         continue;
       }
       final color = run.style.textDecorationColor ?? run.style.color;
       // 与基础样式同款同色时不重复绘制。
       if (baseHasDecoration &&
           run.style.textDecoration == style.textDecoration &&
+          run.style.textDecorationStyle == style.textDecorationStyle &&
           color == (style.textDecorationColor ?? style.color)) {
         continue;
       }
@@ -1437,6 +1663,7 @@ class PagePainter {
           start: run.start,
           end: run.end,
           decoration: run.style.textDecoration,
+          lineStyle: run.style.textDecorationStyle,
           color: color,
           fontSize: run.style.fontSize,
           baselineShift: run.baselineShift,
@@ -1467,14 +1694,101 @@ class PagePainter {
         continue;
       }
       final thickness = math.max(1.0, (band.fontSize / 10).floorToDouble());
-      final offset = band.decoration == CssTextDecoration.overline
-          ? (band.ascent + thickness).roundToDouble()
-          : ((band.ascent - band.descent) / 2).roundToDouble();
-      final top = y + baseline + band.baselineShift - offset;
-      canvas.drawRect(
-        Rect.fromLTWH(left, top, right - left, thickness),
-        Paint()..color = band.color,
+      final baselineY = y + baseline + band.baselineShift;
+      // 实线顶边：line-through / overline 在基线上方，下划线在下方。
+      final double solidTop;
+      switch (band.decoration) {
+        case CssTextDecoration.overline:
+          solidTop =
+              baselineY - (band.ascent + thickness).roundToDouble();
+        case CssTextDecoration.underline:
+          // 下划线：基线下方 max(1, round(字号/16))（Chromium 17px 实测 +1）。
+          solidTop =
+              baselineY + math.max(1.0, (band.fontSize / 16).roundToDouble());
+        case CssTextDecoration.lineThrough:
+        case CssTextDecoration.none:
+          solidTop =
+              baselineY -
+              ((band.ascent - band.descent) / 2).roundToDouble();
+      }
+      _paintDecorationBand(
+        canvas,
+        band,
+        left: left,
+        right: right,
+        // 对齐设备像素（Chromium 同样把装饰线吸附到整数像素），细线更清晰。
+        solidTop: solidTop.roundToDouble(),
+        thickness: thickness,
       );
+    }
+  }
+
+  /// 按线型画一段装饰线：实线 / 点线 / 虚线 / 波浪。
+  void _paintDecorationBand(
+    Canvas canvas,
+    _DecorationBand band, {
+    required double left,
+    required double right,
+    required double solidTop,
+    required double thickness,
+  }) {
+    final paint = Paint()..color = band.color;
+    switch (band.lineStyle) {
+      case CssTextDecorationStyle.solid:
+        canvas.drawRect(
+          Rect.fromLTWH(left, solidTop, right - left, thickness),
+          paint,
+        );
+      case CssTextDecorationStyle.dotted:
+        // 方点：边长 ≈ 0.1em，间隔同边长。
+        final dot = math.max(1.0, (band.fontSize * 0.1).roundToDouble());
+        for (var x = left; x < right; x += dot * 2) {
+          final end = math.min(x + dot, right);
+          canvas.drawRect(Rect.fromLTWH(x, solidTop, end - x, dot), paint);
+        }
+      case CssTextDecorationStyle.dashed:
+        // 虚线：dash = 3×点、gap = 2×点（等价 6/4 @17px）。
+        final dot = math.max(1.0, (band.fontSize * 0.1).roundToDouble());
+        final dash = dot * 3;
+        for (var x = left; x < right; x += dot * 5) {
+          final end = math.min(x + dash, right);
+          canvas.drawRect(
+            Rect.fromLTWH(x, solidTop, end - x, thickness),
+            paint,
+          );
+        }
+      case CssTextDecorationStyle.wavy:
+        final stroke = math.max(1.0, band.fontSize * 0.1);
+        final amplitude = stroke; // 峰谷高 = 2×笔画
+        final period = stroke * 5;
+        final bandTop = band.decoration == CssTextDecoration.underline
+            ? solidTop + stroke / 2
+            : solidTop - (2 * amplitude + stroke - thickness) / 2;
+        final center = bandTop + amplitude + stroke / 2;
+        final wavePaint = Paint()
+          ..color = band.color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round;
+        final path = Path();
+        final steps = math.max(2, ((right - left) * 2).ceil());
+        for (var i = 0; i <= steps; i++) {
+          final px = left + (right - left) * i / steps;
+          final py =
+              center + amplitude * math.sin(2 * math.pi * (px - left) / period);
+          if (i == 0) {
+            path.moveTo(px, py);
+          } else {
+            path.lineTo(px, py);
+          }
+        }
+        canvas.drawPath(path, wavePaint);
+      case CssTextDecorationStyle.double:
+        canvas.drawRect(
+          Rect.fromLTWH(left, solidTop, right - left, thickness),
+          paint,
+        );
     }
   }
 
@@ -1522,10 +1836,22 @@ class PagePainter {
     return result;
   }
 
-  /// 该装饰值是否需要绘制层重画（只处理实线 line-through / overline）。
-  bool _isManualDecoration(CssTextDecoration value) =>
-      value == CssTextDecoration.lineThrough ||
-      value == CssTextDecoration.overline;
+  /// 该装饰是否需要绘制层重画（与 `_withoutManualDecoration` 同口径）：
+  /// line-through / overline 全线型，以及下划线的点线/虚线/波浪。
+  bool _isManualDecoration(
+    CssTextDecoration decoration,
+    CssTextDecorationStyle lineStyle,
+  ) {
+    if (decoration == CssTextDecoration.none ||
+        lineStyle == CssTextDecorationStyle.double) {
+      return false;
+    }
+    if (decoration == CssTextDecoration.underline &&
+        lineStyle == CssTextDecorationStyle.solid) {
+      return false;
+    }
+    return true;
+  }
 
   /// 行内文本去掉行尾空白后的长度（相对行首）；全为空白时返回 0。
   int _trimmedLineEnd(String text, int start, int end) {
@@ -1772,27 +2098,27 @@ class PagePainter {
     );
   }
 
-  /// 去掉 [style] 里的实线 line-through / overline，保留下划线与其他线型。
+  /// 去掉需要绘制层重画的装饰线（其余留给引擎）。
+  ///
+  /// 重画范围：line-through / overline 的全部实线线型，以及下划线的
+  /// 点线/虚线/波浪（引擎的 wavy 振幅远小于浏览器、dotted 过细）。
+  /// 下划线实线与浏览器已一致，双线未做几何重画，仍由引擎绘制。
   TextStyle _withoutManualDecoration(TextStyle style) {
     final decoration = style.decoration;
-    if (decoration == null) {
+    if (decoration == null || decoration == TextDecoration.none) {
       return style;
     }
-    if (!decoration.contains(TextDecoration.lineThrough) &&
-        !decoration.contains(TextDecoration.overline)) {
+    final lineStyle = style.decorationStyle ?? TextDecorationStyle.solid;
+    if (lineStyle == TextDecorationStyle.double) {
       return style;
     }
-    final decorationStyle = style.decorationStyle;
-    if (decorationStyle != null &&
-        decorationStyle != TextDecorationStyle.solid) {
-      // 点线/虚线/波浪/双线属线型差异，不做几何重画。
+    final manualKind =
+        decoration.contains(TextDecoration.lineThrough) ||
+        decoration.contains(TextDecoration.overline);
+    if (!manualKind && lineStyle == TextDecorationStyle.solid) {
       return style;
     }
-    return style.copyWith(
-      decoration: decoration.contains(TextDecoration.underline)
-          ? TextDecoration.underline
-          : TextDecoration.none,
-    );
+    return style.copyWith(decoration: TextDecoration.none);
   }
 }
 
@@ -1825,6 +2151,7 @@ class _DecorationBand {
     required this.start,
     required this.end,
     required this.decoration,
+    required this.lineStyle,
     required this.color,
     required this.fontSize,
     required this.baselineShift,
@@ -1835,6 +2162,7 @@ class _DecorationBand {
   final int start;
   final int end;
   final CssTextDecoration decoration;
+  final CssTextDecorationStyle lineStyle;
   final Color color;
   final double fontSize;
   final double baselineShift;
