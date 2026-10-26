@@ -316,6 +316,55 @@ class EpubChapterSource
   /// 构建满屏图页：整页单块 + 背景图 cover（复用 P2-13 背景管线与
   /// PagePainter.imageLookup），边距归零（用未扣设置页边距的基准尺寸）。
   /// 解码由 ReaderPage 的 imageCache 异步完成，revision 触发重绘。
+  /// `position: fixed` 的每页重复（W18）：固定定位块相对页面定位，分页
+  /// 完成后给每一页追加一份覆盖切片（不占流高、不影响分页）。
+  List<PageContent> _withFixedOverlays(
+    List<PageContent> pages,
+    List<PageBlock> fixedBlocks,
+  ) {
+    if (fixedBlocks.isEmpty || pages.isEmpty) {
+      return pages;
+    }
+    final overlays = <PageBlockSlice>[
+      for (final block in fixedBlocks)
+        PageBlockSlice(
+          block: block,
+          startLine: 0,
+          endLine: block.layout.lineCount,
+          height: block.height,
+          overlay: true,
+          absoluteTop:
+              block.style
+                  ?.resolveAbsoluteBox(
+                    containingWidth: contentWidth,
+                    containingHeight: baseContentHeight,
+                  )
+                  ?.top ??
+              0,
+          leftInset:
+              block.style
+                  ?.resolveAbsoluteBox(
+                    containingWidth: contentWidth,
+                    containingHeight: baseContentHeight,
+                  )
+                  ?.left ??
+              0,
+        ),
+    ];
+    return [
+      for (final page in pages)
+        PageContent(
+          spineIndex: page.spineIndex,
+          pageIndex: page.pageIndex,
+          slices: [...page.slices, ...overlays],
+          usedHeight: page.usedHeight,
+          pageHeight: page.pageHeight,
+          topPadding: page.topPadding,
+          background: page.background,
+        ),
+    ];
+  }
+
   /// 章内图片 src → 包内路径（相对 OPF 的章目录解析）。
   String _chapterImageUrl(int spineIndex, String src) {
     final item = document.spine[spineIndex];
@@ -2103,6 +2152,9 @@ class EpubChapterSource
     gatherImageSrcs(document.root);
     // 可变：collect 之后按 CSS 相邻兄弟折叠上下边距，再交给分页。
     var blocks = <PageBlock>[];
+    // `position: fixed`（W18）：相对页面定位、每页重复——不进流，分页完成
+    // 后给每一页追加覆盖切片。
+    final fixedBlocks = <PageBlock>[];
 
     // 块级样式（P8-02 链式级联）：UA（uaRules）+ 作者样式表（私有钩子
     // 契约过滤）+ 内联 style 三源进 Cascade.compute——特异性/!important/
@@ -3644,17 +3696,23 @@ class EpubChapterSource
         if (!isHeading) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
-        // 绝对定位（P9-19）：脱离正常流，top/left 按页内坐标解析；
-        // 未声明 top/left 时跟随当前流位置。
-        final blockPosition = blockStyle.position;
-        final isAbsolute = blockPosition == CssPosition.absolute ||
-            blockPosition == CssPosition.fixed;
-        final absoluteTop = isAbsolute
-            ? blockStyle.top?.resolve(contentHeight)
+        // 绝对/固定定位（P9-19/W18）：脱离正常流（不推进 y、不计页高）。
+        // 偏移解算统一交给分页层（paginator `_resolveAbsolute`）：包含块 =
+        // 页面内容盒、left/top 优先于 right/bottom、两侧都 auto 用静态位置、
+        // width:auto 走 shrink-to-fit——章节源不再重复算偏移。
+        final isOutOfFlow = blockStyle.isOutOfFlow;
+        final isFixed = blockStyle.position == CssPosition.fixed;
+        // 绝对/固定定位偏移解算走 T2 的 `resolveAbsoluteBox`：包含块 =
+        // 页面内容盒（百分比也按它解算）、left/top 优先、都 auto 时返回
+        // null（分页层据此回退静态位置 = 本来会被排到的流位置）。
+        final outOfFlowBox = isOutOfFlow
+            ? blockStyle.resolveAbsoluteBox(
+                containingWidth: contentWidth,
+                containingHeight: baseContentHeight,
+              )
             : null;
-        final absoluteLeft = isAbsolute
-            ? blockStyle.left?.resolve(contentWidth)
-            : null;
+        final absoluteTop = outOfFlowBox?.top;
+        final absoluteLeft = outOfFlowBox?.left;
         // 段间距（阅读器设置优先）：只作用于正文段落；标题与列表项保留
         // 书籍自身的间距族。null 时沿用块 margin 并交给相邻折叠。
         final paragraphSpacing = isHeading || tag == 'li'
@@ -3817,7 +3875,22 @@ class EpubChapterSource
         final measureWidth = ownFloatSide == null && containerFloat != null
             ? containerFloatWidth ?? _textWidthFor(measureStyle)
             : _textWidthFor(measureStyle);
-        final layout = inlineBoxes.isEmpty
+        // 绝对/固定定位且声明了宽：分页层解算 left/right 时把 layout.width
+        // 当盒宽用，所以要把「最长行宽」换成**边框盒宽**（声明内容宽 +
+        // padding + 可见 border），贴右/贴底才和浏览器一致。
+        double? outOfFlowBoxWidth;
+        if (isOutOfFlow && blockStyle.width != null) {
+          final flowModel = BoxModel.fromStyle(
+            blockStyle,
+            containingWidth: contentWidth,
+          );
+          outOfFlowBoxWidth =
+              (flowModel.contentWidth ?? 0) +
+              flowModel.padding.horizontal +
+              flowModel.borders.left +
+              flowModel.borders.right;
+        }
+        var layout = inlineBoxes.isEmpty
             ? _layoutCache.layout(
                 text: paragraphText,
                 style: measureStyle,
@@ -3831,6 +3904,32 @@ class EpubChapterSource
                 runs: runs,
                 inlineBoxes: inlineBoxes,
               );
+        if (outOfFlowBoxWidth != null) {
+          layout = TextLayoutResult(
+            text: layout.text,
+            lines: layout.lines,
+            width: outOfFlowBoxWidth,
+            height: layout.height,
+            maxWidth: outOfFlowBoxWidth,
+            runs: layout.runs,
+          );
+        }
+        // 竖排（W19）：行排版层给出的 `layout.width` 是**列带总宽**
+        //（列数 × 列宽），块的内容宽就取它——沿用整页宽
+        //（`layout.maxWidth`）会让块盒比浏览器宽一截（35-writing-mode）。
+        if (measureStyle.writingMode != CssWritingMode.horizontalTb &&
+            layout.width.isFinite &&
+            layout.width > 0 &&
+            layout.width != layout.maxWidth) {
+          layout = TextLayoutResult(
+            text: layout.text,
+            lines: layout.lines,
+            width: layout.width,
+            height: layout.height,
+            maxWidth: layout.width,
+            runs: layout.runs,
+          );
+        }
         if (inlineFloats.isNotEmpty) {
           // 浮动块排在段落之前：分页时它们先占位，段落行按剩余宽度收窄。
           blocks.addAll(inlineFloats);
@@ -3891,7 +3990,7 @@ class EpubChapterSource
               // P9-06：行内图片（U+FFFC 占位）透传给绘制层。
               inlineImages: inlineImages,
               // P9-19：绝对定位块（不占流高，绘制在页内绝对坐标）。
-              absolute: isAbsolute,
+              absolute: isOutOfFlow,
               absoluteTop: absoluteTop,
               absoluteLeft: absoluteLeft,
               // P9-22：多看出血（背景/边框延伸到页面边缘）。
@@ -3935,7 +4034,12 @@ class EpubChapterSource
               pendingRelativeTop += relativeTop;
             }
           }
-          blocks.add(textBlock);
+          if (isFixed) {
+            // 固定定位块每页重复，分页后再逐页追加（见 _withFixedOverlays）。
+            fixedBlocks.add(textBlock);
+          } else {
+            blocks.add(textBlock);
+          }
         }
       } else if (node is BlockNode) {
         // display:none 容器子树剔除（P8-07，WHATWG 15.3.1 语义）：容器
@@ -4144,7 +4248,10 @@ class EpubChapterSource
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
     if (blocks.any((b) => b.floatSide != null)) {
-      final floated = _paginateWithFloats(blocks, spineIndex);
+      final floated = _withFixedOverlays(
+        _paginateWithFloats(blocks, spineIndex),
+        fixedBlocks,
+      );
       _putPageCache(paginationKey, floated);
       return floated;
     }
@@ -4178,9 +4285,12 @@ class EpubChapterSource
       }
       _pageIndexCache.remove(paginationKey);
     }
-    final pages = Paginator(pageHeight: contentHeight)
-        .measureChapter(blocks: blocks, spineIndex: spineIndex)
-        .pages;
+    final pages = _withFixedOverlays(
+      Paginator(pageHeight: contentHeight, pageWidth: contentWidth)
+          .measureChapter(blocks: blocks, spineIndex: spineIndex)
+          .pages,
+      fixedBlocks,
+    );
     _putPageCache(paginationKey, pages);
     if (trace != null) {
       trace.record(
