@@ -111,8 +111,25 @@ void main() {
       expect(textStyle.fontFamily, FontFamilyAliases.song);
       expect(textStyle.fontFamilyFallback, [
         FontFamilyAliases.hei,
+        'Noto Serif CJK SC',
         'Noto Sans CJK SC',
       ]);
+    });
+
+    test('黑体主族不回落内置宋体（P9-05）', () {
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': '黑体',
+      });
+      final textStyle = TextLayoutEngine.textStyleFor(style);
+      expect(textStyle.fontFamily, FontFamilyAliases.hei);
+      expect(
+        textStyle.fontFamilyFallback,
+        isNot(contains(FontFamilyAliases.song)),
+        reason: '黑体书不能因为内置宋体而整体变宋体',
+      );
+      expect(textStyle.fontFamilyFallback, contains('PingFang SC'));
     });
 
     test('无声明族也带默认链（缺字兜底）', () {

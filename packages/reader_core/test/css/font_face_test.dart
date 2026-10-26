@@ -168,10 +168,12 @@ p { margin: 0; }
       });
       final textStyle = TextLayoutEngine.textStyleFor(style);
       expect(textStyle.fontFamily, FontFamilyAliases.song);
-      // 声明链映射后追加默认 CJK 链（P3-04）。
+      // 声明链映射后追加默认 CJK 链（P3-04；P9-05 内置思源宋体后
+      // 默认链补上系统宋体名）。
       expect(textStyle.fontFamilyFallback, [
         FontFamilyAliases.hei,
         'SourceHan',
+        'Noto Serif CJK SC',
         'Noto Sans CJK SC',
       ]);
     });
