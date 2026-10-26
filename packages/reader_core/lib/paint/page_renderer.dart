@@ -236,21 +236,31 @@ class PagePainter {
                 lineY,
               );
             } else {
+              final painter = _linePainterFor(
+                page,
+                sliceIndex,
+                lineIndex,
+                layout,
+                line,
+                geometry.textStyle,
+                punctCompression: geometry.punctCompression,
+                textColorOverride: geometry.textColorOverride,
+              );
               _paintLineText(
                 canvas,
-                _linePainterFor(
-                  page,
-                  sliceIndex,
-                  lineIndex,
-                  layout,
-                  line,
-                  geometry.textStyle,
-                  punctCompression: geometry.punctCompression,
-                  textColorOverride: geometry.textColorOverride,
-                ),
+                painter,
                 lineText,
                 _lineRuns(layout, line),
                 geometry.textStyle,
+                x,
+                lineY,
+              );
+              _paintInlineImages(
+                canvas,
+                painter,
+                geometry,
+                line,
+                lineText,
                 x,
                 lineY,
               );
@@ -1090,6 +1100,90 @@ class PagePainter {
       segmentPainter.paint(
         canvas,
         Offset(x + boxes.first.left, y + segment.baselineShift),
+      );
+    }
+  }
+
+  /// 画行内图片（P9-06）：图片画在 U+FFFC 占位符的字形框上。
+  ///
+  /// 占位符字形已由 [buildLineSpan] 置透明，这里按行盒高度（1em）等比
+  /// 缩放并底对齐；宽度超过版心时按版心收窄。
+  void _paintInlineImages(
+    Canvas canvas,
+    TextPainter painter,
+    _SliceGeometry geometry,
+    LineBox line,
+    String lineText,
+    double x,
+    double lineY,
+  ) {
+    final specs = geometry.slice.block.inlineImages;
+    final lookup = imageLookup;
+    if (specs.isEmpty || lookup == null || !lineText.contains('\uFFFC')) {
+      return;
+    }
+    final em = geometry.style.fontSize;
+    final available = geometry.pageWidth - geometry.leftInset;
+    for (var i = 0; i < lineText.length; i++) {
+      if (lineText.codeUnitAt(i) != 0xFFFC) {
+        continue;
+      }
+      final global = line.start + i;
+      InlineImageSpec? spec;
+      for (final candidate in specs) {
+        if (candidate.offset == global) {
+          spec = candidate;
+          break;
+        }
+      }
+      if (spec == null) {
+        continue;
+      }
+      final image = lookup(spec.url);
+      if (image == null) {
+        continue;
+      }
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: i, extentOffset: i + 1),
+      );
+      if (boxes.isEmpty) {
+        continue;
+      }
+      final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+      final declaredWidth = spec.width;
+      final declaredHeight = spec.height;
+      final double rawWidth;
+      final double rawHeight;
+      if (declaredWidth != null && declaredHeight != null) {
+        rawWidth = declaredWidth;
+        rawHeight = declaredHeight;
+      } else if (declaredWidth != null) {
+        rawWidth = declaredWidth;
+        rawHeight = aspect == 0 ? rawWidth : rawWidth / aspect;
+      } else if (declaredHeight != null) {
+        rawHeight = declaredHeight;
+        rawWidth = rawHeight * aspect;
+      } else {
+        rawHeight = em;
+        rawWidth = em * aspect;
+      }
+      final scale = rawWidth > available && rawWidth > 0
+          ? available / rawWidth
+          : 1.0;
+      final width = rawWidth * scale;
+      final height = rawHeight * scale;
+      final left = x + boxes.first.left;
+      final boxBottom = lineY + boxes.first.bottom;
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(
+          0,
+          0,
+          image.width.toDouble(),
+          image.height.toDouble(),
+        ),
+        Rect.fromLTWH(left, boxBottom - height, width, height),
+        Paint()..filterQuality = FilterQuality.medium,
       );
     }
   }
