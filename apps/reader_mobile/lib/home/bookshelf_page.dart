@@ -345,13 +345,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
+    // 大书读盘要几秒：先给个反馈，避免「点了没反应」。
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('正在打开《${entry.title}》…'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
     final bytes = await widget.library.readBytes(entry);
     if (!mounted) {
       return;
     }
-    // P4-24：后台建 2-gram 索引（断点续建，不阻塞打开）。
+    // P4-24：后台建 2-gram 索引（断点续建）。
+    // 延后 3 秒再启动：索引要逐章解析+排版，上千章的书会在阅读页刚打开时
+    // 抢满主线程，导致翻页和按钮都点不动。
     unawaited(
-      widget.library.ensureSearchIndex(entry.id, bytes).catchError((Object _) => 0),
+      Future<void>.delayed(const Duration(seconds: 3)).then(
+        (_) => widget.library
+            .ensureSearchIndex(entry.id, bytes)
+            .catchError((Object _) => 0),
+      ),
     );
     await Navigator.of(context).push(
       MaterialPageRoute<void>(

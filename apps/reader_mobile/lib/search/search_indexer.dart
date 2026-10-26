@@ -43,6 +43,9 @@ class SearchIndexer {
       charStart += text.length;
       done++;
       onProgress?.call(spine + 1, total);
+      // 每章让出一次事件循环：索引在 UI isolate 上跑，长书（上千章）如果
+      // 一口气跑完，主线程会被占满，界面点不动（真机 156MB / 1541 章）。
+      await Future<void>.delayed(Duration.zero);
     }
     return done;
   }
