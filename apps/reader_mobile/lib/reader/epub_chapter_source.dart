@@ -2415,13 +2415,18 @@ class EpubChapterSource
             spaceAfter: inlineStyle.margin.bottom,
           );
         }
-        // 从段落文本里摘掉这段内容（连同相邻的一个空格），其余偏移重映射。
+        // 从段落文本里摘掉这段内容，其余偏移重映射。
+        // - 行内浮动：连相邻一个空格一起摘（浮动脱离文本流，留空格会多算宽度）；
+        // - 行内块：**保留元素边界处的空格**（CSS 里 inline-block 前后空白是
+        //   保留的，只有行首/行尾才折叠）——否则 53 的行宽会比浏览器少 4.36。
         var removeStart = mark.start;
         var removeEnd = mark.end;
-        if (removeEnd < text.length && text[removeEnd] == ' ') {
-          removeEnd += 1;
-        } else if (removeStart > 0 && text[removeStart - 1] == ' ') {
-          removeStart -= 1;
+        if (side != null) {
+          if (removeEnd < text.length && text[removeEnd] == ' ') {
+            removeEnd += 1;
+          } else if (removeStart > 0 && text[removeStart - 1] == ' ') {
+            removeStart -= 1;
+          }
         }
         final removed = removeEnd - removeStart;
         final newText = text.substring(0, removeStart) + text.substring(removeEnd);
