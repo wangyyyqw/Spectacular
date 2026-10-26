@@ -31,6 +31,9 @@ class LineBox {
     this.hyphenated = false,
     this.hyphenWidth = 0,
     this.inlineBoxes = const <InlineBoxPlacement>[],
+    this.columnIndex,
+    this.columnX,
+    this.vertical = false,
   });
 
   /// 行起始字符下标（半开区间，P1-23 精化）。
@@ -87,6 +90,18 @@ class LineBox {
   /// 连字符（`-`）的 advance 宽；[hyphenated] 为 false 时是 0。
   final double hyphenWidth;
 
+  /// 竖排时本行对应的列序号（0 = 逻辑首列；`vertical` 为 false 时为 null）。
+  final int? columnIndex;
+
+  /// 竖排时该列的 x（页内/块内左缘；rl 时首列在最右）。
+  final double? columnX;
+
+  /// 是否为竖排列（`writing-mode: vertical-rl/vertical-lr`）。
+  ///
+  /// 竖排时 [start]/[end] 仍是该列的字符区间，[width] = 列宽（= 行高），
+  /// [height] = 该列内容长度（横排时的行宽），[top] 恒为 0。
+  final bool vertical;
+
   /// 本行内的行级盒（`display: inline-block`）：按行内 x 升序。
   ///
   /// 排版期已按盒宽预留、按盒高/基线撑高行盒；绘制层按 [InlineBoxPlacement]
@@ -119,6 +134,9 @@ class LineBox {
     bool? hyphenated,
     double? hyphenWidth,
     List<InlineBoxPlacement>? inlineBoxes,
+    int? columnIndex,
+    double? columnX,
+    bool? vertical,
   }) => LineBox(
     start: start ?? this.start,
     end: end ?? this.end,
@@ -137,6 +155,9 @@ class LineBox {
     hyphenated: hyphenated ?? this.hyphenated,
     hyphenWidth: hyphenWidth ?? this.hyphenWidth,
     inlineBoxes: inlineBoxes ?? this.inlineBoxes,
+    columnIndex: columnIndex ?? this.columnIndex,
+    columnX: columnX ?? this.columnX,
+    vertical: vertical ?? this.vertical,
   );
 
   @override
@@ -301,6 +322,29 @@ class InlineBoxSpec {
   };
 }
 
+/// 竖排逐字符度量（绘制层逐字摆放用）。
+class VerticalGlyphMetric {
+  /// 创建度量。
+  const VerticalGlyphMetric({
+    required this.start,
+    required this.end,
+    required this.advance,
+    required this.upright,
+  });
+
+  /// 原文起始偏移。
+  final int start;
+
+  /// 原文结束偏移（不含）。
+  final int end;
+
+  /// 列内纵向 advance（upright 时 = 1em，mixed 旋转时 = 字形宽）。
+  final double advance;
+
+  /// 是否正立（`text-orientation: upright` 或 CJK 类字形）；false 表示旋转 90°。
+  final bool upright;
+}
+
 /// 行内盒在行内的放置结果。
 class InlineBoxPlacement {
   /// 创建放置。
@@ -312,6 +356,7 @@ class InlineBoxPlacement {
     required this.ascent,
     required this.descent,
     required this.spec,
+    this.vertical = false,
   });
 
   /// 插入点（原文偏移）。
@@ -334,6 +379,9 @@ class InlineBoxPlacement {
 
   /// 原始规格（绘制层从 `spec.payload` 取内容）。
   final InlineBoxSpec spec;
+
+  /// 是否竖排（竖排时 [left] = 列内纵向偏移，[ascent]/[descent] = 列的右/左延伸）。
+  final bool vertical;
 
   /// 盒顶相对行顶的偏移（行顶 + 该值 = 盒顶）。
   double topIn(double lineAscent) => lineAscent - ascent;
@@ -488,6 +536,7 @@ class TextLayoutResult implements TextLayout {
     required this.maxWidth,
     this.runs = const <StyledRun>[],
     this.isRtl = false,
+    this.writingMode = CssWritingMode.horizontalTb,
   });
 
   /// 原始文本。
@@ -510,6 +559,12 @@ class TextLayoutResult implements TextLayout {
 
   /// 段落方向是否为 RTL（绘制/命中需用同一 baseDirection，否则字形顺序错位）。
   final bool isRtl;
+
+  /// 书写模式（竖排块的行列表其实是「列」表，见 [LineBox.vertical]）。
+  final CssWritingMode writingMode;
+
+  /// 是否竖排。
+  bool get isVertical => writingMode != CssWritingMode.horizontalTb;
 
   /// 行数。
   int get lineCount => lines.length;
@@ -692,6 +747,14 @@ abstract final class TextLayoutEngine {
     // 的排版宽放开到无限，让整段排成一行（硬换行仍生效）。
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
     final measureWidth = softWrap ? width : double.infinity;
+    // 竖排（CSS Writing Modes §7.2）：内联轴是页面的纵向，列长由块高决定，
+    // 因此测量宽 = 声明 height（缺省时退回内容宽，由调用方决定页高近似）。
+    final vertical = style.writingMode != CssWritingMode.horizontalTb;
+    final declaredColumnLength = vertical ? style.height?.resolve(width) : null;
+    final columnLength =
+        declaredColumnLength != null && declaredColumnLength > 0
+        ? declaredColumnLength
+        : measureWidth;
     final indent = softWrap && width.isFinite
         ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
         : 0.0;
@@ -755,8 +818,8 @@ abstract final class TextLayoutEngine {
           ? _measureSegment(
               text: boxText?.text ?? breakPlan.text,
               inlineBoxMarks: boxText?.marks ?? const <_InlineBoxMark>[],
-              width: measureWidth,
-              contentWidth: width,
+              width: columnLength,
+              contentWidth: vertical ? columnLength : width,
               style: style,
               textScaleFactor: textScaleFactor,
               leadingDistribution: leadingDistribution,
@@ -777,6 +840,20 @@ abstract final class TextLayoutEngine {
       if (boxText != null && boxText.changed) {
         measured = _mapInlineBoxLines(measured, boxText);
       }
+
+    if (style.writingMode != CssWritingMode.horizontalTb) {
+      // 竖排（CSS Writing Modes §3，最小可用映射）：横排测量得到的每「行」
+      // 变成一「列」，列宽 = 行高，列长 = 该行宽；rl 首列在最右、lr 在左。
+      // 文字仍在列内自上而下（字符顺序与横排一致），逐字旋转由绘制层做。
+      return _verticalFromLines(
+        text: text,
+        lines: measured,
+        style: style,
+        maxWidth: width,
+        runs: styled,
+        isRtl: style.isRtl,
+      );
+    }
       if (boxText == null) {
         break;
       }
@@ -1430,7 +1507,11 @@ abstract final class TextLayoutEngine {
     TextStyle baseStyle,
     double textScaleFactor,
   ) {
-    final advanceOf = punctAdvanceMeasurer(baseStyle, textScaleFactor);
+    final advanceOf = punctAdvanceMeasurer(
+      baseStyle,
+      textScaleFactor,
+      direction: _textDirectionOf(style),
+    );
     final em = style.fontSize;
     final compressOffsets = style.textSpacingTrim ==
             CssTextSpacingTrim.trimAdjacent
@@ -1489,10 +1570,17 @@ abstract final class TextLayoutEngine {
         runs.isEmpty &&
         (style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent ||
             style.textAutospace == CssTextAutospace.normal);
+    // `/`（UAX#14 SY）在 ICU/Skia 里会给出断行机会，而 Chrome 不在
+    // `right/bottom` 这类 token 内断行：用零宽 WORD JOINER 包住 SOLIDUS
+    // 压掉两侧断点，测量后再把行偏移映射回原文。
+    final guarded = inlineBoxMarks.isEmpty && text.contains('/')
+        ? _applyNoBreakGuards(text)
+        : null;
+    final measureText = guarded?.text ?? text;
     final painter = TextPainter(
       text: inlineBoxMarks.isNotEmpty
           ? _inlineBoxSpans(
-              text,
+              measureText,
               baseStyle,
               inlineBoxMarks,
               style,
@@ -1500,8 +1588,8 @@ abstract final class TextLayoutEngine {
             )
           : runs.isEmpty
           ? (compress
-                ? _plainSpan(text, style, baseStyle, textScaleFactor)
-                : TextSpan(text: text, style: baseStyle))
+                ? _plainSpan(measureText, style, baseStyle, textScaleFactor)
+                : TextSpan(text: measureText, style: baseStyle))
           : TextSpan(
               style: baseStyle,
               children: buildStyledSpans(
@@ -1562,14 +1650,28 @@ abstract final class TextLayoutEngine {
         isHardBreak: hardBreak,
       );
     }
-    final truncated = _applyTextOverflow(
-      lines: lines,
+    // Skia 会对放不下的 token 做逐字紧急断行，Chrome 则让 token 整段溢出：
+    // 把「断点处没有合法断行机会」的相邻行合并回去（URL、right/bottom 等）。
+    final mergedLines = guarded == null
+        ? lines
+        : _mergeUnbreakableLines(
+            lines,
+            measureText,
+            baseStyle,
+            textScaleFactor,
+            guarded.boundaries,
+          );
+    var truncated = _applyTextOverflow(
+      lines: mergedLines,
       painter: painter,
       contentWidth: contentWidth ?? width,
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
     );
+    if (guarded != null) {
+      truncated = _mapLineOffsets(truncated, guarded.offsets);
+    }
     return _applyInlineVerticalBoxes(
       _applyInlineBoxes(
         truncated,
@@ -2145,6 +2247,265 @@ abstract final class TextLayoutEngine {
   /// Flutter 没有暴露 x-height；CJK 字体 x-height 约 0.5em。该偏差只影响
   /// middle 行内元素的竖直位置，不影响行高（小字号盒仍落在 strut 内）。
   static double _xHeightFor(ComputedStyle style) => style.fontSize * 0.5;
+
+  /// 合并「非法断点」处的紧急断行：token 内不换行（与 Chrome 一致）。
+  static List<LineBox> _mergeUnbreakableLines(
+    List<LineBox> lines,
+    String text,
+    TextStyle baseStyle,
+    double textScaleFactor,
+    Set<int> guardBoundaries,
+  ) {
+    if (lines.length < 2 || guardBoundaries.isEmpty) {
+      return lines;
+    }
+    final merged = <LineBox>[];
+    var current = lines.first;
+    for (var i = 1; i < lines.length; i++) {
+      final next = lines[i];
+      // 只在被守卫的 `/` 处合并（Skia 会在 SOLIDUS 后紧急断行，Chrome 不会）。
+      final canBreak =
+          current.end != next.start ||
+          !guardBoundaries.contains(current.end);
+      if (canBreak) {
+        merged.add(current);
+        current = next;
+        continue;
+      }
+      // 合并：宽度按合并后子串重测（行内可能有空格/变形，不能简单相加）。
+      // 行宽不含行尾空白（与 Skia 的行度量口径一致）。
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text.substring(current.start, next.end).trimRight(),
+          style: baseStyle,
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: TextScaler.linear(textScaleFactor),
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      current = current.copyWith(
+        end: next.end,
+        width: width,
+        isLastLine: next.isLastLine,
+        isHardBreak: next.isHardBreak,
+      );
+    }
+    merged.add(current);
+    var top = 0.0;
+    final result = <LineBox>[];
+    for (final line in merged) {
+      final ascent = line.baseline - line.top;
+      result.add(
+        LineBox(
+          start: line.start,
+          end: line.end,
+          top: top,
+          height: line.height,
+          baseline: top + ascent,
+          width: line.width,
+          indent: line.indent,
+          isLastLine: line.isLastLine,
+          isHardBreak: line.isHardBreak,
+          offsetX: line.offsetX,
+          justifyExtra: line.justifyExtra,
+          justifyMode: line.justifyMode,
+          ellipsized: line.ellipsized,
+          ellipsisWidth: line.ellipsisWidth,
+          hyphenated: line.hyphenated,
+          hyphenWidth: line.hyphenWidth,
+          inlineBoxes: line.inlineBoxes,
+        ),
+      );
+      top += line.height;
+    }
+    return result;
+  }
+
+  /// 插入零宽 WORD JOINER 压掉 `/` 两侧的断行机会（UAX#14 SY 在 ICU 实现里
+  /// 会给出断点，Chrome 不在 token 内断行）。返回 (守卫文本, 偏移映射)。
+  static _GuardedText _applyNoBreakGuards(String text) {
+    final buffer = StringBuffer();
+    final offsets = <int>[0];
+    final boundaries = <int>{};
+    for (var i = 0; i < text.length; i++) {
+      final char = text[i];
+      if (char == '/') {
+        final hasPrev = i > 0 && !_isBreakGuardSpace(text[i - 1]);
+        final hasNext = i + 1 < text.length && !_isBreakGuardSpace(text[i + 1]);
+        if (hasPrev) {
+          buffer.write(_wordJoiner);
+          offsets.add(i);
+        }
+        boundaries.add(buffer.length);
+        buffer.write(char);
+        offsets.add(i + 1);
+        if (hasNext) {
+          buffer.write(_wordJoiner);
+          offsets.add(i + 1);
+        }
+      } else {
+        buffer.write(char);
+        offsets.add(i + 1);
+      }
+    }
+    return _GuardedText(
+      text: buffer.toString(),
+      offsets: offsets,
+      boundaries: boundaries,
+    );
+  }
+
+  /// 守卫后的文本 + 偏移映射 + 「被守卫断点」的文本内下标。
+  ///
+  /// [boundaries] 里的下标处原本有 `/`（其前后一侧），这些位置不允许换行。
+  static String _guardedTextOf(String text) => _applyNoBreakGuards(text).text;
+
+  /// 零宽 WORD JOINER（U+2060）。
+  static const String _wordJoiner = '\u2060';
+
+  /// 是否空白（守卫只在 token 内部生效）。
+  static bool _isBreakGuardSpace(String char) =>
+      char == ' ' || char == '\t' || char == '\n' || char == '\r' ||
+      char == '\u00A0' || char == '\u3000';
+
+  /// 按偏移映射把行区间换回原文坐标（守卫插入用）。
+  static List<LineBox> _mapLineOffsets(List<LineBox> lines, List<int> offsets) {
+    if (offsets.isEmpty || lines.isEmpty) {
+      return lines;
+    }
+    int original(int measured) => offsets[measured.clamp(0, offsets.length - 1)];
+    return <LineBox>[
+      for (final line in lines)
+        line.copyWith(
+          start: original(line.start),
+          end: original(line.end),
+        ),
+    ];
+  }
+
+  /// 竖排逐字符度量：`text-orientation` 决定正立/旋转，advance 随之取
+  /// 1em 或字形宽（旋转后横向宽度变成列内纵向 advance）。
+  ///
+  /// 绘制层可用它逐字摆放/旋转；同一段文本的 advance 之和即列长。
+  static List<VerticalGlyphMetric> verticalGlyphMetrics(
+    String text,
+    ComputedStyle style, {
+    double textScaleFactor = 1,
+  }) {
+    final metrics = <VerticalGlyphMetric>[];
+    final em = style.fontSize;
+    var offset = 0;
+    for (final rune in text.runes) {
+      final length = rune > 0xFFFF ? 2 : 1;
+      final char = String.fromCharCode(rune);
+      final upright = switch (style.textOrientation) {
+        CssTextOrientation.upright => true,
+        CssTextOrientation.sideways => false,
+        CssTextOrientation.mixed => _isUprightRune(rune),
+      };
+      final advance = upright ? em : _measureChar(char, style, textScaleFactor);
+      metrics.add(
+        VerticalGlyphMetric(
+          start: offset,
+          end: offset + length,
+          advance: advance,
+          upright: upright,
+        ),
+      );
+      offset += length;
+    }
+    return metrics;
+  }
+
+  /// 竖排下是否正立：CJK 汉字/假名/注音符号/全角标点等按 1em 正立，
+  /// 拉丁/数字/半角符号侧躺（CSS Writing Modes §6.1 的 mixed 规则近似）。
+  static bool _isUprightRune(int rune) {
+    if (rune >= 0x1100 && rune <= 0x11FF) {
+      return true; // 谚文字母
+    }
+    if (rune >= 0x2E80 && rune <= 0x303F) {
+      return true; // CJK 部首/符号/标点
+    }
+    if (rune >= 0x3041 && rune <= 0x33FF) {
+      return true; // 假名/注音/兼容 CJK
+    }
+    if (rune >= 0x3400 && rune <= 0x4DBF) {
+      return true; // CJK 扩展 A
+    }
+    if (rune >= 0x4E00 && rune <= 0x9FFF) {
+      return true; // CJK 统一表意
+    }
+    if (rune >= 0xF900 && rune <= 0xFAFF) {
+      return true; // CJK 兼容表意
+    }
+    if (rune >= 0xFF00 && rune <= 0xFF60) {
+      return true; // 全角形式
+    }
+    if (rune >= 0x20000 && rune <= 0x3FFFF) {
+      return true; // CJK 扩展 B+
+    }
+    return false;
+  }
+
+  /// 横排测量结果 → 竖排列（CSS Writing Modes §3）。
+  ///
+  /// - 列数 = 横排行数；列宽 = CSS 行高（`line-height` 解算值）；
+  /// - 列长 = 该行横排宽（近似：拉丁字形旋转后按原宽计，见已知限制）；
+  /// - `vertical-rl` 首列在最右（列从右向左推进），`vertical-lr` 在左；
+  /// - 块宽 = 列数 × 列宽，块高 = 最长列；行内 `top` 恒为 0。
+  static TextLayoutResult _verticalFromLines({
+    required String text,
+    required List<LineBox> lines,
+    required ComputedStyle style,
+    required double maxWidth,
+    required List<StyledRun> runs,
+    required bool isRtl,
+  }) {
+    final columnWidth = style.lineHeightFactor == null
+        ? math.max(1.0, style.fontSize * 1.2)
+        : math.max(1.0, style.lineHeight);
+    final count = lines.length;
+    final rl = style.writingMode == CssWritingMode.verticalRl;
+    final columns = <LineBox>[];
+    var longest = 0.0;
+    for (var i = 0; i < count; i++) {
+      final line = lines[i];
+      final columnX = rl ? (count - 1 - i) * columnWidth : i * columnWidth;
+      longest = math.max(longest, line.width);
+      columns.add(
+        LineBox(
+          start: line.start,
+          end: line.end,
+          top: 0,
+          height: line.width,
+          baseline: 0,
+          width: columnWidth,
+          offsetX: columnX,
+          columnIndex: i,
+          columnX: columnX,
+          vertical: true,
+          isLastLine: line.isLastLine,
+          isHardBreak: line.isHardBreak,
+          ellipsized: line.ellipsized,
+          ellipsisWidth: line.ellipsisWidth,
+          hyphenated: line.hyphenated,
+          hyphenWidth: line.hyphenWidth,
+        ),
+      );
+    }
+    return TextLayoutResult(
+      text: text,
+      lines: List<LineBox>.unmodifiable(columns),
+      // 竖排块的「宽」是列带总宽（= 列数 × 列宽），「高」是最长列。
+      width: count * columnWidth,
+      height: longest,
+      maxWidth: maxWidth,
+      runs: List<StyledRun>.unmodifiable(runs),
+      isRtl: isRtl,
+      writingMode: style.writingMode,
+    );
+  }
 
   static TextLayoutResult _result(
     String text,

@@ -384,6 +384,24 @@ class MulticolGeometry {
   }
 }
 
+/// 绝对定位解算结果（页内坐标 + 可能 shrink-to-fit 后的块）。
+class _AbsolutePlacement {
+  const _AbsolutePlacement({
+    required this.block,
+    required this.top,
+    required this.left,
+  });
+
+  /// 参与绘制的块（宽:auto 时是重排后的新块）。
+  final PageBlock block;
+
+  /// 页内 y。
+  final double top;
+
+  /// 页内 x。
+  final double left;
+}
+
 /// 页内一个块切片；P1-25 只放整块，P1-26 会按行切。
 class PageBlockSlice {
   /// 创建切片。
@@ -609,12 +627,16 @@ class Paginator {
   /// 创建分页器。
   Paginator({
     required this.pageHeight,
+    this.pageWidth = 0,
     this.topPadding = 0,
     this.tolerance = 2,
   });
 
   /// 页高。
   final double pageHeight;
+
+  /// 页宽（绝对定位的包含块宽；0 表示用块内容宽兜底）。
+  final double pageWidth;
 
   /// 第一章顶部留白。
   final double topPadding;
@@ -781,6 +803,155 @@ class Paginator {
     absoluteLeft: absoluteLeft,
   );
 
+  /// 绝对定位解算（CSS 2.1 §10.3.7/§10.6.4 的扁平管线口径）。
+  ///
+  /// - 包含块 = 页面内容盒；百分比按包含块宽/高解算；
+  /// - `left` 优先于 `right`、`top` 优先于 `bottom`（over-constrained 时忽略
+  ///   后者，CSS 2.1 规定 LTR 下忽略 right / 忽略 bottom）；
+  /// - 都未声明时用静态位置（块本来会被排到的位置：y = 当前流游标）；
+  /// - `width: auto` 时 shrink-to-fit。
+  static _AbsolutePlacement _resolveAbsolute(
+    PageBlock block, {
+    required double containingWidth,
+    required double containingHeight,
+    required double staticTop,
+    required double staticLeft,
+  }) {
+    final style = block.style;
+    var prepared = style == null
+        ? block
+        : _shrinkToFit(block, style, containingWidth);
+    // 块盒宽：声明宽优先（百分比按包含块解算），否则用 shrink-to-fit 结果。
+    // 声明宽与已测宽不一致时按声明宽重排，保证行宽/行数与盒宽同口径。
+    final declaredWidth = style?.width?.resolve(containingWidth);
+    final width = declaredWidth ?? prepared.layout.width;
+    if (style != null &&
+        declaredWidth != null &&
+        (prepared.layout.maxWidth - declaredWidth).abs() > 0.5) {
+      prepared = _relayoutAt(prepared, style, declaredWidth);
+    }
+    double? left = block.absoluteLeft;
+    double? top = block.absoluteTop;
+    if (style != null) {
+      final leftSpec = style.left?.resolve(containingWidth);
+      final rightSpec = style.right?.resolve(containingWidth);
+      final topSpec = style.top?.resolve(containingHeight);
+      final bottomSpec = style.bottom?.resolve(containingHeight);
+      left ??= leftSpec;
+      if (left == null && rightSpec != null) {
+        left = containingWidth - rightSpec - width;
+      }
+      top ??= topSpec;
+      if (top == null && bottomSpec != null) {
+        top = containingHeight - bottomSpec - prepared.height;
+      }
+    }
+    return _AbsolutePlacement(
+      block: prepared,
+      top: top ?? staticTop,
+      left: left ?? staticLeft,
+    );
+  }
+
+  /// `width: auto` 的绝对定位块做 shrink-to-fit：
+  /// `min(max(min-content, 可用宽), max-content)`，再按最终宽重排。
+  ///
+  /// 已知限制：min-content 用「最长不可断片段」近似（空格切分；CJK 按单字
+  /// 累加），不做完整 Unicode 断行分析。
+  static PageBlock _shrinkToFit(
+    PageBlock block,
+    ComputedStyle style,
+    double availableWidth,
+  ) {
+    if (style.width != null || block.layout.text.trim().isEmpty) {
+      return block;
+    }
+    final preferred = TextLayoutEngine.layout(
+      text: block.layout.text,
+      style: style,
+      maxWidth: double.infinity,
+    ).width;
+    // shrink-to-fit：min(max(min-content, 可用宽), max-content)。
+    final minContent = _minContentWidth(block.layout.text, style);
+    final target = math.min(preferred, math.max(minContent, availableWidth));
+    if ((target - block.layout.maxWidth).abs() < 0.5) {
+      return block;
+    }
+    return PageBlock(
+      layout: TextLayoutEngine.layout(
+        text: block.layout.text,
+        style: style,
+        maxWidth: target,
+      ),
+      startCfi: block.startCfi,
+      endCfi: block.endCfi,
+      style: block.style,
+      absolute: true,
+      absoluteTop: block.absoluteTop,
+      absoluteLeft: block.absoluteLeft,
+      topInset: block.topInset,
+      bottomInset: block.bottomInset,
+      leftInset: block.leftInset,
+      effectiveOpacity: block.effectiveOpacity,
+      multicol: block.multicol,
+    );
+  }
+
+  /// 按指定宽重排块（绝对定位声明宽与已测宽不一致时用）。
+  static PageBlock _relayoutAt(
+    PageBlock block,
+    ComputedStyle style,
+    double width,
+  ) => PageBlock(
+    layout: TextLayoutEngine.layout(
+      text: block.layout.text,
+      style: style,
+      maxWidth: width,
+    ),
+    startCfi: block.startCfi,
+    endCfi: block.endCfi,
+    style: block.style,
+    absolute: true,
+    absoluteTop: block.absoluteTop,
+    absoluteLeft: block.absoluteLeft,
+    topInset: block.topInset,
+    bottomInset: block.bottomInset,
+    leftInset: block.leftInset,
+    effectiveOpacity: block.effectiveOpacity,
+    multicol: block.multicol,
+  );
+
+  /// min-content 宽近似：最长不可断片段宽。
+  static double _minContentWidth(String text, ComputedStyle style) {
+    var widest = 0.0;
+    final buffer = StringBuffer();
+    void flush() {
+      if (buffer.isEmpty) {
+        return;
+      }
+      final segment = buffer.toString();
+      buffer.clear();
+      widest = math.max(
+        widest,
+        TextLayoutEngine.layout(
+          text: segment,
+          style: style,
+          maxWidth: double.infinity,
+        ).width,
+      );
+    }
+
+    for (final rune in text.runes) {
+      if (rune == 0x20 || rune == 0x09 || rune == 0x0A) {
+        flush();
+        continue;
+      }
+      buffer.writeCharCode(rune);
+    }
+    flush();
+    return widest;
+  }
+
   /// 对一章块列表分页。
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
@@ -835,18 +1006,34 @@ class Paginator {
       // 绝对定位块（P9-19）：脱离正常流，不占流高，只作为覆盖切片
       // 绘制在页内绝对坐标处（top/left 缺省时跟随当前流位置）。
       if (block.absolute) {
-        final top = (block.absoluteTop ?? used)
+        final containingWidth = pageWidth > 0
+            ? pageWidth
+            : (block.layout.maxWidth.isFinite && block.layout.maxWidth > 0
+                  ? block.layout.maxWidth
+                  : pageHeight);
+        final containingHeight = math.max(
+          0.0,
+          pageHeight - (firstPage ? topPadding : 0),
+        );
+        final resolved = _resolveAbsolute(
+          block,
+          containingWidth: containingWidth,
+          containingHeight: containingHeight,
+          staticTop: used,
+          staticLeft: 0,
+        );
+        final top = resolved.top
             .clamp(0.0, math.max(0.0, pageHeight - 1))
             .toDouble();
         slices.add(
           PageBlockSlice(
-            block: block,
+            block: resolved.block,
             startLine: 0,
-            endLine: block.layout.lineCount,
-            height: block.height,
+            endLine: resolved.block.layout.lineCount,
+            height: resolved.block.height,
             overlay: true,
             absoluteTop: top,
-            leftInset: block.absoluteLeft ?? 0,
+            leftInset: resolved.left,
           ),
         );
         continue;
