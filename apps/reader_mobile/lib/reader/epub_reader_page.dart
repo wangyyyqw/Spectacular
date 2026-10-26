@@ -89,13 +89,24 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   void initState() {
     super.initState();
-    _open();
+    // 先让加载骨架绘制一帧，再做同步解析：openEpub 对 156MB 的书要 1.5 秒，
+    // 直接同步跑会让页面转场期间黑屏（用户看不到任何东西）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _open();
+      }
+    });
   }
 
   Future<void> _open() async {
     final watch = Stopwatch()..start();
     try {
-      final source = await EpubChapterSource.open(widget.bytes);
+      // 阅读时跳过 CRC 校验：这本书导入时已完整校验过一次，150MB+ 的大书
+      // 光校验就要多花近一倍时间。
+      final source = await EpubChapterSource.open(
+        widget.bytes,
+        verifyCrc: false,
+      );
       unawaited(
         ReaderLog.instance.log(
           'epub_parse',

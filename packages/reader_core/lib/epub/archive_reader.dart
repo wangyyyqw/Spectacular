@@ -35,10 +35,13 @@ class EpubArchive {
   ///    大小写与字节匹配兜底；GBK 重解码待自研 ZIP 层，见 §54）。
   ///
   /// 其余失败保持 [EpubException]（E_ARCHIVE/E_CRC）。
-  factory EpubArchive.fromBytes(Uint8List bytes) {
+  ///
+  /// [verify] 为 false 时跳过 CRC 校验：大文件（150MB+）解码能快数倍，
+  /// 阅读场景用（导入时已完整校验过一次）。
+  factory EpubArchive.fromBytes(Uint8List bytes, {bool verify = true}) {
     List<ArchiveFile> files;
     try {
-      files = ZipDecoder().decodeBytes(bytes, verify: true).files;
+      files = ZipDecoder().decodeBytes(bytes, verify: verify).files;
     } catch (error) {
       // 第一层恢复：不做 CRC 校验重解码（覆盖整档 verify 抛出，
       // 坏条目由 [_build] 逐条跳过）。
