@@ -123,7 +123,7 @@ class PagePainter {
     final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
     canvas.drawRect(pageRect, Paint()..color = background);
     // 背景纹理平铺在背景色之上、正文之下（P4-22，只影响绘制层）。
-    final pageBackground = this.pageBackgroundImage;
+    final pageBackground = pageBackgroundImage;
     if (pageBackground != null) {
       canvas.drawRect(
         pageRect,

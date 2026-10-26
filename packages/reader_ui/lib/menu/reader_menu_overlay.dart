@@ -246,8 +246,8 @@ class ReaderMenuOverlay extends StatelessWidget {
             child: _DrawerLayer(
               title: drawerTitle,
               theme: theme,
-              child: drawerChild!,
               onClose: onCloseDrawer,
+              child: drawerChild!,
             ),
           ),
         ],

@@ -712,11 +712,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 应用搜索结果（P4-26，§29.4）：跳到命中位置并临时高亮 3 秒。
   Future<void> _applySearchResult(SearchPanelResult result) async {
+    // 扫描式搜索不给每条命中算 CFI，这里按点击结果现场排版这一章。
     var cfi = result.cfi;
-    if (cfi == null) {
-      // 扫描式搜索不给每条命中算 CFI，这里按点击结果现场排版这一章。
-      cfi = await widget.onResolveSearchCfi?.call(result);
-    }
+    cfi ??= await widget.onResolveSearchCfi?.call(result);
     if (cfi == null) {
       return;
     }
