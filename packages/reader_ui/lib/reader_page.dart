@@ -17,6 +17,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
 import 'a11y/semantics_layer.dart';
+import 'menu/reader_menu_overlay.dart';
 import 'page_furniture/page_furniture.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
@@ -58,6 +59,7 @@ class ReaderPage extends StatefulWidget {
     this.overrides,
     this.paragraphCache,
     this.showPageFooter = true,
+    this.bookTitle = '阅读',
   });
 
   /// 章节页来源。
@@ -105,6 +107,9 @@ class ReaderPage extends StatefulWidget {
   /// 页脚页码（P8-10 页家具 6 槽的第一槽；槽模板与设置项后续接入）。
   final bool showPageFooter;
 
+  /// 书名（菜单顶部栏显示）。
+  final String bookTitle;
+
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
 
@@ -143,6 +148,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
+
+  /// 菜单是否展开（设计稿沉浸式菜单）。
+  bool _menuOpen = false;
+
+  /// 当前打开的抽屉。
+  ReaderMenuEntry? _drawer;
+
+  /// 目录抽屉里的二级页签（内容/书签/搜索）。
+  _DrawerTab _drawerTab = _DrawerTab.content;
 
   /// 已聚焦过的页（P4-28：每页只自动聚焦一次）。
   String? _lastFocusedPageKey;
@@ -410,49 +424,65 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ///
   /// 菜单 / 目录 / 书签在同一 sheet 内切换：真机上先 pop 菜单再开新 sheet 会
   /// 被关闭动画吃掉（表现为点了没反应）。
-  Future<void> _openReaderMenu() async {
-    final result = await showModalBottomSheet<Object?>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: 0.66,
-        child: _ReaderMenuSheet(
-          entries: _session.toc,
-          currentSpineIndex: _session.progress?.spineIndex ?? 0,
-          chapterCount: widget.source.chapterCount,
-          scrollController: _tocScrollController,
-          bookmarks: widget.bookmarks,
-          hasCfi: _session.currentCfi != null,
-          overrides: _overrides,
-          themeId: (_theme ?? ReaderTheme.white).id,
-          onOverridesChanged: _applyOverrides,
-          onThemeChanged: _applyTheme,
-          backgroundId: _backgroundId,
-          onBackgroundChanged: widget.onBackgroundChanged == null
-              ? null
-              : _applyBackground,
-          inkMode: _inkMode,
-          onInkModeChanged: _applyInkMode,
-          onSearch: widget.onSearch,
-          onSearchSelect: (result) => unawaited(_applySearchResult(result)),
-          onResetSettings: _resetSettings,
-        ),
-      ),
-    );
-    if (!mounted || result == null) {
+  /// 抽屉标题（设计稿 `.drawer-title`）。
+  String _drawerTitleOf(ReaderMenuEntry? entry) => switch (entry) {
+    ReaderMenuEntry.toc => '目录',
+    ReaderMenuEntry.theme => '主题',
+    ReaderMenuEntry.type => '排版',
+    ReaderMenuEntry.settings => '设置',
+    null => '',
+  };
+
+  /// 滑杆气泡文案：章名 + 章内页。
+  String _chapterLabelOf(PageContent page) =>
+      '${_chapterTitleOf(page.spineIndex)} · '
+      '${page.pageIndex + 1}/${_session.chapterPageCount} 页';
+
+  /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
+  void _toggleReaderMenu() {
+    setState(() {
+      _menuOpen = !_menuOpen;
+      if (!_menuOpen) {
+        _drawer = null;
+        _drawerTab = _DrawerTab.content;
+      }
+    });
+  }
+
+  /// 打开某个抽屉面板（底部四入口）。
+  void _openDrawer(ReaderMenuEntry entry) {
+    setState(() {
+      _drawer = entry;
+      _drawerTab = _DrawerTab.content;
+    });
+  }
+
+  /// 关闭抽屉（保留菜单）。
+  void _closeDrawer() {
+    setState(() {
+      _drawer = null;
+      _drawerTab = _DrawerTab.content;
+    });
+  }
+
+  /// 进度滑杆：按全书百分比跳章。
+  Future<void> _seekToProgress(double percent) async {
+    final chapters = widget.source.chapterCount;
+    if (chapters <= 0) {
       return;
     }
-    if (result is TocEntry) {
-      await _session.jumpToChapter(result.spineIndex, title: result.title);
+    final target = (percent * chapters).floor().clamp(0, chapters - 1);
+    if (target == (_session.progress?.spineIndex ?? 0)) {
       return;
     }
-    if (result == 'add-bookmark') {
-      await _addBookmark();
-      return;
-    }
-    if (result is ReaderBookmark) {
-      await _session.jumpToCfi(result.cfi, title: result.label);
-    }
+    await _session.jumpToChapter(target);
+  }
+
+  /// 日/夜快速切换（设计稿顶部栏的日间夜间按钮）。
+  void _toggleDayNight() {
+    final current = (_theme ?? ReaderTheme.white).id;
+    final dark = current == 'dark' || current == 'black';
+    _applyTheme(dark ? 'white' : 'dark');
   }
 
   /// 添加当前页书签（P4-13）。
@@ -1147,7 +1177,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               },
               onToggleToolbar: () {
                 _clearSelection();
-                unawaited(_openReaderMenu());
+                _toggleReaderMenu();
               },
               onLongPressAt: _selectWordAt,
               onDoubleTapAt: _selection == null ? null : _selectWordAt,
@@ -1213,6 +1243,82 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       : null,
                 ),
               ),
+            // 沉浸式菜单（设计稿 .menu-top / .menu-bottom / .drawer）。
+            ReaderMenuOverlay(
+              open: _menuOpen,
+              theme: _effectiveTheme,
+              bookTitle: widget.bookTitle,
+              progress: _bookProgressOf(page),
+              chapterLabel: _chapterLabelOf(page),
+              onBack: () {
+                Navigator.of(context).maybePop();
+              },
+              onToggleDayNight: _toggleDayNight,
+              nightMode: (_theme ?? ReaderTheme.white).background.computeLuminance() <
+                  0.35,
+              onPreviousPage: () {
+                _closeDrawer();
+                unawaited(_session.previous());
+              },
+              onNextPage: () {
+                _closeDrawer();
+                unawaited(_session.next());
+              },
+              onSeek: (value) {
+                _closeDrawer();
+                unawaited(_seekToProgress(value));
+              },
+              onEntry: _openDrawer,
+              drawerTitle: _drawerTitleOf(_drawer),
+              drawerChild: _drawer == null
+                  ? null
+                  : _ReaderDrawerContent(
+                      entry: _drawer!,
+                      tab: _drawerTab,
+                      onTabChanged: (tab) => setState(() => _drawerTab = tab),
+                      entries: _session.toc,
+                      currentSpineIndex:
+                          _session.progress?.spineIndex ?? 0,
+                      tocScrollController: _tocScrollController,
+                      bookmarks: widget.bookmarks,
+                      hasCfi: _session.currentCfi != null,
+                      overrides: _overrides,
+                      themeId: (_theme ?? ReaderTheme.white).id,
+                      backgroundId: _backgroundId,
+                      inkMode: _inkMode,
+                      onOverridesChanged: _applyOverrides,
+                      onThemeChanged: _applyTheme,
+                      onBackgroundChanged: widget.onBackgroundChanged == null
+                          ? null
+                          : _applyBackground,
+                      onInkModeChanged: _applyInkMode,
+                      onResetSettings: _resetSettings,
+                      onSearch: widget.onSearch,
+                      onSearchSelect: (result) {
+                        _closeDrawer();
+                        unawaited(_applySearchResult(result));
+                      },
+                      onTocSelect: (entry) {
+                        _closeDrawer();
+                        unawaited(
+                          _session.jumpToChapter(
+                            entry.spineIndex,
+                            title: entry.title,
+                          ),
+                        );
+                      },
+                      onBookmarkSelect: (bookmark) {
+                        _closeDrawer();
+                        unawaited(
+                          _session.jumpToCfi(bookmark.cfi, title: bookmark.label),
+                        );
+                      },
+                      onAddBookmark: () {
+                        unawaited(_addBookmark());
+                      },
+                    ),
+              onCloseDrawer: _closeDrawer,
+            ),
             // 跳章浮层（P4-12，§27.2）：目标章名 + 不确定进度，完成后淡出。
             _JumpLoadingOverlay(title: _session.jumpLoadingTitle),
           ],
@@ -1251,182 +1357,253 @@ class _ReaderPageCustomPainter extends CustomPainter {
 /// 内切换，避免真机上「关掉 sheet 立刻开新 sheet」被关闭动画吞掉。
 ///
 /// 返回：选中的 [TocEntry] / [ReaderBookmark] / `'add-bookmark'`（null = 关闭）。
-class _ReaderMenuSheet extends StatefulWidget {
-  const _ReaderMenuSheet({
+/// 目录抽屉里的二级页签。
+enum _DrawerTab {
+  /// 目录内容。
+  content,
+
+  /// 书签列表。
+  bookmarks,
+
+  /// 搜索。
+  search,
+}
+
+/// 抽屉内容分发器：目录/主题/排版/设置四个面板 + 目录内的书签与搜索页签。
+///
+/// 参数较多是因为它同时是四类面板的适配层（各面板回调不同），拆分收益不大。
+class _ReaderDrawerContent extends StatefulWidget {
+  const _ReaderDrawerContent({
+    required this.entry,
+    required this.tab,
+    required this.onTabChanged,
     required this.entries,
     required this.currentSpineIndex,
-    required this.chapterCount,
-    required this.scrollController,
+    required this.tocScrollController,
     required this.bookmarks,
     required this.hasCfi,
     required this.overrides,
     required this.themeId,
+    required this.backgroundId,
+    required this.inkMode,
     required this.onOverridesChanged,
     required this.onThemeChanged,
+    required this.onBackgroundChanged,
+    required this.onInkModeChanged,
     required this.onResetSettings,
-    this.backgroundId = 'none',
-    this.inkMode = false,
-    this.onBackgroundChanged,
-    this.onInkModeChanged,
-    this.onSearch,
-    this.onSearchSelect,
+    required this.onSearch,
+    required this.onSearchSelect,
+    required this.onTocSelect,
+    required this.onBookmarkSelect,
+    required this.onAddBookmark,
   });
 
+  final ReaderMenuEntry entry;
+  final _DrawerTab tab;
+  final ValueChanged<_DrawerTab> onTabChanged;
   final List<TocEntry> entries;
   final int currentSpineIndex;
-  final int chapterCount;
-  final ScrollController scrollController;
+  final ScrollController tocScrollController;
   final ReaderBookmarkStore? bookmarks;
   final bool hasCfi;
   final ReaderOverrides overrides;
   final String themeId;
+  final String backgroundId;
+  final bool inkMode;
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
-  final VoidCallback onResetSettings;
-  final String backgroundId;
   final ValueChanged<String>? onBackgroundChanged;
-  final bool inkMode;
   final ValueChanged<bool>? onInkModeChanged;
+  final VoidCallback onResetSettings;
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
-  final ValueChanged<SearchPanelResult>? onSearchSelect;
+  final ValueChanged<SearchPanelResult> onSearchSelect;
+  final ValueChanged<TocEntry> onTocSelect;
+  final ValueChanged<ReaderBookmark> onBookmarkSelect;
+  final VoidCallback onAddBookmark;
 
   @override
-  State<_ReaderMenuSheet> createState() => _ReaderMenuSheetState();
+  State<_ReaderDrawerContent> createState() => _ReaderDrawerContentState();
 }
 
-class _ReaderMenuSheetState extends State<_ReaderMenuSheet> {
-  int _view = 0; // 0=菜单 1=目录 2=书签 3=设置 4=搜索
+class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
   Future<List<ReaderBookmark>>? _bookmarksFuture;
 
-  void _showView(int view) {
-    setState(() {
-      _view = view;
-      if (view == 2) {
-        _bookmarksFuture = widget.bookmarks?.list() ??
-            Future<List<ReaderBookmark>>.value(const <ReaderBookmark>[]);
-      }
-    });
+  @override
+  void initState() {
+    super.initState();
+    _reloadBookmarks();
+  }
+
+  void _reloadBookmarks() {
+    _bookmarksFuture =
+        widget.bookmarks?.list() ??
+        Future<List<ReaderBookmark>>.value(const <ReaderBookmark>[]);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_view == 1) {
-      return TocPanel(
-        entries: widget.entries,
-        currentSpineIndex: widget.currentSpineIndex,
-        scrollController: widget.scrollController,
-        onBack: () => _showView(0),
-        onSelect: (entry) => Navigator.of(context).pop(entry),
-      );
-    }
-    if (_view == 4) {
-      final search = widget.onSearch;
-      if (search == null) {
-        _view = 0;
-      } else {
-        return SearchPanel(
-          onSearch: search,
-          onSelect: (result) => widget.onSearchSelect?.call(result),
-          onBack: () => _showView(0),
+    switch (widget.entry) {
+      case ReaderMenuEntry.toc:
+        return _buildTocDrawer(context);
+      case ReaderMenuEntry.theme:
+        return SettingsPanel(
+          section: SettingsSection.theme,
+          overrides: widget.overrides,
+          themeId: widget.themeId,
+          backgroundId: widget.backgroundId,
+          inkMode: widget.inkMode,
+          onOverridesChanged: widget.onOverridesChanged,
+          onThemeChanged: widget.onThemeChanged,
+          onBackgroundChanged: widget.onBackgroundChanged,
+          onInkModeChanged: widget.onInkModeChanged,
+          onReset: widget.onResetSettings,
         );
-      }
+      case ReaderMenuEntry.type:
+        return SettingsPanel(
+          section: SettingsSection.type,
+          overrides: widget.overrides,
+          themeId: widget.themeId,
+          onOverridesChanged: widget.onOverridesChanged,
+          onThemeChanged: widget.onThemeChanged,
+        );
+      case ReaderMenuEntry.settings:
+        return SettingsPanel(
+          section: SettingsSection.settings,
+          overrides: widget.overrides,
+          themeId: widget.themeId,
+          inkMode: widget.inkMode,
+          onOverridesChanged: widget.onOverridesChanged,
+          onThemeChanged: widget.onThemeChanged,
+          onInkModeChanged: widget.onInkModeChanged,
+          onReset: widget.onResetSettings,
+        );
     }
-    if (_view == 3) {
-      return SettingsPanel(
-        overrides: widget.overrides,
-        themeId: widget.themeId,
-        backgroundId: widget.backgroundId,
-        inkMode: widget.inkMode,
-        onInkModeChanged: widget.onInkModeChanged,
-        onBack: () => _showView(0),
-        onOverridesChanged: widget.onOverridesChanged,
-        onThemeChanged: widget.onThemeChanged,
-        onBackgroundChanged: widget.onBackgroundChanged,
-        onReset: widget.onResetSettings,
-      );
-    }
-    if (_view == 2) {
-      return FutureBuilder<List<ReaderBookmark>>(
-        future: _bookmarksFuture,
-        builder: (context, snapshot) {
-          final store = widget.bookmarks;
-          final items = snapshot.data ?? const <ReaderBookmark>[];
-          return BookmarkPanel(
-            bookmarks: items,
-            onBack: () => _showView(0),
-            onSelect: (bookmark) => Navigator.of(context).pop(bookmark),
-            onDelete: (bookmark) async {
-              await store?.remove(bookmark.id);
-              if (mounted) {
-                _showView(2);
-              }
-            },
-          );
-        },
-      );
-    }
+  }
+
+  Widget _buildTocDrawer(BuildContext context) {
     final theme = Theme.of(context);
-    final tocCount = flattenToc(widget.entries).length;
-    return Material(
-      color: theme.colorScheme.surface,
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-              child: Row(
-                children: [
-                  Text('阅读菜单', style: theme.textTheme.titleSmall),
-                  const Spacer(),
-                  Text(
-                    '第 ${widget.currentSpineIndex + 1}/${widget.chapterCount} 章',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
+    return Column(
+      children: <Widget>[
+        // 目录抽屉内的二级页签：目录 / 书签 / 搜索（书签与搜索不占底部入口）。
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+          child: Row(
+            children: <Widget>[
+              _DrawerTabButton(
+                buttonKey: const ValueKey<String>('drawer-tab-toc'),
+                label: '目录',
+                selected: widget.tab == _DrawerTab.content,
+                onTap: () => widget.onTabChanged(_DrawerTab.content),
+              ),
+              if (widget.bookmarks != null)
+                _DrawerTabButton(
+                  buttonKey: const ValueKey<String>('drawer-tab-bookmarks'),
+                  label: '书签',
+                  selected: widget.tab == _DrawerTab.bookmarks,
+                  onTap: () {
+                    _reloadBookmarks();
+                    widget.onTabChanged(_DrawerTab.bookmarks);
+                  },
+                ),
+              if (widget.onSearch != null)
+                _DrawerTabButton(
+                  buttonKey: const ValueKey<String>('drawer-tab-search'),
+                  label: '搜索',
+                  selected: widget.tab == _DrawerTab.search,
+                  onTap: () => widget.onTabChanged(_DrawerTab.search),
+                ),
+              const Spacer(),
+              if (widget.tab == _DrawerTab.content && widget.hasCfi)
+                TextButton.icon(
+                  key: const ValueKey<String>('drawer-add-bookmark'),
+                  onPressed: widget.onAddBookmark,
+                  icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                  label: const Text('加书签'),
+                ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: switch (widget.tab) {
+            _DrawerTab.content => TocPanel(
+              entries: widget.entries,
+              currentSpineIndex: widget.currentSpineIndex,
+              scrollController: widget.tocScrollController,
+              onSelect: widget.onTocSelect,
+            ),
+            _DrawerTab.bookmarks => FutureBuilder<List<ReaderBookmark>>(
+              future: _bookmarksFuture,
+              builder: (context, snapshot) {
+                final items = snapshot.data ?? const <ReaderBookmark>[];
+                return BookmarkPanel(
+                  bookmarks: items,
+                  onSelect: widget.onBookmarkSelect,
+                  onDelete: (bookmark) async {
+                    await widget.bookmarks?.remove(bookmark.id);
+                    if (mounted) {
+                      setState(_reloadBookmarks);
+                    }
+                  },
+                );
+              },
+            ),
+            _DrawerTab.search => widget.onSearch == null
+                ? const SizedBox.shrink()
+                : SearchPanel(
+                    onSearch: widget.onSearch!,
+                    onSelect: widget.onSearchSelect,
                   ),
-                ],
+          },
+        ),
+        if (widget.tab == _DrawerTab.search &&
+            MediaQuery.maybeViewInsetsOf(context)?.bottom == 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              '输入关键词后点结果跳转',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.menu_book_outlined),
-              title: const Text('目录'),
-              subtitle: Text('共 $tocCount 章'),
-              onTap: () => _showView(1),
-            ),
-            if (widget.bookmarks != null)
-              ListTile(
-                leading: const Icon(Icons.bookmark_add_outlined),
-                title: const Text('添加书签'),
-                enabled: widget.hasCfi,
-                subtitle: widget.hasCfi ? null : const Text('当前位置不支持书签'),
-                onTap: () => Navigator.of(context).pop('add-bookmark'),
-              ),
-            if (widget.bookmarks != null)
-              ListTile(
-                leading: const Icon(Icons.bookmarks_outlined),
-                title: const Text('书签'),
-                onTap: () => _showView(2),
-              ),
-            if (widget.onSearch != null)
-              ListTile(
-                key: const ValueKey<String>('menu-search'),
-                leading: const Icon(Icons.search),
-                title: const Text('搜索'),
-                subtitle: const Text('在本书正文中查找'),
-                onTap: () => _showView(4),
-              ),
-            ListTile(
-              key: const ValueKey<String>('menu-settings'),
-              leading: const Icon(Icons.tune),
-              title: const Text('设置'),
-              subtitle: const Text('字号 · 行高 · 段距 · 页边距 · 主题'),
-              onTap: () => _showView(3),
-            ),
-            const SizedBox(height: 8),
-          ],
+          ),
+      ],
+    );
+  }
+}
+
+/// 抽屉内的页签按钮（下划线指示当前页签）。
+class _DrawerTabButton extends StatelessWidget {
+  const _DrawerTabButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.buttonKey,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Key? buttonKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return TextButton(
+      key: buttonKey,
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        minimumSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        foregroundColor: selected ? scheme.onSurface : scheme.outline,
+        textStyle: TextStyle(
+          fontSize: 13,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
         ),
       ),
+      child: label == label
+          ? Text(label)
+          : Text(label),
     );
   }
 }

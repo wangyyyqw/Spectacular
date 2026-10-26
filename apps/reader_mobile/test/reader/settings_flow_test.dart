@@ -74,7 +74,7 @@ void main() {
     // 点中央 → 菜单 → 设置。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('menu-settings')));
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-type')));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPanel), findsOneWidget);
 
@@ -91,7 +91,13 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
-    // 切主题：不重排但主题落库（主题在列表下方，先滚动到可见）。
+    // 切主题：关掉排版抽屉 → 主题入口 → 选米黄（设计稿四入口把主题独立成面板）。
+    await tester.tap(find.byKey(const ValueKey<String>('menu-drawer-close')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsPanel), findsNothing, reason: '关闭排版抽屉');
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-theme')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsPanel), findsOneWidget, reason: '主题抽屉打开');
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('settings-theme-sepia')),
       120,

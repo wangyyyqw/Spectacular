@@ -91,8 +91,9 @@ void main() {
     // 菜单 → 搜索。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey<String>('menu-search')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey<String>('menu-search')));
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('drawer-tab-search')));
     await tester.pumpAndSettle();
     expect(find.byType(SearchPanel), findsOneWidget);
 

@@ -69,11 +69,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 打开菜单，点「添加书签」。
+    // 打开菜单 → 目录抽屉 → 「加书签」。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    expect(find.text('添加书签'), findsOneWidget);
-    await tester.tap(find.text('添加书签'));
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('drawer-add-bookmark')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('drawer-add-bookmark')));
+    await tester.pumpAndSettle();
     await tester.pumpAndSettle();
     expect(find.text('已添加书签'), findsOneWidget);
 
@@ -88,7 +94,9 @@ void main() {
 
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('书签'));
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('drawer-tab-bookmarks')));
     await tester.pumpAndSettle();
     expect(find.textContaining('共 1 条'), findsOneWidget);
     await tester.tap(find.text(saved.single.label));
