@@ -351,6 +351,21 @@ class PagePainter {
       return null;
     }
     final darkText = style.color.computeLuminance() <= 0.179;
+    // 块自带深色背景时（卡片/面板），按块内的有效底色判断：主题色是
+    // 浅色页的深字，直接套上去会在深色卡片里隐形。此时未声明颜色的
+    // 文字改用浅色（P9-23）。
+    final blendedBackground = style.backgroundColor.a > 0
+        ? Color.alphaBlend(style.backgroundColor, background)
+        : background;
+    if (blendedBackground.computeLuminance() < 0.35) {
+      // 与 §7.5-5 一致：深色底上的深色字必须提亮，哪怕书籍显式声明过。
+      if (!darkText) {
+        return null;
+      }
+      return theme.computeLuminance() < 0.35
+          ? theme
+          : const Color(0xFFE6E6E6);
+    }
     if (background.computeLuminance() < 0.35) {
       return darkText ? theme : null;
     }
