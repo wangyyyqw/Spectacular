@@ -233,7 +233,7 @@ class PagePainter {
         contentClip: true,
         () => _withEffects(canvas, geometry, () {
           final layout = geometry.slice.block.layout;
-          if (layout.isVertical) {
+          if (geometry.isVerticalBlock) {
             // 竖排：每行 = 一列，逐字符自上而下绘制（W22）。
             _paintVerticalColumns(
               canvas,
@@ -3098,13 +3098,22 @@ class _SliceGeometry {
     // 35 用例 .v 宽 98 = 4 列×24 + 边框），不能用页宽。
     final model = _boxModel;
     final left = block.bleedLeft ? 0.0 : style.margin.left;
-    final contentWidth = block.layout.isVertical
+    final contentWidth = isVerticalBlock
         ? block.layout.width
         : model.resolveContentWidth(pageWidth);
     final right = block.bleedRight
         ? pageWidth
         : left + contentWidth + model.horizontalInset;
     return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  /// 本切片是否竖排（`writing-mode: vertical-*`）。
+  ///
+  /// 以列标记为准：章节源重建 `TextLayoutResult` 时可能不携带 writingMode，
+  /// 但列仍然是 `LineBox.vertical`，两种来源都认。
+  bool get isVerticalBlock {
+    final layout = slice.block.layout;
+    return layout.isVertical || layout.lines.any((line) => line.vertical);
   }
 
   /// 本切片的盒模型（百分比以页宽为基准，与排版层同口径）。
