@@ -127,6 +127,23 @@ abstract final class Cascade {
           matchedSpecificity,
           sequence,
         );
+        // 盒类简写展开（P9-27）：浏览器在级联前把简写拆成长属性，同名
+        // 长属性才能按优先级正确压过 UA 声明。不展开时作者 `p{margin:8px 0}`
+        // 会输给 UA 的 `p{margin:1em 0}` 拆出的 margin-top。
+        for (final longhand in _expandShorthand(
+          declaration.property,
+          declaration.value,
+        ).entries) {
+          _consider(
+            winners,
+            longhand.key,
+            longhand.value,
+            rule.origin,
+            _level(rule.origin, declaration.important),
+            matchedSpecificity,
+            sequence,
+          );
+        }
         // `list-style` 简写展开（P9-12）：不展开的话作者简写会被 UA 的
         // `ul { list-style-type: disc }` 长属性按属性名抢先命中。
         if (declaration.property == 'list-style') {
@@ -216,6 +233,87 @@ abstract final class Cascade {
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
     );
+  }
+
+  /// 盒类简写 → 长属性（P9-27）：与浏览器一致，在级联阶段展开，
+  /// 这样作者简写与 UA 长属性按同一属性名比优先级。
+  static Map<String, String> _expandShorthand(
+    String property,
+    String value,
+  ) {
+    const sides = <String>['top', 'right', 'bottom', 'left'];
+    switch (property) {
+      case 'margin':
+      case 'padding':
+        final parts = _splitFourValues(value);
+        if (parts == null) {
+          return const <String, String>{};
+        }
+        return <String, String>{
+          for (var i = 0; i < 4; i++) '$property-${sides[i]}': parts[i],
+        };
+      case 'border':
+        return <String, String>{
+          for (final side in sides) 'border-$side': value,
+        };
+      case 'border-width':
+      case 'border-style':
+      case 'border-color':
+        final suffix = property.substring('border-'.length);
+        final parts = _splitFourValues(value);
+        if (parts == null) {
+          return const <String, String>{};
+        }
+        return <String, String>{
+          for (var i = 0; i < 4; i++)
+            'border-${sides[i]}-$suffix': parts[i],
+        };
+      default:
+        return const <String, String>{};
+    }
+  }
+
+  /// 按 1~4 值展开为四边；含括号的函数（rgba(...) 等）不拆。
+  static List<String>? _splitFourValues(String value) {
+    final tokens = <String>[];
+    var depth = 0;
+    final buffer = StringBuffer();
+    for (final rune in value.trim().runes) {
+      final char = String.fromCharCode(rune);
+      if (char == '(') {
+        depth += 1;
+      } else if (char == ')') {
+        depth -= 1;
+      }
+      if (depth == 0 && (char == ' ' || char == '\t' || char == '\n')) {
+        if (buffer.isNotEmpty) {
+          tokens.add(buffer.toString());
+          buffer.clear();
+        }
+        continue;
+      }
+      buffer.write(char);
+    }
+    if (buffer.isNotEmpty) {
+      tokens.add(buffer.toString());
+    }
+    if (tokens.isEmpty || tokens.length > 4) {
+      return null;
+    }
+    final frame = value.contains('/') || value.contains('url(');
+    if (frame) {
+      return null;
+    }
+    switch (tokens.length) {
+      case 1:
+        return <String>[tokens[0], tokens[0], tokens[0], tokens[0]];
+      case 2:
+        return <String>[tokens[0], tokens[1], tokens[0], tokens[1]];
+      case 3:
+        return <String>[tokens[0], tokens[1], tokens[2], tokens[1]];
+      default:
+        return tokens;
+    }
   }
 
   /// 解析 `var(--token[, fallback])`（P9-14）：支持嵌套、回退值、循环保护。
