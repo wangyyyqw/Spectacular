@@ -99,25 +99,22 @@ class ScanSearchService {
     return result;
   }
 
-  /// 命中章：用排版后的块级文本重新定位（校验偏移）并生成 CFI。
+  /// 命中：用同一份轻量文本校正偏移并截上下文（不排版、不算 CFI）。
+  ///
+  /// 之前这里为每条命中走 `loadChapter` 拿块级 CFI，200 条命中要 19 秒；
+  /// 现在只在用户点开某一条时才排版算 CFI（见 [resolveCfi]）。
   Future<List<SearchResult>> _expandHits(
     List<ScanHit> hits,
     String query,
   ) async {
     final titles = _chapterTitles();
     final results = <SearchResult>[];
-    final chapterCache = <int, ChapterText>{};
     for (final hit in hits) {
-      var chapter = chapterCache[hit.spineIndex];
+      final chapter = _textCache[hit.spineIndex];
       if (chapter == null) {
-        chapter = await _chapterTextOf(hit.spineIndex);
-        if (chapter == null) {
-          continue;
-        }
-        chapterCache[hit.spineIndex] = chapter;
+        continue;
       }
-      // 扫描用的是聚合文本，这里按块级文本校正到精确偏移。
-      final offset = recenterOffset(chapter.text, query, hit.charOffset);
+      final offset = recenterOffset(chapter, query, hit.charOffset);
       if (offset < 0) {
         continue;
       }
@@ -126,9 +123,9 @@ class ScanSearchService {
           spineIndex: hit.spineIndex,
           charOffset: offset,
           chapterTitle: titles[hit.spineIndex] ?? '',
-          context: _contextOf(chapter.text, offset, query.length),
+          context: _contextOf(chapter, offset, query.length),
           matchLength: query.length,
-          cfi: _cfiOf(chapter, offset, query),
+          cfi: null,
         ),
       );
       if (results.length >= maxResults) {
@@ -136,6 +133,15 @@ class ScanSearchService {
       }
     }
     return results;
+  }
+
+  /// 解析一条命中的 CFI（点击时才调用，只排版这一章，约 440ms）。
+  Future<String?> resolveCfi(SearchResult result) async {
+    final chapter = await _chapterTextOf(result.spineIndex);
+    if (chapter == null) {
+      return null;
+    }
+    return _cfiOf(chapter, result.charOffset);
   }
 
   Future<ChapterText?> _chapterTextOf(int spineIndex) async {
@@ -147,7 +153,7 @@ class ScanSearchService {
     }
   }
 
-  String? _cfiOf(ChapterText chapter, int charOffset, String query) {
+  String? _cfiOf(ChapterText chapter, int charOffset) {
     final located = chapter.locate(charOffset);
     if (located == null) {
       return null;

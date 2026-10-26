@@ -293,19 +293,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
   ///
   /// 对照 Reeden 2.0：查询时逐章取纯文本，丢进 isolate 线性扫描，命中章再
   /// 走排版拿 CFI。大书首次查询只受「取文本」限制，不再有十几分钟的建索引。
+  /// 本书的扫描搜索服务（搜索与「点开命中算 CFI」共用）。
+  ScanSearchService? _scanService;
+
   Future<List<SearchPanelResult>> Function(String query)? _buildSearch(
     BookEntry entry,
     Uint8List bytes,
   ) {
-    ScanSearchService? service;
     return (query) async {
-      service ??= ScanSearchService(
+      _scanService ??= ScanSearchService(
         source: await EpubChapterSource.open(bytes, verifyCrc: false),
         onLog: (event, fields) => unawaited(
           ReaderLog.instance.log(event, fields: fields),
         ),
       );
-      final results = await service!.search(query);
+      final results = await _scanService!.search(query);
       return <SearchPanelResult>[
         for (final result in results)
           SearchPanelResult(
@@ -391,6 +393,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
           settings: _settings ?? ReaderSettings.defaults,
           onSettingsChanged: _saveReaderSettings,
           onSearch: _buildSearch(entry, bytes),
+          onResolveSearchCfi: (result) async {
+            final service = _scanService;
+            if (service == null) {
+              return null;
+            }
+            return service.resolveCfi(
+              SearchResult(
+                spineIndex: result.spineIndex,
+                charOffset: result.charOffset,
+                chapterTitle: result.chapterTitle,
+                context: result.context,
+                matchLength: result.matchLength,
+              ),
+            );
+          },
           bookTitle: entry.title,
           onMarginsChanged: (margins) {
             final current = _settings ?? ReaderSettings.defaults;

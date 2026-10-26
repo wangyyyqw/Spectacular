@@ -24,8 +24,10 @@ void main() {
       expect(result.matchLength, 2);
       expect(result.charOffset, greaterThanOrEqualTo(0));
     }
-    // CFI 至少能生成一条（块级 CFI 可定位时）。
-    expect(results.any((r) => r.cfi != null), isTrue);
+    // 搜索阶段不算 CFI（避免为 200 条命中各排版一次），点开时才解析。
+    expect(results.every((r) => r.cfi == null), isTrue);
+    final cfi = await service.resolveCfi(results.first);
+    expect(cfi, isNotNull, reason: '点开某条命中时才排版算 CFI');
   });
 
   test('扫描式搜索：无命中返回空、空查询返回空', () async {
