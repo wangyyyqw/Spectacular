@@ -259,12 +259,18 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 7. **行内盒文本**：`display: inline-block` 的文字由引擎移到行内盒 payload，
    块文本缺这段 → 段落配不上。dump 现按 `InlineBoxSpec.offset` 把 payload
    文本拼回块 `text`（递归一层），53 的段落恢复配对。
+9. **行内盒后代行归属**：浏览器取块行时把 `inline-block` 内部文本行也并进
+   父段落（53 的 p 出现 `(102,7,100.4)` + `(0,34.2,260.4)` 两行伪影）。
+   CDP 实测两个直接文本节点「行内块对照：」「 结束」都在同一 line box
+   （y 34.19、x 0..102 与 222..260），段落真实 1 行。现按「原子行内盒
+   （inline-block/flex/grid/table）的后代文本不并入父块行，盒自身保留独立
+   元素条目」处理，53 的行数/首行 x 伪影消失。
 8. **块宽口径混用**：此前引擎块 `w` 报「最长行宽」，与浏览器的边框盒宽比，
    `pre`/`nowrap` 被当成 2 条永久假失配。现 dump 分开导出
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（64 用例全量重跑：失配 92 项 / 10 个用例 / 未配对 0）
+## 待收敛（64 用例全量重跑：失配 81 项 / 10 个用例 / 未配对 0）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -272,30 +278,30 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
-| 1 | hyphens | 26 | 20-hyphens-quotes |
-| 2 | word-wrap | 25 | 62-word-wrap-content |
-| 3 | display | 17 | 53-display-position |
-| 4 | line-height | 5 | 37-filter-opacity |
-| 5 | text-overflow | 5 | 40-text-overflow |
-| 6 | font-variant | 4 | 15-font-variant-stretch |
-| 7 | text-indent | 4 | 16-text-indent-percent |
-| 8 | table | 2 | 12-table |
-| 9 | text-emphasis | 2 | 19-text-emphasis |
-| 10 | writing-mode | 2 | 35-writing-mode |
+| 1 | hyphens | 22 | 20-hyphens-quotes |
+| 2 | display | 17 | 53-display-position |
+| 3 | font | 10 | 58-font-shorthand |
+| 4 | word-wrap | 9 | 62-word-wrap-content |
+| 5 | text-overflow | 6 | 40-text-overflow |
+| 6 | line-height | 5 | 37-filter-opacity |
+| 7 | font-variant | 4 | 15-font-variant-stretch |
+| 8 | text-indent | 4 | 16-text-indent-percent |
+| 9 | table | 2 | 12-table |
+| 10 | text-emphasis | 2 | 19-text-emphasis |
 
-1. **hyphens 26 / word-wrap 25**：断字与长词换行的口径差异见「已知口径差异」
-   1–3；这两个用例的差异以行宽/行数口径为主，建议按已知差异处理而非追平。
-2. **display / position（17 项，53）**：`inline-block` 盒的行内摆放未建模
-   （首行 x、行宽、行数、块高不同），`absolute` 只摘流不按 inset 定位，
-   `relative` 偏移未生效。建议 T2。
-3. **竖排（2 项，35）**：按竖排口径只比块盒，剩「竖排从左向右」块宽
-   44 / 38（竖排块宽还没完全等于列带总宽）；行级已跳过、视觉 4.02%。
+1. **hyphens 22 / word-wrap 9 / text-overflow 6**：断字、长词换行与截断的
+   口径差异见「已知口径差异」1–3。
+2. **display / position（17 项，53）**：行内盒的行提取口径已修（见「已修」
+   第 9 条），剩 12 项是 inline-block 盒未参与行高/块高/行宽导致的 y 连锁
+   （引擎块 h 40.2 / w 256，浏览器 54.4 / 260.4），其余为 `absolute` 不按
+   inset 定位、`relative` 偏移未生效。建议 T2/T3 接线 inline-box spec。
+3. **font（10 项，58）**：`font` 简写的字号/行高/字重组合在引擎侧只部分
+   生效，行宽与 y 有差。建议 T2。
 4. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
-   `text-overflow` 口径（5）；`font-variant`/ligatures 行宽（4）；
-   负 `text-indent` 被钳 0（4）；`table` 表高 93 / 91（2）；
-   `text-emphasis` 行高 68 / 70（2）。
-5. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`
-   均 **0 项**；未配对 0（容器排除 + 行内盒文本拼回 + 多列阈值修正后）。
+   `font-variant`/ligatures 行宽（4）；负 `text-indent` 被钳 0（4）；
+   `table` 表高 93 / 91（2）；`text-emphasis` 行高 68 / 70（2）。
+5. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`、
+   `35-writing-mode` 均 0 项；未配对 0。
 
 ## 已知口径差异（不计入收敛目标）
 
@@ -337,6 +343,11 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   极端表格需人工核对（当前用例无此情况）。
 - 容器元素（有块级子元素、自身无直接文本）不参与块配对，避免把子段拼接文本
   当成段落；配不上时记「未配对」，不计失配。
+- 行级 y 口径：引擎 `line.y` 是行盒顶（含 half-leading / inline-block 撑高），
+  浏览器 Range rect 是字形行矩形顶；普通行靠容差对齐，inline-block 抬高基线时
+  差 20–30px。实测 Chrome 的 rect y = 基线 − **墨迹 ascent**（17px CJK ≈14.2，
+  非字体 ascent 20），单靠字体 ascent 无法换算，故暂不切换口径，等 T3 把
+  inline-box spec 接进真实章节源后改用「基线比较」。
 - 块配对是「文本 + 角色」启发式：`li` 内含子列表时浏览器元素文本是引擎块的
   超集，只能按「部分配对」比块顶与前几行；角色判断依赖 dump 的 `role`，
   列表项无标记时按文本兜底。
@@ -353,6 +364,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   块宽按「未知」跳过；T1 改成有限宽 measure 后会自动参与比较。
 - 浏览器渲染线程与引擎字体一致（同一 OTF），字宽可比；换字体需同步更新
   `render_browser.mjs` 的 `@font-face`。
+- 报告以 `cases/*.json` 为准枚举用例；输出目录里已删除用例的残留 `browser_*.json`
+  不会再被当成「缺数据」的幽灵用例（并行调试留下的探针文件同理）。
 - `/tmp/css_parity` 是默认输出目录，多人同时跑会互相覆盖 JSON/PNG/report。
   并行验证时给三个脚本设同一个 `CSS_PARITY_OUT`（如
   `CSS_PARITY_OUT=/tmp/css_parity_t5`），浏览器调试端口用 `CSS_PARITY_PORT`

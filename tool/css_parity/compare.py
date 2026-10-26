@@ -1004,9 +1004,9 @@ def unpaired_section(results):
 
 def main(argv=None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    names = args.cases or sorted(
-        path.stem.removeprefix('browser_') for path in OUT.glob('browser_*.json')
-    )
+    # 用例以 cases/*.json 为准：OUT 里可能残留已删除用例的 browser_*.json，
+    # 不能再按输出目录枚举，否则会多出「缺少数据」的幽灵用例。
+    names = args.cases or sorted(path.stem for path in CASES.glob('*.json'))
     results, missing = [], []
     for name in names:
         try:
