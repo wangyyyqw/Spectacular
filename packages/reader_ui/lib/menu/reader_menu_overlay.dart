@@ -40,6 +40,8 @@ class ReaderMenuOverlay extends StatelessWidget {
     required this.drawerTitle,
     required this.drawerChild,
     required this.onCloseDrawer,
+    this.safeTop = 0,
+    this.safeBottom = 0,
     this.onTts,
   });
 
@@ -86,6 +88,12 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 关闭抽屉。
   final VoidCallback onCloseDrawer;
 
+  /// 顶部安全区（由阅读页缓存后注入，保证菜单与正文用同一份值）。
+  final double safeTop;
+
+  /// 底部安全区。
+  final double safeBottom;
+
   /// 听书（为 null 时不显示入口图标）。
   final VoidCallback? onTts;
 
@@ -98,8 +106,8 @@ class ReaderMenuOverlay extends StatelessWidget {
     final fg = theme?.text ?? const Color(0xFF3B3228);
     final line = theme?.line ?? fg.withValues(alpha: 0.12);
     final fill = theme?.fill ?? fg.withValues(alpha: 0.08);
-    final topInset = MediaQuery.maybePaddingOf(context)?.top ?? 0;
-    final bottomInset = MediaQuery.maybePaddingOf(context)?.bottom ?? 0;
+    final topInset = safeTop;
+    final bottomInset = safeBottom;
 
     // 透明 Material：InkWell/InkResponse 需要 Material 祖先（阅读页本身没有）。
     return Material(
