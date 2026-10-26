@@ -107,6 +107,19 @@ void main() {
     expect(background.size.mode, CssBackgroundSizeMode.cover);
   });
 
+  test('CSS 变量与 calc 在真实管线生效（P9-14/P9-15）', () async {
+    final source = await open(
+      body: '<p class="v">变量段落</p>',
+      css:
+          'body { --accent: #ff0000; } '
+          'p.v { color: var(--accent); text-indent: calc(2em + 4px); }',
+    );
+    final pages = await source.loadChapter(0);
+    final style = pages.first.slices.first.block.style!;
+    expect(style.color, const Color(0xFFFF0000));
+    expect(style.textIndent, closeTo(38, 0.5));
+  });
+
   test('多看私有属性在真实管线生效（P9-13）', () async {
     final source = await open(
       body: '<p class="d">多看段落</p>',

@@ -191,14 +191,105 @@ abstract final class Cascade {
       }
     }
 
+    // 自定义属性（P9-14）：父级继承 + 本级 `--token` 声明，再解析值里的
+    // `var()`；之前的实现把 `--x` 当未知属性丢弃，整条 var() 声明失效。
+    final customProperties = <String, String>{
+      ...?parent?.customProperties,
+      for (final entry in winners.entries)
+        if (entry.key.startsWith('--')) entry.key: entry.value.value.trim(),
+    };
+    if (customProperties.isNotEmpty) {
+      for (final property in values.keys.toList()) {
+        final raw = values[property];
+        if (raw != null && raw.contains('var(')) {
+          values[property] = _substituteVars(raw, customProperties);
+        }
+      }
+    }
+
     return ComputedStyle(
       Map<String, String>.unmodifiable(values),
       hasExplicitTextColor: explicitTextColor,
       parent: parent,
       explicitProperties: winners.keys.toSet(),
+      customProperties: customProperties,
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
     );
+  }
+
+  /// 解析 `var(--token[, fallback])`（P9-14）：支持嵌套、回退值、循环保护。
+  static String _substituteVars(
+    String value,
+    Map<String, String> variables, [
+    Set<String>? stack,
+  ]) {
+    if (!value.contains('var(')) {
+      return value;
+    }
+    final active = stack ?? <String>{};
+    final result = StringBuffer();
+    var index = 0;
+    while (true) {
+      final start = value.indexOf('var(', index);
+      if (start < 0) {
+        result.write(value.substring(index));
+        break;
+      }
+      result.write(value.substring(index, start));
+      var depth = 0;
+      var end = -1;
+      for (var cursor = start + 4; cursor < value.length; cursor += 1) {
+        final char = value[cursor];
+        if (char == '(') {
+          depth += 1;
+        } else if (char == ')') {
+          if (depth == 0) {
+            end = cursor;
+            break;
+          }
+          depth -= 1;
+        }
+      }
+      if (end < 0) {
+        result.write(value.substring(start));
+        break;
+      }
+      final inner = value.substring(start + 4, end);
+      final comma = _topLevelComma(inner);
+      final name = (comma < 0 ? inner : inner.substring(0, comma)).trim();
+      final fallback = comma < 0 ? null : inner.substring(comma + 1).trim();
+      String? resolved;
+      if (!active.contains(name)) {
+        final raw = variables[name];
+        if (raw != null) {
+          active.add(name);
+          resolved = _substituteVars(raw, variables, active);
+          active.remove(name);
+        }
+      }
+      if ((resolved == null || resolved.trim().isEmpty) && fallback != null) {
+        resolved = _substituteVars(fallback, variables, active);
+      }
+      result.write(resolved ?? '');
+      index = end + 1;
+    }
+    return result.toString();
+  }
+
+  static int _topLevelComma(String value) {
+    var depth = 0;
+    for (var i = 0; i < value.length; i += 1) {
+      final char = value[i];
+      if (char == '(') {
+        depth += 1;
+      } else if (char == ')') {
+        depth -= 1;
+      } else if (char == ',' && depth == 0) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /// @media 求值（P8-02，CSS 2.1 简化）：媒体类型 all/screen 命中、

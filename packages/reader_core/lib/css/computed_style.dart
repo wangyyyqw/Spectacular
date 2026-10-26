@@ -398,6 +398,7 @@ class ComputedStyle {
     bool hasExplicitTextColor = false,
     ComputedStyle? parent,
     Set<String>? explicitProperties,
+    Map<String, String> customProperties = const <String, String>{},
     double rootFontSize = 16,
     double containingWidth = 0,
   }) {
@@ -785,6 +786,7 @@ class ComputedStyle {
               raw,
               fontSize: fontSize,
               rootFontSize: rootFontSize,
+              percentBase: containingWidth,
             );
     }
 
@@ -853,6 +855,7 @@ class ComputedStyle {
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      customProperties: customProperties,
       top: top,
       right: right,
       bottom: bottom,
@@ -953,6 +956,7 @@ class ComputedStyle {
       borderCollapse: borderCollapse,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      customProperties: customProperties,
       top: top,
       right: right,
       bottom: bottom,
@@ -1030,6 +1034,7 @@ class ComputedStyle {
     required this.clear,
     required this.borderCollapse,
     required this.listStyleType,
+    this.customProperties = const <String, String>{},
     required this.borderSpacing,
     required this.top,
     required this.right,
@@ -1209,6 +1214,9 @@ class ComputedStyle {
   /// 列表标记类型（`list-style-type`，继承；P9-12）。
   final CssListStyleType listStyleType;
 
+  /// 自定义属性（`--token`，继承；P9-14）：`var()` 的取值表。
+  final Map<String, String> customProperties;
+
   /// 上定位偏移（`top`，未继承；null 表示未声明）。
   final CssLength? top;
 
@@ -1310,6 +1318,7 @@ class ComputedStyle {
     String raw, {
     required double fontSize,
     required double rootFontSize,
+    double percentBase = 0,
   }) {
     final value = raw.trim().toLowerCase();
     if (value.isEmpty) {
@@ -1330,7 +1339,7 @@ class ComputedStyle {
       fontSize: fontSize,
       parentFontSize: fontSize,
       rootFontSize: rootFontSize,
-      percentBase: 0,
+      percentBase: percentBase,
     );
     return resolved == null ? null : CssLength(resolved);
   }
@@ -1949,6 +1958,16 @@ class ComputedStyle {
     final value = raw.trim().toLowerCase();
     if (value.isEmpty || value == 'auto' || value == 'normal') {
       return null;
+    }
+    // calc()（P9-15）：书籍常用 `calc(100% - 2em)` 之类表达式，之前整条
+    // 声明按非法长度丢弃。
+    if (value.startsWith('calc(')) {
+      return _evaluateCalc(
+        value,
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+        percentBase: percentBase,
+      );
     }
     final match = RegExp(
       r'^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|pt|pc|in|cm|mm|em|rem|%)?$',
@@ -2595,4 +2614,170 @@ List<String> _parseFontFamilies(String raw) {
     families.add(last);
   }
   return List<String>.unmodifiable(families);
+}
+
+/// `calc()` 表达式求值（P9-15）。
+///
+/// 支持 + - * /、括号与 px/pt/pc/in/cm/mm/em/rem/%；出现百分比时按
+/// [percentBase] 折算，基准为 0（未知）时返回 null，交给调用方回退。
+double? _evaluateCalc(
+  String raw, {
+  required double fontSize,
+  required double rootFontSize,
+  required double percentBase,
+}) {
+  var expression = raw.trim();
+  if (expression.toLowerCase().startsWith('calc(') && expression.endsWith(')')) {
+    expression = expression.substring(5, expression.length - 1);
+  }
+  final evaluator = _CalcEvaluator(
+    expression,
+    fontSize: fontSize,
+    rootFontSize: rootFontSize,
+    percentBase: percentBase,
+  );
+  final result = evaluator.evaluate();
+  return evaluator.finished ? result : null;
+}
+
+final RegExp _calcTokenPattern = RegExp(
+  r'(\d+(?:\.\d+)?|\.\d+)(px|pt|pc|in|cm|mm|em|rem|%)?|[()+\-*/]|\s+',
+);
+
+class _CalcEvaluator {
+  _CalcEvaluator(
+    this.source, {
+    required this.fontSize,
+    required this.rootFontSize,
+    required this.percentBase,
+  }) {
+    _tokenize();
+  }
+
+  final String source;
+  final double fontSize;
+  final double rootFontSize;
+  final double percentBase;
+  final List<String> _tokens = <String>[];
+  int _position = 0;
+  bool finished = false;
+
+  void _tokenize() {
+    var index = 0;
+    while (index < source.length) {
+      final match = _calcTokenPattern.matchAsPrefix(source, index);
+      if (match == null) {
+        _tokens
+          ..clear()
+          ..add('?');
+        return;
+      }
+      final token = match.group(0)!;
+      index = match.end;
+      if (token.trim().isEmpty) {
+        continue;
+      }
+      _tokens.add(token.trim());
+    }
+  }
+
+  double? evaluate() {
+    if (_tokens.isEmpty || _tokens.first == '?') {
+      return null;
+    }
+    final value = _parseExpression();
+    if (value == null || _position != _tokens.length) {
+      return null;
+    }
+    finished = true;
+    return value;
+  }
+
+  double? _parseExpression() {
+    var left = _parseTerm();
+    if (left == null) {
+      return null;
+    }
+    while (_position < _tokens.length) {
+      final token = _tokens[_position];
+      if (token != '+' && token != '-') {
+        break;
+      }
+      _position += 1;
+      final right = _parseTerm();
+      if (right == null) {
+        return null;
+      }
+      left = token == '+' ? left! + right : left! - right;
+    }
+    return left;
+  }
+
+  double? _parseTerm() {
+    var left = _parseFactor();
+    if (left == null) {
+      return null;
+    }
+    while (_position < _tokens.length) {
+      final token = _tokens[_position];
+      if (token != '*' && token != '/') {
+        break;
+      }
+      _position += 1;
+      final right = _parseFactor();
+      if (right == null) {
+        return null;
+      }
+      if (token == '*') {
+        left = left! * right;
+      } else {
+        if (right == 0) {
+          return null;
+        }
+        left = left! / right;
+      }
+    }
+    return left;
+  }
+
+  double? _parseFactor() {
+    if (_position >= _tokens.length) {
+      return null;
+    }
+    final token = _tokens[_position];
+    if (token == '-') {
+      _position += 1;
+      final inner = _parseFactor();
+      return inner == null ? null : -inner;
+    }
+    if (token == '(') {
+      _position += 1;
+      final inner = _parseExpression();
+      if (inner == null || _position >= _tokens.length || _tokens[_position] != ')') {
+        return null;
+      }
+      _position += 1;
+      return inner;
+    }
+    final match = RegExp(
+      r'^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|pt|pc|in|cm|mm|em|rem|%)?$',
+    ).firstMatch(token);
+    if (match == null) {
+      return null;
+    }
+    _position += 1;
+    final number = double.parse(match[1]!);
+    return switch (match[2]) {
+      null || 'px' => number,
+      'pt' => number * 96 / 72,
+      'pc' => number * 16,
+      'in' => number * 96,
+      'cm' => number * 96 / 2.54,
+      'mm' => number * 96 / 25.4,
+      'em' => number * fontSize,
+      'rem' => number * rootFontSize,
+      '%' => percentBase == 0 ? null : number * percentBase / 100,
+      _ => null,
+    };
+  }
 }
