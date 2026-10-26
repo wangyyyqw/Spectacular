@@ -340,14 +340,29 @@ void _p205BoundaryTests() {
       _expectCoverage(layout, text);
     });
 
-    test('长 URL 按字符断行', () {
+    test('长 URL 不在 token 内断行（与 Chrome 一致：整段溢出）', () {
+      // Chrome 对无断行机会的 token 不做逐字紧急断行（溢出可见）；
+      // `/`（UAX#14 SY）在 ICU 里会给断点，排版层用 WORD JOINER 压掉。
       const text = 'https://example.com/path/to/page';
       final layout = _cjkLayout(text, 100);
-      expect(_texts(layout), <String>[
-        'https://exam',
-        'ple.com/',
-        'path/to/page',
-      ]);
+      expect(_texts(layout), <String>[text]);
+      expect(layout.lines.single.width, greaterThan(100));
+      _expectCoverage(layout, text);
+    });
+
+    test('overflow-wrap: break-word 时长 URL 仍可逐字断行（作者显式选择）', () {
+      const text = 'https://example.com/path/to/page';
+      final layout = TextLayoutEngine.layout(
+        text: text,
+        style: ComputedStyle(<String, String>{
+          'font-size': '16px',
+          'line-height': '1.5',
+          'font-family': 'P202Kinsoku',
+          'overflow-wrap': 'break-word',
+        }),
+        maxWidth: 100,
+      );
+      expect(layout.lineCount, greaterThan(1));
       _expectCoverage(layout, text);
     });
 

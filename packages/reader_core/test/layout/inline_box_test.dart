@@ -162,6 +162,95 @@ void main() {
     expect(plain.lines.single.width, closeTo(64, 0.01));
   });
 
+  test('53 场景：102 处 120×34 行内盒 → 仍 1 行，盒底对齐基线并撑高行盒', () {
+    // 复现 cases/53-display-position.json：'行内块对照：' + inline-block 120×34 + 收尾文字。
+    final layout = TextLayoutEngine.layout(
+      text: '行内块对照：结束时',
+      style: _style(const {'line-height': '1.6'}),
+      maxWidth: 350,
+      inlineBoxes: const <InlineBoxSpec>[
+        InlineBoxSpec(offset: 6, width: 120, height: 34),
+      ],
+    );
+    expect(layout.lineCount, 1, reason: '102+120+收尾 ≈ 273 < 350，不该换行');
+    final line = layout.lines.single;
+    final box = line.inlineBoxes.single;
+    // Ahem 每字 16px → 6 字后 96（真实字体 17px 下 = 102，与 53 用例一致）。
+    expect(box.left, closeTo(96, 0.5));
+    expect(box.width, 120);
+    expect(box.height, 34);
+    expect(box.ascent, 34, reason: 'baseline 对齐：盒底落在基线上');
+    expect(box.descent, 0);
+    // 盒比行高（27.2）高 → 行盒被撑到 ≥34。
+    expect(line.height, greaterThanOrEqualTo(34));
+    expect(line.baseline - line.top, closeTo(34, 0.5));
+  });
+
+  test('行盒高 = max(行高, 盒 margin box 高)（Chrome 口径，不是 ascent+descent 相加）', () {
+    // Ahem 16px / line-height 1.5 → 行高 24。
+    final tall = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(const {'line-height': '1.5'}),
+      maxWidth: 400,
+      inlineBoxes: const <InlineBoxSpec>[
+        InlineBoxSpec(offset: 0, width: 40, height: 60),
+      ],
+    );
+    final tallLine = tall.lines.single;
+    expect(tallLine.height, closeTo(60, 0.01), reason: '盒高 60 > 行高 24');
+    expect(tallLine.baseline - tallLine.top, closeTo(60, 0.01));
+
+    // 盒比行高矮 → 行盒高保持行高，不多算盒的 ascent+descent。
+    final small = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(const {'line-height': '1.5'}),
+      maxWidth: 400,
+      inlineBoxes: const <InlineBoxSpec>[
+        InlineBoxSpec(offset: 0, width: 40, height: 10),
+      ],
+    );
+    expect(small.lines.single.height, closeTo(24, 0.5), reason: '行高 24 主导');
+  });
+
+  test('盒内内容溢出：行盒高取内容高（53 的 120×34 盒内 2 行 → 54.38）', () {
+    final layout = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(const {'line-height': '1.5'}),
+      maxWidth: 400,
+      inlineBoxes: const <InlineBoxSpec>[
+        InlineBoxSpec(offset: 0, width: 120, height: 34, contentHeight: 54.38),
+      ],
+    );
+    final line = layout.lines.single;
+    expect(line.height, closeTo(54.38, 0.01), reason: 'Chrome：盒内溢出计入行盒高');
+    expect(line.baseline - line.top, closeTo(54.38, 0.01));
+  });
+
+  test('盒占位进入行宽：advance ≈ 文字宽 + 盒宽（T3 的 A/B 口径）', () {
+    final without = TextLayoutEngine.layout(
+      text: 'abcdefgh',
+      style: _style(),
+      maxWidth: 400,
+    );
+    final withBox = TextLayoutEngine.layout(
+      text: 'abcdefgh',
+      style: _style(),
+      maxWidth: 400,
+      inlineBoxes: const <InlineBoxSpec>[
+        InlineBoxSpec(offset: 4, width: 120, height: 34),
+      ],
+    );
+    final boxes = withBox.lines
+        .expand((line) => line.inlineBoxes)
+        .fold<double>(0, (sum, box) => sum + box.width);
+    expect(
+      withBox.lines.single.width,
+      greaterThanOrEqualTo(without.lines.single.width + boxes - 0.01),
+      reason: 'advance ≥ 文字宽 + 盒宽之和',
+    );
+    expect(withBox.lines.single.advanceWidth, greaterThanOrEqualTo(boxes));
+  });
+
   test('行内盒跨行时行区间仍是原文坐标（CFI 安全）', () {
     final layout = TextLayoutEngine.layout(
       text: 'abcdefghij',
