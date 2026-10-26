@@ -5,6 +5,7 @@ import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/parser/document_parser.dart';
 
 const _xhtml = '''
@@ -164,6 +165,58 @@ void main() {
     expect(style1.textAlign, CssTextAlign.justify);
     expect(style('p', 'p { font-weight: 600; }').fontWeight, 600);
     expect(style('p', 'p { font-weight: normal; }').fontWeight, 400);
+  });
+
+  test('font-weight 相对关键字 bolder/lighter（CSS Fonts 4 映射表）', () {
+    // bolder：100–300→400、400–500→700、600–900→900；
+    // lighter：100–500→100、600–700→400、800–900→700。
+    const bolder = <int, int>{
+      100: 400,
+      200: 400,
+      300: 400,
+      400: 700,
+      500: 700,
+      600: 900,
+      700: 900,
+      800: 900,
+      900: 900,
+    };
+    const lighter = <int, int>{
+      100: 100,
+      200: 100,
+      300: 100,
+      400: 100,
+      500: 100,
+      600: 400,
+      700: 400,
+      800: 700,
+      900: 700,
+    };
+    for (final entry in bolder.entries) {
+      final parent = style('parent', 'div { font-weight: ${entry.key}; }');
+      expect(
+        style('p', 'p { font-weight: bolder; }', parent: parent).fontWeight,
+        entry.value,
+        reason: 'bolder(${entry.key})',
+      );
+    }
+    for (final entry in lighter.entries) {
+      final parent = style('parent', 'div { font-weight: ${entry.key}; }');
+      expect(
+        style('p', 'p { font-weight: lighter; }', parent: parent).fontWeight,
+        entry.value,
+        reason: 'lighter(${entry.key})',
+      );
+    }
+    // 无父级（根元素）按初始值 400：bolder → 700、lighter → 100。
+    expect(style('p', 'p { font-weight: bolder; }').fontWeight, 700);
+    expect(style('p', 'p { font-weight: lighter; }').fontWeight, 100);
+    // `font` 简写里的相对字重同样按父级解算。
+    final parent = style('parent', 'div { font-weight: 300; }');
+    expect(
+      style('p', 'p { font: bolder 16px serif; }', parent: parent).fontWeight,
+      400,
+    );
   });
 
   test('未设置字段继承父值或取初始值', () {
@@ -378,6 +431,56 @@ void main() {
     );
   });
 
+  test('contentBoxWidth：border-box 的 width 要扣 padding/border', () {
+    // 对照用例 09 `.bb`：350 版心宽下 border-box 200px 含 10px padding、
+    // 3px 边框 → 内容宽 200-20-6=174（浏览器行宽 166.2/171.7，均 ≤174）。
+    final borderBox = style(
+      'p',
+      'p { box-sizing: border-box; width: 200px; padding: 10px; '
+          'border: 3px solid #cc3366; }',
+    );
+    expect(borderBox.contentBoxWidth(350), 174);
+
+    // 同一声明在 content-box 下内容宽就是 200。
+    final contentBox = style(
+      'p',
+      'p { box-sizing: content-box; width: 200px; padding: 10px; '
+          'border: 3px solid #cc3366; }',
+    );
+    expect(contentBox.contentBoxWidth(350), 200);
+
+    // 对照用例 09 `.box`：未声明 width，版心 350 扣 margin 40 +
+    // padding 32 + border 4 = 274（浏览器行宽 233.8/270.9）。
+    final auto = style(
+      'p',
+      'p { margin: 10px 20px; padding: 8px 16px; '
+          'border: 2px solid #3366cc; }',
+    );
+    expect(auto.contentBoxWidth(350), 274);
+
+    // 百分比 width 按传入的包含块宽解算；min/max 钳制且 min 优先。
+    final percent = style('p', 'p { width: 50%; padding: 5px; }');
+    expect(percent.contentBoxWidth(300), 150);
+    final clamped = style(
+      'p',
+      'p { width: 100px; min-width: 180px; max-width: 120px; }',
+    );
+    expect(clamped.contentBoxWidth(350), 180, reason: 'min 优先于 max');
+    // 可用宽不足时钳到 0，不返回负数。
+    expect(auto.contentBoxWidth(10), 0);
+
+    // 与 layout 层 BoxModel 保持同一口径（防止两处实现分叉）。
+    for (final candidate in <ComputedStyle>[borderBox, contentBox, auto]) {
+      expect(
+        candidate.contentBoxWidth(350),
+        BoxModel.fromStyle(
+          candidate,
+          containingWidth: 350,
+        ).resolveContentWidth(350),
+      );
+    }
+  });
+
   test('尺寸/内边距/box-sizing 默认值且不继承', () {
     final initial = ComputedStyle(const <String, String>{});
     expect(initial.width, isNull);
@@ -432,7 +535,8 @@ void main() {
     expect(parsed.wordSpacing, 8);
     expect(parsed.textTransform, CssTextTransform.uppercase);
     expect(parsed.verticalAlign, CssVerticalAlign.superscript);
-    expect(parsed.verticalAlignShift, closeTo(-6.4, 0.01));
+    // 根元素：父级字号取 rootFontSize 16；Chrome 公式 -（父字号/3 + 1）。
+    expect(parsed.verticalAlignShift, closeTo(-(16 / 3 + 1), 0.001));
 
     final em = style(
       'p',
@@ -441,7 +545,7 @@ void main() {
     );
     expect(em.wordSpacing, 8);
     expect(em.textTransform, CssTextTransform.capitalize);
-    expect(em.verticalAlignShift, closeTo(2.4, 0.01));
+    expect(em.verticalAlignShift, closeTo(16 / 5 + 1, 0.001));
 
     final parent = style(
       'parent',
@@ -457,6 +561,77 @@ void main() {
     expect(plain.wordSpacing, 0);
     expect(plain.textTransform, CssTextTransform.none);
     expect(plain.verticalAlign, CssVerticalAlign.baseline);
+  });
+
+  test('vertical-align: super/sub 按父级字号偏移（Chrome 实测口径）', () {
+    // Chrome（headless 155）实测：父字号 17px 时 super=-6.66、sub=+4.39，
+    // 且与子元素自身字号无关（0.7em/2em 子字号偏移不变）；父字号 8–100px
+    // 线性拟合为 super=-(父字号/3+1)、sub=父字号/5+1。
+    final parent = style('parent', 'div { font-size: 17px; }');
+    final sup = style(
+      'p',
+      'p { vertical-align: super; font-size: 0.7em; }',
+      parent: parent,
+    );
+    expect(sup.fontSize, closeTo(11.9, 0.001));
+    expect(sup.verticalAlignShift, closeTo(-6.66, 0.01));
+
+    final sub = style(
+      'p',
+      'p { vertical-align: sub; font-size: 2em; }',
+      parent: parent,
+    );
+    expect(sub.fontSize, 34);
+    // 17/5+1 = 4.4；Chrome 内部按 1/64 像素取整后报 4.39，差值在取整精度内。
+    expect(sub.verticalAlignShift, closeTo(4.4, 0.02), reason: '子字号不参与');
+
+    // middle/top/bottom 不产生基线偏移（保持不变，行排版层按行盒处理）。
+    for (final value in const <String>['middle', 'top', 'bottom']) {
+      final other = style('p', 'p { vertical-align: $value; }', parent: parent);
+      expect(other.verticalAlignShift, 0, reason: value);
+    }
+  });
+
+  test('text-spacing-trim 默认与 Chrome normal 一致（相邻全角标点折叠）', () {
+    // Chrome 的 text-spacing-trim 初始值是 normal，且会折叠相邻全角标点
+    // （对照用例 01：「：、」实测各 8.5px，space-all 下各 17px），所以引擎
+    // 未声明时必须默认开启挤压，否则同一行宽下比浏览器宽出半个标点。
+    expect(
+      ComputedStyle(const <String, String>{}).textSpacingTrim,
+      CssTextSpacingTrim.trimAdjacent,
+    );
+    expect(
+      style('p', 'p { text-spacing-trim: normal; }').textSpacingTrim,
+      CssTextSpacingTrim.trimAdjacent,
+    );
+    expect(
+      style('p', 'p { text-spacing-trim: space-all; }').textSpacingTrim,
+      CssTextSpacingTrim.normal,
+      reason: 'space-all = 全部保持全角 = 不挤压',
+    );
+    expect(
+      style('p', 'p { text-spacing-trim: trim-start; }').textSpacingTrim,
+      CssTextSpacingTrim.trimAdjacent,
+      reason: '行首半角未实现，按 normal 的相邻折叠近似',
+    );
+
+    final spaced = style('parent', 'div { text-spacing-trim: space-all; }');
+    final inherited = style('p', 'p { color: red; }', parent: spaced);
+    expect(inherited.textSpacingTrim, CssTextSpacingTrim.normal, reason: '继承');
+  });
+
+  test('text-transform 的 full-width / small-caps 与 Chrome 一致回退 none', () {
+    // Chrome 149/155 实测：CSS.supports('text-transform','full-width') 与
+    // ('…','small-caps') 均为 false，计算值 none（对照用例 08 两侧行宽一致）。
+    // 引擎同样只认 none/uppercase/lowercase/capitalize，未知值回退 none。
+    expect(
+      style('p', 'p { text-transform: full-width; }').textTransform,
+      CssTextTransform.none,
+    );
+    expect(
+      style('p', 'p { text-transform: small-caps; }').textTransform,
+      CssTextTransform.none,
+    );
   });
 
   test('text-decoration / text-emphasis / 分页属性解析', () {

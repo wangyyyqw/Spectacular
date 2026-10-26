@@ -119,6 +119,54 @@ void main() {
     // 作者简写要压过 UA 的 `ul { list-style-type: disc }`。
     expect(cascaded('list-style: upper-roman'), CssListStyleType.upperRoman);
   });
+
+  test('font 简写在级联层展开，压过 UA 长属性与继承字号', () {
+    ComputedStyle cascaded(String declarations) {
+      final rules = <CascadeRule>[
+        ...uaRules(),
+        ...CascadeRule.fromStylesheet(
+          CssParser.parse('h1.special { $declarations }'),
+          origin: CascadeOrigin.author,
+          startOrder: 1000,
+        ),
+      ];
+      return Cascade.compute(
+        element: _Element('h1', const <String, String>{'class': 'special'}),
+        ancestors: const <SelectorElement>[],
+        rules: rules,
+        parent: ComputedStyle(const <String, String>{'font-size': '16px'}),
+      );
+    }
+
+    final style = cascaded('font: 700 17px/1.6 serif');
+    // 不展开时：UA `h1 { font-size: 2em; font-weight: bold }` 按属性名命中，
+    // 字号会变成 32px、字重变成 bolder，作者整条 font 简写被静默丢弃。
+    expect(style.fontSize, 17);
+    expect(style.fontWeight, 700);
+    expect(style.lineHeightFactor, 1.6);
+    expect(style.fontFamily, 'serif');
+    // 展开后长属性确实进了层叠结果：flat 管线重建样式时会把 values 里的
+    // 键全部标成显式，长属性缺失就会让继承来的字号顶掉作者简写。
+    expect(style.values['font-size'], '17px');
+    expect(style.values['font-weight'], '700');
+    expect(style.values['line-height'], '1.6');
+  });
+
+  test('内联 font 简写同样展开成长属性', () {
+    final style = Cascade.compute(
+      element: _Element('p', const <String, String>{}),
+      ancestors: const <SelectorElement>[],
+      rules: uaRules(),
+      inlineDeclarations: CssParser.parseStyleAttribute(
+        'font: italic 15px/1.4 "宋体"',
+      ),
+      parent: ComputedStyle(const <String, String>{'font-size': '20px'}),
+    );
+    expect(style.fontSize, 15);
+    expect(style.italic, isTrue);
+    expect(style.fontFamily, '宋体');
+    expect(style.values['font-size'], '15px');
+  });
 }
 
 class _Element implements SelectorElement {
