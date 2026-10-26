@@ -105,10 +105,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 在「上内」胶囊上横向拖动 60px ≈ 10 格。
+      // 上内是垂直拖动：向上拖 60px ≈ 10 格（向外 = 变大）。
       await tester.drag(
         find.byKey(const ValueKey<String>('margin-top-inner')),
-        const Offset(60, 0),
+        const Offset(0, -60),
       );
       await tester.pumpAndSettle();
       expect(previews, isNotEmpty, reason: '拖动过程中就应实时预览');
@@ -126,6 +126,49 @@ void main() {
       await tester.pump();
       expect(previews.length, greaterThan(before));
       expect(applied, isNull, reason: '没点保留不应回传');
+    });
+
+    testWidgets('左右胶囊拖动方向相反（向外拖 = 变大）', (tester) async {
+      final previews = <ReaderMargins>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MarginEditor(
+              margins: _defaults(),
+              defaults: _defaults(),
+              onCancel: () {},
+              onApply: (_) {},
+              onPreview: previews.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 左胶囊：向右拖 = 变小。
+      await tester.drag(
+        find.byKey(const ValueKey<String>('margin-left')),
+        const Offset(60, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(previews.last.left, lessThan(20), reason: '左胶囊向右拖应变小');
+
+      // 左胶囊：向左拖 = 变大。
+      await tester.drag(
+        find.byKey(const ValueKey<String>('margin-left')),
+        const Offset(-60, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(previews.last.left, greaterThan(10), reason: '左胶囊向左拖应变大');
+
+      final beforeRight = previews.last.right;
+      // 右胶囊：向右拖 = 变大。
+      await tester.drag(
+        find.byKey(const ValueKey<String>('margin-right')),
+        const Offset(60, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(previews.last.right, greaterThan(beforeRight), reason: '右胶囊向右拖应变大');
     });
 
     testWidgets('恢复默认值与取消不应用', (tester) async {

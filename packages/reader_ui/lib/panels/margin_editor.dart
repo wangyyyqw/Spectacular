@@ -92,6 +92,8 @@ class _MarginEditorState extends State<MarginEditor> {
                 children: <Widget>[
                   _Pill(
                     label: '上外',
+                    axis: Axis.vertical,
+                    outwardPositive: false,
                     value: _draft.topOuter,
                     max: widget.maxOuter,
                     onDelta: (delta) => _apply(_draft.copyWith(
@@ -105,6 +107,8 @@ class _MarginEditorState extends State<MarginEditor> {
                   const SizedBox(width: 12),
                   _Pill(
                     label: '上内',
+                    axis: Axis.vertical,
+                    outwardPositive: false,
                     value: _draft.topInner,
                     max: widget.maxInner,
                     onDelta: (delta) => _apply(_draft.copyWith(
@@ -129,6 +133,7 @@ class _MarginEditorState extends State<MarginEditor> {
                 padding: const EdgeInsets.only(left: 8),
                 child: _Pill(
                   label: '左',
+                  outwardPositive: false,
                   value: _draft.left,
                   max: widget.maxSide,
                   onDelta: (delta) => _apply(_draft.copyWith(
@@ -167,6 +172,7 @@ class _MarginEditorState extends State<MarginEditor> {
                   children: <Widget>[
                     _Pill(
                       label: '下内',
+                      axis: Axis.vertical,
                       value: _draft.bottomInner,
                       max: widget.maxInner,
                       onDelta: (delta) => _apply(_draft.copyWith(
@@ -180,6 +186,7 @@ class _MarginEditorState extends State<MarginEditor> {
                     const SizedBox(width: 12),
                     _Pill(
                       label: '下外',
+                      axis: Axis.vertical,
                       value: _draft.bottomOuter,
                       max: widget.maxOuter,
                       onDelta: (delta) => _apply(_draft.copyWith(
@@ -216,12 +223,20 @@ class _Pill extends StatelessWidget {
     required this.value,
     required this.max,
     required this.onDelta,
+    this.axis = Axis.horizontal,
+    this.outwardPositive = true,
   });
 
   final String label;
   final double value;
   final double max;
   final ValueChanged<double> onDelta;
+
+  /// 拖动方向：上/下两组胶囊用垂直拖动，左右用水平拖动。
+  final Axis axis;
+
+  /// 向外拖（左胶囊向左、右胶囊向右）是否代表数值变大。
+  final bool outwardPositive;
 
   @override
   Widget build(BuildContext context) {
@@ -233,8 +248,16 @@ class _Pill extends StatelessWidget {
       child: GestureDetector(
         // 整颗胶囊都可以拖：横向拖动按 6px = 1 连续改值，实时预览。
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (details) =>
-            onDelta(details.delta.dx / 6),
+        onHorizontalDragUpdate: axis == Axis.horizontal
+            ? (details) => onDelta(
+                (outwardPositive ? details.delta.dx : -details.delta.dx) / 6,
+              )
+            : null,
+        onVerticalDragUpdate: axis == Axis.vertical
+            ? (details) => onDelta(
+                (outwardPositive ? details.delta.dy : -details.delta.dy) / 6,
+              )
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           child: Row(
