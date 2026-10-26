@@ -326,6 +326,35 @@ class CssBorderSide {
   String toString() => 'CssBorderSide($width,$style,$color)';
 }
 
+/// 出血方向（多看私有属性 `duokan-bleed`，P9-22）。
+class CssBleed {
+  /// 创建出血方向。
+  const CssBleed({
+    this.left = false,
+    this.right = false,
+    this.top = false,
+    this.bottom = false,
+  });
+
+  /// 无出血。
+  static const none = CssBleed();
+
+  /// 左出血。
+  final bool left;
+
+  /// 右出血。
+  final bool right;
+
+  /// 上出血。
+  final bool top;
+
+  /// 下出血。
+  final bool bottom;
+
+  /// 是否任一方向出血。
+  bool get any => left || right || top || bottom;
+}
+
 /// 四边边框与四角圆角。
 class CssBorders {
   /// 创建边框集合。
@@ -739,6 +768,10 @@ class ComputedStyle {
         : _parseBorderCollapse(rawCollapse) ??
               parent?.borderCollapse ??
               CssBorderCollapse.separate;
+    // 多看出血（P9-22）：`duokan-bleed: left` 允许元素延伸到页面边距。
+    final rawBleed =
+        explicitValue('duokan-bleed') ?? explicitValue('-duokan-bleed');
+    final bleed = _parseBleed(rawBleed);
     // list-style-type（P9-12）：简写在层叠层已展开成长属性，这里只读
     // 长属性，继承与特异性才和 CSS 一致。
     final rawListStyle = explicitValue('list-style-type');
@@ -883,6 +916,7 @@ class ComputedStyle {
       tableLayout: tableLayout,
       textDecorationStyle: textDecorationStyle,
       textDecorationColor: textDecorationColor,
+      bleed: bleed,
       customProperties: customProperties,
       top: top,
       right: right,
@@ -987,6 +1021,7 @@ class ComputedStyle {
       tableLayout: tableLayout,
       textDecorationStyle: textDecorationStyle,
       textDecorationColor: textDecorationColor,
+      bleed: bleed,
       customProperties: customProperties,
       top: top,
       right: right,
@@ -1068,6 +1103,7 @@ class ComputedStyle {
     required this.tableLayout,
     required this.textDecorationStyle,
     required this.textDecorationColor,
+    required this.bleed,
     this.customProperties = const <String, String>{},
     required this.borderSpacing,
     required this.top,
@@ -1259,6 +1295,9 @@ class ComputedStyle {
 
   /// 装饰线颜色（`text-decoration-color`，null 表示跟随文字色）。
   final Color? textDecorationColor;
+
+  /// 出血方向（多看 `duokan-bleed`，P9-22）。
+  final CssBleed bleed;
 
   /// 上定位偏移（`top`，未继承；null 表示未声明）。
   final CssLength? top;
@@ -1796,6 +1835,29 @@ class ComputedStyle {
     }
     final url = (match[1] ?? match[2] ?? match[3])?.trim();
     return url == null || url.isEmpty ? null : url;
+  }
+
+  /// 解析多看 `duokan-bleed`（P9-22）：auto/none 无出血，all 四边，
+  /// 或 left/right/top/bottom 组合。
+  static CssBleed _parseBleed(String? raw) {
+    if (raw == null) {
+      return CssBleed.none;
+    }
+    final tokens = raw
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toSet();
+    if (tokens.contains('all') || tokens.contains('both')) {
+      return const CssBleed(left: true, right: true, top: true, bottom: true);
+    }
+    return CssBleed(
+      left: tokens.contains('left'),
+      right: tokens.contains('right'),
+      top: tokens.contains('top'),
+      bottom: tokens.contains('bottom'),
+    );
   }
 
   /// 解析 `table-layout`（P9-17）。
