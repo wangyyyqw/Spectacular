@@ -60,10 +60,12 @@ void main() {
     );
     final collapseHeight = collapsed.single.spec.cells.first.rect.height;
     final separateHeight = separate.single.spec.cells.first.rect.height;
+    // collapse：相邻格共用边线，每格只分摊半条（上下合计 2px）；
+    // separate：上下各 2px 共 4px。差值 = 2px。
     expect(
       separateHeight - collapseHeight,
       closeTo(2, 0.6),
-      reason: 'collapse 比 separate 少一条边框（上下各分摊一半）',
+      reason: 'collapse 只分摊半条边框',
     );
   });
 
