@@ -1074,11 +1074,15 @@ abstract final class TextLayoutEngine {
   ///
   /// 返回的 run 同时供行盒测量与绘制（`TextLayoutResult.runs`）使用，
   /// 保证测量与绘制的基线位移一致。口径对齐 Chromium：
-  /// - `super` / `sub` 偏移由 `ComputedStyle.verticalAlignShift` 提供
-  ///   （父字号口径，P9-07），这里原样沿用；调用方漏写时按同一公式兜底；
+  /// - 已带 `baselineShift` 的 run（`super`/`sub`、`vertical-align: <length>`）
+  ///   原样沿用：长度/百分比解析后枚举仍是 `baseline`，偏移只落在
+  ///   `ComputedStyle.verticalAlignShift` 上，必须靠 baselineShift 识别；
   /// - `text-top` / `text-bottom` 把行内盒上/下沿对齐父内容区上/下沿
   ///   （`ComputedStyle` 只给 0，须在这里按字体度量补）；
   /// - `middle` 把行内盒中线对齐父基线 + x-height/2。
+  ///
+  /// 短路条件只看「有没有竖直偏移要处理」：全部 run 都无偏移且未声明
+  /// 竖直对齐时才跳过，避免长度型偏移（枚举为 baseline）被漏掉。
   static List<StyledRun> _applyVerticalAlign(
     List<StyledRun> runs,
     ComputedStyle style,
@@ -1086,7 +1090,9 @@ abstract final class TextLayoutEngine {
   ) {
     if (runs.isEmpty ||
         !runs.any(
-          (run) => run.style.verticalAlign != CssVerticalAlign.baseline,
+          (run) =>
+              run.baselineShift != 0 ||
+              run.style.verticalAlign != CssVerticalAlign.baseline,
         )) {
       return runs;
     }

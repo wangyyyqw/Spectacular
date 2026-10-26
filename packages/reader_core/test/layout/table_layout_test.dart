@@ -324,4 +324,175 @@ void main() {
       });
     });
   });
+
+  group('border-spacing（separate 边框模型）', () {
+    test('列宽在「表宽 - 间距」内分配，表宽含间距', () {
+      final result = TableMeasurer.measureColumns(
+        naturalWidths: [
+          [100, 100],
+        ],
+        specifiedWidths: [null, null],
+        tableWidthPx: 350,
+        containerWidth: 350,
+        borderSpacingX: 4,
+      );
+      // 350 - 4*(2+1) = 338 → 两列各 169。
+      expect(result.columnWidths[0], closeTo(169, 0.01));
+      expect(result.columnWidths[1], closeTo(169, 0.01));
+      expect(result.tableWidth, closeTo(350, 0.01), reason: '表宽含首尾与中间间距');
+    });
+
+    test('auto 表宽 = 自然宽和 + 间距', () {
+      final result = TableMeasurer.measureColumns(
+        naturalWidths: [
+          [80, 60],
+        ],
+        specifiedWidths: [null, null],
+        containerWidth: 320,
+        borderSpacingX: 5,
+      );
+      expect(result.tableWidth, closeTo(80 + 60 + 5 * 3, 0.01));
+      expect(result.columnWidths[0], closeTo(80, 0.01));
+      expect(result.columnWidths[1], closeTo(60, 0.01));
+    });
+
+    test('网格几何：单元格内缩间距，表尺寸含首尾间距', () {
+      final layout = TableGridLayout(
+        rows: [
+          [
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+          ],
+          [
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+          ],
+        ],
+        columnWidths: const [145.2, 192.8],
+        rowHeights: const [44, 25],
+        borderSpacingX: 4,
+        borderSpacingY: 6,
+      );
+      expect(layout.size.width, closeTo(4 + 145.2 + 4 + 192.8 + 4, 0.01));
+      expect(layout.size.height, closeTo(6 + 44 + 6 + 25 + 6, 0.01));
+      final first = layout.cellRectAt(0, 0)!;
+      expect(first.rect.left, closeTo(4, 0.01));
+      expect(first.rect.top, closeTo(6, 0.01));
+      expect(first.rect.width, closeTo(145.2, 0.01));
+      final second = layout.cellRectAt(0, 1)!;
+      expect(second.rect.left, closeTo(4 + 145.2 + 4, 0.01));
+      final below = layout.cellRectAt(1, 0)!;
+      expect(below.rect.top, closeTo(6 + 44 + 6, 0.01));
+    });
+  });
+
+  group('rowspan（跨行合并）', () {
+    test('跨行格把内容高溢出均摊到跨行各行', () {
+      final result = TableGridMeasurer.measureGrid(
+        rows: [
+          [
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+          ],
+          [
+            // 跨两行，内容 100 高 > 两行 20+20。
+            TableCellSpec(
+              naturalWidth: 100,
+              measureHeight: (_) => 100,
+              rowspan: 2,
+            ),
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+          ],
+          [
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+            const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+          ],
+        ],
+        columnSpecified: const [null, null],
+        containerWidth: 200,
+      );
+      expect(result.rowHeights[1] + result.rowHeights[2],
+          closeTo(100, 0.01), reason: '跨行格高度回填为两行之和');
+      expect(result.rowHeights[1], closeTo(50, 0.01));
+      expect(result.rowHeights[2], closeTo(50, 0.01));
+      expect(result.rowHeights[0], closeTo(20, 0.01), reason: '其它行不受影响');
+    });
+
+    test('跨行格占用列：下一行的单元格跳过被占列', () {
+      final rows = [
+        [
+          TableCellSpec(naturalWidth: 50, measureHeight: (_) => 30, rowspan: 2),
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+        ],
+        [
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+        ],
+        [
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+          const TableCellSpec(naturalWidth: 80, measureHeight: _h20),
+        ],
+      ];
+      final slots = tableCellSlots(rows, 3);
+      expect(slots[0][0].startColumn, 0);
+      expect(slots[0][0].rowspan, 2);
+      // 第 2 行首格跳过列 0，落在列 1；第 3 行回到列 0。
+      expect(slots[1][0].startColumn, 1);
+      expect(slots[1][1].startColumn, 2);
+      expect(slots[2][0].startColumn, 0);
+    });
+
+    test('行高与合并区域：跨行格矩形覆盖两行', () {
+      final rows = [
+        [
+          const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+          const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+        ],
+        [
+          TableCellSpec(
+            naturalWidth: 100,
+            measureHeight: (_) => 60,
+            rowspan: 2,
+          ),
+          const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+        ],
+        [
+          const TableCellSpec(naturalWidth: 100, measureHeight: _h20),
+        ],
+      ];
+      final measured = TableGridMeasurer.measureGrid(
+        rows: rows,
+        columnSpecified: const [null, null],
+        containerWidth: 200,
+      );
+      final layout = TableGridLayout(
+        rows: rows,
+        columnWidths: measured.columnWidths,
+        rowHeights: measured.rowHeights,
+      );
+      final spanned = layout.cellRectAt(1, 0)!;
+      expect(
+        spanned.rect.height,
+        closeTo(measured.rowHeights[1] + measured.rowHeights[2], 0.01),
+      );
+      expect(
+        spanned.rect.height,
+        greaterThanOrEqualTo(60 - 0.01),
+        reason: '合并区域不少于内容高',
+      );
+      // 命中落在合并区域内 → 命中跨行格本身。
+      final hit = layout.hitTest(
+        Offset(spanned.rect.left + 5, spanned.rect.top + 5),
+      );
+      expect(hit, (1, 0));
+      final lower = layout.hitTest(
+        Offset(spanned.rect.left + 5, spanned.rect.bottom - 5),
+      );
+      expect(lower, (1, 0), reason: '合并区域下半段仍归跨行格');
+    });
+  });
 }
+
+double _h20(double width) => 20;
