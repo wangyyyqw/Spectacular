@@ -100,6 +100,15 @@ class EpubChapterSource
   /// - pagination：页缓存与页索引，键=spineIndex+排版指纹（几何+设置
   ///   排版字段）。主题颜色不进任何键 → 切主题零重排。
   final Map<int, BlockDocument> _documentCache = <int, BlockDocument>{};
+
+  /// white-space 原文保留（P9-28）：命中章节的判定结果与两遍保留模式
+  /// 聚合的文本节点（键 = 源码起止偏移），见 [_preservedTexts]。
+  final Map<int, bool> _preservingWhiteSpaceCache = <int, bool>{};
+  final Map<int, Map<String, TextContentNode>> _preservedRawTexts =
+      <int, Map<String, TextContentNode>>{};
+  final Map<int, Map<String, TextContentNode>> _preservedPreLineTexts =
+      <int, Map<String, TextContentNode>>{};
+
   /// 页缓存（key = paginationKey）：按章 LRU，上限 [pageCacheChapterLimit] 章
   /// （§44.4：只留当前章 ±2）。
   final Map<String, List<PageContent>> _pageCache =
@@ -191,22 +200,26 @@ class EpubChapterSource
             (_overrides.padding?.bottom ?? 0),
       );
 
-  /// 块级左右水平内缩总量：外边距 + 内边距 + 边框。
+  /// 文本块的排版宽度 = 块的内容盒宽（CSS 2.1 §10.3.3）。
   ///
   /// flat 管线把块级水平内缩折算进绘制左偏移（PagePainter 取
-  /// `slice.leftInset + style.margin.left`），排版宽度必须同步扣掉同一
-  /// 份内缩——否则带 margin/padding 的段落整体右移、压出正文区右缘被
-  /// 裁切（真机：作者 CSS `body`/`p` 各 1% 外边距 → 正文右偏且缺右缘
-  /// 字）。
-  double _horizontalInsetsOf(ComputedStyle style) =>
-      style.margin.horizontal +
-      style.padding.horizontal +
-      style.borders.left.width +
-      style.borders.right.width;
-
-  /// 文本块的排版宽度：正文区宽扣除块级左右水平内缩。
+  /// `slice.leftInset + style.margin.left`），排版宽度必须同步扣掉同一份
+  /// 内缩——否则带 margin/padding 的段落整体右移、压出正文区右缘被裁切
+  /// （真机：作者 CSS `body`/`p` 各 1% 外边距 → 正文右偏且缺右缘字）。
+  /// 解算规则由 [ComputedStyle.contentBoxWidth] 统一承担：
+  /// - `width: auto`（含未声明）：内容宽 = 正文区宽 - margin - padding -
+  ///   border；
+  /// - 声明 `width`：按 `box-sizing` 折算内容宽——`content-box` 下声明值
+  ///   就是内容宽，`border-box` 下声明值已含 padding+border，必须再扣掉，
+  ///   否则 `.bb{box-sizing:border-box;width:200px;padding:10px;border:3px}`
+  ///   会按 200px 排版（内容宽 174px 却排 200px，行宽溢出正文区）；
+  /// - 最后按 min/max-width 钳制（min 优先）。
+  ///
+  /// 依赖：T2 在 ComputedStyle 侧提供的 `contentBoxWidth`（把 box-sizing /
+  /// 百分比基准 / min-max 钳制收敛在一处，与 `BoxModel` 同口径）；这里只
+  /// 保留 24px 的下限，避免极窄区间测不出行。
   double _textWidthFor(ComputedStyle style) =>
-      math.max(24.0, contentWidth - _horizontalInsetsOf(style));
+      math.max(24.0, style.contentBoxWidth(contentWidth));
 
   /// 构建满屏图页：整页单块 + 背景图 cover（复用 P2-13 背景管线与
   /// PagePainter.imageLookup），边距归零（用未扣设置页边距的基准尺寸）。
@@ -351,6 +364,13 @@ class EpubChapterSource
   BookFontLoader? _fontLoader;
   final Set<String> _fontFacesSeen = <String>{};
 
+  /// 书内字族 → 引擎族名（键为小写 CSS 族名）。
+  ///
+  /// [BookFontLoader] 把 `@font-face` 注册成 `bi_<bookId>_<族>`，TextPainter
+  /// 只认这个引擎族名；书名 CSS 里的 `font-family: "mm"` 不改写就等于整条
+  /// font-face 链路白建（真书：章号被画成缺字方块）。
+  final Map<String, String> _bookFontEngines = <String, String>{};
+
   String get _bookId => 'bk-${document.opfPath.hashCode}';
 
   /// 注册章内 `@font-face`（真实书适配）：书内字体按 face 键去重后
@@ -364,6 +384,9 @@ class EpubChapterSource
       return;
     }
     final loader = _fontLoader ??= BookFontLoader(bookId: _bookId);
+    // 已注册过 face 的族也要补进映射：先打开的章节声明了 @font-face、
+    // 后面章节只用 `font-family` 引用同一族（真书常见），此时 pending 为空。
+    _syncBookFontEngines(loader, faces);
     final pending = <CssFontFace>[];
     for (final face in faces) {
       final key =
@@ -401,7 +424,160 @@ class EpubChapterSource
       }
       return null;
     });
+    _syncBookFontEngines(loader, faces);
   }
+
+  /// 把已注册成功的族收进「CSS 族名 → 引擎族名」映射。
+  ///
+  /// 只收注册成功的（[BookFontLoader.engineFamily] 非空）：加载失败的族
+  /// 保持原样，让 `font-family` 回退链继续生效。
+  void _syncBookFontEngines(BookFontLoader loader, List<CssFontFace> faces) {
+    for (final face in faces) {
+      final engine = loader.engineFamily(face.family);
+      if (engine != null) {
+        _bookFontEngines[face.family.toLowerCase()] = engine;
+      }
+    }
+  }
+
+  /// 重写作者样式表里的 `font-family` / `font` 简写：书内字族换成引擎族名。
+  ///
+  /// 在「声明 → 级联」之间改写（不是算完样式再改）：ComputedStyle 没有
+  /// 公开的 withFontFamilies，重建样式会重新解析整份声明并丢失已继承的
+  /// 值；改写声明则让级联、继承、行内 run 全部自然拿到引擎族名，成本是
+  /// 每章一次 O(规则数) 而不是每块一次。未注册的族原样保留（回退链不变）。
+  List<CssStylesheet> _rewriteBookFontSheets(List<CssStylesheet> sheets) {
+    if (_bookFontEngines.isEmpty) {
+      return sheets;
+    }
+    final result = <CssStylesheet>[];
+    for (final sheet in sheets) {
+      var changed = false;
+      final rules = <CssRule>[];
+      for (final rule in sheet.rules) {
+        final declarations = _rewriteBookFontDeclarations(rule.declarations);
+        if (identical(declarations, rule.declarations)) {
+          rules.add(rule);
+          continue;
+        }
+        changed = true;
+        rules.add(
+          CssRule(
+            selector: rule.selector,
+            declarations: declarations,
+            media: rule.media,
+          ),
+        );
+      }
+      result.add(
+        changed
+            ? CssStylesheet(
+                rules: List.unmodifiable(rules),
+                imports: sheet.imports,
+                warnings: sheet.warnings,
+                fontFaces: sheet.fontFaces,
+              )
+            : sheet,
+      );
+    }
+    return result;
+  }
+
+  /// 逐条改写声明；未命中时返回原列表（调用方用 identical 判重）。
+  List<CssDeclaration> _rewriteBookFontDeclarations(
+    List<CssDeclaration> declarations,
+  ) {
+    if (_bookFontEngines.isEmpty) {
+      return declarations;
+    }
+    List<CssDeclaration>? rewritten;
+    for (var i = 0; i < declarations.length; i++) {
+      final declaration = declarations[i];
+      final fontFamily = declaration.property == 'font-family';
+      if (!fontFamily && declaration.property != 'font') {
+        continue;
+      }
+      final value = fontFamily
+          ? _rewriteFontFamilyList(declaration.value)
+          : _rewriteFontShorthand(declaration.value);
+      if (value == declaration.value) {
+        continue;
+      }
+      rewritten ??= List<CssDeclaration>.of(declarations);
+      rewritten[i] = CssDeclaration(
+        property: declaration.property,
+        value: value,
+        important: declaration.important,
+      );
+    }
+    return rewritten ?? declarations;
+  }
+
+  /// `font-family: "mm", "楷体", serif` → 逐个族名替换为引擎族名。
+  String _rewriteFontFamilyList(String value) {
+    var changed = false;
+    final parts = <String>[];
+    for (final raw in value.split(',')) {
+      final name = _unquoteFontFamily(raw.trim());
+      final engine = _bookFontEngines[name.toLowerCase()];
+      if (engine == null) {
+        parts.add(raw);
+        continue;
+      }
+      parts.add('"$engine"');
+      changed = true;
+    }
+    return changed ? parts.join(',') : value;
+  }
+
+  /// `font: italic bold 16px/1.5 "mm", serif` → 只替换族列表部分。
+  ///
+  /// 简写前缀（样式/字重/字号/行高）不含族名，按「最后一组引号串或尾随
+  /// 裸族名」定位，命中注册表才替换。
+  String _rewriteFontShorthand(String value) {
+    var result = value;
+    var changed = false;
+    // 引号族名：简写里唯一可能出现引号的位置。
+    result = result.replaceAllMapped(_quotedFontFamily, (match) {
+      final name = _unquoteFontFamily(match.group(1) ?? '');
+      final engine = _bookFontEngines[name.toLowerCase()];
+      if (engine == null) {
+        return match.group(0) ?? '';
+      }
+      changed = true;
+      return '"$engine"';
+    });
+    if (changed) {
+      return result;
+    }
+    // 裸族名：`font: 12pt mm` 这类尾声。
+    final bare = RegExp(r'(?:^|[\s/])([A-Za-z_][\w-]*)$').firstMatch(result);
+    if (bare == null) {
+      return value;
+    }
+    final name = bare.group(1)!;
+    final engine = _bookFontEngines[name.toLowerCase()];
+    if (engine == null) {
+      return value;
+    }
+    return result.replaceRange(
+      bare.end - name.length,
+      result.length,
+      '"$engine"',
+    );
+  }
+
+  static final RegExp _quotedFontFamily = RegExp(r'''["']([^"']*)["']''');
+
+  static String _unquoteFontFamily(String raw) {
+    if (raw.length >= 2 &&
+        ((raw.startsWith('"') && raw.endsWith('"')) ||
+            (raw.startsWith("'") && raw.endsWith("'")))) {
+      return raw.substring(1, raw.length - 1);
+    }
+    return raw;
+  }
+
   List<CssStylesheet> _chapterStylesheets(int spineIndex) {
     return _chapterSheetCache.putIfAbsent(spineIndex, () {
       final item = document.spine[spineIndex];
@@ -464,6 +640,91 @@ class EpubChapterSource
       }
       return sheets;
     });
+  }
+
+  /// 章节作者 CSS 是否声明了「保留空白」族的 `white-space`
+  /// （pre / pre-wrap / pre-line / break-spaces）。
+  ///
+  /// 命中才需要第二遍保留模式的聚合（见 [_preservedTexts]），普通书零
+  /// 额外开销。
+  bool _chapterDeclaresPreservingWhiteSpace(int spineIndex) {
+    return _preservingWhiteSpaceCache.putIfAbsent(spineIndex, () {
+      for (final sheet in _chapterStylesheets(spineIndex)) {
+        for (final rule in sheet.rules) {
+          for (final declaration in rule.declarations) {
+            if (declaration.property != 'white-space') {
+              continue;
+            }
+            final value = declaration.value.trim().toLowerCase();
+            if (value.startsWith('pre') || value.contains('break-spaces')) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    });
+  }
+
+  /// 再聚合一遍章节（保留原文），返回「源码起止偏移 → 文本节点」。
+  ///
+  /// [TextAggregator] 一次只能按章级选一种空白模式，作者 CSS 里按选择器
+  /// 声明的 `white-space: pre` 族到不了聚合阶段，换行与连续空格会先被
+  /// 折叠掉、排版层再也拿不回来。这里对命中章节按保留模式重跑一遍（同
+  /// 一份块树，纯字符串处理，不重新解析 XHTML），pre 族块从这份结果里取
+  /// 文本，其余块继续用默认折叠结果。
+  Map<String, TextContentNode> _preservedTexts(
+    int spineIndex,
+    CssWhiteSpace whiteSpace,
+  ) {
+    final cache = whiteSpace == CssWhiteSpace.preLine
+        ? _preservedPreLineTexts
+        : _preservedRawTexts;
+    final cached = cache[spineIndex];
+    if (cached != null) {
+      return cached;
+    }
+    final result = <String, TextContentNode>{};
+    if (_chapterDeclaresPreservingWhiteSpace(spineIndex)) {
+      final aggregated = TextAggregator.aggregate(
+        document.parseBlocks(spineIndex),
+        whiteSpace: whiteSpace == CssWhiteSpace.preLine
+            ? CssWhiteSpace.preLine
+            : CssWhiteSpace.preWrap,
+      );
+      void walk(EpubNode node) {
+        if (node is TextContentNode) {
+          result['${node.start}:${node.end}'] = node;
+        } else if (node is BlockNode) {
+          for (final child in node.children) {
+            walk(child);
+          }
+        }
+      }
+
+      walk(aggregated.root);
+    }
+    cache[spineIndex] = result;
+    return result;
+  }
+
+  /// 取块排版用的文本节点：pre 族块换成保留原文的同一节点，其余块沿用
+  /// 聚合器已折叠的文本（行为与改动前完全一致）。
+  TextBlockNode _textNodeFor(
+    int spineIndex,
+    TextBlockNode node,
+    CssWhiteSpace whiteSpace,
+  ) {
+    if (whiteSpace != CssWhiteSpace.pre &&
+        whiteSpace != CssWhiteSpace.preWrap &&
+        whiteSpace != CssWhiteSpace.preLine) {
+      return node;
+    }
+    if (node is! TextContentNode) {
+      return node;
+    }
+    final texts = _preservedTexts(spineIndex, whiteSpace);
+    return texts['${node.start}:${node.end}'] ?? node;
   }
 
   /// 相对 URL 需要解析的属性（P9-03）：背景图与列表标记图。
@@ -1038,10 +1299,7 @@ class EpubChapterSource
             occupancy.occupiedRightAt(y, y + probe, width);
         final narrowed = occupiedLeft > 0 || occupiedRight > 0;
         // 块级水平内缩同样占宽（见 _textWidthFor）：窄批只减浮动占位。
-        final available = math.max(
-          24.0,
-          width - _horizontalInsetsOf(block.style ?? style),
-        );
+        final available = _textWidthFor(block.style ?? style);
         final batchWidth = narrowed
             ? math.max(
                 24.0,
@@ -1265,11 +1523,15 @@ class EpubChapterSource
     // 传导与引用深度。前缀缓存：同容器兄弟块共享祖先计算结果。
     final sheets = _chapterStylesheets(spineIndex);
     await _ensureBookFonts(sheets);
+    // 书内 @font-face 的族名改写（P0）：注册后把作者声明里的书内字族换成
+    // 引擎族名 `bi_<bookId>_<族>`，改写在级联之前，块样式与行内 run 样式
+    // 都自然拿到引擎族名。
+    final styledSheets = _rewriteBookFontSheets(sheets);
     final cascadeRules = <CascadeRule>[
       ...uaRules(),
-      for (var i = 0; i < sheets.length; i++)
+      for (var i = 0; i < styledSheets.length; i++)
         ...CascadeRule.fromStylesheet(
-          sheets[i],
+          styledSheets[i],
           origin: CascadeOrigin.author,
           startOrder: 1000 + i * 10000,
         ),
@@ -1296,8 +1558,8 @@ class EpubChapterSource
           element: chain.last,
           ancestors: chain.sublist(0, chain.length - 1),
           rules: cascadeRules,
-          inlineDeclarations: _inlineDeclarationsOf(
-            chain.last.attributes['style'],
+          inlineDeclarations: _rewriteBookFontDeclarations(
+            _inlineDeclarationsOf(chain.last.attributes['style']),
           ),
           parent: parent,
           rootFontSize: style.fontSize,
@@ -2216,25 +2478,8 @@ class EpubChapterSource
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
-        final text = node.text;
-        if (text.trim().isEmpty) {
-          return;
-        }
-        // 伪元素生成内容（P8-09）：::before/::after 的 content（字符串/
-        // attr()）拼进块首尾（flat 近似：CFI 偏移不含生成文本，记录）。
-        final before = _pseudoContent(sheets, ancestors, '::before');
-        final after = _pseudoContent(sheets, ancestors, '::after');
-        final effectiveText =
-            (before == null && after == null) || node is! TextContentNode
-            ? text
-            : '${before ?? ''}$text${after ?? ''}';
-        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）；
-        // 首末容器位（P8-05c）供上下边框拼合。
-        final tag = ancestors.isEmpty ? 'body' : ancestors.last.tag;
-        final isHeading = _headingTags.contains(tag);
-        // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
-        // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
-        // 标题不参与——标题字号/行高继续跟随书籍样式族。
+        // 块样式先算：`white-space` 决定用折叠态文本还是保留原文的文本
+        // （逐块生效，聚合器只能在章级选一种模式）。
         var blockStyle = styleForChain(
           ancestors,
           quoteDepth: quoteDepth,
@@ -2244,6 +2489,26 @@ class EpubChapterSource
         // 容器拼合（P9-25）：卡片/面板里的子块要把背景与左右边框延伸到
         // 段距，才能拼回整片面板（四边框闭合）。
         final inBorderedContainer = containerBorderedForLastChain;
+        final textNode = _textNodeFor(spineIndex, node, blockStyle.whiteSpace);
+        final text = textNode.text;
+        if (text.trim().isEmpty) {
+          return;
+        }
+        // 伪元素生成内容（P8-09）：::before/::after 的 content（字符串/
+        // attr()）拼进块首尾（flat 近似：CFI 偏移不含生成文本，记录）。
+        final before = _pseudoContent(styledSheets, ancestors, '::before');
+        final after = _pseudoContent(styledSheets, ancestors, '::after');
+        final effectiveText =
+            (before == null && after == null) || textNode is! TextContentNode
+            ? text
+            : '${before ?? ''}$text${after ?? ''}';
+        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）；
+        // 首末容器位（P8-05c）供上下边框拼合。
+        final tag = ancestors.isEmpty ? 'body' : ancestors.last.tag;
+        final isHeading = _headingTags.contains(tag);
+        // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
+        // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
+        // 标题不参与——标题字号/行高继续跟随书籍样式族。
         if (!isHeading) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
@@ -2272,14 +2537,14 @@ class EpubChapterSource
         }
         // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排；
         // ::first-letter（P8-09）：命中规则时首字符放大 run 追加。
-        var runs = node is TextContentNode
-            ? resolveInlineRuns(node.inlineMarks)
+        var runs = textNode is TextContentNode
+            ? resolveInlineRuns(textNode.inlineMarks)
             : const <StyledRun>[];
         // 行内图片（P9-06）：占位符 → 书内图片路径 + 书籍 CSS 尺寸。
         final inlineImages = <InlineImageSpec>[];
-        if (node is TextContentNode && node.inlineImages.isNotEmpty) {
+        if (textNode is TextContentNode && textNode.inlineImages.isNotEmpty) {
           final shift = (before ?? '').length;
-          for (final mark in node.inlineImages) {
+          for (final mark in textNode.inlineImages) {
             final attributesForImage = mark.node.attributes;
             final src =
                 attributesForImage['src'] ?? attributesForImage['xlink:href'];
@@ -2308,7 +2573,7 @@ class EpubChapterSource
           }
         }
         final firstLetter = _firstLetterRun(
-          sheets,
+          styledSheets,
           ancestors,
           effectiveText,
           blockStyle,
@@ -2337,9 +2602,9 @@ class EpubChapterSource
               spaceBefore: paragraphSpacing ?? blockStyle.margin.top,
               spaceAfter: paragraphSpacing ?? blockStyle.margin.bottom,
               // P8-08：注音标注透传渲染层。
-              rubies: node is TextContentNode && node.rubies.isNotEmpty
+              rubies: textNode is TextContentNode && textNode.rubies.isNotEmpty
                   ? [
-                      for (final ruby in node.rubies)
+                      for (final ruby in textNode.rubies)
                         RubyAnnotation(
                           start: ruby.start,
                           end: ruby.end,
