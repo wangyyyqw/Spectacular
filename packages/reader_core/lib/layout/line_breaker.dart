@@ -30,6 +30,7 @@ class LineBox {
     this.ellipsisWidth = 0,
     this.hyphenated = false,
     this.hyphenWidth = 0,
+    this.inlineBoxes = const <InlineBoxPlacement>[],
   });
 
   /// 行起始字符下标（半开区间，P1-23 精化）。
@@ -86,6 +87,12 @@ class LineBox {
   /// 连字符（`-`）的 advance 宽；[hyphenated] 为 false 时是 0。
   final double hyphenWidth;
 
+  /// 本行内的行级盒（`display: inline-block`）：按行内 x 升序。
+  ///
+  /// 排版期已按盒宽预留、按盒高/基线撑高行盒；绘制层按 [InlineBoxPlacement]
+  /// 画盒内容（尺寸、圆角、背景等由 payload 提供）。
+  final List<InlineBoxPlacement> inlineBoxes;
+
   /// 行底。
   double get bottom => top + height;
 
@@ -111,6 +118,7 @@ class LineBox {
     double? ellipsisWidth,
     bool? hyphenated,
     double? hyphenWidth,
+    List<InlineBoxPlacement>? inlineBoxes,
   }) => LineBox(
     start: start ?? this.start,
     end: end ?? this.end,
@@ -128,6 +136,7 @@ class LineBox {
     ellipsisWidth: ellipsisWidth ?? this.ellipsisWidth,
     hyphenated: hyphenated ?? this.hyphenated,
     hyphenWidth: hyphenWidth ?? this.hyphenWidth,
+    inlineBoxes: inlineBoxes ?? this.inlineBoxes,
   );
 
   @override
@@ -212,6 +221,153 @@ class RubyAnnotation {
 
   /// 注音文本。
   final String text;
+}
+
+/// 行内盒的竖直对齐（CSS `vertical-align` 的行内块子集）。
+enum InlineBoxVerticalAlign {
+  /// 盒底 margin 边对齐基线（CSS 默认）。
+  baseline,
+
+  /// 盒竖直中点对齐「父基线 + x-height/2」（近似取行盒中线）。
+  middle,
+
+  /// 盒顶对齐行盒顶。
+  top,
+
+  /// 盒底对齐行盒底。
+  bottom,
+}
+
+/// 行内盒规格（`display: inline-block` 的布局侧输入）。
+///
+/// 章节源把 inline-block 元素描述成「在文本 [offset] 处插入 `width × height`
+/// 的盒」；排版器在该处预留宽度（放不下整块换行），并按 [verticalAlign] 与
+/// [marginTop]/[marginBottom] 参与行高与基线计算。
+class InlineBoxSpec {
+  /// 创建规格。
+  const InlineBoxSpec({
+    required this.offset,
+    required this.width,
+    required this.height,
+    this.verticalAlign = InlineBoxVerticalAlign.baseline,
+    this.marginTop = 0,
+    this.marginBottom = 0,
+    this.baselineOffset = 0,
+    this.payload,
+  });
+
+  /// 插入点（原文偏移；盒排在该偏移之前）。
+  final int offset;
+
+  /// 盒宽（含 padding/border，不含 margin）。
+  final double width;
+
+  /// 盒高（含 padding/border，不含 margin）。
+  final double height;
+
+  /// 竖直对齐方式。
+  final InlineBoxVerticalAlign verticalAlign;
+
+  /// 上外边距（参与行高）。
+  final double marginTop;
+
+  /// 下外边距（参与行高；baseline 对齐时落在基线以下）。
+  final double marginBottom;
+
+  /// 基线模式下的额外位移（正数向上抬）。
+  final double baselineOffset;
+
+  /// 绘制层用的引用（片段、样式等由上层决定）。
+  final Object? payload;
+
+  /// 盒总高（含上下 margin）。
+  double get outerHeight => height + marginTop + marginBottom;
+
+  /// 基线以上延伸。
+  double get ascent => switch (verticalAlign) {
+    InlineBoxVerticalAlign.baseline =>
+      outerHeight - marginBottom - baselineOffset,
+    InlineBoxVerticalAlign.middle => outerHeight / 2 + baselineOffset,
+    InlineBoxVerticalAlign.top => outerHeight,
+    InlineBoxVerticalAlign.bottom => 0,
+  };
+
+  /// 基线以下延伸。
+  double get descent => switch (verticalAlign) {
+    InlineBoxVerticalAlign.baseline => marginBottom + baselineOffset,
+    InlineBoxVerticalAlign.middle => outerHeight / 2 - baselineOffset,
+    InlineBoxVerticalAlign.top => 0,
+    InlineBoxVerticalAlign.bottom => outerHeight,
+  };
+}
+
+/// 行内盒在行内的放置结果。
+class InlineBoxPlacement {
+  /// 创建放置。
+  const InlineBoxPlacement({
+    required this.offset,
+    required this.left,
+    required this.width,
+    required this.height,
+    required this.ascent,
+    required this.descent,
+    required this.spec,
+  });
+
+  /// 插入点（原文偏移）。
+  final int offset;
+
+  /// 行内 x（相对行首，含 text-align 的 [LineBox.offsetX]）。
+  final double left;
+
+  /// 盒宽。
+  final double width;
+
+  /// 盒高（不含 margin）。
+  final double height;
+
+  /// 基线以上延伸（含 margin）。
+  final double ascent;
+
+  /// 基线以下延伸（含 margin）。
+  final double descent;
+
+  /// 原始规格（绘制层从 `spec.payload` 取内容）。
+  final InlineBoxSpec spec;
+
+  /// 盒顶相对行顶的偏移（行顶 + 该值 = 盒顶）。
+  double topIn(double lineAscent) => lineAscent - ascent;
+}
+
+/// 排版期内部标记：占位符在测量文本中的下标 + 规格。
+class _InlineBoxMark {
+  const _InlineBoxMark({required this.index, required this.spec});
+
+  final int index;
+  final InlineBoxSpec spec;
+}
+
+/// 行内盒占位文本：插入 U+FFFC 后的测量文本 + 偏移映射 + 标记。
+class _InlineBoxText {
+  const _InlineBoxText({
+    required this.text,
+    required this.offsets,
+    required this.marks,
+  });
+
+  final String text;
+
+  /// 测量边界 → 原文偏移（长度 = text.length + 1）。
+  final List<int> offsets;
+
+  final List<_InlineBoxMark> marks;
+
+  /// 是否插入了占位符（含有盒即有映射，长度可能与原文相同）。
+  bool get changed => marks.isNotEmpty;
+
+  /// 测量下标换算回原文偏移。
+  int originalOffset(int measured) =>
+      offsets[measured.clamp(0, offsets.length - 1)];
 }
 
 class StyledRun {
@@ -331,6 +487,7 @@ class TextLayoutResult implements TextLayout {
     required this.height,
     required this.maxWidth,
     this.runs = const <StyledRun>[],
+    this.isRtl = false,
   });
 
   /// 原始文本。
@@ -350,6 +507,9 @@ class TextLayoutResult implements TextLayout {
 
   /// 行内样式区间（绘制用），偏移基于 [text]。
   final List<StyledRun> runs;
+
+  /// 段落方向是否为 RTL（绘制/命中需用同一 baseDirection，否则字形顺序错位）。
+  final bool isRtl;
 
   /// 行数。
   int get lineCount => lines.length;
@@ -462,6 +622,7 @@ class LineBreaker {
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
   }) {
     // nowrap/pre 不软换行：测量时不软换行，但内容宽保持有限值（P9-28：
     // 无限宽会让对齐余量恒为 0，也让对照工具拿到 Infinity）。
@@ -476,6 +637,7 @@ class LineBreaker {
       leadingDistribution: leadingDistribution,
       runs: runs,
       hasGlyph: hasGlyph,
+      inlineBoxes: inlineBoxes,
       softWrap: softWrap,
     );
   }
@@ -499,6 +661,7 @@ abstract final class TextLayoutEngine {
     LineBreaker? lineBreaker,
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
   }) {
     return (lineBreaker ?? LineBreaker()).layout(
       text: text,
@@ -508,6 +671,7 @@ abstract final class TextLayoutEngine {
       leadingDistribution: leadingDistribution,
       runs: runs,
       hasGlyph: hasGlyph,
+      inlineBoxes: inlineBoxes,
     );
   }
 
@@ -519,6 +683,7 @@ abstract final class TextLayoutEngine {
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     bool softWrap = true,
   }) {
     // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
@@ -560,42 +725,82 @@ abstract final class TextLayoutEngine {
     // 断词（hyphens / overflow-wrap / word-break）：插 U+200B 断点后测量，
     // 再把行区间映射回原文；行尾连字符宽在映射时补进行宽。
     final hyphenAdvance = _measureChar('-', style, textScaleFactor);
-    final breakPlan = planSoftBreaks(
-      text: measuredText,
-      hyphens: style.hyphens,
-      overflowWrap: style.overflowWrap,
-      wordBreak: style.wordBreak,
-      contentWidth: width,
-      style: style,
-      textScaleFactor: textScaleFactor,
-      hyphenAdvance: hyphenAdvance,
-    );
-    final rawMeasured = measuredText.isEmpty || indent <= 0
-        ? _measureSegment(
-            text: breakPlan.text,
-            width: measureWidth,
+    // 行内盒与断词暂不叠加：两种文本改造同段生效会让偏移映射难以自洽
+    // （图文混排段落不需要 hyphens 断词）。
+    final breakPlan = inlineBoxes.isNotEmpty
+        ? SoftBreakPlan.identity(measuredText, hyphenAdvance: hyphenAdvance)
+        : planSoftBreaks(
+            text: measuredText,
+            hyphens: style.hyphens,
+            overflowWrap: style.overflowWrap,
+            wordBreak: style.wordBreak,
             contentWidth: width,
             style: style,
             textScaleFactor: textScaleFactor,
-            leadingDistribution: leadingDistribution,
-            runs: styled,
-          )
-        : _measureWithIndent(
-            text: breakPlan.text,
-            width: measureWidth,
-            contentWidth: width,
-            indent: indent,
-            style: style,
-            textScaleFactor: textScaleFactor,
-            leadingDistribution: leadingDistribution,
-            runs: styled,
+            hyphenAdvance: hyphenAdvance,
           );
-    final measured = _mapSoftBreaks(rawMeasured, breakPlan);
+    // 行内盒「整块换行」：盒在行尾放不下时在盒前强制换行后重测（最多 4 轮，
+    // 每轮至少解决一个溢出盒）。
+    final forcedBreaks = <int>{};
+    late List<LineBox> measured;
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final boxText = inlineBoxes.isEmpty
+          ? null
+          : _buildInlineBoxText(
+              measuredText,
+              inlineBoxes,
+              forcedBreaks: forcedBreaks,
+            );
+      final rawMeasured = measuredText.isEmpty || indent <= 0
+          ? _measureSegment(
+              text: boxText?.text ?? breakPlan.text,
+              inlineBoxMarks: boxText?.marks ?? const <_InlineBoxMark>[],
+              width: measureWidth,
+              contentWidth: width,
+              style: style,
+              textScaleFactor: textScaleFactor,
+              leadingDistribution: leadingDistribution,
+              runs: styled,
+            )
+          : _measureWithIndent(
+              text: boxText?.text ?? breakPlan.text,
+              inlineBoxMarks: boxText?.marks ?? const <_InlineBoxMark>[],
+              width: measureWidth,
+              contentWidth: width,
+              indent: indent,
+              style: style,
+              textScaleFactor: textScaleFactor,
+              leadingDistribution: leadingDistribution,
+              runs: styled,
+            );
+      measured = _mapSoftBreaks(rawMeasured, breakPlan);
+      if (boxText != null && boxText.changed) {
+        measured = _mapInlineBoxLines(measured, boxText);
+      }
+      if (boxText == null) {
+        break;
+      }
+      var retry = false;
+      for (final line in measured) {
+        for (final box in line.inlineBoxes) {
+          // 行内还有前置文字、且盒右缘超出内容宽 → 盒整体换行。
+          if (box.left > 0.5 && box.left + box.width > width + 0.5) {
+            if (forcedBreaks.add(box.spec.offset)) {
+              retry = true;
+            }
+          }
+        }
+      }
+      if (!retry) {
+        break;
+      }
+    }
     return _result(
       text,
       _align(measuredText, measured, style, width),
       width,
       styled,
+      isRtl: style.isRtl,
     );
   }
 
@@ -749,7 +954,7 @@ abstract final class TextLayoutEngine {
   ) {
     final painter = TextPainter(
       text: TextSpan(text: word, style: textStyleFor(style)),
-      textDirection: TextDirection.ltr,
+      textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout();
     final width = painter.width;
@@ -986,9 +1191,12 @@ abstract final class TextLayoutEngine {
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
+    List<_InlineBoxMark> inlineBoxMarks = const <_InlineBoxMark>[],
   }) {
     final firstWidth = math.max(1.0, width - indent);
-    final head = _measureSegment(
+    // 首段先不带行内盒测一次，拿到分界后再把「落在首段」的盒补进去
+    // （盒占宽会改变首段末行，但盒的位置由原文偏移决定，不受影响）。
+    var head = _measureSegment(
       text: text,
       width: firstWidth,
       contentWidth: firstWidth,
@@ -1000,6 +1208,24 @@ abstract final class TextLayoutEngine {
     if (head.isEmpty) {
       return const <LineBox>[];
     }
+    if (inlineBoxMarks.isNotEmpty) {
+      final headMarks = <_InlineBoxMark>[
+        for (final mark in inlineBoxMarks)
+          if (mark.index < head.first.end) mark,
+      ];
+      if (headMarks.isNotEmpty) {
+        head = _measureSegment(
+          text: text,
+          width: firstWidth,
+          contentWidth: firstWidth,
+          inlineBoxMarks: headMarks,
+          style: style,
+          textScaleFactor: textScaleFactor,
+          leadingDistribution: leadingDistribution,
+          runs: runs,
+        );
+      }
+    }
     final first = head.first.copyWith(indent: indent);
     var remainderStart = first.end;
     if (remainderStart < text.length && text.codeUnitAt(remainderStart) == 10) {
@@ -1010,6 +1236,7 @@ abstract final class TextLayoutEngine {
       text: remainder,
       width: width,
       contentWidth: contentWidth,
+      inlineBoxMarks: _shiftInlineBoxMarks(inlineBoxMarks, remainderStart),
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
@@ -1067,12 +1294,15 @@ abstract final class TextLayoutEngine {
       final isFinal = line.isLastLine || line.isHardBreak;
       // text-align-last:auto 语义（P7-21）：justify 文本的末行按 start；
       // 其余对齐延续 text-align。显式 textAlignLast 覆盖。
-      final align = isFinal
-          ? (style.textAlignLast ??
-                (style.textAlign == CssTextAlign.justify
-                    ? CssTextAlign.start
-                    : style.textAlign))
-          : style.textAlign;
+      final align = _resolveTextAlign(
+        isFinal
+            ? (style.textAlignLast ??
+                  (style.textAlign == CssTextAlign.justify
+                      ? CssTextAlign.start
+                      : style.textAlign))
+            : style.textAlign,
+        style.isRtl,
+      );
       // 拉伸余量：justify 对齐；或末行在 justify-all / align-last:
       // justify 下参与拉伸（对齐仍是 start，通过 justifyExtra 拉伸）。
       // 其余对齐保持 0（否则左对齐行也会被绘制端拉伸）。
@@ -1183,7 +1413,7 @@ abstract final class TextLayoutEngine {
         text: char,
         style: textStyleFor(style, leadingDistribution: TextLeadingDistribution.even),
       ),
-      textDirection: TextDirection.ltr,
+      textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout();
     final width = painter.width;
@@ -1245,6 +1475,7 @@ abstract final class TextLayoutEngine {
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
+    List<_InlineBoxMark> inlineBoxMarks = const <_InlineBoxMark>[],
     double? contentWidth,
   }) {
     final baseStyle = textStyleFor(
@@ -1259,7 +1490,15 @@ abstract final class TextLayoutEngine {
         (style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent ||
             style.textAutospace == CssTextAutospace.normal);
     final painter = TextPainter(
-      text: runs.isEmpty
+      text: inlineBoxMarks.isNotEmpty
+          ? _inlineBoxSpans(
+              text,
+              baseStyle,
+              inlineBoxMarks,
+              style,
+              textScaleFactor,
+            )
+          : runs.isEmpty
           ? (compress
                 ? _plainSpan(text, style, baseStyle, textScaleFactor)
                 : TextSpan(text: text, style: baseStyle))
@@ -1277,7 +1516,7 @@ abstract final class TextLayoutEngine {
                 ),
               ),
             ),
-      textDirection: TextDirection.ltr,
+      textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout(maxWidth: width);
 
@@ -1323,19 +1562,328 @@ abstract final class TextLayoutEngine {
         isHardBreak: hardBreak,
       );
     }
+    final truncated = _applyTextOverflow(
+      lines: lines,
+      painter: painter,
+      contentWidth: contentWidth ?? width,
+      style: style,
+      textScaleFactor: textScaleFactor,
+      leadingDistribution: leadingDistribution,
+    );
     return _applyInlineVerticalBoxes(
-      _applyTextOverflow(
-        lines: lines,
-        painter: painter,
-        contentWidth: contentWidth ?? width,
+      _applyInlineBoxes(
+        truncated,
+        inlineBoxMarks,
+        painter,
+        text: text,
+        baseStyle: baseStyle,
         style: style,
         textScaleFactor: textScaleFactor,
-        leadingDistribution: leadingDistribution,
       ),
       runs,
       style,
       leadingDistribution,
     );
+  }
+
+  /// 行内盒标记在子串测量时的下标平移（`_measureWithIndent` 的后半段）：
+  /// 落在 [shift] 之前的标记属于首段，丢弃。
+  static List<_InlineBoxMark> _shiftInlineBoxMarks(
+    List<_InlineBoxMark> marks,
+    int shift,
+  ) {
+    if (marks.isEmpty) {
+      return marks;
+    }
+    return <_InlineBoxMark>[
+      for (final mark in marks)
+        if (mark.index >= shift)
+          _InlineBoxMark(index: mark.index - shift, spec: mark.spec),
+    ];
+  }
+
+  /// 把占位文本坐标的行区间与行内盒偏移映射回原文。
+  static List<LineBox> _mapInlineBoxLines(
+    List<LineBox> lines,
+    _InlineBoxText boxText,
+  ) {
+    final mapped = <LineBox>[];
+    for (final line in lines) {
+      mapped.add(
+        line.copyWith(
+          start: boxText.originalOffset(line.start),
+          end: boxText.originalOffset(line.end),
+          inlineBoxes: line.inlineBoxes.isEmpty
+              ? line.inlineBoxes
+              : List<InlineBoxPlacement>.unmodifiable(<InlineBoxPlacement>[
+                  for (final box in line.inlineBoxes)
+                    InlineBoxPlacement(
+                      offset: boxText.originalOffset(box.offset),
+                      left: box.left,
+                      width: box.width,
+                      height: box.height,
+                      ascent: box.ascent,
+                      descent: box.descent,
+                      spec: box.spec,
+                    ),
+                ]),
+        ),
+      );
+    }
+    return mapped;
+  }
+
+  /// 段落方向（`direction: rtl` 时 rtl）；测量与绘制必须同口径。
+  static TextDirection _textDirectionOf(ComputedStyle style) =>
+      style.isRtl ? TextDirection.rtl : TextDirection.ltr;
+
+  /// 把 `start`/`end` 对齐按段落方向折算成物理左/右。
+  ///
+  /// 与 [ComputedStyle.resolvedTextAlign] 同口径，另外覆盖末行的
+  /// `text-align-last`（它也允许 start/end）。
+  static CssTextAlign _resolveTextAlign(CssTextAlign align, bool rtl) =>
+      switch (align) {
+        CssTextAlign.start => rtl ? CssTextAlign.right : CssTextAlign.left,
+        CssTextAlign.end => rtl ? CssTextAlign.left : CssTextAlign.right,
+        _ => align,
+      };
+
+  /// 行内盒占位符（U+FFFC：object replacement character）。
+  static const String _inlineBoxPlaceholder = '\uFFFC';
+
+  /// 构造行内盒占位文本：在每个盒的插入点插入一个占位符，并给出偏移映射。
+  static _InlineBoxText _buildInlineBoxText(
+    String text,
+    List<InlineBoxSpec> specs, {
+    Set<int> forcedBreaks = const <int>{},
+  }) {
+    final ordered = <InlineBoxSpec>[...specs]
+      ..sort((a, b) => a.offset.compareTo(b.offset));
+    final buffer = StringBuffer();
+    final offsets = <int>[0];
+    final marks = <_InlineBoxMark>[];
+    var cursor = 0;
+    for (final spec in ordered) {
+      final stop = spec.offset.clamp(cursor, text.length);
+      for (var i = cursor; i < stop; i++) {
+        buffer.write(text[i]);
+        offsets.add(i + 1);
+      }
+      // 盒放不下时先在容器内强制换行（CSS inline-block 整体换行）。
+      if (forcedBreaks.contains(stop)) {
+        buffer.write('\n');
+        offsets.add(stop);
+      }
+      buffer.write(_inlineBoxPlaceholder);
+      marks.add(_InlineBoxMark(index: buffer.length - 1, spec: spec));
+      // 占位符前后两个边界都对应原文 [stop]（盒占 0 个字、只占宽度）。
+      offsets.add(stop);
+      cursor = stop;
+    }
+    for (var i = cursor; i < text.length; i++) {
+      buffer.write(text[i]);
+      offsets.add(i + 1);
+    }
+    return _InlineBoxText(
+      text: buffer.toString(),
+      offsets: offsets,
+      marks: marks,
+    );
+  }
+
+  /// 占位文本中 [index] 之前的宽度（行内盒 x 用；含此前占位符的宽度）。
+  static double _prefixAdvance(
+    String text,
+    int index,
+    TextStyle baseStyle,
+    List<_InlineBoxMark> marks,
+    ComputedStyle style,
+    double textScaleFactor,
+  ) {
+    if (index <= 0) {
+      return 0;
+    }
+    final prefix = text.substring(0, math.min(index, text.length));
+    final activeMarks = <_InlineBoxMark>[
+      for (final mark in marks)
+        if (mark.index < prefix.length) mark,
+    ];
+    final span = _inlineBoxSpans(
+      prefix,
+      baseStyle,
+      activeMarks,
+      style,
+      textScaleFactor,
+    );
+    final painter = TextPainter(
+      text: span,
+      textDirection: _textDirectionOf(style),
+      textScaler: TextScaler.linear(textScaleFactor),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  /// 行内盒占位 span：占位符用 letterSpacing 补到目标宽度。
+  static TextSpan _inlineBoxSpans(
+    String text,
+    TextStyle baseStyle,
+    List<_InlineBoxMark> marks,
+    ComputedStyle style,
+    double textScaleFactor,
+  ) {
+    final placeholderAdvance = _measureChar(
+      _inlineBoxPlaceholder,
+      style,
+      textScaleFactor,
+    );
+    final children = <InlineSpan>[];
+    var cursor = 0;
+    for (final mark in marks) {
+      final index = mark.index.clamp(0, text.length);
+      if (index > cursor) {
+        children.add(
+          TextSpan(text: text.substring(cursor, index), style: baseStyle),
+        );
+      }
+      final spacing = mark.spec.width - placeholderAdvance;
+      children.add(
+        TextSpan(
+          text: _inlineBoxPlaceholder,
+          style: spacing.abs() < 0.01
+              ? baseStyle
+              : baseStyle.copyWith(
+                  letterSpacing: (baseStyle.letterSpacing ?? 0) + spacing,
+                ),
+        ),
+      );
+      cursor = index + 1;
+    }
+    if (cursor < text.length) {
+      children.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+    }
+    return TextSpan(style: baseStyle, children: children);
+  }
+
+  /// 把行内盒放到行上：x 取占位符的行内起点，按盒的 ascent/descent 撑高行盒
+  /// 并重排后续行（CSS inline-block 参与行盒高度计算）。
+  static List<LineBox> _applyInlineBoxes(
+    List<LineBox> lines,
+    List<_InlineBoxMark> marks,
+    TextPainter painter, {
+    required String text,
+    required TextStyle baseStyle,
+    required ComputedStyle style,
+    required double textScaleFactor,
+  }) {
+    if (marks.isEmpty || lines.isEmpty) {
+      return lines;
+    }
+    final perLine = List<List<InlineBoxPlacement>>.generate(
+      lines.length,
+      (_) => <InlineBoxPlacement>[],
+    );
+    final growUp = List<double>.filled(lines.length, 0);
+    final growDown = List<double>.filled(lines.length, 0);
+    for (final mark in marks) {
+      var lineIndex = lines.length - 1;
+      for (var i = 0; i < lines.length; i++) {
+        if (mark.index >= lines[i].start && mark.index < lines[i].end) {
+          lineIndex = i;
+          break;
+        }
+      }
+      final line = lines[lineIndex];
+      // 行内 x：占位符之前的前缀宽 - 行首之前的前缀宽（用同一套 span 结构
+      // 前缀测量；caret 位置在 letterSpacing 下含半间距，不能直接用）。
+      final dx = _prefixAdvance(
+            text,
+            mark.index,
+            baseStyle,
+            marks,
+            style,
+            textScaleFactor,
+          ) -
+          _prefixAdvance(
+            text,
+            line.start,
+            baseStyle,
+            marks,
+            style,
+            textScaleFactor,
+          );
+      final placement = InlineBoxPlacement(
+        offset: mark.index,
+        left: line.offsetX + math.max(0.0, dx),
+        width: mark.spec.width,
+        height: mark.spec.height,
+        ascent: mark.spec.ascent,
+        descent: mark.spec.descent,
+        spec: mark.spec,
+      );
+      perLine[lineIndex].add(placement);
+      final lineAscent = line.baseline - line.top;
+      final lineDescent = line.height - lineAscent;
+      growUp[lineIndex] = math.max(
+        growUp[lineIndex],
+        placement.ascent - lineAscent,
+      );
+      growDown[lineIndex] = math.max(
+        growDown[lineIndex],
+        placement.descent - lineDescent,
+      );
+    }
+    var grown = false;
+    for (var i = 0; i < lines.length; i++) {
+      if (growUp[i] > 0.01 || growDown[i] > 0.01) {
+        grown = true;
+        break;
+      }
+    }
+    if (!grown) {
+      for (var i = 0; i < lines.length; i++) {
+        if (perLine[i].isEmpty) {
+          continue;
+        }
+        lines[i] = lines[i].copyWith(
+          inlineBoxes: List<InlineBoxPlacement>.unmodifiable(perLine[i]),
+        );
+      }
+      return lines;
+    }
+    var top = 0.0;
+    final adjusted = <LineBox>[];
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final ascent = line.baseline - line.top;
+      final up = math.max(0.0, growUp[i]);
+      final down = math.max(0.0, growDown[i]);
+      final height = line.height + up + down;
+      adjusted.add(
+        LineBox(
+          start: line.start,
+          end: line.end,
+          top: top,
+          height: height,
+          baseline: top + ascent + up,
+          width: line.width,
+          indent: line.indent,
+          isLastLine: line.isLastLine,
+          isHardBreak: line.isHardBreak,
+          offsetX: line.offsetX,
+          justifyExtra: line.justifyExtra,
+          justifyMode: line.justifyMode,
+          ellipsized: line.ellipsized,
+          ellipsisWidth: line.ellipsisWidth,
+          hyphenated: line.hyphenated,
+          hyphenWidth: line.hyphenWidth,
+          inlineBoxes: List<InlineBoxPlacement>.unmodifiable(perLine[i]),
+        ),
+      );
+      top += height;
+    }
+    return adjusted;
   }
 
   /// `text-overflow: ellipsis`（P2-37）：行宽超过内容宽时截成「最长可放
@@ -1602,8 +2150,9 @@ abstract final class TextLayoutEngine {
     String text,
     List<LineBox> lines,
     double maxWidth,
-    List<StyledRun> runs,
-  ) {
+    List<StyledRun> runs, {
+    bool isRtl = false,
+  }) {
     var maxLineWidth = 0.0;
     for (final line in lines) {
       maxLineWidth = math.max(maxLineWidth, line.width);
@@ -1616,10 +2165,41 @@ abstract final class TextLayoutEngine {
       height: height,
       maxWidth: maxWidth,
       runs: List<StyledRun>.unmodifiable(runs),
+      isRtl: isRtl,
     );
   }
 
   /// 从计算样式生成绘制/测量用 TextStyle。
+  /// `font-variant-caps` → OpenType 特性标签。
+  ///
+  /// - `small-caps` = `smcp`；`all-small-caps` = `smcp` + `c2sc`（大写字母也转小号大写）
+  /// - `petite-caps` = `pcap`；`all-petite-caps` = `pcap` + `c2pc`
+  /// - `unicase` = `unic`；`titling-caps` = `titl`；`normal` 不加特性
+  static List<FontFeature>? _fontFeatures(CssFontVariantCaps caps) =>
+      switch (caps) {
+        CssFontVariantCaps.normal => null,
+        CssFontVariantCaps.smallCaps => const <FontFeature>[
+          FontFeature.enable('smcp'),
+        ],
+        CssFontVariantCaps.allSmallCaps => const <FontFeature>[
+          FontFeature.enable('smcp'),
+          FontFeature.enable('c2sc'),
+        ],
+        CssFontVariantCaps.petiteCaps => const <FontFeature>[
+          FontFeature.enable('pcap'),
+        ],
+        CssFontVariantCaps.allPetiteCaps => const <FontFeature>[
+          FontFeature.enable('pcap'),
+          FontFeature.enable('c2pc'),
+        ],
+        CssFontVariantCaps.unicase => const <FontFeature>[
+          FontFeature.enable('unic'),
+        ],
+        CssFontVariantCaps.titlingCaps => const <FontFeature>[
+          FontFeature.enable('titl'),
+        ],
+      };
+
   static TextStyle textStyleFor(
     ComputedStyle style, {
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
@@ -1627,6 +2207,9 @@ abstract final class TextLayoutEngine {
     fontSize: style.fontSize,
     height: style.lineHeightFactor,
     leadingDistribution: leadingDistribution,
+    // 小型大写（`font-variant-caps`）：CSS 的 caps 族映射到 OpenType 特性，
+    // 测量与绘制共用本方法，因此宽度与字形两端一致；字体缺特性时不生效。
+    fontFeatures: _fontFeatures(style.fontVariantCaps),
     fontWeight: _fontWeight(style.fontWeight),
     fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
     // 别名映射（P3-03）：宋体/黑体/楷体等中文族名与 serif/sans-serif

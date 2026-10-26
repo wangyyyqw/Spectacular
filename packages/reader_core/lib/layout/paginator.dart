@@ -64,6 +64,7 @@ class PageBlock {
     this.containerSides = false,
     this.declaredContentHeight,
     this.effectiveOpacity = 1,
+    this.multicol,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -235,6 +236,10 @@ class PageBlock {
   /// 行不进入下一页（`overflow: hidden/clip` 近似；真机渲染由切片裁剪）。
   bool get clipsContent => height + 0.5 < layout.height;
 
+  /// 多列几何（CSS Multicol）：只有「首列块」携带完整几何，绘制层据此画
+  /// `column-rule` 与列分隔；其余列块为 null。
+  final MulticolGeometry? multicol;
+
   /// 祖先累计不透明度（`ComputedStyle.effectiveOpacity`，1 为不透明）。
   ///
   /// flat 管线重建块样式时只带当前元素声明，父链的 opacity 会丢；章节源
@@ -280,6 +285,7 @@ class PageBlock {
         containerSides: containerSides,
         declaredContentHeight: declaredContentHeight,
         effectiveOpacity: effectiveOpacity,
+        multicol: multicol,
       );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线
@@ -316,6 +322,65 @@ class PageBlock {
       );
     }
     return result;
+  }
+}
+
+/// 多列布局几何（CSS Multicol 一级近似）。
+///
+/// 口径（CSS Multicol §3）：
+/// - `column-count` 与 `column-width` 都声明时，列数取两者折小的结果：
+///   `count = min(count, floor((可用宽 + gap) / (column-width + gap)))`，
+///   即 `column-width` 是「列的最小宽」；
+/// - 只声明 `column-width` 时按上式折算列数；只声明 `column-count` 时列数即声明值；
+/// - 列宽 = `(可用宽 − gap × (count − 1)) / count`；
+/// - `column-gap: normal` 按 1em 处理。
+class MulticolGeometry {
+  /// 创建几何。
+  const MulticolGeometry({
+    required this.count,
+    required this.columnWidth,
+    required this.gap,
+  });
+
+  /// 列数（≥2）。
+  final int count;
+
+  /// 列宽。
+  final double columnWidth;
+
+  /// 列间距。
+  final double gap;
+
+  /// 第 [index] 列的左偏移（相对内容区左缘）。
+  double leftOf(int index) => index * (columnWidth + gap);
+
+  /// 按样式解算；未形成多列（列数 < 2 或宽度非正）时返回 null。
+  static MulticolGeometry? fromStyle(ComputedStyle style, double availableWidth) {
+    final declaredCount = style.columnCount ?? 0;
+    final widthSpec = style.columnWidth;
+    final specWidth = widthSpec?.resolve(availableWidth);
+    if (declaredCount < 2 && (specWidth == null || specWidth <= 0)) {
+      return null;
+    }
+    // column-gap: normal → 1em。
+    final gapRaw = style.columnGap;
+    final gap = gapRaw == null || gapRaw <= 0 ? style.fontSize : gapRaw;
+    var count = declaredCount;
+    if (specWidth != null && specWidth > 0) {
+      final byWidth =
+          ((availableWidth + gap) / (specWidth + gap)).floor().clamp(1, 8);
+      count = declaredCount >= 2
+          ? math.min(declaredCount, math.max(1, byWidth))
+          : math.max(1, byWidth);
+    }
+    if (count < 2) {
+      return null;
+    }
+    final width = (availableWidth - gap * (count - 1)) / count;
+    if (width <= 0) {
+      return null;
+    }
+    return MulticolGeometry(count: count, columnWidth: width, gap: gap);
   }
 }
 
@@ -590,6 +655,132 @@ class Paginator {
     return extent;
   }
 
+  /// 把 [lines] 均衡分配到 [count] 列（CSS `column-fill: balance` 近似）：
+  /// 返回每列的 `[start, end)` 行区间，列高尽量相等。
+  static List<(int, int)> _columnRanges(List<LineBox> lines, int count) {
+    if (lines.isEmpty || count < 2) {
+      return <(int, int)>[(0, lines.length)];
+    }
+    final total = _lineExtent(lines);
+    var limit = total / count;
+    for (var attempt = 0; attempt < 32; attempt++) {
+      final ranges = <(int, int)>[];
+      var index = 0;
+      for (var column = 0; column < count - 1; column++) {
+        final start = index;
+        var height = 0.0;
+        while (index < lines.length &&
+            height + lines[index].height <= limit + 0.01) {
+          height += lines[index].height;
+          index += 1;
+        }
+        // 一行都放不下时至少取一行，避免死循环。
+        if (index == start && index < lines.length) {
+          height += lines[index].height;
+          index += 1;
+        }
+        ranges.add((start, index));
+      }
+      ranges.add((index, lines.length));
+      var tallest = 0.0;
+      for (final range in ranges) {
+        tallest = math.max(
+          tallest,
+          _lineExtent(lines.sublist(range.$1, range.$2)),
+        );
+      }
+      if (tallest <= limit + 0.01) {
+        return ranges;
+      }
+      limit = tallest;
+    }
+    return <(int, int)>[(0, lines.length)];
+  }
+
+  /// 单列子布局：把行区间重新从 0 起排（基线按行顶重算），其余字段沿用。
+  static TextLayoutResult _columnLayout(
+    TextLayoutResult source,
+    (int, int) range,
+    double columnWidth, {
+    double? boxWidth,
+  }) {
+    // 列片段：文本取该列行区间对应的子串，行下标按子串重排（绘制直接用
+    // 片段文本；CFI/选区跨列的映射由章节源按块首尾处理，见已知限制）。
+    final textStart = range.$1 < range.$2 ? source.lines[range.$1].start : 0;
+    final textEnd = range.$1 < range.$2 ? source.lines[range.$2 - 1].end : 0;
+    final fragment = source.text.substring(
+      textStart.clamp(0, source.text.length),
+      textEnd.clamp(0, source.text.length),
+    );
+    final lines = <LineBox>[];
+    var top = 0.0;
+    var width = 0.0;
+    for (var i = range.$1; i < range.$2; i++) {
+      final line = source.lines[i];
+      final ascent = line.baseline - line.top;
+      lines.add(
+        LineBox(
+          start: line.start - textStart,
+          end: line.end - textStart,
+          top: top,
+          height: line.height,
+          baseline: top + ascent,
+          width: line.width,
+          indent: line.indent,
+          isLastLine: line.isLastLine,
+          isHardBreak: line.isHardBreak,
+          offsetX: line.offsetX,
+          justifyExtra: line.justifyExtra,
+          justifyMode: line.justifyMode,
+          ellipsized: line.ellipsized,
+          ellipsisWidth: line.ellipsisWidth,
+          hyphenated: line.hyphenated,
+          hyphenWidth: line.hyphenWidth,
+        ),
+      );
+      width = math.max(width, line.advanceWidth);
+      top += line.height;
+    }
+    return TextLayoutResult(
+      text: fragment,
+      lines: lines,
+      // 首列块代表整个多列容器：块宽取「列带总宽」（容器内容宽），
+      // 其余列块取列宽；行宽仍是各自列内的实际行宽。
+      width: boxWidth ?? width,
+      height: top,
+      maxWidth: columnWidth,
+      runs: const <StyledRun>[],
+    );
+  }
+
+  /// 由源块与单列子布局构造列块；非首列作为覆盖切片（absolute 定位）。
+  static PageBlock _columnBlock(
+    PageBlock source,
+    TextLayoutResult layout, {
+    required double absoluteLeft,
+    double? absoluteTop,
+    MulticolGeometry? multicol,
+  }) => PageBlock(
+    layout: layout,
+    startCfi: source.startCfi,
+    endCfi: source.endCfi,
+    style: source.style,
+    topInset: source.topInset,
+    bottomInset: source.bottomInset,
+    leftInset: source.leftInset,
+    listMarker: source.listMarker,
+    groupId: source.groupId,
+    bleedLeft: source.bleedLeft,
+    bleedRight: source.bleedRight,
+    containerSides: source.containerSides,
+    effectiveOpacity: source.effectiveOpacity,
+    multicol: multicol,
+    // 第 2 列起脱离正常流，绘制在首列右侧（overlay 切片）。
+    absolute: absoluteTop != null,
+    absoluteTop: absoluteTop,
+    absoluteLeft: absoluteLeft,
+  );
+
   /// 对一章块列表分页。
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
@@ -686,6 +877,103 @@ class Paginator {
       }
       if (block.pageBreakBefore) {
         record();
+      }
+
+      // 多列（CSS Multicol §3）：按列宽重排后均衡分列；首列随正常流占高，
+      // 其余列作为覆盖切片绘制在首列右侧（绘制/命中沿用 overlay 几何）。
+      // 已知限制（后续任务）：
+      // - 仅支持「整块放进当前页」；跨页列流（列未排满续到下一页）未实现，
+      //   超出页高时退回单列；
+      // - 重排使用纯文本，行内样式 runs / 行内图片 / 注音不参与分栏；
+      // - 章节页索引（PageIndex）按原块列表记录，分栏块是合成块，重进章节
+      //   时索引重放会退回整章重排（不影响正确性，只影响命中率）。
+      final multicolWidth =
+          block.layout.maxWidth.isFinite && block.layout.maxWidth > 0
+          ? block.layout.maxWidth
+          : pageHeight;
+      final multicol = block.style == null || block.floatSide != null
+          ? null
+          : MulticolGeometry.fromStyle(block.style!, multicolWidth);
+      if (multicol != null && block.layout.text.trim().isNotEmpty) {
+        final relaid = TextLayoutEngine.layout(
+          text: block.layout.text,
+          style: block.style!,
+          maxWidth: multicol.columnWidth,
+        );
+        if (relaid.lineCount > 0) {
+          final ranges = _columnRanges(relaid.lines, multicol.count);
+          final columnHeights = <double>[
+            for (final range in ranges)
+              _lineExtent(relaid.lines.sublist(range.$1, range.$2)),
+          ];
+          var bandHeight = 0.0;
+          for (final height in columnHeights) {
+            bandHeight = math.max(bandHeight, height);
+          }
+          final extent =
+              block.leadingExtent + bandHeight + block.trailingExtent;
+          if (extent > available + tolerance &&
+              extent <= pageHeight + tolerance &&
+              slices.isNotEmpty) {
+            // 整块放不进当前页：先收页，再按新页重试（record 已重置可用高）。
+            record();
+          }
+          if (extent <= available + tolerance) {
+            // 覆盖列与首列首行对齐（含首列段前/上内缩）。
+            final bandTop =
+                (firstPage ? topPadding : 0) + used + block.leadingExtent;
+            final firstLayout = _columnLayout(
+              relaid,
+              ranges.first,
+              multicol.columnWidth,
+              boxWidth: multicol.columnWidth * multicol.count +
+                  multicol.gap * (multicol.count - 1),
+            );
+            slices.add(
+              PageBlockSlice(
+                block: _columnBlock(
+                  block,
+                  firstLayout,
+                  absoluteLeft: 0,
+                  multicol: multicol,
+                ),
+                startLine: 0,
+                endLine: firstLayout.lineCount,
+                height: extent,
+                leadingExtent: block.leadingExtent,
+                trailingExtent: block.trailingExtent,
+                leftInset: block.leftInset,
+              ),
+            );
+            for (var column = 1; column < ranges.length; column++) {
+              final left = multicol.leftOf(column);
+              final layout = _columnLayout(
+                relaid,
+                ranges[column],
+                multicol.columnWidth,
+              );
+              slices.add(
+                PageBlockSlice(
+                  block: _columnBlock(
+                    block,
+                    layout,
+                    absoluteLeft: left,
+                    absoluteTop: bandTop,
+                  ),
+                  startLine: 0,
+                  endLine: layout.lineCount,
+                  height: columnHeights[column],
+                  overlay: true,
+                  absoluteTop: bandTop,
+                  leftInset: left,
+                ),
+              );
+            }
+            used += extent;
+            available -= extent;
+            continue;
+          }
+        }
       }
 
       // break-inside: avoid：能整块放进新页时先收页，不在当前页拆开（P2-17）。
