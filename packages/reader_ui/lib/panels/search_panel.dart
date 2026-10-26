@@ -34,18 +34,41 @@ class SearchPanelResult {
 }
 
 /// 搜索结果面板（P4-26）：输入防抖、按章分组、空态与加载态。
+/// 流式搜索的一次进度快照（搜到就推，UI 逐批渲染）。
+class SearchProgress {
+  /// 创建快照。
+  const SearchProgress({
+    required this.results,
+    required this.scanned,
+    required this.total,
+  });
+
+  /// 当前累计结果。
+  final List<SearchPanelResult> results;
+
+  /// 已扫描章数。
+  final int scanned;
+
+  /// 章节总数。
+  final int total;
+}
+
 class SearchPanel extends StatefulWidget {
   /// 创建面板。
   const SearchPanel({
     super.key,
     required this.onSearch,
+    this.onSearchStream,
     required this.onSelect,
     this.onBack,
     this.debounce = const Duration(milliseconds: 300),
   });
 
-  /// 查询回调（由调用方接索引）。
+  /// 查询回调（一次性返回全部结果）。
   final Future<List<SearchPanelResult>> Function(String query) onSearch;
+
+  /// 流式查询回调：逐章推进结果，优先于 [onSearch]。
+  final Stream<SearchProgress> Function(String query)? onSearchStream;
 
   /// 选中结果。
   final ValueChanged<SearchPanelResult> onSelect;
@@ -65,6 +88,8 @@ class _SearchPanelState extends State<SearchPanel> {
   Timer? _debounceTimer;
   String _query = '';
   bool _loading = false;
+  int _scanned = 0;
+  int _total = 0;
   List<SearchPanelResult> _results = const <SearchPanelResult>[];
   Object? _error;
   int _requestToken = 0;
@@ -94,6 +119,11 @@ class _SearchPanelState extends State<SearchPanel> {
 
   Future<void> _run(String query) async {
     final token = ++_requestToken;
+    final stream = widget.onSearchStream;
+    if (stream != null) {
+      await _runStream(stream, query, token);
+      return;
+    }
     try {
       final results = await widget.onSearch(query);
       if (!mounted || token != _requestToken) {
@@ -118,7 +148,49 @@ class _SearchPanelState extends State<SearchPanel> {
     }
   }
 
-  @override
+  /// 流式执行：每来一批就刷新列表，扫完才收 loading。
+  Future<void> _runStream(
+    Stream<SearchProgress> Function(String query) stream,
+    String query,
+    int token,
+  ) async {
+    setState(() {
+      _query = query;
+      _results = const <SearchPanelResult>[];
+      _scanned = 0;
+      _total = 0;
+      _error = null;
+      _loading = true;
+    });
+    try {
+      await for (final batch in stream(query)) {
+        if (!mounted || token != _requestToken) {
+          return;
+        }
+        final finished = batch.scanned >= batch.total || batch.total == 0;
+        setState(() {
+          _query = query;
+          _results = batch.results;
+          _scanned = batch.scanned;
+          _total = batch.total;
+          _loading = !finished;
+        });
+      }
+      if (mounted && token == _requestToken) {
+        setState(() => _loading = false);
+      }
+    } catch (error) {
+      if (!mounted || token != _requestToken) {
+        return;
+      }
+      setState(() {
+        _query = query;
+        _loading = false;
+        _error = error;
+      });
+    }
+  }
+
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
@@ -175,10 +247,22 @@ class _SearchPanelState extends State<SearchPanel> {
     if (_controller.text.trim().isEmpty) {
       return _hint(theme, '输入关键词搜索全书', icon: Icons.search);
     }
-    if (_loading) {
-      return const Center(
-        key: ValueKey<String>('search-loading'),
-        child: CircularProgressIndicator(),
+    if (_loading && _results.isEmpty) {
+      return Center(
+        key: const ValueKey<String>('search-loading'),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            if (_total > 0) ...[
+              const SizedBox(height: 12),
+              Text(
+                '正在搜索 $_scanned/$_total 章…',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
       );
     }
     if (_error != null) {
@@ -187,7 +271,38 @@ class _SearchPanelState extends State<SearchPanel> {
     if (_results.isEmpty) {
       return _hint(theme, '没有找到「$_query」', icon: Icons.search_off);
     }
-    return _buildResults(theme);
+    final list = _buildResults(theme);
+    if (!_loading) {
+      return list;
+    }
+    return Column(
+      children: <Widget>[
+        LinearProgressIndicator(
+          key: const ValueKey<String>('search-progress'),
+          value: _total > 0 ? _scanned / _total : null,
+          minHeight: 2,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+          child: Row(
+            children: <Widget>[
+              Text(
+                '已找到 ${_results.length} 处',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$_scanned/$_total 章',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: list),
+      ],
+    );
   }
 
   Widget _hint(ThemeData theme, String text, {required IconData icon}) {
@@ -215,9 +330,10 @@ class _SearchPanelState extends State<SearchPanel> {
     }
     final rows = <Object>[];
     for (final entry in groups.entries) {
-      rows.add(entry.value.first.chapterTitle.isEmpty
+      final title = entry.value.first.chapterTitle.isEmpty
           ? '第 ${entry.key + 1} 章'
-          : entry.value.first.chapterTitle);
+          : entry.value.first.chapterTitle;
+      rows.add('$title · ${entry.value.length} 处');
       rows.addAll(entry.value);
     }
     return ListView.builder(

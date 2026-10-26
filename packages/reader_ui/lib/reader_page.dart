@@ -66,6 +66,7 @@ class ReaderPage extends StatefulWidget {
     this.onMarginsChanged,
     this.onLog,
     this.onResolveSearchCfi,
+    this.onSearchStream,
   });
 
   /// 章节页来源。
@@ -127,6 +128,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 点开搜索命中时才解析 CFI（搜索阶段不算，避免逐条排版）。
   final Future<String?> Function(SearchPanelResult result)? onResolveSearchCfi;
+
+  /// 流式搜索（逐章推送结果）。
+  final Stream<SearchProgress> Function(String query)? onSearchStream;
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
@@ -1378,6 +1382,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onInkModeChanged: _applyInkMode,
                       onResetSettings: _resetSettings,
                       onSearch: widget.onSearch,
+                      onSearchStream: widget.onSearchStream,
                       onSearchSelect: (result) {
                         _closeDrawer();
                         unawaited(_applySearchResult(result));
@@ -1523,6 +1528,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onInkModeChanged,
     required this.onResetSettings,
     required this.onSearch,
+    required this.onSearchStream,
     required this.onSearchSelect,
     required this.onTocSelect,
     required this.onBookmarkSelect,
@@ -1548,6 +1554,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<bool>? onInkModeChanged;
   final VoidCallback onResetSettings;
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
+  final Stream<SearchProgress> Function(String query)? onSearchStream;
   final ValueChanged<SearchPanelResult> onSearchSelect;
   final ValueChanged<TocEntry> onTocSelect;
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
@@ -1686,6 +1693,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                 ? const SizedBox.shrink()
                 : SearchPanel(
                     onSearch: widget.onSearch!,
+                    onSearchStream: widget.onSearchStream,
                     onSelect: widget.onSearchSelect,
                   ),
           },
