@@ -1879,7 +1879,8 @@ class EpubChapterSource
         String? marker;
         if (ancestors.isNotEmpty && ancestors.last.tag == 'li' &&
             list != null) {
-          marker = list.nextMarker();
+          final markerText = list.nextMarker(blockStyle.listStyleType);
+          marker = markerText.isEmpty ? null : markerText;
         }
         // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排；
         // ::first-letter（P8-09）：命中规则时首字符放大 run 追加。
@@ -2164,15 +2165,68 @@ class _ListContext {
 
   int _olCounter = 0;
 
-  /// 当前项的标记文本；ol 递增序号，ul 按深度取 disc→circle→square
-  ///（Reeden 630 §0-#4 嵌套类型轮换）。
-  String nextMarker() {
+  /// 当前项的标记文本（P9-12）：优先按 `list-style-type` 选择
+  ///（decimal/roman/alpha 等），`none` 不画标记；未声明时 ol 递增序号、
+  /// ul 按深度取 disc→circle→square（Reeden 630 §0-#4 嵌套类型轮换）。
+  String nextMarker(CssListStyleType style) {
     if (type == 'ol') {
       _olCounter += 1;
-      return '$_olCounter.';
+      return switch (style) {
+        CssListStyleType.none => '',
+        CssListStyleType.lowerRoman => '${_roman(_olCounter).toLowerCase()}.',
+        CssListStyleType.upperRoman => '${_roman(_olCounter)}.',
+        CssListStyleType.lowerAlpha => '${_alpha(_olCounter).toLowerCase()}.',
+        CssListStyleType.upperAlpha => '${_alpha(_olCounter).toUpperCase()}.',
+        CssListStyleType.circle => '○$_olCounter.',
+        CssListStyleType.square => '▪$_olCounter.',
+        _ => '$_olCounter.',
+      };
     }
-    const bullets = <String>['•', '○', '▪'];
-    return bullets[depth.clamp(0, 2)];
+    return switch (style) {
+      CssListStyleType.none => '',
+      CssListStyleType.circle => '○',
+      CssListStyleType.square => '▪',
+      CssListStyleType.decimal => '${_olCounter += 1}.',
+      CssListStyleType.lowerRoman => '${_roman(++_olCounter).toLowerCase()}.',
+      CssListStyleType.upperRoman => '${_roman(++_olCounter)}.',
+      CssListStyleType.lowerAlpha => '${_alpha(++_olCounter).toLowerCase()}.',
+      CssListStyleType.upperAlpha => '${_alpha(++_olCounter).toUpperCase()}.',
+      CssListStyleType.disc => const <String>['•', '○', '▪'][depth.clamp(0, 2)],
+    };
+  }
+
+  static String _roman(int value) {
+    if (value <= 0 || value > 3999) {
+      return '$value';
+    }
+    const table = <(int, String)>[
+      (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+      (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+      (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I'),
+    ];
+    var rest = value;
+    final buffer = StringBuffer();
+    for (final (amount, symbol) in table) {
+      while (rest >= amount) {
+        buffer.write(symbol);
+        rest -= amount;
+      }
+    }
+    return buffer.toString();
+  }
+
+  static String _alpha(int value) {
+    if (value <= 0) {
+      return '$value';
+    }
+    var rest = value;
+    final buffer = StringBuffer();
+    while (rest > 0) {
+      final remainder = (rest - 1) % 26;
+      buffer.write(String.fromCharCode(97 + remainder));
+      rest = (rest - 1) ~/ 26;
+    }
+    return String.fromCharCodes(buffer.toString().codeUnits.reversed);
   }
 }
 
