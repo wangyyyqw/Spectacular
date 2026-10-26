@@ -947,6 +947,63 @@ void main() {
     );
   });
 
+  test('column-rule 线型（double/dotted/dashed/groove）不吞 columns（W18）', () {
+    // 63-columns-rule 的 `.plain`：column-count 与 column-rule 必须各自生效。
+    final doubled = style(
+      'p',
+      'p { column-count: 2; column-rule: 3px double #333; }',
+    );
+    expect(doubled.columnCount, 2, reason: '列数不能被 column-rule 影响');
+    expect(doubled.columnRule, isNotNull);
+    expect(doubled.columnRule!.style, CssBorderStyle.double);
+    expect(doubled.columnRule!.width, 3);
+    expect(doubled.columnRule!.color, const Color(0xFF333333));
+
+    // `columns` 简写与 column-rule 并存（简写不能被误吞）。
+    final shorthand = style(
+      'p',
+      'p { columns: 2; column-rule: 3px double #333; }',
+    );
+    expect(shorthand.columnCount, 2);
+    expect(shorthand.columnRule!.style, CssBorderStyle.double);
+
+    // 各线型：dotted/dashed/double 保留；groove/ridge/inset/outset 降级 solid；
+    // 未知线型（wavy）当无效声明，列数照常。
+    for (final (keyword, expected) in <(String, CssBorderStyle)>[
+      ('dotted', CssBorderStyle.dotted),
+      ('dashed', CssBorderStyle.dashed),
+      ('double', CssBorderStyle.double),
+      ('groove', CssBorderStyle.solid),
+      ('ridge', CssBorderStyle.solid),
+      ('inset', CssBorderStyle.solid),
+      ('outset', CssBorderStyle.solid),
+    ]) {
+      final rule = style(
+        'p',
+        'p { column-count: 2; column-rule: 2px $keyword #123456; }',
+      );
+      expect(rule.columnCount, 2, reason: keyword);
+      expect(rule.columnRule!.style, expected, reason: keyword);
+      expect(rule.columnRule!.width, 2, reason: keyword);
+      expect(rule.columnRule!.color, const Color(0xFF123456), reason: keyword);
+    }
+    final invalid = style(
+      'p',
+      'p { column-count: 2; column-rule: 3px wavy #333; }',
+    );
+    expect(invalid.columnCount, 2, reason: '未知线型只让 rule 失效');
+    expect(invalid.columnRule?.style, CssBorderStyle.none);
+
+    // none：宽度归零（与 border 语义一致）。
+    final none = style(
+      'p',
+      'p { column-count: 2; column-rule: 3px none #333; }',
+    );
+    expect(none.columnCount, 2);
+    expect(none.columnRule!.width, 0);
+    expect(none.columnRule!.style, CssBorderStyle.none);
+  });
+
   test('hyphens / word-break / overflow-wrap 解析与继承（W11）', () {
     final defaults = style('p', 'p { color: red; }');
     expect(defaults.hyphens, CssHyphens.manual);
@@ -998,6 +1055,256 @@ void main() {
     expect(child.hyphens, CssHyphens.auto);
     expect(child.wordBreak, CssWordBreak.breakAll);
     expect(child.overflowWrap, CssOverflowWrap.anywhere);
+  });
+
+  test('font-variant：small-caps 族与 font 简写 token（W18）', () {
+    final defaults = style('p', 'p { color: red; }');
+    expect(defaults.fontVariantCaps, CssFontVariantCaps.normal);
+
+    expect(
+      style('p', 'p { font-variant: small-caps; }').fontVariantCaps,
+      CssFontVariantCaps.smallCaps,
+    );
+    expect(
+      style('p', 'p { font-variant-caps: all-small-caps; }').fontVariantCaps,
+      CssFontVariantCaps.allSmallCaps,
+    );
+    expect(
+      style('p', 'p { font-variant: petite-caps oldstyle-nums; }')
+          .fontVariantCaps,
+      CssFontVariantCaps.petiteCaps,
+      reason: '多 token 简写里取 caps 关键字，数值变体忽略',
+    );
+    expect(
+      style('p', 'p { font-variant-caps: unicase; }').fontVariantCaps,
+      CssFontVariantCaps.unicase,
+    );
+    // 长属性优先于简写。
+    expect(
+      style(
+        'p',
+        'p { font-variant: small-caps; font-variant-caps: titling-caps; }',
+      ).fontVariantCaps,
+      CssFontVariantCaps.titlingCaps,
+    );
+    // `font` 简写里的 small-caps token。
+    final shorthand = style(
+      'p',
+      'p { font: small-caps 12px/2 serif; }',
+    );
+    expect(shorthand.fontVariantCaps, CssFontVariantCaps.smallCaps);
+    expect(shorthand.fontSize, 12);
+    expect(shorthand.lineHeight, 24);
+
+    // 继承。
+    final parent = style('parent', 'div { font-variant: small-caps; }');
+    expect(
+      style('p', 'p { color: red; }', parent: parent).fontVariantCaps,
+      CssFontVariantCaps.smallCaps,
+    );
+  });
+
+  test('逻辑属性：inline/block 按 writing-mode + direction 落物理（W18）', () {
+    // horizontal-tb + ltr：inline-start = left，block-start = top。
+    final ltr = style(
+      'p',
+      'p { margin-inline-start: 10px; margin-inline-end: 2px; '
+          'margin-block-start: 4px; margin-block-end: 6px; }',
+    );
+    expect(ltr.margin.left, 10);
+    expect(ltr.margin.right, 2);
+    expect(ltr.margin.top, 4);
+    expect(ltr.margin.bottom, 6);
+
+    // padding 同理。
+    final padding = style(
+      'p',
+      'p { padding-inline-start: 7px; padding-inline-end: 3px; }',
+    );
+    expect(padding.padding.left, 7);
+    expect(padding.padding.right, 3);
+    expect(padding.padding.top, 0);
+
+    // border-inline-* 映射到 border-left/right 简写与长属性。
+    final border = style(
+      'p',
+      'p { border-inline-start: 2px solid #ff0000; '
+          'border-inline-end-color: #00ff00; }',
+    );
+    expect(border.borders.left.width, 2);
+    expect(border.borders.left.style, CssBorderStyle.solid);
+    expect(border.borders.left.color, const Color(0xFFFF0000));
+    expect(border.borders.right.color, const Color(0xFF00FF00));
+
+    // direction: rtl 时 inline-start = right。
+    final rtl = style(
+      'p',
+      'p { direction: rtl; margin-inline-start: 9px; }',
+    );
+    expect(rtl.margin.right, 9);
+    expect(rtl.margin.left, 0);
+
+    // vertical-rl：行内轴竖直（inline-start = top），块级轴从右往左。
+    final vertical = style(
+      'p',
+      'p { writing-mode: vertical-rl; margin-inline-start: 11px; '
+          'margin-block-start: 13px; }',
+    );
+    expect(vertical.margin.top, 11);
+    expect(vertical.margin.right, 13);
+    expect(vertical.margin.left, 0);
+
+    // vertical-lr：块级推进从左往右。
+    final verticalLr = style(
+      'p',
+      'p { writing-mode: vertical-lr; margin-block-start: 5px; }',
+    );
+    expect(verticalLr.margin.left, 5);
+
+    // 竖排 + rtl：行内方向自下而上 → inline-start = bottom。
+    final verticalRtl = style(
+      'p',
+      'p { writing-mode: vertical-rl; direction: rtl; '
+          'margin-inline-start: 3px; }',
+    );
+    expect(verticalRtl.margin.bottom, 3);
+
+    // 同一条规则内物理与逻辑并存：后声明者胜（与浏览器一致，逻辑属性
+    // 在级联期映射成同一物理属性参与竞争）。
+    final both = style(
+      'p',
+      'p { margin-left: 1px; margin-inline-start: 20px; }',
+    );
+    expect(both.margin.left, 20);
+    final reverse = style(
+      'p',
+      'p { margin-inline-start: 20px; margin-left: 1px; }',
+    );
+    expect(reverse.margin.left, 1);
+
+    // inset-inline-start 落到 left（left 字段是 CssLength）。
+    final inset = style('p', 'p { inset-inline-start: 8px; }');
+    expect(inset.left!.value, 8);
+  });
+
+  test('逻辑属性在级联期映射：简写与逻辑属性按优先级竞争（W18 修复）', () {
+    // `p{margin:8px 0}` 展开出 margin-left:0；`#p{margin-inline-start:24px}`
+    // 优先级更高 → 必须赢（此前物理优先的近似会被展开出的 0 顶掉）。
+    final higher = style(
+      'p',
+      'p { margin: 8px 0; } #p { margin-inline-start: 24px; }',
+    );
+    expect(higher.margin.top, 8);
+    expect(higher.margin.left, 24);
+    expect(higher.margin.right, 0);
+
+    // 反过来：简写优先级更高（#p 的简写 vs p 的逻辑属性）→ 简写值胜。
+    final lower = style(
+      'p',
+      'p { margin-inline-start: 24px; } #p { margin: 8px 0; }',
+    );
+    expect(lower.margin.left, 0, reason: '高优先级的简写展开覆盖逻辑属性');
+    expect(lower.margin.top, 8);
+
+    // rtl 由祖先继承：inline-start 落到右侧。
+    final rtlParent = style('parent', 'div { direction: rtl; }');
+    final rtlChild = style(
+      'p',
+      'p { padding-inline-start: 12px; border-inline-start: 3px solid #123456; }',
+      parent: rtlParent,
+    );
+    expect(rtlChild.padding.right, 12);
+    expect(rtlChild.padding.left, 0);
+    expect(rtlChild.borders.right.width, 3);
+    expect(rtlChild.borders.right.color, const Color(0xFF123456));
+    expect(rtlChild.borders.left.width, 0);
+
+    // 竖排：-webkit-margin-start 走逻辑映射（inline-start = top）。
+    final vertical = style(
+      'p',
+      'p { writing-mode: vertical-rl; -webkit-margin-start: 7px; }',
+    );
+    expect(vertical.margin.top, 7);
+    expect(vertical.margin.left, 0);
+    // rtl 下 -webkit-padding-start → 右。
+    final rtl = style('p', 'p { direction: rtl; -webkit-padding-start: 5px; }');
+    expect(rtl.padding.right, 5);
+  });
+
+  test('direction: rtl 参与对齐映射与行内 baseDirection（W18）', () {
+    final ltr = style('p', 'p { text-align: start; }');
+    expect(ltr.isRtl, isFalse);
+    expect(ltr.resolvedTextAlign, CssTextAlign.left);
+    expect(
+      style('p', 'p { text-align: end; }').resolvedTextAlign,
+      CssTextAlign.right,
+    );
+
+    final rtl = style('p', 'p { direction: rtl; text-align: start; }');
+    expect(rtl.isRtl, isTrue);
+    expect(rtl.resolvedTextAlign, CssTextAlign.right);
+    expect(
+      style('p', 'p { direction: rtl; text-align: end; }').resolvedTextAlign,
+      CssTextAlign.left,
+    );
+    // left/right/center/justify 不受 direction 影响。
+    expect(
+      style('p', 'p { direction: rtl; text-align: left; }').resolvedTextAlign,
+      CssTextAlign.left,
+    );
+    expect(
+      style('p', 'p { direction: rtl; text-align: justify; }').resolvedTextAlign,
+      CssTextAlign.justify,
+    );
+    // 默认 start（未声明）在 rtl 下也应右对齐。
+    expect(
+      style('p', 'p { direction: rtl; }').resolvedTextAlign,
+      CssTextAlign.right,
+    );
+  });
+
+  test('quotes：引号对结构 / none / auto 与继承（W18）', () {
+    // 初始值 auto。
+    expect(
+      style('p', 'p { color: red; }').quotes,
+      isA<CssQuotesAuto>(),
+    );
+
+    final pairs = style(
+      'p',
+      'p { quotes: "«" "»" "‹" "›"; }',
+    ).quotes;
+    expect(pairs, isA<CssQuotesPairs>());
+    final list = (pairs as CssQuotesPairs).pairs;
+    expect(list, hasLength(2));
+    expect(list.first.open, '«');
+    expect(list.first.close, '»');
+    expect(list.last.open, '‹');
+    expect(list.last.close, '›');
+
+    // 单引号包裹同样识别；转义引号解包。
+    final single = style(
+      'p',
+      "p { quotes: '“' '”' '\\201c' 'x'; }",
+    ).quotes as CssQuotesPairs;
+    expect(single.pairs.first.open, '“');
+    expect(single.pairs.first.close, '”');
+    expect(single.pairs.last.open, '“', reason: '\\201c 解成 “');
+
+    expect(style('p', 'p { quotes: none; }').quotes, isA<CssQuotesNone>());
+    expect(style('p', 'p { quotes: auto; }').quotes, isA<CssQuotesAuto>());
+
+    // 奇数个字符串 = 声明无效 → 回退父级/初始值。
+    expect(
+      style('p', 'p { quotes: "«" "»" "‹"; }').quotes,
+      isA<CssQuotesAuto>(),
+    );
+
+    // 继承。
+    final parent = style('parent', 'div { quotes: "「" "」"; }');
+    final inherited = style('p', 'p { color: red; }', parent: parent).quotes;
+    expect(inherited, isA<CssQuotesPairs>());
+    expect((inherited as CssQuotesPairs).pairs.single.open, '「');
   });
 
   test('width/height 的 px、em、百分比与 auto', () {

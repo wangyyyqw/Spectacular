@@ -53,8 +53,10 @@ void main() {
       // 真实书里出现过的其余私有属性。
       '-epub-hyphens': 'hyphens',
       '-webkit-text-combine': 'text-combine-upright',
-      '-webkit-margin-start': 'margin-left',
-      '-webkit-margin-end': 'margin-right',
+      // WebKit 逻辑边距：按逻辑属性映射（受 direction/writing-mode 影响），
+      // 横排 LTR 下落到 margin-left/right。
+      '-webkit-margin-start': 'margin-inline-start',
+      '-webkit-margin-end': 'margin-inline-end',
     };
 
     cases.forEach((private, standard) {

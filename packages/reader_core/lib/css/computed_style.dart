@@ -573,6 +573,109 @@ enum CssOverflow {
   scroll,
 }
 
+/// 小型大写字母族（CSS `font-variant-caps`，也来自 `font-variant` 简写）。
+enum CssFontVariantCaps {
+  /// 默认：不做小型大写。
+  normal,
+
+  /// 小写字母转小型大写（`small-caps`）。
+  smallCaps,
+
+  /// 全部字母（含原本大写）都用小型大写（`all-small-caps`）。
+  allSmallCaps,
+
+  /// 小型大写的小号变体（`petite-caps`）。
+  petiteCaps,
+
+  /// 全部字母用 petite-caps（`all-petite-caps`）。
+  allPetiteCaps,
+
+  /// 大小写混排成同高（`unicase`）。
+  unicase,
+
+  /// 标题用大写（`titling-caps`）。
+  titlingCaps,
+}
+
+/// 一对引号（CSS `quotes` 的 `<string> <string>`）。
+class CssQuotePair {
+  /// 创建一对引号。
+  const CssQuotePair({required this.open, required this.close});
+
+  /// 开引号（如 `"“"`）。
+  final String open;
+
+  /// 闭引号（如 `"”"`）。
+  final String close;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssQuotePair && other.open == open && other.close == close;
+
+  @override
+  int get hashCode => Object.hash(open, close);
+
+  @override
+  String toString() => 'CssQuotePair($open,$close)';
+}
+
+/// 引号规则（CSS `quotes`，继承）。
+///
+/// 三态：`auto`（按语言默认，初始值）、`none`（不生成引号）、显式引号对。
+/// 消费点在行内文本生成阶段（`<q>` 的开/闭引号插入与嵌套层级取第几对）。
+sealed class CssQuotes {
+  const CssQuotes();
+}
+
+/// `quotes: auto`：按语言/UA 默认（浏览器初始值）。
+final class CssQuotesAuto extends CssQuotes {
+  /// 创建 auto 规则。
+  const CssQuotesAuto();
+
+  @override
+  bool operator ==(Object other) => other is CssQuotesAuto;
+
+  @override
+  int get hashCode => 0;
+
+  @override
+  String toString() => 'CssQuotes.auto';
+}
+
+/// `quotes: none`：不生成任何引号。
+final class CssQuotesNone extends CssQuotes {
+  /// 创建 none 规则。
+  const CssQuotesNone();
+
+  @override
+  bool operator ==(Object other) => other is CssQuotesNone;
+
+  @override
+  int get hashCode => 1;
+
+  @override
+  String toString() => 'CssQuotes.none';
+}
+
+/// 显式引号对列表（按嵌套层级取用：第 1 对最外层，超出后循环最后一对）。
+final class CssQuotesPairs extends CssQuotes {
+  /// 创建显式引号对。
+  const CssQuotesPairs(this.pairs);
+
+  /// 引号对（至少 1 对）。
+  final List<CssQuotePair> pairs;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssQuotesPairs && _listEquals(other.pairs, pairs);
+
+  @override
+  int get hashCode => Object.hashAll(pairs);
+
+  @override
+  String toString() => 'CssQuotes.pairs($pairs)';
+}
+
 /// 连字符断行（CSS `hyphens`；`-epub-hyphens`/`-webkit-hyphens` 经别名表落到它）。
 enum CssHyphens {
   /// 不自动断行（默认）。
@@ -1158,6 +1261,40 @@ class ComputedStyle {
               parent?.overflowWrap ??
               CssOverflowWrap.normal;
 
+    // font-variant 族（W18，继承）：caps 从长属性或简写取；`font` 简写里的
+    // small-caps token 已在 parseFontShorthand 里落成 font-variant-caps。
+    final rawVariantCaps =
+        explicitValue('font-variant-caps') ?? explicitValue('font-variant');
+    final fontVariantCaps = rawVariantCaps == null
+        ? (parent?.fontVariantCaps ?? CssFontVariantCaps.normal)
+        : _parseFontVariantCaps(rawVariantCaps) ??
+              parent?.fontVariantCaps ??
+              CssFontVariantCaps.normal;
+
+    // quotes（W18，继承，初始 auto）：显式引号对 / none / auto 三态。
+    final rawQuotes = explicitValue('quotes');
+    final quotes = rawQuotes == null
+        ? (parent?.quotes ?? const CssQuotesAuto())
+        : _parseQuotes(rawQuotes) ?? parent?.quotes ?? const CssQuotesAuto();
+
+    // 逻辑属性（margin/padding/border/inset 的 inline|block × start|end）
+    // 按书写模式与方向落成物理属性后再解算盒模型；物理显式声明优先，
+    // 逻辑声明只在对应物理名未声明时补位（与浏览器「同一属性空间的先后者胜」
+    // 近似——声明顺序在层叠后已丢，这里取物理优先的保守口径）。
+    final logicalPhysical = CssPropertyAliases.logicalPhysicalMap(
+      writingMode: writingMode.name,
+      direction: direction.name,
+    );
+    final edgeValues = <String, String>{...values};
+    final edgeExplicit = <String>{...explicit};
+    logicalPhysical.forEach((logical, physical) {
+      if (edgeExplicit.contains(logical) &&
+          !edgeExplicit.contains(physical)) {
+        edgeValues[physical] = edgeValues[logical]!;
+        edgeExplicit.add(physical);
+      }
+    });
+
     // overflow（W11，不继承，初始 visible）：绘制层据此决定是否裁剪外溢内容。
     // `overflow-x`/`overflow-y` 只取一个值：优先 overflow 简写，其次 overflow-x。
     final rawOverflow =
@@ -1199,8 +1336,8 @@ class ComputedStyle {
     }
 
     final margin = _resolveMargin(
-      values,
-      explicit,
+      edgeValues,
+      edgeExplicit,
       fontSize: fontSize,
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
@@ -1410,30 +1547,32 @@ class ComputedStyle {
               ) ??
               parent?.borderSpacing ??
               CssEdges.zero;
+    String? edgeValue(String property) =>
+        edgeExplicit.contains(property) ? edgeValues[property] : null;
     final top =
         _parseOffset(
-          explicitValue('top'),
+          edgeValue('top'),
           fontSize: fontSize,
           rootFontSize: rootFontSize,
         ) ??
         parent?.top;
     final right =
         _parseOffset(
-          explicitValue('right'),
+          edgeValue('right'),
           fontSize: fontSize,
           rootFontSize: rootFontSize,
         ) ??
         parent?.right;
     final bottom =
         _parseOffset(
-          explicitValue('bottom'),
+          edgeValue('bottom'),
           fontSize: fontSize,
           rootFontSize: rootFontSize,
         ) ??
         parent?.bottom;
     final left =
         _parseOffset(
-          explicitValue('left'),
+          edgeValue('left'),
           fontSize: fontSize,
           rootFontSize: rootFontSize,
         ) ??
@@ -1451,8 +1590,8 @@ class ComputedStyle {
       fontSize: fontSize,
     );
     final borders = _resolveBorders(
-      values,
-      explicit,
+      edgeValues,
+      edgeExplicit,
       fontSize: fontSize,
       rootFontSize: rootFontSize,
       color: color,
@@ -1478,8 +1617,8 @@ class ComputedStyle {
     final minHeight = dimension('min-height');
     final maxHeight = dimension('max-height');
     final padding = _resolvePadding(
-      values,
-      explicit,
+      edgeValues,
+      edgeExplicit,
       fontSize: fontSize,
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
@@ -1525,6 +1664,8 @@ class ComputedStyle {
       hyphens: hyphens,
       wordBreak: wordBreak,
       overflowWrap: overflowWrap,
+      fontVariantCaps: fontVariantCaps,
+      quotes: quotes,
       overflow: overflow,
       columnCount: columns.count,
       columnWidth: columns.width,
@@ -1657,6 +1798,8 @@ class ComputedStyle {
       hyphens: hyphens,
       wordBreak: wordBreak,
       overflowWrap: overflowWrap,
+      fontVariantCaps: fontVariantCaps,
+      quotes: quotes,
       overflow: overflow,
       columnCount: columnCount,
       columnWidth: columnWidth,
@@ -1760,6 +1903,8 @@ class ComputedStyle {
     required this.hyphens,
     required this.wordBreak,
     required this.overflowWrap,
+    required this.fontVariantCaps,
+    required this.quotes,
     required this.overflow,
     required this.columnCount,
     required this.columnWidth,
@@ -1953,6 +2098,23 @@ class ComputedStyle {
   /// 文本方向（继承，初始 [CssDirection.ltr]）。
   final CssDirection direction;
 
+  /// 行内文本是否从右向左（`direction: rtl`）。
+  ///
+  /// 排版/绘制层把它映射成 Flutter 的 `TextDirection`（行内 baseDirection）：
+  /// `TextPainter(textDirection: style.isRtl ? TextDirection.rtl : ltr)`。
+  bool get isRtl => direction == CssDirection.rtl;
+
+  /// 物理化后的文本对齐：`start`/`end` 按 [direction] 折成 left/right。
+  ///
+  /// 排版/绘制层应读它（而不是原始 [textAlign]）：`direction: rtl` 时
+  /// `start` 是右对齐、`end` 是左对齐；`left`/`right`/`center`/`justify`
+  /// 原样返回。
+  CssTextAlign get resolvedTextAlign => switch (textAlign) {
+    CssTextAlign.start => isRtl ? CssTextAlign.right : CssTextAlign.left,
+    CssTextAlign.end => isRtl ? CssTextAlign.left : CssTextAlign.right,
+    _ => textAlign,
+  };
+
   /// 连字符断行（继承，初始 [CssHyphens.manual]）。
   final CssHyphens hyphens;
 
@@ -1961,6 +2123,18 @@ class ComputedStyle {
 
   /// 长词换行策略（继承，初始 [CssOverflowWrap.normal]）。
   final CssOverflowWrap overflowWrap;
+
+  /// 小型大写字母族（继承，初始 [CssFontVariantCaps.normal]）。
+  ///
+  /// 来源：`font-variant-caps` 长属性或 `font-variant` 简写（含 `font` 简写里的
+  /// `small-caps` token）。绘制层可用 `FontFeature.enable('smcp')` 实现，
+  /// 字体无对应特性时按原样绘制（stub）。
+  final CssFontVariantCaps fontVariantCaps;
+
+  /// 引号规则（继承，初始 [CssQuotesAuto]）。
+  ///
+  /// 消费点在行内文本生成阶段：`<q>` 开/闭引号按嵌套层级取用。
+  final CssQuotes quotes;
 
   /// 溢出处理（非继承，初始 [CssOverflow.visible]）。
   ///
@@ -2643,7 +2817,8 @@ class ComputedStyle {
       } else if (token == 'normal') {
         // normal 可能是 style/weight/variant 的占位，忽略。
       } else if (token == 'small-caps') {
-        // font-variant 暂无独立字段，忽略。
+        // `font: small-caps 12px serif` 的 caps token 落到长属性。
+        result['font-variant-caps'] = 'small-caps';
       } else if (token == 'bold' || token == 'bolder' || token == 'lighter' ||
           RegExp(r'^[1-9]00$').hasMatch(token)) {
         result['font-weight'] = token;
@@ -3546,6 +3721,109 @@ class ComputedStyle {
       'anywhere' => CssOverflowWrap.anywhere,
       _ => null,
     };
+  }
+
+  /// `font-variant` / `font-variant-caps`：取 caps 关键字（数值变体忽略）。
+  static CssFontVariantCaps? _parseFontVariantCaps(String raw) {
+    for (final token in raw.trim().toLowerCase().split(RegExp(r'\s+'))) {
+      switch (token) {
+        case 'normal':
+          return CssFontVariantCaps.normal;
+        case 'small-caps':
+          return CssFontVariantCaps.smallCaps;
+        case 'all-small-caps':
+          return CssFontVariantCaps.allSmallCaps;
+        case 'petite-caps':
+          return CssFontVariantCaps.petiteCaps;
+        case 'all-petite-caps':
+          return CssFontVariantCaps.allPetiteCaps;
+        case 'unicase':
+          return CssFontVariantCaps.unicase;
+        case 'titling-caps':
+          return CssFontVariantCaps.titlingCaps;
+      }
+    }
+    return null;
+  }
+
+  /// `quotes`：`auto` / `none` / 引号对序列（奇数个字符串或解析失败返回 null）。
+  static CssQuotes? _parseQuotes(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) {
+      return null;
+    }
+    final lower = value.toLowerCase();
+    if (lower == 'auto') {
+      return const CssQuotesAuto();
+    }
+    if (lower == 'none') {
+      return const CssQuotesNone();
+    }
+    // 手写扫描：CSS 字符串可用 " 或 ' 包裹，内部 \\ 转义不解包。
+    final strings = <String>[];
+    final buffer = StringBuffer();
+    String? quote;
+    for (var i = 0; i < value.length; i++) {
+      final char = value[i];
+      if (quote == null) {
+        if (char == '"' || char == "'") {
+          quote = char;
+          buffer.clear();
+        }
+        continue;
+      }
+      if (char == '\\' && i + 1 < value.length) {
+        buffer
+          ..write(char)
+          ..write(value[i + 1]);
+        i += 1;
+        continue;
+      }
+      if (char == quote) {
+        strings.add(_unescapeCssString(buffer.toString()));
+        quote = null;
+        continue;
+      }
+      buffer.write(char);
+    }
+    if (strings.isEmpty || strings.length.isOdd) {
+      return null;
+    }
+    return CssQuotesPairs(<CssQuotePair>[
+      for (var i = 0; i < strings.length; i += 2)
+        CssQuotePair(open: strings[i], close: strings[i + 1]),
+    ]);
+  }
+
+  /// CSS 字符串转义（`\"`、`\\`、`\A` 换行等的最小实现）。
+  static String _unescapeCssString(String raw) {
+    final buffer = StringBuffer();
+    final hex = RegExp(r'[0-9a-fA-F]');
+    for (var i = 0; i < raw.length; i++) {
+      final char = raw[i];
+      if (char != '\\' || i + 1 >= raw.length) {
+        buffer.write(char);
+        continue;
+      }
+      // CSS 转义：`\\HHHHHH`（1–6 位十六进制，可跟一个空白终止符），
+      // 或单字符转义（`\\'`、`\\\\` 等）。
+      var j = i + 1;
+      final start = j;
+      while (j < raw.length && j - start < 6 && hex.hasMatch(raw[j])) {
+        j += 1;
+      }
+      if (j > start) {
+        buffer.writeCharCode(int.parse(raw.substring(start, j), radix: 16));
+        if (j < raw.length && (raw[j] == ' ' || raw[j] == '\t')) {
+          j += 1;
+        }
+        i = j - 1;
+        continue;
+      }
+      buffer.write(raw[i + 1]);
+      i += 1;
+    }
+    return buffer.toString();
   }
 
   /// 多列布局（`columns` 系列，W11）：count/width/gap/rule。
