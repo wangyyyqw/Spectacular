@@ -260,6 +260,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
     for (final path in paths) {
       try {
         final bytes = await widget.readFile(path);
+        // 大文件（>20MB）导入要十几秒：先给出预期，避免以为卡死。
+        final megabytes = bytes.length / (1024 * 1024);
+        if (megabytes >= 20 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '正在导入大文件（${megabytes.toStringAsFixed(0)}MB），请稍候…',
+              ),
+            ),
+          );
+        }
         _batch.add(
           _queue.enqueue(
             bytes,
