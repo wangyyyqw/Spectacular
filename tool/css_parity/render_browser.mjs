@@ -37,6 +37,23 @@ const collectScript = `(() => {
   // 同一视觉行的多段（行内 span / 上下标）按纵向重叠合并成一行，
   // 与引擎「一块 N 行」的口径对齐。行 y/h 取面积最大的 run（锚点），
   // 避免上下标把行顶拉偏。
+  // 字体 ascent：Chrome 文本 rect 的 y 是行内盒顶，画笔基线 = rect.y +
+  // 字体 ascent（fontBoundingBoxAscent，与 Flutter computeDistanceToActualBaseline
+  // 同源）；墨迹 ascent 是字形墨迹顶，不能直接加到 rect.y 上。
+  const ascentCache = new Map();
+  const inkAscent = (node) => {
+    const text = (node.textContent || '').trim();
+    const parent = node.parentElement;
+    if (!text || !parent) return 0;
+    const cs = getComputedStyle(parent);
+    const key = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily, text].join('|');
+    if (ascentCache.has(key)) return ascentCache.get(key);
+    const canvas = document.createElement('canvas').getContext('2d');
+    canvas.font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(' ');
+    const ascent = canvas.measureText(text).fontBoundingBoxAscent || 0;
+    ascentCache.set(key, ascent);
+    return ascent;
+  };
   const mergeLines = (rects) => {
     const items = rects.map((r) => ({ ...r }));
     items.sort((a, b) => b.w * b.h - a.w * a.h);
@@ -60,7 +77,13 @@ const collectScript = `(() => {
     }
     return lines
       .sort((a, b) => a.y - b.y)
-      .map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
+      .map((r) => ({
+        x: +r.x.toFixed(2),
+        y: +r.y.toFixed(2),
+        w: +r.w.toFixed(2),
+        h: +r.h.toFixed(2),
+        baseline: r.baseline === undefined ? undefined : +r.baseline.toFixed(2),
+      }));
   };
   // 原子行内盒（inline-block/inline-flex/...）有自己的元素条目与行列表，
   // 其内部文本行不能并进父段落，否则父段落会多出「盒内容行」的伪影。
@@ -83,11 +106,35 @@ const collectScript = `(() => {
       if (!ownText(node, el)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
-        if (rect.width > 0 || rect.height > 0) raw.push(rectOf(rect));
+      const ascent = inkAscent(node);
+      // 行尾空白：Chrome 的 Range rect 把行尾空格计入宽度，引擎按 Skia
+      // 口径不计；从该节点的最后一个 rect 上扣掉尾部空白宽。
+      const trailing = (node.textContent || '').match(/\s+$/);
+      let trailingWidth = 0;
+      if (trailing) {
+        const cs = getComputedStyle(node.parentElement);
+        const canvas = document.createElement('canvas').getContext('2d');
+        canvas.font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(' ');
+        trailingWidth = canvas.measureText(trailing[0]).width || 0;
       }
+      const rects = Array.from(range.getClientRects()).filter(
+        (rect) => rect.width > 0 || rect.height > 0);
+      rects.forEach((rect, index) => {
+        const item = rectOf(rect);
+        if (index === rects.length - 1 && trailingWidth > 0) {
+          item.w = +Math.max(0, item.w - trailingWidth).toFixed(2);
+        }
+        item.baseline = +(rect.y + ascent).toFixed(2);
+        raw.push(item);
+      });
     }
-    return raw.map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
+    return raw.map((r) => ({
+      x: +r.x.toFixed(2),
+      y: +r.y.toFixed(2),
+      w: +r.w.toFixed(2),
+      h: +r.h.toFixed(2),
+      baseline: +r.baseline.toFixed(2),
+    }));
   };
   const textRects = (el) => mergeLines(textRectsRaw(el));
   const inlineish = new Set(['inline', 'inline-block', 'inline-flex', 'inline-grid',
