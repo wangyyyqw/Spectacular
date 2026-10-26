@@ -52,7 +52,7 @@ def load(name):
 def case_meta(name):
     path = CASES / f'{name}.json'
     if not path.exists():
-        return {'tags': [], 'multipage': False, 'engine_only': False}
+        return {'tags': [], 'multipage': False, 'engine_only': False, 'expect': {}}
     data = json.loads(path.read_text(encoding='utf-8'))
     tags = [str(tag) for tag in data.get('tags', [])]
     return {
@@ -61,6 +61,9 @@ def case_meta(name):
         # 浏览器不支持的属性（hanging-punctuation / initial-letter 等）：
         # 只记录引擎行为，不计失配、不算视觉差异。
         'engine_only': bool(data.get('engine_only')),
+        # 浏览器不支持的用例可附引擎期望值（页数 / 每页列数等），
+        # 报告里与实测并列展示，不计失配。
+        'expect': data.get('expect') or {},
     }
 
 
@@ -881,16 +884,57 @@ def run_case(name):
     browser, engine = load(name)
     if meta['engine_only']:
         pages = engine.get('pages') or []
+        blocks = sum(len(page.get('blocks') or []) for page in pages)
+        # 导出只取前 2 页；页数口径要用引擎 pageCount，不能数导出页。
+        total_pages = int(engine.get('pageCount', len(pages)))
+        notes = [
+            f'- 浏览器不支持该属性，只记录引擎行为（{total_pages} 页、'
+            f'{blocks} 块），不计失配'
+        ]
+        expect = meta.get('expect') or {}
+        if expect:
+            first = (pages[0].get('blocks') or [{}])[0] if pages else {}
+            rect = first.get('rect') or {}
+            advance = expect.get('columnAdvance')
+            columns = None
+            if advance:
+                columns = int(round((rect.get('w') or 0.0) / float(advance)))
+            notes.append(
+                f'- 期望：{expect.get("pages", "?")} 页（±{expect.get("pagesTolerance", 0)}）、'
+                f'每页 {expect.get("columnsPerPage", expect.get("columnsUsed", "?"))} 列、每列 '
+                f'{expect.get("charsPerColumn", "?")} 字、列推进 '
+                f'{expect.get("columnAdvance", "?")}px、页内 '
+                f'{expect.get("direction", "?")}；实测：{total_pages} 页、{blocks} 块、'
+                f'首块 {fmt(rect.get("w"))}×{fmt(rect.get("h"))}'
+                + (f'、列数 {columns}' if columns is not None else '')
+            )
+            tolerance = int(expect.get('pagesTolerance', 0))
+            if abs(total_pages - int(expect.get('pages', total_pages))) > tolerance:
+                notes.append(
+                    f'- ⚠ 页数与期望不符（期望 {expect.get("pages")}±{tolerance} / '
+                    f'实测 {total_pages}）'
+                )
+            expected_width = expect.get('firstBlockWidth')
+            if expected_width is not None and abs(
+                (rect.get('w') or 0.0) - float(expected_width)
+            ) > 2.0:
+                notes.append(
+                    f'- ⚠ 首块宽度与期望不符（期望 {expected_width} / '
+                    f'实测 {fmt(rect.get("w"))}）'
+                )
+            expected_columns = expect.get('columnsUsed')
+            if expected_columns is not None and columns is not None \
+                    and abs(columns - int(expected_columns)) > 1:
+                notes.append(
+                    f'- ⚠ 页内列数与期望不符（期望 {expected_columns} / 实测 {columns}）'
+                )
         return {
             'name': name,
             'meta': meta,
             'dimension': (meta['tags'] or ['未标注'])[0],
             'problems': [],
             'unpaired': [],
-            'notes': [
-                f'- 浏览器不支持该属性，只记录引擎行为（{len(pages)} 页、'
-                f'{sum(len(page.get("blocks") or []) for page in pages)} 块），不计失配'
-            ],
+            'notes': notes,
             'visual': None,
             'null_geometry': engine.get('nullGeometry') or [],
         }
