@@ -89,7 +89,7 @@ class ScanSearchService {
         chapterCache[hit.spineIndex] = chapter;
       }
       // 扫描用的是聚合文本，这里按块级文本校正到精确偏移。
-      final offset = _recenter(chapter.text, query, hit.charOffset);
+      final offset = recenterOffset(chapter.text, query, hit.charOffset);
       if (offset < 0) {
         continue;
       }
@@ -108,19 +108,6 @@ class ScanSearchService {
       }
     }
     return results;
-  }
-
-  /// 在命中位置附近重新找一次 query，校正两种文本来源之间的偏移差。
-  static int _recenter(String text, String query, int approx) {
-    final lower = approx - 200 < 0 ? 0 : approx - 200;
-    final upper = approx + 200 > text.length ? text.length : approx + 200;
-    final segment = text.substring(lower, upper);
-    final at = segment.indexOf(query);
-    if (at >= 0) {
-      return lower + at;
-    }
-    final exact = text.indexOf(query, lower);
-    return exact;
   }
 
   Future<ChapterText?> _chapterTextOf(int spineIndex) async {
@@ -164,6 +151,22 @@ class ScanSearchService {
     }
     return titles;
   }
+}
+
+/// 在命中位置附近重新找一次 query，校正两种文本来源之间的偏移差。
+///
+/// 扫描文本（xhtml 纯文本）与排版块文本长度并不一致，扫描偏移可能超出
+/// 本章排版文本长度，切片前必须夹到 `[0, text.length]`，否则 substring 会抛
+/// RangeError。窗口内找不到时退回全章查找，覆盖偏移差超过窗口的情况。
+int recenterOffset(String text, String query, int approx) {
+  final anchor = approx < 0 ? 0 : (approx > text.length ? text.length : approx);
+  final lower = anchor - 200 < 0 ? 0 : anchor - 200;
+  final upper = anchor + 200 > text.length ? text.length : anchor + 200;
+  final at = text.substring(lower, upper).indexOf(query);
+  if (at >= 0) {
+    return lower + at;
+  }
+  return text.indexOf(query);
 }
 
 /// 一次扫描命中（可跨 isolate 传递）。
