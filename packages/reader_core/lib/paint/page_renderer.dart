@@ -74,6 +74,7 @@ class PagePainter {
     this.background = const Color(0xFFFFFFFF),
     this.pageBackgroundImage,
     this.imageLookup,
+    this.listMarkerImageOf,
     this.textColor,
     this.selection,
     this.selectionColor = const Color(0x330066FF),
@@ -95,6 +96,13 @@ class PagePainter {
   /// 也不在每帧重复解码。默认 null 时 `background-image` 一律不绘制，
   /// 既有页面像素保持不变。
   final ui.Image? Function(String url)? imageLookup;
+
+  /// 列表标记图片（W6）：按块解析 `list-style-image` 的 url；null/空串表示
+  /// 该块无标记图片，退回 [PageBlock.listMarker] 的文字/几何标记。
+  ///
+  /// 章节源接线后传入（`(block) => block.listMarkerImage`）；绘制层只做绘制，
+  /// 图片解码与缓存仍由 [imageLookup] 背后的资源层负责。
+  final String? Function(PageBlock block)? listMarkerImageOf;
 
   /// 正文颜色覆盖（主题用）：只改绘制颜色，不影响布局与分页（P2-23）。
   final Color? textColor;
@@ -146,12 +154,12 @@ class PagePainter {
         continue;
       }
       // 阴影可溢出块外：画在块裁剪之外（自带透明层），先影后景。
-      _withOpacity(canvas, geometry, () {
+      _withEffects(canvas, geometry, () {
         _paintBoxShadow(canvas, geometry);
       });
       canvas.save();
       geometry.clip(canvas);
-      _withOpacity(canvas, geometry, () {
+      _withEffects(canvas, geometry, () {
         _paintBackground(
           canvas,
           geometry.containerPaintBox,
@@ -172,7 +180,7 @@ class PagePainter {
       }
       canvas.save();
       geometry.clip(canvas);
-      _withOpacity(canvas, geometry, () {
+      _withEffects(canvas, geometry, () {
         _paintBorders(
           canvas,
           geometry.containerPaintBox,
@@ -197,13 +205,13 @@ class PagePainter {
       // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
       final tableSpec = geometry.slice.block.table;
       if (tableSpec != null) {
-        _withOpacity(canvas, geometry, () {
+        _withEffects(canvas, geometry, () {
           _paintTable(canvas, geometry, tableSpec);
         });
         canvas.restore();
         continue;
       }
-      _withOpacity(canvas, geometry, () {
+      _withEffects(canvas, geometry, () {
         final layout = geometry.slice.block.layout;
         var lineY = geometry.y + geometry.leading;
         for (
@@ -535,28 +543,253 @@ class PagePainter {
     }
   }
 
-  /// 元素不透明度（P2-37）：opacity < 1 时把本几何的绘制收进透明层，
-  /// 块背景/边框/文本三层各自包一层（层内内容互不穿透）。
+  /// 元素效果合成（W6）：`filter` 链 + 组不透明度。
   ///
-  /// TODO(W2-嵌套 opacity)：Chromium 的 opacity 作用在元素组上，父级
-  /// opacity 会以乘积作用于子块；当前 PageBlock 只带块自身 opacity，
-  /// 祖先累计值待 T3 在 PageBlock 上提供（effectiveOpacity）后在此乘入。
-  void _withOpacity(
+  /// CSS 语义：filter 列表从左到右依次作用于元素结果；opacity 最后作用于
+  /// 整个元素组。实现为嵌套 saveLayer——先声明的滤镜在内层、后声明的在外层，
+  /// 每层只带一个滤镜：
+  /// - 颜色类（grayscale/sepia/brightness/contrast/saturate/hue-rotate/
+  ///   invert/opacity）→ [ColorFilter.matrix]；
+  /// - `blur()` → [ui.ImageFilter.blur]（CSS 参数即高斯标准差；Chromium
+  ///   实测 blur(2px) 的 σ≈2）；
+  /// - `drop-shadow()` → 「内容副本 + 偏移 + 模糊 + 染色」垫在元素下方近似
+  ///   （本版 Skia 无 dropShadow image filter）。
+  ///
+  /// 不透明度读 [ComputedStyle.effectiveOpacity]（沿级联父链乘积），因此
+  /// 父级半透明会连带作用于子块，与 Chromium 的元素组合成一致。
+  ///
+  /// 绘制按背景/边框/文本等阶段分别套一次：对书内卡片类元素观感等价，
+  /// 与「整元素一次合成」的差别只在相邻半透明边缘的亚像素混合。
+  void _withEffects(
     Canvas canvas,
     _SliceGeometry geometry,
     void Function() body,
   ) {
-    final opacity = geometry.style.opacity;
-    if (opacity >= 1) {
+    final filters = geometry.style.filters;
+    // 累计不透明度有两个来源：PageBlock（章节源按级联链乘积传入，W3 已接线）
+    // 与 ComputedStyle.effectiveOpacity（样式层按父链乘积）。取两者较小值，
+    // 既不会重复相乘，也能覆盖「只有一边带了祖先值」的调用路径。
+    final opacity = math.min(
+      geometry.slice.block.effectiveOpacity,
+      geometry.style.effectiveOpacity,
+    );
+    if (filters.isEmpty && opacity >= 1) {
       body();
       return;
     }
+    final bounds = geometry.box.inflate(128);
+    // drop-shadow 先作为元素下方的投影副本绘制，再叠其余滤镜与内容。
+    for (final filter in filters) {
+      if (filter.kind == CssFilterKind.dropShadow) {
+        _paintFilterDropShadow(canvas, filter, body, bounds);
+      }
+    }
+    var layers = 0;
+    for (var i = filters.length - 1; i >= 0; i--) {
+      final paint = _filterLayerPaint(filters[i]);
+      if (paint == null) {
+        continue;
+      }
+      canvas.saveLayer(bounds, paint);
+      layers += 1;
+    }
+    if (opacity < 1) {
+      canvas.saveLayer(
+        bounds,
+        Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+      );
+      layers += 1;
+    }
+    body();
+    for (var i = 0; i < layers; i++) {
+      canvas.restore();
+    }
+  }
+
+  /// 单个滤镜对应的图层 Paint；返回 null 表示该滤镜由别的路径实现
+  /// （drop-shadow 走 [_paintFilterDropShadow]）。
+  Paint? _filterLayerPaint(CssFilter filter) {
+    switch (filter.kind) {
+      case CssFilterKind.blur:
+        final sigma = math.max(0.0, filter.amount);
+        if (sigma <= 0) {
+          return null;
+        }
+        return Paint()
+          ..imageFilter = ui.ImageFilter.blur(
+            sigmaX: sigma,
+            sigmaY: sigma,
+          );
+      case CssFilterKind.dropShadow:
+        return null;
+      default:
+        return Paint()..colorFilter = ColorFilter.matrix(_filterMatrix(filter));
+    }
+  }
+
+  /// 颜色类滤镜的 4×5 颜色矩阵（按 CSS filter-effects-1 的等价矩阵）。
+  ///
+  /// grayscale/sepia/invert/opacity 的 amount 先钳到 0..1，再与单位矩阵线性
+  /// 插值（CSS 里 `sepia(0.6)` 就是 60% 的完整 sepia 效果）。
+  List<double> _filterMatrix(CssFilter filter) {
+    final amount = filter.amount;
+    switch (filter.kind) {
+      case CssFilterKind.grayscale:
+        final t = amount.clamp(0.0, 1.0);
+        return _lerpMatrix(_identityColorMatrix, _grayscaleMatrix, t);
+      case CssFilterKind.sepia:
+        final t = amount.clamp(0.0, 1.0);
+        return _lerpMatrix(_identityColorMatrix, _sepiaMatrix, t);
+      case CssFilterKind.invert:
+        final t = amount.clamp(0.0, 1.0);
+        return _lerpMatrix(_identityColorMatrix, _invertMatrix, t);
+      case CssFilterKind.brightness:
+        // [b,0,0,0,0] 三行，alpha 保持 1。
+        return <double>[
+          amount, 0, 0, 0, 0, //
+          0, amount, 0, 0, 0, //
+          0, 0, amount, 0, 0, //
+          0, 0, 0, 1, 0, //
+        ];
+      case CssFilterKind.contrast:
+        // 斜率 c、截距 0.5·(1−c)（0..1 域，换到 0..255 即 127.5·(1−c)）。
+        final offset = 127.5 * (1 - amount);
+        return <double>[
+          amount, 0, 0, 0, offset, //
+          0, amount, 0, 0, offset, //
+          0, 0, amount, 0, offset, //
+          0, 0, 0, 1, 0, //
+        ];
+      case CssFilterKind.saturate:
+        final s = amount;
+        return <double>[
+          0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s, 0, 0, //
+          0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s, 0, 0, //
+          0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s, 0, 0, //
+          0, 0, 0, 1, 0, //
+        ];
+      case CssFilterKind.hueRotate:
+        final radians = amount * math.pi / 180;
+        final cos = math.cos(radians);
+        final sin = math.sin(radians);
+        return <double>[
+          0.213 + cos * 0.787 - sin * 0.213,
+          0.715 - cos * 0.715 - sin * 0.715,
+          0.072 - cos * 0.072 + sin * 0.928,
+          0, 0, //
+          0.213 - cos * 0.213 + sin * 0.143,
+          0.715 + cos * 0.285 + sin * 0.140,
+          0.072 - cos * 0.072 - sin * 0.283,
+          0, 0, //
+          0.213 - cos * 0.213 - sin * 0.787,
+          0.715 - cos * 0.715 + sin * 0.715,
+          0.072 + cos * 0.928 + sin * 0.072,
+          0, 0, //
+          0, 0, 0, 1, 0, //
+        ];
+      case CssFilterKind.opacity:
+        final alpha = amount.clamp(0.0, 1.0);
+        return <double>[
+          1, 0, 0, 0, 0, //
+          0, 1, 0, 0, 0, //
+          0, 0, 1, 0, 0, //
+          0, 0, 0, alpha, 0, //
+        ];
+      case CssFilterKind.blur:
+      case CssFilterKind.dropShadow:
+        return _identityColorMatrix;
+    }
+  }
+
+  /// drop-shadow 近似：把内容副本按 offset 平移，模糊后染成阴影色，垫在下方。
+  ///
+  /// CSS 顺序上 drop-shadow 处在滤镜链中间时，其前面的滤镜也应作用于投影、
+  /// 后面的滤镜应作用于「投影+元素」合成结果；这里统一按「元素最底层的投影」
+  /// 处理（书内 drop-shadow 少见，观感差别仅限特殊链路）。
+  void _paintFilterDropShadow(
+    Canvas canvas,
+    CssFilter filter,
+    void Function() body,
+    Rect bounds,
+  ) {
+    final shadow = filter.shadow;
+    if (shadow == null) {
+      return;
+    }
+    final sigma = math.max(0.0, shadow.blur / 2);
+    canvas.saveLayer(bounds, Paint());
     canvas.saveLayer(
-      geometry.box.inflate(64),
-      Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+      bounds,
+      Paint()..colorFilter = ColorFilter.mode(shadow.color, BlendMode.srcIn),
     );
+    if (sigma > 0) {
+      canvas.saveLayer(
+        bounds,
+        Paint()
+          ..imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+      );
+    }
+    canvas.save();
+    canvas.translate(shadow.offsetX, shadow.offsetY);
     body();
     canvas.restore();
+    if (sigma > 0) {
+      canvas.restore();
+    }
+    canvas.restore();
+    canvas.restore();
+  }
+
+  /// 列表标记图片（W6）：按块解析 `list-style-image` 的 url；null 表示无图或
+  /// 当前不可用，回退文字/几何标记（CSS 同样在图片加载失败时回退）。
+  ///
+  /// 尺寸按 1em 方框等比缩放、右缘贴正文左缘、垂直居中于行盒；图片由调用方
+  /// （章节源 + 图片缓存）经 [imageLookup] 提供，绘制层不做 IO。
+  ui.Image? _listMarkerImageFor(_SliceGeometry geometry) {
+    final source = listMarkerImageOf;
+    final lookup = imageLookup;
+    if (source == null || lookup == null) {
+      return null;
+    }
+    final url = source(geometry.slice.block);
+    if (url == null || url.isEmpty) {
+      return null;
+    }
+    return lookup(url);
+  }
+
+  static const List<double> _identityColorMatrix = <double>[
+    1, 0, 0, 0, 0, //
+    0, 1, 0, 0, 0, //
+    0, 0, 1, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ];
+
+  static const List<double> _grayscaleMatrix = <double>[
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ];
+
+  static const List<double> _sepiaMatrix = <double>[
+    0.393, 0.769, 0.189, 0, 0, //
+    0.349, 0.686, 0.168, 0, 0, //
+    0.272, 0.534, 0.131, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ];
+
+  static const List<double> _invertMatrix = <double>[
+    -1, 0, 0, 0, 255, //
+    0, -1, 0, 0, 255, //
+    0, 0, -1, 0, 255, //
+    0, 0, 0, 1, 0, //
+  ];
+
+  static List<double> _lerpMatrix(List<double> from, List<double> to, double t) {
+    return <double>[
+      for (var i = 0; i < from.length; i++) from[i] + (to[i] - from[i]) * t,
+    ];
   }
 
   /// 外阴影（W2）：blur / spread 支持，多阴影取首个（样式层语义）。
@@ -878,6 +1111,19 @@ class PagePainter {
     required double lineTop,
     required double lineHeight,
   }) {
+    final markerImage = _listMarkerImageFor(geometry);
+    if (markerImage != null) {
+      _paintMarkerImage(
+        canvas,
+        markerImage,
+        boxLeft: geometry.box.left,
+        textX: textX,
+        lineTop: lineTop,
+        lineHeight: lineHeight,
+        fontSize: geometry.textStyle.fontSize ?? 0,
+      );
+      return;
+    }
     final painter = TextPainter(
       text: TextSpan(text: marker, style: geometry.textStyle),
       textDirection: TextDirection.ltr,
@@ -910,6 +1156,37 @@ class PagePainter {
     }
     painter.paint(canvas, Offset(x, y));
     painter.dispose();
+  }
+
+  /// 画列表标记图片：等比缩进 1em 方框、右缘贴正文左缘、行盒内垂直居中。
+  void _paintMarkerImage(
+    Canvas canvas,
+    ui.Image image, {
+    required double boxLeft,
+    required double textX,
+    required double lineTop,
+    required double lineHeight,
+    required double fontSize,
+  }) {
+    final box = fontSize > 0 ? fontSize : 16.0;
+    final width = image.width.toDouble();
+    final height = image.height.toDouble();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    final scale = math.min(box / width, box / height);
+    final drawWidth = width * scale;
+    final drawHeight = height * scale;
+    // 右缘贴正文左缘；版心外无空间时与文字标记一样退到盒内 1px（防止整幅
+    // 图片被页边裁掉）。
+    final left = math.max(boxLeft + 1, textX - drawWidth);
+    final top = lineTop + (lineHeight - drawHeight) / 2;
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, width, height),
+      Rect.fromLTWH(left, top, drawWidth, drawHeight),
+      Paint()..filterQuality = FilterQuality.medium,
+    );
   }
 
   /// 项目符号字形 → 几何形状；非符号标记返回 null。
@@ -1156,15 +1433,11 @@ class PagePainter {
   /// - ellipse：rx = dx·√2、ry = dy·√2（dx/dy 是中心到最远边的距离），
   ///   与 Chromium 实测一致。
   ///
-  /// 色标位置为 null 时按 CSS `<color-stop-list>` 规则在相邻已定位色标之间
-  /// 均分；位置整体单调递增。
+  /// 色标位置交给 [CssGradientStop.fractionOf]：百分比直接给比例、像素/em 按
+  /// [extent]（线性 = 渐变线长，径向 = 半径）换算，未声明位置的按 CSS 规则在
+  /// 相邻已定位色标间均分。`repeating-*` 用一个周期的归一化色标 + TileMode
+  /// 重复平铺。
   Shader? _gradientShader(CssGradient gradient, Rect area) {
-    final resolved = _resolveGradientStops(gradient.stops);
-    if (resolved == null) {
-      return null;
-    }
-    final colors = [for (final stop in resolved) stop.color];
-    final stops = [for (final stop in resolved) stop.position];
     switch (gradient) {
       case CssLinearGradient():
         final radians = gradient.angle * math.pi / 180;
@@ -1175,12 +1448,27 @@ class PagePainter {
         if (length <= 0) {
           return null;
         }
+        final resolved = _resolveGradientStops(
+          gradient.stops,
+          extent: length,
+          repeating: gradient.repeating,
+        );
+        if (resolved == null) {
+          return null;
+        }
         final half = direction * (length / 2);
+        final begin = area.center - half;
+        // 重复渐变：shader 覆盖「一个周期」，两端由 TileMode 继续平铺，
+        // 否则周期会被拉长成整条渐变线。
+        final cycle = gradient.repeating
+            ? math.max(1e-6, resolved.periodFraction * length)
+            : length;
         return ui.Gradient.linear(
-          area.center - half,
-          area.center + half,
-          colors,
-          stops,
+          begin,
+          gradient.repeating ? begin + direction * cycle : area.center + half,
+          [for (final stop in resolved.stops) stop.color],
+          [for (final stop in resolved.stops) stop.position],
+          gradient.repeating ? TileMode.repeated : TileMode.clamp,
         );
       case CssRadialGradient():
         final cx = gradient.centerX.resolve(area.width) ?? area.width / 2;
@@ -1191,19 +1479,40 @@ class PagePainter {
         if (dx <= 0 || dy <= 0) {
           return null;
         }
+        final radius = gradient.shape == CssRadialShape.circle
+            ? math.sqrt(dx * dx + dy * dy)
+            : dx * math.sqrt2;
+        // 像素色标按「半径」换算（椭圆的竖直方向半径不同，取水平半径近似）。
+        final resolved = _resolveGradientStops(
+          gradient.stops,
+          extent: radius,
+          repeating: gradient.repeating,
+        );
+        if (resolved == null) {
+          return null;
+        }
+        final colors = [for (final stop in resolved.stops) stop.color];
+        final stops = [for (final stop in resolved.stops) stop.position];
+        final tileMode = gradient.repeating
+            ? TileMode.repeated
+            : TileMode.clamp;
+        // 重复径向渐变同理：shader 半径取一个周期，向外由 TileMode 平铺。
+        final shaderRadius = gradient.repeating
+            ? math.max(1e-6, resolved.periodFraction * radius)
+            : radius;
         if (gradient.shape == CssRadialShape.circle) {
           return ui.Gradient.radial(
             center,
-            math.sqrt(dx * dx + dy * dy),
+            shaderRadius,
             colors,
             stops,
+            tileMode,
           );
         }
         // 椭圆：radial() 只支持圆，用「渐变空间 y 压缩」把圆压成椭圆：
         // 关于中心缩放 y（倍率 ry/rx），x 不变。
-        final rx = dx * math.sqrt2;
         final ry = dy * math.sqrt2;
-        final scaleY = ry / rx;
+        final scaleY = ry / radius;
         final matrix = Float64List.fromList(<double>[
           1, 0, 0, 0, //
           0, scaleY, 0, 0, //
@@ -1212,28 +1521,42 @@ class PagePainter {
         ]);
         return ui.Gradient.radial(
           center,
-          rx,
+          shaderRadius,
           colors,
           stops,
-          TileMode.clamp,
+          tileMode,
           matrix,
         );
     }
   }
 
-  /// 解析色标位置（0–1）：未声明位置（null）在相邻已定位色标间均分。
+  /// 解析色标位置（0–1）：支持百分比与像素（按 [extent] 换算）。
   ///
-  /// 首/尾未声明时分别钉在 0 / 1；位置单调递增（后一个不小于前一个）。
-  List<({Color color, double position})>? _resolveGradientStops(
-    List<CssGradientStop> stops,
-  ) {
+  /// 普通渐变：首/尾未声明时分别钉在 0 / 1；位置单调递增（后不小于前），
+  /// 未声明位置在相邻已定位色标间均分。
+  ///
+  /// 重复渐变：以最后一个色标为一个周期，把整段位置归一化到 0..1
+  /// （TileMode.repeated 只平铺 shader 的 [0,1] 域）；首标不在 0 时先把周期
+  /// 平移到从 0 起算。归一化后末标恒为 1，跨周期回绕由平铺完成。
+  ({List<({Color color, double position})> stops, double periodFraction})?
+  _resolveGradientStops(
+    List<CssGradientStop> stops, {
+    required double extent,
+    required bool repeating,
+  }) {
     if (stops.length < 2) {
       return null;
     }
     final count = stops.length;
-    final positions = <double?>[for (final stop in stops) stop.position];
+    final positions = <double?>[
+      for (final stop in stops) stop.fractionOf(extent),
+    ];
     positions[0] ??= 0;
-    positions[count - 1] ??= 1;
+    if (!repeating) {
+      positions[count - 1] ??= 1;
+    } else if (positions[count - 1] == null) {
+      positions[count - 1] = 1;
+    }
     var previous = 0.0;
     for (var i = 0; i < count; i++) {
       final value = positions[i];
@@ -1264,10 +1587,30 @@ class PagePainter {
       }
       cursor = end;
     }
-    return [
-      for (var i = 0; i < count; i++)
-        (color: stops[i].color, position: positions[i]!),
-    ];
+    final first = positions.first!;
+    final period = positions.last! - first;
+    if (!repeating) {
+      return (
+        stops: [
+          for (var i = 0; i < count; i++)
+            (color: stops[i].color, position: positions[i]!),
+        ],
+        periodFraction: 1,
+      );
+    }
+    if (period <= 0) {
+      return null;
+    }
+    return (
+      stops: [
+        for (var i = 0; i < count; i++)
+          (
+            color: stops[i].color,
+            position: (positions[i]! - first) / period,
+          ),
+      ],
+      periodFraction: period,
+    );
   }
 
   /// 背景裁剪区域：border-box / padding-box / content-box。
@@ -2226,10 +2569,11 @@ class _SliceGeometry {
   /// 容器拼合盒（P9-25）：带边框容器里的子块，把背景与左右边框延伸到
   /// 自己的上下段距，多个子块叠起来就拼回一整片面板。
   Rect get containerPaintBox {
-    final base = marginBox;
+    final base = borderBox;
     if (!slice.block.containerSides) {
       return base;
     }
+    // 容器拼合：向上下延伸到相邻子块的段距，拼回整片面板（P9-25）。
     return Rect.fromLTRB(
       base.left,
       y - slice.leadingExtent,
@@ -2238,13 +2582,28 @@ class _SliceGeometry {
     );
   }
 
-  Rect get marginBox => Rect.fromLTRB(
-    // 出血（P9-22）：多用 `duokan-bleed` 让元素的背景/边框顶到页面边缘。
-    slice.block.bleedLeft ? 0 : style.margin.left,
-    y,
-    slice.block.bleedRight ? pageWidth : pageWidth - style.margin.right,
-    y + slice.height,
-  );
+  /// 边框盒（页面坐标）。
+  ///
+  /// 切片 [PageBlockSlice.height] 的首尾额外高度里含**段前/段后间距**
+  /// （`leadingExtent = spaceBefore + topInset`），背景/边框/阴影只能用去掉
+  /// margin 后的边框盒，否则会画进相邻块之间的空白带——Chromium 那里是页面
+  /// 底色（10-background、26-background-gradient 的视觉差全部落在这条带上）。
+  Rect get borderBox {
+    final block = slice.block;
+    final top = slice.leadingExtent > 0
+        ? y + slice.leadingExtent - block.topInset
+        : y;
+    final bottom = slice.trailingExtent > 0
+        ? y + slice.height - slice.trailingExtent + block.bottomInset
+        : y + slice.height;
+    return Rect.fromLTRB(
+      // 出血（P9-22）：多用 `duokan-bleed` 让元素的背景/边框顶到页面边缘。
+      block.bleedLeft ? 0 : style.margin.left,
+      top,
+      block.bleedRight ? pageWidth : pageWidth - style.margin.right,
+      bottom,
+    );
+  }
 
   /// 按切片裁剪；上下标越界时放宽上下边。
   void clip(Canvas canvas) {
