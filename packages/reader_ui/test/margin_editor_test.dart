@@ -87,6 +87,47 @@ void main() {
       expect(cancelled, isFalse);
     });
 
+    testWidgets('拖动胶囊实时预览（onPreview 连续回调）', (tester) async {
+      final previews = <ReaderMargins>[];
+      ReaderMargins? applied;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MarginEditor(
+              margins: _defaults(),
+              defaults: _defaults(),
+              onCancel: () {},
+              onApply: (value) => applied = value,
+              onPreview: previews.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 在「上内」胶囊上横向拖动 60px ≈ 10 格。
+      await tester.drag(
+        find.byKey(const ValueKey<String>('margin-top-inner')),
+        const Offset(60, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(previews, isNotEmpty, reason: '拖动过程中就应实时预览');
+      expect(previews.last.topInner, greaterThan(12));
+      expect(find.text('上内 ${previews.last.topInner.round()}'), findsOneWidget);
+
+      // 点箭头同样触发预览。
+      final before = previews.length;
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('margin-top-inner')),
+          matching: find.byIcon(Icons.keyboard_arrow_up),
+        ),
+      );
+      await tester.pump();
+      expect(previews.length, greaterThan(before));
+      expect(applied, isNull, reason: '没点保留不应回传');
+    });
+
     testWidgets('恢复默认值与取消不应用', (tester) async {
       ReaderMargins defaults = _defaultScanner();
       await tester.pumpWidget(

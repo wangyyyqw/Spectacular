@@ -138,4 +138,81 @@ void main() {
     expect(reloaded.margins, margins);
     expect(reloaded.margins!.top, 14, reason: '外段归零后只剩内段');
   });
+
+  testWidgets('边距调节器拖动实时预览，取消后恢复（P8-10）', (tester) async {
+    final bytes = buildTestEpub(
+      title: '边距预览',
+      paragraphs: const <String>['第一段内容足够长以便分页。', '第二段内容。'],
+    );
+    final source = await openTestChapterSource(bytes);
+    late ReaderSession session;
+    final applied = <ReaderMargins>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 520,
+              child: ReaderPage(
+                source: source,
+                store: MemoryReaderProgressStore(),
+                bookId: 'margin-preview',
+                onSessionReady: (value) => session = value,
+                onMarginsChanged: applied.add,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = session.layoutFingerprint;
+
+    // 菜单 → 排版 → 边距调节器。
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-type')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-margin-editor')),
+      80,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-margin-editor')),
+    );
+    await tester.pumpAndSettle();
+
+    final pagesBefore = session.chapterPageCount;
+
+    // 拖「上内」胶囊：数值随手走，且正文按新边距重新分页（预览生效）。
+    await tester.drag(
+      find.byKey(const ValueKey<String>('margin-top-inner')),
+      const Offset(120, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining(RegExp(r'^上内 \d+$')),
+      findsOneWidget,
+      reason: '拖动时数值实时变化',
+    );
+    expect(
+      find.text('上内 12'),
+      findsNothing,
+      reason: '数值已随拖动改变',
+    );
+
+    // 取消：不应用，边距回到原样。
+    await tester.tap(find.byKey(const ValueKey<String>('margin-cancel')));
+    await tester.pumpAndSettle();
+    expect(applied, isEmpty, reason: '取消不应用');
+    expect(
+      session.chapterPageCount,
+      pagesBefore,
+      reason: '取消后分页恢复',
+    );
+    expect(session.layoutFingerprint, before, reason: '取消后排版指纹不变');
+  });
 }

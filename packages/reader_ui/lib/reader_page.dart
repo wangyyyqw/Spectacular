@@ -176,8 +176,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 是否在边距调节器里（全屏编辑态，压在菜单之上）。
   bool _editingMargins = false;
 
+  /// 调节器拖动中的预览值（非空时正文按它排版，取消即恢复）。
+  ReaderMargins? _previewMargins;
+
   /// 当前生效的页边距（未设置时按安全区 + padding 推导）。
   ReaderMargins get _activeMargins =>
+      _previewMargins ??
       widget.margins ??
       ReaderMargins.defaults(
         safeTop: MediaQuery.maybeViewPaddingOf(context)?.top ?? 0,
@@ -254,7 +258,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
     // 设置里显式给了页边距（含安全区两段）时直接用它：边距调节器允许把
     // 上下外段调到 0，让正文铺进安全区，所以这里不能再叠加 viewPadding。
-    final margins = widget.margins;
+    final margins = _previewMargins ?? widget.margins;
     if (margins != null) {
       return margins.toPadding();
     }
@@ -1365,7 +1369,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onOpenMarginEditor: () {
                         _closeDrawer();
                         _toggleReaderMenu();
-                        setState(() => _editingMargins = true);
+                        setState(() {
+                          _editingMargins = true;
+                          _previewMargins = null;
+                        });
                       },
                     ),
               onCloseDrawer: _closeDrawer,
@@ -1385,10 +1392,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     side: ReaderSettingsDefaults.horizontalPadding,
                     inner: 12,
                   ),
-                  onCancel: () => setState(() => _editingMargins = false),
+                  onPreview: (margins) =>
+                      setState(() => _previewMargins = margins),
+                  onCancel: () => setState(() {
+                    _editingMargins = false;
+                    _previewMargins = null;
+                  }),
                   onApply: (margins) {
                     widget.onMarginsChanged?.call(margins);
-                    setState(() => _editingMargins = false);
+                    setState(() {
+                      _editingMargins = false;
+                      _previewMargins = null;
+                    });
                   },
                 ),
               ),

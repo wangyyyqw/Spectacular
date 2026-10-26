@@ -15,6 +15,7 @@ class MarginEditor extends StatefulWidget {
     required this.defaults,
     required this.onCancel,
     required this.onApply,
+    this.onPreview,
     this.maxOuter = 96,
     this.maxInner = 60,
     this.maxSide = 48,
@@ -32,6 +33,9 @@ class MarginEditor extends StatefulWidget {
   /// 保留（应用改动）。
   final ValueChanged<ReaderMargins> onApply;
 
+  /// 草稿变化（拖动/步进时实时回调，供上层立即预览排版）。
+  final ValueChanged<ReaderMargins>? onPreview;
+
   /// 上/下外段上限。
   final double maxOuter;
 
@@ -48,17 +52,28 @@ class MarginEditor extends StatefulWidget {
 class _MarginEditorState extends State<MarginEditor> {
   late ReaderMargins _draft = widget.margins;
 
+  /// 更新草稿并立即通知上层预览（拖动/步进都走这里）。
+  void _apply(ReaderMargins next) {
+    setState(() => _draft = next);
+    widget.onPreview?.call(next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Stack(
       children: <Widget>[
-        // 半透明斜纹遮罩：既能看见正文效果，又能区分编辑态。
+        // 斜纹只画在「留白区」（边距内、正文外的四圈），正文上不盖任何遮罩。
         Positioned.fill(
           child: IgnorePointer(
-            child: CustomPaint(
-              painter: _HatchPainter(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
+            child: LayoutBuilder(
+              builder: (context, constraints) => CustomPaint(
+                painter: _MarginZonePainter(
+                  padding: _draft.toPadding(),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  lineColor: theme.colorScheme.primary.withValues(alpha: 0.35),
+                ),
+                size: constraints.biggest,
               ),
             ),
           ),
@@ -79,13 +94,11 @@ class _MarginEditorState extends State<MarginEditor> {
                     label: '上外',
                     value: _draft.topOuter,
                     max: widget.maxOuter,
-                    onDelta: (delta) => setState(
-                      () => _draft = _draft.copyWith(
+                    onDelta: (delta) => _apply(_draft.copyWith(
                         topOuter: (_draft.topOuter + delta).clamp(
                           0,
                           widget.maxOuter,
-                        ),
-                      ),
+                        )),
                     ),
                     key: const ValueKey<String>('margin-top-outer'),
                   ),
@@ -94,13 +107,11 @@ class _MarginEditorState extends State<MarginEditor> {
                     label: '上内',
                     value: _draft.topInner,
                     max: widget.maxInner,
-                    onDelta: (delta) => setState(
-                      () => _draft = _draft.copyWith(
+                    onDelta: (delta) => _apply(_draft.copyWith(
                         topInner: (_draft.topInner + delta).clamp(
                           0,
                           widget.maxInner,
-                        ),
-                      ),
+                        )),
                     ),
                     key: const ValueKey<String>('margin-top-inner'),
                   ),
@@ -120,10 +131,8 @@ class _MarginEditorState extends State<MarginEditor> {
                   label: '左',
                   value: _draft.left,
                   max: widget.maxSide,
-                  onDelta: (delta) => setState(
-                    () => _draft = _draft.copyWith(
-                      left: (_draft.left + delta).clamp(0, widget.maxSide),
-                    ),
+                  onDelta: (delta) => _apply(_draft.copyWith(
+                      left: (_draft.left + delta).clamp(0, widget.maxSide)),
                   ),
                   key: const ValueKey<String>('margin-left'),
                 ),
@@ -134,10 +143,8 @@ class _MarginEditorState extends State<MarginEditor> {
                   label: '右',
                   value: _draft.right,
                   max: widget.maxSide,
-                  onDelta: (delta) => setState(
-                    () => _draft = _draft.copyWith(
-                      right: (_draft.right + delta).clamp(0, widget.maxSide),
-                    ),
+                  onDelta: (delta) => _apply(_draft.copyWith(
+                      right: (_draft.right + delta).clamp(0, widget.maxSide)),
                   ),
                   key: const ValueKey<String>('margin-right'),
                 ),
@@ -162,13 +169,11 @@ class _MarginEditorState extends State<MarginEditor> {
                       label: '下内',
                       value: _draft.bottomInner,
                       max: widget.maxInner,
-                      onDelta: (delta) => setState(
-                        () => _draft = _draft.copyWith(
+                      onDelta: (delta) => _apply(_draft.copyWith(
                           bottomInner: (_draft.bottomInner + delta).clamp(
                             0,
                             widget.maxInner,
-                          ),
-                        ),
+                          )),
                       ),
                       key: const ValueKey<String>('margin-bottom-inner'),
                     ),
@@ -177,13 +182,11 @@ class _MarginEditorState extends State<MarginEditor> {
                       label: '下外',
                       value: _draft.bottomOuter,
                       max: widget.maxOuter,
-                      onDelta: (delta) => setState(
-                        () => _draft = _draft.copyWith(
+                      onDelta: (delta) => _apply(_draft.copyWith(
                           bottomOuter: (_draft.bottomOuter + delta).clamp(
                             0,
                             widget.maxOuter,
-                          ),
-                        ),
+                          )),
                       ),
                       key: const ValueKey<String>('margin-bottom-outer'),
                     ),
@@ -191,7 +194,7 @@ class _MarginEditorState extends State<MarginEditor> {
                 ),
                 const SizedBox(height: 10),
                 _ActionBar(
-                  onReset: () => setState(() => _draft = widget.defaults),
+                  onReset: () => _apply(widget.defaults),
                   onCancel: widget.onCancel,
                   onApply: () => widget.onApply(_draft),
                 ),
@@ -225,33 +228,41 @@ class _Pill extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
-      elevation: 2,
+      elevation: 3,
       borderRadius: BorderRadius.circular(18),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _Arrow(
-              icon: Icons.keyboard_arrow_up,
-              onTap: value >= max ? null : () => onDelta(1),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                '$label ${value.toStringAsFixed(0)}',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: scheme.onSurface,
-                  fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+      child: GestureDetector(
+        // 整颗胶囊都可以拖：横向拖动按 6px = 1 连续改值，实时预览。
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (details) =>
+            onDelta(details.delta.dx / 6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _Arrow(
+                icon: Icons.keyboard_arrow_up,
+                onTap: value >= max ? null : () => onDelta(1),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  '$label ${value.round()}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: scheme.onSurface,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            _Arrow(
-              icon: Icons.keyboard_arrow_down,
-              onTap: value <= 0 ? null : () => onDelta(-1),
-            ),
-          ],
+              _Arrow(
+                icon: Icons.keyboard_arrow_down,
+                onTap: value <= 0 ? null : () => onDelta(-1),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -342,27 +353,70 @@ class _ActionBar extends StatelessWidget {
   }
 }
 
-/// 斜纹遮罩（参考图的对角线纹理）。
-class _HatchPainter extends CustomPainter {
-  _HatchPainter({required this.color});
+/// 只画「留白区」的斜纹与边框：正文矩形内不落任何颜色。
+class _MarginZonePainter extends CustomPainter {
+  _MarginZonePainter({
+    required this.padding,
+    required this.color,
+    required this.lineColor,
+  });
 
+  final EdgeInsets padding;
   final Color color;
+  final Color lineColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 6;
-    const step = 18.0;
-    for (double x = -size.height; x < size.width; x += step) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x + size.height, size.height),
-        paint,
-      );
+    final body = Rect.fromLTRB(
+      padding.left,
+      padding.top,
+      size.width - padding.right,
+      size.height - padding.bottom,
+    );
+    if (body.width <= 0 || body.height <= 0) {
+      return;
     }
+    // 四条留白带（上/下/左/右），互相不重叠。
+    final zones = <Rect>[
+      Rect.fromLTRB(0, 0, size.width, body.top),
+      Rect.fromLTRB(0, body.bottom, size.width, size.height),
+      Rect.fromLTRB(0, body.top, body.left, body.bottom),
+      Rect.fromLTRB(body.right, body.top, size.width, body.bottom),
+    ];
+    final hatch = Paint()
+      ..color = color
+      ..strokeWidth = 5;
+    for (final zone in zones) {
+      if (zone.width <= 0 || zone.height <= 0) {
+        continue;
+      }
+      canvas.save();
+      canvas.clipRect(zone);
+      const step = 16.0;
+      for (double x = zone.left - zone.height;
+          x < zone.right;
+          x += step) {
+        canvas.drawLine(
+          Offset(x, zone.top),
+          Offset(x + zone.height, zone.bottom),
+          hatch,
+        );
+      }
+      canvas.restore();
+    }
+    // 正文边界线：一眼看出可读区域在哪。
+    canvas.drawRect(
+      body,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = lineColor,
+    );
   }
 
   @override
-  bool shouldRepaint(_HatchPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(_MarginZonePainter oldDelegate) =>
+      oldDelegate.padding != padding ||
+      oldDelegate.color != color ||
+      oldDelegate.lineColor != lineColor;
 }
