@@ -5,7 +5,11 @@
 /// 这些属性不是标准 CSS，但语义与标准属性一一对应；在解析入口统一改名，
 /// 后续层叠、计算、绘制全部走标准路径，不必在每个消费点各写一次兼容。
 abstract final class CssPropertyAliases {
-  /// 多看私有属性 → 标准属性（键为去掉前导 `-` 后的小写名）。
+  /// 私有属性 → 标准属性（键为去掉前导 `-` 后的小写名）。
+  ///
+  /// 键的写法规整：`-duokan-x` 与 `duokan-x` 剥掉前导 `-` 后同名，所以
+  /// 真实书里连字符漏写（`webkit-writing-mode`）、或换成别的私有前缀
+  /// （`-epub-x`、`-webkit-x`）都落到同一张表。
   static const Map<String, String> _aliases = <String, String>{
     'duokan-text-indent': 'text-indent',
     'duokan-paragraph-align': 'text-align',
@@ -22,20 +26,59 @@ abstract final class CssPropertyAliases {
     'duokan-text-shadow': 'text-shadow',
     'duokan-text-decoration': 'text-decoration',
     'duokan-font-weight': 'font-weight',
-    // 多看排版方向族（竖排 P5 未接入，先按标准属性保存）。
-    'duokan-writing-mode': 'writing-mode',
-    'duokan-writing-orientation': 'writing-mode',
-    'duokan-text-orientation': 'writing-mode',
-    'duokan-block-progression': 'writing-mode',
     // 多看段前后距。
     'duokan-margin-before': 'margin-top',
     'duokan-margin-after': 'margin-bottom',
     'duokan-padding-before': 'padding-top',
     'duokan-padding-after': 'padding-bottom',
+    // 着重号族：多看 4.x 与 WebKit 旧语法都写过（真实书与多看官方
+    // 样式表里两套并存），统一落到标准 text-emphasis* 长属性。
+    'duokan-text-emphasis': 'text-emphasis',
+    'duokan-text-emphasis-style': 'text-emphasis-style',
+    'duokan-text-emphasis-color': 'text-emphasis-color',
+    'duokan-text-emphasis-position': 'text-emphasis-position',
+    'webkit-text-emphasis': 'text-emphasis',
+    'webkit-text-emphasis-style': 'text-emphasis-style',
+    'webkit-text-emphasis-color': 'text-emphasis-color',
+    'webkit-text-emphasis-position': 'text-emphasis-position',
+    // 断行严格度：多看 duokan-line-break 与 WebKit 旧语法同义。
+    // 目标属性 `line-break` 当前零消费（ComputedStyle 无字段、排版侧不读），
+    // 这里只保证「改名 + 落进 values」，不要当作已支持。
+    'duokan-line-break': 'line-break',
+    'webkit-line-break': 'line-break',
+    // 排版方向族（竖排 P5 未接入，先按标准属性保存）。
+    // 目标属性 `writing-mode` / `text-orientation` 当前零消费（取值改写与
+    // 归一已做，排版/绘制不读），待 P5 竖排接入后补消费点。
+    // 注意：text-orientation 不能并进 writing-mode——真实书里
+    // `duokan-text-orientation: upright` 紧跟在 `duokan-writing-mode:
+    // vertical-rl` 之后，同特异性后者胜，并进去会把整章排版方向从竖排
+    // 改回横排。
+    'duokan-writing-mode': 'writing-mode',
+    'duokan-writing-orientation': 'writing-mode',
+    'duokan-block-progression': 'writing-mode',
+    'duokan-text-orientation': 'text-orientation',
     'epub-writing-mode': 'writing-mode',
+    'epub-text-orientation': 'text-orientation',
+    'webkit-writing-mode': 'writing-mode',
+    // 着重号/注音的 -epub- 旧前缀。
     'epub-text-emphasis': 'text-emphasis',
     'epub-text-emphasis-style': 'text-emphasis-style',
     'epub-text-emphasis-color': 'text-emphasis-color',
+    'epub-text-emphasis-position': 'text-emphasis-position',
+    // 断词与直排合成（真实书 `-epub-hyphens`、`-webkit-text-combine`）。
+    // 目标属性 `hyphens` / `text-combine-upright` 当前零消费，同样是
+    // 「先接住再等消费点」，不是已实现。
+    'epub-hyphens': 'hyphens',
+    'webkit-hyphens': 'hyphens',
+    'epub-text-combine': 'text-combine-upright',
+    'webkit-text-combine': 'text-combine-upright',
+    'ms-text-combine-horizontal': 'text-combine-upright',
+    // 逻辑方向边距/内边距：中文 EPUB 都是横排 LTR，按左/右近似
+    // （真实书用 -webkit-margin-start 做首行缩进时的常见写法）。
+    'webkit-margin-start': 'margin-left',
+    'webkit-margin-end': 'margin-right',
+    'webkit-padding-start': 'padding-left',
+    'webkit-padding-end': 'padding-right',
   };
 
   /// 解析一条声明：返回标准属性名与（可能被规整的）值。
@@ -52,7 +95,7 @@ abstract final class CssPropertyAliases {
         return (target, color);
       }
     }
-    return (target, value);
+    return (target, _normalizeValue(target, value));
   }
 
   static final RegExp _colorPattern = RegExp(
@@ -61,6 +104,28 @@ abstract final class CssPropertyAliases {
 
   static String? _firstColor(String value) =>
       _colorPattern.firstMatch(value)?.group(1);
+
+  /// 私有属性取值规整：多看排版方向族用 `vertical` / `horizontal` 与
+  /// 单字母块级推进方向（`rl` / `lr` / `tb`），都不是标准 writing-mode
+  /// 取值。这里统一折成标准写法：
+  /// - `rl` 是块级推进「从右往左」= 竖排右起 → `vertical-rl`；
+  /// - `lr` 是「从左往右」= 竖排左起（蒙古文）→ `vertical-lr`；
+  /// - `tb` 是「从上往下」= 横排 → `horizontal-tb`。
+  ///
+  /// 不折的话引擎侧只能拿到 `rl` 这类旧值，竖排接入时还要再判一次。
+  static String _normalizeValue(String target, String value) {
+    if (target == 'writing-mode') {
+      switch (value.trim().toLowerCase()) {
+        case 'vertical' || 'rl' || 'rl-tb' || 'tb-rl':
+          return 'vertical-rl';
+        case 'lr' || 'lr-tb':
+          return 'vertical-lr';
+        case 'horizontal' || 'tb':
+          return 'horizontal-tb';
+      }
+    }
+    return value;
+  }
 
   /// 值级别的私有关键字（`vertical-align: duokan-middle-line` 等）。
   static String normalizeValue(String value) {
