@@ -26,6 +26,10 @@ class LineBox {
     this.offsetX = 0,
     this.justifyExtra = 0,
     this.justifyMode = CssTextJustify.auto,
+    this.ellipsized = false,
+    this.ellipsisWidth = 0,
+    this.hyphenated = false,
+    this.hyphenWidth = 0,
   });
 
   /// 行起始字符下标（半开区间，P1-23 精化）。
@@ -65,6 +69,23 @@ class LineBox {
   /// 与测量期的 justifyExtra 一致。
   final CssTextJustify justifyMode;
 
+  /// 本行是否被 `text-overflow: ellipsis` 截断（行尾需画省略号）。
+  ///
+  /// [start]/[end] 仍是原文坐标（CFI/选区不受影响），[width] 已含
+  /// [ellipsisWidth]，因此截断行不会超出内容宽。
+  final bool ellipsized;
+
+  /// 省略号（`…`）的 advance 宽；[ellipsized] 为 false 时是 0。
+  final double ellipsisWidth;
+
+  /// 本行是否在词中断开并需要在行尾画连字符（`hyphens`）。
+  ///
+  /// [end] 仍是原文坐标（断点后一个字符），[width] 已含 [hyphenWidth]。
+  final bool hyphenated;
+
+  /// 连字符（`-`）的 advance 宽；[hyphenated] 为 false 时是 0。
+  final double hyphenWidth;
+
   /// 行底。
   double get bottom => top + height;
 
@@ -85,19 +106,28 @@ class LineBox {
     double? offsetX,
     double? justifyExtra,
     CssTextJustify? justifyMode,
+    double? width,
+    bool? ellipsized,
+    double? ellipsisWidth,
+    bool? hyphenated,
+    double? hyphenWidth,
   }) => LineBox(
     start: start ?? this.start,
     end: end ?? this.end,
     top: top ?? this.top,
     height: height,
     baseline: baseline,
-    width: width,
+    width: width ?? this.width,
     indent: indent ?? this.indent,
     isLastLine: isLastLine ?? this.isLastLine,
     isHardBreak: isHardBreak ?? this.isHardBreak,
     offsetX: offsetX ?? this.offsetX,
     justifyExtra: justifyExtra ?? this.justifyExtra,
     justifyMode: justifyMode ?? this.justifyMode,
+    ellipsized: ellipsized ?? this.ellipsized,
+    ellipsisWidth: ellipsisWidth ?? this.ellipsisWidth,
+    hyphenated: hyphenated ?? this.hyphenated,
+    hyphenWidth: hyphenWidth ?? this.hyphenWidth,
   );
 
   @override
@@ -105,6 +135,59 @@ class LineBox {
       'LineBox($start..$end, top=$top, h=$height, baseline=$baseline, w=$width, '
       'indent=$indent, last=$isLastLine, hard=$isHardBreak, x=$offsetX, '
       'justify=$justifyExtra)';
+}
+
+
+/// 软断点计划：`hyphens`/`overflow-wrap`/`word-break` 需要的「测量文本 +
+/// 下标映射 + 行尾连字符断点」。
+///
+/// 断点用 U+200B（ZWSP，零宽、UAX#14 允许其后换行）表达：Skia 只在确实放
+/// 不下时才在 ZWSP 处断开，因此「按需断词」语义由排版器保证。测量文本与
+/// 原文的偏移映射保证 [LineBox.start]/[LineBox.end] 仍是原文坐标（CFI/
+/// 选区/字数统计不受影响）。
+class SoftBreakPlan {
+  /// 创建计划。
+  const SoftBreakPlan({
+    required this.text,
+    required this.offsets,
+    required this.hyphenPoints,
+    this.hyphenAdvance = 0,
+  });
+
+  /// 无断点时的直通计划。
+  factory SoftBreakPlan.identity(String text, {double hyphenAdvance = 0}) =>
+      SoftBreakPlan(
+        text: text,
+        offsets: List<int>.generate(text.length + 1, (i) => i),
+        hyphenPoints: const <int>{},
+        hyphenAdvance: hyphenAdvance,
+      );
+
+  /// 插入断点后的测量文本。
+  final String text;
+
+  /// 测量下标 → 原文下标（长度 = [text].length + 1）。
+  final List<int> offsets;
+
+  /// 需要在行尾画连字符的测量边界下标集合。
+  final Set<int> hyphenPoints;
+
+  /// 连字符（`-`）的 advance 宽。
+  final double hyphenAdvance;
+
+  /// 是否需要后处理（插入断点或存在连字符断点）。
+  ///
+  /// 软连字符 U+00AD 被等长替换成 ZWSP 时，下标映射是恒等的，但行尾仍需
+  /// 补画连字符，所以连同 [hyphenPoints] 一起判断。
+  bool get changed =>
+      offsets.last != text.length || hyphenPoints.isNotEmpty;
+
+  /// 测量下标换算回原文下标。
+  int originalOffset(int measured) =>
+      offsets[measured.clamp(0, offsets.length - 1)];
+
+  /// 测量边界是否为连字符断点。
+  bool isHyphenPoint(int measured) => hyphenPoints.contains(measured);
 }
 
 /// 行内样式区间：为文本 `[start, end)` 指定独立计算样式。
@@ -270,6 +353,10 @@ class TextLayoutResult implements TextLayout {
 
   /// 行数。
   int get lineCount => lines.length;
+
+  /// 是否有行被 `text-overflow: ellipsis` 截断（绘制端只按 padding-box
+  /// 裁剪 ink，省略号由行内的 [LineBox.ellipsized] 标记决定）。
+  bool get ellipsized => lines.any((line) => line.ellipsized);
 }
 
 /// 正文过窄告警。
@@ -315,6 +402,14 @@ class LineBreaker {
 
   /// 宽度下限，单位为 em。
   final double minimumWidthEm;
+
+  /// 是否保留 CSS 声明的小数行高（实验开关，默认关闭）。
+  ///
+  /// Skia 把行盒高四舍五入到整数（`line-height: 22.5px` → 23、
+  /// `1.6 × 17px = 27.2` → 27），但 ascent 仍按小数行高算，因此基线是
+  /// 对的、只有行盒高度被取整。打开后行盒高改用 `ComputedStyle.lineHeight`
+  /// （小数），基线不变；影响面是所有依赖整数行高的分页/单元格高度。
+  static bool preserveFractionalLineHeight = false;
 
   bool _tooNarrow = false;
   int _warningCount = 0;
@@ -462,30 +557,247 @@ abstract final class TextLayoutEngine {
     final measuredText = measuredEnd == text.length
         ? text
         : text.substring(0, measuredEnd);
-    final measured = measuredText.isEmpty || indent <= 0
+    // 断词（hyphens / overflow-wrap / word-break）：插 U+200B 断点后测量，
+    // 再把行区间映射回原文；行尾连字符宽在映射时补进行宽。
+    final hyphenAdvance = _measureChar('-', style, textScaleFactor);
+    final breakPlan = planSoftBreaks(
+      text: measuredText,
+      hyphens: style.hyphens,
+      overflowWrap: style.overflowWrap,
+      wordBreak: style.wordBreak,
+      contentWidth: width,
+      style: style,
+      textScaleFactor: textScaleFactor,
+      hyphenAdvance: hyphenAdvance,
+    );
+    final rawMeasured = measuredText.isEmpty || indent <= 0
         ? _measureSegment(
-            text: measuredText,
+            text: breakPlan.text,
             width: measureWidth,
+            contentWidth: width,
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
             runs: styled,
           )
         : _measureWithIndent(
-            text: measuredText,
+            text: breakPlan.text,
             width: measureWidth,
+            contentWidth: width,
             indent: indent,
             style: style,
             textScaleFactor: textScaleFactor,
             leadingDistribution: leadingDistribution,
             runs: styled,
           );
+    final measured = _mapSoftBreaks(rawMeasured, breakPlan);
     return _result(
       text,
       _align(measuredText, measured, style, width),
       width,
       styled,
     );
+  }
+
+  /// 构造软断点计划（`hyphens` / `overflow-wrap` / `word-break`）。
+  ///
+  /// - `hyphens: auto`：拉丁词按「元音-辅音-元音」近似音节边界插入断点，
+  ///   并在这些断点处标记行尾连字符；`manual` 只认文本里的软连字符
+  ///   U+00AD；`none` 不断词。
+  /// - `overflow-wrap: break-word`：只给「单独放不下一行」的长词插断点；
+  ///   `anywhere` 与 `word-break:break-all` 给所有拉丁词逐字插断点。
+  ///
+  /// 断点用 U+200B 表达（零宽、可断），Skia 只在真放不下时才用；偏移映射
+  /// 保证行区间仍是原文坐标。
+  static SoftBreakPlan planSoftBreaks({
+    required String text,
+    required CssHyphens hyphens,
+    required CssOverflowWrap overflowWrap,
+    required CssWordBreak wordBreak,
+    required double contentWidth,
+    required ComputedStyle style,
+    double textScaleFactor = 1,
+    double hyphenAdvance = 0,
+  }) {
+    final autoHyphen = hyphens == CssHyphens.auto;
+    final manualHyphen = hyphens == CssHyphens.manual || autoHyphen;
+    final breakAnywhere =
+        overflowWrap == CssOverflowWrap.anywhere ||
+        wordBreak == CssWordBreak.breakAll;
+    final breakLongWord = overflowWrap == CssOverflowWrap.breakWord;
+    final hasSoftHyphen = text.contains('\u00AD');
+    if (!autoHyphen &&
+        !(manualHyphen && hasSoftHyphen) &&
+        !breakAnywhere &&
+        !breakLongWord) {
+      return SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+    }
+    // 断点：原文下标 → 是否带连字符（key 是「断在该下标之前」）。
+    final breaks = <int, bool>{};
+    var index = 0;
+    while (index < text.length) {
+      final code = text.codeUnitAt(index);
+      if (_isLatinWordCode(code)) {
+        final start = index;
+        while (index < text.length && _isLatinWordCode(text.codeUnitAt(index))) {
+          index += 1;
+        }
+        final word = text.substring(start, index);
+        for (final offset in _wordBreakOffsets(
+          word,
+          autoHyphen: autoHyphen,
+          breakAnywhere: breakAnywhere,
+          breakLongWord: breakLongWord,
+          contentWidth: contentWidth,
+          style: style,
+          textScaleFactor: textScaleFactor,
+        )) {
+          breaks[start + offset] = autoHyphen && !breakAnywhere;
+        }
+        continue;
+      }
+      if (code == 0x00AD && manualHyphen) {
+        // 软连字符本身就是断点（原文保留 SHY，测量文本换成 ZWSP）。
+        breaks[index] = true;
+        index += 1;
+        continue;
+      }
+      index += 1;
+    }
+    if (breaks.isEmpty) {
+      return SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+    }
+    final buffer = StringBuffer();
+    final offsets = <int>[0];
+    final hyphenPoints = <int>{};
+    for (var p = 0; p < text.length; p++) {
+      final isSoftHyphen = text.codeUnitAt(p) == 0x00AD;
+      if (breaks.containsKey(p)) {
+        // 软连字符位本身用它换掉（零宽），其余位置插入 ZWSP。
+        buffer.write('\u200B');
+        offsets.add(p);
+        if (breaks[p] == true) {
+          hyphenPoints.add(buffer.length - 1);
+        }
+        if (isSoftHyphen) {
+          continue; // SHY 已被 ZWSP 取代
+        }
+      }
+      buffer.write(text[p]);
+      offsets.add(p + 1);
+    }
+    final planned = buffer.toString();
+    if (planned.length == text.length && hyphenPoints.isEmpty) {
+      return SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+    }
+    if (planned.length == text.length) {
+      // 等长替换（软连字符 → ZWSP）：映射恒等，但保留连字符断点。
+      return SoftBreakPlan(
+        text: planned,
+        offsets: List<int>.generate(text.length + 1, (i) => i),
+        hyphenPoints: hyphenPoints,
+        hyphenAdvance: hyphenAdvance,
+      );
+    }
+    return SoftBreakPlan(
+      text: planned,
+      offsets: offsets,
+      hyphenPoints: hyphenPoints,
+      hyphenAdvance: hyphenAdvance,
+    );
+  }
+
+  /// 拉丁词内部的断点（相对词首的下标）：「断在该下标之前」。
+  static List<int> _wordBreakOffsets(
+    String word, {
+    required bool autoHyphen,
+    required bool breakAnywhere,
+    required bool breakLongWord,
+    required double contentWidth,
+    required ComputedStyle style,
+    required double textScaleFactor,
+  }) {
+    if (word.length < 4) {
+      return const <int>[];
+    }
+    if (breakAnywhere) {
+      return <int>[for (var i = 1; i < word.length; i++) i];
+    }
+    if (breakLongWord && _wordWidth(word, style, textScaleFactor) > contentWidth) {
+      return <int>[for (var i = 1; i < word.length; i++) i];
+    }
+    if (!autoHyphen) {
+      return const <int>[];
+    }
+    // 近似音节断点：V-C|V（元音-辅音-元音）在辅音前断开，两侧各留 ≥2 字符。
+    final offsets = <int>[];
+    for (var i = 2; i < word.length - 2; i++) {
+      if (_isVowel(word.codeUnitAt(i - 1)) &&
+          !_isVowel(word.codeUnitAt(i)) &&
+          _isVowel(word.codeUnitAt(i + 1))) {
+        offsets.add(i);
+      }
+    }
+    return offsets;
+  }
+
+  /// 词宽（`overflow-wrap: break-word` 判定用）。
+  static double _wordWidth(
+    String word,
+    ComputedStyle style,
+    double textScaleFactor,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: word, style: textStyleFor(style)),
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.linear(textScaleFactor),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  /// 拉丁字母/数字（含连字符与撇号，按整词处理）。
+  static bool _isLatinWordCode(int code) =>
+      (code >= 0x41 && code <= 0x5A) ||
+      (code >= 0x61 && code <= 0x7A) ||
+      (code >= 0x30 && code <= 0x39) ||
+      code == 0x27 ||
+      code == 0x2019;
+
+  /// 元音（近似音节切分用）。
+  static bool _isVowel(int code) {
+    final lower = code >= 0x41 && code <= 0x5A ? code + 0x20 : code;
+    return lower == 0x61 || // a
+        lower == 0x65 || // e
+        lower == 0x69 || // i
+        lower == 0x6F || // o
+        lower == 0x75 || // u
+        lower == 0x79; // y
+  }
+
+  /// 把测量坐标的断点映射回原文坐标（行区间仍是原文）。
+  static List<LineBox> _mapSoftBreaks(List<LineBox> lines, SoftBreakPlan plan) {
+    if (!plan.changed) {
+      return lines;
+    }
+    final mapped = <LineBox>[];
+    for (final line in lines) {
+      // Skia 的边界可能含 ZWSP 本身（end = 断点下标 + 1），两种都算断词。
+      final hyphenated =
+          plan.isHyphenPoint(line.end) ||
+          (line.end > 0 && plan.isHyphenPoint(line.end - 1));
+      mapped.add(
+        line.copyWith(
+          start: plan.originalOffset(line.start),
+          end: plan.originalOffset(line.end),
+          width: hyphenated ? line.width + plan.hyphenAdvance : line.width,
+          hyphenated: hyphenated,
+          hyphenWidth: hyphenated ? plan.hyphenAdvance : 0,
+        ),
+      );
+    }
+    return mapped;
   }
 
   /// 排序并裁掉越界区间；空区间丢弃。
@@ -668,6 +980,7 @@ abstract final class TextLayoutEngine {
   static List<LineBox> _measureWithIndent({
     required String text,
     required double width,
+    required double contentWidth,
     required double indent,
     required ComputedStyle style,
     required double textScaleFactor,
@@ -678,6 +991,7 @@ abstract final class TextLayoutEngine {
     final head = _measureSegment(
       text: text,
       width: firstWidth,
+      contentWidth: firstWidth,
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
@@ -695,6 +1009,7 @@ abstract final class TextLayoutEngine {
     final rest = _measureSegment(
       text: remainder,
       width: width,
+      contentWidth: contentWidth,
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
@@ -761,8 +1076,10 @@ abstract final class TextLayoutEngine {
       // 拉伸余量：justify 对齐；或末行在 justify-all / align-last:
       // justify 下参与拉伸（对齐仍是 start，通过 justifyExtra 拉伸）。
       // 其余对齐保持 0（否则左对齐行也会被绘制端拉伸）。
+      // 省略号截断行不拉伸：截断宽已含 `…`，再拉伸会让 `…` 溢出版心。
       final stretch =
-          align == CssTextAlign.justify || (isFinal && lastMayJustify);
+          !line.ellipsized &&
+          (align == CssTextAlign.justify || (isFinal && lastMayJustify));
       final justifyExtra = stretch
           ? _justifyExtra(
               text,
@@ -855,14 +1172,19 @@ abstract final class TextLayoutEngine {
     '…',
   };
 
-  /// 单字符 advance 测量（悬挂余量用；每次 layout 内缓存）。
-  static double _measureChar(String char, ComputedStyle style) {
+  /// 单字符 advance 测量（悬挂余量/省略号宽用；每次 layout 内缓存）。
+  static double _measureChar(
+    String char,
+    ComputedStyle style, [
+    double textScaleFactor = 1,
+  ]) {
     final painter = TextPainter(
       text: TextSpan(
         text: char,
         style: textStyleFor(style, leadingDistribution: TextLeadingDistribution.even),
       ),
       textDirection: TextDirection.ltr,
+      textScaler: TextScaler.linear(textScaleFactor),
     )..layout();
     final width = painter.width;
     painter.dispose();
@@ -923,6 +1245,7 @@ abstract final class TextLayoutEngine {
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
+    double? contentWidth,
   }) {
     final baseStyle = textStyleFor(
       style,
@@ -959,9 +1282,20 @@ abstract final class TextLayoutEngine {
     )..layout(maxWidth: width);
 
     final metrics = painter.computeLineMetrics();
+    // 小数行高（实验）：Skia 行盒高取整为整数，ascent 已按小数行高计算；
+    // 这里把「被取整的 strut 行盒」换回 CSS 行高像素值。
+    final cssLineHeight =
+        LineBreaker.preserveFractionalLineHeight &&
+                style.lineHeightFactor != null
+            ? style.lineHeight
+            : null;
     final lines = <LineBox>[];
     var top = 0.0;
     for (final metric in metrics) {
+      final lineHeight = cssLineHeight != null &&
+              (metric.height - cssLineHeight).abs() <= 0.6
+          ? cssLineHeight
+          : metric.height;
       // 用行框垂直中点取该行内的字符位置，再取边界；
       // 直接拿“上一行 end”做位置在硬换行/空行处会落回上一行。
       final position = painter.getPositionForOffset(
@@ -973,12 +1307,12 @@ abstract final class TextLayoutEngine {
           start: boundary.start,
           end: boundary.end,
           top: top,
-          height: metric.height,
+          height: lineHeight,
           baseline: top + metric.ascent,
           width: math.max(0, metric.width).toDouble(),
         ),
       );
-      top += metric.height;
+      top += lineHeight;
     }
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
@@ -989,8 +1323,83 @@ abstract final class TextLayoutEngine {
         isHardBreak: hardBreak,
       );
     }
-    return _applyInlineVerticalBoxes(lines, runs, style, leadingDistribution);
+    return _applyInlineVerticalBoxes(
+      _applyTextOverflow(
+        lines: lines,
+        painter: painter,
+        contentWidth: contentWidth ?? width,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+      ),
+      runs,
+      style,
+      leadingDistribution,
+    );
   }
+
+  /// `text-overflow: ellipsis`（P2-37）：行宽超过内容宽时截成「最长可放
+  /// 前缀 + …」，截断行的 [LineBox.width] 已含省略号 advance，保证行宽
+  /// ≤ 内容宽；`clip` 不做截断（绘制端按 padding-box 裁剪 ink）。
+  ///
+  /// 行区间仍指向原文（只取前缀），因此 CFI/选区映射不受影响；绘制端据
+  /// [LineBox.ellipsized] 决定是否在行尾补画省略号。
+  static List<LineBox> _applyTextOverflow({
+    required List<LineBox> lines,
+    required TextPainter painter,
+    required double contentWidth,
+    required ComputedStyle style,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+  }) {
+    if (style.textOverflow != CssTextOverflow.ellipsis ||
+        !contentWidth.isFinite ||
+        contentWidth <= 0) {
+      return lines;
+    }
+    final overflowing = lines.any((line) => line.width > contentWidth + 0.5);
+    if (!overflowing) {
+      return lines;
+    }
+    final ellipsisAdvance = _measureChar('…', style, textScaleFactor);
+    final available = math.max(0.0, contentWidth - ellipsisAdvance);
+    var changed = false;
+    final result = <LineBox>[];
+    for (final line in lines) {
+      if (line.width <= contentWidth + 0.5) {
+        result.add(line);
+        continue;
+      }
+      // 用已排好的 painter 反查：内容宽内最长的字符位置即截断点。
+      final at = painter.getPositionForOffset(
+        Offset(available, line.top + line.height / 2),
+      );
+      var end = at.offset.clamp(line.start, line.end);
+      if (end <= line.start) {
+        end = math.min(line.start + 1, line.end);
+      }
+      var prefixWidth = _advanceAt(painter, end);
+      while (prefixWidth + ellipsisAdvance > contentWidth + 0.5 &&
+          end > line.start + 1) {
+        end -= 1;
+        prefixWidth = _advanceAt(painter, end);
+      }
+      changed = true;
+      result.add(
+        line.copyWith(
+          end: end,
+          width: math.min(contentWidth, prefixWidth + ellipsisAdvance),
+          ellipsized: true,
+          ellipsisWidth: ellipsisAdvance,
+        ),
+      );
+    }
+    return changed ? result : lines;
+  }
+
+  /// 指定字符位置的行内 advance（用于省略号前缀宽度）。
+  static double _advanceAt(TextPainter painter, int offset) =>
+      painter.getOffsetForCaret(TextPosition(offset: offset), Rect.zero).dx;
 
   /// 行内盒竖直几何（CSS 2.1 §10.8 的 CU 近似）。
   ///
