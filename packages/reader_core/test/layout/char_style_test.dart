@@ -46,14 +46,16 @@ void main() {
     expect(_style(const {}).textTransform, CssTextTransform.none);
   });
 
-  test('vertical-align 基线偏移：super -0.4em、sub +0.15em', () {
+  test('vertical-align 基线偏移：按父字号 1/3、1/5（Chrome 口径）', () {
+    // 根样式 parentFontSize = rootFontSize = 16：super = -(16/3+1) = -6.33，
+    // sub = 16/5+1 = 4.2（对齐 Chromium 的字体 ascent/3、ascent/5）。
     expect(
       _style(const {'vertical-align': 'super'}).verticalAlignShift,
-      closeTo(-6.4, 0.01),
+      closeTo(-(16 / 3 + 1), 0.01),
     );
     expect(
       _style(const {'vertical-align': 'sub'}).verticalAlignShift,
-      closeTo(2.4, 0.01),
+      closeTo(16 / 5 + 1, 0.01),
     );
     expect(_style(const {'vertical-align': 'baseline'}).verticalAlignShift, 0);
     expect(_style(const {'vertical-align': 'middle'}).verticalAlignShift, 0);
