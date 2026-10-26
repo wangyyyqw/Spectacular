@@ -352,6 +352,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       for (final slice in page.slices)
         if (slice.block.style?.backgroundImage != null)
           slice.block.style!.backgroundImage!,
+      // 整页背景（P9-04）：body 的 background-image 也要预解码。
+      if (page.background != null) page.background!.imageUrl,
     };
     if (urls.isEmpty) {
       return;

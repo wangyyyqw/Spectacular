@@ -701,10 +701,16 @@ class ComputedStyle {
         parent?.left;
 
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
+    // `background` 简写（P9-03）：书籍大量使用 `background: #fff url(...)`，
+    // 长属性缺失时从简写里取图与底色，否则整页背景图永远解析不到。
+    final backgroundShorthand = explicitValue('background');
     final backgroundColor =
         _parseColor(explicitValue('background-color') ?? '') ??
+        _parseBackgroundShorthandColor(backgroundShorthand) ??
         const Color(0x00000000);
-    final backgroundImage = _parseUrl(explicitValue('background-image'));
+    final backgroundImage =
+        _parseUrl(explicitValue('background-image')) ??
+        _parseUrl(backgroundShorthand);
     final borders = _resolveBorders(
       values,
       explicit,
@@ -807,6 +813,114 @@ class ComputedStyle {
       explicitProperties: explicit,
     );
   }
+
+  /// 只覆盖排版属性（字号/行高/文本对齐），其余属性原样保留。
+  ///
+  /// 阅读器设置必须走这里。用 `ComputedStyle(declarations, parent: base)`
+  /// 重建会把非继承属性（背景色/背景图/边框/内边距/外边距）按初始值归零，
+  /// 书籍里的卡片、面板与外框会整块消失（P9-01 修复）。
+  ComputedStyle withTypography({
+    double? fontSize,
+    double? lineHeightFactor,
+    CssTextAlign? textAlign,
+  }) {
+    if (fontSize == null && lineHeightFactor == null && textAlign == null) {
+      return this;
+    }
+    final nextFontSize = fontSize ?? this.fontSize;
+    final nextUnitless = lineHeightFactor ?? unitlessLineHeightFactor;
+    final nextLineHeightFactor = lineHeightFactor ?? this.lineHeightFactor;
+    final nextLineHeight = lineHeightFactor != null
+        ? nextFontSize * lineHeightFactor
+        : (nextUnitless != null ? nextFontSize * nextUnitless : lineHeight);
+    final nextValues = <String, String>{
+      ...values,
+      if (fontSize != null) 'font-size': '${nextFontSize}px',
+      if (lineHeightFactor != null) 'line-height': '$lineHeightFactor',
+      if (textAlign != null) 'text-align': _textAlignToCss(textAlign),
+    };
+    final nextExplicit = <String>{
+      ...explicitProperties,
+      if (fontSize != null) 'font-size',
+      if (lineHeightFactor != null) 'line-height',
+      if (textAlign != null) 'text-align',
+    };
+    return ComputedStyle._(
+      values: nextValues,
+      hasExplicitTextColor: hasExplicitTextColor,
+      fontSize: nextFontSize,
+      lineHeight: nextLineHeight,
+      lineHeightFactor: nextLineHeightFactor,
+      unitlessLineHeightFactor: nextUnitless,
+      color: color,
+      fontWeight: fontWeight,
+      italic: italic,
+      fontFamilies: fontFamilies,
+      textAlign: textAlign ?? this.textAlign,
+      textIndent: textIndent,
+      letterSpacing: letterSpacing,
+      margin: margin,
+      position: position,
+      cssFloat: cssFloat,
+      display: display,
+      visibility: visibility,
+      whiteSpace: whiteSpace,
+      hangingPunctuation: hangingPunctuation,
+      textSpacingTrim: textSpacingTrim,
+      textAutospace: textAutospace,
+      textJustify: textJustify,
+      textAlignLast: textAlignLast,
+      initialLetterLines: initialLetterLines,
+      opacity: opacity,
+      textOverflow: textOverflow,
+      boxShadow: boxShadow,
+      wordSpacing: wordSpacing,
+      textTransform: textTransform,
+      verticalAlign: verticalAlign,
+      textDecoration: textDecoration,
+      textEmphasisStyle: textEmphasisStyle,
+      textEmphasisPosition: textEmphasisPosition,
+      textEmphasisColor: textEmphasisColor,
+      pageBreakBefore: pageBreakBefore,
+      pageBreakAfter: pageBreakAfter,
+      breakInsideAvoid: breakInsideAvoid,
+      breakAfterAvoid: breakAfterAvoid,
+      textShadow: textShadow,
+      backgroundRepeat: backgroundRepeat,
+      backgroundSize: backgroundSize,
+      backgroundPosition: backgroundPosition,
+      backgroundOrigin: backgroundOrigin,
+      backgroundClip: backgroundClip,
+      clear: clear,
+      borderCollapse: borderCollapse,
+      borderSpacing: borderSpacing,
+      top: top,
+      right: right,
+      bottom: bottom,
+      left: left,
+      backgroundColor: backgroundColor,
+      backgroundImage: backgroundImage,
+      borders: borders,
+      width: width,
+      height: height,
+      minWidth: minWidth,
+      maxWidth: maxWidth,
+      minHeight: minHeight,
+      maxHeight: maxHeight,
+      padding: padding,
+      boxSizing: boxSizing,
+      explicitProperties: nextExplicit,
+    );
+  }
+
+  static String _textAlignToCss(CssTextAlign align) => switch (align) {
+    CssTextAlign.start => 'start',
+    CssTextAlign.end => 'end',
+    CssTextAlign.left => 'left',
+    CssTextAlign.right => 'right',
+    CssTextAlign.center => 'center',
+    CssTextAlign.justify => 'justify',
+  };
 
   const ComputedStyle._({
     required this.values,
@@ -1474,6 +1588,27 @@ class ComputedStyle {
     }
     final url = (match[1] ?? match[2] ?? match[3])?.trim();
     return url == null || url.isEmpty ? null : url;
+  }
+
+  /// 从 `background` 简写里取底色（跳过 url() 与定位/平铺关键字）。
+  static Color? _parseBackgroundShorthandColor(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final cleaned = raw.replaceAll(
+      RegExp(r'url\([^)]*\)', caseSensitive: false),
+      ' ',
+    );
+    for (final token in cleaned.split(RegExp(r'\s+'))) {
+      if (token.isEmpty) {
+        continue;
+      }
+      final color = _parseColor(token);
+      if (color != null) {
+        return color;
+      }
+    }
+    return null;
   }
 
   static CssEdges _resolveMargin(
