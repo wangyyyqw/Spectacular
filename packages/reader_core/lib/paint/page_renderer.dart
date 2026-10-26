@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
+import '../layout/box_model.dart';
 import '../layout/line_breaker.dart';
 import '../layout/paginator.dart';
 import '../layout/table_layout.dart';
@@ -154,23 +155,30 @@ class PagePainter {
         continue;
       }
       // 阴影可溢出块外：画在块裁剪之外（自带透明层），先影后景。
-      _withEffects(canvas, geometry, () {
-        _paintBoxShadow(canvas, geometry);
-      });
-      canvas.save();
-      geometry.clip(canvas);
-      _withEffects(canvas, geometry, () {
-        _paintBackground(
-          canvas,
-          geometry.containerPaintBox,
-          geometry.style,
-          startsBlock: geometry.startsBlock,
-          endsBlock: geometry.endsBlock,
-        );
-        // 内阴影画在背景之上、边框/文字之下（Chromium 的顺序）。
-        _paintInsetBoxShadow(canvas, geometry);
-      });
-      canvas.restore();
+      _inBlockSpace(
+        canvas,
+        geometry,
+        clip: false,
+        () => _withEffects(canvas, geometry, () {
+          _paintBoxShadow(canvas, geometry);
+        }),
+      );
+      _inBlockSpace(
+        canvas,
+        geometry,
+        clip: true,
+        () => _withEffects(canvas, geometry, () {
+          _paintBackground(
+            canvas,
+            geometry.containerPaintBox,
+            geometry.style,
+            startsBlock: geometry.startsBlock,
+            endsBlock: geometry.endsBlock,
+          );
+          // 内阴影画在背景之上、边框/文字之下（Chromium 的顺序）。
+          _paintInsetBoxShadow(canvas, geometry);
+        }),
+      );
     }
 
     _notifyPhase(PagePaintPhase.blockBorder);
@@ -178,18 +186,20 @@ class PagePainter {
       if (geometry.hidden) {
         continue;
       }
-      canvas.save();
-      geometry.clip(canvas);
-      _withEffects(canvas, geometry, () {
-        _paintBorders(
-          canvas,
-          geometry.containerPaintBox,
-          geometry.style,
-          startsBlock: geometry.startsBlock,
-          endsBlock: geometry.endsBlock,
-        );
-      });
-      canvas.restore();
+      _inBlockSpace(
+        canvas,
+        geometry,
+        clip: true,
+        () => _withEffects(canvas, geometry, () {
+          _paintBorders(
+            canvas,
+            geometry.containerPaintBox,
+            geometry.style,
+            startsBlock: geometry.startsBlock,
+            endsBlock: geometry.endsBlock,
+          );
+        }),
+      );
     }
 
     _notifyPhase(PagePaintPhase.text);
@@ -200,55 +210,49 @@ class PagePainter {
       if (geometry.hidden) {
         continue;
       }
-      canvas.save();
-      geometry.clip(canvas);
       // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
       final tableSpec = geometry.slice.block.table;
       if (tableSpec != null) {
-        _withEffects(canvas, geometry, () {
-          _paintTable(canvas, geometry, tableSpec);
-        });
-        canvas.restore();
+        _inBlockSpace(
+          canvas,
+          geometry,
+          clip: true,
+          contentClip: true,
+          () => _withEffects(canvas, geometry, () {
+            _paintTable(canvas, geometry, tableSpec);
+          }),
+        );
         continue;
       }
-      _withEffects(canvas, geometry, () {
-        final layout = geometry.slice.block.layout;
-        var lineY = geometry.y + geometry.leading;
-        for (
-          var lineIndex = geometry.slice.startLine;
-          lineIndex < geometry.slice.endLine;
-          lineIndex++
-        ) {
-          final line = layout.lines[lineIndex];
-          final lineText = layout.text.substring(line.start, line.end);
-          if (lineText.isNotEmpty) {
-            final x = line.offsetX + geometry.leftInset;
-            // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
-            if (lineIndex == 0 &&
-                geometry.slice.block.listMarker != null) {
-              _paintListMarker(
-                canvas,
-                geometry,
-                marker: geometry.slice.block.listMarker!,
-                textX: x,
-                lineTop: lineY,
-                lineHeight: line.height,
-              );
-            }
-            if (_needsEllipsis(geometry, line)) {
-              _paintEllipsizedLine(
-                canvas,
-                page,
-                sliceIndex,
-                layout,
-                line,
-                lineText,
-                geometry,
-                x,
-                lineY,
-                fontMetricsCache,
-              );
-            } else {
+      _inBlockSpace(
+        canvas,
+        geometry,
+        clip: true,
+        contentClip: true,
+        () => _withEffects(canvas, geometry, () {
+          final layout = geometry.slice.block.layout;
+          var lineY = geometry.y + geometry.leading;
+          for (
+            var lineIndex = geometry.slice.startLine;
+            lineIndex < geometry.slice.endLine;
+            lineIndex++
+          ) {
+            final line = layout.lines[lineIndex];
+            final lineText = layout.text.substring(line.start, line.end);
+            if (lineText.isNotEmpty) {
+              final x = line.offsetX + geometry.leftInset;
+              // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
+              if (lineIndex == 0 &&
+                  geometry.slice.block.listMarker != null) {
+                _paintListMarker(
+                  canvas,
+                  geometry,
+                  marker: geometry.slice.block.listMarker!,
+                  textX: x,
+                  lineTop: lineY,
+                  lineHeight: line.height,
+                );
+              }
               final painter = _linePainterFor(
                 page,
                 sliceIndex,
@@ -292,12 +296,35 @@ class PagePainter {
                 x,
                 lineY,
               );
+              // 行尾字形（W13）：布局层只截断/计宽不画字——
+              // 省略号 `…`（行宽含省略号 advance）与断词连字符 `-` 都由
+              // 绘制层按行宽末端补画，start/end 仍是原文坐标。
+              if (line.ellipsized) {
+                _paintLineTailGlyph(
+                  canvas,
+                  geometry,
+                  line: line,
+                  glyph: '…',
+                  advance: line.ellipsisWidth,
+                  x: x,
+                  y: lineY,
+                );
+              } else if (line.hyphenated) {
+                _paintLineTailGlyph(
+                  canvas,
+                  geometry,
+                  line: line,
+                  glyph: '-',
+                  advance: line.hyphenWidth,
+                  x: x,
+                  y: lineY,
+                );
+              }
             }
+            lineY += line.height;
           }
-          lineY += line.height;
-        }
-      });
-      canvas.restore();
+        }),
+      );
     }
 
     _notifyPhase(PagePaintPhase.decoration);
@@ -307,8 +334,12 @@ class PagePainter {
           geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
         continue;
       }
-      canvas.save();
-      geometry.clip(canvas);
+      _inBlockSpace(
+        canvas,
+        geometry,
+        clip: true,
+        contentClip: true,
+        () {
       final layout = geometry.slice.block.layout;
       var lineY = geometry.y + geometry.leading;
       for (
@@ -339,7 +370,8 @@ class PagePainter {
         }
         lineY += line.height;
       }
-      canvas.restore();
+        },
+      );
     }
 
     // 注音趟（P8-08）：ruby 主文本区间上方绘制注音（50% 字号、区间
@@ -352,10 +384,13 @@ class PagePainter {
       if (rubies == null || rubies.isEmpty) {
         continue;
       }
-      canvas.save();
-      geometry.clip(canvas);
-      _paintRubies(canvas, geometry, rubies);
-      canvas.restore();
+      _inBlockSpace(
+        canvas,
+        geometry,
+        clip: true,
+        contentClip: true,
+        () => _paintRubies(canvas, geometry, rubies),
+      );
     }
 
     _notifyPhase(PagePaintPhase.selection);
@@ -541,6 +576,163 @@ class PagePainter {
         lineY += line.height;
       }
     }
+  }
+
+  /// 在块坐标系里执行 [body]。
+  ///
+  /// - 有 `transform`：先把画布变换到块空间（旋转/缩放后的 ink 允许越出切片，
+  ///   页外由画布光栅天然裁剪；Chromium 也只按视口裁），不再按切片裁，
+  ///   否则旋转块的四角会被切片矩形切掉。
+  /// - 无 `transform`：[clip] 为真时按切片裁剪（跨页块不画到相邻块地盘）。
+  /// - [contentClip] 为真且 `overflow != visible` 时再裁到 padding-box
+  ///   （文字/装饰/行内盒/表格 ink 不得画到盒外）。
+  void _inBlockSpace(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    void Function() body, {
+    required bool clip,
+    bool contentClip = false,
+  }) {
+    final matrix = _transformMatrixOf(geometry);
+    canvas.save();
+    if (matrix != null) {
+      canvas.transform(matrix);
+    } else if (clip) {
+      geometry.clip(canvas);
+    }
+    if (contentClip && geometry.clipsOverflow) {
+      canvas.clipRect(geometry.paddingBox);
+    }
+    body();
+    canvas.restore();
+  }
+
+  /// 块的 2D 仿射矩阵（4×4 列主序），无 `transform` 时返回 null。
+  ///
+  /// CSS 语义：函数按声明顺序合成（左乘累积），整体绕 `transform-origin`
+  /// （默认边框盒中心，百分比以边框盒宽/高为基准）应用；`translate` 的
+  /// 百分比同样以边框盒宽/高为基准。
+  Float64List? _transformMatrixOf(_SliceGeometry geometry) {
+    final transforms = geometry.style.transforms;
+    if (transforms.isEmpty) {
+      return null;
+    }
+    final style = geometry.style;
+    final box = geometry.borderBox;
+    var matrix = _affineIdentity;
+    for (final transform in transforms) {
+      final next = _affineOfTransform(transform, box);
+      if (next == null) {
+        continue;
+      }
+      matrix = _affineMultiply(matrix, next);
+    }
+    final originX = style.transformOriginX.resolve(box.width) ?? box.width / 2;
+    final originY = style.transformOriginY.resolve(box.height) ?? box.height / 2;
+    // 绕原点：T(原点) · M · T(−原点)；原点用页面坐标（盒子左上角 + 本地原点）。
+    final px = box.left + originX;
+    final py = box.top + originY;
+    final centered = _affineMultiply(
+      _affineTranslate(px, py),
+      _affineMultiply(matrix, _affineTranslate(-px, -py)),
+    );
+    return Float64List.fromList(<double>[
+      centered[0], centered[1], 0, 0, //
+      centered[2], centered[3], 0, 0, //
+      0, 0, 1, 0, //
+      centered[4], centered[5], 0, 1, //
+    ]);
+  }
+
+  /// 单个 transform 函数的仿射矩阵（a,b,c,d,e,f：x' = a·x + c·y + e）。
+  List<double>? _affineOfTransform(CssTransform transform, Rect box) {
+    switch (transform.kind) {
+      case CssTransformKind.translate:
+        final tx = transform.x?.resolve(box.width) ?? 0;
+        final ty = transform.y?.resolve(box.height) ?? 0;
+        return _affineTranslate(tx, ty);
+      case CssTransformKind.scale:
+        final sx = transform.sx ?? 1;
+        return _affineScale(sx, transform.sy ?? sx);
+      case CssTransformKind.rotate:
+        return _affineRotate(transform.angleDeg ?? 0);
+      case CssTransformKind.skew:
+        return _affineSkew(transform.axDeg, transform.ayDeg);
+      case CssTransformKind.matrix:
+        final values = transform.values;
+        if (values == null || values.length < 6) {
+          return null;
+        }
+        return <double>[
+          values[0],
+          values[1],
+          values[2],
+          values[3],
+          values[4],
+          values[5],
+        ];
+    }
+  }
+
+  static const List<double> _affineIdentity = <double>[1, 0, 0, 1, 0, 0];
+
+  static List<double> _affineTranslate(double tx, double ty) =>
+      <double>[1, 0, 0, 1, tx, ty];
+
+  static List<double> _affineScale(double sx, double sy) =>
+      <double>[sx, 0, 0, sy, 0, 0];
+
+  /// 旋转矩阵：屏幕 y 轴向下，CSS 正角为顺时针。
+  static List<double> _affineRotate(double angleDeg) {
+    final radians = angleDeg * math.pi / 180;
+    final cos = math.cos(radians);
+    final sin = math.sin(radians);
+    return <double>[cos, sin, -sin, cos, 0, 0];
+  }
+
+  static List<double> _affineSkew(double axDeg, double ayDeg) => <double>[
+    1,
+    math.tan(ayDeg * math.pi / 180),
+    math.tan(axDeg * math.pi / 180),
+    1,
+    0,
+    0,
+  ];
+
+  /// 仿射合成 [m]∘[n]：先应用 [n]，再应用 [m]。
+  static List<double> _affineMultiply(List<double> m, List<double> n) =>
+      <double>[
+        m[0] * n[0] + m[2] * n[1],
+        m[1] * n[0] + m[3] * n[1],
+        m[0] * n[2] + m[2] * n[3],
+        m[1] * n[2] + m[3] * n[3],
+        m[0] * n[4] + m[2] * n[5] + m[4],
+        m[1] * n[4] + m[3] * n[5] + m[5],
+      ];
+
+  /// 行尾字形（W13）：省略号 `…` 与断词连字符 `-`。
+  ///
+  /// 布局层的 `LineBox.width` 已含该字形的 advance（[advance]），`start/end`
+  /// 仍是原文坐标，所以绘制层只需把字形画在
+  /// `行左缘 + 行宽 − advance`，不做截断、不改文本。
+  void _paintLineTailGlyph(
+    Canvas canvas,
+    _SliceGeometry geometry, {
+    required LineBox line,
+    required String glyph,
+    required double advance,
+    required double x,
+    required double y,
+  }) {
+    if (advance <= 0) {
+      return;
+    }
+    final painter = TextPainter(
+      text: TextSpan(text: glyph, style: geometry.textStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, Offset(x + line.width - advance, y));
+    painter.dispose();
   }
 
   /// 元素效果合成（W6）：`filter` 链 + 组不透明度。
@@ -874,18 +1066,6 @@ class PagePainter {
           math.max(0, borders.bottomLeftRadius + radiusDelta),
         ),
       );
-
-  /// 是否需要省略号截断（P2-37）：ellipsis 模式下行宽超出块内容区。
-  bool _needsEllipsis(_SliceGeometry geometry, LineBox line) {
-    if (geometry.style.textOverflow != CssTextOverflow.ellipsis) {
-      return false;
-    }
-    final available = geometry.box.width -
-        geometry.leftInset -
-        geometry.rightInset -
-        line.offsetX;
-    return line.width > available + 0.5;
-  }
 
   /// 注音绘制（P8-08，CSS Ruby 1 flat 近似）：定位主文本区间所在行，
   /// 逐字符累进求区间起点 x，注音按 50% 字号居中画在行顶上方。
@@ -1224,74 +1404,6 @@ class PagePainter {
             ..strokeWidth = math.max(1.0, fontSize / 16),
         );
     }
-  }
-
-  void _paintEllipsizedLine(
-    Canvas canvas,
-    PageContent page,
-    int sliceIndex,
-    TextLayoutResult layout,
-    LineBox line,
-    String lineText,
-    _SliceGeometry geometry,
-    double x,
-    double y,
-    Map<TextStyle, ({double ascent, double descent})> fontMetricsCache,
-  ) {
-    final available = geometry.box.width -
-        geometry.leftInset -
-        geometry.rightInset -
-        line.offsetX;
-    // 省略号占位后，文本可见区再收窄一个省略号宽。
-    final ellipsis = TextPainter(
-      text: TextSpan(text: '…', style: geometry.textStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final visible = available - ellipsis.width;
-    if (visible <= 0) {
-      ellipsis.paint(
-        canvas,
-        Offset(geometry.box.right - ellipsis.width, y),
-      );
-      ellipsis.dispose();
-      return;
-    }
-    canvas.save();
-    canvas.clipRect(
-      Rect.fromLTWH(geometry.box.left + x, y, visible, line.height),
-    );
-    final painter = _linePainterFor(
-      page,
-      sliceIndex,
-      geometry.slice.startLine,
-      layout,
-      line,
-      geometry.textStyle,
-      punctCompression: geometry.punctCompression,
-      textColorOverride: geometry.textColorOverride,
-    );
-    _paintLineText(
-      canvas,
-      painter,
-      lineText,
-      _lineRuns(layout, line),
-      geometry.textStyle,
-      x,
-      y,
-    );
-    _paintLineDecoration(
-      canvas,
-      painter,
-      layout,
-      line,
-      geometry.style,
-      x,
-      y,
-      fontMetricsCache,
-    );
-    canvas.restore();
-    ellipsis.paint(canvas, Offset(geometry.box.left + x + visible, y));
-    ellipsis.dispose();
   }
 
   /// 行内元素盒（P9-24）：`display:inline-block` 的行内 span 的背景、
@@ -2596,12 +2708,33 @@ class _SliceGeometry {
     final bottom = slice.trailingExtent > 0
         ? y + slice.height - slice.trailingExtent + block.bottomInset
         : y + slice.height;
+    // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：
+    // 声明了 width 的块背景与 overflow 裁剪都要收在声明宽内（Chromium 的
+    // used width 口径）；auto 时与「页宽 − margin」等价。
+    final model = _boxModel;
+    final left = block.bleedLeft ? 0.0 : style.margin.left;
+    final right = block.bleedRight
+        ? pageWidth
+        : left + model.resolveContentWidth(pageWidth) + model.horizontalInset;
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  /// 本切片的盒模型（百分比以页宽为基准，与排版层同口径）。
+  BoxModel get _boxModel =>
+      BoxModel.fromStyle(style, containingWidth: pageWidth);
+
+  /// `overflow != visible` 时内容 ink 必须裁到 padding-box（W13）。
+  bool get clipsOverflow => style.overflow != CssOverflow.visible;
+
+  /// padding-box（页面坐标）：边框盒去掉四边边框（不可见边框按 0 计）。
+  Rect get paddingBox {
+    final borders = style.borders;
+    final box = borderBox;
     return Rect.fromLTRB(
-      // 出血（P9-22）：多用 `duokan-bleed` 让元素的背景/边框顶到页面边缘。
-      block.bleedLeft ? 0 : style.margin.left,
-      top,
-      block.bleedRight ? pageWidth : pageWidth - style.margin.right,
-      bottom,
+      box.left + (borders.left.isVisible ? borders.left.width : 0),
+      box.top + (borders.top.isVisible ? borders.top.width : 0),
+      box.right - (borders.right.isVisible ? borders.right.width : 0),
+      box.bottom - (borders.bottom.isVisible ? borders.bottom.width : 0),
     );
   }
 
