@@ -62,12 +62,25 @@ const collectScript = `(() => {
       .sort((a, b) => a.y - b.y)
       .map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
   };
+  // 原子行内盒（inline-block/inline-flex/...）有自己的元素条目与行列表，
+  // 其内部文本行不能并进父段落，否则父段落会多出「盒内容行」的伪影。
+  const atomicInline = new Set(['inline-block', 'inline-flex', 'inline-grid',
+    'inline-table', '-webkit-inline-box']);
+  const ownText = (node, el) => {
+    let parent = node.parentElement;
+    while (parent && parent !== el) {
+      if (atomicInline.has(getComputedStyle(parent).display)) return false;
+      parent = parent.parentElement;
+    }
+    return true;
+  };
   const textRectsRaw = (el) => {
     const raw = [];
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
       if (!node.textContent.trim()) continue;
+      if (!ownText(node, el)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
       for (const rect of range.getClientRects()) {
