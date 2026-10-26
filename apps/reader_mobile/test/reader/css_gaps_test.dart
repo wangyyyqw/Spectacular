@@ -184,6 +184,28 @@ void main() {
     expect((total - spec.columnXs[1]) / total, closeTo(0.8, 0.03));
   });
 
+  test('绝对定位块脱离流并按 top/left 绘制（P9-19）', () async {
+    final source = await open(
+      body:
+          '<div class="badge">绝对块</div>'
+          '<p>正文第一段足够长的文字用来占位。</p>',
+      css: '.badge { position: absolute; top: 40px; left: 30px; }',
+    );
+    final pages = await source.loadChapter(0);
+    final page = pages.first;
+    final badge = page.slices.firstWhere(
+      (slice) => slice.block.layout.text.contains('绝对块'),
+    );
+    expect(badge.overlay, isTrue, reason: '绝对块不占流高');
+    expect(badge.absoluteTop, closeTo(40, 0.5));
+    expect(badge.leftInset, closeTo(30, 0.5));
+    // 正文仍然从页首正常排版，未被绝对块顶下去。
+    final paragraph = page.slices.firstWhere(
+      (slice) => slice.block.layout.text.contains('正文第一段'),
+    );
+    expect(paragraph.overlay, isFalse);
+  });
+
   test('多看私有属性在真实管线生效（P9-13）', () async {
     final source = await open(
       body: '<p class="d">多看段落</p>',

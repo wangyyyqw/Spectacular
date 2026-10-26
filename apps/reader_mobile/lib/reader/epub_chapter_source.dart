@@ -924,6 +924,24 @@ class EpubChapterSource
     }
 
     for (final block in blocks) {
+      // 绝对定位（P9-19）：不占流高，直接作为覆盖切片挂到当前页。
+      if (block.absolute) {
+        final top = (block.absoluteTop ?? y)
+            .clamp(0.0, math.max(0.0, height - 1))
+            .toDouble();
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: 0,
+            endLine: block.layout.lineCount,
+            height: block.height,
+            overlay: true,
+            absoluteTop: top,
+            leftInset: block.absoluteLeft ?? 0,
+          ),
+        );
+        continue;
+      }
       final floatSide = block.floatSide;
       if (floatSide != null) {
         final w = block.layout.width;
@@ -2088,6 +2106,17 @@ class EpubChapterSource
         if (!isHeading) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
+        // 绝对定位（P9-19）：脱离正常流，top/left 按页内坐标解析；
+        // 未声明 top/left 时跟随当前流位置。
+        final blockPosition = blockStyle.position;
+        final isAbsolute = blockPosition == CssPosition.absolute ||
+            blockPosition == CssPosition.fixed;
+        final absoluteTop = isAbsolute
+            ? blockStyle.top?.resolve(contentHeight)
+            : null;
+        final absoluteLeft = isAbsolute
+            ? blockStyle.left?.resolve(contentWidth)
+            : null;
         // 段间距（阅读器设置优先）：只作用于正文段落；标题与列表项保留
         // 书籍自身的间距族。null 时沿用块 margin 并交给相邻折叠。
         final paragraphSpacing = isHeading || tag == 'li'
@@ -2179,6 +2208,10 @@ class EpubChapterSource
                   : null,
               // P9-06：行内图片（U+FFFC 占位）透传给绘制层。
               inlineImages: inlineImages,
+              // P9-19：绝对定位块（不占流高，绘制在页内绝对坐标）。
+              absolute: isAbsolute,
+              absoluteTop: absoluteTop,
+              absoluteLeft: absoluteLeft,
             ),
           );
         }
@@ -2332,7 +2365,10 @@ class EpubChapterSource
 
     // pagination 层（P7-23）：先试页索引重放（P7-22），跳过分页状态
     // 机；索引缺失/损坏/schema 不匹配时静默重排并回写索引。
-    final cachedIndexBytes = _pageIndexCache[paginationKey];
+    final hasAbsoluteBlocks = blocks.any((block) => block.absolute);
+    final cachedIndexBytes = hasAbsoluteBlocks
+        ? null
+        : _pageIndexCache[paginationKey];
     if (cachedIndexBytes != null) {
       final index = PageIndex.decode(cachedIndexBytes);
       if (index != null) {
@@ -2358,15 +2394,17 @@ class EpubChapterSource
         bookId: traceBook,
       );
     }
-    _pageIndexCache[paginationKey] = PageIndex.from(
-      ChapterPagination(
-        spineIndex: spineIndex,
-        pages: pages,
-        pageHeight: contentHeight,
-        totalHeight: 0,
-      ),
-      blocks,
-    ).encode();
+    if (!hasAbsoluteBlocks) {
+      _pageIndexCache[paginationKey] = PageIndex.from(
+        ChapterPagination(
+          spineIndex: spineIndex,
+          pages: pages,
+          pageHeight: contentHeight,
+          totalHeight: 0,
+        ),
+        blocks,
+      ).encode();
+    }
     return pages;
   }
 }
