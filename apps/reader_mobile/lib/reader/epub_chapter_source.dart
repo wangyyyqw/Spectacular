@@ -15,6 +15,7 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_background.dart';
@@ -220,6 +221,52 @@ class EpubChapterSource
   /// 保留 24px 的下限，避免极窄区间测不出行。
   double _textWidthFor(ComputedStyle style) =>
       math.max(24.0, style.contentBoxWidth(contentWidth));
+
+  /// UA 里承担列表近似缩进的那条规则（见 [cascadeRules] 过滤）。
+  static bool _isUaListIndentRule(CssRule rule) =>
+      rule.selector.trim() == 'li' &&
+      rule.declarations.any((declaration) => declaration.property == 'margin-left');
+
+  /// 级联后的浮动方向（f）；未浮动返回 null。
+  static FloatSide? _floatSideOfStyle(ComputedStyle style) => switch (
+    style.cssFloat
+  ) {
+    CssFloat.left => FloatSide.left,
+    CssFloat.right => FloatSide.right,
+    CssFloat.none => null,
+  };
+
+  /// 浮动文本块：`PageBlock.styled` 不透传 floatSide，这里按同一口径
+  /// 直接构造（内缩 = 边框 + 内边距；声明高度走 [BoxModel] 解算）。
+  PageBlock _floatedTextBlock({
+    required TextLayoutResult layout,
+    required ComputedStyle style,
+    required FloatSide side,
+    required double spaceBefore,
+    required double spaceAfter,
+    String? startCfi,
+    int groupId = 0,
+    bool containerSides = false,
+  }) {
+    final model = BoxModel.fromStyle(style, containingWidth: contentWidth);
+    return PageBlock(
+      layout: layout,
+      style: style,
+      floatSide: side,
+      spaceBefore: spaceBefore,
+      spaceAfter: spaceAfter,
+      topInset: model.borders.top + model.padding.top,
+      bottomInset: model.borders.bottom + model.padding.bottom,
+      leftInset: model.borders.left + model.padding.left,
+      declaredContentHeight: model.resolveContentHeight(
+        layout.height,
+        containingHeight: contentHeight,
+      ),
+      startCfi: startCfi,
+      groupId: groupId,
+      containerSides: containerSides,
+    );
+  }
 
   /// 构建满屏图页：整页单块 + 背景图 cover（复用 P2-13 背景管线与
   /// PagePainter.imageLookup），边距归零（用未扣设置页边距的基准尺寸）。
@@ -1187,6 +1234,20 @@ class EpubChapterSource
       occupancy.clear();
     }
 
+    // 页首浮动的竖直位置（f）：浏览器把首个在流块的 margin 塌陷到 body
+    // 顶部，浮动因此从该 margin 之后开始；flat 管线把 margin 按块放在
+    // spaceBefore 上，这里给首页页首浮动补一份首块的 leading，避免浮动
+    // 比正文高出一个段距（用例 14/38 的 6px 偏移）。
+    var firstLeading = 0.0;
+    for (final candidate in blocks) {
+      if (candidate.absolute || candidate.floatSide != null) {
+        continue;
+      }
+      firstLeading = candidate.leadingExtent;
+      break;
+    }
+    var inFlowPlaced = false;
+
     for (final block in blocks) {
       // 绝对定位（P9-19）：不占流高，直接作为覆盖切片挂到当前页。
       if (block.absolute) {
@@ -1208,16 +1269,45 @@ class EpubChapterSource
       }
       final floatSide = block.floatSide;
       if (floatSide != null) {
-        final w = block.layout.width;
         final h = block.height;
-        if (y > 0 && y + h > height) {
+        // 浮动盒宽（f）：内容宽取测量用的 maxWidth（声明 width 已由
+        // [_textWidthFor] 折成内容宽），加内边距/边框得到边框盒；外侧再
+        // 让出外边距——外边距属于浮动外框，正文不得进入。没有外边距的
+        // 一侧补 [gap] 呼吸位（书内浮动图通常不带外边距）。
+        final style = block.style;
+        final insetX = style == null
+            ? 0.0
+            : style.padding.horizontal +
+                  style.borders.left.width +
+                  style.borders.right.width;
+        final contentW = block.layout.maxWidth.isFinite
+            ? math.min(block.layout.maxWidth, width)
+            : block.layout.width;
+        final borderW = math.min(width, contentW + insetX);
+        final marginLeft = style?.margin.left ?? 0;
+        final marginRight = style?.margin.right ?? 0;
+        // 朝版心的一侧才占位：左边距只对右浮动的左侧有意义，右边距反之。
+        final leftSpace = floatSide == FloatSide.left
+            ? marginLeft
+            : math.max(marginLeft, gap);
+        final rightSpace = floatSide == FloatSide.right
+            ? marginRight
+            : math.max(marginRight, gap);
+        final occupied = math.min(width, leftSpace + borderW + rightSpace);
+        final occupiedX = floatSide == FloatSide.left ? 0.0 : width - occupied;
+        final boxX = occupiedX + leftSpace;
+        final flowTop =
+            y + (y == 0 && pages.isEmpty && !inFlowPlaced ? firstLeading : 0);
+        if (y > 0 && flowTop + h > height) {
           closePage();
         }
-        final x0 = floatSide == FloatSide.left ? 0.0 : width - w;
+        final floatY = y == 0 && pages.isEmpty && !inFlowPlaced
+            ? firstLeading
+            : y;
         occupancy.insert(
           BoxOccupied(
-            rect: Rect.fromLTWH(x0, y, w, h),
-            baseline: y,
+            rect: Rect.fromLTWH(occupiedX, floatY, occupied, h),
+            baseline: floatY,
             side: floatSide,
           ),
         );
@@ -1228,8 +1318,10 @@ class EpubChapterSource
             endLine: block.layout.lineCount,
             height: h,
             overlay: true,
-            absoluteTop: y,
-            leftInset: x0,
+            absoluteTop: floatY,
+            // 绘制层会在 leftInset 之上再加一次 margin.left，浮动框定位
+            // 用的是边框盒左缘，这里先把外边距扣掉（否则右浮动整体右移）。
+            leftInset: math.max(0.0, boxX - marginLeft),
           ),
         );
         continue;
@@ -1288,99 +1380,192 @@ class EpubChapterSource
           y = bottom;
         }
       }
-      // 行批切段：同占位状态的行聚成一批，窄批重测。
-      final fullText = block.layout.text;
-      var charCursor = 0;
-      var leadingLeft = block.leadingExtent;
-      while (charCursor < fullText.length) {
-        final probe = block.layout.lines.first.height;
-        final occupiedLeft = occupancy.occupiedLeftAt(y, y + probe);
-        final occupiedRight =
-            occupancy.occupiedRightAt(y, y + probe, width);
-        final narrowed = occupiedLeft > 0 || occupiedRight > 0;
-        // 块级水平内缩同样占宽（见 _textWidthFor）：窄批只减浮动占位。
+      inFlowPlaced = true;
+      // 声明盒高块（height/min-height/overflow 裁剪）：浮动流里按原子块
+      // 处理。逐行批切段会按行高重建切片高，把盒内留白/裁剪全丢掉
+      //（`.ov{height:40px}` 曾按 3 行 75px 占位）。
+      final boxHeight = block.height;
+      if ((boxHeight - block.measuredHeight).abs() > 0.5 ||
+          block.clipsContent) {
         final available = _textWidthFor(block.style ?? style);
+        final occupiedLeft = occupancy.occupiedLeftAt(y, y + boxHeight);
+        final occupiedRight = occupancy.occupiedRightAt(
+          y,
+          y + boxHeight,
+          width,
+        );
+        final narrowed = occupiedLeft > 0 || occupiedRight > 0;
         final batchWidth = narrowed
-            ? math.max(
-                24.0,
-                available - occupiedLeft - occupiedRight - gap * 2,
-              )
+            ? math.max(24.0, available - occupiedLeft - occupiedRight)
             : available;
-        final remaining = fullText.substring(charCursor);
         final measured = _layoutCache.layout(
-          text: remaining,
+          text: block.layout.text,
           style: block.style ?? style,
           maxWidth: batchWidth,
         );
-        // 取行：直到批状态变化（下一行的占位区间不同）或页尽或文本尽。
-        var taken = 0;
-        var batchHeight = 0.0;
-        while (taken < measured.lineCount) {
-          final lineH = measured.lines[taken].height;
-          if (y + leadingLeft + batchHeight + lineH > height && y > 0) {
-            break;
-          }
-          final nextLeft = occupancy.occupiedLeftAt(
-            y + leadingLeft + batchHeight,
-            y + leadingLeft + batchHeight + lineH,
+        // 行数不按盒高裁剪：浏览器 overflow 默认 visible，元素矩形高是
+        // 声明盒高、但行矩形照样列出盒外内容（对照口径）。盒高只决定
+        // 流内占位高度，绘制裁剪由绘制层按 clipsContent 决定。
+        final taken = measured.lineCount;
+        final visibleHeight = measured.height;
+        if (y > 0 && y + block.leadingExtent + boxHeight > height) {
+          closePage();
+        }
+        if (taken > 0) {
+          final segLines = measured.lines.take(taken).toList();
+          final segText = block.layout.text.substring(0, segLines.last.end);
+          final segLayout = TextLayoutResult(
+            text: segText,
+            lines: segLines,
+            width: batchWidth,
+            height: visibleHeight,
+            maxWidth: batchWidth,
+            runs: const <StyledRun>[],
           );
-          final nextRight = occupancy.occupiedRightAt(
-            y + leadingLeft + batchHeight,
-            y + leadingLeft + batchHeight + lineH,
+          final leftInset = narrowed ? occupiedLeft : block.leftInset;
+          slices.add(
+            PageBlockSlice(
+              block: PageBlock(
+                layout: segLayout,
+                style: block.style,
+                startCfi: block.startCfi,
+                leftInset: leftInset,
+                topInset: block.topInset,
+                bottomInset: block.bottomInset,
+                declaredContentHeight: boxHeight,
+              ),
+              startLine: 0,
+              endLine: taken,
+              height: block.leadingExtent + boxHeight,
+              leadingExtent: block.leadingExtent,
+              trailingExtent: block.trailingExtent,
+              leftInset: leftInset,
+            ),
+          );
+        }
+        y += block.leadingExtent + boxHeight + block.trailingExtent;
+        continue;
+      }
+      // 行批切段（f）：一个源块只产出一个 PageBlock，绕排只改变行的起始
+      // x（写进 LineBox.offsetX）。此前按「同占位状态」把段落切成多个块，
+      // 块的宽度/行数于是对不上浏览器的「一个 <p> 一个块」。
+      final fullText = block.layout.text;
+      final available = _textWidthFor(block.style ?? style);
+      var charCursor = 0;
+      var leadingLeft = block.leadingExtent;
+      while (charCursor < fullText.length) {
+        final blockLines = <LineBox>[];
+        var blockHeight = 0.0;
+        while (charCursor < fullText.length) {
+          final probe = block.layout.lines.first.height;
+          final lineY = y + leadingLeft + blockHeight;
+          final occupiedLeft = occupancy.occupiedLeftAt(lineY, lineY + probe);
+          final occupiedRight = occupancy.occupiedRightAt(
+            lineY,
+            lineY + probe,
             width,
           );
-          if ((nextLeft > 0 || nextRight > 0) != narrowed ||
-              (narrowed &&
-                  (nextLeft != occupiedLeft || nextRight != occupiedRight))) {
-            break;
+          final narrowed = occupiedLeft > 0 || occupiedRight > 0;
+          final batchWidth = narrowed
+              ? math.max(24.0, available - occupiedLeft - occupiedRight)
+              : available;
+          final remaining = fullText.substring(charCursor);
+          final measured = _layoutCache.layout(
+            text: remaining,
+            style: block.style ?? style,
+            maxWidth: batchWidth,
+          );
+          // 取行：直到占位状态变化（下一行的区间不同）、页尽或文本尽。
+          var taken = 0;
+          var batchHeight = 0.0;
+          while (taken < measured.lineCount) {
+            final lineH = measured.lines[taken].height;
+            if (y + leadingLeft + blockHeight + batchHeight + lineH > height) {
+              break;
+            }
+            final nextY = y + leadingLeft + blockHeight + batchHeight;
+            final nextLeft = occupancy.occupiedLeftAt(nextY, nextY + lineH);
+            final nextRight = occupancy.occupiedRightAt(
+              nextY,
+              nextY + lineH,
+              width,
+            );
+            if ((nextLeft > 0 || nextRight > 0) != narrowed ||
+                (narrowed &&
+                    (nextLeft != occupiedLeft || nextRight != occupiedRight))) {
+              break;
+            }
+            batchHeight += lineH;
+            taken += 1;
           }
-          batchHeight += lineH;
-          taken += 1;
+          if (taken == 0) {
+            if (y > 0 || blockLines.isNotEmpty) {
+              // 本页放不下：交给收页重排；页首强行占一行避免死循环。
+              break;
+            }
+            taken = 1;
+            batchHeight = measured.lines.first.height;
+          }
+          for (var i = 0; i < taken; i++) {
+            final line = measured.lines[i];
+            final lineStart = charCursor + line.start;
+            final lineEnd = charCursor + line.end;
+            blockLines.add(
+              LineBox(
+                start: lineStart,
+                end: lineEnd,
+                top: blockHeight + line.top,
+                height: line.height,
+                baseline: blockHeight + line.baseline,
+                width: line.width,
+                indent: line.indent,
+                isLastLine: lineEnd >= fullText.length,
+                offsetX: line.offsetX + occupiedLeft,
+                justifyExtra: line.justifyExtra,
+                justifyMode: line.justifyMode,
+              ),
+            );
+          }
+          blockHeight += batchHeight;
+          charCursor += measured.lines[taken - 1].end;
         }
-        if (taken == 0) {
-          // 首行就放不下：收页重试（页首必能放至少一行）。
+        if (blockLines.isEmpty) {
+          // 页首也放不下任何一行：收页重试（此时必然 y > 0）。
           closePage();
           leadingLeft = 0;
           continue;
         }
-        final segLines = measured.lines.take(taken).toList();
-        final segText = remaining.substring(
-          0,
-          segLines.last.end,
-        );
+        final finished = charCursor >= fullText.length;
         final segLayout = TextLayoutResult(
-          text: segText,
-          lines: segLines,
-          width: batchWidth,
-          height: batchHeight,
-          maxWidth: batchWidth,
-          runs: const <StyledRun>[],
+          text: fullText.substring(0, blockLines.last.end),
+          lines: List<LineBox>.unmodifiable(blockLines),
+          width: available,
+          height: blockHeight,
+          maxWidth: available,
+          runs: block.layout.runs,
         );
-        final segBlock = PageBlock(
-          layout: segLayout,
-          style: block.style,
-          startCfi: block.startCfi,
-          leftInset: narrowed ? occupiedLeft + gap : block.leftInset,
-        );
+        final trailing = finished ? block.trailingExtent : 0.0;
         slices.add(
           PageBlockSlice(
-            block: segBlock,
+            block: PageBlock(
+              layout: segLayout,
+              style: block.style,
+              startCfi: block.startCfi,
+              leftInset: block.leftInset,
+              topInset: block.topInset,
+              bottomInset: block.bottomInset,
+            ),
             startLine: 0,
-            endLine: taken,
-            height: leadingLeft + batchHeight,
+            endLine: blockLines.length,
+            height: leadingLeft + blockHeight + trailing,
             leadingExtent: leadingLeft,
-            trailingExtent: taken == measured.lineCount
-                ? block.trailingExtent
-                : 0,
-            leftInset: segBlock.leftInset,
+            trailingExtent: trailing,
+            leftInset: block.leftInset,
           ),
         );
-        y += leadingLeft + batchHeight;
+        y += leadingLeft + blockHeight + trailing;
         leadingLeft = 0;
-        charCursor += segText.length;
-        if (charCursor < fullText.length &&
-            y + (block.layout.lines.first.height) > height &&
-            y > 0) {
+        if (!finished) {
           closePage();
         }
       }
@@ -1528,7 +1713,11 @@ class EpubChapterSource
     // 都自然拿到引擎族名。
     final styledSheets = _rewriteBookFontSheets(sheets);
     final cascadeRules = <CascadeRule>[
-      ...uaRules(),
+      // 列表缩进改由列表容器的级联盒计算（g）：UA 里的近似
+      // `li { margin-left: 40px }` 会盖掉作者 `ul { padding-left: 28px }`，
+      // 且重复叠加，这里整条跳过（其他 UA 规则照旧）。
+      for (final rule in uaRules())
+        if (!_isUaListIndentRule(rule.rule)) rule,
       for (var i = 0; i < styledSheets.length; i++)
         ...CascadeRule.fromStylesheet(
           styledSheets[i],
@@ -1584,6 +1773,47 @@ class EpubChapterSource
       _pageBackgrounds.remove(spineIndex);
     }
 
+    /// 列表项水平缩进（g）：累加祖先里每个 ul/ol 的「左边距 + 左边框 +
+    /// 左内边距」。浏览器里 li 内容左缘就在这些盒内缩之后，作者写
+    /// `ul { padding-left: 28px }` 时必须跟着变（旧实现写死 40px）。
+    double listIndentOf(List<SelectorElement> ancestors) {
+      var indent = 0.0;
+      for (var i = 0; i < ancestors.length; i++) {
+        final tag = ancestors[i].tag.toLowerCase();
+        if (tag != 'ul' && tag != 'ol') {
+          continue;
+        }
+        final style = chainStyle(ancestors.sublist(0, i + 1));
+        indent +=
+            style.margin.left + style.borders.left.width + style.padding.left;
+      }
+      return indent;
+    }
+
+    /// `list-style-position: inside` 的首行缩进 = 标记宽 + 间隙。
+    ///
+    /// 实测 Chromium：文字标记的缩进 = 标记字形宽 + 0.333em；符号标记
+    /// （disc/circle/square，引擎按几何图形绘制）的标记框宽约 1.067em，
+    /// 同样再加 0.333em 间隙。
+    double insideMarkerIndent(String marker, ComputedStyle style) {
+      const gapEm = 0.333;
+      const symbolAdvanceEm = 1.067;
+      final isSymbol =
+          marker == '•' || marker == '○' || marker == '▪';
+      final advance = isSymbol
+          ? style.fontSize * symbolAdvanceEm
+          : _layoutCache
+                .layout(
+                  text: marker,
+                  style: style,
+                  maxWidth: contentWidth,
+                )
+                .lines
+                .first
+                .width;
+      return advance + style.fontSize * gapEm;
+    }
+
     /// 块级样式入口（P8-02）：链式级联结果 + 容器盒类近似传导 +
     /// 引用深度边距叠加。P8-05c：容器的上下边框拼合——首个后代块画
     /// 上边框、末个画下边框（flat 无嵌套盒子的面板整框近似）。
@@ -1592,6 +1822,8 @@ class EpubChapterSource
       int quoteDepth = 0,
       bool firstInContainer = false,
       bool lastInContainer = false,
+      double listIndent = 0,
+      double firstLineIndent = 0,
     }) {
       containerBorderedForLastChain = false;
       final computed = chainStyle(chain);
@@ -1652,15 +1884,27 @@ class EpubChapterSource
       // 引用深度（M2→P8-02 语义演进）：blockquote 的 UA 左右边距经
       // 盒传导逐层累加（嵌套两层 80px，与 CSS 盒嵌套近似一致），
       // quoteDepth 不再叠加（避免双重计算）。
-      if (promoted.isEmpty && extraLeft == 0 && extraRight == 0) {
+      if (promoted.isEmpty &&
+          extraLeft == 0 &&
+          extraRight == 0 &&
+          listIndent == 0 &&
+          firstLineIndent == 0) {
         return computed;
       }
+      // 列表缩进（g）：li 的水平缩进来自列表容器的级联盒，不再靠 UA 的
+      // 40px 近似；`list-style-position: inside` 的首行缩进走 text-indent
+      //（行排版器只作用首行，与浏览器「标记并入首行」一致）。
+      extraLeft += listIndent;
       final declarations = <String, String>{...promoted, ...computed.values};
       if (extraLeft > 0) {
         declarations['margin-left'] = '${computed.margin.left + extraLeft}px';
       }
       if (extraRight > 0) {
         declarations['margin-right'] = '${computed.margin.right + extraRight}px';
+      }
+      if (firstLineIndent > 0) {
+        declarations['text-indent'] =
+            '${computed.textIndent + firstLineIndent}px';
       }
       // 容器 padding/border 折算子块内缩（复用盒传导声明）。
       return ComputedStyle(
@@ -1902,20 +2146,25 @@ class EpubChapterSource
       final tableChain = <SelectorElement>[...ancestors, tableView];
       final tableStyle = styleForChain(tableChain);
       final tableInBorderedContainer = containerBorderedForLastChain;
+      // 表格边框模型（a~e）：`border-collapse: collapse` 时相邻单元格共用
+      // 一条边线（每格只分摊一半）、且没有 border-spacing；separate 模式
+      // 按 `border-spacing` 在列间/行间与四周留白。
+      final collapse = tableStyle.borderCollapse == CssBorderCollapse.collapse;
+      final spacingX = collapse ? 0.0 : tableStyle.borderSpacing.left;
+      final spacingY = collapse ? 0.0 : tableStyle.borderSpacing.top;
+      final borderShare = collapse ? 0.5 : 1.0;
 
-      /// 单元格水平占位：左右内边距 + 左右边框。
+      /// 单元格水平占位：左右内边距 + 左右边框（collapse 模式分摊一半）。
       double horizontalInset(ComputedStyle style) =>
           style.padding.left +
           style.padding.right +
-          style.borders.left.width +
-          style.borders.right.width;
+          (style.borders.left.width + style.borders.right.width) * borderShare;
 
-      /// 单元格垂直占位：上下内边距 + 上下边框。
+      /// 单元格垂直占位：上下内边距 + 上下边框（collapse 模式分摊一半）。
       double verticalInset(ComputedStyle style) =>
           style.padding.top +
           style.padding.bottom +
-          style.borders.top.width +
-          style.borders.bottom.width;
+          (style.borders.top.width + style.borders.bottom.width) * borderShare;
 
       final rows = <List<BlockNode>>[];
       final rowNodes = <BlockNode>[];
@@ -2142,19 +2391,34 @@ class EpubChapterSource
       final columnSpecified = <double?>[
         for (var i = 0; i < columnCount; i += 1) null,
       ];
+      // 列宽声明是否为百分比（e）：百分比要以「表宽 - border-spacing」
+      // 为基准解算，fixed 分支需要区分。
+      final columnPercent = <bool>[
+        for (var i = 0; i < columnCount; i += 1) false,
+      ];
+      bool declaredIsPercent(
+        ComputedStyle style,
+        Map<String, String> attributes,
+      ) {
+        final css = style.width;
+        if (css != null && !css.isAuto) {
+          return css.isPercent;
+        }
+        final raw = attributes['width']?.trim() ?? '';
+        return raw.endsWith('%');
+      }
+
       for (var i = 0; i < columnElements.length && i < columnCount; i += 1) {
         final column = columnElements[i];
+        final columnStyle = styleForChain(<SelectorElement>[
+          ...tableChain,
+          _NodeView(column.tag, column.attributes, const <SelectorElement>[]),
+        ]);
         columnSpecified[i] = declaredLength(
-          styleForChain(<SelectorElement>[
-            ...tableChain,
-            _NodeView(
-              column.tag,
-              column.attributes,
-              const <SelectorElement>[],
-            ),
-          ]),
+          columnStyle,
           column.attributes,
         );
+        columnPercent[i] = declaredIsPercent(columnStyle, column.attributes);
       }
 
       double? tableWidthPx;
@@ -2214,6 +2478,12 @@ class EpubChapterSource
                 cell.attributes['colspan']?.trim() ?? '',
               ) ??
               1;
+          // rowspan（a）：跨行格的高度回填与合并矩形都靠它，之前完全
+          // 没解析，跨行格按单行高排版。
+          final rowspan = int.tryParse(
+                cell.attributes['rowspan']?.trim() ?? '',
+              ) ??
+              1;
           double naturalWidth(double width, ComputedStyle cs) {
             if (text.isEmpty) {
               return 0;
@@ -2237,6 +2507,7 @@ class EpubChapterSource
             TableCellSpec(
               naturalWidth: naturalWidth(contentWidth, cellStyle),
               colspan: colspan,
+              rowspan: rowspan,
               measureHeight: (width) {
                 if (text.isEmpty) {
                   return cellStyle.lineHeight * 0.6;
@@ -2275,6 +2546,10 @@ class EpubChapterSource
             cellStyles.first[i],
             cell.attributes,
           );
+          columnPercent[firstRowColumn] = declaredIsPercent(
+            cellStyles.first[i],
+            cell.attributes,
+          );
         }
         firstRowColumn += span;
       }
@@ -2284,53 +2559,85 @@ class EpubChapterSource
       final List<double> rowHeights;
       final double tableWidthPxFinal;
       if (fixedLayout) {
-        // `table-layout: fixed`：声明列保持声明宽，剩余空间平分给未声明列。
+        // `table-layout: fixed`（e）：声明列保持声明宽（百分比以
+        //「表宽 - border-spacing」为基准，与浏览器一致），剩余空间平分给
+        // 未声明列；列宽是「边框盒宽」= 内容宽 + 该列单元格内缩。
         var target = tableWidthPercent != null
             ? contentWidth * tableWidthPercent.clamp(0.0, 1.0)
             : (tableWidthPx ?? contentWidth);
         target = target.clamp(0.0, contentWidth);
+        final columnSpace = math.max(
+          0.0,
+          target - spacingX * (columnCount + 1),
+        );
+        // 第一行单元格样式 → 每列的内缩（跨列格按首个覆盖列取）。
+        final columnInset = List<double>.filled(columnCount, 0);
+        var insetColumn = 0;
+        for (var i = 0; i < rows.first.length; i += 1) {
+          final span =
+              int.tryParse(rows.first[i].attributes['colspan']?.trim() ?? '') ??
+              1;
+          final inset = horizontalInset(cellStyles.first[i]);
+          for (var c = insetColumn; c < insetColumn + span && c < columnCount; c += 1) {
+            columnInset[c] = inset;
+          }
+          insetColumn += span;
+        }
         final widths = List<double>.filled(columnCount, 0);
         var specifiedTotal = 0.0;
         var autoColumns = 0;
         for (var c = 0; c < columnCount; c += 1) {
           final specified = columnSpecified[c];
-          if (specified != null) {
-            widths[c] = specified;
-            specifiedTotal += specified;
-          } else {
+          if (specified == null) {
             autoColumns += 1;
+            continue;
           }
+          final content = (c < columnPercent.length && columnPercent[c] &&
+                  contentWidth > 0)
+              ? specified * columnSpace / contentWidth
+              : specified;
+          widths[c] = content + columnInset[c];
+          specifiedTotal += widths[c];
         }
-        if (autoColumns == 0) {
-          if (specifiedTotal > target && specifiedTotal > 0) {
-            final scale = target / specifiedTotal;
-            for (var c = 0; c < columnCount; c += 1) {
-              widths[c] *= scale;
-            }
-          }
-        } else {
-          final share = math.max(0.0, target - specifiedTotal) / autoColumns;
+        if (autoColumns > 0) {
+          final share = math.max(0.0, columnSpace - specifiedTotal) /
+              autoColumns;
           for (var c = 0; c < columnCount; c += 1) {
             if (columnSpecified[c] == null) {
               widths[c] = share;
             }
           }
+        } else if (specifiedTotal > columnSpace && specifiedTotal > 0) {
+          final scale = columnSpace / specifiedTotal;
+          for (var c = 0; c < columnCount; c += 1) {
+            widths[c] *= scale;
+          }
         }
         columnWidths = widths;
-        tableWidthPxFinal = widths.fold(0.0, (sum, width) => sum + width);
-        final heights = <double>[];
+        tableWidthPxFinal = widths.fold(0.0, (sum, width) => sum + width) +
+            spacingX * (columnCount + 1);
+        // 行高：先按单行格取大，再把跨行格溢出部分均摊（a）。
+        final heights = List<double>.filled(rows.length, 0);
+        final rowspans = <List<int>>[];
         for (var r = 0; r < rows.length; r += 1) {
-          var rowHeight = 0.0;
+          final spans = <int>[];
           var column = 0;
           for (var i = 0; i < rows[r].length; i += 1) {
-            final span =
+            final colSpan =
                 int.tryParse(rows[r][i].attributes['colspan']?.trim() ?? '') ??
                     1;
+            final rowSpan =
+                int.tryParse(rows[r][i].attributes['rowspan']?.trim() ?? '') ??
+                    1;
+            spans.add(rowSpan);
             var cellWidth = 0.0;
-            for (var c = column; c < column + span && c < columnCount; c += 1) {
-              cellWidth += columnWidths[c];
+            for (var c = column; c < column + colSpan && c < columnCount; c += 1) {
+              cellWidth += widths[c];
             }
-            column += span;
+            column += colSpan;
+            if (rowSpan > 1) {
+              continue;
+            }
             final style = cellStyles[r][i];
             final text = cellTexts[r][i];
             final measuredCell = text.isEmpty
@@ -2346,9 +2653,53 @@ class EpubChapterSource
             final height =
                 (measuredCell?.height ?? style.lineHeight * 0.6) +
                 verticalInset(style);
-            rowHeight = math.max(rowHeight, height);
+            heights[r] = math.max(heights[r], height);
           }
-          heights.add(rowHeight);
+          rowspans.add(spans);
+        }
+        for (var r = 0; r < rows.length; r += 1) {
+          var column = 0;
+          for (var i = 0; i < rows[r].length; i += 1) {
+            final span =
+                int.tryParse(rows[r][i].attributes['colspan']?.trim() ?? '') ??
+                    1;
+            final rowSpan = rowspans[r][i];
+            var cellWidth = 0.0;
+            for (var c = column; c < column + span && c < columnCount; c += 1) {
+              cellWidth += widths[c];
+            }
+            column += span;
+            if (rowSpan <= 1) {
+              continue;
+            }
+            final style = cellStyles[r][i];
+            final text = cellTexts[r][i];
+            final measuredCell = text.isEmpty
+                ? null
+                : _layoutCache.layout(
+                    text: text,
+                    style: style,
+                    maxWidth: math.max(
+                      8.0,
+                      cellWidth - horizontalInset(style),
+                    ),
+                  );
+            final height =
+                (measuredCell?.height ?? style.lineHeight * 0.6) +
+                verticalInset(style);
+            final spanRows = math.min(rowSpan, rows.length - r);
+            var current = 0.0;
+            for (var k = 0; k < spanRows; k += 1) {
+              current += heights[r + k];
+            }
+            if (height <= current) {
+              continue;
+            }
+            final extra = (height - current) / spanRows;
+            for (var k = 0; k < spanRows; k += 1) {
+              heights[r + k] += extra;
+            }
+          }
         }
         rowHeights = heights;
       } else {
@@ -2358,6 +2709,8 @@ class EpubChapterSource
           tableWidthPx: tableWidthPx,
           tableWidthPercent: tableWidthPercent,
           containerWidth: contentWidth,
+          borderSpacingX: spacingX,
+          borderSpacingY: spacingY,
         );
         columnWidths = measured.columnWidths;
         rowHeights = measured.rowHeights;
@@ -2367,6 +2720,8 @@ class EpubChapterSource
         rows: specs,
         columnWidths: columnWidths,
         rowHeights: rowHeights,
+        borderSpacingX: spacingX,
+        borderSpacingY: spacingY,
       );
       // 格终布局（按最终列宽）与渲染格。
       final allCells = <TableCellRender>[];
@@ -2402,18 +2757,27 @@ class EpubChapterSource
           );
         }
       }
-      // 行边界切分（P3-20）：以正文页高为页。
+      // 行边界切分（P3-20，c）：行高含 border-spacing 的纵向占位——每行
+      // 带一份间距，切片高才会与 grid.rowYs 的差值一致（整表高 =
+      // grid.size.height，含首尾各一份间距）。
+      final paddedRowHeights = <double>[
+        for (final height in rowHeights) height + spacingY,
+      ];
       final slices = TablePaginator.paginateRows(
-        rowHeights: rowHeights,
-        pageHeight: contentHeight,
+        rowHeights: paddedRowHeights,
+        pageHeight: math.max(1.0, contentHeight - spacingY),
       );
       final gridRowYs = grid.rowYs;
       final gridColumnXs = grid.columnXs;
       for (final slice in slices) {
         final sliceTop = gridRowYs[slice.firstRow];
-        final sliceHeight = slice.clippedRowHeight > 0
+        var sliceHeight = slice.clippedRowHeight > 0
             ? slice.clippedRowHeight
             : slice.drawnHeight;
+        // 末段落补上表格底部的最后一份纵向间距。
+        if (slice.lastRow >= rowHeights.length) {
+          sliceHeight += spacingY;
+        }
         final cells = allCells
             .where((cell) =>
                 cell.row >= slice.firstRow && cell.row < slice.lastRow)
@@ -2475,9 +2839,17 @@ class EpubChapterSource
       List<SelectorElement> ancestors = const <SelectorElement>[],
       bool firstInContainer = false,
       bool lastInContainer = false,
+      bool listFirst = false,
+      bool listLast = false,
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
+        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）。
+        final tag = ancestors.isEmpty ? 'body' : ancestors.last.tag;
+        final isHeading = _headingTags.contains(tag);
+        // 列表项（g）：水平缩进来自列表容器的级联盒，标记只挂在首块。
+        final isListItem = tag == 'li' && list != null;
+        final listIndent = isListItem ? listIndentOf(ancestors) : 0.0;
         // 块样式先算：`white-space` 决定用折叠态文本还是保留原文的文本
         // （逐块生效，聚合器只能在章级选一种模式）。
         var blockStyle = styleForChain(
@@ -2485,6 +2857,7 @@ class EpubChapterSource
           quoteDepth: quoteDepth,
           firstInContainer: firstInContainer,
           lastInContainer: lastInContainer,
+          listIndent: listIndent,
         );
         // 容器拼合（P9-25）：卡片/面板里的子块要把背景与左右边框延伸到
         // 段距，才能拼回整片面板（四边框闭合）。
@@ -2502,10 +2875,6 @@ class EpubChapterSource
             (before == null && after == null) || textNode is! TextContentNode
             ? text
             : '${before ?? ''}$text${after ?? ''}';
-        // 链末位即当前块上下文（P8-02：链式级联含全部祖先）；
-        // 首末容器位（P8-05c）供上下边框拼合。
-        final tag = ancestors.isEmpty ? 'body' : ancestors.last.tag;
-        final isHeading = _headingTags.contains(tag);
         // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
         // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
         // 标题不参与——标题字号/行高继续跟随书籍样式族。
@@ -2528,13 +2897,43 @@ class EpubChapterSource
         final paragraphSpacing = isHeading || tag == 'li'
             ? null
             : overrides.paragraphSpacing;
-        // 列表标记（P3-23）：li 项按所在列表类型与序号赋标记文本。
+        // 列表标记（P3-23）：每个 li 一项标记，只挂在该项首个文本块上
+        //（li 内多段时不能重复编号）。
         String? marker;
-        if (ancestors.isNotEmpty && ancestors.last.tag == 'li' &&
-            list != null) {
+        if (isListItem && list.markerPending) {
+          list.markerPending = false;
           final markerText = list.nextMarker(blockStyle.listStyleType);
           marker = markerText.isEmpty ? null : markerText;
         }
+        // `list-style-position: inside`（g）：标记并入首行，首行让出
+        // 「标记宽 + 间隙」；outside 保持整行宽度（标记画在内容框外）。
+        // 该属性在 CSS 里继承，li 自己声明时优先，否则取列表容器的值。
+        final markerInside = blockStyle.values.containsKey(
+          'list-style-position',
+        )
+            ? blockStyle.listStylePosition == CssListStylePosition.inside
+            : list?.inside ?? false;
+        // 缩进只作用于测量样式：浏览器的计算样式 text-indent 仍是 0
+        //（缩进来::marker 盒），块样式保持原样，绘制按行的 offsetX 走。
+        var measureStyle = blockStyle;
+        if (marker != null && markerInside) {
+          measureStyle = styleForChain(
+            ancestors,
+            quoteDepth: quoteDepth,
+            firstInContainer: firstInContainer,
+            lastInContainer: lastInContainer,
+            listIndent: listIndent,
+            firstLineIndent: insideMarkerIndent(marker, blockStyle),
+          );
+          if (!isHeading) {
+            measureStyle = overrides.applyTypography(measureStyle);
+          }
+        }
+        // 列表容器段距（g）：容器不产出块，上下外边距/内边距/边框由首项
+        // 与末项承担（分页层再做相邻折叠）。
+        final listSpacingBefore =
+            isListItem && listFirst ? list.spaceBefore : 0.0;
+        final listSpacingAfter = isListItem && listLast ? list.spaceAfter : 0.0;
         // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排；
         // ::first-letter（P8-09）：命中规则时首字符放大 run 追加。
         var runs = textNode is TextContentNode
@@ -2583,11 +2982,34 @@ class EpubChapterSource
         }
         final layout = _layoutCache.layout(
           text: effectiveText,
-          style: blockStyle,
-          maxWidth: _textWidthFor(blockStyle),
+          style: measureStyle,
+          maxWidth: _textWidthFor(measureStyle),
           runs: runs,
         );
         if (layout.lineCount > 0) {
+          // 浮动块（f）：`float` 走级联后的计算样式——此前只认内联 style
+          // 与 `align` 属性，`.f { float: left }` 这类 class 规则完全没
+          // 识别，绕排分支从未进入。
+          final floatSide = _floatSideOfStyle(blockStyle);
+          final spaceBefore =
+              (paragraphSpacing ?? blockStyle.margin.top) + listSpacingBefore;
+          final spaceAfter =
+              (paragraphSpacing ?? blockStyle.margin.bottom) + listSpacingAfter;
+          if (floatSide != null) {
+            blocks.add(
+              _floatedTextBlock(
+                layout: layout,
+                style: blockStyle,
+                side: floatSide,
+                spaceBefore: spaceBefore,
+                spaceAfter: spaceAfter,
+                startCfi: cfi,
+                groupId: groupId,
+                containerSides: inBorderedContainer,
+              ),
+            );
+            return;
+          }
           blocks.add(
             PageBlock.styled(
               layout: layout,
@@ -2598,9 +3020,9 @@ class EpubChapterSource
               listMarker: marker,
               // 块级上下边距进分页几何（含负值）：作者/UA margin 生效，
               // 阅读器段距设置优先；相邻段在分页层折叠取大
-              //（PageBlock.collapseAdjacentMargins）。
-              spaceBefore: paragraphSpacing ?? blockStyle.margin.top,
-              spaceAfter: paragraphSpacing ?? blockStyle.margin.bottom,
+              //（PageBlock.collapseAdjacentMargins）。列表项另加容器段距。
+              spaceBefore: spaceBefore,
+              spaceAfter: spaceAfter,
               // P8-08：注音标注透传渲染层。
               rubies: textNode is TextContentNode && textNode.rubies.isNotEmpty
                   ? [
@@ -2687,13 +3109,6 @@ class EpubChapterSource
           figureSeq += 1;
           childGroup = figureSeq;
         }
-        // 列表上下文（P3-23）：ul/ol 开新层，li 沿用所在列表。
-        _ListContext? childList = list;
-        if (node.tag == 'ul' || node.tag == 'ol') {
-          childList = _ListContext(node.tag, (list?.depth ?? -1) + 1);
-        } else if (node.tag == 'li' && list != null) {
-          childList = list;
-        }
         // 引用深度（M2）：blockquote 每层 +1，容器左右边距叠加到子块。
         final childQuoteDepth =
             node.tag == 'blockquote' ? quoteDepth + 1 : quoteDepth;
@@ -2707,6 +3122,32 @@ class EpubChapterSource
         ];
         final selfView = _NodeView(node.tag, node.attributes, childViews);
         final childAncestors = <SelectorElement>[...ancestors, selfView];
+        // 列表上下文（P3-23/g）：ul/ol 开新层，并把容器的上下盒空白
+        //（外边距 + 边框 + 内边距）交给首项/末项承担；li 沿用所在列表。
+        // 容器不产出块，这些空白不接就是列表整体上移（用例 11/30 的 6px）。
+        _ListContext? childList = list;
+        if (node.tag == 'ul' || node.tag == 'ol') {
+          final containerStyle = chainStyle(childAncestors);
+          childList = _ListContext(
+            node.tag,
+            (list?.depth ?? -1) + 1,
+            spaceBefore:
+                containerStyle.margin.top +
+                containerStyle.borders.top.width +
+                containerStyle.padding.top,
+            spaceAfter:
+                containerStyle.margin.bottom +
+                containerStyle.borders.bottom.width +
+                containerStyle.padding.bottom,
+            inside:
+                containerStyle.listStylePosition ==
+                CssListStylePosition.inside,
+          );
+        } else if (node.tag == 'li' && list != null) {
+          childList = list;
+          // 每个 li 各有一枚标记：进 li 时置位，由该项首个文本块消费。
+          list.markerPending = true;
+        }
         // 首末容器位（P8-05c）：按块级子序标记，供上下边框拼合。
         final blockChildren = <EpubNode>[
           for (final child in node.children)
@@ -2719,6 +3160,10 @@ class EpubChapterSource
             childFirst = identical(child, blockChildren.first);
             childLast = identical(child, blockChildren.last);
           }
+          // 列表项的首/末位置：列表容器按块级子序判定，li 内部继续传导
+          //（否则 li 里的文本块拿不到「首项」信息，标记与容器段距会丢）。
+          final isListContainer = node.tag == 'ul' || node.tag == 'ol';
+          final isListItem = node.tag == 'li';
           collect(
             child,
             node.tag,
@@ -2729,6 +3174,12 @@ class EpubChapterSource
             ancestors: childAncestors,
             firstInContainer: childFirst,
             lastInContainer: childLast,
+            listFirst: isListContainer
+                ? identical(child, blockChildren.first)
+                : (isListItem && listFirst),
+            listLast: isListContainer
+                ? identical(child, blockChildren.last)
+                : (isListItem && listLast),
           );
         }
       } else if (node is InlineNode) {
@@ -2743,6 +3194,8 @@ class EpubChapterSource
             ancestors: ancestors,
             firstInContainer: firstInContainer,
             lastInContainer: lastInContainer,
+            listFirst: listFirst,
+            listLast: listLast,
           );
         }
       }
@@ -2777,7 +3230,16 @@ class EpubChapterSource
     // pagination 层（P7-23）：先试页索引重放（P7-22），跳过分页状态
     // 机；索引缺失/损坏/schema 不匹配时静默重排并回写索引。
     final hasAbsoluteBlocks = blocks.any((block) => block.absolute);
-    final cachedIndexBytes = hasAbsoluteBlocks
+    // 页索引重放只按「行高之和 + leading/trailing」重建切片，声明高度
+    //（height/min-height/overflow 裁剪）的块盒内留白/裁剪信息会丢，
+    // 二次进入与首次分页可能差几 px；含这类块的章节跳过重放与写入。
+    final hasBoxHeightBlocks = blocks.any(
+      (block) =>
+          (block.height - block.measuredHeight).abs() > 0.01 ||
+          block.clipsContent,
+    );
+    final skipPageIndex = hasAbsoluteBlocks || hasBoxHeightBlocks;
+    final cachedIndexBytes = skipPageIndex
         ? null
         : _pageIndexCache[paginationKey];
     if (cachedIndexBytes != null) {
@@ -2805,7 +3267,7 @@ class EpubChapterSource
         bookId: traceBook,
       );
     }
-    if (!hasAbsoluteBlocks) {
+    if (!skipPageIndex) {
       _pageIndexCache[paginationKey] = PageIndex.from(
         ChapterPagination(
           spineIndex: spineIndex,
@@ -2822,13 +3284,35 @@ class EpubChapterSource
 
 /// 列表上下文（P3-23）：类型 + 嵌套深度 + ol 序号计数。
 class _ListContext {
-  _ListContext(this.type, this.depth);
+  _ListContext(
+    this.type,
+    this.depth, {
+    this.spaceBefore = 0,
+    this.spaceAfter = 0,
+    this.inside = false,
+  });
 
   /// 'ul' 或 'ol'。
   final String type;
 
   /// 嵌套深度（0 起）。
   final int depth;
+
+  /// 列表容器在首项之前占的高度（容器外边距 + 上边框 + 上内边距）。
+  ///
+  /// flat 管线不产出容器块，容器的上下外边距必须由首/末项承担，否则
+  /// 列表整体上移（用例 11/30 的首项 y 差 6px）。
+  final double spaceBefore;
+
+  /// 列表容器在末项之后占的高度（下边框 + 下内边距 + 下外边距）。
+  final double spaceAfter;
+
+  /// 列表容器的 `list-style-position: inside`（CSS 里该属性继承，但
+  /// ComputedStyle 目前按不继承实现，所以由容器把值带给 li）。
+  final bool inside;
+
+  /// 当前 li 还没挂标记（进入新 li 时置位，首个文本块消费后清除）。
+  bool markerPending = false;
 
   int _olCounter = 0;
 
