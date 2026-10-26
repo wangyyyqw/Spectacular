@@ -107,9 +107,12 @@ abstract final class TextHitTester {
       );
     }
     final style = _styleOf(target.slice);
+    // 方向与布局层一致（RTL 段落按 rtl 测量，命中也要 rtl，否则 x 反算偏）。
     final painter = TextPainter(
       text: TextSpan(text: lineText, style: style),
-      textDirection: TextDirection.ltr,
+      textDirection: target.slice.block.layout.isRtl
+          ? TextDirection.rtl
+          : TextDirection.ltr,
     )..layout();
     final local = Offset(position.dx - target.rect.left, 0);
     final atLineStart = local.dx < 0;

@@ -80,15 +80,19 @@ List<int> punctCompressionOffsets(
 }
 
 /// 构造带缓存的 advance 测量器（同一字符重复测量复用）。
+///
+/// [direction] 与段落 baseDirection 保持一致（单字符 advance 与方向无关，
+/// 仅用于避免 RTL 段落里测量/绘制方向口径不一致的隐性回归）。
 double Function(String) punctAdvanceMeasurer(
   TextStyle baseStyle,
-  double textScaleFactor,
-) {
+  double textScaleFactor, {
+  TextDirection direction = TextDirection.ltr,
+}) {
   final cache = <String, double>{};
   return (String char) => cache[char] ??= () {
     final painter = TextPainter(
       text: TextSpan(text: char, style: baseStyle),
-      textDirection: TextDirection.ltr,
+      textDirection: direction,
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout();
     final width = painter.width;
