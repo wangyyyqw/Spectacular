@@ -191,6 +191,7 @@ class _SearchPanelState extends State<SearchPanel> {
     }
   }
 
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
