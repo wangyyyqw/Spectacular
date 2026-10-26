@@ -1,0 +1,9 @@
+{
+  "name": "37-filter-opacity",
+  "tags": [
+    "filter",
+    "opacity"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { margin: 8px 0; padding: 6px; font-size: 15px; background-color: #3366cc; color: #fff; } .blur { filter: blur(2px); } .gray { filter: grayscale(100%); } .sep { filter: sepia(0.6); } .op { opacity: 0.4; } .both { opacity: 0.7; filter: sepia(0.6); }",
+  "html": "<div class=\"blur\">blur 2px 模糊</div><div class=\"gray\">grayscale 100% 去色</div><div class=\"sep\">sepia 0.6 怀旧</div><div class=\"op\">opacity 0.4 半透明</div><div class=\"both\">opacity 与 filter 叠加</div>"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "39-font-size-units",
+  "tags": [
+    "font-size",
+    "line-height"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; } .px { font-size: 15px; } .em { font-size: 1.4em; } .pct { font-size: 120%; } .pt { font-size: 11pt; } .rem { font-size: 1.2rem; } .lhn { line-height: normal; } .lhpx { line-height: 28px; } .lhpct { line-height: 150%; }",
+  "html": "<p class=\"px\">15px 绝对字号</p><p class=\"em\">1.4em 相对父级字号</p><p class=\"pct\">120% 百分比字号</p><p class=\"pt\">11pt 点单位（约 14.67px）</p><p class=\"rem\">1.2rem 相对根字号</p><p class=\"lhn\">line-height: normal 的行盒高度由字体决定</p><p class=\"lhpx\">line-height: 28px 固定行高</p><p class=\"lhpct\">line-height: 150% 百分比行高</p>"
+}

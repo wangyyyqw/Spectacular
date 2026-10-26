@@ -1,0 +1,9 @@
+{
+  "name": "25-border-style-all",
+  "tags": [
+    "border-style",
+    "border-width"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 14px; } div { width: 160px; height: 16px; margin: 5px 0; border-width: 4px; border-color: #3366cc; padding: 2px; } .s1 { border-style: solid; } .s2 { border-style: dashed; } .s3 { border-style: dotted; } .s4 { border-style: double; } .s5 { border-style: groove; } .s6 { border-style: ridge; } .s7 { border-style: inset; } .s8 { border-style: outset; } .mix { border-style: solid dashed dotted double; } .hid { border-style: hidden; border-color: #cc0000; }",
+  "html": "<div class=\"s1\">solid</div><div class=\"s2\">dashed</div><div class=\"s3\">dotted</div><div class=\"s4\">double</div><div class=\"s5\">groove</div><div class=\"s6\">ridge</div><div class=\"s7\">inset</div><div class=\"s8\">outset</div><div class=\"mix\">四边不同线型</div><div class=\"hid\">hidden</div>"
+}

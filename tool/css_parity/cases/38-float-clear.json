@@ -1,0 +1,9 @@
+{
+  "name": "38-float-clear",
+  "tags": [
+    "float",
+    "clear"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .fl { float: left; width: 90px; height: 56px; background-color: #cce5ff; margin-right: 8px; } .fr { float: right; width: 80px; height: 56px; background-color: #ffe0e0; margin-left: 8px; } .cl { clear: both; background-color: #efe; } .wrap { background-color: #eee; }",
+  "html": "<div class=\"wrap\"><div class=\"fl\">左浮动</div><div class=\"fr\">右浮动</div><p>两侧都有浮动时，这段文字应当只在中间区域绕排，需要足够长才会换行并继续绕排。</p><p class=\"cl\">clear: both 之后文字从浮动下方开始，需要一段足够长的文字观察起始位置。</p></div><p class=\"fl\">浮动段落本身较长文字，用于观察块级元素浮动后的宽高与绕排。</p><p>紧随浮动之后的行内文字会贴着浮动排布，观察引擎的浮动避让是否正确。</p><p class=\"cl\">再次清除浮动，让后续内容回到整行宽度。</p>"
+}

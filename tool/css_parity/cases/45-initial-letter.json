@@ -1,0 +1,9 @@
+{
+  "name": "45-initial-letter",
+  "tags": [
+    "initial-letter"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.8; text-indent: 0; } .drop { initial-letter: 3; }",
+  "html": "<p class=\"drop\">首字下沉三行：这一段的首字应当放大并跨三行，后续文字绕排在右侧，用于记录引擎 initial-letter 的行为；Chrome 尚未支持该属性，因此本用例只记录引擎几何。</p><p>普通段落对照：没有首字下沉的正文排版，便于比较首段与普通段的起始位置。</p>"
+}

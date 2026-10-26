@@ -1,0 +1,8 @@
+{
+  "name": "17-text-align-last",
+  "tags": [
+    "text-align-last"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .jc { text-align: justify; text-align-last: center; } .jr { text-align: justify; text-align-last: right; } .jl { text-align: left; text-align-last: justify; }",
+  "html": "<p class=\"jc\">末行居中：这一段足够长会换成两行以上，重点看最后一行是否按 text-align-last 居中，而不是贴着左边界。</p><p class=\"jr\">末行右对齐：同样需要换成多行，最后一行应当靠右结束，观察引擎是否正确处理末行对齐。</p><p class=\"jl\">末行两端对齐：短末行被拉开到整行宽度，用于观察末行 justify 的间隙分摊。</p>"
+}

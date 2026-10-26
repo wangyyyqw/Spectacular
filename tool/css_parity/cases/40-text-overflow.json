@@ -1,0 +1,10 @@
+{
+  "name": "40-text-overflow",
+  "tags": [
+    "text-overflow",
+    "white-space",
+    "overflow"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid #999; margin: 8px 0; font-size: 14px; } .clip { text-overflow: clip; } .wrap { white-space: normal; overflow-wrap: break-word; }",
+  "html": "<div>省略号：这一行文字明显超出一百七十像素的盒子宽度</div><div class=\"clip\">裁切：同样超宽的文本被直接切断</div><div class=\"wrap\">允许换行：white-space normal 加 overflow-wrap，长串 ABCDEFGHIJKLMNOPQRSTUVWXYZ 也会在必要时断开。</div>"
+}

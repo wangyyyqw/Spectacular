@@ -1,22 +1,32 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
-/// CSS 属性对照：把 cases/*.json 用引擎渲染成同尺寸 PNG，并导出每块/每行
-/// 几何与计算样式，供与浏览器（render_browser.mjs）结果逐项比对。
+/// CSS 属性对照：把 cases/*.json 用引擎渲染成同尺寸 PNG，并导出每页的
+/// 块/行/表格单元格几何与计算样式，供与浏览器（render_browser.mjs）
+/// 结果逐项比对。
 ///
 /// 只在 CSS_PARITY=1 时运行，避免污染日常测试。
 const _width = 350.0;
 const _height = 800.0;
+
+/// 最多导出页数：跨页用例只需第 1/2 页，多导无用数据。
+const _maxPages = 2;
+
+/// JSON 不支持 Infinity/NaN，统一降成 null（compare.py 视为「未知」）。
+double? _n(double value) => value.isFinite ? value : null;
 
 Uint8List _book(String body, String css) {
   final chapter = '<?xml version="1.0" encoding="UTF-8"?>'
@@ -62,75 +72,215 @@ Map<String, Object?> _color(Color? color) => color == null
         'a': color.a,
       };
 
-Map<String, Object?> _blockJson(PageBlockSlice slice, double y) {
+Map<String, Object?> _rectJson(double x, double y, double w, double h) =>
+    <String, Object?>{'x': _n(x), 'y': _n(y), 'w': _n(w), 'h': _n(h)};
+
+/// 块/单元格共用的计算样式快照（只导出可比对的数值型字段）。
+Map<String, Object?> _styleJson(ComputedStyle? style) {
+  if (style == null) {
+    return <String, Object?>{};
+  }
+  return <String, Object?>{
+    'fontSize': _n(style.fontSize),
+    'lineHeight': _n(style.lineHeight),
+    'letterSpacing': _n(style.letterSpacing),
+    'wordSpacing': _n(style.wordSpacing),
+    'textAlign': style.textAlign.name,
+    'textIndent': _n(style.textIndent),
+    'color': _color(style.color),
+    'backgroundColor': _color(style.backgroundColor),
+    'margin': <double?>[
+      _n(style.margin.top),
+      _n(style.margin.right),
+      _n(style.margin.bottom),
+      _n(style.margin.left),
+    ],
+    'padding': <double?>[
+      _n(style.padding.top),
+      _n(style.padding.right),
+      _n(style.padding.bottom),
+      _n(style.padding.left),
+    ],
+    'border': <double?>[
+      _n(style.borders.top.width),
+      _n(style.borders.right.width),
+      _n(style.borders.bottom.width),
+      _n(style.borders.left.width),
+    ],
+    'textTransform': style.textTransform.name,
+    'fontWeight': style.fontWeight,
+    'italic': style.italic,
+    'whiteSpace': style.whiteSpace.name,
+    'verticalAlign': style.verticalAlign.name,
+    'boxSizing': style.boxSizing.name,
+  };
+}
+
+/// 单元格几何：坐标换成页面绝对坐标（与浏览器 td 的 border box 对齐）。
+///
+/// 口径与绘制端（PagePainter._paintTable）一致：表格原点 = 块顶/块左，
+/// 格内文字再叠加 padding + border 与 vertical-align 偏移。
+Map<String, Object?> _cellJson(
+  TableCellRender cell,
+  double blockLeft,
+  double blockTop,
+  int cellIndex,
+) {
+  final style = cell.style;
+  final cellLeft = blockLeft + cell.rect.left;
+  final cellTop = blockTop + cell.rect.top;
+  final topInset = style.padding.top + style.borders.top.width;
+  final bottomInset = style.padding.bottom + style.borders.bottom.width;
+  final innerHeight = math.max(0.0, cell.rect.height - topInset - bottomInset);
+  final freeSpace = math.max(0.0, innerHeight - cell.layout.height);
+  final alignOffset = switch (style.verticalAlign) {
+    CssVerticalAlign.middle => freeSpace / 2,
+    CssVerticalAlign.bottom => freeSpace,
+    _ => 0.0,
+  };
+  final contentLeft =
+      cellLeft + style.padding.left + style.borders.left.width;
+  var lineY = cellTop + topInset + alignOffset;
+  final lines = <Map<String, Object?>>[];
+  for (final line in cell.layout.lines) {
+    lines.add(<String, Object?>{
+      'x': _n(contentLeft + line.offsetX),
+      'y': _n(lineY),
+      'w': _n(line.advanceWidth),
+      'h': _n(line.height),
+    });
+    lineY += line.height;
+  }
+  return <String, Object?>{
+    'row': cell.row,
+    'col': cellIndex,
+    'rect': _rectJson(
+      cellLeft,
+      cellTop,
+      cell.rect.width,
+      cell.rect.height,
+    ),
+    'text': cell.layout.text,
+    'lines': lines,
+    'style': _styleJson(style),
+  };
+}
+
+Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
   final block = slice.block;
   final style = block.style;
-  // 版面 y 含段前距；边框盒顶 = y + leading（与浏览器 border box 对齐）。
-  final top = y + slice.leadingExtent;
+  // 切片顶 + 段前扩展 = 边框盒顶（与浏览器 border box 对齐）。
+  final top = sliceTop + slice.leadingExtent;
+  final left = slice.leftInset + (style?.margin.left ?? 0);
   final lines = <Map<String, Object?>>[];
   for (var i = slice.startLine; i < slice.endLine; i++) {
     final line = block.layout.lines[i];
     lines.add(<String, Object?>{
-      'x': line.offsetX + slice.leftInset + (style?.margin.left ?? 0),
-      'y': top + line.top,
-      'w': line.width,
-      'h': line.height,
+      'x': _n(left + line.offsetX),
+      'y': _n(top + line.top),
+      'w': _n(line.advanceWidth),
+      'h': _n(line.height),
     });
   }
+  // 行内样式区间（b/strong/span 等）：一块多 run 时全部导出，供对照浏览器
+  // 行内元素的字重/字号/斜体（相对字重、行内字号覆盖）。单 run 块不导。
+  final runs = <Map<String, Object?>>[];
+  if (block.layout.runs.length > 1) {
+    for (final run in block.layout.runs.take(24)) {
+      final runStyle = run.style;
+      runs.add(<String, Object?>{
+        'text': block.layout.text.substring(run.start, run.end),
+        'fontWeight': runStyle.fontWeight,
+        'italic': runStyle.italic,
+        'fontSize': _n(runStyle.fontSize),
+      });
+    }
+  }
+  final cells = <Map<String, Object?>>[];
+  final table = block.table;
+  if (table != null) {
+    final seen = <int, int>{};
+    for (final cell in table.cells) {
+      final index = seen[cell.row] ?? 0;
+      seen[cell.row] = index + 1;
+      cells.add(_cellJson(cell, left, top, index));
+    }
+  }
+  // 块宽三种口径分开报，避免拿「最长行宽」当边框盒宽与浏览器比：
+  // - contentWidth：排版可用内容宽（maxWidth，pre/nowrap 下可能是 Infinity）；
+  // - longestLineW：最长行宽（仅供留档，不做块宽比较）；
+  // - bboxW：边框盒宽 = contentWidth + padding + border；未知时 null。
+  final contentWidth = block.layout.maxWidth;
+  final padH = (style?.padding.left ?? 0) + (style?.padding.right ?? 0);
+  final borderH =
+      (style?.borders.left.width ?? 0) + (style?.borders.right.width ?? 0);
+  final bboxW = contentWidth.isFinite ? contentWidth + padH + borderH : null;
   return <String, Object?>{
     'text': block.layout.text,
-    'rect': <String, Object?>{
-      'x': slice.leftInset + (style?.margin.left ?? 0),
-      'y': top,
-      'w': block.layout.width,
-      // 边框盒高 = 切片高 - 段前/段后扩展（切片高含首尾额外高度）。
-      'h': slice.height - slice.leadingExtent -
+    'rect': _rectJson(
+      left,
+      top,
+      block.layout.width,
+      slice.height -
+          slice.leadingExtent -
           (slice.endLine == block.layout.lineCount ? slice.trailingExtent : 0),
-    },
+    ),
     'lines': lines,
-    'maxWidth': block.layout.maxWidth,
-    'layoutWidth': block.layout.width,
-    'style': <String, Object?>{
-      'fontSize': style?.fontSize,
-      'lineHeight': style?.lineHeightFactor == null
-          ? null
-          : style!.fontSize * style.lineHeightFactor!,
-      'letterSpacing': style?.letterSpacing,
-      'wordSpacing': style?.wordSpacing,
-      'textAlign': style?.textAlign.name,
-      'textIndent': style?.textIndent,
-      'color': _color(style?.color),
-      'backgroundColor': _color(style?.backgroundColor),
-      'margin': style == null
-          ? null
-          : <double>[
-              style.margin.top,
-              style.margin.right,
-              style.margin.bottom,
-              style.margin.left,
-            ],
-      'padding': style == null
-          ? null
-          : <double>[
-              style.padding.top,
-              style.padding.right,
-              style.padding.bottom,
-              style.padding.left,
-            ],
-      'border': style == null
-          ? null
-          : <double>[
-              style.borders.top.width,
-              style.borders.right.width,
-              style.borders.bottom.width,
-              style.borders.left.width,
-            ],
-      'textTransform': style?.textTransform.name,
-      'fontWeight': style?.fontWeight,
-      'italic': style?.italic,
-      'whiteSpace': style?.whiteSpace.name,
+    'runs': runs,
+    'cells': cells,
+    'slice': <String, Object?>{
+      'startLine': slice.startLine,
+      'endLine': slice.endLine,
+      'lineCount': block.layout.lineCount,
+      'overlay': slice.overlay,
+      'continuesBefore': slice.continuesBefore,
+      'continuesAfter': slice.continuesAfter,
     },
+    'contentWidth': _n(contentWidth),
+    'longestLineW': _n(block.layout.width),
+    'bboxW': _n(bboxW ?? double.nan),
+    'style': _styleJson(style),
   };
+}
+
+Map<String, Object?> _pageJson(PageContent page) {
+  var y = page.topPadding;
+  final blocks = <Map<String, Object?>>[];
+  for (final slice in page.slices) {
+    // 浮动覆盖切片不推进流游标（与绘制端一致）。
+    final sliceTop = slice.overlay ? (slice.absoluteTop ?? y) : y;
+    blocks.add(_blockJson(slice, sliceTop));
+    if (!slice.overlay) {
+      y += slice.height;
+    }
+  }
+  return <String, Object?>{
+    'index': page.pageIndex,
+    'topPadding': _n(page.topPadding),
+    'usedHeight': _n(page.usedHeight),
+    'blocks': blocks,
+  };
+}
+
+/// 递归收集 null 几何（引擎返回 Infinity/NaN 的位置），供报告标注。
+void _collectNulls(Object? node, String path, List<String> out) {
+  if (out.length >= 20) {
+    return;
+  }
+  if (node is Map) {
+    node.forEach((key, value) {
+      final next = '$path.$key';
+      if (value == null) {
+        out.add(next);
+      } else {
+        _collectNulls(value, next, out);
+      }
+    });
+  } else if (node is List) {
+    for (var i = 0; i < node.length; i++) {
+      _collectNulls(node[i], '$path[$i]', out);
+    }
+  }
 }
 
 void main() {
@@ -144,7 +294,10 @@ void main() {
       print('SKIP 缺少 cases 目录：${casesDir.path}');
       return;
     }
-    final outDir = Directory('/tmp/css_parity')..createSync(recursive: true);
+    // 默认输出目录；并行验证时用 CSS_PARITY_OUT 隔离，避免互相覆盖。
+    final outDir = Directory(
+      Platform.environment['CSS_PARITY_OUT'] ?? '/tmp/css_parity',
+    )..createSync(recursive: true);
 
     final song = FontLoader('builtin_song')
       ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'))
@@ -172,16 +325,17 @@ void main() {
       final pages = await source.loadChapter(0);
       final page = pages.first;
 
-      var y = page.topPadding;
-      final blocks = <Map<String, Object?>>[];
-      for (final slice in page.slices) {
-        blocks.add(_blockJson(slice, y));
-        y += slice.height;
-      }
+      final pageJson = <Map<String, Object?>>[
+        for (final item in pages.take(_maxPages)) _pageJson(item),
+      ];
+      final nulls = <String>[];
+      _collectNulls(pageJson, '', nulls);
       File('${outDir.path}/engine_$name.json').writeAsStringSync(
         const JsonEncoder.withIndent('  ').convert(<String, Object?>{
           'pageSize': <String, Object?>{'w': _width, 'h': _height},
-          'blocks': blocks,
+          'pageCount': pages.length,
+          'pages': pageJson,
+          'nullGeometry': nulls,
         }),
       );
 
@@ -203,7 +357,7 @@ void main() {
           .writeAsBytesSync(png!.buffer.asUint8List());
       image.dispose();
       // ignore: avoid_print
-      print('ok $name blocks=${blocks.length}');
+      print('ok $name pages=${pages.length} blocks=${page.slices.length}');
     }
   }, skip: Platform.environment['CSS_PARITY'] != '1');
 }

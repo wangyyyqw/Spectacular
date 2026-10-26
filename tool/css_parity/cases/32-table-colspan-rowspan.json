@@ -1,0 +1,8 @@
+{
+  "name": "32-table-colspan-rowspan",
+  "tags": [
+    "table"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; } td, th { border: 1px solid #666; padding: 3px 5px; text-align: center; } th { background-color: #eee; }",
+  "html": "<table><tr><th colspan=\"2\">跨两列表头</th><th>第三列</th></tr><tr><td rowspan=\"2\">跨两行</td><td>格A</td><td>格B</td></tr><tr><td>格C</td><td>格D</td></tr><tr><td>甲</td><td>乙</td><td>丙</td></tr></table>"
+}

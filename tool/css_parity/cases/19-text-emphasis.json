@@ -1,0 +1,8 @@
+{
+  "name": "19-text-emphasis",
+  "tags": [
+    "text-emphasis"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 2; } .dot { text-emphasis: filled dot; text-emphasis-position: over right; } .cir { text-emphasis: open circle; text-emphasis-color: #cc0000; } .ses { text-emphasis: filled sesame; text-emphasis-position: under right; }",
+  "html": "<p class=\"dot\">着重号实心点：这段文字上方应当出现一排小圆点。</p><p class=\"cir\">空心圆红色：着重号颜色由 text-emphasis-color 控制。</p><p class=\"ses\">实心芝麻点且放在下方：观察位置切换是否生效。</p>"
+}

@@ -1,5 +1,9 @@
 {
   "name": "14-float-overflow",
+  "tags": [
+    "float",
+    "overflow"
+  ],
   "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .f { float: left; width: 120px; height: 60px; background-color: #cce5ff; margin-right: 10px; } .ov { height: 40px; overflow: hidden; background-color: #ffe0e0; } .rf { float: right; width: 100px; background-color: #e0ffe0; }",
   "html": "<div class=\"f\">左浮动</div><p>浮动右侧的文字会绕排，这是一段用来观察绕排效果的较长文字，需要超过两行才能看出效果，继续补充一些字数。</p><div class=\"ov\">overflow hidden 固定高度 40px 的内容会溢出，观察是否被裁切，超出的部分应当被隐藏不可见。</div><div class=\"rf\">右浮动</div><p>右浮动旁的文字同样需要绕排，右侧留下一条空白。继续补充文字让这一段足够长以便换行。</p>"
 }

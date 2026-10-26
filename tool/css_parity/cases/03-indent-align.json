@@ -1,5 +1,9 @@
 {
   "name": "03-indent-align",
+  "tags": [
+    "text-indent",
+    "text-align"
+  ],
   "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .i { text-indent: 2em; } .c { text-align: center; } .r { text-align: right; } .j { text-align: justify; }",
   "html": "<p class=\"i\">首行缩进两字符再加一些文字让它换行看看后续行是否顶格。</p><p class=\"c\">居中一行</p><p class=\"r\">右对齐一行</p><p class=\"j\">两端对齐：这一段要足够长，才能看出最后一行不拉伸而中间行被拉开间距的效果，中文两端对齐主要靠字距。</p>"
 }

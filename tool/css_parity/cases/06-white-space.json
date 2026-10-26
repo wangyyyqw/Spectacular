@@ -1,5 +1,8 @@
 {
   "name": "06-white-space",
+  "tags": [
+    "white-space"
+  ],
   "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .p { white-space: pre; } .n { white-space: nowrap; } .pw { white-space: pre-wrap; }",
   "html": "<p class=\"p\">pre    多个空格  保留\n第二行</p><p class=\"n\">nowrap 这一行很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长不换行</p><p class=\"pw\">pre-wrap    空格保留且能换行 这句话很长很长很长很长很长很长很长很长很长很长很长很长很长很长</p>"
 }

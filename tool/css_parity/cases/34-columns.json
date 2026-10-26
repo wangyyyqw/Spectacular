@@ -1,0 +1,10 @@
+{
+  "name": "34-columns",
+  "tags": [
+    "column-count",
+    "column-width",
+    "column-gap"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { font-size: 14px; line-height: 1.5; margin: 8px 0; } .c2 { columns: 2; column-gap: 16px; } .c3 { columns: 3 60px; column-gap: 8px; } .rule { columns: 2; column-rule: 1px solid #999; }",
+  "html": "<div class=\"c2\">两列布局：这段文字应该在两列之间均衡分布，先填满第一列再排第二列，用于观察引擎是否支持多列。继续补充一些文字让内容足够多，否则看不出分栏效果。再来一句凑数的话。最后一句话结束两列内容。</div><div class=\"c3\">三列布局：列宽 60px、列间隙 8px，观察是否按列数与列宽折中处理。内容也需要足够长。补充文字一二三四五六七八九十，再来一段。</div><div class=\"rule\">带分隔线的两列：column-rule 应当画在两列之间。</div>"
+}

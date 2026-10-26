@@ -1,0 +1,9 @@
+{
+  "name": "23-percent-padding-margin",
+  "tags": [
+    "padding",
+    "margin"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .pm { padding: 5% 10%; margin: 2% 5%; background-color: #efe; } .lv { margin-left: 10%; margin-right: 5%; padding-top: 10%; background-color: #fee; } .neg { margin-left: -10px; background-color: #eef; }",
+  "html": "<p class=\"pm\">百分比 padding（上下 5%、左右 10%）与百分比 margin：竖向内边距同样按包含块宽度折算。</p><p class=\"lv\">左右百分比外边距加百分比上内边距，用于观察水平位置与首行基线偏移。</p><p class=\"neg\">负外边距 -10px：整块左移并可能超出正文区左缘。</p>"
+}

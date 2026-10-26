@@ -1,0 +1,9 @@
+{
+  "name": "31-list-nested",
+  "tags": [
+    "list-style-type",
+    "list-style-position"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } ul, ol { margin: 4px 0; padding-left: 24px; line-height: 1.7; font-size: 15px; } ul ul { list-style-type: circle; } ul ul ul { list-style-type: square; } ol { list-style-type: decimal; }",
+  "html": "<ul><li>一级无序</li><li>一级第二项<ul><li>二级圆形</li><li>二级第二项<ul><li>三级方块</li><li>三级第二项</li></ul></li></ul></li><li>一级第三项</li></ul><ol><li>有序一<ol><li>嵌套有序一</li><li>嵌套有序二</li></ol></li><li>有序二</li></ol>"
+}

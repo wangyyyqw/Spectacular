@@ -1,0 +1,9 @@
+{
+  "name": "20-hyphens-quotes",
+  "tags": [
+    "hyphens",
+    "quotes"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .hy { hyphens: auto; } .q { quotes: \"「\" \"」\" \"『\" \"』\"; } .br { word-break: break-all; } .ow { overflow-wrap: break-word; }",
+  "html": "<p class=\"hy\" lang=\"en\">hyphenation demonstration with extraordinarily long words such as internationalization and counterrevolutionaries inside a narrow column</p><p class=\"q\">外层引用<q>内层引用<q>第三层</q>结束</q>继续正文</p><p class=\"br\">word-break:break-all 长串 ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 强制断行</p><p class=\"ow\">overflow-wrap 长串 ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 只在必要时断</p>"
+}

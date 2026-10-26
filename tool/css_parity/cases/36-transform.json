@@ -1,0 +1,8 @@
+{
+  "name": "36-transform",
+  "tags": [
+    "transform"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div, p { margin: 8px 0; font-size: 15px; line-height: 1.6; } .t1 { transform: translate(20px, 10px); background-color: #cce5ff; padding: 4px; } .t2 { transform: scale(0.8); transform-origin: left top; background-color: #ffe0e0; } .t3 { transform: rotate(15deg); background-color: #e0ffe0; } .t4 { transform: translateX(-10px) scaleX(1.2); background-color: #fff0cc; }",
+  "html": "<div class=\"t1\">translate 位移 20/10</div><div class=\"t2\">scale 0.8 左上原点</div><div class=\"t3\">rotate 15deg</div><div class=\"t4\">translateX 与 scaleX 组合</div>"
+}

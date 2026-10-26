@@ -1,0 +1,9 @@
+{
+  "name": "28-background-clip-origin",
+  "tags": [
+    "background-clip",
+    "background-origin"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { padding: 14px; border: 6px dashed #3366cc; margin: 10px 0; font-size: 13px; } .cc { background-color: #ff0000; background-clip: content-box; } .pc { background-color: #00aa00; background-clip: padding-box; } .bc { background-color: #0000aa; background-clip: border-box; color: #fff; }",
+  "html": "<div class=\"cc\">content-box 裁切：底色只铺内容盒</div><div class=\"pc\">padding-box 裁切：底色铺到内边距外沿</div><div class=\"bc\">border-box 裁切：底色铺到边框外沿</div>"
+}

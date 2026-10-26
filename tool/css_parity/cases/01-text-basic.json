@@ -1,5 +1,9 @@
 {
   "name": "01-text-basic",
+  "tags": [
+    "line-height",
+    "font-size"
+  ],
   "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.6; }",
   "html": "<p>字号与行高对照 ABC abc 123，中文标点：、。！？</p><p>第二段用于观察段间距，letter-spacing: 0.1em 下面单独测。</p>"
 }

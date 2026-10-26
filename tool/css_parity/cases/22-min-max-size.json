@@ -1,0 +1,11 @@
+{
+  "name": "22-min-max-size",
+  "tags": [
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { background-color: #eef; margin: 6px 0; font-size: 13px; } .mw { min-width: 200px; max-width: 280px; } .maxw { max-width: 180px; } .mh { min-height: 60px; background-color: #fee; } .maxh { max-height: 40px; height: 80px; overflow: hidden; background-color: #efe; } .pct { max-width: 80%; background-color: #ffe; }",
+  "html": "<div class=\"mw\">min-width 200 与 max-width 280：文字很短时按最小宽度撑开</div><div class=\"maxw\">max-width 180：文字超过宽度后换行</div><div class=\"mh\">min-height 60：内容比最小高度矮，底部应留白</div><div class=\"maxh\">max-height 40 但 height 80：内容被裁切，观察高度是否被限制</div><div class=\"pct\">max-width 80%：宽度按包含块百分比折算</div>"
+}
