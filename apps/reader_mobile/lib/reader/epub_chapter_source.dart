@@ -2219,6 +2219,281 @@ class EpubChapterSource
       return advance + style.fontSize * gapEm;
     }
 
+    /// CSS `vertical-align` → 行内盒的竖直对齐（引擎只区分四种）。
+    InlineBoxVerticalAlign inlineBoxAlignOf(CssVerticalAlign align) =>
+        switch (align) {
+          CssVerticalAlign.top => InlineBoxVerticalAlign.top,
+          CssVerticalAlign.bottom => InlineBoxVerticalAlign.bottom,
+          CssVerticalAlign.middle => InlineBoxVerticalAlign.middle,
+          _ => InlineBoxVerticalAlign.baseline,
+        };
+
+    /// 行内元素浮动提取（W17）。
+    ///
+    /// `span.talent-tag { float: right }` / `img.avatar { float: left }`
+    /// 这类浮动挂在**行内元素**上，flat 管线里它们只是行内 run，永远不会
+    /// 变成块，浮动因此完全不生效。这里把它们从段落文本流里摘出来，生成
+    /// 独立浮动块（位置/绕排沿用块级浮动机制，段落行靠 offsetX 收窄），
+    /// 只处理段落**开头或结尾**的行内浮动（真书的标签/头像都在段首或段
+    /// 尾；段中间的行内浮动需要行级切分，属引擎核心能力）。
+    _InlineFloatExtraction? extractInlineFloat({
+      required String text,
+      required List<InlineMark> marks,
+      required List<InlineImageMark> images,
+      required List<SelectorElement> ancestors,
+    }) {
+      if (text.isEmpty || marks.isEmpty) {
+        return null;
+      }
+      ComputedStyle styleForInlineMark(InlineMark mark) {
+        final views = <SelectorElement>[
+          for (final subject in mark.chain.take(mark.chain.length - 1))
+            _NodeView(
+              subject.tag.toLowerCase(),
+              <String, String>{'class': subject.classes.join(' ')},
+              const <SelectorElement>[],
+            ),
+          _NodeView(
+            mark.tag.toLowerCase(),
+            <String, String>{'class': mark.classes.join(' ')},
+            const <SelectorElement>[],
+          ),
+        ];
+        return chainStyle(<SelectorElement>[...ancestors, ...views]);
+      }
+
+      for (final mark in marks) {
+        if (mark.chain.isEmpty || mark.end <= mark.start) {
+          continue;
+        }
+        // 图片标记（占位符）交给下面的图片分支处理，避免把 U+FFFC 当成
+        // 文本浮动块（占位符宽 1em，图片会缩成 16px）。
+        final markTag = mark.tag.toLowerCase();
+        if (markTag == 'img' || markTag == 'image') {
+          continue;
+        }
+        final inlineStyle = styleForInlineMark(mark);
+        final side = _floatSideOfStyle(inlineStyle);
+        // `display: inline-block`：盒子交给行排版（T1 的 InlineBoxSpec），
+        // 宽高含 padding/border，整块不跨行、放不下换行。
+        // 只有声明了宽/高的 inline-block 才当行内盒处理：没有尺寸的行内
+        // 块（chip/tag 之类）继续走行内 run 的背景+边框近似绘制（P9-24），
+        // 否则会退化成「只画盒不画字」。
+        final inlineBlock =
+            side == null &&
+            inlineStyle.display == CssDisplay.inlineBlock &&
+            (inlineStyle.width != null || inlineStyle.height != null);
+        if (side == null && !inlineBlock) {
+          continue;
+        }
+        final content = text.substring(mark.start, mark.end).trim();
+        if (content.isEmpty) {
+          continue;
+        }
+        final contentWidthLimit = _textWidthFor(inlineStyle);
+        var layout = _layoutCache.layout(
+          text: content,
+          style: inlineStyle,
+          maxWidth: contentWidthLimit,
+        );
+        PageBlock? floatBlock;
+        InlineBoxSpec? boxSpec;
+        if (inlineBlock) {
+          // 行内盒：宽高含 padding/border（CSS inline-block 的盒尺寸），
+          // 内容按自身内容宽排版；payload 交给绘制层画盒内内容。
+          final model = BoxModel.fromStyle(
+            inlineStyle,
+            containingWidth: contentWidth,
+          );
+          final contentHeightValue =
+              inlineStyle.height?.resolve(contentHeight) ?? layout.height;
+          boxSpec = InlineBoxSpec(
+            offset: mark.start,
+            width: (inlineStyle.width?.resolve(contentWidth) ?? layout.width) +
+                model.padding.horizontal +
+                model.borders.left +
+                model.borders.right,
+            height: contentHeightValue +
+                model.padding.vertical +
+                model.borders.top +
+                model.borders.bottom,
+            verticalAlign: inlineBoxAlignOf(inlineStyle.verticalAlign),
+            marginTop: inlineStyle.margin.top,
+            marginBottom: inlineStyle.margin.bottom,
+            // 绘制载荷：盒子内部已构建好的块（背景/边框/文字都在其中），
+            // 绘制层按 placement 矩形把它画在行内。
+            payload: PageBlock.styled(
+              layout: layout,
+              style: inlineStyle,
+              containingWidth: contentWidth,
+            ),
+          );
+        } else {
+          if (inlineStyle.width == null) {
+            // 行内浮动没有声明宽时按 shrink-to-fit 处理：浮动盒宽 = 内容宽
+            //（分页器读 maxWidth 当声明宽，不收缩会把整行都占掉）。
+            layout = TextLayoutResult(
+              text: layout.text,
+              lines: layout.lines,
+              width: layout.width,
+              height: layout.height,
+              maxWidth: layout.width,
+              runs: layout.runs,
+            );
+          }
+          floatBlock = _floatedTextBlock(
+            layout: layout,
+            style: inlineStyle,
+            side: side!,
+            spaceBefore: inlineStyle.margin.top,
+            spaceAfter: inlineStyle.margin.bottom,
+          );
+        }
+        // 从段落文本里摘掉这段内容（连同相邻的一个空格），其余偏移重映射。
+        var removeStart = mark.start;
+        var removeEnd = mark.end;
+        if (removeEnd < text.length && text[removeEnd] == ' ') {
+          removeEnd += 1;
+        } else if (removeStart > 0 && text[removeStart - 1] == ' ') {
+          removeStart -= 1;
+        }
+        final removed = removeEnd - removeStart;
+        final newText = text.substring(0, removeStart) + text.substring(removeEnd);
+        int remap(int offset) {
+          if (offset <= removeStart) {
+            return offset;
+          }
+          if (offset >= removeEnd) {
+            return offset - removed;
+          }
+          return removeStart;
+        }
+
+        final newMarks = <InlineMark>[
+          for (final other in marks)
+            if (other.end <= removeStart || other.start >= removeEnd)
+              InlineMark(
+                start: remap(other.start),
+                end: remap(other.end),
+                tag: other.tag,
+                classes: other.classes,
+                chain: other.chain,
+              ),
+        ];
+        return _InlineFloatExtraction(
+          text: newText,
+          marks: newMarks,
+          block: floatBlock,
+          // 行内盒插在摘除点（盒内内容已由 payload 提供）。
+          inlineBox: boxSpec == null
+              ? null
+              : InlineBoxSpec(
+                  offset: removeStart,
+                  width: boxSpec.width,
+                  height: boxSpec.height,
+                  verticalAlign: boxSpec.verticalAlign,
+                  marginTop: boxSpec.marginTop,
+                  marginBottom: boxSpec.marginBottom,
+                  baselineOffset: boxSpec.baselineOffset,
+                  payload: boxSpec.payload,
+                ),
+          remapOffset: remap,
+          removeStart: removeStart,
+          removeEnd: removeEnd,
+        );
+      }
+      // 行内图片浮动（`img.avatar { float: left }`）：占位符从文本流摘掉，
+      // 图片按自身 CSS/属性尺寸生成浮动块。
+      for (final imageMark in images) {
+        final attributes = imageMark.node.attributes;
+        final src = attributes['src'] ?? attributes['xlink:href'];
+        if (src == null || src.isEmpty || imageMark.offset >= text.length) {
+          continue;
+        }
+        final imageStyle = chainStyle(<SelectorElement>[
+          ...ancestors,
+          _NodeView(imageMark.node.tag, attributes, const <SelectorElement>[]),
+        ]);
+        final side = _floatSideOfStyle(imageStyle);
+        if (side == null) {
+          continue;
+        }
+        final url =
+            this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
+        final size = _resolveImageDisplaySize(
+          attributes,
+          _intrinsicSizeOfUrl(url),
+          contentWidth,
+          contentHeight,
+          cssWidth: imageStyle.width?.resolve(contentWidth),
+          cssHeight: imageStyle.height?.resolve(contentHeight),
+        );
+        final imageBlockStyle = ComputedStyle(<String, String>{
+          ...baseStyle.values,
+          'background-image': 'url($url)',
+          'background-size': 'contain',
+          'background-position': 'center center',
+          'background-repeat': 'no-repeat',
+        });
+        final layout = TextLayoutResult(
+          text: '',
+          lines: [
+            LineBox(
+              start: 0,
+              end: 0,
+              top: 0,
+              height: size.$2,
+              baseline: size.$2,
+              width: size.$1,
+            ),
+          ],
+          width: size.$1,
+          height: size.$2,
+          maxWidth: size.$1,
+          runs: const <StyledRun>[],
+        );
+        final block = PageBlock(
+          layout: layout,
+          style: imageBlockStyle,
+          floatSide: side,
+        );
+        final removeStart = imageMark.offset;
+        final removeEnd = imageMark.offset + 1;
+        final newText =
+            text.substring(0, removeStart) + text.substring(removeEnd);
+        int remap(int offset) {
+          if (offset <= removeStart) {
+            return offset;
+          }
+          if (offset >= removeEnd) {
+            return offset - 1;
+          }
+          return removeStart;
+        }
+
+        return _InlineFloatExtraction(
+          text: newText,
+          inlineBox: null,
+          marks: <InlineMark>[
+            for (final other in marks)
+              if (other.end <= removeStart || other.start >= removeEnd)
+                InlineMark(
+                  start: remap(other.start),
+                  end: remap(other.end),
+                  tag: other.tag,
+                  classes: other.classes,
+                  chain: other.chain,
+                ),
+          ],
+          block: block,
+          remapOffset: remap,
+          removeStart: removeStart,
+          removeEnd: removeEnd,
+        );
+      }
+      return null;
+    }
+
     /// 块级样式入口（P8-02）：链式级联结果 + 容器盒类近似传导 +
     /// 引用深度边距叠加。P8-05c：容器的上下边框拼合——首个后代块画
     /// 上边框、末个画下边框（flat 无嵌套盒子的面板整框近似）。
@@ -3285,6 +3560,9 @@ class EpubChapterSource
     // 容器级浮动分组号（W12）：超过 [floatGroupBase] 的 groupId 表示
     // 「同一个被拆开的浮动容器」，分页时整组当一个浮动盒处理。
     var containerFloatSeq = 0;
+    // 相对定位 top 的抵扣量：下移 top 后，下一个块要以更小的段前距开始，
+    // 才能保证后续内容流位置不变（相对定位不占流）。
+    var pendingRelativeTop = 0.0;
 
     void collect(
       EpubNode node,
@@ -3310,6 +3588,24 @@ class EpubChapterSource
         // 列表项（g）：水平缩进来自列表容器的级联盒，标记只挂在首块。
         final isListItem = tag == 'li' && list != null;
         final listIndent = isListItem ? listIndentOf(ancestors) : 0.0;
+        // `position: relative` 的视觉偏移（不占流）：left 走左右 margin
+        // 等量搬移，top 走「段前距 + 段后距」互补（内容与盒子一起下移，
+        // 但块的流内占高不变）。
+        final relativeProbe = styleForChain(
+          ancestors,
+          quoteDepth: quoteDepth,
+          firstInContainer: firstInContainer,
+          lastInContainer: lastInContainer,
+          listIndent: listIndent,
+        );
+        final isRelative =
+            relativeProbe.position == CssPosition.relative;
+        final relativeLeft = isRelative
+            ? (relativeProbe.left?.resolve(contentWidth) ?? 0.0)
+            : 0.0;
+        final relativeTop = isRelative
+            ? (relativeProbe.top?.resolve(contentHeight) ?? 0.0)
+            : 0.0;
         // 块样式先算：`white-space` 决定用折叠态文本还是保留原文的文本
         // （逐块生效，聚合器只能在章级选一种模式）。
         var blockStyle = styleForChain(
@@ -3403,14 +3699,78 @@ class EpubChapterSource
         final listSpacingAfter = isListItem && listLast ? list.spaceAfter : 0.0;
         // 行内样式区间（P8-02）：聚合标记链 → 引擎级联 → StyledRun 混排；
         // ::first-letter（P8-09）：命中规则时首字符放大 run 追加。
-        var runs = textNode is TextContentNode
-            ? resolveInlineRuns(textNode.inlineMarks)
-            : const <StyledRun>[];
+        // 行内元素浮动（W17）：段落首/尾的行内浮动元素（span 标签、
+        // img 头像）摘出来单独成块，段落剩余文本按行 offsetX 绕排。
+        // 段落自身是浮动块时不做（避免嵌套浮动互相干扰）。
+        final paragraphIsFloat =
+            _floatSideOfStyle(blockStyle) != null || containerFloat != null;
+        final inlineFloats = <PageBlock>[];
+        var inlineBoxes = <InlineBoxSpec>[];
+        var paragraphText = effectiveText;
+        var paragraphMarks = textNode is TextContentNode
+            ? textNode.inlineMarks
+            : const <InlineMark>[];
+        var paragraphImages = textNode is TextContentNode
+            ? textNode.inlineImages
+            : const <InlineImageMark>[];
+        if (!paragraphIsFloat && textNode is TextContentNode) {
+          // 一段里可能有多个行内浮动（如职业标签 + 天赋标签），逐个摘出。
+          for (var guard = 0; guard < 8; guard += 1) {
+            final extracted = extractInlineFloat(
+              text: paragraphText,
+              marks: paragraphMarks,
+              images: paragraphImages,
+              ancestors: ancestors,
+            );
+            if (extracted == null) {
+              break;
+            }
+            final floatBlock = extracted.block;
+            if (floatBlock != null) {
+              inlineFloats.add(floatBlock);
+            }
+            final box = extracted.inlineBox;
+            if (box != null) {
+              // 已有 spec 的偏移随文本摘除重映射，再按偏移升序入列。
+              final removedBefore = extracted.removeEnd - extracted.removeStart;
+              inlineBoxes = <InlineBoxSpec>[
+                for (final existing in inlineBoxes)
+                  InlineBoxSpec(
+                    offset: existing.offset <= extracted.removeStart
+                        ? existing.offset
+                        : math.max(
+                            extracted.removeStart,
+                            existing.offset - removedBefore,
+                          ),
+                    width: existing.width,
+                    height: existing.height,
+                    verticalAlign: existing.verticalAlign,
+                    marginTop: existing.marginTop,
+                    marginBottom: existing.marginBottom,
+                    baselineOffset: existing.baselineOffset,
+                    payload: existing.payload,
+                  ),
+                box,
+              ]..sort((a, b) => a.offset.compareTo(b.offset));
+            }
+            paragraphText = extracted.text;
+            paragraphMarks = extracted.marks;
+            paragraphImages = <InlineImageMark>[
+              for (final image in paragraphImages)
+                if (!extracted.removed(image.offset))
+                  InlineImageMark(
+                    offset: extracted.remapOffset(image.offset),
+                    node: image.node,
+                  ),
+            ];
+          }
+        }
+        var runs = resolveInlineRuns(paragraphMarks);
         // 行内图片（P9-06）：占位符 → 书内图片路径 + 书籍 CSS 尺寸。
         final inlineImages = <InlineImageSpec>[];
-        if (textNode is TextContentNode && textNode.inlineImages.isNotEmpty) {
+        if (paragraphImages.isNotEmpty) {
           final shift = (before ?? '').length;
-          for (final mark in textNode.inlineImages) {
+          for (final mark in paragraphImages) {
             final attributesForImage = mark.node.attributes;
             final src =
                 attributesForImage['src'] ?? attributesForImage['xlink:href'];
@@ -3428,9 +3788,10 @@ class EpubChapterSource
                 const <SelectorElement>[],
               ),
             ]);
+            final rawOffset = mark.offset + shift;
             inlineImages.add(
               InlineImageSpec(
-                offset: mark.offset + shift,
+                offset: rawOffset,
                 url: url,
                 width: imageStyle.width?.resolve(contentWidth),
                 height: imageStyle.height?.resolve(contentWidth),
@@ -3441,7 +3802,7 @@ class EpubChapterSource
         final firstLetter = _firstLetterRun(
           styledSheets,
           ancestors,
-          effectiveText,
+          paragraphText,
           blockStyle,
         );
         if (firstLetter != null) {
@@ -3456,15 +3817,33 @@ class EpubChapterSource
         final measureWidth = ownFloatSide == null && containerFloat != null
             ? containerFloatWidth ?? _textWidthFor(measureStyle)
             : _textWidthFor(measureStyle);
-        final layout = _layoutCache.layout(
-          text: effectiveText,
-          style: measureStyle,
-          maxWidth: measureWidth,
-          runs: runs,
-        );
+        final layout = inlineBoxes.isEmpty
+            ? _layoutCache.layout(
+                text: paragraphText,
+                style: measureStyle,
+                maxWidth: measureWidth,
+                runs: runs,
+              )
+            : TextLayoutEngine.layout(
+                text: paragraphText,
+                style: measureStyle,
+                maxWidth: measureWidth,
+                runs: runs,
+                inlineBoxes: inlineBoxes,
+              );
+        if (inlineFloats.isNotEmpty) {
+          // 浮动块排在段落之前：分页时它们先占位，段落行按剩余宽度收窄。
+          blocks.addAll(inlineFloats);
+        }
         if (layout.lineCount > 0) {
+          final incomingShift = pendingRelativeTop;
+          pendingRelativeTop = 0;
+          // 注意：段前距允许为负（作者负 margin 与上段段后距折叠后的结果），
+          // 这里不能 clamp 到 0，否则 P8-05 的负 margin 失效。
           final spaceBefore =
-              (paragraphSpacing ?? blockStyle.margin.top) + listSpacingBefore;
+              (paragraphSpacing ?? blockStyle.margin.top) +
+              listSpacingBefore -
+              incomingShift;
           final spaceAfter =
               (paragraphSpacing ?? blockStyle.margin.bottom) + listSpacingAfter;
           if (floatSide != null) {
@@ -3486,14 +3865,13 @@ class EpubChapterSource
             );
             return;
           }
-          blocks.add(
-            PageBlock.styled(
-              layout: layout,
-              style: blockStyle,
-              containingWidth: contentWidth,
-              startCfi: cfi,
-              groupId: groupId,
-              listMarker: marker,
+          var textBlock = PageBlock.styled(
+            layout: layout,
+            style: blockStyle,
+            containingWidth: contentWidth,
+            startCfi: cfi,
+            groupId: groupId,
+            listMarker: marker,
               // 块级上下边距进分页几何（含负值）：作者/UA margin 生效，
               // 阅读器段距设置优先；相邻段在分页层折叠取大
               //（PageBlock.collapseAdjacentMargins）。列表项另加容器段距。
@@ -3519,11 +3897,45 @@ class EpubChapterSource
               // P9-22：多看出血（背景/边框延伸到页面边缘）。
               bleedLeft: blockStyle.bleed.left,
               bleedRight: blockStyle.bleed.right,
-              // P9-25：带边框容器内部的块，背景/左右边框拼合。
-              containerSides: inBorderedContainer,
-              effectiveOpacity: blockOpacity,
-            ),
+            // P9-25：带边框容器内部的块，背景/左右边框拼合。
+            containerSides: inBorderedContainer,
+            effectiveOpacity: blockOpacity,
           );
+          if (relativeLeft != 0 || relativeTop != 0) {
+            // `position: relative`：只挪视觉位置、不占流。
+            // - left：只加 leftInset（盒子声明宽不变、文字与块顶一起右移）；
+            // - top：段前距 +top 让内容下移，并把等量抵扣登记给下一个块，
+            //   由它缩短段前距，保持后续内容流位置不变。
+            textBlock = PageBlock(
+              layout: textBlock.layout,
+              style: textBlock.style,
+              spaceBefore: textBlock.spaceBefore + relativeTop,
+              // 段后距同时扣掉这 top：折叠后相邻间距要缩小同量，否则
+              // 后续内容会被推下去（相对定位不占流）。
+              spaceAfter: math.max(0.0, textBlock.spaceAfter - relativeTop),
+              topInset: textBlock.topInset,
+              bottomInset: textBlock.bottomInset,
+              leftInset: textBlock.leftInset + relativeLeft,
+              startCfi: textBlock.startCfi,
+              endCfi: textBlock.endCfi,
+              groupId: textBlock.groupId,
+              listMarker: textBlock.listMarker,
+              rubies: textBlock.rubies,
+              inlineImages: textBlock.inlineImages,
+              absolute: textBlock.absolute,
+              absoluteTop: textBlock.absoluteTop,
+              absoluteLeft: textBlock.absoluteLeft,
+              bleedLeft: textBlock.bleedLeft,
+              bleedRight: textBlock.bleedRight,
+              containerSides: textBlock.containerSides,
+              effectiveOpacity: textBlock.effectiveOpacity,
+              declaredContentHeight: textBlock.declaredContentHeight,
+            );
+            if (relativeTop != 0) {
+              pendingRelativeTop += relativeTop;
+            }
+          }
+          blocks.add(textBlock);
         }
       } else if (node is BlockNode) {
         // display:none 容器子树剔除（P8-07，WHATWG 15.3.1 语义）：容器
@@ -3945,4 +4357,39 @@ class OpfPageFlags {
   String toString() =>
       'OpfPageFlags(fullScreen: $fullScreen, fitWindow: $fitWindow, '
       'spreadLeft: $spreadLeft, spreadRight: $spreadRight)';
+}
+
+/// 行内浮动提取结果（W17）：摘出的浮动块 + 剩余文本与偏移重映射。
+class _InlineFloatExtraction {
+  const _InlineFloatExtraction({
+    required this.text,
+    required this.marks,
+    required this.remapOffset,
+    required this.removeStart,
+    required this.removeEnd,
+    this.block,
+    this.inlineBox,
+  });
+
+  /// 摘掉浮动内容后的段落文本。
+  final String text;
+
+  /// 重映射后的行内标记（用于重新生成 runs）。
+  final List<InlineMark> marks;
+
+  /// 摘出的浮动块（行内浮动）。
+  final PageBlock? block;
+
+  /// 摘出的行内盒子（`display: inline-block`）：交给行排版按行内盒放置。
+  final InlineBoxSpec? inlineBox;
+
+  /// 旧偏移 → 新偏移。
+  final int Function(int offset) remapOffset;
+
+  /// 被摘掉的区间（旧坐标，半开）。
+  final int removeStart;
+  final int removeEnd;
+
+  /// 偏移是否落在被摘掉的区间内。
+  bool removed(int offset) => offset >= removeStart && offset < removeEnd;
 }
