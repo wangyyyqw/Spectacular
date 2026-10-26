@@ -159,8 +159,14 @@ void main() {
     for (final block in blocks.where((b) => b.layout.text.contains('面板'))) {
       expect(block.style!.backgroundColor, const Color(0xFFFFF3E0),
           reason: '容器背景透传后代块');
-      expect(block.leftInset, greaterThanOrEqualTo(12),
-          reason: '容器 padding-left 折算后代左内缩');
+      // 容器 padding-left 折算成后代块的左内缩；flat 管线把它记在
+      // margin.left（P9-27 后不再同时写进 leftInset，避免重复计算），
+      // 实际文字 x 仍是 leftInset + margin.left。
+      expect(
+        block.leftInset + block.style!.margin.left,
+        greaterThanOrEqualTo(12),
+        reason: '容器 padding-left 折算后代左内缩',
+      );
     }
   });
 
