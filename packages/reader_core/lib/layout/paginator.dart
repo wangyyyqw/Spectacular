@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show Offset, Rect;
 
 import '../css/computed_style.dart';
@@ -55,6 +56,9 @@ class PageBlock {
     this.floatSide,
     this.rubies,
     this.inlineImages = const <InlineImageSpec>[],
+    this.absolute = false,
+    this.absoluteTop,
+    this.absoluteLeft,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -76,6 +80,9 @@ class PageBlock {
     List<RubyAnnotation>? rubies,
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
     TableRenderSpec? table,
+    bool absolute = false,
+    double? absoluteTop,
+    double? absoluteLeft,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -97,6 +104,9 @@ class PageBlock {
       rubies: rubies,
       inlineImages: inlineImages,
       table: table,
+      absolute: absolute,
+      absoluteTop: absoluteTop,
+      absoluteLeft: absoluteLeft,
     );
   }
 
@@ -165,6 +175,15 @@ class PageBlock {
   /// 字形框画图。
   final List<InlineImageSpec> inlineImages;
 
+  /// 绝对定位块（P9-19）：不占流高，绘制在页内绝对坐标处。
+  final bool absolute;
+
+  /// 页内绝对 y（null 表示跟随当前流位置）。
+  final double? absoluteTop;
+
+  /// 页内绝对 x（null 表示正文左缘）。
+  final double? absoluteLeft;
+
   /// 块高度（内容区行高之和）。
   double get height => layout.height;
 
@@ -195,6 +214,12 @@ class PageBlock {
         table: table,
         floatSide: floatSide,
         rubies: rubies,
+        // 重建时必须带全字段（P9-19）：边距折叠会把相邻块换成新实例，
+        // 漏字段会让行内图片/绝对定位在真机里随机消失。
+        inlineImages: inlineImages,
+        absolute: absolute,
+        absoluteTop: absoluteTop,
+        absoluteLeft: absoluteLeft,
       );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线
@@ -527,6 +552,25 @@ class Paginator {
       final block = flow[blockIndex];
       // display: none 的块不占位（P2-15）。
       if (block.style?.display == CssDisplay.none) {
+        continue;
+      }
+      // 绝对定位块（P9-19）：脱离正常流，不占流高，只作为覆盖切片
+      // 绘制在页内绝对坐标处（top/left 缺省时跟随当前流位置）。
+      if (block.absolute) {
+        final top = (block.absoluteTop ?? used)
+            .clamp(0.0, math.max(0.0, pageHeight - 1))
+            .toDouble();
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: 0,
+            endLine: block.layout.lineCount,
+            height: block.height,
+            overlay: true,
+            absoluteTop: top,
+            leftInset: block.absoluteLeft ?? 0,
+          ),
+        );
         continue;
       }
       // 页数上限截断（P7-16，对照 Reeden「一章超过 20000 页，章节在
