@@ -18,6 +18,9 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+// api.dart 也导出了同名的 `LineBreaker` 接口，这里给具体实现加前缀，
+// 以便打开小数行高开关（见 [EpubChapterSource.open]）。
+import 'package:reader_core/layout/line_breaker.dart' as line_breaker;
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/perf/trace.dart';
@@ -49,6 +52,10 @@ class EpubChapterSource
     ComputedStyle? style,
     bool verifyCrc = true,
   }) async {
+    // 小数行高（T1 实验开关）：Skia 会把行盒高取整成整数，CSS 的
+    // `line-height: 1.7` × 15px = 25.5 会变成 26，列表/表格行位置逐行
+    // 累积偏移（31-list-nested 14 项、12-table 残余都是它）。
+    line_breaker.LineBreaker.preserveFractionalLineHeight = true;
     final result = await openEpub(bytes, verifyCrc: verifyCrc);
     final document = result.document;
     if (document == null) {
@@ -225,6 +232,10 @@ class EpubChapterSource
   double _textWidthFor(ComputedStyle style) =>
       math.max(24.0, style.contentBoxWidth(contentWidth));
 
+  /// 容器级浮动分组号的起点（W12）：普通块组的 groupId 从 1 起，
+  /// 容器浮动组用 [floatGroupBase] + 序号，分页时按组整体占位。
+  static const int floatGroupBase = 500000;
+
   /// 相邻外边距折叠，但浮动/绝对定位块不参与（CSS 2.1 §8.3.1：浮动元素
   /// 的 margin 不与任何相邻 margin 折叠），也不打断相邻在流兄弟的折叠
   ///——把它们先摘出来，只折叠连续的在流块，再放回原位。
@@ -308,8 +319,10 @@ class EpubChapterSource
   List<PageContent> _buildFullBleedPages(
     int spineIndex,
     String imageSrc,
-    String paginationKey,
-  ) {
+    String paginationKey, {
+    bool contain = false,
+    bool bleed = false,
+  }) {
     final width = math.max(80.0, baseContentWidth);
     final height = math.max(120.0, baseContentHeight);
     final item = document.spine[spineIndex];
@@ -322,10 +335,13 @@ class EpubChapterSource
     final imageUrl = document.resources
             .resolve(imageSrc, baseDir: chapterBase) ??
         imageSrc;
+    // 整页图铺法：多看全屏页默认 cover（铺满，可能裁边）；`fitwindow`
+    // 用 contain 并在页内居中（插图上下居中、不裁切）。
     final blockStyle = ComputedStyle(<String, String>{
       ...baseStyle.values,
       'background-image': 'url($imageUrl)',
-      'background-size': 'cover',
+      'background-size': contain ? 'contain' : 'cover',
+      'background-position': 'center center',
       'background-repeat': 'no-repeat',
     });
     // 整页高的空行块：无 runs（不画字），块盒即整页，背景铺满。
@@ -346,13 +362,15 @@ class EpubChapterSource
       maxWidth: width,
       runs: const <StyledRun>[],
     );
+    // 全屏页用出血标记让绘制层横向顶到页面边缘（不看页边距）。
+    final block = PageBlock(
+      layout: layout,
+      style: blockStyle,
+      bleedLeft: bleed,
+      bleedRight: bleed,
+    );
     final pages = Paginator(pageHeight: height)
-        .measureChapter(
-          blocks: [
-            PageBlock(layout: layout, style: blockStyle),
-          ],
-          spineIndex: spineIndex,
-        )
+        .measureChapter(blocks: [block], spineIndex: spineIndex)
         .pages;
     _pageIndexCache[paginationKey] = PageIndex.from(
       ChapterPagination(
@@ -361,9 +379,7 @@ class EpubChapterSource
         pageHeight: height,
         totalHeight: 0,
       ),
-      [
-        PageBlock(layout: layout, style: blockStyle),
-      ],
+      [block],
     ).encode();
     return pages;
   }
@@ -1200,6 +1216,89 @@ class EpubChapterSource
     return text;
   }
 
+  /// OPF `itemref` 上的多看页属性（按 spine 序缓存）。
+  Map<int, OpfPageFlags>? _opfPageFlagsCache;
+
+  /// 解析 OPF `itemref` 的多看页属性，按 spine 序返回。
+  ///
+  /// 引擎的 OPF 解析只保留 manifest 的 `properties`，spine `itemref` 上的
+  /// `duokan-page-fullscreen` / `duokan-page-fitwindow` / `page-spread-*`
+  /// 被丢弃（docs/duokan-private-css.md「OPF 页属性」），这里在章节源直接
+  /// 扫一遍 OPF 原文补回。spine 序与引擎一致：只统计 `idref` 非空且在
+  /// manifest 中存在的 `itemref`。
+  Map<int, OpfPageFlags> _opfPageFlags() {
+    final cached = _opfPageFlagsCache;
+    if (cached != null) {
+      return cached;
+    }
+    final flags = <int, OpfPageFlags>{};
+    _opfPageFlagsCache = flags;
+    try {
+      final bytes = document.archive.readBytes(document.opfPath);
+      if (bytes == null) {
+        return flags;
+      }
+      final text = utf8.decode(bytes, allowMalformed: true);
+      final manifestIds = <String>{
+        for (final match in RegExp(r'<item\b[^>]*>').allMatches(text))
+          if ((_tagAttr(match.group(0)!, 'id') ?? '').isNotEmpty)
+            _tagAttr(match.group(0)!, 'id')!,
+      };
+      var spineIndex = 0;
+      for (final match in RegExp(r'<itemref\b[^>]*>').allMatches(text)) {
+        final tag = match.group(0)!;
+        final idref = _tagAttr(tag, 'idref') ?? '';
+        if (idref.isEmpty || !manifestIds.contains(idref)) {
+          continue;
+        }
+        // 属性既可能写在 `properties="a b"` 里（EPUB 3 标准写法，多看
+        // 同样如此），也可能直接写成独立属性，两种都收。
+        final tokens = <String>{
+          ...(_tagAttr(tag, 'properties') ?? '').split(RegExp(r'\s+')),
+          for (final attribute in RegExp(r'([\w:.-]+)\s*=').allMatches(tag))
+            attribute.group(1)!,
+        };
+        bool has(String name) => tokens.contains(name);
+        final spreadLeft =
+            has('page-spread-left') ||
+            has('duokan-page-fullscreen-spread-left');
+        final spreadRight =
+            has('page-spread-right') ||
+            has('duokan-page-fullscreen-spread-right');
+        flags[spineIndex] = OpfPageFlags(
+          // 全屏跨页的左右页也是全屏页。
+          fullScreen:
+              has('duokan-page-fullscreen') || spreadLeft || spreadRight,
+          fitWindow: has('duokan-page-fitwindow'),
+          spreadLeft: spreadLeft,
+          spreadRight: spreadRight,
+        );
+        spineIndex += 1;
+      }
+    } catch (_) {
+      // OPF 读不到/解码失败：按普通章节处理（不影响分页）。
+    }
+    return flags;
+  }
+
+  /// 章节的多看页属性（OPF `itemref`）；未标记返回 [OpfPageFlags.none]。
+  OpfPageFlags chapterPageFlags(int spineIndex) =>
+      _opfPageFlags()[spineIndex] ?? OpfPageFlags.none;
+
+  /// 从标签文本里取属性值（OPF 扫描用；属性值不含裸引号）。
+  static String? _tagAttr(String tag, String name) {
+    final escaped = RegExp.escape(name);
+    final doubleQuoted = RegExp(
+      '(?:^|\\s)$escaped\\s*=\\s*"([^"]*)"',
+    ).firstMatch(tag);
+    if (doubleQuoted != null) {
+      return doubleQuoted.group(1);
+    }
+    return RegExp(
+      "(?:^|\\s)$escaped\\s*=\\s*'([^']*)'",
+    ).firstMatch(tag)?.group(1);
+  }
+
   /// 章节是否走满屏路径（单图无正文无宽高属性，§8.6）。
   FullBleedChapter fullBleedAnalysis(int spineIndex) {
     return _fullBleedCache.putIfAbsent(spineIndex, () {
@@ -1298,6 +1397,45 @@ class EpubChapterSource
       }
     }
 
+    /// 浮动排布（CSS 2.1 §9.5.1）：同一行还有空位就并排——左浮动贴已有
+    /// 左浮动的右缘、右浮动贴已有右浮动的左缘；放不下就落到该侧浮动底边
+    /// 另起一行。多列网格（双列目录）靠这条把同宽浮块两两并排。
+    ({double top, double x}) placeFloat({
+      required double preferredTop,
+      required double occupiedWidth,
+      required double heightPx,
+      required FloatSide side,
+    }) {
+      // 候选行位：静态位置，以及所有浮动底边（行边界）。逐行尝试比
+      // 「直接落到最底边」更接近 CSS——同一行的矮浮块下面还能继续并排。
+      final rows = <double>{preferredTop};
+      for (final item in occupancy.items) {
+        if (item.rect.bottom > preferredTop + 0.01) {
+          rows.add(item.rect.bottom);
+        }
+      }
+      final ordered = rows.toList()..sort();
+      for (final top in ordered) {
+        final leftUsed = occupancy.occupiedLeftAt(top, top + heightPx);
+        final rightUsed = occupancy.occupiedRightAt(
+          top,
+          top + heightPx,
+          width,
+        );
+        if (leftUsed + rightUsed + occupiedWidth <= width + 0.5) {
+          final x = side == FloatSide.left
+              ? leftUsed
+              : width - rightUsed - occupiedWidth;
+          return (top: top, x: math.max(0.0, x));
+        }
+      }
+      // 所有行位都放不下：落到该侧浮动底边另起一行。
+      return (
+        top: math.max(preferredTop, occupancy.maxBottom(side)),
+        x: 0,
+      );
+    }
+
     for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
       final block = blocks[blockIndex];
       // 绝对定位（P9-19）：不占流高，直接作为覆盖切片挂到当前页。
@@ -1320,6 +1458,110 @@ class EpubChapterSource
       }
       final floatSide = block.floatSide;
       if (floatSide != null) {
+        // 容器浮动组（W12）：一个被 flat 管线拆成多个子块的浮动容器
+        //（双列目录 `.dk-toc-item{float:left;width:48%}`）作为一个浮动盒
+        // 整体占位，组内块自上而下堆叠、相邻段距取大——否则每个子块各
+        // 自成为独立浮块，同一容器的段落会并排排成一行。
+        if (block.groupId >= floatGroupBase) {
+          final groupBlocks = <PageBlock>[block];
+          var next = blockIndex + 1;
+          while (next < blocks.length &&
+              blocks[next].groupId == block.groupId &&
+              blocks[next].floatSide == floatSide) {
+            groupBlocks.add(blocks[next]);
+            next += 1;
+          }
+          final first = groupBlocks.first;
+          final groupStyle = first.style;
+          final groupInsetX = groupStyle == null
+              ? 0.0
+              : groupStyle.padding.horizontal +
+                    groupStyle.borders.left.width +
+                    groupStyle.borders.right.width;
+          final groupContentW = first.layout.maxWidth.isFinite
+              ? math.min(first.layout.maxWidth, width)
+              : first.layout.width;
+          final groupBorderW = math.min(width, groupContentW + groupInsetX);
+          final groupMarginLeft = groupStyle?.margin.left ?? 0;
+          final groupMarginRight = groupStyle?.margin.right ?? 0;
+          final groupLeftSpace = floatSide == FloatSide.left
+              ? groupMarginLeft
+              : groupMarginLeft;
+          final groupRightSpace = groupMarginRight;
+          final groupOccupied = math.min(
+            width,
+            groupLeftSpace + groupBorderW + groupRightSpace,
+          );
+          // 组内各块的边框盒顶（相对组边框盒顶）与组总高。
+          final borderTops = <double>[];
+          var cursor = 0.0;
+          for (var i = 0; i < groupBlocks.length; i++) {
+            final member = groupBlocks[i];
+            if (i > 0) {
+              cursor += math.max(
+                groupBlocks[i - 1].spaceAfter,
+                member.spaceBefore,
+              );
+            }
+            borderTops.add(cursor);
+            cursor += member.topInset + member.height + member.bottomInset;
+          }
+          final groupBorderHeight = cursor;
+          final groupMarginTop = first.spaceBefore;
+          final groupMarginBottom = groupBlocks.last.spaceAfter;
+          final groupFlowTop = hasFlowOnPage
+              ? lastContentBottom + lastBottomMargin
+              : nextFlowLeading[blockIndex];
+          if (y > 0 &&
+              groupFlowTop +
+                      groupMarginTop +
+                      groupBorderHeight +
+                      groupMarginBottom >
+                  height) {
+            closePage();
+          }
+          final groupPlacement = placeFloat(
+            preferredTop:
+                (hasFlowOnPage
+                    ? lastContentBottom + lastBottomMargin
+                    : nextFlowLeading[blockIndex]) +
+                groupMarginTop,
+            occupiedWidth: groupOccupied,
+            heightPx: groupBorderHeight + groupMarginBottom,
+            side: floatSide,
+          );
+          final groupOccupiedX = groupPlacement.x;
+          final groupBoxX = groupOccupiedX + groupLeftSpace;
+          final groupTop = groupPlacement.top;
+          occupancy.insert(
+            BoxOccupied(
+              rect: Rect.fromLTWH(
+                groupOccupiedX,
+                groupTop - groupMarginTop,
+                groupOccupied,
+                groupMarginTop + groupBorderHeight + groupMarginBottom,
+              ),
+              baseline: groupTop,
+              side: floatSide,
+            ),
+          );
+          for (var i = 0; i < groupBlocks.length; i++) {
+            final member = groupBlocks[i];
+            slices.add(
+              PageBlockSlice(
+                block: member,
+                startLine: 0,
+                endLine: member.layout.lineCount,
+                height: member.height,
+                overlay: true,
+                absoluteTop: groupTop + borderTops[i],
+                leftInset: math.max(0.0, groupBoxX - groupMarginLeft),
+              ),
+            );
+          }
+          blockIndex += groupBlocks.length - 1;
+          continue;
+        }
         final h = block.height;
         // 浮动盒宽（f）：内容宽取测量用的 maxWidth（声明 width 已由
         // [_textWidthFor] 折成内容宽），加内边距/边框得到边框盒；外侧再
@@ -1338,26 +1580,37 @@ class EpubChapterSource
         final marginLeft = style?.margin.left ?? 0;
         final marginRight = style?.margin.right ?? 0;
         // 朝版心的一侧才占位：左边距只对右浮动的左侧有意义，右边距反之。
+        // 呼吸位只给图片浮动（文字浮动按 CSS 外边距排，多列网格 48%+2%
+        // 不能额外加 8px，否则两列并排会溢出换行）。
+        final breathingGap = block.layout.text.isEmpty ? gap : 0.0;
         final leftSpace = floatSide == FloatSide.left
             ? marginLeft
-            : math.max(marginLeft, gap);
+            : math.max(marginLeft, breathingGap);
         final rightSpace = floatSide == FloatSide.right
             ? marginRight
-            : math.max(marginRight, gap);
+            : math.max(marginRight, breathingGap);
         final occupied = math.min(width, leftSpace + borderW + rightSpace);
-        final occupiedX = floatSide == FloatSide.left ? 0.0 : width - occupied;
-        final boxX = occupiedX + leftSpace;
         // 静态位置 = 当前流位置（上一个在流块的内容底边 + 它的下外边距；
         // 页首无在流块时用下一个在流块的段前距），再叠加自身 margin-top
         //（浮动的 margin 不参与折叠，原样相加）。
         double flowPosition() => hasFlowOnPage
             ? lastContentBottom + lastBottomMargin
             : nextFlowLeading[blockIndex];
-        final floatTop = flowPosition() + block.spaceBefore;
-        if (y > 0 && floatTop + h > height) {
+        final preferredTop = flowPosition() + block.spaceBefore;
+        if (y > 0 && preferredTop + h > height) {
           closePage();
         }
-        final floatY = flowPosition() + block.spaceBefore;
+        final placement = placeFloat(
+          preferredTop: hasFlowOnPage
+              ? lastContentBottom + lastBottomMargin + block.spaceBefore
+              : nextFlowLeading[blockIndex] + block.spaceBefore,
+          occupiedWidth: occupied,
+          heightPx: h,
+          side: floatSide,
+        );
+        final occupiedX = placement.x;
+        final boxX = occupiedX + leftSpace;
+        final floatY = placement.top;
         occupancy.insert(
           BoxOccupied(
             rect: Rect.fromLTWH(occupiedX, floatY, occupied, h),
@@ -1712,6 +1965,31 @@ class EpubChapterSource
       trace.count(ReaderTraceCounter.pageCacheMiss, bookId: traceBook);
     }
     // 满屏图页（P3-10，§8.6）：单图无正文无宽高属性 → 整页单块、
+    // 多看全屏页（OPF `duokan-page-*`）：封面/插图整页铺满，正文样式
+    // 不参与——body 的 padding/字号不会把封面裁小。`fitwindow` 用
+    // contain 上下居中，其余全屏页 cover 铺满。
+    final pageFlags = chapterPageFlags(spineIndex);
+    if (pageFlags.isFullPage) {
+      final singleImage = fullBleedAnalysis(spineIndex).singleImageSrc;
+      if (singleImage != null && singleImage.isNotEmpty) {
+        final pages = _buildFullBleedPages(
+          spineIndex,
+          singleImage,
+          paginationKey,
+          contain: pageFlags.fitWindow,
+          bleed: true,
+        );
+        _putPageCache(paginationKey, pages);
+        if (trace != null) {
+          trace.record(
+            ReaderTraceName.chapterLayout,
+            watch!.elapsedMicroseconds,
+            bookId: traceBook,
+          );
+        }
+        return pages;
+      }
+    }
     // 边距归零、背景图 cover。先于普通聚合判定。
     final fullBleed = fullBleedAnalysis(spineIndex);
     if (fullBleed.isFullBleed) {
@@ -1913,6 +2191,7 @@ class EpubChapterSource
       bool lastInContainer = false,
       double listIndent = 0,
       double firstLineIndent = 0,
+      CssListStylePosition? listPosition,
     }) {
       containerBorderedForLastChain = false;
       final computed = chainStyle(chain);
@@ -1995,6 +2274,14 @@ class EpubChapterSource
       if (firstLineIndent > 0) {
         declarations['text-indent'] =
             '${computed.textIndent + firstLineIndent}px';
+      }
+      if (listPosition != null) {
+        // 列表项重建样式时父链换成了阅读器基础样式，`list-style-position`
+        // 的继承会丢（CSS 里它是继承属性），必须显式带上容器值。
+        declarations['list-style-position'] = switch (listPosition) {
+          CssListStylePosition.inside => 'inside',
+          CssListStylePosition.outside => 'outside',
+        };
       }
       // 容器 padding/border 折算子块内缩（复用盒传导声明）。
       return ComputedStyle(
@@ -2123,8 +2410,11 @@ class EpubChapterSource
 
     void collectImageBlock(
       BlockNode node,
-      List<SelectorElement> ancestors,
-    ) {
+      List<SelectorElement> ancestors, {
+      FloatSide? containerFloat,
+      double? containerFloatWidth,
+      int containerFloatGroup = 0,
+    }) {
       // src 键名兼容 SVG <image xlink:href> 折叠链。
       final src = node.attributes['src'] ?? node.attributes['xlink:href'];
       if (src == null || src.isEmpty) {
@@ -2170,7 +2460,26 @@ class EpubChapterSource
         cssWidth: imageStyle.width?.resolve(bleedWidth),
         cssHeight: imageStyle.height?.resolve(contentHeight),
       );
-      final floatSide = floatSideOf(node.attributes);
+      // 容器级浮动（W12）：`.avatar` 这类浮动挂在图片外面的容器/行内
+      // 元素上，图片自身没有 float 属性，这里用容器浮动兜底。纯图块被
+      // 聚合器折叠时容器不在祖先链上（只留 containerChain 提示），
+      // 所以再按折叠链逐层查一次 float。
+      FloatSide? chainFloat;
+      double? chainFloatWidth;
+      for (var i = foldedChain.length; i >= 1; i -= 1) {
+        final chainStyleValue = chainStyle(foldedChain.sublist(0, i));
+        final side = _floatSideOfStyle(chainStyleValue);
+        if (side != null) {
+          chainFloat = side;
+          chainFloatWidth = _textWidthFor(chainStyleValue);
+          break;
+        }
+      }
+      final floatSide =
+          floatSideOf(node.attributes) ?? containerFloat ?? chainFloat;
+      final floatColumnWidth = containerFloat != null
+          ? containerFloatWidth
+          : chainFloatWidth;
       if (floatSide != null) {
         // 浮动图钳宽（≤45% 正文宽），高按原始比例换算（P3-12 绕排前提）。
         final maxW = contentWidth * 0.45;
@@ -2182,7 +2491,14 @@ class EpubChapterSource
         }
         size = (w, h);
       }
-      final blockWidth = floatSide != null ? size.$1 : contentWidth;
+      var blockWidth = floatSide != null ? size.$1 : contentWidth;
+      if (floatSide != null && floatColumnWidth != null) {
+        // 容器浮动（多列网格）：图片按容器内容宽收窄，否则会把整列撑满。
+        blockWidth = math.min(blockWidth, floatColumnWidth);
+        if (size.$1 > blockWidth) {
+          size = (blockWidth, size.$2 * blockWidth / size.$1);
+        }
+      }
       final blockStyle = ComputedStyle(<String, String>{
         ...baseStyle.values,
         'background-image': 'url($url)',
@@ -2217,6 +2533,11 @@ class EpubChapterSource
           bleedLeft: imageStyle.bleed.left,
           bleedRight: imageStyle.bleed.right,
           effectiveOpacity: imageOpacity,
+          groupId: containerFloat != null
+              ? containerFloatGroup
+              : (chainFloat != null && containerFloatGroup > 0
+                    ? containerFloatGroup
+                    : 0),
         ),
       );
     }
@@ -2923,6 +3244,10 @@ class EpubChapterSource
       }
     }
 
+    // 容器级浮动分组号（W12）：超过 [floatGroupBase] 的 groupId 表示
+    // 「同一个被拆开的浮动容器」，分页时整组当一个浮动盒处理。
+    var containerFloatSeq = 0;
+
     void collect(
       EpubNode node,
       String blockTag, {
@@ -2935,6 +3260,9 @@ class EpubChapterSource
       bool lastInContainer = false,
       bool listFirst = false,
       bool listLast = false,
+      FloatSide? containerFloat,
+      double? containerFloatWidth,
+      int containerFloatGroup = 0,
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
@@ -2952,6 +3280,11 @@ class EpubChapterSource
           firstInContainer: firstInContainer,
           lastInContainer: lastInContainer,
           listIndent: listIndent,
+          listPosition: isListItem
+              ? (list.inside
+                    ? CssListStylePosition.inside
+                    : CssListStylePosition.outside)
+              : null,
         );
         // 容器拼合（P9-25）：卡片/面板里的子块要把背景与左右边框延伸到
         // 段距，才能拼回整片面板（四边框闭合）。
@@ -3076,17 +3409,22 @@ class EpubChapterSource
         if (firstLetter != null) {
           runs = [...runs, firstLetter];
         }
+        // 浮动块（f/W12）：`float` 走级联后的计算样式；容器上的 float
+        //（如双列目录 `.dk-toc-item`）经传导带给子块，子块按容器内容宽
+        // 排版并整体进同一个浮动盒。
+        final ownFloatSide = _floatSideOfStyle(blockStyle);
+        final floatSide = ownFloatSide ?? containerFloat;
+        // 容器浮动传导来的宽度优先（容器里可能有多个子块）。
+        final measureWidth = ownFloatSide == null && containerFloat != null
+            ? containerFloatWidth ?? _textWidthFor(measureStyle)
+            : _textWidthFor(measureStyle);
         final layout = _layoutCache.layout(
           text: effectiveText,
           style: measureStyle,
-          maxWidth: _textWidthFor(measureStyle),
+          maxWidth: measureWidth,
           runs: runs,
         );
         if (layout.lineCount > 0) {
-          // 浮动块（f）：`float` 走级联后的计算样式——此前只认内联 style
-          // 与 `align` 属性，`.f { float: left }` 这类 class 规则完全没
-          // 识别，绕排分支从未进入。
-          final floatSide = _floatSideOfStyle(blockStyle);
           final spaceBefore =
               (paragraphSpacing ?? blockStyle.margin.top) + listSpacingBefore;
           final spaceAfter =
@@ -3100,7 +3438,10 @@ class EpubChapterSource
                 spaceBefore: spaceBefore,
                 spaceAfter: spaceAfter,
                 startCfi: cfi,
-                groupId: groupId,
+                // 容器浮动组用专属组号（分页时整组当一个浮动盒）。
+                groupId: floatSide == containerFloat && containerFloat != null
+                    ? containerFloatGroup
+                    : groupId,
                 containerSides: inBorderedContainer,
                 effectiveOpacity: blockOpacity,
               ),
@@ -3159,7 +3500,13 @@ class EpubChapterSource
         // 折叠出的纯图块（真实书适配）：构造背景图块（contain 居中），
         // 块高按属性尺寸/原始宽高比换算。
         if (node.tag == 'img' && node.children.isEmpty) {
-          collectImageBlock(node, ancestors);
+          collectImageBlock(
+            node,
+            ancestors,
+            containerFloat: containerFloat,
+            containerFloatWidth: containerFloatWidth,
+            containerFloatGroup: containerFloatGroup,
+          );
           return;
         }
         // 表格块（flat 管线接入）：格布局测量 + 行边界切分 + 渲染载荷。
@@ -3220,6 +3567,27 @@ class EpubChapterSource
         ];
         final selfView = _NodeView(node.tag, node.attributes, childViews);
         final childAncestors = <SelectorElement>[...ancestors, selfView];
+        // 容器级浮动传导（W12）：flat 管线把容器拆成子块后，容器上的
+        // `float`/`width` 会整条丢掉（双列目录 `.dk-toc-item{float:left;
+        // width:48%}` 因此排成单列）。这里把容器浮动按「传导白名单」的
+        // 思路带给子块：子块整体当作一个浮动盒（同一 groupId 分组）。
+        var childContainerFloat = containerFloat;
+        var childContainerFloatWidth = containerFloatWidth;
+        var childContainerFloatGroup = containerFloatGroup;
+        final selfStyle = chainStyle(childAncestors);
+        final selfFloat = _floatSideOfStyle(selfStyle);
+        if (selfFloat != null) {
+          containerFloatSeq += 1;
+          childContainerFloat = selfFloat;
+          // 容器宽 = 内容盒宽（多列容器一般写百分比/固定宽）。
+          childContainerFloatWidth = _textWidthFor(selfStyle);
+          childContainerFloatGroup = floatGroupBase + containerFloatSeq;
+        } else if (containerFloat != null) {
+          // 浮动容器内部再嵌块级元素：继续用同一组。
+          childContainerFloat = containerFloat;
+          childContainerFloatWidth = containerFloatWidth;
+          childContainerFloatGroup = containerFloatGroup;
+        }
         // 列表上下文（P3-23/g）：ul/ol 开新层，并把容器的上下盒空白
         //（外边距 + 边框 + 内边距）交给首项/末项承担；li 沿用所在列表。
         // 容器不产出块，这些空白不接就是列表整体上移（用例 11/30 的 6px）。
@@ -3278,6 +3646,9 @@ class EpubChapterSource
             listLast: isListContainer
                 ? identical(child, blockChildren.last)
                 : (isListItem && listLast),
+            containerFloat: childContainerFloat,
+            containerFloatWidth: childContainerFloatWidth,
+            containerFloatGroup: childContainerFloatGroup,
           );
         }
       } else if (node is InlineNode) {
@@ -3294,6 +3665,9 @@ class EpubChapterSource
             lastInContainer: lastInContainer,
             listFirst: listFirst,
             listLast: listLast,
+            containerFloat: containerFloat,
+            containerFloatWidth: containerFloatWidth,
+            containerFloatGroup: containerFloatGroup,
           );
         }
       }
@@ -3493,4 +3867,44 @@ class _NodeView implements SelectorElement {
 
   @override
   final List<SelectorElement> childElements;
+}
+
+/// OPF `itemref` 上的多看页属性（`duokan-page-*` / `page-spread-*`）。
+///
+/// 语义见 docs/duokan-private-css.md「OPF 页属性」：
+/// - `duokan-page-fullscreen`（含 `-spread-left/right`）：封面或插图整页
+///   显示，正文样式不参与（cover 铺满，可能裁边）；
+/// - `duokan-page-fitwindow`：插图页在窗口内 contain 适配、上下居中；
+/// - `page-spread-left/right`：双页模式的左右页标记（单页模式下列入全屏）。
+class OpfPageFlags {
+  /// 创建页属性。
+  const OpfPageFlags({
+    this.fullScreen = false,
+    this.fitWindow = false,
+    this.spreadLeft = false,
+    this.spreadRight = false,
+  });
+
+  /// 未标记任何页属性。
+  static const OpfPageFlags none = OpfPageFlags();
+
+  /// 整页显示（`duokan-page-fullscreen` 及其跨页变体）。
+  final bool fullScreen;
+
+  /// 整页图窗口内适配、上下居中（`duokan-page-fitwindow`）。
+  final bool fitWindow;
+
+  /// 跨页左页（`page-spread-left` / `duokan-page-fullscreen-spread-left`）。
+  final bool spreadLeft;
+
+  /// 跨页右页（`page-spread-right` / `duokan-page-fullscreen-spread-right`）。
+  final bool spreadRight;
+
+  /// 是否走整页图路径（全屏或窗口适配）。
+  bool get isFullPage => fullScreen || fitWindow;
+
+  @override
+  String toString() =>
+      'OpfPageFlags(fullScreen: $fullScreen, fitWindow: $fitWindow, '
+      'spreadLeft: $spreadLeft, spreadRight: $spreadRight)';
 }

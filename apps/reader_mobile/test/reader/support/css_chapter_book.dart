@@ -16,13 +16,14 @@ Uint8List buildCssChapterBook({
   required String body,
   String css = '',
   Map<String, List<int>> binaryFiles = const <String, List<int>>{},
+  String itemrefAttributes = '',
 }) {
   final chapter =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title>'
       '${css.isEmpty ? '' : '<link rel="stylesheet" type="text/css" href="../Styles/s.css"/>'}'
       '</head><body>$body</body></html>';
-  const opf =
+  final opf =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
       'unique-identifier="b"><metadata '
@@ -33,7 +34,8 @@ Uint8List buildCssChapterBook({
       '</metadata><manifest>'
       '<item id="c" href="Text/c.xhtml" media-type="application/xhtml+xml"/>'
       '<item id="s" href="Styles/s.css" media-type="text/css"/>'
-      '</manifest><spine><itemref idref="c"/></spine></package>';
+      '</manifest><spine><itemref idref="c"$itemrefAttributes/></spine>'
+      '</package>';
   const container =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<container version="1.0" '
@@ -65,12 +67,18 @@ Future<EpubChapterSource> openCssChapter({
   required String body,
   String css = '',
   Map<String, List<int>> binaryFiles = const <String, List<int>>{},
+  String itemrefAttributes = '',
   double contentWidth = 300,
   double contentHeight = 500,
   ReaderOverrides overrides = const ReaderOverrides(),
 }) async {
   final source = await EpubChapterSource.open(
-    buildCssChapterBook(body: body, css: css, binaryFiles: binaryFiles),
+    buildCssChapterBook(
+      body: body,
+      css: css,
+      binaryFiles: binaryFiles,
+      itemrefAttributes: itemrefAttributes,
+    ),
     contentWidth: contentWidth,
     contentHeight: contentHeight,
     verifyCrc: false,
