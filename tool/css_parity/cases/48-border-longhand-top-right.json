@@ -1,0 +1,9 @@
+{
+  "name": "48-border-longhand-top-right",
+  "tags": [
+    "border-top",
+    "border-right"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { margin: 8px 0; line-height: 1.6; font-size: 15px; } .bt { border-top: 5px solid #3366cc; padding-top: 3px; background-color: #eef3ff; } .br { border-right: 7px dashed #cc3366; padding-right: 9px; background-color: #ffeef3; }",
+  "html": "<div class=\"bt\">border-top 5px solid：上边框参与盒高，内容下压。</div><div class=\"br\">border-right 7px dashed：右边框占 7px 宽，行宽应缩窄。</div>"
+}

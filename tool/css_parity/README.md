@@ -1,8 +1,8 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 45 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
-滤镜、浮动等属性组。
+当前 60 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
+滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
 
@@ -12,6 +12,7 @@
 | `render_browser.mjs` | Chrome CDP（350×800、dpr=1）渲染：截图 + 每个元素的 `getBoundingClientRect`、文本行几何、关键计算样式、表格单元格几何 |
 | `../../apps/reader_mobile/test/css_parity/parity_dump_test.dart` | 引擎侧渲染：同尺寸截图 + 每页块/行/表格单元格几何与计算样式（`CSS_PARITY=1` 才跑） |
 | `compare.py` | 几何/样式/单元格/视觉逐项比对，输出 `report.md`（Top 失配、维度汇总、逐用例明细）与 `side_<case>.png`（左浏览器 / 右引擎） |
+| `coverage.py` / `coverage.md` | 属性覆盖矩阵：从审计文档 + `computed_style.dart` 取属性清单，扫用例判断覆盖，输出覆盖率与未覆盖分组 |
 
 ## 用法
 
@@ -22,6 +23,7 @@ cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_t
 /usr/bin/python3 tool/css_parity/compare.py 12-table 32-table-colspan-rowspan
 /usr/bin/python3 tool/css_parity/compare.py --threshold 40   # 门禁：超阈值退出码 2
 CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，CI 友好
+/usr/bin/python3 tool/css_parity/coverage.py             # 生成属性覆盖矩阵
 ```
 
 退出码：`0` 正常（或未启用门禁）、`2` 门禁失败（任一属性维度失配项数超过
@@ -32,8 +34,9 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `browser_<case>.json|png`、`engine_<case>.json|png`
 - `report.md`（含 Top 失配清单、按属性维度汇总、视觉差异表、逐用例明细）
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
+- `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（45 组）
+## 用例清单（60 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -82,10 +85,57 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 43 | multipage-table | 表格被 page-break 推到第 2 页（跨页，2 页） |
 | 44 | hanging-punctuation | hanging-punctuation: allow-end（Chrome 不支持，仅记录引擎行为） |
 | 45 | initial-letter | initial-letter: 3（Chrome 不支持，仅记录引擎行为） |
+| 46 | margin-longhand | margin-top / margin-bottom（含负值） |
+| 47 | padding-longhand | padding-right / padding-bottom |
+| 48 | border-longhand-top-right | border-top / border-right |
+| 49 | border-longhand-bottom-left | border-bottom / border-left |
+| 50 | radius-longhand-top | border-top-left-radius / border-top-right-radius |
+| 51 | radius-longhand-bottom | border-bottom-right-radius / border-bottom-left-radius |
+| 52 | background-origin | background-origin（border/padding/content-box） |
+| 53 | display-position | display（inline-block/block）、position（relative/absolute）与 top/right/bottom/left |
+| 54 | visibility-list-style | visibility、list-style 简写（含 inside） |
+| 55 | decoration-longhand | text-decoration-line / text-decoration-style |
+| 56 | cjk-spacing | text-spacing-trim / text-autospace |
+| 57 | emphasis-style-longhand | text-emphasis-style |
+| 58 | font-shorthand | font 简写（含 700/italic、字号/行高） |
+| 59 | break-longhand | break-before / break-after / page-break-after（跨页） |
+| 60 | duokan-bleed | duokan-bleed / -duokan-bleed（Chrome 不支持，仅记录引擎行为） |
 
-浏览器渲染：45/45 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：60/60 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45 在用例 JSON 里标 `engine_only: true`：Chrome 尚未支持这两个属性，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
+
+## 覆盖矩阵（属性 × 用例）
+
+`coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
+C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
+再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
+`coverage.md`（幂等，可重复运行）。当前 60 个用例的覆盖情况：
+
+| 分组 | 属性数 | 已覆盖 | 覆盖率 |
+| --- | --- | --- | --- |
+| 解析且消费（审计 A 组） | 102 | 94 | 92.2% |
+| 占位式（审计 C 组：有字段、零消费） | 15 | 10 | 66.7% |
+| 完全未处理（审计 D 组：无字段） | 38 | 5 | 13.2% |
+| **合计（116 条审计展开为 155 个属性名）** | **155** | **109** | **70.3%** |
+
+- 覆盖判定是「声明出现即算覆盖」；简写不自动覆盖长属性（`margin` 不算
+  `margin-top`），所以 46–51 专门用长属性声明补齐。
+- 46–60 是长尾用例：每个聚焦 1–2 个此前零覆盖、且引擎有解析/有消费的属性
+  （长属性、`font`/`list-style` 简写、`display`/`position` 与 inset、CJK 间距、
+  字体简写、分页长属性、多看出血）。其中 53 为测 `position` 同时声明了
+  `top/right/bottom/left`（C 组占位属性），所以它「首次覆盖」的条目较多；
+  逐条清单见 `coverage.md` 第 4 节。
+- A 组仍有 8 条未覆盖：`content`、逻辑属性 6 条
+  （`margin/padding/border-inline-*`）、`word-wrap`；`coverage.md` 已把它们
+  排到建议用例 61+（可按需继续补）。
+- 未覆盖的主体在 D 组（引擎无字段）：`border-image`、`columns`、`overflow-x/y`、
+  `line-break`、`counter-*`、`object-fit`、`backdrop-filter`、`mix-blend-mode`、
+  `z-index`、`background-attachment`、`justify-content`/`align-items`、
+  `orphans`/`widows` 等。
+- 新增用例后重跑 `/usr/bin/python3 tool/css_parity/coverage.py` 即可刷新覆盖率、
+  未覆盖分组与建议编号。注意审计文档仍在被 T7 修订，分组与数字以
+  `coverage.md` 最新一次运行为准。
 
 ## 口径
 
@@ -171,58 +221,73 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（45 用例全量重跑：失配 165 项 / 18 个用例 / 未配对 0）
+## 待收敛（60 用例全量重跑：失配 108 项 / 12 个用例 / 未配对 0）
 
-> 数字来自 2026-10-27 02:30 全量重跑（render_browser + dump，含 T2/T4 引擎改动），
-> 引擎仍在改，数字会继续下降，以 `report.md` 为准；归属建议供 Lead 分派。
+> 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
+> 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
+> 归属建议供 Lead 分派。
 
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
-| 1 | line-height | 36 | 37-filter-opacity、39-font-size-units |
-| 2 | transform | 21 | 36-transform |
+| 1 | display | 29 | 53-display-position |
+| 2 | hyphens | 22 | 20-hyphens-quotes |
 | 3 | column-count | 20 | 34-columns |
-| 4 | hyphens | 19 | 20-hyphens-quotes |
-| 5 | table | 15 | 12-table、32-table-colspan-rowspan |
-| 6 | list-style-type | 14 | 31-list-nested |
-| 7 | writing-mode | 10 | 35-writing-mode |
-| 8 | text-overflow | 9 | 40-text-overflow |
-| 9 | float | 5 | 14-float-overflow、38-float-clear |
-| 10 | font-variant | 4 | 15-font-variant-stretch |
+| 4 | writing-mode | 8 | 35-writing-mode |
+| 5 | text-overflow | 6 | 40-text-overflow |
+| 6 | line-height | 5 | 37-filter-opacity |
+| 7 | font-variant | 4 | 15-font-variant-stretch |
+| 8 | text-indent | 4 | 16-text-indent-percent |
+| 9 | list-style-position | 3 | 30-list-style-position |
+| 10 | visibility | 3 | 54-visibility-list-style |
 
-1. **默认行高口径（line-height 36 项）**：引擎默认因子 1.5，浏览器
-   `line-height: normal` 用字体度量（约 1.4）；37 每块 +2px、39 十行累积 10px。
-   阅读器常用 1.5，是否对齐浏览器需要产品裁决（建议 T1 + 你）。
-2. **未实现属性组（transform 21 / column-count 20 / writing-mode 10 / hyphens 19）**：
-   `columns`（34：浏览器 2/3 列、行宽 154/98，引擎单列 350）、`transform`（36：
-   位移/缩放/旋转全未应用）、`writing-mode`（35：浏览器竖排 98×202，引擎横排
-   350×50）、`hyphens`/`quotes`（20：浏览器 4 行 / 引擎 5 行；`q` 引用 2 行 /
-   1 行无引号）。建议 T3 或明确不支持。
-3. **嵌套列表（list-style-type 14 项）**：嵌套 ul/ol 的段前与缩进仍差 2px
-   （三级方块 y 浏览器 114 / 引擎 116，一级第三项 169 / 172）；另有 3 个
-   「部分配对」（li 内含子列表，只比块顶与前几行）。建议 T2。
-4. **表格（table 15 项 / 2 用例 + table-layout 2 项）**：
-   - 12-table 4 项：表高 93 / 91，右对齐格首行 x 差 1.7px。
-   - 32-colspan/rowspan 11 项：表高 100 / 105；rowspan 之后各行整体偏移
-     2.5–3px（格[2,0] 58 / 60.5、格[3,0] 83 / 86.5）。
-   - 33-table-layout 2 项：表高 46 / 49（`border-spacing` 未计入）。建议 T2。
-5. **text-overflow（9 项）**：块级 `width` 未生效，`white-space: normal` 段
-   第 3/5 行行宽 165 / 76.5、126 / 164（断行位置不同）；`nowrap` 块的
-   `bboxW` 为未知（可用宽 Infinity），块宽不参与比较。建议 T1/T3。
-6. **浮动（float 5 项）**：右浮动块整体下移（14：y 166 / 160.8；38：268.7 / 267），
-   其余为浮动块间距偏差。建议 T2。
-7. **其余单项（每题 2–4 项）**：font-variant/ligatures 行宽 255 / 244、235 / 240（15）；
-   负 `text-indent` 被钳到 0（16：首行 x 34 / 0）；box-sizing 的 auto 宽块 y 差
-   2.5px（21）；text-decoration 末块 y 差 1.6px（04）；text-emphasis 行高 68 / 70
-   （19）。text-indent → T1/T3，其余 T2 顺手处理。
-8. **视觉残留（几何一致但像素不同，看 `side_*.png` 人工判定）**：
-   03-indent-align 2.85%（justify 行内 gap 分摊）、17-text-align-last 5.60%、
-   18-text-justify 5.46%（同源）、10-background 3.00%、13-shadow-opacity 3.21%、
-   21-box-sizing 15.05%、24-border-radius 12.94%、25-border-style 11.07%、
-   38-float-clear 14.78%、07-font-weight-style 2.19%（粗体栅格化）。
-   背景图/渐变（26/27/28/29）差异包含「dump 未注入图片解码器」的工具限制，
-   见「已知对照限制」。
-9. **分页类（预期现象）**：42-multipage-flow 21.73%、43-multipage-table 16.96%，
-   引擎第 1 页与浏览器连续流第 1 屏内容不同构，不作为失配依据。
+1. **display / position（29 项，53）**：`inline-block` 未建模（h 54.4 / 27、
+   行数 2 / 1、首行 x 102 / 0）；`absolute` 只摘流不按 inset 定位
+   （`right/bottom` 块 y 734 / 96、x 258 / 0）；`relative` 偏移未生效
+   （x 18 / 0）。建议 T2。
+2. **未实现/部分实现属性组（hyphens 22 / column-count 20 / writing-mode 8）**：
+   `hyphens` 近似音节断词（见「已知口径差异」第 2 条）、`columns` 单列渲染
+   （行宽 350 vs 154/98）、`writing-mode` 横排（350×50 vs 98×202）。建议 T3。
+3. **text-overflow（6 项，40）**：`white-space: normal` 段的断行位置受
+   text-autospace / text-spacing-trim 影响（见「已知口径差异」第 1 条），
+   行数 6 / 5、行宽逐行 1~40px 不等；ellipsis/clip 行宽已按
+   `min(行宽, 内容宽)` 对称比较。
+4. **line-height（5 项，37）**：`line-height: normal` 的字体度量取整差异
+   （见「已知口径差异」第 5 条），块 y 逐块差 ~2px；normal 块几何已放宽到
+   2.5px 容差，剩余为累积位移。
+5. **其余单项（2–4 项）**：`font-variant`/ligatures 行宽 255 / 244（15）；
+   负 `text-indent` 被钳到 0（16：首行 x 34 / 0）；`list-style-position`
+   inside 未实现（30、54：浏览器 inside / 引擎 outside）；`table` 表高
+   93 / 91（12）；`text-emphasis` 行高 68 / 70（19）。
+
+## 已知口径差异（不计入收敛目标）
+
+> 由 T1（断行层）确认 + 对照工具实测，属于「引擎与 Chrome 行为不同」而非
+> 引擎缺陷，排期时先排除。
+
+1. **text-autospace / 标点挤压（影响 20、40）**：引擎按 CSS Text 4 默认
+   `text-spacing-trim: trim-adjacent` + `text-autospace: normal`（CJK↔拉丁
+   边界 +0.125em≈2.1px、相邻全角标点前 -0.5em）；Chrome 149 实测未实现。
+   长串/逐字符断行（`overflow-wrap: break-word`、`word-break: break-all`）
+   的断点会逐字符漂移：行宽差 1~2px、行数可能差 1（40 的 `.wrap`：浏览器
+   6 行 76.5/164.2/164.0，引擎 5 行 164.8/160.7/138）。对照口径：这类用例
+   的行宽/行数不做严格判定，或在用例里显式写
+   `text-autospace: no-autospace; text-spacing-trim: space-all` 做基线。
+2. **`hyphens: auto` 是近似音节**：引擎按「元音-辅音-元音」边界断词，
+   不做 UA 词典；20 段落 1 行数已与浏览器一致（4 行），但逐行断点不同 →
+   行宽逐行不等（引擎 274.2/286.7/351.3/253.0 vs 浏览器
+   337.8/326.6/336/197.1）。建议 hyphens 维度只比「行数 + 行高」。
+3. **`text-overflow: ellipsis` 行宽**：引擎按「最长可放前缀 + …」截断，
+   `LineBox.width ≤ 内容宽`；浏览器 `getClientRects()` 报未截断整行宽。
+   compare 已按 `min(浏览器行宽, 内容宽)` 对两侧对称截断后比较，并在
+   报告里标注。
+4. **`border-collapse: collapse` 单元格**：单元格 rect 含左右各半条边框
+   （引擎已按半条实现），与 Chrome 的 x 差 0.5px 落在 2px 容差内，不作失配。
+5. **`line-height: normal`**：引擎取 Flutter 字体度量的整数和（15px → 22），
+   Chrome 用小数（22.5），块高有 0.5px 级差异（12-table 93 / 91 即此累积）；
+   compare 对 normal 行高的块把几何容差放宽到 2.5px。
+6. **transform**：浏览器 `getBoundingClientRect` 报变换后 bbox；dump 现按
+   `transform` + `transform-origin` 计算轴对齐 bbox（`transformed: true`），
+   compare 用 bbox 比 x/y/w/h 且不比较行内坐标（36-transform 21 → 0 失配）。
 
 ## 已知对照限制
 

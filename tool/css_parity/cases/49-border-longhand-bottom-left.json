@@ -1,0 +1,9 @@
+{
+  "name": "49-border-longhand-bottom-left",
+  "tags": [
+    "border-bottom",
+    "border-left"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { margin: 8px 0; line-height: 1.6; font-size: 15px; } .bb { border-bottom: 6px double #3366cc; padding-bottom: 4px; background-color: #eef3ff; } .bl { border-left: 8px solid #cc3366; padding-left: 10px; background-color: #ffeef3; }",
+  "html": "<div class=\"bb\">border-bottom 6px double：下边框参与盒高。</div><div class=\"bl\">border-left 8px solid：左边框占宽，首行起点右移。</div>"
+}

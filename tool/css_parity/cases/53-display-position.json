@@ -1,0 +1,9 @@
+{
+  "name": "53-display-position",
+  "tags": [
+    "display",
+    "position"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .inl { display: inline-block; width: 120px; height: 34px; background-color: #eef; } .blk { display: block; width: 160px; height: 24px; background-color: #efe; } .rel { position: relative; left: 18px; top: 6px; background-color: #ffe; } .abs { position: absolute; top: 12px; left: 220px; width: 90px; background-color: #fee; }\n .abs2 { position: absolute; right: 12px; bottom: 16px; width: 80px; background-color: #efe; }",
+  "html": "<p>行内块对照：<span class=\"inl\">inline-block 120×34</span> 结束</p><p class=\"blk\">display:block 160×24</p><p class=\"rel\">position:relative 偏移 18/6</p><div class=\"abs\">absolute 定位 220/12</div>\n<div class=\"abs2\">absolute right/bottom</div><p>绝对定位之后的普通段落，观察它是否被摘出常规流。</p>"
+}

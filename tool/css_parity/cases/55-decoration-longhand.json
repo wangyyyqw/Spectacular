@@ -1,0 +1,9 @@
+{
+  "name": "55-decoration-longhand",
+  "tags": [
+    "text-decoration-line",
+    "text-decoration-style"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.8; } .a { text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: #cc0000; } .b { text-decoration-line: overline line-through; text-decoration-style: double; }",
+  "html": "<p class=\"a\">text-decoration-line 与 style 分开声明：下划线点线。</p><p class=\"b\">overline 与 line-through 同时启用，双线样式。</p>"
+}
