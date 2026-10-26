@@ -1580,7 +1580,13 @@ class EpubChapterSource
         runs: const <StyledRun>[],
       );
       blocks.add(
-        PageBlock(layout: layout, style: blockStyle, floatSide: floatSide),
+        PageBlock(
+          layout: layout,
+          style: blockStyle,
+          floatSide: floatSide,
+          bleedLeft: imageStyle.bleed.left,
+          bleedRight: imageStyle.bleed.right,
+        ),
       );
     }
 
@@ -2227,6 +2233,9 @@ class EpubChapterSource
               absolute: isAbsolute,
               absoluteTop: absoluteTop,
               absoluteLeft: absoluteLeft,
+              // P9-22：多看出血（背景/边框延伸到页面边缘）。
+              bleedLeft: blockStyle.bleed.left,
+              bleedRight: blockStyle.bleed.right,
             ),
           );
         }

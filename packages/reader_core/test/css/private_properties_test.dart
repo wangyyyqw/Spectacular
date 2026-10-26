@@ -41,6 +41,17 @@ void main() {
     expect(compute('duokan-padding-before: 3px').padding.top, 3);
   });
 
+  test('多看 bleed 出血方向解析', () {
+    final bleed = compute('duokan-bleed: left right');
+    expect(bleed.bleed.left, isTrue);
+    expect(bleed.bleed.right, isTrue);
+    expect(bleed.bleed.top, isFalse);
+    expect(compute('duokan-bleed: auto').bleed.any, isFalse);
+    final all = compute('-duokan-bleed: all');
+    expect(all.bleed.any, isTrue);
+    expect(all.bleed.bottom, isTrue);
+  });
+
   test('多看渐变文字取首色当纯色', () {
     expect(
       compute('-duokan-text-fill: linear-gradient(#ffd700, #b0904d)').color,

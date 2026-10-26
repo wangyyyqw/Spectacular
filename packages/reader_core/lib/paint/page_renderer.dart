@@ -1458,9 +1458,10 @@ class _SliceGeometry {
   /// margin.left 折算进左缘，使背景与边框跟文本 x（已含 margin）对齐；
   /// 右缘同步扣除 margin.right，与收窄后的排版宽度同界。
   Rect get marginBox => Rect.fromLTRB(
-    style.margin.left,
+    // 出血（P9-22）：多用 `duokan-bleed` 让元素的背景/边框顶到页面边缘。
+    slice.block.bleedLeft ? 0 : style.margin.left,
     y,
-    pageWidth - style.margin.right,
+    slice.block.bleedRight ? pageWidth : pageWidth - style.margin.right,
     y + slice.height,
   );
 
