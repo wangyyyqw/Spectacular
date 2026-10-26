@@ -70,22 +70,26 @@ void main() {
 
   test('duokan-bleed 让背景延伸到页面边缘（P9-22）', () async {
     final data = await _render(_page(bleed: true));
-    expect(_pixel(data, 0, 10), const Color(0xFFFF0000), reason: '左缘应出血');
+    // 取块内容带（纵向 margin 20px 之后）验证左右出血。
+    expect(_pixel(data, 0, 30), const Color(0xFFFF0000), reason: '左缘应出血');
     expect(
-      _pixel(data, _pageSize.width.toInt() - 1, 10),
+      _pixel(data, _pageSize.width.toInt() - 1, 30),
       const Color(0xFFFF0000),
       reason: '右缘应出血',
     );
+    // 出血只作用于声明的左右边；纵向 margin 带仍是页面底色。
+    expect(_pixel(data, 100, 10), _pageColor, reason: '上 margin 带不画背景');
+    expect(_pixel(data, 100, 110), _pageColor, reason: '下 margin 带不画背景');
   });
 
   test('没有出血时保留页边距', () async {
     final data = await _render(_page(bleed: false));
-    expect(_pixel(data, 0, 10), _pageColor, reason: '左缘应为页面底色');
+    expect(_pixel(data, 0, 30), _pageColor, reason: '左缘应为页面底色');
     expect(
-      _pixel(data, _pageSize.width.toInt() - 1, 10),
+      _pixel(data, _pageSize.width.toInt() - 1, 30),
       _pageColor,
       reason: '右缘应为页面底色',
     );
-    expect(_pixel(data, 30, 10), const Color(0xFFFF0000), reason: '块内应着色');
+    expect(_pixel(data, 30, 30), const Color(0xFFFF0000), reason: '块内应着色');
   });
 }
