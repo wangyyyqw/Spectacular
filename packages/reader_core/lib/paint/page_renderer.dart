@@ -362,9 +362,11 @@ class PagePainter {
       if (!darkText) {
         return null;
       }
+      // 深色底 + 深色字：需要一个浅色。主题文字色在浅色主题里本身就是
+      // 深色，不能直接复用，此时固定用浅灰；深色主题才用主题色。
       return theme.computeLuminance() < 0.35
-          ? theme
-          : const Color(0xFFE6E6E6);
+          ? const Color(0xFFE6E6E6)
+          : theme;
     }
     if (background.computeLuminance() < 0.35) {
       return darkText ? theme : null;
