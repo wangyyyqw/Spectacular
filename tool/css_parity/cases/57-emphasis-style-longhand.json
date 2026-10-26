@@ -1,0 +1,8 @@
+{
+  "name": "57-emphasis-style-longhand",
+  "tags": [
+    "text-emphasis-style"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 2; } .dot { text-emphasis-style: filled dot; } .ses { text-emphasis-style: open sesame; } .cir { text-emphasis-style: circle; text-emphasis-color: #0066cc; }",
+  "html": "<p class=\"dot\">text-emphasis-style: filled dot 只有样式没有简写。</p><p class=\"ses\">text-emphasis-style: open sesame 芝麻点。</p><p class=\"cir\">text-emphasis-style: circle 空心圆。</p>"
+}

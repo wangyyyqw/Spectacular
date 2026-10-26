@@ -1,0 +1,9 @@
+{
+  "name": "56-cjk-spacing",
+  "tags": [
+    "text-spacing-trim",
+    "text-autospace"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } .trim { text-spacing-trim: trim-adjacent; } .auto { text-autospace: normal; } .both { text-spacing-trim: trim-adjacent; text-autospace: normal; }",
+  "html": "<p class=\"trim\">标点挤压 trim-adjacent：中文标点「引号」、括号（）与全角逗号，行末标点应当被裁掉左半或右半空隙，观察行宽是否缩短。</p><p class=\"auto\">中西文自动间距 text-autospace：中文 ABC 123 混排，汉字与拉丁字母之间应当插入约四分之一字宽的间隙。</p><p class=\"both\">两者叠加：标点（挤压）+ 混排 ABC 自动间距，观察组合效果。</p>"
+}

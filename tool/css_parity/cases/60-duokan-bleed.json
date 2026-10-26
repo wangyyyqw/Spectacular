@@ -1,0 +1,9 @@
+{
+  "name": "60-duokan-bleed",
+  "tags": [
+    "duokan-bleed"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } .bleed { duokan-bleed: left; } .bleed-r { -duokan-bleed: right; }",
+  "html": "<p class=\"bleed\">duokan-bleed: left：多看私有出血属性，左侧应当超出正文区。</p><p class=\"bleed-r\">-duokan-bleed: right 带前缀写法，右侧出血。</p><p>普通段落对照：不出血。</p>"
+}

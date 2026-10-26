@@ -183,6 +183,11 @@ def engine_box_rect(block):
     （边框盒宽 = contentWidth + padding + border）；引擎未知（pre/nowrap 的
     Infinity）时为 null，按「未知」跳过比较，不算失配。
     """
+    bbox = block.get('bboxRect')
+    if block.get('transformed') and isinstance(bbox, dict):
+        # 有 transform 时浏览器量的是变换后 bbox；dump 已按 transform +
+        # transform-origin 算好轴对齐 bbox，直接同口径比较。
+        return dict(bbox)
     rect = dict(block.get('rect') or {})
     style = block.get('style') or {}
     padding = style.get('padding') or [0.0, 0.0, 0.0, 0.0]
@@ -224,7 +229,12 @@ def line_tolerance(engine_style):
     return max(TOL, (float(line_height) - float(font_size)) / 2 + 0.5)
 
 
-def compare_lines(browser_lines, engine_lines, tol):
+def compare_lines(browser_lines, engine_lines, tol, width_cap=None, sample=None):
+    """逐行比 y/x/宽。
+
+    [width_cap] 用于 `text-overflow: ellipsis|clip`：浏览器量到的是整行
+    自然宽，引擎是截断后的内容宽，行宽按 `min(浏览器, width_cap)` 比较。
+    """
     problems = []
     if len(browser_lines) != len(engine_lines):
         problems.append(f'行数: 浏览器 {len(browser_lines)} / 引擎 {len(engine_lines)}')
@@ -234,9 +244,37 @@ def compare_lines(browser_lines, engine_lines, tol):
             a, b = left.get(key), right.get(key)
             if a is None or b is None:
                 problems.append(f'{pos} {key}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}（缺失）')
-            elif abs(a - b) > limit:
+                continue
+            if key == 'w' and width_cap is not None:
+                # 对称截断：截断式布局下两侧都按内容宽封顶，避免
+                # 「浏览器整行自然宽 vs 引擎截断宽」的假差异。
+                a = min(a, width_cap)
+                b = min(b, width_cap)
+            if abs(a - b) > limit:
                 problems.append(f'{pos} {key}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}')
     return problems
+
+
+def ellipsis_width_cap(browser_style, block):
+    """text-overflow 截断元素的可用行宽上限；不需要时返回 None。
+
+    浏览器文本 rect 报整行自然宽，引擎布局已按内容宽截断，所以宽度维度
+    用 `min(浏览器行宽, 内容宽)` 比较（内容宽取引擎 contentWidth，缺失时
+    用浏览器边框盒宽扣 padding/border 近似）。
+    """
+    style = browser_style or {}
+    overflow_value = str(style.get('overflow', 'visible')).lower()
+    if overflow_value not in ('hidden', 'clip', 'scroll', 'auto'):
+        # text-overflow 只在溢出被裁剪时生效；默认 clip 是初始值，不能据此
+        # 给每个元素都套宽度上限。
+        return None
+    text_overflow = str(style.get('textOverflow', '')).lower()
+    if text_overflow not in ('ellipsis', 'clip'):
+        return None
+    cap = block.get('contentWidth')
+    if cap is not None:
+        return cap
+    return None
 
 
 STYLE_KEYS = (
@@ -251,6 +289,16 @@ STYLE_KEYS = (
     ('textTransform', 'textTransform', 'enum'),
     ('boxSizing', 'boxSizing', 'enum'),
     ('verticalAlign', 'verticalAlign', 'enum'),
+    # T2 新导出的键（dump 与浏览器两侧同名）
+    ('overflow', 'overflow', 'enum'),
+    ('writingMode', 'writingMode', 'enum'),
+    ('textOrientation', 'textOrientation', 'enum'),
+    ('direction', 'direction', 'enum'),
+    ('hyphens', 'hyphens', 'enum'),
+    ('wordBreak', 'wordBreak', 'enum'),
+    ('overflowWrap', 'overflowWrap', 'enum'),
+    ('listStylePosition', 'listStylePosition', 'enum'),
+    ('columnCount', 'columnCount', 'number'),
 )
 
 
@@ -280,6 +328,17 @@ def compare_style(browser_style, engine_style):
         if not equal:
             problems.append(f'{e_key}: 浏览器 {left} / 引擎 {right}')
     return problems
+
+
+def compare_transform(browser_style, engine_style):
+    """transform 字符串（浏览器 matrix）与引擎变换列表不可直接比，先比有无。"""
+    browser_raw = str((browser_style or {}).get('transform', 'none')).strip()
+    has_browser = browser_raw not in ('', 'none', 'None')
+    has_engine = bool((engine_style or {}).get('transform'))
+    if has_browser != has_engine:
+        return [f'transform: 浏览器 {browser_raw} / 引擎 '
+                f'{"有变换" if has_engine else "无变换"}']
+    return []
 
 
 def compare_runs(elements, block):
@@ -382,6 +441,8 @@ def diff_single_page(name, browser, engine, meta):
         f'浏览器可配对元素 {len(elements)}'
     )
     partial = []
+    ellipsis = []
+    transformed_blocks = []
     for block in text_blocks:
         el = pair_element(block, elements, used)
         if el is None:
@@ -392,6 +453,9 @@ def diff_single_page(name, browser, engine, meta):
         label = (str(el['text']).strip().replace('\n', ' ')[:24] or el['tag'])
         tol = line_tolerance(block.get('style') or {})
         found = []
+        width_cap = ellipsis_width_cap(el.get('style'), block)
+        if width_cap is not None:
+            ellipsis.append(label)
         if nkey(el['text']) != nkey(block['text']):
             # 部分配对：浏览器元素里含子块（如 li 里嵌 ul），文本是引擎块的
             # 超集。只比块顶位置与前 min(行数) 行，块高/行数/宽度不可比。
@@ -401,11 +465,24 @@ def diff_single_page(name, browser, engine, meta):
             count = min(len(lines_b), len(lines_e))
             found.extend(compare_rect(el['rect'], engine_box_rect(block), keys=('y', 'x')))
             if count:
-                found.extend(compare_lines(lines_b[:count], lines_e[:count], tol))
+                found.extend(compare_lines(lines_b[:count], lines_e[:count], tol,
+                                           width_cap=width_cap))
         else:
-            found.extend(compare_rect(el['rect'], engine_box_rect(block)))
-            found.extend(compare_lines(el.get('lines') or [], block.get('lines') or [], tol))
+            rect_tol = TOL
+            if str((el.get('style') or {}).get('lineHeight', '')).lower() == 'normal':
+                # 引擎取字体度量整数和、Chrome 用小数，normal 行高存在
+                # 0.5px 级差异（12-table 表高 93/91 即此），放宽到 2.5px。
+                rect_tol = 2.5
+            found.extend(compare_rect(el['rect'], engine_box_rect(block), tol=rect_tol))
+            if block.get('transformed'):
+                # transform 块只比变换后 bbox：dump 的行坐标是变换前的，
+                # 与浏览器 getClientRects（已含变换）不可直接比。
+                transformed_blocks.append(label)
+            else:
+                found.extend(compare_lines(el.get('lines') or [], block.get('lines') or [],
+                                           tol, width_cap=width_cap))
         found.extend(compare_style(el.get('style') or {}, block.get('style') or {}))
+        found.extend(compare_transform(el.get('style'), block.get('style')))
         found.extend(compare_runs(elements, block))
         if found:
             problems.append(f'「{label}」')
@@ -414,6 +491,16 @@ def diff_single_page(name, browser, engine, meta):
         lines.append(
             f'- 部分配对 {len(partial)} 个（浏览器元素含子块，只比块顶与前几行）：'
             + '、'.join(partial[:4])
+        )
+    if ellipsis:
+        lines.append(
+            f'- ellipsis/clip 行宽按 min(行宽, 内容宽) 比较（{len(ellipsis)} 个元素）：'
+            + '、'.join(ellipsis[:3])
+        )
+    if transformed_blocks:
+        lines.append(
+            f'- transform 块只比变换后 bbox，不比较行内坐标（{len(transformed_blocks)} 个）：'
+            + '、'.join(transformed_blocks[:3])
         )
     if table_blocks:
         total_cells = sum(len(block['cells']) for block in table_blocks)

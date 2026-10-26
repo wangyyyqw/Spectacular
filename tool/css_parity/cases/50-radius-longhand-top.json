@@ -1,0 +1,9 @@
+{
+  "name": "50-radius-longhand-top",
+  "tags": [
+    "border-top-left-radius",
+    "border-top-right-radius"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { height: 56px; margin: 10px 0; border: 2px solid #3366cc; background-color: #cce5ff; font-size: 14px; } .a { border-top-left-radius: 14px; } .b { border-top-right-radius: 24px; } .ab { border-top-left-radius: 6px; border-top-right-radius: 18px; }",
+  "html": "<div class=\"a\">左上圆角 14px</div><div class=\"b\">右上圆角 24px</div><div class=\"ab\">左上 6px + 右上 18px</div>"
+}

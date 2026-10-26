@@ -75,6 +75,169 @@ Map<String, Object?> _color(Color? color) => color == null
 Map<String, Object?> _rectJson(double x, double y, double w, double h) =>
     <String, Object?>{'x': _n(x), 'y': _n(y), 'w': _n(w), 'h': _n(h)};
 
+/// 长度值（保留百分比/auto 标记，绘制层按盒尺寸解算）。
+Map<String, Object?> _lengthJson(CssLength? length) => length == null
+    ? <String, Object?>{}
+    : <String, Object?>{
+        'value': _n(length.value),
+        'percent': length.isPercent,
+        'auto': length.isAuto,
+      };
+
+/// transform 概要（kind + 数值；不导原始对象，便于 compare 直接比）。
+Map<String, Object?> _transformJson(CssTransform transform) {
+  final json = <String, Object?>{'kind': transform.kind.name};
+  switch (transform.kind) {
+    case CssTransformKind.translate:
+      json['x'] = _lengthJson(transform.x);
+      json['y'] = _lengthJson(transform.y);
+    case CssTransformKind.scale:
+      json['sx'] = _n(transform.sx ?? 1);
+      json['sy'] = _n(transform.sy ?? transform.sx ?? 1);
+    case CssTransformKind.rotate:
+      json['angleDeg'] = _n(transform.angleDeg ?? 0);
+    case CssTransformKind.skew:
+      json['axDeg'] = _n(transform.axDeg);
+      json['ayDeg'] = _n(transform.ayDeg);
+    case CssTransformKind.matrix:
+      json['values'] = <double?>[for (final v in transform.values ?? const <double>[]) _n(v)];
+  }
+  return json;
+}
+
+/// 2D 仿射矩阵（CSS matrix(a,b,c,d,e,f)：x' = a·x + c·y + e，y' = b·x + d·y + f）。
+List<double> _mmul(List<double> a, List<double> b) => <double>[
+  a[0] * b[0] + a[2] * b[1],
+  a[1] * b[0] + a[3] * b[1],
+  a[0] * b[2] + a[2] * b[3],
+  a[1] * b[2] + a[3] * b[3],
+  a[0] * b[4] + a[2] * b[5] + a[4],
+  a[1] * b[4] + a[3] * b[5] + a[5],
+];
+
+/// 单个 transform 函数的矩阵；百分比位移按边框盒宽/高解算。
+List<double> _transformMatrix(CssTransform transform, double width, double height) {
+  switch (transform.kind) {
+    case CssTransformKind.translate:
+      final tx = transform.x?.resolve(width) ?? 0;
+      final ty = transform.y?.resolve(height) ?? 0;
+      return <double>[1, 0, 0, 1, tx, ty];
+    case CssTransformKind.scale:
+      final sx = transform.sx ?? 1;
+      final sy = transform.sy ?? sx;
+      return <double>[sx, 0, 0, sy, 0, 0];
+    case CssTransformKind.rotate:
+      final radians = (transform.angleDeg ?? 0) * math.pi / 180;
+      final cos = math.cos(radians);
+      final sin = math.sin(radians);
+      return <double>[cos, sin, -sin, cos, 0, 0];
+    case CssTransformKind.skew:
+      final ax = (transform.axDeg) * math.pi / 180;
+      final ay = (transform.ayDeg) * math.pi / 180;
+      return <double>[1, math.tan(ay), math.tan(ax), 1, 0, 0];
+    case CssTransformKind.matrix:
+      final values = transform.values ?? const <double>[];
+      if (values.length < 6) {
+        return <double>[1, 0, 0, 1, 0, 0];
+      }
+      return <double>[values[0], values[1], values[2], values[3], values[4], values[5]];
+  }
+}
+
+/// 按 `transform` 列表 + `transform-origin` 计算边框盒的轴对齐 bbox。
+///
+/// 浏览器 `getBoundingClientRect` 报变换后的 bbox，引擎导出的是未变换
+/// 几何；对照时用本函数把四个角变换后取 min/max，才能同口径比较。
+Map<String, Object?>? _transformedBbox(
+  ComputedStyle style, {
+  required double x,
+  required double y,
+  required double width,
+  required double height,
+}) {
+  if (style.transforms.isEmpty || width <= 0 || height <= 0) {
+    return null;
+  }
+  var matrix = <double>[1, 0, 0, 1, 0, 0];
+  for (final transform in style.transforms) {
+    matrix = _mmul(matrix, _transformMatrix(transform, width, height));
+  }
+  // transform-origin 是相对边框盒的偏移，先换算成绝对坐标再做绕点旋转。
+  final originX = x + (style.transformOriginX.resolve(width) ?? width / 2);
+  final originY = y + (style.transformOriginY.resolve(height) ?? height / 2);
+  final full = _mmul(
+    <double>[1, 0, 0, 1, originX, originY],
+    _mmul(matrix, <double>[1, 0, 0, 1, -originX, -originY]),
+  );
+  var minX = double.infinity;
+  var minY = double.infinity;
+  var maxX = double.negativeInfinity;
+  var maxY = double.negativeInfinity;
+  for (final corner in <List<double>>[
+    <double>[x, y],
+    <double>[x + width, y],
+    <double>[x, y + height],
+    <double>[x + width, y + height],
+  ]) {
+    final px = full[0] * corner[0] + full[2] * corner[1] + full[4];
+    final py = full[1] * corner[0] + full[3] * corner[1] + full[5];
+    minX = math.min(minX, px);
+    minY = math.min(minY, py);
+    maxX = math.max(maxX, px);
+    maxY = math.max(maxY, py);
+  }
+  return _rectJson(minX, minY, maxX - minX, maxY - minY);
+}
+
+/// filter 概要（kind + 数值；drop-shadow 展开成偏移/模糊/颜色）。
+Map<String, Object?> _filterJson(CssFilter filter) => <String, Object?>{
+  'kind': filter.kind.name,
+  'amount': _n(filter.amount),
+  if (filter.shadow != null) ...<String, Object?>{
+    'offsetX': _n(filter.shadow!.offsetX),
+    'offsetY': _n(filter.shadow!.offsetY),
+    'blur': _n(filter.shadow!.blur),
+    'color': _color(filter.shadow!.color),
+  },
+};
+
+/// 背景渐变概要（种类 + 方向/形状 + 色标位置；位置保留百分比/像素两种标记）。
+Map<String, Object?> _gradientJson(CssGradient gradient) {
+  final json = <String, Object?>{
+    'kind': gradient is CssLinearGradient ? 'linear' : 'radial',
+    'repeating': gradient.repeating,
+    'stops': <Map<String, Object?>>[
+      for (final stop in gradient.stops)
+        <String, Object?>{
+          'color': _color(stop.color),
+          if (stop.position != null) 'position': _n(stop.position!),
+          if (stop.positionPx != null) 'positionPx': _n(stop.positionPx!),
+        },
+    ],
+  };
+  switch (gradient) {
+    case CssLinearGradient():
+      json['angleDeg'] = _n(gradient.angle);
+    case CssRadialGradient():
+      json['shape'] = gradient.shape.name;
+      json['centerX'] = _lengthJson(gradient.centerX);
+      json['centerY'] = _lengthJson(gradient.centerY);
+  }
+  return json;
+}
+
+/// box-shadow 概要（blur/spread/inset 是本轮新增，绘制层要用）。
+Map<String, Object?> _boxShadowJson(CssBoxShadow? shadow) => shadow == null
+    ? <String, Object?>{}
+    : <String, Object?>{
+        'offsetX': _n(shadow.offsetX),
+        'offsetY': _n(shadow.offsetY),
+        'blur': _n(shadow.blur),
+        'spread': _n(shadow.spread),
+        'inset': shadow.inset,
+        'color': _color(shadow.color),
+      };
+
 /// 块/单元格共用的计算样式快照（只导出可比对的数值型字段）。
 Map<String, Object?> _styleJson(ComputedStyle? style) {
   if (style == null) {
@@ -113,6 +276,38 @@ Map<String, Object?> _styleJson(ComputedStyle? style) {
     'whiteSpace': style.whiteSpace.name,
     'verticalAlign': style.verticalAlign.name,
     'boxSizing': style.boxSizing.name,
+    'textOverflow': style.textOverflow.name,
+    // ==== 本轮新增（W5/W7/W11）====
+    'transform': <Map<String, Object?>>[
+      for (final transform in style.transforms) _transformJson(transform),
+    ],
+    'transformOriginX': _lengthJson(style.transformOriginX),
+    'transformOriginY': _lengthJson(style.transformOriginY),
+    'overflow': style.overflow.name,
+    'writingMode': style.writingMode.name,
+    'textOrientation': style.textOrientation.name,
+    'direction': style.direction.name,
+    if (style.columnCount != null) 'columnCount': style.columnCount,
+    'columnWidth': _lengthJson(style.columnWidth),
+    if (style.columnGap != null) 'columnGap': _n(style.columnGap!),
+    'columnRule': style.columnRule == null
+        ? <String, Object?>{}
+        : <String, Object?>{
+            'width': _n(style.columnRule!.width),
+            'style': style.columnRule!.style.name,
+            'color': _color(style.columnRule!.color),
+          },
+    'hyphens': style.hyphens.name,
+    'wordBreak': style.wordBreak.name,
+    'overflowWrap': style.overflowWrap.name,
+    'filters': <Map<String, Object?>>[
+      for (final filter in style.filters) _filterJson(filter),
+    ],
+    'boxShadow': _boxShadowJson(style.boxShadow),
+    'listStylePosition': style.listStylePosition.name,
+    'backgroundGradient': style.backgroundGradient == null
+        ? <String, Object?>{}
+        : _gradientJson(style.backgroundGradient!),
   };
 }
 
@@ -215,6 +410,24 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
   final borderH =
       (style?.borders.left.width ?? 0) + (style?.borders.right.width ?? 0);
   final bboxW = contentWidth.isFinite ? contentWidth + padH + borderH : null;
+  final padV = (style?.padding.top ?? 0) + (style?.padding.bottom ?? 0);
+  final borderV =
+      (style?.borders.top.width ?? 0) + (style?.borders.bottom.width ?? 0);
+  final boxHeight =
+      slice.height -
+      slice.leadingExtent -
+      (slice.endLine == block.layout.lineCount ? slice.trailingExtent : 0) +
+      padV +
+      borderV;
+  final bboxRect = style == null || bboxW == null
+      ? null
+      : _transformedBbox(
+          style,
+          x: left - (style.padding.left) - style.borders.left.width,
+          y: top - (style.padding.top) - style.borders.top.width,
+          width: bboxW,
+          height: boxHeight,
+        );
   return <String, Object?>{
     'text': block.layout.text,
     'rect': _rectJson(
@@ -246,6 +459,11 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
     'contentWidth': _n(contentWidth),
     'longestLineW': _n(block.layout.width),
     'bboxW': _n(bboxW ?? double.nan),
+    // 有 transform 时浏览器量的是变换后 bbox；transformed=true 时
+    // compare 用 bboxRect 代替 rect 参与 x/y/w/h 比较。
+    'transformed': bboxRect != null,
+    'bboxRect': bboxRect,
+
     'style': _styleJson(style),
   };
 }
@@ -279,7 +497,7 @@ void _collectNulls(Object? node, String path, List<String> out) {
   }
   if (node is Map) {
     node.forEach((key, value) {
-      if (key == 'role' || key == 'listMarker') {
+      if (key == 'role' || key == 'listMarker' || key == 'bboxRect') {
         return;
       }
       final next = '$path.$key';
@@ -324,53 +542,74 @@ void main() {
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
 
+    final failures = <String>[];
     for (final file in files) {
       final caseData =
           jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
       final name = caseData['name']! as String;
-      final source = await EpubChapterSource.open(
-        _book(caseData['html']! as String, caseData['css']! as String),
-        contentWidth: _width,
-        contentHeight: _height,
-        verifyCrc: false,
-      );
-      await source.applyOverrides(const ReaderOverrides());
-      final pages = await source.loadChapter(0);
-      final page = pages.first;
+      // 单个用例失败（引擎异常/渲染崩溃）不中断整批：写入带 error 的
+      // engine_<name>.json，让 compare 报「缺少数据」，最后统一失败。
+      try {
+        final source = await EpubChapterSource.open(
+          _book(caseData['html']! as String, caseData['css']! as String),
+          contentWidth: _width,
+          contentHeight: _height,
+          verifyCrc: false,
+        );
+        await source.applyOverrides(const ReaderOverrides());
+        final pages = await source.loadChapter(0);
+        final page = pages.first;
 
-      final pageJson = <Map<String, Object?>>[
-        for (final item in pages.take(_maxPages)) _pageJson(item),
-      ];
-      final nulls = <String>[];
-      _collectNulls(pageJson, '', nulls);
-      File('${outDir.path}/engine_$name.json').writeAsStringSync(
-        const JsonEncoder.withIndent('  ').convert(<String, Object?>{
-          'pageSize': <String, Object?>{'w': _width, 'h': _height},
-          'pageCount': pages.length,
-          'pages': pageJson,
-          'nullGeometry': nulls,
-        }),
-      );
+        final pageJson = <Map<String, Object?>>[
+          for (final item in pages.take(_maxPages)) _pageJson(item),
+        ];
+        final nulls = <String>[];
+        _collectNulls(pageJson, '', nulls);
+        File('${outDir.path}/engine_$name.json').writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(<String, Object?>{
+            'pageSize': <String, Object?>{'w': _width, 'h': _height},
+            'pageCount': pages.length,
+            'pages': pageJson,
+            'nullGeometry': nulls,
+          }),
+        );
 
-      final recorder = ui.PictureRecorder();
-      PagePainter(
-        background: const Color(0xFFFFFFFF),
-        textColor: const Color(0xFF000000),
-      ).paint(
-        Canvas(recorder),
-        page,
-        pageSize: const Size(_width, _height),
-      );
-      final image = await recorder.endRecording().toImage(
-        _width.toInt(),
-        _height.toInt(),
-      );
-      final png = await image.toByteData(format: ui.ImageByteFormat.png);
-      File('${outDir.path}/engine_$name.png')
-          .writeAsBytesSync(png!.buffer.asUint8List());
-      image.dispose();
-      // ignore: avoid_print
-      print('ok $name pages=${pages.length} blocks=${page.slices.length}');
+        final recorder = ui.PictureRecorder();
+        PagePainter(
+          background: const Color(0xFFFFFFFF),
+          textColor: const Color(0xFF000000),
+        ).paint(
+          Canvas(recorder),
+          page,
+          pageSize: const Size(_width, _height),
+        );
+        final image = await recorder.endRecording().toImage(
+          _width.toInt(),
+          _height.toInt(),
+        );
+        final png = await image.toByteData(format: ui.ImageByteFormat.png);
+        File('${outDir.path}/engine_$name.png')
+            .writeAsBytesSync(png!.buffer.asUint8List());
+        image.dispose();
+        // ignore: avoid_print
+        print('ok $name pages=${pages.length} blocks=${page.slices.length}');
+      } catch (error) {
+        failures.add('$name: $error');
+        File('${outDir.path}/engine_$name.json').writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(<String, Object?>{
+            'pageSize': <String, Object?>{'w': _width, 'h': _height},
+            'pageCount': 0,
+            'pages': <Object?>[],
+            'nullGeometry': <String>[],
+            'error': '$error',
+          }),
+        );
+        // ignore: avoid_print
+        print('FAIL $name: $error');
+      }
+    }
+    if (failures.isNotEmpty) {
+      fail('引擎渲染失败 ${failures.length} 个用例：\n${failures.join('\n')}');
     }
   }, skip: Platform.environment['CSS_PARITY'] != '1');
 }

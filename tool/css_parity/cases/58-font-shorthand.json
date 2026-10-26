@@ -1,0 +1,8 @@
+{
+  "name": "58-font-shorthand",
+  "tags": [
+    "font"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; } .f1 { font: 700 16px/1.6 \"builtin_song\"; } .f2 { font: italic 15px \"builtin_song\"; } .f3 { font: 15px/1.4 \"builtin_song\"; }",
+  "html": "<p class=\"f1\">font 简写：700 16px/1.6，字重与行高都应生效。</p><p class=\"f2\">font 简写：italic 15px，斜体生效。</p><p class=\"f3\">font 简写：15px/1.4，只给字号与行高。</p>"
+}

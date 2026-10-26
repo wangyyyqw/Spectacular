@@ -1,0 +1,9 @@
+{
+  "name": "54-visibility-list-style",
+  "tags": [
+    "visibility",
+    "list-style"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .hid { visibility: hidden; } ul { margin: 6px 0; padding-left: 30px; line-height: 1.7; } .sq { list-style: square; } .in { list-style: square inside; }",
+  "html": "<p>可见段落对照。</p><p class=\"hid\">visibility hidden：应保留占位但不可见。</p><p>隐藏段落之后的位置观察。</p><ul class=\"sq\"><li>list-style 简写 square</li><li>第二项</li></ul><ul class=\"in\"><li>list-style square inside：标记进内容流</li><li>第二项</li></ul>"
+}

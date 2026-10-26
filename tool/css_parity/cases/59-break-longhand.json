@@ -1,0 +1,11 @@
+{
+  "name": "59-break-longhand",
+  "tags": [
+    "break-before",
+    "break-after",
+    "page-break-after"
+  ],
+  "multipage": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } .before { break-before: page; } .after { page-break-after: always; } .after2 { break-after: page; }",
+  "html": "<p>第一段：随后 break-before: page 应当强制换页。</p><p class=\"before\">break-before: page 之后的段落应在第 2 页页首。</p><p class=\"after\">page-break-after: always 之前的段落，后面应强制换页。</p><p>强制分页后的段落，用于观察第 3 页/页界行为。</p><p class=\"after2\">break-after: page 的段落，其后应再次强制换页。</p>"
+}

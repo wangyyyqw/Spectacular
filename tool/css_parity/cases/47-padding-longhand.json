@@ -1,0 +1,9 @@
+{
+  "name": "47-padding-longhand",
+  "tags": [
+    "padding-right",
+    "padding-bottom"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .pr { padding-right: 40px; background-color: #efe; } .pb { padding-bottom: 26px; background-color: #efe; } .mix { padding-right: 12px; padding-bottom: 8px; border: 1px solid #999; }",
+  "html": "<p class=\"pr\">padding-right 40px：可用行宽应缩窄到 310px，文字在这里换行观察。</p><p class=\"pb\">padding-bottom 26px：块高应比内容多 26px，底色区域向下延伸。</p><p class=\"mix\">padding-right 12px 与 padding-bottom 8px 组合，外框 1px。</p>"
+}
