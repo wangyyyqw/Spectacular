@@ -153,12 +153,12 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "ca56ddb072244b0f27ba45ce25da7482ea766ae3448c77fadcec140323365ab9",
+      "bookHash": "b6de44bd97afda0667d2291a76868de05e6f5d3b04c5e1839dfab748a6dd5c59",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "dba3743c910a216dc4a5d4f443046086b8af338883f63b4dadf70ae5d81d21a4",
-          "inkPixels": 74740,
+          "layoutHash": "e958317c02ddffdf65e2215142bde9b6eea7d5b627fffc7ed819e4d50e99df68",
+          "inkPixels": 74796,
           "lineCount": 15,
           "textLength": 221,
           "summary": "竖排与注音这一段用于检查竖排方向。文字应…一组阿拉伯数字：2026 年 10 月。"
@@ -176,11 +176,11 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "61c15c16eeaf5e310d144b1342c035e108494318e92d38e4f410ad893603dc95",
+      "bookHash": "58e604139e7d489c7816fc853f53c30a8979e9c472e977ad1f6d821f68dcdb11",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "0b5c3fb049041b41f11810382234f86034f43449da185f51830bd2e957e19740",
+          "layoutHash": "9f43c0cc3c8a44500aacd1462046094ce693cd5b920c0b21b62e81538f95322c",
           "inkPixels": 122322,
           "lineCount": 24,
           "textLength": 408,
