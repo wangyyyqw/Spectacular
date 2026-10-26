@@ -306,6 +306,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (id == null) {
         return const <SearchPanelResult>[];
       }
+      // 首次搜索时补建索引（断点续建；已建完则立即返回）。
+      await widget.library.ensureSearchIndex(entry.id, bytes);
       service ??= SearchService(
         source: await EpubChapterSource.open(bytes),
         store: store,
@@ -382,16 +384,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
-    // P4-24：后台建 2-gram 索引（断点续建）。
-    // 延后 3 秒再启动：索引要逐章解析+排版，上千章的书会在阅读页刚打开时
-    // 抢满主线程，导致翻页和按钮都点不动。
-    unawaited(
-      Future<void>.delayed(const Duration(seconds: 3)).then(
-        (_) => widget.library
-            .ensureSearchIndex(entry.id, bytes)
-            .catchError((Object _) => 0),
-      ),
-    );
+    // 搜索索引不在打开时建：逐章「解析 + 排版」在真机上约 440ms/章，
+    // 1541 章的书要十几分钟，打开阅读页期间会一直抢占主线程。
+    // 改为首次搜索时后台建（见 [_buildSearch]）。
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => EpubReaderPage(
