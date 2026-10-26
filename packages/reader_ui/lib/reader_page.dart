@@ -65,6 +65,7 @@ class ReaderPage extends StatefulWidget {
     this.margins,
     this.onMarginsChanged,
     this.onLog,
+    this.onResolveSearchCfi,
   });
 
   /// 章节页来源。
@@ -123,6 +124,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 诊断日志回调（用户操作与耗时，由 app 层写入 ReaderLog）。
   final void Function(String event, Map<String, Object?> fields)? onLog;
+
+  /// 点开搜索命中时才解析 CFI（搜索阶段不算，避免逐条排版）。
+  final Future<String?> Function(SearchPanelResult result)? onResolveSearchCfi;
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
@@ -699,16 +703,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 应用搜索结果（P4-26，§29.4）：跳到命中位置并临时高亮 3 秒。
   Future<void> _applySearchResult(SearchPanelResult result) async {
-    final cfi = result.cfi;
+    var cfi = result.cfi;
+    if (cfi == null) {
+      // 扫描式搜索不给每条命中算 CFI，这里按点击结果现场排版这一章。
+      cfi = await widget.onResolveSearchCfi?.call(result);
+    }
     if (cfi == null) {
       return;
     }
+    final resolvedCfi = cfi;
     if (mounted) {
       Navigator.of(context).pop();
     }
-    final offset = cfiCharOffset(cfi) ?? 0;
-    final endCfi = cfiWithCharOffset(cfi, offset + result.matchLength);
-    await _session.jumpToCfi(cfi, title: result.chapterTitle);
+    final offset = cfiCharOffset(resolvedCfi) ?? 0;
+    final endCfi = cfiWithCharOffset(resolvedCfi, offset + result.matchLength);
+    await _session.jumpToCfi(resolvedCfi, title: result.chapterTitle);
     if (!mounted) {
       return;
     }
@@ -717,7 +726,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _tempHighlight = ReaderAnnotation(
         id: 'search-hit',
         type: ReaderAnnotationType.highlight,
-        startCfi: cfi,
+        startCfi: resolvedCfi,
         endCfi: endCfi,
         quote: result.context,
         color: 0xFFFFC107,
