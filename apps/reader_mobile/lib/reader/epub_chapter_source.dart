@@ -58,11 +58,14 @@ class EpubChapterSource
       document: document,
       baseContentWidth: contentWidth,
       baseContentHeight: contentHeight,
+      // 基础样式只给字号与字族：行高不能写死——写死 1.5 会让书籍的
+      // `line-height: normal` 永远走不到（T2 已按字体度量实现 normal≈1.4），
+      // 单元格/正文行高因此比浏览器高 1~2px。真实阅读器的 1.5 由
+      // ReaderOverrides(lineHeight:) 注入，不依赖这里。
       baseStyle:
           style ??
           ComputedStyle(const <String, String>{
             'font-size': '16px',
-            'line-height': '1.5',
             'font-family': 'serif',
           }),
     );
@@ -222,6 +225,35 @@ class EpubChapterSource
   double _textWidthFor(ComputedStyle style) =>
       math.max(24.0, style.contentBoxWidth(contentWidth));
 
+  /// 相邻外边距折叠，但浮动/绝对定位块不参与（CSS 2.1 §8.3.1：浮动元素
+  /// 的 margin 不与任何相邻 margin 折叠），也不打断相邻在流兄弟的折叠
+  ///——把它们先摘出来，只折叠连续的在流块，再放回原位。
+  ///
+  /// 之前直接对整条块链折叠，浮动的段前/段后距被挪到邻居身上，多行浮动
+  /// 段落的静态位置因此偏了十几像素（38-float-clear）。
+  static List<PageBlock> _collapseMarginsIgnoringFloats(
+    List<PageBlock> blocks,
+  ) {
+    final flow = <PageBlock>[];
+    final positions = <int>[];
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i].floatSide != null || blocks[i].absolute) {
+        continue;
+      }
+      flow.add(blocks[i]);
+      positions.add(i);
+    }
+    if (flow.length < 2) {
+      return blocks;
+    }
+    final collapsed = PageBlock.collapseAdjacentMargins(flow);
+    final result = List<PageBlock>.of(blocks);
+    for (var i = 0; i < positions.length; i++) {
+      result[positions[i]] = collapsed[i];
+    }
+    return result;
+  }
+
   /// UA 里承担列表近似缩进的那条规则（见 [cascadeRules] 过滤）。
   static bool _isUaListIndentRule(CssRule rule) =>
       rule.selector.trim() == 'li' &&
@@ -247,12 +279,14 @@ class EpubChapterSource
     String? startCfi,
     int groupId = 0,
     bool containerSides = false,
+    double effectiveOpacity = 1,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: contentWidth);
     return PageBlock(
       layout: layout,
       style: style,
       floatSide: side,
+      effectiveOpacity: effectiveOpacity,
       spaceBefore: spaceBefore,
       spaceAfter: spaceAfter,
       topInset: model.borders.top + model.padding.top,
@@ -1217,6 +1251,18 @@ class EpubChapterSource
     var slices = <PageBlockSlice>[];
     var y = 0.0;
     final occupancy = FloatOccupancy();
+    // 浮动定位用的流锚点：本页最后一个在流块的「内容底边」和它自己的
+    // 下外边距。浮动框的外边距盒顶就落在这条线上（CSS 2.1 §9.5：静态
+    // 位置 = 当前流位置，随后再叠加自身 margin-top）。
+    var hasFlowOnPage = false;
+    var lastContentBottom = 0.0;
+    var lastBottomMargin = 0.0;
+
+    void noteFlow(double contentBottom, double bottomMargin) {
+      hasFlowOnPage = true;
+      lastContentBottom = contentBottom;
+      lastBottomMargin = bottomMargin;
+    }
 
     void closePage() {
       pages.add(
@@ -1231,24 +1277,29 @@ class EpubChapterSource
       );
       slices = <PageBlockSlice>[];
       y = 0;
+      hasFlowOnPage = false;
+      lastContentBottom = 0;
+      lastBottomMargin = 0;
       occupancy.clear();
     }
 
-    // 页首浮动的竖直位置（f）：浏览器把首个在流块的 margin 塌陷到 body
-    // 顶部，浮动因此从该 margin 之后开始；flat 管线把 margin 按块放在
-    // spaceBefore 上，这里给首页页首浮动补一份首块的 leading，避免浮动
-    // 比正文高出一个段距（用例 14/38 的 6px 偏移）。
-    var firstLeading = 0.0;
-    for (final candidate in blocks) {
-      if (candidate.absolute || candidate.floatSide != null) {
-        continue;
+    // 浮动块的静态位置（f）：CSS 2.1 §9.5——浮动框的外边距盒顶不得高于
+    // 它所在的行盒顶。行盒顶 = 当前位置 + 下一个在流块的段前距（相邻块
+    // 的 margin 已经折叠到该块上），浮动再往下让出自己的 margin-top。
+    // 旧实现直接把浮动放在流游标处，页首浮动比正文高一个段距；多行浮动
+    // 段落起点偏十几像素（38-float-clear）。
+    final nextFlowLeading = List<double>.filled(blocks.length, 0);
+    var upcomingLeading = 0.0;
+    for (var i = blocks.length - 1; i >= 0; i--) {
+      nextFlowLeading[i] = upcomingLeading;
+      final candidate = blocks[i];
+      if (!candidate.absolute && candidate.floatSide == null) {
+        upcomingLeading = candidate.leadingExtent;
       }
-      firstLeading = candidate.leadingExtent;
-      break;
     }
-    var inFlowPlaced = false;
 
-    for (final block in blocks) {
+    for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      final block = blocks[blockIndex];
       // 绝对定位（P9-19）：不占流高，直接作为覆盖切片挂到当前页。
       if (block.absolute) {
         final top = (block.absoluteTop ?? y)
@@ -1296,14 +1347,17 @@ class EpubChapterSource
         final occupied = math.min(width, leftSpace + borderW + rightSpace);
         final occupiedX = floatSide == FloatSide.left ? 0.0 : width - occupied;
         final boxX = occupiedX + leftSpace;
-        final flowTop =
-            y + (y == 0 && pages.isEmpty && !inFlowPlaced ? firstLeading : 0);
-        if (y > 0 && flowTop + h > height) {
+        // 静态位置 = 当前流位置（上一个在流块的内容底边 + 它的下外边距；
+        // 页首无在流块时用下一个在流块的段前距），再叠加自身 margin-top
+        //（浮动的 margin 不参与折叠，原样相加）。
+        double flowPosition() => hasFlowOnPage
+            ? lastContentBottom + lastBottomMargin
+            : nextFlowLeading[blockIndex];
+        final floatTop = flowPosition() + block.spaceBefore;
+        if (y > 0 && floatTop + h > height) {
           closePage();
         }
-        final floatY = y == 0 && pages.isEmpty && !inFlowPlaced
-            ? firstLeading
-            : y;
+        final floatY = flowPosition() + block.spaceBefore;
         occupancy.insert(
           BoxOccupied(
             rect: Rect.fromLTWH(occupiedX, floatY, occupied, h),
@@ -1380,7 +1434,31 @@ class EpubChapterSource
           y = bottom;
         }
       }
-      inFlowPlaced = true;
+      // 表格块/空布局块（浮动章节）：整块原子入流。表格的逐行切分在
+      // collectTable 里已完成，这里只按块高占位——否则会被当成空文本块
+      // 静默丢掉（浮动章里的表格直接消失），空文本块还会让收页循环空转。
+      if (block.table != null || block.layout.text.isEmpty) {
+        if (y > 0 && y + block.leadingExtent + block.height > height) {
+          closePage();
+        }
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: 0,
+            endLine: block.layout.lineCount,
+            height: block.leadingExtent + block.height + block.trailingExtent,
+            leadingExtent: block.leadingExtent,
+            trailingExtent: block.trailingExtent,
+            leftInset: block.leftInset,
+          ),
+        );
+        noteFlow(
+          y + block.leadingExtent + block.height,
+          block.style?.margin.bottom ?? block.spaceAfter,
+        );
+        y += block.leadingExtent + block.height + block.trailingExtent;
+        continue;
+      }
       // 声明盒高块（height/min-height/overflow 裁剪）：浮动流里按原子块
       // 处理。逐行批切段会按行高重建切片高，把盒内留白/裁剪全丢掉
       //（`.ov{height:40px}` 曾按 3 行 75px 占位）。
@@ -1443,6 +1521,10 @@ class EpubChapterSource
             ),
           );
         }
+        noteFlow(
+          y + block.leadingExtent + boxHeight,
+          block.style?.margin.bottom ?? block.spaceAfter,
+        );
         y += block.leadingExtent + boxHeight + block.trailingExtent;
         continue;
       }
@@ -1562,6 +1644,10 @@ class EpubChapterSource
             trailingExtent: trailing,
             leftInset: block.leftInset,
           ),
+        );
+        noteFlow(
+          y + leadingLeft + blockHeight,
+          block.style?.margin.bottom ?? block.spaceAfter,
         );
         y += leadingLeft + blockHeight + trailing;
         leadingLeft = 0;
@@ -1730,6 +1816,9 @@ class EpubChapterSource
     // P9-25：最近一次 styleForChain 的最近容器是否带可见边框。局部状态，
     // 调用后立刻读取，避免为同一链再跑一次级联。
     var containerBorderedForLastChain = false;
+    // 嵌套 opacity（W5）：flat 管线重建块样式会丢父链，这里把级联链上的
+    // 祖先累计不透明度单独记下来供 PageBlock 使用（绘制层据此 saveLayer）。
+    var effectiveOpacityForLastChain = 1.0;
 
     /// 链式级联样式（P8-02）：链上每级元素经 Cascade.compute（UA +
     /// 作者 + 内联三源、特异性、!important、@media），继承语义由引擎
@@ -1827,6 +1916,7 @@ class EpubChapterSource
     }) {
       containerBorderedForLastChain = false;
       final computed = chainStyle(chain);
+      effectiveOpacityForLastChain = computed.effectiveOpacity;
       // 容器盒类近似传导：flat 无嵌套盒子，祖先的背景/左右边框/
       // 左右内边距透传给子块（子块自身声明优先；水平间距相加）。
       final promoted = <String, String>{};
@@ -2062,6 +2152,8 @@ class EpubChapterSource
         ...foldedChain,
         _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
       ]);
+      // 图片块：祖先累计 opacity 同样透传（嵌套容器里的半透明图）。
+      final imageOpacity = effectiveOpacityForLastChain;
       // 出血图（P9-22）：显示宽按页面宽（正文宽 + 页边距）计算，
       // 否则横幅只按正文宽缩放，左右留白与多看/阅微不一致。
       final bleed = imageStyle.bleed;
@@ -2124,6 +2216,7 @@ class EpubChapterSource
           floatSide: floatSide,
           bleedLeft: imageStyle.bleed.left,
           bleedRight: imageStyle.bleed.right,
+          effectiveOpacity: imageOpacity,
         ),
       );
     }
@@ -2146,25 +2239,25 @@ class EpubChapterSource
       final tableChain = <SelectorElement>[...ancestors, tableView];
       final tableStyle = styleForChain(tableChain);
       final tableInBorderedContainer = containerBorderedForLastChain;
+      // 表格块同样要带祖先累计 opacity（单元格自己读 cellStyle）。
+      final tableOpacity = effectiveOpacityForLastChain;
       // 表格边框模型（a~e）：`border-collapse: collapse` 时相邻单元格共用
       // 一条边线（每格只分摊一半）、且没有 border-spacing；separate 模式
       // 按 `border-spacing` 在列间/行间与四周留白。
       final collapse = tableStyle.borderCollapse == CssBorderCollapse.collapse;
       final spacingX = collapse ? 0.0 : tableStyle.borderSpacing.left;
       final spacingY = collapse ? 0.0 : tableStyle.borderSpacing.top;
-      final borderShare = collapse ? 0.5 : 1.0;
 
-      /// 单元格水平占位：左右内边距 + 左右边框（collapse 模式分摊一半）。
+      // 单元格内缩统一走引擎口径（T1 的 [tableCellInsetFor]）：separate
+      // 模式 = 内边距 + 边框；collapse 模式下相邻格共用一条边线，边框由
+      // 表格统一绘制，单元格自身不再计边框——否则行高比浏览器多 1px
+      //（12-table 的 32 vs 30）。
       double horizontalInset(ComputedStyle style) =>
-          style.padding.left +
-          style.padding.right +
-          (style.borders.left.width + style.borders.right.width) * borderShare;
+          tableCellInsetFor(style, collapse: collapse).horizontal;
 
-      /// 单元格垂直占位：上下内边距 + 上下边框（collapse 模式分摊一半）。
+      /// 单元格垂直占位（口径同 [horizontalInset]）。
       double verticalInset(ComputedStyle style) =>
-          style.padding.top +
-          style.padding.bottom +
-          (style.borders.top.width + style.borders.bottom.width) * borderShare;
+          tableCellInsetFor(style, collapse: collapse).vertical;
 
       final rows = <List<BlockNode>>[];
       final rowNodes = <BlockNode>[];
@@ -2796,6 +2889,7 @@ class EpubChapterSource
             containingWidth: contentWidth,
             // P9-25：带边框容器内的表格块同样参与背景/边框拼合。
             containerSides: tableInBorderedContainer,
+            effectiveOpacity: tableOpacity,
             layout: TextLayoutResult(
               text: '',
               lines: [
@@ -2862,6 +2956,8 @@ class EpubChapterSource
         // 容器拼合（P9-25）：卡片/面板里的子块要把背景与左右边框延伸到
         // 段距，才能拼回整片面板（四边框闭合）。
         final inBorderedContainer = containerBorderedForLastChain;
+        // 祖先累计 opacity：必须在后续任何 styleForChain 调用前读走。
+        final blockOpacity = effectiveOpacityForLastChain;
         final textNode = _textNodeFor(spineIndex, node, blockStyle.whiteSpace);
         final text = textNode.text;
         if (text.trim().isEmpty) {
@@ -3006,6 +3102,7 @@ class EpubChapterSource
                 startCfi: cfi,
                 groupId: groupId,
                 containerSides: inBorderedContainer,
+                effectiveOpacity: blockOpacity,
               ),
             );
             return;
@@ -3045,6 +3142,7 @@ class EpubChapterSource
               bleedRight: blockStyle.bleed.right,
               // P9-25：带边框容器内部的块，背景/左右边框拼合。
               containerSides: inBorderedContainer,
+              effectiveOpacity: blockOpacity,
             ),
           );
         }
@@ -3217,7 +3315,7 @@ class EpubChapterSource
     // 相邻块上下外边距折叠（CSS 2.1 §8.3.1）：段距取 max，而不是两段
     // margin 相加。分页器、浮动分页与页索引重放共用这批块对象，
     // PageIndex.from 按块身份记录块序号，必须先折叠再分页。
-    blocks = PageBlock.collapseAdjacentMargins(blocks);
+    blocks = _collapseMarginsIgnoringFloats(blocks);
 
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
