@@ -1075,7 +1075,9 @@ abstract final class TextLayoutEngine {
     letterSpacing: style.letterSpacing,
     wordSpacing: style.wordSpacing,
     decoration: _decoration(style.textDecoration),
-    decorationColor: style.color,
+    // 装饰线颜色/线型（P9-18）：书籍常用彩色下划线标重点。
+    decorationColor: style.textDecorationColor ?? style.color,
+    decorationStyle: _decorationStyle(style.textDecorationStyle),
     shadows: style.textShadow.isEmpty
         ? null
         : [
@@ -1088,6 +1090,16 @@ abstract final class TextLayoutEngine {
           ],
     color: style.color,
   );
+
+  static TextDecorationStyle _decorationStyle(
+    CssTextDecorationStyle value,
+  ) => switch (value) {
+    CssTextDecorationStyle.solid => TextDecorationStyle.solid,
+    CssTextDecorationStyle.double => TextDecorationStyle.double,
+    CssTextDecorationStyle.dotted => TextDecorationStyle.dotted,
+    CssTextDecorationStyle.dashed => TextDecorationStyle.dashed,
+    CssTextDecorationStyle.wavy => TextDecorationStyle.wavy,
+  };
 
   static TextDecoration _decoration(CssTextDecoration value) => switch (value) {
     CssTextDecoration.none => TextDecoration.none,
