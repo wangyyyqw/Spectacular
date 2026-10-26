@@ -1,0 +1,9 @@
+{
+  "name": "15-font-variant-stretch",
+  "tags": [
+    "font-variant",
+    "font-stretch"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .sc { font-variant: small-caps; } .st { font-stretch: condensed; } .lig { font-variant-ligatures: none; font-feature-settings: \"liga\" 0; }",
+  "html": "<p class=\"sc\">Small Caps 小大写 Abc 字宽观察</p><p class=\"st\">Condensed 窄体 字宽变化观察 ABC abc</p><p class=\"lig\">Ligatures off: fi fl ffi 连字关闭</p>"
+}

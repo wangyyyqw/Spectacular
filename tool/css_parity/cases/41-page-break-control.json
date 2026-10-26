@@ -1,0 +1,10 @@
+{
+  "name": "41-page-break-control",
+  "tags": [
+    "page-break",
+    "pagination"
+  ],
+  "multipage": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } .brk { page-break-before: always; } .avoid { page-break-inside: avoid; background-color: #efe; }",
+  "html": "<p>第一页只有这一段引导文字，随后强制分页，用来观察引擎第 2 页的起始几何。</p><p class=\"brk\">强制分页之后的第一段：它在引擎里应当出现在第 2 页顶部，而浏览器是连续流，因此只在各自页内比较相对关系。</p><p class=\"avoid\">break-inside: avoid 的整块不可切，用于观察跨页时的整块搬移。</p>"
+}

@@ -1,5 +1,8 @@
 {
   "name": "08-text-transform",
+  "tags": [
+    "text-transform"
+  ],
   "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .up { text-transform: uppercase; } .lo { text-transform: lowercase; } .cap { text-transform: capitalize; } .fw { text-transform: full-width; } .sm { text-transform: small-caps; }",
   "html": "<p class=\"up\">uppercase hello World</p><p class=\"lo\">lowercase HELLO World</p><p class=\"cap\">capitalize hello world</p><p class=\"fw\">full-width abc 123</p><p class=\"sm\">small-caps Hello World</p>"
 }

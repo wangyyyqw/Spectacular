@@ -1,0 +1,10 @@
+{
+  "name": "43-multipage-table",
+  "tags": [
+    "pagination",
+    "table"
+  ],
+  "multipage": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.7; } table { page-break-before: always; width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0; } td, th { border: 1px solid #666; padding: 3px 5px; } th { background-color: #eee; }",
+  "html": "<p>第一页只有这段引导文字，表格被 page-break-before 推到第 2 页，用于观察跨页表格的单元格几何导出。</p><table><tr><th>项目</th><th>数量</th><th>备注</th></tr><tr><td>甲</td><td>11</td><td>第一行</td></tr><tr><td>乙</td><td>22</td><td>第二行</td></tr></table><p>夜色渐深，檐下的风铃在雨里轻轻作响，街口的灯笼把水洼照成一片碎金，远处更夫的梆子声一下一下落在青石板上。</p><p>她把窗推开一条缝，桂花香混着潮湿的泥土气息涌进来，屋里那盏旧台灯的光一下子变得柔软起来。</p><p>老书铺的木门吱呀一声开了，掌柜从柜台后抬起头，用袖口擦了擦镜片，慢慢说了一句好久不见。</p><p>清晨的雾还没散，河面上浮着一层白气，摆渡人把竹篙插进水里，涟漪一圈圈推开，惊起了岸边的水鸟。</p><p>他沿着田埂往前走了半个时辰，裤脚被露水打湿，远处的炊烟从瓦顶上升起来，像有人在空中轻轻画了一道线。</p>"
+}

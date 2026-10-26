@@ -1,0 +1,8 @@
+{
+  "name": "18-text-justify",
+  "tags": [
+    "text-justify"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; text-align: justify; } .iw { text-justify: inter-word; } .ic { text-justify: inter-character; } .dis { text-justify: distribute; }",
+  "html": "<p class=\"iw\">inter-word 模式：中文与 English words 混排时，优先拉伸词间空白，中文之间不应被拆开，这一行需要足够长以便观察拉伸位置。</p><p class=\"ic\">inter-character 模式：逐字拉开间距，中文之间也会被均匀分配，英文单词内部保持不变，用于对比两种模式的差异。</p><p class=\"dis\">distribute 模式：所有可拉伸位置平均分配剩余空间，包括标点附近的间隙，观察引擎是否降级为 inter-word。</p>"
+}

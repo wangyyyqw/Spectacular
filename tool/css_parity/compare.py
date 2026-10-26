@@ -4,141 +4,500 @@
 用法：/usr/bin/python3 tool/css_parity/compare.py [case...]
 输入：/tmp/css_parity/browser_*.json|png 与 engine_*.json|png
 输出：/tmp/css_parity/report.md 与 /tmp/css_parity/side_<case>.png
+
+报告口径：
+- 几何：块盒（y/x/宽/高）、行盒（y/x/行宽）、表格单元格盒与格内首行。
+- 行宽用行实际占据宽（引擎 advanceWidth，含 justify 均分；浏览器量的是
+  绘制宽），不是自然宽。
+- 跨页用例（用例 JSON 标 multipage）：引擎分页、浏览器连续流，只比页内
+  相对关系（行距、页内间距、宽度），页界断裂属预期差异，只记录不计数。
+- 属性维度：取用例 JSON 的 tags，首个为主维度；每条失配计入主维度。
 """
 import json
+import os
 import pathlib
+import re
 import sys
 
-from PIL import Image
+from PIL import Image, ImageChops
 
-OUT = pathlib.Path('/tmp/css_parity')
-TOL = 1.0  # 块几何允许误差（逻辑像素）
+OUT = pathlib.Path(os.environ.get('CSS_PARITY_OUT', '/tmp/css_parity'))
+CASES = pathlib.Path(__file__).resolve().parent / 'cases'
+TOL = 1.5  # 块/单元格几何允许误差（逻辑像素）
 WIDTH_TOL = 4.0  # 行宽允许误差（断行取整）
 STYLE_EPS = 0.01
+PIXEL_FLAG = 0.02  # 视觉差异判定阈值（差异像素占比）
+TABLE_TAGS = {'td', 'th', 'tr', 'tbody', 'thead', 'tfoot', 'caption', 'col', 'colgroup'}
 
 
+# ---------------------------------------------------------------- 数据装载
 def load(name):
     browser = json.loads((OUT / f'browser_{name}.json').read_text(encoding='utf-8'))
     engine = json.loads((OUT / f'engine_{name}.json').read_text(encoding='utf-8'))
     return browser, engine
 
 
-def text_key(text: str) -> str:
-    return ''.join(text.split())[:16]
+def case_meta(name):
+    path = CASES / f'{name}.json'
+    if not path.exists():
+        return {'tags': [], 'multipage': False, 'engine_only': False}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    tags = [str(tag) for tag in data.get('tags', [])]
+    return {
+        'tags': tags,
+        'multipage': bool(data.get('multipage')),
+        # 浏览器不支持的属性（hanging-punctuation / initial-letter 等）：
+        # 只记录引擎行为，不计失配、不算视觉差异。
+        'engine_only': bool(data.get('engine_only')),
+    }
 
 
-def match_blocks(browser, engine):
-    """按文本前缀把浏览器元素与引擎块配对（保持文档顺序）。"""
-    elements = [el for el in browser['elements'] if el['text'].strip()]
-    pairs = []
-    used = set()
-    for block in engine['blocks']:
-        key = text_key(block['text'])
-        if not key:
-            continue
-        for index, el in enumerate(elements):
-            if index in used:
-                continue
-            if text_key(el['text']).startswith(key[:8]) or key.startswith(
-                text_key(el['text'])[:8]
-            ):
-                pairs.append((el, block))
-                used.add(index)
-                break
-    return pairs
+def nkey(text, limit=16):
+    """配对用文本键：去空白 + 转小写。
+
+    引擎会把 text-transform 应用到排版文本（uppercase/capitalize），浏览器
+    textContent 仍是原文，大小写不敏感才能配上；大小写本身的差异由
+    textTransform 样式项比对。
+    """
+    return re.sub(r'\s+', '', str(text)).lower()[:limit]
 
 
-def norm_style(raw, key):
-    """把浏览器计算样式归一成数值（px / 无单位倍数）。"""
+def norm_enum(raw):
+    """枚举值归一：contentBox → content-box。"""
+    if raw is None:
+        return ''
+    text = str(raw).strip()
+    return re.sub(r'([a-z0-9])([A-Z])', r'\1-\2', text).lower()
+
+
+def norm_number(raw):
     if raw is None:
         return None
-    text = str(raw).strip()
+    text = str(raw).strip().lower()
     if text in ('normal', 'auto', 'none'):
         return 0.0
-    if text.endswith('px'):
-        text = text[:-2]
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-def style_equal(browser_raw, engine_value, key: str) -> bool:
-    if engine_value is None:
-        return True
-    if key in ('textAlign', 'whiteSpace', 'textTransform', 'fontWeight'):
-        return str(browser_raw).lower().replace('-', '') == str(engine_value).lower().replace('-', '') or str(engine_value).lower() in str(browser_raw).lower()
-    left = norm_style(browser_raw, key)
-    right = norm_style(engine_value, key)
-    if left is None or right is None:
-        return str(browser_raw) == str(engine_value)
-    return abs(left - right) <= STYLE_EPS
+    match = re.fullmatch(r'(-?\d+(?:\.\d+)?)(px)?', text)
+    return float(match.group(1)) if match else None
 
 
 def fmt(value):
+    if value is None:
+        return '?'
     if isinstance(value, float):
         return f'{value:.1f}'
     return str(value)
 
 
-def diff_case(name):
-    browser, engine = load(name)
-    lines = [f'## {name}']
-    pairs = match_blocks(browser, engine)
-    lines.append(f'- 配对 {len(pairs)} 个元素（浏览器 {len(browser["elements"])}，'
-                 f'引擎 {len(engine["blocks"])}）')
-    for el, block in pairs:
-        brows_lines = el['lines']
-        eng_lines = block['lines']
-        problems = []
-        el_rect, bl_rect = el['rect'], block['rect']
-        for key in ('y', 'h'):
-            if abs(el_rect[key] - bl_rect[key]) > TOL:
-                problems.append(
-                    f'{key}: 浏览器 {fmt(el_rect[key])} / 引擎 {fmt(bl_rect[key])}'
-                )
-        if abs(len(brows_lines) - len(eng_lines)) > 0:
-            problems.append(f'行数: 浏览器 {len(brows_lines)} / 引擎 {len(eng_lines)}')
-        style = block['style']
-        font_size = style.get('fontSize') or 0.0
-        line_height = style.get('lineHeight') or font_size
-        line_tol = max(TOL, (float(line_height) - float(font_size)) / 2 + 0.5)
-        for index, (b_line, e_line) in enumerate(zip(brows_lines, eng_lines)):
-            if abs(b_line['y'] - e_line['y']) > line_tol:
-                problems.append(
-                    f'第{index + 1}行 y: 浏览器 {fmt(b_line["y"])} / 引擎 {fmt(e_line["y"])}'
-                )
-            if abs(b_line['x'] - e_line['x']) > TOL:
-                problems.append(
-                    f'第{index + 1}行 x: 浏览器 {fmt(b_line["x"])} / 引擎 {fmt(e_line["x"])}'
-                )
-            if abs(b_line['w'] - e_line['w']) > WIDTH_TOL:
-                problems.append(
-                    f'第{index + 1}行 宽: 浏览器 {fmt(b_line["w"])} / 引擎 {fmt(e_line["w"])}'
-                )
-        style_pairs = [
-            ('fontSize', 'fontSize'),
-            ('lineHeight', 'lineHeight'),
-            ('letterSpacing', 'letterSpacing'),
-            ('wordSpacing', 'wordSpacing'),
-            ('textAlign', 'textAlign'),
-            ('whiteSpace', 'whiteSpace'),
-            ('textTransform', 'textTransform'),
-            ('fontWeight', 'fontWeight'),
-        ]
-        style_line = ' '.join(
-            f'{b_key}={el["style"][b_key]}/{fmt(block["style"].get(e_key))}'
-            for b_key, e_key in style_pairs
-            if not style_equal(el['style'][b_key], block['style'].get(e_key), b_key)
-        )
-        label = (el['text'].strip().replace('\n', ' ')[:24] or el['tag'])
-        if problems or style_line:
-            lines.append(f'- 「{label}」')
-            for problem in problems:
-                lines.append(f'  - {problem}')
-            if style_line:
-                lines.append(f'  - 样式 浏览器/引擎: {style_line}')
-    return lines
+# ---------------------------------------------------------------- 配对
+def browser_elements(browser):
+    """可参与块配对的路由：有文字且不是表格内部元素。"""
+    return [
+        el for el in browser['elements']
+        if str(el.get('text', '')).strip() and el['tag'] not in TABLE_TAGS
+    ]
+
+
+def pair_element(block, elements, used, want_tag=None):
+    """按文本配对，优先完全相等、其次长度最接近（避免 ul 抢 li 的块）。"""
+    key = nkey(block.get('text', ''))
+    if not key:
+        return None
+    best = None
+    for index, el in enumerate(elements):
+        if index in used:
+            continue
+        if want_tag is not None and el['tag'] != want_tag:
+            continue
+        el_key = nkey(el.get('text', ''))
+        if not el_key:
+            continue
+        if not (el_key.startswith(key[:8]) or key.startswith(el_key[:8])):
+            continue
+        score = (0 if el_key == key else 1, abs(len(el_key) - len(key)), index)
+        if best is None or score < best[0]:
+            best = (score, index, el)
+    if best is None:
+        return None
+    used.add(best[1])
+    return best[2]
+
+
+# ---------------------------------------------------------------- 逐项比较
+def engine_box_rect(block):
+    """把引擎块几何折算成浏览器口径的边框盒。
+
+    引擎导出：x = 内容左缘（margin + border + padding），h = 内容高，
+    rect.w = 最长行宽（不是盒宽，不能直接比）。块宽用 dump 的 `bboxW`
+    （边框盒宽 = contentWidth + padding + border）；引擎未知（pre/nowrap 的
+    Infinity）时为 null，按「未知」跳过比较，不算失配。
+    """
+    rect = dict(block.get('rect') or {})
+    style = block.get('style') or {}
+    padding = style.get('padding') or [0.0, 0.0, 0.0, 0.0]
+    border = style.get('border') or [0.0, 0.0, 0.0, 0.0]
+    try:
+        rect['x'] = (rect.get('x') or 0.0) - padding[3] - border[3]
+        rect['y'] = (rect.get('y') or 0.0) - padding[0] - border[0]
+        bbox_w = block.get('bboxW')
+        if bbox_w is None:
+            content = block.get('contentWidth')
+            bbox_w = (None if content is None else
+                      content + padding[1] + padding[3] + border[1] + border[3])
+        rect['w'] = bbox_w
+        rect['h'] = (rect.get('h') or 0.0) + padding[0] + padding[2] + border[0] + border[2]
+    except TypeError:
+        pass
+    return rect
+
+
+def compare_rect(browser_rect, engine_rect, keys=('y', 'x', 'w', 'h'), tol=TOL):
+    problems = []
+    for key in keys:
+        left = browser_rect.get(key)
+        right = engine_rect.get(key)
+        if right is None:
+            # 引擎侧未知（如 pre/nowrap 的无限可用宽）不判失配。
+            continue
+        if left is None:
+            problems.append(f'{key}: 浏览器 {fmt(left)} / 引擎 {fmt(right)}（浏览器缺失）')
+            continue
+        if abs(left - right) > tol:
+            problems.append(f'{key}: 浏览器 {fmt(left)} / 引擎 {fmt(right)}')
+    return problems
+
+
+def line_tolerance(engine_style):
+    font_size = engine_style.get('fontSize') or 0.0
+    line_height = engine_style.get('lineHeight') or font_size
+    return max(TOL, (float(line_height) - float(font_size)) / 2 + 0.5)
+
+
+def compare_lines(browser_lines, engine_lines, tol):
+    problems = []
+    if len(browser_lines) != len(engine_lines):
+        problems.append(f'行数: 浏览器 {len(browser_lines)} / 引擎 {len(engine_lines)}')
+    for index, (left, right) in enumerate(zip(browser_lines, engine_lines)):
+        pos = f'第{index + 1}行'
+        for key, limit in (('y', tol), ('x', TOL), ('w', WIDTH_TOL)):
+            a, b = left.get(key), right.get(key)
+            if a is None or b is None:
+                problems.append(f'{pos} {key}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}（缺失）')
+            elif abs(a - b) > limit:
+                problems.append(f'{pos} {key}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}')
+    return problems
+
+
+STYLE_KEYS = (
+    ('fontSize', 'fontSize', 'number'),
+    ('lineHeight', 'lineHeight', 'number'),
+    ('letterSpacing', 'letterSpacing', 'number'),
+    ('wordSpacing', 'wordSpacing', 'number'),
+    ('textIndent', 'textIndent', 'number'),
+    ('fontWeight', 'fontWeight', 'number'),
+    ('textAlign', 'textAlign', 'enum'),
+    ('whiteSpace', 'whiteSpace', 'enum'),
+    ('textTransform', 'textTransform', 'enum'),
+    ('boxSizing', 'boxSizing', 'enum'),
+    ('verticalAlign', 'verticalAlign', 'enum'),
+)
+
+
+def compare_style(browser_style, engine_style):
+    problems = []
+    for b_key, e_key, kind in STYLE_KEYS:
+        left = browser_style.get(b_key)
+        right = engine_style.get(e_key)
+        if left is None or right is None:
+            continue
+        if kind == 'number':
+            if str(left).strip().endswith('%') or str(right).strip().endswith('%'):
+                # 浏览器 computed 对部分属性保留百分比（如 text-indent:10%），
+                # 与引擎解算后的 px 不可直接比；由几何（行 x）反映。
+                continue
+            if e_key == 'lineHeight' and str(left).strip().lower() == 'normal':
+                # 浏览器对 line-height: normal 不做数值解析，跳过该属性比较
+                # （行高差异由块高 h 与行 y 反映）。
+                continue
+            a, b = norm_number(left), norm_number(right)
+            if a is None or b is None:
+                equal = str(left) == str(right)
+            else:
+                equal = abs(a - b) <= STYLE_EPS
+        else:
+            equal = norm_enum(left) == norm_enum(right)
+        if not equal:
+            problems.append(f'{e_key}: 浏览器 {left} / 引擎 {right}')
+    return problems
+
+
+def compare_runs(elements, block):
+    """行内 run 与浏览器行内元素比字重/斜体/字号（相对字重覆盖）。
+
+    引擎把 <b>/<strong>/<span> 的行内样式落在 run 上，块级样式看不出来；
+    这里按 run 文本去浏览器元素里找同文本的内联元素再比。
+    """
+    problems = []
+    for run in block.get('runs') or []:
+        key = nkey(run.get('text', ''))
+        if not key:
+            continue
+        match = None
+        for el in elements:
+            if el['tag'] in ('p', 'div', 'li', 'td', 'th', 'body', 'html'):
+                continue
+            if nkey(el.get('text', '')) == key:
+                match = el
+                break
+        if match is None:
+            continue
+        label = f'行内「{key[:10]}」'
+        browser_weight = norm_number(match['style'].get('fontWeight'))
+        engine_weight = norm_number(run.get('fontWeight'))
+        if (browser_weight is not None and engine_weight is not None
+                and abs(browser_weight - engine_weight) > STYLE_EPS):
+            problems.append(f'{label} 字重: 浏览器 {match["style"].get("fontWeight")} / 引擎 {run.get("fontWeight")}')
+        browser_italic = norm_enum(match['style'].get('fontStyle')) in ('italic', 'oblique')
+        engine_italic = bool(run.get('italic'))
+        if browser_italic != engine_italic:
+            problems.append(f'{label} 斜体: 浏览器 {match["style"].get("fontStyle")} / 引擎 {engine_italic}')
+        browser_size = norm_number(match['style'].get('fontSize'))
+        engine_size = norm_number(run.get('fontSize'))
+        if (browser_size is not None and engine_size is not None
+                and abs(browser_size - engine_size) > 0.5):
+            problems.append(f'{label} 字号: 浏览器 {match["style"].get("fontSize")} / 引擎 {fmt(run.get("fontSize"))}')
+    return problems
+
+
+def compare_cells(browser_cells, engine_cells, tol=2.0):
+    """逐格比较：配对优先级 = 同 (行,列) 且文本一致 → 文本一致 → 顺序。"""
+    problems = []
+    used = set()
+    for cell in engine_cells:
+        label = f'格[{cell["row"]},{cell["col"]}]「{nkey(cell["text"], 12)}」'
+        candidates = []
+        for index, el in enumerate(browser_cells):
+            if index in used:
+                continue
+            same_pos = el.get('row') == cell['row'] and el.get('col') == cell['col']
+            same_text = nkey(el.get('text', '')) == nkey(cell['text'])
+            candidates.append((0 if same_pos and same_text else 1 if same_text else 2, index, el))
+        candidates.sort(key=lambda item: item[0])
+        if not candidates or candidates[0][0] > 1:
+            problems.append(f'{label} 未配到浏览器单元格')
+            continue
+        _, index, el = candidates[0]
+        used.add(index)
+        if nkey(el.get('text', '')) != nkey(cell['text']):
+            problems.append(f'{label} 文本: 浏览器「{nkey(el["text"], 12)}」/ 引擎「{nkey(cell["text"], 12)}」')
+        for item in compare_rect(el['rect'], cell['rect'], tol=tol):
+            problems.append(f'{label} {item}')
+        browser_lines = el.get('lines') or []
+        engine_lines = cell.get('lines') or []
+        if browser_lines and engine_lines:
+            for item in compare_lines(browser_lines, engine_lines[:len(browser_lines)], tol):
+                problems.append(f'{label} {item}')
+    return problems
+
+
+def compare_table_cells(browser, engine_blocks):
+    """按表内 (行,列) 比对；本函数只处理单页（跨页走相对关系）。"""
+    problems = []
+    tables = [block for block in engine_blocks if block.get('cells')]
+    for table_index, block in enumerate(tables):
+        browser_cells = [c for c in browser.get('cells', []) if c.get('table') == table_index]
+        if not browser_cells:
+            problems.append(f'表格{table_index + 1}: 浏览器没有对应单元格')
+            continue
+        problems.extend(compare_cells(browser_cells, block['cells']))
+    return problems
+
+
+# ---------------------------------------------------------------- 单页用例
+def diff_single_page(name, browser, engine, meta):
+    problems = []
+    lines = []
+    elements = browser_elements(browser)
+    used = set()
+    pages = engine.get('pages') or [{'index': 0, 'blocks': engine.get('blocks', [])}]
+    blocks = pages[0].get('blocks', [])
+    text_blocks = [block for block in blocks if not block.get('cells')]
+    table_blocks = [block for block in blocks if block.get('cells')]
+    lines.append(
+        f'- 引擎块 {len(text_blocks)}（文字）+ {len(table_blocks)}（表格），'
+        f'浏览器可配对元素 {len(elements)}'
+    )
+    for block in text_blocks:
+        el = pair_element(block, elements, used)
+        if el is None:
+            problems.append(f'块「{nkey(block["text"], 12)}」未配到浏览器元素')
+            continue
+        label = (str(el['text']).strip().replace('\n', ' ')[:24] or el['tag'])
+        found = []
+        found.extend(compare_rect(el['rect'], engine_box_rect(block)))
+        found.extend(compare_lines(el.get('lines') or [], block.get('lines') or [],
+                                   line_tolerance(block.get('style') or {})))
+        found.extend(compare_style(el.get('style') or {}, block.get('style') or {}))
+        found.extend(compare_runs(elements, block))
+        if found:
+            problems.append(f'「{label}」')
+            problems.extend(found)
+    if table_blocks:
+        total_cells = sum(len(block['cells']) for block in table_blocks)
+        label = f'表格 ×{len(table_blocks)}（合计 {total_cells} 格）'
+        found = []
+        for index, block in enumerate(table_blocks):
+            # 表格块自身没有文字（引擎导出的 text 为空），用单元格文字拼 key。
+            cells_text = ''.join(str(cell.get('text', '')) for cell in block['cells'])
+            table_element = pair_element({'text': cells_text}, elements, used, want_tag='table')
+            if table_element is None:
+                found.append(f'表格{index + 1}未配到浏览器 table 元素')
+                continue
+            found.extend(compare_rect(table_element['rect'], engine_box_rect(block)))
+        found.extend(compare_table_cells(browser, table_blocks))
+        if found:
+            problems.append(f'「{label}」')
+            problems.extend(found)
+    return problems, lines
+
+
+# ---------------------------------------------------------------- 跨页用例
+def page_bottom(block):
+    rect = block['rect']
+    return (rect.get('y') or 0.0) + (rect.get('h') or 0.0)
+
+
+def diff_multipage(name, browser, engine, meta):
+    """分页 vs 连续流：只比页内相对关系。
+
+    不比较绝对 y（引擎分页会把内容整体下移），只比较：
+    行距、页内相邻块间距、宽度；页界断裂只记录。
+    """
+    problems = []
+    notes = []
+    elements = browser_elements(browser)
+    pages = engine.get('pages') or []
+    page_h = float(engine['pageSize']['h'])
+    notes.append(f'- 引擎 {engine.get("pageCount", len(pages))} 页（导出前 {len(pages)} 页），页高 {page_h:.0f}px')
+    notes.append('- 比较项：行距 / 页内相邻块间距 / 宽度；不比较绝对 y（分页整体位移），页界断裂只记录不计数')
+    if len(pages) < 2 and meta.get('multipage'):
+        problems.append('跨页用例没有产生第 2 页（内容不足一页，几何无法对照）')
+    previous = None  # (page_index, block, element, page-local top)
+    for page in pages:
+        page_index = page['index']
+        for block in page['blocks']:
+            is_table = bool(block.get('cells'))
+            want_tag = 'table' if is_table else None
+            match_key = block
+            if is_table:
+                match_key = {'text': ''.join(str(cell.get('text', '')) for cell in block['cells'])}
+            el = pair_element(match_key, elements, set(), want_tag=want_tag)
+            if el is None:
+                problems.append(f'第{page_index + 1}页块「{nkey(block.get("text" or "", 10))}」未配对')
+                continue
+            style = block.get('style') or {}
+            tol = line_tolerance(style)
+            found = []
+            if is_table:
+                found.extend(compare_cells_relative(browser, block, page_index))
+            else:
+                engine_lines = block.get('lines') or []
+                browser_lines = el.get('lines') or []
+                found.extend(compare_pitch(browser_lines, engine_lines, tol))
+                slice_info = block.get('slice') or {}
+                if slice_info.get('continuesBefore'):
+                    notes.append(
+                        f'- 页界：块「{nkey(block["text"], 10)}」从第 '
+                        f'{slice_info.get("startLine", 0) + 1} 行续排'
+                    )
+                for item in compare_rect(el['rect'], engine_box_rect(block), keys=('x', 'w')):
+                    found.append(f'宽/位: {item}')
+            if previous is not None:
+                prev_page, prev_block, prev_el, _ = previous
+                if prev_page == page_index and not is_table and not prev_block.get('cells'):
+                    engine_gap = (block['rect'].get('y') or 0.0) - page_bottom(prev_block)
+                    browser_gap = (prev_el['rect'].get('y') or 0.0) + (prev_el['rect'].get('h') or 0.0)
+                    browser_gap = (el['rect'].get('y') or 0.0) - browser_gap
+                    if abs(engine_gap - browser_gap) > 2.0:
+                        found.append(
+                            f'页内间距: 浏览器 {fmt(browser_gap)} / 引擎 {fmt(engine_gap)}'
+                        )
+            if found:
+                problems.append(f'「{nkey(el.get("text", ""), 18)}」')
+                problems.extend(found)
+            previous = (page_index, block, el, block['rect'].get('y') or 0.0)
+    return problems, notes
+
+
+def compare_pitch(browser_lines, engine_lines, tol):
+    """跨页切片比行距（不依赖绝对 y）。"""
+    problems = []
+    if not engine_lines:
+        return problems
+    if len(engine_lines) == 1:
+        return problems
+    def pitches(lines):
+        return [round(b['y'] - a['y'], 2) for a, b in zip(lines, lines[1:])]
+    engine_p = pitches(engine_lines)
+    browser_p = pitches(browser_lines)
+    if not browser_p:
+        return problems
+    if len(engine_p) == len(browser_p):
+        for index, (a, b) in enumerate(zip(browser_p, engine_p)):
+            if abs(a - b) > tol:
+                problems.append(f'行距{index + 1}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}')
+    else:
+        mean_browser = sum(browser_p) / len(browser_p)
+        mean_engine = sum(engine_p) / len(engine_p)
+        if abs(mean_browser - mean_engine) > tol:
+            problems.append(f'平均行距: 浏览器 {fmt(mean_browser)} / 引擎 {fmt(mean_engine)}')
+    return problems
+
+
+def compare_cells_relative(browser, block, page_index):
+    """跨页表格只比格宽/格高与行列间距。"""
+    problems = []
+    browser_cells = [c for c in browser.get('cells', []) if c.get('table') == 0]
+    if not browser_cells:
+        problems.append(f'第{page_index + 1}页表格没有对应浏览器单元格')
+        return problems
+    engine_cells = block['cells']
+    def pitches(cells, axis):
+        values = []
+        for a in cells:
+            for b in cells:
+                same_line = a['row'] == b['row'] if axis == 'x' else a['col'] == b['col']
+                step = b['col'] - a['col'] if axis == 'x' else b['row'] - a['row']
+                if same_line and step == 1:
+                    delta = (b['rect']['x'] - a['rect']['x']) if axis == 'x' else (b['rect']['y'] - a['rect']['y'])
+                    values.append(round(delta, 2))
+        return values
+    for axis, name in (('x', '列间距'), ('y', '行间距')):
+        engine_p = pitches(engine_cells, axis)
+        browser_p = pitches(browser_cells, axis)
+        for index, (a, b) in enumerate(zip(browser_p, engine_p)):
+            if abs(a - b) > 2.0:
+                problems.append(f'{name}{index + 1}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}')
+    for browser_cell, engine_cell in zip(browser_cells, engine_cells):
+        for item in compare_rect(browser_cell['rect'], engine_cell['rect'], keys=('w', 'h')):
+            problems.append(f'格[{engine_cell["row"]},{engine_cell["col"]}] {item}')
+    return problems
+
+
+# ---------------------------------------------------------------- 视觉差异
+def pixel_ratio(name):
+    browser_path = OUT / f'browser_{name}.png'
+    engine_path = OUT / f'engine_{name}.png'
+    if not browser_path.exists() or not engine_path.exists():
+        return None
+    browser = Image.open(browser_path).convert('RGB')
+    engine = Image.open(engine_path).convert('RGB')
+    if browser.size != engine.size:
+        return 1.0
+    diff = ImageChops.difference(browser, engine).convert('L')
+    histogram = diff.histogram()
+    changed = sum(histogram[8:])  # 忽略 <=7 的量化噪声
+    total = browser.width * browser.height
+    return changed / total if total else 0.0
 
 
 def montage(name):
@@ -152,24 +511,159 @@ def montage(name):
     canvas.save(OUT / f'side_{name}.png')
 
 
+# ---------------------------------------------------------------- 汇总
+def run_case(name):
+    meta = case_meta(name)
+    browser, engine = load(name)
+    if meta['engine_only']:
+        pages = engine.get('pages') or []
+        return {
+            'name': name,
+            'meta': meta,
+            'dimension': (meta['tags'] or ['未标注'])[0],
+            'problems': [],
+            'notes': [
+                f'- 浏览器不支持该属性，只记录引擎行为（{len(pages)} 页、'
+                f'{sum(len(page.get("blocks") or []) for page in pages)} 块），不计失配'
+            ],
+            'visual': None,
+            'null_geometry': engine.get('nullGeometry') or [],
+        }
+    if meta['multipage'] or int(engine.get('pageCount', 1)) > 1:
+        problems, notes = diff_multipage(name, browser, engine, meta)
+    else:
+        problems, notes = diff_single_page(name, browser, engine, meta)
+    ratio = pixel_ratio(name)
+    if ratio is not None:
+        montage(name)
+    dimension = meta['tags'][0] if meta['tags'] else '未标注'
+    return {
+        'name': name,
+        'meta': meta,
+        'dimension': dimension,
+        'problems': problems,
+        'notes': notes,
+        'visual': ratio,
+        'null_geometry': engine.get('nullGeometry') or [],
+    }
+
+
+def top_table(results):
+    buckets = {}
+    for result in results:
+        if not result['problems']:
+            continue
+        bucket = buckets.setdefault(
+            result['dimension'],
+            {'count': 0, 'cases': [], 'sample': ''},
+        )
+        bucket['count'] += len(result['problems'])
+        if result['name'] not in bucket['cases']:
+            bucket['cases'].append(result['name'])
+        if not bucket['sample']:
+            bucket['sample'] = f"{result['name']}: {result['problems'][0][:60]}"
+    ordered = sorted(buckets.items(), key=lambda item: (-item[1]['count'], item[0]))
+    rows = ['| # | 属性维度 | 失配项 | 用例数 | 代表用例与首条失配 |', '| --- | --- | --- | --- | --- |']
+    for rank, (dimension, bucket) in enumerate(ordered[:10], start=1):
+        rows.append(
+            f"| {rank} | {dimension} | {bucket['count']} | {len(bucket['cases'])} | "
+            f"{bucket['sample'].replace('|', '/')} |"
+        )
+    return rows, ordered
+
+
+def dimension_table(ordered):
+    rows = ['| 属性维度 | 失配项 | 用例数 | 用例 |', '| --- | --- | --- | --- |']
+    for dimension, bucket in ordered:
+        cases = '、'.join(case for case in bucket['cases'][:6])
+        if len(bucket['cases']) > 6:
+            cases += f' 等 {len(bucket["cases"])} 个'
+        rows.append(f'| {dimension} | {bucket["count"]} | {len(bucket["cases"])} | {cases} |')
+    return rows
+
+
+def visual_table(results):
+    rows = ['| 用例 | 差异像素占比 | 判定 |', '| --- | --- | --- |']
+    for result in sorted(results, key=lambda item: -(item['visual'] or 0.0)):
+        ratio = result['visual']
+        if ratio is None:
+            rows.append(f"| {result['name']} | 缺图 | - |")
+            continue
+        flag = '显著差异' if ratio > PIXEL_FLAG else '接近'
+        rows.append(f"| {result['name']} | {ratio * 100:.2f}% | {flag} |")
+    return rows
+
+
+def detail_case(result):
+    lines = [f"## {result['name']}"]
+    tags = '、'.join(result['meta']['tags']) or '未标注'
+    visual = result['visual']
+    visual_text = '未统计' if visual is None else f'{visual * 100:.2f}%'
+    lines.append(
+        f"- 维度 {tags}；几何/样式失配 {len(result['problems'])} 项；"
+        f"视觉差异 {visual_text}"
+    )
+    if result['notes']:
+        lines.extend(result['notes'])
+    if result['null_geometry']:
+        sample = '、'.join(result['null_geometry'][:3])
+        lines.append(f"- 引擎非有限几何（Infinity/NaN，已按未知处理）：{sample}")
+    for problem in result['problems']:
+        lines.append(f'- {problem}' if problem.startswith('「') else f'  - {problem}')
+    return lines
+
+
 def main() -> int:
     names = sys.argv[1:] or sorted(
-        path.stem.removeprefix('browser_')
-        for path in OUT.glob('browser_*.json')
+        path.stem.removeprefix('browser_') for path in OUT.glob('browser_*.json')
     )
-    report = ['# CSS 属性对照报告', '']
-    flagged = 0
+    results, missing = [], []
     for name in names:
         try:
-            lines = diff_case(name)
-            report.extend(lines)
-            montage(name)
-            if any(line.startswith('  - ') for line in lines):
-                flagged += 1
+            results.append(run_case(name))
         except FileNotFoundError as err:
-            report.append(f'## {name}\n- 缺少数据：{err}')
+            missing.append(name)
+            results.append({
+                'name': name,
+                'meta': case_meta(name),
+                'dimension': (case_meta(name)['tags'] or ['未标注'])[0],
+                'problems': [f'缺少数据：{err.filename}'],
+                'notes': [],
+                'visual': None,
+                'null_geometry': [],
+            })
+    flagged = [result for result in results if result['problems']]
+    top_rows, ordered = top_table(results)
+    report = [
+        '# CSS 属性对照报告',
+        '',
+        f'- 用例 {len(results)} 个：几何/样式有差异 {len(flagged)} 个，'
+        f"视觉差异超阈值 {PIXEL_FLAG * 100:.0f}% 的 "
+        f"{sum(1 for result in results if (result['visual'] or 0.0) > PIXEL_FLAG)} 个",
+        f'- 数据目录 `{OUT}`：browser_*/engine_*（几何与截图）、side_*.png（左浏览器 / 右引擎）',
+        '- 口径：行宽 = 行实际占据宽（引擎 advanceWidth，含 justify 均分；浏览器量的是绘制宽）；'
+        '跨页用例只比页内相对关系。',
+        '',
+        '## Top 失配清单（按维度）',
+        '',
+        *top_rows,
+        '',
+        '## 按属性维度汇总',
+        '',
+        *dimension_table(ordered),
+        '',
+        '## 视觉差异（像素占比）',
+        '',
+        *visual_table(results),
+        '',
+        '## 逐用例明细',
+        '',
+    ]
+    for result in results:
+        report.extend(detail_case(result))
         report.append('')
-    report.insert(2, f'- 用例 {len(names)} 个，有差异 {flagged} 个\n')
+    if missing:
+        report.append(f'- 缺少引擎/浏览器数据的用例：{"、".join(missing)}')
     (OUT / 'report.md').write_text('\n'.join(report), encoding='utf-8')
     print('\n'.join(report))
     return 0

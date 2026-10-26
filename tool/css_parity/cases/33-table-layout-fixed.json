@@ -1,0 +1,10 @@
+{
+  "name": "33-table-layout-fixed",
+  "tags": [
+    "table-layout",
+    "border-collapse",
+    "border-spacing"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } table { width: 100%; margin: 8px 0; font-size: 13px; } .fixed { table-layout: fixed; border-collapse: separate; border-spacing: 4px 6px; } .auto { table-layout: auto; border-collapse: collapse; } td { border: 1px solid #666; padding: 2px 4px; } td.w { width: 40%; }",
+  "html": "<table class=\"fixed\"><tr><td class=\"w\">固定宽40%</td><td>剩余宽度自动分配，文字较长时会换行</td></tr><tr><td>第二行第一格</td><td>第二行第二格</td></tr></table><table class=\"auto\"><tr><td class=\"w\">自动布局</td><td>列宽按内容自然宽分配</td></tr><tr><td>短</td><td>这一列内容明显更长一些</td></tr></table>"
+}

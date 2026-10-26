@@ -1,0 +1,10 @@
+{
+  "name": "30-list-style-position",
+  "tags": [
+    "list-style-position",
+    "list-style-type",
+    "list-style-image"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } ul, ol { margin: 6px 0; padding-left: 28px; line-height: 1.8; font-size: 15px; } .in { list-style-position: inside; } .out { list-style-position: outside; } .none { list-style-type: none; } .roman { list-style-type: lower-roman; } .img { list-style-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIklEQVR4nGM0TjvDQApgIkk1w6gG4gATkergYFQDMYBkDQB2OQGFVVAHNQAAAABJRU5ErkJggg==\"); }",
+  "html": "<ul class=\"in\"><li>inside 标记在内容框内，文字换行会绕到标记下方</li><li>inside 第二项，这一项文字更长一些以便观察换行位置</li></ul><ul class=\"out\"><li>outside 标记悬挂在内容框外</li><li>outside 第二项，用于对比两种定位的缩进差异</li></ul><ul class=\"none\"><li>无标记一项</li><li>无标记二项</li></ul><ol class=\"roman\"><li>罗马数字一</li><li>罗马数字二</li></ol><ul class=\"img\"><li>自定义图片标记一</li><li>自定义图片标记二</li></ul>"
+}

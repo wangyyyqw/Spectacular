@@ -1,5 +1,8 @@
 {
   "name": "04-decoration",
+  "tags": [
+    "text-decoration"
+  ],
   "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.8; } .u { text-decoration: underline; } .d { text-decoration: line-through; } .o { text-decoration: overline; } .w { text-decoration: underline wavy #c00; } .dt { text-decoration: underline dotted #06c; }",
   "html": "<p class=\"u\">下划线 underline</p><p class=\"d\">删除线 line-through</p><p class=\"o\">上划线 overline</p><p class=\"w\">波浪线 wavy 红色</p><p class=\"dt\">点线 dotted 蓝色</p>"
 }

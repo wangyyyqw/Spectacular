@@ -13,18 +13,69 @@ import { resolve, join } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const CASES = join(ROOT, 'tool/css_parity/cases');
-const OUT = '/tmp/css_parity';
+// 默认输出目录；多人/多实例并行时用 CSS_PARITY_OUT 隔离。
+const OUT = process.env.CSS_PARITY_OUT || '/tmp/css_parity';
 const OUT_ABS = resolve(OUT);
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const FONT_REG = join(ROOT, 'apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf');
 const FONT_BOLD = join(ROOT, 'apps/reader_mobile/assets/fonts/SourceHanSerifCN-Bold.otf');
 const WIDTH = 350;
 const HEIGHT = 800;
-const PORT = 9333;
+// 默认调试端口；并行时用 CSS_PARITY_PORT 换端口，避免抢占。
+const PORT = Number(process.env.CSS_PARITY_PORT || 9333);
 
 mkdirSync(OUT, { recursive: true });
 
 const collectScript = `(() => {
+  const rectOf = (r) => ({
+    x: +r.x.toFixed(2),
+    y: +r.y.toFixed(2),
+    w: +r.width.toFixed(2),
+    h: +r.height.toFixed(2),
+  });
+  // 文本行几何：取文本节点的 client rects（字体盒，不是行盒），再把
+  // 同一视觉行的多段（行内 span / 上下标）按纵向重叠合并成一行，
+  // 与引擎「一块 N 行」的口径对齐。行 y/h 取面积最大的 run（锚点），
+  // 避免上下标把行顶拉偏。
+  const mergeLines = (rects) => {
+    const items = rects.map((r) => ({ ...r }));
+    items.sort((a, b) => b.w * b.h - a.w * a.h);
+    const lines = [];
+    for (const r of items) {
+      let target = null;
+      for (const line of lines) {
+        const overlap = Math.min(r.y + r.h, line.y + line.h) - Math.max(r.y, line.y);
+        if (overlap > Math.min(r.h, line.h) * 0.5) {
+          target = line;
+          break;
+        }
+      }
+      if (!target) {
+        lines.push({ ...r });
+        continue;
+      }
+      const right = Math.max(target.x + target.w, r.x + r.w);
+      target.x = Math.min(target.x, r.x);
+      target.w = right - target.x;
+    }
+    return lines
+      .sort((a, b) => a.y - b.y)
+      .map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
+  };
+  const textRects = (el) => {
+    const raw = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        if (rect.width > 0 || rect.height > 0) raw.push(rectOf(rect));
+      }
+    }
+    return mergeLines(raw);
+  };
   const pick = (el) => {
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
@@ -52,24 +103,42 @@ const collectScript = `(() => {
         display: cs.display,
         verticalAlign: cs.verticalAlign,
         listStyleType: cs.listStyleType,
+        boxSizing: cs.boxSizing,
       },
-      lines: [],
+      lines: textRects(el),
     };
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (!node.textContent.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
-        out.lines.push({ x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), w: +rect.width.toFixed(2), h: +rect.height.toFixed(2) });
-      }
-    }
     return out;
+  };
+  // 表格单元格：行号/格序号取 DOM 的 rowIndex/cellIndex，与引擎导出的
+  // (row, col) 对齐；tableIndex 对应引擎导出的第 n 个表格块。
+  const tables = Array.from(document.querySelectorAll('table'));
+  const pickCell = (el) => {
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return {
+      tag: el.tagName.toLowerCase(),
+      table: tables.indexOf(el.closest('table')),
+      row: el.parentElement && el.parentElement.rowIndex >= 0 ? el.parentElement.rowIndex : -1,
+      col: el.cellIndex,
+      text: el.textContent || '',
+      rect: { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2) },
+      style: {
+        fontSize: cs.fontSize,
+        lineHeight: cs.lineHeight,
+        textAlign: cs.textAlign,
+        verticalAlign: cs.verticalAlign,
+        backgroundColor: cs.backgroundColor,
+        padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].join(' '),
+        border: [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth].join(' '),
+      },
+      lines: textRects(el),
+    };
   };
   return {
     viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
+    documentHeight: document.documentElement.scrollHeight,
     elements: Array.from(document.body.querySelectorAll('*')).map(pick),
+    cells: Array.from(document.querySelectorAll('td,th')).map(pickCell),
     body: pick(document.body),
   };
 })()`;
@@ -134,7 +203,8 @@ async function main() {
     '--allow-file-access-from-files',
     `--remote-debugging-port=${PORT}`,
     '--no-first-run',
-    '--user-data-dir=/tmp/css_parity/chrome-profile',
+    // profile 跟随输出目录：并行实例不抢同一个 profile
+    `--user-data-dir=${join(OUT_ABS, 'chrome-profile')}`,
     'about:blank',
   ]);
 

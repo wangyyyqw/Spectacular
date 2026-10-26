@@ -1,0 +1,10 @@
+{
+  "name": "27-background-repeat-size",
+  "tags": [
+    "background-repeat",
+    "background-size",
+    "background-position"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } .norep, .rx, .cov, .con { height: 64px; border: 1px solid #999; margin: 8px 0; background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIklEQVR4nGM0TjvDQApgIkk1w6gG4gATkergYFQDMYBkDQB2OQGFVVAHNQAAAABJRU5ErkJggg==\"); font-size: 12px; } .norep { background-repeat: no-repeat; background-position: right bottom; background-size: 20px 20px; } .rx { background-repeat: repeat-x; background-size: 12px 12px; } .cov { background-repeat: no-repeat; background-size: cover; } .con { background-repeat: no-repeat; background-size: contain; background-position: center center; }",
+  "html": "<div class=\"norep\">no-repeat + 20px 尺寸 + 右下定位</div><div class=\"rx\">repeat-x 横向平铺 12px</div><div class=\"cov\">cover 铺满</div><div class=\"con\">contain 居中</div>"
+}

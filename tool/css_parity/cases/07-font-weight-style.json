@@ -1,5 +1,9 @@
 {
   "name": "07-font-weight-style",
-  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .w1 { font-weight: 300; } .w2 { font-weight: 700; } .w3 { font-weight: 900; } .i { font-style: italic; } .sm { font-size: 12px; } .lg { font-size: 24px; }",
-  "html": "<p class=\"w1\">字重 300 light</p><p class=\"w2\">字重 700 bold</p><p class=\"w3\">字重 900 black</p><p class=\"i\">斜体 italic 中文与 abc</p><p><span class=\"sm\">小字 12px</span> 与 <span class=\"lg\">大字 24px</span> 混排</p>"
+  "tags": [
+    "font-weight",
+    "font-style"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .w1 { font-weight: 300; } .w2 { font-weight: 700; } .w3 { font-weight: 900; } .i { font-style: italic; } .sm { font-size: 12px; } .lg { font-size: 24px; } .bolder { font-weight: bolder; }",
+  "html": "<p class=\"w1\">字重 300 light</p><p class=\"w2\">字重 700 bold</p><p class=\"w3\">字重 900 black</p><p class=\"i\">斜体 italic 中文与 abc</p><p><span class=\"sm\">小字 12px</span> 与 <span class=\"lg\">大字 24px</span> 混排</p><p><b>粗体 b 标签</b> 与 <strong>粗体 strong</strong> 相对字重对照</p><p class=\"bolder\">font-weight: bolder 显式声明</p>"
 }

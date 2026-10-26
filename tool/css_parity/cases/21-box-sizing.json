@@ -1,0 +1,8 @@
+{
+  "name": "21-box-sizing",
+  "tags": [
+    "box-sizing"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { margin: 6px 0; line-height: 1.5; } .cb { box-sizing: content-box; width: 200px; padding: 10px; border: 3px solid #3366cc; background-color: #eef3ff; } .bb { box-sizing: border-box; width: 200px; padding: 10px; border: 3px solid #cc3366; background-color: #ffeef3; } .auto { box-sizing: border-box; padding: 10px 20px; border: 2px solid #333; }",
+  "html": "<div class=\"cb\">content-box 宽 200px 再加 padding 与 border</div><div class=\"bb\">border-box 宽 200px 已含 padding 与 border</div><div class=\"auto\">auto 宽度含 padding 的整行盒，右侧应当不留空隙</div>"
+}

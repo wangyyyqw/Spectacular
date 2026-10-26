@@ -1,0 +1,8 @@
+{
+  "name": "16-text-indent-percent",
+  "tags": [
+    "text-indent"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .p10 { text-indent: 10%; } .p25 { text-indent: 25%; } .em { text-indent: 3em; } .neg { text-indent: -2em; padding-left: 2em; }",
+  "html": "<p class=\"p10\">百分比缩进 10%：这一行需要足够长，才能看出首行缩进与后续行是否顶格对齐。</p><p class=\"p25\">百分比缩进 25%：同样需要足够长的文字来观察换行之后的第二行起始位置。</p><p class=\"em\">三字符缩进 3em：em 相对当前字号，17px 时约等于五十一个像素。</p><p class=\"neg\">负缩进 -2em 配合 padding-left：首行向左突出到内边距区域。</p>"
+}

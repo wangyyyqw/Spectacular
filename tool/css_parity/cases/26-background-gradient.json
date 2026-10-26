@@ -1,0 +1,8 @@
+{
+  "name": "26-background-gradient",
+  "tags": [
+    "background-image"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { height: 56px; margin: 8px 0; color: #fff; font-size: 13px; } .lin { background: linear-gradient(45deg, #ff0000, #0000ff); } .rad { background: radial-gradient(circle at 30% 30%, #00ff00, #000000); } .rep { height: 32px; background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px); } .stripe { background: linear-gradient(90deg, #ff0000 0 50%, #0000ff 50% 100%); }",
+  "html": "<div class=\"lin\">线性渐变 45deg</div><div class=\"rad\">径向渐变 circle</div><div class=\"rep\">重复条纹</div><div class=\"stripe\">硬边双色</div>"
+}

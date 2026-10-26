@@ -1,0 +1,9 @@
+{
+  "name": "44-hanging-punctuation",
+  "tags": [
+    "hanging-punctuation"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.9; } .end { hanging-punctuation: allow-end; } .none { hanging-punctuation: none; }",
+  "html": "<p class=\"end\">悬挂标点 allow-end：这一段故意写得足够长，让句号或右引号正好落在行尾，观察行末标点是否允许悬挂到版心之外。「这是带右引号的第二个例子」后面还有文字继续排下去。</p><p class=\"none\">默认不悬挂对照：同样的长文本让标点压在行尾，与上一段比较行末位置差异。</p>"
+}
