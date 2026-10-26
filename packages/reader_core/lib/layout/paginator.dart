@@ -63,6 +63,7 @@ class PageBlock {
     this.bleedRight = false,
     this.containerSides = false,
     this.declaredContentHeight,
+    this.effectiveOpacity = 1,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -90,6 +91,7 @@ class PageBlock {
     bool bleedLeft = false,
     bool bleedRight = false,
     bool containerSides = false,
+    double? effectiveOpacity,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -118,6 +120,8 @@ class PageBlock {
       bleedLeft: bleedLeft,
       bleedRight: bleedRight,
       containerSides: containerSides,
+      // 未显式传入时沿用计算样式的祖先累计不透明度（T3 只在容器分支显式传）。
+      effectiveOpacity: effectiveOpacity ?? style.effectiveOpacity,
       // 盒高约束（CSS height/min-height/max-height）：先按声明值解算，
       // 未声明时等于测量高（行高之和）。
       declaredContentHeight: model.resolveContentHeight(
@@ -231,6 +235,13 @@ class PageBlock {
   /// 行不进入下一页（`overflow: hidden/clip` 近似；真机渲染由切片裁剪）。
   bool get clipsContent => height + 0.5 < layout.height;
 
+  /// 祖先累计不透明度（`ComputedStyle.effectiveOpacity`，1 为不透明）。
+  ///
+  /// flat 管线重建块样式时只带当前元素声明，父链的 opacity 会丢；章节源
+  /// 在构造时把 `chainStyle(chain).effectiveOpacity` 记下来，绘制层据此
+  /// 决定是否 saveLayer 合成（嵌套 opacity 必须按父累计值合成）。
+  final double effectiveOpacity;
+
   /// 块首行之前的额外高度（段前间距 + 上内缩）。
   double get leadingExtent => spaceBefore + topInset;
 
@@ -268,6 +279,7 @@ class PageBlock {
         bleedRight: bleedRight,
         containerSides: containerSides,
         declaredContentHeight: declaredContentHeight,
+        effectiveOpacity: effectiveOpacity,
       );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线

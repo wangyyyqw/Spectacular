@@ -89,6 +89,7 @@ abstract final class TableMeasurer {
     double? tableWidthPercent,
     required double containerWidth,
     double borderSpacingX = 0,
+    List<double>? minWidths,
   }) {
     final columnCount = specifiedWidths.length;
     if (columnCount == 0) {
@@ -170,6 +171,24 @@ abstract final class TableMeasurer {
         }
       }
     }
+    // 最小宽保证（CSS 2.1 §17.5.2.2）：列宽不低于 min-content；最小宽之和
+    // 超过可分配宽时按比例压缩（表格仍按声明宽，内容允许溢出/换行）。
+    if (minWidths != null && minWidths.length >= columnCount) {
+      var minTotal = 0.0;
+      for (var c = 0; c < columnCount; c++) {
+        minTotal += math.max(0.0, minWidths[c]);
+      }
+      if (minTotal > available && minTotal > 0) {
+        final scale = available / minTotal;
+        for (var c = 0; c < columnCount; c++) {
+          widths[c] = math.max(0.0, minWidths[c]) * scale;
+        }
+      } else {
+        for (var c = 0; c < columnCount; c++) {
+          widths[c] = math.max(widths[c], math.max(0.0, minWidths[c]));
+        }
+      }
+    }
     final total = widths.fold(0.0, (a, b) => a + b) + spacingTotal;
     return TableMeasureResult(columnWidths: widths, tableWidth: total);
   }
@@ -180,12 +199,19 @@ class TableCellSpec {
   const TableCellSpec({
     required this.naturalWidth,
     required this.measureHeight,
+    this.minWidth,
     this.colspan = 1,
     this.rowspan = 1,
   });
 
-  /// max-content 自然宽（第一遍按全宽测得）。
+  /// max-content 自然宽（第一遍按全宽测得，含 padding/border）。
   final double naturalWidth;
+
+  /// min-content 最小宽（含 padding/border）；null 表示未测，按自然宽处理。
+  final double? minWidth;
+
+  /// 用于列宽摊派的 min-content 宽（未测时退回自然宽）。
+  double get effectiveMinWidth => minWidth ?? naturalWidth;
 
   /// 内容在给定宽下的高度（含单元格 padding）。
   final double Function(double width) measureHeight;
@@ -209,24 +235,24 @@ class TableCellInset {
   final double vertical;
 }
 
-/// 单元格内缩：`border-collapse: collapse` 时单元格边框折到格线上、不计入
-/// 格高/格宽（Chrome 实测 td 高 = 行高 + 上下 padding）；`separate` 时
-/// 边框照常占位。
+/// 单元格内缩：`border-collapse: collapse` 时相邻边框合并成格线，单元格
+/// 只分摊**半条**边框（Chrome 实测：cell rect 左右各含半条，格高/格宽 =
+/// padding + 行高/内容 + border/2）；`separate` 时边框整条占位。
+///
+/// 边框不可见（`none`/`hidden`/宽度 0）时不计入。
 TableCellInset tableCellInsetFor(
   ComputedStyle style, {
   bool collapse = false,
 }) {
   final padding = style.padding;
-  final borders = collapse
-      ? CssEdges.zero
-      : CssEdges(
-          top: style.borders.top.isVisible ? style.borders.top.width : 0,
-          right: style.borders.right.isVisible ? style.borders.right.width : 0,
-          bottom: style.borders.bottom.isVisible
-              ? style.borders.bottom.width
-              : 0,
-          left: style.borders.left.isVisible ? style.borders.left.width : 0,
-        );
+  double side(CssBorderSide border) =>
+      border.isVisible ? border.width * (collapse ? 0.5 : 1.0) : 0.0;
+  final borders = CssEdges(
+    top: side(style.borders.top),
+    right: side(style.borders.right),
+    bottom: side(style.borders.bottom),
+    left: side(style.borders.left),
+  );
   return TableCellInset(
     horizontal: padding.horizontal + borders.horizontal,
     vertical: padding.vertical + borders.vertical,
@@ -348,55 +374,82 @@ abstract final class TableGridMeasurer {
     final spacingX = math.max(0.0, borderSpacingX);
     final spacingY = math.max(0.0, borderSpacingY);
 
-    // 列宽：只取单列单元格的自然宽（按网格起始列归位）。
-    final naturalWidths = <List<double>>[];
+    // 列宽（CSS 2.1 §17.5.2.2 自动布局，与 Chrome 实测一致）：
+    // 1. 先按**不跨列**的单元格取各列 min/max（跨行不影响列宽）；
+    // 2. 跨列单元格的 max/min 超过跨列各列之和时，把差额按现有宽比例摊给
+    //    跨列各列（「approximately the same amount」，Chrome 用比例摊派）；
+    // 3. 表宽分配交给 TableMeasurer（按列 max 比例铺满 / 压缩）。
+    final columnMax = List<double>.filled(columnCount, 0);
+    final columnMin = List<double>.filled(columnCount, 0);
     for (var r = 0; r < rows.length; r++) {
-      final natural = List<double>.filled(columnCount, 0);
       for (final slot in slots[r]) {
         if (slot.colspan != 1 || slot.startColumn >= columnCount) {
           continue;
         }
-        natural[slot.startColumn] = math.max(
-          natural[slot.startColumn],
-          rows[r][slot.cellIndex].naturalWidth,
+        final cell = rows[r][slot.cellIndex];
+        columnMax[slot.startColumn] = math.max(
+          columnMax[slot.startColumn],
+          cell.naturalWidth,
+        );
+        columnMin[slot.startColumn] = math.max(
+          columnMin[slot.startColumn],
+          cell.effectiveMinWidth,
         );
       }
-      naturalWidths.add(natural);
     }
-    // 跨列单元格自然宽超出跨列单列自然宽之和的溢出部分，按比例摊给跨列
-    // （P3-19，colspan 参与列宽分配——HTML 表格模型简化口径）。
+    void spreadDeficit(
+      List<double> values,
+      int startColumn,
+      int endColumn,
+      double required,
+    ) {
+      final end = math.min(endColumn, columnCount);
+      if (end <= startColumn) {
+        return;
+      }
+      var current = 0.0;
+      for (var c = startColumn; c < end; c++) {
+        current += values[c];
+      }
+      if (required <= current) {
+        return;
+      }
+      final deficit = required - current;
+      if (current <= 0) {
+        final share = deficit / (end - startColumn);
+        for (var c = startColumn; c < end; c++) {
+          values[c] += share;
+        }
+        return;
+      }
+      for (var c = startColumn; c < end; c++) {
+        values[c] += deficit * values[c] / current;
+      }
+    }
+
     for (var r = 0; r < rows.length; r++) {
       for (final slot in slots[r]) {
         if (slot.colspan <= 1) {
           continue;
         }
-        final end = math.min(slot.endColumn, columnCount);
-        final spanned = end - slot.startColumn;
-        if (spanned <= 0) {
-          continue;
-        }
-        var spannedNatural = 0.0;
-        for (var c = slot.startColumn; c < end; c++) {
-          spannedNatural += naturalWidths[r][c];
-        }
-        final excess = rows[r][slot.cellIndex].naturalWidth - spannedNatural;
-        if (excess <= 0) {
-          continue;
-        }
-        for (var c = slot.startColumn; c < end; c++) {
-          final base = naturalWidths[r][c];
-          naturalWidths[r][c] = base +
-              (spannedNatural > 0 ? excess * base / spannedNatural : excess / spanned);
-        }
+        final cell = rows[r][slot.cellIndex];
+        spreadDeficit(columnMax, slot.startColumn, slot.endColumn, cell.naturalWidth);
+        spreadDeficit(
+          columnMin,
+          slot.startColumn,
+          slot.endColumn,
+          cell.effectiveMinWidth,
+        );
       }
     }
     final columns = TableMeasurer.measureColumns(
-      naturalWidths: naturalWidths,
+      naturalWidths: <List<double>>[columnMax],
       specifiedWidths: columnSpecified,
       tableWidthPx: tableWidthPx,
       tableWidthPercent: tableWidthPercent,
       containerWidth: containerWidth,
       borderSpacingX: spacingX,
+      minWidths: columnMin,
     );
 
     // 单元格宽：跨列宽度之和 + 列间距；越界/零宽时退回自然宽。
