@@ -12,7 +12,12 @@
 - 跨页用例（用例 JSON 标 multipage）：引擎分页、浏览器连续流，只比页内
   相对关系（行距、页内间距、宽度），页界断裂属预期差异，只记录不计数。
 - 属性维度：取用例 JSON 的 tags，首个为主维度；每条失配计入主维度。
+- 配对：按「文本 + 角色」。ul/ol/dl 等容器元素不参与块配对，li 只与
+  引擎列表项块配对；配不上记「未配对」并单列，不计入失配。
+- 门禁：`--threshold N` 或 `CSS_PARITY_THRESHOLD=N`，任一维度失配项数
+  超过 N 时退出码为 2；默认 0 表示不启用（退出码 0）。
 """
+import argparse
 import json
 import os
 import pathlib
@@ -28,6 +33,11 @@ WIDTH_TOL = 4.0  # 行宽允许误差（断行取整）
 STYLE_EPS = 0.01
 PIXEL_FLAG = 0.02  # 视觉差异判定阈值（差异像素占比）
 TABLE_TAGS = {'td', 'th', 'tr', 'tbody', 'thead', 'tfoot', 'caption', 'col', 'colgroup'}
+# 容器元素：只承载子块，自身不参与块配对（否则会抢 li 的文本）。
+CONTAINER_TAGS = {
+    'ul', 'ol', 'dl', 'menu', 'table', 'tbody', 'thead', 'tfoot', 'tr',
+    'colgroup', 'col', 'caption',
+}
 
 
 # ---------------------------------------------------------------- 数据装载
@@ -90,23 +100,44 @@ def fmt(value):
 
 # ---------------------------------------------------------------- 配对
 def browser_elements(browser):
-    """可参与块配对的路由：有文字且不是表格内部元素。"""
+    """可参与块配对的候选：有文字、且不是容器/表格内部元素。"""
     return [
         el for el in browser['elements']
-        if str(el.get('text', '')).strip() and el['tag'] not in TABLE_TAGS
+        if str(el.get('text', '')).strip()
+        and el['tag'] not in TABLE_TAGS
+        and el['tag'] not in CONTAINER_TAGS
     ]
 
 
-def pair_element(block, elements, used, want_tag=None):
-    """按文本配对，优先完全相等、其次长度最接近（避免 ul 抢 li 的块）。"""
-    key = nkey(block.get('text', ''))
+def browser_tables(browser):
+    """表格元素单独一列：容器不参与文本块配对，但表格块要配到 table。"""
+    return [el for el in browser['elements'] if el['tag'] == 'table']
+
+
+def block_role(block):
+    """引擎块角色：table（表格）/ li（列表项）/ block（普通块）。
+
+    dump 会直接给 role；旧数据没有时按 cells / listMarker 推断。
+    """
+    role = block.get('role')
+    if role:
+        return role
+    if block.get('cells'):
+        return 'table'
+    return 'li' if block.get('listMarker') else 'block'
+
+
+def _pick(key, elements, used, tags=None, exclude_tags=()):
+    """在候选元素里按文本挑一个：完全相等优先，其次长度最接近。"""
     if not key:
         return None
     best = None
     for index, el in enumerate(elements):
         if index in used:
             continue
-        if want_tag is not None and el['tag'] != want_tag:
+        if tags is not None and el['tag'] not in tags:
+            continue
+        if el['tag'] in exclude_tags:
             continue
         el_key = nkey(el.get('text', ''))
         if not el_key:
@@ -120,6 +151,27 @@ def pair_element(block, elements, used, want_tag=None):
         return None
     used.add(best[1])
     return best[2]
+
+
+def pair_table(block, tables, used_tables):
+    """表格块按单元格文字配 table 元素（独立 used，避免与文本块抢）。"""
+    cells_text = ''.join(str(cell.get('text', '')) for cell in block.get('cells') or [])
+    return _pick(nkey(cells_text), tables, used_tables)
+
+
+def pair_element(block, elements, used):
+    """文本 + 角色配对；返回 None 表示未配对（由调用方单列，不算失配）。"""
+    role = block_role(block)
+    if role == 'table':
+        return None  # 表格块走 pair_table
+    key = nkey(block.get('text', ''))
+    if role == 'li':
+        # li 只与 li 配对；配不上就记未配对。
+        return _pick(key, elements, used, tags={'li'})
+    # 普通块：先排除 li（避免正文段落抢列表项），找不到再兜底允许 li
+    # （引擎对 list-style:none 的列表项没有 listMarker，role 只能是 block）。
+    el = _pick(key, elements, used, exclude_tags={'li'})
+    return el if el is not None else _pick(key, elements, used, tags={'li'})
 
 
 # ---------------------------------------------------------------- 逐项比较
@@ -315,9 +367,12 @@ def compare_table_cells(browser, engine_blocks):
 # ---------------------------------------------------------------- 单页用例
 def diff_single_page(name, browser, engine, meta):
     problems = []
+    unpaired = []
     lines = []
     elements = browser_elements(browser)
+    tables = browser_tables(browser)
     used = set()
+    used_tables = set()
     pages = engine.get('pages') or [{'index': 0, 'blocks': engine.get('blocks', [])}]
     blocks = pages[0].get('blocks', [])
     text_blocks = [block for block in blocks if not block.get('cells')]
@@ -326,38 +381,56 @@ def diff_single_page(name, browser, engine, meta):
         f'- 引擎块 {len(text_blocks)}（文字）+ {len(table_blocks)}（表格），'
         f'浏览器可配对元素 {len(elements)}'
     )
+    partial = []
     for block in text_blocks:
         el = pair_element(block, elements, used)
         if el is None:
-            problems.append(f'块「{nkey(block["text"], 12)}」未配到浏览器元素')
+            unpaired.append(
+                f'块「{nkey(block["text"], 12)}」（角色 {block_role(block)}）'
+            )
             continue
         label = (str(el['text']).strip().replace('\n', ' ')[:24] or el['tag'])
+        tol = line_tolerance(block.get('style') or {})
         found = []
-        found.extend(compare_rect(el['rect'], engine_box_rect(block)))
-        found.extend(compare_lines(el.get('lines') or [], block.get('lines') or [],
-                                   line_tolerance(block.get('style') or {})))
+        if nkey(el['text']) != nkey(block['text']):
+            # 部分配对：浏览器元素里含子块（如 li 里嵌 ul），文本是引擎块的
+            # 超集。只比块顶位置与前 min(行数) 行，块高/行数/宽度不可比。
+            partial.append(f'「{label}」')
+            lines_b = el.get('lines') or []
+            lines_e = block.get('lines') or []
+            count = min(len(lines_b), len(lines_e))
+            found.extend(compare_rect(el['rect'], engine_box_rect(block), keys=('y', 'x')))
+            if count:
+                found.extend(compare_lines(lines_b[:count], lines_e[:count], tol))
+        else:
+            found.extend(compare_rect(el['rect'], engine_box_rect(block)))
+            found.extend(compare_lines(el.get('lines') or [], block.get('lines') or [], tol))
         found.extend(compare_style(el.get('style') or {}, block.get('style') or {}))
         found.extend(compare_runs(elements, block))
         if found:
             problems.append(f'「{label}」')
             problems.extend(found)
+    if partial:
+        lines.append(
+            f'- 部分配对 {len(partial)} 个（浏览器元素含子块，只比块顶与前几行）：'
+            + '、'.join(partial[:4])
+        )
     if table_blocks:
         total_cells = sum(len(block['cells']) for block in table_blocks)
         label = f'表格 ×{len(table_blocks)}（合计 {total_cells} 格）'
         found = []
         for index, block in enumerate(table_blocks):
-            # 表格块自身没有文字（引擎导出的 text 为空），用单元格文字拼 key。
-            cells_text = ''.join(str(cell.get('text', '')) for cell in block['cells'])
-            table_element = pair_element({'text': cells_text}, elements, used, want_tag='table')
+            # 表格块自身没有文字，pair_element 会按 role=table 用单元格文字配对。
+            table_element = pair_table(block, tables, used_tables)
             if table_element is None:
-                found.append(f'表格{index + 1}未配到浏览器 table 元素')
+                unpaired.append(f'表格{index + 1}（{len(block["cells"])} 格）未配对')
                 continue
             found.extend(compare_rect(table_element['rect'], engine_box_rect(block)))
         found.extend(compare_table_cells(browser, table_blocks))
         if found:
             problems.append(f'「{label}」')
             problems.extend(found)
-    return problems, lines
+    return problems, lines, unpaired
 
 
 # ---------------------------------------------------------------- 跨页用例
@@ -373,8 +446,11 @@ def diff_multipage(name, browser, engine, meta):
     行距、页内相邻块间距、宽度；页界断裂只记录。
     """
     problems = []
+    unpaired = []
     notes = []
     elements = browser_elements(browser)
+    tables = browser_tables(browser)
+    used_tables = set()
     pages = engine.get('pages') or []
     page_h = float(engine['pageSize']['h'])
     notes.append(f'- 引擎 {engine.get("pageCount", len(pages))} 页（导出前 {len(pages)} 页），页高 {page_h:.0f}px')
@@ -386,13 +462,13 @@ def diff_multipage(name, browser, engine, meta):
         page_index = page['index']
         for block in page['blocks']:
             is_table = bool(block.get('cells'))
-            want_tag = 'table' if is_table else None
-            match_key = block
-            if is_table:
-                match_key = {'text': ''.join(str(cell.get('text', '')) for cell in block['cells'])}
-            el = pair_element(match_key, elements, set(), want_tag=want_tag)
+            el = (pair_table(block, tables, used_tables) if is_table
+                  else pair_element(block, elements, set()))
             if el is None:
-                problems.append(f'第{page_index + 1}页块「{nkey(block.get("text" or "", 10))}」未配对')
+                unpaired.append(
+                    f'第{page_index + 1}页块「{nkey(block.get("text") or "", 10)}」'
+                    f'（角色 {block_role(block)}）'
+                )
                 continue
             style = block.get('style') or {}
             tol = line_tolerance(style)
@@ -425,7 +501,7 @@ def diff_multipage(name, browser, engine, meta):
                 problems.append(f'「{nkey(el.get("text", ""), 18)}」')
                 problems.extend(found)
             previous = (page_index, block, el, block['rect'].get('y') or 0.0)
-    return problems, notes
+    return problems, notes, unpaired
 
 
 def compare_pitch(browser_lines, engine_lines, tol):
@@ -522,6 +598,7 @@ def run_case(name):
             'meta': meta,
             'dimension': (meta['tags'] or ['未标注'])[0],
             'problems': [],
+            'unpaired': [],
             'notes': [
                 f'- 浏览器不支持该属性，只记录引擎行为（{len(pages)} 页、'
                 f'{sum(len(page.get("blocks") or []) for page in pages)} 块），不计失配'
@@ -530,9 +607,9 @@ def run_case(name):
             'null_geometry': engine.get('nullGeometry') or [],
         }
     if meta['multipage'] or int(engine.get('pageCount', 1)) > 1:
-        problems, notes = diff_multipage(name, browser, engine, meta)
+        problems, notes, unpaired = diff_multipage(name, browser, engine, meta)
     else:
-        problems, notes = diff_single_page(name, browser, engine, meta)
+        problems, notes, unpaired = diff_single_page(name, browser, engine, meta)
     ratio = pixel_ratio(name)
     if ratio is not None:
         montage(name)
@@ -541,7 +618,9 @@ def run_case(name):
         'name': name,
         'meta': meta,
         'dimension': dimension,
-        'problems': problems,
+        # 去重：同一用例里完全相同的失配行只计一次。
+        'problems': list(dict.fromkeys(problems)),
+        'unpaired': unpaired,
         'notes': notes,
         'visual': ratio,
         'null_geometry': engine.get('nullGeometry') or [],
@@ -605,6 +684,8 @@ def detail_case(result):
     )
     if result['notes']:
         lines.extend(result['notes'])
+    for item in result.get('unpaired') or []:
+        lines.append(f'- 未配对（不计失配）：{item}')
     if result['null_geometry']:
         sample = '、'.join(result['null_geometry'][:3])
         lines.append(f"- 引擎非有限几何（Infinity/NaN，已按未知处理）：{sample}")
@@ -613,8 +694,43 @@ def detail_case(result):
     return lines
 
 
-def main() -> int:
-    names = sys.argv[1:] or sorted(
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description='CSS 属性对照：浏览器 vs 引擎几何/样式比对',
+    )
+    parser.add_argument('cases', nargs='*', help='只跑指定用例（默认全部）')
+    parser.add_argument(
+        '--threshold',
+        type=int,
+        default=int(os.environ.get('CSS_PARITY_THRESHOLD', '0')),
+        help='失配门禁：任一属性维度的失配项数超过该值时退出码为 2；'
+             '默认 0（不启用），也可用 CSS_PARITY_THRESHOLD 设置',
+    )
+    return parser.parse_args(argv)
+
+
+def unpaired_section(results):
+    rows = ['## 未配对（不计失配）', '']
+    rows.append('| 用例 | 未配对块数 | 明细 |')
+    rows.append('| --- | --- | --- |')
+    total = 0
+    for result in results:
+        items = result.get('unpaired') or []
+        if not items:
+            continue
+        total += len(items)
+        sample = '；'.join(items[:4]).replace('|', '/')
+        if len(items) > 4:
+            sample += f' 等 {len(items)} 项'
+        rows.append(f'| {result["name"]} | {len(items)} | {sample} |')
+    if total == 0:
+        rows.append('| - | 0 | 全部块都配到了浏览器元素 |')
+    return rows
+
+
+def main(argv=None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    names = args.cases or sorted(
         path.stem.removeprefix('browser_') for path in OUT.glob('browser_*.json')
     )
     results, missing = [], []
@@ -622,27 +738,33 @@ def main() -> int:
         try:
             results.append(run_case(name))
         except FileNotFoundError as err:
+            meta = case_meta(name)
             missing.append(name)
             results.append({
                 'name': name,
-                'meta': case_meta(name),
-                'dimension': (case_meta(name)['tags'] or ['未标注'])[0],
+                'meta': meta,
+                'dimension': (meta['tags'] or ['未标注'])[0],
                 'problems': [f'缺少数据：{err.filename}'],
+                'unpaired': [],
                 'notes': [],
                 'visual': None,
                 'null_geometry': [],
             })
     flagged = [result for result in results if result['problems']]
+    mismatches = sum(len(result['problems']) for result in results)
+    unpaired_total = sum(len(result.get('unpaired') or []) for result in results)
+    unpaired_cases = sum(1 for result in results if result.get('unpaired'))
     top_rows, ordered = top_table(results)
     report = [
         '# CSS 属性对照报告',
         '',
-        f'- 用例 {len(results)} 个：几何/样式有差异 {len(flagged)} 个，'
-        f"视觉差异超阈值 {PIXEL_FLAG * 100:.0f}% 的 "
+        f'- 用例 {len(results)} 个：失配 {mismatches} 项，涉及 {len(flagged)} 个用例；'
+        f'未配对 {unpaired_total} 项（{unpaired_cases} 个用例，不计失配）',
+        f"- 视觉差异超阈值 {PIXEL_FLAG * 100:.0f}% 的 "
         f"{sum(1 for result in results if (result['visual'] or 0.0) > PIXEL_FLAG)} 个",
         f'- 数据目录 `{OUT}`：browser_*/engine_*（几何与截图）、side_*.png（左浏览器 / 右引擎）',
         '- 口径：行宽 = 行实际占据宽（引擎 advanceWidth，含 justify 均分；浏览器量的是绘制宽）；'
-        '跨页用例只比页内相对关系。',
+        '跨页用例只比页内相对关系；ul/ol 等容器不参与块配对，li 只对列表项块。',
         '',
         '## Top 失配清单（按维度）',
         '',
@@ -651,6 +773,8 @@ def main() -> int:
         '## 按属性维度汇总',
         '',
         *dimension_table(ordered),
+        '',
+        *unpaired_section(results),
         '',
         '## 视觉差异（像素占比）',
         '',
@@ -664,8 +788,20 @@ def main() -> int:
         report.append('')
     if missing:
         report.append(f'- 缺少引擎/浏览器数据的用例：{"、".join(missing)}')
-    (OUT / 'report.md').write_text('\n'.join(report), encoding='utf-8')
-    print('\n'.join(report))
+    text = '\n'.join(report)
+    (OUT / 'report.md').write_text(text, encoding='utf-8')
+    print(text)
+    if args.threshold > 0:
+        over = [(dimension, bucket) for dimension, bucket in ordered
+                if bucket['count'] > args.threshold]
+        if over:
+            for dimension, bucket in over:
+                print(
+                    f'门禁失败：维度 {dimension} 失配 {bucket["count"]} 项'
+                    f' > 阈值 {args.threshold}',
+                    file=sys.stderr,
+                )
+            return 2
     return 0
 
 

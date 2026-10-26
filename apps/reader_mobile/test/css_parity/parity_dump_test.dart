@@ -225,6 +225,13 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
           slice.leadingExtent -
           (slice.endLine == block.layout.lineCount ? slice.trailingExtent : 0),
     ),
+    // 配对用角色：表格块 / 列表项块（有标记）/ 普通块。浏览器端 ul、ol
+    // 等容器不参与配对，li 只与列表项块配对（列表项无标记时由
+    // compare.py 的兜底轮次处理）。
+    'role': block.table != null
+        ? 'table'
+        : (block.listMarker != null ? 'li' : 'block'),
+    'listMarker': block.listMarker,
     'lines': lines,
     'runs': runs,
     'cells': cells,
@@ -263,12 +270,18 @@ Map<String, Object?> _pageJson(PageContent page) {
 }
 
 /// 递归收集 null 几何（引擎返回 Infinity/NaN 的位置），供报告标注。
+///
+/// 只关心几何数值；`role`/`listMarker` 这类可空语义字段为 null 属正常，
+/// 不当作非有限几何上报。
 void _collectNulls(Object? node, String path, List<String> out) {
   if (out.length >= 20) {
     return;
   }
   if (node is Map) {
     node.forEach((key, value) {
+      if (key == 'role' || key == 'listMarker') {
+        return;
+      }
       final next = '$path.$key';
       if (value == null) {
         out.add(next);
