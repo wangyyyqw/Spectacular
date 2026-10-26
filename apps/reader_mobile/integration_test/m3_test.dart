@@ -6,8 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/search/search_index_store.dart';
-import 'package:reader_mobile/search/search_indexer.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/panels/search_panel.dart';
@@ -39,16 +37,6 @@ void main() {
       book = await library.importBytes(bytes);
     });
     expect(book.id, isNotEmpty);
-
-    // 后台建索引（搜索用）。
-    final indexStore = SearchIndexStore(db);
-    await tester.runAsync(() async {
-      final source = await openTestChapterSource(bytes);
-      final rows = await (db.select(
-        db.books,
-      )..where((table) => table.uuid.equals(book.id))).get();
-      await SearchIndexer(source: source, store: indexStore).build(rows.single.id);
-    });
 
     // 1. 书库：卡片可见。
     await tester.pumpWidget(
@@ -97,8 +85,11 @@ void main() {
     // 5. 搜索：菜单 → 搜索 → 输入 → 结果。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    final searchEntry = find.byKey(const ValueKey<String>('menu-search'));
-    expect(searchEntry, findsOneWidget, reason: '菜单有搜索入口');
+    // 菜单 → 目录抽屉 → 搜索页签（设计稿四入口里搜索挂在目录下）。
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    final searchEntry = find.byKey(const ValueKey<String>('drawer-tab-search'));
+    expect(searchEntry, findsOneWidget, reason: '目录抽屉有搜索页签');
     await tester.tap(searchEntry);
     await tester.pumpAndSettle();
     expect(find.byType(SearchPanel), findsOneWidget);

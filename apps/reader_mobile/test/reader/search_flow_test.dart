@@ -5,9 +5,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/search/search_index_store.dart';
-import 'package:reader_mobile/search/search_indexer.dart';
-import 'package:reader_mobile/search/search_service.dart';
+import 'package:reader_mobile/search/scan_search_service.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -42,16 +40,8 @@ void main() {
     await tester.runAsync(() async {
       book = await library.importBytes(bytes);
     });
-    final store = SearchIndexStore(db);
-    final rows = await (db.select(
-      db.books,
-    )..where((table) => table.uuid.equals(book.id))).get();
-    final bookId = rows.single.id;
     final source = await openTestChapterSource(bytes);
-    await tester.runAsync(() async {
-      await SearchIndexer(source: source, store: store).build(bookId);
-    });
-    final service = SearchService(source: source, store: store);
+    final service = ScanSearchService(source: source);
 
     late ReaderSession session;
     await tester.pumpWidget(
@@ -67,7 +57,7 @@ void main() {
                 bookId: book.id,
                 onSessionReady: (value) => session = value,
                 onSearch: (query) async {
-                  final results = await service.search(bookId, query);
+                  final results = await service.search(query);
                   return <SearchPanelResult>[
                     for (final result in results)
                       SearchPanelResult(
@@ -102,7 +92,14 @@ void main() {
       find.byKey(const ValueKey<String>('search-input')),
       '沈河',
     );
+    // 扫描式搜索内部走 Isolate.run：fake async 环境下必须用 runAsync 等它。
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
     await tester.pump(const Duration(milliseconds: 350));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('search-results')),

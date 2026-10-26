@@ -6,7 +6,6 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../reader/epub_chapter_source.dart';
 import 'chapter_text.dart';
-import 'search_service.dart';
 
 /// 扫描式全文搜索（对照 Reeden 2.0 的「即时扫描 + 独立 isolate」方案）。
 ///
@@ -205,4 +204,35 @@ List<ScanHit> scanTexts(List<String> texts, String query, int maxResults) {
     }
   }
   return hits;
+}
+
+/// 一条搜索结果（P4-25，§66.5）。
+class SearchResult {
+  /// 创建结果。
+  const SearchResult({
+    required this.spineIndex,
+    required this.charOffset,
+    required this.chapterTitle,
+    required this.context,
+    required this.matchLength,
+    this.cfi,
+  });
+
+  /// 章节序号。
+  final int spineIndex;
+
+  /// 章内字符偏移（命中起点）。
+  final int charOffset;
+
+  /// 章名。
+  final String chapterTitle;
+
+  /// 上下文片段（命中前后各约 12 字）。
+  final String context;
+
+  /// 命中词长度。
+  final int matchLength;
+
+  /// 命中位置的 CFI（块 CFI + 块内偏移）；无法定位时为 null。
+  final String? cfi;
 }
