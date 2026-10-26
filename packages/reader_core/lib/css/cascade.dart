@@ -1,5 +1,6 @@
 import 'computed_style.dart';
 import 'parser.dart';
+import 'property_aliases.dart';
 import 'reader_contract.dart';
 import 'selector.dart';
 
@@ -69,6 +70,9 @@ abstract final class Cascade {
     'hyphens',
     'word-break',
     'overflow-wrap',
+    'font-variant',
+    'font-variant-caps',
+    'quotes',
     'list-style-type',
     'text-emphasis-style',
     'text-emphasis-color',
@@ -146,6 +150,11 @@ abstract final class Cascade {
       );
     }
 
+    // 逻辑属性（`margin-inline-start` 等）在级联期就映射成物理属性，并沿用
+    // 原声明的来源/优先级/序号参与竞争：否则 `p{margin:8px 0}` 展开出的
+    // `margin-left` 会把优先级更高的 `.lp{margin-inline-start:24px}` 顶掉。
+    _applyLogicalProperties(winners, parent);
+
     final values = <String, String>{};
     if (parent != null) {
       for (final property in inheritedProperties) {
@@ -201,6 +210,52 @@ abstract final class Cascade {
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
     );
+  }
+
+  /// 逻辑属性 → 物理属性（级联期映射）。
+  ///
+  /// 书写模式/方向取本级赢家，缺省继承父级（`parent.values`），再缺省
+  /// `horizontal-tb` + `ltr`。映射出的物理声明沿用逻辑声明自己的
+  /// 来源/优先级/序号，和同名的物理声明按相同规则竞争。
+  static void _applyLogicalProperties(
+    Map<String, _Winner> winners,
+    ComputedStyle? parent,
+  ) {
+    final logicalKeys = <String>[
+      for (final key in winners.keys)
+        if (key.contains('-inline-') || key.contains('-block-')) key,
+    ];
+    if (logicalKeys.isEmpty) {
+      return;
+    }
+    final writingMode =
+        winners['writing-mode']?.value.trim() ??
+        parent?.values['writing-mode'] ??
+        'horizontal-tb';
+    final direction =
+        winners['direction']?.value.trim() ??
+        parent?.values['direction'] ??
+        'ltr';
+    final map = CssPropertyAliases.logicalPhysicalMap(
+      writingMode: writingMode,
+      direction: direction,
+    );
+    for (final logical in logicalKeys) {
+      final physical = map[logical];
+      final winner = winners[logical];
+      if (physical == null || winner == null) {
+        continue;
+      }
+      _consider(
+        winners,
+        physical,
+        winner.value,
+        winner.origin,
+        winner.level,
+        winner.specificity,
+        winner.order,
+      );
+    }
   }
 
   /// 一条声明进候选集：原文 + 简写展开，共用来源/优先级/序号。

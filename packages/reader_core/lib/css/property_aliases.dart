@@ -75,10 +75,12 @@ abstract final class CssPropertyAliases {
     'ms-text-combine-horizontal': 'text-combine-upright',
     // 逻辑方向边距/内边距：中文 EPUB 都是横排 LTR，按左/右近似
     // （真实书用 -webkit-margin-start 做首行缩进时的常见写法）。
-    'webkit-margin-start': 'margin-left',
-    'webkit-margin-end': 'margin-right',
-    'webkit-padding-start': 'padding-left',
-    'webkit-padding-end': 'padding-right',
+    // -webkit-margin/padding-start/end 本质是逻辑属性（受书写模式/方向影响），
+    // 统一映射成 margin-inline-start 等，由级联期的逻辑属性映射再落物理。
+    'webkit-margin-start': 'margin-inline-start',
+    'webkit-margin-end': 'margin-inline-end',
+    'webkit-padding-start': 'padding-inline-start',
+    'webkit-padding-end': 'padding-inline-end',
   };
 
   /// 解析一条声明：返回标准属性名与（可能被规整的）值。
@@ -125,6 +127,74 @@ abstract final class CssPropertyAliases {
       }
     }
     return value;
+  }
+
+  /// 逻辑属性（`margin-inline-start` 等）→ 物理属性名。
+  ///
+  /// [writingMode] 传 `CssWritingMode.name`（`horizontalTb` / `verticalRl` /
+  /// `verticalLr`），[direction] 传 `CssDirection.name`（`ltr` / `rtl`）；用
+  /// 字符串而不是枚举是为了让别名层保持单向依赖（computed_style 依赖本文件）。
+  ///
+  /// 覆盖 `margin-*` / `padding-*` / `inset-*` 与 `border-*` 的
+  /// inline|block × start|end（border 含 `-width`/`-style`/`-color`）。
+  /// 映射规则：horizontal-tb + ltr → inline-start = left；vertical-rl 的块级
+  /// 推进从右往左 → block-start = right；竖排下 `direction: rtl` 的行内方向
+  /// 自下而上 → inline-start = bottom。
+  static Map<String, String> logicalPhysicalMap({
+    required String writingMode,
+    required String direction,
+  }) {
+    // 入参既可以是 CSS 取值（`horizontal-tb`/`vertical-rl`），也可以是
+    // `CssWritingMode.name`（`horizontalTb`/`verticalRl`），统一去连字符小写。
+    final mode = writingMode.replaceAll('-', '').toLowerCase();
+    final vertical = mode.startsWith('vertical');
+    final ltr = direction.trim().toLowerCase() != 'rtl';
+    final String inlineStart;
+    final String inlineEnd;
+    final String blockStart;
+    final String blockEnd;
+    if (!vertical) {
+      inlineStart = ltr ? 'left' : 'right';
+      inlineEnd = ltr ? 'right' : 'left';
+      blockStart = 'top';
+      blockEnd = 'bottom';
+    } else if (mode.endsWith('rl')) {
+      inlineStart = ltr ? 'top' : 'bottom';
+      inlineEnd = ltr ? 'bottom' : 'top';
+      blockStart = 'right';
+      blockEnd = 'left';
+    } else {
+      inlineStart = ltr ? 'top' : 'bottom';
+      inlineEnd = ltr ? 'bottom' : 'top';
+      blockStart = 'left';
+      blockEnd = 'right';
+    }
+    final map = <String, String>{};
+    for (final family in const <String>['margin', 'padding']) {
+      map['$family-inline-start'] = '$family-$inlineStart';
+      map['$family-inline-end'] = '$family-$inlineEnd';
+      map['$family-block-start'] = '$family-$blockStart';
+      map['$family-block-end'] = '$family-$blockEnd';
+    }
+    // inset-* 落到定位属性本身（引擎读 top/right/bottom/left）。
+    map['inset-inline-start'] = inlineStart;
+    map['inset-inline-end'] = inlineEnd;
+    map['inset-block-start'] = blockStart;
+    map['inset-block-end'] = blockEnd;
+    // border 简写与 -width/-style/-color 长属性。
+    final borderSides = <String, String>{
+      'border-inline-start': inlineStart,
+      'border-inline-end': inlineEnd,
+      'border-block-start': blockStart,
+      'border-block-end': blockEnd,
+    };
+    borderSides.forEach((logical, side) {
+      map[logical] = 'border-$side';
+      map['$logical-width'] = 'border-$side-width';
+      map['$logical-style'] = 'border-$side-style';
+      map['$logical-color'] = 'border-$side-color';
+    });
+    return map;
   }
 
   /// 值级别的私有关键字（`vertical-align: duokan-middle-line` 等）。
