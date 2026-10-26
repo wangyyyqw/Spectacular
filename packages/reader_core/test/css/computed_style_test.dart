@@ -1155,6 +1155,122 @@ void main() {
     expect(child.overflowWrap, CssOverflowWrap.anywhere);
   });
 
+  test('font 简写重置子属性（line-height/font-variant/stretch/adjust）（W18）', () {
+    // 父级/同元素其它规则给出的子属性会被 font 简写重置为初始值。
+    final parent = style(
+      'parent',
+      'div { line-height: 2; font-weight: 700; font-style: italic; '
+          'font-variant: small-caps; font-stretch: condensed; '
+          'font-size-adjust: 0.5; }',
+    );
+    final reset = style('p', 'p { font: 16px serif; }', parent: parent);
+    expect(reset.fontSize, 16);
+    expect(reset.lineHeightFactor, isNull, reason: 'line-height 重置为 normal');
+    expect(reset.fontWeight, 400, reason: 'font-weight 重置为 normal');
+    expect(reset.italic, isFalse, reason: 'font-style 重置为 normal');
+    expect(reset.fontVariantCaps, CssFontVariantCaps.normal);
+    expect(reset.fontStretch, 100, reason: 'font-stretch 重置为 normal');
+    expect(reset.fontSizeAdjust, isNull, reason: 'font-size-adjust 重置为 none');
+    expect(reset.fontFamilies, contains('serif'));
+
+    // 简写里写出的子属性照常生效。
+    final full = style(
+      'p',
+      'p { font: italic small-caps bold condensed 16px/1.5 serif; }',
+    );
+    expect(full.italic, isTrue);
+    expect(full.fontVariantCaps, CssFontVariantCaps.smallCaps);
+    expect(full.fontWeight, 700);
+    expect(full.fontStretch, 75);
+    expect(full.lineHeight, closeTo(24, 0.001));
+    expect(full.fontSize, 16);
+
+    // 缺字体族 → 整条声明无效（不重置、不生效）。
+    final invalid = style('p', 'p { font: bold 16px; }', parent: parent);
+    expect(invalid.fontSize, 16, reason: '继承父级字号，说明声明被忽略');
+    expect(invalid.fontWeight, 700, reason: '父级字重保留，说明未重置');
+    expect(invalid.lineHeightFactor, 2);
+  });
+
+  test('font-stretch / font-size-adjust 字段与继承（W18）', () {
+    final defaults = style('p', 'p { color: red; }');
+    expect(defaults.fontStretch, 100);
+    expect(defaults.fontSizeAdjust, isNull);
+
+    expect(
+      style('p', 'p { font-stretch: condensed; }').fontStretch,
+      75,
+    );
+    expect(
+      style('p', 'p { font-stretch: semi-expanded; }').fontStretch,
+      112.5,
+    );
+    expect(
+      style('p', 'p { font-stretch: ultra-expanded; }').fontStretch,
+      200,
+    );
+    expect(
+      style('p', 'p { font-stretch: 87.5%; }').fontStretch,
+      87.5,
+    );
+    expect(
+      style('p', 'p { font-stretch: 120%; }').fontStretch,
+      120,
+    );
+    // 非法值回退继承/初始。
+    expect(
+      style('p', 'p { font-stretch: 10%; }').fontStretch,
+      100,
+    );
+
+    expect(
+      style('p', 'p { font-size-adjust: 0.5; }').fontSizeAdjust,
+      0.5,
+    );
+    // none 显式重置（不继承父级）。
+    final parent = style(
+      'parent',
+      'div { font-size-adjust: 0.5; font-stretch: expanded; }',
+    );
+    expect(
+      style('p', 'p { color: red; }', parent: parent).fontSizeAdjust,
+      0.5,
+      reason: '继承',
+    );
+    expect(
+      style('p', 'p { font-size-adjust: none; }', parent: parent)
+          .fontSizeAdjust,
+      isNull,
+      reason: 'none 覆盖继承值',
+    );
+    expect(
+      style('p', 'p { color: red; }', parent: parent).fontStretch,
+      125,
+      reason: 'font-stretch 继承',
+    );
+  });
+
+  test('font 简写：系统字体关键字（W18）', () {
+    for (final keyword in const <String>[
+      'caption',
+      'icon',
+      'menu',
+      'message-box',
+      'small-caption',
+      'status-bar',
+    ]) {
+      final system = style('p', 'p { font: $keyword; }');
+      expect(system.fontSize, 16, reason: keyword);
+      expect(system.fontFamilies.first.toLowerCase(), 'arial', reason: keyword);
+      expect(system.fontWeight, 400, reason: keyword);
+      expect(system.italic, isFalse, reason: keyword);
+      expect(system.lineHeightFactor, isNull, reason: keyword);
+      expect(system.fontStretch, 100, reason: keyword);
+    }
+    // -webkit- 前缀同样识别。
+    expect(style('p', 'p { font: -webkit-caption; }').fontSize, 16);
+  });
+
   test('font-variant：small-caps 族与 font 简写 token（W18）', () {
     final defaults = style('p', 'p { color: red; }');
     expect(defaults.fontVariantCaps, CssFontVariantCaps.normal);
