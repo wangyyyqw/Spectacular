@@ -183,6 +183,8 @@ class PagePainter {
     }
 
     _notifyPhase(PagePaintPhase.text);
+    // 字体度量缓存（装饰线几何用）：整个文本阶段共用，避免逐行重排探针。
+    final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
     for (var sliceIndex = 0; sliceIndex < geometries.length; sliceIndex++) {
       final geometry = geometries[sliceIndex];
       if (geometry.hidden) {
@@ -234,6 +236,7 @@ class PagePainter {
                 geometry,
                 x,
                 lineY,
+                fontMetricsCache,
               );
             } else {
               final painter = _linePainterFor(
@@ -257,6 +260,18 @@ class PagePainter {
                 geometry.textStyle,
                 x,
                 lineY,
+              );
+              // 装饰线（P2-17/P9-18）：line-through / overline 的实线按
+              // 浏览器几何重画，画在文字之上（浏览器同样在文字之后绘制）。
+              _paintLineDecoration(
+                canvas,
+                painter,
+                layout,
+                line,
+                geometry.style,
+                x,
+                lineY,
+                fontMetricsCache,
               );
               _paintInlineImages(
                 canvas,
@@ -795,14 +810,67 @@ class PagePainter {
       geometry.box.left + 1,
       geometry.box.left + textX - markerGutter,
     );
-    painter.paint(
-      canvas,
-      Offset(
-        x,
-        lineTop + (lineHeight - painter.height) / 2,
-      ),
-    );
+    final y = lineTop + (lineHeight - painter.height) / 2;
+    // 无序列表的 disc/circle/square：Chromium 不画字体里的项目符号字形
+    // （思源宋体的 • 只有 2px），而是画几何图形——直径约 0.4em、中心在
+    // 基线上方约 0.43em。这里按同一几何画形状，其余标记（数字/罗马/字母）
+    // 仍走文字绘制。
+    final shape = _markerShapeOf(marker);
+    final fontSize = geometry.textStyle.fontSize ?? 0;
+    if (shape != null && fontSize > 0) {
+      final baseline = painter.computeDistanceToActualBaseline(
+        TextBaseline.alphabetic,
+      );
+      _paintMarkerShape(
+        canvas,
+        shape,
+        left: x,
+        baseline: y + baseline,
+        fontSize: fontSize,
+        color: geometry.textStyle.color ?? const Color(0xFF000000),
+      );
+      painter.dispose();
+      return;
+    }
+    painter.paint(canvas, Offset(x, y));
     painter.dispose();
+  }
+
+  /// 项目符号字形 → 几何形状；非符号标记返回 null。
+  _MarkerShape? _markerShapeOf(String marker) => switch (marker) {
+    '•' => _MarkerShape.disc,
+    '○' => _MarkerShape.circle,
+    '▪' => _MarkerShape.square,
+    _ => null,
+  };
+
+  /// 按 Chromium 的列表项目符号几何画形状（直径 0.4em、中心在基线上
+  /// 0.43em；空心圆再描 1/16em 的边）。
+  void _paintMarkerShape(
+    Canvas canvas,
+    _MarkerShape shape, {
+    required double left,
+    required double baseline,
+    required double fontSize,
+    required Color color,
+  }) {
+    final diameter = fontSize * 0.4;
+    final centerY = baseline - fontSize * 0.43;
+    final rect = Rect.fromLTWH(left, centerY - diameter / 2, diameter, diameter);
+    switch (shape) {
+      case _MarkerShape.disc:
+        canvas.drawOval(rect, Paint()..color = color);
+      case _MarkerShape.square:
+        canvas.drawRect(rect, Paint()..color = color);
+      case _MarkerShape.circle:
+        canvas.drawOval(
+          rect,
+          Paint()
+            ..color = color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = math.max(1.0, fontSize / 16),
+        );
+    }
   }
 
   void _paintEllipsizedLine(
@@ -815,6 +883,7 @@ class PagePainter {
     _SliceGeometry geometry,
     double x,
     double y,
+    Map<TextStyle, ({double ascent, double descent})> fontMetricsCache,
   ) {
     final available = geometry.box.width -
         geometry.leftInset -
@@ -838,23 +907,34 @@ class PagePainter {
     canvas.clipRect(
       Rect.fromLTWH(geometry.box.left + x, y, visible, line.height),
     );
+    final painter = _linePainterFor(
+      page,
+      sliceIndex,
+      geometry.slice.startLine,
+      layout,
+      line,
+      geometry.textStyle,
+      punctCompression: geometry.punctCompression,
+      textColorOverride: geometry.textColorOverride,
+    );
     _paintLineText(
       canvas,
-      _linePainterFor(
-        page,
-        sliceIndex,
-        geometry.slice.startLine,
-        layout,
-        line,
-        geometry.textStyle,
-        punctCompression: geometry.punctCompression,
-        textColorOverride: geometry.textColorOverride,
-      ),
+      painter,
       lineText,
       _lineRuns(layout, line),
       geometry.textStyle,
       x,
       y,
+    );
+    _paintLineDecoration(
+      canvas,
+      painter,
+      layout,
+      line,
+      geometry.style,
+      x,
+      y,
+      fontMetricsCache,
     );
     canvas.restore();
     ellipsis.paint(canvas, Offset(geometry.box.left + x + visible, y));
@@ -1139,16 +1219,23 @@ class PagePainter {
       case CssBorderStyle.solid:
         canvas.drawLine(start, end, paint);
       case CssBorderStyle.dashed:
-        _paintDashes(canvas, start, end, paint, side.width * 3, side.width * 2);
+        // Chromium 实测（dpr=4，1～8px）：3～8px 线宽 dash = 2×宽、gap = 宽；
+        // 1～2px 细线改用 3×宽 / 2×宽（细线保持可辨识的段长）。
+        if (side.width < 3) {
+          _paintDashes(
+            canvas,
+            start,
+            end,
+            paint,
+            side.width * 3,
+            side.width * 2,
+          );
+        } else {
+          _paintDashes(canvas, start, end, paint, side.width * 2, side.width);
+        }
       case CssBorderStyle.dotted:
-        _paintDashes(
-          canvas,
-          start,
-          end,
-          paint..strokeCap = StrokeCap.round,
-          side.width,
-          side.width * 3,
-        );
+        // Chromium 实测：方点 = 线宽、gap = 线宽（butt 端头，圆头会外溢半宽）。
+        _paintDashes(canvas, start, end, paint, side.width, side.width);
       case CssBorderStyle.double:
         final offset = side.width / 3;
         final third = side.width / 3;
@@ -1275,6 +1362,182 @@ class PagePainter {
         Offset(x + boxes.first.left, y + segment.baselineShift),
       );
     }
+  }
+
+  /// 重画 text-decoration 的实线（line-through / overline），位置对齐浏览器。
+  ///
+  /// 引擎（Skia）按字体自带的 underline/strikeout 度量画线，与 Chromium
+  /// 实测有固定偏差（思源宋体 17px：line-through 低约 2px、overline 低约
+  /// 1px，见 tool/css_parity 的 04-decoration）。这里按 Chromium 的口径重算：
+  /// - line-through 顶边 = 基线 − (ascent − descent) / 2
+  /// - overline 顶边 = 基线 − (ascent + 线宽)
+  /// - 线宽 = max(1, floor(字号 / 10))（思源宋体无下划线度量时 Chromium
+  ///   同样按 1/10 em 兜底；10～30px 实测逐档一致）
+  ///
+  /// ascent/descent 用「去掉 line-height 覆盖」的探针排版取字体本身度量：
+  /// LineMetrics 的 ascent/descent 会按 height 等比缩放，直接拿来算会把
+  /// 行距算进装饰线位置。
+  ///
+  /// 装饰线随 `text-decoration` 传播到行内子元素，因此基础样式的线覆盖整行
+  /// （行尾空白不画），行内元素自己的线覆盖各自区间；上下标区间按 run 的
+  /// 基线偏移平移。点线/虚线/波浪/双线不在此处理（保留引擎线型）。
+  void _paintLineDecoration(
+    Canvas canvas,
+    TextPainter painter,
+    TextLayoutResult layout,
+    LineBox line,
+    ComputedStyle style,
+    double x,
+    double y,
+    Map<TextStyle, ({double ascent, double descent})> metricsCache,
+  ) {
+    final lineLength = line.end - line.start;
+    if (lineLength <= 0) {
+      return;
+    }
+    final runs = _lineRuns(layout, line);
+    final baseHasDecoration =
+        _isManualDecoration(style.textDecoration) &&
+        style.textDecorationStyle == CssTextDecorationStyle.solid;
+    final bands = <_DecorationBand>[];
+    if (baseHasDecoration) {
+      // 行尾空白不画装饰线（浏览器同样不画）。
+      final end = _trimmedLineEnd(layout.text, line.start, line.end);
+      if (end > 0) {
+        final metrics = _fontMetricsOf(style, metricsCache);
+        bands.add(
+          _DecorationBand(
+            start: 0,
+            end: end,
+            decoration: style.textDecoration,
+            color: style.textDecorationColor ?? style.color,
+            fontSize: style.fontSize,
+            baselineShift: 0,
+            ascent: metrics.ascent,
+            descent: metrics.descent,
+          ),
+        );
+      }
+    }
+    for (final run in runs) {
+      if (!_isManualDecoration(run.style.textDecoration) ||
+          run.style.textDecorationStyle != CssTextDecorationStyle.solid) {
+        continue;
+      }
+      final color = run.style.textDecorationColor ?? run.style.color;
+      // 与基础样式同款同色时不重复绘制。
+      if (baseHasDecoration &&
+          run.style.textDecoration == style.textDecoration &&
+          color == (style.textDecorationColor ?? style.color)) {
+        continue;
+      }
+      final metrics = _fontMetricsOf(run.style, metricsCache);
+      bands.add(
+        _DecorationBand(
+          start: run.start,
+          end: run.end,
+          decoration: run.style.textDecoration,
+          color: color,
+          fontSize: run.style.fontSize,
+          baselineShift: run.baselineShift,
+          ascent: metrics.ascent,
+          descent: metrics.descent,
+        ),
+      );
+    }
+    if (bands.isEmpty) {
+      return;
+    }
+    final baseline = painter.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
+    for (final band in bands) {
+      if (band.end <= band.start) {
+        continue;
+      }
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: band.start, extentOffset: band.end),
+      );
+      if (boxes.isEmpty) {
+        continue;
+      }
+      final left = x + boxes.first.left;
+      final right = x + boxes.last.right;
+      if (right <= left) {
+        continue;
+      }
+      final thickness = math.max(1.0, (band.fontSize / 10).floorToDouble());
+      final offset = band.decoration == CssTextDecoration.overline
+          ? (band.ascent + thickness).roundToDouble()
+          : ((band.ascent - band.descent) / 2).roundToDouble();
+      final top = y + baseline + band.baselineShift - offset;
+      canvas.drawRect(
+        Rect.fromLTWH(left, top, right - left, thickness),
+        Paint()..color = band.color,
+      );
+    }
+  }
+
+  /// 取字体本身的 ascent/descent（不受 line-height 影响），按样式缓存。
+  ///
+  /// `TextStyle.copyWith(height: null)` 清不掉 height（null 视为「不修改」），
+  /// 这里按原样式的字体字段新建一个不带 height 的探针样式。
+  ///
+  /// 探针文本「国Hg」同时覆盖 CJK 与拉丁，取到的是这一行参与排版的字体
+  /// 度量；若书籍字体缺其中一种而落到回退字体，装饰线位置会有 ≤1px 偏差
+  /// （Chromium 按被装饰文本自己的字体算，回退场景同样存在口径差异）。
+  ({double ascent, double descent}) _fontMetricsOf(
+    ComputedStyle style,
+    Map<TextStyle, ({double ascent, double descent})> cache,
+  ) {
+    final textStyle = TextLayoutEngine.textStyleFor(style);
+    final key = TextStyle(
+      fontSize: textStyle.fontSize,
+      fontFamily: textStyle.fontFamily,
+      fontFamilyFallback: textStyle.fontFamilyFallback,
+      fontWeight: textStyle.fontWeight,
+      fontStyle: textStyle.fontStyle,
+      letterSpacing: textStyle.letterSpacing,
+      wordSpacing: textStyle.wordSpacing,
+      locale: textStyle.locale,
+      leadingDistribution: textStyle.leadingDistribution,
+    );
+    final cached = cache[key];
+    if (cached != null) {
+      return cached;
+    }
+    final probe = TextPainter(
+      text: TextSpan(text: '国Hg', style: key),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final metrics = probe.computeLineMetrics();
+    final result = metrics.isEmpty
+        ? (
+            ascent: style.fontSize * 1.15,
+            descent: style.fontSize * 0.29,
+          )
+        : (ascent: metrics.first.ascent, descent: metrics.first.descent);
+    probe.dispose();
+    cache[key] = result;
+    return result;
+  }
+
+  /// 该装饰值是否需要绘制层重画（只处理实线 line-through / overline）。
+  bool _isManualDecoration(CssTextDecoration value) =>
+      value == CssTextDecoration.lineThrough ||
+      value == CssTextDecoration.overline;
+
+  /// 行内文本去掉行尾空白后的长度（相对行首）；全为空白时返回 0。
+  int _trimmedLineEnd(String text, int start, int end) {
+    var cursor = end;
+    while (cursor > start) {
+      final unit = text.codeUnitAt(cursor - 1);
+      if (unit != 0x20 && unit != 0x09 && unit != 0xA0) {
+        break;
+      }
+      cursor--;
+    }
+    return cursor - start;
   }
 
   /// 画行内图片（P9-06）：图片画在 U+FFFC 占位符的字形框上。
@@ -1466,6 +1729,11 @@ class PagePainter {
   }
 
   /// 组装一行的 span：行内样式区间 + justify 间隙字距（实现见 line_spans.dart）。
+  ///
+  /// `line-through` / `overline` 的实线从 span 树上摘掉（见
+  /// [_stripManualDecoration]）：引擎的装饰线位置按字体度量绘制，比浏览器
+  /// 低 1～2px（17px 字号实测），改由 [_paintLineDecoration] 按浏览器几何
+  /// 重画；下划线与点线/虚线/波浪/双线仍留在引擎侧。
   InlineSpan _lineSpan(
     TextLayoutResult layout,
     LineBox line,
@@ -1473,14 +1741,59 @@ class PagePainter {
     bool punctCompression = false,
     bool textAutospace = false,
     Color? textColorOverride,
-  }) => buildLineSpan(
-    layout: layout,
-    line: line,
-    baseStyle: baseStyle,
-    textColor: textColorOverride,
-    punctCompression: punctCompression,
-    textAutospace: textAutospace,
+  }) => _stripManualDecoration(
+    buildLineSpan(
+      layout: layout,
+      line: line,
+      baseStyle: baseStyle,
+      textColor: textColorOverride,
+      punctCompression: punctCompression,
+      textAutospace: textAutospace,
+    ),
   );
+
+  /// 递归摘掉 span 树上的 line-through / overline 实线。
+  InlineSpan _stripManualDecoration(InlineSpan span) {
+    if (span is! TextSpan) {
+      return span;
+    }
+    final children = span.children;
+    final style = span.style;
+    return TextSpan(
+      text: span.text,
+      style: style == null ? null : _withoutManualDecoration(style),
+      children: children == null
+          ? null
+          : [for (final child in children) _stripManualDecoration(child)],
+      recognizer: span.recognizer,
+      semanticsLabel: span.semanticsLabel,
+      locale: span.locale,
+      spellOut: span.spellOut,
+    );
+  }
+
+  /// 去掉 [style] 里的实线 line-through / overline，保留下划线与其他线型。
+  TextStyle _withoutManualDecoration(TextStyle style) {
+    final decoration = style.decoration;
+    if (decoration == null) {
+      return style;
+    }
+    if (!decoration.contains(TextDecoration.lineThrough) &&
+        !decoration.contains(TextDecoration.overline)) {
+      return style;
+    }
+    final decorationStyle = style.decorationStyle;
+    if (decorationStyle != null &&
+        decorationStyle != TextDecorationStyle.solid) {
+      // 点线/虚线/波浪/双线属线型差异，不做几何重画。
+      return style;
+    }
+    return style.copyWith(
+      decoration: decoration.contains(TextDecoration.underline)
+          ? TextDecoration.underline
+          : TextDecoration.none,
+    );
+  }
 }
 
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
@@ -1501,6 +1814,32 @@ class _LineSegment {
   final int end;
   final ComputedStyle? style;
   final double baselineShift;
+}
+
+/// 无序列表项目符号的形状（Chromium 用几何图形而非字体字形）。
+enum _MarkerShape { disc, circle, square }
+
+/// 一段装饰线（行内局部字符区间 + 线的样式 + 字体度量）。
+class _DecorationBand {
+  const _DecorationBand({
+    required this.start,
+    required this.end,
+    required this.decoration,
+    required this.color,
+    required this.fontSize,
+    required this.baselineShift,
+    required this.ascent,
+    required this.descent,
+  });
+
+  final int start;
+  final int end;
+  final CssTextDecoration decoration;
+  final Color color;
+  final double fontSize;
+  final double baselineShift;
+  final double ascent;
+  final double descent;
 }
 
 /// 一片切片在本页的几何与样式（P2-29：各绘制阶段共用同一份坐标）。

@@ -100,7 +100,7 @@ void main() {
     expect(shiftedRows.bottom - plainRows.bottom, closeTo(-6.4, 1.0));
   });
 
-  test('vertical-align: sub 段整体下移 0.15em', () async {
+  test('vertical-align: sub 段按父级字号 1/5+1 下移', () async {
     final base = _style();
     final sub = _style(const {'vertical-align': 'sub'});
     final plain = await _render('2', base);
@@ -118,8 +118,8 @@ void main() {
     final shiftedRows = _inkRows(shifted);
     expect(
       shiftedRows.top - plainRows.top,
-      closeTo(2.4, 1.0),
-      reason: '下标墨迹整体下移',
+      closeTo(4.2, 1.0),
+      reason: '下标墨迹整体下移（父级字号 16/5+1）',
     );
   });
 
