@@ -18,7 +18,9 @@ import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
 import 'a11y/semantics_layer.dart';
 import 'menu/reader_menu_overlay.dart';
+import 'panels/margin_editor.dart';
 import 'page_furniture/page_furniture.dart';
+import 'theme/reader_margins.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
@@ -60,6 +62,8 @@ class ReaderPage extends StatefulWidget {
     this.paragraphCache,
     this.showPageFooter = true,
     this.bookTitle = '阅读',
+    this.margins,
+    this.onMarginsChanged,
   });
 
   /// 章节页来源。
@@ -110,6 +114,12 @@ class ReaderPage extends StatefulWidget {
   /// 书名（菜单顶部栏显示）。
   final String bookTitle;
 
+  /// 页边距（P8-10 边距调节器）；为 null 时用 padding + 系统安全区。
+  final ReaderMargins? margins;
+
+  /// 页边距变化（调节器「保留」时回调，调用方持久化）。
+  final ValueChanged<ReaderMargins>? onMarginsChanged;
+
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
 
@@ -148,6 +158,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
+
+  /// 是否在边距调节器里（全屏编辑态，压在菜单之上）。
+  bool _editingMargins = false;
+
+  /// 当前生效的页边距（未设置时按安全区 + padding 推导）。
+  ReaderMargins get _activeMargins =>
+      widget.margins ??
+      ReaderMargins.defaults(
+        safeTop: MediaQuery.maybeViewPaddingOf(context)?.top ?? 0,
+        safeBottom: MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0,
+        side: _effectivePadding().left,
+        inner: 12,
+      );
 
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
@@ -215,9 +238,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final base = edges == null
         ? widget.padding
         : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
-    // 安全区：顶部（状态栏/挖孔）与底部（手势条）都不放正文/页眉页脚。
-    // 沉浸模式下系统栏隐藏，但切口高度仍由 viewPadding 提供；菜单唤出系统栏
-    // 后 viewPadding 变大，布局自动重建（P2-36 真机 + 设计稿 52px 顶部留白）。
+    // 设置里显式给了页边距（含安全区两段）时直接用它：边距调节器允许把
+    // 上下外段调到 0，让正文铺进安全区，所以这里不能再叠加 viewPadding。
+    final margins = widget.margins;
+    if (margins != null) {
+      return margins.toPadding();
+    }
+    // 未设置时：安全区顶部（状态栏/挖孔）与底部（手势条）都不放正文。
     final viewPadding = MediaQuery.maybeViewPaddingOf(context);
     final topInset = viewPadding?.top ?? 0;
     final bottomInset = viewPadding?.bottom ?? 0;
@@ -1326,9 +1353,34 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onAddBookmark: () {
                         unawaited(_addBookmark());
                       },
+                      onOpenMarginEditor: () {
+                        _closeDrawer();
+                        _toggleReaderMenu();
+                        setState(() => _editingMargins = true);
+                      },
                     ),
               onCloseDrawer: _closeDrawer,
             ),
+            // 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态。
+            if (_editingMargins)
+              Positioned.fill(
+                child: MarginEditor(
+                  margins: _activeMargins,
+                  defaults: ReaderMargins.defaults(
+                    safeTop:
+                        MediaQuery.maybeViewPaddingOf(context)?.top ?? 0,
+                    safeBottom:
+                        MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0,
+                    side: ReaderSettingsDefaults.horizontalPadding,
+                    inner: 12,
+                  ),
+                  onCancel: () => setState(() => _editingMargins = false),
+                  onApply: (margins) {
+                    widget.onMarginsChanged?.call(margins);
+                    setState(() => _editingMargins = false);
+                  },
+                ),
+              ),
             // 跳章浮层（P4-12，§27.2）：目标章名 + 不确定进度，完成后淡出。
             _JumpLoadingOverlay(title: _session.jumpLoadingTitle),
           ],
@@ -1406,6 +1458,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onTocSelect,
     required this.onBookmarkSelect,
     required this.onAddBookmark,
+    required this.onOpenMarginEditor,
   });
 
   final ReaderMenuEntry entry;
@@ -1430,6 +1483,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<TocEntry> onTocSelect;
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
   final VoidCallback onAddBookmark;
+  final VoidCallback onOpenMarginEditor;
 
   @override
   State<_ReaderDrawerContent> createState() => _ReaderDrawerContentState();
@@ -1475,6 +1529,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           themeId: widget.themeId,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
+          onOpenMarginEditor: widget.onOpenMarginEditor,
         );
       case ReaderMenuEntry.settings:
         return SettingsPanel(

@@ -69,6 +69,8 @@ class SettingsPanel extends StatefulWidget {
     this.onReset,
     this.onBack,
     this.section = SettingsSection.all,
+    this.onOpenMarginEditor,
+    this.marginsActive = false,
   });
 
   /// 初始排版覆盖。
@@ -103,6 +105,12 @@ class SettingsPanel extends StatefulWidget {
 
   /// 只渲染某一段（设计稿抽屉面板按段拆分）。
   final SettingsSection section;
+
+  /// 打开边距调节器（排版段入口）。
+  final VoidCallback? onOpenMarginEditor;
+
+  /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
+  final bool marginsActive;
 
   @override
   State<SettingsPanel> createState() => _SettingsPanelState();
@@ -218,6 +226,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     _emit();
                   },
                 ),
+                if (!widget.marginsActive)
                 _slider(
                   key: 'settings-padding',
                   label: '页边距',
@@ -231,6 +240,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     _emit();
                   },
                 ),
+                if (widget.onOpenMarginEditor != null) ...[
+                  const SizedBox(height: 8),
+                  _EntryButton(
+                    key: const ValueKey<String>('settings-margin-editor'),
+                    icon: Icons.aspect_ratio,
+                    label: '边距调节器',
+                    onTap: widget.onOpenMarginEditor!,
+                  ),
+                ],
                 ],
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.theme) ...[
@@ -387,6 +405,53 @@ class _SettingsPanelState extends State<SettingsPanel> {
         child: Text(
           theme.name,
           style: TextStyle(color: theme.text, fontSize: 12),
+        ),
+      ),
+    );
+  }
+}
+
+/// 列表入口按钮（设计稿 `.type-btn`：填充底、圆角 18、右侧箭头）。
+class _EntryButton extends StatelessWidget {
+  const _EntryButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.onSurface.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          height: 36,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(icon, size: 16, color: scheme.onSurface.withValues(alpha: 0.8)),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: scheme.onSurface),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: scheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ],
+          ),
         ),
       ),
     );

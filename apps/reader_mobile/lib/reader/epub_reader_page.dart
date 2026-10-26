@@ -7,6 +7,7 @@ import 'package:reader_core/perf/trace.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/panels/search_panel.dart';
+import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -35,6 +36,7 @@ class EpubReaderPage extends StatefulWidget {
     this.onSettingsChanged,
     this.onSearch,
     this.bookTitle = '阅读',
+    this.onMarginsChanged,
   });
 
   /// EPUB 字节。
@@ -60,6 +62,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 书名（菜单顶部栏用）。
   final String bookTitle;
+
+  /// 页边距变化（边距调节器「保留」）。
+  final ValueChanged<ReaderMargins>? onMarginsChanged;
 
   /// 搜索回调（P4-26）：由调用方接入索引。
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
@@ -171,6 +176,8 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       ),
       onSearch: widget.onSearch,
       bookTitle: widget.bookTitle,
+      margins: settings.margins,
+      onMarginsChanged: widget.onMarginsChanged,
     );
   }
 }

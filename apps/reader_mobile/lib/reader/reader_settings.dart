@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
@@ -16,6 +19,7 @@ class ReaderSettings {
     this.themeId = ReaderSettingsDefaults.themeId,
     this.backgroundId = 'none',
     this.inkMode = false,
+    this.margins,
   });
 
   /// 字号。
@@ -38,6 +42,9 @@ class ReaderSettings {
 
   /// 墨水屏模式（P4-23）。
   final bool inkMode;
+
+  /// 页边距（P8-10 边距调节器）；null 表示用默认 padding + 系统安全区。
+  final ReaderMargins? margins;
 
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
@@ -83,6 +90,7 @@ class ReaderSettings {
     themeId: id,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    margins: margins,
   );
 
   /// 复制并替换背景。
@@ -94,6 +102,7 @@ class ReaderSettings {
     themeId: themeId,
     backgroundId: id,
     inkMode: inkMode,
+    margins: margins,
   );
 
   /// 复制并替换墨水屏开关。
@@ -105,6 +114,19 @@ class ReaderSettings {
     themeId: themeId,
     backgroundId: backgroundId,
     inkMode: enabled,
+    margins: margins,
+  );
+
+  /// 复制并替换页边距。
+  ReaderSettings copyWithMargins(ReaderMargins value) => ReaderSettings(
+    fontSize: fontSize,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: value,
   );
 
   @override
@@ -116,7 +138,8 @@ class ReaderSettings {
       other.horizontalPadding == horizontalPadding &&
       other.themeId == themeId &&
       other.backgroundId == backgroundId &&
-      other.inkMode == inkMode;
+      other.inkMode == inkMode &&
+      other.margins == margins;
 
   @override
   int get hashCode => Object.hash(
@@ -127,6 +150,7 @@ class ReaderSettings {
     themeId,
     backgroundId,
     inkMode,
+    margins,
   );
 }
 
@@ -142,6 +166,9 @@ class ReaderSettingsStore {
   static const String keyLineHeight = 'reader.lineHeight';
   static const String keyParagraphSpacing = 'reader.paragraphSpacing';
   static const String keyPadding = 'reader.padding';
+
+  /// 页边距（JSON）。
+  static const String keyMargins = 'reader.margins';
   static const String keyThemeId = 'reader.themeId';
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyInkMode = 'reader.inkMode';
@@ -162,7 +189,21 @@ class ReaderSettingsStore {
           ReaderSettingsDefaults.themeId,
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
+      margins: _readMargins(await _library.getSetting(keyMargins)),
     );
+  }
+
+  /// 保存设置（逐项 upsert）。
+  /// 读取页边距 JSON（损坏时按未设置处理）。
+  static ReaderMargins? _readMargins(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    try {
+      return ReaderMargins.fromJson(jsonDecode(raw));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 保存设置（逐项 upsert）。
@@ -186,6 +227,11 @@ class ReaderSettingsStore {
     await _library.setSetting(keyThemeId, settings.themeId);
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
     await _library.setSetting(keyInkMode, settings.inkMode.toString());
+    final margins = settings.margins;
+    await _library.setSetting(
+      keyMargins,
+      margins == null ? '' : jsonEncode(margins.toJson()),
+    );
   }
 
   static double? _readDouble(String? value) {
