@@ -709,6 +709,297 @@ void main() {
     );
   });
 
+  test('transform：有序列表 + 百分比标记（W11）', () {
+    // translate：px 与百分比都保留；百分比不提前换算成 px。
+    final translate = style(
+      'p',
+      'p { transform: translate(20px, 10%); }',
+    ).transforms;
+    expect(translate, hasLength(1));
+    expect(translate.single.kind, CssTransformKind.translate);
+    expect(translate.single.x!.value, 20);
+    expect(translate.single.x!.isPercent, isFalse);
+    expect(translate.single.y!.value, 10);
+    expect(translate.single.y!.isPercent, isTrue);
+    expect(translate.single.y!.resolve(200), closeTo(20, 0.001));
+
+    // 组合顺序保留；translateX 的 y 补 0，scaleX 的 sy 补 1。
+    final combo = style(
+      'p',
+      'p { transform: translateX(-10px) scaleX(1.2); }',
+    ).transforms;
+    expect(combo, hasLength(2));
+    expect(combo[0].kind, CssTransformKind.translate);
+    expect(combo[0].x!.value, -10);
+    expect(combo[0].y!.value, 0);
+    expect(combo[1].kind, CssTransformKind.scale);
+    expect(combo[1].sx, closeTo(1.2, 0.001));
+    expect(combo[1].sy, 1);
+
+    // scale(0.8) 的 sy 为 null（同 sx）；百分比按倍数归一。
+    final scale = style('p', 'p { transform: scale(0.8); }').transforms.single;
+    expect(scale.sy, isNull);
+    final scalePercent = style(
+      'p',
+      'p { transform: scale(150%, 50%); }',
+    ).transforms.single;
+    expect(scalePercent.sx, closeTo(1.5, 0.001));
+    expect(scalePercent.sy, closeTo(0.5, 0.001));
+
+    // 角度：deg / turn 都折算成度。
+    expect(
+      style('p', 'p { transform: rotate(15deg); }').transforms.single.angleDeg,
+      15,
+    );
+    expect(
+      style('p', 'p { transform: rotate(0.5turn); }').transforms.single.angleDeg,
+      closeTo(180, 0.001),
+    );
+
+    // matrix 六个分量；skew 两轴角度。
+    final matrix = style(
+      'p',
+      'p { transform: matrix(1, 0.2, 0.3, 1, 10, 20); }',
+    ).transforms.single;
+    expect(matrix.kind, CssTransformKind.matrix);
+    expect(matrix.values, <double>[1, 0.2, 0.3, 1, 10, 20]);
+    final skew = style(
+      'p',
+      'p { transform: skew(10deg, 5deg); }',
+    ).transforms.single;
+    expect(skew.kind, CssTransformKind.skew);
+    expect(skew.axDeg, 10);
+    expect(skew.ayDeg, 5);
+
+    // none / 未声明 → 空；未支持函数跳过（不报错）。
+    expect(style('p', 'p { transform: none; }').transforms, isEmpty);
+    expect(style('p', 'p { color: red; }').transforms, isEmpty);
+    final unsupported = style(
+      'p',
+      'p { transform: translate3d(1px, 2px, 3px) rotate(30deg); }',
+    ).transforms;
+    expect(unsupported, hasLength(1), reason: '未支持的 translate3d 被跳过');
+    expect(unsupported.single.kind, CssTransformKind.rotate);
+  });
+
+  test('transform-origin：默认 50%/50%，关键词与长度（W11）', () {
+    final initial = style('p', 'p { color: red; }');
+    expect(initial.transformOriginX.value, 50);
+    expect(initial.transformOriginX.isPercent, isTrue);
+    expect(initial.transformOriginY.value, 50);
+    expect(initial.transformOriginY.isPercent, isTrue);
+
+    final leftTop = style(
+      'p',
+      'p { transform-origin: left top; }',
+    );
+    expect(leftTop.transformOriginX.value, 0);
+    expect(leftTop.transformOriginY.value, 0);
+    expect(leftTop.transformOriginX.isPercent, isTrue);
+
+    final mixed = style('p', 'p { transform-origin: 20px 30%; }');
+    expect(mixed.transformOriginX.value, 20);
+    expect(mixed.transformOriginX.isPercent, isFalse);
+    expect(mixed.transformOriginY.value, 30);
+    expect(mixed.transformOriginY.isPercent, isTrue);
+
+    // 单值 top 只改纵轴，横轴取 center。
+    final top = style('p', 'p { transform-origin: top; }');
+    expect(top.transformOriginX.value, 50);
+    expect(top.transformOriginY.value, 0);
+  });
+
+  test('writing-mode / text-orientation / direction 解析与继承（W11）', () {
+    final defaults = style('p', 'p { color: red; }');
+    expect(defaults.writingMode, CssWritingMode.horizontalTb);
+    expect(defaults.textOrientation, CssTextOrientation.mixed);
+    expect(defaults.direction, CssDirection.ltr);
+
+    expect(
+      style('p', 'p { writing-mode: vertical-rl; }').writingMode,
+      CssWritingMode.verticalRl,
+    );
+    expect(
+      style('p', 'p { writing-mode: vertical-lr; }').writingMode,
+      CssWritingMode.verticalLr,
+    );
+    // CSS2 旧值。
+    expect(
+      style('p', 'p { writing-mode: tb-rl; }').writingMode,
+      CssWritingMode.verticalRl,
+    );
+    // 多看私有属性经别名表落到 writing-mode。
+    expect(
+      style('p', 'p { -duokan-writing-mode: vertical-rl; }').writingMode,
+      CssWritingMode.verticalRl,
+    );
+
+    expect(
+      style('p', 'p { text-orientation: upright; }').textOrientation,
+      CssTextOrientation.upright,
+    );
+    expect(
+      style('p', 'p { text-orientation: sideways-right; }').textOrientation,
+      CssTextOrientation.sideways,
+    );
+    expect(style('p', 'p { direction: rtl; }').direction, CssDirection.rtl);
+
+    // 三者都继承。
+    final parent = style(
+      'parent',
+      'div { writing-mode: vertical-rl; text-orientation: upright; '
+          'direction: rtl; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.writingMode, CssWritingMode.verticalRl);
+    expect(child.textOrientation, CssTextOrientation.upright);
+    expect(child.direction, CssDirection.rtl);
+    // 子级显式声明覆盖继承值。
+    final override = style(
+      'p',
+      'p { writing-mode: horizontal-tb; direction: ltr; }',
+      parent: parent,
+    );
+    expect(override.writingMode, CssWritingMode.horizontalTb);
+    expect(override.direction, CssDirection.ltr);
+  });
+
+  test('overflow：枚举解析且不继承（W11）', () {
+    expect(style('p', 'p { color: red; }').overflow, CssOverflow.visible);
+    expect(
+      style('p', 'p { overflow: hidden; }').overflow,
+      CssOverflow.hidden,
+    );
+    expect(
+      style('p', 'p { overflow: clip; }').overflow,
+      CssOverflow.clip,
+    );
+    expect(
+      style('p', 'p { overflow: scroll; }').overflow,
+      CssOverflow.scroll,
+    );
+    expect(style('p', 'p { overflow: auto; }').overflow, CssOverflow.auto);
+    // 两轴写法只取首值；overflow-x 兜底。
+    expect(
+      style('p', 'p { overflow: hidden auto; }').overflow,
+      CssOverflow.hidden,
+    );
+    expect(
+      style('p', 'p { overflow-x: scroll; }').overflow,
+      CssOverflow.scroll,
+    );
+    // 不继承：父级 hidden，子级仍 visible。
+    final parent = style('parent', 'div { overflow: hidden; }');
+    expect(parent.overflow, CssOverflow.hidden);
+    expect(
+      style('p', 'p { color: red; }', parent: parent).overflow,
+      CssOverflow.visible,
+    );
+  });
+
+  test('columns：count/width/gap/rule 与 columns 简写（W11）', () {
+    final count = style('p', 'p { columns: 2; }');
+    expect(count.columnCount, 2);
+    expect(count.columnWidth, isNull);
+
+    final shorthand = style('p', 'p { columns: 3 60px; }');
+    expect(shorthand.columnCount, 3);
+    expect(shorthand.columnWidth!.value, 60);
+
+    final widthOnly = style('p', 'p { columns: 200px; }');
+    expect(widthOnly.columnCount, isNull);
+    expect(widthOnly.columnWidth!.value, 200);
+
+    final auto = style('p', 'p { columns: auto; }');
+    expect(auto.columnCount, isNull);
+    expect(auto.columnWidth, isNull);
+
+    // 长属性：count 为整数、width 支持 em、gap 支持 normal/长度。
+    final longhands = style(
+      'p',
+      'p { column-count: 4; column-width: 10em; column-gap: 16px; }',
+    );
+    expect(longhands.columnCount, 4);
+    expect(longhands.columnWidth!.value, 160);
+    expect(longhands.columnGap, 16);
+    expect(style('p', 'p { column-gap: normal; }').columnGap, isNull);
+
+    // 简写与长属性同时出现：长属性优先（简写只兜底）。
+    final precedence = style(
+      'p',
+      'p { column-count: 5; columns: 2 100px; }',
+    );
+    expect(precedence.columnCount, 5);
+    expect(precedence.columnWidth!.value, 100);
+
+    // column-rule 复用 CssBorderSide：`1px solid #999`。
+    final rule = style('p', 'p { column-rule: 1px solid #999; }').columnRule!;
+    expect(rule.width, 1);
+    expect(rule.style, CssBorderStyle.solid);
+    expect(rule.color, const Color(0xFF999999));
+    expect(style('p', 'p { color: red; }').columnRule, isNull);
+
+    // 不继承。
+    final parent = style('parent', 'div { column-count: 3; }');
+    expect(
+      style('p', 'p { color: red; }', parent: parent).columnCount,
+      isNull,
+    );
+  });
+
+  test('hyphens / word-break / overflow-wrap 解析与继承（W11）', () {
+    final defaults = style('p', 'p { color: red; }');
+    expect(defaults.hyphens, CssHyphens.manual);
+    expect(defaults.wordBreak, CssWordBreak.normal);
+    expect(defaults.overflowWrap, CssOverflowWrap.normal);
+
+    expect(style('p', 'p { hyphens: auto; }').hyphens, CssHyphens.auto);
+    expect(style('p', 'p { hyphens: none; }').hyphens, CssHyphens.none);
+    // 私有/旧前缀经别名表落到 hyphens。
+    expect(
+      style('p', 'p { -epub-hyphens: auto; }').hyphens,
+      CssHyphens.auto,
+    );
+    expect(
+      style('p', 'p { -webkit-hyphens: auto; }').hyphens,
+      CssHyphens.auto,
+    );
+
+    expect(
+      style('p', 'p { word-break: break-all; }').wordBreak,
+      CssWordBreak.breakAll,
+    );
+    expect(
+      style('p', 'p { word-break: keep-all; }').wordBreak,
+      CssWordBreak.keepAll,
+    );
+
+    expect(
+      style('p', 'p { overflow-wrap: break-word; }').overflowWrap,
+      CssOverflowWrap.breakWord,
+    );
+    expect(
+      style('p', 'p { overflow-wrap: anywhere; }').overflowWrap,
+      CssOverflowWrap.anywhere,
+    );
+    // 旧名 word-wrap 兜底（别名表未登记该旧名）。
+    expect(
+      style('p', 'p { word-wrap: break-word; }').overflowWrap,
+      CssOverflowWrap.breakWord,
+    );
+
+    // 三者都继承。
+    final parent = style(
+      'parent',
+      'div { hyphens: auto; word-break: break-all; '
+          'overflow-wrap: anywhere; }',
+    );
+    final child = style('p', 'p { color: red; }', parent: parent);
+    expect(child.hyphens, CssHyphens.auto);
+    expect(child.wordBreak, CssWordBreak.breakAll);
+    expect(child.overflowWrap, CssOverflowWrap.anywhere);
+  });
+
   test('width/height 的 px、em、百分比与 auto', () {
     final px = style('p', 'p { width: 120px; height: 2em; }');
     expect(px.width?.value, 120);

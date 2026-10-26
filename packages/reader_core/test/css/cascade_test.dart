@@ -274,7 +274,7 @@ void main() {
   });
 
   test('继承字段清单与显式文字色标记', () {
-    expect(Cascade.inheritedProperties, hasLength(18));
+    expect(Cascade.inheritedProperties, hasLength(23));
     final parent = compute(
       id: 'parent',
       rules: [rule('div { color: red; font-size: 18px; }')],
