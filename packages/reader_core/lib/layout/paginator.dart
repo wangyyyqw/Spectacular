@@ -951,7 +951,6 @@ class Paginator {
     flush();
     return widest;
   }
-
   /// 对一章块列表分页。
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
@@ -1166,6 +1165,38 @@ class Paginator {
       // break-inside: avoid：能整块放进新页时先收页，不在当前页拆开（P2-17）。
       final blockExtent =
           block.leadingExtent + block.height + block.trailingExtent;
+      // 竖排（writing-mode: vertical-rl/vertical-lr）：`lines` 其实是「列」，
+      // 列沿横轴并排、整块同高（= 块高），不能按纵向空间把列切成多页。
+      // 这里整块出一片（覆盖全部列），块高决定流推进；放不下当前页则先换页。
+      if (block.layout.isVertical) {
+        // 竖排块的内容高 = max(最长列, 声明 height)（声明 height 决定列长与盒高）。
+        var contentHeight = block.height;
+        final declaredHeight = block.style?.height?.resolve(contentHeight);
+        if (declaredHeight != null && declaredHeight > contentHeight) {
+          contentHeight = declaredHeight;
+        }
+        final extent = block.leadingExtent + contentHeight + block.trailingExtent;
+        if (extent > available + tolerance && slices.isNotEmpty) {
+          record();
+        }
+        slices.add(
+          PageBlockSlice(
+            block: block,
+            startLine: 0,
+            endLine: block.layout.lineCount,
+            // 与横排切片同口径：高度含上下段距（绘制按 slice.height 推进 y，
+            // 对照工具也按 slice.height − leading − trailing 折算盒高）。
+            height: extent,
+            leadingExtent: block.leadingExtent,
+            trailingExtent: block.trailingExtent,
+            leftInset: block.leftInset,
+          ),
+        );
+        used += extent;
+        available -= extent;
+        continue;
+      }
+
       if (block.breakInsideAvoid &&
           slices.isNotEmpty &&
           blockExtent > available + tolerance &&

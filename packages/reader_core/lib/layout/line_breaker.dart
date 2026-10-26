@@ -274,6 +274,7 @@ class InlineBoxSpec {
     this.marginTop = 0,
     this.marginBottom = 0,
     this.baselineOffset = 0,
+    this.contentHeight,
     this.payload,
   });
 
@@ -298,16 +299,26 @@ class InlineBoxSpec {
   /// 基线模式下的额外位移（正数向上抬）。
   final double baselineOffset;
 
+  /// 盒内内容的排版高（`display:inline-block` 子内容溢出的高度，可空）。
+  ///
+  /// Chrome 口径：盒内内容溢出时，行盒/段落高度取**内容高**（超出盒高的部分
+  /// 计入基线以上延伸），见 cases/53（120×34 盒、内部 2 行 54.38 → p 高 54.38）。
+  final double? contentHeight;
+
   /// 绘制层用的引用（片段、样式等由上层决定）。
   final Object? payload;
 
   /// 盒总高（含上下 margin）。
   double get outerHeight => height + marginTop + marginBottom;
 
+  /// 参与行盒计算的盒高：`max(margin box 高, 内容高)`（内容溢出向下延伸）。
+  double get effectiveHeight =>
+      math.max(outerHeight, contentHeight ?? outerHeight);
+
   /// 基线以上延伸。
   double get ascent => switch (verticalAlign) {
     InlineBoxVerticalAlign.baseline =>
-      outerHeight - marginBottom - baselineOffset,
+      effectiveHeight - marginBottom - baselineOffset,
     InlineBoxVerticalAlign.middle => outerHeight / 2 + baselineOffset,
     InlineBoxVerticalAlign.top => outerHeight,
     InlineBoxVerticalAlign.bottom => 0,
@@ -1573,10 +1584,17 @@ abstract final class TextLayoutEngine {
     // `/`（UAX#14 SY）在 ICU/Skia 里会给出断行机会，而 Chrome 不在
     // `right/bottom` 这类 token 内断行：用零宽 WORD JOINER 包住 SOLIDUS
     // 压掉两侧断点，测量后再把行偏移映射回原文。
-    final guarded = inlineBoxMarks.isEmpty && text.contains('/')
-        ? _applyNoBreakGuards(text)
-        : null;
-    final measureText = guarded?.text ?? text;
+    // `/`（UAX#14 SY）在 ICU/Skia 里会给出断行机会，Chrome 不在 token 内断行：
+    // 记下「含 `/` 的 token」区间，测量后把落在其中的紧急断行合并回去。
+    // 作者显式要求「任意位置可断」（break-all / anywhere / break-word）时不合并。
+    final allowsAnyBreak =
+        style.wordBreak == CssWordBreak.breakAll ||
+        style.overflowWrap == CssOverflowWrap.anywhere ||
+        style.overflowWrap == CssOverflowWrap.breakWord;
+    final guardRanges = inlineBoxMarks.isEmpty && !allowsAnyBreak
+        ? _guardedTokenRanges(text)
+        : const <(int, int)>[];
+    final measureText = text;
     final painter = TextPainter(
       text: inlineBoxMarks.isNotEmpty
           ? _inlineBoxSpans(
@@ -1652,14 +1670,14 @@ abstract final class TextLayoutEngine {
     }
     // Skia 会对放不下的 token 做逐字紧急断行，Chrome 则让 token 整段溢出：
     // 把「断点处没有合法断行机会」的相邻行合并回去（URL、right/bottom 等）。
-    final mergedLines = guarded == null
+    final mergedLines = guardRanges.isEmpty
         ? lines
         : _mergeUnbreakableLines(
             lines,
             measureText,
             baseStyle,
             textScaleFactor,
-            guarded.boundaries,
+            guardRanges,
           );
     var truncated = _applyTextOverflow(
       lines: mergedLines,
@@ -1669,9 +1687,6 @@ abstract final class TextLayoutEngine {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
     );
-    if (guarded != null) {
-      truncated = _mapLineOffsets(truncated, guarded.offsets);
-    }
     return _applyInlineVerticalBoxes(
       _applyInlineBoxes(
         truncated,
@@ -1936,9 +1951,28 @@ abstract final class TextLayoutEngine {
         placement.descent - lineDescent,
       );
     }
+    // Chrome 口径（实测 cases/53）：行盒高 = max(行高, 盒 margin box 高)，
+    // 不是 ascent + descent 相加（否则会比 Chrome 多出文字 descent）。
+    final heights = List<double>.filled(lines.length, 0);
+    final ascents = List<double>.filled(lines.length, 0);
+    for (var i = 0; i < lines.length; i++) {
+      var boxHeight = 0.0;
+      var boxAscent = 0.0;
+      for (final placement in perLine[i]) {
+        boxHeight = math.max(boxHeight, placement.ascent + placement.descent);
+        boxAscent = math.max(boxAscent, placement.ascent);
+      }
+      final baseAscent = lines[i].baseline - lines[i].top;
+      heights[i] = math.max(lines[i].height, boxHeight);
+      ascents[i] = math.min(
+        heights[i],
+        math.max(baseAscent, boxAscent),
+      );
+    }
     var grown = false;
     for (var i = 0; i < lines.length; i++) {
-      if (growUp[i] > 0.01 || growDown[i] > 0.01) {
+      if ((heights[i] - lines[i].height).abs() > 0.01 ||
+          (ascents[i] - (lines[i].baseline - lines[i].top)).abs() > 0.01) {
         grown = true;
         break;
       }
@@ -1958,17 +1992,15 @@ abstract final class TextLayoutEngine {
     final adjusted = <LineBox>[];
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final ascent = line.baseline - line.top;
-      final up = math.max(0.0, growUp[i]);
-      final down = math.max(0.0, growDown[i]);
-      final height = line.height + up + down;
+      final height = heights[i];
+      final ascent = ascents[i];
       adjusted.add(
         LineBox(
           start: line.start,
           end: line.end,
           top: top,
           height: height,
-          baseline: top + ascent + up,
+          baseline: top + ascent,
           width: line.width,
           indent: line.indent,
           isLastLine: line.isLastLine,
@@ -2254,19 +2286,20 @@ abstract final class TextLayoutEngine {
     String text,
     TextStyle baseStyle,
     double textScaleFactor,
-    Set<int> guardBoundaries,
+    List<(int, int)> guardRanges,
   ) {
-    if (lines.length < 2 || guardBoundaries.isEmpty) {
+    if (lines.length < 2 || guardRanges.isEmpty) {
       return lines;
     }
     final merged = <LineBox>[];
     var current = lines.first;
     for (var i = 1; i < lines.length; i++) {
       final next = lines[i];
-      // 只在被守卫的 `/` 处合并（Skia 会在 SOLIDUS 后紧急断行，Chrome 不会）。
+      // 只在「含 `/` 的 token」内部合并（Skia 会对放不下的 token 逐字紧急
+      // 断行，Chrome 让 token 整段溢出）。
       final canBreak =
           current.end != next.start ||
-          !guardBoundaries.contains(current.end);
+          !_insideGuardedRanges(current.end, guardRanges);
       if (canBreak) {
         merged.add(current);
         current = next;
@@ -2322,66 +2355,72 @@ abstract final class TextLayoutEngine {
     return result;
   }
 
-  /// 插入零宽 WORD JOINER 压掉 `/` 两侧的断行机会（UAX#14 SY 在 ICU 实现里
-  /// 会给出断点，Chrome 不在 token 内断行）。返回 (守卫文本, 偏移映射)。
-  static _GuardedText _applyNoBreakGuards(String text) {
-    final buffer = StringBuffer();
-    final offsets = <int>[0];
-    final boundaries = <int>{};
-    for (var i = 0; i < text.length; i++) {
-      final char = text[i];
-      if (char == '/') {
-        final hasPrev = i > 0 && !_isBreakGuardSpace(text[i - 1]);
-        final hasNext = i + 1 < text.length && !_isBreakGuardSpace(text[i + 1]);
-        if (hasPrev) {
-          buffer.write(_wordJoiner);
-          offsets.add(i);
-        }
-        boundaries.add(buffer.length);
-        buffer.write(char);
-        offsets.add(i + 1);
-        if (hasNext) {
-          buffer.write(_wordJoiner);
-          offsets.add(i + 1);
-        }
-      } else {
-        buffer.write(char);
-        offsets.add(i + 1);
-      }
+  /// 含 `/`（SOLIDUS）的 token 区间（升序、已合并重叠）；两侧都是空白时不算。
+  static List<(int, int)> _guardedTokenRanges(String text) {
+    if (!text.contains('/')) {
+      return const <(int, int)>[];
     }
-    return _GuardedText(
-      text: buffer.toString(),
-      offsets: offsets,
-      boundaries: boundaries,
-    );
+    final ranges = <(int, int)>[];
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] != '/') {
+        continue;
+      }
+      final hasPrev = i > 0 && !_isBreakGuardSpace(text[i - 1]);
+      final hasNext = i + 1 < text.length && !_isBreakGuardSpace(text[i + 1]);
+      if (!hasPrev && !hasNext) {
+        continue;
+      }
+      var start = i;
+      while (start > 0 && !_isBreakGuardSpace(text[start - 1])) {
+        start -= 1;
+      }
+      var end = i + 1;
+      while (end < text.length && !_isBreakGuardSpace(text[end])) {
+        end += 1;
+      }
+      ranges.add((start, end));
+    }
+    return _mergeRanges(ranges);
   }
-
-  /// 守卫后的文本 + 偏移映射 + 「被守卫断点」的文本内下标。
-  ///
-  /// [boundaries] 里的下标处原本有 `/`（其前后一侧），这些位置不允许换行。
-  static String _guardedTextOf(String text) => _applyNoBreakGuards(text).text;
-
-  /// 零宽 WORD JOINER（U+2060）。
-  static const String _wordJoiner = '\u2060';
 
   /// 是否空白（守卫只在 token 内部生效）。
   static bool _isBreakGuardSpace(String char) =>
-      char == ' ' || char == '\t' || char == '\n' || char == '\r' ||
-      char == '\u00A0' || char == '\u3000';
+      char == ' ' ||
+      char == '\t' ||
+      char == '\n' ||
+      char == '\r' ||
+      char == '\u00A0' ||
+      char == '\u3000';
 
-  /// 按偏移映射把行区间换回原文坐标（守卫插入用）。
-  static List<LineBox> _mapLineOffsets(List<LineBox> lines, List<int> offsets) {
-    if (offsets.isEmpty || lines.isEmpty) {
-      return lines;
+  /// 合并重叠/相邻的区间。
+  static List<(int, int)> _mergeRanges(List<(int, int)> ranges) {
+    if (ranges.isEmpty) {
+      return ranges;
     }
-    int original(int measured) => offsets[measured.clamp(0, offsets.length - 1)];
-    return <LineBox>[
-      for (final line in lines)
-        line.copyWith(
-          start: original(line.start),
-          end: original(line.end),
-        ),
-    ];
+    final sorted = <(int, int)>[...ranges]
+      ..sort((a, b) => a.$1.compareTo(b.$1));
+    final merged = <(int, int)>[sorted.first];
+    for (final range in sorted.skip(1)) {
+      final last = merged.last;
+      if (range.$1 <= last.$2) {
+        if (range.$2 > last.$2) {
+          merged[merged.length - 1] = (last.$1, range.$2);
+        }
+      } else {
+        merged.add(range);
+      }
+    }
+    return merged;
+  }
+
+  /// [index] 是否落在含 `/` 的 token 区间内。
+  static bool _insideGuardedRanges(int index, List<(int, int)> ranges) {
+    for (final range in ranges) {
+      if (index > range.$1 && index < range.$2) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 竖排逐字符度量：`text-orientation` 决定正立/旋转，advance 随之取
@@ -2462,9 +2501,15 @@ abstract final class TextLayoutEngine {
     required List<StyledRun> runs,
     required bool isRtl,
   }) {
-    final columnWidth = style.lineHeightFactor == null
-        ? math.max(1.0, style.fontSize * 1.2)
-        : math.max(1.0, style.lineHeight);
+    // 列宽 = 行高：优先用实测行高（`line-height: normal` 时由字体度量决定，
+    // 不能拿 1.2em 之类的常数近似）；无行时退回字号。
+    var columnWidth = 0.0;
+    for (final line in lines) {
+      columnWidth = math.max(columnWidth, line.height);
+    }
+    if (columnWidth <= 0) {
+      columnWidth = math.max(1.0, style.fontSize * 1.2);
+    }
     final count = lines.length;
     final rl = style.writingMode == CssWritingMode.verticalRl;
     final columns = <LineBox>[];

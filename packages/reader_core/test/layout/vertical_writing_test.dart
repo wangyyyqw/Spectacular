@@ -28,14 +28,15 @@ void main() {
     expect(layout.lineCount, 2, reason: '2 列');
     for (final column in layout.lines) {
       expect(column.vertical, isTrue);
-      expect(column.width, closeTo(17 * 1.6, 0.01), reason: '列宽 = 行高');
+      // 列宽 = 实测行高（Skia 行盒高取整：17×1.6=27.2 → 27）。
+      expect(column.width, closeTo(27, 0.01), reason: '列宽 = 行高');
     }
     // rl：首列在最右。
-    expect(layout.lines.first.columnX, closeTo(17 * 1.6, 0.01));
+    expect(layout.lines.first.columnX, closeTo(27, 0.01));
     expect(layout.lines.last.columnX, closeTo(0, 0.01));
     expect(layout.lines.first.columnIndex, 0);
     // 块宽 = 列数 × 列宽；块高 = 最长列。
-    expect(layout.width, closeTo(2 * 17 * 1.6, 0.01));
+    expect(layout.width, closeTo(2 * 27, 0.01));
     // 块高 = 最长列（11 字 × 17 = 187 ≤ 列长 200）。
     expect(layout.height, closeTo(187, 1));
   });
@@ -48,7 +49,7 @@ void main() {
     );
     expect(layout.writingMode, CssWritingMode.verticalLr);
     expect(layout.lines.first.columnX, closeTo(0, 0.01));
-    expect(layout.lines.last.columnX, closeTo(17 * 1.6, 0.01));
+    expect(layout.lines.last.columnX, closeTo(27, 0.01));
   });
 
   test('竖排与横排的字符顺序/列内容一致（同文本行区间）', () {
@@ -113,6 +114,7 @@ void main() {
     );
     // 列长 = 100 → 每列 5 字（85）→ 4 列。
     expect(layout.lineCount, 4);
-    expect(layout.lines.first.width, closeTo(17 * 1.6, 0.01));
+    // 样式里声明了 line-height: 1.6 → 列宽 = 实测行高 27（与是否声明 height 无关）。
+    expect(layout.lines.first.width, closeTo(27, 0.01));
   });
 }
