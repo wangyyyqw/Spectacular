@@ -1098,12 +1098,18 @@ abstract final class TextLayoutEngine {
 
   /// 回退链（P3-04）：声明的 fallback 经别名映射后，追加默认 CJK 链
   /// （去重，且不与主族重复）。声明链为空时返回默认链。
+  ///
+  /// 主族是黑体时改追加 [FontFamilyAliases.sansChain]，避免内置宋体
+  /// 把黑体书整本替换成宋体（P9-05）。
   static List<String>? _fallbackChain(ComputedStyle style) {
     final chain = FontFamilyAliases.mapFamilies(style.fontFamilyFallback);
     final primary = style.fontFamily == null
         ? null
         : FontFamilyAliases.mapFamilies([style.fontFamily!]).single;
-    for (final family in FontFamilyAliases.defaultChain) {
+    final fallbacks = primary == FontFamilyAliases.hei
+        ? FontFamilyAliases.sansChain
+        : FontFamilyAliases.defaultChain;
+    for (final family in fallbacks) {
       if (family != primary && !chain.contains(family)) {
         chain.add(family);
       }

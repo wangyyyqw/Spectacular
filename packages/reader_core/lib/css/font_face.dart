@@ -216,10 +216,25 @@ abstract final class FontFamilyAliases {
 
   /// 默认 CJK 回退链（技术方案 §68.4；userFont 级随用户导入字体
   /// 任务插入头部）。追加在声明族之后，缺字时引擎按序兜底。
+  ///
+  /// 应用内置了思源宋体（`builtin_song`，P9-05）；黑体/楷体暂无内置资产，
+  /// 由 [sansChain] / 默认链落到系统字族。
   static const List<String> defaultChain = <String>[
     song,
     hei,
+    'Noto Serif CJK SC',
     'Noto Sans CJK SC',
+  ];
+
+  /// 黑体系回退链：书籍要求黑体时不能再回退到内置宋体，
+  /// 否则整本书的字形会从黑体变成宋体（P9-05）。
+  static const List<String> sansChain = <String>[
+    'PingFang SC',
+    'Heiti SC',
+    'Noto Sans CJK SC',
+    'Source Han Sans SC',
+    'Microsoft YaHei',
+    hei,
   ];
 }
 

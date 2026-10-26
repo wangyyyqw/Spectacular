@@ -83,6 +83,16 @@ flutter:
     - assets/textures/
     - integration_test/m0_page_sequence.json
 
+  # 内置正文宋体（P9-05）：思源宋体 CN 全量字库（OFL），引擎别名表把
+  # 宋体/serif 映射到 builtin_song；黑体/楷体仍走系统字族回退。
+  fonts:
+    - family: builtin_song
+      fonts:
+        - asset: assets/fonts/SourceHanSerifCN-Regular.otf
+          weight: 400
+        - asset: assets/fonts/SourceHanSerifCN-Bold.otf
+          weight: 700
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
