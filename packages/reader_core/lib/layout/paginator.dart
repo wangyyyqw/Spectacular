@@ -61,6 +61,7 @@ class PageBlock {
     this.absoluteLeft,
     this.bleedLeft = false,
     this.bleedRight = false,
+    this.containerSides = false,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -87,6 +88,7 @@ class PageBlock {
     double? absoluteLeft,
     bool bleedLeft = false,
     bool bleedRight = false,
+    bool containerSides = false,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -113,6 +115,7 @@ class PageBlock {
       absoluteLeft: absoluteLeft,
       bleedLeft: bleedLeft,
       bleedRight: bleedRight,
+      containerSides: containerSides,
     );
   }
 
@@ -196,6 +199,10 @@ class PageBlock {
   /// 右出血：背景/边框延伸到页面右缘。
   final bool bleedRight;
 
+  /// 位于带边框容器的内部（P9-25）：背景与左右边框向上下段距延伸，让
+  /// 被拆成多块的卡片/面板拼回一片，块间缝隙不露页底、边框不断开。
+  final bool containerSides;
+
   /// 块高度（内容区行高之和）。
   double get height => layout.height;
 
@@ -234,6 +241,7 @@ class PageBlock {
         absoluteLeft: absoluteLeft,
         bleedLeft: bleedLeft,
         bleedRight: bleedRight,
+        containerSides: containerSides,
       );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线

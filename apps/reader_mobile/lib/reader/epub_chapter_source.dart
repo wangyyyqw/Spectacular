@@ -1275,6 +1275,9 @@ class EpubChapterSource
     ];
     final chainStyleCache = <String, ComputedStyle>{};
     var figureSeq = 0;
+    // P9-25：最近一次 styleForChain 的最近容器是否带可见边框。局部状态，
+    // 调用后立刻读取，避免为同一链再跑一次级联。
+    var containerBorderedForLastChain = false;
 
     /// 链式级联样式（P8-02）：链上每级元素经 Cascade.compute（UA +
     /// 作者 + 内联三源、特异性、!important、@media），继承语义由引擎
@@ -1327,6 +1330,7 @@ class EpubChapterSource
       bool firstInContainer = false,
       bool lastInContainer = false,
     }) {
+      containerBorderedForLastChain = false;
       final computed = chainStyle(chain);
       // 容器盒类近似传导：flat 无嵌套盒子，祖先的背景/左右边框/
       // 左右内边距透传给子块（子块自身声明优先；水平间距相加）。
@@ -1345,6 +1349,9 @@ class EpubChapterSource
           continue;
         }
         final ancStyle = chainStyle(chain.sublist(0, i + 1));
+        if (i == chain.length - 2 && ancStyle.borders.hasBorder) {
+          containerBorderedForLastChain = true;
+        }
         final values = ancStyle.values;
         for (final prop in _promotedBoxProps) {
           final value = values[prop];
@@ -1631,6 +1638,7 @@ class EpubChapterSource
       );
       final tableChain = <SelectorElement>[...ancestors, tableView];
       final tableStyle = styleForChain(tableChain);
+      final tableInBorderedContainer = containerBorderedForLastChain;
 
       /// 单元格水平占位：左右内边距 + 左右边框。
       double horizontalInset(ComputedStyle style) =>
@@ -1711,29 +1719,101 @@ class EpubChapterSource
       }
 
       // 格文本与样式：子树文本按序拼接（格内嵌套块以空行分隔）。
-      String cellTextOf(BlockNode cell) {
+      /// 单元格文本 + 行内样式标记（P9-26）：单元格里的 span（RANK 标签）
+      /// 需要按行内 run 绘制颜色/字号/边框，只取纯文本会丢掉整层样式。
+      ({String text, List<InlineMark> marks}) cellContentOf(
+        BlockNode cell,
+        List<SelectorElement> chain,
+      ) {
         final buffer = StringBuffer();
-        void walkText(EpubNode node) {
-          if (node is TextBlockNode) {
-            if (node.text.trim().isNotEmpty) {
-              if (buffer.isNotEmpty) {
-                buffer.write('\n');
-              }
-              buffer.write(node.text.trim());
+        final marks = <InlineMark>[];
+        void walk(EpubNode node, List<MarkSubject> ancestors) {
+          if (node is TextContentNode) {
+            // 聚合后的文本节点：文本已合并，行内标记挂在 inlineMarks 上
+            // （相对该节点文本的偏移），这里按 trim 后的坐标整体平移。
+            final raw = node.text;
+            final trimmed = raw.trim();
+            if (trimmed.isEmpty) {
+              return;
             }
+            final leading = raw.length - raw.trimLeft().length;
+            if (buffer.isNotEmpty) {
+              buffer.write('\n');
+            }
+            final offset = buffer.length;
+            buffer.write(trimmed);
+            for (final mark in node.inlineMarks) {
+              final start = math.max(0, mark.start - leading);
+              final end = math.min(trimmed.length, mark.end - leading);
+              if (end <= start) {
+                continue;
+              }
+              marks.add(
+                InlineMark(
+                  start: offset + start,
+                  end: offset + end,
+                  tag: mark.tag,
+                  classes: mark.classes,
+                  chain: mark.chain,
+                ),
+              );
+            }
+            return;
+          }
+          if (node is TextBlockNode) {
+            final trimmed = node.text.trim();
+            if (trimmed.isEmpty) {
+              return;
+            }
+            if (buffer.isNotEmpty) {
+              buffer.write('\n');
+            }
+            buffer.write(trimmed);
           } else if (node is BlockNode) {
             for (final child in node.children) {
-              walkText(child);
+              walk(child, ancestors);
             }
           } else if (node is InlineNode) {
+            final classes = (node.attributes['class'] ?? '')
+                .split(RegExp(r'\s+'))
+                .where((c) => c.isNotEmpty)
+                .toList(growable: false);
+            final subject = MarkSubject(
+              tag: node.tag,
+              classes: classes.toSet(),
+            );
+            final next = <MarkSubject>[...ancestors, subject];
+            final start = buffer.length;
             for (final child in node.children) {
-              walkText(child);
+              walk(child, next);
+            }
+            final end = buffer.length;
+            if (end > start) {
+              marks.add(
+                InlineMark(
+                  start: start,
+                  end: end,
+                  tag: node.tag,
+                  classes: classes,
+                  chain: List<MarkSubject>.unmodifiable(next),
+                ),
+              );
             }
           }
         }
 
-        walkText(cell);
-        return buffer.toString();
+        final cellAncestors = <MarkSubject>[
+          for (final element in chain)
+            MarkSubject(
+              tag: element.tag,
+              classes: (element.attributes['class'] ?? '')
+                  .split(RegExp(r'\s+'))
+                  .where((c) => c.isNotEmpty)
+                  .toSet(),
+            ),
+        ];
+        walk(cell, cellAncestors);
+        return (text: buffer.toString(), marks: marks);
       }
 
       // 列声明宽（P9-17）：`<col>` 的 CSS/属性宽优先，其次首行单元格；
@@ -1844,6 +1924,7 @@ class EpubChapterSource
       final cellStyles = <List<ComputedStyle>>[];
       final specs = <List<TableCellSpec>>[];
       final cellTexts = <List<String>>[];
+      final cellRuns = <List<List<StyledRun>>>[];
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
         final row = rows[rowIndex];
         final rowView = _NodeView(
@@ -1854,13 +1935,18 @@ class EpubChapterSource
         final styles = <ComputedStyle>[];
         final rowSpecs = <TableCellSpec>[];
         final texts = <String>[];
+        final rowRuns = <List<StyledRun>>[];
         for (final cell in row) {
-          final cellStyle = styleForChain(<SelectorElement>[
+          final cellChain = <SelectorElement>[
             ...tableChain,
             rowView,
             _NodeView(cell.tag, cell.attributes, const <SelectorElement>[]),
-          ]);
-          final text = cellTextOf(cell);
+          ];
+          final cellStyle = styleForChain(cellChain);
+          final content = cellContentOf(cell, cellChain);
+          final text = content.text;
+          final runs = resolveInlineRuns(content.marks);
+          rowRuns.add(runs);
           final colspan = int.tryParse(
                 cell.attributes['colspan']?.trim() ?? '',
               ) ??
@@ -1873,6 +1959,7 @@ class EpubChapterSource
               text: text,
               style: cs,
               maxWidth: width,
+              runs: runs,
             );
             var widest = 0.0;
             for (final line in measured.lines) {
@@ -1899,6 +1986,7 @@ class EpubChapterSource
                             8.0,
                             width - horizontalInset(cellStyle),
                           ),
+                          runs: runs,
                         )
                         .height +
                     verticalInset(cellStyle);
@@ -1908,6 +1996,7 @@ class EpubChapterSource
         }
         cellStyles.add(styles);
         cellTexts.add(texts);
+        cellRuns.add(rowRuns);
         specs.add(rowSpecs);
       }
 
@@ -2035,6 +2124,7 @@ class EpubChapterSource
                     8.0,
                     rect.rect.width - horizontalInset(cellStyle),
                   ),
+                  runs: cellRuns[r][c],
                 );
           if (layout == null || layout.lineCount == 0) {
             continue;
@@ -2077,6 +2167,8 @@ class EpubChapterSource
           PageBlock.styled(
             style: tableStyle,
             containingWidth: contentWidth,
+            // P9-25：带边框容器内的表格块同样参与背景/边框拼合。
+            containerSides: tableInBorderedContainer,
             layout: TextLayoutResult(
               text: '',
               lines: [
@@ -2148,6 +2240,9 @@ class EpubChapterSource
           firstInContainer: firstInContainer,
           lastInContainer: lastInContainer,
         );
+        // 容器拼合（P9-25）：卡片/面板里的子块要把背景与左右边框延伸到
+        // 段距，才能拼回整片面板（四边框闭合）。
+        final inBorderedContainer = containerBorderedForLastChain;
         if (!isHeading) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
@@ -2260,6 +2355,8 @@ class EpubChapterSource
               // P9-22：多看出血（背景/边框延伸到页面边缘）。
               bleedLeft: blockStyle.bleed.left,
               bleedRight: blockStyle.bleed.right,
+              // P9-25：带边框容器内部的块，背景/左右边框拼合。
+              containerSides: inBorderedContainer,
             ),
           );
         }
