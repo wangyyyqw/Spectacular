@@ -666,7 +666,13 @@ class PagePainter {
         CssVerticalAlign.bottom => freeSpace,
         _ => 0.0,
       };
-      final textStyle = TextLayoutEngine.textStyleFor(style);
+      // 单元格文字同样走主题色策略（P9-23）：书籍没显式声明颜色的格
+      // （如 RANK 标签）此前用初始黑色，深色底上直接看不见。
+      final textStyleBase = TextLayoutEngine.textStyleFor(style);
+      final override = _textColorFor(style);
+      final textStyle = override == null
+          ? textStyleBase
+          : textStyleBase.copyWith(color: override);
       var lineY = top + cell.rect.top + topInset + alignOffset;
       for (var i = 0; i < cell.layout.lineCount; i++) {
         final line = cell.layout.lines[i];
