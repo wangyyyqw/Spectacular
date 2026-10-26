@@ -340,6 +340,11 @@ abstract final class TextAggregator {
         attributes: image.attributes,
         start: block.start,
         end: block.end,
+        // 折叠丢弃了外层容器，把容器链带上，级联才能还原容器样式。
+        containerChain: <({String tag, String classes})>[
+          for (final subject in subjectChain)
+            (tag: subject.tag, classes: subject.classes.join(' ')),
+        ],
       );
     }
     // 外层容器折叠：聚合后子节点恰好是一个已折叠的 img 块（div>div>img）；
@@ -353,6 +358,7 @@ abstract final class TextAggregator {
           children: const <EpubNode>[],
           cfi: block.cfi,
           attributes: only.attributes,
+          containerChain: only.containerChain,
           start: block.start,
           end: block.end,
         );
