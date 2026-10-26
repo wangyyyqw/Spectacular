@@ -154,7 +154,7 @@ class PagePainter {
       _withOpacity(canvas, geometry, () {
         _paintBackground(
           canvas,
-          geometry.marginBox,
+          geometry.containerPaintBox,
           geometry.style,
           startsBlock: geometry.startsBlock,
           endsBlock: geometry.endsBlock,
@@ -173,7 +173,7 @@ class PagePainter {
       _withOpacity(canvas, geometry, () {
         _paintBorders(
           canvas,
-          geometry.marginBox,
+          geometry.containerPaintBox,
           geometry.style,
           startsBlock: geometry.startsBlock,
           endsBlock: geometry.endsBlock,
@@ -246,11 +246,14 @@ class PagePainter {
                 punctCompression: geometry.punctCompression,
                 textColorOverride: geometry.textColorOverride,
               );
+              final lineRuns = _lineRuns(layout, line);
+              // 行内元素盒（P9-24）：先铺背景/边框，再把文字画在上面。
+              _paintInlineBoxes(canvas, painter, lineRuns, x, lineY);
               _paintLineText(
                 canvas,
                 painter,
                 lineText,
-                _lineRuns(layout, line),
+                lineRuns,
                 geometry.textStyle,
                 x,
                 lineY,
@@ -695,8 +698,17 @@ class PagePainter {
         final line = cell.layout.lines[i];
         final text = cell.layout.text.substring(line.start, line.end);
         if (text.isNotEmpty) {
+          // 单元格里的行内 span（P9-26）：按 run 组装 span，颜色/字号/边框
+          // 才和书籍一致（RANK 金框、标签 chip）。
+          final cellRuns = _lineRuns(cell.layout, line);
           final painter = TextPainter(
-            text: TextSpan(text: text, style: textStyle),
+            text: cellRuns.isEmpty
+                ? TextSpan(text: text, style: textStyle)
+                : buildLineSpan(
+                    layout: cell.layout,
+                    line: line,
+                    baseStyle: textStyle,
+                  ),
             textDirection: TextDirection.ltr,
           )..layout(maxWidth: innerWidth);
           final contentLeft = left + cell.rect.left + leftInset;
@@ -708,6 +720,13 @@ class PagePainter {
               style.textAlign == CssTextAlign.justify) {
             x = contentRight - painter.width;
           }
+          _paintInlineBoxes(
+            canvas,
+            painter,
+            cellRuns,
+            x,
+            lineY - (painter.height - line.height) / 2,
+          );
           painter.paint(canvas, ui.Offset(x, lineY));
           painter.dispose();
         }
@@ -840,6 +859,63 @@ class PagePainter {
     canvas.restore();
     ellipsis.paint(canvas, Offset(geometry.box.left + x + visible, y));
     ellipsis.dispose();
+  }
+
+  /// 行内元素盒（P9-24）：`display:inline-block` 的行内 span 的背景、
+  /// 边框与内边距在文字下方绘制（RANK 金框、状态标签 chip 等）。
+  ///
+  /// 排版宽度没有把行内 padding 计入（flat 管线不做行内盒布局），这里
+  /// 按字形框外扩 padding 绘制——视觉上还原书籍设计，代价是与相邻文字
+  /// 可能轻微重叠。
+  void _paintInlineBoxes(
+    Canvas canvas,
+    TextPainter painter,
+    List<_LineRun> runs,
+    double x,
+    double y,
+  ) {
+    for (final run in runs) {
+      final style = run.style;
+      final hasBackground = style.backgroundColor.a > 0;
+      final hasBorder = style.borders.hasBorder;
+      if ((!hasBackground && !hasBorder) || run.end <= run.start) {
+        continue;
+      }
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: run.start, extentOffset: run.end),
+        boxHeightStyle: ui.BoxHeightStyle.includeLineSpacingMiddle,
+      );
+      for (final box in boxes) {
+        final rect = Rect.fromLTRB(
+          x + box.left - style.padding.left,
+          y + box.top - style.padding.top,
+          x + box.right + style.padding.right,
+          y + box.bottom + style.padding.bottom,
+        );
+        if (hasBackground) {
+          final radii = style.borders;
+          canvas.drawRRect(
+            RRect.fromRectAndCorners(
+              rect,
+              topLeft: Radius.circular(radii.topLeftRadius),
+              topRight: Radius.circular(radii.topRightRadius),
+              bottomRight: Radius.circular(radii.bottomRightRadius),
+              bottomLeft: Radius.circular(radii.bottomLeftRadius),
+            ),
+            Paint()..color = style.backgroundColor,
+          );
+        }
+        if (hasBorder) {
+          _paintBorders(
+            canvas,
+            rect,
+            style,
+            startsBlock: true,
+            endsBlock: true,
+          );
+        }
+      }
+    }
   }
 
   /// 画块背景：跨页切片只在块真正开始/结束时带上下圆角。
@@ -1480,6 +1556,21 @@ class _SliceGeometry {
   /// 背景/边框盒子（margin 修正）：flat 管线 box.left 恒 0，块级
   /// margin.left 折算进左缘，使背景与边框跟文本 x（已含 margin）对齐；
   /// 右缘同步扣除 margin.right，与收窄后的排版宽度同界。
+  /// 容器拼合盒（P9-25）：带边框容器里的子块，把背景与左右边框延伸到
+  /// 自己的上下段距，多个子块叠起来就拼回一整片面板。
+  Rect get containerPaintBox {
+    final base = marginBox;
+    if (!slice.block.containerSides) {
+      return base;
+    }
+    return Rect.fromLTRB(
+      base.left,
+      y - slice.leadingExtent,
+      base.right,
+      y + slice.height + slice.trailingExtent,
+    );
+  }
+
   Rect get marginBox => Rect.fromLTRB(
     // 出血（P9-22）：多用 `duokan-bleed` 让元素的背景/边框顶到页面边缘。
     slice.block.bleedLeft ? 0 : style.margin.left,
@@ -1491,12 +1582,17 @@ class _SliceGeometry {
   /// 按切片裁剪；上下标越界时放宽上下边。
   void clip(Canvas canvas) {
     final clip = slice.clipRect(y, pageWidth);
+    // 容器内子块（P9-25）的背景/边框会延伸到上下段距，裁剪同步放宽。
+    final containerTop = slice.block.containerSides ? slice.leadingExtent : 0.0;
+    final containerBottom = slice.block.containerSides
+        ? slice.trailingExtent
+        : 0.0;
     canvas.clipRect(
       Rect.fromLTRB(
         clip.left,
-        clip.top - upExtent,
+        clip.top - upExtent - containerTop,
         clip.right,
-        clip.bottom + downExtent,
+        clip.bottom + downExtent + containerBottom,
       ),
     );
   }
