@@ -316,6 +316,38 @@ class EpubChapterSource
   /// 构建满屏图页：整页单块 + 背景图 cover（复用 P2-13 背景管线与
   /// PagePainter.imageLookup），边距归零（用未扣设置页边距的基准尺寸）。
   /// 解码由 ReaderPage 的 imageCache 异步完成，revision 触发重绘。
+  /// 章内图片 src → 包内路径（相对 OPF 的章目录解析）。
+  String _chapterImageUrl(int spineIndex, String src) {
+    final item = document.spine[spineIndex];
+    final chapterBase = p.posix.dirname(
+      document.resources.resolve(
+            item.href,
+            baseDir: p.posix.dirname(document.opfPath),
+          ) ??
+          item.href,
+    );
+    return document.resources.resolve(src, baseDir: chapterBase) ?? src;
+  }
+
+  /// 图片原始尺寸（与 collect 的预取共用缓存；读不到时返回 null）。
+  ImageIntrinsicSize? _intrinsicSizeOfUrl(String url) {
+    final cached = _imageIntrinsicCache[url];
+    if (cached != null) {
+      return cached;
+    }
+    if (_imageIntrinsicMiss.contains(url)) {
+      return null;
+    }
+    final bytes = document.archive.readBytes(url);
+    final size = bytes == null ? null : ImageSizeParser.readImageSize(bytes);
+    if (size == null) {
+      _imageIntrinsicMiss.add(url);
+    } else {
+      _imageIntrinsicCache[url] = size;
+    }
+    return size;
+  }
+
   List<PageContent> _buildFullBleedPages(
     int spineIndex,
     String imageSrc,
@@ -325,16 +357,7 @@ class EpubChapterSource
   }) {
     final width = math.max(80.0, baseContentWidth);
     final height = math.max(120.0, baseContentHeight);
-    final item = document.spine[spineIndex];
-    final chapterBase = p.posix.dirname(
-      document.resources.resolve(item.href, baseDir: p.posix.dirname(
-        document.opfPath,
-      )) ??
-          item.href,
-    );
-    final imageUrl = document.resources
-            .resolve(imageSrc, baseDir: chapterBase) ??
-        imageSrc;
+    final imageUrl = _chapterImageUrl(spineIndex, imageSrc);
     // 整页图铺法：多看全屏页默认 cover（铺满，可能裁边）；`fitwindow`
     // 用 contain 并在页内居中（插图上下居中、不裁切）。
     final blockStyle = ComputedStyle(<String, String>{
@@ -1972,11 +1995,26 @@ class EpubChapterSource
     if (pageFlags.isFullPage) {
       final singleImage = fullBleedAnalysis(spineIndex).singleImageSrc;
       if (singleImage != null && singleImage.isNotEmpty) {
+        // 铺法（R4 回归修正）：全屏页默认 **contain**（等比完整显示、页内
+        // 居中、允许留白）——强上 cover 会把 SVG 封面/插图裁掉（zhushen
+        // 封面是 `<image xMidYMid meet>`，像素差 97%）。只有「声明
+        // fullscreen 且图片宽高比与页面比差 <2%」这种几乎无损的情形才
+        // 用 cover 填满；`duokan-page-fitwindow` 一律 contain。
+        final imageUrl = _chapterImageUrl(spineIndex, singleImage);
+        final intrinsic = _intrinsicSizeOfUrl(imageUrl);
+        final pageRatio = baseContentWidth / math.max(1.0, baseContentHeight);
+        final imageRatio = intrinsic == null
+            ? pageRatio
+            : intrinsic.width / math.max(1.0, intrinsic.height);
+        final closeRatio =
+            (imageRatio - pageRatio).abs() <= pageRatio * 0.02;
+        final useCover =
+            pageFlags.fullScreen && !pageFlags.fitWindow && closeRatio;
         final pages = _buildFullBleedPages(
           spineIndex,
           singleImage,
           paginationKey,
-          contain: pageFlags.fitWindow,
+          contain: !useCover,
           bleed: true,
         );
         _putPageCache(paginationKey, pages);
