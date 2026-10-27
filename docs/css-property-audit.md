@@ -65,7 +65,7 @@
 | `white-space: pre/pre-wrap/pre-line` | 换行转硬断行、空格保留 | `text_aggregator.dart:156-170`、`lb:701-702` |
 | `box-sizing: border-box` | 声明宽先扣 padding/border 再成内容宽 | `bm:46-54`（`_resolveBound`） |
 | `vertical-align` 的长度/百分比取值 | 直接作为基线位移 | `cs:1471`（`_parseVerticalAlignLength` cs:5162）→ `verticalAlignShift` → `ecs:2745` |
-| `border-style` 的 `groove/ridge/inset/outset` | 不再丢值，**降级为 solid 绘制** | `_parseBorderStyle` cs:2944 |
+| `border-style` 的 `groove/ridge/inset/outset` | ~~降级 solid~~ → 已按 CSS 画两半明暗 | `_parseBorderStyle` cs:2944、`_paintSide` pr:2227 |
 | `text-overflow: ellipsis` | 截断迁到排版层（行宽≤内容宽，原文区间不变，CFI 安全） | `lb:2071`（`_applyTextOverflow`） |
 
 ---
@@ -162,9 +162,9 @@
 | 16 | `border` | cs:1658 → `_resolveBorders` cs:2703 | pr:246 区域（`_paintBorders`/`_paintCellBorders`） | 完整 | 不支持 `border-image` |
 | 17 | `border-top/-right/-bottom/-left` | `_resolveBorders` cs:2703（`parseSide`） | 同上 | 完整 | — |
 | 18 | `border-width` | `applyWidths`（`_resolveBorders` 内） | 同上 | 完整 | `thin/medium/thick` 固定 1/3/5px |
-| 19 | `border-style` | `_parseBorderStyle` cs:2944 | pr 边框绘制 | 部分 | `groove/ridge/inset/outset` **降级 solid**（不再丢值，但绘制不符） |
+| 19 | `border-style` | `_parseBorderStyle` cs:2944 | pr 边框绘制 | 完整 | `groove/ridge/inset/outset` 画两半明暗（本轮接通） |
 | 20 | `border-color` | `applyColors`（`_resolveBorders` 内） | 同上 | 完整 | 四值里含函数时靠括号保护切分 |
-| 21 | `border-radius` | cs:2890 | pr 圆角 RRect | 部分 | `a / b` 只取 `/` 前半段；百分比半径不支持 |
+| 21 | `border-radius` | cs:2890 | pr 圆角 RRect | 完整 | 百分比按盒尺寸解算（`radiiFor`）；`a / b` 取第一值（圆形圆角） |
 | 22 | `border-top-left-radius` 等四角 | `_resolveBorders`（`border-$name-radius`） | 同上 | 部分 | 同上 |
 | 23 | `width` | cs:1692 附近（`dimension`） | bm:57；pg:837 | 完整 | `auto` 无 shrink-to-fit（绝对定位块除外，pg:877） |
 | 24 | `height` | 同上 | bm:58；pg:974；lb:769（竖排列长） | 完整 | 百分比高按包含块宽近似 |
@@ -374,7 +374,7 @@
 | 11 | `border-image` | P2 | 0 命中；11 次 / 3 本 | M | `page_renderer.dart`（`_paintBorders` 旁路） |
 | 12 | `background-attachment` | P2（可显式声明不支持） | 218 次 / 3 本，最高频缺失项；`cs:4369` 简写不解析 | S | `computed_style.dart`（`_parseBackgroundShorthand`）+ 文档化降级 |
 | 13 | `border-radius` 椭圆（`a / b`）与百分比 | P1 | `cs:2890` 只取 `/` 前半段；560 次 / 6 本 | M | `computed_style.dart` + `page_renderer.dart`（RRect 需四角双半径） |
-| 14 | `border-style` 四值降级 solid | P2 | `cs:2944` 显式把 `groove/ridge/inset/outset` 归到 solid | S | `page_renderer.dart`（按 style 画双线/明暗） |
+| 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
 | 15 | `display: flex` + `justify-content`/`align-items` | P2 | `bf:528` 无 flex 分支；221/5 + 14/4 + 13/3 | L | `block_flow.dart`（新增 flex 分派） |
 | 16 | `quotes` 无消费 | P2 | `cs:1341` 字段在、0 消费；`q` 元素不出引号 | S | `epub_chapter_source.dart`（`q` 内容）或删字段 |
 | 17 | `initial-letter` 无消费（首字下沉） | P2 | `cs:1234` 字段在、0 消费；`ecs` 已有 `_firstLetterRun` | M | `line_breaker.dart`（首行行盒）+ `epub_chapter_source.dart` |
