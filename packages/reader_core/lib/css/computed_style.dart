@@ -2042,6 +2042,17 @@ class ComputedStyle {
   /// 属性 → 层叠后的字符串值。
   final Map<String, String> values;
 
+  /// 叠放层级（CSS 2.1 §9.9）：`z-index` 整数；`auto`/未声明/非法值按 0。
+  ///
+  /// 只影响绘制顺序（同层按文档序），不参与布局。
+  int get zIndex {
+    final raw = values['z-index']?.trim().toLowerCase();
+    if (raw == null || raw.isEmpty || raw == 'auto') {
+      return 0;
+    }
+    return int.tryParse(raw) ?? 0;
+  }
+
   /// 分页孤行控制（CSS 2.1 §13.3）：页首/页尾至少保留的行数，初始 2。
   ///
   /// 值直接从层叠结果读（`orphans`/`widows` 是非继承整数属性，不需要解算），
