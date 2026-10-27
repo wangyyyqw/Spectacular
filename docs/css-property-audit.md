@@ -13,7 +13,7 @@
 | `ComputedStyle` 类型化字段 | 91 |
 | **有字段且真正参与布局/绘制** | **94 条属性**（68 完整 + 26 部分） |
 | **有字段但零消费（占位式）** | **4**：`initial-letter`、`quotes`、`font-stretch`、`font-size-adjust` |
-| **无字段、值进 `values` 后被静默丢弃** | **44**（`border-image`、`background-attachment`、`object-fit`、`counter-*`、`z-index`、`line-break` 等） |
+| **无字段、值进 `values` 后被静默丢弃** | **变体统计**（`border-image`、`z-index`、`line-break`、`quotes` 已接入、`background-attachment` 等价降级、`object-fit` 已映射、`counter-*` 已在章节源生效） |
 | 本文覆盖的属性条目 | **142**（94 + 4 + 44） |
 | `tool/css_parity/cases/` | 66 个用例 |
 
@@ -95,7 +95,7 @@
 | background-size / position / repeat | 310 / 268 / 251 | 5 | 完整 |
 | border-width / border-style | 305 / 280 | 5 | 部分（四值降级 solid） |
 | display | 221 | 5 | 部分（`flex` 未实现） |
-| **background-attachment** | **218** | **3** | **仍完全未处理** |
+| background-attachment | 218 | 3 | 等价降级（分页器里 `fixed` 底纹 = 每页页背景，与引擎 body 背景每页重绘等价；`scroll/local` 同 `fixed`） |
 | background-image | 198 | 5 | 部分（单图层 + 渐变；无多背景） |
 | list-style-type | 182 | 5 | 部分（无 `counter()`） |
 | font-style | 126 | 5 | 完整 |
@@ -106,7 +106,7 @@
 | text-shadow | 60 | 5 | 完整 |
 | text-decoration | 57 | 6 | 部分（竖排装饰线未沿列轴） |
 | white-space | 54 | 3 | 完整（`pre` 族已修） |
-| **border-collapse** | **52** | **4** | 完整（本轮接通） |
+| border-collapse | 52 | 4 | 完整（本轮接通） |
 | position | 41 | 4 | 部分（`sticky` 无效果） |
 | text-transform | 40 | 3 | 完整 |
 | text-align-last | 28 | 1 | 完整 |
@@ -122,12 +122,12 @@
 | **border-image** | **11** | **3** | **仍完全未处理** |
 | writing-mode 族 | 5 + 18 别名 | 3 | 部分（主干已实现，见 Top #5/#6） |
 | font-variant | 7 | 1 | 完整（`smcp` 已接通） |
-| orphans / widows | 7 / 7 | 1 | 未处理 |
+| orphans / widows | 7 / 7 | 1 | 完整（本轮分页约束 + 4 条测试） |
 | text-justify / ruby-align | 5 / 4 | 3 | 部分 / 未处理 |
 | opacity | 5 | 1 | 完整（组合成已接通） |
 | z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 未处理 / 未处理 / 完整 |
 | list-style-position | 2 | 1 | 完整（本轮接通） |
-| object-fit | 1 | 1 | 未处理 |
+| object-fit | 1 | 1 | 完整（映射 background-size；本轮测试锁定 cover/contain/fill） |
 | hyphens（`-epub-hyphens`） | 1 | 1 | 部分（已接通，无词典） |
 
 读法提醒：**只按频次排序会误导**。`background-attachment` 218 次排第一，但分页阅读器对「视口固定底纹」可合法降级；而 `hyphens` 只有 1 次、`text-overflow` 只在个别书出现，却决定西文书的断字与溢出表现。排序口径因此是「影响面 × 频次 × 成本」，见第 5 章。
@@ -248,7 +248,7 @@
 | 值解析不全/降级 | `border-style`(19)、`border-radius`(21/22) | 非 solid 四值画成实线；椭圆半径取前半段 |
 | 只实现一种上下文 | `line-height`(2)、`text-decoration`(55)、`text-overflow`(91)、`vertical-align`(69)、`text-emphasis-position`(66)、`writing-mode`(78)、`hyphens`(81) | 竖排/多列/行盒语境下失真 |
 | 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`position`(40)、`text-orientation`(79) | 落到默认分支（`flex`→block、`sticky`→static） |
-| 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 丢、`counter()` 无解 |
+| 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
 | 绘制近似 | `background-image`(31)、`background-clip`(37)、`transform`(76) | 多背景不支持、`clip:text` 降级、无 3D |
 
 ### 3.3 C 组：有字段但零消费（占位式，4 条）
@@ -271,11 +271,11 @@
 | # | 属性 | 语料频次/书数 | 缺失后果 |
 | ---: | --- | --- | --- |
 | 99 | `border-image` | 11 / 3 | 花纹分隔线、老式卡片边框退化为纯色或无边框 |
-| 100 | `background-attachment` | **218 / 3** | `fixed` 底纹按 scroll（分页阅读器可接受，但需显式记录） |
+| 100 | `background-attachment` | 218 / 3 | 已记录等价降级：真实书里都是 `body.headNNN` 章节标题页底纹，引擎按每页页背景重绘，观感等价 |
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
 | 102 | `backdrop-filter` | 3 / 2 | 背景模糊失效（`filter` 已实现，backdrop 是另一条绘制路径） |
 | 103 | `z-index` | 4 / 2 | 绝对定位元素层叠退化为遍历顺序 |
-| 104 | `object-fit` / `object-position` | 1 / 1 | 图片恒按 contain 近似，`cover`/`fill`/`none` 无法表达 |
+| 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down），`object-position` 固定 center |
 | 105 | `counter-reset` / `counter-increment` | 0 | 自动编号、图表序号失效 |
 | 106 | `content`（部分） | 5 / 3 | 只取字符串与 `attr()`（`ecs:1096`），`counter()`/`url()`/`open-quote` 全丢 |
 | 107 | `line-break` | 0（别名 6 处） | 标点禁则严格度不生效 |
@@ -284,7 +284,7 @@
 | 110 | `ruby-position` | 0 | 注音恒在上方（竖排尤其错） |
 | 111 | `text-combine-upright` | 4 别名 / 1 | 竖排「縦中横」不支持 |
 | 112 | `tab-size` | 0 | `pre` 制表符按固定宽近似 |
-| 113 | `orphans` / `widows` | 7 / 7 | 页底/页首孤行控制失效 |
+| 113 | `orphans` / `widows` | 7 / 7 | 已实现：块被分页切开时本页至少 orphans 行、下一页至少 widows 行 |
 | 114 | `list-style-image` | 0 | 图片列表标记不支持 |
 | 115 | `caption-side` / `empty-cells` | 0 | 表格标题位置、空单元格边框 |
 | 116 | `aspect-ratio` | 0 | 图片容器比例约束 |
@@ -364,7 +364,7 @@
 | 6 | 竖排 ruby 位置 + `ruby-position`/`ruby-align` | P1 | ruby 绘制（`pr:1164-1210` 区域）按「行上方」算；`ruby-align` 仅继承表 `cas:81` | M | `page_renderer.dart` + `computed_style.dart`（新增 ruby 字段） |
 | 7 | 多列跨页 runs 分发 | P1 | `pg:239` 「只有首列块携带完整几何」；`MulticolGeometry` 自认一级近似 | L | `paginator.dart`、`page_renderer.dart` |
 | 8 | `content` + `counter-*` | P1 | `ecs:1096` 只取字面量/`attr()`；`counter-reset`/`counter-increment` 0 命中 | M | `epub_chapter_source.dart`（伪元素）+ `computed_style.dart`（counter 状态） |
-| 9 | `object-fit` / `object-position` | P1 | 0 命中；图片恒 contain 近似 | S | `packages/reader_core/lib/paint/image_size.dart`、`image_paint.dart` |
+| 9 | `object-position` | P2 | `object-fit` 已实现；位置恒 center | S | `apps/reader_mobile/lib/reader/epub_chapter_source.dart`（objectFitBackground） |
 | 10 | `transform` 3D（`translate3d`/`rotate3d`/`perspective`） | P2 | `pr:661` 只构造 2D 仿射，4×4 矩阵其余位补零（`pr:682-687`） | M | `page_renderer.dart`（`_affineOfTransform` / `_transformMatrixOf`） |
 | 11 | `border-image` | P2 | 0 命中；11 次 / 3 本 | M | `page_renderer.dart`（`_paintBorders` 旁路） |
 | 12 | `background-attachment` | P2（可显式声明不支持） | 218 次 / 3 本，最高频缺失项；`cs:4369` 简写不解析 | S | `computed_style.dart`（`_parseBackgroundShorthand`）+ 文档化降级 |
