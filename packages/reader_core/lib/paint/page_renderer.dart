@@ -2677,6 +2677,7 @@ class PagePainter {
           y: y,
           advance: metric.advance,
           textDirection: _textDirectionOf(layout),
+          combine: metric.combine,
         );
         // 着重号（竖排画在列的右侧，Chromium 实测 x ≈ 列右缘）。
         _paintVerticalEmphasis(
@@ -2723,13 +2724,25 @@ class PagePainter {
     required double y,
     required double advance,
     required TextDirection textDirection,
+    bool combine = false,
   }) {
     final painter = TextPainter(
       text: TextSpan(text: text, style: textStyle),
       textDirection: textDirection,
     )..layout();
     if (upright) {
-
+      // 縦中横：多位数字横排塞进列宽（CSS Writing Modes §9.1），超出时按列宽
+      // 等比缩小并保持居中。
+      final scale = combine && painter.width > columnWidth
+          ? columnWidth / painter.width
+          : 1.0;
+      final center = Offset(columnLeft + columnWidth / 2, y + advance / 2);
+      canvas.save();
+      if (scale != 1.0) {
+        canvas.translate(center.dx, center.dy);
+        canvas.scale(scale);
+        canvas.translate(-center.dx, -center.dy);
+      }
       // 正立：横向居中于列宽，纵向让字形盒中心落在本次 advance 的中点。
       painter.paint(
         canvas,
@@ -2738,6 +2751,7 @@ class PagePainter {
           y - (painter.height - advance) / 2,
         ),
       );
+      canvas.restore();
     } else {
       // 旋转 90°（顺时针）：旋转后横向占位 = 原行高、纵向占位 = 原字宽。
       canvas.save();

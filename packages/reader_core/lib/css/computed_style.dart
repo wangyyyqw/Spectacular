@@ -129,6 +129,10 @@ enum CssTextEmphasisStyle { none, dot, filled, open }
 /// 着重号位置（CSS text-emphasis-position 属性）。
 enum CssTextEmphasisPosition { over, under }
 
+/// 縦中横（CSS Writing Modes §9.1 `text-combine-upright`）：竖排里把 2–4 位
+/// 数字合并成一个正立字块、纵向只占 1em。
+enum CssTextCombine { none, all }
+
 /// 注音位置（CSS Ruby 1 §5 `ruby-position`）：横排 over=字上/under=字下，
 /// 竖排 over=列右/under=列左。
 enum CssRubyPosition { over, under }
@@ -1609,6 +1613,12 @@ class ComputedStyle {
         : _parseRubyAlign(rawRubyAlign) ??
               parent?.rubyAlign ??
               CssRubyAlign.center;
+    final rawTextCombine = explicitValue('text-combine-upright');
+    final textCombine = rawTextCombine == null
+        ? (parent?.textCombine ?? CssTextCombine.none)
+        : _parseTextCombine(rawTextCombine) ??
+              parent?.textCombine ??
+              CssTextCombine.none;
     final rawEmphasisColor = explicitValue('text-emphasis-color');
     final textEmphasisColor = rawEmphasisColor == null
         ? parent?.textEmphasisColor
@@ -1848,6 +1858,7 @@ class ComputedStyle {
       textEmphasisPosition: textEmphasisPosition,
       rubyPosition: rubyPosition,
       rubyAlign: rubyAlign,
+      textCombine: textCombine,
       textEmphasisColor: textEmphasisColor,
       pageBreakBefore: pageBreakBefore,
       pageBreakAfter: pageBreakAfter,
@@ -1989,6 +2000,7 @@ class ComputedStyle {
       textEmphasisPosition: textEmphasisPosition,
       rubyPosition: rubyPosition,
       rubyAlign: rubyAlign,
+      textCombine: textCombine,
       textEmphasisColor: textEmphasisColor,
       pageBreakBefore: pageBreakBefore,
       pageBreakAfter: pageBreakAfter,
@@ -2102,6 +2114,7 @@ class ComputedStyle {
     required this.textEmphasisPosition,
     required this.rubyPosition,
     required this.rubyAlign,
+    required this.textCombine,
     required this.textEmphasisColor,
     required this.pageBreakBefore,
     required this.pageBreakAfter,
@@ -2396,6 +2409,9 @@ class ComputedStyle {
 
   /// 注音对齐（基字区间内 start/center/end/space-between）。
   final CssRubyAlign rubyAlign;
+
+  /// 縦中横：竖排数字组合（`all` / `digits` 同口径，`none` 不组合）。
+  final CssTextCombine textCombine;
 
   /// 着重号颜色；null 表示跟随文字颜色。
   final Color? textEmphasisColor;
@@ -5373,6 +5389,14 @@ class ComputedStyle {
       }
     }
     return null;
+  }
+
+  static CssTextCombine? _parseTextCombine(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'all' || 'digits' => CssTextCombine.all,
+      'none' => CssTextCombine.none,
+      _ => null,
+    };
   }
 
   static CssRubyPosition? _parseRubyPosition(String raw) {
