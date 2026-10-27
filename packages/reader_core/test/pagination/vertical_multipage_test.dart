@@ -95,6 +95,55 @@ void main() {
     expect(columns.last.columnX, closeTo(19 * 24, 0.01));
   });
 
+  test('66 口径：2100 字 / 无 height / 800+topPadding14 → 43 列、4 页（末页 1 列）', () {
+    final style = _style(const {});
+    final block = PageBlock.styled(
+      layout: TextLayoutEngine.layout(
+        text: '字' * 2100,
+        style: style,
+        maxWidth: 350,
+      ),
+      style: style,
+      containingWidth: 350,
+    );
+    final pages = Paginator(pageHeight: 800, pageWidth: 350, topPadding: 14)
+        .measureChapter(blocks: [block])
+        .pages;
+    expect(pages, hasLength(4), reason: '列长 786 → 43 列 → ceil(43/14) = 4 页');
+    final counts = pages
+        .map((page) => page.slices.single.block.layout.lineCount)
+        .toList();
+    expect(counts, <int>[14, 14, 14, 1]);
+    expect(counts.fold<int>(0, (a, b) => a + b), 43, reason: '总列数 43');
+    // 页内容高 786（800 − topPadding 14），每列 49 字（16px）→ 列内实际高 784。
+    final firstColumn = pages.first.slices.single.block.layout.lines.first;
+    expect(firstColumn.height, closeTo(784, 1));
+    expect((firstColumn.end - firstColumn.start), 49);
+    expect(pages.first.slices.single.block.layout.width, closeTo(336, 0.01));
+  });
+
+  test('67 口径：300 字 / 无 height / 800+topPadding14 → 1 页 7 列、块宽 168', () {
+    final style = _style(const {});
+    final block = PageBlock.styled(
+      layout: TextLayoutEngine.layout(
+        text: '字' * 300,
+        style: style,
+        maxWidth: 350,
+      ),
+      style: style,
+      containingWidth: 350,
+    );
+    final page = Paginator(pageHeight: 800, pageWidth: 350, topPadding: 14)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final columns = page.slices.single.block.layout.lines;
+    expect(columns, hasLength(7), reason: '300 字 / 每列 49 字 → 7 列');
+    expect(page.slices.single.block.layout.width, closeTo(168, 0.01));
+    expect(columns.first.height, closeTo(784, 1), reason: '49 字 × 16px');
+    expect(columns.expand((c) => <int>[c.end - c.start]).first, 49);
+  });
+
   test('跨页竖排块之后的普通块从新页开始', () {
     final vertical = _verticalBlock('一二三四五六七八九十' * 150);
     final normal = PageBlock.styled(

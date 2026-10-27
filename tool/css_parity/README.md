@@ -281,7 +281,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（66 用例全量重跑：失配 60 项 / 9 个用例 / 未配对 0）
+## 待收敛（66 用例全量重跑：失配 62 项 / 9 个用例 / 未配对 0）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -290,7 +290,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
 | 1 | hyphens | 22 | 20-hyphens-quotes |
-| 2 | word-wrap | 9 | 62-word-wrap-content |
+| 2 | word-wrap | 11 | 62-word-wrap-content |
 | 3 | display | 6 | 53-display-position |
 | 4 | text-overflow | 6 | 40-text-overflow |
 | 5 | line-height | 5 | 37-filter-opacity |
@@ -299,7 +299,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 | 8 | table | 2 | 12-table |
 | 9 | text-emphasis | 2 | 19-text-emphasis |
 
-1. **hyphens 22 / word-wrap 9 / text-overflow 6**：断字、长词换行与截断的
+1. **hyphens 22 / word-wrap 11 / text-overflow 6**：断字、长词换行与截断的
    口径差异见「已知口径差异」1–3。
 2. **display / position（6 项，53）**：`.blk` 行数 2/1（builtin_song 拉丁
    advance 比 Chrome 窄）、`absolute` 盒高 75/72（normal 行高取整）、末段 y
