@@ -1056,67 +1056,129 @@ class EpubChapterSource
     return result;
   }
 
-  /// 伪元素生成内容（P8-09）：作者规则 `X::before/::after { content: … }`
-  /// 的主选择器 X 匹配链末元素时返回 content 值——字符串字面量或
-  /// attr(name)；计数器/open-quote 等返回 null（记录为不支持）。
-  static String? _pseudoContent(
-    List<CssStylesheet> sheets,
-    List<SelectorElement> ancestors,
-    String pseudo,
-  ) {
-    if (ancestors.isEmpty) {
-      return null;
-    }
-    for (final sheet in sheets) {
-      for (final rule in sheet.rules) {
-        for (final raw in rule.selector.split(',')) {
-          final selector = raw.trim();
-          if (!selector.endsWith(pseudo)) {
-            continue;
-          }
-          final main = selector.substring(0, selector.length - pseudo.length);
-          if (main.isEmpty) {
-            continue;
-          }
-          final parsed = SelectorParser.parse(main);
-          if (parsed.selectors.isEmpty) {
-            continue;
-          }
-          var matched = false;
-          for (final complex in parsed.selectors) {
-            if (complex.matches(ancestors.last, ancestors.sublist(0, ancestors.length - 1))) {
-              matched = true;
-              break;
-            }
-          }
-          if (!matched) {
-            continue;
-          }
-          for (final declaration in rule.declarations) {
-            if (declaration.property != 'content') {
-              continue;
-            }
-            final value = declaration.value.trim();
-            final quote = value.isNotEmpty ? value[0] : '';
-            final isQuoted =
-                (quote == '"' || quote == "'") &&
-                value.length >= 2 &&
-                value.endsWith(quote);
-            if (isQuoted) {
-              return value.substring(1, value.length - 1);
-            }
-            final attrMatch = RegExp(
-              r'^attr\(\s*([a-zA-Z-]+)\s*\)$',
-            ).firstMatch(value);
-            if (attrMatch != null) {
-              return ancestors.last.attributes[attrMatch.group(1)!] ?? '';
-            }
-            return null;
-          }
-        }
+  /// `content` 值求值（W20）：字符串字面量、attr()、counter()/counters()、
+  /// open-quote/close-quote 可任意拼接（CSS 2.1 §12.2）。counter 的值由
+  /// 调用方按扁平计数器状态格式化后回调传入。
+  static String _evaluateContentValue(
+    String raw, {
+    required List<SelectorElement> ancestors,
+    required CssQuotes quotes,
+    required int quoteDepth,
+    required String Function(String name, String style) counterValue,
+  }) {
+    final element = ancestors.isEmpty ? null : ancestors.last;
+    (String, String) pairAt(int depth) {
+      switch (quotes) {
+        case CssQuotesNone():
+          return ('', '');
+        case CssQuotesPairs(:final pairs):
+          final pair = pairs[depth.clamp(0, pairs.length - 1)];
+          return (pair.open, pair.close);
+        case CssQuotesAuto():
+          return depth == 0 ? ('\u201C', '\u201D') : ('\u2018', '\u2019');
       }
     }
-    return null;
+
+    final out = StringBuffer();
+    var i = 0;
+    while (i < raw.length) {
+      final ch = raw[i];
+      if (ch == '"' || ch == "'") {
+        final end = raw.indexOf(ch, i + 1);
+        if (end < 0) {
+          break;
+        }
+        out.write(raw.substring(i + 1, end));
+        i = end + 1;
+        continue;
+      }
+      if (ch.trim().isEmpty) {
+        i += 1;
+        continue;
+      }
+      final start = i;
+      var depth = 0;
+      while (i < raw.length) {
+        final c = raw[i];
+        if (c == '(') {
+          depth += 1;
+        } else if (c == ')') {
+          depth -= 1;
+        } else if (depth == 0 && c.trim().isEmpty) {
+          break;
+        }
+        i += 1;
+      }
+      final token = raw.substring(start, i).trim();
+      if (token.isEmpty) {
+        continue;
+      }
+      if (token == 'open-quote') {
+        out.write(pairAt(quoteDepth).$1);
+      } else if (token == 'close-quote') {
+        out.write(pairAt(quoteDepth).$2);
+      } else if (token == 'no-open-quote' || token == 'no-close-quote') {
+        continue;
+      } else if (token.startsWith('attr(') && token.endsWith(')')) {
+        final name = token.substring(5, token.length - 1).trim();
+        out.write(element?.attributes[name] ?? '');
+      } else if (token.startsWith('counter(') && token.endsWith(')')) {
+        final args = token
+            .substring(8, token.length - 1)
+            .split(',')
+            .map((part) => part.trim())
+            .toList();
+        out.write(
+          counterValue(args.first, args.length > 1 ? args[1] : 'decimal'),
+        );
+      } else if (token.startsWith('counters(') && token.endsWith(')')) {
+        final args = token
+            .substring(9, token.length - 1)
+            .split(',')
+            .map((part) => part.trim())
+            .toList();
+        out.write(
+          counterValue(args.first, args.length > 2 ? args[2] : 'decimal'),
+        );
+      }
+    }
+    return out.toString();
+  }
+
+  /// `counter(name, upper-alpha)` 之类的字母计数（1 起）。
+  static String _alphaCounter(int value) {
+    if (value <= 0) {
+      return '$value';
+    }
+    final codes = <int>[];
+    var n = value;
+    while (n > 0) {
+      final rem = (n - 1) % 26;
+      codes.add(65 + rem);
+      n = (n - 1) ~/ 26;
+    }
+    return String.fromCharCodes(codes.reversed);
+  }
+
+  /// `counter(name, upper-roman)` 的罗马数字（1..3999）。
+  static String _romanCounter(int value) {
+    if (value <= 0 || value > 3999) {
+      return '$value';
+    }
+    const numerals = <(int, String)>[
+      (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+      (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+      (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I'),
+    ];
+    final buffer = StringBuffer();
+    var n = value;
+    for (final (amount, symbol) in numerals) {
+      while (n >= amount) {
+        buffer.write(symbol);
+        n -= amount;
+      }
+    }
+    return buffer.toString();
   }
 
   /// ::first-letter（P8-09）：命中规则的声明合成首字符 run（字号/
@@ -2184,6 +2246,222 @@ class EpubChapterSource
     // 引擎族名 `bi_<bookId>_<族>`，改写在级联之前，块样式与行内 run 样式
     // 都自然拿到引擎族名。
     final styledSheets = _rewriteBookFontSheets(sheets);
+    // ---------- 内容生成（W20）：计数器 / 引号 / object-fit ----------
+    /// CSS 计数器状态（§12.4）：扁平管线按文档序遍历，用单层映射近似
+    /// 树作用域（真书里章节编号几乎都是 `h1 { counter-increment: chapter }`
+    /// + `h1::before { content: counter(chapter) }` 这种平铺用法）。
+    final cssCounters = <String, int>{};
+
+    /// 取元素命中的作者声明（规则按出现顺序覆盖，内联最后）——只用于
+    /// ComputedStyle 还没建模的属性：`counter-*`、`content`、`object-fit`。
+    Map<String, String> rawDeclarationsFor(List<SelectorElement> ancestors) {
+      if (ancestors.isEmpty) {
+        return const <String, String>{};
+      }
+      final element = ancestors.last;
+      final parents = ancestors.sublist(0, ancestors.length - 1);
+      final result = <String, String>{};
+      for (final sheet in styledSheets) {
+        for (final rule in sheet.rules) {
+          if (rule.selector.contains('::')) {
+            continue; // 伪元素规则由 pseudoContentOf 单独处理
+          }
+          for (final raw in rule.selector.split(',')) {
+            final parsed = SelectorParser.parse(raw.trim());
+            if (parsed.selectors.isEmpty) {
+              continue;
+            }
+            var matched = false;
+            for (final complex in parsed.selectors) {
+              if (complex.matches(element, parents)) {
+                matched = true;
+                break;
+              }
+            }
+            if (!matched) {
+              continue;
+            }
+            for (final declaration in rule.declarations) {
+              result[declaration.property] = declaration.value.trim();
+            }
+          }
+        }
+      }
+      for (final declaration in _inlineDeclarationsOf(
+        element.attributes['style'],
+      )) {
+        result[declaration.property] = declaration.value.trim();
+      }
+      return result;
+    }
+
+    /// `object-fit`（W20）：图片块用 background-image 绘制，这里把 CSS
+    /// `object-fit` 映射成等价的 background-size/position——`contain`/`cover`
+    /// 与整页图铺法共用同一套语义（不重复实现缩放/裁切算法）。
+    ({String size, String position}) objectFitBackground(
+      List<SelectorElement> ancestors,
+      ImageIntrinsicSize? intrinsic, {
+      required double boxWidth,
+      required double boxHeight,
+    }) {
+      final fit = rawDeclarationsFor(ancestors)['object-fit']?.trim();
+      const center = 'center center';
+      switch (fit) {
+        case 'fill':
+          // 不保持比例，拉满盒子。
+          return (size: '100% 100%', position: center);
+        case 'none':
+          // 原始尺寸，超出即裁切（背景不缩放）。
+          return (size: 'auto', position: center);
+        case 'scale-down':
+          // min(none, contain)：原图比盒子大时缩到 contain，否则原尺寸。
+          final larger =
+              intrinsic != null &&
+              boxWidth > 0 &&
+              boxHeight > 0 &&
+              (intrinsic.width > boxWidth || intrinsic.height > boxHeight);
+          return (size: larger ? 'contain' : 'auto', position: center);
+        case 'cover':
+          return (size: 'cover', position: center);
+        case 'contain':
+        default:
+          return (size: 'contain', position: center);
+      }
+    }
+
+    /// 按一份声明表应用计数器（元素自身或伪元素规则）。
+    ///
+    /// CSS 2.1 §12.4：`counter-increment` 可以写在 `::before` 规则里
+    ///（`li::before { counter-increment: item; content: counter(item) }`
+    /// 是最常见的章节/列表自动编号写法），因此伪元素规则里的计数器声明
+    /// 必须在求值 `content` 之前生效。
+    void applyCounterMap(Map<String, String> declarations) {
+      void apply(String property, int Function(int current, int value) step) {
+        final raw = declarations[property];
+        if (raw == null || raw.isEmpty) {
+          return;
+        }
+        final tokens = raw.split(RegExp(r'\s+'));
+        for (var i = 0; i < tokens.length; i += 1) {
+          final name = tokens[i];
+          if (name.isEmpty || name == 'none') {
+            continue;
+          }
+          var value = property == 'counter-reset' ? 0 : 1;
+          if (i + 1 < tokens.length) {
+            final parsed = int.tryParse(tokens[i + 1]);
+            if (parsed != null) {
+              value = parsed;
+              i += 1;
+            }
+          }
+          cssCounters[name] = step(cssCounters[name] ?? 0, value);
+        }
+      }
+
+      apply('counter-reset', (_, value) => value);
+      apply('counter-increment', (current, value) => current + value);
+    }
+
+    /// `counter-reset` / `counter-increment`（缺省值 0 / +1）。
+    void applyCounters(List<SelectorElement> ancestors) {
+      applyCounterMap(rawDeclarationsFor(ancestors));
+    }
+
+    /// 计数器值按 `counter(name, <style>)` 的 style 格式化（默认 decimal）。
+    String formatCounter(int value, String style) => switch (style) {
+      'decimal-leading-zero' => value.abs() < 10
+          ? '${value < 0 ? '-' : ''}0${value.abs()}'
+          : '$value',
+      'lower-alpha' || 'lower-latin' => _alphaCounter(value).toLowerCase(),
+      'upper-alpha' || 'upper-latin' => _alphaCounter(value),
+      'lower-roman' => _romanCounter(value).toLowerCase(),
+      'upper-roman' => _romanCounter(value),
+      _ => '$value',
+    };
+
+    /// 当前引号对（按嵌套层级取；`auto` 用中英文默认 “ ”、第二层 ‘ ’）。
+    (String, String) quotePairAt(CssQuotes quotes, int depth) {
+      switch (quotes) {
+        case CssQuotesNone():
+          return ('', '');
+        case CssQuotesPairs(:final pairs):
+          final pair = pairs[depth.clamp(0, pairs.length - 1)];
+          return (pair.open, pair.close);
+        case CssQuotesAuto():
+          return depth == 0 ? ('\u201C', '\u201D') : ('\u2018', '\u2019');
+      }
+    }
+
+    /// 生成内容求值：字符串 / attr() / counter() / open-quote 等可拼接。
+    String? pseudoContentOf(
+      List<SelectorElement> ancestors,
+      String pseudo, {
+      required CssQuotes quotes,
+      required int quoteDepth,
+    }) {
+      if (ancestors.isEmpty) {
+        return null;
+      }
+      final element = ancestors.last;
+      final parents = ancestors.sublist(0, ancestors.length - 1);
+      for (final sheet in styledSheets) {
+        for (final rule in sheet.rules) {
+          for (final rawSelector in rule.selector.split(',')) {
+            final selector = rawSelector.trim();
+            if (!selector.endsWith(pseudo)) {
+              continue;
+            }
+            final main = selector.substring(0, selector.length - pseudo.length);
+            if (main.isEmpty) {
+              continue;
+            }
+            final parsed = SelectorParser.parse(main);
+            if (parsed.selectors.isEmpty) {
+              continue;
+            }
+            var matched = false;
+            for (final complex in parsed.selectors) {
+              if (complex.matches(element, parents)) {
+                matched = true;
+                break;
+              }
+            }
+            if (!matched) {
+              continue;
+            }
+            for (final declaration in rule.declarations) {
+              if (declaration.property != 'content') {
+                continue;
+              }
+              final value = declaration.value.trim();
+              if (value == 'normal' || value == 'none') {
+                return null;
+              }
+              // 伪元素规则里的计数器声明先生效（见 applyCounterMap 注释）。
+              applyCounterMap(<String, String>{
+                for (final d in rule.declarations)
+                  if (d.property == 'counter-reset' ||
+                      d.property == 'counter-increment')
+                    d.property: d.value,
+              });
+              return _evaluateContentValue(
+                value,
+                ancestors: ancestors,
+                quotes: quotes,
+                quoteDepth: quoteDepth,
+                counterValue: (name, style) => formatCounter(
+                  cssCounters[name] ?? 0,
+                  style,
+                ),
+              );
+            }
+          }
+        }
+      }
+      return null;
+    }
+
     final cascadeRules = <CascadeRule>[
       // 列表缩进改由列表容器的级联盒计算（g）：UA 里的近似
       // `li { margin-left: 40px }` 会盖掉作者 `ul { padding-left: 28px }`，
@@ -2500,11 +2778,20 @@ class EpubChapterSource
           cssWidth: imageStyle.width?.resolve(contentWidth),
           cssHeight: imageStyle.height?.resolve(contentHeight),
         );
+        final objectFit = objectFitBackground(
+          <SelectorElement>[
+            ...ancestors,
+            _NodeView(imageMark.node.tag, attributes, const <SelectorElement>[]),
+          ],
+          _intrinsicSizeOfUrl(url),
+          boxWidth: size.$1,
+          boxHeight: size.$2,
+        );
         final imageBlockStyle = ComputedStyle(<String, String>{
           ...baseStyle.values,
           'background-image': 'url($url)',
-          'background-size': 'contain',
-          'background-position': 'center center',
+          'background-size': objectFit.size,
+          'background-position': objectFit.position,
           'background-repeat': 'no-repeat',
         });
         final layout = TextLayoutResult(
@@ -2884,15 +3171,26 @@ class EpubChapterSource
           size = (blockWidth, size.$2 * blockWidth / size.$1);
         }
       }
+      // object-fit（W20）：解析书籍样式里的 object-fit，映射成图片背景
+      // 的铺法；未声明时保持 contain（等比完整显示，P9-08 原行为）。
+      final objectFit = objectFitBackground(
+        <SelectorElement>[
+          ...foldedChain,
+          _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
+        ],
+        imageSizes[url],
+        boxWidth: size.$1,
+        boxHeight: size.$2,
+      );
       final blockStyle = ComputedStyle(<String, String>{
         ...baseStyle.values,
         'background-image': 'url($url)',
-        'background-size': 'contain',
-        'background-position': 'center center',
+        'background-size': objectFit.size,
+        'background-position': objectFit.position,
         'background-repeat': 'no-repeat',
       });
-      // 空行盒块：无 runs（不画字），块盒即图片显示区，背景按 contain
-      // 居中绘制（块高按原图比例换算时恰好铺满，不变形）。
+      // 空行盒块：无 runs（不画字），块盒即图片显示区，背景按 object-fit
+      // 映射的铺法绘制（默认 contain：等比完整显示，不变形）。
       final layout = TextLayoutResult(
         text: '',
         lines: [
@@ -3702,14 +4000,38 @@ class EpubChapterSource
         if (text.trim().isEmpty) {
           return;
         }
-        // 伪元素生成内容（P8-09）：::before/::after 的 content（字符串/
-        // attr()）拼进块首尾（flat 近似：CFI 偏移不含生成文本，记录）。
-        final before = _pseudoContent(styledSheets, ancestors, '::before');
-        final after = _pseudoContent(styledSheets, ancestors, '::after');
+        // 计数器（W20）：元素自身的 counter-reset/increment 在生成
+        // ::before 之前生效（CSS 2.1 §12.4），章节自动编号靠这条。
+        applyCounters(ancestors);
+        // 引号嵌套层级 = 祖先里 <q> 的个数（含自身；current 取上一层）。
+        final qNesting = ancestors.where((a) => a.tag == 'q').length;
+        final qLevel = tag == 'q' && qNesting > 0 ? qNesting - 1 : qNesting;
+        // 伪元素生成内容（P8-09/W20）：::before/::after 的 content——
+        // 字符串、attr()、counter()/counters()、open-quote/close-quote 可拼接。
+        final before = pseudoContentOf(
+          ancestors,
+          '::before',
+          quotes: blockStyle.quotes,
+          quoteDepth: qLevel,
+        );
+        final after = pseudoContentOf(
+          ancestors,
+          '::after',
+          quotes: blockStyle.quotes,
+          quoteDepth: qLevel,
+        );
+        // `<q>` 的开/闭引号：引擎 UA 表没有 q 规则，这里按 CSS 语义补上
+        //（quotes 继承；嵌套层级取下一对；`quotes: none` 不生成）。
+        final quotedText = tag == 'q' && blockStyle.quotes is! CssQuotesNone
+            ? () {
+                final pair = quotePairAt(blockStyle.quotes, qLevel);
+                return '${pair.$1}$text${pair.$2}';
+              }()
+            : text;
         final effectiveText =
             (before == null && after == null) || textNode is! TextContentNode
-            ? text
-            : '${before ?? ''}$text${after ?? ''}';
+            ? quotedText
+            : '${before ?? ''}$quotedText${after ?? ''}';
         // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
         // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
         // 标题不参与——标题字号/行高继续跟随书籍样式族。
