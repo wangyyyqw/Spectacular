@@ -226,11 +226,16 @@ class PagePainter {
         );
         continue;
       }
+      // 竖排注音画在列右侧，可能越出块的内容盒；此时不按内容盒裁剪，
+      // 否则注音会被切掉（Chrome 的注音同样允许横向溢出）。
+      final verticalRuby =
+          geometry.isVerticalBlock &&
+          (geometry.slice.block.rubies?.isNotEmpty ?? false);
       _inBlockSpace(
         canvas,
         geometry,
-        clip: true,
-        contentClip: true,
+        clip: !verticalRuby,
+        contentClip: !verticalRuby,
         () => _withEffects(canvas, geometry, () {
           final layout = geometry.slice.block.layout;
           if (geometry.isVerticalBlock) {
@@ -415,6 +420,36 @@ class PagePainter {
       }
       final rubies = geometry.slice.block.rubies;
       if (rubies == null || rubies.isEmpty) {
+        continue;
+      }
+      // 竖排块的注音画在列右侧（_paintVerticalRubies）：可能越出块的内容盒，
+      // 因此单独一趟、不按块盒裁剪，否则注音会被切掉。
+      if (geometry.isVerticalBlock) {
+        final layout = geometry.slice.block.layout;
+        _inBlockSpace(
+          canvas,
+          geometry,
+          clip: false,
+          () => _paintVerticalRubies(
+            canvas,
+            layout,
+            geometry.style,
+            rubies,
+            contentLeft:
+                geometry.borderBox.left +
+                geometry.style.padding.left +
+                (geometry.style.borders.left.isVisible
+                    ? geometry.style.borders.left.width
+                    : 0),
+            contentTop: geometry.y + geometry.leading,
+            startLine: geometry.slice.startLine,
+            endLine: geometry.slice.endLine,
+            metrics: TextLayoutEngine.verticalGlyphMetrics(
+              layout.text,
+              geometry.style,
+            ),
+          ),
+        );
         continue;
       }
       _inBlockSpace(
@@ -2281,8 +2316,7 @@ class PagePainter {
   /// - 旋转（拉丁/数字，`mixed`；或 `sideways` 全部）：顺时针 90°，让字面朝
   ///   右（vertical-rl 阅读方向），旋转后横向宽度铺满列宽。
   ///
-  /// 限制：竖排暂不画装饰线/text-emphasis/注音/列表标记/行尾省略号
-  /// （任务允许先跳过，装饰线方向语义另议）。
+  /// 注音不在这里画（由独立注音趟绘制，可越出块盒）。
   void _paintVerticalColumns(
     Canvas canvas,
     TextLayoutResult layout,
@@ -2297,7 +2331,7 @@ class PagePainter {
     if (metrics.isEmpty) {
       return;
     }
-    final baseStyle = TextLayoutEngine.textStyleFor(style);
+    final baseStyle = _withoutDecoration(TextLayoutEngine.textStyleFor(style));
     final effectiveBase = textColorOverride == null
         ? baseStyle
         : baseStyle.copyWith(color: textColorOverride);
@@ -2322,36 +2356,261 @@ class PagePainter {
           continue;
         }
         final runStyle = _runStyleAtOffset(runs, metric.start);
+        final glyphStyle = runStyle ?? style;
         final textStyle = runStyle == null
             ? effectiveBase
             : _verticalStyleOf(runStyle, textColorOverride);
-        final painter = TextPainter(
-          text: TextSpan(text: text, style: textStyle),
+        // 装饰线（竖排沿列方向画纵线；位置按 Chromium 实测：下划线 0.13 列宽、
+        // 删除线列中线、上划线另一侧），逐字画段自然连成整条。
+        _paintVerticalDecoration(
+          canvas,
+          glyphStyle,
+          textColorOverride,
+          columnLeft: columnLeft,
+          columnWidth: columnWidth,
+          top: y,
+          advance: metric.advance,
+        );
+        _paintVerticalGlyph(
+          canvas,
+          text,
+          textStyle,
+          upright: metric.upright,
+          columnLeft: columnLeft,
+          columnWidth: columnWidth,
+          y: y,
+          advance: metric.advance,
           textDirection: _textDirectionOf(layout),
-        )..layout();
-        if (metric.upright) {
-          // 正立：横向居中于列宽，纵向让字形盒中心落在本次 advance 的中点。
-          painter.paint(
-            canvas,
-            Offset(
-              columnLeft + (columnWidth - painter.width) / 2,
-              y - (painter.height - metric.advance) / 2,
-            ),
-          );
-        } else {
-          // 旋转 90°（顺时针）：旋转后字形横向占位 = 原行高、纵向占位 = 原字宽。
-          canvas.save();
-          canvas.translate(columnLeft + columnWidth / 2, y + metric.advance / 2);
-          canvas.rotate(math.pi / 2);
-          canvas.translate(-painter.width / 2, -painter.height / 2);
-          painter.paint(canvas, Offset.zero);
-          canvas.restore();
-        }
-        painter.dispose();
+        );
+        // 着重号（竖排画在列的右侧，Chromium 实测 x ≈ 列右缘）。
+        _paintVerticalEmphasis(
+          canvas,
+          glyphStyle,
+          textColorOverride,
+          columnLeft: columnLeft,
+          columnWidth: columnWidth,
+          centerY: y + metric.advance / 2,
+        );
         y += metric.advance;
+      }
+      // 列末省略号/连字符（布局只计宽不画字）：旋转 90° 后接在列尾。
+      final tailWidth = column.ellipsized
+          ? column.ellipsisWidth
+          : (column.hyphenated ? column.hyphenWidth : 0.0);
+      if (tailWidth > 0) {
+        _paintVerticalGlyph(
+          canvas,
+          column.ellipsized ? '…' : '-',
+          effectiveBase,
+          upright: false,
+          columnLeft: columnLeft,
+          columnWidth: columnWidth,
+          y: y,
+          advance: tailWidth,
+          textDirection: _textDirectionOf(layout),
+        );
+        y += tailWidth;
+      }
+    }
+
+    // 注音由独立注音趟绘制（可越出块盒，见 paint 主循环）。
+  }
+
+  /// 竖排画一个字形（正立居中 / 顺时针旋转 90°）。
+  void _paintVerticalGlyph(
+    Canvas canvas,
+    String text,
+    TextStyle textStyle, {
+    required bool upright,
+    required double columnLeft,
+    required double columnWidth,
+    required double y,
+    required double advance,
+    required TextDirection textDirection,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: textStyle),
+      textDirection: textDirection,
+    )..layout();
+    if (upright) {
+
+      // 正立：横向居中于列宽，纵向让字形盒中心落在本次 advance 的中点。
+      painter.paint(
+        canvas,
+        Offset(
+          columnLeft + (columnWidth - painter.width) / 2,
+          y - (painter.height - advance) / 2,
+        ),
+      );
+    } else {
+      // 旋转 90°（顺时针）：旋转后横向占位 = 原行高、纵向占位 = 原字宽。
+      canvas.save();
+      canvas.translate(columnLeft + columnWidth / 2, y + advance / 2);
+      canvas.rotate(math.pi / 2);
+      canvas.translate(-painter.width / 2, -painter.height / 2);
+      painter.paint(canvas, Offset.zero);
+      canvas.restore();
+    }
+    painter.dispose();
+  }
+
+  /// 竖排装饰线：沿列方向的纵向线段（Chromium 实测口径）。
+  ///
+  /// - 下划线：x = 列左缘 + 0.13 × 列宽（字形盒左侧内侧）；
+  /// - 删除线：x = 列中线；
+  /// - 上划线：镜像到右侧对称位置；
+  /// - 线宽 = max(1, floor(字号 / 10))，颜色取 `text-decoration-color`。
+  void _paintVerticalDecoration(
+    Canvas canvas,
+    ComputedStyle style,
+    Color? textColorOverride, {
+    required double columnLeft,
+    required double columnWidth,
+    required double top,
+    required double advance,
+  }) {
+    final decoration = style.textDecoration;
+    if (decoration == CssTextDecoration.none || advance <= 0) {
+      return;
+    }
+    final color =
+        style.textDecorationColor ?? textColorOverride ?? style.color;
+    final thickness = math
+        .max(1.0, (style.fontSize / 10).floorToDouble())
+        .toDouble();
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = thickness;
+    void line(double x) {
+      canvas.drawLine(
+        Offset(x, top),
+        Offset(x, top + advance),
+        paint,
+      );
+    }
+
+    if (decoration == CssTextDecoration.underline) {
+      line(columnLeft + columnWidth * 0.13);
+    }
+    if (decoration == CssTextDecoration.lineThrough) {
+      line(columnLeft + columnWidth / 2);
+    }
+    if (decoration == CssTextDecoration.overline) {
+      line(columnLeft + columnWidth * 0.87);
+    }
+  }
+
+  /// 竖排着重号：画在列右侧（Chromium 实测 x ≈ 列右缘），y 取字符中心。
+  void _paintVerticalEmphasis(
+    Canvas canvas,
+    ComputedStyle style,
+    Color? textColorOverride, {
+    required double columnLeft,
+    required double columnWidth,
+    required double centerY,
+  }) {
+    final emphasis = style.textEmphasisStyle;
+    if (emphasis == CssTextEmphasisStyle.none) {
+      return;
+    }
+    final radius = math.max(1.0, style.fontSize * 0.08);
+    final paint = Paint()
+      ..color = style.textEmphasisColor ?? textColorOverride ?? style.color;
+    if (emphasis == CssTextEmphasisStyle.open) {
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.0, style.fontSize * 0.05);
+    }
+    // over → 列右缘；under → 列左缘（竖排的 over 侧就是右）。
+    final centerX = style.textEmphasisPosition == CssTextEmphasisPosition.under
+        ? columnLeft + radius + 1
+        : columnLeft + columnWidth - radius - 1;
+    canvas.drawCircle(Offset(centerX, centerY), radius, paint);
+  }
+
+  /// 竖排注音：注音文本放在列右侧（Chromium 实测注音中心 ≈ 列右缘），
+  /// 沿被注音字符的纵向范围居中、逐字正立堆叠（字号 50%）。
+  void _paintVerticalRubies(
+    Canvas canvas,
+    TextLayoutResult layout,
+    ComputedStyle style,
+    List<RubyAnnotation> rubies, {
+    required double contentLeft,
+    required double contentTop,
+    required int startLine,
+    required int endLine,
+    required List<VerticalGlyphMetric> metrics,
+  }) {
+    final rubySize = style.fontSize * 0.5;
+    final rubyStyle = TextLayoutEngine.textStyleFor(
+      style,
+    ).copyWith(fontSize: rubySize);
+    for (final ruby in rubies) {
+      for (var lineIndex = startLine; lineIndex < endLine; lineIndex++) {
+        final column = layout.lines[lineIndex];
+        if (!column.vertical) {
+          continue;
+        }
+        if (ruby.start < column.start || ruby.start >= column.end) {
+          continue;
+        }
+        final columnLeft = contentLeft + (column.columnX ?? column.offsetX);
+        // 被注音字符的纵向范围。
+        var y = contentTop;
+        var top = double.nan;
+        var bottom = double.nan;
+        for (final metric in metrics) {
+          if (metric.start < column.start) {
+            continue;
+          }
+          if (metric.start >= column.end) {
+            break;
+          }
+          if (metric.start >= ruby.start && metric.end <= ruby.end) {
+            if (top.isNaN) {
+              top = y;
+            }
+            bottom = y + metric.advance;
+          }
+          y += metric.advance;
+        }
+
+        if (top.isNaN || bottom.isNaN || bottom <= top) {
+          continue;
+        }
+        // 注音逐字正立堆叠，整体在字符范围居中。
+        final advanceTotal = ruby.text.length * rubySize;
+        var rubyY = top + (bottom - top - advanceTotal) / 2;
+        // 注音中心 ≈ 列右缘（Chromium 实测）：用一个宽度 = 注音字号的
+        // 虚拟列贴在列右缘内侧来复用居中绘制。
+        final rubyColumnLeft = columnLeft + column.width - rubySize / 2;
+
+        for (final rune in ruby.text.runes) {
+          _paintVerticalGlyph(
+            canvas,
+            String.fromCharCode(rune),
+            rubyStyle.copyWith(color: style.color),
+            upright: true,
+            columnLeft: rubyColumnLeft,
+            columnWidth: rubySize,
+            y: rubyY,
+            advance: rubySize,
+            textDirection: _textDirectionOf(layout),
+          );
+          rubyY += rubySize;
+        }
+        break;
       }
     }
   }
+
+
+  /// 竖排字形样式：装饰线在竖排下由绘制层手画（沿列方向），
+  /// 必须剥掉引擎的装饰，否则每个字会各画一条横线。
+  TextStyle _withoutDecoration(TextStyle style) =>
+      style.decoration == null || style.decoration == TextDecoration.none
+      ? style
+      : style.copyWith(decoration: TextDecoration.none);
 
   /// 取某个字符偏移处的 run 样式（竖排逐字符绘制用）。
   ComputedStyle? _runStyleAtOffset(List<StyledRun> runs, int offset) {
@@ -2365,7 +2624,9 @@ class PagePainter {
 
   /// 竖排单字符样式（含主题色覆盖）。
   TextStyle _verticalStyleOf(ComputedStyle style, Color? textColorOverride) {
-    final textStyle = TextLayoutEngine.textStyleFor(style);
+    final textStyle = _withoutDecoration(
+      TextLayoutEngine.textStyleFor(style),
+    );
     return textColorOverride == null
         ? textStyle
         : textStyle.copyWith(color: textColorOverride);
