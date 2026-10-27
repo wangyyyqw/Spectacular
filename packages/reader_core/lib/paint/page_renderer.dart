@@ -469,11 +469,12 @@ class PagePainter {
         );
         continue;
       }
+      // 注音画在行顶上方/行底下，可能越出块盒；按内容盒裁剪会把它切掉，
+      // 因此这一趟不裁剪（与竖排注音同一处理）。
       _inBlockSpace(
         canvas,
         geometry,
-        clip: true,
-        contentClip: true,
+        clip: false,
         () => _paintRubies(canvas, geometry, rubies),
       );
     }
@@ -1268,8 +1269,20 @@ class PagePainter {
         text: TextSpan(text: ruby.text, style: rubyStyle),
         textDirection: _textDirectionOf(layout),
       )..layout();
-      final rx = x0 + (baseWidth - rubyPainter.width) / 2;
-      rubyPainter.paint(canvas, ui.Offset(rx, lineY - rubyPainter.height));
+      // ruby-align：注音在基字区间内的水平对齐（CSS Ruby 1 §5）。
+      final slack = baseWidth - rubyPainter.width;
+      final offset = switch (geometry.style.rubyAlign) {
+        CssRubyAlign.start => 0.0,
+        CssRubyAlign.end => slack,
+        // space-between 无多个注音片段时退化为居中。
+        CssRubyAlign.center || CssRubyAlign.spaceBetween => slack / 2,
+      };
+      final rx = x0 + offset;
+      // ruby-position：over 画在行顶上方、under 画在行底下（横排）。
+      final ry = geometry.style.rubyPosition == CssRubyPosition.under
+          ? lineY + hostLine.height
+          : lineY - rubyPainter.height;
+      rubyPainter.paint(canvas, ui.Offset(rx, ry));
       rubyPainter.dispose();
     }
   }
@@ -2864,9 +2877,13 @@ class PagePainter {
         // 注音逐字正立堆叠，整体在字符范围居中。
         final advanceTotal = ruby.text.length * rubySize;
         var rubyY = top + (bottom - top - advanceTotal) / 2;
-        // 注音中心 ≈ 列右缘（Chromium 实测）：用一个宽度 = 注音字号的
-        // 虚拟列贴在列右缘内侧来复用居中绘制。
-        final rubyColumnLeft = columnLeft + column.width - rubySize / 2;
+        // 注音用一个宽度 = 注音字号的虚拟列贴在列的一侧（CSS Ruby 1 §5）：
+        // `over` 在列右（vertical-rl 的「上」，圆心落在列右缘、可越出到列间）、
+        // `under` 在列左（圆心落在列左缘）。
+        final rubyColumnLeft =
+            style.rubyPosition == CssRubyPosition.under
+            ? columnLeft - rubySize / 2
+            : columnLeft + column.width - rubySize / 2;
 
         for (final rune in ruby.text.runes) {
           _paintVerticalGlyph(

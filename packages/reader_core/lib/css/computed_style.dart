@@ -129,6 +129,13 @@ enum CssTextEmphasisStyle { none, dot, filled, open }
 /// 着重号位置（CSS text-emphasis-position 属性）。
 enum CssTextEmphasisPosition { over, under }
 
+/// 注音位置（CSS Ruby 1 §5 `ruby-position`）：横排 over=字上/under=字下，
+/// 竖排 over=列右/under=列左。
+enum CssRubyPosition { over, under }
+
+/// 注音对齐（CSS Ruby 1 §5 `ruby-align`）：注音在基字区间内的水平对齐。
+enum CssRubyAlign { start, center, end, spaceBetween }
+
 /// 文本阴影（CSS text-shadow，P2-18：P0 收口补全）。
 class CssTextShadow {
   /// 创建阴影。
@@ -1590,6 +1597,18 @@ class ComputedStyle {
         : _parseTextEmphasisPosition(rawEmphasisPosition) ??
               parent?.textEmphasisPosition ??
               CssTextEmphasisPosition.over;
+    final rawRubyPosition = explicitValue('ruby-position');
+    final rubyPosition = rawRubyPosition == null
+        ? (parent?.rubyPosition ?? CssRubyPosition.over)
+        : _parseRubyPosition(rawRubyPosition) ??
+              parent?.rubyPosition ??
+              CssRubyPosition.over;
+    final rawRubyAlign = explicitValue('ruby-align');
+    final rubyAlign = rawRubyAlign == null
+        ? (parent?.rubyAlign ?? CssRubyAlign.center)
+        : _parseRubyAlign(rawRubyAlign) ??
+              parent?.rubyAlign ??
+              CssRubyAlign.center;
     final rawEmphasisColor = explicitValue('text-emphasis-color');
     final textEmphasisColor = rawEmphasisColor == null
         ? parent?.textEmphasisColor
@@ -1827,6 +1846,8 @@ class ComputedStyle {
       textDecoration: textDecoration,
       textEmphasisStyle: textEmphasisStyle,
       textEmphasisPosition: textEmphasisPosition,
+      rubyPosition: rubyPosition,
+      rubyAlign: rubyAlign,
       textEmphasisColor: textEmphasisColor,
       pageBreakBefore: pageBreakBefore,
       pageBreakAfter: pageBreakAfter,
@@ -1966,6 +1987,8 @@ class ComputedStyle {
       textDecoration: textDecoration,
       textEmphasisStyle: textEmphasisStyle,
       textEmphasisPosition: textEmphasisPosition,
+      rubyPosition: rubyPosition,
+      rubyAlign: rubyAlign,
       textEmphasisColor: textEmphasisColor,
       pageBreakBefore: pageBreakBefore,
       pageBreakAfter: pageBreakAfter,
@@ -2077,6 +2100,8 @@ class ComputedStyle {
     required this.textDecoration,
     required this.textEmphasisStyle,
     required this.textEmphasisPosition,
+    required this.rubyPosition,
+    required this.rubyAlign,
     required this.textEmphasisColor,
     required this.pageBreakBefore,
     required this.pageBreakAfter,
@@ -2365,6 +2390,12 @@ class ComputedStyle {
 
   /// 着重号位置（继承，初始 over）。
   final CssTextEmphasisPosition textEmphasisPosition;
+
+  /// 注音位置（横排上/下，竖排列右/列左）。
+  final CssRubyPosition rubyPosition;
+
+  /// 注音对齐（基字区间内 start/center/end/space-between）。
+  final CssRubyAlign rubyAlign;
 
   /// 着重号颜色；null 表示跟随文字颜色。
   final Color? textEmphasisColor;
@@ -5342,6 +5373,28 @@ class ComputedStyle {
       }
     }
     return null;
+  }
+
+  static CssRubyPosition? _parseRubyPosition(String raw) {
+    final value = raw.trim().toLowerCase();
+    if (value.contains('under')) {
+      return CssRubyPosition.under;
+    }
+    if (value.contains('over')) {
+      return CssRubyPosition.over;
+    }
+    return null;
+  }
+
+  static CssRubyAlign? _parseRubyAlign(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'start' || 'left' => CssRubyAlign.start,
+      'center' || 'centre' => CssRubyAlign.center,
+      'end' || 'right' => CssRubyAlign.end,
+      'space-between' || 'space-around' || 'space-evenly' =>
+        CssRubyAlign.spaceBetween,
+      _ => null,
+    };
   }
 
   static CssTextEmphasisPosition? _parseTextEmphasisPosition(String raw) {
