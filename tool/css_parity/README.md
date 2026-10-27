@@ -139,7 +139,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 - 未覆盖的主体在 D 组（引擎无字段）：`border-image`、`columns`、`overflow-x/y`、
   `line-break`、`counter-*`、`object-fit`、`backdrop-filter`、`mix-blend-mode`、
   `z-index`、`background-attachment`、`justify-content`/`align-items`、
-  `orphans`/`widows` 等。
+  （`orphans`/`widows` 为产品决策不做）。
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
   （engine_only，等引擎实现竖排后去掉标记即可参与比较）。

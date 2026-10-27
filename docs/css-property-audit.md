@@ -122,7 +122,7 @@
 | **border-image** | **11** | **3** | **仍完全未处理** |
 | writing-mode 族 | 5 + 18 别名 | 3 | 部分（主干已实现，见 Top #5/#6） |
 | font-variant | 7 | 1 | 完整（`smcp` 已接通） |
-| orphans / widows | 7 / 7 | 1 | 完整（本轮分页约束 + 4 条测试） |
+| orphans / widows | 7 / 7 | 1 | 不参与分页（产品决策：电子书排版不做孤行/寡行约束） |
 | text-justify / ruby-align | 5 / 4 | 3 | 部分 / 未处理 |
 | opacity | 5 | 1 | 完整（组合成已接通） |
 | z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 完整（本轮接通叠序）/ 未处理 / 完整 |
@@ -284,7 +284,7 @@
 | 110 | `ruby-position` | 0 | 注音恒在上方（竖排尤其错） |
 | 111 | `text-combine-upright` | 4 别名 / 1 | 竖排「縦中横」不支持 |
 | 112 | `tab-size` | 0 | `pre` 制表符按固定宽近似 |
-| 113 | `orphans` / `widows` | 7 / 7 | 已实现：块被分页切开时本页至少 orphans 行、下一页至少 widows 行 |
+| 113 | `orphans` / `widows` | 7 / 7 | 明确不做（产品决策）：电子书分页不考虑孤行/寡行，页尾单行可接受 |
 | 114 | `list-style-image` | 0 | 图片列表标记不支持 |
 | 115 | `caption-side` / `empty-cells` | 0 | 表格标题位置、空单元格边框 |
 | 116 | `aspect-ratio` | 0 | 图片容器比例约束 |
@@ -380,7 +380,7 @@
 | 17 | `initial-letter` 无消费（首字下沉） | P2 | `cs:1234` 字段在、0 消费；`ecs` 已有 `_firstLetterRun` | M | `line_breaker.dart`（首行行盒）+ `epub_chapter_source.dart` |
 | 18 | `font-stretch` / `font-size-adjust` 无消费 | P2 | `cs:1324`/`cs:1332` 字段在、0 消费 | S | `line_breaker.dart`（`TextStyle.fontVariations`）或删字段 |
 | 19 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |
-| 20 | `orphans` / `widows` 孤行控制 | P2 | 0 命中；7/7 各 1 本 | M | `paginator.dart`（分页决策） |
+| 20 | `orphans` / `widows` 孤行控制 | — | 明确不做：电子书排版不考虑孤行/寡行（产品决策） | — | — |
 
 候补（低成本、可与上面合并）：`z-index`（4/2 本，与绝对定位同批）；`unicode-bidi`/`bdo`（UA 表已有规则、无消费）；`line-break`（别名已接、目标零消费）；`text-combine-upright`（竖排縦中横，与 #6 同批）。
 
@@ -424,7 +424,7 @@
 | #15 flex | **无**（`53-display-position` 只覆盖 display/position） | 建议新增 `72-flex-basic.json` |
 | #16–18 quotes / initial-letter / font-stretch | `20`（quotes 在内）、`45-initial-letter`、`15-font-variant-stretch` | 已覆盖 |
 | #19 sticky | `53-display-position` | 已覆盖 |
-| #20 orphans/widows | **无**（`41-page-break-control` 只覆盖 `break-*`） | 建议新增 `73-orphans-widows.json` |
+| #20 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
 **真正还缺的用例只有 6 个**：竖排 ruby、object-fit、border-image、background-attachment、flex、orphans/widows（外加 `counter-*`、`a / b` 椭圆半径两个补充断言）。
 
