@@ -199,6 +199,17 @@ class PagePainter {
         geometry,
         clip: true,
         () => _withEffects(canvas, geometry, () {
+          // border-image 存在时替代普通边框绘制（CSS Backgrounds §6.1）。
+          if (geometry.style.borderImage != null) {
+            if (geometry.startsBlock && geometry.endsBlock) {
+              _paintBorderImage(
+                canvas,
+                geometry.borderBox,
+                geometry.style,
+              );
+            }
+            return;
+          }
           _paintBorders(
             canvas,
             geometry.containerPaintBox,
@@ -2115,6 +2126,204 @@ class PagePainter {
       return null;
     }
     return lookup(url);
+  }
+
+  /// 画 `border-image` 九宫格（CSS Backgrounds §6.2）。
+  ///
+  /// 四角拉伸到边框角、四边按 `repeat/round/stretch` 沿边填充、`fill` 时
+  /// 补中间；边框宽度取自 `border-width`（`border-image-width` 长属性不解析）。
+  /// 图片缺失或无边框宽度时什么都不画（保持 `border` 的透明占位）。
+  void _paintBorderImage(Canvas canvas, Rect box, ComputedStyle style) {
+    final spec = style.borderImage;
+    final lookup = imageLookup;
+    if (spec == null || lookup == null) {
+      return;
+    }
+    final borders = style.borders;
+    final left = borders.left.width;
+    final top = borders.top.width;
+    final right = borders.right.width;
+    final bottom = borders.bottom.width;
+    if (left + right <= 0 || top + bottom <= 0) {
+      return;
+    }
+    final image = lookup(spec.url);
+    if (image == null) {
+      return;
+    }
+    final imageWidth = image.width.toDouble();
+    final imageHeight = image.height.toDouble();
+    final sliceLeft = spec.slicePercent
+        ? spec.sliceLeft * imageWidth
+        : spec.sliceLeft;
+    final sliceRight = spec.slicePercent
+        ? spec.sliceRight * imageWidth
+        : spec.sliceRight;
+    final sliceTop = spec.slicePercent
+        ? spec.sliceTop * imageHeight
+        : spec.sliceTop;
+    final sliceBottom = spec.slicePercent
+        ? spec.sliceBottom * imageHeight
+        : spec.sliceBottom;
+    final paint = Paint()..filterQuality = FilterQuality.high;
+
+    void drawPart(Rect src, Rect dst) {
+      if (dst.width <= 0 || dst.height <= 0 || src.width <= 0 || src.height <= 0) {
+        return;
+      }
+      canvas.drawImageRect(image, src, dst, paint);
+    }
+
+    // 四角：源九宫格四角 → 目标边框四角（拉伸）。
+    drawPart(
+      Rect.fromLTWH(0, 0, sliceLeft, sliceTop),
+      Rect.fromLTWH(box.left, box.top, left, top),
+    );
+    drawPart(
+      Rect.fromLTWH(imageWidth - sliceRight, 0, sliceRight, sliceTop),
+      Rect.fromLTWH(box.right - right, box.top, right, top),
+    );
+    drawPart(
+      Rect.fromLTWH(0, imageHeight - sliceBottom, sliceLeft, sliceBottom),
+      Rect.fromLTWH(box.left, box.bottom - bottom, left, bottom),
+    );
+    drawPart(
+      Rect.fromLTWH(
+        imageWidth - sliceRight,
+        imageHeight - sliceBottom,
+        sliceRight,
+        sliceBottom,
+      ),
+      Rect.fromLTWH(box.right - right, box.bottom - bottom, right, bottom),
+    );
+
+    // 四边：源边条 → 目标边条（repeat/round 平铺，stretch 拉伸）。
+    final topSrc = Rect.fromLTWH(
+      sliceLeft,
+      0,
+      imageWidth - sliceLeft - sliceRight,
+      sliceTop,
+    );
+    final bottomSrc = Rect.fromLTWH(
+      sliceLeft,
+      imageHeight - sliceBottom,
+      imageWidth - sliceLeft - sliceRight,
+      sliceBottom,
+    );
+    final leftSrc = Rect.fromLTWH(
+      0,
+      sliceTop,
+      sliceLeft,
+      imageHeight - sliceTop - sliceBottom,
+    );
+    final rightSrc = Rect.fromLTWH(
+      imageWidth - sliceRight,
+      sliceTop,
+      sliceRight,
+      imageHeight - sliceTop - sliceBottom,
+    );
+    _paintBorderImageEdge(
+      canvas,
+      image,
+      topSrc,
+      Rect.fromLTWH(box.left + left, box.top, box.width - left - right, top),
+      spec.repeat,
+      horizontal: true,
+      paint: paint,
+    );
+    _paintBorderImageEdge(
+      canvas,
+      image,
+      bottomSrc,
+      Rect.fromLTWH(
+        box.left + left,
+        box.bottom - bottom,
+        box.width - left - right,
+        bottom,
+      ),
+      spec.repeat,
+      horizontal: true,
+      paint: paint,
+    );
+    _paintBorderImageEdge(
+      canvas,
+      image,
+      leftSrc,
+      Rect.fromLTWH(box.left, box.top + top, left, box.height - top - bottom),
+      spec.repeat,
+      horizontal: false,
+      paint: paint,
+    );
+    _paintBorderImageEdge(
+      canvas,
+      image,
+      rightSrc,
+      Rect.fromLTWH(
+        box.right - right,
+        box.top + top,
+        right,
+        box.height - top - bottom,
+      ),
+      spec.repeat,
+      horizontal: false,
+      paint: paint,
+    );
+
+    // fill：中间区域（源九宫格中心 → 内容盒）。
+    if (spec.fill) {
+      drawPart(
+        Rect.fromLTWH(
+          sliceLeft,
+          sliceTop,
+          imageWidth - sliceLeft - sliceRight,
+          imageHeight - sliceTop - sliceBottom,
+        ),
+        Rect.fromLTWH(
+          box.left + left,
+          box.top + top,
+          box.width - left - right,
+          box.height - top - bottom,
+        ),
+      );
+    }
+  }
+
+  /// 边条填充：`stretch` 一次拉满；`repeat/round/space` 沿边平铺。
+  void _paintBorderImageEdge(
+    Canvas canvas,
+    ui.Image image,
+    Rect src,
+    Rect dst,
+    CssBorderImageRepeat repeat, {
+    required bool horizontal,
+    required Paint paint,
+  }) {
+    if (dst.width <= 0 || dst.height <= 0) {
+      return;
+    }
+    if (repeat == CssBorderImageRepeat.stretch) {
+      canvas.drawImageRect(image, src, dst, paint);
+      return;
+    }
+    final natural = horizontal ? src.width : src.height;
+    final target = horizontal ? dst.width : dst.height;
+    if (natural <= 0) {
+      return;
+    }
+    final count = repeat == CssBorderImageRepeat.round
+        ? math.max(1, (target / natural).round())
+        : (target / natural).ceil();
+    final piece = target / count;
+    canvas.save();
+    canvas.clipRect(dst);
+    for (var i = 0; i < count; i++) {
+      final start = horizontal ? dst.left + piece * i : dst.top + piece * i;
+      final part = horizontal
+          ? Rect.fromLTWH(start, dst.top, piece, dst.height)
+          : Rect.fromLTWH(dst.left, start, dst.width, piece);
+      canvas.drawImageRect(image, src, part, paint);
+    }
+    canvas.restore();
   }
 
   /// 画四边边框：贴合块边界，不改变行布局（§65 边框不侵占行布局）。

@@ -951,6 +951,8 @@ class EpubChapterSource
   static const _urlProperties = <String>{
     'background-image',
     'background',
+    'border-image',
+    'border-image-source',
     'list-style-image',
     'list-style',
   };
