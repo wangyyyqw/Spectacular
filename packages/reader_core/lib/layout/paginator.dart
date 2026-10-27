@@ -1420,6 +1420,32 @@ class Paginator {
           }
         }
 
+        // 孤行/寡行（CSS 2.1 §13.3）：块被分页切开时，本页至少
+        // `orphans` 行、下一页至少 `widows` 行。约束冲突时按可满足的
+        // 最小调整处理（页已满/单行超高时允许违反，避免空页死循环）。
+        if (fitEnd > lineStart && fitEnd < lineLimit) {
+          final orphans = block.style?.orphans ?? 2;
+          final widows = block.style?.widows ?? 2;
+          var count = fitEnd - lineStart;
+          final rest = lineLimit - fitEnd;
+          if (rest < widows) {
+            final move = widows - rest;
+            if (count - move >= orphans) {
+              fitEnd -= move;
+              count = fitEnd - lineStart;
+              linesHeight = 0;
+              for (var i = lineStart; i < fitEnd; i++) {
+                linesHeight += lines[i].height;
+              }
+            }
+          }
+          if (count < orphans && lineStart == 0 && slices.isNotEmpty) {
+            // 本页只放得下少量行：整块移到下一页，避免页尾孤行。
+            record();
+            continue;
+          }
+        }
+
         if (fitEnd == lineStart) {
           // 当前页已非空：先收页，在新页重试本行。
           if (slices.isNotEmpty) {

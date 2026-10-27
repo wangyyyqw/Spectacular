@@ -74,8 +74,9 @@ void main() {
         )
         .pages;
     expect(pages, hasLength(2), reason: '无法整块放下，退回按行拆分');
-    expect(pages[0].slices.single.endLine, 3);
-    expect(pages[1].slices.single.startLine, 3);
+    // widows 默认 2：4 行块在 3 行容量的页上断成 2+2，避免页尾只剩 1 行。
+    expect(pages[0].slices.single.endLine, 2);
+    expect(pages[1].slices.single.startLine, 2);
   });
 
   test('样式驱动：PageBlock.styled 读取分页与 break-inside 标记', () {

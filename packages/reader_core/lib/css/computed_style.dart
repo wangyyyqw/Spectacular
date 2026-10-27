@@ -2042,6 +2042,23 @@ class ComputedStyle {
   /// 属性 → 层叠后的字符串值。
   final Map<String, String> values;
 
+  /// 分页孤行控制（CSS 2.1 §13.3）：页首/页尾至少保留的行数，初始 2。
+  ///
+  /// 值直接从层叠结果读（`orphans`/`widows` 是非继承整数属性，不需要解算），
+  /// 非法值/未声明按初始值 2 处理。
+  int get orphans => _pageLineCount('orphans');
+
+  /// 分页寡行控制（CSS 2.1 §13.3），语义同 [orphans]。
+  int get widows => _pageLineCount('widows');
+
+  int _pageLineCount(String property) {
+    final parsed = int.tryParse(values[property]?.trim() ?? '');
+    if (parsed == null || parsed < 1) {
+      return 2;
+    }
+    return parsed;
+  }
+
   /// 是否存在作者/内联显式指定的文字色（暗色替换需要）。
   final bool hasExplicitTextColor;
 

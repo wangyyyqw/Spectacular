@@ -60,23 +60,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "a158990a490ffe30bce2863af2b9124874948f1a76c842fbc8bbf9f0d1fd3951",
+      "bookHash": "d732d848e2ae089583a447a521496575f9c0d95c2400de9b55538b40e0481eb7",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "8a74145a0bbf7da6107d26d47fa6617fb6d800e5eb60b8387990a858bb668f2f",
-          "inkPixels": 86109,
-          "lineCount": 16,
-          "textLength": 219,
-          "summary": "样式练习册这一段用来验证首行缩进与两端对…值。这一行行高较紧，行距是正常值的六成左"
+          "layoutHash": "da32ac82fac9c5cc65d41c1cbf94f4cbc93fb2de37458d9a652200148801c82a",
+          "inkPixels": 79673,
+          "lineCount": 15,
+          "textLength": 201,
+          "summary": "样式练习册这一段用来验证首行缩进与两端对…用来检查 text-align 的取值。"
         },
         {
           "index": 1,
-          "layoutHash": "6e3aa506edff60b9d4e81a9979b5e9246470a88333d70b784bf68cd9c3d7e8c0",
-          "inkPixels": 51769,
-          "lineCount": 10,
-          "textLength": 143,
-          "summary": "右。若行高被忽略，这一段会与上下两段显得…用来观察前面的外边距是否把段落推得过远。"
+          "layoutHash": "1d0de1f2bba9e6e3c8f60714e72575a5d39439b6d18f0638d7b17a058a115cf8",
+          "inkPixels": 58205,
+          "lineCount": 11,
+          "textLength": 161,
+          "summary": "这一行行高较紧，行距是正常值的六成左右。…用来观察前面的外边距是否把段落推得过远。"
         }
       ]
     },
@@ -91,23 +91,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "67b8f82925956006fcf549979b35e43e6b872f8fcd111262b667c1fdbd3e8d62",
+      "bookHash": "d3fafd7747ab98bbd4017f8f46d8542fe2dd2e7ccf75460ea7e5652e1eb60843",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "51d9f6a3024e3f7fe3f77b226aeb210775cbe605e6ac3cde50df2f44af44706d",
-          "inkPixels": 54967,
-          "lineCount": 21,
-          "textLength": 132,
-          "summary": "表格与插图样例下面这张表使用 colsp…ages/teal.png，仅用于验证 "
+          "layoutHash": "fe65d7ea7b1307f055b839ddd590c23f949411c072eeafbc8e12c820cd297ea6",
+          "inkPixels": 49215,
+          "lineCount": 20,
+          "textLength": 105,
+          "summary": "表格与插图样例下面这张表使用 colsp…笋溪桥村8晾晒三日野蜂蜜北坡岩下3陶罐装"
         },
         {
           "index": 1,
-          "layoutHash": "acd5b37033873d5711e6abaa6eecd3e00dbdd973594107e56a082514aa25fcd8",
-          "inkPixels": 8267,
-          "lineCount": 2,
-          "textLength": 26,
-          "summary": "manifest 中的图片资源能否被正确解析与绘制。"
+          "layoutHash": "aaaf862318122740e84049536c2f13ddd4e42ee22429a50e5c3f1e3b35b2b1f3",
+          "inkPixels": 14019,
+          "lineCount": 3,
+          "textLength": 53,
+          "summary": "图片位于 images/teal.png…st 中的图片资源能否被正确解析与绘制。"
         }
       ]
     },
