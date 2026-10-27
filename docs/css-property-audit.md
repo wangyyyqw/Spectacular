@@ -500,3 +500,26 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 伪元素（`::before`/`::after`/`::first-letter`/`::first-line`）只审到 `content` 边缘（D 组 #106），未展开作用域规则。
 - 「零消费」以「除 `lib/css/` 外无字段读取」为准；**经 `ComputedStyle` 派生 getter（`isRtl`、`verticalAlignShift`、`fontFamily`、`resolvedTextAlign`、`isOutOfFlow`、`layoutFingerprint`）间接消费的计入 A 组**——`direction` 与 `vertical-align` 长度值属此类。
 - 语料 7 本只给量级参考；`duokan-*` 私有属性在非多看渠道书里可能完全不存在。
+
+## 第 9 章 最终分类（需求 1 收口口径）
+
+> 116 条审计条目按「当前实现状态 + 页阅读器是否需要」分类。判定标准：
+> **需要** = 对分页阅读的书页有可见渲染影响；**不需要** = 阅读器无该交互面
+> （光标/选区/滚动条/resize 等）或分页介质下语义等价。
+
+| 类别 | 条数 | 说明 |
+| --- | ---: | --- |
+| 已实现并接入绘制/布局 | 102 | 审计 A 组全量（含本轮新增：`z-index`、`orphans`/`widows` 明确不做、`ruby-position`/`ruby-align`、`border-image`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`） |
+| 有字段、绘制层通过等价路径消费 | 15 | 审计 C 组全量（如 `direction`→`isRtl`、`vertical-align` 长度） |
+| 明确不需要（阅读器无交互面） | 12 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`outline`（非聚焦态不绘制）、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
+| 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
+| 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
+| 仍未实现（有可见影响，语料频次 ≤5 且集中在竖排/装饰） | 5 | `text-combine-upright`（縦中横，仅竖排）、`backdrop-filter`（3 次）、`mix-blend-mode`、`line-break`（严格断行）、`tab-size` |
+
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 125/168（用例只覆盖能在
+350×800 静态页里量化的属性）；本表才是「实现状态」口径。
+
+**验证入口**：
+- 逐属性对照：`bash tool/css_parity/run.sh`（69 用例 / 60 项失配 / 9 用例，全部为「已知差异」类）
+- 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
+- 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
