@@ -142,4 +142,33 @@ void main() {
     expect(page.slices, hasLength(1), reason: '折算列数 < 2 → 不拆列');
     expect(page.slices.single.overlay, isFalse);
   });
+  test('跨页列流：内容超出一页时列顺延下一页、不丢内容', () {
+    final style = _style(const {'column-count': '2', 'column-gap': '20px'});
+    // 200 字 → 20 行（每行 10 字，行高 24）；页高 120 只容 5 行/列
+    // → 每页 2 列共 10 行 → 2 页（10 + 10）。
+    final block = _block('abcdefghij' * 20, style);
+    final pages = Paginator(pageHeight: 120)
+        .measureChapter(blocks: [block])
+        .pages;
+    // 页高 120、段前距 8 → 每列 4 行、每页 2 列 = 8 行 → 20 行需 3 页。
+    expect(pages.length, greaterThanOrEqualTo(2));
+    for (final page in pages) {
+      expect(page.slices.length, lessThanOrEqualTo(2), reason: '每页最多两列');
+      expect(page.slices, isNotEmpty);
+    }
+    expect(pages.first.slices, hasLength(2), reason: '首屏应排满两列');
+    // 两页块数之和 = 4（2 页 × 2 列），列内行数与原文行数一致。
+    var lines = 0;
+    for (final page in pages) {
+      for (final slice in page.slices) {
+        lines += slice.endLine - slice.startLine;
+      }
+    }
+    expect(lines, 20, reason: '跨页列流不丢不重行');
+    // 第二页首列内容应接在第 10 行之后（续排而非重排）。
+    final second = pages[1].slices.first.block.layout.text;
+    expect(second.contains('abcd'), isTrue);
+    expect(pages[1].slices.first.continuesBefore, isFalse);
+  });
+
 }

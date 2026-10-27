@@ -1278,6 +1278,106 @@ class Paginator {
             available -= extent;
             continue;
           }
+          // 跨页列流（分页介质里的 multicol）：每列按本页可用高容纳行数，
+          // 一页放 `count` 列，剩余内容顺延下一页；首列随正常流占高，其余列
+          // 作为覆盖切片绘制在首列右侧。
+          var cursor = 0;
+          while (cursor < relaid.lineCount) {
+            final leading = cursor == 0 ? block.leadingExtent : 0.0;
+            final usable = available - leading;
+            if (usable <= tolerance) {
+              record();
+              continue;
+            }
+            final pageRanges = <(int, int)>[];
+            var index = cursor;
+            while (pageRanges.length < multicol.count &&
+                index < relaid.lineCount) {
+              final start = index;
+              var pieceHeight = 0.0;
+              while (index < relaid.lineCount &&
+                  pieceHeight + relaid.lines[index].height <=
+                      usable + tolerance) {
+                pieceHeight += relaid.lines[index].height;
+                index += 1;
+              }
+              // 单行高于可用高：强制放一行，避免死循环（绘制层裁切）。
+              if (index == start) {
+                index += 1;
+              }
+              pageRanges.add((start, index));
+            }
+            if (pageRanges.isEmpty) {
+              break;
+            }
+            final heights = <double>[
+              for (final range in pageRanges)
+                _lineExtent(relaid.lines.sublist(range.$1, range.$2)),
+            ];
+            var bandHeight = 0.0;
+            for (final height in heights) {
+              bandHeight = math.max(bandHeight, height);
+            }
+            final lastFragment = pageRanges.last.$2 >= relaid.lineCount;
+            final trailing = lastFragment ? block.trailingExtent : 0.0;
+            final sliceHeight = leading + bandHeight + trailing;
+            final bandTop = (firstPage ? topPadding : 0) + used + leading;
+            final firstLayout = _columnLayout(
+              relaid,
+              pageRanges.first,
+              multicol.columnWidth,
+              boxWidth:
+                  multicol.columnWidth * multicol.count +
+                  multicol.gap * (multicol.count - 1),
+            );
+            slices.add(
+              PageBlockSlice(
+                block: _columnBlock(
+                  block,
+                  firstLayout,
+                  absoluteLeft: 0,
+                  multicol: multicol,
+                ),
+                startLine: 0,
+                endLine: firstLayout.lineCount,
+                height: sliceHeight,
+                leadingExtent: leading,
+                trailingExtent: trailing,
+                leftInset: block.leftInset,
+              ),
+            );
+            for (var column = 1; column < pageRanges.length; column++) {
+              final left = multicol.leftOf(column);
+              final layout = _columnLayout(
+                relaid,
+                pageRanges[column],
+                multicol.columnWidth,
+              );
+              slices.add(
+                PageBlockSlice(
+                  block: _columnBlock(
+                    block,
+                    layout,
+                    absoluteLeft: left,
+                    absoluteTop: bandTop,
+                  ),
+                  startLine: 0,
+                  endLine: layout.lineCount,
+                  height: heights[column],
+                  overlay: true,
+                  absoluteTop: bandTop,
+                  leftInset: left,
+                ),
+              );
+            }
+            used += sliceHeight;
+            available -= sliceHeight;
+            cursor = pageRanges.last.$2;
+            if (cursor < relaid.lineCount) {
+              record();
+            }
+          }
+          continue;
         }
       }
 
