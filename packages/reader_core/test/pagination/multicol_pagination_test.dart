@@ -171,4 +171,48 @@ void main() {
     expect(pages[1].slices.first.continuesBefore, isFalse);
   });
 
+  test('列内保留行内样式 runs（加粗/斜体不丢）', () {
+    final style = _style(const {'column-count': '2', 'column-gap': '20px'});
+    final block = PageBlock.styled(
+      layout: TextLayoutEngine.layout(
+        text: 'abcdefghijabcdefghijabcdefghijkl',
+        style: style,
+        maxWidth: 350,
+        runs: <StyledRun>[
+          StyledRun(
+            start: 0,
+            end: 10,
+            style: ComputedStyle(<String, String>{'font-weight': '700'}),
+          ),
+          StyledRun(
+            start: 10,
+            end: 20,
+            style: ComputedStyle(<String, String>{'font-style': 'italic'}),
+          ),
+        ],
+      ),
+      style: style,
+      containingWidth: 350,
+    );
+    final page = Paginator(pageHeight: 400)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    expect(page.slices.length, 2);
+    // 各列分别持有自己文本区间内的 run，偏移必须是片段内坐标。
+    final allRuns = <StyledRun>[
+      for (final slice in page.slices) ...slice.block.layout.runs,
+    ];
+    for (final slice in page.slices) {
+      final length = slice.block.layout.text.length;
+      for (final run in slice.block.layout.runs) {
+        expect(run.start, greaterThanOrEqualTo(0));
+        expect(run.end, lessThanOrEqualTo(length));
+      }
+    }
+    expect(allRuns, isNotEmpty, reason: '列内应保留行内样式 run');
+    expect(allRuns.any((run) => run.style.fontWeight == 700), isTrue);
+    expect(allRuns.any((run) => run.style.italic), isTrue);
+  });
+
 }

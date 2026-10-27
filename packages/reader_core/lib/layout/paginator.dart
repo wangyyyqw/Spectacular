@@ -769,11 +769,38 @@ class Paginator {
           ellipsisWidth: line.ellipsisWidth,
           hyphenated: line.hyphenated,
           hyphenWidth: line.hyphenWidth,
+          // 行内盒（inline-block / 行内图片）随列切片平移插入点。
+          inlineBoxes: <InlineBoxPlacement>[
+            for (final box in line.inlineBoxes)
+              if (box.offset >= textStart && box.offset < textEnd)
+                InlineBoxPlacement(
+                  offset: box.offset - textStart,
+                  left: box.left,
+                  width: box.width,
+                  height: box.height,
+                  ascent: box.ascent,
+                  descent: box.descent,
+                  spec: box.spec,
+                  vertical: box.vertical,
+                ),
+          ],
         ),
       );
       width = math.max(width, line.advanceWidth);
       top += line.height;
     }
+    // 切片行内样式区间：列片段只保留与该列文本区间相交的 run，并把偏移
+    // 平移到片段坐标（否则列内加粗/斜体/颜色会整体丢失）。
+    final runs = <StyledRun>[
+      for (final run in source.runs)
+        if (run.end > textStart && run.start < textEnd)
+          StyledRun(
+            start: math.max(run.start, textStart) - textStart,
+            end: math.min(run.end, textEnd) - textStart,
+            style: run.style,
+            baselineShift: run.baselineShift,
+          ),
+    ];
     return TextLayoutResult(
       text: fragment,
       lines: lines,
@@ -782,7 +809,7 @@ class Paginator {
       width: boxWidth ?? width,
       height: top,
       maxWidth: columnWidth,
-      runs: const <StyledRun>[],
+      runs: List<StyledRun>.unmodifiable(runs),
     );
   }
 
@@ -793,6 +820,7 @@ class Paginator {
     required double absoluteLeft,
     double? absoluteTop,
     MulticolGeometry? multicol,
+    (int, int)? range,
   }) => PageBlock(
     layout: layout,
     startCfi: source.startCfi,
@@ -808,11 +836,44 @@ class Paginator {
     containerSides: source.containerSides,
     effectiveOpacity: source.effectiveOpacity,
     multicol: multicol,
+    // 注音/行内图片按列文本区间切片并平移到片段坐标。
+    rubies: range == null
+        ? source.rubies
+        : <RubyAnnotation>[
+            for (final ruby in source.rubies ?? const <RubyAnnotation>[])
+              if (ruby.start >= _columnTextStart(source, range) &&
+                  ruby.start < _columnTextEnd(source, range))
+                RubyAnnotation(
+                  start: ruby.start - _columnTextStart(source, range),
+                  end: ruby.end - _columnTextStart(source, range),
+                  text: ruby.text,
+                ),
+          ],
+    inlineImages: range == null
+        ? source.inlineImages
+        : <InlineImageSpec>[
+            for (final image in source.inlineImages)
+              if (image.offset >= _columnTextStart(source, range) &&
+                  image.offset < _columnTextEnd(source, range))
+                InlineImageSpec(
+                  offset: image.offset - _columnTextStart(source, range),
+                  url: image.url,
+                  width: image.width,
+                  height: image.height,
+                ),
+          ],
     // 第 2 列起脱离正常流，绘制在首列右侧（overlay 切片）。
     absolute: absoluteTop != null,
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
   );
+
+  /// 列区间在原文里的起止偏移（用于切片注音/行内图片）。
+  static int _columnTextStart(PageBlock source, (int, int) range) =>
+      range.$1 < range.$2 ? source.layout.lines[range.$1].start : 0;
+
+  static int _columnTextEnd(PageBlock source, (int, int) range) =>
+      range.$1 < range.$2 ? source.layout.lines[range.$2 - 1].end : 0;
 
   /// 绝对定位解算（CSS 2.1 §10.3.7/§10.6.4 的扁平管线口径）。
   ///
@@ -1200,10 +1261,12 @@ class Paginator {
           ? null
           : MulticolGeometry.fromStyle(block.style!, multicolWidth);
       if (multicol != null && block.layout.text.trim().isNotEmpty) {
+        // 带上原块的行内样式区间：分栏重排后列内仍要保留加粗/斜体/颜色。
         final relaid = TextLayoutEngine.layout(
           text: block.layout.text,
           style: block.style!,
           maxWidth: multicol.columnWidth,
+          runs: block.layout.runs,
         );
         if (relaid.lineCount > 0) {
           final ranges = _columnRanges(relaid.lines, multicol.count);
@@ -1241,6 +1304,7 @@ class Paginator {
                   firstLayout,
                   absoluteLeft: 0,
                   multicol: multicol,
+                  range: ranges.first,
                 ),
                 startLine: 0,
                 endLine: firstLayout.lineCount,
@@ -1264,6 +1328,7 @@ class Paginator {
                     layout,
                     absoluteLeft: left,
                     absoluteTop: bandTop,
+                    range: ranges[column],
                   ),
                   startLine: 0,
                   endLine: layout.lineCount,
@@ -1337,6 +1402,7 @@ class Paginator {
                   firstLayout,
                   absoluteLeft: 0,
                   multicol: multicol,
+                  range: pageRanges.first,
                 ),
                 startLine: 0,
                 endLine: firstLayout.lineCount,
@@ -1360,6 +1426,7 @@ class Paginator {
                     layout,
                     absoluteLeft: left,
                     absoluteTop: bandTop,
+                    range: pageRanges[column],
                   ),
                   startLine: 0,
                   endLine: layout.lineCount,
