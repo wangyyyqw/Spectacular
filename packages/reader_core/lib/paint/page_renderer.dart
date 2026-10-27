@@ -1387,6 +1387,7 @@ class PagePainter {
         borders.top,
         ui.Offset(rect.left, rect.top + inset),
         ui.Offset(rect.right, rect.top + inset),
+        outward: const Offset(0, -1),
       );
     }
     if (borders.bottom.isVisible) {
@@ -1396,6 +1397,7 @@ class PagePainter {
         borders.bottom,
         ui.Offset(rect.left, rect.bottom - inset),
         ui.Offset(rect.right, rect.bottom - inset),
+        outward: const Offset(0, 1),
       );
     }
     if (borders.left.isVisible) {
@@ -1405,6 +1407,7 @@ class PagePainter {
         borders.left,
         ui.Offset(rect.left + inset, rect.top),
         ui.Offset(rect.left + inset, rect.bottom),
+        outward: const Offset(-1, 0),
       );
     }
     if (borders.right.isVisible) {
@@ -1414,6 +1417,7 @@ class PagePainter {
         borders.right,
         ui.Offset(rect.right - inset, rect.top),
         ui.Offset(rect.right - inset, rect.bottom),
+        outward: const Offset(1, 0),
       );
     }
   }
