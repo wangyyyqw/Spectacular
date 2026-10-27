@@ -1192,22 +1192,17 @@ class PagePainter {
   }
 
   /// 阴影形状：边框盒矩形 + 边框圆角（spread 沿半径同比放大，负值收敛到 0）。
-  RRect _shadowRRect(CssBorders borders, Rect rect, double radiusDelta) =>
-      RRect.fromRectAndCorners(
-        rect,
-        topLeft: Radius.circular(
-          math.max(0, borders.topLeftRadius + radiusDelta),
-        ),
-        topRight: Radius.circular(
-          math.max(0, borders.topRightRadius + radiusDelta),
-        ),
-        bottomRight: Radius.circular(
-          math.max(0, borders.bottomRightRadius + radiusDelta),
-        ),
-        bottomLeft: Radius.circular(
-          math.max(0, borders.bottomLeftRadius + radiusDelta),
-        ),
-      );
+  RRect _shadowRRect(CssBorders borders, Rect rect, double radiusDelta) {
+    final radii = borders.radiiFor(rect.size);
+    double grow(double radius) => math.max(0, radius + radiusDelta);
+    return RRect.fromRectAndCorners(
+      rect,
+      topLeft: Radius.circular(grow(radii.topLeft)),
+      topRight: Radius.circular(grow(radii.topRight)),
+      bottomRight: Radius.circular(grow(radii.bottomRight)),
+      bottomLeft: Radius.circular(grow(radii.bottomLeft)),
+    );
+  }
 
   /// 注音绘制（P8-08，CSS Ruby 1 flat 近似）：定位主文本区间所在行，
   /// 逐字符累进求区间起点 x，注音按 50% 字号居中画在行顶上方。
@@ -1817,16 +1812,14 @@ class PagePainter {
     required bool startsBlock,
     required bool endsBlock,
   }) {
+    // 百分比圆角按盒子尺寸解算（`border-radius: 50%` 的圆形头像）。
+    final radii = style.borders.radiiFor(box.size);
     final rounded = RRect.fromRectAndCorners(
       box,
-      topLeft: Radius.circular(startsBlock ? style.borders.topLeftRadius : 0),
-      topRight: Radius.circular(startsBlock ? style.borders.topRightRadius : 0),
-      bottomRight: Radius.circular(
-        endsBlock ? style.borders.bottomRightRadius : 0,
-      ),
-      bottomLeft: Radius.circular(
-        endsBlock ? style.borders.bottomLeftRadius : 0,
-      ),
+      topLeft: Radius.circular(startsBlock ? radii.topLeft : 0),
+      topRight: Radius.circular(startsBlock ? radii.topRight : 0),
+      bottomRight: Radius.circular(endsBlock ? radii.bottomRight : 0),
+      bottomLeft: Radius.circular(endsBlock ? radii.bottomLeft : 0),
     );
     final roundedCorners =
         rounded.tlRadiusX > 0 ||
@@ -2137,13 +2130,14 @@ class PagePainter {
     if (borders.isUniform && borders.top.style == CssBorderStyle.solid) {
       if (startsBlock && endsBlock) {
         final half = borders.top.width / 2;
+        final radii = borders.radiiFor(box.size);
         canvas.drawRRect(
           RRect.fromRectAndCorners(
             box.deflate(half),
-            topLeft: Radius.circular(borders.topLeftRadius),
-            topRight: Radius.circular(borders.topRightRadius),
-            bottomRight: Radius.circular(borders.bottomRightRadius),
-            bottomLeft: Radius.circular(borders.bottomLeftRadius),
+            topLeft: Radius.circular(math.max(0, radii.topLeft - half)),
+            topRight: Radius.circular(math.max(0, radii.topRight - half)),
+            bottomRight: Radius.circular(math.max(0, radii.bottomRight - half)),
+            bottomLeft: Radius.circular(math.max(0, radii.bottomLeft - half)),
           ),
           Paint()
             ..color = borders.top.color

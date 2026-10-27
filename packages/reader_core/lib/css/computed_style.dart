@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:ui' show Color;
+import 'dart:ui' show Color, Size;
 
 import 'property_aliases.dart';
 
@@ -1013,6 +1013,10 @@ class CssBorders {
     this.topRightRadius = 0,
     this.bottomRightRadius = 0,
     this.bottomLeftRadius = 0,
+    this.topLeftRadiusPercent,
+    this.topRightRadiusPercent,
+    this.bottomRightRadiusPercent,
+    this.bottomLeftRadiusPercent,
   });
 
   /// 无边框、无圆角。
@@ -1030,7 +1034,7 @@ class CssBorders {
   /// 左边框。
   final CssBorderSide left;
 
-  /// 左上圆角。
+  /// 左上圆角（像素；百分比圆角在 [topLeftRadiusPercent]，绘制时按盒尺寸解算）。
   final double topLeftRadius;
 
   /// 右上圆角。
@@ -1042,6 +1046,38 @@ class CssBorders {
   /// 左下圆角。
   final double bottomLeftRadius;
 
+  /// 左上圆角的百分比（0..1，null 表示像素圆角）。
+  final double? topLeftRadiusPercent;
+
+  /// 右上圆角的百分比（0..1）。
+  final double? topRightRadiusPercent;
+
+  /// 右下圆角的百分比（0..1）。
+  final double? bottomRightRadiusPercent;
+
+  /// 左下圆角的百分比（0..1）。
+  final double? bottomLeftRadiusPercent;
+
+  /// 给定盒子尺寸下的像素圆角（CSS Backgrounds §5.1：横向按盒宽、纵向按
+  /// 盒高解算；引擎的 [Radius] 是圆形的，取两者较小值——方盒上的
+  /// `border-radius: 50%` 与浏览器一样是正圆）。
+  ({double topLeft, double topRight, double bottomRight, double bottomLeft})
+  radiiFor(Size box) {
+    double resolve(double radius, double? percent) {
+      if (percent == null) {
+        return radius;
+      }
+      return math.min(percent * box.width, percent * box.height);
+    }
+
+    return (
+      topLeft: resolve(topLeftRadius, topLeftRadiusPercent),
+      topRight: resolve(topRightRadius, topRightRadiusPercent),
+      bottomRight: resolve(bottomRightRadius, bottomRightRadiusPercent),
+      bottomLeft: resolve(bottomLeftRadius, bottomLeftRadiusPercent),
+    );
+  }
+
   /// 是否有任意可见边框。
   bool get hasBorder =>
       top.isVisible || right.isVisible || bottom.isVisible || left.isVisible;
@@ -1051,7 +1087,11 @@ class CssBorders {
       topLeftRadius > 0 ||
       topRightRadius > 0 ||
       bottomRightRadius > 0 ||
-      bottomLeftRadius > 0;
+      bottomLeftRadius > 0 ||
+      topLeftRadiusPercent != null ||
+      topRightRadiusPercent != null ||
+      bottomRightRadiusPercent != null ||
+      bottomLeftRadiusPercent != null;
 
   /// 四边是否完全一致（同宽/同线型/同色），圆角绘制的前提。
   bool get isUniform =>
@@ -2915,13 +2955,26 @@ class ComputedStyle {
     ];
 
     var radii = <double>[0, 0, 0, 0];
+    final radiusPercents = <double?>[null, null, null, null];
+    // 百分比圆角（`border-radius: 50%` 的头像/徽章）按盒尺寸解算；像素圆角
+    // 在级联期直接算好。
+    void applyRadius(int index, String raw) {
+      final percent = _parseRadiusPercent(raw);
+      if (percent != null) {
+        radiusPercents[index] = percent;
+        radii[index] = 0;
+      } else {
+        radii[index] = length(raw) ?? radii[index];
+      }
+    }
+
     final radiusRaw = value('border-radius');
     if (radiusRaw != null) {
       final tokens = radiusRaw.trim().split(RegExp(r'\s+'));
       final slash = tokens.indexOf('/');
       final parts = _expandFour(slash >= 0 ? tokens.sublist(0, slash) : tokens);
       for (var i = 0; i < parts.length && i < 4; i++) {
-        radii[i] = length(parts[i]) ?? 0;
+        applyRadius(i, parts[i]);
       }
     }
     const corners = <(int, String)>[
@@ -2933,7 +2986,8 @@ class ComputedStyle {
     for (final (index, name) in corners) {
       final raw = value('border-$name-radius');
       if (raw != null) {
-        radii[index] = length(raw) ?? radii[index];
+        // 四角长写允许 `水平 / 垂直` 两值：引擎的圆角是圆形的，取第一值。
+        applyRadius(index, raw.split('/').first.trim());
       }
     }
 
@@ -2946,7 +3000,24 @@ class ComputedStyle {
       topRightRadius: radii[1],
       bottomRightRadius: radii[2],
       bottomLeftRadius: radii[3],
+      topLeftRadiusPercent: radiusPercents[0],
+      topRightRadiusPercent: radiusPercents[1],
+      bottomRightRadiusPercent: radiusPercents[2],
+      bottomLeftRadiusPercent: radiusPercents[3],
     );
+  }
+
+  /// 百分比圆角：`50%` → 0.5；非百分比返回 null。
+  static double? _parseRadiusPercent(String raw) {
+    final value = raw.trim();
+    if (!value.endsWith('%')) {
+      return null;
+    }
+    final number = double.tryParse(value.substring(0, value.length - 1));
+    if (number == null) {
+      return null;
+    }
+    return (number / 100).clamp(0.0, 1.0);
   }
 
   /// 把 1–4 个值按 CSS 规则展开成上/右/下/左。
