@@ -318,14 +318,18 @@
 - 解析：`_parseOffset` cs:5034（top 1620 / right 1627 / bottom 1634 / left 1641）。
 - 解算：`pg:847-850` 取四边 spec；`left == null && right != null` 时反解 `containingWidth - right - width`，`top` 同理（`pg:847-860`）；`width:auto` 走 `_shrink-to-fit`（`pg:877` 附近）。
 - 收口：`ecs:3723` 用 `isOutOfFlow` 决定是否走绝对定位分支；`ecs:3664-3680` 处理 `relative` 位移。
-- **仍未覆盖**：`inset` 简写、`z-index` 叠序、绝对定位内百分比高度精度。
+- **仍未覆盖**：`inset` 简写、`z-index` 叠序（定位块按流序绘制）、
+  绝对定位内百分比高度精度。
 
 ### 4.3 `columns` 多列
 
 - 解析：`_resolveColumns` cs:4116（count 4126 / width 4128 / gap 4154 / rule 4159；`columns` 简写同函数）。
 - 布局：`MulticolGeometry.fromStyle` pg:358-383（只有「首列块」携带完整几何，`pg:239` 注释）。
 - 绘制：`_paintColumnRules` pr:1038（背景之上、正文之下，符合 CSS Multicol §4 顺序）。
-- **仍未覆盖**：多列跨页的 inline runs 分发（自认「一级近似」）、`column-span`、`column-fill`。
+- 跨页列流：paginator 内「每列按本页可用高容行 → 一页 `column-count` 列 →
+  剩余顺延下一页」；列块按列文本区间切片 runs/行内盒/注音/行内图片并平移偏移。
+- **仍未覆盖**：`column-span`（跨栏元素）、`column-fill: auto` 的填充顺序
+  （当前按均衡/顺序填列近似）、竖排 + 多列组合。
 
 ### 4.4 `display: inline-block`
 
