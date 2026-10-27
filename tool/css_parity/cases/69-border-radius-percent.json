@@ -1,0 +1,8 @@
+{
+  "name": "69-border-radius-percent",
+  "tags": [
+    "border-radius"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 6px 0; line-height: 1.6; } .avatar { width: 100px; height: 100px; border-radius: 50%; background: #cc3366; } .card { margin: 10px; padding: 8px; border: 2px solid #3366cc; border-radius: 25% 0 25% 0; background: #eef3ff; }",
+  "html": "<div class=\"avatar\"></div><p>圆形头像：50% 圆角应当为正圆。</p><div class=\"card\">四角百分比圆角：左上/右下 25%，右上/左下 0。</div>"
+}
