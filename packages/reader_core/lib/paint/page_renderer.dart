@@ -127,6 +127,12 @@ class PagePainter {
   /// justify 行把余量按间隙分摊到左侧字符的字距上（§8.4）。
   void paint(Canvas canvas, PageContent page, {required Size pageSize}) {
     final geometries = _sliceGeometries(page, pageSize);
+    // 叠放顺序（CSS 2.1 §9.9）：`z-index` 升序绘制，同层保持文档序。
+    // 只影响绘制次序；`geometries` 本身仍按文档序用于命中/选区。
+    final paintOrder = _paintOrder(geometries);
+    final paintIndexOf = <_SliceGeometry, int>{
+      for (var i = 0; i < geometries.length; i++) geometries[i]: i,
+    };
 
     _notifyPhase(PagePaintPhase.background);
     final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
@@ -150,7 +156,7 @@ class PagePainter {
     _paintBookPageBackground(canvas, page, pageRect);
 
     _notifyPhase(PagePaintPhase.blockBackground);
-    for (final geometry in geometries) {
+    for (final geometry in paintOrder) {
       if (geometry.hidden) {
         continue;
       }
@@ -184,7 +190,7 @@ class PagePainter {
     }
 
     _notifyPhase(PagePaintPhase.blockBorder);
-    for (final geometry in geometries) {
+    for (final geometry in paintOrder) {
       if (geometry.hidden) {
         continue;
       }
@@ -207,8 +213,8 @@ class PagePainter {
     _notifyPhase(PagePaintPhase.text);
     // 字体度量缓存（装饰线几何用）：整个文本阶段共用，避免逐行重排探针。
     final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
-    for (var sliceIndex = 0; sliceIndex < geometries.length; sliceIndex++) {
-      final geometry = geometries[sliceIndex];
+    for (final geometry in paintOrder) {
+      final sliceIndex = paintIndexOf[geometry]!;
       if (geometry.hidden) {
         continue;
       }
@@ -414,7 +420,7 @@ class PagePainter {
 
     // 注音趟（P8-08）：ruby 主文本区间上方绘制注音（50% 字号、区间
     // 居中；行内字符定位按 TextPainter 逐字符累进近似）。
-    for (final geometry in geometries) {
+    for (final geometry in paintOrder) {
       if (geometry.hidden) {
         continue;
       }
@@ -582,6 +588,27 @@ class PagePainter {
       }
     }
     return geometries;
+  }
+
+  /// 绘制顺序：`z-index` 升序，同层保持文档序（稳定排序）。
+  static List<_SliceGeometry> _paintOrder(List<_SliceGeometry> geometries) {
+    var needsSort = false;
+    for (final geometry in geometries) {
+      if (geometry.style.zIndex != 0) {
+        needsSort = true;
+        break;
+      }
+    }
+    if (!needsSort) {
+      return geometries;
+    }
+    final indexed = <(int, _SliceGeometry)>[
+      for (var i = 0; i < geometries.length; i++) (i, geometries[i]),
+    ]..sort((a, b) {
+      final byZ = a.$2.style.zIndex.compareTo(b.$2.style.zIndex);
+      return byZ != 0 ? byZ : a.$1.compareTo(b.$1);
+    });
+    return <_SliceGeometry>[for (final item in indexed) item.$2];
   }
 
   /// 画选区（P2-29）：按切片序号 + 块内字符范围取排版盒，最后统一覆盖。
