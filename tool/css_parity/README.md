@@ -281,7 +281,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（66 用例全量重跑：失配 62 项 / 9 个用例 / 未配对 0）
+## 待收敛（66 用例全量重跑：失配 58 项 / 8 个用例 / 未配对 0）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -295,9 +295,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 | 4 | text-overflow | 6 | 40-text-overflow |
 | 5 | line-height | 5 | 37-filter-opacity |
 | 6 | font-variant | 4 | 15-font-variant-stretch |
-| 7 | text-indent | 4 | 16-text-indent-percent |
-| 8 | table | 2 | 12-table |
-| 9 | text-emphasis | 2 | 19-text-emphasis |
+| 7 | table | 2 | 12-table |
+| 8 | text-emphasis | 2 | 19-text-emphasis |
 
 1. **hyphens 22 / word-wrap 11 / text-overflow 6**：断字、长词换行与截断的
    口径差异见「已知口径差异」1–3。
@@ -305,11 +304,13 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    advance 比 Chrome 窄）、`absolute` 盒高 75/72（normal 行高取整）、末段 y
    129.6/135.6 的行数差连锁。建议 T1/T2。
 3. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
-   `font-variant`/ligatures 行宽（4）；负 `text-indent` 被钳 0（4）；
-   `table` 表高 93 / 91（2）；`text-emphasis` 行高 68 / 70（2）。
+   `font-variant`/ligatures 行宽（4，合成 small-caps 实测对 builtin_song
+   反而更宽，已回退）；`table` 表高 93 / 91（2）；
+   `text-emphasis` 行高 68 / 70（2）。
 4. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`、
-   `35-writing-mode`、`58-font-shorthand` 均 0 项；`66/67` 竖排探针的
-   期望/实测已对齐（见下）；未配对 0。
+   `35-writing-mode`、`58-font-shorthand`、`16-text-indent-percent` 均 0 项；
+   `66/67` 竖排探针的期望/实测已对齐（见下）；未配对 0。
+   负 `text-indent` 已按 CSS Text 3 §3.1 支持首行外凸（此前被钳 0）。
 
 ## 已知口径差异（不计入收敛目标）
 

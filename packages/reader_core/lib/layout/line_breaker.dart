@@ -771,8 +771,12 @@ abstract final class TextLayoutEngine {
         declaredColumnLength != null && declaredColumnLength > 0
         ? declaredColumnLength
         : measureWidth;
+    // 负 text-indent 是合法的「首行外凸」（CSS Text 3 §3.1）：首行可用宽
+    // 变宽（width - indent > width）、行左缘画到内容盒左侧，不能钳成 0。
     final indent = softWrap && width.isFinite
-        ? style.textIndent.clamp(0.0, math.max(0.0, width - 1)).toDouble()
+        ? style.textIndent
+              .clamp(-width, math.max(0.0, width - 1))
+              .toDouble()
         : 0.0;
     final ordered = _applyVerticalAlign(
       _normalizeRuns(runs, text.length),
@@ -830,7 +834,9 @@ abstract final class TextLayoutEngine {
               inlineBoxes,
               forcedBreaks: forcedBreaks,
             );
-      final rawMeasured = measuredText.isEmpty || indent <= 0
+      // 缩进非零就走首行减宽路径：负缩进的首行宽 = width + |indent|，
+      // 行左缘由 LineBox.indent（负值）画到内容盒左侧。
+      final rawMeasured = measuredText.isEmpty || indent == 0
           ? _measureSegment(
               text: boxText?.text ?? breakPlan.text,
               inlineBoxMarks: boxText?.marks ?? const <_InlineBoxMark>[],
