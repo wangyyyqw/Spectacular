@@ -125,7 +125,7 @@
 | orphans / widows | 7 / 7 | 1 | 完整（本轮分页约束 + 4 条测试） |
 | text-justify / ruby-align | 5 / 4 | 3 | 部分 / 未处理 |
 | opacity | 5 | 1 | 完整（组合成已接通） |
-| z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 未处理 / 未处理 / 完整 |
+| z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 完整（本轮接通叠序）/ 未处理 / 完整 |
 | list-style-position | 2 | 1 | 完整（本轮接通） |
 | object-fit | 1 | 1 | 完整（映射 background-size；本轮测试锁定 cover/contain/fill） |
 | hyphens（`-epub-hyphens`） | 1 | 1 | 部分（已接通，无词典） |
@@ -274,7 +274,7 @@
 | 100 | `background-attachment` | 218 / 3 | 已记录等价降级：真实书里都是 `body.headNNN` 章节标题页底纹，引擎按每页页背景重绘，观感等价 |
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
 | 102 | `backdrop-filter` | 3 / 2 | 背景模糊失效（`filter` 已实现，backdrop 是另一条绘制路径） |
-| 103 | `z-index` | 4 / 2 | 绝对定位元素层叠退化为遍历顺序 |
+| 103 | `z-index` | 4 / 2 | 已实现：绘制顺序按层级升序稳定排序，同层保持文档序 |
 | 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down），`object-position` 固定 center |
 | 105 | `counter-reset` / `counter-increment` | 0 | 自动编号、图表序号失效 |
 | 106 | `content`（部分） | 5 / 3 | 只取字符串与 `attr()`（`ecs:1096`），`counter()`/`url()`/`open-quote` 全丢 |
@@ -318,8 +318,9 @@
 - 解析：`_parseOffset` cs:5034（top 1620 / right 1627 / bottom 1634 / left 1641）。
 - 解算：`pg:847-850` 取四边 spec；`left == null && right != null` 时反解 `containingWidth - right - width`，`top` 同理（`pg:847-860`）；`width:auto` 走 `_shrink-to-fit`（`pg:877` 附近）。
 - 收口：`ecs:3723` 用 `isOutOfFlow` 决定是否走绝对定位分支；`ecs:3664-3680` 处理 `relative` 位移。
-- **仍未覆盖**：`inset` 简写、`z-index` 叠序（定位块按流序绘制）、
-  绝对定位内百分比高度精度。
+- `z-index`：`ComputedStyle.zIndex` → 绘制顺序按层级升序稳定排序
+  （`pr` 的 `_paintOrder`），同层保持文档序；命中/选区仍用文档序。
+- **仍未覆盖**：`inset` 简写、绝对定位内百分比高度精度。
 
 ### 4.3 `columns` 多列
 
