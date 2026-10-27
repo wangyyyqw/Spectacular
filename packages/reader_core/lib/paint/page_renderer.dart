@@ -2154,12 +2154,14 @@ class PagePainter {
         borders.left,
         Offset(box.left + borders.left.width / 2, box.top),
         Offset(box.left + borders.left.width / 2, box.bottom),
+        outward: const Offset(-1, 0),
       );
       _paintSide(
         canvas,
         borders.right,
         Offset(box.right - borders.right.width / 2, box.top),
         Offset(box.right - borders.right.width / 2, box.bottom),
+        outward: const Offset(1, 0),
       );
       if (startsBlock) {
         final inset = borders.top.width / 2;
@@ -2168,6 +2170,7 @@ class PagePainter {
           borders.top,
           Offset(box.left, box.top + inset),
           Offset(box.right, box.top + inset),
+          outward: const Offset(0, -1),
         );
       }
       if (endsBlock) {
@@ -2177,6 +2180,7 @@ class PagePainter {
           borders.bottom,
           Offset(box.left, box.bottom - inset),
           Offset(box.right, box.bottom - inset),
+          outward: const Offset(0, 1),
         );
       }
       return;
@@ -2189,6 +2193,7 @@ class PagePainter {
         borders.top,
         Offset(box.left, box.top + inset),
         Offset(box.right, box.top + inset),
+        outward: const Offset(0, -1),
       );
     }
     if (endsBlock) {
@@ -2198,6 +2203,7 @@ class PagePainter {
         borders.bottom,
         Offset(box.left, box.bottom - inset),
         Offset(box.right, box.bottom - inset),
+        outward: const Offset(0, 1),
       );
     }
     _paintSide(
@@ -2205,17 +2211,25 @@ class PagePainter {
       borders.left,
       Offset(box.left + borders.left.width / 2, box.top),
       Offset(box.left + borders.left.width / 2, box.bottom),
+      outward: const Offset(-1, 0),
     );
     _paintSide(
       canvas,
       borders.right,
       Offset(box.right - borders.right.width / 2, box.top),
       Offset(box.right - borders.right.width / 2, box.bottom),
+      outward: const Offset(1, 0),
     );
   }
 
   /// 画一条边：实线/虚线/点线/双线。
-  void _paintSide(Canvas canvas, CssBorderSide side, Offset start, Offset end) {
+  void _paintSide(
+    Canvas canvas,
+    CssBorderSide side,
+    Offset start,
+    Offset end, {
+    Offset? outward,
+  }) {
     if (!side.isVisible) {
       return;
     }
@@ -2256,10 +2270,45 @@ class PagePainter {
           ..strokeCap = StrokeCap.butt;
         canvas.drawLine(start + unit * offset, end + unit * offset, inner);
         canvas.drawLine(start - unit * offset, end - unit * offset, inner);
+      case CssBorderStyle.groove:
+      case CssBorderStyle.ridge:
+      case CssBorderStyle.inset:
+      case CssBorderStyle.outset:
+        // 3D 边框（CSS Backgrounds §4.4）：外半深/内半浅（groove/inset）或
+        // 相反（ridge/outset）。缺朝向信息时退回实线，避免画错明暗。
+        if (outward == null || side.width < 2) {
+          canvas.drawLine(start, end, paint);
+          break;
+        }
+        final half = side.width / 2;
+        final dark = _shade(side.color, 0.62);
+        final light = _shade(side.color, 1.35);
+        final grooveLike =
+            side.style == CssBorderStyle.groove ||
+            side.style == CssBorderStyle.inset;
+        final outerPaint = Paint()
+          ..color = grooveLike ? dark : light
+          ..strokeWidth = half
+          ..strokeCap = StrokeCap.butt;
+        final innerPaint = Paint()
+          ..color = grooveLike ? light : dark
+          ..strokeWidth = half
+          ..strokeCap = StrokeCap.butt;
+        final shift = outward * (half / 2);
+        canvas.drawLine(start + shift, end + shift, outerPaint);
+        canvas.drawLine(start - shift, end - shift, innerPaint);
       case CssBorderStyle.none:
         break;
     }
   }
+
+  /// 明暗调整（3D 边框用）：按比例缩放 RGB 通道。
+  static Color _shade(Color color, double factor) => Color.from(
+    alpha: color.a,
+    red: (color.r * factor).clamp(0.0, 1.0),
+    green: (color.g * factor).clamp(0.0, 1.0),
+    blue: (color.b * factor).clamp(0.0, 1.0),
+  );
 
   /// 沿线段画虚线/点线（阅微 straight 边用 dashPathEffect，这里手工切段）。
   void _paintDashes(

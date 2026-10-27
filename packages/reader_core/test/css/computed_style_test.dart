@@ -367,19 +367,19 @@ void main() {
     expect(plain.backgroundImage, isNull);
   });
 
-  test('border-style 降级：groove/ridge/inset/outset → solid，none/hidden 宽度归零', () {
-    // Chrome 4px 实测：四种立体线型与 solid 同宽同色，只有明暗差异；
-    // none/hidden 的计算宽度为 0（`border: 4px hidden` 盒子不长）。
-    for (final value in const <String>[
-      'groove',
-      'ridge',
-      'inset',
-      'outset',
-    ]) {
-      final degraded = style('p', 'p { border: 4px $value #F00; }');
-      expect(degraded.borders.top.style, CssBorderStyle.solid, reason: value);
-      expect(degraded.borders.top.width, 4, reason: value);
-      expect(degraded.borders.isUniform, isTrue, reason: value);
+  test('border-style：3D 线型保留原值，none/hidden 宽度归零', () {
+    // 四种立体线型与 solid 同宽同色，只有明暗差异；此前降级成 solid，
+    // 现在保留原值由绘制层画两半明暗（CSS Backgrounds §4.4）。
+    for (final entry in const <String, CssBorderStyle>{
+      'groove': CssBorderStyle.groove,
+      'ridge': CssBorderStyle.ridge,
+      'inset': CssBorderStyle.inset,
+      'outset': CssBorderStyle.outset,
+    }.entries) {
+      final parsed = style('p', 'p { border: 4px ${entry.key} #F00; }');
+      expect(parsed.borders.top.style, entry.value, reason: entry.key);
+      expect(parsed.borders.top.width, 4, reason: entry.key);
+      expect(parsed.borders.isUniform, isTrue, reason: entry.key);
     }
     final hidden = style('p', 'p { border: 4px hidden #F00; }');
     expect(hidden.borders.top.style, CssBorderStyle.none);
@@ -1065,16 +1065,15 @@ void main() {
     expect(shorthand.columnCount, 2);
     expect(shorthand.columnRule!.style, CssBorderStyle.double);
 
-    // 各线型：dotted/dashed/double 保留；groove/ridge/inset/outset 降级 solid；
-    // 未知线型（wavy）当无效声明，列数照常。
+    // 各线型原样保留（含 3D 线型）；未知线型（wavy）当无效声明，列数照常。
     for (final (keyword, expected) in <(String, CssBorderStyle)>[
       ('dotted', CssBorderStyle.dotted),
       ('dashed', CssBorderStyle.dashed),
       ('double', CssBorderStyle.double),
-      ('groove', CssBorderStyle.solid),
-      ('ridge', CssBorderStyle.solid),
-      ('inset', CssBorderStyle.solid),
-      ('outset', CssBorderStyle.solid),
+      ('groove', CssBorderStyle.groove),
+      ('ridge', CssBorderStyle.ridge),
+      ('inset', CssBorderStyle.inset),
+      ('outset', CssBorderStyle.outset),
     ]) {
       final rule = style(
         'p',
