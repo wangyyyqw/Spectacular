@@ -53,6 +53,17 @@ void main() {
       // 真实书里出现过的其余私有属性。
       '-epub-hyphens': 'hyphens',
       '-webkit-text-combine': 'text-combine-upright',
+      // 真实书（7 本语料）里出现过的其余私有属性，逐个保证有映射：
+      // duokan-letter-spacing / duokan-block-progression / duokan-text-orientation
+      // 等已在上面覆盖，这里补齐语料里剩下的几种写法。
+      'duokan-text-shadow': 'text-shadow',
+      'duokan-text-decoration': 'text-decoration',
+      'duokan-font-weight': 'font-weight',
+      'duokan-padding-before': 'padding-top',
+      'duokan-padding-after': 'padding-bottom',
+      'duokan-page-break-inside': 'page-break-inside',
+      'duokan-page-break-before': 'page-break-before',
+      'duokan-page-break-after': 'page-break-after',
       // WebKit 逻辑边距：按逻辑属性映射（受 direction/writing-mode 影响），
       // 横排 LTR 下落到 margin-left/right。
       '-webkit-margin-start': 'margin-inline-start',
