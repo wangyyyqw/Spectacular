@@ -119,7 +119,7 @@
 | justify-content / align-items | 14 / 13 | 4 / 3 | 未处理（`flex` 容器） |
 | word-break | 12 | 5 | 完整（本轮接通） |
 | page-break-before / after | 13 / 11 | 5 / 4 | 完整 |
-| **border-image** | **11** | **3** | **仍完全未处理** |
+| border-image | 11 | 3 | 完整（本轮接通九宫格：切割/repeat/fill；真书里这些规则定义了但未引用） |
 | writing-mode 族 | 5 + 18 别名 | 3 | 部分（主干已实现，见 Top #5/#6） |
 | font-variant | 7 | 1 | 完整（`smcp` 已接通） |
 | orphans / widows | 7 / 7 | 1 | 不参与分页（产品决策：电子书排版不做孤行/寡行约束） |
@@ -159,7 +159,7 @@
 | 13 | `margin-top/-right/-bottom/-left` | 同上（逐边） | bm:61；pr:546-547 | 完整 | 同上 |
 | 14 | `padding` | cs:1685 → `_resolvePadding` cs:2646 | bm:57；pr:547 | 完整 | 纵向百分比按宽度解算（与 CSS 一致） |
 | 15 | `padding-top/-right/-bottom/-left` | 同上（逐边） | bm:57；pr:547 | 完整 | — |
-| 16 | `border` | cs:1658 → `_resolveBorders` cs:2703 | pr:246 区域（`_paintBorders`/`_paintCellBorders`） | 完整 | 不支持 `border-image` |
+| 16 | `border` | cs:1658 → `_resolveBorders` cs:2703 | pr:246 区域（`_paintBorders`/`_paintCellBorders`） | 完整 | `border-image` 由独立九宫格绘制替代（见 #99） |
 | 17 | `border-top/-right/-bottom/-left` | `_resolveBorders` cs:2703（`parseSide`） | 同上 | 完整 | — |
 | 18 | `border-width` | `applyWidths`（`_resolveBorders` 内） | 同上 | 完整 | `thin/medium/thick` 固定 1/3/5px |
 | 19 | `border-style` | `_parseBorderStyle` cs:2944 | pr 边框绘制 | 完整 | `groove/ridge/inset/outset` 画两半明暗（本轮接通） |
@@ -270,7 +270,7 @@
 
 | # | 属性 | 语料频次/书数 | 缺失后果 |
 | ---: | --- | --- | --- |
-| 99 | `border-image` | 11 / 3 | 花纹分隔线、老式卡片边框退化为纯色或无边框 |
+| 99 | `border-image` | 11 / 3 | 已实现：`CssBorderImage` + 九宫格绘制（角拉伸/边 repeat/round/stretch/fill）；语料内规则未被引用，靠 fixture 验证 |
 | 100 | `background-attachment` | 218 / 3 | 已记录等价降级：真实书里都是 `body.headNNN` 章节标题页底纹，引擎按每页页背景重绘，观感等价 |
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
 | 102 | `backdrop-filter` | 3 / 2 | 背景模糊失效（`filter` 已实现，backdrop 是另一条绘制路径） |
@@ -371,7 +371,7 @@
 | 8 | `content` + `counter-*` | P1 | `ecs:1096` 只取字面量/`attr()`；`counter-reset`/`counter-increment` 0 命中 | M | `epub_chapter_source.dart`（伪元素）+ `computed_style.dart`（counter 状态） |
 | 9 | `object-position` | P2 | `object-fit` 已实现；位置恒 center | S | `apps/reader_mobile/lib/reader/epub_chapter_source.dart`（objectFitBackground） |
 | 10 | `transform` 3D（`translate3d`/`rotate3d`/`perspective`） | P2 | `pr:661` 只构造 2D 仿射，4×4 矩阵其余位补零（`pr:682-687`） | M | `page_renderer.dart`（`_affineOfTransform` / `_transformMatrixOf`） |
-| 11 | `border-image` | P2 | 0 命中；11 次 / 3 本 | M | `page_renderer.dart`（`_paintBorders` 旁路） |
+| 11 | `border-image` | ~~P2~~ 已完成 | 切割/repeat/fill 全部实现（`cs:_parseBorderImage` + `pr:_paintBorderImage`） | — | — |
 | 12 | `background-attachment` | P2（可显式声明不支持） | 218 次 / 3 本，最高频缺失项；`cs:4369` 简写不解析 | S | `computed_style.dart`（`_parseBackgroundShorthand`）+ 文档化降级 |
 | 13 | `border-radius` 椭圆（`a / b`）与百分比 | P1 | `cs:2890` 只取 `/` 前半段；560 次 / 6 本 | M | `computed_style.dart` + `page_renderer.dart`（RRect 需四角双半径） |
 | 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
@@ -417,7 +417,7 @@
 | #8 content/counter | `62-word-wrap-content`（含 `content`） | 部分；`counter-*` 缺 |
 | #9 object-fit | **无** | 建议新增 `69-object-fit.json` |
 | #10 transform 3D | `36-transform` | 2D 已覆盖，3D 缺 |
-| #11 border-image | **无** | 建议新增 `70-border-image.json` |
+| #11 border-image | 由 `border_image_test.dart` 覆盖（需要图片资源，不进 cases） | — |
 | #12 background-attachment | **无** | 建议新增 `71-background-attachment.json` |
 | #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值；`a / b` 缺 |
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
