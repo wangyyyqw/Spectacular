@@ -143,6 +143,13 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
   （engine_only，等引擎实现竖排后去掉标记即可参与比较）。
+- `68-z-index-stacking`：两个绝对定位色块重叠，验证 `z-index` 绘制叠序
+  （几何 0 失配，视觉可对照）。
+- `69-border-radius-percent`：`border-radius: 50%` 圆形头像 + 四角百分比，
+  同时覆盖「空元素但有可见盒子要占位」（未配对 1 块是引擎为无文本 div 生成的
+  占位块，浏览器侧没有对应元素，属预期）。
+- `70-border-3d-style`：`groove/ridge/inset/outset` 四种 3D 边框（视觉对照
+  明暗两半；`outset` 的 3px y 差是已知相邻 margin 未塌陷）。
 - `66-vertical-multipage` / `67-vertical-columns` 是竖排探针：浏览器不分页，
   按 `engine_only` 只记录引擎行为，compare 会把「期望 vs 实测」并列：
   - 页内容高按引擎实际口径：页面 800 − `topPadding` 14 = **786**，16px 竖排 →
@@ -281,7 +288,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
 
-## 待收敛（66 用例全量重跑：失配 58 项 / 8 个用例 / 未配对 0）
+## 待收敛（69 用例全量重跑：失配 60 项 / 9 个用例 / 未配对 3）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；

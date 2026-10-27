@@ -1,0 +1,9 @@
+{
+  "name": "70-border-3d-style",
+  "tags": [
+    "border-style",
+    "border"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.6; } .groove { margin: 10px; padding: 10px; border: 8px groove #888888; } .ridge { margin: 10px; padding: 10px; border: 8px ridge #888888; } .inset { margin: 10px; padding: 10px; border: 8px inset #888888; } .outset { margin: 10px; padding: 10px; border: 8px outset #888888; }",
+  "html": "<div class=\"groove\">凹槽边框 groove</div><div class=\"ridge\">凸起边框 ridge</div><div class=\"inset\">内嵌边框 inset</div><div class=\"outset\">外凸边框 outset</div>"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "68-z-index-stacking",
+  "tags": [
+    "z-index",
+    "position"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } .a { position: absolute; left: 0; top: 0; width: 160px; height: 120px; background: #ff0000; z-index: 2; } .b { position: absolute; left: 80px; top: 60px; width: 160px; height: 120px; background: #0000ff; z-index: 1; } p { margin: 0; }",
+  "html": "<p>底层文字</p><div class=\"a\"></div><div class=\"b\"></div>"
+}

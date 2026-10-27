@@ -914,6 +914,39 @@ class EpubChapterSource
     return texts['${node.start}:${node.end}'] ?? node;
   }
 
+  PageBlock? _emptyBoxBlock(ComputedStyle style, double contentWidth) {
+    if (style.display == CssDisplay.none ||
+        style.visibility != CssVisibility.visible) {
+      return null;
+    }
+    final hasBackground =
+        style.backgroundColor.a > 0 || style.backgroundImage != null;
+    final hasBorder = style.borders.hasBorder;
+    final declaredHeight = style.height?.resolve(contentWidth);
+    final declaredMinHeight = style.minHeight?.resolve(contentWidth);
+    if (!hasBackground &&
+        !hasBorder &&
+        (declaredHeight == null || declaredHeight <= 0) &&
+        (declaredMinHeight == null || declaredMinHeight <= 0)) {
+      return null;
+    }
+    var contentHeight = declaredHeight ?? 0.0;
+    if (declaredMinHeight != null && declaredMinHeight > contentHeight) {
+      contentHeight = declaredMinHeight;
+    }
+    return PageBlock(
+      layout: TextLayoutEngine.layout(
+        text: '',
+        style: style,
+        maxWidth: contentWidth,
+      ),
+      style: style,
+      spaceBefore: style.margin.top,
+      spaceAfter: style.margin.bottom,
+      declaredContentHeight: contentHeight > 0 ? contentHeight : null,
+    );
+  }
+
   /// 相对 URL 需要解析的属性（P9-03）：背景图与列表标记图。
   static const _urlProperties = <String>{
     'background-image',
@@ -3998,6 +4031,13 @@ class EpubChapterSource
         final textNode = _textNodeFor(spineIndex, node, blockStyle.whiteSpace);
         final text = textNode.text;
         if (text.trim().isEmpty) {
+          // 空元素但盒子可见（声明尺寸 / 背景 / 边框）：仍要占位。
+          // 真书里的分隔线、头像占位、章首留白 div 都是这种形态；早期直接
+          // 丢弃会让后续内容整体上移（69-border-radius-percent 暴露）。
+          final emptyBox = _emptyBoxBlock(blockStyle, contentWidth);
+          if (emptyBox != null) {
+            blocks.add(emptyBox);
+          }
           return;
         }
         // 计数器（W20）：元素自身的 counter-reset/increment 在生成
@@ -4434,6 +4474,22 @@ class EpubChapterSource
             ),
           );
           return;
+        }
+        // 空元素但盒子可见（声明尺寸/背景/边框）：占位块。
+        // 真书里的分隔线、头像占位、章首留白 div 都是这种形态；早期整块
+        // 丢弃会让后续内容整体上移一个盒高（69-border-radius-percent 暴露）。
+        if (node.children.isEmpty) {
+          final emptyBox = _emptyBoxBlock(
+            chainStyle(<SelectorElement>[
+              ...ancestors,
+              _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
+            ]),
+            contentWidth,
+          );
+          if (emptyBox != null) {
+            blocks.add(emptyBox);
+            return;
+          }
         }
         // 整组不可切（P7-26）：figure（图+题注）内的块标记同组。
         var childGroup = groupId;
