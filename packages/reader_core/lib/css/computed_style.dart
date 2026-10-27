@@ -1001,6 +1001,45 @@ class CssBleed {
   bool get any => left || right || top || bottom;
 }
 
+/// `border-image` 的边条填充方式（CSS Backgrounds §6.3）。
+enum CssBorderImageRepeat { stretch, repeat, round, space }
+
+/// `border-image`（CSS Backgrounds §6）：九宫格边图。
+///
+/// 真书里常见「`border: 20px solid transparent; border-image: url(frame.png)
+/// 50 50 repeat`」做章首花纹框——边框本身透明，图像裁成九块贴到边框区域。
+class CssBorderImage {
+  /// 创建边图。
+  const CssBorderImage({
+    required this.url,
+    required this.sliceTop,
+    required this.sliceRight,
+    required this.sliceBottom,
+    required this.sliceLeft,
+    this.slicePercent = false,
+    this.repeat = CssBorderImageRepeat.stretch,
+    this.fill = false,
+  });
+
+  /// 图片地址（章节源已解算为书内绝对路径）。
+  final String url;
+
+  /// 上下左右的切割量（像素；[slicePercent] 为 true 时是 0..1 的比例）。
+  final double sliceTop;
+  final double sliceRight;
+  final double sliceBottom;
+  final double sliceLeft;
+
+  /// 切割量是否为图片尺寸的百分比。
+  final bool slicePercent;
+
+  /// 边条填充方式（四边共用；`space` 按 `repeat` 处理）。
+  final CssBorderImageRepeat repeat;
+
+  /// 是否绘制中间区域（`fill` 关键字）。
+  final bool fill;
+}
+
 /// 四边边框与四角圆角。
 class CssBorders {
   /// 创建边框集合。
@@ -1817,6 +1856,9 @@ class ComputedStyle {
       backgroundImage: backgroundImage,
       backgroundGradient: backgroundGradient,
       borders: borders,
+      borderImage: _parseBorderImage(
+        explicitValue('border-image') ?? explicitValue('border-image-source'),
+      ),
       width: width,
       height: height,
       minWidth: minWidth,
@@ -1953,6 +1995,9 @@ class ComputedStyle {
       backgroundImage: backgroundImage,
       backgroundGradient: backgroundGradient,
       borders: borders,
+      borderImage: _parseBorderImage(
+        nextValues['border-image'] ?? nextValues['border-image-source'],
+      ),
       width: width,
       height: height,
       minWidth: minWidth,
@@ -1975,6 +2020,7 @@ class ComputedStyle {
   };
 
   const ComputedStyle._({
+    this.borderImage,
     required this.values,
     required this.hasExplicitTextColor,
     required this.fontSize,
@@ -2559,6 +2605,9 @@ class ComputedStyle {
   /// 四边边框与四角圆角。
   final CssBorders borders;
 
+  /// 九宫格边图（`border-image`）；未声明为 null。边框绘制时替代普通边框色。
+  final CssBorderImage? borderImage;
+
   /// 指定宽度；null 表示未声明（等同于 auto）。
   final CssLength? width;
 
@@ -2987,6 +3036,90 @@ class ComputedStyle {
       topRightRadiusPercent: radiusPercents[1],
       bottomRightRadiusPercent: radiusPercents[2],
       bottomLeftRadiusPercent: radiusPercents[3],
+    );
+  }
+
+  /// 解析 `border-image` / `border-image-source`（CSS Backgrounds §6.2）。
+  ///
+  /// 支持常见形态：`url(...) [<n>|<n>%]{1,4} [/ <border-width>]{0,1} [stretch|
+  /// repeat|round|space]?`，`source`/`slice`/`width`/`repeat` 长属性不单独解析
+  /// （真书里都是简写）。缺 url 或解析不出切割量时返回 null（按无边框图处理）。
+  static CssBorderImage? _parseBorderImage(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'none') {
+      return null;
+    }
+    final urlMatch = RegExp(r'url\(\s*["\x27]?([^"\x27)]+)["\x27]?\s*\)').firstMatch(value);
+    if (urlMatch == null) {
+      return null;
+    }
+    final url = urlMatch.group(1)!;
+    final rest = value.replaceFirst(urlMatch.group(0)!, ' ');
+    final tokens = rest
+        .replaceAll('/', ' / ')
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    var fill = false;
+    var repeat = CssBorderImageRepeat.stretch;
+    final sliceTokens = <String>[];
+    var inSlice = true;
+    for (final token in tokens) {
+      if (token == '/') {
+        inSlice = false;
+        continue;
+      }
+      switch (token) {
+        case 'fill':
+          fill = true;
+          continue;
+        case 'stretch':
+        case 'repeat':
+        case 'round':
+        case 'space':
+          repeat = switch (token) {
+            'repeat' => CssBorderImageRepeat.repeat,
+            'round' => CssBorderImageRepeat.round,
+            'space' => CssBorderImageRepeat.space,
+            _ => CssBorderImageRepeat.stretch,
+          };
+          continue;
+      }
+      if (inSlice) {
+        sliceTokens.add(token);
+      }
+    }
+    if (sliceTokens.isEmpty) {
+      return null;
+    }
+    final percent = sliceTokens.first.endsWith('%');
+    double parse(String token) {
+      final text = token.endsWith('%')
+          ? token.substring(0, token.length - 1)
+          : token;
+      final number = double.tryParse(text);
+      if (number == null) {
+        return 1;
+      }
+      return percent ? (number / 100).clamp(0.0, 1.0) : number;
+    }
+
+    final expanded = _expandFour(sliceTokens);
+    final parsed = <double>[
+      for (var i = 0; i < 4; i++) parse(expanded[i]),
+    ];
+    return CssBorderImage(
+      url: url,
+      sliceTop: parsed[0],
+      sliceRight: parsed[1],
+      sliceBottom: parsed[2],
+      sliceLeft: parsed[3],
+      slicePercent: percent,
+      repeat: repeat,
+      fill: fill,
     );
   }
 
