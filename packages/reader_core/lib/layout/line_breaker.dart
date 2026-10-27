@@ -346,6 +346,7 @@ class VerticalGlyphMetric {
     required this.end,
     required this.advance,
     required this.upright,
+    this.combine = false,
   });
 
   /// 原文起始偏移。
@@ -359,6 +360,10 @@ class VerticalGlyphMetric {
 
   /// 是否正立（`text-orientation: upright` 或 CJK 类字形）；false 表示旋转 90°。
   final bool upright;
+
+  /// 是否为縦中横组合（`text-combine-upright: all` 的 2–4 位数字）：
+  /// 纵向只占 1em，绘制时横排缩小塞进列宽。
+  final bool combine;
 }
 
 /// 行内盒在行内的放置结果。
@@ -2523,7 +2528,52 @@ abstract final class TextLayoutEngine {
       );
       offset += length;
     }
+    // 縦中横（CSS Writing Modes §9.1 `text-combine-upright`）：连续 2–4 位
+    // 数字合并成一个正立块，纵向只占 1em（网页正文里的年份/编号「2024」）。
+    if (style.textCombine != CssTextCombine.none && metrics.length > 1) {
+      final combined = <VerticalGlyphMetric>[];
+      var index = 0;
+      while (index < metrics.length) {
+        if (!_isDigitSpan(text, metrics[index])) {
+          combined.add(metrics[index]);
+          index += 1;
+          continue;
+        }
+        var end = index;
+        while (end < metrics.length &&
+            end - index < 4 &&
+            _isDigitSpan(text, metrics[end])) {
+          end += 1;
+        }
+        final count = end - index;
+        if (count < 2) {
+          combined.add(metrics[index]);
+          index += 1;
+          continue;
+        }
+        combined.add(
+          VerticalGlyphMetric(
+            start: metrics[index].start,
+            end: metrics[end - 1].end,
+            advance: em,
+            upright: true,
+            combine: true,
+          ),
+        );
+        index = end;
+      }
+      return combined;
+    }
     return metrics;
+  }
+
+  /// 该度量是否单个半角数字（縦中横只合并数字；`digits` 与 `all` 同口径）。
+  static bool _isDigitSpan(String text, VerticalGlyphMetric metric) {
+    if (metric.end != metric.start + 1 || metric.end > text.length) {
+      return false;
+    }
+    final code = text.codeUnitAt(metric.start);
+    return code >= 0x30 && code <= 0x39;
   }
 
   /// 竖排下是否正立：CJK 汉字/假名/注音符号/全角标点等按 1em 正立，
