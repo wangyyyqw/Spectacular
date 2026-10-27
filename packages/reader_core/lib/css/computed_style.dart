@@ -875,7 +875,7 @@ class CssLength {
 enum CssBoxSizing { contentBox, borderBox }
 
 /// 边框线型（CSS `border-style<border-style>`）。
-enum CssBorderStyle { none, solid, dashed, dotted, double }
+enum CssBorderStyle { none, solid, dashed, dotted, double, groove, ridge, inset, outset }
 
 /// 文本溢出（CSS `text-overflow`；P2-37 抽样：clip/ellipsis 两值，
 /// 其余取值按 clip）。
@@ -3040,8 +3040,12 @@ class ComputedStyle {
   static CssBorderStyle? _parseBorderStyle(String raw) =>
       switch (raw.trim().toLowerCase()) {
         'none' || 'hidden' => CssBorderStyle.none,
-        'solid' || 'groove' || 'ridge' || 'inset' || 'outset' =>
-          CssBorderStyle.solid,
+        'solid' => CssBorderStyle.solid,
+        // 3D 边框（CSS Backgrounds §4.4）：双色明暗边，绘制层按朝向画两半。
+        'groove' => CssBorderStyle.groove,
+        'ridge' => CssBorderStyle.ridge,
+        'inset' => CssBorderStyle.inset,
+        'outset' => CssBorderStyle.outset,
         'dashed' => CssBorderStyle.dashed,
         'dotted' => CssBorderStyle.dotted,
         'double' => CssBorderStyle.double,
