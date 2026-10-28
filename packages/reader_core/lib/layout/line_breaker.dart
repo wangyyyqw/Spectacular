@@ -461,6 +461,31 @@ class StyledRun {
   final double baselineShift;
 }
 
+/// 按制表位展开制表符（CSS Text 3 `tab-size`）：每遇到 `\t` 补齐到下一个
+/// `tabSize` 列，换行后列计数归零。
+String expandTabs(String text, int tabSize) {
+  if (tabSize <= 0 || !text.contains('\t')) {
+    return text;
+  }
+  final buffer = StringBuffer();
+  var column = 0;
+  for (final rune in text.runes) {
+    final char = String.fromCharCode(rune);
+    if (char == '\t') {
+      final spaces = tabSize - (column % tabSize);
+      buffer.write(' ' * spaces);
+      column += spaces;
+    } else if (char == '\n') {
+      buffer.write(char);
+      column = 0;
+    } else {
+      buffer.write(char);
+      column += 1;
+    }
+  }
+  return buffer.toString();
+}
+
 /// 按 CSS `text-transform` 变换文本（P2-16）。
 ///
 /// `capitalize` 按空白分词，把每个词的首字符转大写（标点边界按空白近似）。
@@ -764,6 +789,15 @@ abstract final class TextLayoutEngine {
   }) {
     // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
     text = applyTextTransform(text, style.textTransform);
+    // tab-size（CSS Text 3）：`white-space: pre*` 里的制表符按制表位展开成
+    // 空格。展开会改变字符下标，因此只在「纯文本段」（无行内样式区间/行内盒）
+    // 做；带行内标记的 pre 文本保留原样（已知限制）。
+    if (text.contains('\t') &&
+        runs.isEmpty &&
+        inlineBoxes.isEmpty &&
+        style.tabSize > 0) {
+      text = expandTabs(text, style.tabSize);
+    }
     // 内容宽恒为「有限」值，用于缩进/对齐/诊断；软换行关闭时只把 TextPainter
     // 的排版宽放开到无限，让整段排成一行（硬换行仍生效）。
     final width = maxWidth.isFinite ? math.max(1.0, maxWidth) : double.infinity;
@@ -932,7 +966,9 @@ abstract final class TextLayoutEngine {
     final manualHyphen = hyphens == CssHyphens.manual || autoHyphen;
     final breakAnywhere =
         overflowWrap == CssOverflowWrap.anywhere ||
-        wordBreak == CssWordBreak.breakAll;
+        wordBreak == CssWordBreak.breakAll ||
+        // `line-break: anywhere` 允许任意字符间断行（CSS Text 3）。
+        style.lineBreak == CssLineBreak.anywhere;
     final breakLongWord = overflowWrap == CssOverflowWrap.breakWord;
     final hasSoftHyphen = text.contains('\u00AD');
     if (!autoHyphen &&
