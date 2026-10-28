@@ -174,6 +174,9 @@ class PagePainter {
         geometry,
         clip: true,
         () => _withEffects(canvas, geometry, () {
+          // backdrop-filter（CSS Filter Effects §5）：元素背后区域先按页面
+          // 背景近似铺一层，再走滤镜层，块自身背景随后覆盖。
+          _paintBackdropFilter(canvas, geometry, page, pageRect);
           _paintBackground(
             canvas,
             geometry.containerPaintBox,
@@ -907,6 +910,57 @@ class PagePainter {
     for (var i = 0; i < layers; i++) {
       canvas.restore();
     }
+  }
+
+  /// `backdrop-filter`：把元素背后区域按「页背景」近似铺一层并应用滤镜。
+  ///
+  /// 已知限制：纯 Canvas 绘制无法采样已画内容（Flutter 的 BackdropFilter 需要
+  /// widget 层），因此 backdrop 用页面背景色/背景图代替；真书里该属性只用于
+  /// 半透明装饰框，观感接近。
+  void _paintBackdropFilter(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    PageContent page,
+    Rect pageRect,
+  ) {
+    final filters = geometry.style.backdropFilters;
+    if (filters.isEmpty) {
+      return;
+    }
+    final box = geometry.borderBox;
+    if (box.width <= 0 || box.height <= 0) {
+      return;
+    }
+    canvas.save();
+    canvas.clipRect(box);
+    var layers = 0;
+    for (var i = filters.length - 1; i >= 0; i--) {
+      final paint = _filterLayerPaint(filters[i]);
+      if (paint == null) {
+        continue;
+      }
+      canvas.saveLayer(box, paint);
+      layers += 1;
+    }
+    canvas.drawRect(pageRect, Paint()..color = background);
+    final pageImage = pageBackgroundImage;
+    if (pageImage != null) {
+      canvas.drawRect(
+        pageRect,
+        Paint()
+          ..shader = ImageShader(
+            pageImage,
+            TileMode.repeated,
+            TileMode.repeated,
+            _identityMatrix4(),
+          ),
+      );
+    }
+    _paintBookPageBackground(canvas, page, pageRect);
+    for (var i = 0; i < layers; i++) {
+      canvas.restore();
+    }
+    canvas.restore();
   }
 
   /// 单个滤镜对应的图层 Paint；返回 null 表示该滤镜由别的路径实现
