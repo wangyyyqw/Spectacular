@@ -309,6 +309,27 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
   }
 
+  /// 整页背景图页（封面/扉页）：整页只有一块背景图，四角信息都不画。
+  ///
+  /// 这类页整页都是图，页眉页脚压上去只会挡图，与多看/阅微一致。
+  bool _isFullPageBackground(PageContent page) {
+    if (page.slices.length != 1) {
+      return false;
+    }
+    final block = page.slices.first.block;
+    if (block.layout.text.isNotEmpty || block.inlineImages.isNotEmpty) {
+      return false;
+    }
+    final background = block.style?.values['background-image'];
+    return (background != null && background.isNotEmpty) &&
+        block.bleedLeft &&
+        block.bleedRight;
+  }
+
+  /// 顶部出血页（章首横幅图）：只让位页眉，页脚（时间 + 进度）保留。
+  bool _hasTopBleed(PageContent page) =>
+      page.slices.any((slice) => slice.block.bleedTop);
+
   /// 章标题：目录里有就用目录名，否则退回「第 N 章」。
   String _chapterTitleOf(int spineIndex) {
     final source = widget.source;
@@ -1214,18 +1235,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         final padding = _effectivePadding();
         _schedulePrefetch(page, size.width - padding.horizontal);
         _scheduleContentSize(size);
+        // 出血页把整页让给图：绘制画布取满屏，正文由 pageInsets 内缩，
+        // 出血块才能铺到屏幕边缘。页眉页脚按页类型让位：
+        // - 整页背景图页（封面/扉页）：页眉页脚都不画；
+        // - 顶部出血页（章首横幅图）：只让位页眉，页脚保留。
+        final bodyPadding = _bodyPadding();
+        final fullPageBackground = _isFullPageBackground(page);
+        final topBleed = _hasTopBleed(page);
+        final hideHeader = fullPageBackground || topBleed;
+        final hideFooter = fullPageBackground;
         return Stack(
           fit: StackFit.expand,
           children: [
-            Padding(
-              padding: _bodyPadding(),
-              child: ClipRect(
-                child: CustomPaint(
-                  painter: _ReaderPageCustomPainter(
-                    page: page,
-                    painter: _painter,
-                    imageRevision: _imageRevision,
-                  ),
+            ClipRect(
+              child: CustomPaint(
+                painter: _ReaderPageCustomPainter(
+                  page: page,
+                  painter: _painter,
+                  imageRevision: _imageRevision,
+                  pageInsets: bodyPadding,
                 ),
               ),
             ),
@@ -1276,7 +1304,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               child: const SizedBox.expand(),
             ),
             // 页眉/页脚（P8-10 页家具；样式对齐设计稿 §page-header/footer）。
-            if (widget.showPageFooter) ...[
+            // 出血页让位：整页图要贴屏幕边缘，页眉会压在图上；页脚在
+            // 头图页仍需保留（时间 + 进度），只在整页背景图页一起让掉。
+            if (widget.showPageFooter && !hideHeader)
               Positioned(
                 left: padding.left,
                 right: padding.right,
@@ -1291,6 +1321,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ),
                 ),
               ),
+            if (widget.showPageFooter && !hideFooter)
               Positioned(
                 left: padding.left,
                 right: padding.right,
@@ -1303,7 +1334,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            ],
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
             if (_selection != null) ...[
               Positioned.fill(
@@ -1472,23 +1502,27 @@ class _ReaderPageCustomPainter extends CustomPainter {
     required this.page,
     required this.painter,
     required this.imageRevision,
+    this.pageInsets = EdgeInsets.zero,
   });
 
   final PageContent page;
   final PagePainter painter;
   final int imageRevision;
 
+  /// 正文区相对整页的内缩（页边距 + 页眉页脚槽）。
+  final EdgeInsets pageInsets;
+
   @override
   void paint(Canvas canvas, Size size) {
-    // 画布即正文区（Padding 已把画布收窄）；pageSize 必须同步取画布尺寸，
-    // 否则块的背景/边框/居中图按整窗宽计算 → 整体右移并压出右缘。
-    painter.paint(canvas, page, pageSize: size);
+    // 画布是整页；正文由 pageInsets 内缩，出血块由绘制层扩到页边。
+    painter.paint(canvas, page, pageSize: size, pageInsets: pageInsets);
   }
 
   @override
   bool shouldRepaint(_ReaderPageCustomPainter oldDelegate) =>
       oldDelegate.page != page ||
       oldDelegate.imageRevision != imageRevision ||
+      oldDelegate.pageInsets != pageInsets ||
       oldDelegate.painter.background != painter.background;
 }
 
