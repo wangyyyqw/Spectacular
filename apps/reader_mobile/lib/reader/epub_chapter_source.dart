@@ -452,12 +452,15 @@ class EpubChapterSource
       maxWidth: width,
       runs: const <StyledRun>[],
     );
-    // 全屏页用出血标记让绘制层横向顶到页面边缘（不看页边距）。
+    // 全屏页用出血标记让绘制层横向顶到页面边缘（不看页边距）；
+    // 上下同出血，绘制层才能把整页图铺满屏幕（含页眉页脚槽）。
     final block = PageBlock(
       layout: layout,
       style: blockStyle,
       bleedLeft: bleed,
       bleedRight: bleed,
+      bleedTop: bleed,
+      bleedBottom: bleed,
     );
     final pages = Paginator(pageHeight: height)
         .measureChapter(blocks: [block], spineIndex: spineIndex)
@@ -3250,6 +3253,8 @@ class EpubChapterSource
           floatSide: floatSide,
           bleedLeft: imageStyle.bleed.left,
           bleedRight: imageStyle.bleed.right,
+          bleedTop: imageStyle.bleed.top,
+          bleedBottom: imageStyle.bleed.bottom,
           effectiveOpacity: imageOpacity,
           groupId: containerFloat != null
               ? containerFloatGroup
@@ -4371,6 +4376,8 @@ class EpubChapterSource
               // P9-22：多看出血（背景/边框延伸到页面边缘）。
               bleedLeft: blockStyle.bleed.left,
               bleedRight: blockStyle.bleed.right,
+              bleedTop: blockStyle.bleed.top,
+              bleedBottom: blockStyle.bleed.bottom,
             // P9-25：带边框容器内部的块，背景/左右边框拼合。
             containerSides: inBorderedContainer,
             effectiveOpacity: blockOpacity,
@@ -4401,6 +4408,8 @@ class EpubChapterSource
               absoluteLeft: textBlock.absoluteLeft,
               bleedLeft: textBlock.bleedLeft,
               bleedRight: textBlock.bleedRight,
+              bleedTop: textBlock.bleedTop,
+              bleedBottom: textBlock.bleedBottom,
               containerSides: textBlock.containerSides,
               effectiveOpacity: textBlock.effectiveOpacity,
               declaredContentHeight: textBlock.declaredContentHeight,

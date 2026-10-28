@@ -20,7 +20,7 @@ ComputedStyle _style() => ComputedStyle(const <String, String>{
   'margin': '20px',
 });
 
-PageContent _page({required bool bleed}) {
+PageContent _page({required bool bleed, bool verticalBleed = false}) {
   final style = _style();
   final block = PageBlock.styled(
     layout: TextLayoutEngine.layout(
@@ -32,6 +32,8 @@ PageContent _page({required bool bleed}) {
     containingWidth: _pageSize.width,
     bleedLeft: bleed,
     bleedRight: bleed,
+    bleedTop: verticalBleed,
+    bleedBottom: verticalBleed,
   );
   return Paginator(pageHeight: _pageSize.height)
       .measureChapter(blocks: <PageBlock>[block])
@@ -39,24 +41,29 @@ PageContent _page({required bool bleed}) {
       .single;
 }
 
-Future<ByteData> _render(PageContent page) async {
+Future<ByteData> _render(
+  PageContent page, {
+  Size pageSize = _pageSize,
+  EdgeInsets pageInsets = EdgeInsets.zero,
+}) async {
   final recorder = ui.PictureRecorder();
   PagePainter(background: _pageColor).paint(
     Canvas(recorder),
     page,
-    pageSize: _pageSize,
+    pageSize: pageSize,
+    pageInsets: pageInsets,
   );
   final image = await recorder.endRecording().toImage(
-    _pageSize.width.toInt(),
-    _pageSize.height.toInt(),
+    pageSize.width.toInt(),
+    pageSize.height.toInt(),
   );
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
   return data!;
 }
 
-Color _pixel(ByteData bytes, int x, int y) {
-  final offset = (y * _pageSize.width.toInt() + x) * 4;
+Color _pixel(ByteData bytes, int x, int y, [Size size = _pageSize]) {
+  final offset = (y * size.width.toInt() + x) * 4;
   return Color.fromARGB(
     bytes.getUint8(offset + 3),
     bytes.getUint8(offset),
@@ -91,5 +98,40 @@ void main() {
       reason: '右缘应为页面底色',
     );
     expect(_pixel(data, 30, 30), const Color(0xFFFF0000), reason: '块内应着色');
+  });
+
+  test('pageInsets 下出血块铺到整页边缘', () async {
+    const insets = EdgeInsets.fromLTRB(12, 16, 12, 20);
+    final data = await _render(
+      _page(bleed: true, verticalBleed: true),
+      pageInsets: insets,
+      pageSize: const Size(220, 160),
+    );
+    // 四角都在页边之外的内缩里：出血块应铺满整页。
+    expect(_pixel(data, 0, 0, const Size(220, 160)), const Color(0xFFFF0000));
+    expect(
+      _pixel(data, 219, 159, const Size(220, 160)),
+      const Color(0xFFFF0000),
+      reason: '右下角应贴页边',
+    );
+  });
+
+  test('pageInsets 下非出血内容仍按内缩排布', () async {
+    const insets = EdgeInsets.fromLTRB(12, 16, 12, 20);
+    final data = await _render(
+      _page(bleed: false),
+      pageInsets: insets,
+      pageSize: const Size(220, 160),
+    );
+    final size = const Size(220, 160);
+    expect(_pixel(data, 0, 0, size), _pageColor, reason: '页边留白应是底色');
+    // 块左缘 = pageInsets.left + margin.left，上缘 = pageInsets.top + margin.top。
+    final blockLeft = insets.left.toInt() + _style().margin.left.toInt();
+    final blockTop = insets.top.toInt() + _style().margin.top.toInt();
+    expect(
+      _pixel(data, blockLeft + 8, blockTop + 8, size),
+      const Color(0xFFFF0000),
+      reason: '块应从内缩处开始着色',
+    );
   });
 }

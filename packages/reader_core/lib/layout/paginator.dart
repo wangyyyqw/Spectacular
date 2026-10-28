@@ -61,6 +61,8 @@ class PageBlock {
     this.absoluteLeft,
     this.bleedLeft = false,
     this.bleedRight = false,
+    this.bleedTop = false,
+    this.bleedBottom = false,
     this.containerSides = false,
     this.declaredContentHeight,
     this.effectiveOpacity = 1,
@@ -91,6 +93,8 @@ class PageBlock {
     double? absoluteLeft,
     bool bleedLeft = false,
     bool bleedRight = false,
+    bool bleedTop = false,
+    bool bleedBottom = false,
     bool containerSides = false,
     double? effectiveOpacity,
   }) {
@@ -120,6 +124,8 @@ class PageBlock {
       absoluteLeft: absoluteLeft,
       bleedLeft: bleedLeft,
       bleedRight: bleedRight,
+      bleedTop: bleedTop,
+      bleedBottom: bleedBottom,
       containerSides: containerSides,
       // 未显式传入时沿用计算样式的祖先累计不透明度（T3 只在容器分支显式传）。
       effectiveOpacity: effectiveOpacity ?? style.effectiveOpacity,
@@ -212,6 +218,12 @@ class PageBlock {
   /// 右出血：背景/边框延伸到页面右缘。
   final bool bleedRight;
 
+  /// 上出血（多看 `duokan-bleed` 含 top）：背景/边框延伸到页面顶缘。
+  final bool bleedTop;
+
+  /// 下出血：背景/边框延伸到页面底缘。
+  final bool bleedBottom;
+
   /// 位于带边框容器的内部（P9-25）：背景与左右边框向上下段距延伸，让
   /// 被拆成多块的卡片/面板拼回一片，块间缝隙不露页底、边框不断开。
   final bool containerSides;
@@ -282,6 +294,8 @@ class PageBlock {
         absoluteLeft: absoluteLeft,
         bleedLeft: bleedLeft,
         bleedRight: bleedRight,
+        bleedTop: bleedTop,
+        bleedBottom: bleedBottom,
         containerSides: containerSides,
         declaredContentHeight: declaredContentHeight,
         effectiveOpacity: effectiveOpacity,
@@ -833,6 +847,8 @@ class Paginator {
     groupId: source.groupId,
     bleedLeft: source.bleedLeft,
     bleedRight: source.bleedRight,
+    bleedTop: source.bleedTop,
+    bleedBottom: source.bleedBottom,
     containerSides: source.containerSides,
     effectiveOpacity: source.effectiveOpacity,
     multicol: multicol,
@@ -1126,6 +1142,8 @@ class Paginator {
       leftInset: source.leftInset,
       bleedLeft: source.bleedLeft,
       bleedRight: source.bleedRight,
+      bleedTop: source.bleedTop,
+      bleedBottom: source.bleedBottom,
       containerSides: source.containerSides,
       effectiveOpacity: source.effectiveOpacity,
     );

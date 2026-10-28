@@ -125,8 +125,32 @@ class PagePainter {
   /// 行的水平位置由布局阶段按 text-align 算好（[LineBox.offsetX]）；
   /// 行内样式取自 [TextLayoutResult.runs]（混排字号、行内元素）；
   /// justify 行把余量按间隙分摊到左侧字符的字距上（§8.4）。
-  void paint(Canvas canvas, PageContent page, {required Size pageSize}) {
-    final geometries = _sliceGeometries(page, pageSize);
+  ///
+  /// [pageInsets] 是正文区相对整页的内缩（阅读器页边距 + 页眉页脚槽）：
+  /// 传非零值时画布按整页给尺寸、内容整体偏移 [pageInsets]，页面底色与
+  /// 背景图铺满整页，出血块的盒子扩到页边（不再被内缩裁掉）。
+  void paint(
+    Canvas canvas,
+    PageContent page, {
+    required Size pageSize,
+    EdgeInsets pageInsets = EdgeInsets.zero,
+  }) {
+    final contentSize = Size(
+      math.max(0, pageSize.width - pageInsets.horizontal),
+      math.max(0, pageSize.height - pageInsets.vertical),
+    );
+    // 整页矩形（内容坐标：左上角为 -insets）。
+    final pageRect = Rect.fromLTWH(
+      -pageInsets.left,
+      -pageInsets.top,
+      pageSize.width,
+      pageSize.height,
+    );
+    final geometries = _sliceGeometries(
+      page,
+      contentSize,
+      pageInsets: pageInsets,
+    );
     // 叠放顺序（CSS 2.1 §9.9）：`z-index` 升序绘制，同层保持文档序。
     // 只影响绘制次序；`geometries` 本身仍按文档序用于命中/选区。
     final paintOrder = _paintOrder(geometries);
@@ -134,8 +158,9 @@ class PagePainter {
       for (var i = 0; i < geometries.length; i++) geometries[i]: i,
     };
 
+    canvas.save();
+    canvas.translate(pageInsets.left, pageInsets.top);
     _notifyPhase(PagePaintPhase.background);
-    final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
     canvas.drawRect(pageRect, Paint()..color = background);
     // 背景纹理平铺在背景色之上、正文之下（P4-22，只影响绘制层）。
     final pageBackground = pageBackgroundImage;
@@ -487,6 +512,7 @@ class PagePainter {
     if (selection != null) {
       _paintSelection(canvas, page, geometries, selection);
     }
+    canvas.restore();
   }
 
   void _notifyPhase(PagePaintPhase phase) => onPhase?.call(phase);
@@ -558,7 +584,11 @@ class PagePainter {
   }
 
   /// 预计算每片切片的几何与样式（P2-29：各阶段共用同一份坐标）。
-  List<_SliceGeometry> _sliceGeometries(PageContent page, Size pageSize) {
+  List<_SliceGeometry> _sliceGeometries(
+    PageContent page,
+    Size pageSize, {
+    EdgeInsets pageInsets = EdgeInsets.zero,
+  }) {
     // 上下标的基线偏移会超出切片矩形：统计本页最大上下偏移，放宽裁剪。
     var upExtent = 0.0;
     var downExtent = 0.0;
@@ -596,6 +626,8 @@ class PagePainter {
           upExtent: upExtent,
           downExtent: downExtent,
           pageWidth: pageSize.width,
+          pageHeight: pageSize.height,
+          pageInsets: pageInsets,
         ),
       );
       if (!slice.overlay) {
@@ -3671,6 +3703,8 @@ class _SliceGeometry {
     required this.upExtent,
     required this.downExtent,
     required this.pageWidth,
+    required this.pageHeight,
+    this.pageInsets = EdgeInsets.zero,
     this.textColorOverride,
   });
 
@@ -3702,6 +3736,12 @@ class _SliceGeometry {
   final double downExtent;
   final double pageWidth;
 
+  /// 正文区高（页面高 − 上下内缩），出血块向下扩时用到。
+  final double pageHeight;
+
+  /// 正文区相对整页的内缩（阅读器页边距 + 页眉页脚槽）。
+  final EdgeInsets pageInsets;
+
   /// 背景/边框盒子（含首尾内缩）。
   Rect get box => Rect.fromLTWH(0, y, pageWidth, slice.height);
 
@@ -3732,24 +3772,29 @@ class _SliceGeometry {
   /// 底色（10-background、26-background-gradient 的视觉差全部落在这条带上）。
   Rect get borderBox {
     final block = slice.block;
-    final top = slice.leadingExtent > 0
-        ? y + slice.leadingExtent - block.topInset
-        : y;
-    final bottom = slice.trailingExtent > 0
-        ? y + slice.height - slice.trailingExtent + block.bottomInset
-        : y + slice.height;
+    final top = block.bleedTop
+        ? -pageInsets.top
+        : (slice.leadingExtent > 0
+              ? y + slice.leadingExtent - block.topInset
+              : y);
+    final bottom = block.bleedBottom
+        ? pageHeight + pageInsets.bottom
+        : (slice.trailingExtent > 0
+              ? y + slice.height - slice.trailingExtent + block.bottomInset
+              : y + slice.height);
     // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：
     // 声明了 width 的块背景与 overflow 裁剪都要收在声明宽内（Chromium 的
     // used width 口径）；auto 时与「页宽 − margin」等价。
     // 竖排块（W22）：内容是「列带」，块宽收缩到列数×列宽（Chromium 实测
     // 35 用例 .v 宽 98 = 4 列×24 + 边框），不能用页宽。
     final model = _boxModel;
-    final left = block.bleedLeft ? 0.0 : style.margin.left;
+    // 出血：盒子扩到整页边（内容坐标里页边是 −insets / +pageWidth+insets）。
+    final left = block.bleedLeft ? -pageInsets.left : style.margin.left;
     final contentWidth = isVerticalBlock
         ? block.layout.width
         : model.resolveContentWidth(pageWidth);
     final right = block.bleedRight
-        ? pageWidth
+        ? pageWidth + pageInsets.right
         : left + contentWidth + model.horizontalInset;
     return Rect.fromLTRB(left, top, right, bottom);
   }
@@ -3790,12 +3835,18 @@ class _SliceGeometry {
     final containerBottom = slice.block.containerSides
         ? slice.trailingExtent
         : 0.0;
+    // 出血方向同步放宽到页边，否则扩出去的背景/边框会被切片矩形裁掉。
+    final block = slice.block;
     canvas.clipRect(
       Rect.fromLTRB(
-        clip.left,
-        clip.top - upExtent - containerTop,
-        clip.right,
-        clip.bottom + downExtent + containerBottom,
+        block.bleedLeft ? -pageInsets.left : clip.left,
+        block.bleedTop
+            ? -pageInsets.top
+            : clip.top - upExtent - containerTop,
+        block.bleedRight ? pageWidth + pageInsets.right : clip.right,
+        block.bleedBottom
+            ? pageHeight + pageInsets.bottom
+            : clip.bottom + downExtent + containerBottom,
       ),
     );
   }
