@@ -1345,6 +1345,12 @@ class ComputedStyle {
     );
     // filter（W5）：有序滤镜列表，非继承，初始空；多看的 `-webkit-filter`
     // 也接住（真实书大量使用）。
+    final backdropFilters = _parseFilters(
+      explicitValue('backdrop-filter') ??
+          explicitValue('-webkit-backdrop-filter'),
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
     final filters = _parseFilters(
       explicitValue('filter') ?? explicitValue('-webkit-filter'),
       fontSize: fontSize,
@@ -1829,6 +1835,7 @@ class ComputedStyle {
       opacity: opacity,
       effectiveOpacity: effectiveOpacity,
       filters: filters,
+      backdropFilters: backdropFilters,
       transforms: transforms,
       transformOriginX: transformOrigin.x,
       transformOriginY: transformOrigin.y,
@@ -1971,6 +1978,7 @@ class ComputedStyle {
       opacity: opacity,
       effectiveOpacity: effectiveOpacity,
       filters: filters,
+      backdropFilters: backdropFilters,
       transforms: transforms,
       transformOriginX: transformOriginX,
       transformOriginY: transformOriginY,
@@ -2085,6 +2093,7 @@ class ComputedStyle {
     required this.opacity,
     required this.effectiveOpacity,
     required this.filters,
+    required this.backdropFilters,
     required this.transforms,
     required this.transformOriginX,
     required this.transformOriginY,
@@ -2283,6 +2292,10 @@ class ComputedStyle {
   /// 绘制层按声明顺序依次合成（先 blur 再 grayscale …）；每种滤镜的参数含义
   /// 见 [CssFilter] 与 [CssFilterKind]。
   final List<CssFilter> filters;
+
+  /// `backdrop-filter`（元素背后区域的滤镜）：分页阅读器里以「页面背景」
+  /// 作为 backdrop 近似（无法采样已绘制内容，见审计文档的已知限制）。
+  final List<CssFilter> backdropFilters;
 
   /// `transform` 的有序变换列表（非继承，初始空）。
   ///
