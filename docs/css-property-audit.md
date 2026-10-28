@@ -23,7 +23,7 @@
 
 1. **未知属性是「静默接受」而非拒绝。** `Cascade._consider`（`cascade.dart:548-570`）按属性名把任意 `property: value` 存进 `winners`，`ComputedStyle` 只类型化认识的那批，其余留在 `values` map 无人读取。「支持 132 个属性名」仍是假象。
 2. **真正的风险是「有字段却没消费」**——它在 `values` dump、`layoutFingerprint`、`parity_dump_test` 里都看起来有值。本轮已把这类从 9 条压到 4 条（第 3.3 章）；剩下的 4 条要显式决策「补消费还是删字段」。
-3. **别名层仍会制造伪支持**：`line-break`、`text-combine-upright` 有私有别名但目标零消费（第 6 章）。`hyphens`/`text-orientation`/`writing-mode` 本轮已接通。
+3. **别名层伪支持**：`line-break` 有私有别名但目标零消费（第 6 章）；`text-combine-upright` 已在本轮接通（縦中横）。`hyphens`/`text-orientation`/`writing-mode` 已接通。
 
 行号快照：`2026-10-27 05:42 CST`，`HEAD 31ca095` + 工作树。**审计期间 `computed_style.dart`、`line_breaker.dart`、`paginator.dart`、`page_renderer.dart` 仍在被并发修改**（写作时 `computed_style.dart` 从 5363 行涨到 5487 行），行号会漂移；每行都附函数锚点，定位用附录 B 的脚本，别只信数字。
 
@@ -125,7 +125,7 @@
 | orphans / widows | 7 / 7 | 1 | 不参与分页（产品决策：电子书排版不做孤行/寡行约束） |
 | text-justify / ruby-align | 5 / 4 | 3 | 部分 / 未处理 |
 | opacity | 5 | 1 | 完整（组合成已接通） |
-| z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 完整（本轮接通叠序）/ 未处理 / 完整 |
+| z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 完整（叠序）/ 近似实现（按页背景）/ 完整 |
 | list-style-position | 2 | 1 | 完整（本轮接通） |
 | object-fit | 1 | 1 | 完整（映射 background-size；本轮测试锁定 cover/contain/fill） |
 | hyphens（`-epub-hyphens`） | 1 | 1 | 部分（已接通，无词典） |
@@ -273,7 +273,7 @@
 | 99 | `border-image` | 11 / 3 | 已实现：`CssBorderImage` + 九宫格绘制（角拉伸/边 repeat/round/stretch/fill）；语料内规则未被引用，靠 fixture 验证 |
 | 100 | `background-attachment` | 218 / 3 | 已记录等价降级：真实书里都是 `body.headNNN` 章节标题页底纹，引擎按每页页背景重绘，观感等价 |
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
-| 102 | `backdrop-filter` | 3 / 2 | 背景模糊失效（`filter` 已实现，backdrop 是另一条绘制路径） |
+| 102 | `backdrop-filter` | 3 / 2 | 已按「页面背景作为 backdrop」近似（纯 Canvas 无法采样已绘制内容） |
 | 103 | `z-index` | 4 / 2 | 已实现：绘制顺序按层级升序稳定排序，同层保持文档序 |
 | 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down），`object-position` 固定 center |
 | 105 | `counter-reset` / `counter-increment` | 0 | 自动编号、图表序号失效 |
@@ -282,7 +282,7 @@
 | 108 | `unicode-bidi` | 0 | `bdo` 覆写不生效（UA 表有规则，无消费） |
 | 109 | `ruby-align` | 4 / 3 | 注音对齐不生效（仅继承表 `cas:81`） |
 | 110 | `ruby-position` | 0 | 注音恒在上方（竖排尤其错） |
-| 111 | `text-combine-upright` | 4 别名 / 1 | 竖排「縦中横」不支持 |
+| 111 | `text-combine-upright` | 4 别名 / 1 | 已实现：竖排 2–4 位数字合并占 1em |
 | 112 | `tab-size` | 0 | `pre` 制表符按固定宽近似 |
 | 113 | `orphans` / `widows` | 7 / 7 | 明确不做（产品决策）：电子书分页不考虑孤行/寡行，页尾单行可接受 |
 | 114 | `list-style-image` | 0 | 图片列表标记不支持 |
@@ -311,7 +311,7 @@
 - 布局：`lb:768` 判定竖排后走「列」布局（`style.height` 当列长，`lb:769`）；`lb:860` 竖排测量入口；`lb:2577` 按 `vertical-rl` 决定列顺序；`lb:2614` 写回 `TextLayoutResult`。
 - 跨页：`pg:1005`（`_verticalChunk` pg:1016）把列切成跨页块；`pg:1287` 说明竖排下 `lines` 是「列」。
 - 绘制：`pr:3342` 附近以列标记为准重建几何。
-- **仍未覆盖**：竖排 ruby 位置（ruby 绘制按「行上方」算）、`text-decoration` 沿列轴、多列 + 竖排组合、`text-combine-upright`。→ Top #5/#6。
+- **仍未覆盖**：多列 + 竖排组合（竖排已实现，组合未验证）。
 
 ### 4.2 `position: absolute` 的 inset 解算
 
@@ -397,7 +397,7 @@
 | `duokan-writing-mode` / `epub-writing-mode` / `webkit-writing-mode` / `duokan-block-progression` / `duokan-writing-orientation` | `writing-mode` | 是（`lb:768` 等） |
 | `webkit-margin-*` / `-epub-*` / 逻辑属性族 | 物理属性 | 是（`alias:143` + `cas:222`） |
 
-仍「改名后丢弃」的只剩 `line-break` 与 `text-combine-upright`。建议补目标侧消费，或在别名表注释「目标零消费」以避免继续扩大伪支持面。
+仍「改名后丢弃」的只剩 `line-break`（语料 0 次引用），已在别名表注释标注目标零消费。
 
 ---
 
@@ -509,15 +509,19 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
-| 已实现并接入绘制/布局 | 102 | 审计 A 组全量（含本轮新增：`z-index`、`orphans`/`widows` 明确不做、`ruby-position`/`ruby-align`、`border-image`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`） |
+| 已实现并接入绘制/布局 | 104 | 审计 A 组全量（含本轮新增：`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`；`orphans`/`widows` 为产品决策不做） |
 | 有字段、绘制层通过等价路径消费 | 15 | 审计 C 组全量（如 `direction`→`isRtl`、`vertical-align` 长度） |
 | 明确不需要（阅读器无交互面） | 12 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`outline`（非聚焦态不绘制）、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
 | 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
-| 仍未实现（有可见影响，语料频次 ≤5 且集中在竖排/装饰） | 5 | `text-combine-upright`（縦中横，仅竖排）、`backdrop-filter`（3 次）、`mix-blend-mode`、`line-break`（严格断行）、`tab-size` |
+| 仍未实现（语料 0 次引用） | 3 | `mix-blend-mode`（需图层合成）、`line-break`（严格断行，语料 0 次）、`tab-size`（`pre` 制表位，语料 0 次） |
 
 **覆盖率口径**：`tool/css_parity/cases` 声明的属性 125/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
+
+**技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法
+采样已绘制内容；Flutter 的 `BackdropFilter` 需要 widget 层），真书里该属性
+只用于半透明装饰框。
 
 **验证入口**：
 - 逐属性对照：`bash tool/css_parity/run.sh`（69 用例 / 60 项失配 / 9 用例，全部为「已知差异」类）
