@@ -744,6 +744,12 @@ enum CssHyphens {
 }
 
 /// 断词/断行策略（CSS `word-break`）。
+/// 断行严格度（CSS Text 3 `line-break`）。
+enum CssLineBreak { auto, loose, normal, strict, anywhere }
+
+/// 混合模式（CSS Compositing `mix-blend-mode`，只建模分页阅读器可近似的几种）。
+enum CssMixBlendMode { normal, multiply, screen, overlay, darken, lighten }
+
 enum CssWordBreak {
   /// 默认：只在正常断行点断（CJK 任意处、拉丁按词）。
   normal,
@@ -1405,6 +1411,16 @@ class ComputedStyle {
         : _parseOverflowWrap(rawOverflowWrap) ??
               parent?.overflowWrap ??
               CssOverflowWrap.normal;
+    final lineBreak =
+        _parseLineBreak(explicitValue('line-break')) ??
+        parent?.lineBreak ??
+        CssLineBreak.auto;
+    final tabSize =
+        _parseTabSize(explicitValue('tab-size')) ?? parent?.tabSize ?? 8;
+    final mixBlendMode =
+        _parseMixBlendMode(explicitValue('mix-blend-mode')) ??
+        parent?.mixBlendMode ??
+        CssMixBlendMode.normal;
 
     // font-variant 族（W18，继承）：caps 从长属性或简写取；`font` 简写里的
     // small-caps token 已在 parseFontShorthand 里落成 font-variant-caps。
@@ -1845,6 +1861,9 @@ class ComputedStyle {
       hyphens: hyphens,
       wordBreak: wordBreak,
       overflowWrap: overflowWrap,
+      lineBreak: lineBreak,
+      tabSize: tabSize,
+      mixBlendMode: mixBlendMode,
       fontVariantCaps: fontVariantCaps,
       quotes: quotes,
       fontStretch: fontStretch,
@@ -1988,6 +2007,9 @@ class ComputedStyle {
       hyphens: hyphens,
       wordBreak: wordBreak,
       overflowWrap: overflowWrap,
+      lineBreak: lineBreak,
+      tabSize: tabSize,
+      mixBlendMode: mixBlendMode,
       fontVariantCaps: fontVariantCaps,
       quotes: quotes,
       fontStretch: fontStretch,
@@ -2103,6 +2125,9 @@ class ComputedStyle {
     required this.hyphens,
     required this.wordBreak,
     required this.overflowWrap,
+    required this.lineBreak,
+    required this.tabSize,
+    required this.mixBlendMode,
     required this.fontVariantCaps,
     required this.quotes,
     required this.fontStretch,
@@ -2343,6 +2368,15 @@ class ComputedStyle {
 
   /// 长词换行策略（继承，初始 [CssOverflowWrap.normal]）。
   final CssOverflowWrap overflowWrap;
+
+  /// 断行严格度（`line-break`，继承，初始 `auto`）。
+  final CssLineBreak lineBreak;
+
+  /// 制表位宽度（`tab-size`，以空格数计；继承，初始 8）。
+  final int tabSize;
+
+  /// 混合模式（`mix-blend-mode`，非继承，初始 `normal`）。
+  final CssMixBlendMode mixBlendMode;
 
   /// 小型大写字母族（继承，初始 [CssFontVariantCaps.normal]）。
   ///
@@ -5408,6 +5442,56 @@ class ComputedStyle {
     return switch (raw.trim().toLowerCase()) {
       'all' || 'digits' => CssTextCombine.all,
       'none' => CssTextCombine.none,
+      _ => null,
+    };
+  }
+
+  static CssLineBreak? _parseLineBreak(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    return switch (raw.trim().toLowerCase()) {
+      'auto' => CssLineBreak.auto,
+      'loose' => CssLineBreak.loose,
+      'normal' => CssLineBreak.normal,
+      'strict' => CssLineBreak.strict,
+      'anywhere' => CssLineBreak.anywhere,
+      _ => null,
+    };
+  }
+
+  static int? _parseTabSize(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim();
+    final number = int.tryParse(value);
+    if (number == null || number < 1) {
+      // 长度形式（`4em`）按字号的整数倍折算；非法值回退默认 8。
+      final em = RegExp(r'^([\d.]+)em$').firstMatch(value);
+      if (em == null) {
+        return null;
+      }
+      final parsed = double.tryParse(em.group(1)!);
+      if (parsed == null || parsed <= 0) {
+        return null;
+      }
+      return parsed.round().clamp(1, 64);
+    }
+    return number.clamp(1, 64);
+  }
+
+  static CssMixBlendMode? _parseMixBlendMode(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    return switch (raw.trim().toLowerCase()) {
+      'normal' => CssMixBlendMode.normal,
+      'multiply' => CssMixBlendMode.multiply,
+      'screen' => CssMixBlendMode.screen,
+      'overlay' => CssMixBlendMode.overlay,
+      'darken' => CssMixBlendMode.darken,
+      'lighten' => CssMixBlendMode.lighten,
       _ => null,
     };
   }

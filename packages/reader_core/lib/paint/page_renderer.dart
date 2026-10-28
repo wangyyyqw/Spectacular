@@ -1882,6 +1882,16 @@ class PagePainter {
     }
   }
 
+  /// `mix-blend-mode` → 画布混合模式；`normal` 返回 null（普通覆盖）。
+  static BlendMode? _blendModeOf(CssMixBlendMode mode) => switch (mode) {
+    CssMixBlendMode.normal => null,
+    CssMixBlendMode.multiply => BlendMode.multiply,
+    CssMixBlendMode.screen => BlendMode.screen,
+    CssMixBlendMode.overlay => BlendMode.overlay,
+    CssMixBlendMode.darken => BlendMode.darken,
+    CssMixBlendMode.lighten => BlendMode.lighten,
+  };
+
   /// 画块背景：跨页切片只在块真正开始/结束时带上下圆角。
   ///
   /// 顺序与阅微 `CSSBackgroundNode.draw()` 一致：先铺背景色，再画背景图。
@@ -1910,9 +1920,17 @@ class PagePainter {
         rounded.blRadiusX > 0;
     if (style.backgroundColor.a != 0) {
       // 背景色按 background-clip 裁剪区域绘制（P3：origin/clip 语义）。
+      // `mix-blend-mode`（CSS Compositing §5）用画布混合模式与已绘制的
+      // 背景内容做混合（multiply/screen/overlay/darken/lighten）。
+      final blend = _blendModeOf(style.mixBlendMode);
       canvas.save();
       canvas.clipRect(_backgroundClipRect(box, style));
-      canvas.drawRRect(rounded, Paint()..color = style.backgroundColor);
+      canvas.drawRRect(
+        rounded,
+        Paint()
+          ..color = style.backgroundColor
+          ..blendMode = blend ?? BlendMode.srcOver,
+      );
       canvas.restore();
     }
     // 渐变背景（W2）：样式层把 `background-image: <gradient>` 解析成
