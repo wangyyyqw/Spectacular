@@ -150,6 +150,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   占位块，浏览器侧没有对应元素，属预期）。
 - `70-border-3d-style`：`groove/ridge/inset/outset` 四种 3D 边框（视觉对照
   明暗两半；`outset` 的 3px y 差是已知相邻 margin 未塌陷）。
+- `71-tab-line-break-blend`：`tab-size`（4/8）、`line-break`、`mix-blend-mode`；
+  其中 tab-size 5 项属已知差异（见「已知口径差异」8）。
 - `66-vertical-multipage` / `67-vertical-columns` 是竖排探针：浏览器不分页，
   按 `engine_only` 只记录引擎行为，compare 会把「期望 vs 实测」并列：
   - 页内容高按引擎实际口径：页面 800 − `topPadding` 14 = **786**，16px 竖排 →
@@ -287,8 +289,12 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `pre`/`nowrap` 被当成 2 条永久假失配。现 dump 分开导出
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
+9. **`tab-size` 的制表位步进**：引擎把制表符按「字符列」展开成空格
+   （`tab-size: 4` → 补齐到 4 的倍数），Chrome 按「空白字符 advance ×
+   tab-size」推进到下一个制表位；前序字符宽度不等于空白宽时结果不同
+   （71 用例：浏览器 92.1/174.0、引擎 153/289）。语料 0 次引用，不追平。
 
-## 待收敛（69 用例全量重跑：失配 60 项 / 9 个用例 / 未配对 3）
+## 待收敛（70 用例全量重跑：失配 65 项 / 10 个用例 / 未配对 3）
 
 > 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
@@ -304,6 +310,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 | 6 | font-variant | 4 | 15-font-variant-stretch |
 | 7 | table | 2 | 12-table |
 | 8 | text-emphasis | 2 | 19-text-emphasis |
+| 9 | tab-size | 5 | 71-tab-line-break-blend |
 
 1. **hyphens 22 / word-wrap 11 / text-overflow 6**：断字、长词换行与截断的
    口径差异见「已知口径差异」1–3。

@@ -2658,7 +2658,13 @@ class ComputedStyle {
       // 会撞键（P7-29 检查清单第 1 条的修正项）。
       'hp=${hangingPunctuation.name};ts=${textSpacingTrim.name};'
       'as=${textAutospace.name};tj=${textJustify.name};'
-      'al=${textAlignLast?.name ?? "auto"};il=${initialLetterLines ?? 0}';
+      'al=${textAlignLast?.name ?? "auto"};il=${initialLetterLines ?? 0};'
+      // 制表位与断行严格度同样影响测量结果，必须进指纹，否则不同 tab-size
+      // 的块会复用彼此的行布局（71 用例实测：两个 pre 共用同一宽度）。
+      'tab=$tabSize;lb=${lineBreak.name};tc=${textCombine.name};'
+      'wm=${writingMode.name};to=${textOrientation.name};'
+      'hy=${hyphens.name};wb=${wordBreak.name};ow=${overflowWrap.name};'
+      'dir=${direction.name}';
 
   /// 行内基线偏移（逻辑像素，正值向下）。
   ///

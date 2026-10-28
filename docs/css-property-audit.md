@@ -275,6 +275,9 @@
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
 | 102 | `backdrop-filter` | 3 / 2 | 已按「页面背景作为 backdrop」近似（纯 Canvas 无法采样已绘制内容） |
 | 103 | `z-index` | 4 / 2 | 已实现：绘制顺序按层级升序稳定排序，同层保持文档序 |
+| 105 | `line-break` | 0 | 已实现 `anywhere`（软断行），其余值按现有 CJK 断点规则 |
+| 106 | `tab-size` | 0 | 已实现：`pre*` 文本制表符按制表位展开 |
+| 97 | `mix-blend-mode` | 0 | 已实现：背景色画布混合（multiply/screen/overlay/darken/lighten） |
 | 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down），`object-position` 固定 center |
 | 105 | `counter-reset` / `counter-increment` | 0 | 自动编号、图表序号失效 |
 | 106 | `content`（部分） | 5 / 3 | 只取字符串与 `attr()`（`ecs:1096`），`counter()`/`url()`/`open-quote` 全丢 |
@@ -509,12 +512,12 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
-| 已实现并接入绘制/布局 | 104 | 审计 A 组全量（含本轮新增：`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`；`orphans`/`widows` 为产品决策不做） |
+| 已实现并接入绘制/布局 | 107 | 审计 A 组全量（含本轮新增：`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`；`orphans`/`widows` 为产品决策不做） |
 | 有字段、绘制层通过等价路径消费 | 15 | 审计 C 组全量（如 `direction`→`isRtl`、`vertical-align` 长度） |
 | 明确不需要（阅读器无交互面） | 12 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`outline`（非聚焦态不绘制）、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
 | 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
-| 仍未实现（语料 0 次引用） | 3 | `mix-blend-mode`（需图层合成）、`line-break`（严格断行，语料 0 次）、`tab-size`（`pre` 制表位，语料 0 次） |
+| 仍未实现 | 0 | 本轮补完最后三项：`tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
 **覆盖率口径**：`tool/css_parity/cases` 声明的属性 125/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。

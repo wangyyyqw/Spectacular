@@ -1,0 +1,10 @@
+{
+  "name": "71-tab-line-break-blend",
+  "tags": [
+    "tab-size",
+    "line-break",
+    "mix-blend-mode"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } pre { margin: 8px 0; line-height: 1.6; } .tab4 { tab-size: 4; } .tab8 { tab-size: 8; } .strict { line-break: strict; } .anywhere { line-break: anywhere; } .blend { margin: 8px; padding: 8px; width: 200px; background: #ff0000; mix-blend-mode: multiply; }",
+  "html": "<pre class=\"tab4\">a\tb\tc</pre><pre class=\"tab8\">a\tb\tc</pre><p class=\"strict\">严格断行：中文标点不应出现在行首，这句话需要足够长以触发换行行为。</p><p class=\"anywhere\">任意断行：abcdefghijklmnopqrstuvwxyz0123456789</p><div class=\"blend\">multiply 混合</div>"
+}
