@@ -339,5 +339,5 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 `reader_mobile` 357 项通过、5 项跳过；`reader_mobile` 静态检查无问题。
 Release APK 已构建并移至下载目录：
 `/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
-大小 88,609,968 字节，SHA-256
-`c07f5e3fc196bd8056db2c76c44ffcbacba4c588285fef0d642d560848f6f789`。
+大小 88,626,352 字节，SHA-256
+`5bcfcf3b6d86755e3edd8bccfa5d318dc97cf510e8f7a83a89ee01ac3c98cb45`。
