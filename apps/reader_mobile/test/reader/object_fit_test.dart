@@ -19,7 +19,8 @@ void main() {
     final source = await EpubChapterSource.open(
       buildCssChapterBook(
         // 附一段正文：避免单图章走「整页满屏」路径（那条路径固定 cover）。
-        body: '<div class="box"><img src="../Images/p.png"/></div>'
+        body:
+            '<div class="box"><img src="../Images/p.png"/></div>'
             '<p>正文一段，避免整页满屏。</p>',
         css: '.box { width: 120px; } $css',
         binaryFiles: {'OEBPS/Images/p.png': png},
@@ -57,5 +58,28 @@ void main() {
       'img { width: 120px; height: 80px; object-fit: fill; }',
     );
     expect(values['background-size'], '100% 100%');
+  });
+
+  test('object-position 映射为 background-position', () async {
+    final values = await styleOf(
+      'img { width: 120px; height: 80px; object-fit: cover; '
+      'object-position: right bottom; }',
+    );
+    expect(values['background-position'], 'right bottom');
+  });
+
+  test('未声明 object-position 时居中', () async {
+    final values = await styleOf(
+      'img { width: 120px; height: 80px; object-fit: contain; }',
+    );
+    expect(values['background-position'], 'center center');
+  });
+
+  test('图片块保留 img 自身边距', () async {
+    final values = await styleOf(
+      'img { width: 120px; height: 80px; margin: 6px 0 2px; }',
+    );
+    expect(values['margin-top'], '6px');
+    expect(values['margin-bottom'], '2px');
   });
 }
