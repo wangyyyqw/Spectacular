@@ -137,7 +137,13 @@ void main() {
       for (final page in pages)
         for (final slice in page.slices) slice.block,
     };
-    final name = blocks.firstWhere((b) => b.layout.text == '【恐惧养料】');
+    final name = blocks.firstWhere(
+      (block) => block.layout.lines
+          .expand((line) => line.inlineBoxes)
+          .any(
+            (box) => (box.spec.payload! as PageBlock).layout.text == '【恐惧养料】',
+          ),
+    );
     final description = blocks.firstWhere(
       (b) => b.layout.text.startsWith('你可以吸收周围的恐惧情绪'),
     );

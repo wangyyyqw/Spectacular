@@ -43,16 +43,57 @@ void main() {
     timeout: const Timeout(Duration(minutes: 5)),
     skip: const String.fromEnvironment('EPUB_TEST_URL').isEmpty,
   );
+  testWidgets(
+    '原书第三章：天赋标签与正文',
+    (tester) async {
+      final source = await _openReader(tester, await _readBook(), spine: 29);
+      final pages = await source.loadChapter(29);
+      final blocks = {
+        for (final page in pages)
+          for (final slice in page.slices) slice.block,
+      };
+      final body = blocks.firstWhere(
+        (block) => block.layout.text.startsWith('你与你的影子'),
+      );
+      final tags = body.layout.lines
+          .expand((line) => line.inlineBoxes)
+          .toList();
+      expect(tags, isNotEmpty);
+      final tag = tags.firstWhere(
+        (box) => (box.spec.payload as PageBlock).layout.text.contains('【虚无】命途'),
+      );
+      final payload = tag.spec.payload as PageBlock;
+      expect(payload.layout.lineCount, 1);
+      expect(payload.style!.fontSize, closeTo(body.style!.fontSize * .8, .01));
+      expect(payload.style!.borders.left.width, 1);
+      expect(tag.spec.marginRight, 5);
+      for (final page in pages) {
+        expect(page.usedHeight, lessThanOrEqualTo(page.pageHeight + .01));
+      }
+      await _capturePages(tester, pages.length, spine: 29, prefix: 'chapter3');
+      binding.reportData ??= <String, dynamic>{};
+      binding.reportData!['chapter3'] = {
+        'pages': pages.length,
+        'fontSize': body.style!.fontSize,
+        'tagFontSize': payload.style!.fontSize,
+        'tagMarginRight': tag.spec.marginRight,
+      };
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+    skip: const String.fromEnvironment('EPUB_TEST_URL').isEmpty,
+  );
 }
 
 Future<EpubChapterSource> _openReader(
   WidgetTester tester,
-  Uint8List bytes,
-) async {
+  Uint8List bytes, {
+  int spine = 32,
+}) async {
   final store = MemoryReaderProgressStore();
   await store.save(
     'css-device',
-    const ReaderProgress(spineIndex: 32, pageIndex: 0),
+    ReaderProgress(spineIndex: spine, pageIndex: 0),
   );
   await tester.pumpWidget(
     MaterialApp(
@@ -70,7 +111,9 @@ Future<EpubChapterSource> _openReader(
           as EpubChapterSource;
   expect(
     flattenToc(source.toc).any(
-      (row) => row.entry.spineIndex == 32 && row.entry.title.contains('道具'),
+      (row) =>
+          row.entry.spineIndex == spine &&
+          row.entry.title.contains(spine == 29 ? '天赋' : '道具'),
     ),
     isTrue,
   );
@@ -173,7 +216,18 @@ void _checkFragmentDecoration(PageContent page) {
 }
 
 void _checkContainers(Set<PageBlock> blocks) {
-  final name = blocks.firstWhere((block) => block.layout.text == '【恐惧养料】');
+  final name = blocks.firstWhere(
+    (block) =>
+        block.layout.text == '【恐惧养料】' ||
+        block.layout.lines
+            .expand((line) => line.inlineBoxes)
+            .any(
+              (box) =>
+                  box.spec.payload is PageBlock &&
+                  (box.spec.payload as PageBlock).layout.text == '【恐惧养料】',
+            ),
+  );
+
   final body = blocks.firstWhere(
     (block) => block.layout.text.startsWith('你可以吸收周围的恐惧情绪'),
   );
@@ -198,13 +252,18 @@ void _checkContainers(Set<PageBlock> blocks) {
   }
 }
 
-Future<void> _capturePages(WidgetTester tester, int pageCount) async {
+Future<void> _capturePages(
+  WidgetTester tester,
+  int pageCount, {
+  int spine = 32,
+  String prefix = 'chapter6',
+}) async {
   // 逐页走真实点击路径，前三页留图；其余页验证页序与非空内容。
   for (var i = 0; i < pageCount; i++) {
-    expect(_page(tester).spineIndex, 32);
+    expect(_page(tester).spineIndex, spine);
     expect(_page(tester).pageIndex, i);
     expect(_page(tester).slices, isNotEmpty);
-    if (i < 3) await _capture('chapter6-page-${i + 1}');
+    if (i < 3) await _capture('$prefix-page-${i + 1}');
     if (i + 1 < pageCount) await _turn(tester, forward: true);
   }
   await _turn(tester, forward: false);

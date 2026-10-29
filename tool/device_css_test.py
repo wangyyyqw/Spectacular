@@ -28,7 +28,8 @@ class DeviceHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         name = self.path.removeprefix("/capture/")
         allowed = {"chapter6-page-1", "chapter6-page-2", "chapter6-page-3",
-                   "chapter6-enlarged"}
+                   "chapter6-enlarged", "chapter3-page-1", "chapter3-page-2",
+                   "chapter3-page-3"}
         if self.path != f"/capture/{name}" or name not in allowed:
             self.send_error(404)
             return

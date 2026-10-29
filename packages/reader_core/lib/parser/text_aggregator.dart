@@ -16,17 +16,24 @@ class TextRun {
   final int end;
 }
 
-/// 行内样式标记的匹配主体（真实书适配）：标签 + class 集。链式组合
+/// 行内样式标记的匹配主体（真实书适配）：标签、class 集与完整属性。链式组合
 /// 供后代/子代选择器匹配（块与行内层级同构）。
 class MarkSubject {
   /// 创建主体。
-  const MarkSubject({required this.tag, required this.classes});
+  const MarkSubject({
+    required this.tag,
+    required this.classes,
+    this.attributes = const <String, String>{},
+  });
 
   /// 标签名。
   final String tag;
 
   /// class 集。
   final Set<String> classes;
+
+  /// 原始属性，保留 id/style 和属性选择器所需的信息。
+  final Map<String, String> attributes;
 }
 
 /// 一个行内样式标记（真实书适配）：聚合文本中的区间 + 来源元素链
@@ -227,6 +234,7 @@ abstract final class TextAggregator {
     // 后代选择器链（真实书对齐）：块级祖先（body→div→p…）入链。
     final blockSubject = MarkSubject(
       tag: block.tag,
+      attributes: block.attributes,
       classes: (block.attributes['class'] ?? '')
           .split(RegExp(r'\s+'))
           .where((c) => c.isNotEmpty)
@@ -264,10 +272,10 @@ abstract final class TextAggregator {
         return;
       }
       final rubyStart = node.tag == 'ruby' ? accumulator.openMark() : -1;
-      // 行内样式标记（真实书适配）：带 class 的元素与已知样式标签记录
+      // 行内样式标记：带属性的元素与已知样式标签记录
       // 区间（含祖先链），样式解析由章节源按作者 CSS 完成。
       final markable =
-          node.attributes.containsKey('class') ||
+          node.attributes.isNotEmpty ||
           _styleMarkTags.contains(node.tag);
       final markStart = markable ? accumulator.openMark() : -1;
       if (node.tag == 'img' || node.tag == 'image') {
@@ -277,6 +285,7 @@ abstract final class TextAggregator {
           ...ancestors,
           MarkSubject(
             tag: node.tag,
+            attributes: node.attributes,
             classes: (node.attributes['class'] ?? '')
                 .split(RegExp(r'\s+'))
                 .where((c) => c.isNotEmpty)
@@ -436,7 +445,11 @@ class _TextAccumulator {
         classes: classes,
         chain: List<MarkSubject>.unmodifiable([
           ...ancestors,
-          MarkSubject(tag: node.tag, classes: classes.toSet()),
+          MarkSubject(
+            tag: node.tag,
+            classes: classes.toSet(),
+            attributes: node.attributes,
+          ),
         ]),
       ),
     );

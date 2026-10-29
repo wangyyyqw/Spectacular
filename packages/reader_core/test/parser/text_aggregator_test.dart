@@ -79,6 +79,40 @@ void main() {
     expect(text.text, 'abcd');
   });
 
+  test('样式标记保留块祖先与嵌套行内元素的完整属性', () {
+    final text = _onlyText(_aggregate(
+      '<p id="paragraph" style="font-size:20px">'
+      '<span id="outer" data-tone="dark" style="color:red">'
+      '<b id="inner" style="font-size:0.8em">正文</b>'
+      '</span></p>',
+    ));
+    final inner = text.inlineMarks.singleWhere((mark) => mark.tag == 'b');
+    final paragraph = inner.chain.singleWhere((subject) => subject.tag == 'p');
+    final outer = inner.chain.singleWhere((subject) => subject.tag == 'span');
+    expect(paragraph.attributes, {
+      'id': 'paragraph', 'style': 'font-size:20px',
+    });
+    expect(outer.attributes, {
+      'id': 'outer', 'data-tone': 'dark', 'style': 'color:red',
+    });
+    expect(inner.chain.last.attributes, {
+      'id': 'inner', 'style': 'font-size:0.8em',
+    });
+    expect(text.text, '正文');
+  });
+
+  test('只有 id 或 style 的行内元素也生成可匹配标记', () {
+    final text = _onlyText(_aggregate(
+      '<p><label id="a">甲</label><label style="color:red">乙</label></p>',
+    ));
+    final marks = text.inlineMarks.where((mark) => mark.tag == 'label').toList();
+    expect(marks, hasLength(2));
+    expect(marks[0].chain.last.attributes['id'], 'a');
+    expect(marks[1].chain.last.attributes['style'], 'color:red');
+    expect(marks.map((mark) => text.text.substring(mark.start, mark.end)),
+        ['甲', '乙']);
+  });
+
   test('块级子元素切断文本聚合', () {
     final doc = _aggregate('<div id="d">before<p id="p">para</p>after</div>');
     final texts = _texts(doc.root);

@@ -67,7 +67,7 @@ void main() {
   test('vertical-align: middle 时上行/下行延伸平分盒高', () async {
     final lines = await linesOf(
       '<p>文字<span class="mid">盒</span></p>'
-      '<p>文字<span class="top">盒</span></p>',
+          '<p>文字<span class="top">盒</span></p>',
       'p { margin: 0; line-height: 1.6; } '
           '.mid { display: inline-block; width: 40px; height: 60px; '
           'vertical-align: middle; } '
@@ -102,9 +102,11 @@ void main() {
 
   test('固定高的行内盒：payload 标记内容溢出（供绘制层裁剪）', () async {
     final source = await openCssChapter(
-      body: '<p>前缀<span class="boxed">这一盒内容很长会超过固定高度，'
+      body:
+          '<p>前缀<span class="boxed">这一盒内容很长会超过固定高度，'
           '用来验证 payload 的溢出标记。</span>后缀</p>',
-      css: 'p { margin: 0; line-height: 1.6; } '
+      css:
+          'p { margin: 0; line-height: 1.6; } '
           '.boxed { display: inline-block; width: 60px; height: 20px; }',
       contentWidth: 350,
       contentHeight: 900,
@@ -120,7 +122,11 @@ void main() {
     // 就是分页层判溢出的口径）；作者没写 overflow 时 style.overflow 仍是
     // visible，绘制层裁剪请用 clipsContent 或 overflow 任一命中。
     expect(payload.clipsContent, isTrue, reason: '声明高 20 < 内容高');
-    expect(payload.style!.overflow, CssOverflow.visible, reason: '未声明 overflow');
+    expect(
+      payload.style!.overflow,
+      CssOverflow.visible,
+      reason: '未声明 overflow',
+    );
   });
 
   test('没有 inline-block 的段落不产生行内盒', () async {
@@ -129,5 +135,76 @@ void main() {
       'p { margin: 0; line-height: 1.6; }',
     );
     expect(lines.every((line) => line.inlineBoxes.isEmpty), isTrue);
+  });
+
+  test('无尺寸标签按内容收缩，完整边框与外边距参与行宽', () async {
+    final lines = await linesOf(
+      '<div><p><span class="tag">【虚无】命途 / 主动</span>后续正文</p></div>',
+      'div { font-size: 20px; } p { font-size: .8em; margin: 0; } '
+          '.tag { display: inline-block; font-size: .8em; white-space: nowrap; '
+          'padding: 1px 4px; border: 1px solid black; margin-right: 5px; }',
+    );
+    final boxes = [for (final line in lines) ...line.inlineBoxes];
+    expect(boxes, hasLength(1));
+    final box = boxes.single;
+    final payload = box.spec.payload! as PageBlock;
+    expect(payload.layout.text, '【虚无】命途 / 主动');
+    expect(payload.style!.fontSize, closeTo(12.8, .001));
+    expect(payload.layout.lineCount, 1);
+    expect(box.width, closeTo(payload.layout.width + 10, .01));
+    expect(box.width, lessThan(300));
+    expect(box.height, closeTo(payload.layout.height + 4, .01));
+    expect(box.spec.marginRight, 5);
+  });
+
+  test('行内样式和属性选择器保留，内层字重不被外层盖掉', () async {
+    final source = await openCssChapter(
+      body:
+          '<p><span id="outer" style="color: red">外层'
+          '<b data-tone="strong">加粗</b></span>'
+          '<span style="display: inline-block; padding: 2px">标签</span></p>',
+      css: '[data-tone="strong"] { color: blue; }',
+    );
+    final block = (await source.loadChapter(0)).first.slices.first.block;
+    final bold = block.layout.runs.firstWhere((run) => run.start == 2);
+    expect(bold.style.fontWeight, greaterThanOrEqualTo(700));
+    expect(bold.style.color.toARGB32(), 0xff0000ff);
+    expect(block.layout.lines.expand((line) => line.inlineBoxes), hasLength(1));
+  });
+
+  test('一段超过八个自动宽标签仍全部产生原子盒', () async {
+    final lines = await linesOf(
+      '<p>${List.generate(10, (i) => '<span class="tag">$i</span>').join()}</p>',
+      '.tag { display: inline-block; padding: 1px; }',
+    );
+    final boxes = [for (final line in lines) ...line.inlineBoxes];
+    expect(boxes, hasLength(10));
+    expect([
+      for (final box in boxes) (box.spec.payload! as PageBlock).layout.text,
+    ], List.generate(10, (i) => '$i'));
+  });
+
+  test('固定布局表格的标签盒与内层文字共同决定行高', () async {
+    final source = await openCssChapter(
+      body:
+          '<table><tr><td>名称</td><td><span class="rank">RANK: '
+          '<b>SSS</b></span></td></tr></table>',
+      css:
+          'table { width: 100%; table-layout: fixed; } '
+          'td { padding: 0; border: none; font-size: 12px; } '
+          '.rank { display: inline-block; padding: 2px 4px; '
+          'border: 1px solid black; } .rank b { font-size: 24px; }',
+    );
+    final block = (await source.loadChapter(0)).first.slices.first.block;
+    final cell = block.table!.cells.last;
+    final box = cell.layout.lines.single.inlineBoxes.single;
+    final payload = box.spec.payload! as PageBlock;
+    expect(payload.layout.text, 'RANK: SSS');
+    expect(payload.layout.runs.single.style.fontSize, 24);
+    expect(
+      payload.layout.runs.single.style.fontWeight,
+      greaterThanOrEqualTo(700),
+    );
+    expect(cell.rect.height, greaterThanOrEqualTo(box.height));
   });
 }

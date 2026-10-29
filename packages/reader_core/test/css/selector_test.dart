@@ -149,4 +149,30 @@ void main() {
     expect(match('div[class~=box]', 'mid'), isTrue);
     expect(match('div[class="main"]', 'root'), isTrue);
   });
+
+  test('nth-child 准确提取参数并按元素兄弟计数', () {
+    expect(match('div:nth-child(even)', 'mid'), isTrue);
+    expect(match('p:nth-child(odd)', 'p1'), isTrue);
+    expect(match('span:nth-child(2n + 2)', 'sp2'), isTrue);
+    expect(match('span:nth-child(2n + 1)', 'sp2'), isFalse);
+  });
+
+  test('first-of-type 忽略前方不同标签的兄弟', () {
+    expect(match('div:first-of-type', 'mid'), isTrue);
+    expect(match('div:first-child', 'mid'), isFalse);
+    expect(match('span:first-of-type', 'sp2'), isTrue);
+  });
+
+  test('link 匹配带 href 的静态链接而不依赖交互状态', () {
+    final parsed = DocumentParser.parse(
+      xhtml: '<html><body><a id="link" href="#next">链接</a>'
+          '<a id="anchor">锚点</a></body></html>',
+      spineIndex: 0,
+    );
+    final owner = <ParsedNode, ParsedElementView>{};
+    ParsedElementView.wrap(parsed.root, owner);
+    final selector = SelectorParser.parse('a:link');
+    expect(selector.matches(owner[parsed.elementById('link')]!, []), isTrue);
+    expect(selector.matches(owner[parsed.elementById('anchor')]!, []), isFalse);
+  });
 }

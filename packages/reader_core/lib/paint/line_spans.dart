@@ -1,5 +1,6 @@
 import 'package:flutter/painting.dart';
 
+import '../css/computed_style.dart';
 import '../layout/autospace.dart';
 import '../layout/cjk_justify.dart';
 import '../layout/line_breaker.dart';
@@ -23,6 +24,7 @@ InlineSpan buildLineSpan({
   required LineBox line,
   required TextStyle baseStyle,
   Color? textColor,
+  TextStyle Function(ComputedStyle style)? styleOf,
   bool punctCompression = false,
   bool textAutospace = false,
 }) {
@@ -38,8 +40,7 @@ InlineSpan buildLineSpan({
       : const <int>[];
   // 挤压/自动间距与测量同条件：仅纯文本行（runs 为空）。
   final plain = runs.isEmpty && lineText.length >= 2;
-  final compressionOffsets =
-      punctCompression && plain
+  final compressionOffsets = punctCompression && plain
       ? punctCompressionOffsets(
           lineText,
           em: baseStyle.fontSize ?? 0,
@@ -73,18 +74,18 @@ InlineSpan buildLineSpan({
         // 非 run 段必须用 effectiveBase：用 baseStyle 会让同一行出现
         // “主题色 + 书籍色”混杂（P9-02 修复）。
         baseStyle: effectiveBase,
-        styleOf: (runStyle) => TextLayoutEngine.textStyleFor(runStyle),
+        styleOf: styleOf ?? TextLayoutEngine.textStyleFor,
       ),
     );
   }
   // justify / 挤压 / 自动间距行逐字符铺开，三类字距代数叠加。
   final spacing = justifyGapSpacing(line.justifyExtra, gaps.length);
-  final compressionSpacing =
-      compressionOffsets.isEmpty
-          ? 0.0
-          : punctCompressionSpacing(baseStyle.fontSize ?? 0);
-  final boundarySpacing =
-      autospace.isEmpty ? 0.0 : autospaceSpacing(baseStyle.fontSize ?? 0);
+  final compressionSpacing = compressionOffsets.isEmpty
+      ? 0.0
+      : punctCompressionSpacing(baseStyle.fontSize ?? 0);
+  final boundarySpacing = autospace.isEmpty
+      ? 0.0
+      : autospaceSpacing(baseStyle.fontSize ?? 0);
   final gapStarts = gaps.toSet();
   final compressStarts = compressionOffsets.toSet();
   final autospaceStarts = autospace.toSet();
@@ -93,10 +94,10 @@ InlineSpan buildLineSpan({
     for (var i = 0; i < runs.length; i++) {
       final run = runs[i];
       if (offset >= run.start && offset < run.end) {
-        return resolved[i] ??= textColor == null
-            ? TextLayoutEngine.textStyleFor(run.style)
-            : TextLayoutEngine.textStyleFor(run.style)
-                  .copyWith(color: textColor);
+        // 行内颜色按自身样式处理，父段落的主题色不应抹掉作者高亮。
+        return resolved[i] ??= (styleOf ?? TextLayoutEngine.textStyleFor)(
+          run.style,
+        );
       }
     }
     return effectiveBase;

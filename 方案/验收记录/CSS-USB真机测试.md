@@ -94,3 +94,67 @@ Flutter 表面转图片的截图接口在该设备会产生旧帧叠影；入口
 PNG 和 `report.json`；日志分别为 `/tmp/spectacular-usb-css/fragment-native-drive.log`、
 `/tmp/spectacular-fragment-core.log`、`/tmp/spectacular-fragment-app.log`。
 Release APK 构建通过，手机正式版使用 `adb install -r` 覆盖更新，保留已有应用数据。
+
+
+## 第三章“天赋”及全书 CSS 审计
+
+范围：原书全部 8 个 CSS、3,283 条规则、17,556 条普通声明、86 种属性、111 个
+`@font-face` 声明；并运行仓库现有 70 组 CSS 对照用例。第三章定位为 spine 29。
+这不是逐页验证 1,541 章，也不是完整 CSS 标准兼容认证。
+
+全量解析清点没有发现天赋规则丢失。20 条拒绝声明来自 8 类书源非法值，例如
+`padding:auto`、`float:center`、错误颜色；两个样式表有多余右括号，解析器恢复后
+仍完整保留后续天赋规则。属性被解析接受不代表布局或绘制已正确实现。
+
+直接对原 DOM 级联的基准（16px 根字号）：正文 `.t-desc` 为 12.8px、20.48px 行高、
+`#c5ccda`、两端对齐、零首行缩进；`.t-tag` 为 10.24px，上下 padding 1px、左右
+4px、右 margin 5px、nowrap、inline-block。这些值用于检查扁平排版管线。
+
+本轮修复：
+
+- 无尺寸 inline-block 标签按内容收缩为独立盒，边框、内外边距参与断行；表格内等级标签走同一盒模型。
+- 行内标记保留 id、style 和属性选择器数据；嵌套标记采用最深级联，不再被外层覆盖。
+- 行内提取不重复拼接块祖先，避免 em 字号重复缩小；移除单段仅提取 8 个标签的限制。
+- 两端对齐及基线偏移保留作者行内颜色；本书橙色 `.fmsA3` 出现 30,665 次、涉及 1,471 章。
+- 行内标签补绘外阴影和内阴影；修复正文占位和表格纯标签绘制，避免盒内文字丢失或与后文重叠。
+- 天赋顶边按不同宽度、颜色四边的斜接多边形绘制，恢复梯形角；分页索引升至 schema 3，使旧断行自动重建。
+- 修复匹配器 nth-child 参数读取、first-of-type 和带 href 的 a:link，并补最小回归。
+
+自动宽与水平外边距的实现依据：[CSS 2 inline-block 宽度](https://www.w3.org/TR/CSS2/visudet.html#inlineblock-width)、
+[行内格式化上下文](https://www.w3.org/TR/CSS2/visuren.html#inline-formatting)。
+
+全量浏览器对照的修前基线为 65 项几何/样式失配，涉及 10 组用例；29 组像素差异
+超过 2%，3 个块未配对。像素差异受字体、抗锯齿、连续流与分页差异影响，不能直接
+等同缺陷数量。逐用例证据位于 `/tmp/css-parity-audit-20261029/report.md`。
+
+| 尚未解决或未完整实现的范围 | 审计结论 |
+|---|---|
+| 连字符、嵌套 quotes、word-wrap、text-overflow | 对照仍存在断行或尺寸差异，需各自最小复现继续处理 |
+| small-caps/连字、tab-size、部分行高、着重号 | 仍有几何差异，不能宣称与浏览器一致 |
+| display/position、表格、3D 边框 | 对照仍有残余失配，详见逐例报告 |
+| backdrop-filter | 使用页背景近似，未实现真实背后内容过滤 |
+| background-clip:text | 降级到 padding-box |
+| 普通行内 run 的背景图/渐变、变换、百分比圆角 | 仍有近似处理，独立 inline-block 支持更完整 |
+| z-index、多重阴影 | 非完整 stacking context；阴影仅保留首个 |
+
+下一步以对照报告的残余失配分别建立最小复现，优先排查实际书籍命中的断行与表格问题。
+
+补充边界：Flex 的 align-items/justify-content 尚无布局消费者；本书该规则仅为未使用的
+占位图。静态分页未单独实现 background-attachment，私有字体平滑属性无消费者。
+行内结构选择器缺少完整兄弟树，核心匹配器修复不能代表其端到端支持；display:block
+的 span 尚未完整重建块级树。带行内盒的文字装饰线和命中坐标也需继续审计。
+
+最终本地验证：CSS/解析/布局 678 项、绘制 241 项、阅读管线 252 项通过，共 1,171 项；
+2 项既有条件用例跳过。改动源文件静态检查无问题，release APK 构建成功。
+70 组对照复跑仍为 65 项几何/样式失配、29 组显著像素差异，**未清零**；本轮真实书
+标签与角接缝缺陷由新增真实书和像素回归覆盖，不能用旧对照集的通过率代替验收。
+
+
+最终 USB 验收（魅族20，约95秒，不含构建）：第三章19页逐页及反向翻页通过，正文17px、
+标签13.6px、右外边距5px；首三页系统截图确认等级字样正常、标签不与后文重叠、橙金顶边
+两端斜接为梯形。第六章32页、76张表；字号22时45页，整章占高与续框断言通过。
+证据目录 `/tmp/spectacular-css-audit-device-final/`，含7张PNG和report.json；
+日志 `/tmp/spectacular-css-audit-device-final.log`。测试包隔离，前后正式应用路径一致。
+本轮先由真机发现字号覆盖后的相对继承错误，再补17/22字号回归修复，未放宽失败断言。
+Release版本采用保留数据的覆盖安装。边框斜接参考
+[W3C 边框颜色与样式过渡](https://www.w3.org/TR/css-backgrounds-3/#corner-transitions)。

@@ -16,6 +16,28 @@ ComputedStyle _style([Map<String, String> overrides = const {}]) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('行内盒左右外边距参与换行，但不扩大边框盒', () {
+    final layout = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(),
+      maxWidth: 100,
+      inlineBoxes: const [
+        InlineBoxSpec(
+          offset: 2,
+          width: 60,
+          height: 24,
+          marginLeft: 5,
+          marginRight: 10,
+        ),
+      ],
+    );
+    expect(layout.lineCount, 2);
+    final line = layout.lines.last;
+    expect(line.inlineBoxes.single.width, 60);
+    expect(line.inlineBoxes.single.left, closeTo(5, 0.5));
+    expect(line.width, closeTo(75, 1));
+  });
+
   test('行内盒：占请求宽度、后续文字紧随、行高按盒高撑开', () {
     // 文本 "ab" + 盒 120×40 + "cd"；内容宽 400。
     final layout = TextLayoutEngine.layout(
