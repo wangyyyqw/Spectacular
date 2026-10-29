@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **2**：`initial-letter`、`font-size-adjust` |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（96 + 2 + 44） |
-| `tool/css_parity/cases/` | 73 个用例 |
+| `tool/css_parity/cases/` | 77 个用例（编号 01–78，缺 65） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -27,6 +27,12 @@
 别名层伪支持已清零：`line-break`、`text-combine-upright`、`hyphens`、`text-orientation`、`writing-mode` 均有真实消费点。
 
 行号快照：`2026-10-27 05:42 CST`，`HEAD 31ca095` + 工作树。**审计期间 `computed_style.dart`、`line_breaker.dart`、`paginator.dart`、`page_renderer.dart` 仍在被并发修改**（写作时 `computed_style.dart` 从 5363 行涨到 5487 行），行号会漂移；每行都附函数锚点，定位用附录 B 的脚本，别只信数字。
+
+> 2026-10-30 状态补充：本轮新增 `77-ruby-position-align` 与
+> `78-counter-content`，修复 `ruby-align` 规范值、伪元素 `content/counter-*`
+> 级联胜者，以及无装饰容器的父子 `margin` 折叠。全量 77 个用例的几何与
+> 关键样式失配为 0；覆盖率与剩余属性名以 `tool/css_parity/coverage.md`
+> 的最新生成结果为准。本文的旧行号和「审计时」分类保留为历史定位信息。
 
 ---
 
@@ -124,7 +130,7 @@
 | writing-mode 族 | 5 + 18 别名 | 3 | 部分（主干已实现，见 Top #5/#6） |
 | font-variant | 7 | 1 | 完整（`smcp` 已接通） |
 | orphans / widows | 7 / 7 | 1 | 不参与分页（产品决策：电子书排版不做孤行/寡行约束） |
-| text-justify / ruby-align | 5 / 4 | 3 | 部分 / 未处理 |
+| text-justify / ruby-align | 5 / 4 | 3 | 部分 / 部分（规范值已接入，单注音盒近似） |
 | opacity | 5 | 1 | 完整（组合成已接通） |
 | z-index / backdrop-filter / word-wrap | 4 / 3 / 3 | 2 / 2 / 1 | 完整（叠序）/ 近似实现（按页背景）/ 完整 |
 | list-style-position | 2 | 1 | 完整（本轮接通） |
@@ -279,13 +285,13 @@
 | 105 | `line-break` | 0 | 已实现 `anywhere`（软断行），其余值按现有 CJK 断点规则 |
 | 106 | `tab-size` | 0 | 已实现：`pre*` 文本制表符按制表位展开 |
 | 97 | `mix-blend-mode` | 0 | 已实现：背景色画布混合（multiply/screen/overlay/darken/lighten） |
-| 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down），`object-position` 固定 center |
-| 105 | `counter-reset` / `counter-increment` | 0 | 自动编号、图表序号失效 |
-| 106 | `content`（部分） | 5 / 3 | 只取字符串与 `attr()`（`ecs:1096`），`counter()`/`url()`/`open-quote` 全丢 |
+| 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down）与声明位置解析 |
+| 105 | `counter-reset` / `counter-increment` | 0 | 已实现：元素与伪元素计入同一作用域，伪元素声明按级联胜者生效 |
+| 106 | `content`（部分） | 5 / 3 | 已支持字符串、`attr()`、`counter()`、`open/close-quote`；`url()` 仍不生成替换内容 |
 | 107 | `line-break` | 0（别名 6 处） | 标点禁则严格度不生效 |
 | 108 | `unicode-bidi` | 0 | `bdo` 覆写不生效（UA 表有规则，无消费） |
-| 109 | `ruby-align` | 4 / 3 | 注音对齐不生效（仅继承表 `cas:81`） |
-| 110 | `ruby-position` | 0 | 注音恒在上方（竖排尤其错） |
+| 109 | `ruby-align` | 4 / 3 | 已接入规范值 `start/center/space-between/space-around`；flat 管线按单注音盒近似 |
+| 110 | `ruby-position` | 0 | 已实现横排 over/under 与竖排两侧选择 |
 | 111 | `text-combine-upright` | 4 别名 / 1 | 已实现：竖排 2–4 位数字合并占 1em |
 | 112 | `tab-size` | 0 | `pre` 制表符按固定宽近似 |
 | 113 | `orphans` / `widows` | 7 / 7 | 明确不做（产品决策）：电子书分页不考虑孤行/寡行，页尾单行可接受 |
@@ -370,10 +376,10 @@
 | 3 | `text-overflow` 截断点只在水平语境可靠 | P1 | `lb:2071` 用 `getPositionForOffset(Offset(available, y))`，竖排/多列下 y 轴不是行进方向 | M | `line_breaker.dart`（`_applyTextOverflow`） |
 | 4 | `line-height: normal` 口径 | P1 | `lb:2677` `height: style.lineHeightFactor`（normal 时 null，交给 Flutter）；Chrome 用 `ascent+descent+lineGap` | M | `line_breaker.dart`（行盒合成）+ `TextStyle` 构造 |
 | 5 | 竖排装饰线（`text-decoration` 沿列轴） | P1 | `pr:2459/2464` 装饰线绘制未读 `writingMode`；竖排重点线会横着画 | M | `page_renderer.dart`（`_paintDecorations` 系列） |
-| 6 | 竖排 ruby 位置 + `ruby-position`/`ruby-align` | P1 | ruby 绘制（`pr:1164-1210` 区域）按「行上方」算；`ruby-align` 仅继承表 `cas:81` | M | `page_renderer.dart` + `computed_style.dart`（新增 ruby 字段） |
+| 6 | ruby 行高撑高与多注音分配 | P1 | `ruby-position`/`ruby-align` 已接入；flat 管线仍按单个注音盒近似，注音不参与行高撑高 | M | `line_breaker.dart` + `page_renderer.dart` |
 | 7 | 多列跨页 runs 分发 | P1 | `pg:239` 「只有首列块携带完整几何」；`MulticolGeometry` 自认一级近似 | L | `paginator.dart`、`page_renderer.dart` |
-| 8 | `content` + `counter-*` | P1 | `ecs:1096` 只取字面量/`attr()`；`counter-reset`/`counter-increment` 0 命中 | M | `epub_chapter_source.dart`（伪元素）+ `computed_style.dart`（counter 状态） |
-| 9 | `object-position` | P2 | `object-fit` 已实现；位置恒 center | S | `apps/reader_mobile/lib/reader/epub_chapter_source.dart`（objectFitBackground） |
+| 8 | `content` 的 `url()` 替换内容 | P2 | 字符串、`attr()`、`counter()`、引号已实现；`url()` 仍不生成替换内容 | S | `epub_chapter_source.dart` |
+| 9 | `object-position` | ~~P2~~ 已完成 | `object-fit` 与声明位置均映射到背景尺寸/位置 | — | — |
 | 10 | `transform` 3D（`translate3d`/`rotate3d`/`perspective`） | P2 | `pr:661` 只构造 2D 仿射，4×4 矩阵其余位补零（`pr:682-687`） | M | `page_renderer.dart`（`_affineOfTransform` / `_transformMatrixOf`） |
 | 11 | `border-image` | ~~P2~~ 已完成 | 切割/repeat/fill 全部实现（`cs:_parseBorderImage` + `pr:_paintBorderImage`） | — | — |
 | 12 | `background-attachment` | P2（可显式声明不支持） | 218 次 / 3 本，最高频缺失项；`cs:4369` 简写不解析 | S | `computed_style.dart`（`_parseBackgroundShorthand`）+ 文档化降级 |
@@ -429,7 +435,9 @@
 | #18 sticky | `53-display-position` | 已覆盖 |
 | #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
-**当前还缺的对照面**：竖排 ruby、`flex`、`background-attachment`、`counter-*`；`border-image` 需要图片资源，已由单测覆盖。
+**当前还缺的对照面**：`flex`、`background-attachment`；竖排 ruby 已加入 77
+用例但仍为 `engine_only`（注音行高口径未稳定），`counter-*` 已由 78 用例覆盖；
+`border-image` 需要图片资源，已由单测覆盖。
 
 ---
 
@@ -530,10 +538,14 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：73 用例 / 几何与样式失配 **0** / 未配对 7 项；
+- 最新结果（2026-10-30）：77 用例 / 几何与样式失配 **0** / 未配对 7 项；
   20 组截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
   `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。
+- `77-ruby-position-align` 覆盖 `ruby-position` 与规范 `ruby-align` 值；
+  flat 管线按单注音盒近似，未撑高行高，暂标 `engine_only`。
+- `78-counter-content` 覆盖伪元素计数器、级联胜者和父子 margin 折叠；
+  几何/样式失配 0，视觉差异 1.83% 来自字体栅格与行宽。
 - `border-radius: a / b` 已补齐四角双半径解析与绘制；`24-border-radius-corners`
   几何/样式失配 0、视觉差异 0.24%，并新增像素与解析回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）

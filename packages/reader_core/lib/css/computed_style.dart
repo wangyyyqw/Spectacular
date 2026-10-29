@@ -184,7 +184,7 @@ enum CssTextCombine { none, all }
 enum CssRubyPosition { over, under }
 
 /// 注音对齐（CSS Ruby 1 §5 `ruby-align`）：注音在基字区间内的水平对齐。
-enum CssRubyAlign { start, center, end, spaceBetween }
+enum CssRubyAlign { start, center, spaceBetween, spaceAround }
 
 /// 文本阴影（CSS text-shadow，P2-18：P0 收口补全）。
 class CssTextShadow {
@@ -2145,10 +2145,10 @@ class ComputedStyle {
               CssRubyPosition.over;
     final rawRubyAlign = explicitValue('ruby-align');
     final rubyAlign = rawRubyAlign == null
-        ? (parent?.rubyAlign ?? CssRubyAlign.center)
+        ? (parent?.rubyAlign ?? CssRubyAlign.spaceAround)
         : _parseRubyAlign(rawRubyAlign) ??
               parent?.rubyAlign ??
-              CssRubyAlign.center;
+              CssRubyAlign.spaceAround;
     final rawTextCombine = explicitValue('text-combine-upright');
     final textCombine = rawTextCombine == null
         ? (parent?.textCombine ?? CssTextCombine.none)
@@ -6308,12 +6308,10 @@ class ComputedStyle {
 
   static CssRubyAlign? _parseRubyAlign(String raw) {
     return switch (raw.trim().toLowerCase()) {
-      'start' || 'left' => CssRubyAlign.start,
-      'center' || 'centre' => CssRubyAlign.center,
-      'end' || 'right' => CssRubyAlign.end,
-      'space-between' ||
-      'space-around' ||
-      'space-evenly' => CssRubyAlign.spaceBetween,
+      'start' => CssRubyAlign.start,
+      'center' => CssRubyAlign.center,
+      'space-between' => CssRubyAlign.spaceBetween,
+      'space-around' => CssRubyAlign.spaceAround,
       _ => null,
     };
   }

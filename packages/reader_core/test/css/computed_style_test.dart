@@ -2093,4 +2093,26 @@ void main() {
     final child = style('p', 'p { color: red; }', parent: parent);
     expect(child.textShadow, hasLength(1), reason: 'text-shadow 继承');
   });
+
+  test('ruby-align 仅接受规范值，默认 space-around，非法值继承', () {
+    expect(
+      ComputedStyle(const <String, String>{}).rubyAlign,
+      CssRubyAlign.spaceAround,
+    );
+    expect(
+      style('p', 'p { ruby-align: start; }').rubyAlign,
+      CssRubyAlign.start,
+    );
+    expect(
+      style('p', 'p { ruby-align: space-between; }').rubyAlign,
+      CssRubyAlign.spaceBetween,
+    );
+
+    final parent = style('parent', 'div { ruby-align: center; }');
+    expect(
+      style('p', 'p { ruby-align: end; }', parent: parent).rubyAlign,
+      CssRubyAlign.center,
+      reason: 'end 不是 CSS Ruby 1 的合法 ruby-align 值',
+    );
+  });
 }

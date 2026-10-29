@@ -1623,9 +1623,11 @@ class PagePainter {
       final slack = baseWidth - rubyPainter.width;
       final offset = switch (geometry.style.rubyAlign) {
         CssRubyAlign.start => 0.0,
-        CssRubyAlign.end => slack,
-        // space-between 无多个注音片段时退化为居中。
-        CssRubyAlign.center || CssRubyAlign.spaceBetween => slack / 2,
+        // flat 管线把整段注音作为一个文本盒；居中即 space-around 的
+        // 单盒近似，space-between 暂按同一盒宽处理。
+        CssRubyAlign.center ||
+        CssRubyAlign.spaceBetween ||
+        CssRubyAlign.spaceAround => slack / 2,
       };
       final rx = x0 + offset;
       // ruby-position：over 画在行顶上方、under 画在行底下（横排）。

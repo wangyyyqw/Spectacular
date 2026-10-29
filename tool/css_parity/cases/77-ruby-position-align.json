@@ -1,0 +1,10 @@
+{
+  "name": "77-ruby-position-align",
+  "tags": [
+    "ruby-position",
+    "ruby-align"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 28px; } p { margin: 20px 0; } ruby { ruby-position: over; ruby-align: center; } rt { font-size: 50%; } .under ruby { ruby-position: under; } .start ruby { ruby-align: start; } .around ruby { ruby-align: space-around; }",
+  "html": "<p>居中注音：<ruby>漢字<rt>汉</rt></ruby>排列</p><p class=\"under\">下方注音：<ruby>山水<rt>山</rt></ruby>相逢</p><p class=\"start\">起始对齐：<ruby>長風<rt>长</rt></ruby>万里</p><p class=\"around\">环绕对齐：<ruby>明月<rt>明</rt></ruby>当空</p>"
+}

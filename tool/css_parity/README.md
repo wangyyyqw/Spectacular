@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 73 组用例，覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
+当前 77 组用例（编号 01–78，缺 65），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（73 组）
+## 用例清单（77 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -106,9 +106,21 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 64 | vertical-rl | writing-mode: vertical-rl + text-orientation（Chrome 支持、引擎布局未实现，engine_only） |
 | 66 | vertical-multipage | 竖排跨页：350×800、`vertical-rl`、无声明高、约 2100 字（engine_only；页内容高 786 → 每列 49 字、每页 14 列；期望 4 页 ±1） |
 | 67 | vertical-columns | 竖排页内列数：同参数 300 字（engine_only；期望 1 页 / 7 列 / 每列 49 字 / 首块宽 168） |
+| 68 | z-index-stacking | `z-index` 与绝对定位叠序 |
+| 69 | border-radius-percent | 百分比圆角与空元素可见盒 |
+| 70 | border-3d-style | `groove/ridge/inset/outset` 四角明暗 |
+| 71 | tab-line-break-blend | `tab-size`、`line-break`、`mix-blend-mode` |
+| 72 | object-fit-position | 图片 `object-fit` / `object-position` |
+| 73 | overflow-y | 仅声明 `overflow-y` 时的裁剪 |
+| 74 | outline | 线型、颜色、宽度、偏移与圆角轮廓 |
+| 75 | inset-shorthand | `inset` 简写与绝对定位 |
+| 76 | absolute-box-sizing | 绝对定位下的 `border-box` |
+| 77 | ruby-position-align | `ruby-position`、`ruby-align` 规范值（engine_only） |
+| 78 | counter-content | `counter-reset`、`counter-increment`、生成内容与父子 margin 折叠 |
 
-浏览器渲染：73/73 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
-44/45 在用例 JSON 里标 `engine_only: true`：Chrome 尚未支持这两个属性，
+浏览器渲染：77/77 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+44/45/60/64/66/67/77 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
+属性或缺少可比的分页/注音口径，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
 
 ## 覆盖矩阵（属性 × 用例）
@@ -116,14 +128,14 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 73 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 77 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
 | 解析且消费（审计 A 组） | 121 | 118 | 97.5% |
 | 占位式（审计 C 组：有字段、零消费） | 2 | 1 | 50.0% |
-| 完全未处理（审计 D 组：无字段） | 45 | 13 | 28.9% |
-| **合计（116 条审计展开为 168 个属性名）** | **168** | **132** | **78.6%** |
+| 完全未处理（审计 D 组：无字段） | 45 | 18 | 40.0% |
+| **合计（116 条审计展开为 168 个属性名）** | **168** | **137** | **81.5%** |
 
 - 覆盖判定是「声明出现即算覆盖」；简写不自动覆盖长属性（`margin` 不算
   `margin-top`），所以 46–51 专门用长属性声明补齐。
@@ -133,12 +145,10 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   `top/right/bottom/left`（C 组占位属性），所以它「首次覆盖」的条目较多；
   逐条清单见 `coverage.md` 第 4 节。
 - A 组剩 3 个厂商前缀或长属性名未单独声明；C 组剩 `font-size-adjust`
-  未覆盖。其余 32 个未覆盖属性名在 D 组，`coverage.md` 按 75+ 编号给出
+  未覆盖。其余 27 个未覆盖属性名在 D 组，`coverage.md` 按 79+ 编号给出
   排期建议。
-- 未覆盖的主体在 D 组（引擎无字段）：`border-image`、`columns`、`overflow-x/y`、
-  `line-break`、`counter-*`、`object-fit`、`backdrop-filter`、`mix-blend-mode`、
-  `z-index`、`background-attachment`、`justify-content`/`align-items`、
-  （`orphans`/`widows` 为产品决策不做）。
+- 未覆盖的主体是分页阅读器无交互面或明确降级的属性；具体 31 个属性名、
+  审计分组和建议编号以最新 `coverage.md` 为准，避免 README 与脚本结果漂移。
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
   （engine_only，等引擎实现竖排后去掉标记即可参与比较）。
@@ -295,8 +305,18 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 10. **直角 outline 被错误圆角化**：绘制偏移量此前无条件加到四角半径，
     `border-radius: 0` 的实线轮廓仍带圆角。现只有实际存在的圆角才向外扩展；
     74 用例新增直角像素回归，并排截图已恢复与浏览器一致。
+11. **伪元素生成内容的级联胜者**：同一 `::before` 命中多条规则时，旧逻辑按
+    第一条规则取 `content`，会漏掉后面的 `counter-increment`。现按
+    `!important > 特异性 > 顺序` 统一选出 `content/counter-*` 胜者；78 用例
+    的四段编号与浏览器几何失配为 0。
+12. **无装饰容器的父子 margin 折叠**：flat 管线曾把父容器上下 margin 与首末
+    子块 margin 相加。现对 `border/padding = 0`、`overflow: visible` 的普通
+    块容器按 CSS 折叠取较大值；`78-counter-content` 的 8px 偏差归零。
+13. **ruby-align 规范值**：旧实现把 `space-around` 当 `space-between`，还接受
+    非规范的 `end/left/right`。现按 CSS Ruby 1 只接受
+    `start/center/space-between/space-around`，默认 `space-around`；非法值继承。
 
-## 当前收敛状态（73 用例全量重跑：失配 0 / 未配对 7）
+## 当前收敛状态（77 用例全量重跑：失配 0 / 未配对 7）
 
 > 数字来自 2026-10-30 最近一次全量重跑（render_browser + dump + compare）。
 > 未配对 7 项来自 `68`、`69`、`72` 的空块或原子行内盒，不计失配。
