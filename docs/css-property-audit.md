@@ -89,7 +89,7 @@
 | background-color | 1441 | 6 | 完整 |
 | line-height | 892 | 7 | 部分（`normal` 口径见 Top #4） |
 | border 族 | 842 + 517 + 378 + 281 + 61 | 5-6 | 完整 |
-| border-radius | 560 | 6 | 部分（椭圆半径只取前半段） |
+| border-radius | 560 | 6 | 完整（含 `a / b` 椭圆半径） |
 | letter-spacing | 382 | 3 | 完整 |
 | float | 335 | 5 | 完整 |
 | vertical-align | 319 | 7 | 部分（竖排/行内复杂对齐） |
@@ -165,8 +165,8 @@
 | 18 | `border-width` | `applyWidths`（`_resolveBorders` 内） | 同上 | 完整 | `thin/medium/thick` 固定 1/3/5px |
 | 19 | `border-style` | `_parseBorderStyle` cs:2944 | pr 边框绘制 | 完整 | `groove/ridge/inset/outset` 画两半明暗（本轮接通） |
 | 20 | `border-color` | `applyColors`（`_resolveBorders` 内） | 同上 | 完整 | 四值里含函数时靠括号保护切分 |
-| 21 | `border-radius` | cs:2890 | pr 圆角 RRect | 完整 | 百分比按盒尺寸解算（`radiiFor`）；`a / b` 取第一值（圆形圆角） |
-| 22 | `border-top-left-radius` 等四角 | `_resolveBorders`（`border-$name-radius`） | 同上 | 部分 | 同上 |
+| 21 | `border-radius` | `_resolveBorders`（`border-radius`） | pr 圆角 RRect | 完整 | 横向/纵向双半径与百分比均按盒宽/高解算 |
+| 22 | `border-top-left-radius` 等四角 | `_resolveBorders`（`border-$name-radius`） | 同上 | 完整 | 支持 `水平 [垂直]` 两值 |
 | 23 | `width` | cs:1692 附近（`dimension`） | bm:57；pg:837 | 完整 | `auto` 无 shrink-to-fit（绝对定位块除外，pg:877） |
 | 24 | `height` | 同上 | bm:58；pg:974；lb:769（竖排列长） | 完整 | 百分比高按包含块宽近似 |
 | 25 | `min-width` | 同上（`dimension`） | bm:63 | 完整 | — |
@@ -242,13 +242,13 @@
 | 95 | `font-stretch` | cs:1324（`_parseFontStretch` cs:4011） | lb:3260（`fontVariations` 的 `wdth` 轴） | 完整 ★ | 可变字体按百分比映射；静态字体忽略 |
 | 96 | `quotes` | cs:1341（`_parseQuotes` cs:4028） | `ecs:2700`（`quotePairAt`）、`ecs:4716`（`q` 嵌套）、`ecs:1132`（`content: open-quote/close-quote`） | 完整 ★ | 支持 `none`/`auto`/显式配对，`q` 与生成内容共用嵌套层级 |
 
-### 3.2 B 组汇总：26 条「部分」
+### 3.2 B 组汇总：部分属性
 
-对应上表编号 2、7、19、21、22、31、37、38、39、40、49、55、61、62、63、64、66、69、76、78、79、81、91（另含 89/90 的跨页近似）。
+对应上表编号 2、7、19、31、37、38、39、40、49、55、61、62、63、64、66、69、76、78、79、81、91（另含 89/90 的跨页近似）。
 
 | 缺失性质 | 属性（编号） | 后果 |
 | --- | --- | --- |
-| 值解析不全/降级 | `border-style`(19)、`border-radius`(21/22) | 非 solid 四值画成实线；椭圆半径取前半段 |
+| 值解析不全/降级 | `border-style`(19) | 非 solid 四值画成实线 |
 | 只实现一种上下文 | `line-height`(2)、`text-decoration`(55)、`text-overflow`(91)、`vertical-align`(69)、`text-emphasis-position`(66)、`writing-mode`(78)、`hyphens`(81) | 竖排/多列/行盒语境下失真 |
 | 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`position`(40)、`text-orientation`(79) | 落到默认分支（`flex`→block、`sticky`→static） |
 | 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
@@ -377,7 +377,7 @@
 | 10 | `transform` 3D（`translate3d`/`rotate3d`/`perspective`） | P2 | `pr:661` 只构造 2D 仿射，4×4 矩阵其余位补零（`pr:682-687`） | M | `page_renderer.dart`（`_affineOfTransform` / `_transformMatrixOf`） |
 | 11 | `border-image` | ~~P2~~ 已完成 | 切割/repeat/fill 全部实现（`cs:_parseBorderImage` + `pr:_paintBorderImage`） | — | — |
 | 12 | `background-attachment` | P2（可显式声明不支持） | 218 次 / 3 本，最高频缺失项；`cs:4369` 简写不解析 | S | `computed_style.dart`（`_parseBackgroundShorthand`）+ 文档化降级 |
-| 13 | `border-radius` 椭圆（`a / b`）与百分比 | P1 | `cs:2890` 只取 `/` 前半段；560 次 / 6 本 | M | `computed_style.dart` + `page_renderer.dart`（RRect 需四角双半径） |
+| 13 | `border-radius` 椭圆（`a / b`）与百分比 | ~~P1~~ 已完成 | 解析横向/纵向双半径；百分比横向按盒宽、纵向按盒高，绘制为四角椭圆 | — | — |
 | 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
 | 15 | `display: flex` + `justify-content`/`align-items` | P2 | `bf:528` 无 flex 分支；221/5 + 14/4 + 13/3 | L | `block_flow.dart`（新增 flex 分派） |
 | 16 | `initial-letter` 无消费（首字下沉） | P2 | `cs:1234` 字段在、0 消费；`ecs` 已有 `_firstLetterRun` | M | `line_breaker.dart`（首行行盒）+ `epub_chapter_source.dart` |
@@ -422,14 +422,14 @@
 | #10 transform 3D | `36-transform` | 2D 已覆盖，3D 缺 |
 | #11 border-image | 由 `border_image_test.dart` 覆盖（需要图片资源，不进 cases） | — |
 | #12 background-attachment | **无** | 建议新增 `71-background-attachment.json` |
-| #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值；`a / b` 缺 |
+| #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值、`a / b` 与百分比双半径 |
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
 | #15 flex | **无**（`53-display-position` 只覆盖 display/position） | 建议新增 `72-flex-basic.json` |
 | #16–17 initial-letter / font-size-adjust | `45-initial-letter`；`font-size-adjust` 尚无对照用例 | 部分 |
 | #18 sticky | `53-display-position` | 已覆盖 |
 | #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
-**当前还缺的对照面**：竖排 ruby、`flex`、`background-attachment`、`counter-*`、`a / b` 椭圆半径；`border-image` 需要图片资源，已由单测覆盖。
+**当前还缺的对照面**：竖排 ruby、`flex`、`background-attachment`、`counter-*`；`border-image` 需要图片资源，已由单测覆盖。
 
 ---
 
@@ -534,5 +534,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
   20 组截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
   `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。
+- `border-radius: a / b` 已补齐四角双半径解析与绘制；`24-border-radius-corners`
+  几何/样式失配 0、视觉差异 0.24%，并新增像素与解析回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
 - 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）

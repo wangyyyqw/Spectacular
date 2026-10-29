@@ -1188,6 +1188,14 @@ class CssBorders {
     this.topRightRadiusPercent,
     this.bottomRightRadiusPercent,
     this.bottomLeftRadiusPercent,
+    this.topLeftRadiusY,
+    this.topRightRadiusY,
+    this.bottomRightRadiusY,
+    this.bottomLeftRadiusY,
+    this.topLeftRadiusPercentY,
+    this.topRightRadiusPercentY,
+    this.bottomRightRadiusPercentY,
+    this.bottomLeftRadiusPercentY,
   });
 
   /// 无边框、无圆角。
@@ -1229,22 +1237,72 @@ class CssBorders {
   /// 左下圆角的百分比（0..1）。
   final double? bottomLeftRadiusPercent;
 
+  /// 左上圆角的纵向像素半径；null 表示与横向半径相同。
+  final double? topLeftRadiusY;
+
+  /// 右上圆角的纵向像素半径。
+  final double? topRightRadiusY;
+
+  /// 右下圆角的纵向像素半径。
+  final double? bottomRightRadiusY;
+
+  /// 左下圆角的纵向像素半径。
+  final double? bottomLeftRadiusY;
+
+  /// 左上圆角的纵向百分比（0..1）；null 表示纵向使用像素半径。
+  final double? topLeftRadiusPercentY;
+
+  /// 右上圆角的纵向百分比。
+  final double? topRightRadiusPercentY;
+
+  /// 右下圆角的纵向百分比。
+  final double? bottomRightRadiusPercentY;
+
+  /// 左下圆角的纵向百分比。
+  final double? bottomLeftRadiusPercentY;
+
   /// 给定盒子尺寸下的像素圆角（CSS Backgrounds §5.1：百分比横向按盒宽、
   /// 纵向按盒高分别解算，因此非方盒上的百分比圆角是椭圆）。
   ({Radius topLeft, Radius topRight, Radius bottomRight, Radius bottomLeft})
   radiiFor(Size box) {
-    Radius resolve(double radius, double? percent) {
-      if (percent == null) {
-        return Radius.circular(radius);
-      }
-      return Radius.elliptical(percent * box.width, percent * box.height);
+    Radius resolve(
+      double radius,
+      double? percent,
+      double? radiusY,
+      double? percentY,
+    ) {
+      final horizontal = percent == null ? radius : percent * box.width;
+      final vertical = percentY != null
+          ? percentY * box.height
+          : radiusY ?? (percent == null ? radius : percent * box.height);
+      return Radius.elliptical(horizontal, vertical);
     }
 
     return (
-      topLeft: resolve(topLeftRadius, topLeftRadiusPercent),
-      topRight: resolve(topRightRadius, topRightRadiusPercent),
-      bottomRight: resolve(bottomRightRadius, bottomRightRadiusPercent),
-      bottomLeft: resolve(bottomLeftRadius, bottomLeftRadiusPercent),
+      topLeft: resolve(
+        topLeftRadius,
+        topLeftRadiusPercent,
+        topLeftRadiusY,
+        topLeftRadiusPercentY,
+      ),
+      topRight: resolve(
+        topRightRadius,
+        topRightRadiusPercent,
+        topRightRadiusY,
+        topRightRadiusPercentY,
+      ),
+      bottomRight: resolve(
+        bottomRightRadius,
+        bottomRightRadiusPercent,
+        bottomRightRadiusY,
+        bottomRightRadiusPercentY,
+      ),
+      bottomLeft: resolve(
+        bottomLeftRadius,
+        bottomLeftRadiusPercent,
+        bottomLeftRadiusY,
+        bottomLeftRadiusPercentY,
+      ),
     );
   }
 
@@ -1261,7 +1319,15 @@ class CssBorders {
       topLeftRadiusPercent != null ||
       topRightRadiusPercent != null ||
       bottomRightRadiusPercent != null ||
-      bottomLeftRadiusPercent != null;
+      bottomLeftRadiusPercent != null ||
+      (topLeftRadiusY ?? 0) > 0 ||
+      (topRightRadiusY ?? 0) > 0 ||
+      (bottomRightRadiusY ?? 0) > 0 ||
+      (bottomLeftRadiusY ?? 0) > 0 ||
+      topLeftRadiusPercentY != null ||
+      topRightRadiusPercentY != null ||
+      bottomRightRadiusPercentY != null ||
+      bottomLeftRadiusPercentY != null;
 
   /// 四边是否完全一致（同宽/同线型/同色），圆角绘制的前提。
   bool get isUniform =>
@@ -1279,7 +1345,9 @@ class CssBorders {
   @override
   String toString() =>
       'CssBorders($top,$right,$bottom,$left,'
-      'radii=$topLeftRadius/$topRightRadius/$bottomRightRadius/$bottomLeftRadius)';
+      'radii=$topLeftRadius/$topRightRadius/$bottomRightRadius/$bottomLeftRadius,'
+      'radiiY=$topLeftRadiusY/$topRightRadiusY/$bottomRightRadiusY/'
+      '$bottomLeftRadiusY)';
 }
 
 /// 一次算完的不可变样式。
@@ -3638,25 +3706,49 @@ class ComputedStyle {
 
     var radii = <double>[0, 0, 0, 0];
     final radiusPercents = <double?>[null, null, null, null];
+    final radiiY = <double?>[null, null, null, null];
+    final radiusPercentsY = <double?>[null, null, null, null];
     // 百分比圆角（`border-radius: 50%` 的头像/徽章）按盒尺寸解算；像素圆角
     // 在级联期直接算好。
-    void applyRadius(int index, String raw) {
+    ({double value, double? percent})? parseRadius(String raw) {
       final percent = _parseRadiusPercent(raw);
       if (percent != null) {
-        radiusPercents[index] = percent;
-        radii[index] = 0;
-      } else {
-        radii[index] = length(raw) ?? radii[index];
+        return (value: 0, percent: percent);
       }
+      final value = length(raw);
+      return value == null ? null : (value: value, percent: null);
+    }
+
+    void applyRadius(
+      int index,
+      ({double value, double? percent}) horizontal,
+      ({double value, double? percent}) vertical,
+    ) {
+      radii[index] = horizontal.value;
+      radiusPercents[index] = horizontal.percent;
+      radiiY[index] = vertical.percent == null ? vertical.value : null;
+      radiusPercentsY[index] = vertical.percent;
     }
 
     final radiusRaw = value('border-radius');
     if (radiusRaw != null) {
-      final tokens = radiusRaw.trim().split(RegExp(r'\s+'));
-      final slash = tokens.indexOf('/');
-      final parts = _expandFour(slash >= 0 ? tokens.sublist(0, slash) : tokens);
-      for (var i = 0; i < parts.length && i < 4; i++) {
-        applyRadius(i, parts[i]);
+      final normalized = radiusRaw.replaceAll(RegExp(r'\s*/\s*'), ' / ').trim();
+      final halves = normalized.split(' / ');
+      if (halves.length <= 2) {
+        final horizontal = _expandFour(halves.first.split(RegExp(r'\s+')))
+            .map(parseRadius)
+            .toList();
+        final vertical = _expandFour(
+          (halves.length == 2 ? halves[1] : halves.first).split(RegExp(r'\s+')),
+        ).map(parseRadius).toList();
+        if (horizontal.length == 4 &&
+            vertical.length == 4 &&
+            horizontal.every((component) => component != null) &&
+            vertical.every((component) => component != null)) {
+          for (var i = 0; i < 4; i++) {
+            applyRadius(i, horizontal[i]!, vertical[i]!);
+          }
+        }
       }
     }
     const corners = <(int, String)>[
@@ -3668,8 +3760,19 @@ class ComputedStyle {
     for (final (index, name) in corners) {
       final raw = value('border-$name-radius');
       if (raw != null) {
-        // 四角长写允许 `水平 / 垂直` 两值：引擎的圆角是圆形的，取第一值。
-        applyRadius(index, raw.split('/').first.trim());
+        final parts = raw
+            .replaceAll(RegExp(r'\s*/\s*'), ' ')
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((part) => part.isNotEmpty)
+            .toList();
+        if (parts.isNotEmpty && parts.length <= 2) {
+          final horizontal = parseRadius(parts.first);
+          final vertical = parseRadius(parts.length == 2 ? parts[1] : parts[0]);
+          if (horizontal != null && vertical != null) {
+            applyRadius(index, horizontal, vertical);
+          }
+        }
       }
     }
 
@@ -3686,6 +3789,14 @@ class ComputedStyle {
       topRightRadiusPercent: radiusPercents[1],
       bottomRightRadiusPercent: radiusPercents[2],
       bottomLeftRadiusPercent: radiusPercents[3],
+      topLeftRadiusY: radiiY[0],
+      topRightRadiusY: radiiY[1],
+      bottomRightRadiusY: radiiY[2],
+      bottomLeftRadiusY: radiiY[3],
+      topLeftRadiusPercentY: radiusPercentsY[0],
+      topRightRadiusPercentY: radiusPercentsY[1],
+      bottomRightRadiusPercentY: radiusPercentsY[2],
+      bottomLeftRadiusPercentY: radiusPercentsY[3],
     );
   }
 

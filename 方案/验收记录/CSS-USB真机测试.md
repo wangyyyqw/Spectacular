@@ -344,6 +344,12 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 圆角接近。报告位于 `/tmp/css_parity/report.md`，并排截图位于
 `/tmp/css_parity/side_74-outline.png`。
 
+随后补齐 `border-radius: a / b` 的横向/纵向双半径，四角长写、百分比以及
+非方盒椭圆解算均已接入绘制。`24-border-radius-corners` 复跑后几何/样式
+失配 0、视觉差异 0.24%；新增解析与像素回归。`reader_core` 全量 1209 项
+通过、3 项跳过，`reader_ui` 146 项通过，`reader_mobile` 360 项通过、
+5 项跳过；`dart analyze lib test` 无问题。
+
 对照复核又发现直角容器的实线 `outline` 被错误圆角化。渲染器现按边框盒
 圆角决定轮廓形状，直角容器保持直角，并新增像素回归；`reader_core` 全量
 1208 项通过、3 项跳过，`reader_ui` 146 项通过，`reader_mobile` 全量
