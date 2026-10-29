@@ -561,7 +561,12 @@ bool usesSyntheticSmallCaps(ComputedStyle style) {
     return false;
   }
   final family = style.fontFamily;
-  return family != null &&
+  if (family == null) {
+    return false;
+  }
+  // `builtin_song` 是别名表的目标规范名，不是可再映射的输入别名；
+  // 直接比较它，否则内置宋体会漏掉 Chromium 同款的小型大写合成。
+  return family.trim().toLowerCase() == FontFamilyAliases.song ||
       FontFamilyAliases.resolve(family) == FontFamilyAliases.song;
 }
 
@@ -583,6 +588,9 @@ CssFontVariantCaps? syntheticSmallCapsFromTextStyle(TextStyle style) {
 /// 按 CSS 小型大写规则生成测量/绘制共用的 span。
 ///
 /// 只合成 ASCII 拉丁字母；连续同字号的字符会合并，避免逐字符破坏字距。
+///
+/// Chromium 把合成字号四舍五入到整数 CSS 像素（18px → 13px、22px → 15px）；
+/// `all-small-caps` 还会把空格、标点和 CJK 等非拉丁字母一并缩小。
 const syntheticSmallCapsScale = 0.7;
 
 InlineSpan buildSyntheticSmallCapsSpan({
@@ -591,6 +599,9 @@ InlineSpan buildSyntheticSmallCapsSpan({
   required CssFontVariantCaps caps,
 }) {
   final all = caps == CssFontVariantCaps.allSmallCaps;
+  final baseFontSize = style.fontSize ?? 0;
+  final smallFontSize = (baseFontSize * syntheticSmallCapsScale)
+      .roundToDouble();
   final children = <InlineSpan>[];
   final buffer = StringBuffer();
   double? openSize;
@@ -609,10 +620,7 @@ InlineSpan buildSyntheticSmallCapsSpan({
     children.add(
       TextSpan(
         text: content,
-        style: style.copyWith(
-          fontSize: (style.fontSize ?? 0) * size,
-          fontFeatures: features,
-        ),
+        style: style.copyWith(fontSize: size, fontFeatures: features),
       ),
     );
     buffer.clear();
@@ -624,8 +632,7 @@ InlineSpan buildSyntheticSmallCapsSpan({
     final isUpper = rune >= 0x41 && rune <= 0x5A;
     final isLower = rune >= 0x61 && rune <= 0x7A;
     final isLetter = isUpper || isLower;
-    final small = all ? isLetter : isLower;
-    final size = small ? syntheticSmallCapsScale : 1.0;
+    final size = all || isLower ? smallFontSize : (style.fontSize ?? 0.0);
     if (openSize != null && size != openSize) {
       flush();
     }
@@ -650,7 +657,7 @@ InlineSpan applySyntheticSmallCaps(
           text: textSpan.text!,
           style: style,
           caps: caps,
-        )
+        ) as TextSpan
       : null;
   if (children == null || children.isEmpty) {
     return transformedText ?? textSpan;
@@ -2151,7 +2158,6 @@ abstract final class TextLayoutEngine {
       textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout(maxWidth: width);
-
     final metrics = painter.computeLineMetrics();
     // 小数行高（实验）：Skia 行盒高取整为整数，ascent 已按小数行高计算；
     // 这里把「被取整的 strut 行盒」换回 CSS 行高像素值。
@@ -2163,22 +2169,26 @@ abstract final class TextLayoutEngine {
     final lines = <LineBox>[];
     var top = 0.0;
     for (final metric in metrics) {
-      final normalCssLineHeight =
-          LineBreaker.preserveFractionalLineHeight &&
-              style.lineHeightFactor == null
-          ? metric.ascent.roundToDouble() + metric.descent.roundToDouble()
-          : null;
-      final lineHeight =
-          normalCssLineHeight ??
-          (cssLineHeight != null && (metric.height - cssLineHeight).abs() <= 0.6
-              ? cssLineHeight
-              : metric.height);
       // 用行框垂直中点取该行内的字符位置，再取边界；
       // 直接拿“上一行 end”做位置在硬换行/空行处会落回上一行。
       final position = painter.getPositionForOffset(
         Offset(0, top + metric.height / 2),
       );
       final boundary = painter.getLineBoundary(position);
+      final syntheticCapsLineHeight = LineBreaker.preserveFractionalLineHeight
+          ? _syntheticCapsLineHeight(style, runs, boundary.start, boundary.end)
+          : null;
+      final normalCssLineHeight =
+          LineBreaker.preserveFractionalLineHeight &&
+              style.lineHeightFactor == null
+          ? metric.ascent.roundToDouble() + metric.descent.roundToDouble()
+          : null;
+      final lineHeight =
+          syntheticCapsLineHeight ??
+          normalCssLineHeight ??
+          (cssLineHeight != null && (metric.height - cssLineHeight).abs() <= 0.6
+              ? cssLineHeight
+              : metric.height);
       lines.add(
         LineBox(
           start: boundary.start,
@@ -2233,6 +2243,32 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution,
     );
+  }
+
+  /// 合成小型大写会让 Skia 按混合字号算出偏高的行盒；CSS 行盒由参与该行
+  /// 的所有行内盒行高取最大值决定（18px×1.6 与 22px×1.6 → 35.2px）。
+  static double? _syntheticCapsLineHeight(
+    ComputedStyle base,
+    List<StyledRun> runs,
+    int start,
+    int end,
+  ) {
+    final hasSyntheticCaps =
+        usesSyntheticSmallCaps(base) ||
+        runs.any((run) => usesSyntheticSmallCaps(run.style));
+    if (!hasSyntheticCaps || base.lineHeightFactor == null) {
+      return null;
+    }
+    var height = base.lineHeight;
+    for (final run in runs) {
+      if (run.end <= start || run.start >= end) {
+        continue;
+      }
+      if (run.style.lineHeightFactor != null && run.style.lineHeight > height) {
+        height = run.style.lineHeight;
+      }
+    }
+    return height;
   }
 
   /// 行内盒标记在子串测量时的下标平移（`_measureWithIndent` 的后半段）：

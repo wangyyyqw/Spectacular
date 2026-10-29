@@ -1,0 +1,8 @@
+{
+  "name": "81-font-variant-caps",
+  "tags": [
+    "font-variant-caps"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 18px; color: #111; background: #fff; } p { margin: 8px 0; line-height: 1.6; } .small { font-variant-caps: small-caps; } .all { font-variant-caps: all-small-caps; } .reset { font-variant-caps: small-caps; } .reset span { font-variant-caps: normal; } .inline .small { font-size: 22px; }",
+  "html": "<p class=\"small\">Small-caps Abc DEF 中文保持</p><p class=\"all\">All-small-caps Abc DEF 中文保持</p><p class=\"reset\">Small-caps <span>normal 覆盖 Abc</span> 中文</p><p class=\"inline\">行内字号 <span class=\"small\">Abc 22px</span> 与 <span class=\"all\">Def 18px</span> 对照</p>"
+}
