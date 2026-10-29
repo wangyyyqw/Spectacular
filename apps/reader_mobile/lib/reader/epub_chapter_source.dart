@@ -3224,7 +3224,12 @@ class EpubChapterSource
         ...baseStyle.values,
         'background-image': 'url($url)',
         'background-size': objectFit.size,
-        'background-position': objectFit.position,
+        // 出血图（多看 `duokan-bleed`）：块盒被撑到页面边缘后，`contain`
+        // 会把图在更高的盒子里居中，看起来顶部多出一截安全区。出血方向
+        // 改成贴边对齐，图才能贴住屏幕边。
+        'background-position': bleed.top
+            ? 'center top'
+            : (bleed.bottom ? 'center bottom' : objectFit.position),
         'background-repeat': 'no-repeat',
       });
       // 空行盒块：无 runs（不画字），块盒即图片显示区，背景按 object-fit
