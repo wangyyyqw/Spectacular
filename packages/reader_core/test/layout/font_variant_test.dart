@@ -51,6 +51,20 @@ void main() {
     );
   });
 
+  test('font-stretch 映射到 wdth 可变字体轴', () {
+    final condensed = TextLayoutEngine.textStyleFor(
+      _style(const {'font-stretch': 'condensed'}),
+    );
+    expect(condensed.fontVariations, <FontVariation>[
+      const FontVariation('wdth', 75),
+    ]);
+    expect(
+      TextLayoutEngine.textStyleFor(_style()).fontVariations,
+      isNull,
+      reason: 'normal（100%）不覆盖字体默认宽度轴',
+    );
+  });
+
   test('其它 caps 族映射到对应 OpenType 标签', () {
     expect(
       _tags(_style(const {'font-variant-caps': 'petite-caps'})),
