@@ -1443,13 +1443,16 @@ class PagePainter {
   /// 阴影形状：边框盒矩形 + 边框圆角（spread 沿半径同比放大，负值收敛到 0）。
   RRect _shadowRRect(CssBorders borders, Rect rect, double radiusDelta) {
     final radii = borders.radiiFor(rect.size);
-    double grow(double radius) => math.max(0, radius + radiusDelta);
+    Radius grow(Radius radius) => Radius.elliptical(
+      math.max(0, radius.x + radiusDelta),
+      math.max(0, radius.y + radiusDelta),
+    );
     return RRect.fromRectAndCorners(
       rect,
-      topLeft: Radius.circular(grow(radii.topLeft)),
-      topRight: Radius.circular(grow(radii.topRight)),
-      bottomRight: Radius.circular(grow(radii.bottomRight)),
-      bottomLeft: Radius.circular(grow(radii.bottomLeft)),
+      topLeft: grow(radii.topLeft),
+      topRight: grow(radii.topRight),
+      bottomRight: grow(radii.bottomRight),
+      bottomLeft: grow(radii.bottomLeft),
     );
   }
 
@@ -2050,14 +2053,14 @@ class PagePainter {
         );
         _paintOuterShadow(canvas, rect, style);
         if (hasBackground) {
-          final radii = style.borders;
+          final radii = style.borders.radiiFor(rect.size);
           canvas.drawRRect(
             RRect.fromRectAndCorners(
               rect,
-              topLeft: Radius.circular(radii.topLeftRadius),
-              topRight: Radius.circular(radii.topRightRadius),
-              bottomRight: Radius.circular(radii.bottomRightRadius),
-              bottomLeft: Radius.circular(radii.bottomLeftRadius),
+              topLeft: radii.topLeft,
+              topRight: radii.topRight,
+              bottomRight: radii.bottomRight,
+              bottomLeft: radii.bottomLeft,
             ),
             Paint()..color = style.backgroundColor,
           );
@@ -2102,10 +2105,10 @@ class PagePainter {
     final radii = style.borders.radiiFor(box.size);
     final rounded = RRect.fromRectAndCorners(
       box,
-      topLeft: Radius.circular(startsBlock ? radii.topLeft : 0),
-      topRight: Radius.circular(startsBlock ? radii.topRight : 0),
-      bottomRight: Radius.circular(endsBlock ? radii.bottomRight : 0),
-      bottomLeft: Radius.circular(endsBlock ? radii.bottomLeft : 0),
+      topLeft: startsBlock ? radii.topLeft : Radius.zero,
+      topRight: startsBlock ? radii.topRight : Radius.zero,
+      bottomRight: endsBlock ? radii.bottomRight : Radius.zero,
+      bottomLeft: endsBlock ? radii.bottomLeft : Radius.zero,
     );
     final roundedCorners =
         rounded.tlRadiusX > 0 ||
@@ -2691,19 +2694,32 @@ class PagePainter {
     if (!borders.hasBorder) {
       return;
     }
+    if (_paintJoinedThreeDBorders(
+      canvas,
+      box,
+      borders,
+      startsBlock,
+      endsBlock,
+    )) {
+      return;
+    }
     // 四边一致且实线：整块（首尾都在本页）用整框描边，圆角生效
     //（与阅微整框描边路径一致）。
     if (borders.isUniform && borders.top.style == CssBorderStyle.solid) {
       if (startsBlock && endsBlock) {
         final half = borders.top.width / 2;
         final radii = borders.radiiFor(box.size);
+        Radius inset(Radius radius) => Radius.elliptical(
+          math.max(0, radius.x - half),
+          math.max(0, radius.y - half),
+        );
         canvas.drawRRect(
           RRect.fromRectAndCorners(
             box.deflate(half),
-            topLeft: Radius.circular(math.max(0, radii.topLeft - half)),
-            topRight: Radius.circular(math.max(0, radii.topRight - half)),
-            bottomRight: Radius.circular(math.max(0, radii.bottomRight - half)),
-            bottomLeft: Radius.circular(math.max(0, radii.bottomLeft - half)),
+            topLeft: inset(radii.topLeft),
+            topRight: inset(radii.topRight),
+            bottomRight: inset(radii.bottomRight),
+            bottomLeft: inset(radii.bottomLeft),
           ),
           Paint()
             ..color = borders.top.color
@@ -2795,6 +2811,87 @@ class PagePainter {
       Offset(box.right - borders.right.width / 2, box.bottom),
       outward: const Offset(1, 0),
     );
+  }
+
+  /// 3D 边框按 Chromium 的同心斜接几何绘制。外半和内半分别成环，
+  /// 避免四条独立直线在角部留下深色接缝；块跨页时退回逐边绘制。
+  bool _paintJoinedThreeDBorders(
+    Canvas canvas,
+    Rect box,
+    CssBorders borders,
+    bool starts,
+    bool ends,
+  ) {
+    final sides = [borders.top, borders.right, borders.bottom, borders.left];
+    if (!starts ||
+        !ends ||
+        !sides.any((side) => side.isVisible) ||
+        sides.any(
+          (side) =>
+              side.isVisible &&
+              side.style != CssBorderStyle.groove &&
+              side.style != CssBorderStyle.ridge &&
+              side.style != CssBorderStyle.inset &&
+              side.style != CssBorderStyle.outset,
+        )) {
+      return false;
+    }
+    final mid = Rect.fromLTRB(
+      box.left + borders.left.width / 2,
+      box.top + borders.top.width / 2,
+      box.right - borders.right.width / 2,
+      box.bottom - borders.bottom.width / 2,
+    );
+    final inner = Rect.fromLTRB(
+      box.left + borders.left.width,
+      box.top + borders.top.width,
+      box.right - borders.right.width,
+      box.bottom - borders.bottom.width,
+    );
+
+    _paintThreeDRing(canvas, box, mid, sides, outerHalf: true);
+    _paintThreeDRing(canvas, mid, inner, sides, outerHalf: false);
+    return true;
+  }
+
+  void _paintThreeDRing(
+    Canvas canvas,
+    Rect outer,
+    Rect inner,
+    List<CssBorderSide> sides, {
+    required bool outerHalf,
+  }) {
+    final outerCorners = [
+      outer.topLeft,
+      outer.topRight,
+      outer.bottomRight,
+      outer.bottomLeft,
+    ];
+    final innerCorners = [
+      inner.topLeft,
+      inner.topRight,
+      inner.bottomRight,
+      inner.bottomLeft,
+    ];
+    for (var index = 0; index < 4; index++) {
+      final side = sides[index];
+      if (!side.isVisible) {
+        continue;
+      }
+      final next = (index + 1) % 4;
+      final path = Path()
+        ..moveTo(outerCorners[index].dx, outerCorners[index].dy)
+        ..lineTo(outerCorners[next].dx, outerCorners[next].dy)
+        ..lineTo(innerCorners[next].dx, innerCorners[next].dy)
+        ..lineTo(innerCorners[index].dx, innerCorners[index].dy)
+        ..close();
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = _threeDColor(side, index, outerHalf: outerHalf)
+          ..isAntiAlias = false,
+      );
+    }
   }
 
   /// 不同宽度或颜色的实线边框在外角与内角之间斜接，避免矩形互相覆盖。
@@ -2900,24 +2997,27 @@ class PagePainter {
       case CssBorderStyle.ridge:
       case CssBorderStyle.inset:
       case CssBorderStyle.outset:
-        // 3D 边框（CSS Backgrounds §4.4）：外半深/内半浅（groove/inset）或
-        // 相反（ridge/outset）。缺朝向信息时退回实线，避免画错明暗。
+        // 跨页切片缺少另一边时退回实线。
         if (outward == null || side.width < 2) {
           canvas.drawLine(start, end, paint);
           break;
         }
         final half = side.width / 2;
-        final dark = _shade(side.color, 0.62);
-        final light = _shade(side.color, 1.35);
-        final grooveLike =
-            side.style == CssBorderStyle.groove ||
-            side.style == CssBorderStyle.inset;
+        final sideIndex = outward.dy < 0
+            ? 0
+            : outward.dx > 0
+            ? 1
+            : outward.dy > 0
+            ? 2
+            : 3;
+        final outerColor = _threeDColor(side, sideIndex, outerHalf: true);
+        final innerColor = _threeDColor(side, sideIndex, outerHalf: false);
         final outerPaint = Paint()
-          ..color = grooveLike ? dark : light
+          ..color = outerColor
           ..strokeWidth = half
           ..strokeCap = StrokeCap.butt;
         final innerPaint = Paint()
-          ..color = grooveLike ? light : dark
+          ..color = innerColor
           ..strokeWidth = half
           ..strokeCap = StrokeCap.butt;
         final shift = outward * (half / 2);
@@ -2928,13 +3028,78 @@ class PagePainter {
     }
   }
 
-  /// 明暗调整（3D 边框用）：按比例缩放 RGB 通道。
-  static Color _shade(Color color, double factor) => Color.from(
-    alpha: color.a,
-    red: (color.r * factor).clamp(0.0, 1.0),
-    green: (color.g * factor).clamp(0.0, 1.0),
-    blue: (color.b * factor).clamp(0.0, 1.0),
-  );
+  /// Chromium `Color::Dark()/Light()` 及 inset/outset 取色规则。
+  static Color _threeDColor(
+    CssBorderSide side,
+    int sideIndex, {
+    required bool outerHalf,
+  }) {
+    final insetLike = side.style == CssBorderStyle.inset;
+    final outsetLike = side.style == CssBorderStyle.outset;
+    final topOrLeft = sideIndex == 0 || sideIndex == 3;
+    if (insetLike || outsetLike) {
+      final darken = (side.style == CssBorderStyle.inset) == topOrLeft;
+      return _insetOutsetColor(side.color, darken: darken);
+    }
+    final dark = side.style == CssBorderStyle.groove
+        ? topOrLeft == outerHalf
+        : topOrLeft != outerHalf;
+    return dark ? _darken(side.color) : _lighten(side.color);
+  }
+
+  /// Chromium `CalculateInsetOutsetColor()`：极暗色改用提亮来增加对比度，
+  /// 极亮色保持原色，其余沿用 Dark/Light 的 33% 色阶。
+  static Color _insetOutsetColor(Color color, {required bool darken}) {
+    final luminance = _relativeLuminance(color);
+    if (luminance <= 0.014443844) {
+      final lightened = _lighten(color);
+      return darken ? lightened : _lighten(lightened);
+    }
+    if (darken) {
+      return _darken(color);
+    }
+    return luminance > 0.83077 ? color : _lighten(color);
+  }
+
+  static double _relativeLuminance(Color color) {
+    double linearize(double value) => value <= 0.04045
+        ? value / 12.92
+        : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
+    return 0.2126 * linearize(color.r) +
+        0.7152 * linearize(color.g) +
+        0.0722 * linearize(color.b);
+  }
+
+  static Color _darken(Color color) {
+    final maxValue = math.max(color.r, math.max(color.g, color.b));
+    if (maxValue == 1 && color.a == 1) {
+      return const Color(0xFFABABAB);
+    }
+    final factor = maxValue == 0
+        ? 0.0
+        : math.max(0.0, maxValue - 0.33) / maxValue;
+    return _scaleRgb(color, factor);
+  }
+
+  static Color _lighten(Color color) {
+    if (color.r == 0 && color.g == 0 && color.b == 0 && color.a == 1) {
+      return const Color(0xFF545454);
+    }
+    final maxValue = math.max(color.r, math.max(color.g, color.b));
+    if (maxValue == 0) {
+      return _scaleRgb(const Color(0xFF545454), 1, alpha: color.a);
+    }
+    final factor = math.min(1.0, maxValue + 0.33) / maxValue;
+    return _scaleRgb(color, factor);
+  }
+
+  static Color _scaleRgb(Color color, double factor, {double? alpha}) =>
+      Color.from(
+        alpha: alpha ?? color.a,
+        red: (color.r * factor).clamp(0.0, 1.0),
+        green: (color.g * factor).clamp(0.0, 1.0),
+        blue: (color.b * factor).clamp(0.0, 1.0),
+      );
 
   /// 沿线段画虚线/点线（阅微 straight 边用 dashPathEffect，这里手工切段）。
   void _paintDashes(
