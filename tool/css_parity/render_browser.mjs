@@ -85,6 +85,62 @@ const collectScript = `(() => {
         baseline: r.baseline === undefined ? undefined : +r.baseline.toFixed(2),
       }));
   };
+  // CSS 生成内容没有对应 DOM Range：用伪元素计算样式与 canvas 量出宽度，
+  // 再把 ::before 接到首行左侧、::after 接到末行右侧。
+  const pseudoText = (el, which) => {
+    const content = getComputedStyle(el, which).content;
+    if (!content || content === 'none' || content === 'normal') return '';
+    try {
+      const parsed = JSON.parse(content);
+      return typeof parsed === 'string' ? parsed : '';
+    } catch {
+      return '';
+    }
+  };
+  let pseudoProbeId = 0;
+  const pseudoWidth = (el, which, text) => {
+    if (!text) return 0;
+    // 生成文本没有 DOM Range。临时关掉该元素的伪元素，在真实段落上下文
+    // 插入同样式的行内盒，才能保留中文标点间距与相邻文本的 shaping。
+    const className = '__css_parity_pseudo_' + (++pseudoProbeId);
+    const rule = document.createElement('style');
+    rule.textContent =
+      '.' + className + '::before,' +
+      '.' + className + '::after{content:none!important}';
+    document.head.append(rule);
+    el.classList.add(className);
+    const style = getComputedStyle(el, which);
+    const span = document.createElement('span');
+    span.textContent = text;
+    span.style.cssText = [
+      'font-family:' + style.fontFamily,
+      'font-size:' + style.fontSize,
+      'font-style:' + style.fontStyle,
+      'font-weight:' + style.fontWeight,
+      'font-stretch:' + style.fontStretch,
+      'font-feature-settings:' + style.fontFeatureSettings,
+      'font-variant:' + style.fontVariant,
+      'letter-spacing:' + style.letterSpacing,
+      'word-spacing:' + style.wordSpacing,
+      'text-transform:' + style.textTransform,
+      'text-spacing-trim:' + style.textSpacingTrim,
+    ].join(';');
+    if (which === '::before') {
+      el.insertBefore(span, el.firstChild);
+    } else {
+      el.append(span);
+    }
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const rects = Array.from(range.getClientRects())
+      .filter((rect) => rect.width > 0);
+    const rect = which === '::before' ? rects[0] : rects[rects.length - 1];
+    const width = rect ? rect.width : 0;
+    span.remove();
+    el.classList.remove(className);
+    rule.remove();
+    return width;
+  };
   // 原子行内盒（inline-block/inline-flex/...）有自己的元素条目与行列表，
   // 其内部文本行不能并进父段落，否则父段落会多出「盒内容行」的伪影。
   const atomicInline = new Set(['inline-block', 'inline-flex', 'inline-grid',
@@ -127,6 +183,31 @@ const collectScript = `(() => {
         item.baseline = +(rect.y + ascent).toFixed(2);
         raw.push(item);
       });
+    }
+    if (raw.length > 0) {
+      const beforeWidth = pseudoWidth(
+        el,
+        '::before',
+        pseudoText(el, '::before').replace(/^\s+/, ''),
+      );
+      if (beforeWidth > 0) {
+        const first = raw.reduce((best, item) =>
+          item.y < best.y || (item.y === best.y && item.x < best.x)
+            ? item : best);
+        first.x -= beforeWidth;
+        first.w += beforeWidth;
+      }
+      const afterWidth = pseudoWidth(
+        el,
+        '::after',
+        pseudoText(el, '::after').replace(/\s+$/, ''),
+      );
+      if (afterWidth > 0) {
+        const last = raw.reduce((best, item) =>
+          item.y > best.y || (item.y === best.y && item.x > best.x)
+            ? item : best);
+        last.w += afterWidth;
+      }
     }
     return raw.map((r) => ({
       x: +r.x.toFixed(2),
@@ -178,6 +259,8 @@ const collectScript = `(() => {
         boxSizing: cs.boxSizing,
         textOverflow: cs.textOverflow,
         overflow: cs.overflow,
+        overflowX: cs.overflowX,
+        overflowY: cs.overflowY,
         transform: cs.transform,
         transformOrigin: cs.transformOrigin,
         writingMode: cs.writingMode,
@@ -193,6 +276,20 @@ const collectScript = `(() => {
       },
       lines: textRects(el),
       rawLines: textRectsRaw(el),
+      pseudo: {
+        before: pseudoText(el, '::before'),
+        after: pseudoText(el, '::after'),
+        beforeWidth: pseudoWidth(
+          el,
+          '::before',
+          pseudoText(el, '::before').replace(/^\s+/, ''),
+        ),
+        afterWidth: pseudoWidth(
+          el,
+          '::after',
+          pseudoText(el, '::after').replace(/\s+$/, ''),
+        ),
+      },
       columnRects: Array.from(el.getClientRects())
         .filter((rect) => rect.width > 0)
         .map((rect) => ({ x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), w: +rect.width.toFixed(2), h: +rect.height.toFixed(2) })),
@@ -338,7 +435,14 @@ async function main() {
   const cases = readdirSync(CASES)
     .filter((f) => f.endsWith('.json'))
     .sort()
-    .map((f) => JSON.parse(readFileSync(join(CASES, f), 'utf8')));
+    .map((f) => JSON.parse(readFileSync(join(CASES, f), 'utf8')))
+    .filter((caseData) => {
+      const selected = (process.env.CSS_PARITY_CASES || '')
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean);
+      return selected.length === 0 || selected.includes(caseData.name);
+    });
 
   for (const caseData of cases) {
     const htmlPath = join(OUT, `${caseData.name}.html`);

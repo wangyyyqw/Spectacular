@@ -74,12 +74,14 @@ def nkey(text, limit=16):
     textContent 仍是原文，大小写不敏感才能配上；大小写本身的差异由
     textTransform 样式项比对。
     """
-    return re.sub(r'\s+', '', str(text)).lower()[:limit]
+    # CSS `quotes` 生成的引号没有 DOM textContent；配对时忽略引号标点，
+    # 引号字形是否一致由行几何与截图覆盖。
+    return re.sub(r'[\s\'"“”‘’「」『』«»]+', '', str(text)).lower()[:limit]
 
 
 def nkey_long(text, limit=400):
     """包含判断用的长文本键（去空白 + 转小写，不截断到 16）。"""
-    return re.sub(r'\s+', '', str(text)).lower()[:limit]
+    return re.sub(r'[\s\'"“”‘’「」『』«»]+', '', str(text)).lower()[:limit]
 
 
 def norm_enum(raw):
@@ -341,7 +343,9 @@ STYLE_KEYS = (
     ('boxSizing', 'boxSizing', 'enum'),
     ('verticalAlign', 'verticalAlign', 'enum'),
     # T2 新导出的键（dump 与浏览器两侧同名）
-    ('overflow', 'overflow', 'enum'),
+    # Chromium 把 `overflow-x: hidden` 序列化成 `hidden auto` 简写；
+    # 引擎只记录主轴 overflow，按 overflow-x 同口径比较。
+    ('overflowX', 'overflow', 'enum'),
     ('writingMode', 'writingMode', 'enum'),
     ('textOrientation', 'textOrientation', 'enum'),
     ('direction', 'direction', 'enum'),

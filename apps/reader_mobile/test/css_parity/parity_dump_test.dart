@@ -266,6 +266,8 @@ Map<String, Object?> _styleJson(ComputedStyle? style) {
     return <String, Object?>{};
   }
   return <String, Object?>{
+    'fontFamily': style.fontFamily,
+    'fontVariantCaps': style.fontVariantCaps.name,
     'fontSize': _n(style.fontSize),
     'lineHeight': _n(style.lineHeight),
     'letterSpacing': _n(style.letterSpacing),
@@ -443,6 +445,9 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
       'baselineAbs': _n(top + line.baseline),
       'w': _n(line.advanceWidth),
       'h': _n(line.height),
+      'start': line.start,
+      'end': line.end,
+      'text': block.layout.text.substring(line.start, line.end),
     });
   }
   // 行内样式区间（b/strong/span 等）：一块多 run 时全部导出，供对照浏览器

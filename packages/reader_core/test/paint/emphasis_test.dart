@@ -119,13 +119,30 @@ void main() {
     expect(extra.first, greaterThan(glyphRows.last), reason: '着重号在字形下方');
   });
 
+  test('横排 under 着重号按 Chromium 口径增加块底部空间', () {
+    final plain = TextLayoutEngine.layout(
+      text: '中文',
+      style: _style(),
+      maxWidth: 200,
+    );
+    final under = TextLayoutEngine.layout(
+      text: '中文',
+      style: _style(const {
+        'text-emphasis': 'dot',
+        'text-emphasis-position': 'under',
+      }),
+      maxWidth: 200,
+    );
+    expect(under.height - plain.height, moreOrLessEquals(24 * 0.12));
+  });
+
   test('text-emphasis: none 不画着重号', () async {
     final plain = await _render('中文', _style());
     final none = await _render('中文', _style(const {'text-emphasis': 'none'}));
     expect(_inkRows(none), _inkRows(plain));
   });
 
-  test('text-emphasis: filled 与 open 各自出墨且形态不同', () async {
+  test('text-emphasis: 实心点与空心点各自出墨且形态不同', () async {
     final filled = await _render(
       '中文',
       _style(const {'text-emphasis': 'filled'}),
@@ -140,5 +157,17 @@ void main() {
     expect(inkCount(filled), greaterThan(inkCount(none)));
     expect(inkCount(open), greaterThan(inkCount(none)));
     expect(inkCount(filled), isNot(equals(inkCount(open))));
+  });
+
+  test('text-emphasis: circle 与 sesame 使用各自字形', () async {
+    final circle = await _render(
+      '中文',
+      _style(const {'text-emphasis': 'filled circle'}),
+    );
+    final sesame = await _render(
+      '中文',
+      _style(const {'text-emphasis': 'filled sesame'}),
+    );
+    expect(circle, isNot(equals(sesame)), reason: '圆点和芝麻点形态应不同');
   });
 }

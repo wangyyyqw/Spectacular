@@ -124,7 +124,7 @@ void main() {
       expect(duokan.textEmphasisPosition, CssTextEmphasisPosition.under);
       expect(
         parsed['webkit:文本']!.textEmphasisStyle,
-        CssTextEmphasisStyle.filled,
+        CssTextEmphasisStyle.circle,
       );
     });
 

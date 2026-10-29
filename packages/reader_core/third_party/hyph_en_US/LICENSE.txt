@@ -1,0 +1,10 @@
+hyph_en_US.dic - American English hyphenation patterns for OpenOffice.org
+
+Copyright (c) 2011 Laszlo Nemeth and contributors.
+
+This file is distributed under a BSD-style license. Unlimited copying,
+redistribution and modification is permitted with this copyright and license
+information.
+
+Based on the plain TeX hyphenation table and the TUGboat hyphenation
+exceptions log. See README.txt for the complete provenance and license text.

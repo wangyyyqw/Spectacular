@@ -7,8 +7,15 @@ import '../css/font_face.dart';
 import '../src/api/models.dart' show TextLayout;
 import 'cjk_justify.dart';
 import 'autospace.dart';
+import 'hyphenation.dart';
 import 'punct_trim.dart';
 import '../text/script_fallback.dart';
+
+/// CSS `hyphens: auto` 在行尾补画的连字符。
+///
+/// Chromium 使用 U+2010，而非 ASCII `-`；两者在内置宋体中的 advance
+/// 明显不同，测量与绘制必须使用同一字形。
+const String cssAutoHyphen = '\u2010';
 
 /// 一行文本的布局结果。
 class LineBox {
@@ -167,7 +174,6 @@ class LineBox {
       'justify=$justifyExtra)';
 }
 
-
 /// 软断点计划：`hyphens`/`overflow-wrap`/`word-break` 需要的「测量文本 +
 /// 下标映射 + 行尾连字符断点」。
 ///
@@ -209,8 +215,7 @@ class SoftBreakPlan {
   ///
   /// 软连字符 U+00AD 被等长替换成 ZWSP 时，下标映射是恒等的，但行尾仍需
   /// 补画连字符，所以连同 [hyphenPoints] 一起判断。
-  bool get changed =>
-      offsets.last != text.length || hyphenPoints.isNotEmpty;
+  bool get changed => offsets.last != text.length || hyphenPoints.isNotEmpty;
 
   /// 测量下标换算回原文下标。
   int originalOffset(int measured) =>
@@ -545,6 +550,129 @@ String _capitalizeWords(String text) {
   return buffer.toString();
 }
 
+/// 内置宋体是否需要用合成小型大写。
+///
+/// 字体没有 `smcp/c2sc` 特性，Chromium 会选用大写字形并按 70% 字号合成；
+/// 其它字体暂时仍交给 OpenType 特性处理，避免覆盖真正的小型大写设计。
+bool usesSyntheticSmallCaps(ComputedStyle style) {
+  if (style.fontVariantCaps != CssFontVariantCaps.smallCaps &&
+      style.fontVariantCaps != CssFontVariantCaps.allSmallCaps) {
+    return false;
+  }
+  final family = style.fontFamily;
+  return family != null &&
+      FontFamilyAliases.resolve(family) == FontFamilyAliases.song;
+}
+
+/// 从测量/绘制共用的 TextStyle 还原需要合成的小型大写类别。
+CssFontVariantCaps? syntheticSmallCapsFromTextStyle(TextStyle style) {
+  if (style.fontFamily != FontFamilyAliases.song) {
+    return null;
+  }
+  final tags = style.fontFeatures?.map((feature) => feature.feature).toSet();
+  if (tags?.contains('c2sc') ?? false) {
+    return CssFontVariantCaps.allSmallCaps;
+  }
+  if (tags?.contains('smcp') ?? false) {
+    return CssFontVariantCaps.smallCaps;
+  }
+  return null;
+}
+
+/// 按 CSS 小型大写规则生成测量/绘制共用的 span。
+///
+/// 只合成 ASCII 拉丁字母；连续同字号的字符会合并，避免逐字符破坏字距。
+const syntheticSmallCapsScale = 0.7;
+
+InlineSpan buildSyntheticSmallCapsSpan({
+  required String text,
+  required TextStyle style,
+  required CssFontVariantCaps caps,
+}) {
+  final all = caps == CssFontVariantCaps.allSmallCaps;
+  final children = <InlineSpan>[];
+  final buffer = StringBuffer();
+  double? openSize;
+
+  void flush() {
+    final content = buffer.toString();
+    final size = openSize;
+    if (content.isEmpty || size == null) {
+      return;
+    }
+    final features = style.fontFeatures
+        ?.where(
+          (feature) => feature.feature != 'smcp' && feature.feature != 'c2sc',
+        )
+        .toList(growable: false);
+    children.add(
+      TextSpan(
+        text: content,
+        style: style.copyWith(
+          fontSize: (style.fontSize ?? 0) * size,
+          fontFeatures: features,
+        ),
+      ),
+    );
+    buffer.clear();
+  }
+
+  for (final rune in text.runes) {
+    final source = String.fromCharCode(rune);
+    final upper = source.toUpperCase();
+    final isUpper = rune >= 0x41 && rune <= 0x5A;
+    final isLower = rune >= 0x61 && rune <= 0x7A;
+    final isLetter = isUpper || isLower;
+    final small = all ? isLetter : isLower;
+    final size = small ? syntheticSmallCapsScale : 1.0;
+    if (openSize != null && size != openSize) {
+      flush();
+    }
+    openSize = size;
+    buffer.write(isLetter ? upper : source);
+  }
+  flush();
+  return TextSpan(style: style, children: children);
+}
+
+/// 对 styled runs 构建出的 span 树应用合成小型大写。
+InlineSpan applySyntheticSmallCaps(
+  InlineSpan span, {
+  TextStyle? inheritedStyle,
+}) {
+  final textSpan = span as TextSpan;
+  final style = textSpan.style ?? inheritedStyle;
+  final caps = style == null ? null : syntheticSmallCapsFromTextStyle(style);
+  final children = textSpan.children;
+  final transformedText = caps != null && textSpan.text != null && style != null
+      ? buildSyntheticSmallCapsSpan(
+          text: textSpan.text!,
+          style: style,
+          caps: caps,
+        )
+      : null;
+  if (children == null || children.isEmpty) {
+    return transformedText ?? textSpan;
+  }
+  final transformedChildren = <InlineSpan>[
+    for (final child in children)
+      child is TextSpan
+          ? applySyntheticSmallCaps(child, inheritedStyle: style)
+          : child,
+  ];
+  return TextSpan(
+    text: textSpan.text,
+    style: textSpan.style,
+    children: [
+      if (transformedText case final TextSpan capsSpan) ...?capsSpan.children,
+      ...transformedChildren,
+    ],
+    recognizer: textSpan.recognizer,
+    semanticsLabel: textSpan.semanticsLabel,
+    semanticsIdentifier: textSpan.semanticsIdentifier,
+  );
+}
+
 /// 把 `[start, end)` 按样式区间切成连续 span（§61.1 的行内 run）。
 ///
 /// [runs] 需升序且不重叠；区间外的文本用 [baseStyle]。
@@ -857,9 +985,7 @@ abstract final class TextLayoutEngine {
     // 负 text-indent 是合法的「首行外凸」（CSS Text 3 §3.1）：首行可用宽
     // 变宽（width - indent > width）、行左缘画到内容盒左侧，不能钳成 0。
     final indent = softWrap && width.isFinite
-        ? style.textIndent
-              .clamp(-width, math.max(0.0, width - 1))
-              .toDouble()
+        ? style.textIndent.clamp(-width, math.max(0.0, width - 1)).toDouble()
         : 0.0;
     final ordered = _applyVerticalAlign(
       _normalizeRuns(runs, text.length),
@@ -890,11 +1016,41 @@ abstract final class TextLayoutEngine {
         : text.substring(0, measuredEnd);
     // 断词（hyphens / overflow-wrap / word-break）：插 U+200B 断点后测量，
     // 再把行区间映射回原文；行尾连字符宽在映射时补进行宽。
-    final hyphenAdvance = _measureChar('-', style, textScaleFactor);
+    final hyphenAdvance = _measureChar(cssAutoHyphen, style, textScaleFactor);
     // 行内盒与断词暂不叠加：两种文本改造同段生效会让偏移映射难以自洽
     // （图文混排段落不需要 hyphens 断词）。
-    final breakPlan = inlineBoxes.isNotEmpty
+    // TextPainter 遇到多个 ZWSP 时会优先停在词内较早的音节，而不是像
+    // Chrome 那样在当前行可容纳的位置断词。纯文本自动断词因此先算出
+    // 实际断行点，再用硬换行交给 TextPainter 排版；带行内样式的段落仍
+    // 走 ZWSP 路径。
+    final autoHyphenBreaks =
+        inlineBoxes.isEmpty &&
+            runs.isEmpty &&
+            softWrap &&
+            !vertical &&
+            style.hyphens == CssHyphens.auto &&
+            style.wordBreak == CssWordBreak.normal &&
+            style.overflowWrap == CssOverflowWrap.normal &&
+            style.lineBreak != CssLineBreak.anywhere &&
+            !measuredText.contains('\u00AD')
+        ? _autoHyphenBreaks(
+            text: measuredText,
+            width: width,
+            firstLineWidth: width - indent,
+            style: style,
+            textScaleFactor: textScaleFactor,
+            leadingDistribution: leadingDistribution,
+            hyphenAdvance: hyphenAdvance,
+          )
+        : const <int, bool>{};
+    var breakPlan = inlineBoxes.isNotEmpty
         ? SoftBreakPlan.identity(measuredText, hyphenAdvance: hyphenAdvance)
+        : autoHyphenBreaks.isNotEmpty
+        ? _planForcedHyphenBreaks(
+            text: measuredText,
+            breaks: autoHyphenBreaks,
+            hyphenAdvance: hyphenAdvance,
+          )
         : planSoftBreaks(
             text: measuredText,
             hyphens: style.hyphens,
@@ -905,6 +1061,35 @@ abstract final class TextLayoutEngine {
             textScaleFactor: textScaleFactor,
             hyphenAdvance: hyphenAdvance,
           );
+    List<LineBox> measureText(
+      String source,
+      List<_InlineBoxMark> inlineBoxMarks,
+    ) {
+      final raw = measuredText.isEmpty || indent == 0
+          ? _measureSegment(
+              text: source,
+              inlineBoxMarks: inlineBoxMarks,
+              width: columnLength,
+              contentWidth: vertical ? columnLength : width,
+              style: style,
+              textScaleFactor: textScaleFactor,
+              leadingDistribution: leadingDistribution,
+              runs: styled,
+            )
+          : _measureWithIndent(
+              text: source,
+              inlineBoxMarks: inlineBoxMarks,
+              width: measureWidth,
+              contentWidth: width,
+              indent: indent,
+              style: style,
+              textScaleFactor: textScaleFactor,
+              leadingDistribution: leadingDistribution,
+              runs: styled,
+            );
+      return _mapSoftBreaks(raw, breakPlan);
+    }
+
     // 行内盒「整块换行」：盒在行尾放不下时在盒前强制换行后重测（最多 4 轮，
     // 每轮至少解决一个溢出盒）。
     final forcedBreaks = <int>{};
@@ -919,46 +1104,26 @@ abstract final class TextLayoutEngine {
             );
       // 缩进非零就走首行减宽路径：负缩进的首行宽 = width + |indent|，
       // 行左缘由 LineBox.indent（负值）画到内容盒左侧。
-      final rawMeasured = measuredText.isEmpty || indent == 0
-          ? _measureSegment(
-              text: boxText?.text ?? breakPlan.text,
-              inlineBoxMarks: boxText?.marks ?? const <_InlineBoxMark>[],
-              width: columnLength,
-              contentWidth: vertical ? columnLength : width,
-              style: style,
-              textScaleFactor: textScaleFactor,
-              leadingDistribution: leadingDistribution,
-              runs: styled,
-            )
-          : _measureWithIndent(
-              text: boxText?.text ?? breakPlan.text,
-              inlineBoxMarks: boxText?.marks ?? const <_InlineBoxMark>[],
-              width: measureWidth,
-              contentWidth: width,
-              indent: indent,
-              style: style,
-              textScaleFactor: textScaleFactor,
-              leadingDistribution: leadingDistribution,
-              runs: styled,
-            );
-      measured = _mapSoftBreaks(rawMeasured, breakPlan);
+      measured = measureText(
+        boxText?.text ?? breakPlan.text,
+        boxText?.marks ?? const <_InlineBoxMark>[],
+      );
       if (boxText != null && boxText.changed) {
         measured = _mapInlineBoxLines(measured, boxText);
       }
-
-    if (style.writingMode != CssWritingMode.horizontalTb) {
-      // 竖排（CSS Writing Modes §3，最小可用映射）：横排测量得到的每「行」
-      // 变成一「列」，列宽 = 行高，列长 = 该行宽；rl 首列在最右、lr 在左。
-      // 文字仍在列内自上而下（字符顺序与横排一致），逐字旋转由绘制层做。
-      return _verticalFromLines(
-        text: text,
-        lines: measured,
-        style: style,
-        maxWidth: width,
-        runs: styled,
-        isRtl: style.isRtl,
-      );
-    }
+      if (style.writingMode != CssWritingMode.horizontalTb) {
+        // 竖排（CSS Writing Modes §3，最小可用映射）：横排测量得到的每「行」
+        // 变成一「列」，列宽 = 行高，列长 = 该行宽；rl 首列在最右、lr 在左。
+        // 文字仍在列内自上而下（字符顺序与横排一致），逐字旋转由绘制层做。
+        return _verticalFromLines(
+          text: text,
+          lines: measured,
+          style: style,
+          maxWidth: width,
+          runs: styled,
+          isRtl: style.isRtl,
+        );
+      }
       if (boxText == null) {
         break;
       }
@@ -983,12 +1148,18 @@ abstract final class TextLayoutEngine {
       width,
       styled,
       isRtl: style.isRtl,
+      // Chromium 会给横排 under 着重号增加约 0.12em 的块底部空间。
+      bottomOverflow:
+          style.textEmphasisStyle != CssTextEmphasisStyle.none &&
+              style.textEmphasisPosition == CssTextEmphasisPosition.under
+          ? style.fontSize * 0.12
+          : 0,
     );
   }
 
   /// 构造软断点计划（`hyphens` / `overflow-wrap` / `word-break`）。
   ///
-  /// - `hyphens: auto`：拉丁词按「元音-辅音-元音」近似音节边界插入断点，
+  /// - `hyphens: auto`：英文按 hyph_en_US 词表（Liang 算法）插入音节断点，
   ///   并在这些断点处标记行尾连字符；`manual` 只认文本里的软连字符
   ///   U+00AD；`none` 不断词。
   /// - `overflow-wrap: break-word`：只给「单独放不下一行」的长词插断点；
@@ -1032,7 +1203,8 @@ abstract final class TextLayoutEngine {
       final code = text.codeUnitAt(index);
       if (_isLatinWordCode(code)) {
         final start = index;
-        while (index < text.length && _isLatinWordCode(text.codeUnitAt(index))) {
+        while (index < text.length &&
+            _isLatinWordCode(text.codeUnitAt(index))) {
           index += 1;
         }
         final word = text.substring(start, index);
@@ -1109,6 +1281,226 @@ abstract final class TextLayoutEngine {
     );
   }
 
+  /// 计算纯文本 `hyphens:auto` 的逐行断点。
+  ///
+  /// 先按完整的自然词测量当前行；下一个词放不下时，从该词的音节断点中取
+  /// 加上行尾连字符仍能放下的最靠后位置。这样断点随实际行宽推进，与
+  /// Chrome 的 `ShapingLineBreaker` 行为一致。
+  static Map<int, bool> _autoHyphenBreaks({
+    required String text,
+    required double width,
+    required double firstLineWidth,
+    required ComputedStyle style,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+    required double hyphenAdvance,
+  }) {
+    if (!width.isFinite || width <= hyphenAdvance) {
+      return const <int, bool>{};
+    }
+    final breaks = <int, bool>{};
+    var lineStart = 0;
+    var firstLine = true;
+    while (lineStart < text.length) {
+      final available = firstLine ? firstLineWidth : width;
+      final result = _nextAutoHyphenLine(
+        text: text,
+        lineStart: lineStart,
+        width: available,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+        hyphenAdvance: hyphenAdvance,
+      );
+      final breakAt = result.$1;
+      final hyphenated = result.$2;
+      final nextLine = result.$3;
+      if (breakAt != null && breakAt > lineStart) {
+        breaks[breakAt] = hyphenated;
+        lineStart = hyphenated ? breakAt : nextLine ?? breakAt;
+      } else if (nextLine != null && nextLine > lineStart) {
+        lineStart = nextLine;
+      } else {
+        break;
+      }
+      firstLine = false;
+    }
+    return breaks;
+  }
+
+  /// 返回 `(本行断点, 是否断词, 下一行起点)`。
+  static (int?, bool, int?) _nextAutoHyphenLine({
+    required String text,
+    required int lineStart,
+    required double width,
+    required ComputedStyle style,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+    required double hyphenAdvance,
+  }) {
+    var cursor = lineStart;
+    int? lastSafeEnd;
+    while (cursor < text.length) {
+      final code = text.codeUnitAt(cursor);
+      if (code == 0x0A || code == 0x0D) {
+        return (null, false, _afterLineBreak(text, cursor));
+      }
+      if (_isHorizontalSpace(code)) {
+        cursor += 1;
+        continue;
+      }
+      final wordStart = cursor;
+      while (cursor < text.length && !_isWhitespace(text.codeUnitAt(cursor))) {
+        cursor += 1;
+      }
+      final wordEnd = cursor;
+      final lineWidth = _measureTextWidth(
+        text.substring(lineStart, wordEnd),
+        style,
+        textScaleFactor,
+        leadingDistribution,
+      );
+      if (lineWidth <= width + 0.5) {
+        lastSafeEnd = wordEnd;
+        continue;
+      }
+      final hyphenBreak = _lastHyphenBreakThatFits(
+        text: text,
+        lineStart: lineStart,
+        wordStart: wordStart,
+        wordEnd: wordEnd,
+        width: width,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+        hyphenAdvance: hyphenAdvance,
+      );
+      if (hyphenBreak != null) {
+        return (hyphenBreak, true, hyphenBreak);
+      }
+      if (lastSafeEnd != null) {
+        return (lastSafeEnd, false, _skipHorizontalSpaces(text, lastSafeEnd));
+      }
+      // 首词连最早音节也放不下时保留浏览器式溢出，不制造无限断点。
+      return (null, false, null);
+    }
+    return (null, false, null);
+  }
+
+  static int? _lastHyphenBreakThatFits({
+    required String text,
+    required int lineStart,
+    required int wordStart,
+    required int wordEnd,
+    required double width,
+    required ComputedStyle style,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+    required double hyphenAdvance,
+  }) {
+    // 行首可能落在上一次断词后的词中；词表必须仍按完整原词查询。
+    var fullWordStart = wordStart;
+    if (wordStart == lineStart && lineStart > 0) {
+      while (fullWordStart > 0 &&
+          _isLatinWordCode(text.codeUnitAt(fullWordStart - 1))) {
+        fullWordStart -= 1;
+      }
+    }
+    var fullWordEnd = wordEnd;
+    while (fullWordEnd < text.length &&
+        _isLatinWordCode(text.codeUnitAt(fullWordEnd))) {
+      fullWordEnd += 1;
+    }
+    final offsets = EnUsHyphenator.breakOffsets(
+      text.substring(fullWordStart, fullWordEnd),
+    );
+    int? best;
+    for (final offset in offsets) {
+      final point = fullWordStart + offset;
+      if (point <= lineStart || point >= fullWordEnd) {
+        continue;
+      }
+      final prefixWidth = _measureTextWidth(
+        text.substring(lineStart, point),
+        style,
+        textScaleFactor,
+        leadingDistribution,
+      );
+      if (prefixWidth + hyphenAdvance <= width + 0.5) {
+        best = point;
+      }
+    }
+    return best;
+  }
+
+  static bool _isWhitespace(int code) =>
+      code == 0x20 ||
+      code == 0x09 ||
+      code == 0x0A ||
+      code == 0x0D ||
+      code == 0x0C;
+
+  static bool _isHorizontalSpace(int code) =>
+      code == 0x20 || code == 0x09 || code == 0x0C;
+
+  static int _skipHorizontalSpaces(String text, int index) {
+    var cursor = index;
+    while (cursor < text.length &&
+        _isHorizontalSpace(text.codeUnitAt(cursor))) {
+      cursor += 1;
+    }
+    return cursor;
+  }
+
+  static int _afterLineBreak(String text, int index) {
+    if (text.codeUnitAt(index) == 0x0D &&
+        index + 1 < text.length &&
+        text.codeUnitAt(index + 1) == 0x0A) {
+      return index + 2;
+    }
+    return index + 1;
+  }
+
+  /// 把计算好的自动断词位置作为硬换行交给 TextPainter。
+  static SoftBreakPlan _planForcedHyphenBreaks({
+    required String text,
+    required Map<int, bool> breaks,
+    required double hyphenAdvance,
+  }) {
+    final buffer = StringBuffer();
+    final offsets = <int>[0];
+    final hyphenPoints = <int>{};
+    var index = 0;
+    while (index < text.length) {
+      if (breaks.containsKey(index)) {
+        buffer.write('\n');
+        offsets.add(index);
+        final hyphenated = breaks[index]!;
+        if (hyphenated) {
+          hyphenPoints.add(buffer.length - 1);
+        } else {
+          // 自然换行后的行首空格由 CSS 折叠掉，保留会多算一个空格宽。
+          var next = index + 1;
+          while (next < text.length &&
+              _isHorizontalSpace(text.codeUnitAt(next))) {
+            next += 1;
+          }
+          index = next;
+          continue;
+        }
+      }
+      buffer.write(text[index]);
+      offsets.add(index + 1);
+      index += 1;
+    }
+    return SoftBreakPlan(
+      text: buffer.toString(),
+      offsets: offsets,
+      hyphenPoints: hyphenPoints,
+      hyphenAdvance: hyphenAdvance,
+    );
+  }
+
   /// 原文 [index] 之前、同一个逻辑行上是否已有非空白内容。
   ///
   /// 显式换行之后（或段落开头）无需再插入整词换行，否则会多出空行。
@@ -1144,16 +1536,7 @@ abstract final class TextLayoutEngine {
     if (!autoHyphen) {
       return const <int>[];
     }
-    // 近似音节断点：V-C|V（元音-辅音-元音）在辅音前断开，两侧各留 ≥2 字符。
-    final offsets = <int>[];
-    for (var i = 2; i < word.length - 2; i++) {
-      if (_isVowel(word.codeUnitAt(i - 1)) &&
-          !_isVowel(word.codeUnitAt(i)) &&
-          _isVowel(word.codeUnitAt(i + 1))) {
-        offsets.add(i);
-      }
-    }
-    return offsets;
+    return EnUsHyphenator.breakOffsets(word);
   }
 
   /// 词宽（`overflow-wrap: break-word` 判定用）。
@@ -1183,17 +1566,6 @@ abstract final class TextLayoutEngine {
       (code >= 0x30 && code <= 0x39) ||
       code == 0x27 ||
       code == 0x2019;
-
-  /// 元音（近似音节切分用）。
-  static bool _isVowel(int code) {
-    final lower = code >= 0x41 && code <= 0x5A ? code + 0x20 : code;
-    return lower == 0x61 || // a
-        lower == 0x65 || // e
-        lower == 0x69 || // i
-        lower == 0x6F || // o
-        lower == 0x75 || // u
-        lower == 0x79; // y
-  }
 
   /// 把测量坐标的断点映射回原文坐标（行区间仍是原文）。
   static List<LineBox> _mapSoftBreaks(List<LineBox> lines, SoftBreakPlan plan) {
@@ -1490,10 +1862,8 @@ abstract final class TextLayoutEngine {
     // allow-end 才启用（默认 none）。
     final hanging = style.hangingPunctuation == CssHangingPunctuation.allowEnd;
     final punctWidths = <String, double>{};
-    double punctWidthOf(String punct) => punctWidths[punct] ??= _measureChar(
-      punct,
-      style,
-    );
+    double punctWidthOf(String punct) =>
+        punctWidths[punct] ??= _measureChar(punct, style);
     final mode = style.textJustify;
     // 末行（含硬换行）的对齐：text-align-last 优先，缺省 start。
     // text-justify: justify-all 或 text-align-last: justify 时末行参与拉伸。
@@ -1536,14 +1906,12 @@ abstract final class TextLayoutEngine {
             )
           : 0.0;
       aligned.add(switch (align) {
-        CssTextAlign.start ||
-        CssTextAlign.left => line.copyWith(
+        CssTextAlign.start || CssTextAlign.left => line.copyWith(
           offsetX: line.indent,
           justifyExtra: justifyExtra,
           justifyMode: mode,
         ),
-        CssTextAlign.end ||
-        CssTextAlign.right => line.copyWith(
+        CssTextAlign.end || CssTextAlign.right => line.copyWith(
           offsetX: line.indent + slack,
           justifyExtra: justifyExtra,
           justifyMode: mode,
@@ -1589,9 +1957,7 @@ abstract final class TextLayoutEngine {
     if (gaps.isEmpty) {
       return 0;
     }
-    if (hanging &&
-        !isFinal &&
-        lineText.isNotEmpty) {
+    if (hanging && !isFinal && lineText.isNotEmpty) {
       // 悬挂句读均为单个 UTF-16 码元（U+2026 与 CJK 句读区）。
       final lastChar = String.fromCharCode(
         lineText.codeUnitAt(lineText.length - 1),
@@ -1625,7 +1991,10 @@ abstract final class TextLayoutEngine {
     final painter = TextPainter(
       text: TextSpan(
         text: char,
-        style: textStyleFor(style, leadingDistribution: TextLeadingDistribution.even),
+        style: textStyleFor(
+          style,
+          leadingDistribution: TextLeadingDistribution.even,
+        ),
       ),
       textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
@@ -1670,8 +2039,8 @@ abstract final class TextLayoutEngine {
       direction: _textDirectionOf(style),
     );
     final em = style.fontSize;
-    final compressOffsets = style.textSpacingTrim ==
-            CssTextSpacingTrim.trimAdjacent
+    final compressOffsets =
+        style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent
         ? punctCompressionOffsets(text, em: em, advanceOf: advanceOf)
         : const <int>[];
     final autospace = style.textAutospace == CssTextAutospace.normal
@@ -1752,19 +2121,29 @@ abstract final class TextLayoutEngine {
             )
           : runs.isEmpty
           ? (compress
-                ? _plainSpan(measureText, style, baseStyle, textScaleFactor)
+                ? applySyntheticSmallCaps(
+                    _plainSpan(measureText, style, baseStyle, textScaleFactor),
+                  )
+                : usesSyntheticSmallCaps(style)
+                ? buildSyntheticSmallCapsSpan(
+                    text: measureText,
+                    style: baseStyle,
+                    caps: style.fontVariantCaps,
+                  )
                 : TextSpan(text: measureText, style: baseStyle))
-          : TextSpan(
-              style: baseStyle,
-              children: buildStyledSpans(
-                text: text,
-                start: 0,
-                end: text.length,
-                runs: runs,
-                baseStyle: baseStyle,
-                styleOf: (runStyle) => textStyleFor(
-                  runStyle,
-                  leadingDistribution: leadingDistribution,
+          : applySyntheticSmallCaps(
+              TextSpan(
+                style: baseStyle,
+                children: buildStyledSpans(
+                  text: text,
+                  start: 0,
+                  end: text.length,
+                  runs: runs,
+                  baseStyle: baseStyle,
+                  styleOf: (runStyle) => textStyleFor(
+                    runStyle,
+                    leadingDistribution: leadingDistribution,
+                  ),
                 ),
               ),
             ),
@@ -1777,9 +2156,9 @@ abstract final class TextLayoutEngine {
     // 这里把「被取整的 strut 行盒」换回 CSS 行高像素值。
     final cssLineHeight =
         LineBreaker.preserveFractionalLineHeight &&
-                style.lineHeightFactor != null
-            ? style.lineHeight
-            : null;
+            style.lineHeightFactor != null
+        ? style.lineHeight
+        : null;
     final lines = <LineBox>[];
     var top = 0.0;
     for (final metric in metrics) {
@@ -1790,8 +2169,7 @@ abstract final class TextLayoutEngine {
           : null;
       final lineHeight =
           normalCssLineHeight ??
-          (cssLineHeight != null &&
-                  (metric.height - cssLineHeight).abs() <= 0.6
+          (cssLineHeight != null && (metric.height - cssLineHeight).abs() <= 0.6
               ? cssLineHeight
               : metric.height);
       // 用行框垂直中点取该行内的字符位置，再取边界；
@@ -2067,7 +2445,8 @@ abstract final class TextLayoutEngine {
       final line = lines[lineIndex];
       // 行内 x：占位符之前的前缀宽 - 行首之前的前缀宽（用同一套 span 结构
       // 前缀测量；caret 位置在 letterSpacing 下含半间距，不能直接用）。
-      final dx = _prefixAdvance(
+      final dx =
+          _prefixAdvance(
             text,
             mark.index,
             baseStyle,
@@ -2100,15 +2479,10 @@ abstract final class TextLayoutEngine {
         } else {
           final metrics = _fontBoxMetrics(baseStyle, textScaleFactor);
           final fontBoxHeight = metrics.ascent + metrics.descent;
-          final halfLeading = math.max(
-            0.0,
-            (line.height - fontBoxHeight) / 2,
-          );
-          final sink = math.min(
-            contentHeight,
-            halfLeading + metrics.descent,
-          );
-          ascent = spec.marginTop + (contentHeight - sink) - spec.baselineOffset;
+          final halfLeading = math.max(0.0, (line.height - fontBoxHeight) / 2);
+          final sink = math.min(contentHeight, halfLeading + metrics.descent);
+          ascent =
+              spec.marginTop + (contentHeight - sink) - spec.baselineOffset;
           descent = math.max(0.0, boxHeight - ascent);
         }
       }
@@ -2146,10 +2520,7 @@ abstract final class TextLayoutEngine {
       }
       final baseAscent = lines[i].baseline - lines[i].top;
       heights[i] = math.max(lines[i].height, boxHeight);
-      ascents[i] = math.min(
-        heights[i],
-        math.max(baseAscent, boxAscent),
-      );
+      ascents[i] = math.min(heights[i], math.max(baseAscent, boxAscent));
     }
     var grown = false;
     for (var i = 0; i < lines.length; i++) {
@@ -2814,12 +3185,13 @@ abstract final class TextLayoutEngine {
     double maxWidth,
     List<StyledRun> runs, {
     bool isRtl = false,
+    double bottomOverflow = 0,
   }) {
     var maxLineWidth = 0.0;
     for (final line in lines) {
       maxLineWidth = math.max(maxLineWidth, line.width);
     }
-    final height = lines.isEmpty ? 0.0 : lines.last.bottom;
+    final height = lines.isEmpty ? 0.0 : lines.last.bottom + bottomOverflow;
     return TextLayoutResult(
       text: text,
       lines: List<LineBox>.unmodifiable(lines),
@@ -2912,15 +3284,14 @@ abstract final class TextLayoutEngine {
     color: style.color,
   );
 
-  static TextDecorationStyle _decorationStyle(
-    CssTextDecorationStyle value,
-  ) => switch (value) {
-    CssTextDecorationStyle.solid => TextDecorationStyle.solid,
-    CssTextDecorationStyle.double => TextDecorationStyle.double,
-    CssTextDecorationStyle.dotted => TextDecorationStyle.dotted,
-    CssTextDecorationStyle.dashed => TextDecorationStyle.dashed,
-    CssTextDecorationStyle.wavy => TextDecorationStyle.wavy,
-  };
+  static TextDecorationStyle _decorationStyle(CssTextDecorationStyle value) =>
+      switch (value) {
+        CssTextDecorationStyle.solid => TextDecorationStyle.solid,
+        CssTextDecorationStyle.double => TextDecorationStyle.double,
+        CssTextDecorationStyle.dotted => TextDecorationStyle.dotted,
+        CssTextDecorationStyle.dashed => TextDecorationStyle.dashed,
+        CssTextDecorationStyle.wavy => TextDecorationStyle.wavy,
+      };
 
   static TextDecoration _decoration(CssTextDecoration value) => switch (value) {
     CssTextDecoration.none => TextDecoration.none,

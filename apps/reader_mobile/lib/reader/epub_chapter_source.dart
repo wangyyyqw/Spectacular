@@ -1498,7 +1498,12 @@ class EpubChapterSource
           if (selector.isEmpty) continue;
           final parsed = SelectorParser.parse(selector);
           if (parsed.selectors.isNotEmpty) {
-            result.add((selectors: parsed, declarations: rule.declarations));
+            result.add((
+              selectors: parsed,
+              declarations: rule.declarations,
+              selectorText: selector,
+              media: rule.media,
+            ));
           }
         }
       }
@@ -2818,6 +2823,39 @@ class EpubChapterSource
           viewportWidth: contentWidth,
         );
       });
+    }
+
+    /// 伪元素自身声明参与级联；其默认样式继承生成它的元素。
+    ComputedStyle pseudoStyleFor(
+      List<SelectorElement> ancestors,
+      ComputedStyle parent,
+      String pseudo,
+    ) {
+      if (ancestors.isEmpty) {
+        return parent;
+      }
+      final rules = <CascadeRule>[
+        for (final (index, rule)
+            in (pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]).indexed)
+          CascadeRule(
+            rule: CssRule(
+              selector: rule.selectorText,
+              declarations: rule.declarations,
+              media: rule.media,
+            ),
+            origin: CascadeOrigin.author,
+            order: index,
+          ),
+      ];
+      return Cascade.compute(
+        element: ancestors.last,
+        ancestors: ancestors.sublist(0, ancestors.length - 1),
+        rules: rules,
+        parent: parent,
+        rootFontSize: style.fontSize,
+        containingWidth: _textWidthFor(parent),
+        viewportWidth: contentWidth,
+      );
     }
 
     CssDisplay inlineDisplay(InlineNode node, List<MarkSubject> ancestors) {
@@ -4608,17 +4646,19 @@ class EpubChapterSource
               end: paragraphText.length,
               tag: 'q',
               classes: const <String>[],
-              chain: ancestors.map((element) {
-                final classes = (element.attributes['class'] ?? '')
-                    .split(RegExp(r'\s+'))
-                    .where((value) => value.isNotEmpty)
-                    .toSet();
-                return MarkSubject(
-                  tag: element.tag.toLowerCase(),
-                  classes: classes,
-                  attributes: element.attributes,
-                );
-              }).toList(growable: false),
+              chain: ancestors
+                  .map((element) {
+                    final classes = (element.attributes['class'] ?? '')
+                        .split(RegExp(r'\s+'))
+                        .where((value) => value.isNotEmpty)
+                        .toSet();
+                    return MarkSubject(
+                      tag: element.tag.toLowerCase(),
+                      classes: classes,
+                      attributes: element.attributes,
+                    );
+                  })
+                  .toList(growable: false),
             ),
           for (final mark in paragraphMarks)
             if (mark.tag.toLowerCase() == 'q' && mark.end > mark.start) mark,
@@ -4629,11 +4669,11 @@ class EpubChapterSource
           if (blockStyle.quotes is CssQuotesNone) {
             continue;
           }
-          final depth = quoteMarks
+          final depth =
+              quoteMarks
                   .where(
                     (other) =>
-                        other.start <= mark.start &&
-                        other.end >= mark.end,
+                        other.start <= mark.start && other.end >= mark.end,
                   )
                   .length -
               1;
@@ -4786,6 +4826,26 @@ class EpubChapterSource
           }
         }
         var runs = resolveInlineRuns(paragraphMarks, inlineContext);
+        if (pseudoPrefix.isNotEmpty) {
+          runs = [
+            StyledRun(
+              start: 0,
+              end: pseudoPrefix.length,
+              style: pseudoStyleFor(ancestors, blockStyle, '::before'),
+            ),
+            ...runs,
+          ];
+        }
+        if (pseudoSuffix.isNotEmpty) {
+          runs = [
+            ...runs,
+            StyledRun(
+              start: paragraphText.length - pseudoSuffix.length,
+              end: paragraphText.length,
+              style: pseudoStyleFor(ancestors, blockStyle, '::after'),
+            ),
+          ];
+        }
         // 行内图片（P9-06）：占位符 → 书内图片路径 + 书籍 CSS 尺寸。
         final inlineImages = <InlineImageSpec>[];
         if (paragraphImages.isNotEmpty) {
@@ -5619,6 +5679,8 @@ typedef _InlineStyleContext = ({
 typedef _AuxiliaryCssRule = ({
   SelectorList selectors,
   List<CssDeclaration> declarations,
+  String selectorText,
+  String? media,
 });
 
 /// `<q>` 生成的单个引号，用于同步扩写文本并重映射行内偏移。
