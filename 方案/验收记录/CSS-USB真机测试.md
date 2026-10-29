@@ -357,8 +357,14 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 未配对 7 个块；20 个用例的视觉差异超过 2%，复核归因于字体栅格、断行和
 分页介质差异，不记为 CSS 引擎缺陷。
 
+继续复核 `72-object-fit-position` 时发现封面缩放沿用最近邻采样，Chrome 的
+`image-rendering: auto` 则使用平滑采样，导致图片边缘出现整数像素硬接缝。
+背景图绘制改为中等质量采样后，该用例从 4.32% 降至 3.11%，几何/样式失配
+保持 0。最终回归：`reader_core` 1209 项通过、3 项跳过，`reader_ui` 146 项
+通过，`reader_mobile` 360 项通过、5 项跳过，三个模块静态检查无问题。
+
 Release APK 已在上述修复后重新构建并移至下载目录：
 `/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
 大小 88,724,656 字节（约 84.6 MiB），SHA-256
-`b606f0fc67ef23cd8836208aef829cfe90de3985055646afcdbc989d3d2d441f`；
+`36587e216ebaa0b74b03445d029dca11a639b8e143b5765093d365a77b39fcb9`；
 包名 `com.spectacular.reader_mobile`，版本 `1.0.0+1`。
