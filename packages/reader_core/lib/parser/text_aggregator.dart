@@ -138,6 +138,43 @@ class TextContentNode implements TextBlockNode {
   final int end;
 }
 
+/// 章节源可在聚合前按作者样式修正行内元素的块边界；缺省保持 UA 行为。
+typedef InlineDisplayResolver = CssDisplay Function(
+  InlineNode node,
+  List<MarkSubject> ancestors,
+);
+
+/// 行内元素产生的块及其被跨过的行内祖先，供布局恢复原选择器与继承链。
+/// 这是聚合树的结构信息，不改变作者属性或原始 CFI。
+class PromotedBlockNode extends BlockNode {
+  PromotedBlockNode(BlockNode block, List<InlineNode> ancestors)
+    : inlineAncestors = List.unmodifiable(ancestors),
+      super(
+        tag: block.tag,
+        display: block.display,
+        children: block.children,
+        cfi: block.cfi,
+        attributes: block.attributes,
+        start: block.start,
+        end: block.end,
+        containerChain: block.containerChain,
+      );
+
+  final List<InlineNode> inlineAncestors;
+}
+
+class _OpenInlineMark {
+  _OpenInlineMark(this.node, this.ancestors, this.start);
+  final InlineNode node;
+  final List<MarkSubject> ancestors;
+  int start;
+}
+
+class _OpenRuby {
+  _OpenRuby(this.start);
+  int start;
+}
+
 /// `white-space` 在聚合阶段的行为（§65、CSS Text 3）。
 class _WhiteSpaceMode {
   const _WhiteSpaceMode({
@@ -183,28 +220,25 @@ abstract final class TextAggregator {
   /// 记录样式标记的标签（真实书适配）：这些标签的行内元素即使无 class
   /// 也产标记（UA 语义样式：粗斜体/上下标/删除线等）。
   static const _styleMarkTags = <String>{
-    'b', 'strong', 'em', 'i', 'u', 's', 'strike', 'del', 'ins',
-    'code', 'sub', 'sup', 'small', 'big', 'mark', 'font', 'cite', 'q',
+    'b',
+    'strong',
+    'em',
+    'i',
+    'u',
+    's',
+    'strike',
+    'del',
+    'ins',
+    'code',
+    'sub',
+    'sup',
+    'small',
+    'big',
+    'mark',
+    'font',
+    'cite',
+    'q',
   };
-
-  /// 行内子树纯文本（P8-08：rt/rtc 注音捕获用）。
-  static String inlineTextOf(EpubNode node) {
-    final buffer = StringBuffer();
-    void walk(EpubNode value) {
-      if (value is ParsedText) {
-        buffer.write(value.text);
-      } else if (value is InlineNode) {
-        for (final child in value.children) {
-          walk(child);
-        }
-      } else if (value is TextBlockNode) {
-        buffer.write(value.text);
-      }
-    }
-
-    walk(node);
-    return buffer.toString();
-  }
 
   /// 聚合一个章节。
   ///
@@ -212,10 +246,12 @@ abstract final class TextAggregator {
   static BlockDocument aggregate(
     BlockDocument document, {
     CssWhiteSpace whiteSpace = CssWhiteSpace.normal,
+    InlineDisplayResolver? inlineDisplay,
   }) {
     final root = _aggregateBlock(
       document.root,
       mode: _WhiteSpaceMode.from(whiteSpace),
+      inlineDisplay: inlineDisplay,
     );
     return BlockDocument(
       spineIndex: document.spineIndex,
@@ -228,6 +264,7 @@ abstract final class TextAggregator {
     BlockNode block, {
     required _WhiteSpaceMode mode,
     List<MarkSubject> chain = const <MarkSubject>[],
+    InlineDisplayResolver? inlineDisplay,
   }) {
     // `<pre>` 标签自带 `white-space: pre` 的 UA 语义。
     final effective = block.tag == 'pre' ? _WhiteSpaceMode.pre : mode;
@@ -248,15 +285,88 @@ abstract final class TextAggregator {
       fallbackEnd: block.end,
     );
     final children = <EpubNode>[];
+    final activeInline = <InlineNode>[];
+    final activeMarks = <_OpenInlineMark>[];
+    final activeRubies = <_OpenRuby>[];
 
     void flush() {
+      // 块边界会清空累积器；跨边界的外层行内标记须分别覆盖前后片段。
+      for (final ruby in activeRubies.reversed) {
+        accumulator.closeRuby(ruby.start);
+      }
+      for (final mark in activeMarks.reversed) {
+        accumulator.closeMark(mark.start, mark.node, mark.ancestors);
+      }
       final content = accumulator.take();
       if (content != null) {
         children.add(content);
       }
+      for (final mark in activeMarks) {
+        mark.start = 0;
+      }
+      for (final ruby in activeRubies) {
+        ruby.start = 0;
+      }
+    }
+
+    String hiddenAwareInlineText(InlineNode node, List<MarkSubject> ancestors) {
+      final buffer = StringBuffer();
+      void visitInlineText(InlineNode current, List<MarkSubject> chain) {
+        final display = inlineDisplay?.call(current, chain);
+        if (display == CssDisplay.none) return;
+        final childChain = <MarkSubject>[
+          ...chain,
+          MarkSubject(
+            tag: current.tag,
+            attributes: current.attributes,
+            classes: (current.attributes['class'] ?? '')
+                .split(RegExp(r'\s+'))
+                .where((c) => c.isNotEmpty)
+                .toSet(),
+          ),
+        ];
+        for (final child in current.children) {
+          if (child is ParsedText) {
+            buffer.write(child.text);
+          } else if (child is TextBlockNode) {
+            buffer.write(child.text);
+          } else if (child is InlineNode) {
+            visitInlineText(child, childChain);
+          }
+        }
+      }
+
+      visitInlineText(node, ancestors);
+      return buffer.toString();
     }
 
     void visitInline(InlineNode node, List<MarkSubject> ancestors) {
+      final display = inlineDisplay?.call(node, ancestors);
+      if (display == CssDisplay.none) return;
+      if (display == CssDisplay.block) {
+        flush();
+        final promoted = BlockNode(
+          tag: node.tag,
+          display: DisplayMode.block,
+          children: node.children,
+          cfi: node.cfi,
+          attributes: node.attributes,
+          start: node.start,
+          end: node.end,
+        );
+        children.add(
+          PromotedBlockNode(
+            _aggregateBlock(
+              promoted,
+              mode: effective,
+              chain: ancestors,
+              inlineDisplay: inlineDisplay,
+            ),
+            activeInline,
+          ),
+        );
+        return;
+      }
       if (node.tag == 'br') {
         accumulator.addBreak();
         return;
@@ -268,16 +378,23 @@ abstract final class TextAggregator {
         return;
       }
       if (node.tag == 'rt' || node.tag == 'rtc') {
-        accumulator.captureRubyText(inlineTextOf(node));
+        accumulator.captureRubyText(hiddenAwareInlineText(node, ancestors));
         return;
       }
-      final rubyStart = node.tag == 'ruby' ? accumulator.openMark() : -1;
+      final ruby = node.tag == 'ruby'
+          ? _OpenRuby(accumulator.openMark())
+          : null;
+      if (ruby != null) activeRubies.add(ruby);
       // 行内样式标记：带属性的元素与已知样式标签记录
       // 区间（含祖先链），样式解析由章节源按作者 CSS 完成。
       final markable =
-          node.attributes.isNotEmpty ||
-          _styleMarkTags.contains(node.tag);
+          node.attributes.isNotEmpty || _styleMarkTags.contains(node.tag);
       final markStart = markable ? accumulator.openMark() : -1;
+      final openMark = markable
+          ? _OpenInlineMark(node, ancestors, markStart)
+          : null;
+      activeInline.add(node);
+      if (openMark != null) activeMarks.add(openMark);
       if (node.tag == 'img' || node.tag == 'image') {
         accumulator.addImage(node);
       } else {
@@ -302,19 +419,27 @@ abstract final class TextAggregator {
           }
         }
       }
-      if (rubyStart >= 0) {
-        accumulator.closeRuby(rubyStart);
+      if (ruby != null) {
+        accumulator.closeRuby(ruby.start);
+        activeRubies.removeLast();
       }
       if (markable) {
-        accumulator.closeMark(markStart, node, ancestors);
+        accumulator.closeMark(openMark!.start, node, ancestors);
+        activeMarks.removeLast();
       }
+      activeInline.removeLast();
     }
 
     for (final child in block.children) {
       if (child is BlockNode) {
         flush();
         children.add(
-          _aggregateBlock(child, mode: effective, chain: subjectChain),
+          _aggregateBlock(
+            child,
+            mode: effective,
+            chain: subjectChain,
+            inlineDisplay: inlineDisplay,
+          ),
         );
       } else if (child is InlineNode) {
         // 表格列声明（P9-17）：`colgroup/col` 是纯结构元素，没有文字，
@@ -332,15 +457,19 @@ abstract final class TextAggregator {
     }
     // 折叠判定必须在 flush（take 会清空缓冲）之前做，否则缓冲已空、
     // 残留文本被误判为「只含图片占位」。
-    final imageOnly =
-        accumulator.images.length == 1 && accumulator.hasOnlyImages;
+    final onlyImage =
+        children.isEmpty &&
+            accumulator.images.length == 1 &&
+            accumulator.hasOnlyImages
+        ? accumulator.images.single.node
+        : null;
     flush();
 
     // 纯图块折叠（真实书适配）：块内唯一实质内容是一个 img/image（无
     // 其他文本、无强制换行）时，丢弃占位文本、保留图片属性（src/width/
     // height/class），产出 tag='img' 的块节点供章节源构造图片块。
-    if (imageOnly) {
-      final image = accumulator.images.single.node;
+    if (onlyImage != null) {
+      final image = onlyImage;
       return BlockNode(
         tag: 'img',
         display: DisplayMode.block,
@@ -544,9 +673,7 @@ class _TextAccumulator {
   /// 块折叠（图片属性在 InlineNode.attributes 上）。
   void addImage(InlineNode node) {
     addPlaceholder();
-    images.add(
-      InlineImageMark(offset: _buffer.length - 1, node: node),
-    );
+    images.add(InlineImageMark(offset: _buffer.length - 1, node: node));
   }
 
   /// 注音捕获（P8-08）：rt/rtc 文本不进主流，暂存待 ruby 收口。
@@ -577,32 +704,33 @@ class _TextAccumulator {
   }
 
   TextContentNode? take() {
-    if (_buffer.isEmpty) {
-      return null;
-    }
-    final text = _buffer.toString();
-    final content = TextContentNode(
-      text: text,
-      runs: List<TextRun>.unmodifiable(_runs),
-      hardBreaks: List<int>.unmodifiable(_hardBreaks),
-      inlineMarks: marks.isEmpty
-          ? const <InlineMark>[]
-          : List<InlineMark>.unmodifiable(marks),
-      rubies: rubies.isEmpty
-          ? const <RubyMark>[]
-          : List<RubyMark>.unmodifiable(rubies),
-      inlineImages: images.isEmpty
-          ? const <InlineImageMark>[]
-          : List<InlineImageMark>.unmodifiable(images),
-      cfi: _firstText?.cfi ?? fallbackCfi,
-      start: _firstText?.start ?? fallbackStart,
-      end: _lastText?.end ?? fallbackEnd,
-    );
+    final content = _buffer.isEmpty
+        ? null
+        : TextContentNode(
+            text: _buffer.toString(),
+            runs: List<TextRun>.unmodifiable(_runs),
+            hardBreaks: List<int>.unmodifiable(_hardBreaks),
+            inlineMarks: marks.isEmpty
+                ? const <InlineMark>[]
+                : List<InlineMark>.unmodifiable(marks),
+            rubies: rubies.isEmpty
+                ? const <RubyMark>[]
+                : List<RubyMark>.unmodifiable(rubies),
+            inlineImages: images.isEmpty
+                ? const <InlineImageMark>[]
+                : List<InlineImageMark>.unmodifiable(images),
+            cfi: _firstText?.cfi ?? fallbackCfi,
+            start: _firstText?.start ?? fallbackStart,
+            end: _lastText?.end ?? fallbackEnd,
+          );
     _buffer.clear();
     _runs.clear();
     _hardBreaks.clear();
     marks.clear();
     rubies.clear();
+    images.clear();
+    _pendingSpace = false;
+    _lastCodeUnit = null;
     _firstText = null;
     _lastText = null;
     return content;

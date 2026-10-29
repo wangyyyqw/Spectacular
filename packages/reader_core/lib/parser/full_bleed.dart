@@ -34,7 +34,12 @@ class FullBleedChapter {
 }
 
 /// 章节满屏判定（P3-10）：扫描块树统计图片与正文。
-FullBleedChapter analyzeFullBleed(BlockDocument document) {
+///
+/// [isRendered] 可排除被作者 CSS 隐藏的行内子树；未提供时保持纯结构判定。
+FullBleedChapter analyzeFullBleed(
+  BlockDocument document, {
+  bool Function(EpubNode node)? isRendered,
+}) {
   var imageCount = 0;
   var hasVisibleText = false;
   String? singleSrc;
@@ -43,6 +48,11 @@ FullBleedChapter analyzeFullBleed(BlockDocument document) {
   void visit(EpubNode node) {
     if (hasVisibleText && imageCount > 1) {
       return; // 已确定走普通路径，剪枝。
+    }
+    if (isRendered != null &&
+        (node is BlockNode || node is InlineNode) &&
+        !isRendered(node)) {
+      return;
     }
     if (node is BlockNode) {
       for (final child in node.children) {
@@ -54,13 +64,14 @@ FullBleedChapter analyzeFullBleed(BlockDocument document) {
       if (node.tag == 'img' || node.tag == 'image') {
         imageCount += 1;
         if (imageCount == 1) {
-          singleSrc = node.attributes['src'] ??
+          singleSrc =
+              node.attributes['src'] ??
               node.attributes['xlink:href'] ??
               node.attributes['href'] ??
               '';
           singleHasDimensions =
               (node.attributes['width']?.trim().isNotEmpty ?? false) ||
-                  (node.attributes['height']?.trim().isNotEmpty ?? false);
+              (node.attributes['height']?.trim().isNotEmpty ?? false);
         }
       }
       for (final child in node.children) {
