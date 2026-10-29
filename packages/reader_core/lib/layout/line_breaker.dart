@@ -3293,12 +3293,16 @@ abstract final class TextLayoutEngine {
         CssTextDecorationStyle.wavy => TextDecorationStyle.wavy,
       };
 
-  static TextDecoration _decoration(CssTextDecoration value) => switch (value) {
-    CssTextDecoration.none => TextDecoration.none,
-    CssTextDecoration.underline => TextDecoration.underline,
-    CssTextDecoration.lineThrough => TextDecoration.lineThrough,
-    CssTextDecoration.overline => TextDecoration.overline,
-  };
+  static TextDecoration _decoration(CssTextDecoration value) {
+    final decorations = [
+      if (value.hasUnderline) TextDecoration.underline,
+      if (value.hasLineThrough) TextDecoration.lineThrough,
+      if (value.hasOverline) TextDecoration.overline,
+    ];
+    return decorations.isEmpty
+        ? TextDecoration.none
+        : TextDecoration.combine(decorations);
+  }
 
   /// 回退链（P3-04）：声明的 fallback 经别名映射后，追加默认 CJK 链
   /// （去重，且不与主族重复）。声明链为空时返回默认链。

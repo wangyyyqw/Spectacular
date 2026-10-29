@@ -123,6 +123,29 @@ void main() {
     expect(extra.last, lessThan(glyphRows.first));
   });
 
+  test('text-decoration-line 多线组合同时画上下装饰线', () async {
+    final plain = await _render('一二三', _style());
+    final combined = await _render(
+      '一二三',
+      _style(const {'text-decoration': 'underline line-through overline'}),
+    );
+    final glyphRows = _inkRows(plain);
+    final extra = _inkRows(combined)
+        .where((row) => !glyphRows.contains(row))
+        .toList();
+
+    expect(
+      extra.any((row) => row < glyphRows.first),
+      isTrue,
+      reason: 'overline 应画在字形上方',
+    );
+    expect(
+      extra.any((row) => row > glyphRows.last),
+      isTrue,
+      reason: 'underline 应画在字形下方',
+    );
+  });
+
   test('跨页装饰不重复：每页只画本页行的下划线', () async {
     final style = _style(const {
       'text-decoration': 'underline',

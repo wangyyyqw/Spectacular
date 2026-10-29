@@ -392,6 +392,9 @@ STYLE_KEYS = (
     ('textAlign', 'textAlign', 'enum'),
     ('whiteSpace', 'whiteSpace', 'enum'),
     ('textTransform', 'textTransform', 'enum'),
+    ('textDecorationUnderline', 'textDecorationUnderline', 'bool'),
+    ('textDecorationLineThrough', 'textDecorationLineThrough', 'bool'),
+    ('textDecorationOverline', 'textDecorationOverline', 'bool'),
     ('boxSizing', 'boxSizing', 'enum'),
     ('verticalAlign', 'verticalAlign', 'enum'),
     ('outlineWidth', 'outlineWidth', 'number'),
@@ -423,6 +426,8 @@ def compare_style(browser_style, engine_style):
             equal = overflow_clips(browser_style) == (
                 str(right).strip().lower() not in ('', 'visible', 'none')
             )
+        elif kind == 'bool':
+            equal = bool(left) == bool(right)
         elif kind == 'number':
             if str(left).strip().endswith('%') or str(right).strip().endswith('%'):
                 # 浏览器 computed 对部分属性保留百分比（如 text-indent:10%），
