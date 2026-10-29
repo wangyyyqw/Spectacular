@@ -407,9 +407,20 @@ class PageBlock {
       return blocks;
     }
     final result = <PageBlock>[blocks.first];
+    int? previousFlowIndex = blocks.first.absolute ? null : 0;
     for (var i = 1; i < blocks.length; i++) {
-      final previous = result[i - 1];
       final current = blocks[i];
+      // 绝对/固定定位不占流，不能参与相邻块 margin 折叠。
+      if (current.absolute) {
+        result.add(current);
+        continue;
+      }
+      if (previousFlowIndex == null) {
+        result.add(current);
+        previousFlowIndex = i;
+        continue;
+      }
+      final previous = result[previousFlowIndex];
       // 容器边界处的段距属于盒内留白，不能穿过边框/内边距与外部块折叠。
       final containerBoundary =
           previous.containers.any(
@@ -428,9 +439,10 @@ class PageBlock {
           );
       if (previous.spaceAfter == 0 || containerBoundary) {
         result.add(current);
+        previousFlowIndex = i;
         continue;
       }
-      result[i - 1] = previous.withSpacing(spaceAfter: 0);
+      result[previousFlowIndex] = previous.withSpacing(spaceAfter: 0);
       result.add(
         current.withSpacing(
           spaceBefore: collapseMargins(
@@ -439,6 +451,7 @@ class PageBlock {
           ),
         ),
       );
+      previousFlowIndex = i;
     }
     return result;
   }
