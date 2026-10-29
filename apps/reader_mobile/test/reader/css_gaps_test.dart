@@ -140,9 +140,28 @@ void main() {
     final imageBlock = pages.first.slices.first.block;
     expect(imageBlock.bleedLeft, isTrue);
     expect(imageBlock.bleedRight, isTrue);
+    expect(imageBlock.bleedTop, isTrue, reason: 'lefttopright 含顶部');
+    expect(imageBlock.bleedBottom, isFalse);
     // 页面宽 300（正文宽 260 + 页边距 20*2），1×1 图按宽等高出血到 300；
     // 不出血时只有正文宽 260。
     expect(imageBlock.height, closeTo(300, 1.0));
+    // 出血块盒会被撑到页面边缘，图必须贴出血边而不是在盒子里居中，
+    // 否则顶部会多出一截「安全区」那样的空档。
+    expect(imageBlock.style!.values['background-position'], 'center top');
+  });
+
+  test('只左右出血时图片仍居中铺法', () async {
+    final source = await open(
+      body:
+          '<div class="wrap"><img class="pic" src="../Images/i.png"/></div>'
+          '<p>正文</p>',
+      css: '.wrap { duokan-bleed: leftright; } img.pic { width: 100%; }',
+    );
+    final pages = await source.loadChapter(0);
+    final imageBlock = pages.first.slices.first.block;
+    expect(imageBlock.bleedLeft, isTrue);
+    expect(imageBlock.bleedTop, isFalse);
+    expect(imageBlock.style!.values['background-position'], 'center center');
   });
 
   test('表格单元格读取作者 CSS 与祖先选择器（P9-16）', () async {
