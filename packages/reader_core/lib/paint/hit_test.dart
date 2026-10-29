@@ -4,6 +4,7 @@ import '../css/computed_style.dart';
 import '../layout/line_breaker.dart';
 import '../layout/paginator.dart';
 import '../layout/text_layout.dart';
+import 'line_spans.dart';
 
 /// 一行的页内几何（P4-14 命中测试输出；P4-15 选区手柄复用）。
 class PageLineBox {
@@ -106,23 +107,20 @@ abstract final class TextHitTester {
         atLineEnd: true,
       );
     }
-    final style = _styleOf(target.slice);
-    // 方向与布局层一致（RTL 段落按 rtl 测量，命中也要 rtl，否则 x 反算偏）。
-    final painter = TextPainter(
-      text: TextSpan(text: lineText, style: style),
-      textDirection: target.slice.block.layout.isRtl
-          ? TextDirection.rtl
-          : TextDirection.ltr,
-    )..layout();
+    final painter = _painterFor(target);
+    final line = target.slice.block.layout.lines[target.lineIndex];
     final local = Offset(position.dx - target.rect.left, 0);
     final atLineStart = local.dx < 0;
-    final atLineEnd = local.dx > painter.width;
-    final clampedX = local.dx.clamp(0.0, painter.width);
-    final mapped = painter.getPositionForOffset(
-      Offset(clampedX, painter.height / 2),
+    final width =
+        painter.width +
+        inlineBoxAdvanceAt(line, TextPosition(offset: lineText.length));
+    final atLineEnd = local.dx > width;
+    final charOffset = _charOffsetFor(
+      painter,
+      line,
+      local.dx.clamp(0.0, width),
     );
     painter.dispose();
-    final charOffset = mapped.offset.clamp(0, lineText.length);
     return TextHit(
       lineBox: target,
       charOffset: charOffset,
@@ -158,7 +156,7 @@ abstract final class TextHitTester {
             rect: Rect.fromLTWH(
               lineLeft,
               lineY,
-              line.width,
+              line.advanceWidth,
               line.height,
             ),
             text: text,
@@ -177,8 +175,70 @@ abstract final class TextHitTester {
     return boxes;
   }
 
-  static TextStyle _styleOf(PageBlockSlice slice) =>
-      TextLayoutEngine.textStyleFor(
-        slice.block.style ?? ComputedStyle(const <String, String>{}),
-      );
+  /// 与正文绘制共用行内字体、对齐与字距。
+  static TextPainter _painterFor(PageLineBox box) {
+    final layout = box.slice.block.layout;
+    final style = box.slice.block.style ?? ComputedStyle(const {});
+    return TextPainter(
+      text: buildLineSpan(
+        layout: layout,
+        line: layout.lines[box.lineIndex],
+        baseStyle: TextLayoutEngine.textStyleFor(style),
+        punctCompression:
+            style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent,
+        textAutospace: style.textAutospace == CssTextAutospace.normal,
+      ),
+      textDirection: layout.isRtl ? TextDirection.rtl : TextDirection.ltr,
+    )..layout();
+  }
+
+  /// 行内原文区间的局部矩形；标签不占原文字符，也不染入正文选区。
+  static List<Rect> selectionRects(PageLineBox box, int start, int end) {
+    final painter = _painterFor(box);
+    final line = box.slice.block.layout.lines[box.lineIndex];
+    final result = <Rect>[];
+    for (final part in lineTextFragments(line, start: start, end: end)) {
+      for (final rect in painter.getBoxesForSelection(
+        TextSelection(baseOffset: part.start, extentOffset: part.end),
+      )) {
+        result.add(rect.toRect().shift(Offset(part.advance, 0)));
+      }
+    }
+    painter.dispose();
+    return result;
+  }
+
+  /// 原文光标位置映射到行内坐标，边界亲和决定落在标签之前还是之后。
+  static Offset caretOffset(PageLineBox box, TextPosition position) {
+    final painter = _painterFor(box);
+    final line = box.slice.block.layout.lines[box.lineIndex];
+    final clamped = TextPosition(
+      offset: position.offset.clamp(0, box.text.length),
+      affinity: position.affinity,
+    );
+    final caret = painter.getOffsetForCaret(clamped, Rect.zero);
+    painter.dispose();
+    return caret.translate(inlineBoxAdvanceAt(line, clamped), 0);
+  }
+
+  static int _charOffsetFor(TextPainter painter, LineBox line, double x) {
+    var nearest = double.infinity;
+    var offset = 0;
+    for (final part in lineTextFragments(line)) {
+      for (final box in painter.getBoxesForSelection(
+        TextSelection(baseOffset: part.start, extentOffset: part.end),
+      )) {
+        final left = box.left + part.advance;
+        final right = box.right + part.advance;
+        final distance = x < left ? left - x : (x > right ? x - right : 0.0);
+        if (distance >= nearest) continue;
+        nearest = distance;
+        offset = painter
+            .getPositionForOffset(Offset(x - part.advance, painter.height / 2))
+            .offset
+            .clamp(part.start, part.end);
+      }
+    }
+    return offset;
+  }
 }

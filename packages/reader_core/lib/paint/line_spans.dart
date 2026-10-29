@@ -7,6 +7,47 @@ import '../layout/line_breaker.dart';
 import '../layout/punct_trim.dart';
 import '../layout/text_layout.dart';
 
+/// 原文位置之前的行内盒占宽；同位置多个盒累加，不向原文插入字符。
+/// 起点贴盒后（downstream），终点贴盒前（upstream）。
+double inlineBoxAdvanceAt(LineBox line, TextPosition position) {
+  var advance = 0.0;
+  for (final box in line.inlineBoxes) {
+    final offset = box.offset - line.start;
+    if (offset < position.offset ||
+        (offset == position.offset &&
+            position.affinity == TextAffinity.downstream)) {
+      advance += box.spec.outerWidth;
+    }
+  }
+  return advance;
+}
+
+/// 按插入盒拆分行内原文区间，位移与绘制端一致，包含盒的左右外边距。
+/// [start]、[end] 为行内偏移；end 处的盒不属于当前半开选区。
+Iterable<({int start, int end, double advance})> lineTextFragments(
+  LineBox line, {
+  int start = 0,
+  int? end,
+}) sync* {
+  final length = line.end - line.start;
+  final from = start.clamp(0, length);
+  final until = (end ?? length).clamp(from, length);
+  final boundaries = {
+    from,
+    until,
+    for (final box in line.inlineBoxes)
+      (box.offset - line.start).clamp(from, until),
+  }.toList()..sort();
+  for (var index = 0; index < boundaries.length - 1; index++) {
+    final offset = boundaries[index];
+    yield (
+      start: offset,
+      end: boundaries[index + 1],
+      advance: inlineBoxAdvanceAt(line, TextPosition(offset: offset)),
+    );
+  }
+}
+
 /// 组装一行的 span：行内样式区间 + justify 间隙字距（P2-20）+ 标点
 /// 挤压（P7-19）。
 ///

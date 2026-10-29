@@ -1,0 +1,116 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/paint/hit_test.dart';
+
+final _style = ComputedStyle({'font-size': '16px', 'font-family': 'Ahem'});
+
+PageContent _page({
+  List<StyledRun> runs = const [],
+  List<InlineBoxSpec> boxes = const [],
+  String text = 'ABCD',
+}) {
+  final layout = TextLayoutEngine.layout(
+    text: text,
+    style: _style,
+    maxWidth: 300,
+    runs: runs,
+    inlineBoxes: boxes,
+  );
+  return Paginator(pageHeight: 200)
+      .measureChapter(
+        blocks: [PageBlock(layout: layout, style: _style)],
+      )
+      .pages
+      .single;
+}
+
+void main() {
+  test('混合字号命中保留行内样式，不按段落字号估算', () {
+    final page = _page(
+      runs: [
+        StyledRun(
+          start: 0,
+          end: 1,
+          style: ComputedStyle({'font-size': '48px'}, parent: _style),
+        ),
+      ],
+    );
+    expect(TextHitTester.hitTest(page, const Offset(50, 10))!.charOffset, 1);
+  });
+
+  test('前置标签之后正文命中仍返回原文偏移', () {
+    final page = _page(
+      boxes: const [InlineBoxSpec(offset: 0, width: 40, height: 20)],
+    );
+    final hit = TextHitTester.hitTest(page, const Offset(42, 10))!;
+    expect(hit.charOffset, 0);
+    expect(hit.textOffset, 0);
+    expect(hit.atLineEnd, isFalse);
+  });
+
+  test('行中标签和左右外边距占宽，不占正文字符数', () {
+    final page = _page(
+      boxes: const [
+        InlineBoxSpec(
+          offset: 2,
+          width: 40,
+          height: 20,
+          marginLeft: 5,
+          marginRight: 5,
+        ),
+      ],
+    );
+    final hit = TextHitTester.hitTest(page, const Offset(84, 10))!;
+    expect(hit.charOffset, 2);
+    expect(hit.atLineEnd, isFalse);
+  });
+
+  test('标签后上下标仍按自身字号计算横向命中与选区', () {
+    final page = _page(
+      boxes: const [InlineBoxSpec(offset: 0, width: 20, height: 20)],
+      runs: [
+        StyledRun(
+          start: 1,
+          end: 2,
+          baselineShift: -6,
+          style: ComputedStyle({'font-size': '8px'}, parent: _style),
+        ),
+      ],
+    );
+    expect(TextHitTester.hitTest(page, const Offset(46, 10))!.charOffset, 2);
+    final box = TextHitTester.lineBoxes(page).single;
+    final rect = TextHitTester.selectionRects(box, 1, 2).single;
+    expect((rect.left, rect.right), (36.0, 44.0));
+  });
+
+  test('两端对齐命中包含分配到字间的留白', () {
+    final layout = TextLayoutResult(
+      text: '甲乙丙',
+      width: 96,
+      maxWidth: 96,
+      height: 24,
+      lines: const [
+        LineBox(
+          start: 0,
+          end: 3,
+          top: 0,
+          height: 24,
+          baseline: 16,
+          width: 48,
+          justifyExtra: 48,
+        ),
+      ],
+    );
+    final page = Paginator(pageHeight: 100)
+        .measureChapter(
+          blocks: [PageBlock(layout: layout, style: _style)],
+        )
+        .pages
+        .single;
+    expect(TextHitTester.hitTest(page, const Offset(42, 10))!.charOffset, 1);
+    expect(TextHitTester.lineBoxes(page).single.rect.width, 96);
+  });
+}
