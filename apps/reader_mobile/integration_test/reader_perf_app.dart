@@ -92,14 +92,7 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
   await _until(() => _bookTile() != null);
   final watch = Stopwatch()..start();
   _bookTile()!.onTap!();
-  await _readable(29);
-  final textMs = watch.elapsedMilliseconds;
-  await _imagesReady();
-  _results['open_$round'] = {
-    'text_ms': textMs,
-    'images_ms': watch.elapsedMilliseconds,
-    'spine': 29,
-  };
+  _results['open_$round'] = await _sample(watch, 29);
   await _send('sample', _results);
   if (round != 0) return;
   for (final spine in [
@@ -131,14 +124,39 @@ Future<void> _jump(int spine) async {
       .entry;
   final watch = Stopwatch()..start();
   toc.onSelect(entry);
+  _results['jump_$spine'] = await _sample(watch, spine);
+  await _send('sample', _results);
+}
+
+Future<Map<String, Object>> _sample(Stopwatch watch, int spine) async {
   await _readable(spine);
   final textMs = watch.elapsedMilliseconds;
   await _imagesReady();
-  _results['jump_$spine'] = {
+  final imagesMs = watch.elapsedMilliseconds;
+  // 首帧可能仍处于 AnimatedSwitcher 淡入，另记录完全显示后的时间。
+  await _until(() => _fullyVisible(spine));
+  await WidgetsBinding.instance.endOfFrame;
+  return {
     'text_ms': textMs,
-    'images_ms': watch.elapsedMilliseconds,
+    'images_ms': imagesMs,
+    'complete_ms': watch.elapsedMilliseconds,
+    'spine': spine,
   };
-  await _send('sample', _results);
+}
+
+bool _fullyVisible(int spine) {
+  final element = _findElement(
+    (widget) =>
+        widget is ReaderSemanticsLayer && widget.page.spineIndex == spine,
+  );
+  if (element == null) return false;
+  var visible = true;
+  element.visitAncestorElements((ancestor) {
+    final widget = ancestor.widget;
+    if (widget is FadeTransition && widget.opacity.value < 1) visible = false;
+    return visible;
+  });
+  return visible;
 }
 
 Future<void> _readable(int spine) async {
@@ -174,10 +192,14 @@ Future<void> _imagesReady() async {
 }
 
 T? _find<T extends Widget>(bool Function(T) predicate) {
-  T? result;
+  return _findElement((widget) => widget is T && predicate(widget))?.widget
+      as T?;
+}
+
+Element? _findElement(bool Function(Widget) predicate) {
+  Element? result;
   void visit(Element element) {
-    final widget = element.widget;
-    if (widget is T && predicate(widget)) result = widget;
+    if (predicate(element.widget)) result = element;
     element.visitChildren(visit);
   }
 
