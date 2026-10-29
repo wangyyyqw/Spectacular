@@ -158,3 +158,20 @@ Release APK 构建通过，手机正式版使用 `adb install -r` 覆盖更新�
 本轮先由真机发现字号覆盖后的相对继承错误，再补17/22字号回归修复，未放宽失败断言。
 Release版本采用保留数据的覆盖安装。边框斜接参考
 [W3C 边框颜色与样式过渡](https://www.w3.org/TR/css-backgrounds-3/#corner-transitions)。
+
+## 用户截图定点复核：吊命与第二神
+
+用户提供的20:27、20:28截图早于 `097c163` 修复版安装。本轮以相同原书复查具体位置，
+新增专项回归，未再修改生产渲染代码。
+
+- 第三章“吊命”（spine 29）：17/22px 设置下标签分别13.6/17.6px，颜色为
+  `#9bb0d1`，右距5px，完整单盒占宽；手机原生截图确认标签与后文无重叠、无基线错位。
+- 第四章“正神”的〖繁荣〗（spine 30）：`生命命途 · 第二神` 只有一个行内盒和一圈
+  外框，原书未定义内部竖线。旧版按文字片段重复画边框，现独立盒路径已消除。
+- 真机三项场景通过，约122秒；第四章10页，目标在第8页。正式 APK 的 SHA-256
+  与已验证release一致，测试前后正式应用安装路径不变。
+
+本地证据：`/tmp/spectacular-targeted-css/chapter3-diaoming.png`、
+`/tmp/spectacular-targeted-css/chapter4-fanrong.png`、同目录 `report.json`；
+日志 `/tmp/spectacular-targeted-css.log`。离屏复核亦确认标签金色长竖线仅存在于左右外边。
+本轮仅验收这两个具体位置，之前全量CSS对照的残余差异仍按上节记录保留。
