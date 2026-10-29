@@ -63,6 +63,28 @@ Uint8List _book(String body, String css) {
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
 
+/// 解码用例中的 data:image 资源，供 PagePainter 与浏览器同源对照。
+Future<Map<String, ui.Image>> _loadDataImages(String source) async {
+  final urls = RegExp(r'data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+')
+      .allMatches(source)
+      .map((match) => match.group(0)!)
+      .toSet();
+  final images = <String, ui.Image>{};
+  for (final url in urls) {
+    final comma = url.indexOf(',');
+    if (comma < 0) {
+      continue;
+    }
+    final codec = await ui.instantiateImageCodec(
+      base64Decode(url.substring(comma + 1)),
+    );
+    final frame = await codec.getNextFrame();
+    images[url] = frame.image;
+    codec.dispose();
+  }
+  return images;
+}
+
 Map<String, Object?> _color(Color? color) => color == null
     ? <String, Object?>{}
     : <String, Object?>{
@@ -603,6 +625,9 @@ void main() {
       // 单个用例失败（引擎异常/渲染崩溃）不中断整批：写入带 error 的
       // engine_<name>.json，让 compare 报「缺少数据」，最后统一失败。
       try {
+        final dataImages = await _loadDataImages(
+          '${caseData['css']}\n${caseData['html']}',
+        );
         final source = await EpubChapterSource.open(
           _book(caseData['html']! as String, caseData['css']! as String),
           contentWidth: _width,
@@ -635,6 +660,7 @@ void main() {
         PagePainter(
           background: const Color(0xFFFFFFFF),
           textColor: const Color(0xFF000000),
+          imageLookup: (url) => dataImages[url],
         ).paint(
           Canvas(recorder),
           page,
@@ -648,6 +674,9 @@ void main() {
         File('${outDir.path}/engine_$name.png')
             .writeAsBytesSync(png!.buffer.asUint8List());
         image.dispose();
+        for (final dataImage in dataImages.values) {
+          dataImage.dispose();
+        }
         // ignore: avoid_print
         print('ok $name pages=${pages.length} blocks=${page.slices.length}');
       } catch (error) {

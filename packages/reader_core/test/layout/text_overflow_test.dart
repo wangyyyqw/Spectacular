@@ -76,6 +76,66 @@ void main() {
     }
   });
 
+  test('break-word 超宽词先整体换到下一行，再从新行逐字断开', () {
+    const text = 'pre ABCDEFGHIJK';
+    final layout = TextLayoutEngine.layout(
+      text: text,
+      style: _style(const {
+        'white-space': 'normal',
+        'overflow-wrap': 'break-word',
+        'text-overflow': 'clip',
+      }),
+      maxWidth: 80,
+    );
+    expect(layout.lineCount, greaterThan(1));
+    expect(layout.lines.first.end, text.indexOf('A'));
+    expect(
+      layout.text.substring(layout.lines.first.start, layout.lines.first.end),
+      'pre ',
+    );
+    expect(
+      layout.text.substring(layout.lines[1].start, layout.lines[1].end),
+      startsWith('A'),
+    );
+  });
+
+  test('break-word 复合词优先在连字符处分段，再对超宽段逐字断开', () {
+    const text = 'pre abcdefghij-abcdefghij';
+    final layout = TextLayoutEngine.layout(
+      text: text,
+      style: _style(const {
+        'white-space': 'normal',
+        'overflow-wrap': 'break-word',
+        'text-overflow': 'clip',
+      }),
+      maxWidth: 80,
+    );
+    final tailStart = text.indexOf('-') + 1;
+    expect(
+      layout.lines.any((line) => line.start == tailStart),
+      isTrue,
+      reason: '第二段超宽词也应从新行开始，而不是占用连字符后的余宽',
+    );
+  });
+
+  test('break-all 不套用 break-word 的整词换行，继续吃当前行余宽', () {
+    const text = 'pre ABCDEFGHIJK';
+    final layout = TextLayoutEngine.layout(
+      text: text,
+      style: _style(const {
+        'white-space': 'normal',
+        'word-break': 'break-all',
+        'text-overflow': 'clip',
+      }),
+      maxWidth: 80,
+    );
+    expect(layout.lines.first.end, greaterThan(text.indexOf('A')));
+    expect(
+      layout.text.substring(layout.lines.first.start, layout.lines.first.end),
+      'pre A',
+    );
+  });
+
   test('ellipsis 参与 justify 前测量：截断行不产生 justify 拉伸', () {
     const text = 'abcdefghijklmnopqrst';
     final layout = TextLayoutEngine.layout(

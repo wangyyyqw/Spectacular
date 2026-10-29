@@ -471,23 +471,47 @@ class StyledRun {
 
 /// 按制表位展开制表符（CSS Text 3 `tab-size`）：每遇到 `\t` 补齐到下一个
 /// `tabSize` 列，换行后列计数归零。
-String expandTabs(String text, int tabSize) {
+///
+/// 传入 [measureWidth] 与 [spaceWidth] 时按实际字形宽度计算制表位，避免把
+/// 比例字体的制表符错误地当成 `tabSize` 个固定空格。
+String expandTabs(
+  String text,
+  int tabSize, {
+  double Function(String prefix)? measureWidth,
+  double? spaceWidth,
+}) {
   if (tabSize <= 0 || !text.contains('\t')) {
     return text;
   }
   final buffer = StringBuffer();
+  final line = StringBuffer();
   var column = 0;
+  final measuredTabs =
+      measureWidth != null && spaceWidth != null && spaceWidth > 0;
+  final tabStopWidth = measuredTabs ? tabSize * spaceWidth : 0.0;
   for (final rune in text.runes) {
     final char = String.fromCharCode(rune);
     if (char == '\t') {
-      final spaces = tabSize - (column % tabSize);
+      int spaces;
+      if (measuredTabs) {
+        final currentWidth = measureWidth(line.toString());
+        final nextStop =
+            (currentWidth / tabStopWidth + 1e-9).floor() * tabStopWidth +
+            tabStopWidth;
+        spaces = math.max(1, ((nextStop - currentWidth) / spaceWidth).round());
+      } else {
+        spaces = tabSize - (column % tabSize);
+      }
       buffer.write(' ' * spaces);
+      line.write(' ' * spaces);
       column += spaces;
     } else if (char == '\n') {
       buffer.write(char);
+      line.clear();
       column = 0;
     } else {
       buffer.write(char);
+      line.write(char);
       column += 1;
     }
   }
@@ -804,7 +828,17 @@ abstract final class TextLayoutEngine {
         runs.isEmpty &&
         inlineBoxes.isEmpty &&
         style.tabSize > 0) {
-      text = expandTabs(text, style.tabSize);
+      text = expandTabs(
+        text,
+        style.tabSize,
+        measureWidth: (prefix) => _measureTextWidth(
+          prefix,
+          style,
+          textScaleFactor,
+          leadingDistribution,
+        ),
+        spaceWidth: _measureChar(' ', style, textScaleFactor),
+      );
     }
     // 内容宽恒为「有限」值，用于缩进/对齐/诊断；软换行关闭时只把 TextPainter
     // 的排版宽放开到无限，让整段排成一行（硬换行仍生效）。
@@ -987,6 +1021,10 @@ abstract final class TextLayoutEngine {
     }
     // 断点：原文下标 → 是否带连字符（key 是「断在该下标之前」）。
     final breaks = <int, bool>{};
+    // `break-word` 的紧急断点不能在当前行有余宽时直接吃掉词头。浏览器会
+    // 先尝试把整个词移到下一行，只有从新行起点仍放不下才逐字断开；这里在
+    // 超宽词前加硬换行，模拟第一步的整词换行。
+    final forcedWordBreaks = <int>{};
     var index = 0;
     while (index < text.length) {
       final code = text.codeUnitAt(index);
@@ -996,14 +1034,19 @@ abstract final class TextLayoutEngine {
           index += 1;
         }
         final word = text.substring(start, index);
+        final longWord =
+            breakLongWord &&
+            _wordWidth(word, style, textScaleFactor) > contentWidth;
+        if (longWord &&
+            !breakAnywhere &&
+            _hasContentOnCurrentLine(text, start)) {
+          forcedWordBreaks.add(start);
+        }
         for (final offset in _wordBreakOffsets(
           word,
           autoHyphen: autoHyphen,
           breakAnywhere: breakAnywhere,
-          breakLongWord: breakLongWord,
-          contentWidth: contentWidth,
-          style: style,
-          textScaleFactor: textScaleFactor,
+          breakLongWord: longWord,
         )) {
           breaks[start + offset] = autoHyphen && !breakAnywhere;
         }
@@ -1025,6 +1068,10 @@ abstract final class TextLayoutEngine {
     final hyphenPoints = <int>{};
     for (var p = 0; p < text.length; p++) {
       final isSoftHyphen = text.codeUnitAt(p) == 0x00AD;
+      if (forcedWordBreaks.contains(p)) {
+        buffer.write('\n');
+        offsets.add(p);
+      }
       if (breaks.containsKey(p)) {
         // 软连字符位本身用它换掉（零宽），其余位置插入 ZWSP。
         buffer.write('\u200B');
@@ -1060,15 +1107,28 @@ abstract final class TextLayoutEngine {
     );
   }
 
+  /// 原文 [index] 之前、同一个逻辑行上是否已有非空白内容。
+  ///
+  /// 显式换行之后（或段落开头）无需再插入整词换行，否则会多出空行。
+  static bool _hasContentOnCurrentLine(String text, int index) {
+    for (var i = index - 1; i >= 0; i--) {
+      final code = text.codeUnitAt(i);
+      if (code == 0x0A || code == 0x0D) {
+        return false;
+      }
+      if (code != 0x20 && code != 0x09 && code != 0x0C) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// 拉丁词内部的断点（相对词首的下标）：「断在该下标之前」。
   static List<int> _wordBreakOffsets(
     String word, {
     required bool autoHyphen,
     required bool breakAnywhere,
     required bool breakLongWord,
-    required double contentWidth,
-    required ComputedStyle style,
-    required double textScaleFactor,
   }) {
     if (word.length < 4) {
       return const <int>[];
@@ -1076,7 +1136,7 @@ abstract final class TextLayoutEngine {
     if (breakAnywhere) {
       return <int>[for (var i = 1; i < word.length; i++) i];
     }
-    if (breakLongWord && _wordWidth(word, style, textScaleFactor) > contentWidth) {
+    if (breakLongWord) {
       return <int>[for (var i = 1; i < word.length; i++) i];
     }
     if (!autoHyphen) {
@@ -1110,7 +1170,11 @@ abstract final class TextLayoutEngine {
     return width;
   }
 
-  /// 拉丁字母/数字（含连字符与撇号，按整词处理）。
+  /// 拉丁字母/数字（含撇号，按整词处理）。
+  ///
+  /// 连字符不并入 token：它是正常断行机会，须优先于
+  /// `overflow-wrap: break-word` 的紧急逐字断点。复合长词因此会按连字符
+  /// 分段判断宽度，避免紧急断点抢占连字符前的位置。
   static bool _isLatinWordCode(int code) =>
       (code >= 0x41 && code <= 0x5A) ||
       (code >= 0x61 && code <= 0x7A) ||
@@ -1560,6 +1624,26 @@ abstract final class TextLayoutEngine {
       text: TextSpan(
         text: char,
         style: textStyleFor(style, leadingDistribution: TextLeadingDistribution.even),
+      ),
+      textDirection: _textDirectionOf(style),
+      textScaler: TextScaler.linear(textScaleFactor),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  /// 测量纯文本前缀宽度；用于 `tab-size` 的实际制表位计算。
+  static double _measureTextWidth(
+    String text,
+    ComputedStyle style,
+    double textScaleFactor,
+    TextLeadingDistribution leadingDistribution,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: textStyleFor(style, leadingDistribution: leadingDistribution),
       ),
       textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),

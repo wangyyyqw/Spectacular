@@ -149,9 +149,9 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   同时覆盖「空元素但有可见盒子要占位」（未配对 1 块是引擎为无文本 div 生成的
   占位块，浏览器侧没有对应元素，属预期）。
 - `70-border-3d-style`：`groove/ridge/inset/outset` 四种 3D 边框（视觉对照
-  明暗两半；`outset` 的 3px y 差是已知相邻 margin 未塌陷）。
+  明暗两半；`outset` 的 y 差来自 `line-height: normal` 的字体度量取整）。
 - `71-tab-line-break-blend`：`tab-size`（4/8）、`line-break`、`mix-blend-mode`；
-  其中 tab-size 5 项属已知差异（见「已知口径差异」8）。
+  制表位宽度已对齐；余 2 项是 `mix-blend-mode` 块受 normal 行高取整影响。
 - `66-vertical-multipage` / `67-vertical-columns` 是竖排探针：浏览器不分页，
   按 `engine_only` 只记录引擎行为，compare 会把「期望 vs 实测」并列：
   - 页内容高按引擎实际口径：页面 800 − `topPadding` 14 = **786**，16px 竖排 →
@@ -289,40 +289,41 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
    `pre`/`nowrap` 被当成 2 条永久假失配。现 dump 分开导出
    `contentWidth`/`longestLineW`/`bboxW`，块宽改用 `bboxW`；06-white-space
    几何失配从 2 降到 0。
-9. **`tab-size` 的制表位步进**：引擎把制表符按「字符列」展开成空格
-   （`tab-size: 4` → 补齐到 4 的倍数），Chrome 按「空白字符 advance ×
-   tab-size」推进到下一个制表位；前序字符宽度不等于空白宽时结果不同
-   （71 用例：浏览器 92.1/174.0、引擎 153/289）。语料 0 次引用，不追平。
+9. **`tab-size` 的制表位步进**：引擎改为按实际前缀宽与空白 advance 计算
+   下一个制表位，再展开成最接近的空格数；71 的两行宽度已从 153/289
+   收敛到 44.25/77.5（浏览器 44.0/78.8）。剩余 2 项为该用例后续
+   `mix-blend-mode` 块的位置差，不是制表位宽度差。
 
-## 待收敛（70 用例全量重跑：失配 65 项 / 10 个用例 / 未配对 3）
+## 待收敛（70 用例全量重跑：失配 37 项 / 9 个用例 / 未配对 3）
 
-> 数字来自 2026-10-27 最近一次全量重跑（render_browser + dump + compare，
+> 数字来自 2026-10-30 最近一次全量重跑（render_browser + dump + compare，
 > 引擎与审计文档都在并发改动），以 `report.md` 最新一次运行为准；
 > 归属建议供 Lead 分派。
 
 | # | 属性维度 | 失配项 | 用例 |
 | --- | --- | --- | --- |
-| 1 | hyphens | 22 | 20-hyphens-quotes |
-| 2 | word-wrap | 11 | 62-word-wrap-content |
-| 3 | display | 6 | 53-display-position |
-| 4 | text-overflow | 6 | 40-text-overflow |
-| 5 | line-height | 5 | 37-filter-opacity |
-| 6 | font-variant | 4 | 15-font-variant-stretch |
+| 1 | hyphens | 9 | 20-hyphens-quotes |
+| 2 | word-wrap | 7 | 62-word-wrap-content |
+| 3 | line-height | 5 | 37-filter-opacity |
+| 4 | display | 4 | 53-display-position |
+| 5 | font-variant | 4 | 15-font-variant-stretch |
+| 6 | border-style | 2 | 70-border-3d-style |
 | 7 | table | 2 | 12-table |
 | 8 | text-emphasis | 2 | 19-text-emphasis |
-| 9 | tab-size | 5 | 71-tab-line-break-blend |
+| 9 | tab-size | 2 | 71-tab-line-break-blend |
 
-1. **hyphens 22 / word-wrap 11 / text-overflow 6**：断字、长词换行与截断的
-   口径差异见「已知口径差异」1–3。
-2. **display / position（6 项，53）**：`.blk` 行数 2/1（builtin_song 拉丁
-   advance 比 Chrome 窄）、`absolute` 盒高 75/72（normal 行高取整）、末段 y
-   129.6/135.6 的行数差连锁。建议 T1/T2。
+1. **hyphens 9 / word-wrap 7**：`hyphens: auto` 的近似断词仍与 Chrome 不同；
+   其余主要是浏览器 `Range` 不返回 `::before/::after` 生成内容几何，以及
+   Chrome 把 `overflow-x: hidden` 计算成 `overflow: hidden auto` 的导出口径差。
+2. **display / position（4 项，53）**：`absolute` 盒高 75/72（normal 行高
+   取整）、末段 y 129.6/135.6 是前序行长与 normal 行高共同造成的连锁差异。
 3. **其余单项（2–5 项）**：`line-height: normal` 取整（5）；
    `font-variant`/ligatures 行宽（4，合成 small-caps 实测对 builtin_song
    反而更宽，已回退）；`table` 表高 93 / 91（2）；
    `text-emphasis` 行高 68 / 70（2）。
 4. **已收敛**：`34-columns`、`63-columns-rule`、`61-logical-properties`、
-   `35-writing-mode`、`58-font-shorthand`、`16-text-indent-percent` 均 0 项；
+   `35-writing-mode`、`40-text-overflow`、`58-font-shorthand`、
+   `16-text-indent-percent` 均 0 项；
    `66/67` 竖排探针的期望/实测已对齐（见下）；未配对 0。
    负 `text-indent` 已按 CSS Text 3 §3.1 支持首行外凸（此前被钳 0）。
 
