@@ -48,6 +48,34 @@ void main() {
     expect(expandTabs('a\tb\nc\td', 4), 'a   b\nc   d');
   });
 
+  test('expandTabs 按实际字形宽度对齐制表位', () {
+    const advances = <String, double>{'a': 10.25, 'b': 10.25, ' ': 4.25};
+    double measure(String text) => text.runes.fold(
+      0,
+      (width, rune) =>
+          width + (advances[String.fromCharCode(rune)] ?? 0),
+    );
+
+    expect(
+      expandTabs(
+        'a\tb',
+        4,
+        measureWidth: measure,
+        spaceWidth: advances[' '],
+      ),
+      'a  b',
+    );
+    expect(
+      expandTabs(
+        'a\tb',
+        8,
+        measureWidth: measure,
+        spaceWidth: advances[' '],
+      ),
+      'a      b',
+    );
+  });
+
   test('line-break: anywhere 允许长西文词任意断行', () {
     final wrap = _style(const {
       'white-space': 'normal',
