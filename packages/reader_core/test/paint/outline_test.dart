@@ -132,4 +132,71 @@ void main() {
       reason: '虚线 outline 不应保留直角拐点',
     );
   });
+
+  test('直角容器的实线 outline 保持直角', () async {
+    final style = ComputedStyle(const <String, String>{
+      'font-size': '10px',
+      'line-height': '1',
+      'font-family': 'Ahem',
+      'color': 'transparent',
+      'width': '80px',
+      'height': '20px',
+      'margin-left': '20px',
+      'outline': '4px solid #FF0000',
+      'outline-offset': '4px',
+    });
+    final block = PageBlock.styled(
+      layout: TextLayoutEngine.layout(text: ' ', style: style, maxWidth: 80),
+      style: style,
+      containingWidth: _width.toDouble(),
+    );
+    final page = Paginator(pageHeight: _height.toDouble())
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    const PagePainter().paint(
+      canvas,
+      page,
+      pageSize: Size(_width.toDouble(), _height.toDouble()),
+    );
+    final image = await recorder.endRecording().toImage(_width, _height);
+    final bytes = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    image.dispose();
+
+    var minX = _width;
+    var minY = _height;
+    var maxX = 0;
+    var maxY = 0;
+    for (var y = 0; y < _height; y++) {
+      for (var x = 0; x < _width; x++) {
+        final offset = (y * _width + x) * 4;
+        final red = bytes.getUint8(offset);
+        final green = bytes.getUint8(offset + 1);
+        final blue = bytes.getUint8(offset + 2);
+        if (red > 200 && red - green > 50 && red - blue > 50) {
+          minX = minX > x ? x : minX;
+          minY = minY > y ? y : minY;
+          maxX = maxX < x ? x : maxX;
+          maxY = maxY < y ? y : maxY;
+        }
+      }
+    }
+
+    var cornerIsRed = false;
+    for (var y = minY; y <= minY + 4; y++) {
+      for (var x = minX; x <= minX + 4; x++) {
+        final offset = (y * _width + x) * 4;
+        final red = bytes.getUint8(offset);
+        final green = bytes.getUint8(offset + 1);
+        final blue = bytes.getUint8(offset + 2);
+        if (red > 200 && red - green > 50 && red - blue > 50) {
+          cornerIsRed = true;
+        }
+      }
+    }
+    expect(cornerIsRed, isTrue, reason: '无圆角时 outline 不应继承额外的圆角');
+    expect(maxX - minX, greaterThan(80), reason: '轮廓应覆盖完整边框盒宽度');
+  });
 }

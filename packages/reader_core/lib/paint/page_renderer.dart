@@ -407,10 +407,17 @@ class PagePainter {
     final box = geometry.borderBox;
     final strokeBox = box.inflate(extra);
     final radii = borders.radiiFor(box.size);
-    Radius grow(Radius radius) => Radius.elliptical(
-      math.max(0, radius.x + extra),
-      math.max(0, radius.y + extra),
-    );
+    Radius grow(Radius radius) {
+      // 直角边框的 outline 也必须保持直角；只有实际存在的圆角才随
+      // outline-offset 和线宽向外扩展。
+      if (radius.x == 0 && radius.y == 0) {
+        return Radius.zero;
+      }
+      return Radius.elliptical(
+        math.max(0, radius.x + extra),
+        math.max(0, radius.y + extra),
+      );
+    }
     final strokeRRect = RRect.fromRectAndCorners(
       strokeBox,
       topLeft: grow(radii.topLeft),
