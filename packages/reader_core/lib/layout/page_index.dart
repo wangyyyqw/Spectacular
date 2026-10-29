@@ -64,8 +64,8 @@ class PageIndex {
   const PageIndex({required this.schemaVersion, required this.entries});
 
   /// 当前 schema 版本；换代即整体失效（不迁移，对照 RPI2 换代策略）。
-  // 续页装饰与标题避断改变分页边界，旧索引必须重新生成。
-  static const int currentSchemaVersion = 2;
+  // 行内标签的真实盒宽改变断行，旧索引必须重新生成。
+  static const int currentSchemaVersion = 3;
 
   /// schema 版本。
   final int schemaVersion;

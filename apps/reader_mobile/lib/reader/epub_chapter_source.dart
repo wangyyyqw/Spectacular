@@ -1331,7 +1331,12 @@ class EpubChapterSource
           table.cells.isNotEmpty &&
           table.cells.every((cell) => cell.layout.lineCount <= 2);
     }
-    return block.layout.text.trim().isNotEmpty &&
+    final hasText = block.layout.text.trim().isNotEmpty ||
+        block.layout.lines.any((line) => line.inlineBoxes.any((box) {
+          final payload = box.spec.payload;
+          return payload is PageBlock && payload.layout.text.trim().isNotEmpty;
+        }));
+    return hasText &&
         block.layout.lineCount > 0 && block.layout.lineCount <= 2;
   }
 
@@ -2722,6 +2727,92 @@ class EpubChapterSource
           _ => InlineBoxVerticalAlign.baseline,
         };
 
+    List<SelectorElement> inlineMarkChain(
+      InlineMark mark,
+      List<SelectorElement> ancestors,
+    ) {
+      final start = mark.chain.lastIndexWhere(
+        (subject) => BlockBuilder.displayFor(subject.tag) != DisplayMode.inline,
+      ) + 1;
+      return [
+        ...ancestors,
+        for (final subject in mark.chain.skip(start))
+          _NodeView(
+            subject.tag.toLowerCase(),
+            {'class': subject.classes.join(' '), ...subject.attributes},
+            const <SelectorElement>[],
+          ),
+      ];
+    }
+
+    ComputedStyle inlineMarkStyle(InlineMark mark, _InlineStyleContext context) {
+      final chain = inlineMarkChain(mark, context.ancestors);
+      var parent = context.style;
+      // 正文覆盖已作用于块样式；行内后缀从最终父样式继承，不再重算作者块。
+      // 表格与标题传入各自原样式，继续保留作者的字号策略。
+      for (var i = context.ancestors.length; i < chain.length; i++) {
+        parent = Cascade.compute(
+          element: chain[i], ancestors: chain.sublist(0, i),
+          rules: cascadeRules,
+          inlineDeclarations: _rewriteBookFontDeclarations(
+            _inlineDeclarationsOf(chain[i].attributes['style']),
+          ),
+          parent: parent, rootFontSize: style.fontSize,
+          containingWidth: context.width, viewportWidth: contentWidth,
+        );
+      }
+      return parent;
+    }
+
+    List<StyledRun> resolveInlineRuns(
+      List<InlineMark> marks,
+      _InlineStyleContext context,
+    ) {
+      if (marks.isEmpty) {
+        return const <StyledRun>[];
+      }
+      final boundaries = <int>{0};
+      for (final mark in marks) {
+        boundaries
+          ..add(mark.start)
+          ..add(mark.end);
+      }
+      final ordered = boundaries.toList()..sort();
+      final runs = <StyledRun>[];
+      for (var i = 0; i < ordered.length - 1; i++) {
+        final start = ordered[i];
+        final end = ordered[i + 1];
+        ComputedStyle? resolved;
+        var resolvedDepth = -1;
+        for (final mark in marks) {
+          if (mark.start > start || end > mark.end || mark.chain.isEmpty) {
+            continue;
+          }
+          if (mark.chain.length < resolvedDepth) continue;
+          final computed = inlineMarkStyle(mark, context);
+          if (computed.explicitProperties.isEmpty) {
+            continue;
+          }
+          // 聚合标记按子→父关闭，优先最深的完整级联，避免外层盖掉内层。
+          resolved = computed;
+          resolvedDepth = mark.chain.length;
+        }
+        if (resolved != null) {
+          runs.add(
+            StyledRun(
+              start: start,
+              end: end,
+              style: resolved,
+              // 上下标位移（P9-07）：引擎只提供位移量，必须由调用方写进
+              // run，否则 vertical-align: super/sub 在真书里不生效。
+              baselineShift: resolved.verticalAlignShift,
+            ),
+          );
+        }
+      }
+      return runs;
+    }
+
     /// 行内元素浮动提取（W17）。
     ///
     /// `span.talent-tag { float: right }` / `img.avatar { float: left }`
@@ -2734,27 +2825,13 @@ class EpubChapterSource
       required String text,
       required List<InlineMark> marks,
       required List<InlineImageMark> images,
-      required List<SelectorElement> ancestors,
+      required _InlineStyleContext context,
     }) {
       if (text.isEmpty || marks.isEmpty) {
         return null;
       }
-      ComputedStyle styleForInlineMark(InlineMark mark) {
-        final views = <SelectorElement>[
-          for (final subject in mark.chain.take(mark.chain.length - 1))
-            _NodeView(
-              subject.tag.toLowerCase(),
-              <String, String>{'class': subject.classes.join(' ')},
-              const <SelectorElement>[],
-            ),
-          _NodeView(
-            mark.tag.toLowerCase(),
-            <String, String>{'class': mark.classes.join(' ')},
-            const <SelectorElement>[],
-          ),
-        ];
-        return chainStyle(<SelectorElement>[...ancestors, ...views]);
-      }
+      final ancestors = context.ancestors;
+      final availableWidth = context.width;
 
       for (final mark in marks) {
         if (mark.chain.isEmpty || mark.end <= mark.start) {
@@ -2766,52 +2843,73 @@ class EpubChapterSource
         if (markTag == 'img' || markTag == 'image') {
           continue;
         }
-        final inlineStyle = styleForInlineMark(mark);
+        final inlineStyle = inlineMarkStyle(mark, context);
         final side = _floatSideOfStyle(inlineStyle);
         // `display: inline-block`：盒子交给行排版（T1 的 InlineBoxSpec），
         // 宽高含 padding/border，整块不跨行、放不下换行。
-        // 只有声明了宽/高的 inline-block 才当行内盒处理：没有尺寸的行内
-        // 块（chip/tag 之类）继续走行内 run 的背景+边框近似绘制（P9-24），
-        // 否则会退化成「只画盒不画字」。
         final inlineBlock =
             side == null &&
-            inlineStyle.display == CssDisplay.inlineBlock &&
-            (inlineStyle.width != null || inlineStyle.height != null);
+            inlineStyle.display == CssDisplay.inlineBlock;
         if (side == null && !inlineBlock) {
           continue;
         }
-        final content = text.substring(mark.start, mark.end).trim();
+        final rawContent = text.substring(mark.start, mark.end);
+        final content = rawContent.trim();
         if (content.isEmpty) {
           continue;
         }
-        final contentWidthLimit = _textWidthFor(inlineStyle);
+        final model = BoxModel.fromStyle(
+          inlineStyle,
+          containingWidth: availableWidth,
+        );
+        final contentStart = mark.start + rawContent.length - rawContent.trimLeft().length;
+        final contentRuns = resolveInlineRuns([
+          for (final child in marks)
+            if (child.chain.length > mark.chain.length &&
+                child.start >= mark.start && child.end <= mark.end)
+              InlineMark(
+                start: (child.start - contentStart).clamp(0, content.length),
+                end: (child.end - contentStart).clamp(0, content.length),
+                tag: child.tag,
+                classes: child.classes,
+                chain: child.chain,
+              ),
+        ], context);
+        var contentWidthLimit = math.max(1.0, model.resolveContentWidth(availableWidth));
         var layout = _layoutCache.layout(
           text: content,
           style: inlineStyle,
           maxWidth: contentWidthLimit,
+          runs: contentRuns,
         );
         PageBlock? floatBlock;
         InlineBoxSpec? boxSpec;
         if (inlineBlock) {
-          // 行内盒：宽高含 padding/border（CSS inline-block 的盒尺寸），
-          // 内容按自身内容宽排版；payload 交给绘制层画盒内内容。
-          final model = BoxModel.fromStyle(
-            inlineStyle,
-            containingWidth: contentWidth,
+          // 自动宽标签按内容收缩，整盒换行；背景、边框与文字共享几何。
+          if (model.contentWidth == null) {
+            final preferred = layout.width + model.horizontalInset +
+                model.margin.horizontal;
+            contentWidthLimit = math.max(1.0, model.resolveContentWidth(
+              inlineStyle.whiteSpace == CssWhiteSpace.nowrap
+                  ? preferred : math.min(availableWidth, preferred),
+            ));
+            layout = _layoutCache.layout(
+              text: content,
+              style: inlineStyle,
+              maxWidth: contentWidthLimit,
+              runs: contentRuns,
+            );
+          }
+          final contentHeightValue = model.resolveContentHeight(
+            layout.height, containingHeight: contentHeight,
           );
-          final contentHeightValue =
-              inlineStyle.height?.resolve(contentHeight) ?? layout.height;
           boxSpec = InlineBoxSpec(
             offset: mark.start,
-            width: (inlineStyle.width?.resolve(contentWidth) ?? layout.width) +
-                model.padding.horizontal +
-                model.borders.left +
-                model.borders.right,
-            height: contentHeightValue +
-                model.padding.vertical +
-                model.borders.top +
-                model.borders.bottom,
+            width: model.borderBoxWidth(contentWidthLimit),
+            height: model.borderBoxHeight(contentHeightValue),
             verticalAlign: inlineBoxAlignOf(inlineStyle.verticalAlign),
+            marginLeft: inlineStyle.margin.left,
+            marginRight: inlineStyle.margin.right,
             marginTop: inlineStyle.margin.top,
             marginBottom: inlineStyle.margin.bottom,
             // 盒内内容高（可能超过声明盒高）：Chrome 把溢出内容计入行盒/
@@ -2887,6 +2985,8 @@ class EpubChapterSource
                   width: boxSpec.width,
                   height: boxSpec.height,
                   verticalAlign: boxSpec.verticalAlign,
+                  marginLeft: boxSpec.marginLeft,
+                  marginRight: boxSpec.marginRight,
                   marginTop: boxSpec.marginTop,
                   marginBottom: boxSpec.marginBottom,
                   baselineOffset: boxSpec.baselineOffset,
@@ -2997,6 +3097,61 @@ class EpubChapterSource
         );
       }
       return null;
+    }
+
+    List<InlineBoxSpec> appendInlineBox(
+      List<InlineBoxSpec> existingBoxes,
+      _InlineFloatExtraction extracted,
+    ) => [
+      for (final existing in existingBoxes)
+        InlineBoxSpec(
+          offset: extracted.remapOffset(existing.offset),
+          width: existing.width,
+          height: existing.height,
+          verticalAlign: existing.verticalAlign,
+          marginLeft: existing.marginLeft,
+          marginRight: existing.marginRight,
+          marginTop: existing.marginTop,
+          marginBottom: existing.marginBottom,
+          baselineOffset: existing.baselineOffset,
+          contentHeight: existing.contentHeight,
+          contentBaseline: existing.contentBaseline,
+          payload: existing.payload,
+        ),
+      if (extracted.inlineBox != null) extracted.inlineBox!,
+    ]..sort((a, b) => a.offset.compareTo(b.offset));
+
+    TextLayoutResult layoutCellContent(
+      String text,
+      List<InlineMark> marks,
+      List<SelectorElement> ancestors,
+      ComputedStyle cellStyle,
+      double width,
+    ) {
+      var remainingText = text;
+      var remainingMarks = marks;
+      var boxes = <InlineBoxSpec>[];
+      final context = (ancestors: ancestors, style: cellStyle, width: width);
+      for (var i = 0; i < marks.length; i++) {
+        final extracted = extractInlineFloat(
+          text: remainingText, marks: remainingMarks, images: const [],
+          context: context,
+        );
+        // 格内浮动仍沿用原来的文字近似，避免在此丢弃脱流内容。
+        if (extracted == null || extracted.block != null) break;
+        remainingText = extracted.text;
+        remainingMarks = extracted.marks;
+        boxes = appendInlineBox(boxes, extracted);
+      }
+      final runs = resolveInlineRuns(remainingMarks, context);
+      return boxes.isEmpty
+          ? _layoutCache.layout(
+              text: remainingText, style: cellStyle, maxWidth: width, runs: runs,
+            )
+          : TextLayoutEngine.layout(
+              text: remainingText, style: cellStyle, maxWidth: width,
+              runs: runs, inlineBoxes: boxes,
+            );
     }
 
     /// 块级样式入口（P8-02）：链式级联结果 + 容器盒类近似传导 +
@@ -3134,62 +3289,6 @@ class EpubChapterSource
 
     /// 行内样式区间（P8-02）：聚合标记链（块级 + 行内祖先 → 自身）转
     /// 匹配视图走引擎级联；自身有显式声明的区间产出 StyledRun。
-    List<StyledRun> resolveInlineRuns(List<InlineMark> marks) {
-      if (marks.isEmpty) {
-        return const <StyledRun>[];
-      }
-      final boundaries = <int>{0};
-      for (final mark in marks) {
-        boundaries
-          ..add(mark.start)
-          ..add(mark.end);
-      }
-      final ordered = boundaries.toList()..sort();
-      final runs = <StyledRun>[];
-      for (var i = 0; i < ordered.length - 1; i++) {
-        final start = ordered[i];
-        final end = ordered[i + 1];
-        ComputedStyle? resolved;
-        for (final mark in marks) {
-          if (mark.start > start || end > mark.end || mark.chain.isEmpty) {
-            continue;
-          }
-          final viewChain = <SelectorElement>[
-            for (final subject in mark.chain.take(mark.chain.length - 1))
-              _NodeView(
-                subject.tag.toLowerCase(),
-                <String, String>{'class': subject.classes.join(' ')},
-                const <SelectorElement>[],
-              ),
-            _NodeView(
-              mark.tag.toLowerCase(),
-              <String, String>{'class': mark.classes.join(' ')},
-              const <SelectorElement>[],
-            ),
-          ];
-          final computed = chainStyle(viewChain);
-          if (computed.explicitProperties.isEmpty) {
-            continue;
-          }
-          // 内层（后遍历）覆盖外层同名属性。
-          resolved = computed;
-        }
-        if (resolved != null) {
-          runs.add(
-            StyledRun(
-              start: start,
-              end: end,
-              style: resolved,
-              // 上下标位移（P9-07）：引擎只提供位移量，必须由调用方写进
-              // run，否则 vertical-align: super/sub 在真书里不生效。
-              baselineShift: resolved.verticalAlignShift,
-            ),
-          );
-        }
-      }
-      return runs;
-    }
-
     /// 浮动方向检测（flat 管线接入）：内联 style `float:`、历史 `align`
     /// 属性、作者 CSS class 规则三处来源（P8-02：CSS 规则经引擎级联）。
     FloatSide? floatSideOf(Map<String, String> attributes) {
@@ -3553,6 +3652,7 @@ class EpubChapterSource
             final subject = MarkSubject(
               tag: node.tag,
               classes: classes.toSet(),
+              attributes: node.attributes,
             );
             final next = <MarkSubject>[...ancestors, subject];
             final start = buffer.length;
@@ -3578,6 +3678,7 @@ class EpubChapterSource
           for (final element in chain)
             MarkSubject(
               tag: element.tag,
+              attributes: element.attributes,
               classes: (element.attributes['class'] ?? '')
                   .split(RegExp(r'\s+'))
                   .where((c) => c.isNotEmpty)
@@ -3711,7 +3812,7 @@ class EpubChapterSource
       final cellStyles = <List<ComputedStyle>>[];
       final specs = <List<TableCellSpec>>[];
       final cellTexts = <List<String>>[];
-      final cellRuns = <List<List<StyledRun>>>[];
+      final cellLayouts = <List<TextLayoutResult Function(double)>>[];
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
         final row = rows[rowIndex];
         final rowView = _NodeView(
@@ -3722,7 +3823,7 @@ class EpubChapterSource
         final styles = <ComputedStyle>[];
         final rowSpecs = <TableCellSpec>[];
         final texts = <String>[];
-        final rowRuns = <List<StyledRun>>[];
+        final rowLayouts = <TextLayoutResult Function(double)>[];
         for (final cell in row) {
           final cellChain = <SelectorElement>[
             ...tableChain,
@@ -3732,8 +3833,11 @@ class EpubChapterSource
           final cellStyle = chainStyle(cellChain);
           final content = cellContentOf(cell, cellChain);
           final text = content.text;
-          final runs = resolveInlineRuns(content.marks);
-          rowRuns.add(runs);
+          TextLayoutResult measureCell(double width) => layoutCellContent(
+            text, content.marks, cellChain, cellStyle,
+            math.max(8.0, width - horizontalInset(cellStyle)),
+          );
+          rowLayouts.add(measureCell);
           final colspan = int.tryParse(
                 cell.attributes['colspan']?.trim() ?? '',
               ) ??
@@ -3748,12 +3852,7 @@ class EpubChapterSource
             if (text.isEmpty) {
               return 0;
             }
-            final measured = _layoutCache.layout(
-              text: text,
-              style: cs,
-              maxWidth: width,
-              runs: runs,
-            );
+            final measured = measureCell(width);
             var widest = 0.0;
             for (final line in measured.lines) {
               widest = math.max(widest, line.width);
@@ -3772,17 +3871,7 @@ class EpubChapterSource
                 if (text.isEmpty) {
                   return cellStyle.lineHeight * 0.6;
                 }
-                return _layoutCache
-                        .layout(
-                          text: text,
-                          style: cellStyle,
-                          maxWidth: math.max(
-                            8.0,
-                            width - horizontalInset(cellStyle),
-                          ),
-                          runs: runs,
-                        )
-                        .height +
+                return measureCell(width).height +
                     verticalInset(cellStyle);
               },
             ),
@@ -3790,7 +3879,7 @@ class EpubChapterSource
         }
         cellStyles.add(styles);
         cellTexts.add(texts);
-        cellRuns.add(rowRuns);
+        cellLayouts.add(rowLayouts);
         specs.add(rowSpecs);
       }
 
@@ -3902,14 +3991,7 @@ class EpubChapterSource
             final text = cellTexts[r][i];
             final measuredCell = text.isEmpty
                 ? null
-                : _layoutCache.layout(
-                    text: text,
-                    style: style,
-                    maxWidth: math.max(
-                      8.0,
-                      cellWidth - horizontalInset(style),
-                    ),
-                  );
+                : cellLayouts[r][i](cellWidth);
             final height =
                 (measuredCell?.height ?? style.lineHeight * 0.6) +
                 verticalInset(style);
@@ -3936,14 +4018,7 @@ class EpubChapterSource
             final text = cellTexts[r][i];
             final measuredCell = text.isEmpty
                 ? null
-                : _layoutCache.layout(
-                    text: text,
-                    style: style,
-                    maxWidth: math.max(
-                      8.0,
-                      cellWidth - horizontalInset(style),
-                    ),
-                  );
+                : cellLayouts[r][i](cellWidth);
             final height =
                 (measuredCell?.height ?? style.lineHeight * 0.6) +
                 verticalInset(style);
@@ -3995,15 +4070,7 @@ class EpubChapterSource
           final cellStyle = cellStyles[r][c];
           final layout = text.isEmpty
               ? null
-              : _layoutCache.layout(
-                  text: text,
-                  style: cellStyle,
-                  maxWidth: math.max(
-                    8.0,
-                    rect.rect.width - horizontalInset(cellStyle),
-                  ),
-                  runs: cellRuns[r][c],
-                );
+              : cellLayouts[r][c](rect.rect.width);
           if (layout == null || layout.lineCount == 0) {
             continue;
           }
@@ -4299,14 +4366,18 @@ class EpubChapterSource
         var paragraphImages = textNode is TextContentNode
             ? textNode.inlineImages
             : const <InlineImageMark>[];
+        final inlineContext = (
+          ancestors: ancestors, style: blockStyle, width: _textWidthFor(blockStyle),
+        );
         if (!paragraphIsFloat && textNode is TextContentNode) {
           // 一段里可能有多个行内浮动（如职业标签 + 天赋标签），逐个摘出。
-          for (var guard = 0; guard < 8; guard += 1) {
+          final extractionLimit = paragraphMarks.length + paragraphImages.length;
+          for (var guard = 0; guard < extractionLimit; guard += 1) {
             final extracted = extractInlineFloat(
               text: paragraphText,
               marks: paragraphMarks,
               images: paragraphImages,
-              ancestors: ancestors,
+              context: inlineContext,
             );
             if (extracted == null) {
               break;
@@ -4317,28 +4388,7 @@ class EpubChapterSource
             }
             final box = extracted.inlineBox;
             if (box != null) {
-              // 已有 spec 的偏移随文本摘除重映射，再按偏移升序入列。
-              final removedBefore = extracted.removeEnd - extracted.removeStart;
-              inlineBoxes = <InlineBoxSpec>[
-                for (final existing in inlineBoxes)
-                  InlineBoxSpec(
-                    offset: existing.offset <= extracted.removeStart
-                        ? existing.offset
-                        : math.max(
-                            extracted.removeStart,
-                            existing.offset - removedBefore,
-                          ),
-                    width: existing.width,
-                    height: existing.height,
-                    verticalAlign: existing.verticalAlign,
-                    marginTop: existing.marginTop,
-                    marginBottom: existing.marginBottom,
-                    baselineOffset: existing.baselineOffset,
-                    contentHeight: existing.contentHeight,
-                    payload: existing.payload,
-                  ),
-                box,
-              ]..sort((a, b) => a.offset.compareTo(b.offset));
+              inlineBoxes = appendInlineBox(inlineBoxes, extracted);
             }
             paragraphText = extracted.text;
             paragraphMarks = extracted.marks;
@@ -4352,7 +4402,7 @@ class EpubChapterSource
             ];
           }
         }
-        var runs = resolveInlineRuns(paragraphMarks);
+        var runs = resolveInlineRuns(paragraphMarks, inlineContext);
         // 行内图片（P9-06）：占位符 → 书内图片路径 + 书籍 CSS 尺寸。
         final inlineImages = <InlineImageSpec>[];
         if (paragraphImages.isNotEmpty) {
@@ -5028,6 +5078,13 @@ class OpfPageFlags {
       'OpfPageFlags(fullScreen: $fullScreen, fitWindow: $fitWindow, '
       'spreadLeft: $spreadLeft, spreadRight: $spreadRight)';
 }
+
+/// 行内级联的实际父样式与内容区，正文设置覆盖后供所有行内载荷共用。
+typedef _InlineStyleContext = ({
+  List<SelectorElement> ancestors,
+  ComputedStyle style,
+  double width,
+});
 
 /// 行内浮动提取结果（W17）：摘出的浮动块 + 剩余文本与偏移重映射。
 class _InlineFloatExtraction {

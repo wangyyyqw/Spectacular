@@ -224,7 +224,7 @@ class AttributeTest {
 }
 
 /// 结构伪类测试（P8-01）：:first-child/:last-child/:nth-child(An+B)/
-/// :not(compound)/:root；交互态（:hover 等）按打印引擎语义永不匹配。
+/// :first-of-type/:not(compound)/:root；交互态（:hover 等）不匹配。
 class PseudoTest {
   /// 创建测试：[name] 小写；[argument] 为 nth 参数或 :not 内复合。
   const PseudoTest(this.name, this.argument);
@@ -238,16 +238,27 @@ class PseudoTest {
   ) {
     switch (name) {
       case 'hover':
-      case 'link':
       case 'visited':
       case 'active':
       case 'focus':
       case 'target':
         return false;
+      case 'link':
+        return const {'a', 'area'}.contains(element.tag.toLowerCase()) &&
+            element.attributes.containsKey('href');
       case 'root':
         return ancestors.isEmpty;
       case 'first-child':
         return _siblingIndex(element, ancestors) == 0;
+      case 'first-of-type':
+        final siblings = _parentChildren(ancestors);
+        if (siblings == null) return ancestors.isEmpty;
+        for (final sibling in siblings) {
+          if (sibling.tag.toLowerCase() == element.tag.toLowerCase()) {
+            return identical(sibling, element);
+          }
+        }
+        return false;
       case 'last-child':
         final index = _siblingIndex(element, ancestors);
         if (index < 0) {
@@ -293,7 +304,7 @@ class PseudoTest {
 
   /// An+B 求值（odd/even/整数/步进）。
   static bool _nthMatches(String raw, int index) {
-    final arg = raw.trim().toLowerCase();
+    final arg = raw.toLowerCase().replaceAll(RegExp(r'\s+'), '');
     int? step, offset;
     if (arg == 'odd') {
       step = 2;
@@ -564,8 +575,9 @@ abstract final class SelectorParser {
       } else if (simple is PseudoClassFunctionSelector) {
         final name = simple.name.toLowerCase();
         if (name == 'nth-child') {
+          // csslib 的函数 span 仅到左括号，参数属于独立 expression 节点。
           pseudoTests[slot].add(
-            PseudoTest(name, simple.span?.text.replaceFirst('$name(', '').replaceAll(RegExp(r'\)$'), '')),
+            PseudoTest(name, simple.argument.span?.text),
           );
           classes += 1;
         } else if (name == 'not') {

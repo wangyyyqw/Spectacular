@@ -436,7 +436,7 @@ class PagePainter {
         ) {
           final line = layout.lines[lineIndex];
           final lineText = layout.text.substring(line.start, line.end);
-          if (lineText.isNotEmpty) {
+          if (lineText.isNotEmpty || line.inlineBoxes.isNotEmpty) {
             final x = line.offsetX + geometry.leftInset;
             // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
             if (lineIndex == 0 && geometry.slice.block.listMarker != null) {
@@ -482,6 +482,7 @@ class PagePainter {
               geometry.textStyle,
               x,
               lineY,
+              line: line,
             );
             // 装饰线（P2-17/P9-18）：line-through / overline 的实线按
             // 浏览器几何重画，画在文字之上（浏览器同样在文字之后绘制）。
@@ -643,6 +644,13 @@ class PagePainter {
   }
 
   void _notifyPhase(PagePaintPhase phase) => onPhase?.call(phase);
+
+  /// 行内样式也独立执行主题色策略，避免对齐或基线偏移改变作者配色。
+  TextStyle _paintTextStyleFor(ComputedStyle style) {
+    final textStyle = TextLayoutEngine.textStyleFor(style);
+    final color = _textColorFor(style);
+    return color == null ? textStyle : textStyle.copyWith(color: color);
+  }
 
   /// 主题文字色是否覆盖某个块（P9-02）。
   ///
@@ -1340,16 +1348,18 @@ class PagePainter {
   /// 内阴影由 [_paintInsetBoxShadow] 在背景之后绘制。
   /// 跨页切片不重复投影（首尾都在本页才画）。
   void _paintBoxShadow(Canvas canvas, _SliceGeometry geometry) {
-    final shadow = geometry.style.boxShadow;
-    if (shadow == null ||
-        shadow.inset ||
-        !geometry.startsBlock ||
-        !geometry.endsBlock) {
+    if (!geometry.startsBlock || !geometry.endsBlock) {
       return;
     }
-    final style = geometry.style;
+    _paintOuterShadow(canvas, geometry.containerPaintBox, geometry.style);
+  }
+
+  void _paintOuterShadow(Canvas canvas, Rect box, ComputedStyle style) {
+    final shadow = style.boxShadow;
+    if (shadow == null || shadow.inset) {
+      return;
+    }
     final borders = style.borders;
-    final box = geometry.containerPaintBox;
     final blur = math.max(0.0, shadow.blur);
     final paint = Paint()..color = shadow.color;
     if (blur > 0) {
@@ -1369,15 +1379,17 @@ class PagePainter {
   /// 边框区域），用「padding-box 外框 − 偏移/收缩后的洞」even-odd 挖洞后
   /// 一起模糊；圆角内阴影按直角洞近似（书内罕见）。
   void _paintInsetBoxShadow(Canvas canvas, _SliceGeometry geometry) {
-    final shadow = geometry.style.boxShadow;
-    if (shadow == null ||
-        !shadow.inset ||
-        !geometry.startsBlock ||
-        !geometry.endsBlock) {
+    if (!geometry.startsBlock || !geometry.endsBlock) {
       return;
     }
-    final style = geometry.style;
-    final box = geometry.containerPaintBox;
+    _paintInnerShadow(canvas, geometry.containerPaintBox, geometry.style);
+  }
+
+  void _paintInnerShadow(Canvas canvas, Rect box, ComputedStyle style) {
+    final shadow = style.boxShadow;
+    if (shadow == null || !shadow.inset) {
+      return;
+    }
     final paddingBox = _deflateByBox(box, style, includePadding: false);
     final blur = math.max(0.0, shadow.blur);
     final hole = paddingBox
@@ -1550,17 +1562,18 @@ class PagePainter {
       for (var i = 0; i < cell.layout.lineCount; i++) {
         final line = cell.layout.lines[i];
         final text = cell.layout.text.substring(line.start, line.end);
-        if (text.isNotEmpty) {
+        if (text.isNotEmpty || line.inlineBoxes.isNotEmpty) {
           // 单元格里的行内 span（P9-26）：按 run 组装 span，颜色/字号/边框
           // 才和书籍一致（RANK 金框、标签 chip）。
           final cellRuns = _lineRuns(cell.layout, line);
           final painter = TextPainter(
-            text: cellRuns.isEmpty
+            text: cellRuns.isEmpty && line.inlineBoxes.isEmpty
                 ? TextSpan(text: text, style: textStyle)
                 : buildLineSpan(
                     layout: cell.layout,
                     line: line,
                     baseStyle: textStyle,
+                    styleOf: _paintTextStyleFor,
                   ),
             textDirection: cell.layout.isRtl
                 ? TextDirection.rtl
@@ -1575,14 +1588,25 @@ class PagePainter {
               style.textAlign == CssTextAlign.justify) {
             x = contentRight - painter.width;
           }
-          _paintInlineBoxes(
-            canvas,
-            painter,
-            cellRuns,
-            x,
-            lineY - (painter.height - line.height) / 2,
+          if (line.inlineBoxes.isEmpty) {
+            _paintInlineBoxes(
+              canvas,
+              painter,
+              cellRuns,
+              x,
+              lineY - (painter.height - line.height) / 2,
+            );
+          } else {
+            _paintInlineBoxPlacements(
+              canvas, geometry, line, cellRuns,
+              contentLeft + line.offsetX, lineY,
+            );
+          }
+          _paintLineText(
+            canvas, painter, text, cellRuns, textStyle,
+            line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
+            lineY, line: line,
           );
-          painter.paint(canvas, ui.Offset(x, lineY));
           painter.dispose();
         }
         lineY += line.height;
@@ -1795,7 +1819,7 @@ class PagePainter {
         // 横排：盒顶 = 基线 − 基线以上延伸（行顶由 LineBox.baseline 反映）。
         rect = Rect.fromLTWH(
           x + placement.left,
-          lineY + line.baseline - placement.ascent,
+          lineY + line.baseline - line.top - placement.ascent,
           placement.width,
           placement.height,
         );
@@ -1809,6 +1833,7 @@ class PagePainter {
           Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
         );
       }
+      _paintOuterShadow(canvas, rect, style);
       _paintBackground(
         canvas,
         rect,
@@ -1816,6 +1841,7 @@ class PagePainter {
         startsBlock: true,
         endsBlock: true,
       );
+      _paintInnerShadow(canvas, rect, style);
       _paintBorders(
         canvas,
         rect,
@@ -1923,6 +1949,7 @@ class PagePainter {
                   layout: layout,
                   line: line,
                   baseStyle: textStyleBase,
+                  styleOf: _paintTextStyleFor,
                 ),
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: contentWidth);
@@ -1976,7 +2003,8 @@ class PagePainter {
       final style = run.style;
       final hasBackground = style.backgroundColor.a > 0;
       final hasBorder = style.borders.hasBorder;
-      if ((!hasBackground && !hasBorder) || run.end <= run.start) {
+      if ((!hasBackground && !hasBorder && style.boxShadow == null) ||
+          run.end <= run.start) {
         continue;
       }
       final boxes = painter.getBoxesForSelection(
@@ -1990,6 +2018,7 @@ class PagePainter {
           x + box.right + style.padding.right,
           y + box.bottom + style.padding.bottom,
         );
+        _paintOuterShadow(canvas, rect, style);
         if (hasBackground) {
           final radii = style.borders;
           canvas.drawRRect(
@@ -2003,6 +2032,7 @@ class PagePainter {
             Paint()..color = style.backgroundColor,
           );
         }
+        _paintInnerShadow(canvas, rect, style);
         if (hasBorder) {
           _paintBorders(
             canvas,
@@ -2617,7 +2647,10 @@ class PagePainter {
       }
       return;
     }
-    // 分边绘制：宽度/线型/颜色不同时按边画，圆角只在圆角样本的整框路径里用。
+    if (_paintJoinedSolidBorders(canvas, box, borders, startsBlock, endsBlock)) {
+      return;
+    }
+    // 非实线边框沿边描画；实线交接由上面的斜角多边形处理。
     if (startsBlock) {
       final inset = borders.top.width / 2;
       _paintSide(
@@ -2652,6 +2685,57 @@ class PagePainter {
       Offset(box.right - borders.right.width / 2, box.bottom),
       outward: const Offset(1, 0),
     );
+  }
+
+  /// 不同宽度或颜色的实线边框在外角与内角之间斜接，避免矩形互相覆盖。
+  bool _paintJoinedSolidBorders(
+    Canvas canvas,
+    Rect box,
+    CssBorders borders,
+    bool starts,
+    bool ends,
+  ) {
+    final sides = [borders.top, borders.right, borders.bottom, borders.left];
+    if (sides.any(
+      (side) => side.isVisible && side.style != CssBorderStyle.solid,
+    )) {
+      return false;
+    }
+    final inner = Rect.fromLTRB(
+      box.left + (borders.left.isVisible ? borders.left.width : 0),
+      box.top + (starts && borders.top.isVisible ? borders.top.width : 0),
+      box.right - (borders.right.isVisible ? borders.right.width : 0),
+      box.bottom -
+          (ends && borders.bottom.isVisible ? borders.bottom.width : 0),
+    );
+    final corners = [
+      box.topLeft,
+      box.topRight,
+      box.bottomRight,
+      box.bottomLeft,
+    ];
+    final inside = [
+      inner.topLeft,
+      inner.topRight,
+      inner.bottomRight,
+      inner.bottomLeft,
+    ];
+    for (var index = 0; index < 4; index++) {
+      if (!sides[index].isVisible ||
+          (index == 0 && !starts) ||
+          (index == 2 && !ends)) {
+        continue;
+      }
+      final next = (index + 1) % 4;
+      final path = Path()
+        ..moveTo(corners[index].dx, corners[index].dy)
+        ..lineTo(corners[next].dx, corners[next].dy)
+        ..lineTo(inside[next].dx, inside[next].dy)
+        ..lineTo(inside[index].dx, inside[index].dy)
+        ..close();
+      canvas.drawPath(path, Paint()..color = sides[index].color);
+    }
+    return true;
   }
 
   /// 画一条边：实线/虚线/点线/双线。
@@ -2861,7 +2945,7 @@ class PagePainter {
         final glyphStyle = runStyle ?? style;
         final textStyle = runStyle == null
             ? effectiveBase
-            : _verticalStyleOf(runStyle, textColorOverride);
+            : _verticalStyleOf(runStyle, _textColorFor(runStyle));
         // 装饰线（竖排沿列方向画纵线；位置按 Chromium 实测：下划线 0.13 列宽、
         // 删除线列中线、上划线另一侧），逐字画段自然连成整条。
         _paintVerticalDecoration(
@@ -3152,6 +3236,94 @@ class PagePainter {
         : textStyle.copyWith(color: textColorOverride);
   }
 
+  /// 保留原 span 样式与字距，只截取指定原文区间，不向原文插入占位字符。
+  TextSpan _textSpanRange(TextSpan span, int start, int end) {
+    final text = span.text ?? '';
+    final children = <InlineSpan>[];
+    var cursor = text.length;
+    for (final child in span.children ?? const <InlineSpan>[]) {
+      final length = child.toPlainText().length;
+      if (child is TextSpan && start < cursor + length && end > cursor) {
+        children.add(
+          _textSpanRange(
+            child,
+            math.max(0, start - cursor),
+            math.min(length, end - cursor),
+          ),
+        );
+      }
+      cursor += length;
+    }
+    return TextSpan(
+      text: start < text.length
+          ? text.substring(start, math.min(end, text.length))
+          : '',
+      style: span.style,
+      children: children,
+    );
+  }
+
+  /// 测量时行内盒占宽但不占原文字符；绘制分段平移，保持原文偏移稳定。
+  /// 此处保留线性遍历及局部函数，集中管理共享的原文游标和累计盒宽，
+  /// 避免拆分后重复移动坐标；风险是装饰线及命中仍需同步审计相同偏移。
+  void _paintTextAroundInlineBoxes(
+    Canvas canvas,
+    TextPainter painter,
+    LineBox line,
+    List<_LineRun> runs,
+    double x,
+    double y,
+  ) {
+    final span = painter.text! as TextSpan;
+    final length = line.end - line.start;
+    var cursor = 0;
+    var extra = 0.0;
+    void paintUntil(int end) {
+      if (end <= cursor) return;
+      final boundaries = {
+        cursor,
+        end,
+        for (final run in runs) ...[
+          run.start.clamp(cursor, end),
+          run.end.clamp(cursor, end),
+        ],
+      }.toList()..sort();
+      for (var index = 0; index < boundaries.length - 1; index++) {
+        final start = boundaries[index];
+        final stop = boundaries[index + 1];
+        final segment = TextPainter(
+          text: _textSpanRange(span, start, stop),
+          textDirection: painter.textDirection,
+        )..layout();
+        final offset = painter.getOffsetForCaret(
+          TextPosition(offset: start),
+          Rect.zero,
+        );
+        final baseline =
+            painter.computeDistanceToActualBaseline(TextBaseline.alphabetic) -
+            segment.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+        final shift =
+            runs
+                .where((run) => start >= run.start && start < run.end)
+                .map((run) => run.baselineShift)
+                .firstOrNull ??
+            0;
+        segment.paint(
+          canvas,
+          Offset(x + offset.dx + extra, y + baseline + shift),
+        );
+        segment.dispose();
+      }
+      cursor = end;
+    }
+
+    for (final box in line.inlineBoxes) {
+      paintUntil((box.offset - line.start).clamp(0, length));
+      extra += box.spec.outerWidth;
+    }
+    paintUntil(length);
+  }
+
   /// 画一行：有上下标（基线偏移）时按段分别绘制，其余情况整行一次绘制。
   ///
   /// 与阅微 `BaselineShift` 一致：偏移段在正常基线基础上整体上下移动
@@ -3163,9 +3335,14 @@ class PagePainter {
     List<_LineRun> runs,
     TextStyle baseStyle,
     double x,
-    double y,
-  ) {
+    double y, {
+    LineBox? line,
+  }) {
     if (lineText.isEmpty) {
+      return;
+    }
+    if (line != null && line.inlineBoxes.isNotEmpty) {
+      _paintTextAroundInlineBoxes(canvas, painter, line, runs, x, y);
       return;
     }
     final hasShift = runs.any((run) => run.baselineShift != 0);
@@ -3185,11 +3362,8 @@ class PagePainter {
         text: TextSpan(
           text: lineText.substring(segment.start, segment.end),
           style: segment.style == null
-              ? baseStyle
-              : (textColor == null
-                    ? TextLayoutEngine.textStyleFor(segment.style!)
-                    : TextLayoutEngine.textStyleFor(segment.style!)
-                          .copyWith(color: textColor)),
+              ? ((painter.text as TextSpan?)?.style ?? baseStyle)
+              : _paintTextStyleFor(segment.style!),
         ),
         textDirection: painter.textDirection,
       )..layout();
@@ -3692,6 +3866,7 @@ class PagePainter {
       line: line,
       baseStyle: baseStyle,
       textColor: textColorOverride,
+      styleOf: _paintTextStyleFor,
       punctCompression: punctCompression,
       textAutospace: textAutospace,
     ),

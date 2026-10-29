@@ -273,6 +273,8 @@ class InlineBoxSpec {
     this.verticalAlign = InlineBoxVerticalAlign.baseline,
     this.marginTop = 0,
     this.marginBottom = 0,
+    this.marginLeft = 0,
+    this.marginRight = 0,
     this.baselineOffset = 0,
     this.contentHeight,
     this.contentBaseline,
@@ -296,6 +298,12 @@ class InlineBoxSpec {
 
   /// 下外边距（参与行高；baseline 对齐时落在基线以下）。
   final double marginBottom;
+
+  /// 左右外边距参与换行，占位与实际边框盒分开保存。
+  final double marginLeft;
+  final double marginRight;
+
+  double get outerWidth => math.max(0, width + marginLeft + marginRight);
 
   /// 基线模式下的额外位移（正数向上抬）。
   final double baselineOffset;
@@ -1916,7 +1924,7 @@ abstract final class TextLayoutEngine {
           TextSpan(text: text.substring(cursor, index), style: baseStyle),
         );
       }
-      final spacing = mark.spec.width - placeholderAdvance;
+      final spacing = mark.spec.outerWidth - placeholderAdvance;
       children.add(
         TextSpan(
           text: _inlineBoxPlaceholder,
@@ -2013,7 +2021,7 @@ abstract final class TextLayoutEngine {
       }
       final placement = InlineBoxPlacement(
         offset: mark.index,
-        left: line.offsetX + math.max(0.0, dx),
+        left: line.offsetX + math.max(0.0, dx) + spec.marginLeft,
         width: spec.width,
         height: spec.height,
         ascent: ascent,
