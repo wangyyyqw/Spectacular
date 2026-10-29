@@ -100,6 +100,31 @@ void main() {
     expect(result.warnings, isNotEmpty);
   });
 
+  test('样式来源保留交错顺序、重复引用及媒体条件', () {
+    final result = CssParser.extractFromXhtml('''
+<html><head>
+<style media="screen">p { color: red; }</style>
+<link rel="stylesheet" media="print" href="a.css"/>
+<style media="(min-width: 400px)">p { color: blue; }</style>
+<link rel="stylesheet" href="a.css"/>
+</head></html>
+''');
+    expect(result.sources, hasLength(4));
+    expect(result.sources.map((source) => source.href), [
+      null,
+      'a.css',
+      null,
+      'a.css',
+    ]);
+    expect(result.sources.map((source) => source.media), [
+      'screen',
+      'print',
+      '(min-width: 400px)',
+      null,
+    ]);
+    expect(result.sources[2].css, contains('color: blue'));
+  });
+
   test('style 属性声明解析', () {
     final declarations = CssParser.parseStyleAttribute(
       'color: #333; margin: 1em !important',

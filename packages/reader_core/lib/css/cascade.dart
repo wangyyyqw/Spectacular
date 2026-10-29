@@ -52,7 +52,7 @@ class CascadeRule {
 
 /// 层叠与继承。
 abstract final class Cascade {
-  /// 权威继承字段（技术方案 §51.2 的 18 项）。
+  /// CSS 继承属性：显式 inherit/unset 与默认继承共用此清单。
   static const inheritedProperties = <String>{
     'color',
     'font-family',
@@ -82,12 +82,28 @@ abstract final class Cascade {
     'text-justify',
     'ruby-align',
     'white-space',
+    'visibility',
+    'word-spacing',
+    'text-transform',
+    'text-align-last',
+    'list-style-position',
+    'list-style-image',
+    'line-break',
+    'tab-size',
+    'hanging-punctuation',
+    'text-spacing-trim',
+    'text-autospace',
+    'border-collapse',
+    'border-spacing',
+    'ruby-position',
+    'text-combine-upright',
   };
 
   /// 计算元素样式。
   ///
   /// [ancestors] 从根到父；[rules] 可乱序传入，按 `order` 稳定排序；
   /// [inlineDeclarations] 为 style 属性；[parent] 用于继承。
+  /// [viewportWidth] 只用于媒体查询，缺省沿用 [containingWidth]。
   static ComputedStyle compute({
     required SelectorElement element,
     required List<SelectorElement> ancestors,
@@ -96,8 +112,10 @@ abstract final class Cascade {
     ComputedStyle? parent,
     double rootFontSize = 16,
     double containingWidth = 0,
+    double? viewportWidth,
   }) {
     final winners = <String, _Winner>{};
+    final declarations = <_Candidate>[];
     final sorted =
         <(CascadeRule, int)>[
           for (var i = 0; i < rules.length; i++) (rules[i], i),
@@ -111,7 +129,7 @@ abstract final class Cascade {
       final rule = entry.$1;
       // @media 过滤（P8-02）：条件不命中视口的规则不参与级联。
       final media = rule.rule.media;
-      if (media != null && !mediaMatches(media, containingWidth)) {
+      if (media != null && !mediaMatches(media, viewportWidth ?? containingWidth)) {
         continue;
       }
       Specificity? matchedSpecificity;
@@ -129,13 +147,12 @@ abstract final class Cascade {
       }
       for (final declaration in rule.rule.declarations) {
         sequence += 1;
-        _considerDeclaration(
-          winners,
+        declarations.add((
           declaration,
           rule.origin,
           matchedSpecificity,
           sequence,
-        );
+        ));
       }
     }
 
@@ -143,12 +160,22 @@ abstract final class Cascade {
       sequence += 1;
       // 内联 style 同样展开简写：flat 管线重建样式时会把继承来的长属性
       // 标成显式，内联 `font`/`margin` 简写不展开就会被那些长属性顶掉。
-      _considerDeclaration(
-        winners,
+      declarations.add((
         declaration,
         CascadeOrigin.inline,
         const Specificity(1, 0, 0, 0),
         sequence,
+      ));
+    }
+
+    final customProperties = _customProperties(declarations, parent);
+    for (final (declaration, origin, specificity, order) in declarations) {
+      _considerDeclaration(
+        winners,
+        _resolveDeclaration(declaration, customProperties),
+        origin,
+        specificity,
+        order,
       );
     }
 
@@ -167,19 +194,29 @@ abstract final class Cascade {
       }
     }
     var explicitTextColor = false;
+    final explicit = winners.keys.toSet();
     for (final entry in winners.entries) {
       final property = entry.key;
       final winner = entry.value;
       var value = winner.value.trim();
+      if (_isGlobalKeyword(value)) value = value.toLowerCase();
       if (value == 'inherit' ||
           (value == 'unset' && inheritedProperties.contains(property))) {
-        final inherited = parent?.values[property];
+        // 继承属性交给类型化父值，不能把 150% / 2em / bolder 再算一次。
+        if (inheritedProperties.contains(property) && parent != null) {
+          explicit.remove(property);
+          continue;
+        }
+        final inherited = parent?.computedValue(property);
         if (inherited == null) {
-          values.remove(property);
+          values[property] = ComputedStyle.initialValue(property, rootFontSize);
         } else {
           values[property] = inherited;
         }
         continue;
+      }
+      if (value == 'initial' || value == 'unset') {
+        value = ComputedStyle.initialValue(property, rootFontSize);
       }
       values[property] = value;
       if (property == 'color' && winner.origin != CascadeOrigin.userAgent) {
@@ -187,30 +224,59 @@ abstract final class Cascade {
       }
     }
 
-    // 自定义属性（P9-14）：父级继承 + 本级 `--token` 声明，再解析值里的
-    // `var()`；之前的实现把 `--x` 当未知属性丢弃，整条 var() 声明失效。
-    final customProperties = <String, String>{
-      ...?parent?.customProperties,
-      for (final entry in winners.entries)
-        if (entry.key.startsWith('--')) entry.key: entry.value.value.trim(),
-    };
-    if (customProperties.isNotEmpty) {
-      for (final property in values.keys.toList()) {
-        final raw = values[property];
-        if (raw != null && raw.contains('var(')) {
-          values[property] = _substituteVars(raw, customProperties);
-        }
-      }
-    }
-
     return ComputedStyle(
       Map<String, String>.unmodifiable(values),
       hasExplicitTextColor: explicitTextColor,
       parent: parent,
-      explicitProperties: winners.keys.toSet(),
+      explicitProperties: explicit,
       customProperties: customProperties,
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
+    );
+  }
+
+  static Map<String, String> _customProperties(
+    List<_Candidate> declarations,
+    ComputedStyle? parent,
+  ) {
+    final winners = <String, _Winner>{};
+    for (final (declaration, origin, specificity, order) in declarations) {
+      if (declaration.property.startsWith('--')) {
+        _considerDeclaration(winners, declaration, origin, specificity, order);
+      }
+    }
+    final variables = <String, String>{...?parent?.customProperties};
+    for (final entry in winners.entries) {
+      final value = entry.value.value.trim();
+      final keyword = value.toLowerCase();
+      if (keyword == 'initial') {
+        variables.remove(entry.key);
+      } else if (keyword != 'inherit' && keyword != 'unset') {
+        variables[entry.key] = value;
+      }
+    }
+    return <String, String>{
+      for (final entry in variables.entries)
+        entry.key: _substituteVars(entry.value, variables, {entry.key}),
+    };
+  }
+
+  static CssDeclaration _resolveDeclaration(
+    CssDeclaration declaration,
+    Map<String, String> variables,
+  ) {
+    if (declaration.property.startsWith('--') ||
+        !declaration.value.contains('var(')) {
+      return declaration;
+    }
+    final value = _substituteVars(declaration.value, variables);
+    // 变量替换后无效时按 unset 处理，不能恢复被级联覆盖的旧声明。
+    final valid = value.isNotEmpty &&
+        ComputedStyle.isValidDeclaration(declaration.property, value);
+    return CssDeclaration(
+      property: declaration.property,
+      value: valid ? value : 'unset',
+      important: declaration.important,
     );
   }
 
@@ -273,6 +339,12 @@ abstract final class Cascade {
     Specificity specificity,
     int sequence,
   ) {
+    if (!ComputedStyle.isValidDeclaration(
+      declaration.property,
+      declaration.value,
+    )) {
+      return;
+    }
     final level = _level(origin, declaration.important);
     _consider(
       winners,
@@ -342,6 +414,12 @@ abstract final class Cascade {
     const sides = <String>['top', 'right', 'bottom', 'left'];
     switch (property) {
       case 'font':
+        if (_isGlobalKeyword(value)) {
+          return {
+            for (final key in ComputedStyle.parseFontShorthand('16px serif')!.keys)
+              key: value,
+          };
+        }
         // `font: 700 17px/1.6 serif` → font-size/family/weight/style/line-height。
         return ComputedStyle.parseFontShorthand(value) ??
             const <String, String>{};
@@ -356,8 +434,14 @@ abstract final class Cascade {
         };
       case 'border':
         return <String, String>{
-          for (final side in sides) 'border-$side': value,
+          for (final side in sides)
+            ..._borderLonghands(side, value),
         };
+      case 'border-top':
+      case 'border-right':
+      case 'border-bottom':
+      case 'border-left':
+        return _borderLonghands(property.substring(7), value);
       case 'border-width':
       case 'border-style':
       case 'border-color':
@@ -373,6 +457,19 @@ abstract final class Cascade {
       default:
         return const <String, String>{};
     }
+  }
+
+  static bool _isGlobalKeyword(String value) =>
+      const {'inherit', 'initial', 'unset'}.contains(value.toLowerCase());
+
+  static Map<String, String> _borderLonghands(String side, String value) {
+    final parts = ComputedStyle.parseBorderShorthand(value);
+    return {
+      for (final suffix in const ['width', 'style', 'color'])
+        'border-$side-$suffix': _isGlobalKeyword(value)
+            ? value
+            : parts?[suffix] ?? ComputedStyle.initialValue('border-$side-$suffix'),
+    };
   }
 
   /// 按 1~4 值展开为四边；含括号的函数（rgba(...) 等）不拆。
@@ -496,7 +593,7 @@ abstract final class Cascade {
   /// print/speech 不命中（阅读器按屏媒渲染）；min/max-width(px) 对
   /// 视口宽；逗号=或、and=与、not=非。
   static bool mediaMatches(String media, double viewportWidth) {
-    for (final clause in media.split(',')) {
+    for (final clause in media.toLowerCase().split(',')) {
       if (_mediaClause(clause.trim(), viewportWidth)) {
         return true;
       }
@@ -554,7 +651,9 @@ abstract final class Cascade {
     Specificity specificity,
     int order,
   ) {
-    final propertyKey = property.trim().toLowerCase();
+    final propertyKey = property.startsWith('--')
+        ? property.trim()
+        : property.trim().toLowerCase();
     if (propertyKey.isEmpty || value.trim().isEmpty) {
       return;
     }
@@ -572,14 +671,15 @@ abstract final class Cascade {
   }
 
   static int _level(CascadeOrigin origin, bool important) => switch (origin) {
-    // UA 正常 < 作者正常 < 作者 !important < 内联正常 < 内联 !important。
-    // 与方案 §7.2 的合并顺序一致；标准 CSS 中作者 !important 通常高于
-    // 内联正常，这里按阅读器方案固定为内联优先。
+    // UA 正常 < 作者正常 < 内联正常 < 作者 !important < 内联 !important。
+    // EPUB 的 style 属性也是作者声明，普通内联不能压过 !important。
     CascadeOrigin.userAgent => 0,
-    CascadeOrigin.author => important ? 2 : 1,
-    CascadeOrigin.inline => important ? 4 : 3,
+    CascadeOrigin.author => important ? 3 : 1,
+    CascadeOrigin.inline => important ? 4 : 2,
   };
 }
+
+typedef _Candidate = (CssDeclaration, CascadeOrigin, Specificity, int);
 
 class _Winner implements Comparable<_Winner> {
   const _Winner({

@@ -85,6 +85,9 @@ abstract final class CssPropertyAliases {
 
   /// 解析一条声明：返回标准属性名与（可能被规整的）值。
   static (String, String) resolve(String property, String value) {
+    if (property.trim().startsWith('--')) {
+      return (property.trim(), value);
+    }
     final raw = property.trim().toLowerCase();
     final normalized = raw.startsWith('-') ? raw.substring(1) : raw;
     final target = _aliases[normalized];

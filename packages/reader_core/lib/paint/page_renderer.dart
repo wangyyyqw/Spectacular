@@ -14,8 +14,7 @@ import 'background_image.dart';
 import 'line_spans.dart';
 import 'paragraph_cache.dart';
 
-/// 页面绘制阶段（P2-29）：顺序固定为
-/// 背景 → 块背景 → 块边框 → 文本 → 装饰 → 选区。
+/// 页面先绘制背景，各块依次绘制背景、边框、文本、装饰，最后绘制选区。
 enum PagePaintPhase {
   /// 页面底色与背景。
   background,
@@ -114,7 +113,7 @@ class PagePainter {
   /// 选区高亮色。
   final Color selectionColor;
 
-  /// 阶段回调（测试用）：每个绘制阶段开始时触发一次。
+  /// 阶段回调（测试用）：块内阶段随每个元素重复，页面背景和选区各触发一次。
   final void Function(PagePaintPhase phase)? onPhase;
 
   /// 行排版缓存（可选）：按页/行缓存 TextPainter，重排时由调用方清空（P2-30）。
@@ -153,7 +152,6 @@ class PagePainter {
     );
     // 叠放顺序（CSS 2.1 §9.9）：`z-index` 升序绘制，同层保持文档序。
     // 只影响绘制次序；`geometries` 本身仍按文档序用于命中/选区。
-    final paintOrder = _paintOrder(geometries);
     final paintIndexOf = <_SliceGeometry, int>{
       for (var i = 0; i < geometries.length; i++) geometries[i]: i,
     };
@@ -180,249 +178,348 @@ class PagePainter {
     // 书籍整页背景图（P9-04）：平铺在背景色/纹理之上、正文之下。
     _paintBookPageBackground(canvas, page, pageRect);
 
-    _notifyPhase(PagePaintPhase.blockBackground);
-    for (final geometry in paintOrder) {
-      if (geometry.hidden) {
-        continue;
-      }
-      // 阴影可溢出块外：画在块裁剪之外（自带透明层），先影后景。
-      _inBlockSpace(
-        canvas,
-        geometry,
-        clip: false,
-        () => _withEffects(canvas, geometry, () {
-          _paintBoxShadow(canvas, geometry);
-        }),
-      );
-      _inBlockSpace(
-        canvas,
-        geometry,
-        clip: true,
-        () => _withEffects(canvas, geometry, () {
-          // backdrop-filter（CSS Filter Effects §5）：元素背后区域先按页面
-          // 背景近似铺一层，再走滤镜层，块自身背景随后覆盖。
-          _paintBackdropFilter(canvas, geometry, page, pageRect);
-          _paintBackground(
-            canvas,
-            geometry.containerPaintBox,
-            geometry.style,
-            startsBlock: geometry.startsBlock,
-            endsBlock: geometry.endsBlock,
-          );
-          // 内阴影画在背景之上、边框/文字之下（Chromium 的顺序）。
-          _paintInsetBoxShadow(canvas, geometry);
-          // 多列分隔线：背景之上、正文之下（CSS Multicol §4 的绘制顺序）。
-          _paintColumnRules(canvas, geometry);
-        }),
-      );
-    }
+    _paintContents(
+      _PagePaintContext(canvas, page, pageRect, paintIndexOf),
+      geometries,
+      0,
+      1,
+    );
 
-    _notifyPhase(PagePaintPhase.blockBorder);
-    for (final geometry in paintOrder) {
-      if (geometry.hidden) {
-        continue;
+    _notifyPhase(PagePaintPhase.selection);
+    final selection = this.selection;
+    if (selection != null) {
+      _paintSelection(canvas, page, geometries, selection);
+    }
+    canvas.restore();
+  }
+
+  /// 按共享容器身份保留嵌套关系，每层内部独立决定叠放顺序。
+  void _paintContents(
+    _PagePaintContext context,
+    List<_SliceGeometry> geometries,
+    int depth,
+    double parentOpacity,
+  ) {
+    final groups = <_PaintGroup>[];
+    for (final geometry in geometries) {
+      final fragments = geometry.slice.block.containers;
+      final container = depth < fragments.length
+          ? fragments[depth].container
+          : null;
+      if (container != null &&
+          groups.isNotEmpty &&
+          identical(groups.last.container, container)) {
+        groups.last.geometries.add(geometry);
+      } else {
+        groups.add(_PaintGroup(groups.length, container, [geometry]));
       }
-      _inBlockSpace(
-        canvas,
-        geometry,
-        clip: true,
-        () => _withEffects(canvas, geometry, () {
-          // border-image 存在时替代普通边框绘制（CSS Backgrounds §6.1）。
-          if (geometry.style.borderImage != null) {
-            if (geometry.startsBlock && geometry.endsBlock) {
-              _paintBorderImage(
+    }
+    groups.sort((a, b) {
+      final byZ = a.style.zIndex.compareTo(b.style.zIndex);
+      return byZ != 0 ? byZ : a.order.compareTo(b.order);
+    });
+    for (final group in groups) {
+      if (group.container != null) {
+        _paintContainer(context, group, depth, parentOpacity);
+      } else if (!group.geometries.single.hidden) {
+        _paintBlock(context, group.geometries.single, parentOpacity);
+      }
+    }
+  }
+
+  void _paintContainer(
+    _PagePaintContext context,
+    _PaintGroup group,
+    int depth,
+    double parentOpacity,
+  ) {
+    final canvas = context.canvas;
+    final geometry = _containerGeometry(group, depth);
+    _inBlockSpace(canvas, geometry, clip: false, () {
+      _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
+        if (!geometry.hidden) {
+          _paintBoxShadow(canvas, geometry);
+          _paintBlockBackground(canvas, geometry, context.page, context.pageRect);
+          _paintBlockBorder(canvas, geometry);
+        }
+        _clipBlock(canvas, geometry, clip: false, contentClip: true, () {
+          _paintContents(
+            context,
+            group.geometries,
+            depth + 1,
+            geometry.style.effectiveOpacity,
+          );
+        });
+      });
+    });
+  }
+
+  _SliceGeometry _containerGeometry(_PaintGroup group, int depth) {
+    final first = group.geometries.first;
+    final last = group.geometries.last;
+    final start = first.slice.block.containers[depth];
+    final end = last.slice.block.containers[depth];
+    final starts = start.startsHere && first.startsBlock;
+    final ends = end.endsHere && last.endsBlock;
+    final top = starts ? first.y + first.leading - start.topInset : first.y;
+    final bottom = ends
+        ? last.y +
+              last.slice.height -
+              last.slice.trailingExtent +
+              end.bottomInset
+        : last.y + last.slice.height;
+    final container = group.container!;
+    return _SliceGeometry(
+      slice: first.slice,
+      y: top,
+      style: container.style,
+      textStyle: first.textStyle,
+      startsBlock: starts,
+      endsBlock: ends,
+      hidden: container.style.visibility != CssVisibility.visible,
+      leading: 0,
+      leftInset: container.left,
+      rightInset: 0,
+      upExtent: 0,
+      downExtent: 0,
+      pageWidth: first.pageWidth,
+      pageHeight: first.pageHeight,
+      pageInsets: first.pageInsets,
+      paintBox: Rect.fromLTWH(
+        container.left,
+        top,
+        container.width,
+        bottom - top,
+      ),
+    );
+  }
+
+  /// 每个元素完整绘制后再合成，避免高层背景下透出低层文字。
+  void _paintBlock(
+    _PagePaintContext context,
+    _SliceGeometry geometry,
+    double parentOpacity,
+  ) {
+    final canvas = context.canvas;
+    final page = context.page;
+    final sliceIndex = context.indexOf[geometry]!;
+    _inBlockSpace(canvas, geometry, clip: false, () {
+      _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
+        _notifyPhase(PagePaintPhase.blockBackground);
+        _paintBoxShadow(canvas, geometry);
+        _clipBlock(canvas, geometry, clip: true, () {
+          _paintBlockBackground(canvas, geometry, page, context.pageRect);
+        });
+        _notifyPhase(PagePaintPhase.blockBorder);
+        _clipBlock(canvas, geometry, clip: true, () {
+          _paintBlockBorder(canvas, geometry);
+        });
+        _notifyPhase(PagePaintPhase.text);
+        _paintBlockText(canvas, page, geometry, sliceIndex);
+        _notifyPhase(PagePaintPhase.decoration);
+        _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
+        _paintBlockRubies(canvas, geometry);
+      });
+    });
+  }
+
+  void _paintBlockBackground(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    PageContent page,
+    Rect pageRect,
+  ) {
+    _paintBackdropFilter(canvas, geometry, page, pageRect);
+    _paintBackground(
+      canvas,
+      geometry.containerPaintBox,
+      geometry.style,
+      startsBlock: geometry.startsBlock,
+      endsBlock: geometry.endsBlock,
+    );
+    _paintInsetBoxShadow(canvas, geometry);
+    _paintColumnRules(canvas, geometry);
+  }
+
+  void _paintBlockBorder(Canvas canvas, _SliceGeometry geometry) {
+    if (geometry.style.borderImage != null) {
+      if (geometry.startsBlock && geometry.endsBlock) {
+        _paintBorderImage(canvas, geometry.borderBox, geometry.style);
+      }
+      return;
+    }
+    _paintBorders(
+      canvas,
+      geometry.containerPaintBox,
+      geometry.style,
+      startsBlock: geometry.startsBlock,
+      endsBlock: geometry.endsBlock,
+    );
+  }
+
+  void _paintBlockText(
+    Canvas canvas,
+    PageContent page,
+    _SliceGeometry geometry,
+    int sliceIndex,
+  ) {
+    final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
+    // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
+    final tableSpec = geometry.slice.block.table;
+    if (tableSpec != null) {
+      _clipBlock(canvas, geometry, clip: true, contentClip: true, () {
+        _paintTable(canvas, geometry, tableSpec);
+      });
+      return;
+    }
+    // 竖排注音画在列右侧，可能越出块的内容盒；此时不按内容盒裁剪，
+    // 否则注音会被切掉（Chrome 的注音同样允许横向溢出）。
+    final verticalRuby =
+        geometry.isVerticalBlock &&
+        (geometry.slice.block.rubies?.isNotEmpty ?? false);
+    _clipBlock(
+      canvas,
+      geometry,
+      clip: !verticalRuby,
+      contentClip: !verticalRuby,
+      () {
+        final layout = geometry.slice.block.layout;
+        if (geometry.isVerticalBlock) {
+          // 竖排：每行 = 一列，逐字符自上而下绘制（W22）。
+          _paintVerticalColumns(
+            canvas,
+            layout,
+            geometry.style,
+            textColorOverride: geometry.textColorOverride,
+            contentLeft:
+                geometry.borderBox.left +
+                geometry.style.padding.left +
+                (geometry.style.borders.left.isVisible
+                    ? geometry.style.borders.left.width
+                    : 0),
+            contentTop: geometry.y + geometry.leading,
+            startLine: geometry.slice.startLine,
+            endLine: geometry.slice.endLine,
+          );
+          return;
+        }
+        var lineY = geometry.y + geometry.leading;
+        for (
+          var lineIndex = geometry.slice.startLine;
+          lineIndex < geometry.slice.endLine;
+          lineIndex++
+        ) {
+          final line = layout.lines[lineIndex];
+          final lineText = layout.text.substring(line.start, line.end);
+          if (lineText.isNotEmpty) {
+            final x = line.offsetX + geometry.leftInset;
+            // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
+            if (lineIndex == 0 && geometry.slice.block.listMarker != null) {
+              _paintListMarker(
                 canvas,
-                geometry.borderBox,
-                geometry.style,
+                geometry,
+                marker: geometry.slice.block.listMarker!,
+                textX: x,
+                lineTop: lineY,
+                lineHeight: line.height,
               );
             }
-            return;
-          }
-          _paintBorders(
-            canvas,
-            geometry.containerPaintBox,
-            geometry.style,
-            startsBlock: geometry.startsBlock,
-            endsBlock: geometry.endsBlock,
-          );
-        }),
-      );
-    }
-
-    _notifyPhase(PagePaintPhase.text);
-    // 字体度量缓存（装饰线几何用）：整个文本阶段共用，避免逐行重排探针。
-    final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
-    for (final geometry in paintOrder) {
-      final sliceIndex = paintIndexOf[geometry]!;
-      if (geometry.hidden) {
-        continue;
-      }
-      // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
-      final tableSpec = geometry.slice.block.table;
-      if (tableSpec != null) {
-        _inBlockSpace(
-          canvas,
-          geometry,
-          clip: true,
-          contentClip: true,
-          () => _withEffects(canvas, geometry, () {
-            _paintTable(canvas, geometry, tableSpec);
-          }),
-        );
-        continue;
-      }
-      // 竖排注音画在列右侧，可能越出块的内容盒；此时不按内容盒裁剪，
-      // 否则注音会被切掉（Chrome 的注音同样允许横向溢出）。
-      final verticalRuby =
-          geometry.isVerticalBlock &&
-          (geometry.slice.block.rubies?.isNotEmpty ?? false);
-      _inBlockSpace(
-        canvas,
-        geometry,
-        clip: !verticalRuby,
-        contentClip: !verticalRuby,
-        () => _withEffects(canvas, geometry, () {
-          final layout = geometry.slice.block.layout;
-          if (geometry.isVerticalBlock) {
-            // 竖排：每行 = 一列，逐字符自上而下绘制（W22）。
-            _paintVerticalColumns(
-              canvas,
+            final painter = _linePainterFor(
+              page,
+              sliceIndex,
+              lineIndex,
               layout,
-              geometry.style,
+              line,
+              geometry.textStyle,
+              punctCompression: geometry.punctCompression,
               textColorOverride: geometry.textColorOverride,
-              contentLeft:
-                  geometry.borderBox.left +
-                  geometry.style.padding.left +
-                  (geometry.style.borders.left.isVisible
-                      ? geometry.style.borders.left.width
-                      : 0),
-              contentTop: geometry.y + geometry.leading,
-              startLine: geometry.slice.startLine,
-              endLine: geometry.slice.endLine,
             );
-            return;
-          }
-          var lineY = geometry.y + geometry.leading;
-          for (
-            var lineIndex = geometry.slice.startLine;
-            lineIndex < geometry.slice.endLine;
-            lineIndex++
-          ) {
-            final line = layout.lines[lineIndex];
-            final lineText = layout.text.substring(line.start, line.end);
-            if (lineText.isNotEmpty) {
-              final x = line.offsetX + geometry.leftInset;
-              // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
-              if (lineIndex == 0 &&
-                  geometry.slice.block.listMarker != null) {
-                _paintListMarker(
-                  canvas,
-                  geometry,
-                  marker: geometry.slice.block.listMarker!,
-                  textX: x,
-                  lineTop: lineY,
-                  lineHeight: line.height,
-                );
-              }
-              final painter = _linePainterFor(
-                page,
-                sliceIndex,
-                lineIndex,
-                layout,
-                line,
-                geometry.textStyle,
-                punctCompression: geometry.punctCompression,
-                textColorOverride: geometry.textColorOverride,
-              );
-              final lineRuns = _lineRuns(layout, line);
-              // 行内盒（P9-24 / W16）：布局层给了 placements 就按它画
-              // （否则回退到按 run 样式的旧口径），都画在文字之前。
-              if (line.inlineBoxes.isEmpty) {
-                _paintInlineBoxes(canvas, painter, lineRuns, x, lineY);
-              } else {
-                _paintInlineBoxPlacements(
-                  canvas,
-                  geometry,
-                  line,
-                  lineRuns,
-                  x,
-                  lineY,
-                );
-              }
-              _paintLineText(
+            final lineRuns = _lineRuns(layout, line);
+            // 行内盒（P9-24 / W16）：布局层给了 placements 就按它画
+            // （否则回退到按 run 样式的旧口径），都画在文字之前。
+            if (line.inlineBoxes.isEmpty) {
+              _paintInlineBoxes(canvas, painter, lineRuns, x, lineY);
+            } else {
+              _paintInlineBoxPlacements(
                 canvas,
-                painter,
-                lineText,
-                lineRuns,
-                geometry.textStyle,
-                x,
-                lineY,
-              );
-              // 装饰线（P2-17/P9-18）：line-through / overline 的实线按
-              // 浏览器几何重画，画在文字之上（浏览器同样在文字之后绘制）。
-              _paintLineDecoration(
-                canvas,
-                painter,
-                layout,
-                line,
-                geometry.style,
-                x,
-                lineY,
-                fontMetricsCache,
-              );
-              _paintInlineImages(
-                canvas,
-                painter,
                 geometry,
                 line,
-                lineText,
+                lineRuns,
                 x,
                 lineY,
               );
-              // 行尾字形（W13）：布局层只截断/计宽不画字——
-              // 省略号 `…`（行宽含省略号 advance）与断词连字符 `-` 都由
-              // 绘制层按行宽末端补画，start/end 仍是原文坐标。
-              if (line.ellipsized) {
-                _paintLineTailGlyph(
-                  canvas,
-                  geometry,
-                  line: line,
-                  glyph: '…',
-                  advance: line.ellipsisWidth,
-                  x: x,
-                  y: lineY,
-                );
-              } else if (line.hyphenated) {
-                _paintLineTailGlyph(
-                  canvas,
-                  geometry,
-                  line: line,
-                  glyph: '-',
-                  advance: line.hyphenWidth,
-                  x: x,
-                  y: lineY,
-                );
-              }
             }
-            lineY += line.height;
+            _paintLineText(
+              canvas,
+              painter,
+              lineText,
+              lineRuns,
+              geometry.textStyle,
+              x,
+              lineY,
+            );
+            // 装饰线（P2-17/P9-18）：line-through / overline 的实线按
+            // 浏览器几何重画，画在文字之上（浏览器同样在文字之后绘制）。
+            _paintLineDecoration(
+              canvas,
+              painter,
+              layout,
+              line,
+              geometry.style,
+              x,
+              lineY,
+              fontMetricsCache,
+            );
+            _paintInlineImages(
+              canvas,
+              painter,
+              geometry,
+              line,
+              lineText,
+              x,
+              lineY,
+            );
+            // 行尾字形（W13）：布局层只截断/计宽不画字——
+            // 省略号 `…`（行宽含省略号 advance）与断词连字符 `-` 都由
+            // 绘制层按行宽末端补画，start/end 仍是原文坐标。
+            if (line.ellipsized) {
+              _paintLineTailGlyph(
+                canvas,
+                geometry,
+                line: line,
+                glyph: '…',
+                advance: line.ellipsisWidth,
+                x: x,
+                y: lineY,
+              );
+            } else if (line.hyphenated) {
+              _paintLineTailGlyph(
+                canvas,
+                geometry,
+                line: line,
+                glyph: '-',
+                advance: line.hyphenWidth,
+                x: x,
+                y: lineY,
+              );
+            }
           }
-        }),
-      );
-    }
+          lineY += line.height;
+        }
+      },
+    );
+  }
 
-    _notifyPhase(PagePaintPhase.decoration);
-    for (var sliceIndex = 0; sliceIndex < geometries.length; sliceIndex++) {
-      final geometry = geometries[sliceIndex];
-      if (geometry.hidden ||
-          geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
-        continue;
-      }
-      _inBlockSpace(
-        canvas,
-        geometry,
-        clip: true,
-        contentClip: true,
-        () {
+  void _paintBlockEmphasis(
+    Canvas canvas,
+    PageContent page,
+    _SliceGeometry geometry,
+    int sliceIndex,
+  ) {
+    if (geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
+      return;
+    }
+    _clipBlock(canvas, geometry, clip: true, contentClip: true, () {
       final layout = geometry.slice.block.layout;
       var lineY = geometry.y + geometry.leading;
       for (
@@ -453,65 +550,70 @@ class PagePainter {
         }
         lineY += line.height;
       }
-        },
-      );
-    }
+    });
+  }
 
-    // 注音趟（P8-08）：ruby 主文本区间上方绘制注音（50% 字号、区间
-    // 居中；行内字符定位按 TextPainter 逐字符累进近似）。
-    for (final geometry in paintOrder) {
-      if (geometry.hidden) {
-        continue;
-      }
-      final rubies = geometry.slice.block.rubies;
-      if (rubies == null || rubies.isEmpty) {
-        continue;
-      }
-      // 竖排块的注音画在列右侧（_paintVerticalRubies）：可能越出块的内容盒，
-      // 因此单独一趟、不按块盒裁剪，否则注音会被切掉。
-      if (geometry.isVerticalBlock) {
-        final layout = geometry.slice.block.layout;
-        _inBlockSpace(
-          canvas,
-          geometry,
-          clip: false,
-          () => _paintVerticalRubies(
-            canvas,
-            layout,
-            geometry.style,
-            rubies,
-            contentLeft:
-                geometry.borderBox.left +
-                geometry.style.padding.left +
-                (geometry.style.borders.left.isVisible
-                    ? geometry.style.borders.left.width
-                    : 0),
-            contentTop: geometry.y + geometry.leading,
-            startLine: geometry.slice.startLine,
-            endLine: geometry.slice.endLine,
-            metrics: TextLayoutEngine.verticalGlyphMetrics(
-              layout.text,
-              geometry.style,
-            ),
-          ),
-        );
-        continue;
-      }
-      // 注音画在行顶上方/行底下，可能越出块盒；按内容盒裁剪会把它切掉，
-      // 因此这一趟不裁剪（与竖排注音同一处理）。
-      _inBlockSpace(
+  void _paintBlockRubies(Canvas canvas, _SliceGeometry geometry) {
+    final rubies = geometry.slice.block.rubies;
+    if (rubies == null || rubies.isEmpty) {
+      return;
+    }
+    // 竖排块的注音画在列右侧（_paintVerticalRubies）：可能越出块的内容盒，
+    // 因此单独一趟、不按块盒裁剪，否则注音会被切掉。
+    if (geometry.isVerticalBlock) {
+      final layout = geometry.slice.block.layout;
+      _clipBlock(
         canvas,
         geometry,
         clip: false,
-        () => _paintRubies(canvas, geometry, rubies),
+        () => _paintVerticalRubies(
+          canvas,
+          layout,
+          geometry.style,
+          rubies,
+          contentLeft:
+              geometry.borderBox.left +
+              geometry.style.padding.left +
+              (geometry.style.borders.left.isVisible
+                  ? geometry.style.borders.left.width
+                  : 0),
+          contentTop: geometry.y + geometry.leading,
+          startLine: geometry.slice.startLine,
+          endLine: geometry.slice.endLine,
+          metrics: TextLayoutEngine.verticalGlyphMetrics(
+            layout.text,
+            geometry.style,
+          ),
+        ),
       );
+      return;
     }
+    // 注音画在行顶上方/行底下，可能越出块盒；按内容盒裁剪会把它切掉，
+    // 因此这一趟不裁剪（与竖排注音同一处理）。
+    _clipBlock(
+      canvas,
+      geometry,
+      clip: false,
+      () => _paintRubies(canvas, geometry, rubies),
+    );
+  }
 
-    _notifyPhase(PagePaintPhase.selection);
-    final selection = this.selection;
-    if (selection != null) {
-      _paintSelection(canvas, page, geometries, selection);
+  /// 元素变换已在外层应用；各绘制部分只处理自己的裁剪范围。
+  void _clipBlock(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    void Function() body, {
+    required bool clip,
+    bool contentClip = false,
+  }) {
+    canvas.save();
+    if (clip && geometry.style.transforms.isEmpty) {
+      geometry.clip(canvas);
     }
+    if (contentClip && geometry.clipsOverflow) {
+      canvas.clipRect(geometry.paddingBox);
+    }
+    body();
     canvas.restore();
   }
 
@@ -635,27 +737,6 @@ class PagePainter {
       }
     }
     return geometries;
-  }
-
-  /// 绘制顺序：`z-index` 升序，同层保持文档序（稳定排序）。
-  static List<_SliceGeometry> _paintOrder(List<_SliceGeometry> geometries) {
-    var needsSort = false;
-    for (final geometry in geometries) {
-      if (geometry.style.zIndex != 0) {
-        needsSort = true;
-        break;
-      }
-    }
-    if (!needsSort) {
-      return geometries;
-    }
-    final indexed = <(int, _SliceGeometry)>[
-      for (var i = 0; i < geometries.length; i++) (i, geometries[i]),
-    ]..sort((a, b) {
-      final byZ = a.$2.style.zIndex.compareTo(b.$2.style.zIndex);
-      return byZ != 0 ? byZ : a.$1.compareTo(b.$1);
-    });
-    return <_SliceGeometry>[for (final item in indexed) item.$2];
   }
 
   /// 画选区（P2-29）：按切片序号 + 块内字符范围取排版盒，最后统一覆盖。
@@ -896,21 +977,24 @@ class PagePainter {
   /// 不透明度读 [ComputedStyle.effectiveOpacity]（沿级联父链乘积），因此
   /// 父级半透明会连带作用于子块，与 Chromium 的元素组合成一致。
   ///
-  /// 绘制按背景/边框/文本等阶段分别套一次：对书内卡片类元素观感等价，
-  /// 与「整元素一次合成」的差别只在相邻半透明边缘的亚像素混合。
+  /// 背景、边框、文字与附加装饰共享同一合成层，重叠部分不会重复混色。
   void _withEffects(
     Canvas canvas,
     _SliceGeometry geometry,
-    void Function() body,
-  ) {
+    void Function() body, {
+    double parentOpacity = 1,
+  }) {
     final filters = geometry.style.filters;
     // 累计不透明度有两个来源：PageBlock（章节源按级联链乘积传入，W3 已接线）
     // 与 ComputedStyle.effectiveOpacity（样式层按父链乘积）。取两者较小值，
     // 既不会重复相乘，也能覆盖「只有一边带了祖先值」的调用路径。
-    final opacity = math.min(
-      geometry.slice.block.effectiveOpacity,
-      geometry.style.effectiveOpacity,
-    );
+    final cumulative = geometry.paintBox != null
+        ? geometry.style.effectiveOpacity
+        : math.min(geometry.slice.block.effectiveOpacity,
+            geometry.style.effectiveOpacity);
+    final opacity = parentOpacity > 0
+        ? (cumulative / parentOpacity).clamp(0.0, 1.0)
+        : 0.0;
     if (filters.isEmpty && opacity >= 1) {
       body();
       return;
@@ -1384,17 +1468,10 @@ class PagePainter {
     TableRenderSpec spec,
   ) {
     final top = geometry.y + geometry.leading;
-    final height = spec.rowYs.last;
     // 表格原点与正文左缘对齐（P9-16）：列坐标是表格内的相对坐标，
     // 左内缩（容器内边距）与 margin 必须叠加，否则表格压到页边距外。
-    final left = geometry.leftInset + geometry.style.margin.left;
-    final tableStyle = geometry.style;
-    if (tableStyle.backgroundColor.a > 0) {
-      canvas.drawRect(
-        Rect.fromLTWH(left, top, spec.tableWidth, height),
-        Paint()..color = tableStyle.backgroundColor,
-      );
-    }
+    final left = geometry.leftInset;
+    // 整表背景已由元素背景阶段绘制，此处仅绘制单元格自身背景。
     for (final cell in spec.cells) {
       final style = cell.style;
       final cellRect = Rect.fromLTWH(
@@ -3639,6 +3716,23 @@ class PagePainter {
   }
 }
 
+/// 一页绘制共享的只读上下文，递归容器沿用原切片索引供文字缓存使用。
+class _PagePaintContext {
+  const _PagePaintContext(this.canvas, this.page, this.pageRect, this.indexOf);
+  final Canvas canvas;
+  final PageContent page;
+  final Rect pageRect;
+  final Map<_SliceGeometry, int> indexOf;
+}
+
+class _PaintGroup {
+  _PaintGroup(this.order, this.container, this.geometries);
+  final int order;
+  final PageContainer? container;
+  final List<_SliceGeometry> geometries;
+  ComputedStyle get style => container?.style ?? geometries.first.style;
+}
+
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
 class _LineRun {
   const _LineRun(this.start, this.end, this.style, this.baselineShift);
@@ -3706,8 +3800,10 @@ class _SliceGeometry {
     required this.pageHeight,
     this.pageInsets = EdgeInsets.zero,
     this.textColorOverride,
+    this.paintBox,
   });
 
+  final Rect? paintBox;
   final PageBlockSlice slice;
   final double y;
   final ComputedStyle style;
@@ -3743,7 +3839,7 @@ class _SliceGeometry {
   final EdgeInsets pageInsets;
 
   /// 背景/边框盒子（含首尾内缩）。
-  Rect get box => Rect.fromLTWH(0, y, pageWidth, slice.height);
+  Rect get box => paintBox ?? Rect.fromLTWH(0, y, pageWidth, slice.height);
 
   /// 背景/边框盒子（margin 修正）：flat 管线 box.left 恒 0，块级
   /// margin.left 折算进左缘，使背景与边框跟文本 x（已含 margin）对齐；
@@ -3752,7 +3848,7 @@ class _SliceGeometry {
   /// 自己的上下段距，多个子块叠起来就拼回一整片面板。
   Rect get containerPaintBox {
     final base = borderBox;
-    if (!slice.block.containerSides) {
+    if (paintBox != null || !slice.block.containerSides) {
       return base;
     }
     // 容器拼合：向上下延伸到相邻子块的段距，拼回整片面板（P9-25）。
@@ -3771,16 +3867,21 @@ class _SliceGeometry {
   /// margin 后的边框盒，否则会画进相邻块之间的空白带——Chromium 那里是页面
   /// 底色（10-background、26-background-gradient 的视觉差全部落在这条带上）。
   Rect get borderBox {
+    if (paintBox != null) return paintBox!;
     final block = slice.block;
+    final ownTop = block.containers.isEmpty ? block.topInset
+        : style.padding.top + (style.borders.top.isVisible ? style.borders.top.width : 0);
+    final ownBottom = block.containers.isEmpty ? block.bottomInset
+        : style.padding.bottom + (style.borders.bottom.isVisible ? style.borders.bottom.width : 0);
     final top = block.bleedTop
         ? -pageInsets.top
         : (slice.leadingExtent > 0
-              ? y + slice.leadingExtent - block.topInset
+              ? y + slice.leadingExtent - ownTop
               : y);
     final bottom = block.bleedBottom
         ? pageHeight + pageInsets.bottom
         : (slice.trailingExtent > 0
-              ? y + slice.height - slice.trailingExtent + block.bottomInset
+              ? y + slice.height - slice.trailingExtent + ownBottom
               : y + slice.height);
     // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：
     // 声明了 width 的块背景与 overflow 裁剪都要收在声明宽内（Chromium 的

@@ -1,0 +1,161 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_mobile/reader/epub_chapter_source.dart';
+
+import 'support/css_chapter_book.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('效果名和段落共用容器，三层背景不合并到正文', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="outer"><div class="card"><div class="effect">'
+          '<span>效果名称</span><p>效果说明</p></div></div></div>',
+      css:
+          '.outer { background: rgba(0,0,0,.5); padding: 10px; }'
+          '.card { background: rgba(0,0,0,.5); padding: 12px; }'
+          '.effect { background: rgba(0,0,0,.8); padding: 6px 8px; '
+          'border: 1px solid black; border-left: 2px solid gold; }',
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    expect(blocks, hasLength(2));
+    for (final block in blocks) {
+      expect(block.containers, hasLength(3));
+      expect(block.style!.borders.hasBorder, isFalse);
+      expect(block.style!.backgroundColor.a, 0);
+      expect(block.style!.margin.left, 32);
+    }
+    expect(blocks.first.containers.last.startsHere, isTrue);
+    expect(blocks.first.containers.last.endsHere, isFalse);
+    expect(blocks.last.containers.last.startsHere, isFalse);
+    expect(blocks.last.containers.last.endsHere, isTrue);
+  });
+
+  test('标题表宽按卡片内容区解析，单元格不重复继承祖先内缩', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="card"><table><tr><td>道具</td><td>SSS</td>'
+          '</tr></table><p>说明</p></div>',
+      css:
+          '.card { padding: 12px; border: 2px solid black; }'
+          'table { width: 100%; table-layout: fixed; border-collapse: collapse; }'
+          'td { padding: 0; border: none; }',
+      contentWidth: 350,
+    );
+    final table = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.table != null);
+    expect(table.table!.tableWidth, 322);
+    expect(table.style!.margin.left, 14);
+    expect(table.table!.cells.first.style.margin.left, 0);
+  });
+
+  test('嵌套容器的百分比内边距按父内容宽度计算', () async {
+    final source = await openCssChapter(
+      body: '<div class="outer"><div class="inner"><p>正文</p></div></div>',
+      css: '.outer { width: 200px; } .inner { padding: 10%; }',
+      contentWidth: 350,
+    );
+    final block = (await source.loadChapter(0)).first.slices.first.block;
+    expect(block.containers.last.container.style.padding.left, 20);
+    expect(block.style!.margin.left, 20);
+    expect(block.layout.maxWidth, 160);
+  });
+
+  test('卡片之间不折叠各自容器内部的段距', () async {
+    final source = await openCssChapter(
+      body: '<div><p>一</p></div><div><p>二</p></div>',
+      css: 'div { padding: 6px; } p { margin: 10px 0; }',
+    );
+    final slices = (await source.loadChapter(0)).first.slices;
+    final distance =
+        slices.first.height +
+        slices.last.leadingExtent -
+        slices.first.leadingExtent -
+        slices.first.block.layout.height;
+    expect(distance, 32);
+  });
+
+  test('含浮动的章节跨页后仍保留容器，只在首末片段封框', () async {
+    final source = await openCssChapter(
+      body:
+          '<p class="float">浮</p><div class="card"><p>'
+          '${'跨页容器正文。' * 50}</p></div>',
+      css:
+          '.float { float: left; width: 20px; } '
+          '.card { padding: 6px; border: 1px solid black; background: #123456; }',
+      contentHeight: 150,
+      contentWidth: 200,
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    final blocks = pages
+        .expand((page) => page.slices)
+        .where((slice) => !slice.overlay)
+        .map((slice) => slice.block)
+        .toList();
+    expect(blocks.every((block) => block.containers.length == 1), isTrue);
+    final fragments = blocks.map((block) => block.containers.single).toList();
+    expect(fragments.where((f) => f.startsHere), hasLength(1));
+    expect(fragments.where((f) => f.endsHere), hasLength(1));
+    expect(
+      fragments.every((f) => identical(f.container, fragments.first.container)),
+      isTrue,
+    );
+  });
+
+  test('窄卡片内部的媒体查询仍以阅读视口判断', () async {
+    final source = await openCssChapter(
+      body: '<div class="card"><p>正文</p></div>',
+      css:
+          '.card { width: 200px; } p { color: blue; } '
+          '@media (min-width: 300px) { p { color: red; } }',
+      contentWidth: 350,
+    );
+    final block = (await source.loadChapter(0)).first.slices.first.block;
+    expect(block.style!.color.toARGB32(), 0xffff0000);
+    expect(block.layout.maxWidth, 200);
+  });
+
+  final realBook = File('../../test_corpus/real/zhushen-yuxi.epub');
+  test('诸神愚戏第六章：完整卡片、效果容器及不越界的评级表', () async {
+    final source = await EpubChapterSource.open(
+      realBook.readAsBytesSync(),
+      contentWidth: 350,
+      contentHeight: 800,
+      verifyCrc: false,
+    );
+    final pages = await source.loadChapter(32);
+    final blocks = <PageBlock>{
+      for (final page in pages)
+        for (final slice in page.slices) slice.block,
+    };
+    final name = blocks.firstWhere((b) => b.layout.text == '【恐惧养料】');
+    final description = blocks.firstWhere(
+      (b) => b.layout.text.startsWith('你可以吸收周围的恐惧情绪'),
+    );
+    expect(name.containers, hasLength(3));
+    expect(
+      identical(
+        name.containers.last.container,
+        description.containers.last.container,
+      ),
+      isTrue,
+    );
+    expect(name.style!.borders.hasBorder, isFalse);
+    expect(description.style!.borders.hasBorder, isFalse);
+    for (final block in blocks.where((b) => b.table != null)) {
+      expect(
+        block.table!.tableWidth + block.style!.margin.horizontal,
+        lessThanOrEqualTo(source.contentWidth + 0.01),
+      );
+    }
+  }, skip: !realBook.existsSync());
+}

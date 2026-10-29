@@ -55,8 +55,8 @@ Future<ByteData> _renderPage({String? body, String? css}) async {
           '.card { border: 2px solid #00ff00; border-left: 6px solid #ff0000; '
               'background-color: #112233; padding: 6px; }',
     ),
-    contentWidth: _pageSize.width,
-    contentHeight: _pageSize.height,
+    contentWidth: _pageSize.width + 2 * ReaderSettingsDefaults.horizontalPadding,
+    contentHeight: _pageSize.height + 32,
     verifyCrc: false,
   );
   await source.applyOverrides(ReaderSettingsDefaults.overrides);
