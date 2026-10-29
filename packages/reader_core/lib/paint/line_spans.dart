@@ -74,6 +74,7 @@ InlineSpan buildLineSpan({
       ? baseStyle
       : baseStyle.copyWith(color: textColor);
   final lineText = layout.text.substring(line.start, line.end);
+  final trailingBidiMark = _rtlTrailingBidiMark(layout, line);
   final runs = layout.runs;
   // 与测量期同模式取 gap（P7-21：text-justify 模式随行携带）。
   final gaps = line.justifyExtra > 0
@@ -102,12 +103,12 @@ InlineSpan buildLineSpan({
     final caps = syntheticSmallCapsFromTextStyle(effectiveBase);
     if (caps != null) {
       return buildSyntheticSmallCapsSpan(
-        text: lineText,
+        text: '$lineText$trailingBidiMark',
         style: effectiveBase,
         caps: caps,
       );
     }
-    return TextSpan(text: lineText, style: effectiveBase);
+    return TextSpan(text: '$lineText$trailingBidiMark', style: effectiveBase);
   }
   if (!hasPlaceholder &&
       gaps.isEmpty &&
@@ -116,16 +117,20 @@ InlineSpan buildLineSpan({
     return applySyntheticSmallCaps(
       TextSpan(
         style: effectiveBase,
-        children: buildStyledSpans(
-          text: layout.text,
-          start: line.start,
-          end: line.end,
-          runs: runs,
-          // 非 run 段必须用 effectiveBase：用 baseStyle 会让同一行出现
-          // “主题色 + 书籍色”混杂（P9-02 修复）。
-          baseStyle: effectiveBase,
-          styleOf: styleOf ?? TextLayoutEngine.textStyleFor,
-        ),
+        children: <InlineSpan>[
+          ...buildStyledSpans(
+            text: layout.text,
+            start: line.start,
+            end: line.end,
+            runs: runs,
+            // 非 run 段必须用 effectiveBase：用 baseStyle 会让同一行出现
+            // “主题色 + 书籍色”混杂（P9-02 修复）。
+            baseStyle: effectiveBase,
+            styleOf: styleOf ?? TextLayoutEngine.textStyleFor,
+          ),
+          if (trailingBidiMark.isNotEmpty)
+            TextSpan(text: trailingBidiMark, style: effectiveBase),
+        ],
       ),
     );
   }
@@ -178,5 +183,54 @@ InlineSpan buildLineSpan({
     );
     offset += char.length;
   }
+  if (trailingBidiMark.isNotEmpty) {
+    children.add(TextSpan(text: trailingBidiMark, style: effectiveBase));
+  }
   return TextSpan(style: effectiveBase, children: children);
+}
+
+/// RTL 段落逐行绘制时，行尾中性标点需要看到下一行的强文字方向。
+///
+/// TextPainter 只拿到当前行，会把行尾顿号误判为段落边界而排到视觉左侧；
+/// 浏览器使用整段双向上下文。后续强 LTR 文字存在时追加零宽 LRM 保留该
+/// 上下文；段落末尾或后续为 RTL 文字时不加。
+String _rtlTrailingBidiMark(TextLayoutResult layout, LineBox line) {
+  if (!layout.isRtl ||
+      line.end <= line.start ||
+      line.end >= layout.text.length) {
+    return '';
+  }
+  final lastRune = layout.text.substring(line.start, line.end).runes.last;
+  if (_isStrongLtrRune(lastRune) || _isStrongRtlRune(lastRune)) {
+    return '';
+  }
+  final tail = layout.text.substring(line.end);
+  for (final rune in tail.runes) {
+    if (rune == 0x0A || rune == 0x0D) {
+      return '';
+    }
+    if (_isStrongLtrRune(rune)) {
+      return '\u200E';
+    }
+    if (_isStrongRtlRune(rune)) {
+      return '';
+    }
+  }
+  return '';
+}
+
+bool _isStrongLtrRune(int rune) {
+  return isJustifyWordCodePoint(rune) ||
+      (rune >= 0x3400 && rune <= 0x4DBF) ||
+      (rune >= 0x4E00 && rune <= 0x9FFF) ||
+      (rune >= 0xF900 && rune <= 0xFAFF) ||
+      (rune >= 0x20000 && rune <= 0x2FA1F) ||
+      (rune >= 0x3040 && rune <= 0x30FF) ||
+      (rune >= 0xAC00 && rune <= 0xD7AF);
+}
+
+bool _isStrongRtlRune(int rune) {
+  return (rune >= 0x0590 && rune <= 0x08FF) ||
+      (rune >= 0xFB1D && rune <= 0xFDFF) ||
+      (rune >= 0xFE70 && rune <= 0xFEFF);
 }

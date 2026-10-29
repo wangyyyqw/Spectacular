@@ -1,6 +1,9 @@
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/paint/line_spans.dart';
 
 /// RTL（`direction: rtl`）：baseDirection 与 `start`/`end` 对齐折算。
 ///
@@ -109,5 +112,51 @@ void main() {
     );
     expect(layout.lineCount, greaterThan(1));
     expect(layout.lines.last.offsetX, closeTo(0, 0.01));
+  });
+
+  test('rtl 行尾中性标点继承下一行的强 LTR 方向', () {
+    const text = '前面的文字、内边距应整体镜像。';
+    final firstEnd = text.indexOf('、') + 1;
+    final layout = TextLayoutResult(
+      text: text,
+      lines: <LineBox>[
+        LineBox(
+          start: 0,
+          end: firstEnd,
+          top: 0,
+          height: 24,
+          baseline: 19,
+          width: 96,
+        ),
+        LineBox(
+          start: firstEnd,
+          end: text.length,
+          top: 24,
+          height: 24,
+          baseline: 43,
+          width: 128,
+          isLastLine: true,
+        ),
+      ],
+      width: 128,
+      height: 48,
+      maxWidth: 160,
+      isRtl: true,
+    );
+    const base = TextStyle(fontSize: 16, height: 1.5);
+
+    final first = buildLineSpan(
+      layout: layout,
+      line: layout.lines.first,
+      baseStyle: base,
+    ).toPlainText();
+    final last = buildLineSpan(
+      layout: layout,
+      line: layout.lines.last,
+      baseStyle: base,
+    ).toPlainText();
+
+    expect(first, endsWith('\u200E'));
+    expect(last, isNot(contains('\u200E')));
   });
 }
