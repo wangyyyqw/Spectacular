@@ -33,8 +33,8 @@ class ReaderMenuOverlay extends StatelessWidget {
     required this.onBack,
     required this.onToggleDayNight,
     required this.nightMode,
-    required this.onPreviousPage,
-    required this.onNextPage,
+    required this.onPreviousChapter,
+    required this.onNextChapter,
     required this.onSeek,
     required this.onEntry,
     required this.drawerTitle,
@@ -69,9 +69,9 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 当前是否夜间（决定图标）。
   final bool nightMode;
 
-  /// 上一页 / 下一页（滑杆两侧按钮）。
-  final VoidCallback onPreviousPage;
-  final VoidCallback onNextPage;
+  /// 上一章 / 下一章；无相邻章节时传 null，按钮禁用。
+  final VoidCallback? onPreviousChapter;
+  final VoidCallback? onNextChapter;
 
   /// 拖动滑杆（0..1）。
   final ValueChanged<double> onSeek;
@@ -215,8 +215,8 @@ class ReaderMenuOverlay extends StatelessWidget {
                         fill: fill,
                         progress: progress,
                         label: chapterLabel,
-                        onPrevious: onPreviousPage,
-                        onNext: onNextPage,
+                        onPrevious: onPreviousChapter,
+                        onNext: onNextChapter,
                         onSeek: onSeek,
                       ),
                       _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
@@ -302,8 +302,8 @@ class _ProgressRow extends StatefulWidget {
   final Color fill;
   final double progress;
   final String label;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
   final ValueChanged<double> onSeek;
 
   @override
@@ -322,10 +322,11 @@ class _ProgressRowState extends State<_ProgressRow> {
       child: Row(
         children: <Widget>[
           _NavButton(
-            icon: Icons.chevron_left,
+            icon: Icons.skip_previous,
+            label: '上一章',
             color: widget.fg,
             onTap: widget.onPrevious,
-            buttonKey: const ValueKey<String>('menu-prev-page'),
+            buttonKey: const ValueKey<String>('menu-prev-chapter'),
           ),
           Expanded(
             child: LayoutBuilder(
@@ -431,10 +432,11 @@ class _ProgressRowState extends State<_ProgressRow> {
             ),
           ),
           _NavButton(
-            icon: Icons.chevron_right,
+            icon: Icons.skip_next,
+            label: '下一章',
             color: widget.fg,
             onTap: widget.onNext,
-            buttonKey: const ValueKey<String>('menu-next-page'),
+            buttonKey: const ValueKey<String>('menu-next-chapter'),
           ),
         ],
       ),
@@ -449,26 +451,41 @@ class _ProgressRowState extends State<_ProgressRow> {
 class _NavButton extends StatelessWidget {
   const _NavButton({
     required this.icon,
+    required this.label,
     required this.color,
     required this.onTap,
     this.buttonKey,
   });
 
   final IconData icon;
+  final String label;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Key? buttonKey;
 
   @override
   Widget build(BuildContext context) {
-    return InkResponse(
-      key: buttonKey,
-      onTap: onTap,
-      radius: 20,
-      child: SizedBox(
-        width: 32,
-        height: 32,
-        child: Icon(icon, size: 22, color: color.withValues(alpha: 0.55)),
+    return Semantics(
+      label: label,
+      button: true,
+      enabled: onTap != null,
+      child: Tooltip(
+        message: label,
+        excludeFromSemantics: true,
+        child: InkResponse(
+          key: buttonKey,
+          onTap: onTap,
+          radius: 20,
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Icon(
+              icon,
+              size: 22,
+              color: color.withValues(alpha: onTap == null ? 0.2 : 0.55),
+            ),
+          ),
+        ),
       ),
     );
   }

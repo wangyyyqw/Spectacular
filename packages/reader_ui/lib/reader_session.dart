@@ -247,6 +247,9 @@ class ReaderSession extends ChangeNotifier {
   /// 取消后旧任务不会再改写 [page]、[error]、[loading]，可安全重新打开。
   void cancelPendingLoads() {
     _generation += 1;
+    _jumpToken += 1;
+    _jumpLoadingTitle = null;
+    _pager?.cancelPendingNavigation();
     _loading = false;
     _notify();
   }
@@ -350,7 +353,10 @@ class ReaderSession extends ChangeNotifier {
         ? ReaderTrace.instance.start(ReaderTraceName.chapterJump, bookId: bookId)
         : null;
     try {
-      final changed = await pager.goTo(spineIndex, 0);
+      final changed = await pager.goTo(
+        spineIndex, 0,
+        emptyDirection: spineIndex < (page?.spineIndex ?? 0) ? -1 : 1,
+      );
       if (token != _jumpToken) {
         return false;
       }
@@ -413,7 +419,11 @@ class ReaderSession extends ChangeNotifier {
   }
 
   /// 打开并恢复进度。
-  Future<void> open() async {
+  Future<void> open({
+    ReaderOverrides? overrides,
+    double? contentWidth,
+    double? contentHeight,
+  }) async {
     if (_loading || _pager != null) {
       return;
     }
@@ -425,24 +435,19 @@ class ReaderSession extends ChangeNotifier {
       if (source.chapterCount <= 0) {
         throw StateError('书籍没有章节');
       }
+      await _prepareInitialLayout(overrides, contentWidth, contentHeight);
+      if (generation != _generation) return;
+      final saved = await store.load(bookId);
+      if (generation != _generation) return;
       final pager = VirtualPager(
         spineCount: source.chapterCount,
         loader: source.loadChapter,
       );
-      await pager.initialize();
-      if (generation != _generation) {
-        return;
-      }
-      final saved = await store.load(bookId);
-      if (generation != _generation) {
-        return;
-      }
-      if (saved != null) {
-        await pager.goTo(saved.spineIndex, saved.pageIndex);
-        if (generation != _generation) {
-          return;
-        }
-      }
+      await pager.initialize(
+        startSpine: saved?.spineIndex ?? 0,
+        startPage: saved?.pageIndex ?? 0,
+      );
+      if (generation != _generation) return;
       _pager = pager;
       _loading = false;
       // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
@@ -455,6 +460,24 @@ class ReaderSession extends ChangeNotifier {
       _error = error;
       _loading = false;
       _notify();
+    }
+  }
+
+  /// 第一章排版之前应用最终设置与尺寸，避免首屏出现后再立即重排。
+  Future<void> _prepareInitialLayout(
+    ReaderOverrides? overrides, double? width, double? height,
+  ) async {
+    final src = source;
+    if (overrides != null) {
+      _overrides = overrides;
+      if (src is RestylableChapterSource) await src.applyOverrides(overrides);
+    }
+    if (width != null && height != null) {
+      _contentWidth = width;
+      _contentHeight = height;
+      if (src is ResizableChapterSource) {
+        await src.applyContentSize(width: width, height: height);
+      }
     }
   }
 
@@ -580,6 +603,7 @@ class ReaderSession extends ChangeNotifier {
     required ReaderAnchor anchor,
     Future<void> Function()? prepare,
   }) async {
+    _pager?.cancelPendingNavigation();
     _loading = true;
     _notify();
     try {
@@ -595,13 +619,11 @@ class ReaderSession extends ChangeNotifier {
       }
       final pager = VirtualPager(
         spineCount: source.chapterCount,
-        loader: source.loadChapter,
+        loader: (index) => index == spine
+            ? Future.value(pages)
+            : source.loadChapter(index),
       );
-      await pager.initialize();
-      if (generation != _generation) {
-        return;
-      }
-      await pager.goTo(spine, _locatePage(pages, anchor));
+      await pager.initialize(startSpine: spine, startPage: _locatePage(pages, anchor));
       if (generation != _generation) {
         return;
       }
@@ -712,6 +734,8 @@ class ReaderSession extends ChangeNotifier {
   @override
   void dispose() {
     _generation += 1; // 丢弃未完成任务
+    _jumpToken += 1;
+    _pager?.cancelPendingNavigation();
     // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
     final value = progress;
     if (value != null && value != _lastPersisted) {

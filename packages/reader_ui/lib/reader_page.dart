@@ -362,6 +362,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 上一次布局的正文区尺寸（旋转/窗口变化检测，P2-31）。
   Size? _lastContentSize;
+  Future<void>? _initialOpen;
 
   /// 预取本页引用的背景图；解码完成后 setState，占位替换为真图。
   void _prefetchPageImages(PageContent page, double displayWidth) {
@@ -418,12 +419,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _lastContentSize = content;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        unawaited(
-          _session.applyContentSize(
-            width: content.width,
-            height: content.height,
-          ),
-        );
+        final opening = _initialOpen;
+        if (opening == null) {
+          _initialOpen = _session.open(
+            overrides: _effectiveOverrides(),
+            contentWidth: content.width,
+            contentHeight: content.height,
+          );
+        } else {
+          unawaited(opening.then((_) async {
+            if (!mounted) return;
+            await _session.applyContentSize(
+              width: content.width, height: content.height,
+            );
+          }));
+        }
       }
     });
   }
@@ -486,11 +496,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
     widget.onSessionReady?.call(_session);
     unawaited(_reloadAnnotations());
-    unawaited(
-      _session.open().then(
-        (_) => _session.applyOverrides(_effectiveOverrides()),
-      ),
-    );
   }
 
   @override
@@ -1148,12 +1153,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       builder: (context, _) {
         // 背景铺满窗口（P8-10 收尾）：加载骨架/错误态/正文页统一以主题
         // 背景色打底，避免 padding 外区域透出窗口黑底。
-        return ColoredBox(
-          color: _effectiveTheme?.background ?? widget.background,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            child: _buildBody(context),
-          ),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            _scheduleContentSize(Size(constraints.maxWidth, constraints.maxHeight));
+            return ColoredBox(
+              color: _effectiveTheme?.background ?? widget.background,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: _buildBody(context),
+              ),
+            );
+          },
         );
       },
     );
@@ -1223,7 +1233,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           child: Text('打开失败：$error'),
         );
       }
-      if (_session.loading) {
+      if (_session.loading || _initialOpen == null) {
         return ReaderLoadingSkeleton(
           progress: _session.bookProgress > 0 ? _session.bookProgress : null,
         );
@@ -1239,7 +1249,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         final padding = _effectivePadding();
         _schedulePrefetch(page, size.width - padding.horizontal);
-        _scheduleContentSize(size);
         // 出血页把整页让给图：绘制画布取满屏，正文由 pageInsets 内缩，
         // 出血块才能铺到屏幕边缘。页眉页脚按页类型让位：
         // - 整页背景图页（封面/扉页）：页眉页脚都不画；
@@ -1382,13 +1391,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onToggleDayNight: _toggleDayNight,
               nightMode: (_theme ?? ReaderTheme.white).background.computeLuminance() <
                   0.35,
-              onPreviousPage: () {
+              onPreviousChapter: page.spineIndex <= 0 || _session.jumpLoadingTitle != null
+                  ? null : () {
                 _closeDrawer();
-                unawaited(_session.previous());
+                unawaited(_session.jumpToChapter(page.spineIndex - 1));
               },
-              onNextPage: () {
+              onNextChapter: page.spineIndex >= widget.source.chapterCount - 1 ||
+                  _session.jumpLoadingTitle != null ? null : () {
                 _closeDrawer();
-                unawaited(_session.next());
+                unawaited(_session.jumpToChapter(page.spineIndex + 1));
               },
               onSeek: (value) {
                 _closeDrawer();
