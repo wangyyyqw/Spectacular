@@ -11,6 +11,7 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/page_renderer.dart';
+import 'package:reader_core/text/font_metrics.dart';
 
 const _regularPath = '../../test_fonts/SourceHanSerifSC-Regular.otf';
 const _boldPath = '../../test_fonts/SourceHanSerifSC-Bold.otf';
@@ -35,6 +36,10 @@ void main() {
       final engine = loader.engineFamily('songti');
       expect(engine, 'bi_t1_songti');
       expect(loader.facesOf('songti').keys.toSet(), {'w400i0', 'w700i0'});
+      expect(
+        FontMetricsRegistry.xHeightRatio(engine),
+        closeTo(0.514, 0.0001),
+      );
 
       final regular = await _render(engine!, 400);
       final bold = await _render(engine, 700);

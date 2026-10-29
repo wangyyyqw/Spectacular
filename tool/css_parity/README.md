@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 77 组用例（编号 01–78，缺 65），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
+当前 79 组用例（编号 01–80，缺 65），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（77 组）
+## 用例清单（79 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -117,8 +117,10 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 76 | absolute-box-sizing | 绝对定位下的 `border-box` |
 | 77 | ruby-position-align | `ruby-position`、`ruby-align` 规范值（engine_only） |
 | 78 | counter-content | `counter-reset`、`counter-increment`、生成内容与父子 margin 折叠 |
+| 79 | vendor-effect-aliases | `-webkit-*` 效果/变换前缀与标准属性共用级联槽 |
+| 80 | font-size-adjust | 内置宋体 x-height 下 `1` / `0.5` 数值补偿 |
 
-浏览器渲染：77/77 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：79/79 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
 属性或缺少可比的分页/注音口径，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
@@ -128,14 +130,14 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 77 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 79 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
-| 解析且消费（审计 A 组） | 121 | 118 | 97.5% |
-| 占位式（审计 C 组：有字段、零消费） | 2 | 1 | 50.0% |
+| 解析且消费（审计 A 组） | 121 | 120 | 99.2% |
+| 占位式（审计 C 组：有字段、零消费） | 2 | 2 | 100.0% |
 | 完全未处理（审计 D 组：无字段） | 45 | 18 | 40.0% |
-| **合计（116 条审计展开为 168 个属性名）** | **168** | **137** | **81.5%** |
+| **合计（116 条审计展开为 168 个属性名）** | **168** | **140** | **83.3%** |
 
 - 覆盖判定是「声明出现即算覆盖」；简写不自动覆盖长属性（`margin` 不算
   `margin-top`），所以 46–51 专门用长属性声明补齐。
@@ -144,10 +146,10 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   字体简写、分页长属性、多看出血）。其中 53 为测 `position` 同时声明了
   `top/right/bottom/left`（C 组占位属性），所以它「首次覆盖」的条目较多；
   逐条清单见 `coverage.md` 第 4 节。
-- A 组剩 3 个厂商前缀或长属性名未单独声明；C 组剩 `font-size-adjust`
-  未覆盖。其余 27 个未覆盖属性名在 D 组，`coverage.md` 按 79+ 编号给出
+- A 组仅剩 `font-variant-caps` 未单独声明；C 组已清零。其余 27 个未覆盖
+  属性名在 D 组，`coverage.md` 按 81+ 编号给出
   排期建议。
-- 未覆盖的主体是分页阅读器无交互面或明确降级的属性；具体 31 个属性名、
+- 未覆盖的主体是分页阅读器无交互面或明确降级的属性；具体 28 个属性名、
   审计分组和建议编号以最新 `coverage.md` 为准，避免 README 与脚本结果漂移。
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
@@ -315,10 +317,19 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 13. **ruby-align 规范值**：旧实现把 `space-around` 当 `space-between`，还接受
     非规范的 `end/left/right`。现按 CSS Ruby 1 只接受
     `start/center/space-between/space-around`，默认 `space-around`；非法值继承。
+14. **WebKit 效果/变换别名**：`-webkit-filter`、`-webkit-backdrop-filter`、
+    `-webkit-transform`、`-webkit-transform-origin` 现与标准属性共用级联槽；
+    79 用例的双向声明顺序均取到同一胜者。
+15. **font-size-adjust 字体度量**：内置宋体注册 x-height/em 比例，运行期书籍
+    字体从 `OS/2.sxHeight` 与 `head.unitsPerEm` 注册；行内 `none` 可恢复父级
+    补偿。80 用例的块位置、文字宽度和行推进已对齐；Chrome Range 返回字体盒
+    高度，对照工具将逐行 y 按块顶 + CSS 行高归一后比较。
 
-## 当前收敛状态（77 用例全量重跑：失配 0 / 未配对 7）
+## 当前收敛状态（77 用例基线：失配 0 / 未配对 7；新增 79/80 失配 0）
 
-> 数字来自 2026-10-30 最近一次全量重跑（render_browser + dump + compare）。
+> 77 用例数字来自 2026-10-30 全量重跑（render_browser + dump + compare）；
+> 79/80 新增后几何/样式失配为 0；80 视觉差异 2.96%，来自大字号字体栅格与
+> 字形盒绘制差异，不是布局位置或断行差异。
 > 未配对 7 项来自 `68`、`69`、`72` 的空块或原子行内盒，不计失配。
 
 几何与关键样式失配已清零，仍不能据此宣称逐像素一致：20 组截图的差异像素

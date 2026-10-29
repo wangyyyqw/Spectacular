@@ -64,6 +64,11 @@ def case_meta(name):
         # 浏览器不支持的用例可附引擎期望值（页数 / 每页列数等），
         # 报告里与实测并列展示，不计失配。
         'expect': data.get('expect') or {},
+        # font-size-adjust 等属性会让 Range rect 返回字体盒而非 CSS 行盒。
+        # 此时逐行 y 用块顶 + 行高重建，尺寸和宽度仍照常比较。
+        'browserLineRectsAreFontBoxes': bool(
+            data.get('browserLineRectsAreFontBoxes')
+        ),
     }
 
 
@@ -660,6 +665,7 @@ def diff_single_page(name, browser, engine, meta):
     ellipsis = []
     transformed_blocks = []
     vertical_blocks = []
+    font_box_lines = []
     # 多列容器：引擎每列一个块，浏览器一个元素。先按「块文本是元素文本片段」
     # 把同一容器的列块归组，块级用列带并集 bbox、行级用各列行拼接后比较。
     multicol_groups = {}
@@ -735,6 +741,15 @@ def diff_single_page(name, browser, engine, meta):
                     el.get('rect') or {},
                     el.get('style') or {},
                 )
+                if meta.get('browserLineRectsAreFontBoxes'):
+                    line_height = (block.get('style') or {}).get('lineHeight')
+                    block_top = (el.get('rect') or {}).get('y')
+                    if line_height is not None and block_top is not None:
+                        browser_lines = [
+                            {**line, 'y': block_top + index * float(line_height)}
+                            for index, line in enumerate(browser_lines)
+                        ]
+                        font_box_lines.append(label)
                 found.extend(compare_lines(
                     browser_lines, block.get('lines') or [], tol,
                     width_cap=width_cap,
@@ -780,6 +795,11 @@ def diff_single_page(name, browser, engine, meta):
         lines.append(
             f'- transform 块只比变换后 bbox，不比较行内坐标（{len(transformed_blocks)} 个）：'
             + '、'.join(transformed_blocks[:3])
+        )
+    if font_box_lines:
+        lines.append(
+            f'- 浏览器 Range 返回字体盒，逐行 y 按块顶 + CSS 行高重建'
+            f'（{len(font_box_lines)} 个）：' + '、'.join(font_box_lines[:3])
         )
     if table_blocks:
         total_cells = sum(len(block['cells']) for block in table_blocks)
