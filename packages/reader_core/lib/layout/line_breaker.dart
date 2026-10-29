@@ -696,12 +696,14 @@ class LineBreaker {
   /// 宽度下限，单位为 em。
   final double minimumWidthEm;
 
-  /// 是否保留 CSS 声明的小数行高（实验开关，默认关闭）。
+  /// 是否按 CSS 像素解算行盒高（实验开关，默认关闭）。
   ///
   /// Skia 把行盒高四舍五入到整数（`line-height: 22.5px` → 23、
   /// `1.6 × 17px = 27.2` → 27），但 ascent 仍按小数行高算，因此基线是
-  /// 对的、只有行盒高度被取整。打开后行盒高改用 `ComputedStyle.lineHeight`
-  /// （小数），基线不变；影响面是所有依赖整数行高的分页/单元格高度。
+  /// 对的、只有行盒高度被取整。打开后显式行高改用
+  /// `ComputedStyle.lineHeight`（小数）；`normal` 则像 Chrome 一样分别把
+  /// 字体 ascent/descent 取整后相加。基线不变；影响面是所有依赖行盒高的
+  /// 分页/单元格高度。
   static bool preserveFractionalLineHeight = false;
 
   bool _tooNarrow = false;
@@ -1781,10 +1783,17 @@ abstract final class TextLayoutEngine {
     final lines = <LineBox>[];
     var top = 0.0;
     for (final metric in metrics) {
-      final lineHeight = cssLineHeight != null &&
-              (metric.height - cssLineHeight).abs() <= 0.6
-          ? cssLineHeight
-          : metric.height;
+      final normalCssLineHeight =
+          LineBreaker.preserveFractionalLineHeight &&
+              style.lineHeightFactor == null
+          ? metric.ascent.roundToDouble() + metric.descent.roundToDouble()
+          : null;
+      final lineHeight =
+          normalCssLineHeight ??
+          (cssLineHeight != null &&
+                  (metric.height - cssLineHeight).abs() <= 0.6
+              ? cssLineHeight
+              : metric.height);
       // 用行框垂直中点取该行内的字符位置，再取边界；
       // 直接拿“上一行 end”做位置在硬换行/空行处会落回上一行。
       final position = painter.getPositionForOffset(
