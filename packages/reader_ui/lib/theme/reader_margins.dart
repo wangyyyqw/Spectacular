@@ -1,10 +1,11 @@
 import 'package:flutter/painting.dart';
 
-/// 页边距（P8-10 边距调节器）：上下各拆成「外（安全区）/ 内（正文）」两段。
+/// 页边距（P8-10 边距调节器）：上下各拆成「外（页眉页脚外侧）/ 内（正文侧）」
+/// 两段。
 ///
-/// 外段对应状态栏/挖孔与手势条区域，内段是正文自己的留白。两段都允许调到 0，
-/// 因此可以做出「正文铺进安全区」的全屏效果；也允许把外段调大，把正文整体
-/// 从系统栏下推。
+/// 上外段是屏幕边界到页眉的距离，上内段是页眉到正文的距离；下内、下外分别
+/// 是正文到页脚、页脚到屏幕边界的距离。两段都允许调到 0，因此可以做出正文
+/// 铺进安全区的全屏效果。
 class ReaderMargins {
   /// 创建页边距。
   const ReaderMargins({
@@ -49,13 +50,33 @@ class ReaderMargins {
   /// 下外（手势条区留白）。
   final double bottomOuter;
 
-  /// 上边距合计。
+  /// 上边距合计（不含页眉自身高度）。
   double get top => topOuter + topInner;
 
-  /// 下边距合计。
+  /// 下边距合计（不含页脚自身高度）。
   double get bottom => bottomInner + bottomOuter;
 
-  /// 转成 Padding 用的四边。
+  /// 页眉页脚外侧留白：屏幕边界到页眉、页脚或左右正文边界的距离。
+  EdgeInsets toOuterPadding() =>
+      EdgeInsets.fromLTRB(left, topOuter, right, bottomOuter);
+
+  /// 正文四边；[showFurniture] 为 true 时给页眉页脚自身高度让位。
+  EdgeInsets toBodyPadding({
+    required bool showFurniture,
+    double headerHeight = 0,
+    double footerHeight = 0,
+  }) {
+    final topFurniture = showFurniture ? headerHeight : 0.0;
+    final bottomFurniture = showFurniture ? footerHeight : 0.0;
+    return EdgeInsets.fromLTRB(
+      left,
+      topOuter + topFurniture + topInner,
+      right,
+      bottomOuter + bottomFurniture + bottomInner,
+    );
+  }
+
+  /// 旧版合计边距；仅用于兼容没有页眉页脚槽的调用。
   EdgeInsets toPadding() =>
       EdgeInsets.fromLTRB(left, top, right, bottom);
 

@@ -188,10 +188,10 @@ void main() {
     final pagesBefore = session.chapterPageCount;
     final heightBefore = session.contentHeight ?? 0;
 
-    // 拖「上内」胶囊：数值随手走，但只重绘当前页 —— 不重排。
+    // 向下拖「上内」胶囊：留白向下扩张，数值实时变化，但只重绘当前页。
     await tester.drag(
       find.byKey(const ValueKey<String>('margin-top-inner')),
-      const Offset(0, -120),
+      const Offset(0, 120),
     );
     await tester.pumpAndSettle();
     expect(
@@ -237,7 +237,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const ValueKey<String>('margin-top-inner')),
-      const Offset(0, -120),
+      const Offset(0, 120),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('margin-apply')));
