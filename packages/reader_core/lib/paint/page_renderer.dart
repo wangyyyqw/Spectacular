@@ -460,11 +460,11 @@ class PagePainter {
               textColorOverride: geometry.textColorOverride,
             );
             final lineRuns = _lineRuns(layout, line);
-            // 行内盒（P9-24 / W16）：布局层给了 placements 就按它画
-            // （否则回退到按 run 样式的旧口径），都画在文字之前。
-            if (line.inlineBoxes.isEmpty) {
-              _paintInlineBoxes(canvas, painter, lineRuns, x, lineY);
-            } else {
+            // 普通 run 与独立行内盒都在文字之前绘制，不能互相替代。
+            _paintInlineBoxes(
+              canvas, painter, lineRuns, x, lineY, line: line,
+            );
+            if (line.inlineBoxes.isNotEmpty) {
               _paintInlineBoxPlacements(
                 canvas,
                 geometry,
@@ -808,9 +808,11 @@ class PagePainter {
             geometry.textStyle,
             punctCompression: geometry.punctCompression,
             textColorOverride: geometry.textColorOverride,
-          textAutospace: geometry.textAutospace,
+            textAutospace: geometry.textAutospace,
           );
-          final boxes = painter.getBoxesForSelection(
+          final boxes = _lineRangeRects(
+            painter,
+            line,
             TextSelection(
               baseOffset: start - line.start,
               extentOffset: end - line.start,
@@ -1588,15 +1590,15 @@ class PagePainter {
               style.textAlign == CssTextAlign.justify) {
             x = contentRight - painter.width;
           }
-          if (line.inlineBoxes.isEmpty) {
-            _paintInlineBoxes(
-              canvas,
-              painter,
-              cellRuns,
-              x,
-              lineY - (painter.height - line.height) / 2,
-            );
-          } else {
+          _paintInlineBoxes(
+            canvas,
+            painter,
+            cellRuns,
+            line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
+            lineY - (painter.height - line.height) / 2,
+            line: line,
+          );
+          if (line.inlineBoxes.isNotEmpty) {
             _paintInlineBoxPlacements(
               canvas, geometry, line, cellRuns,
               contentLeft + line.offsetX, lineY,
@@ -1986,8 +1988,8 @@ class PagePainter {
     return null;
   }
 
-  /// 行内元素盒（P9-24）：`display:inline-block` 的行内 span 的背景、
-  /// 边框与内边距在文字下方绘制（RANK 金框、状态标签 chip 等）。
+  /// 普通行内 run 的背景、边框与内边距在文字下方绘制。
+  /// 独立行内盒由 placements 绘制，run 在插入点拆段并跟随文字位移。
   ///
   /// 排版宽度没有把行内 padding 计入（flat 管线不做行内盒布局），这里
   /// 按字形框外扩 padding 绘制——视觉上还原书籍设计，代价是与相邻文字
@@ -1997,8 +1999,9 @@ class PagePainter {
     TextPainter painter,
     List<_LineRun> runs,
     double x,
-    double y,
-  ) {
+    double y, {
+    required LineBox line,
+  }) {
     for (final run in runs) {
       final style = run.style;
       final hasBackground = style.backgroundColor.a > 0;
@@ -2007,9 +2010,11 @@ class PagePainter {
           run.end <= run.start) {
         continue;
       }
-      final boxes = painter.getBoxesForSelection(
+      final boxes = _lineRangeRects(
+        painter,
+        line,
         TextSelection(baseOffset: run.start, extentOffset: run.end),
-        boxHeightStyle: ui.BoxHeightStyle.includeLineSpacingMiddle,
+        heightStyle: ui.BoxHeightStyle.includeLineSpacingMiddle,
       );
       for (final box in boxes) {
         final rect = Rect.fromLTRB(
@@ -3264,8 +3269,8 @@ class PagePainter {
   }
 
   /// 测量时行内盒占宽但不占原文字符；绘制分段平移，保持原文偏移稳定。
-  /// 此处保留线性遍历及局部函数，集中管理共享的原文游标和累计盒宽，
-  /// 避免拆分后重复移动坐标；风险是装饰线及命中仍需同步审计相同偏移。
+  /// 与背景、装饰线及命中共用 lineTextFragments 的原文分段和盒宽位移。
+  /// 保留局部函数集中处理样式及基线偏移，避免重复移动坐标。
   void _paintTextAroundInlineBoxes(
     Canvas canvas,
     TextPainter painter,
@@ -3275,7 +3280,6 @@ class PagePainter {
     double y,
   ) {
     final span = painter.text! as TextSpan;
-    final length = line.end - line.start;
     var cursor = 0;
     var extra = 0.0;
     void paintUntil(int end) {
@@ -3317,11 +3321,10 @@ class PagePainter {
       cursor = end;
     }
 
-    for (final box in line.inlineBoxes) {
-      paintUntil((box.offset - line.start).clamp(0, length));
-      extra += box.spec.outerWidth;
+    for (final fragment in lineTextFragments(line)) {
+      extra = fragment.advance;
+      paintUntil(fragment.end);
     }
-    paintUntil(length);
   }
 
   /// 画一行：有上下标（基线偏移）时按段分别绘制，其余情况整行一次绘制。
@@ -3475,17 +3478,12 @@ class PagePainter {
       if (band.end <= band.start) {
         continue;
       }
-      final boxes = painter.getBoxesForSelection(
+      final boxes = _lineRangeRects(
+        painter,
+        line,
         TextSelection(baseOffset: band.start, extentOffset: band.end),
+        joinBoxes: true,
       );
-      if (boxes.isEmpty) {
-        continue;
-      }
-      final left = x + boxes.first.left;
-      final right = x + boxes.last.right;
-      if (right <= left) {
-        continue;
-      }
       final thickness = math.max(1.0, (band.fontSize / 10).floorToDouble());
       final baselineY = y + baseline + band.baselineShift;
       // 实线顶边：line-through / overline 在基线上方，下划线在下方。
@@ -3504,15 +3502,46 @@ class PagePainter {
               baselineY -
               ((band.ascent - band.descent) / 2).roundToDouble();
       }
-      _paintDecorationBand(
-        canvas,
-        band,
-        left: left,
-        right: right,
-        // 对齐设备像素（Chromium 同样把装饰线吸附到整数像素），细线更清晰。
-        solidTop: solidTop.roundToDouble(),
-        thickness: thickness,
+      for (final box in boxes) {
+        if (box.width <= 0) continue;
+        _paintDecorationBand(
+          canvas,
+          band,
+          left: x + box.left,
+          right: x + box.right,
+          // 对齐设备像素（Chromium 同样把装饰线吸附到整数像素），细线更清晰。
+          solidTop: solidTop.roundToDouble(),
+          thickness: thickness,
+        );
+      }
+    }
+  }
+
+  /// 背景与装饰线沿用正文的盒宽位移，并在盒插入点拆开绘制区间。
+  Iterable<Rect> _lineRangeRects(
+    TextPainter painter,
+    LineBox line,
+    TextSelection selection, {
+    ui.BoxHeightStyle heightStyle = ui.BoxHeightStyle.tight,
+    bool joinBoxes = false,
+  }) sync* {
+    for (final fragment in lineTextFragments(
+      line, start: selection.start, end: selection.end,
+    )) {
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: fragment.start, extentOffset: fragment.end),
+        boxHeightStyle: heightStyle,
       );
+      if (joinBoxes && boxes.isNotEmpty) {
+        // 装饰线在同一文字片段内连续，保留原有跨样式 run 的绘制口径。
+        yield Rect.fromLTRB(
+          boxes.first.left, boxes.first.top, boxes.last.right, boxes.last.bottom,
+        ).shift(Offset(fragment.advance, 0));
+      } else {
+        for (final box in boxes) {
+          yield box.toRect().shift(Offset(fragment.advance, 0));
+        }
+      }
     }
   }
 

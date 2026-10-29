@@ -1,10 +1,6 @@
 import 'package:flutter/painting.dart';
-import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
-import 'package:reader_core/paint/line_spans.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/text/segmenter.dart';
 
@@ -209,11 +205,7 @@ abstract final class SelectionOps {
     if (end <= start) {
       return const <Rect>[];
     }
-    final painter = _painterFor(box);
-    final textBoxes = painter.getBoxesForSelection(
-      TextSelection(baseOffset: start, extentOffset: end),
-    );
-    painter.dispose();
+    final textBoxes = TextHitTester.selectionRects(box, start, end);
     final top =
         box.rect.top + (box.rect.height - box.rect.height * lineHighlightScale) / 2;
     return <Rect>[
@@ -308,7 +300,8 @@ abstract final class SelectionOps {
     final startBox = _boxFor(boxes, selection.start);
     final endBox = _boxFor(boxes, selection.end);
     final startRect = _caretRect(startBox, selection.start.charOffset);
-    final endRect = _caretRect(endBox, selection.end.charOffset);
+    final endRect = _caretRect(endBox, selection.end.charOffset,
+      affinity: TextAffinity.upstream);
     return SelectionGeometry(
       lineRects: rects,
       startHandle: Offset(startRect.left, startBox.rect.top),
@@ -450,14 +443,11 @@ abstract final class SelectionOps {
   }
 
   /// 行内某字符位置的光标矩形（页内坐标）。
-  static Rect _caretRect(PageLineBox box, int charOffset) {
-    final painter = _painterFor(box);
-    final offset = charOffset.clamp(0, box.text.length);
-    final caret = painter.getOffsetForCaret(
-      TextPosition(offset: offset),
-      Rect.zero,
-    );
-    painter.dispose();
+  static Rect _caretRect(PageLineBox box, int charOffset, {
+    TextAffinity affinity = TextAffinity.downstream,
+  }) {
+    final caret = TextHitTester.caretOffset(box,
+      TextPosition(offset: charOffset, affinity: affinity));
     return Rect.fromLTWH(
       box.rect.left + caret.dx,
       box.rect.top,
@@ -475,36 +465,4 @@ abstract final class SelectionOps {
   );
 
 
-  /// 与绘制层一致的 TextPainter（P4-18 修复）。
-  ///
-  /// 绘制层用 `buildLineSpan` 逐字符铺开标点挤压/justify/自动间距，字符 x
-  /// 位置与纯文本 span 不同；这里复用同一 span，选区与高亮矩形才不会偏移。
-  static TextPainter _painterFor(PageLineBox box, {TextStyle? style}) {
-    final blockStyle = box.slice.block.style;
-    final layout = box.slice.block.layout;
-    final lineIndex = box.lineIndex;
-    if (blockStyle == null ||
-        lineIndex < 0 ||
-        lineIndex >= layout.lines.length) {
-      return TextPainter(
-        text: TextSpan(text: box.text, style: style ?? _styleFor(box.slice)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-    }
-    final span = buildLineSpan(
-      layout: layout,
-      line: layout.lines[lineIndex],
-      baseStyle: style ?? TextLayoutEngine.textStyleFor(blockStyle),
-      punctCompression:
-          blockStyle.textSpacingTrim == CssTextSpacingTrim.trimAdjacent,
-      textAutospace: blockStyle.textAutospace == CssTextAutospace.normal,
-    );
-    return TextPainter(text: span, textDirection: TextDirection.ltr)
-      ..layout();
-  }
-
-  static TextStyle _styleFor(PageBlockSlice slice) =>
-      TextLayoutEngine.textStyleFor(
-        slice.block.style ?? ComputedStyle(const <String, String>{}),
-      );
 }
