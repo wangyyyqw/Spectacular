@@ -83,6 +83,54 @@ void main() {
     timeout: const Timeout(Duration(minutes: 5)),
     skip: const String.fromEnvironment('EPUB_TEST_URL').isEmpty,
   );
+  testWidgets(
+    '原书第四章：繁荣标签只绘制一个外框',
+    (tester) async {
+      final source = await _openReader(tester, await _readBook(), spine: 30);
+      final pages = await source.loadChapter(30);
+      final target = pages.indexWhere(
+        (page) => page.slices.any(
+          (slice) =>
+              slice.block.table?.cells.any(
+                (cell) => cell.layout.text == '〖繁荣〗',
+              ) ??
+              false,
+        ),
+      );
+      expect(target, greaterThanOrEqualTo(0));
+      final table = pages[target].slices
+          .firstWhere(
+            (slice) =>
+                slice.block.table?.cells.any(
+                  (cell) => cell.layout.text == '〖繁荣〗',
+                ) ??
+                false,
+          )
+          .block
+          .table!;
+      final boxes = table.cells
+          .expand((cell) => cell.layout.lines)
+          .expand((line) => line.inlineBoxes)
+          .toList();
+      expect(boxes, hasLength(1), reason: '路径和神序共同使用一个标签盒');
+      final label = boxes.single.spec.payload as PageBlock;
+      expect(label.layout.text, '生命命途 · 第二神');
+      expect(label.layout.lineCount, 1);
+      for (var i = 0; i < target; i++) {
+        await _turn(tester, forward: true);
+      }
+      expect(_page(tester).pageIndex, target);
+      await _capture('chapter4-fanrong');
+      binding.reportData ??= <String, dynamic>{};
+      binding.reportData!['chapter4'] = {
+        'pages': pages.length,
+        'fanrongPage': target + 1,
+        'tagBoxes': boxes.length,
+      };
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+    skip: const String.fromEnvironment('EPUB_TEST_URL').isEmpty,
+  );
 }
 
 Future<EpubChapterSource> _openReader(
@@ -113,7 +161,11 @@ Future<EpubChapterSource> _openReader(
     flattenToc(source.toc).any(
       (row) =>
           row.entry.spineIndex == spine &&
-          row.entry.title.contains(spine == 29 ? '天赋' : '道具'),
+          row.entry.title.contains(switch (spine) {
+            29 => '天赋',
+            30 => '正神',
+            _ => '道具',
+          }),
     ),
     isTrue,
   );
@@ -264,6 +316,15 @@ Future<void> _capturePages(
     expect(_page(tester).pageIndex, i);
     expect(_page(tester).slices, isNotEmpty);
     if (i < 3) await _capture('$prefix-page-${i + 1}');
+    if (spine == 29 &&
+        _page(tester).slices.any(
+          (slice) =>
+              slice.startLine == 0 &&
+              slice.block.layout.text.startsWith('专属于守墓人'),
+        )) {
+      await _capture('chapter3-diaoming');
+    }
+
     if (i + 1 < pageCount) await _turn(tester, forward: true);
   }
   await _turn(tester, forward: false);
