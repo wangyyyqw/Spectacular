@@ -48,7 +48,9 @@ void paintBackgroundImage(
   // 位置按「剩余空间」解算（CSS background-position 语义）。
   final originX = position.x.resolve(bounds.width - tile.width) ?? 0;
   final originY = position.y.resolve(bounds.height - tile.height) ?? 0;
-  final paint = Paint()..filterQuality = FilterQuality.none;
+  // CSS `image-rendering: auto` 由浏览器按高质量缩放；最近邻会把放大后的
+  // 色块接缝硬切在整数像素上，与 Chromium 的平滑采样不一致。
+  final paint = Paint()..filterQuality = FilterQuality.medium;
   canvas.save();
   canvas.clipRect(bounds);
 
