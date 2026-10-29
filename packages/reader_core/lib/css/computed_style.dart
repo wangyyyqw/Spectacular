@@ -1470,15 +1470,19 @@ class ComputedStyle {
     }
     if (property == 'margin' ||
         property == 'padding' ||
+        property == 'inset' ||
         const {
           'border-width',
           'border-style',
           'border-color',
         }.contains(property)) {
       final tokens = _cssTokens(raw);
-      final longhand = property.startsWith('border-')
-          ? 'border-top-${property.substring(7)}'
-          : '$property-top';
+      final longhand = switch (property) {
+        'inset' => 'top',
+        final border when border.startsWith('border-') =>
+          'border-top-${property.substring(7)}',
+        _ => '$property-top',
+      };
       return tokens.isNotEmpty &&
           tokens.length <= 4 &&
           tokens.every((token) => isValidDeclaration(longhand, token));

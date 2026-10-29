@@ -426,12 +426,14 @@ abstract final class Cascade {
             const <String, String>{};
       case 'margin':
       case 'padding':
+      case 'inset':
         final parts = _splitFourValues(value);
         if (parts == null) {
           return const <String, String>{};
         }
+        final prefix = property == 'inset' ? '' : '$property-';
         return <String, String>{
-          for (var i = 0; i < 4; i++) '$property-${sides[i]}': parts[i],
+          for (var i = 0; i < 4; i++) '$prefix${sides[i]}': parts[i],
         };
       case 'border':
         return <String, String>{

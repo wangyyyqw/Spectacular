@@ -127,6 +127,54 @@ void main() {
     expect(style.padding.left, 0);
   });
 
+  test('inset 简写按 1~4 值展开并与长属性按顺序竞争', () {
+    final one = _compute('inset:10px');
+    expect(one.top!.value, 10);
+    expect(one.right!.value, 10);
+    expect(one.bottom!.value, 10);
+    expect(one.left!.value, 10);
+
+    final two = _compute('inset:1px 2px');
+    expect(two.top!.value, 1);
+    expect(two.right!.value, 2);
+    expect(two.bottom!.value, 1);
+    expect(two.left!.value, 2);
+
+    final three = _compute('inset:1px 2px 3px');
+    expect(three.top!.value, 1);
+    expect(three.right!.value, 2);
+    expect(three.bottom!.value, 3);
+    expect(three.left!.value, 2);
+
+    final four = _compute('inset:1px 2px 3px 4px');
+    expect(four.top!.value, 1);
+    expect(four.right!.value, 2);
+    expect(four.bottom!.value, 3);
+    expect(four.left!.value, 4);
+
+    expect(_compute('left:9px; inset:4px').left!.value, 4);
+    expect(_compute('inset:4px; left:9px').left!.value, 9);
+    expect(
+      _compute('left:9px!important; inset:4px').left!.value,
+      9,
+      reason: 'important 长属性不能被普通简写覆盖',
+    );
+  });
+
+  test('inset 简写拒绝无效值且变量替换后重新展开', () {
+    final style = _compute(
+      'inset:7px; inset:nonsense; --edge:1px 2px 3px 4px; inset:var(--edge)',
+    );
+    expect(style.top!.value, 1);
+    expect(style.right!.value, 2);
+    expect(style.bottom!.value, 3);
+    expect(style.left!.value, 4);
+
+    final invalid = _compute('inset:7px; inset:1px nonsense');
+    expect(invalid.top!.value, 7);
+    expect(invalid.right!.value, 7);
+  });
+
   test('边框简写与长属性按声明顺序和 important 竞争', () {
     expect(
       _compute('border-top-width:9px;border:1px solid red').borders.top.width,

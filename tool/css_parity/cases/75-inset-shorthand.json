@@ -1,0 +1,9 @@
+{
+  "name": "75-inset-shorthand",
+  "tags": [
+    "inset",
+    "position"
+  ],
+  "css": "body { margin: 0; padding: 0; min-height: 780px; font-family: \"builtin_song\"; font-size: 16px; } .box { position: absolute; box-sizing: border-box; color: #fff; line-height: 1.5; } .one { inset: 12px 30px; width: 108px; height: 44px; background: #336699; } .two { inset: 70px 44px 28px 150px; width: 118px; height: 50px; background: #7a4f35; } .right { inset: 140px 30px auto auto; width: 104px; height: 46px; background: #476b3f; } .four { inset: 220px 40px 0 160px; width: 110px; height: 46px; background: #6d456f; } .bottom { inset: auto auto 34px 40px; width: 124px; height: 48px; background: #8a5d22; }",
+  "html": "<div class=\"box one\">inset 两值</div><div class=\"box two\">inset 四值</div><div class=\"box right\">right 生效</div><div class=\"box four\">top/left 优先</div><div class=\"box bottom\">bottom 生效</div>"
+}
