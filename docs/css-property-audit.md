@@ -527,6 +527,12 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 只用于半透明装饰框。
 
 **验证入口**：
-- 逐属性对照：`bash tool/css_parity/run.sh`（73 用例 / 几何与样式失配 0 / 未配对 7 项；本轮抽查 `17`、`18`、`41`、`42`、`43`、`55`，未见新的盒模型或样式错误）
+- 逐属性对照：`node tool/css_parity/render_browser.mjs`；
+  `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
+  `/usr/bin/python3 tool/css_parity/compare.py`
+- 最新结果（2026-10-30）：73 用例 / 几何与样式失配 **0** / 未配对 7 项；
+  20 组截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
+  `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
+  `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
 - 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
