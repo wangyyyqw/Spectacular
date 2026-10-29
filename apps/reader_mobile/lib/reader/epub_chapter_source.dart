@@ -1314,6 +1314,62 @@ class EpubChapterSource
         style.writingMode == CssWritingMode.horizontalTb;
   }
 
+  /// 普通分页默认闭合带框容器；作者的显式 slice 优先。
+  static bool _clonesContainerDecoration(ComputedStyle style) {
+    final value = (style.values['box-decoration-break'] ??
+        style.values['-webkit-box-decoration-break'])?.trim().toLowerCase();
+    if (value == 'slice') return false;
+    return value == 'clone' || style.borders.hasBorder;
+  }
+
+  /// 卡片开头的短标题跟随至少一行正文，不把整个长卡片锁为不可分组。
+  static bool _isContainerHeading(PageBlock block) {
+    if (block.absolute || block.floatSide != null) return false;
+    final table = block.table;
+    if (table != null) {
+      return table.rowYs.length == 2 &&
+          table.cells.isNotEmpty &&
+          table.cells.every((cell) => cell.layout.lineCount <= 2);
+    }
+    return block.layout.text.trim().isNotEmpty &&
+        block.layout.lineCount > 0 && block.layout.lineCount <= 2;
+  }
+
+  /// 续页装饰本轮只用于普通横排；特殊分页仍保持原来的切片语义。
+  static List<PageBlock> _configureContainerDecoration(
+    List<PageBlock> blocks, {
+    bool hasFixed = false,
+  }) {
+    bool specialStyle(ComputedStyle? style) => style != null &&
+        (style.writingMode != CssWritingMode.horizontalTb ||
+            (style.columnCount ?? 1) > 1 ||
+            (style.columnWidth != null && !style.columnWidth!.isAuto));
+    final special = hasFixed || blocks.any((block) => block.absolute ||
+        block.floatSide != null || specialStyle(block.style) ||
+        block.containers.any((f) => specialStyle(f.container.style)));
+    if (!special) return blocks;
+    final replacements = <PageContainer, PageContainer>{};
+    PageContainer sliced(PageContainer box) => replacements.putIfAbsent(box, () =>
+      PageContainer(style: box.style, left: box.left, width: box.width));
+    return [
+      for (final block in blocks)
+        if (block.containers.isEmpty) block else block.withSpacing(containers: [
+          for (final fragment in block.containers)
+            PageContainerFragment(
+              container: sliced(fragment.container),
+              startsHere: fragment.startsHere,
+              endsHere: fragment.endsHere,
+              topInset: fragment.topInset,
+              bottomInset: fragment.bottomInset,
+            ),
+        ]),
+    ];
+  }
+
+  static double _verticalBoxExtent(ComputedStyle style) =>
+      style.padding.vertical + style.borders.top.width +
+      style.borders.bottom.width;
+
   /// 把容器的垂直占位和独立绘制片段挂到首末后代，不改变原文/CFI。
   static void _wrapContainerBlocks(
     List<PageBlock> blocks,
@@ -1329,6 +1385,8 @@ class EpubChapterSource
       final first = i == start;
       final last = i == blocks.length - 1;
       blocks[i] = block.withSpacing(
+        breakAfterAvoid: block.breakAfterAvoid ||
+            (first && !last && _isContainerHeading(block)),
         topInset: block.topInset + (first ? top + style.margin.top : 0),
         bottomInset: block.bottomInset + (last ? bottom + style.margin.bottom : 0),
         containers: [
@@ -3965,9 +4023,20 @@ class EpubChapterSource
       final paddedRowHeights = <double>[
         for (final height in rowHeights) height + spacingY,
       ];
+      // 表格先按行预切；给每页的祖先容器装饰和表自身盒预留高度，
+      // 避免整页高的表片随后加上边框/内边距而被强制裁掉。
+      final containerExtent = ancestors
+          .map((ancestor) => retainedContainers[ancestor])
+          .nonNulls
+          .fold(0.0, (total, box) => total + _verticalBoxExtent(box.style));
+      final tableExtent = _verticalBoxExtent(tableStyle) +
+          math.max(0.0, tableStyle.margin.top) +
+          math.max(0.0, tableStyle.margin.bottom);
       final slices = TablePaginator.paginateRows(
         rowHeights: paddedRowHeights,
-        pageHeight: math.max(1.0, contentHeight - spacingY),
+        pageHeight: math.max(
+          1.0, contentHeight - spacingY - containerExtent - tableExtent,
+        ),
       );
       final gridRowYs = grid.rowYs;
       final gridColumnXs = grid.columnXs;
@@ -4610,6 +4679,7 @@ class EpubChapterSource
             style: selfStyle,
             left: (parentBox?.contentLeft ?? 0) + selfStyle.margin.left,
             width: model.borderBoxWidth(model.resolveContentWidth(availableWidth)),
+            cloneDecoration: _clonesContainerDecoration(selfStyle),
           );
           retainedContainers[selfView] = retained;
         }
@@ -4732,6 +4802,7 @@ class EpubChapterSource
     // 相邻块上下外边距折叠（CSS 2.1 §8.3.1）：段距取 max，而不是两段
     // margin 相加。分页器、浮动分页与页索引重放共用这批块对象，
     // PageIndex.from 按块身份记录块序号，必须先折叠再分页。
+    blocks = _configureContainerDecoration(blocks, hasFixed: fixedBlocks.isNotEmpty);
     blocks = _collapseMarginsIgnoringFloats(blocks);
 
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页

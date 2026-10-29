@@ -64,7 +64,8 @@ class PageIndex {
   const PageIndex({required this.schemaVersion, required this.entries});
 
   /// 当前 schema 版本；换代即整体失效（不迁移，对照 RPI2 换代策略）。
-  static const int currentSchemaVersion = 1;
+  // 续页装饰与标题避断改变分页边界，旧索引必须重新生成。
+  static const int currentSchemaVersion = 2;
 
   /// schema 版本。
   final int schemaVersion;
@@ -180,7 +181,7 @@ class PageIndex {
     List<PageBlock> blocks, {
     required int spineIndex,
   }) {
-    if (index.entries.isEmpty) {
+    if (index.schemaVersion != currentSchemaVersion || index.entries.isEmpty) {
       return null;
     }
     // 与分页器同口径：相邻块上下边距折叠，重放几何才与重排一致。
@@ -233,10 +234,11 @@ class PageIndex {
         if (stop == line) {
           return null; // 空切片（重排不会产出）。
         }
-        final leading = line == 0 ? block.leadingExtent : 0.0;
-        final trailing = stop == block.layout.lineCount
+        final leading = (line == 0 ? block.leadingExtent : 0.0) +
+            (slices.isEmpty ? block.containerTopInset(line) : 0.0);
+        final trailing = (stop == block.layout.lineCount
             ? block.trailingExtent
-            : 0.0;
+            : 0.0) + (bi == endBlockIndex ? block.containerBottomInset(stop) : 0.0);
         var sliceHeight = leading + trailing;
         for (var l = line; l < stop; l++) {
           sliceHeight += block.layout.lines[l].height;
@@ -258,6 +260,10 @@ class PageIndex {
         }
         bi += 1;
         line = 0;
+      }
+      // 装饰占高变化或旧索引的决策已不适用时回退重排，避免页尾溢出。
+      if ((used - entry.usedHeight).abs() > 0.01) {
+        return null;
       }
       pages.add(
         PageContent(

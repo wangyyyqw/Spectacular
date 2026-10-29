@@ -39,11 +39,18 @@ class PageContainer {
     required this.style,
     required this.left,
     required this.width,
+    this.cloneDecoration = false,
   });
 
   final ComputedStyle style;
   final double left;
   final double width;
+
+  /// 每页片段独立保留边框与内边距；默认沿用 CSS slice 行为。
+  final bool cloneDecoration;
+
+  double get topDecoration => style.padding.top + style.borders.top.width;
+  double get bottomDecoration => style.padding.bottom + style.borders.bottom.width;
 
   double get contentLeft => left + style.borders.left.width + style.padding.left;
   double get contentWidth => math.max(
@@ -306,6 +313,30 @@ class PageBlock {
   /// 块末行之后的额外高度（下内缩 + 段后间距）。
   double get trailingExtent => bottomInset + spaceAfter;
 
+  /// 续页首需要补上的祖先装饰；真实容器首片已含这部分占位。
+  double containerTopInset(int startLine, {int? beforeDepth}) {
+    var extent = 0.0;
+    for (final fragment in containers.take(beforeDepth ?? containers.length)) {
+      if (fragment.container.cloneDecoration &&
+          !(startLine == 0 && fragment.startsHere)) {
+        extent += fragment.container.topDecoration;
+      }
+    }
+    return extent;
+  }
+
+  /// 页末继续到下一页的祖先装饰，不重复真实容器末片的占位。
+  double containerBottomInset(int endLine, {int? beforeDepth}) {
+    var extent = 0.0;
+    final endsBlock = endLine >= layout.lineCount || clipsContent;
+    for (final fragment in containers.take(beforeDepth ?? containers.length)) {
+      if (fragment.container.cloneDecoration && !(endsBlock && fragment.endsHere)) {
+        extent += fragment.container.bottomDecoration;
+      }
+    }
+    return extent;
+  }
+
   /// 复制块并替换段距或容器分页占位（其余字段共享引用）。
   PageBlock withSpacing({
     double? spaceBefore,
@@ -313,6 +344,7 @@ class PageBlock {
     double? topInset,
     double? bottomInset,
     List<PageContainerFragment>? containers,
+    bool? breakAfterAvoid,
   }) =>
       PageBlock(
         layout: layout,
@@ -327,7 +359,7 @@ class PageBlock {
         bottomInset: bottomInset ?? this.bottomInset,
         leftInset: leftInset,
         breakInsideAvoid: breakInsideAvoid,
-        breakAfterAvoid: breakAfterAvoid,
+        breakAfterAvoid: breakAfterAvoid ?? this.breakAfterAvoid,
         listMarker: listMarker,
         groupId: groupId,
         table: table,
@@ -546,6 +578,19 @@ class PageBlockSlice {
   /// 跨页块因此不会画到下一页或下一块的地盘上。
   Rect clipRect(double top, double width) =>
       Rect.fromLTWH(0, top, width, height);
+
+  /// 收页时补上已预留的下装饰，保持正文高度与其它几何信息不变。
+  PageBlockSlice withBottomDecoration(double extent) => PageBlockSlice(
+    block: block,
+    startLine: startLine,
+    endLine: endLine,
+    height: height + extent,
+    leadingExtent: leadingExtent,
+    trailingExtent: trailingExtent + extent,
+    leftInset: leftInset,
+    overlay: overlay,
+    absoluteTop: absoluteTop,
+  );
 }
 
 /// 一次命中：页面坐标落在哪个切片、哪一行。
@@ -751,11 +796,13 @@ class Paginator {
   /// 组 [groupId] 自 [index] 起的连续成员总占高（leading+height+trailing）。
   static double _groupExtent(List<PageBlock> blocks, int index, int groupId) {
     var extent = 0.0;
+    var last = blocks[index];
     for (var i = index; i < blocks.length && blocks[i].groupId == groupId; i++) {
+      last = blocks[i];
       extent +=
           blocks[i].leadingExtent + blocks[i].height + blocks[i].trailingExtent;
     }
-    return extent;
+    return extent + last.containerBottomInset(last.layout.lineCount);
   }
 
   /// 把 [lines] 均衡分配到 [count] 列（CSS `column-fill: balance` 近似）：
@@ -1224,6 +1271,14 @@ class Paginator {
     var truncated = false;
     // 相邻块上下边距折叠（CSS 2.1 §8.3.1）：段距不再按两段 margin 相加。
     final flow = PageBlock.collapseAdjacentMargins(blocks);
+    // 续框必须完整留在页面内，不能让文字容差吃掉边框和内边距。
+    final fitTolerance = flow.any((block) => block.containers.any(
+      (fragment) => fragment.container.cloneDecoration,
+    )) ? 0.0 : tolerance;
+
+    double leadingOf(PageBlock block, int startLine) =>
+        (startLine == 0 ? block.leadingExtent : 0) +
+        (slices.isEmpty ? block.containerTopInset(startLine) : 0);
 
     void record() {
       // 空页不记录，避免零长度页。
@@ -1237,6 +1292,16 @@ class Paginator {
         slices = <PageBlockSlice>[];
         used = 0;
         return;
+      }
+      // 容行时已经预留，收页才实际挂到末片；后续块仍可使用这块空间。
+      final lastFlow = slices.lastIndexWhere((slice) => !slice.overlay);
+      if (lastFlow >= 0) {
+        final last = slices[lastFlow];
+        final decoration = last.block.containerBottomInset(last.endLine);
+        if (decoration > 0) {
+          slices[lastFlow] = last.withBottomDecoration(decoration);
+          used += decoration;
+        }
       }
       pages.add(
         PageContent(
@@ -1307,8 +1372,9 @@ class Paginator {
       if (block.groupId != 0 &&
           (blockIndex == 0 || flow[blockIndex - 1].groupId != block.groupId)) {
         final groupExtent = _groupExtent(flow, blockIndex, block.groupId);
-        if (groupExtent > available + tolerance &&
-            groupExtent <= pageHeight + tolerance) {
+        if (groupExtent > available + fitTolerance &&
+            groupExtent + block.containerTopInset(0) <=
+                pageHeight + fitTolerance) {
           record();
         }
       }
@@ -1592,8 +1658,10 @@ class Paginator {
 
       if (block.breakInsideAvoid &&
           slices.isNotEmpty &&
-          blockExtent > available + tolerance &&
-          blockExtent <= pageHeight + tolerance) {
+          blockExtent + block.containerBottomInset(lines.length) >
+              available + fitTolerance &&
+          blockExtent + block.containerTopInset(0) +
+              block.containerBottomInset(lines.length) <= pageHeight + fitTolerance) {
         record();
       }
 
@@ -1604,14 +1672,20 @@ class Paginator {
       if (block.breakAfterAvoid &&
           slices.isNotEmpty &&
           blockIndex + 1 < flow.length &&
-          blockExtent <= available + tolerance &&
-          blockExtent <= pageHeight + tolerance) {
+          blockExtent <= available + fitTolerance &&
+          blockExtent <= pageHeight + fitTolerance) {
         final next = flow[blockIndex + 1];
         final nextNeed = next.leadingExtent +
             (next.layout.lines.isEmpty
                 ? 0.0
-                : next.layout.lines.first.height);
-        if (available - blockExtent < nextNeed) {
+                : next.layout.lines.first.height) +
+            (next.layout.lineCount <= 1 ? next.trailingExtent : 0) +
+            next.containerBottomInset(1);
+        // 强制断页优先；整组在新页也放不下时不反复推页。
+        final pairExtent = blockExtent + nextNeed;
+        if (!next.pageBreakBefore && !block.pageBreakAfter &&
+            pairExtent + block.containerTopInset(0) <= pageHeight + fitTolerance &&
+            available < pairExtent - fitTolerance) {
           record();
         }
       }
@@ -1627,21 +1701,23 @@ class Paginator {
 
       // 盒能整块放进当前页：单切片按盒子高度占位（不按行高之和），声明
       // 高度因此对后续块的位置生效；溢出盒高的行丢弃（overflow 近似）。
-      if (block.leadingExtent + boxHeight + block.trailingExtent <=
-          available + tolerance) {
+      final wholeLeading = leadingOf(block, 0);
+      final wholeExtent = wholeLeading + boxHeight + block.trailingExtent;
+      if (wholeExtent + block.containerBottomInset(lineLimit) <=
+          available + fitTolerance) {
         slices.add(
           PageBlockSlice(
             block: block,
             startLine: 0,
             endLine: lineLimit,
-            height: block.leadingExtent + boxHeight + block.trailingExtent,
-            leadingExtent: block.leadingExtent,
+            height: wholeExtent,
+            leadingExtent: wholeLeading,
             trailingExtent: block.trailingExtent,
             leftInset: block.leftInset,
           ),
         );
-        used += block.leadingExtent + boxHeight + block.trailingExtent;
-        available -= block.leadingExtent + boxHeight + block.trailingExtent;
+        used += wholeExtent;
+        available -= wholeExtent;
         if (block.pageBreakAfter) {
           record();
         }
@@ -1650,14 +1726,16 @@ class Paginator {
 
       var lineStart = 0;
       while (lineStart < lineLimit) {
-        final isBlockStart = lineStart == 0;
-        // 段前间距与上内缩只在块首切片出现（P2-14 补全：分页几何含盒模型内缩）。
-        final leading = isBlockStart ? block.leadingExtent : 0.0;
+        // 真实块首的段距只计一次；续页补容器边框和内边距，不重复 margin。
+        final leading = leadingOf(block, lineStart);
         var fitEnd = lineStart;
         var linesHeight = 0.0;
         while (fitEnd < lineLimit) {
           final lineHeight = lines[fitEnd].height;
-          if (leading + linesHeight + lineHeight <= available + tolerance) {
+          final candidateEnd = fitEnd + 1;
+          final bottom = block.containerBottomInset(candidateEnd) +
+              (candidateEnd == lineLimit ? block.trailingExtent : 0);
+          if (leading + linesHeight + lineHeight + bottom <= available + fitTolerance) {
             linesHeight += lineHeight;
             fitEnd += 1;
           } else {
@@ -1676,17 +1754,7 @@ class Paginator {
           fitEnd = lineStart + 1;
         }
 
-        var trailing = 0.0;
-        if (fitEnd == lineLimit) {
-          // 下内缩与段后间距只在块尾切片出现；放不下时退一行到下一页。
-          trailing = block.trailingExtent;
-          if (leading + linesHeight + trailing > available + tolerance &&
-              fitEnd - lineStart > 1) {
-            fitEnd -= 1;
-            linesHeight -= lines[fitEnd].height;
-            trailing = 0;
-          }
-        }
+        final trailing = fitEnd == lineLimit ? block.trailingExtent : 0.0;
 
         // 块尾切片按盒子高度收口：行比盒矮时补白到盒底（声明高度生效）；
         // 跨页切开时各页仍按行高累计，末片再补足。
@@ -1695,7 +1763,8 @@ class Paginator {
             : 0.0;
         final sliceHeight = leading + linesHeight + trailing + boxTail;
         // 盒内留白也占页高：当前页放不下整盒时先把本块移到新页（页已非空）。
-        if (sliceHeight > available + tolerance && slices.isNotEmpty) {
+        if (sliceHeight + block.containerBottomInset(fitEnd) >
+                available + fitTolerance && slices.isNotEmpty) {
           record();
           continue;
         }

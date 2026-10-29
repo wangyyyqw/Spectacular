@@ -62,3 +62,35 @@ python3 tool/device_css_test.py --device 381QYGE4224AA
 构建后用 `apkanalyzer` 校验实际包名。驱动使用已校验 APK 和 `--keep-app-running`，
 结束仅停止测试包，**不卸载任何应用**；同时校验正式应用安装路径保持不变。
 测试图片与 JSON 默认写入已忽略的 `apps/reader_mobile/dist/css-device-results`。
+
+## 阅微截图对照：跨页卡片续框
+
+同日追加，代码基线 `0db0fb9`。截图中的大框是嵌套容器，道具名称与评级是单行表格。
+普通横排的带框容器现在每页补齐上下边框与内边距，末片按实际内容收口；卡片首个
+短标题与至少一行正文同页。表格预切也预留祖先装饰和自身盒模型占高。段距只在
+真实首尾出现，续页不重复外边距。分页索引升级到 schema 2，旧边界自动重建。
+
+本实现采用阅读器兼容策略：带框容器默认续框，尊重作者显式 `box-decoration-break:
+slice`；显式 `clone` 可用于无框容器。分页预留边框和内边距的处理依据
+[CSS Fragmentation 装饰分片规则](https://www.w3.org/TR/css-break-3/#break-decoration)。
+存在浮动、竖排、分栏、绝对或固定定位的章节沿用原切片方式，尚未扩展该策略。
+
+| 验证 | 结果 |
+|---|---|
+| 核心布局、绘制回归 | 673 项通过，1 项已有 Flutter 行高能力用例跳过 |
+| 阅读管线回归 | 245 项通过，1 项未启用的全语料测试跳过；本书专项实际运行 |
+| 改动文件静态检查、Python 语法 | 通过 |
+| 默认字号 17 | 31 页，76 张表，30 个续页页尾完整预留装饰 |
+| 字号 22 | 45 页，76 张表，44 个续页页尾完整预留装饰 |
+| 翻页、反向翻页、章节位置、标题避断 | 全部通过；每页高度不超过正文区 |
+| 缓存重放 | 嵌套框行边界、上下占位和页高一致，旧版索引被拒绝 |
+| 正常 Android 表面截图 | 首三页及放大字号复核，续框留白和自然收口正常 |
+
+本轮自动流程约 58 秒，不含构建安装。隔离入口前后正式应用安装路径一致。
+Flutter 表面转图片的截图接口在该设备会产生旧帧叠影；入口已改为检查点同步请求
+宿主 `adb exec-out screencap -p`，直接捕获正常表面。新流程不进行表面转换。
+
+本地证据不入库：`/tmp/spectacular-usb-css/fragment-native/` 内有首三页、放大字号
+PNG 和 `report.json`；日志分别为 `/tmp/spectacular-usb-css/fragment-native-drive.log`、
+`/tmp/spectacular-fragment-core.log`、`/tmp/spectacular-fragment-app.log`。
+Release APK 构建通过，手机正式版使用 `adb install -r` 覆盖更新，保留已有应用数据。

@@ -157,5 +157,60 @@ void main() {
         lessThanOrEqualTo(source.contentWidth + 0.01),
       );
     }
+    expect(
+      blocks
+          .expand((block) => block.containers)
+          .every((fragment) => fragment.container.cloneDecoration),
+      isTrue,
+    );
+    for (final page in pages) {
+      expect(page.usedHeight, lessThanOrEqualTo(source.contentHeight + 0.01));
+      final first = page.slices.first;
+      final last = page.slices.last;
+      final top = first.block.containers
+          .where((fragment) => !fragment.startsHere || first.continuesBefore)
+          .fold(
+            0.0,
+            (sum, fragment) =>
+                sum +
+                fragment.container.style.padding.top +
+                fragment.container.style.borders.top.width,
+          );
+      final bottom = last.block.containers
+          .where((fragment) => !fragment.endsHere || last.continuesAfter)
+          .fold(
+            0.0,
+            (sum, fragment) =>
+                sum +
+                fragment.container.style.padding.bottom +
+                fragment.container.style.borders.bottom.width,
+          );
+      expect(first.leadingExtent, greaterThanOrEqualTo(top));
+      expect(last.trailingExtent, greaterThanOrEqualTo(bottom));
+      expect(last.block.breakAfterAvoid, isFalse, reason: '道具或效果标题不得孤立在页底');
+    }
+    int stableExtent(double value) => (value * 1000000).round();
+    List<Object> geometry(List<PageContent> result) => [
+      for (final page in result)
+        [
+          stableExtent(page.usedHeight),
+          for (final slice in page.slices)
+            [
+              slice.block.layout.text,
+              slice.startLine,
+              slice.endLine,
+              stableExtent(slice.height),
+              stableExtent(slice.leadingExtent),
+              stableExtent(slice.trailingExtent),
+            ],
+        ],
+    ];
+    source.clearPaginationCache();
+    final replayed = await source.loadChapter(32);
+    expect(
+      geometry(replayed),
+      geometry(pages),
+      reason: '清页缓存后的索引重放必须保留续框占高与分页边界',
+    );
   }, skip: !realBook.existsSync());
 }

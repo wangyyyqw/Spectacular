@@ -88,7 +88,7 @@ void main() {
     expect(
       PageIndex.apply(
         PageIndex(
-          schemaVersion: 1,
+          schemaVersion: PageIndex.currentSchemaVersion,
           entries: <PageIndexEntry>[
             const PageIndexEntry(
               blockIndex: 9,
@@ -106,7 +106,7 @@ void main() {
     );
     expect(
       PageIndex.apply(
-        PageIndex(schemaVersion: 1, entries: good.entries),
+        PageIndex(schemaVersion: PageIndex.currentSchemaVersion, entries: good.entries),
         blocksOf(<String>['只有一段']), // 块数不足。
         spineIndex: 0,
       ),
@@ -114,7 +114,7 @@ void main() {
     );
     expect(
       PageIndex.apply(
-        const PageIndex(schemaVersion: 1, entries: <PageIndexEntry>[]),
+        const PageIndex(schemaVersion: PageIndex.currentSchemaVersion, entries: <PageIndexEntry>[]),
         blocks,
         spineIndex: 0,
       ),
