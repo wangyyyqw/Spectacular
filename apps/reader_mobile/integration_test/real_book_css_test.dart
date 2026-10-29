@@ -127,10 +127,26 @@ void main() {
         'fanrongPage': target + 1,
         'tagBoxes': boxes.length,
       };
+      await _checkChapterButtons(tester);
+      binding.reportData!['chapterButtons'] = {'previous': 29, 'next': 30};
     },
     timeout: const Timeout(Duration(minutes: 5)),
     skip: const String.fromEnvironment('EPUB_TEST_URL').isEmpty,
   );
+}
+
+Future<void> _checkChapterButtons(WidgetTester tester) async {
+  await tester.tap(find.byType(ReaderView));
+  await _settle(tester);
+  await tester.tap(find.byKey(const ValueKey<String>('menu-prev-chapter')));
+  await _settle(tester);
+  expect(_page(tester).spineIndex, 29);
+  expect(_page(tester).pageIndex, 0);
+  await tester.tap(find.byKey(const ValueKey<String>('menu-next-chapter')));
+  await _settle(tester);
+  expect(_page(tester).spineIndex, 30);
+  expect(_page(tester).pageIndex, 0);
+  await _capture('chapter-menu');
 }
 
 Future<EpubChapterSource> _openReader(
