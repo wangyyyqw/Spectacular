@@ -15,9 +15,8 @@ const _pageSize = Size(240, 200);
 const _serif = 'GradShadowSerif';
 
 Future<void> _loadFont() async {
-  final bytes = await File(
-    '../../test_fonts/SourceHanSerifSC-Regular.otf',
-  ).readAsBytes();
+  final bytes = await File('../../test_fonts/SourceHanSerifSC-Regular.otf')
+      .readAsBytes();
   await (FontLoader(
     _serif,
   )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
@@ -38,15 +37,18 @@ Future<ByteData> _render(ComputedStyle style) async {
     style: style,
     maxWidth: _pageSize.width,
   );
-  final page = Paginator(pageHeight: 160).measureChapter(
-    blocks: [
-      PageBlock.styled(
-        layout: layout,
-        style: style,
-        containingWidth: _pageSize.width,
-      ),
-    ],
-  ).pages.single;
+  final page = Paginator(pageHeight: 160)
+      .measureChapter(
+        blocks: [
+          PageBlock.styled(
+            layout: layout,
+            style: style,
+            containingWidth: _pageSize.width,
+          ),
+        ],
+      )
+      .pages
+      .single;
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)
     ..drawRect(
@@ -91,6 +93,24 @@ void main() {
     expect(right.r, lessThan(0.2));
   });
 
+  test('多背景层：后声明层铺底，首层按其尺寸盖在上方', () async {
+    final data = await _render(
+      _style(const {
+        'height': '100px',
+        'background-image':
+            'linear-gradient(90deg, #ff0000, #ff0000), '
+            'linear-gradient(90deg, #0000ff, #0000ff)',
+        'background-repeat': 'no-repeat, no-repeat',
+        'background-size': '50% 100%, 100% 100%',
+        'background-position': 'left top, left top',
+      }),
+    );
+    final topLeft = _pixel(data, 30, 20);
+    final topRight = _pixel(data, 210, 20);
+    expect(topLeft.r, greaterThan(0.8), reason: '首层红色只覆盖左半');
+    expect(topRight.b, greaterThan(0.8), reason: '底层蓝色在右半透出');
+  });
+
   test('linear-gradient 0deg：向上去 ⇒ 底部第一色、顶部第二色', () async {
     final data = await _render(
       _style(const {
@@ -123,8 +143,7 @@ void main() {
     // 块高 = 行高 1.5 × 16px ≈ 24px；中心在盒内 (30%, 30%)，最远角是右下角。
     final data = await _render(
       _style(const {
-        'background':
-            'radial-gradient(circle at 30% 30%, #00ff00, #0000ff)',
+        'background': 'radial-gradient(circle at 30% 30%, #00ff00, #0000ff)',
         'color': '#ffffff',
       }),
     );
@@ -138,8 +157,7 @@ void main() {
     // 块高 = 24：椭圆 rx=120√2≈170、ry=12√2≈17；右缘中点归一距离 ≈0.70。
     final data = await _render(
       _style(const {
-        'background':
-            'radial-gradient(ellipse at 50% 50%, #00ff00, #0000ff)',
+        'background': 'radial-gradient(ellipse at 50% 50%, #00ff00, #0000ff)',
         'color': '#ffffff',
       }),
     );
@@ -152,8 +170,7 @@ void main() {
     // 圆的同一位置归一距离 ≈0.99，明显更蓝：证明 ellipse 不是按圆处理。
     final circle = await _render(
       _style(const {
-        'background':
-            'radial-gradient(circle at 50% 50%, #00ff00, #0000ff)',
+        'background': 'radial-gradient(circle at 50% 50%, #00ff00, #0000ff)',
         'color': '#ffffff',
       }),
     );

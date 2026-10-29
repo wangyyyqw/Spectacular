@@ -239,7 +239,12 @@ class PagePainter {
       _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
         if (!geometry.hidden) {
           _paintBoxShadow(canvas, geometry);
-          _paintBlockBackground(canvas, geometry, context.page, context.pageRect);
+          _paintBlockBackground(
+            canvas,
+            geometry,
+            context.page,
+            context.pageRect,
+          );
           _paintBlockBorder(canvas, geometry);
         }
         _clipBlock(canvas, geometry, clip: false, contentClip: true, () {
@@ -279,10 +284,15 @@ class PagePainter {
               last.slice.height -
               last.slice.trailingExtent +
               end.bottomInset
-        : (container.cloneDecoration ? pageHeight : last.y + last.slice.height) -
+        : (container.cloneDecoration
+                  ? pageHeight
+                  : last.y + last.slice.height) -
               outerBottom;
     return Rect.fromLTWH(
-      container.left, top, container.width, math.max(0, bottom - top),
+      container.left,
+      top,
+      container.width,
+      math.max(0, bottom - top),
     );
   }
 
@@ -304,8 +314,7 @@ class PagePainter {
       textStyle: first.textStyle,
       startsBlock:
           container.cloneDecoration || start.startsHere && first.startsBlock,
-      endsBlock:
-          container.cloneDecoration || end.endsHere && last.endsBlock,
+      endsBlock: container.cloneDecoration || end.endsHere && last.endsBlock,
       hidden: container.style.visibility != CssVisibility.visible,
       leading: 0,
       leftInset: container.left,
@@ -461,9 +470,7 @@ class PagePainter {
             );
             final lineRuns = _lineRuns(layout, line);
             // 普通 run 与独立行内盒都在文字之前绘制，不能互相替代。
-            _paintInlineBoxes(
-              canvas, painter, lineRuns, x, lineY, line: line,
-            );
+            _paintInlineBoxes(canvas, painter, lineRuns, x, lineY, line: line);
             if (line.inlineBoxes.isNotEmpty) {
               _paintInlineBoxPlacements(
                 canvas,
@@ -677,9 +684,7 @@ class PagePainter {
       }
       // 深色底 + 深色字：需要一个浅色。主题文字色在浅色主题里本身就是
       // 深色，不能直接复用，此时固定用浅灰；深色主题才用主题色。
-      return theme.computeLuminance() < 0.35
-          ? const Color(0xFFE6E6E6)
-          : theme;
+      return theme.computeLuminance() < 0.35 ? const Color(0xFFE6E6E6) : theme;
     }
     if (background.computeLuminance() < 0.35) {
       return darkText ? theme : null;
@@ -890,7 +895,8 @@ class PagePainter {
       matrix = _affineMultiply(matrix, next);
     }
     final originX = style.transformOriginX.resolve(box.width) ?? box.width / 2;
-    final originY = style.transformOriginY.resolve(box.height) ?? box.height / 2;
+    final originY =
+        style.transformOriginY.resolve(box.height) ?? box.height / 2;
     // 绕原点：T(原点) · M · T(−原点)；原点用页面坐标（盒子左上角 + 本地原点）。
     final px = box.left + originX;
     final py = box.top + originY;
@@ -938,11 +944,23 @@ class PagePainter {
 
   static const List<double> _affineIdentity = <double>[1, 0, 0, 1, 0, 0];
 
-  static List<double> _affineTranslate(double tx, double ty) =>
-      <double>[1, 0, 0, 1, tx, ty];
+  static List<double> _affineTranslate(double tx, double ty) => <double>[
+    1,
+    0,
+    0,
+    1,
+    tx,
+    ty,
+  ];
 
-  static List<double> _affineScale(double sx, double sy) =>
-      <double>[sx, 0, 0, sy, 0, 0];
+  static List<double> _affineScale(double sx, double sy) => <double>[
+    sx,
+    0,
+    0,
+    sy,
+    0,
+    0,
+  ];
 
   /// 旋转矩阵：屏幕 y 轴向下，CSS 正角为顺时针。
   static List<double> _affineRotate(double angleDeg) {
@@ -1025,8 +1043,10 @@ class PagePainter {
     // 既不会重复相乘，也能覆盖「只有一边带了祖先值」的调用路径。
     final cumulative = geometry.paintBox != null
         ? geometry.style.effectiveOpacity
-        : math.min(geometry.slice.block.effectiveOpacity,
-            geometry.style.effectiveOpacity);
+        : math.min(
+            geometry.slice.block.effectiveOpacity,
+            geometry.style.effectiveOpacity,
+          );
     final opacity = parentOpacity > 0
         ? (cumulative / parentOpacity).clamp(0.0, 1.0)
         : 0.0;
@@ -1124,10 +1144,7 @@ class PagePainter {
           return null;
         }
         return Paint()
-          ..imageFilter = ui.ImageFilter.blur(
-            sigmaX: sigma,
-            sigmaY: sigma,
-          );
+          ..imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
       case CssFilterKind.dropShadow:
         return null;
       default:
@@ -1294,7 +1311,11 @@ class PagePainter {
     0, 0, 0, 1, 0, //
   ];
 
-  static List<double> _lerpMatrix(List<double> from, List<double> to, double t) {
+  static List<double> _lerpMatrix(
+    List<double> from,
+    List<double> to,
+    double t,
+  ) {
     return <double>[
       for (var i = 0; i < from.length; i++) from[i] + (to[i] - from[i]) * t,
     ];
@@ -1323,9 +1344,7 @@ class PagePainter {
         (borders.left.isVisible ? borders.left.width : 0) +
         padding.left;
     final top =
-        box.top +
-        (borders.top.isVisible ? borders.top.width : 0) +
-        padding.top;
+        box.top + (borders.top.isVisible ? borders.top.width : 0) + padding.top;
     final bottom =
         box.bottom -
         (borders.bottom.isVisible ? borders.bottom.width : 0) -
@@ -1443,10 +1462,7 @@ class PagePainter {
       LineBox? hostLine;
       var hostIndex = geometry.slice.startLine;
       var lineY = geometry.y + geometry.leading;
-      for (;
-        hostIndex < geometry.slice.endLine;
-        hostIndex++
-      ) {
+      for (; hostIndex < geometry.slice.endLine; hostIndex++) {
         final line = layout.lines[hostIndex];
         if (ruby.start >= line.start && ruby.start < line.end) {
           hostLine = line;
@@ -1520,10 +1536,7 @@ class PagePainter {
         cell.rect.height,
       );
       if (style.backgroundColor.a > 0) {
-        canvas.drawRect(
-          cellRect,
-          Paint()..color = style.backgroundColor,
-        );
+        canvas.drawRect(cellRect, Paint()..color = style.backgroundColor);
       }
       _paintCellBorders(canvas, cellRect, style.borders);
     }
@@ -1600,14 +1613,23 @@ class PagePainter {
           );
           if (line.inlineBoxes.isNotEmpty) {
             _paintInlineBoxPlacements(
-              canvas, geometry, line, cellRuns,
-              contentLeft + line.offsetX, lineY,
+              canvas,
+              geometry,
+              line,
+              cellRuns,
+              contentLeft + line.offsetX,
+              lineY,
             );
           }
           _paintLineText(
-            canvas, painter, text, cellRuns, textStyle,
+            canvas,
+            painter,
+            text,
+            cellRuns,
+            textStyle,
             line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
-            lineY, line: line,
+            lineY,
+            line: line,
           );
           painter.dispose();
         }
@@ -1770,7 +1792,12 @@ class PagePainter {
   }) {
     final diameter = fontSize * 0.4;
     final centerY = baseline - fontSize * 0.43;
-    final rect = Rect.fromLTWH(left, centerY - diameter / 2, diameter, diameter);
+    final rect = Rect.fromLTWH(
+      left,
+      centerY - diameter / 2,
+      diameter,
+      diameter,
+    );
     switch (shape) {
       case _MarkerShape.disc:
         canvas.drawOval(rect, Paint()..color = color);
@@ -1836,21 +1863,9 @@ class PagePainter {
         );
       }
       _paintOuterShadow(canvas, rect, style);
-      _paintBackground(
-        canvas,
-        rect,
-        style,
-        startsBlock: true,
-        endsBlock: true,
-      );
+      _paintBackground(canvas, rect, style, startsBlock: true, endsBlock: true);
       _paintInnerShadow(canvas, rect, style);
-      _paintBorders(
-        canvas,
-        rect,
-        style,
-        startsBlock: true,
-        endsBlock: true,
-      );
+      _paintBorders(canvas, rect, style, startsBlock: true, endsBlock: true);
       final payload = placement.spec.payload;
       if (payload is PageBlock) {
         _paintInlineBoxContent(canvas, payload, rect);
@@ -1884,11 +1899,7 @@ class PagePainter {
   /// `placement.width/height` 是边框盒尺寸，内容盒要再扣掉 payload 样式的
   /// padding 与边框；行 x = 内容盒左缘 + `line.offsetX`，行 y 自内容盒顶按
   /// `line.height` 累加，行内样式走 runs（颜色/字号/注音等）。
-  void _paintInlineBoxContent(
-    Canvas canvas,
-    PageBlock box,
-    Rect borderBox,
-  ) {
+  void _paintInlineBoxContent(Canvas canvas, PageBlock box, Rect borderBox) {
     final style = box.style;
     if (style == null) {
       return;
@@ -1896,14 +1907,22 @@ class PagePainter {
     final borders = style.borders;
     final padding = style.padding;
     final contentLeft =
-        borderBox.left + padding.left + (borders.left.isVisible ? borders.left.width : 0);
+        borderBox.left +
+        padding.left +
+        (borders.left.isVisible ? borders.left.width : 0);
     final contentTop =
-        borderBox.top + padding.top + (borders.top.isVisible ? borders.top.width : 0);
+        borderBox.top +
+        padding.top +
+        (borders.top.isVisible ? borders.top.width : 0);
     final contentRight =
-        borderBox.right - padding.right - (borders.right.isVisible ? borders.right.width : 0);
+        borderBox.right -
+        padding.right -
+        (borders.right.isVisible ? borders.right.width : 0);
     final contentWidth = math.max(1.0, contentRight - contentLeft);
     final contentBottom =
-        borderBox.bottom - padding.bottom - (borders.bottom.isVisible ? borders.bottom.width : 0);
+        borderBox.bottom -
+        padding.bottom -
+        (borders.bottom.isVisible ? borders.bottom.width : 0);
     final contentBox = Rect.fromLTWH(
       contentLeft,
       contentTop,
@@ -1955,10 +1974,7 @@ class PagePainter {
                 ),
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: contentWidth);
-        painter.paint(
-          canvas,
-          Offset(contentLeft + line.offsetX, lineY),
-        );
+        painter.paint(canvas, Offset(contentLeft + line.offsetX, lineY));
         painter.dispose();
       }
       lineY += line.height;
@@ -2087,13 +2103,20 @@ class PagePainter {
         rounded.trRadiusX > 0 ||
         rounded.brRadiusX > 0 ||
         rounded.blRadiusX > 0;
+    final layers = style.backgroundLayers;
     if (style.backgroundColor.a != 0) {
       // 背景色按 background-clip 裁剪区域绘制（P3：origin/clip 语义）。
       // `mix-blend-mode`（CSS Compositing §5）用画布混合模式与已绘制的
       // 背景内容做混合（multiply/screen/overlay/darken/lighten）。
       final blend = _blendModeOf(style.mixBlendMode);
       canvas.save();
-      canvas.clipRect(_backgroundClipRect(box, style));
+      canvas.clipRect(
+        _backgroundClipRect(
+          box,
+          style,
+          layers.isEmpty ? style.backgroundClip : layers.last.clip,
+        ),
+      );
       canvas.drawRRect(
         rounded,
         Paint()
@@ -2102,43 +2125,104 @@ class PagePainter {
       );
       canvas.restore();
     }
-    // 渐变背景（W2）：样式层把 `background-image: <gradient>` 解析成
-    // CssLinearGradient / CssRadialGradient。渐变几何按 background-origin
-    // 的定位区解算（默认 padding-box，与浏览器一致），裁剪与圆角沿用背景色。
-    final gradient = style.backgroundGradient;
-    if (gradient != null) {
-      final shader = _gradientShader(
-        gradient,
-        _backgroundOriginRect(box, style),
-      );
-      if (shader != null) {
-        canvas.save();
-        canvas.clipRect(_backgroundClipRect(box, style));
-        if (roundedCorners) {
-          canvas.clipRRect(rounded);
-        }
-        canvas.drawRect(box, Paint()..shader = shader);
-        canvas.restore();
+    // CSS 多背景：列表首项最靠上，绘制时必须逆序；每层独立解算
+    // origin/clip/size/position，缺项由 backgroundLayers 按列表循环补齐。
+    for (final layer in layers.reversed) {
+      final origin = _backgroundOriginRect(box, style, layer.origin);
+      final clip = _backgroundClipRect(box, style, layer.clip);
+      final gradient = layer.gradient;
+      final image = _resolveBackgroundImage(layer.image);
+      if (gradient == null && image == null) {
+        continue;
       }
+      canvas.save();
+      canvas.clipRect(clip);
+      if (roundedCorners) {
+        canvas.clipRRect(rounded);
+      }
+      if (gradient != null) {
+        _paintGradientBackground(
+          canvas,
+          gradient,
+          origin,
+          size: layer.size,
+          position: layer.position,
+          repeat: layer.repeat,
+        );
+      } else {
+        paintBackgroundImage(
+          canvas,
+          image!,
+          origin,
+          repeat: layer.repeat,
+          size: layer.size,
+          position: layer.position,
+        );
+      }
+      canvas.restore();
     }
-    final image = _resolveBackgroundImage(style);
-    if (image == null) {
+  }
+
+  /// 渐变没有固有尺寸：auto 与 cover/contain 都以定位区为瓦片尺寸。
+  void _paintGradientBackground(
+    Canvas canvas,
+    CssGradient gradient,
+    Rect bounds, {
+    required CssBackgroundSize size,
+    required CssBackgroundPosition position,
+    required CssBackgroundRepeat repeat,
+  }) {
+    final tile = switch (size.mode) {
+      CssBackgroundSizeMode.auto ||
+      CssBackgroundSizeMode.cover ||
+      CssBackgroundSizeMode.contain => bounds.size,
+      CssBackgroundSizeMode.explicit => Size(
+        size.width?.resolve(bounds.width) ?? bounds.width,
+        size.height?.resolve(bounds.height) ?? bounds.height,
+      ),
+    };
+    if (bounds.isEmpty || tile.width <= 0 || tile.height <= 0) {
       return;
     }
-    canvas.save();
-    canvas.clipRect(_backgroundClipRect(box, style));
-    if (roundedCorners) {
-      canvas.clipRRect(rounded);
+    final originX = position.x.resolve(bounds.width - tile.width) ?? 0;
+    final originY = position.y.resolve(bounds.height - tile.height) ?? 0;
+    final repeatX =
+        repeat == CssBackgroundRepeat.repeat ||
+        repeat == CssBackgroundRepeat.repeatX;
+    final repeatY =
+        repeat == CssBackgroundRepeat.repeat ||
+        repeat == CssBackgroundRepeat.repeatY;
+    final startX = repeatX
+        ? bounds.left - originX % tile.width
+        : bounds.left + originX;
+    final startY = repeatY
+        ? bounds.top - originY % tile.height
+        : bounds.top + originY;
+    final stepX = repeatX ? tile.width : 0.0;
+    final stepY = repeatY ? tile.height : 0.0;
+    for (
+      var y = startY;
+      y < bounds.bottom;
+      y += stepY == 0 ? bounds.bottom : stepY
+    ) {
+      for (
+        var x = startX;
+        x < bounds.right;
+        x += stepX == 0 ? bounds.right : stepX
+      ) {
+        final rect = Rect.fromLTWH(x, y, tile.width, tile.height);
+        final shader = _gradientShader(gradient, rect);
+        if (shader != null) {
+          canvas.drawRect(rect, Paint()..shader = shader);
+        }
+        if (stepX == 0) {
+          break;
+        }
+      }
+      if (stepY == 0) {
+        break;
+      }
     }
-    paintBackgroundImage(
-      canvas,
-      image,
-      _backgroundOriginRect(box, style),
-      repeat: style.backgroundRepeat,
-      size: style.backgroundSize,
-      position: style.backgroundPosition,
-    );
-    canvas.restore();
   }
 
   /// 生成渐变 shader；色标不足 2 个时返回 null（按 background-color 降级）。
@@ -2159,8 +2243,7 @@ class PagePainter {
         final radians = gradient.angle * math.pi / 180;
         final direction = Offset(math.sin(radians), -math.cos(radians));
         final length =
-            area.width * direction.dx.abs() +
-            area.height * direction.dy.abs();
+            area.width * direction.dx.abs() + area.height * direction.dy.abs();
         if (length <= 0) {
           return null;
         }
@@ -2320,10 +2403,7 @@ class PagePainter {
     return (
       stops: [
         for (var i = 0; i < count; i++)
-          (
-            color: stops[i].color,
-            position: (positions[i]! - first) / period,
-          ),
+          (color: stops[i].color, position: (positions[i]! - first) / period),
       ],
       periodFraction: period,
     );
@@ -2332,8 +2412,12 @@ class PagePainter {
   /// 背景裁剪区域：border-box / padding-box / content-box。
   ///
   /// `background-clip: text` 需要按文字轮廓裁剪，当前按 padding-box 降级。
-  Rect _backgroundClipRect(Rect box, ComputedStyle style) {
-    switch (style.backgroundClip) {
+  Rect _backgroundClipRect(
+    Rect box,
+    ComputedStyle style,
+    CssBackgroundClip clip,
+  ) {
+    switch (clip) {
       case CssBackgroundClip.borderBox:
         return box;
       case CssBackgroundClip.text:
@@ -2345,8 +2429,12 @@ class PagePainter {
   }
 
   /// 背景定位区域（background-origin）：决定 size/position 的解算基准。
-  Rect _backgroundOriginRect(Rect box, ComputedStyle style) {
-    switch (style.backgroundOrigin) {
+  Rect _backgroundOriginRect(
+    Rect box,
+    ComputedStyle style,
+    CssBackgroundOrigin origin,
+  ) {
+    switch (origin) {
       case CssBackgroundOrigin.borderBox:
         return box;
       case CssBackgroundOrigin.paddingBox:
@@ -2373,8 +2461,7 @@ class PagePainter {
   /// 取块背景图：未声明 `background-image` 或调用方暂无该图时返回 null。
   ///
   /// 图片解码与缓存由调用方的资源层负责，这里只做一次查表，不做 IO。
-  ui.Image? _resolveBackgroundImage(ComputedStyle style) {
-    final url = style.backgroundImage;
+  ui.Image? _resolveBackgroundImage(String? url) {
     final lookup = imageLookup;
     if (url == null || lookup == null) {
       return null;
@@ -2422,7 +2509,10 @@ class PagePainter {
     final paint = Paint()..filterQuality = FilterQuality.high;
 
     void drawPart(Rect src, Rect dst) {
-      if (dst.width <= 0 || dst.height <= 0 || src.width <= 0 || src.height <= 0) {
+      if (dst.width <= 0 ||
+          dst.height <= 0 ||
+          src.width <= 0 ||
+          src.height <= 0) {
         return;
       }
       canvas.drawImageRect(image, src, dst, paint);
@@ -2652,7 +2742,13 @@ class PagePainter {
       }
       return;
     }
-    if (_paintJoinedSolidBorders(canvas, box, borders, startsBlock, endsBlock)) {
+    if (_paintJoinedSolidBorders(
+      canvas,
+      box,
+      borders,
+      startsBlock,
+      endsBlock,
+    )) {
       return;
     }
     // 非实线边框沿边描画；实线交接由上面的斜角多边形处理。
@@ -3078,8 +3174,7 @@ class PagePainter {
     if (decoration == CssTextDecoration.none || advance <= 0) {
       return;
     }
-    final color =
-        style.textDecorationColor ?? textColorOverride ?? style.color;
+    final color = style.textDecorationColor ?? textColorOverride ?? style.color;
     final thickness = math
         .max(1.0, (style.fontSize / 10).floorToDouble())
         .toDouble();
@@ -3087,11 +3182,7 @@ class PagePainter {
       ..color = color
       ..strokeWidth = thickness;
     void line(double x) {
-      canvas.drawLine(
-        Offset(x, top),
-        Offset(x, top + advance),
-        paint,
-      );
+      canvas.drawLine(Offset(x, top), Offset(x, top + advance), paint);
     }
 
     if (decoration == CssTextDecoration.underline) {
@@ -3147,9 +3238,8 @@ class PagePainter {
     required List<VerticalGlyphMetric> metrics,
   }) {
     final rubySize = style.fontSize * 0.5;
-    final rubyStyle = TextLayoutEngine.textStyleFor(
-      style,
-    ).copyWith(fontSize: rubySize);
+    final rubyStyle = TextLayoutEngine.textStyleFor(style)
+        .copyWith(fontSize: rubySize);
     for (final ruby in rubies) {
       for (var lineIndex = startLine; lineIndex < endLine; lineIndex++) {
         final column = layout.lines[lineIndex];
@@ -3189,8 +3279,7 @@ class PagePainter {
         // 注音用一个宽度 = 注音字号的虚拟列贴在列的一侧（CSS Ruby 1 §5）：
         // `over` 在列右（vertical-rl 的「上」，圆心落在列右缘、可越出到列间）、
         // `under` 在列左（圆心落在列左缘）。
-        final rubyColumnLeft =
-            style.rubyPosition == CssRubyPosition.under
+        final rubyColumnLeft = style.rubyPosition == CssRubyPosition.under
             ? columnLeft - rubySize / 2
             : columnLeft + column.width - rubySize / 2;
 
@@ -3213,7 +3302,6 @@ class PagePainter {
     }
   }
 
-
   /// 竖排字形样式：装饰线在竖排下由绘制层手画（沿列方向），
   /// 必须剥掉引擎的装饰，否则每个字会各画一条横线。
   TextStyle _withoutDecoration(TextStyle style) =>
@@ -3233,9 +3321,7 @@ class PagePainter {
 
   /// 竖排单字符样式（含主题色覆盖）。
   TextStyle _verticalStyleOf(ComputedStyle style, Color? textColorOverride) {
-    final textStyle = _withoutDecoration(
-      TextLayoutEngine.textStyleFor(style),
-    );
+    final textStyle = _withoutDecoration(TextLayoutEngine.textStyleFor(style));
     return textColorOverride == null
         ? textStyle
         : textStyle.copyWith(color: textColorOverride);
@@ -3490,8 +3576,7 @@ class PagePainter {
       final double solidTop;
       switch (band.decoration) {
         case CssTextDecoration.overline:
-          solidTop =
-              baselineY - (band.ascent + thickness).roundToDouble();
+          solidTop = baselineY - (band.ascent + thickness).roundToDouble();
         case CssTextDecoration.underline:
           // 下划线：基线下方 max(1, round(字号/16))（Chromium 17px 实测 +1）。
           solidTop =
@@ -3499,8 +3584,7 @@ class PagePainter {
         case CssTextDecoration.lineThrough:
         case CssTextDecoration.none:
           solidTop =
-              baselineY -
-              ((band.ascent - band.descent) / 2).roundToDouble();
+              baselineY - ((band.ascent - band.descent) / 2).roundToDouble();
       }
       for (final box in boxes) {
         if (box.width <= 0) continue;
@@ -3526,7 +3610,9 @@ class PagePainter {
     bool joinBoxes = false,
   }) sync* {
     for (final fragment in lineTextFragments(
-      line, start: selection.start, end: selection.end,
+      line,
+      start: selection.start,
+      end: selection.end,
     )) {
       final boxes = painter.getBoxesForSelection(
         TextSelection(baseOffset: fragment.start, extentOffset: fragment.end),
@@ -3535,7 +3621,10 @@ class PagePainter {
       if (joinBoxes && boxes.isNotEmpty) {
         // 装饰线在同一文字片段内连续，保留原有跨样式 run 的绘制口径。
         yield Rect.fromLTRB(
-          boxes.first.left, boxes.first.top, boxes.last.right, boxes.last.bottom,
+          boxes.first.left,
+          boxes.first.top,
+          boxes.last.right,
+          boxes.last.bottom,
         ).shift(Offset(fragment.advance, 0));
       } else {
         for (final box in boxes) {
@@ -3648,10 +3737,7 @@ class PagePainter {
     )..layout();
     final metrics = probe.computeLineMetrics();
     final result = metrics.isEmpty
-        ? (
-            ascent: style.fontSize * 1.15,
-            descent: style.fontSize * 0.29,
-          )
+        ? (ascent: style.fontSize * 1.15, descent: style.fontSize * 0.29)
         : (ascent: metrics.first.ascent, descent: metrics.first.descent);
     probe.dispose();
     cache[key] = result;
@@ -3760,12 +3846,7 @@ class PagePainter {
       final boxBottom = lineY + boxes.first.bottom;
       canvas.drawImageRect(
         image,
-        Rect.fromLTWH(
-          0,
-          0,
-          image.width.toDouble(),
-          image.height.toDouble(),
-        ),
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
         Rect.fromLTWH(left, boxBottom - height, width, height),
         Paint()..filterQuality = FilterQuality.medium,
       );
@@ -4046,8 +4127,7 @@ class _SliceGeometry {
       style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent;
 
   /// 中西文自动间距开关（P7-20，源自 style.textAutospace）。
-  bool get textAutospace =>
-      style.textAutospace == CssTextAutospace.normal;
+  bool get textAutospace => style.textAutospace == CssTextAutospace.normal;
 
   final bool startsBlock;
   final bool endsBlock;
@@ -4098,15 +4178,17 @@ class _SliceGeometry {
   Rect get borderBox {
     if (paintBox != null) return paintBox!;
     final block = slice.block;
-    final ownTop = block.containers.isEmpty ? block.topInset
-        : style.padding.top + (style.borders.top.isVisible ? style.borders.top.width : 0);
-    final ownBottom = block.containers.isEmpty ? block.bottomInset
-        : style.padding.bottom + (style.borders.bottom.isVisible ? style.borders.bottom.width : 0);
+    final ownTop = block.containers.isEmpty
+        ? block.topInset
+        : style.padding.top +
+              (style.borders.top.isVisible ? style.borders.top.width : 0);
+    final ownBottom = block.containers.isEmpty
+        ? block.bottomInset
+        : style.padding.bottom +
+              (style.borders.bottom.isVisible ? style.borders.bottom.width : 0);
     final top = block.bleedTop
         ? -pageInsets.top
-        : (slice.leadingExtent > 0
-              ? y + slice.leadingExtent - ownTop
-              : y);
+        : (slice.leadingExtent > 0 ? y + slice.leadingExtent - ownTop : y);
     final bottom = block.bleedBottom
         ? pageHeight + pageInsets.bottom
         : (slice.trailingExtent > 0
@@ -4119,7 +4201,12 @@ class _SliceGeometry {
     // 35 用例 .v 宽 98 = 4 列×24 + 边框），不能用页宽。
     final model = _boxModel;
     // 出血：盒子扩到整页边（内容坐标里页边是 −insets / +pageWidth+insets）。
-    final left = block.bleedLeft ? -pageInsets.left : style.margin.left;
+    // 覆盖切片的 leftInset 已由分页层解算为盒左缘（绝对定位/浮动/多列），
+    // 普通流的 leftInset 仍只是 border + padding，不能拿来当盒左缘。
+    final boxLeft = slice.overlay
+        ? slice.leftInset + style.margin.left
+        : style.margin.left;
+    final left = block.bleedLeft ? -pageInsets.left : boxLeft;
     final contentWidth = isVerticalBlock
         ? block.layout.width
         : model.resolveContentWidth(pageWidth);
@@ -4167,16 +4254,19 @@ class _SliceGeometry {
         : 0.0;
     // 出血方向同步放宽到页边，否则扩出去的背景/边框会被切片矩形裁掉。
     final block = slice.block;
+    // 声明盒高小于内容高且 overflow: visible 时，文字按 CSS 语义画到盒外；
+    // 切片仍需保持声明高，避免把后续块提前上移。
+    final contentBottom = block.hasContentOverflow && !block.clipsContent
+        ? y + slice.leadingExtent + block.layout.height
+        : clip.bottom;
     canvas.clipRect(
       Rect.fromLTRB(
         block.bleedLeft ? -pageInsets.left : clip.left,
-        block.bleedTop
-            ? -pageInsets.top
-            : clip.top - upExtent - containerTop,
+        block.bleedTop ? -pageInsets.top : clip.top - upExtent - containerTop,
         block.bleedRight ? pageWidth + pageInsets.right : clip.right,
         block.bleedBottom
             ? pageHeight + pageInsets.bottom
-            : clip.bottom + downExtent + containerBottom,
+            : contentBottom + downExtent + containerBottom,
       ),
     );
   }

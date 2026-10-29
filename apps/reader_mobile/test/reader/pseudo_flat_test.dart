@@ -35,6 +35,19 @@ void main() {
     expect(block.layout.text, '「引用文字」', reason: '伪元素生成内容拼接');
   });
 
+  test('行内 q 按嵌套层级生成引号并同步排版文本', () async {
+    final source = await EpubChapterSource.open(
+      _epub(
+        '<p class="quote">外层<q>内层<q>第三层</q>结束</q>继续</p>',
+        '.quote { quotes: "「" "」" "『" "』"; }',
+      ),
+    );
+    final block = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .first;
+    expect(block.layout.text, '外层「内层『第三层』结束」继续');
+  });
+
   test('P8-09 ::first-letter 首字放大 run', () async {
     final source = await EpubChapterSource.open(_epub(
       '<p class="drop">下沉段落正文。</p>',

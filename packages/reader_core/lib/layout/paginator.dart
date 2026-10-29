@@ -50,13 +50,17 @@ class PageContainer {
   final bool cloneDecoration;
 
   double get topDecoration => style.padding.top + style.borders.top.width;
-  double get bottomDecoration => style.padding.bottom + style.borders.bottom.width;
+  double get bottomDecoration =>
+      style.padding.bottom + style.borders.bottom.width;
 
-  double get contentLeft => left + style.borders.left.width + style.padding.left;
+  double get contentLeft =>
+      left + style.borders.left.width + style.padding.left;
   double get contentWidth => math.max(
     0,
-    width - style.padding.horizontal -
-        style.borders.left.width - style.borders.right.width,
+    width -
+        style.padding.horizontal -
+        style.borders.left.width -
+        style.borders.right.width,
   );
 }
 
@@ -292,9 +296,14 @@ class PageBlock {
   /// 测量高（行高之和），不受盒高声明影响。
   double get measuredHeight => layout.height;
 
-  /// 内容是否被盒高裁掉（声明高度小于行高之和）：分页只排可见行，剩余
-  /// 行不进入下一页（`overflow: hidden/clip` 近似；真机渲染由切片裁剪）。
-  bool get clipsContent => height + 0.5 < layout.height;
+  /// 内容是否超出声明盒高。CSS 默认 `overflow: visible`，此时内容仍绘制
+  /// 在盒外，只影响后续块的流位置。
+  bool get hasContentOverflow => height + 0.5 < layout.height;
+
+  /// 内容是否被盒高裁掉。只有显式设置非 `visible` 的 overflow 才裁剪；
+  /// 裁剪掉的行不进入下一页。
+  bool get clipsContent =>
+      hasContentOverflow && style?.overflow != CssOverflow.visible;
 
   /// 多列几何（CSS Multicol）：只有「首列块」携带完整几何，绘制层据此画
   /// `column-rule` 与列分隔；其余列块为 null。
@@ -330,7 +339,8 @@ class PageBlock {
     var extent = 0.0;
     final endsBlock = endLine >= layout.lineCount || clipsContent;
     for (final fragment in containers.take(beforeDepth ?? containers.length)) {
-      if (fragment.container.cloneDecoration && !(endsBlock && fragment.endsHere)) {
+      if (fragment.container.cloneDecoration &&
+          !(endsBlock && fragment.endsHere)) {
         extent += fragment.container.bottomDecoration;
       }
     }
@@ -345,42 +355,41 @@ class PageBlock {
     double? bottomInset,
     List<PageContainerFragment>? containers,
     bool? breakAfterAvoid,
-  }) =>
-      PageBlock(
-        layout: layout,
-        pageBreakBefore: pageBreakBefore,
-        pageBreakAfter: pageBreakAfter,
-        startCfi: startCfi,
-        endCfi: endCfi,
-        style: style,
-        spaceBefore: spaceBefore ?? this.spaceBefore,
-        spaceAfter: spaceAfter ?? this.spaceAfter,
-        topInset: topInset ?? this.topInset,
-        bottomInset: bottomInset ?? this.bottomInset,
-        leftInset: leftInset,
-        breakInsideAvoid: breakInsideAvoid,
-        breakAfterAvoid: breakAfterAvoid ?? this.breakAfterAvoid,
-        listMarker: listMarker,
-        groupId: groupId,
-        table: table,
-        floatSide: floatSide,
-        rubies: rubies,
-        // 重建时必须带全字段（P9-19）：边距折叠会把相邻块换成新实例，
-        // 漏字段会让行内图片/绝对定位在真机里随机消失。
-        inlineImages: inlineImages,
-        absolute: absolute,
-        absoluteTop: absoluteTop,
-        absoluteLeft: absoluteLeft,
-        bleedLeft: bleedLeft,
-        bleedRight: bleedRight,
-        bleedTop: bleedTop,
-        bleedBottom: bleedBottom,
-        containerSides: containerSides,
-        containers: containers ?? this.containers,
-        declaredContentHeight: declaredContentHeight,
-        effectiveOpacity: effectiveOpacity,
-        multicol: multicol,
-      );
+  }) => PageBlock(
+    layout: layout,
+    pageBreakBefore: pageBreakBefore,
+    pageBreakAfter: pageBreakAfter,
+    startCfi: startCfi,
+    endCfi: endCfi,
+    style: style,
+    spaceBefore: spaceBefore ?? this.spaceBefore,
+    spaceAfter: spaceAfter ?? this.spaceAfter,
+    topInset: topInset ?? this.topInset,
+    bottomInset: bottomInset ?? this.bottomInset,
+    leftInset: leftInset,
+    breakInsideAvoid: breakInsideAvoid,
+    breakAfterAvoid: breakAfterAvoid ?? this.breakAfterAvoid,
+    listMarker: listMarker,
+    groupId: groupId,
+    table: table,
+    floatSide: floatSide,
+    rubies: rubies,
+    // 重建时必须带全字段（P9-19）：边距折叠会把相邻块换成新实例，
+    // 漏字段会让行内图片/绝对定位在真机里随机消失。
+    inlineImages: inlineImages,
+    absolute: absolute,
+    absoluteTop: absoluteTop,
+    absoluteLeft: absoluteLeft,
+    bleedLeft: bleedLeft,
+    bleedRight: bleedRight,
+    bleedTop: bleedTop,
+    bleedBottom: bleedBottom,
+    containerSides: containerSides,
+    containers: containers ?? this.containers,
+    declaredContentHeight: declaredContentHeight,
+    effectiveOpacity: effectiveOpacity,
+    multicol: multicol,
+  );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线
   /// 共用 [collapseMargins]）。
@@ -403,12 +412,20 @@ class PageBlock {
       final current = blocks[i];
       // 容器边界处的段距属于盒内留白，不能穿过边框/内边距与外部块折叠。
       final containerBoundary =
-          previous.containers.any((fragment) => fragment.endsHere &&
-              fragment.container.style.padding.bottom +
-                  fragment.container.style.borders.bottom.width > 0) ||
-          current.containers.any((fragment) => fragment.startsHere &&
-              fragment.container.style.padding.top +
-                  fragment.container.style.borders.top.width > 0);
+          previous.containers.any(
+            (fragment) =>
+                fragment.endsHere &&
+                fragment.container.style.padding.bottom +
+                        fragment.container.style.borders.bottom.width >
+                    0,
+          ) ||
+          current.containers.any(
+            (fragment) =>
+                fragment.startsHere &&
+                fragment.container.style.padding.top +
+                        fragment.container.style.borders.top.width >
+                    0,
+          );
       if (previous.spaceAfter == 0 || containerBoundary) {
         result.add(current);
         continue;
@@ -457,7 +474,10 @@ class MulticolGeometry {
   double leftOf(int index) => index * (columnWidth + gap);
 
   /// 按样式解算；未形成多列（列数 < 2 或宽度非正）时返回 null。
-  static MulticolGeometry? fromStyle(ComputedStyle style, double availableWidth) {
+  static MulticolGeometry? fromStyle(
+    ComputedStyle style,
+    double availableWidth,
+  ) {
     final declaredCount = style.columnCount ?? 0;
     final widthSpec = style.columnWidth;
     final specWidth = widthSpec?.resolve(availableWidth);
@@ -469,8 +489,9 @@ class MulticolGeometry {
     final gap = gapRaw == null || gapRaw <= 0 ? style.fontSize : gapRaw;
     var count = declaredCount;
     if (specWidth != null && specWidth > 0) {
-      final byWidth =
-          ((availableWidth + gap) / (specWidth + gap)).floor().clamp(1, 8);
+      final byWidth = ((availableWidth + gap) / (specWidth + gap))
+          .floor()
+          .clamp(1, 8);
       count = declaredCount >= 2
           ? math.min(declaredCount, math.max(1, byWidth))
           : math.max(1, byWidth);
@@ -797,7 +818,11 @@ class Paginator {
   static double _groupExtent(List<PageBlock> blocks, int index, int groupId) {
     var extent = 0.0;
     var last = blocks[index];
-    for (var i = index; i < blocks.length && blocks[i].groupId == groupId; i++) {
+    for (
+      var i = index;
+      i < blocks.length && blocks[i].groupId == groupId;
+      i++
+    ) {
       last = blocks[i];
       extent +=
           blocks[i].leadingExtent + blocks[i].height + blocks[i].trailingExtent;
@@ -1069,24 +1094,13 @@ class Paginator {
     if ((target - block.layout.maxWidth).abs() < 0.5) {
       return block;
     }
-    return PageBlock(
+    return _withLayout(
+      block,
       layout: TextLayoutEngine.layout(
         text: block.layout.text,
         style: style,
         maxWidth: target,
       ),
-      startCfi: block.startCfi,
-      endCfi: block.endCfi,
-      style: block.style,
-      absolute: true,
-      absoluteTop: block.absoluteTop,
-      absoluteLeft: block.absoluteLeft,
-      topInset: block.topInset,
-      bottomInset: block.bottomInset,
-      leftInset: block.leftInset,
-      effectiveOpacity: block.effectiveOpacity,
-      containers: block.containers,
-      multicol: block.multicol,
     );
   }
 
@@ -1095,24 +1109,51 @@ class Paginator {
     PageBlock block,
     ComputedStyle style,
     double width,
-  ) => PageBlock(
+  ) => _withLayout(
+    block,
     layout: TextLayoutEngine.layout(
       text: block.layout.text,
       style: style,
       maxWidth: width,
     ),
-    startCfi: block.startCfi,
-    endCfi: block.endCfi,
-    style: block.style,
-    absolute: true,
-    absoluteTop: block.absoluteTop,
-    absoluteLeft: block.absoluteLeft,
-    topInset: block.topInset,
-    bottomInset: block.bottomInset,
-    leftInset: block.leftInset,
-    effectiveOpacity: block.effectiveOpacity,
-    containers: block.containers,
-    multicol: block.multicol,
+  );
+
+  /// 替换行布局并完整保留块的盒、覆盖层与装饰字段。
+  static PageBlock _withLayout(
+    PageBlock source, {
+    required TextLayoutResult layout,
+  }) => PageBlock(
+    layout: layout,
+    pageBreakBefore: source.pageBreakBefore,
+    pageBreakAfter: source.pageBreakAfter,
+    startCfi: source.startCfi,
+    endCfi: source.endCfi,
+    style: source.style,
+    spaceBefore: source.spaceBefore,
+    spaceAfter: source.spaceAfter,
+    topInset: source.topInset,
+    bottomInset: source.bottomInset,
+    leftInset: source.leftInset,
+    breakInsideAvoid: source.breakInsideAvoid,
+    breakAfterAvoid: source.breakAfterAvoid,
+    listMarker: source.listMarker,
+    groupId: source.groupId,
+    table: source.table,
+    floatSide: source.floatSide,
+    rubies: source.rubies,
+    inlineImages: source.inlineImages,
+    absolute: source.absolute,
+    absoluteTop: source.absoluteTop,
+    absoluteLeft: source.absoluteLeft,
+    bleedLeft: source.bleedLeft,
+    bleedRight: source.bleedRight,
+    bleedTop: source.bleedTop,
+    bleedBottom: source.bleedBottom,
+    containerSides: source.containerSides,
+    containers: source.containers,
+    declaredContentHeight: source.declaredContentHeight,
+    effectiveOpacity: source.effectiveOpacity,
+    multicol: source.multicol,
   );
 
   /// min-content 宽近似：最长不可断片段宽。
@@ -1145,6 +1186,7 @@ class Paginator {
     flush();
     return widest;
   }
+
   /// 竖排块按页分栏：列长 = 本页可用高重新分列 → 每页容纳
   /// `floor(页宽 / 列宽)` 列，剩余列顺延下一页。返回每页的列块与每页占高；
   /// 列长与页高一致时返回 null（调用方走整块单页路径，保持原语义）。
@@ -1272,9 +1314,14 @@ class Paginator {
     // 相邻块上下边距折叠（CSS 2.1 §8.3.1）：段距不再按两段 margin 相加。
     final flow = PageBlock.collapseAdjacentMargins(blocks);
     // 续框必须完整留在页面内，不能让文字容差吃掉边框和内边距。
-    final fitTolerance = flow.any((block) => block.containers.any(
-      (fragment) => fragment.container.cloneDecoration,
-    )) ? 0.0 : tolerance;
+    final fitTolerance =
+        flow.any(
+          (block) => block.containers.any(
+            (fragment) => fragment.container.cloneDecoration,
+          ),
+        )
+        ? 0.0
+        : tolerance;
 
     double leadingOf(PageBlock block, int startLine) =>
         (startLine == 0 ? block.leadingExtent : 0) +
@@ -1438,7 +1485,8 @@ class Paginator {
               relaid,
               ranges.first,
               multicol.columnWidth,
-              boxWidth: multicol.columnWidth * multicol.count +
+              boxWidth:
+                  multicol.columnWidth * multicol.count +
                   multicol.gap * (multicol.count - 1),
             );
             slices.add(
@@ -1610,8 +1658,7 @@ class Paginator {
         // floor(页宽 / 列宽) 列，剩余列顺延下一页（页序即阅读序）。
         final needsColumnSplit =
             contentHeight > available + tolerance ||
-            (pageWidth > 0 &&
-                block.layout.width > pageWidth + tolerance);
+            (pageWidth > 0 && block.layout.width > pageWidth + tolerance);
         if (needsColumnSplit && pageWidth > 0 && block.style != null) {
           final split = _verticalColumnChunks(block, available);
           if (split != null) {
@@ -1634,7 +1681,8 @@ class Paginator {
             continue;
           }
         }
-        final extent = block.leadingExtent + contentHeight + block.trailingExtent;
+        final extent =
+            block.leadingExtent + contentHeight + block.trailingExtent;
         if (extent > available + tolerance && slices.isNotEmpty) {
           record();
         }
@@ -1660,8 +1708,10 @@ class Paginator {
           slices.isNotEmpty &&
           blockExtent + block.containerBottomInset(lines.length) >
               available + fitTolerance &&
-          blockExtent + block.containerTopInset(0) +
-              block.containerBottomInset(lines.length) <= pageHeight + fitTolerance) {
+          blockExtent +
+                  block.containerTopInset(0) +
+                  block.containerBottomInset(lines.length) <=
+              pageHeight + fitTolerance) {
         record();
       }
 
@@ -1675,16 +1725,17 @@ class Paginator {
           blockExtent <= available + fitTolerance &&
           blockExtent <= pageHeight + fitTolerance) {
         final next = flow[blockIndex + 1];
-        final nextNeed = next.leadingExtent +
-            (next.layout.lines.isEmpty
-                ? 0.0
-                : next.layout.lines.first.height) +
+        final nextNeed =
+            next.leadingExtent +
+            (next.layout.lines.isEmpty ? 0.0 : next.layout.lines.first.height) +
             (next.layout.lineCount <= 1 ? next.trailingExtent : 0) +
             next.containerBottomInset(1);
         // 强制断页优先；整组在新页也放不下时不反复推页。
         final pairExtent = blockExtent + nextNeed;
-        if (!next.pageBreakBefore && !block.pageBreakAfter &&
-            pairExtent + block.containerTopInset(0) <= pageHeight + fitTolerance &&
+        if (!next.pageBreakBefore &&
+            !block.pageBreakAfter &&
+            pairExtent + block.containerTopInset(0) <=
+                pageHeight + fitTolerance &&
             available < pairExtent - fitTolerance) {
           record();
         }
@@ -1694,7 +1745,7 @@ class Paginator {
       // 行高之和（盒内留白）或低于（内容溢出盒高，按盒高裁剪）。
       final boxHeight = block.height;
       final lineTotal = _lineExtent(lines);
-      final clipped = lineTotal > boxHeight + tolerance;
+      final clipped = block.clipsContent && lineTotal > boxHeight + tolerance;
       final lineLimit = clipped
           ? _visibleLineCount(lines, boxHeight)
           : lines.length;
@@ -1733,9 +1784,11 @@ class Paginator {
         while (fitEnd < lineLimit) {
           final lineHeight = lines[fitEnd].height;
           final candidateEnd = fitEnd + 1;
-          final bottom = block.containerBottomInset(candidateEnd) +
+          final bottom =
+              block.containerBottomInset(candidateEnd) +
               (candidateEnd == lineLimit ? block.trailingExtent : 0);
-          if (leading + linesHeight + lineHeight + bottom <= available + fitTolerance) {
+          if (leading + linesHeight + lineHeight + bottom <=
+              available + fitTolerance) {
             linesHeight += lineHeight;
             fitEnd += 1;
           } else {
@@ -1764,7 +1817,8 @@ class Paginator {
         final sliceHeight = leading + linesHeight + trailing + boxTail;
         // 盒内留白也占页高：当前页放不下整盒时先把本块移到新页（页已非空）。
         if (sliceHeight + block.containerBottomInset(fitEnd) >
-                available + fitTolerance && slices.isNotEmpty) {
+                available + fitTolerance &&
+            slices.isNotEmpty) {
           record();
           continue;
         }

@@ -13,13 +13,7 @@ enum CssTextAlign { start, end, left, right, center, justify }
 /// `auto`：现状行为——含 CJK 的行全 gap 分配、西文行只拉伸词间空格；
 /// `interWord`：只拉伸词间空格；`interCharacter`/`distribute`：全 gap
 /// 分配（不豁免拉丁词内）；`justifyAll`：gap 同 auto，末行也拉伸。
-enum CssTextJustify {
-  auto,
-  interWord,
-  interCharacter,
-  distribute,
-  justifyAll,
-}
+enum CssTextJustify { auto, interWord, interCharacter, distribute, justifyAll }
 
 /// 定位方式（§60.2 第 1 条：absolute/fixed 先摘出流）。
 enum CssPosition { static, relative, absolute, fixed, sticky }
@@ -208,6 +202,44 @@ enum CssBackgroundOrigin { borderBox, paddingBox, contentBox }
 /// 背景裁剪区域（CSS background-clip）。
 enum CssBackgroundClip { borderBox, paddingBox, contentBox, text }
 
+/// 一个背景层（CSS 多背景按声明顺序从前到后排列）。
+class CssBackgroundLayer {
+  /// 创建背景层。
+  const CssBackgroundLayer({
+    this.image,
+    this.gradient,
+    this.repeat = CssBackgroundRepeat.repeat,
+    this.size = const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto),
+    this.position = const CssBackgroundPosition(
+      x: CssLength(0, isPercent: true),
+      y: CssLength(0, isPercent: true),
+    ),
+    this.origin = CssBackgroundOrigin.paddingBox,
+    this.clip = CssBackgroundClip.borderBox,
+  });
+
+  /// 背景图 URL；与 [gradient] 互斥。
+  final String? image;
+
+  /// 背景渐变；与 [image] 互斥。
+  final CssGradient? gradient;
+
+  /// 平铺方式。
+  final CssBackgroundRepeat repeat;
+
+  /// 背景尺寸。
+  final CssBackgroundSize size;
+
+  /// 背景位置。
+  final CssBackgroundPosition position;
+
+  /// 定位区域。
+  final CssBackgroundOrigin origin;
+
+  /// 裁剪区域。
+  final CssBackgroundClip clip;
+}
+
 /// 渐变色标（CSS `<color-stop>`）。
 ///
 /// 位置三者择一：[position]（百分比换算的比例，普通渐变 0–1，repeating 渐变
@@ -301,13 +333,10 @@ final class CssLinearGradient extends CssGradient {
 
   @override
   bool operator ==(Object other) =>
-      other is CssLinearGradient &&
-      super == other &&
-      other.angle == angle;
+      other is CssLinearGradient && super == other && other.angle == angle;
 
   @override
-  int get hashCode =>
-      Object.hash(angle, repeating, Object.hashAll(stops));
+  int get hashCode => Object.hash(angle, repeating, Object.hashAll(stops));
 
   @override
   String toString() =>
@@ -349,13 +378,8 @@ final class CssRadialGradient extends CssGradient {
       other.centerY == centerY;
 
   @override
-  int get hashCode => Object.hash(
-    shape,
-    centerX,
-    centerY,
-    repeating,
-    Object.hashAll(stops),
-  );
+  int get hashCode =>
+      Object.hash(shape, centerX, centerY, repeating, Object.hashAll(stops));
 
   @override
   String toString() =>
@@ -435,8 +459,7 @@ class CssDropShadow {
   int get hashCode => Object.hash(offsetX, offsetY, blur, color);
 
   @override
-  String toString() =>
-      'CssDropShadow($offsetX,$offsetY,blur=$blur,$color)';
+  String toString() => 'CssDropShadow($offsetX,$offsetY,blur=$blur,$color)';
 }
 
 /// CSS `filter` 里的单个滤镜（有序列表的一项，按声明顺序合成）。
@@ -553,8 +576,7 @@ class CssTransform {
       other.angleDeg == angleDeg &&
       other.axDeg == axDeg &&
       other.ayDeg == ayDeg &&
-      _listEquals(other.values ?? const <double>[],
-          values ?? const <double>[]);
+      _listEquals(other.values ?? const <double>[], values ?? const <double>[]);
 
   @override
   int get hashCode => Object.hash(
@@ -894,7 +916,17 @@ class CssLength {
 enum CssBoxSizing { contentBox, borderBox }
 
 /// 边框线型（CSS `border-style<border-style>`）。
-enum CssBorderStyle { none, solid, dashed, dotted, double, groove, ridge, inset, outset }
+enum CssBorderStyle {
+  none,
+  solid,
+  dashed,
+  dotted,
+  double,
+  groove,
+  ridge,
+  inset,
+  outset,
+}
 
 /// 文本溢出（CSS `text-overflow`；P2-37 抽样：clip/ellipsis 两值，
 /// 其余取值按 clip）。
@@ -944,14 +976,7 @@ class CssBoxShadow {
       other.inset == inset;
 
   @override
-  int get hashCode => Object.hash(
-    offsetX,
-    offsetY,
-    color,
-    blur,
-    spread,
-    inset,
-  );
+  int get hashCode => Object.hash(offsetX, offsetY, color, blur, spread, inset);
 
   @override
   String toString() =>
@@ -1188,9 +1213,14 @@ class ComputedStyle {
       'font-size' => '${rootFontSize}px',
       'color' => '#000000',
       'font-family' => 'serif',
-      'font-size-adjust' || 'text-shadow' || 'list-style-image' ||
-      'text-emphasis-style' || 'hanging-punctuation' || 'text-autospace' ||
-      'text-transform' || 'text-combine-upright' => 'none',
+      'font-size-adjust' ||
+      'text-shadow' ||
+      'list-style-image' ||
+      'text-emphasis-style' ||
+      'hanging-punctuation' ||
+      'text-autospace' ||
+      'text-transform' ||
+      'text-combine-upright' => 'none',
       'text-indent' || 'word-spacing' => '0px',
       'text-align' => 'start',
       'text-align-last' || 'text-justify' || 'quotes' || 'line-break' => 'auto',
@@ -1226,8 +1256,9 @@ class ComputedStyle {
       };
       return '${value}px';
     }
-    final border = RegExp(r'^border-(top|right|bottom|left)-(width|style|color)$')
-        .firstMatch(property);
+    final border = RegExp(
+      r'^border-(top|right|bottom|left)-(width|style|color)$',
+    ).firstMatch(property);
     if (border != null) {
       final side = switch (border[1]) {
         'top' => borders.top,
@@ -1238,9 +1269,10 @@ class ComputedStyle {
       return switch (border[2]) {
         'width' => '${side.width}px',
         'style' => side.style.name,
-        _ => 'rgba(${(side.color.r * 255).round()}, '
-            '${(side.color.g * 255).round()}, ${(side.color.b * 255).round()}, '
-            '${side.color.a})',
+        _ =>
+          'rgba(${(side.color.r * 255).round()}, '
+              '${(side.color.g * 255).round()}, ${(side.color.b * 255).round()}, '
+              '${side.color.a})',
       };
     }
     return values[property];
@@ -1249,21 +1281,33 @@ class ComputedStyle {
   /// 复用类型解析器过滤已支持属性的无效值，保留较早的有效声明。
   static bool isValidDeclaration(String property, String raw) {
     final value = raw.trim().toLowerCase();
-    if (property.startsWith('--') || raw.contains('var(') ||
+    if (property.startsWith('--') ||
+        raw.contains('var(') ||
         const {'inherit', 'initial', 'unset'}.contains(value)) {
       return true;
     }
     if (property == 'border' ||
-        const {'border-top', 'border-right', 'border-bottom', 'border-left'}
-            .contains(property)) {
+        const {
+          'border-top',
+          'border-right',
+          'border-bottom',
+          'border-left',
+        }.contains(property)) {
       return parseBorderShorthand(raw) != null;
     }
-    if (property == 'margin' || property == 'padding' ||
-        const {'border-width', 'border-style', 'border-color'}.contains(property)) {
+    if (property == 'margin' ||
+        property == 'padding' ||
+        const {
+          'border-width',
+          'border-style',
+          'border-color',
+        }.contains(property)) {
       final tokens = _cssTokens(raw);
       final longhand = property.startsWith('border-')
-          ? 'border-top-${property.substring(7)}' : '$property-top';
-      return tokens.isNotEmpty && tokens.length <= 4 &&
+          ? 'border-top-${property.substring(7)}'
+          : '$property-top';
+      return tokens.isNotEmpty &&
+          tokens.length <= 4 &&
           tokens.every((token) => isValidDeclaration(longhand, token));
     }
     if (property.startsWith('border-') && property.endsWith('-style')) {
@@ -1296,38 +1340,91 @@ class ComputedStyle {
   }
 
   static bool? _validLengthDeclaration(String property, String value) {
-    final borderWidth = property.startsWith('border-') &&
-        property.endsWith('-width');
+    final borderWidth =
+        property.startsWith('border-') && property.endsWith('-width');
     final margin = property.startsWith('margin-');
     final padding = property.startsWith('padding-');
-    const lengths = {'font-size', 'line-height', 'letter-spacing',
-      'word-spacing', 'text-indent', 'width', 'height', 'min-width',
-      'min-height', 'max-width', 'max-height', 'top', 'right', 'bottom', 'left'};
+    const lengths = {
+      'font-size',
+      'line-height',
+      'letter-spacing',
+      'word-spacing',
+      'text-indent',
+      'width',
+      'height',
+      'min-width',
+      'min-height',
+      'max-width',
+      'max-height',
+      'top',
+      'right',
+      'bottom',
+      'left',
+    };
     if (!borderWidth && !margin && !padding && !lengths.contains(property)) {
       return null;
     }
     if (borderWidth && const {'thin', 'medium', 'thick'}.contains(value)) {
       return true;
     }
-    if ((margin || const {'width', 'height', 'min-width', 'min-height',
-      'top', 'right', 'bottom', 'left'}.contains(property)) && value == 'auto') {
+    if ((margin ||
+            const {
+              'width',
+              'height',
+              'min-width',
+              'min-height',
+              'top',
+              'right',
+              'bottom',
+              'left',
+            }.contains(property)) &&
+        value == 'auto') {
       return true;
     }
     if (property.startsWith('max-') && value == 'none') return true;
-    if (const {'line-height', 'letter-spacing', 'word-spacing'}.contains(property)
-        && value == 'normal') {
+    if (const {
+          'line-height',
+          'letter-spacing',
+          'word-spacing',
+        }.contains(property) &&
+        value == 'normal') {
       return true;
     }
-    if (property == 'font-size' && const {'xx-small', 'x-small', 'small',
-      'medium', 'large', 'x-large', 'xx-large', 'smaller', 'larger'}.contains(value)) {
+    if (property == 'font-size' &&
+        const {
+          'xx-small',
+          'x-small',
+          'small',
+          'medium',
+          'large',
+          'x-large',
+          'xx-large',
+          'smaller',
+          'larger',
+        }.contains(value)) {
       return true;
     }
-    final length = _resolveLength(value, fontSize: 16, parentFontSize: 16,
-        rootFontSize: 16, percentBase: 100);
+    final length = _resolveLength(
+      value,
+      fontSize: 16,
+      parentFontSize: 16,
+      rootFontSize: 16,
+      percentBase: 100,
+    );
     if (length == null || !length.isFinite) return false;
-    final nonnegative = padding || borderWidth || const {'font-size',
-      'line-height', 'width', 'height', 'min-width', 'min-height', 'max-width',
-      'max-height'}.contains(property);
+    final nonnegative =
+        padding ||
+        borderWidth ||
+        const {
+          'font-size',
+          'line-height',
+          'width',
+          'height',
+          'min-width',
+          'min-height',
+          'max-width',
+          'max-height',
+        }.contains(property);
     // calc() 的百分比基准直到布局时才确定，此处不能用探测宽度判负值。
     return !nonnegative || value.startsWith('calc(') || length >= 0;
   }
@@ -1392,8 +1489,7 @@ class ComputedStyle {
     final shorthandFont = explicit.contains('font')
         ? parseFontShorthand(values['font'])
         : null;
-    String? fontValue(String property) =>
-        explicit.contains(property)
+    String? fontValue(String property) => explicit.contains(property)
         ? values[property]
         : shorthandFont?[property];
 
@@ -1528,8 +1624,7 @@ class ComputedStyle {
     final rawInitialLetter = explicitValue('initial-letter');
     final initialLetterLines = rawInitialLetter == null
         ? parent?.initialLetterLines
-        : _parseInitialLetter(rawInitialLetter) ??
-              parent?.initialLetterLines;
+        : _parseInitialLetter(rawInitialLetter) ?? parent?.initialLetterLines;
     // P2-37 抽样属性（均不继承）：opacity 初始 1；text-overflow 初始
     // clip；box-shadow 初始无。
     final rawOpacity = explicitValue('opacity');
@@ -1588,7 +1683,9 @@ class ComputedStyle {
     final rawDirection = explicitValue('direction');
     final direction = rawDirection == null
         ? (parent?.direction ?? CssDirection.ltr)
-        : _parseDirection(rawDirection) ?? parent?.direction ?? CssDirection.ltr;
+        : _parseDirection(rawDirection) ??
+              parent?.direction ??
+              CssDirection.ltr;
 
     // 断行族（W11，都继承）：hyphens / word-break / overflow-wrap。
     final rawHyphens = explicitValue('hyphens');
@@ -1634,9 +1731,7 @@ class ComputedStyle {
     final rawFontStretch = explicitValue('font-stretch');
     final fontStretch = rawFontStretch == null
         ? (parent?.fontStretch ?? 100.0)
-        : _parseFontStretch(rawFontStretch) ??
-              parent?.fontStretch ??
-              100.0;
+        : _parseFontStretch(rawFontStretch) ?? parent?.fontStretch ?? 100.0;
     // font-size-adjust（继承，初始 none）：none 必须显式重置为 null。
     var fontSizeAdjust = parent?.fontSizeAdjust;
     final rawSizeAdjust = explicitValue('font-size-adjust');
@@ -1664,8 +1759,7 @@ class ComputedStyle {
     final edgeValues = <String, String>{...values};
     final edgeExplicit = <String>{...explicit};
     logicalPhysical.forEach((logical, physical) {
-      if (edgeExplicit.contains(logical) &&
-          !edgeExplicit.contains(physical)) {
+      if (edgeExplicit.contains(logical) && !edgeExplicit.contains(physical)) {
         edgeValues[physical] = edgeValues[logical]!;
         edgeExplicit.add(physical);
       }
@@ -1783,7 +1877,8 @@ class ComputedStyle {
         ? null
         : CssPropertyAliases.normalizeValue(rawVerticalAlign);
     final verticalAlign =
-        _parseVerticalAlign(normalizedVerticalAlign) ?? CssVerticalAlign.baseline;
+        _parseVerticalAlign(normalizedVerticalAlign) ??
+        CssVerticalAlign.baseline;
     // `vertical-align: <length> | <percentage>`（W2）：关键字取值时为 null；
     // 百分比按**本元素行高**解算（Chrome 实测 17px/1.6 → 行高 27.2，10% = 2.72px）。
     // 字段保留 CSS 符号（正=向上），`verticalAlignShift` 再翻成「正值向下」。
@@ -1858,8 +1953,7 @@ class ComputedStyle {
     // avoid 档位（P3-22，Reeden 510 §3.3：avoid before（标题不落页底））。
     final breakAfterAvoidRaw =
         explicitValue('break-after') ?? explicitValue('page-break-after');
-    final breakAfterAvoid =
-        breakAfterAvoidRaw?.trim().toLowerCase() == 'avoid';
+    final breakAfterAvoid = breakAfterAvoidRaw?.trim().toLowerCase() == 'avoid';
 
     // P0 收口补全（P2-18）：text-shadow、背景子属性、定位偏移、clear、表格边框。
     final rawShadow = explicitValue('text-shadow');
@@ -1926,14 +2020,11 @@ class ComputedStyle {
     // list-style-position 继承，初始 outside；`list-style` 简写里的
     // inside/outside 由层叠层展开成长属性（与 list-style-type 同一条路径）。
     final listStylePosition =
-        _parseListStylePosition(
-          explicitValue('list-style-position'),
-        ) ??
+        _parseListStylePosition(explicitValue('list-style-position')) ??
         parent?.listStylePosition ??
         CssListStylePosition.outside;
     final tableLayout =
-        _parseTableLayout(explicitValue('table-layout')) ??
-        CssTableLayout.auto;
+        _parseTableLayout(explicitValue('table-layout')) ?? CssTableLayout.auto;
     final rawSpacing = explicitValue('border-spacing');
     final borderSpacing = rawSpacing == null
         ? (parent?.borderSpacing ?? CssEdges.zero)
@@ -2903,6 +2994,99 @@ class ComputedStyle {
   /// 可读 `backgroundGradient!.stops.first.color`。
   final CssGradient? backgroundGradient;
 
+  /// 按声明顺序排列的背景层（首个在最上层）。
+  ///
+  /// 多背景长属性在层叠后仍以逗号列表保存在 [values]；这里按 CSS 的
+  /// 列表循环规则补齐 repeat/size/position/origin/clip，再逐层解析图像。
+  /// 绘制时逆序执行，让第一层最后落在画布上。
+  List<CssBackgroundLayer> get backgroundLayers {
+    final rawImages = values['background-image'];
+    if (rawImages == null) {
+      if (backgroundGradient == null && backgroundImage == null) {
+        return const <CssBackgroundLayer>[];
+      }
+      return <CssBackgroundLayer>[
+        CssBackgroundLayer(
+          image: backgroundImage,
+          gradient: backgroundGradient,
+          repeat: backgroundRepeat,
+          size: backgroundSize,
+          position: backgroundPosition,
+          origin: backgroundOrigin,
+          clip: backgroundClip,
+        ),
+      ];
+    }
+    final images = _splitTopLevel(rawImages, ',');
+    if (images.length <= 1) {
+      if (backgroundGradient == null && backgroundImage == null) {
+        return const <CssBackgroundLayer>[];
+      }
+      return <CssBackgroundLayer>[
+        CssBackgroundLayer(
+          image: backgroundImage,
+          gradient: backgroundGradient,
+          repeat: backgroundRepeat,
+          size: backgroundSize,
+          position: backgroundPosition,
+          origin: backgroundOrigin,
+          clip: backgroundClip,
+        ),
+      ];
+    }
+
+    List<String> listValue(String property) {
+      final raw = values[property];
+      return raw == null ? const <String>[] : _splitTopLevel(raw, ',');
+    }
+
+    String at(List<String> items, int index) {
+      if (items.isEmpty) {
+        return '';
+      }
+      return items[index % items.length];
+    }
+
+    final repeats = listValue('background-repeat');
+    final sizes = listValue('background-size');
+    final positions = listValue('background-position');
+    final origins = listValue('background-origin');
+    final clips = listValue('background-clip');
+    return <CssBackgroundLayer>[
+      for (var index = 0; index < images.length; index++)
+        CssBackgroundLayer(
+          image: _parseUrl(images[index]),
+          gradient: _parseGradient(images[index], fontSize: fontSize),
+          repeat:
+              _parseBackgroundRepeat(at(repeats, index)) ??
+              CssBackgroundRepeat.repeat,
+          size:
+              _parseBackgroundSize(
+                at(sizes, index),
+                fontSize: fontSize,
+                rootFontSize: fontSize,
+              ) ??
+              const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto),
+          position:
+              _parseBackgroundPosition(
+                at(positions, index),
+                fontSize: fontSize,
+                rootFontSize: fontSize,
+              ) ??
+              const CssBackgroundPosition(
+                x: CssLength(0, isPercent: true),
+                y: CssLength(0, isPercent: true),
+              ),
+          origin:
+              _parseBackgroundOrigin(at(origins, index)) ??
+              CssBackgroundOrigin.paddingBox,
+          clip:
+              _parseBackgroundClip(at(clips, index)) ??
+              CssBackgroundClip.borderBox,
+        ),
+    ];
+  }
+
   /// 四边边框与四角圆角。
   final CssBorders borders;
 
@@ -2957,10 +3141,7 @@ class ComputedStyle {
   /// 一致（两者应保持同步，后续可让 BoxModel 委托到这里）。
   double contentBoxWidth(double availableWidth) {
     final inset = padding.horizontal + borders.left.width + borders.right.width;
-    final autoWidth = math.max(
-      0.0,
-      availableWidth - inset - margin.horizontal,
-    );
+    final autoWidth = math.max(0.0, availableWidth - inset - margin.horizontal);
     final max = _contentBoxLength(maxWidth, availableWidth, inset);
     final min = _contentBoxLength(minWidth, availableWidth, inset);
     var result = _contentBoxLength(width, availableWidth, inset) ?? autoWidth;
@@ -3263,7 +3444,8 @@ class ComputedStyle {
       final rawColor = value('border-$name-color');
       if (rawColor != null) {
         final parsed = rawColor.trim().toLowerCase() == 'currentcolor'
-            ? color : _parseColor(rawColor);
+            ? color
+            : _parseColor(rawColor);
         if (parsed != null) {
           sides[index] = CssBorderSide(
             width: sides[index].width,
@@ -3352,7 +3534,8 @@ class ComputedStyle {
     if (value.isEmpty || value == 'none') {
       return null;
     }
-    final urlMatch = RegExp(r'url\(\s*["\x27]?([^"\x27)]+)["\x27]?\s*\)').firstMatch(value);
+    final urlMatch = RegExp(r'url\(\s*["\x27]?([^"\x27)]+)["\x27]?\s*\)')
+        .firstMatch(value);
     if (urlMatch == null) {
       return null;
     }
@@ -3408,9 +3591,7 @@ class ComputedStyle {
     }
 
     final expanded = _expandFour(sliceTokens);
-    final parsed = <double>[
-      for (var i = 0; i < 4; i++) parse(expanded[i]),
-    ];
+    final parsed = <double>[for (var i = 0; i < 4; i++) parse(expanded[i])];
     return CssBorderImage(
       url: url,
       sliceTop: parsed[0],
@@ -3577,7 +3758,9 @@ class ComputedStyle {
           token == 'unicase' ||
           token == 'titling-caps') {
         result['font-variant-caps'] = token;
-      } else if (token == 'bold' || token == 'bolder' || token == 'lighter' ||
+      } else if (token == 'bold' ||
+          token == 'bolder' ||
+          token == 'lighter' ||
           RegExp(r'^[1-9]00$').hasMatch(token)) {
         result['font-weight'] = token;
       } else if (_fontStretchKeywords.containsKey(token)) {
@@ -3587,8 +3770,15 @@ class ComputedStyle {
       } else {
         final match = _fontSizePattern.firstMatch(tokens[index]);
         final keyword = const <String>{
-          'xx-small', 'x-small', 'small', 'medium', 'large',
-          'x-large', 'xx-large', 'smaller', 'larger',
+          'xx-small',
+          'x-small',
+          'small',
+          'medium',
+          'large',
+          'x-large',
+          'xx-large',
+          'smaller',
+          'larger',
         }.contains(token);
         if (match != null || keyword) {
           size = tokens[index];
@@ -3821,9 +4011,8 @@ class ComputedStyle {
     if (text.isEmpty) {
       return 180;
     }
-    final angle = RegExp(
-      r'^([-+]?\d*\.?\d+)(deg|grad|rad|turn)$',
-    ).firstMatch(text);
+    final angle = RegExp(r'^([-+]?\d*\.?\d+)(deg|grad|rad|turn)$')
+        .firstMatch(text);
     if (angle != null) {
       final value = double.parse(angle.group(1)!);
       return switch (angle.group(2)) {
@@ -4072,9 +4261,7 @@ class ComputedStyle {
         fontSize: fontSize,
         rootFontSize: rootFontSize,
       );
-      return shadow == null
-          ? null
-          : CssFilter(kind: kind, shadow: shadow);
+      return shadow == null ? null : CssFilter(kind: kind, shadow: shadow);
     }
     if (kind == CssFilterKind.blur) {
       final radius = args.isEmpty
@@ -4115,9 +4302,8 @@ class ComputedStyle {
 
   /// 角度参数 → 度（deg/grad/rad/turn）。
   static double? _parseAngleDegrees(String raw) {
-    final match = RegExp(
-      r'^([-+]?\d*\.?\d+)(deg|grad|rad|turn)?$',
-    ).firstMatch(raw.trim());
+    final match = RegExp(r'^([-+]?\d*\.?\d+)(deg|grad|rad|turn)?$')
+        .firstMatch(raw.trim());
     if (match == null) {
       return null;
     }
@@ -4366,17 +4552,15 @@ class ComputedStyle {
       final verticalOnly = token == 'top' || token == 'bottom';
       return verticalOnly ? (x: center, y: length) : (x: length, y: center);
     }
-    return (
-      x: lengthOf(tokens[0]) ?? center,
-      y: lengthOf(tokens[1]) ?? center,
-    );
+    return (x: lengthOf(tokens[0]) ?? center, y: lengthOf(tokens[1]) ?? center);
   }
 
   /// transform 参数：优先按逗号切分，单参数形式再按空白切（`translate(10px 20px)`）。
   static List<String> _transformArgs(String raw) {
-    final byComma = _splitTopLevel(raw, ',')
-        .where((part) => part.isNotEmpty)
-        .toList();
+    final byComma = _splitTopLevel(
+      raw,
+      ',',
+    ).where((part) => part.isNotEmpty).toList();
     if (byComma.length > 1) {
       return byComma;
     }
@@ -4439,8 +4623,9 @@ class ComputedStyle {
     return switch (raw.trim().toLowerCase()) {
       'mixed' => CssTextOrientation.mixed,
       'upright' => CssTextOrientation.upright,
-      'sideways' || 'sideways-right' || 'sideways-left' =>
-        CssTextOrientation.sideways,
+      'sideways' ||
+      'sideways-right' ||
+      'sideways-left' => CssTextOrientation.sideways,
       _ => null,
     };
   }
@@ -4627,12 +4812,8 @@ class ComputedStyle {
   ///
   /// `columns` 简写在本层展开（`columns: 3 60px`），整数值归 count、
   /// 长度值归 width，与级联层无关（直接构造 ComputedStyle 也能吃到）。
-  static ({
-    int? count,
-    CssLength? width,
-    double? gap,
-    CssBorderSide? rule,
-  }) _resolveColumns(
+  static ({int? count, CssLength? width, double? gap, CssBorderSide? rule})
+  _resolveColumns(
     Map<String, String> values,
     Set<String> explicit, {
     required double fontSize,
@@ -4875,11 +5056,20 @@ class ComputedStyle {
   );
 
   static const _backgroundRepeatKeywords = <String>{
-    'repeat', 'repeat-x', 'repeat-y', 'no-repeat', 'space', 'round',
+    'repeat',
+    'repeat-x',
+    'repeat-y',
+    'no-repeat',
+    'space',
+    'round',
   };
 
   static const _backgroundPositionKeywords = <String>{
-    'left', 'right', 'center', 'top', 'bottom',
+    'left',
+    'right',
+    'center',
+    'top',
+    'bottom',
   };
 
   /// 解析 `background` 简写（P9-11）：拆分出 image/color/repeat/
@@ -4912,8 +5102,10 @@ class ComputedStyle {
     }
     // 其余层/重复前缀残留的渐变片段统一清掉，避免污染 position/size 分词。
     rest = rest.replaceAll(
-      RegExp(r'(?:repeating-)?(?:-[a-z]+-)?(?:linear|radial)-gradient\(',
-          caseSensitive: false),
+      RegExp(
+        r'(?:repeating-)?(?:-[a-z]+-)?(?:linear|radial)-gradient\(',
+        caseSensitive: false,
+      ),
       ' ',
     );
     final tokens = rest
@@ -5112,14 +5304,10 @@ class ComputedStyle {
       return 700;
     }
     if (value == 'bolder') {
-      return parentWeight < 350
-          ? 400
-          : (parentWeight < 550 ? 700 : 900);
+      return parentWeight < 350 ? 400 : (parentWeight < 550 ? 700 : 900);
     }
     if (value == 'lighter') {
-      return parentWeight < 550
-          ? 100
-          : (parentWeight < 750 ? 400 : 700);
+      return parentWeight < 550 ? 100 : (parentWeight < 750 ? 400 : 700);
     }
     final parsed = int.tryParse(value);
     if (parsed == null) {
@@ -5243,18 +5431,20 @@ class ComputedStyle {
   }
 
   /// `text-overflow` 解析（P2-37）：ellipsis / clip，其余取值按 clip。
-  static CssTextOverflow _parseTextOverflow(String raw) => switch (
-    raw.trim().toLowerCase()
-  ) {
-    'ellipsis' => CssTextOverflow.ellipsis,
-    _ => CssTextOverflow.clip,
-  };
+  static CssTextOverflow _parseTextOverflow(String raw) =>
+      switch (raw.trim().toLowerCase()) {
+        'ellipsis' => CssTextOverflow.ellipsis,
+        _ => CssTextOverflow.clip,
+      };
 
   /// `box-shadow` 解析：`none` 或空 → null；否则解析「颜色 + 1~4 个长度」。
   ///
   /// 长度顺序按规范：offset-x offset-y [blur [spread]]；`inset` 可按规范
   /// 出现在首/尾。多阴影只取首个。
-  static CssBoxShadow? _parseBoxShadow(String? raw, {required double fontSize}) {
+  static CssBoxShadow? _parseBoxShadow(
+    String? raw, {
+    required double fontSize,
+  }) {
     if (raw == null) {
       return null;
     }
@@ -5718,8 +5908,9 @@ class ComputedStyle {
       'start' || 'left' => CssRubyAlign.start,
       'center' || 'centre' => CssRubyAlign.center,
       'end' || 'right' => CssRubyAlign.end,
-      'space-between' || 'space-around' || 'space-evenly' =>
-        CssRubyAlign.spaceBetween,
+      'space-between' ||
+      'space-around' ||
+      'space-evenly' => CssRubyAlign.spaceBetween,
       _ => null,
     };
   }
@@ -5902,7 +6093,8 @@ double? _evaluateCalc(
   required double percentBase,
 }) {
   var expression = raw.trim();
-  if (expression.toLowerCase().startsWith('calc(') && expression.endsWith(')')) {
+  if (expression.toLowerCase().startsWith('calc(') &&
+      expression.endsWith(')')) {
     expression = expression.substring(5, expression.length - 1);
   }
   final evaluator = _CalcEvaluator(
@@ -6028,7 +6220,9 @@ class _CalcEvaluator {
     if (token == '(') {
       _position += 1;
       final inner = _parseExpression();
-      if (inner == null || _position >= _tokens.length || _tokens[_position] != ')') {
+      if (inner == null ||
+          _position >= _tokens.length ||
+          _tokens[_position] != ')') {
         return null;
       }
       _position += 1;

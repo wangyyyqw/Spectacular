@@ -281,3 +281,22 @@ Release版本采用保留数据的覆盖安装。边框斜接参考
 `/tmp/spectacular-targeted-css/chapter4-fanrong.png`、同目录 `report.json`；
 日志 `/tmp/spectacular-targeted-css.log`。离屏复核亦确认标签金色长竖线仅存在于左右外边。
 本轮仅验收这两个具体位置，之前全量CSS对照的残余差异仍按上节记录保留。
+
+## 续审：盒模型、背景与行内偏移
+
+本轮针对全量对照与真实书剩余问题继续修复：
+
+- 绝对定位空盒保留宽度、边距、边框和定位几何，不再因无文字而丢失。
+- 嵌套 `<q>` 同步补入引号；样式区间、注音和行内图片偏移随之重映射。
+- 分页和重排保留绝对定位块的全部盒字段，避免换页后随机消失。
+- 多背景按声明逆序绘制，逐层支持渐变/图片的尺寸、位置、重复与裁剪。
+- `height + overflow: visible` 不再裁掉溢出行，后续块从声明盒底部继续流排。
+
+70 组浏览器对照复跑：55 项几何/样式失配，涉及 10 个用例；25 组像素差异
+超过 2%，未配对 3 项。相较修前 65 项失配已有下降，但**仍未清零**。
+报告位于 `/tmp/css_parity_current/report.md`。主要残余为 hyphens、word-wrap、
+text-overflow、tab-size、small-caps、display/position、部分 border-style 与
+table 的断行或尺寸近似；测试机缺少可用等宽字体也会放大 tab-size 差异。
+
+本轮本地验证：`reader_core` 1187 项通过、3 项跳过；`reader_ui` 145 项通过；
+`reader_mobile` 355 项通过、5 项跳过；三个模块对 `lib`/`test` 的静态检查均无问题。

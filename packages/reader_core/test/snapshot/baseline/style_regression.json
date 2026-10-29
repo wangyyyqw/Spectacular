@@ -91,23 +91,23 @@
         "margin": 12.0
       },
       "specId": "aeacc2a764886f2c86d289ffa4712020867ff3cec47c331c3bf2cb12aff3e4ee",
-      "bookHash": "67b8f82925956006fcf549979b35e43e6b872f8fcd111262b667c1fdbd3e8d62",
+      "bookHash": "17963c157608d533a39a5e7b7509feaca4274aaff151ae82a5dc547f1b44fd40",
       "pages": [
         {
           "index": 0,
-          "layoutHash": "51d9f6a3024e3f7fe3f77b226aeb210775cbe605e6ac3cde50df2f44af44706d",
-          "inkPixels": 54967,
-          "lineCount": 21,
-          "textLength": 132,
-          "summary": "表格与插图样例下面这张表使用 colsp…ages/teal.png，仅用于验证 "
+          "layoutHash": "fe65d7ea7b1307f055b839ddd590c23f949411c072eeafbc8e12c820cd297ea6",
+          "inkPixels": 49215,
+          "lineCount": 20,
+          "textLength": 105,
+          "summary": "表格与插图样例下面这张表使用 colsp…笋溪桥村8晾晒三日野蜂蜜北坡岩下3陶罐装"
         },
         {
           "index": 1,
-          "layoutHash": "acd5b37033873d5711e6abaa6eecd3e00dbdd973594107e56a082514aa25fcd8",
-          "inkPixels": 8267,
-          "lineCount": 2,
-          "textLength": 26,
-          "summary": "manifest 中的图片资源能否被正确解析与绘制。"
+          "layoutHash": "542276829f7e5ed33a3e1fef8ea664993114ae14cca480175af91310669df1c4",
+          "inkPixels": 21621,
+          "lineCount": 6,
+          "textLength": 78,
+          "summary": "￼图一：8×8 像素的 PNG 测试图片…st 中的图片资源能否被正确解析与绘制。"
         }
       ]
     },

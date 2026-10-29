@@ -19,13 +19,18 @@ void main() {
   }) async {
     final source = await openCssChapter(
       body: body,
-      css: 'body { margin: 0; padding: 0; font-size: 17px; } '
+      css:
+          'body { margin: 0; padding: 0; font-size: 17px; } '
           'p { margin: 6px 0; line-height: 1.6; } '
           '.abs { position: absolute; top: 12px; left: 220px; width: 90px; } '
           '.abs2 { position: absolute; right: 12px; bottom: 16px; '
           'width: 80px; } '
           '.abs3 { position: absolute; width: 120px; } '
-          '.fix { position: fixed; left: 10px; bottom: 8px; width: 60px; }',
+          '.fix { position: fixed; left: 10px; bottom: 8px; width: 60px; } '
+          '.box-a { position: absolute; left: 0; top: 0; width: 160px; '
+          'height: 120px; background: #f00; z-index: 2; } '
+          '.box-b { position: absolute; left: 80px; top: 60px; width: 160px; '
+          'height: 120px; background: #00f; z-index: 1; }',
       contentWidth: contentWidth,
       contentHeight: contentHeight,
     );
@@ -39,13 +44,18 @@ void main() {
   }) async {
     final source = await openCssChapter(
       body: body,
-      css: 'body { margin: 0; padding: 0; font-size: 17px; } '
+      css:
+          'body { margin: 0; padding: 0; font-size: 17px; } '
           'p { margin: 6px 0; line-height: 1.6; } '
           '.abs { position: absolute; top: 12px; left: 220px; width: 90px; } '
           '.abs2 { position: absolute; right: 12px; bottom: 16px; '
           'width: 80px; } '
           '.abs3 { position: absolute; width: 120px; } '
-          '.fix { position: fixed; left: 10px; bottom: 8px; width: 60px; }',
+          '.fix { position: fixed; left: 10px; bottom: 8px; width: 60px; } '
+          '.box-a { position: absolute; left: 0; top: 0; width: 160px; '
+          'height: 120px; background: #f00; z-index: 2; } '
+          '.box-b { position: absolute; left: 80px; top: 60px; width: 160px; '
+          'height: 120px; background: #00f; z-index: 1; }',
       contentWidth: contentWidth,
       contentHeight: contentHeight,
     );
@@ -131,6 +141,27 @@ void main() {
     );
   });
 
+  test('空绝对定位盒保留声明宽高与 left/top，不占正文流', () async {
+    final withBoxes = await slicesOf(
+      '<p>正文</p><div class="box-a"></div><div class="box-b"></div>',
+    );
+    final boxes =
+        withBoxes.where((slice) => slice.block.layout.text.isEmpty).toList()
+          ..sort((a, b) => a.leftInset.compareTo(b.leftInset));
+    expect(boxes, hasLength(2));
+    expect(boxes.every((slice) => slice.overlay), isTrue);
+    expect(boxes[0].leftInset, 0);
+    expect(boxes[0].absoluteTop, 0);
+    expect(boxes[0].block.height, 120);
+    expect(boxes[0].block.layout.maxWidth, 160);
+    expect(boxes[0].block.style!.zIndex, 2);
+    expect(boxes[1].leftInset, 80);
+    expect(boxes[1].absoluteTop, 60);
+    expect(boxes[1].block.height, 120);
+    expect(boxes[1].block.layout.maxWidth, 160);
+    expect(boxes[1].block.style!.zIndex, 1);
+  });
+
   test('fixed：每页重复、位置相同、不占流高', () async {
     const longBody =
         '<p>第一段文字比较长，用于把内容铺开到两页以上，方便观察固定定位块'
@@ -151,11 +182,7 @@ void main() {
       contentHeight: 120,
     );
     expect(plainPages.length, greaterThanOrEqualTo(2), reason: '需要多页');
-    expect(
-      withFixedPages.length,
-      plainPages.length,
-      reason: '固定定位不占流高：页数不变',
-    );
+    expect(withFixedPages.length, plainPages.length, reason: '固定定位不占流高：页数不变');
     final fixedTops = <double>{};
     for (final page in withFixedPages) {
       final fixed = page.slices.where(

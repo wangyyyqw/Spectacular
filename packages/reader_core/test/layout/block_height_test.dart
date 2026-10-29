@@ -68,7 +68,11 @@ void main() {
   });
 
   test('max-height：内容超出盒高时按盒高裁剪切片', () {
-    final style = _style(const {'height': '80px', 'max-height': '40px'});
+    final style = _style(const {
+      'height': '80px',
+      'max-height': '40px',
+      'overflow': 'hidden',
+    });
     final block = _block(style);
     expect(block.measuredHeight, closeTo(48, 0.01));
     expect(block.height, closeTo(40, 0.01), reason: 'min/max 钳制后内容盒高 40');
@@ -132,7 +136,7 @@ void main() {
   });
 
   test('盒高裁剪：切片只排可见行，但行号/文本仍覆盖原文（CFI 安全）', () {
-    final style = _style(const {'height': '40px'});
+    final style = _style(const {'height': '40px', 'overflow': 'hidden'});
     final text = 'abcdefghijklmnopqrstuvwxyz0123456789ABCD';
     final block = _block(style, text: text);
     final layout = block.layout;
@@ -158,6 +162,25 @@ void main() {
     final hit = pages.single.hitTest(const Offset(1, 3));
     expect(hit, isNotNull);
     expect(hit!.lineIndex, 0);
+  });
+
+  test('overflow 默认 visible：盒高只影响流位置，溢出行仍保留在切片', () {
+    final style = _style(const {'height': '24px'});
+    final block = _block(style, text: 'abcdefghijklmnopqrstuvwxyz0123456789');
+    expect(block.layout.lineCount, 2);
+    expect(block.height, closeTo(24, 0.01));
+    expect(block.hasContentOverflow, isTrue);
+    expect(block.clipsContent, isFalse);
+
+    final slice = Paginator(pageHeight: 400)
+        .measureChapter(blocks: <PageBlock>[block])
+        .pages
+        .single
+        .slices
+        .single;
+    expect(slice.height, closeTo(24, 0.01), reason: '后续块仍从盒底开始');
+    expect(slice.endLine, 2, reason: '溢出的第二行仍应绘制');
+    expect(slice.continuesAfter, isFalse);
   });
 
   test('min-height 留白随块占位：页尾放不下整盒时整块下移', () {

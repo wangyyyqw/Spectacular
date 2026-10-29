@@ -387,6 +387,7 @@ void main() {
       'font-family': 'Ahem',
       'color': '#000000',
       'background-color': '#ffeecc',
+      'overflow': 'hidden',
     });
     // 内容 2 行（40px 高），但声明高 20 → clipsContent 为真。
     final payloadLayout = TextLayoutEngine.layout(
