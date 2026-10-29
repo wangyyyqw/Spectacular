@@ -1,0 +1,9 @@
+{
+  "name": "72-object-fit-position",
+  "tags": [
+    "object-fit",
+    "object-position"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 13px; } img { display: block; width: 100%; height: 96px; margin: 6px 0 2px; } p { margin: 0 0 10px; line-height: 1.4; } .ct { object-fit: cover; object-position: left top; } .cb { object-fit: cover; object-position: right bottom; } .nl { object-fit: contain; object-position: left center; } .nr { object-fit: contain; object-position: right center; }",
+  "html": "<img class=\"ct\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAcUlEQVR42u3RsQ1AYBSF0cciCjUS46htYgy1OdQKiajtYITfEkLC+Ra4ObnZ0TbxRuW6RUQxLA/v5vGzgIGBgYGBgYGBgYGBgYGBgb9XllLy8KcfrsbuleG9nyLinGsPAwMDAwMDAwMDAwMDAwMD390F5PcMjFHVasAAAAAASUVORK5CYII=\"/><p>cover / left top：覆盖后取左上方</p><img class=\"cb\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAcUlEQVR42u3RsQ1AYBSF0cciCjUS46htYgy1OdQKiajtYITfEkLC+Ra4ObnZ0TbxRuW6RUQxLA/v5vGzgIGBgYGBgYGBgYGBgYGBgb9XllLy8KcfrsbuleG9nyLinGsPAwMDAwMDAwMDAwMDAwMD390F5PcMjFHVasAAAAAASUVORK5CYII=\"/><p>cover / right bottom：覆盖后取右下方</p><img class=\"nl\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAcUlEQVR42u3RsQ1AYBSF0cciCjUS46htYgy1OdQKiajtYITfEkLC+Ra4ObnZ0TbxRuW6RUQxLA/v5vGzgIGBgYGBgYGBgYGBgYGBgb9XllLy8KcfrsbuleG9nyLinGsPAwMDAwMDAwMDAwMDAwMD390F5PcMjFHVasAAAAAASUVORK5CYII=\"/><p>contain / left center：完整显示并靠左</p><img class=\"nr\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAcUlEQVR42u3RsQ1AYBSF0cciCjUS46htYgy1OdQKiajtYITfEkLC+Ra4ObnZ0TbxRuW6RUQxLA/v5vGzgIGBgYGBgYGBgYGBgYGBgb9XllLy8KcfrsbuleG9nyLinGsPAwMDAwMDAwMDAwMDAwMD390F5PcMjFHVasAAAAAASUVORK5CYII=\"/><p>contain / right center：完整显示并靠右</p>"
+}

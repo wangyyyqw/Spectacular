@@ -1477,7 +1477,12 @@ class EpubChapterSource
     List<CssStylesheet> sheets, {
     String? pseudo,
   }) {
-    const rawProperties = {'counter-reset', 'counter-increment', 'object-fit'};
+    const rawProperties = {
+      'counter-reset',
+      'counter-increment',
+      'object-fit',
+      'object-position',
+    };
     final result = <_AuxiliaryCssRule>[];
     for (final sheet in sheets) {
       for (final rule in sheet.rules) {
@@ -2573,7 +2578,7 @@ class EpubChapterSource
     final cssCounters = <String, int>{};
 
     /// 取元素命中的作者声明（规则按出现顺序覆盖，内联最后）——只用于
-    /// ComputedStyle 还没建模的属性：`counter-*`、`content`、`object-fit`。
+    /// ComputedStyle 还没建模的属性：`counter-*`、`content`、`object-*`。
     Map<String, String> rawDeclarationsFor(List<SelectorElement> ancestors) {
       if (ancestors.isEmpty) {
         return const <String, String>{};
@@ -2600,23 +2605,28 @@ class EpubChapterSource
     }
 
     /// `object-fit`（W20）：图片块用 background-image 绘制，这里把 CSS
-    /// `object-fit` 映射成等价的 background-size/position——`contain`/`cover`
-    /// 与整页图铺法共用同一套语义（不重复实现缩放/裁切算法）。
+    /// `object-fit` / `object-position` 映射成等价的 background-size/position——
+    /// `contain`/`cover` 与整页图铺法共用同一套语义（不重复实现缩放/裁切算法）。
     ({String size, String position}) objectFitBackground(
       List<SelectorElement> ancestors,
       ImageIntrinsicSize? intrinsic, {
       required double boxWidth,
       required double boxHeight,
     }) {
-      final fit = rawDeclarationsFor(ancestors)['object-fit']?.trim();
+      final declarations = rawDeclarationsFor(ancestors);
+      final fit = declarations['object-fit']?.trim();
+      final declaredPosition = declarations['object-position']?.trim();
       const center = 'center center';
+      final position = declaredPosition == null || declaredPosition.isEmpty
+          ? center
+          : declaredPosition;
       switch (fit) {
         case 'fill':
           // 不保持比例，拉满盒子。
-          return (size: '100% 100%', position: center);
+          return (size: '100% 100%', position: position);
         case 'none':
           // 原始尺寸，超出即裁切（背景不缩放）。
-          return (size: 'auto', position: center);
+          return (size: 'auto', position: position);
         case 'scale-down':
           // min(none, contain)：原图比盒子大时缩到 contain，否则原尺寸。
           final larger =
@@ -2624,12 +2634,12 @@ class EpubChapterSource
               boxWidth > 0 &&
               boxHeight > 0 &&
               (intrinsic.width > boxWidth || intrinsic.height > boxHeight);
-          return (size: larger ? 'contain' : 'auto', position: center);
+          return (size: larger ? 'contain' : 'auto', position: position);
         case 'cover':
-          return (size: 'cover', position: center);
+          return (size: 'cover', position: position);
         case 'contain':
         default:
-          return (size: 'contain', position: center);
+          return (size: 'contain', position: position);
       }
     }
 
@@ -3288,7 +3298,9 @@ class EpubChapterSource
           boxHeight: size.$2,
         );
         final imageBlockStyle = ComputedStyle(<String, String>{
-          ...baseStyle.values,
+          // 保住 img 自身的盒模型/边距与继承样式；只用 baseStyle 会吞掉
+          // `img { margin: ...; padding: ...; border: ... }`。
+          ...imageStyle.values,
           'background-image': 'url($url)',
           'background-size': objectFit.size,
           'background-position': objectFit.position,
@@ -3311,10 +3323,12 @@ class EpubChapterSource
           maxWidth: size.$1,
           runs: const <StyledRun>[],
         );
-        final block = PageBlock(
+        final block = _floatedTextBlock(
           layout: layout,
           style: imageBlockStyle,
-          floatSide: side,
+          side: side,
+          spaceBefore: imageBlockStyle.margin.top,
+          spaceAfter: imageBlockStyle.margin.bottom,
         );
         final removeStart = imageMark.offset;
         final removeEnd = imageMark.offset + 1;
@@ -3698,7 +3712,9 @@ class EpubChapterSource
         boxHeight: size.$2,
       );
       final blockStyle = ComputedStyle(<String, String>{
-        ...baseStyle.values,
+        // 图片块替换了原 img 盒，必须沿用 img 的盒模型与边距；否则图片
+        // 与题注间距、图片之间的累计位置都会和浏览器偏离。
+        ...imageStyle.values,
         'background-image': 'url($url)',
         'background-size': objectFit.size,
         // 出血图（多看 `duokan-bleed`）：块盒被撑到页面边缘后，`contain`
@@ -3728,10 +3744,23 @@ class EpubChapterSource
         maxWidth: blockWidth,
         runs: const <StyledRun>[],
       );
+      final imageModel = BoxModel.fromStyle(
+        blockStyle,
+        containingWidth: contentWidth,
+      );
       blocks.add(
         PageBlock(
           layout: layout,
           style: blockStyle,
+          pageBreakBefore: blockStyle.pageBreakBefore,
+          pageBreakAfter: blockStyle.pageBreakAfter,
+          breakInsideAvoid: blockStyle.breakInsideAvoid,
+          breakAfterAvoid: blockStyle.breakAfterAvoid,
+          spaceBefore: blockStyle.margin.top,
+          spaceAfter: blockStyle.margin.bottom,
+          topInset: imageModel.borders.top + imageModel.padding.top,
+          bottomInset: imageModel.borders.bottom + imageModel.padding.bottom,
+          leftInset: imageModel.borders.left + imageModel.padding.left,
           floatSide: floatSide,
           bleedLeft: imageStyle.bleed.left,
           bleedRight: imageStyle.bleed.right,
@@ -3743,6 +3772,10 @@ class EpubChapterSource
               : (chainFloat != null && containerFloatGroup > 0
                     ? containerFloatGroup
                     : 0),
+          declaredContentHeight: imageModel.resolveContentHeight(
+            layout.height,
+            containingHeight: contentHeight,
+          ),
         ),
       );
     }
