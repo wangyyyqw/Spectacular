@@ -1,0 +1,9 @@
+{
+  "name": "80-font-size-adjust",
+  "tags": [
+    "font-size-adjust"
+  ],
+  "browserLineRectsAreFontBoxes": true,
+  "css": "body { margin: 0; font-family: \"builtin_song\"; font-size: 18px; line-height: 1.5; color: #111; background: #fff; } .page { padding: 10px; } p { margin: 10px 0; } .large-x { font-size-adjust: 1; } .small-x { font-size-adjust: 0.5; }",
+  "html": "<div class=\"page\"><p>Normal x-height 基准 abc xyz</p><p class=\"large-x\">Adjusted x-height 放大 abc xyz</p><p class=\"small-x\">Adjusted x-height 缩小 abc xyz</p></div>"
+}

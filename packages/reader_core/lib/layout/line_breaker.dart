@@ -9,6 +9,7 @@ import 'cjk_justify.dart';
 import 'autospace.dart';
 import 'hyphenation.dart';
 import 'punct_trim.dart';
+import '../text/font_metrics.dart';
 import '../text/script_fallback.dart';
 
 /// CSS `hyphens: auto` 在行尾补画的连字符。
@@ -2827,11 +2828,12 @@ abstract final class TextLayoutEngine {
     );
   }
 
-  /// x-height 近似（`vertical-align: middle` 用）：0.5em。
+  /// x-height（`vertical-align: middle` 用）。
   ///
-  /// Flutter 没有暴露 x-height；CJK 字体 x-height 约 0.5em。该偏差只影响
-  /// middle 行内元素的竖直位置，不影响行高（小字号盒仍落在 strut 内）。
-  static double _xHeightFor(ComputedStyle style) => style.fontSize * 0.5;
+  /// `font-size-adjust` 的目标正是把 x-height 固定为「ratio × font-size」；
+  /// 未声明时 Flutter 没有暴露字体 x-height，仍用 CJK 字体约 0.5em 的近似。
+  static double _xHeightFor(ComputedStyle style) =>
+      style.fontSize * (style.fontSizeAdjust ?? 0.5);
 
   /// 合并「非法断点」处的紧急断行：token 内不换行（与 Chrome 一致）。
   static List<LineBox> _mergeUnbreakableLines(
@@ -3248,46 +3250,73 @@ abstract final class TextLayoutEngine {
   static TextStyle textStyleFor(
     ComputedStyle style, {
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
-  }) => TextStyle(
-    fontSize: style.fontSize,
-    height: style.lineHeightFactor,
-    leadingDistribution: leadingDistribution,
-    // 小型大写（`font-variant-caps`）：CSS 的 caps 族映射到 OpenType 特性，
-    // 测量与绘制共用本方法，因此宽度与字形两端一致；字体缺特性时不生效。
-    fontFeatures: _fontFeatures(style),
-    // CSS `font-stretch` 直接映射可变字体的宽度轴。静态字体没有 `wdth`
-    // 轴时 Flutter 会忽略该设置；浏览器同样不会对静态字体做几何拉伸。
-    fontVariations: style.fontStretch == 100
-        ? null
-        : <FontVariation>[FontVariation('wdth', style.fontStretch)],
-    fontWeight: _fontWeight(style.fontWeight),
-    fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
-    // 别名映射（P3-03）：宋体/黑体/楷体等中文族名与 serif/sans-serif
-    // 泛型映射到内置规范名；未命中原样保留（显式回退引擎处理）。
-    fontFamily: style.fontFamily == null
-        ? null
-        : FontFamilyAliases.mapFamilies([style.fontFamily!]).single,
-    // 回退链（P3-04，§68.4）：声明族之后追加默认 CJK 链，缺字由引擎
-    // 按序兜底（运行期不做逐字覆盖检测，§28.4）。
-    fontFamilyFallback: _fallbackChain(style),
-    letterSpacing: style.letterSpacing,
-    wordSpacing: style.wordSpacing,
-    decoration: _decoration(style.textDecoration),
-    // 装饰线颜色/线型（P9-18）：书籍常用彩色下划线标重点。
-    decorationColor: style.textDecorationColor ?? style.color,
-    decorationStyle: _decorationStyle(style.textDecorationStyle),
-    shadows: style.textShadow.isEmpty
-        ? null
-        : [
-            for (final shadow in style.textShadow)
-              Shadow(
-                color: shadow.color ?? style.color,
-                offset: Offset(shadow.offsetX, shadow.offsetY),
-                blurRadius: shadow.blur,
-              ),
-          ],
-    color: style.color,
-  );
+    bool applyFontSizeAdjust = true,
+  }) {
+    final fontSize = applyFontSizeAdjust
+        ? _adjustedFontSize(style)
+        : style.fontSize;
+    return TextStyle(
+      fontSize: fontSize,
+      // 数值 line-height 按 CSS font-size 的原值计算，不随 x-height 调整放大；
+      // 换成调整后字号的相对倍数，保持行距不变。
+      height: style.lineHeightFactor == null || fontSize <= 0
+          ? null
+          : style.lineHeight / fontSize,
+      leadingDistribution: leadingDistribution,
+      // 小型大写（`font-variant-caps`）：CSS 的 caps 族映射到 OpenType 特性，
+      // 测量与绘制共用本方法，因此宽度与字形两端一致；字体缺特性时不生效。
+      fontFeatures: _fontFeatures(style),
+      // CSS `font-stretch` 直接映射可变字体的宽度轴。静态字体没有 `wdth`
+      // 轴时 Flutter 会忽略该设置；浏览器同样不会对静态字体做几何拉伸。
+      fontVariations: style.fontStretch == 100
+          ? null
+          : <FontVariation>[FontVariation('wdth', style.fontStretch)],
+      fontWeight: _fontWeight(style.fontWeight),
+      fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
+      // 别名映射（P3-03）：宋体/黑体/楷体等中文族名与 serif/sans-serif
+      // 泛型映射到内置规范名；未命中原样保留（显式回退引擎处理）。
+      fontFamily: style.fontFamily == null
+          ? null
+          : FontFamilyAliases.mapFamilies([style.fontFamily!]).single,
+      // 回退链（P3-04，§68.4）：声明族之后追加默认 CJK 链，缺字由引擎
+      // 按序兜底（运行期不做逐字覆盖检测，§28.4）。
+      fontFamilyFallback: _fallbackChain(style),
+      letterSpacing: style.letterSpacing,
+      wordSpacing: style.wordSpacing,
+      decoration: _decoration(style.textDecoration),
+      // 装饰线颜色/线型（P9-18）：书籍常用彩色下划线标重点。
+      decorationColor: style.textDecorationColor ?? style.color,
+      decorationStyle: _decorationStyle(style.textDecorationStyle),
+      shadows: style.textShadow.isEmpty
+          ? null
+          : [
+              for (final shadow in style.textShadow)
+                Shadow(
+                  color: shadow.color ?? style.color,
+                  offset: Offset(shadow.offsetX, shadow.offsetY),
+                  blurRadius: shadow.blur,
+                ),
+            ],
+      color: style.color,
+    );
+  }
+
+  /// CSS `font-size-adjust` 的 used font-size。
+  ///
+  /// 内置宋体与运行期书籍字体使用注册的真实 x-height；其余字体按 CJK
+  /// 字体常见的 0.5em aspect ratio 近似。
+  static double _adjustedFontSize(ComputedStyle style) {
+    final adjust = style.fontSizeAdjust;
+    if (adjust == null ||
+        !adjust.isFinite ||
+        adjust <= 0 ||
+        style.fontSize <= 0) {
+      return style.fontSize;
+    }
+    final xHeightRatio =
+        FontMetricsRegistry.xHeightRatio(style.fontFamily) ?? 0.5;
+    return style.fontSize * adjust / xHeightRatio;
+  }
 
   static TextDecorationStyle _decorationStyle(CssTextDecorationStyle value) =>
       switch (value) {

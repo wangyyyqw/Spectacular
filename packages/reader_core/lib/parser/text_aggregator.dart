@@ -238,6 +238,7 @@ abstract final class TextAggregator {
     'font',
     'cite',
     'q',
+    'span',
   };
 
   /// 聚合一个章节。
@@ -603,7 +604,7 @@ class _TextAccumulator {
       return;
     }
     _pendingSpace = false;
-    if (_buffer.isNotEmpty && _lastCodeUnit != 10) {
+    if (_buffer.isNotEmpty && _lastCodeUnit != 10 && _lastCodeUnit != 32) {
       _buffer.write(' ');
       _lastCodeUnit = 32;
     }

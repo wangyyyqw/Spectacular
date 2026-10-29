@@ -77,6 +77,11 @@ void main() {
     final doc = _aggregate('<p id="p">a<span>b</span><b>c</b>d</p>');
     final text = _onlyText(doc);
     expect(text.text, 'abcd');
+    expect(
+      text.inlineMarks.where((mark) => mark.tag == 'span'),
+      hasLength(1),
+      reason: '无属性的 span 仍可被标签选择器命中并形成行内样式区间',
+    );
   });
 
   test('样式标记保留块祖先与嵌套行内元素的完整属性', () {

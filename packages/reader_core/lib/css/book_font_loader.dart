@@ -4,6 +4,7 @@ import 'package:flutter/services.dart' show ByteData, FontLoader;
 
 import 'font_face.dart';
 import '../text/font_coverage.dart';
+import '../text/font_metrics.dart';
 
 /// 一个已注册的 face 记录（缓存键：weight+italic）。
 class RegisteredFontFace {
@@ -148,6 +149,12 @@ class BookFontLoader {
           );
         }
         continue;
+      }
+      final metricFace = cache['w400i0'] ?? cache.values.first;
+      final metrics = FontMetrics.parse(metricFace.bytes);
+      if (metrics != null) {
+        FontMetricsRegistry.register(engineName, metrics);
+        FontMetricsRegistry.register(cssFamily, metrics);
       }
       final allCached =
           existing != null && cache.length == existing.length;
