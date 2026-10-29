@@ -513,7 +513,7 @@ class PagePainter {
               lineY,
             );
             // 行尾字形（W13）：布局层只截断/计宽不画字——
-            // 省略号 `…`（行宽含省略号 advance）与断词连字符 `-` 都由
+            // 省略号 `…`（行宽含省略号 advance）与断词连字符 U+2010 都由
             // 绘制层按行宽末端补画，start/end 仍是原文坐标。
             if (line.ellipsized) {
               _paintLineTailGlyph(
@@ -530,7 +530,7 @@ class PagePainter {
                 canvas,
                 geometry,
                 line: line,
-                glyph: '-',
+                glyph: cssAutoHyphen,
                 advance: line.hyphenWidth,
                 x: x,
                 y: lineY,
@@ -578,7 +578,7 @@ class PagePainter {
             lineText,
             geometry.style,
             line.offsetX + geometry.leftInset,
-            lineY,
+            lineY + line.baseline,
           );
         }
         lineY += line.height;
@@ -733,6 +733,15 @@ class PagePainter {
     var upExtent = 0.0;
     var downExtent = 0.0;
     for (final slice in page.slices) {
+      final style = slice.block.style;
+      if (style != null &&
+          style.textEmphasisStyle != CssTextEmphasisStyle.none) {
+        if (style.textEmphasisPosition == CssTextEmphasisPosition.under) {
+          downExtent = math.max(downExtent, style.fontSize * 0.55);
+        } else {
+          upExtent = math.max(upExtent, style.fontSize * 0.4);
+        }
+      }
       for (final run in slice.block.layout.runs) {
         if (run.baselineShift < 0) {
           upExtent = math.max(upExtent, -run.baselineShift);
@@ -990,7 +999,7 @@ class PagePainter {
         m[1] * n[4] + m[3] * n[5] + m[5],
       ];
 
-  /// 行尾字形（W13）：省略号 `…` 与断词连字符 `-`。
+  /// 行尾字形（W13）：省略号 `…` 与断词连字符 U+2010。
   ///
   /// 布局层的 `LineBox.width` 已含该字形的 advance（[advance]），`start/end`
   /// 仍是原文坐标，所以绘制层只需把字形画在
@@ -3209,19 +3218,21 @@ class PagePainter {
     if (emphasis == CssTextEmphasisStyle.none) {
       return;
     }
-    final radius = math.max(1.0, style.fontSize * 0.08);
+    final radius = _emphasisRadius(style.fontSize, emphasis);
     final paint = Paint()
-      ..color = style.textEmphasisColor ?? textColorOverride ?? style.color;
-    if (emphasis == CssTextEmphasisStyle.open) {
-      paint
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.0, style.fontSize * 0.05);
-    }
+      ..color = style.textEmphasisColor ?? textColorOverride ?? style.color
+      ..strokeCap = StrokeCap.round;
     // over → 列右缘；under → 列左缘（竖排的 over 侧就是右）。
     final centerX = style.textEmphasisPosition == CssTextEmphasisPosition.under
         ? columnLeft + radius + 1
         : columnLeft + columnWidth - radius - 1;
-    canvas.drawCircle(Offset(centerX, centerY), radius, paint);
+    _paintEmphasisMark(
+      canvas,
+      emphasis,
+      Offset(centerX, centerY),
+      style.fontSize,
+      paint,
+    );
   }
 
   /// 竖排注音：注音文本放在列右侧（Chromium 实测注音中心 ≈ 列右缘），
@@ -3860,13 +3871,13 @@ class PagePainter {
     String lineText,
     ComputedStyle style,
     double x,
-    double y,
+    double baselineY,
   ) {
     if (lineText.isEmpty ||
         style.textEmphasisStyle == CssTextEmphasisStyle.none) {
       return;
     }
-    _paintEmphasis(canvas, lineText, style, painter, x, y);
+    _paintEmphasis(canvas, lineText, style, painter, x, baselineY);
   }
 
   /// 画着重号（P2-17）：按字符取排版盒，在上/下方画实心或空心点。
@@ -3879,20 +3890,18 @@ class PagePainter {
     ComputedStyle style,
     TextPainter painter,
     double x,
-    double y,
+    double baselineY,
   ) {
     final emphasis = style.textEmphasisStyle;
     if (emphasis == CssTextEmphasisStyle.none) {
       return;
     }
-    final radius = math.max(1.0, style.fontSize * 0.08);
     final paint = Paint()
-      ..color = style.textEmphasisColor ?? textColor ?? style.color;
-    if (emphasis == CssTextEmphasisStyle.open) {
-      paint
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.0, style.fontSize * 0.05);
-    }
+      ..color = style.textEmphasisColor ?? textColor ?? style.color
+      ..strokeCap = StrokeCap.round;
+    final centerY = style.textEmphasisPosition == CssTextEmphasisPosition.over
+        ? baselineY - style.fontSize * 1.3
+        : baselineY + style.fontSize * 0.44;
     for (var i = 0; i < lineText.length; i++) {
       if (lineText[i].trim().isEmpty) {
         continue;
@@ -3904,15 +3913,63 @@ class PagePainter {
         continue;
       }
       final box = boxes.first;
-      final centerY = style.textEmphasisPosition == CssTextEmphasisPosition.over
-          ? y + box.top + style.fontSize * 0.15
-          : y + box.bottom - style.fontSize * 0.15;
-      canvas.drawCircle(
+      _paintEmphasisMark(
+        canvas,
+        emphasis,
         Offset(x + (box.left + box.right) / 2, centerY),
-        radius,
+        style.fontSize,
         paint,
       );
     }
+  }
+
+  static bool _isOpenEmphasis(CssTextEmphasisStyle style) =>
+      style == CssTextEmphasisStyle.openDot ||
+      style == CssTextEmphasisStyle.openCircle ||
+      style == CssTextEmphasisStyle.openSesame;
+
+  static bool _isCircleEmphasis(CssTextEmphasisStyle style) =>
+      style == CssTextEmphasisStyle.circle ||
+      style == CssTextEmphasisStyle.openCircle;
+
+  static bool _isSesameEmphasis(CssTextEmphasisStyle style) =>
+      style == CssTextEmphasisStyle.sesame ||
+      style == CssTextEmphasisStyle.openSesame;
+
+  static double _emphasisRadius(
+    double fontSize,
+    CssTextEmphasisStyle emphasis,
+  ) => math.max(1.0, fontSize * (_isCircleEmphasis(emphasis) ? 0.16 : 0.08));
+
+  /// 按 CSS 的形状绘制着重号；竖排和横排共用同一套字形比例。
+  void _paintEmphasisMark(
+    Canvas canvas,
+    CssTextEmphasisStyle emphasis,
+    Offset center,
+    double fontSize,
+    Paint paint,
+  ) {
+    final open = _isOpenEmphasis(emphasis);
+    if (open) {
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1.0, fontSize * 0.05);
+    } else {
+      paint.style = PaintingStyle.fill;
+    }
+    if (_isSesameEmphasis(emphasis)) {
+      final halfWidth = math.max(1.2, fontSize * 0.08);
+      final halfHeight = math.max(2.0, fontSize * 0.13);
+      paint.style = PaintingStyle.stroke;
+      paint.strokeWidth = math.max(1.0, fontSize * 0.07);
+      canvas.drawLine(
+        center.translate(-halfWidth, -halfHeight),
+        center.translate(halfWidth, halfHeight),
+        paint,
+      );
+      return;
+    }
+    canvas.drawCircle(center, _emphasisRadius(fontSize, emphasis), paint);
   }
 
   /// 取与本行相交的样式区间（行内局部坐标）。

@@ -1923,9 +1923,13 @@ void main() {
     expect(none.textDecoration, CssTextDecoration.none);
 
     final filled = style('p', 'p { text-emphasis: filled; }');
-    expect(filled.textEmphasisStyle, CssTextEmphasisStyle.filled);
+    expect(filled.textEmphasisStyle, CssTextEmphasisStyle.dot);
     final open = style('p', 'p { text-emphasis-style: open; }');
-    expect(open.textEmphasisStyle, CssTextEmphasisStyle.open);
+    expect(open.textEmphasisStyle, CssTextEmphasisStyle.openDot);
+    final circle = style('p', 'p { text-emphasis-style: open circle; }');
+    expect(circle.textEmphasisStyle, CssTextEmphasisStyle.openCircle);
+    final sesame = style('p', 'p { text-emphasis-style: filled sesame; }');
+    expect(sesame.textEmphasisStyle, CssTextEmphasisStyle.sesame);
 
     final breaks = style(
       'p',

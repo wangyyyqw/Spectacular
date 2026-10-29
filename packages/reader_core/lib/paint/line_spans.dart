@@ -99,23 +99,33 @@ InlineSpan buildLineSpan({
       gaps.isEmpty &&
       compressionOffsets.isEmpty &&
       autospace.isEmpty) {
+    final caps = syntheticSmallCapsFromTextStyle(effectiveBase);
+    if (caps != null) {
+      return buildSyntheticSmallCapsSpan(
+        text: lineText,
+        style: effectiveBase,
+        caps: caps,
+      );
+    }
     return TextSpan(text: lineText, style: effectiveBase);
   }
   if (!hasPlaceholder &&
       gaps.isEmpty &&
       compressionOffsets.isEmpty &&
       autospace.isEmpty) {
-    return TextSpan(
-      style: effectiveBase,
-      children: buildStyledSpans(
-        text: layout.text,
-        start: line.start,
-        end: line.end,
-        runs: runs,
-        // 非 run 段必须用 effectiveBase：用 baseStyle 会让同一行出现
-        // “主题色 + 书籍色”混杂（P9-02 修复）。
-        baseStyle: effectiveBase,
-        styleOf: styleOf ?? TextLayoutEngine.textStyleFor,
+    return applySyntheticSmallCaps(
+      TextSpan(
+        style: effectiveBase,
+        children: buildStyledSpans(
+          text: layout.text,
+          start: line.start,
+          end: line.end,
+          runs: runs,
+          // 非 run 段必须用 effectiveBase：用 baseStyle 会让同一行出现
+          // “主题色 + 书籍色”混杂（P9-02 修复）。
+          baseStyle: effectiveBase,
+          styleOf: styleOf ?? TextLayoutEngine.textStyleFor,
+        ),
       ),
     );
   }

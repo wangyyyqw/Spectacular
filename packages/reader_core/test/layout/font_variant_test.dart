@@ -52,13 +52,22 @@ void main() {
   });
 
   test('其它 caps 族映射到对应 OpenType 标签', () {
-    expect(_tags(_style(const {'font-variant-caps': 'petite-caps'})), contains('pcap'));
+    expect(
+      _tags(_style(const {'font-variant-caps': 'petite-caps'})),
+      contains('pcap'),
+    );
     expect(
       _tags(_style(const {'font-variant-caps': 'all-petite-caps'})),
       containsAll(<String>['pcap', 'c2pc']),
     );
-    expect(_tags(_style(const {'font-variant-caps': 'unicase'})), contains('unic'));
-    expect(_tags(_style(const {'font-variant-caps': 'titling-caps'})), contains('titl'));
+    expect(
+      _tags(_style(const {'font-variant-caps': 'unicase'})),
+      contains('unic'),
+    );
+    expect(
+      _tags(_style(const {'font-variant-caps': 'titling-caps'})),
+      contains('titl'),
+    );
   });
 
   test('无 smcp 的字体：测量宽度不受影响、不报错', () {
@@ -75,5 +84,31 @@ void main() {
     // Ahem 没有 smcp 特性 → 引擎按原样渲染，宽度一致（测量/绘制同口径）。
     expect(caps.lines.single.width, closeTo(normal.lines.single.width, 0.01));
     expect(caps.lineCount, normal.lineCount);
+  });
+
+  test('内置宋体按 Chromium 合成比例生成小型大写', () {
+    final textStyle = TextLayoutEngine.textStyleFor(
+      _style(const {
+        'font-family': 'builtin_song',
+        'font-variant-caps': 'small-caps',
+      }),
+    );
+    final synthetic = buildSyntheticSmallCapsSpan(
+      text: 'Abc小写',
+      style: textStyle,
+      caps: CssFontVariantCaps.smallCaps,
+    ) as TextSpan;
+    final children = synthetic.children!.cast<TextSpan>();
+    expect(children.map((span) => span.text), <String>['A', 'BC', '小写']);
+    expect(children[0].style!.fontSize, 16);
+    expect(
+      children[1].style!.fontSize,
+      closeTo(16 * syntheticSmallCapsScale, 0.001),
+    );
+    expect(children[2].style!.fontSize, 16);
+    expect(
+      syntheticSmallCapsFromTextStyle(textStyle),
+      CssFontVariantCaps.smallCaps,
+    );
   });
 }

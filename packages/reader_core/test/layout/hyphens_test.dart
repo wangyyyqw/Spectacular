@@ -16,9 +16,9 @@ ComputedStyle _style(Map<String, String> overrides) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('planSoftBreaks: hyphens:auto 在元音-辅音-元音处插断点并标记连字符', () {
+  test('planSoftBreaks: hyphens:auto 按英文词表插断点并标记连字符', () {
     final plan = TextLayoutEngine.planSoftBreaks(
-      text: 'abacada',
+      text: 'hyphenation',
       hyphens: CssHyphens.auto,
       overflowWrap: CssOverflowWrap.normal,
       wordBreak: CssWordBreak.normal,
@@ -27,14 +27,14 @@ void main() {
       hyphenAdvance: 8,
     );
     expect(plan.changed, isTrue, reason: '插入了断点');
-    expect(plan.text.length, greaterThan(7));
+    expect(plan.text.length, greaterThan(11));
     expect(plan.hyphenPoints, isNotEmpty);
     // 断点后的下标映射回原文：映射单调不减且落在原文范围内。
     for (var i = 1; i < plan.offsets.length; i++) {
       expect(plan.offsets[i], greaterThanOrEqualTo(plan.offsets[i - 1]));
-      expect(plan.offsets[i], lessThanOrEqualTo(7));
+      expect(plan.offsets[i], lessThanOrEqualTo(11));
     }
-    expect(plan.originalOffset(plan.offsets.length - 1), 7);
+    expect(plan.originalOffset(plan.offsets.length - 1), 11);
   });
 
   test('planSoftBreaks: hyphens:none 不产生任何断点', () {
@@ -80,7 +80,7 @@ void main() {
   });
 
   test('hyphens:auto 让超宽长词断在词内（连字符宽计入行宽）', () {
-    const text = 'abacadaba extra';
+    const text = 'extraordinary extra';
     final auto = TextLayoutEngine.layout(
       text: text,
       style: _style(const {'hyphens': 'auto'}),

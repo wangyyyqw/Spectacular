@@ -119,8 +119,19 @@ enum CssTextDecoration { none, underline, lineThrough, overline }
 /// 装饰线线型（CSS `text-decoration-style`，P9-18）。
 enum CssTextDecorationStyle { solid, double, dotted, dashed, wavy }
 
-/// 着重号样式（CSS text-emphasis-style 属性，P2-17）。
-enum CssTextEmphasisStyle { none, dot, filled, open }
+/// 着重号样式（CSS `text-emphasis-style`，P2-17）。
+///
+/// CSS 的「填充/空心」与「点/圆/芝麻点」是两个维度；枚举保存组合值，
+/// 避免把 `open circle` 错降成空心圆点或把 `filled sesame` 画成圆点。
+enum CssTextEmphasisStyle {
+  none,
+  dot,
+  openDot,
+  circle,
+  openCircle,
+  sesame,
+  openSesame,
+}
 
 /// 着重号位置（CSS text-emphasis-position 属性）。
 enum CssTextEmphasisPosition { over, under }
@@ -5848,18 +5859,26 @@ class ComputedStyle {
   }
 
   static CssTextEmphasisStyle? _parseTextEmphasisStyle(String raw) {
-    // 简写（text-emphasis）可能带颜色/位置，取第一个样式关键字。
-    for (final token in raw.trim().toLowerCase().split(RegExp(r'\s+'))) {
-      switch (token) {
-        case 'none':
-          return CssTextEmphasisStyle.none;
-        case 'dot':
-          return CssTextEmphasisStyle.dot;
-        case 'filled' || 'sesame':
-          return CssTextEmphasisStyle.filled;
-        case 'open' || 'circle':
-          return CssTextEmphasisStyle.open;
-      }
+    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+')).toSet();
+    if (tokens.contains('none')) {
+      return CssTextEmphasisStyle.none;
+    }
+    final open = tokens.contains('open');
+    if (tokens.contains('circle')) {
+      return open
+          ? CssTextEmphasisStyle.openCircle
+          : CssTextEmphasisStyle.circle;
+    }
+    if (tokens.contains('sesame')) {
+      return open
+          ? CssTextEmphasisStyle.openSesame
+          : CssTextEmphasisStyle.sesame;
+    }
+    if (tokens.contains('dot') ||
+        tokens.contains('filled') ||
+        tokens.contains('open')) {
+      // 只写 filled/open 时按规范默认形状 dot。
+      return open ? CssTextEmphasisStyle.openDot : CssTextEmphasisStyle.dot;
     }
     return null;
   }
