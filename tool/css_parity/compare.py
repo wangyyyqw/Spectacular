@@ -394,6 +394,9 @@ STYLE_KEYS = (
     ('textTransform', 'textTransform', 'enum'),
     ('boxSizing', 'boxSizing', 'enum'),
     ('verticalAlign', 'verticalAlign', 'enum'),
+    ('outlineWidth', 'outlineWidth', 'number'),
+    ('outlineStyle', 'outlineStyle', 'enum'),
+    ('outlineOffset', 'outlineOffset', 'number'),
     # T2 新导出的键（dump 与浏览器两侧同名）
     # 引擎只记录单轴裁剪状态；浏览器会把另一轴从 visible 提升为 auto，
     # 因此把两轴归一成「是否裁剪」再比较，避免 overflow-y-only 的假失配。

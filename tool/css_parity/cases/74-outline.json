@@ -1,0 +1,8 @@
+{
+  "name": "74-outline",
+  "tags": [
+    "outline"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 16px; } .solid { width: 220px; margin: 28px 0 0 24px; padding: 6px 8px; line-height: 1.45; background: #fff8e8; border: 2px solid #8b6b3d; outline: 4px solid #c0392b; outline-offset: 7px; } .dashed { width: 220px; margin: 42px 0 0 24px; padding: 6px 8px; line-height: 1.45; background: #eef6ff; border: 2px solid #376a9f; border-radius: 10px; outline: 3px dashed #1f6f4a; outline-offset: 3px; outline-color: #145c3a; }",
+  "html": "<div class=\"solid\">outline 实线：不占盒模型，沿边框外侧绘制，并保留 outline-offset 间距。</div><div class=\"dashed\">outline 虚线长属性：颜色被 outline-color 覆盖，圆角容器外轮廓随圆角扩展。</div>"
+}
