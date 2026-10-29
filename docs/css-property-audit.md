@@ -11,19 +11,20 @@
 | 真实书语料（`test_corpus/real/*.epub`） | 7 本 / 105 个 CSS |
 | 语料中出现的不同属性名 | 132 |
 | `ComputedStyle` 类型化字段 | 92 |
-| **有字段且真正参与布局/绘制** | **95 条属性**（69 完整 + 26 部分） |
-| **有字段但零消费（占位式）** | **3**：`initial-letter`、`quotes`、`font-size-adjust` |
-| **无字段、值进 `values` 后被静默丢弃** | **变体统计**（`border-image`、`z-index`、`line-break`、`quotes` 已接入、`background-attachment` 等价降级、`object-fit` 已映射、`counter-*` 已在章节源生效） |
-| 本文覆盖的属性条目 | **142**（95 + 4 + 43） |
+| **有字段且真正参与布局/绘制** | **96 条属性**（70 完整 + 26 部分） |
+| **有字段但零消费（占位式）** | **2**：`initial-letter`、`font-size-adjust` |
+| **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
+| 本文覆盖的属性条目 | **142**（96 + 2 + 44） |
 | `tool/css_parity/cases/` | 73 个用例 |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
-三个仍然成立的判断：
+两个仍然成立的判断：
 
 1. **未知属性是「静默接受」而非拒绝。** `Cascade._consider`（`cascade.dart:548-570`）按属性名把任意 `property: value` 存进 `winners`，`ComputedStyle` 只类型化认识的那批，其余留在 `values` map 无人读取。「支持 132 个属性名」仍是假象。
-2. **真正的风险是「有字段却没消费」**——它在 `values` dump、`layoutFingerprint`、`parity_dump_test` 里都看起来有值。本轮已把这类从 9 条压到 3 条（第 3.3 章）；剩下的 3 条要显式决策「补消费还是删字段」。
-3. **别名层伪支持**：`line-break` 有私有别名但目标零消费（第 6 章）；`text-combine-upright` 已在本轮接通（縦中横）。`hyphens`/`text-orientation`/`writing-mode` 已接通。
+2. **真正的风险是「有字段却没消费」**——它在 `values` dump、`layoutFingerprint`、`parity_dump_test` 里都看起来有值。本轮已把这类从 9 条压到 2 条（第 3.3 章）；剩下的 2 条要显式决策「补消费还是删字段」。
+
+别名层伪支持已清零：`line-break`、`text-combine-upright`、`hyphens`、`text-orientation`、`writing-mode` 均有真实消费点。
 
 行号快照：`2026-10-27 05:42 CST`，`HEAD 31ca095` + 工作树。**审计期间 `computed_style.dart`、`line_breaker.dart`、`paginator.dart`、`page_renderer.dart` 仍在被并发修改**（写作时 `computed_style.dart` 从 5363 行涨到 5487 行），行号会漂移；每行都附函数锚点，定位用附录 B 的脚本，别只信数字。
 
@@ -239,6 +240,7 @@
 | 93 | `duokan-bleed` / `-duokan-bleed` | cs:1584 附近（`_parseBleed` cs:4280） | ecs:2834、2918 | 完整 | 多看私有扩展 |
 | 94 | 逻辑属性（`margin/padding/inset/border` × `inline/block` × `start/end`） | `alias:143` `logicalPhysicalMap` | 级联 `cas:158/222`；盒边 `cs:1345` 附近 | 完整 ★ | 按 writing-mode + direction 映射 |
 | 95 | `font-stretch` | cs:1324（`_parseFontStretch` cs:4011） | lb:3260（`fontVariations` 的 `wdth` 轴） | 完整 ★ | 可变字体按百分比映射；静态字体忽略 |
+| 96 | `quotes` | cs:1341（`_parseQuotes` cs:4028） | `ecs:2700`（`quotePairAt`）、`ecs:4716`（`q` 嵌套）、`ecs:1132`（`content: open-quote/close-quote`） | 完整 ★ | 支持 `none`/`auto`/显式配对，`q` 与生成内容共用嵌套层级 |
 
 ### 3.2 B 组汇总：26 条「部分」
 
@@ -252,17 +254,16 @@
 | 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
 | 绘制近似 | `background-image`(31)、`background-clip`(37)、`transform`(76) | 多背景不支持、`clip:text` 降级、无 3D |
 
-### 3.3 C 组：有字段但零消费（占位式，3 条）
+### 3.3 C 组：有字段但零消费（占位式，2 条）
 
 判定：字段存在，且除 `lib/css/` 外全库检索该字段名 0 命中。
 
 | # | 属性 | 解析位置 | 字段 | 消费位置 |
 | ---: | --- | --- | --- | --- |
-| 96 | `initial-letter` | cs:1234（`_parseInitialLetter` cs:4718） | `ComputedStyle.initialLetterLines` | **无**（除 css/ 外 0 命中）；`ecs` 已有 `_firstLetterRun` 可复用 |
-| 97 | `quotes` | cs:1341（`_parseQuotes` cs:4028） | `ComputedStyle.quotes`（`CssQuotes*` 三态） | **无**；`q` 元素与 `content: open-quote` 仍不出引号 |
+| 97 | `initial-letter` | cs:1234（`_parseInitialLetter` cs:4718） | `ComputedStyle.initialLetterLines` | **无**（除 css/ 外 0 命中）；`ecs` 已有 `_firstLetterRun` 可复用 |
 | 98 | `font-size-adjust` | cs:1332 | `ComputedStyle.fontSizeAdjust` | **无**；x-height 补偿不生效 |
 
-处置建议：3 项都有明确语义、字段齐备，属「差一个消费点」。要么补消费（`quotes`→`q`/`content`、`font-size-adjust`→字号补偿），要么删字段。**继续留着是最坏选项**——它们在审查和 dump 里都看起来「有值」。
+处置建议：2 项都有明确语义、字段齐备，属「差一个消费点」。要么补消费（`font-size-adjust`→字号补偿），要么删字段。**继续留着是最坏选项**——它们在审查和 dump 里都看起来「有值」。
 
 ### 3.4 D 组：无字段、值被静默丢弃（44 条）
 
@@ -358,7 +359,7 @@
 
 ---
 
-## 5. Top 20 待修（按影响 × 频率）
+## 5. Top 19 待修（按影响 × 频率）
 
 排序口径：**影响面**（P0 整类失真 / P1 明显偏差 / P2 局部）× 语料证据 × 成本（S ≤1 天 / M 2-3 天 / L ≥1 周）。
 
@@ -379,13 +380,12 @@
 | 13 | `border-radius` 椭圆（`a / b`）与百分比 | P1 | `cs:2890` 只取 `/` 前半段；560 次 / 6 本 | M | `computed_style.dart` + `page_renderer.dart`（RRect 需四角双半径） |
 | 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
 | 15 | `display: flex` + `justify-content`/`align-items` | P2 | `bf:528` 无 flex 分支；221/5 + 14/4 + 13/3 | L | `block_flow.dart`（新增 flex 分派） |
-| 16 | `quotes` 无消费 | P2 | `cs:1341` 字段在、0 消费；`q` 元素不出引号 | S | `epub_chapter_source.dart`（`q` 内容）或删字段 |
-| 17 | `initial-letter` 无消费（首字下沉） | P2 | `cs:1234` 字段在、0 消费；`ecs` 已有 `_firstLetterRun` | M | `line_breaker.dart`（首行行盒）+ `epub_chapter_source.dart` |
-| 18 | `font-size-adjust` 无消费 | P2 | `cs:1332` 字段在、0 消费 | S | `line_breaker.dart`（字号补偿）或删字段 |
-| 19 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |
-| 20 | `orphans` / `widows` 孤行控制 | — | 明确不做：电子书排版不考虑孤行/寡行（产品决策） | — | — |
+| 16 | `initial-letter` 无消费（首字下沉） | P2 | `cs:1234` 字段在、0 消费；`ecs` 已有 `_firstLetterRun` | M | `line_breaker.dart`（首行行盒）+ `epub_chapter_source.dart` |
+| 17 | `font-size-adjust` 无消费 | P2 | `cs:1332` 字段在、0 消费 | S | `line_breaker.dart`（字号补偿）或删字段 |
+| 18 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |
+| 19 | `orphans` / `widows` 孤行控制 | — | 明确不做：电子书排版不考虑孤行/寡行（产品决策） | — | — |
 
-候补（低成本、可与上面合并）：`z-index`（4/2 本，与绝对定位同批）；`unicode-bidi`/`bdo`（UA 表已有规则、无消费）；`line-break`（别名已接、目标零消费）；`text-combine-upright`（竖排縦中横，与 #6 同批）。
+候补（低成本）：`unicode-bidi`/`bdo` 的文本重排；其余 D 组属性按第 9 章分类保持现状。
 
 ---
 
@@ -406,9 +406,9 @@
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **66 个用例**（`01`–`67`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **73 个用例**（编号 `01`–`74`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
-| Top 20 | 现有用例 | 覆盖判断 |
+| Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
 | #1 hyphens 词典 | `20-hyphens-quotes`、`62-word-wrap-content` | 已覆盖（差异即词典缺失） |
 | #2 word-wrap/autospace | `62`、`56-cjk-spacing` | 部分 |
@@ -425,11 +425,11 @@
 | #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值；`a / b` 缺 |
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
 | #15 flex | **无**（`53-display-position` 只覆盖 display/position） | 建议新增 `72-flex-basic.json` |
-| #16–18 quotes / initial-letter / font-stretch | `20`（quotes 在内）、`45-initial-letter`、`15-font-variant-stretch` | 已覆盖 |
-| #19 sticky | `53-display-position` | 已覆盖 |
-| #20 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
+| #16–17 initial-letter / font-size-adjust | `45-initial-letter`；`font-size-adjust` 尚无对照用例 | 部分 |
+| #18 sticky | `53-display-position` | 已覆盖 |
+| #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
-**真正还缺的用例只有 6 个**：竖排 ruby、object-fit、border-image、background-attachment、flex、orphans/widows（外加 `counter-*`、`a / b` 椭圆半径两个补充断言）。
+**当前还缺的对照面**：竖排 ruby、`flex`、`background-attachment`、`counter-*`、`a / b` 椭圆半径；`border-image` 需要图片资源，已由单测覆盖。
 
 ---
 
@@ -461,7 +461,7 @@ PY
 
 ```bash
 cd <repo>
-for f in initialLetterLines quotes fontStretch fontSizeAdjust; do
+for f in initialLetterLines fontSizeAdjust; do
   n=$(grep -rn "\.$f\b" packages/reader_core/lib apps --include=*.dart \
       | grep -v "lib/css/computed_style.dart" | grep -v "/test/" | wc -l | tr -d ' ')
   echo "$f = $n"   # 0 = 占位式
@@ -512,12 +512,12 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
-| 已实现并接入绘制/布局 | 108 | 审计 A 组全量（含新增：`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`、`outline`；`orphans`/`widows` 为产品决策不做） |
-| 有字段、绘制层通过等价路径消费 | 15 | 审计 C 组全量（如 `direction`→`isRtl`、`vertical-align` 长度） |
+| 已实现并接入绘制/布局 | 108 | 含 `quotes`、`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`、`object-fit`、`outline`；部分条目仍有第 9 章列出的已知差异 |
+| 有字段但尚未消费 | 2 | `initial-letter`、`font-size-adjust`；需补消费或删除字段 |
 | 明确不需要（阅读器无交互面） | 11 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
 | 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
-| 仍未实现 | 0 | 本轮补完最后三项：`tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
+| 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
 **覆盖率口径**：`tool/css_parity/cases` 声明的属性 132/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
@@ -527,6 +527,6 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 只用于半透明装饰框。
 
 **验证入口**：
-- 逐属性对照：`bash tool/css_parity/run.sh`（69 用例 / 60 项失配 / 9 用例，全部为「已知差异」类）
+- 逐属性对照：`bash tool/css_parity/run.sh`（73 用例 / 几何与样式失配 0 / 未配对 7 项；本轮抽查 `17`、`18`、`41`、`42`、`43`、`55`，未见新的盒模型或样式错误）
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
 - 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）

@@ -2,8 +2,7 @@
 """生成 CSS 属性覆盖矩阵（属性 × 用例）。
 
 数据源：
-1. docs/css-property-audit.md：116 条属性审计（A 组=解析且消费 69 条、
-   C 组=占位式 7 条、D 组=完全未处理 40 条）；
+1. docs/css-property-audit.md：A/C/D 三组属性审计（分组与条目数见第 3 章）；
 2. packages/reader_core/lib/css/computed_style.dart：当前取值点
    （explicitValue/fontValue/backgroundValue/dimension），用于标注审计外新增；
 3. tool/css_parity/cases/*.json：扫描 css 与 html（含内联 style）里的声明，
