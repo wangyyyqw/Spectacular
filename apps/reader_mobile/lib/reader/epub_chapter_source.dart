@@ -4885,8 +4885,13 @@ class EpubChapterSource
           blocks.addAll(inlineFloats);
         }
         if (layout.lineCount > 0) {
-          final incomingShift = pendingRelativeTop;
-          pendingRelativeTop = 0;
+          // 相对定位只抵扣下一个常规流块；绝对/固定定位和浮动不占流，
+          // 不能在中途吞掉抵扣，否则其后的正文会整体多下移一次。
+          final inFlow = !isOutOfFlow && floatSide == null;
+          final incomingShift = inFlow ? pendingRelativeTop : 0.0;
+          if (inFlow) {
+            pendingRelativeTop = 0;
+          }
           // 注意：段前距允许为负（作者负 margin 与上段段后距折叠后的结果），
           // 这里不能 clamp 到 0，否则 P8-05 的负 margin 失效。
           final spaceBefore =

@@ -34,7 +34,9 @@ void main() {
       if (slice.block.layout.text.startsWith(textPrefix)) {
         return (flowTop: flow, leading: slice.leadingExtent);
       }
-      flow += slice.height;
+      if (!slice.overlay) {
+        flow += slice.height;
+      }
     }
     throw StateError('找不到块 $textPrefix');
   }
@@ -98,5 +100,32 @@ void main() {
       (slice) => slice.block.layout.text.startsWith('相对定位'),
     );
     expect(rel.leftInset, 0);
+  });
+
+  test('相对定位后的绝对定位块不吞掉后续段前抵扣', () async {
+    final plain = await slicesOf('');
+    final shiftedSource = await openCssChapter(
+      body: '<p class="before">前一段</p>'
+          '<p class="rel">相对定位的段落，用来观察视觉偏移。</p>'
+          '<div class="abs">绝对定位</div>'
+          '<p class="after">后一段</p>',
+      css: '''
+        p { margin: 6px 0; line-height: 1.5; }
+        .rel { position: relative; top: 6px; }
+        .abs { position: absolute; top: 20px; left: 20px; }
+      ''',
+      contentWidth: 320,
+      contentHeight: 700,
+    );
+    final shifted = [
+      for (final page in await shiftedSource.loadChapter(0)) ...page.slices,
+    ];
+    final expected = flowOf(plain, '后一段');
+    final actual = flowOf(shifted, '后一段');
+    expect(
+      actual.flowTop + actual.leading,
+      closeTo(expected.flowTop + expected.leading, 0.01),
+      reason: '相对定位偏移不占流，绝对定位块也不影响后续流位置',
+    );
   });
 }
