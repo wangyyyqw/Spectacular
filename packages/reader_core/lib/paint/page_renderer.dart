@@ -406,30 +406,57 @@ class PagePainter {
     final borders = geometry.style.borders;
     final box = geometry.borderBox;
     final strokeBox = box.inflate(extra);
+    final radii = borders.radiiFor(box.size);
+    Radius grow(Radius radius) => Radius.elliptical(
+      math.max(0, radius.x + extra),
+      math.max(0, radius.y + extra),
+    );
+    final strokeRRect = RRect.fromRectAndCorners(
+      strokeBox,
+      topLeft: grow(radii.topLeft),
+      topRight: grow(radii.topRight),
+      bottomRight: grow(radii.bottomRight),
+      bottomLeft: grow(radii.bottomLeft),
+    );
     final side = CssBorderSide(
       width: outline.width,
       style: outline.style,
       color: outline.color,
     );
     if (outline.style == CssBorderStyle.solid) {
-      final radii = borders.radiiFor(box.size);
-      Radius grow(Radius radius) => Radius.elliptical(
-        math.max(0, radius.x + extra),
-        math.max(0, radius.y + extra),
-      );
       canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          strokeBox,
-          topLeft: grow(radii.topLeft),
-          topRight: grow(radii.topRight),
-          bottomRight: grow(radii.bottomRight),
-          bottomLeft: grow(radii.bottomLeft),
-        ),
+        strokeRRect,
         Paint()
           ..color = outline.color
           ..style = PaintingStyle.stroke
           ..strokeWidth = outline.width,
       );
+      return;
+    }
+    final rounded =
+        radii.topLeft.x > 0 ||
+        radii.topRight.x > 0 ||
+        radii.bottomRight.x > 0 ||
+        radii.bottomLeft.x > 0;
+    if (rounded &&
+        (outline.style == CssBorderStyle.dashed ||
+            outline.style == CssBorderStyle.dotted)) {
+      final paint = Paint()
+        ..color = outline.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = outline.width
+        ..strokeCap = StrokeCap.butt;
+      final dash = outline.style == CssBorderStyle.dotted
+          ? outline.width
+          : outline.width < 3
+          ? outline.width * 3
+          : outline.width * 2;
+      final gap = outline.style == CssBorderStyle.dotted
+          ? outline.width
+          : outline.width < 3
+          ? outline.width * 2
+          : outline.width;
+      _paintPathDashes(canvas, Path()..addRRect(strokeRRect), paint, dash, gap);
       return;
     }
     _paintSide(
@@ -3195,6 +3222,27 @@ class PagePainter {
         paint,
       );
       position = segmentEnd + gap;
+    }
+  }
+
+  /// 沿圆角路径画虚线/点线；直边仍由 [_paintDashes] 保持 Chromium 的逐边相位。
+  void _paintPathDashes(
+    Canvas canvas,
+    ui.Path path,
+    Paint paint,
+    double dash,
+    double gap,
+  ) {
+    if (dash <= 0) {
+      return;
+    }
+    for (final metric in path.computeMetrics()) {
+      var position = 0.0;
+      while (position < metric.length) {
+        final end = math.min(position + dash, metric.length);
+        canvas.drawPath(metric.extractPath(position, end), paint);
+        position = end + gap;
+      }
     }
   }
 
