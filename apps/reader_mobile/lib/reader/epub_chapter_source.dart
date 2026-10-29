@@ -17,6 +17,7 @@ import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/layout/block_flow.dart' show collapseMargins;
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
@@ -1527,6 +1528,12 @@ class EpubChapterSource
     final style = container.style;
     final top = style.padding.top + style.borders.top.width;
     final bottom = style.padding.bottom + style.borders.bottom.width;
+    // 无上边框/内边距的块容器与首个在流子块发生外边距折叠：父、子 margin
+    // 取较大者，而不是相加。保留在 spaceBefore 上还能继续与外层折叠。
+    final containerCollapses =
+        paragraphSpacing == null && _containerCollapsesMargins(style);
+    final collapseTop = top == 0 && containerCollapses;
+    final collapseBottom = bottom == 0 && containerCollapses;
     for (var i = start; i < blocks.length; i++) {
       final block = blocks[i];
       final first = i == start;
@@ -1535,12 +1542,28 @@ class EpubChapterSource
         breakAfterAvoid:
             block.breakAfterAvoid ||
             (first && !last && _isContainerHeading(block)),
+        spaceBefore: first && collapseTop
+            ? collapseMargins(style.margin.top, block.spaceBefore)
+            : block.spaceBefore,
+        spaceAfter: last && collapseBottom
+            ? collapseMargins(block.spaceAfter, style.margin.bottom)
+            : block.spaceAfter,
         topInset:
             block.topInset +
-            (first ? top + (paragraphSpacing ?? style.margin.top) : 0),
+            (first
+                ? top +
+                      (collapseTop
+                          ? 0
+                          : (paragraphSpacing ?? style.margin.top))
+                : 0),
         bottomInset:
             block.bottomInset +
-            (last ? bottom + (paragraphSpacing ?? style.margin.bottom) : 0),
+            (last
+                ? bottom +
+                      (collapseBottom
+                          ? 0
+                          : (paragraphSpacing ?? style.margin.bottom))
+                : 0),
         containers: [
           PageContainerFragment(
             container: container,
@@ -1553,6 +1576,21 @@ class EpubChapterSource
         ],
       );
     }
+  }
+
+  /// 容器是否可与首个/末个在流子块折叠上下外边距。
+  ///
+  /// 建立独立块格式化上下文的盒子（浮动、定位、非 visible overflow、
+  /// inline-block/table/flex 等）不折叠；普通 block/list-item 才折叠。
+  static bool _containerCollapsesMargins(ComputedStyle style) {
+    final blockLevel =
+        style.display == CssDisplay.block ||
+        style.display == CssDisplay.listItem;
+    return blockLevel &&
+        style.cssFloat == CssFloat.none &&
+        style.position != CssPosition.absolute &&
+        style.position != CssPosition.fixed &&
+        style.overflow == CssOverflow.visible;
   }
 
   /// 祖先传导的盒类近似属性：flat 无嵌套盒子，容器面板（背景/左右
@@ -2709,6 +2747,69 @@ class EpubChapterSource
       }
     }
 
+    /// 伪元素没有进入 ComputedStyle 的属性（content/counter-*）按同一套
+    /// 级联优先级取胜者：!important > 特异性 > 出现顺序，并过滤 @media。
+    Map<String, CssDeclaration> winningPseudoDeclarations(
+      List<SelectorElement> ancestors,
+      String pseudo,
+    ) {
+      if (ancestors.isEmpty) {
+        return const <String, CssDeclaration>{};
+      }
+      final element = ancestors.last;
+      final parents = ancestors.sublist(0, ancestors.length - 1);
+      final winners =
+          <
+            String,
+            ({
+              CssDeclaration declaration,
+              int important,
+              Specificity specificity,
+              int order,
+            })
+          >{};
+      for (final (order, rule)
+          in (pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]).indexed) {
+        final media = rule.media;
+        if (media != null && !Cascade.mediaMatches(media, contentWidth)) {
+          continue;
+        }
+        Specificity? matched;
+        for (final selector in rule.selectors.selectors) {
+          if (!selector.matches(element, parents)) {
+            continue;
+          }
+          if (matched == null || selector.specificity.compareTo(matched) > 0) {
+            matched = selector.specificity;
+          }
+        }
+        if (matched == null) {
+          continue;
+        }
+        for (final declaration in rule.declarations) {
+          final important = declaration.important ? 1 : 0;
+          final current = winners[declaration.property];
+          if (current != null &&
+              (important < current.important ||
+                  (important == current.important &&
+                      (matched.compareTo(current.specificity) < 0 ||
+                          (matched == current.specificity &&
+                              order < current.order))))) {
+            continue;
+          }
+          winners[declaration.property] = (
+            declaration: declaration,
+            important: important,
+            specificity: matched,
+            order: order,
+          );
+        }
+      }
+      return {
+        for (final entry in winners.entries) entry.key: entry.value.declaration,
+      };
+    }
+
     /// 生成内容求值：字符串 / attr() / counter() / open-quote 等可拼接。
     String? pseudoContentOf(
       List<SelectorElement> ancestors,
@@ -2719,40 +2820,29 @@ class EpubChapterSource
       if (ancestors.isEmpty) {
         return null;
       }
-      final element = ancestors.last;
-      final parents = ancestors.sublist(0, ancestors.length - 1);
-      for (final rule in pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]) {
-        if (!rule.selectors.selectors.any(
-          (selector) => selector.matches(element, parents),
-        )) {
-          continue;
-        }
-        for (final declaration in rule.declarations) {
-          if (declaration.property != 'content') {
-            continue;
-          }
-          final value = declaration.value.trim();
-          if (value == 'normal' || value == 'none') {
-            return null;
-          }
-          // 伪元素规则里的计数器声明先生效（见 applyCounterMap 注释）。
-          applyCounterMap(<String, String>{
-            for (final d in rule.declarations)
-              if (d.property == 'counter-reset' ||
-                  d.property == 'counter-increment')
-                d.property: d.value,
-          });
-          return _evaluateContentValue(
-            value,
-            ancestors: ancestors,
-            quotes: quotes,
-            quoteDepth: quoteDepth,
-            counterValue: (name, style) =>
-                formatCounter(cssCounters[name] ?? 0, style),
-          );
-        }
+      final declarations = winningPseudoDeclarations(ancestors, pseudo);
+      final content = declarations['content'];
+      if (content == null) {
+        return null;
       }
-      return null;
+      final value = content.value.trim();
+      if (value == 'normal' || value == 'none') {
+        return null;
+      }
+      // 伪元素规则里的计数器声明先生效（见 applyCounterMap 注释）。
+      applyCounterMap(<String, String>{
+        for (final entry in declarations.entries)
+          if (entry.key == 'counter-reset' || entry.key == 'counter-increment')
+            entry.key: entry.value.value,
+      });
+      return _evaluateContentValue(
+        value,
+        ancestors: ancestors,
+        quotes: quotes,
+        quoteDepth: quoteDepth,
+        counterValue: (name, style) =>
+            formatCounter(cssCounters[name] ?? 0, style),
+      );
     }
 
     final cascadeRules = <CascadeRule>[

@@ -97,6 +97,28 @@ const collectScript = `(() => {
       return '';
     }
   };
+  const pseudoHasContent = (el, which) => {
+    const content = getComputedStyle(el, which).content;
+    return Boolean(content && content !== 'none' && content !== 'normal');
+  };
+  // counter()/attr() 的计算值仍保留函数源码，无法直接得到生成文本。
+  // 起始对齐时，正文首字的 x 已经包含 ::before 宽度，用元素内容左缘
+  // 反推生成段宽，并把首行扩展到包含它，避免与引擎多算一份前缀。
+  const prependPseudoFromLayout = (el, first) => {
+    const style = getComputedStyle(el);
+    const align = style.textAlign;
+    if (!['start', 'left', 'justify'].includes(align) || style.direction !== 'ltr') {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    const contentLeft =
+      rect.x + (parseFloat(style.borderLeftWidth) || 0) +
+      (parseFloat(style.paddingLeft) || 0);
+    if (!Number.isFinite(contentLeft) || first.x <= contentLeft + 0.01) return false;
+    first.w += first.x - contentLeft;
+    first.x = contentLeft;
+    return true;
+  };
   let pseudoProbeId = 0;
   const pseudoWidth = (el, which, text) => {
     if (!text) return 0;
@@ -160,6 +182,14 @@ const collectScript = `(() => {
     while ((node = walker.nextNode())) {
       if (!node.textContent.trim()) continue;
       if (!ownText(node, el)) continue;
+      // ruby 注音是独立的上/下注释盒，不属于主文本行；若混入段落
+      // 行矩形，会让引擎（只导出基字文本）与浏览器凭空错位。
+      let annotation = node.parentElement;
+      while (annotation && annotation !== el &&
+          !['RT', 'RP'].includes(annotation.tagName)) {
+        annotation = annotation.parentElement;
+      }
+      if (annotation && annotation !== el) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
       const ascent = inkAscent(node);
@@ -190,12 +220,14 @@ const collectScript = `(() => {
         '::before',
         pseudoText(el, '::before').replace(/^\s+/, ''),
       );
+      const first = raw.reduce((best, item) =>
+        item.y < best.y || (item.y === best.y && item.x < best.x)
+          ? item : best);
       if (beforeWidth > 0) {
-        const first = raw.reduce((best, item) =>
-          item.y < best.y || (item.y === best.y && item.x < best.x)
-            ? item : best);
         first.x -= beforeWidth;
         first.w += beforeWidth;
+      } else if (pseudoHasContent(el, '::before')) {
+        prependPseudoFromLayout(el, first);
       }
       const afterWidth = pseudoWidth(
         el,
@@ -222,6 +254,13 @@ const collectScript = `(() => {
     'inline-table', 'contents', 'none']);
   const blockChild = (el) => Array.from(el.children).some(
     (child) => !inlineish.has(getComputedStyle(child).display));
+  const semanticText = (el) => {
+    const clone = el.cloneNode(true);
+    for (const annotation of clone.querySelectorAll('rt,rp')) {
+      annotation.remove();
+    }
+    return clone.textContent || '';
+  };
   const pick = (el) => {
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
@@ -235,7 +274,7 @@ const collectScript = `(() => {
       directText,
       container: directText.length === 0 && blockChild(el),
       cls: el.className || '',
-      text: (el.textContent || '').slice(0, 400),
+      text: semanticText(el).slice(0, 400),
       rect: { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2) },
       style: {
         fontSize: cs.fontSize,
@@ -336,7 +375,9 @@ const collectScript = `(() => {
   return {
     viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
     documentHeight: document.documentElement.scrollHeight,
-    elements: Array.from(document.body.querySelectorAll('*')).map(pick),
+    elements: Array.from(document.body.querySelectorAll('*'))
+      .filter((el) => !['rt', 'rp'].includes(el.tagName.toLowerCase()))
+      .map(pick),
     cells: Array.from(document.querySelectorAll('td,th')).map(pickCell),
     body: pick(document.body),
   };
