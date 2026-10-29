@@ -360,5 +360,5 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 Release APK 已在上述修复后重新构建并移至下载目录：
 `/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
 大小 88,724,656 字节（约 84.6 MiB），SHA-256
-`d239a3f8d9c911e8a840afd4ed82f23b3125d26c569d6b29a244b32d5284dc4f`；
+`b606f0fc67ef23cd8836208aef829cfe90de3985055646afcdbc989d3d2d441f`；
 包名 `com.spectacular.reader_mobile`，版本 `1.0.0+1`。
