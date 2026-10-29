@@ -3255,6 +3255,11 @@ abstract final class TextLayoutEngine {
     // 小型大写（`font-variant-caps`）：CSS 的 caps 族映射到 OpenType 特性，
     // 测量与绘制共用本方法，因此宽度与字形两端一致；字体缺特性时不生效。
     fontFeatures: _fontFeatures(style),
+    // CSS `font-stretch` 直接映射可变字体的宽度轴。静态字体没有 `wdth`
+    // 轴时 Flutter 会忽略该设置；浏览器同样不会对静态字体做几何拉伸。
+    fontVariations: style.fontStretch == 100
+        ? null
+        : <FontVariation>[FontVariation('wdth', style.fontStretch)],
     fontWeight: _fontWeight(style.fontWeight),
     fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
     // 别名映射（P3-03）：宋体/黑体/楷体等中文族名与 serif/sans-serif

@@ -260,6 +260,7 @@ const collectScript = `(() => {
         textDecorationOverline: cs.textDecorationLine.includes('overline'),
         fontWeight: cs.fontWeight,
         fontStyle: cs.fontStyle,
+        fontStretch: cs.fontStretch,
         display: cs.display,
         verticalAlign: cs.verticalAlign,
         listStyleType: cs.listStyleType,

@@ -389,6 +389,7 @@ STYLE_KEYS = (
     ('wordSpacing', 'wordSpacing', 'number'),
     ('textIndent', 'textIndent', 'number'),
     ('fontWeight', 'fontWeight', 'number'),
+    ('fontStretch', 'fontStretch', 'percent'),
     ('textAlign', 'textAlign', 'enum'),
     ('whiteSpace', 'whiteSpace', 'enum'),
     ('textTransform', 'textTransform', 'enum'),
@@ -442,6 +443,10 @@ def compare_style(browser_style, engine_style):
                 equal = str(left) == str(right)
             else:
                 equal = abs(a - b) <= STYLE_EPS
+        elif kind == 'percent':
+            a = norm_number(str(left).strip().removesuffix('%'))
+            b = norm_number(str(right).strip().removesuffix('%'))
+            equal = a is not None and b is not None and abs(a - b) <= STYLE_EPS
         else:
             equal = norm_enum(left) == norm_enum(right)
         if not equal:

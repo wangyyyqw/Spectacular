@@ -12,7 +12,7 @@
 | 语料中出现的不同属性名 | 132 |
 | `ComputedStyle` 类型化字段 | 92 |
 | **有字段且真正参与布局/绘制** | **95 条属性**（69 完整 + 26 部分） |
-| **有字段但零消费（占位式）** | **4**：`initial-letter`、`quotes`、`font-stretch`、`font-size-adjust` |
+| **有字段但零消费（占位式）** | **3**：`initial-letter`、`quotes`、`font-size-adjust` |
 | **无字段、值进 `values` 后被静默丢弃** | **变体统计**（`border-image`、`z-index`、`line-break`、`quotes` 已接入、`background-attachment` 等价降级、`object-fit` 已映射、`counter-*` 已在章节源生效） |
 | 本文覆盖的属性条目 | **142**（95 + 4 + 43） |
 | `tool/css_parity/cases/` | 73 个用例 |
@@ -22,7 +22,7 @@
 三个仍然成立的判断：
 
 1. **未知属性是「静默接受」而非拒绝。** `Cascade._consider`（`cascade.dart:548-570`）按属性名把任意 `property: value` 存进 `winners`，`ComputedStyle` 只类型化认识的那批，其余留在 `values` map 无人读取。「支持 132 个属性名」仍是假象。
-2. **真正的风险是「有字段却没消费」**——它在 `values` dump、`layoutFingerprint`、`parity_dump_test` 里都看起来有值。本轮已把这类从 9 条压到 4 条（第 3.3 章）；剩下的 4 条要显式决策「补消费还是删字段」。
+2. **真正的风险是「有字段却没消费」**——它在 `values` dump、`layoutFingerprint`、`parity_dump_test` 里都看起来有值。本轮已把这类从 9 条压到 3 条（第 3.3 章）；剩下的 3 条要显式决策「补消费还是删字段」。
 3. **别名层伪支持**：`line-break` 有私有别名但目标零消费（第 6 章）；`text-combine-upright` 已在本轮接通（縦中横）。`hyphens`/`text-orientation`/`writing-mode` 已接通。
 
 行号快照：`2026-10-27 05:42 CST`，`HEAD 31ca095` + 工作树。**审计期间 `computed_style.dart`、`line_breaker.dart`、`paginator.dart`、`page_renderer.dart` 仍在被并发修改**（写作时 `computed_style.dart` 从 5363 行涨到 5487 行），行号会漂移；每行都附函数锚点，定位用附录 B 的脚本，别只信数字。
@@ -140,7 +140,7 @@
 
 行号缩写：`cs` = `packages/reader_core/lib/css/computed_style.dart`，`cas` = `cascade.dart`，`ua` = `ua_stylesheet.dart`，`alias` = `property_aliases.dart`，`lb` = `layout/line_breaker.dart`，`bf` = `layout/block_flow.dart`，`bm` = `layout/box_model.dart`，`pg` = `layout/paginator.dart`，`pr` = `paint/page_renderer.dart`，`ecs` = `apps/reader_mobile/lib/reader/epub_chapter_source.dart`。
 
-### 3.1 A 组：有字段且真正参与布局/绘制（94 条）
+### 3.1 A 组：有字段且真正参与布局/绘制（95 条）
 
 | # | 属性 | 解析位置 | 消费位置 | 判定 | 缺失 / 备注 |
 | ---: | --- | --- | --- | --- | --- |
@@ -238,6 +238,7 @@
 | 92 | `box-shadow` | cs:1253（`_parseBoxShadow` cs:4738） | pr:1081（外）、1110（内） | 完整 ★ | 跨页切片不重复投影 |
 | 93 | `duokan-bleed` / `-duokan-bleed` | cs:1584 附近（`_parseBleed` cs:4280） | ecs:2834、2918 | 完整 | 多看私有扩展 |
 | 94 | 逻辑属性（`margin/padding/inset/border` × `inline/block` × `start/end`） | `alias:143` `logicalPhysicalMap` | 级联 `cas:158/222`；盒边 `cs:1345` 附近 | 完整 ★ | 按 writing-mode + direction 映射 |
+| 95 | `font-stretch` | cs:1324（`_parseFontStretch` cs:4011） | lb:3260（`fontVariations` 的 `wdth` 轴） | 完整 ★ | 可变字体按百分比映射；静态字体忽略 |
 
 ### 3.2 B 组汇总：26 条「部分」
 
@@ -251,18 +252,17 @@
 | 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
 | 绘制近似 | `background-image`(31)、`background-clip`(37)、`transform`(76) | 多背景不支持、`clip:text` 降级、无 3D |
 
-### 3.3 C 组：有字段但零消费（占位式，4 条）
+### 3.3 C 组：有字段但零消费（占位式，3 条）
 
 判定：字段存在，且除 `lib/css/` 外全库检索该字段名 0 命中。
 
 | # | 属性 | 解析位置 | 字段 | 消费位置 |
 | ---: | --- | --- | --- | --- |
-| 95 | `initial-letter` | cs:1234（`_parseInitialLetter` cs:4718） | `ComputedStyle.initialLetterLines` | **无**（除 css/ 外 0 命中）；`ecs` 已有 `_firstLetterRun` 可复用 |
-| 96 | `quotes` | cs:1341（`_parseQuotes` cs:4028） | `ComputedStyle.quotes`（`CssQuotes*` 三态） | **无**；`q` 元素与 `content: open-quote` 仍不出引号 |
-| 97 | `font-stretch` | cs:1324（`_parseFontStretch` cs:4011） | `ComputedStyle.fontStretch` | **无**；不映射 `wdth` 轴，缩窄字体不生效 |
+| 96 | `initial-letter` | cs:1234（`_parseInitialLetter` cs:4718） | `ComputedStyle.initialLetterLines` | **无**（除 css/ 外 0 命中）；`ecs` 已有 `_firstLetterRun` 可复用 |
+| 97 | `quotes` | cs:1341（`_parseQuotes` cs:4028） | `ComputedStyle.quotes`（`CssQuotes*` 三态） | **无**；`q` 元素与 `content: open-quote` 仍不出引号 |
 | 98 | `font-size-adjust` | cs:1332 | `ComputedStyle.fontSizeAdjust` | **无**；x-height 补偿不生效 |
 
-处置建议：4 项都有明确语义、字段齐备，属「差一个消费点」。要么补消费（`quotes`→`q`/`content`，`font-stretch`→`TextStyle.fontVariations`），要么删字段。**继续留着是最坏选项**——它们在审查和 dump 里都看起来「有值」。
+处置建议：3 项都有明确语义、字段齐备，属「差一个消费点」。要么补消费（`quotes`→`q`/`content`、`font-size-adjust`→字号补偿），要么删字段。**继续留着是最坏选项**——它们在审查和 dump 里都看起来「有值」。
 
 ### 3.4 D 组：无字段、值被静默丢弃（44 条）
 
@@ -381,7 +381,7 @@
 | 15 | `display: flex` + `justify-content`/`align-items` | P2 | `bf:528` 无 flex 分支；221/5 + 14/4 + 13/3 | L | `block_flow.dart`（新增 flex 分派） |
 | 16 | `quotes` 无消费 | P2 | `cs:1341` 字段在、0 消费；`q` 元素不出引号 | S | `epub_chapter_source.dart`（`q` 内容）或删字段 |
 | 17 | `initial-letter` 无消费（首字下沉） | P2 | `cs:1234` 字段在、0 消费；`ecs` 已有 `_firstLetterRun` | M | `line_breaker.dart`（首行行盒）+ `epub_chapter_source.dart` |
-| 18 | `font-stretch` / `font-size-adjust` 无消费 | P2 | `cs:1324`/`cs:1332` 字段在、0 消费 | S | `line_breaker.dart`（`TextStyle.fontVariations`）或删字段 |
+| 18 | `font-size-adjust` 无消费 | P2 | `cs:1332` 字段在、0 消费 | S | `line_breaker.dart`（字号补偿）或删字段 |
 | 19 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |
 | 20 | `orphans` / `widows` 孤行控制 | — | 明确不做：电子书排版不考虑孤行/寡行（产品决策） | — | — |
 
