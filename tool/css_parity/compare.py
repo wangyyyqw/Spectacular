@@ -330,6 +330,58 @@ def ellipsis_width_cap(browser_style, block):
     return None
 
 
+def overflow_clips(style):
+    """浏览器计算样式是否在两轴中的任一轴启用裁剪。"""
+    x = str(style.get('overflowX', style.get('overflow', 'visible')))
+    y = str(style.get('overflowY', x))
+    return any(
+        value.strip().lower() not in ('', 'visible', 'none')
+        for value in (x, y)
+    )
+
+
+def overflow_visible_lines(lines, rect, style):
+    """按内容盒底过滤浏览器行盒；被裁行不参与逐行比较。
+
+    浏览器会报告 overflow 容器内完整布局的全部行，即使内容盒以下已被裁剪。
+    引擎只导出实际绘制起点在盒内的行，因此这里按相同口径过滤。
+    """
+    if not overflow_clips(style):
+        return lines
+    content_bottom = (
+        (rect.get('y') or 0.0)
+        + (rect.get('h') or 0.0)
+        - box_side(style.get('padding'), 2)
+        - box_side(style.get('border'), 2)
+    )
+    return [
+        line for line in lines
+        if (line.get('y') or 0.0) < content_bottom - 0.01
+    ]
+
+
+def box_side(value, index):
+    """取 CSS 1–4 值盒模型的某一边；浏览器 computed 字符串/引擎数组都支持。"""
+    if isinstance(value, (int, float)):
+        values = [float(value)]
+    elif isinstance(value, (list, tuple)):
+        values = [float(item) for item in value]
+    else:
+        values = [
+            float(token)
+            for token in re.findall(r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)', str(value))
+        ]
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        values *= 4
+    elif len(values) == 2:
+        values = [values[0], values[1], values[0], values[1]]
+    elif len(values) == 3:
+        values = [values[0], values[1], values[2], values[1]]
+    return values[index % 4]
+
+
 STYLE_KEYS = (
     ('fontSize', 'fontSize', 'number'),
     ('lineHeight', 'lineHeight', 'number'),
@@ -343,9 +395,9 @@ STYLE_KEYS = (
     ('boxSizing', 'boxSizing', 'enum'),
     ('verticalAlign', 'verticalAlign', 'enum'),
     # T2 新导出的键（dump 与浏览器两侧同名）
-    # Chromium 把 `overflow-x: hidden` 序列化成 `hidden auto` 简写；
-    # 引擎只记录主轴 overflow，按 overflow-x 同口径比较。
-    ('overflowX', 'overflow', 'enum'),
+    # 引擎只记录单轴裁剪状态；浏览器会把另一轴从 visible 提升为 auto，
+    # 因此把两轴归一成「是否裁剪」再比较，避免 overflow-y-only 的假失配。
+    ('overflowX', 'overflow', 'overflow'),
     ('writingMode', 'writingMode', 'enum'),
     ('textOrientation', 'textOrientation', 'enum'),
     ('direction', 'direction', 'enum'),
@@ -364,7 +416,11 @@ def compare_style(browser_style, engine_style):
         right = engine_style.get(e_key)
         if left is None or right is None:
             continue
-        if kind == 'number':
+        if kind == 'overflow':
+            equal = overflow_clips(browser_style) == (
+                str(right).strip().lower() not in ('', 'visible', 'none')
+            )
+        elif kind == 'number':
             if str(left).strip().endswith('%') or str(right).strip().endswith('%'):
                 # 浏览器 computed 对部分属性保留百分比（如 text-indent:10%），
                 # 与引擎解算后的 px 不可直接比；由几何（行 x）反映。
@@ -661,8 +717,13 @@ def diff_single_page(name, browser, engine, meta):
                 # 与浏览器 getClientRects（已含变换）不可直接比。
                 transformed_blocks.append(label)
             else:
+                browser_lines = overflow_visible_lines(
+                    el.get('lines') or [],
+                    el.get('rect') or {},
+                    el.get('style') or {},
+                )
                 found.extend(compare_lines(
-                    el.get('lines') or [], block.get('lines') or [], tol,
+                    browser_lines, block.get('lines') or [], tol,
                     width_cap=width_cap,
                     use_baseline=bool(block.get('hasInlineBox')
                                       or is_vertical(block.get('style'))

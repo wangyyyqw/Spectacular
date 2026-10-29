@@ -2197,11 +2197,14 @@ class EpubChapterSource
           style: block.style ?? style,
           maxWidth: batchWidth,
         );
-        // 行数不按盒高裁剪：浏览器 overflow 默认 visible，元素矩形高是
-        // 声明盒高、但行矩形照样列出盒外内容（对照口径）。盒高只决定
-        // 流内占位高度，绘制裁剪由绘制层按 clipsContent 决定。
-        final taken = measured.lineCount;
-        final visibleHeight = measured.height;
+        // overflow: visible 保留盒外全部行；显式裁剪时保留行顶位于盒内的
+        // 行，末尾整行绘制仍由切片矩形裁掉，与浏览器部分可见行一致。
+        final taken = block.clipsContent
+            ? visibleLineCountWithinHeight(measured.lines, boxHeight)
+            : measured.lineCount;
+        final visibleHeight = measured.lines
+            .take(taken)
+            .fold(0.0, (sum, line) => sum + line.height);
         if (y > 0 && y + block.leadingExtent + boxHeight > height) {
           closePage();
         }

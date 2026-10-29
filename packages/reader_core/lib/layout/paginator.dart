@@ -81,6 +81,23 @@ class PageContainerFragment {
   final double bottomInset;
 }
 
+/// 内容盒高度内可见的行数。
+///
+/// 行顶落在内容盒内时，即使整行放不下也会画出可见部分；下一行从盒底或
+/// 盒底以下开始时才裁掉。至少保留 1 行，避免零高盒死循环。
+int visibleLineCountWithinHeight(List<LineBox> lines, double boxHeight) {
+  var used = 0.0;
+  var count = 0;
+  for (final line in lines) {
+    if (used >= boxHeight + 0.5 && count > 0) {
+      break;
+    }
+    used += line.height;
+    count += 1;
+  }
+  return count;
+}
+
 /// 一个待分页的文本块。
 class PageBlock {
   /// 创建块。
@@ -811,20 +828,6 @@ class Paginator {
       extent += line.height;
     }
     return extent;
-  }
-
-  /// 盒高内可见的行数：从首行起累加，超过盒高即停（至少 1 行，避免死循环）。
-  static int _visibleLineCount(List<LineBox> lines, double boxHeight) {
-    var used = 0.0;
-    var count = 0;
-    for (final line in lines) {
-      if (used + line.height > boxHeight + 0.5 && count > 0) {
-        break;
-      }
-      used += line.height;
-      count += 1;
-    }
-    return count;
   }
 
   /// 组 [groupId] 自 [index] 起的连续成员总占高（leading+height+trailing）。
@@ -1760,7 +1763,7 @@ class Paginator {
       final lineTotal = _lineExtent(lines);
       final clipped = block.clipsContent && lineTotal > boxHeight + tolerance;
       final lineLimit = clipped
-          ? _visibleLineCount(lines, boxHeight)
+          ? visibleLineCountWithinHeight(lines, boxHeight)
           : lines.length;
 
       // 盒能整块放进当前页：单切片按盒子高度占位（不按行高之和），声明
@@ -1877,7 +1880,7 @@ class Paginator {
   }
 }
 
-  /// 异步增量分页：每产出一页就让出事件循环，并响应取消。
+/// 异步增量分页：每产出一页就让出事件循环，并响应取消。
 extension PaginatorStreaming on Paginator {
   /// 逐页产出本章内容。
   Stream<PageContent> paginate({

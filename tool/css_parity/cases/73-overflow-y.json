@@ -1,0 +1,8 @@
+{
+  "name": "73-overflow-y",
+  "tags": [
+    "overflow-y"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 16px; } p { margin: 8px 0; } .clip { width: 210px; height: 44px; padding: 5px; border: 3px solid #3366cc; background: #e8f1ff; overflow-y: hidden; line-height: 1.45; } .visible { width: 210px; height: 44px; margin-top: 70px; padding: 5px; border: 3px solid #cc6633; background: #fff1e8; overflow-y: visible; line-height: 1.45; }",
+  "html": "<div class=\"clip\">overflow-y: hidden 只声明纵轴，浏览器会裁掉盒外的第三行文字，同时保留横向可裁剪语义。</div><p>被裁区域之后的正常段落。</p><div class=\"visible\">overflow-y: visible 时固定盒高只影响后续流位置，第三行文字仍会画到盒子外面。</div><p>可见溢出之后的正常段落。</p>"
+}

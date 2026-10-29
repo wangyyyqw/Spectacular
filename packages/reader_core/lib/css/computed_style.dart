@@ -1791,9 +1791,16 @@ class ComputedStyle {
     });
 
     // overflow（W11，不继承，初始 visible）：绘制层据此决定是否裁剪外溢内容。
-    // `overflow-x`/`overflow-y` 只取一个值：优先 overflow 简写，其次 overflow-x。
+    // `overflow` 简写优先；长属性任一轴非 visible 都需要裁剪。另一轴为
+    // visible 时浏览器会把两轴都按可裁剪处理，因此无需保留双轴枚举。
+    final rawOverflowX = explicitValue('overflow-x');
+    final rawOverflowY = explicitValue('overflow-y');
     final rawOverflow =
-        explicitValue('overflow') ?? explicitValue('overflow-x');
+        explicitValue('overflow') ??
+        (rawOverflowX != null &&
+                _parseOverflow(rawOverflowX) != CssOverflow.visible
+            ? rawOverflowX
+            : rawOverflowY ?? rawOverflowX);
     final overflow = rawOverflow == null
         ? CssOverflow.visible
         : _parseOverflow(rawOverflow);
