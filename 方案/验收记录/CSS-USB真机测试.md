@@ -331,7 +331,7 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 本轮以 `hyph_en_US` 词典实现 `hyphens: auto`，连字符改用 U+2010 并计入行宽；
 同时补齐合成小型大写、着重号形状、伪元素自身级联和 `quotes` 对照。浏览器端
 71 个用例渲染成功，Flutter dump 全部通过。70 个已配对用例的几何/样式失配为
-**0**，3 项仍因无对应节点未配对，19 组截图视觉差异超过 2%；
+**0**，3 项仍因无对应节点未配对，20 组截图视觉差异超过 2%；
 `20-hyphens-quotes` 的几何/样式失配为 0，视觉差异 1.05%。该结果表示对照集
 内几何与关键样式已清零，不能表述为与 Chromium 逐像素一致。
 
@@ -340,7 +340,7 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 `74-outline` 对照用例与像素回归，并修正浏览器在 `outline-style:none` 时仍报告
 3px 线宽的对照口径。当前覆盖 132/168 个属性、73 个用例；浏览器与引擎导出
 全部通过，几何/样式失配 **0**，未配对 7 个块（涉及 3 个用例，不计失配）。
-`74-outline` 几何/样式失配为 0，视觉差异 4.46%，人工复核轮廓位置、虚实线与
+`74-outline` 几何/样式失配为 0，视觉差异 4.32%，人工复核轮廓位置、虚实线与
 圆角接近。报告位于 `/tmp/css_parity/report.md`，并排截图位于
 `/tmp/css_parity/side_74-outline.png`。
 
@@ -348,6 +348,6 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 `reader_mobile` 357 项通过、5 项跳过；`reader_mobile` 静态检查无问题。
 Release APK 已构建并移至下载目录：
 `/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
-大小 88,691,888 字节，SHA-256
-`cd072ff525253801f5f2ec464fcb38c2649f264e594251bd35ef2158b22cc5ea`；
+大小 88,724,656 字节，SHA-256
+`9d02eab91590026d92182e6429fbcbd3676578c98664e169ebbcdd10ada639c1`；
 包名 `com.spectacular.reader_mobile`，版本 `1.0.0+1`。
