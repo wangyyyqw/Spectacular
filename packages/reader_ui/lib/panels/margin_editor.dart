@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../page_furniture/page_furniture.dart';
@@ -6,8 +7,8 @@ import '../theme/reader_margins.dart';
 /// 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态，正文可见，
 /// 上下各拆「外/内」两段，可一直调到 0 让正文铺进安全区。
 ///
-/// 交互：点数值两侧的箭头步进 1（长按连续），「恢复初始默认值」回到默认，
-/// 「取消」丢弃改动，「保留」应用并退出。
+/// 交互：点数值两侧的箭头步进 1，或在胶囊上沿对应方向拖动；
+/// 「恢复初始默认值」回到默认，「取消」丢弃改动，「保留」应用并退出。
 class MarginEditor extends StatefulWidget {
   /// 创建编辑器。
   const MarginEditor({
@@ -64,10 +65,10 @@ class _MarginEditorState extends State<MarginEditor> {
   }
 
   EdgeInsets get _bodyPadding => _draft.toBodyPadding(
-        showFurniture: widget.showPageFurniture,
-        headerHeight: PageFurniture.headerHeight,
-        footerHeight: PageFurniture.footerHeight,
-      );
+    showFurniture: widget.showPageFurniture,
+    headerHeight: PageFurniture.headerHeight,
+    footerHeight: PageFurniture.footerHeight,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +86,9 @@ class _MarginEditorState extends State<MarginEditor> {
                   bodyPadding: _bodyPadding,
                   showPageFurniture: widget.showPageFurniture,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  shadowColor: theme.colorScheme.onSurface.withValues(
+                    alpha: 0.1,
+                  ),
                   lineColor: theme.colorScheme.primary.withValues(alpha: 0.35),
                 ),
                 size: constraints.biggest,
@@ -148,7 +152,6 @@ class _MarginEditorState extends State<MarginEditor> {
                   padding: const EdgeInsets.only(left: 8),
                   child: _Pill(
                     label: '左',
-                    dragSign: -1,
                     value: _draft.left,
                     max: widget.maxSide,
                     onDelta: (delta) => _apply(
@@ -163,6 +166,7 @@ class _MarginEditorState extends State<MarginEditor> {
                   padding: const EdgeInsets.only(right: 8),
                   child: _Pill(
                     label: '右',
+                    dragSign: -1,
                     value: _draft.right,
                     max: widget.maxSide,
                     onDelta: (delta) => _apply(
@@ -283,7 +287,7 @@ class _Pill extends StatefulWidget {
   /// 拖动方向：上/下两组胶囊用垂直拖动，左右用水平拖动。
   final Axis axis;
 
-  /// 指针沿轴移动时转成数值的方向；左、下边距向外移动为负。
+  /// 指针沿轴移动时转成数值的方向；下边距与右边界取反，使胶囊随手指移动。
   final double dragSign;
 
   @override
@@ -291,43 +295,31 @@ class _Pill extends StatefulWidget {
 }
 
 class _PillState extends State<_Pill> {
-  static const double _dragThreshold = 4;
-
-  int? _pointer;
-  double _pending = 0;
   bool _dragging = false;
 
-  void _pointerDown(PointerDownEvent event) {
-    if (_pointer != null) {
-      return;
-    }
-    _pointer = event.pointer;
-    _pending = 0;
-    _dragging = false;
+  double _axisDelta(Offset delta) =>
+      (widget.axis == Axis.horizontal ? delta.dx : delta.dy) * widget.dragSign;
+
+  void _dragStart(DragStartDetails details) {
+    setState(() => _dragging = true);
   }
 
-  void _pointerMove(PointerMoveEvent event) {
-    if (_pointer != event.pointer) {
-      return;
-    }
-    final delta =
-        widget.axis == Axis.horizontal ? event.delta.dx : event.delta.dy;
-    _pending += delta * widget.dragSign;
-    if (!_dragging && _pending.abs() < _dragThreshold) {
-      return;
-    }
-    _dragging = true;
-    widget.onDelta(_pending / 6);
-    _pending = 0;
+  void _dragUpdate(DragUpdateDetails details) {
+    // 6 逻辑像素对应 1 个边距单位；把每帧增量直接交给上层，拖动连续且
+    // 边界沿手指方向移动。不要缓存到阈值后再结算，否则慢速拖动会失效。
+    widget.onDelta(_axisDelta(details.delta) / 6);
   }
 
-  void _pointerEnd(PointerEvent event) {
-    if (_pointer != event.pointer) {
-      return;
+  void _dragEnd(DragEndDetails details) {
+    if (mounted) {
+      setState(() => _dragging = false);
     }
-    _pointer = null;
-    _pending = 0;
-    _dragging = false;
+  }
+
+  void _dragCancel() {
+    if (mounted) {
+      setState(() => _dragging = false);
+    }
   }
 
   @override
@@ -335,15 +327,27 @@ class _PillState extends State<_Pill> {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
-      elevation: 3,
+      elevation: _dragging ? 6 : 3,
       borderRadius: BorderRadius.circular(18),
-      child: Listener(
-        // 直接处理指针拖动，避免子级点按识别器抢占手势后整颗胶囊拖不动。
+      child: GestureDetector(
+        // 整颗胶囊接收拖动；箭头仍作为子级点击目标，移动超过手势阈值后
+        // 拖动识别器获胜，不会出现只有箭头能点、胶囊拖不动的情况。
         behavior: HitTestBehavior.opaque,
-        onPointerDown: _pointerDown,
-        onPointerMove: _pointerMove,
-        onPointerUp: _pointerEnd,
-        onPointerCancel: _pointerEnd,
+        dragStartBehavior: DragStartBehavior.down,
+        onHorizontalDragStart: widget.axis == Axis.horizontal
+            ? _dragStart
+            : null,
+        onHorizontalDragUpdate: widget.axis == Axis.horizontal
+            ? _dragUpdate
+            : null,
+        onHorizontalDragEnd: widget.axis == Axis.horizontal ? _dragEnd : null,
+        onHorizontalDragCancel: widget.axis == Axis.horizontal
+            ? _dragCancel
+            : null,
+        onVerticalDragStart: widget.axis == Axis.vertical ? _dragStart : null,
+        onVerticalDragUpdate: widget.axis == Axis.vertical ? _dragUpdate : null,
+        onVerticalDragEnd: widget.axis == Axis.vertical ? _dragEnd : null,
+        onVerticalDragCancel: widget.axis == Axis.vertical ? _dragCancel : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           child: Row(
@@ -351,8 +355,9 @@ class _PillState extends State<_Pill> {
             children: <Widget>[
               _Arrow(
                 icon: Icons.keyboard_arrow_up,
-                onTap:
-                    widget.value >= widget.max ? null : () => widget.onDelta(1),
+                onTap: widget.value >= widget.max
+                    ? null
+                    : () => widget.onDelta(1),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -491,6 +496,7 @@ class _MarginZonePainter extends CustomPainter {
     required this.bodyPadding,
     required this.showPageFurniture,
     required this.color,
+    required this.shadowColor,
     required this.lineColor,
   });
 
@@ -498,6 +504,7 @@ class _MarginZonePainter extends CustomPainter {
   final EdgeInsets bodyPadding;
   final bool showPageFurniture;
   final Color color;
+  final Color shadowColor;
   final Color lineColor;
 
   @override
@@ -512,15 +519,23 @@ class _MarginZonePainter extends CustomPainter {
       return;
     }
     final topFurniture = showPageFurniture ? PageFurniture.headerHeight : 0.0;
-    final bottomFurniture =
-        showPageFurniture ? PageFurniture.footerHeight : 0.0;
+    final bottomFurniture = showPageFurniture
+        ? PageFurniture.footerHeight
+        : 0.0;
     final topInnerStart = outerPadding.top + topFurniture;
     final bottomInnerEnd = size.height - outerPadding.bottom - bottomFurniture;
     // 外段与页眉页脚到正文的内段分别绘制；内段为 0 时自然不产生阴影。
+    final topInner = Rect.fromLTRB(0, topInnerStart, size.width, body.top);
+    final bottomInner = Rect.fromLTRB(
+      0,
+      body.bottom,
+      size.width,
+      bottomInnerEnd,
+    );
     final zones = <Rect>[
       Rect.fromLTRB(0, 0, size.width, outerPadding.top),
-      Rect.fromLTRB(0, topInnerStart, size.width, body.top),
-      Rect.fromLTRB(0, body.bottom, size.width, bottomInnerEnd),
+      topInner,
+      bottomInner,
       Rect.fromLTRB(
         0,
         size.height - outerPadding.bottom,
@@ -549,6 +564,8 @@ class _MarginZonePainter extends CustomPainter {
       }
       canvas.restore();
     }
+    _paintInnerShadow(canvas, topInner, fromTop: true);
+    _paintInnerShadow(canvas, bottomInner, fromTop: false);
     // 正文边界线：一眼看出可读区域在哪。
     canvas.drawRect(
       body,
@@ -559,11 +576,25 @@ class _MarginZonePainter extends CustomPainter {
     );
   }
 
+  /// 页眉页脚与正文之间的间距非 0 时画一层贴近正文的柔和阴影。
+  void _paintInnerShadow(Canvas canvas, Rect zone, {required bool fromTop}) {
+    if (zone.width <= 0 || zone.height <= 0) {
+      return;
+    }
+    final shader = LinearGradient(
+      begin: fromTop ? Alignment.topCenter : Alignment.bottomCenter,
+      end: fromTop ? Alignment.bottomCenter : Alignment.topCenter,
+      colors: <Color>[shadowColor.withValues(alpha: 0), shadowColor],
+    ).createShader(zone);
+    canvas.drawRect(zone, Paint()..shader = shader);
+  }
+
   @override
   bool shouldRepaint(_MarginZonePainter oldDelegate) =>
       oldDelegate.outerPadding != outerPadding ||
       oldDelegate.bodyPadding != bodyPadding ||
       oldDelegate.showPageFurniture != showPageFurniture ||
       oldDelegate.color != color ||
+      oldDelegate.shadowColor != shadowColor ||
       oldDelegate.lineColor != lineColor;
 }
