@@ -489,7 +489,7 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
   final boxHeight =
       slice.height -
       slice.leadingExtent -
-      (slice.endLine == block.layout.lineCount ? slice.trailingExtent : 0) +
+      slice.trailingExtent +
       padV +
       borderV;
   final bboxRect = style == null || bboxW == null
@@ -509,9 +509,7 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
       left,
       top,
       block.layout.width,
-      slice.height -
-          slice.leadingExtent -
-          (slice.endLine == block.layout.lineCount ? slice.trailingExtent : 0),
+      slice.height - slice.leadingExtent - slice.trailingExtent,
     ),
     // 配对用角色：表格块 / 列表项块（有标记）/ 普通块。浏览器端 ul、ol
     // 等容器不参与配对，li 只与列表项块配对（列表项无标记时由

@@ -919,6 +919,18 @@ void main() {
       style('p', 'p { overflow-x: scroll; }').overflow,
       CssOverflow.scroll,
     );
+    expect(
+      style('p', 'p { overflow-y: hidden; }').overflow,
+      CssOverflow.hidden,
+    );
+    expect(
+      style('p', 'p { overflow-x: visible; overflow-y: clip; }').overflow,
+      CssOverflow.clip,
+    );
+    expect(
+      style('p', 'p { overflow-x: hidden; overflow-y: visible; }').overflow,
+      CssOverflow.hidden,
+    );
     // 不继承：父级 hidden，子级仍 visible。
     final parent = style('parent', 'div { overflow: hidden; }');
     expect(parent.overflow, CssOverflow.hidden);

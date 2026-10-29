@@ -73,8 +73,13 @@ void main() {
       'max-height': '40px',
       'overflow': 'hidden',
     });
-    final block = _block(style);
-    expect(block.measuredHeight, closeTo(48, 0.01));
+    final block = _block(
+      style,
+      text:
+          'abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+          'abcdefghijklmnopqrst',
+    );
+    expect(block.measuredHeight, closeTo(72, 0.01));
     expect(block.height, closeTo(40, 0.01), reason: 'min/max 钳制后内容盒高 40');
     final pages = Paginator(pageHeight: 400)
         .measureChapter(blocks: <PageBlock>[block])
@@ -135,19 +140,19 @@ void main() {
     expect(block.height, closeTo(60, 0.01));
   });
 
-  test('盒高裁剪：切片只排可见行，但行号/文本仍覆盖原文（CFI 安全）', () {
+  test('盒高裁剪：保留行顶在盒内的部分可见行（CFI 安全）', () {
     final style = _style(const {'height': '40px', 'overflow': 'hidden'});
     final text = 'abcdefghijklmnopqrstuvwxyz0123456789ABCD';
     final block = _block(style, text: text);
     final layout = block.layout;
-    expect(layout.lineCount, 2, reason: '原文两行、盒高只放得下一行');
+    expect(layout.lineCount, 2, reason: '原文两行，第二行从盒内开始并部分可见');
 
     final pages = Paginator(pageHeight: 400)
         .measureChapter(blocks: <PageBlock>[block])
         .pages;
     final slice = pages.single.slices.single;
     expect(block.clipsContent, isTrue);
-    expect(slice.endLine, 1, reason: '只排可见行');
+    expect(slice.endLine, 2, reason: '第二行从盒内开始，应画出盒底以上部分');
     expect(slice.continuesAfter, isFalse, reason: '被裁掉的行不进下一页');
     expect(slice.continuesBefore, isFalse);
     // 文本与行区间仍是原文坐标：第一行覆盖 text[0..end)。
