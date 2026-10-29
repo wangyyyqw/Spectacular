@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/text_layout.dart';
 
 const _fontFamily = 'S1CJK';
@@ -85,6 +86,33 @@ void main() {
 
     expect(maxHeightError, lessThan(0.01));
     expect(maxBaselineError, lessThan(0.01));
+  });
+
+  test('normal 行高按 Chrome 口径分别取整 ascent 与 descent', () {
+    final previous = LineBreaker.preserveFractionalLineHeight;
+    LineBreaker.preserveFractionalLineHeight = true;
+    addTearDown(() {
+      LineBreaker.preserveFractionalLineHeight = previous;
+    });
+
+    for (final fontSize in <double>[15, 17]) {
+      final metric = _rawPainter(fontSize).computeLineMetrics().first;
+      final expected =
+          metric.ascent.roundToDouble() + metric.descent.roundToDouble();
+      final layout = TextLayoutEngine.layout(
+        text: '中文 normal 行高',
+        style: ComputedStyle(<String, String>{
+          'font-size': '${fontSize}px',
+          'font-family': _fontFamily,
+        }),
+        maxWidth: 400,
+      );
+      expect(
+        layout.lines.first.height,
+        closeTo(expected, 0.001),
+        reason: 'fontSize=$fontSize',
+      );
+    }
   });
 
   test('未使用 even 时基线偏差能被测出', () {
