@@ -301,6 +301,20 @@ table 的断行或尺寸近似；测试机缺少可用等宽字体也会放大 t
 本轮本地验证：`reader_core` 1187 项通过、3 项跳过；`reader_ui` 145 项通过；
 `reader_mobile` 355 项通过、5 项跳过；三个模块对 `lib`/`test` 的静态检查均无问题。
 
+## CSS 对照续审（2026-10-30）
+
+本轮继续修复 `tab-size`、`line-height: normal`、相对定位块流与
+`font-variant-ligatures`，其中连字关闭映射为 OpenType `liga=0`、`clig=0`。
+70 组浏览器对照复跑后，几何/样式失配降至 20 项、涉及 4 个用例；像素差异超过
+2% 的为 20 组，未配对 3 项，仍未宣称与浏览器逐像素一致。
+
+残余失配集中在 hyphens 9 项、word-wrap 7 项、font-variant 2 项和
+text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒与合成字形差异
+影响。逐例报告位于 `/tmp/css_parity_ligatures/report.md`。
+
+最终本地验证：`reader_core` 1193 项通过、3 项跳过；`reader_ui` 145 项通过；
+`reader_mobile` 356 项通过、5 项跳过；三个模块静态检查均无问题。
+
 ## 边距调节器续改
 
 - “保留”按钮移至屏幕高度 75%，缩为轻量胶囊，不再遮挡底部预览。
