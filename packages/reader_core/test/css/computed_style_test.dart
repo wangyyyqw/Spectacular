@@ -132,7 +132,11 @@ void main() {
       'div { font-size: 20px; line-height: 1.8; }',
     );
     expect(unitlessParent.lineHeightFactor, 1.8);
-    final unitlessChild = style('p', 'p { font-size: 10px; }', parent: unitlessParent);
+    final unitlessChild = style(
+      'p',
+      'p { font-size: 10px; }',
+      parent: unitlessParent,
+    );
     expect(unitlessChild.lineHeightFactor, closeTo(1.8, 0.001));
     expect(unitlessChild.lineHeight, closeTo(18, 0.001));
     expect(unitlessChild.unitlessLineHeightFactor, closeTo(1.8, 0.001));
@@ -146,9 +150,10 @@ void main() {
     expect(pxChild.lineHeightFactor, closeTo(3, 0.001), reason: '30/10');
 
     // 3) 阅读器覆盖仍是显式的（ReaderOverrides 走 withTypography）。
-    final navigated = style('p', 'p { font-size: 20px; }').withTypography(
-      lineHeightFactor: 1.5,
-    );
+    final navigated = style(
+      'p',
+      'p { font-size: 20px; }',
+    ).withTypography(lineHeightFactor: 1.5);
     expect(navigated.lineHeightFactor, 1.5, reason: '阅读器覆盖不能被 normal 吞掉');
     expect(navigated.lineHeight, 30);
   });
@@ -462,11 +467,13 @@ void main() {
     expect(byDeg.stops.last.position, 1);
 
     // 方向关键字与角度单位换算；rgba 内的逗号不切分色标。
-    final corner = style(
-      'p',
-      'p { background-image: '
-          'linear-gradient(to right top, #f00, rgba(0, 255, 0, 0.5) 40%, #00f); }',
-    ).backgroundGradient! as CssLinearGradient;
+    final corner =
+        style(
+              'p',
+              'p { background-image: '
+                  'linear-gradient(to right top, #f00, rgba(0, 255, 0, 0.5) 40%, #00f); }',
+            ).backgroundGradient!
+            as CssLinearGradient;
     expect(corner.angle, 45);
     expect(corner.stops, hasLength(3));
     expect(corner.stops[1].color.a, closeTo(0.5, 0.01));
@@ -500,15 +507,49 @@ void main() {
           .angle,
       180,
     );
-    expect(style('p', 'p { background-image: none; }').backgroundGradient, isNull);
+    expect(
+      style('p', 'p { background-image: none; }').backgroundGradient,
+      isNull,
+    );
+  });
+
+  test('多背景层按声明顺序保留，并循环分配尺寸/平铺/位置', () {
+    final layered = style(
+      'p',
+      'p { background-image: '
+          'linear-gradient(#f00, #f00), linear-gradient(#00f, #00f); '
+          'background-size: 50% 100%, 25% 50%; '
+          'background-repeat: no-repeat, repeat; '
+          'background-position: left top; }',
+    );
+    final layers = layered.backgroundLayers;
+    expect(layers, hasLength(2));
+    expect(
+      (layers[0].gradient! as CssLinearGradient).stops.first.color,
+      const Color(0xFFFF0000),
+    );
+    expect(layers[0].repeat, CssBackgroundRepeat.noRepeat);
+    expect(layers[0].size.width!.value, 50);
+    expect(layers[0].position.x.value, 0);
+    expect(layers[0].position.y.value, 0);
+    expect(
+      (layers[1].gradient! as CssLinearGradient).stops.first.color,
+      const Color(0xFF0000FF),
+    );
+    expect(layers[1].repeat, CssBackgroundRepeat.repeat);
+    expect(layers[1].size.width!.value, 25);
+    expect(layers[1].position.x.value, 0, reason: '单个位置值循环到所有层');
+    expect(layers[1].position.y.value, 0);
   });
 
   test('渐变结构：radial（shape/position + 色标）', () {
-    final at = style(
-      'p',
-      'p { background-image: '
-          'radial-gradient(circle at 30% 70%, #f00, #00f 60%); }',
-    ).backgroundGradient! as CssRadialGradient;
+    final at =
+        style(
+              'p',
+              'p { background-image: '
+                  'radial-gradient(circle at 30% 70%, #f00, #00f 60%); }',
+            ).backgroundGradient!
+            as CssRadialGradient;
     expect(at.shape, CssRadialShape.circle);
     expect(at.centerX.value, 30);
     expect(at.centerX.isPercent, isTrue);
@@ -516,28 +557,34 @@ void main() {
     expect(at.stops, hasLength(2));
     expect(at.stops.last.position, closeTo(0.6, 0.001));
 
-    final plain = style(
-      'p',
-      'p { background-image: radial-gradient(#f00, #00f); }',
-    ).backgroundGradient! as CssRadialGradient;
+    final plain =
+        style(
+              'p',
+              'p { background-image: radial-gradient(#f00, #00f); }',
+            ).backgroundGradient!
+            as CssRadialGradient;
     expect(plain.shape, CssRadialShape.ellipse, reason: '默认 ellipse');
     expect(plain.centerX.value, 50);
     expect(plain.centerY.value, 50);
     // 单值位置（top）只移动纵轴。
-    final top = style(
-      'p',
-      'p { background-image: radial-gradient(at top, #f00, #00f); }',
-    ).backgroundGradient! as CssRadialGradient;
+    final top =
+        style(
+              'p',
+              'p { background-image: radial-gradient(at top, #f00, #00f); }',
+            ).backgroundGradient!
+            as CssRadialGradient;
     expect(top.centerY.value, 0);
     expect(top.centerX.value, 50);
   });
 
   test('repeating 渐变标记与像素色标换算（W5）', () {
-    final repeating = style(
-      'p',
-      'p { background-image: '
-          'repeating-linear-gradient(45deg, #f00 0px, #00f 10px); }',
-    ).backgroundGradient! as CssLinearGradient;
+    final repeating =
+        style(
+              'p',
+              'p { background-image: '
+                  'repeating-linear-gradient(45deg, #f00 0px, #00f 10px); }',
+            ).backgroundGradient!
+            as CssLinearGradient;
     expect(repeating.repeating, isTrue);
     expect(repeating.angle, 45);
     // 像素位置保留在 positionPx，绘制层按渐变线长度换算成比例。
@@ -548,11 +595,13 @@ void main() {
     expect(repeating.stops.last.fractionOf(0), isNull, reason: 'extent 未知');
 
     // 百分比色标：fractionOf 直接用比例，与 extent 无关。
-    final percent = style(
-      'p',
-      'p { background-image: '
-          'repeating-radial-gradient(circle, #f00 0%, #00f 25%); }',
-    ).backgroundGradient! as CssRadialGradient;
+    final percent =
+        style(
+              'p',
+              'p { background-image: '
+                  'repeating-radial-gradient(circle, #f00 0%, #00f 25%); }',
+            ).backgroundGradient!
+            as CssRadialGradient;
     expect(percent.repeating, isTrue);
     expect(percent.shape, CssRadialShape.circle);
     expect(percent.stops.last.fractionOf(999), closeTo(0.25, 0.001));
@@ -567,11 +616,13 @@ void main() {
 
   test('渐变区间色标：<color> <start> <end> 展开成两个同色 stop（W7）', () {
     // 26-background-gradient 的 .rep 写法：像素区间 → 4 个 stop。
-    final stripes = style(
-      'p',
-      'p { background-image: repeating-linear-gradient('
-          '90deg, #000 0 4px, #fff 4px 8px); }',
-    ).backgroundGradient! as CssLinearGradient;
+    final stripes =
+        style(
+              'p',
+              'p { background-image: repeating-linear-gradient('
+                  '90deg, #000 0 4px, #fff 4px 8px); }',
+            ).backgroundGradient!
+            as CssLinearGradient;
     expect(stripes.repeating, isTrue);
     expect(stripes.angle, 90);
     expect(stripes.stops, hasLength(4));
@@ -627,10 +678,7 @@ void main() {
     expect(gray.single.amount, 1);
     final sepia = style('p', 'p { filter: sepia(0.6); }').filters;
     expect(sepia.single.amount, closeTo(0.6, 0.001));
-    final brightness = style(
-      'p',
-      'p { filter: brightness(150%); }',
-    ).filters;
+    final brightness = style('p', 'p { filter: brightness(150%); }').filters;
     expect(brightness.single.kind, CssFilterKind.brightness);
     expect(brightness.single.amount, closeTo(1.5, 0.001));
     final opacityFn = style('p', 'p { filter: opacity(0.4); }').filters;
@@ -645,14 +693,11 @@ void main() {
       'p',
       'p { filter: blur(1px) grayscale(50%) brightness(0.8); }',
     ).filters;
-    expect(
-      multi.map((filter) => filter.kind).toList(),
-      <CssFilterKind>[
-        CssFilterKind.blur,
-        CssFilterKind.grayscale,
-        CssFilterKind.brightness,
-      ],
-    );
+    expect(multi.map((filter) => filter.kind).toList(), <CssFilterKind>[
+      CssFilterKind.blur,
+      CssFilterKind.grayscale,
+      CssFilterKind.brightness,
+    ]);
     expect(multi[1].amount, closeTo(0.5, 0.001));
     expect(multi[2].amount, closeTo(0.8, 0.001));
 
@@ -668,10 +713,7 @@ void main() {
     expect(dropShadow.shadow!.color.a, closeTo(0.5, 0.01));
 
     // 无参函数取规范默认 1；none → 空列表；不继承；-webkit-filter 兜底。
-    expect(
-      style('p', 'p { filter: brightness(); }').filters.single.amount,
-      1,
-    );
+    expect(style('p', 'p { filter: brightness(); }').filters.single.amount, 1);
     expect(style('p', 'p { filter: none; }').filters, isEmpty);
     final parent = style('parent', 'div { filter: blur(2px); }');
     expect(
@@ -702,9 +744,7 @@ void main() {
     expect(inherited.effectiveOpacity, closeTo(0.5, 0.001));
     // withTypography 只改排版，不改合成值。
     expect(
-      child
-          .withTypography(fontSize: 20)
-          .effectiveOpacity,
+      child.withTypography(fontSize: 20).effectiveOpacity,
       closeTo(0.2, 0.001),
     );
   });
@@ -752,7 +792,10 @@ void main() {
       15,
     );
     expect(
-      style('p', 'p { transform: rotate(0.5turn); }').transforms.single.angleDeg,
+      style(
+        'p',
+        'p { transform: rotate(0.5turn); }',
+      ).transforms.single.angleDeg,
       closeTo(180, 0.001),
     );
 
@@ -789,10 +832,7 @@ void main() {
     expect(initial.transformOriginY.value, 50);
     expect(initial.transformOriginY.isPercent, isTrue);
 
-    final leftTop = style(
-      'p',
-      'p { transform-origin: left top; }',
-    );
+    final leftTop = style('p', 'p { transform-origin: left top; }');
     expect(leftTop.transformOriginX.value, 0);
     expect(leftTop.transformOriginY.value, 0);
     expect(leftTop.transformOriginX.isPercent, isTrue);
@@ -866,18 +906,9 @@ void main() {
 
   test('overflow：枚举解析且不继承（W11）', () {
     expect(style('p', 'p { color: red; }').overflow, CssOverflow.visible);
-    expect(
-      style('p', 'p { overflow: hidden; }').overflow,
-      CssOverflow.hidden,
-    );
-    expect(
-      style('p', 'p { overflow: clip; }').overflow,
-      CssOverflow.clip,
-    );
-    expect(
-      style('p', 'p { overflow: scroll; }').overflow,
-      CssOverflow.scroll,
-    );
+    expect(style('p', 'p { overflow: hidden; }').overflow, CssOverflow.hidden);
+    expect(style('p', 'p { overflow: clip; }').overflow, CssOverflow.clip);
+    expect(style('p', 'p { overflow: scroll; }').overflow, CssOverflow.scroll);
     expect(style('p', 'p { overflow: auto; }').overflow, CssOverflow.auto);
     // 两轴写法只取首值；overflow-x 兜底。
     expect(
@@ -925,10 +956,7 @@ void main() {
     expect(style('p', 'p { column-gap: normal; }').columnGap, isNull);
 
     // 简写与长属性同时出现：长属性优先（简写只兜底）。
-    final precedence = style(
-      'p',
-      'p { column-count: 5; columns: 2 100px; }',
-    );
+    final precedence = style('p', 'p { column-count: 5; columns: 2 100px; }');
     expect(precedence.columnCount, 5);
     expect(precedence.columnWidth!.value, 100);
 
@@ -941,10 +969,7 @@ void main() {
 
     // 不继承。
     final parent = style('parent', 'div { column-count: 3; }');
-    expect(
-      style('p', 'p { color: red; }', parent: parent).columnCount,
-      isNull,
-    );
+    expect(style('p', 'p { color: red; }', parent: parent).columnCount, isNull);
   });
 
   test('position: absolute 的解算规则（W18 定位）', () {
@@ -982,7 +1007,11 @@ void main() {
     ).resolveAbsoluteBox(containingWidth: 200, containingHeight: 400)!;
     expect(percent.left, 20);
     expect(percent.top, 100);
-    expect(percent.width, isNull, reason: 'width: auto 且只有 left → 需要 shrink-to-fit');
+    expect(
+      percent.width,
+      isNull,
+      reason: 'width: auto 且只有 left → 需要 shrink-to-fit',
+    );
 
     // right + bottom（贴右下），宽高由声明给出 → left/top 反推。
     final bottomRight = style(
@@ -1003,7 +1032,11 @@ void main() {
     expect(autoHeight.left, 350 - 12 - 80, reason: '贴右 → left 反推为 258');
     expect(autoHeight.width, 80);
     expect(autoHeight.bottom, 16);
-    expect(autoHeight.top, isNull, reason: 'height: auto → 上边由内容高度 + bottom 决定');
+    expect(
+      autoHeight.top,
+      isNull,
+      reason: 'height: auto → 上边由内容高度 + bottom 决定',
+    );
 
     // 两侧偏移都给、尺寸 auto → 尺寸由偏移推出（拉伸）。
     final stretch = style(
@@ -1110,14 +1143,8 @@ void main() {
     expect(style('p', 'p { hyphens: auto; }').hyphens, CssHyphens.auto);
     expect(style('p', 'p { hyphens: none; }').hyphens, CssHyphens.none);
     // 私有/旧前缀经别名表落到 hyphens。
-    expect(
-      style('p', 'p { -epub-hyphens: auto; }').hyphens,
-      CssHyphens.auto,
-    );
-    expect(
-      style('p', 'p { -webkit-hyphens: auto; }').hyphens,
-      CssHyphens.auto,
-    );
+    expect(style('p', 'p { -epub-hyphens: auto; }').hyphens, CssHyphens.auto);
+    expect(style('p', 'p { -webkit-hyphens: auto; }').hyphens, CssHyphens.auto);
 
     expect(
       style('p', 'p { word-break: break-all; }').wordBreak,
@@ -1196,36 +1223,15 @@ void main() {
     expect(defaults.fontStretch, 100);
     expect(defaults.fontSizeAdjust, isNull);
 
-    expect(
-      style('p', 'p { font-stretch: condensed; }').fontStretch,
-      75,
-    );
-    expect(
-      style('p', 'p { font-stretch: semi-expanded; }').fontStretch,
-      112.5,
-    );
-    expect(
-      style('p', 'p { font-stretch: ultra-expanded; }').fontStretch,
-      200,
-    );
-    expect(
-      style('p', 'p { font-stretch: 87.5%; }').fontStretch,
-      87.5,
-    );
-    expect(
-      style('p', 'p { font-stretch: 120%; }').fontStretch,
-      120,
-    );
+    expect(style('p', 'p { font-stretch: condensed; }').fontStretch, 75);
+    expect(style('p', 'p { font-stretch: semi-expanded; }').fontStretch, 112.5);
+    expect(style('p', 'p { font-stretch: ultra-expanded; }').fontStretch, 200);
+    expect(style('p', 'p { font-stretch: 87.5%; }').fontStretch, 87.5);
+    expect(style('p', 'p { font-stretch: 120%; }').fontStretch, 120);
     // 非法值回退继承/初始。
-    expect(
-      style('p', 'p { font-stretch: 10%; }').fontStretch,
-      100,
-    );
+    expect(style('p', 'p { font-stretch: 10%; }').fontStretch, 100);
 
-    expect(
-      style('p', 'p { font-size-adjust: 0.5; }').fontSizeAdjust,
-      0.5,
-    );
+    expect(style('p', 'p { font-size-adjust: 0.5; }').fontSizeAdjust, 0.5);
     // none 显式重置（不继承父级）。
     final parent = style(
       'parent',
@@ -1237,8 +1243,11 @@ void main() {
       reason: '继承',
     );
     expect(
-      style('p', 'p { font-size-adjust: none; }', parent: parent)
-          .fontSizeAdjust,
+      style(
+        'p',
+        'p { font-size-adjust: none; }',
+        parent: parent,
+      ).fontSizeAdjust,
       isNull,
       reason: 'none 覆盖继承值',
     );
@@ -1283,8 +1292,10 @@ void main() {
       CssFontVariantCaps.allSmallCaps,
     );
     expect(
-      style('p', 'p { font-variant: petite-caps oldstyle-nums; }')
-          .fontVariantCaps,
+      style(
+        'p',
+        'p { font-variant: petite-caps oldstyle-nums; }',
+      ).fontVariantCaps,
       CssFontVariantCaps.petiteCaps,
       reason: '多 token 简写里取 caps 关键字，数值变体忽略',
     );
@@ -1301,10 +1312,7 @@ void main() {
       CssFontVariantCaps.titlingCaps,
     );
     // `font` 简写里的 small-caps token。
-    final shorthand = style(
-      'p',
-      'p { font: small-caps 12px/2 serif; }',
-    );
+    final shorthand = style('p', 'p { font: small-caps 12px/2 serif; }');
     expect(shorthand.fontVariantCaps, CssFontVariantCaps.smallCaps);
     expect(shorthand.fontSize, 12);
     expect(shorthand.lineHeight, 24);
@@ -1350,10 +1358,7 @@ void main() {
     expect(border.borders.right.color, const Color(0xFF00FF00));
 
     // direction: rtl 时 inline-start = right。
-    final rtl = style(
-      'p',
-      'p { direction: rtl; margin-inline-start: 9px; }',
-    );
+    final rtl = style('p', 'p { direction: rtl; margin-inline-start: 9px; }');
     expect(rtl.margin.right, 9);
     expect(rtl.margin.left, 0);
 
@@ -1466,7 +1471,10 @@ void main() {
       CssTextAlign.left,
     );
     expect(
-      style('p', 'p { direction: rtl; text-align: justify; }').resolvedTextAlign,
+      style(
+        'p',
+        'p { direction: rtl; text-align: justify; }',
+      ).resolvedTextAlign,
       CssTextAlign.justify,
     );
     // 默认 start（未声明）在 rtl 下也应右对齐。
@@ -1478,15 +1486,9 @@ void main() {
 
   test('quotes：引号对结构 / none / auto 与继承（W18）', () {
     // 初始值 auto。
-    expect(
-      style('p', 'p { color: red; }').quotes,
-      isA<CssQuotesAuto>(),
-    );
+    expect(style('p', 'p { color: red; }').quotes, isA<CssQuotesAuto>());
 
-    final pairs = style(
-      'p',
-      'p { quotes: "«" "»" "‹" "›"; }',
-    ).quotes;
+    final pairs = style('p', 'p { quotes: "«" "»" "‹" "›"; }').quotes;
     expect(pairs, isA<CssQuotesPairs>());
     final list = (pairs as CssQuotesPairs).pairs;
     expect(list, hasLength(2));
@@ -1496,10 +1498,9 @@ void main() {
     expect(list.last.close, '›');
 
     // 单引号包裹同样识别；转义引号解包。
-    final single = style(
-      'p',
-      "p { quotes: '“' '”' '\\201c' 'x'; }",
-    ).quotes as CssQuotesPairs;
+    final single =
+        style('p', "p { quotes: '“' '”' '\\201c' 'x'; }").quotes
+            as CssQuotesPairs;
     expect(single.pairs.first.open, '“');
     expect(single.pairs.first.close, '”');
     expect(single.pairs.last.open, '“', reason: '\\201c 解成 “');
@@ -1840,7 +1841,11 @@ void main() {
 
   test('vertical-align: <length> / <percentage>（W2）', () {
     final px = style('p', 'p { vertical-align: 10px; }');
-    expect(px.verticalAlign, CssVerticalAlign.baseline, reason: '枚举仍是 baseline');
+    expect(
+      px.verticalAlign,
+      CssVerticalAlign.baseline,
+      reason: '枚举仍是 baseline',
+    );
     expect(px.verticalAlignLength, 10);
     expect(px.verticalAlignShift, -10, reason: 'CSS 正值向上，位移取负');
 
@@ -1894,10 +1899,7 @@ void main() {
     );
     // 未知值回退 outside。
     expect(
-      style(
-        'p',
-        'p { list-style-position: bogus; }',
-      ).listStylePosition,
+      style('p', 'p { list-style-position: bogus; }').listStylePosition,
       CssListStylePosition.outside,
     );
   });

@@ -41,17 +41,14 @@ PageBlock _absolute(String color, String zIndex, double left, double top) {
 }
 
 Future<ByteData> _render(List<PageBlock> blocks) async {
-  final page = Paginator(pageHeight: _height.toDouble(), pageWidth: 200)
-      .measureChapter(blocks: blocks)
-      .pages
-      .first;
+  final page = Paginator(
+    pageHeight: _height.toDouble(),
+    pageWidth: 200,
+  ).measureChapter(blocks: blocks).pages.first;
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  PagePainter(background: const Color(0xFFFFFFFF)).paint(
-    canvas,
-    page,
-    pageSize: const Size(200, 200),
-  );
+  PagePainter(background: const Color(0xFFFFFFFF))
+      .paint(canvas, page, pageSize: const Size(200, 200));
   final image = await recorder.endRecording().toImage(_width, _height);
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
@@ -93,5 +90,15 @@ void main() {
       _absolute('#0000ff', 'auto', 40, 40),
     ]);
     expect(_blue(data, 60, 60), isTrue);
+  });
+
+  test('定位偏移进入背景几何：非重叠区域也落在声明坐标', () async {
+    final data = await _render([
+      _absolute('#ff0000', '2', 0, 0),
+      _absolute('#0000ff', '1', 40, 40),
+    ]);
+    expect(_red(data, 110, 20), isTrue, reason: '红块右缘应到 x=120');
+    expect(_blue(data, 150, 80), isTrue, reason: '蓝块右缘应到 x=160');
+    expect(_red(data, 180, 80), isFalse, reason: '蓝块不能铺满整页');
   });
 }

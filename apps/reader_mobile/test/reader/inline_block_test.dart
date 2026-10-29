@@ -107,7 +107,8 @@ void main() {
           '用来验证 payload 的溢出标记。</span>后缀</p>',
       css:
           'p { margin: 0; line-height: 1.6; } '
-          '.boxed { display: inline-block; width: 60px; height: 20px; }',
+          '.boxed { display: inline-block; width: 60px; height: 20px; '
+          'overflow: hidden; }',
       contentWidth: 350,
       contentHeight: 900,
     );
@@ -118,14 +119,12 @@ void main() {
     ];
     expect(placements, hasLength(1));
     final payload = placements.single.spec.payload! as PageBlock;
-    // 声明高 20 < 内容高 → 引擎按「固定高盒裁内容」处理（PageBlock.clipsContent
-    // 就是分页层判溢出的口径）；作者没写 overflow 时 style.overflow 仍是
-    // visible，绘制层裁剪请用 clipsContent 或 overflow 任一命中。
+    // 声明高 20 < 内容高且 overflow: hidden → 绘制层按内容盒裁剪。
     expect(payload.clipsContent, isTrue, reason: '声明高 20 < 内容高');
     expect(
       payload.style!.overflow,
-      CssOverflow.visible,
-      reason: '未声明 overflow',
+      CssOverflow.hidden,
+      reason: '显式裁剪',
     );
   });
 

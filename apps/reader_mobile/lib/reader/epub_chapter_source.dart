@@ -930,7 +930,11 @@ class EpubChapterSource
     return texts['${node.start}:${node.end}'] ?? node;
   }
 
-  PageBlock? _emptyBoxBlock(ComputedStyle style, double contentWidth) {
+  PageBlock? _emptyBoxBlock(
+    ComputedStyle style,
+    double contentWidth, {
+    required double containingHeight,
+  }) {
     if (style.display == CssDisplay.none ||
         style.visibility != CssVisibility.visible) {
       return null;
@@ -950,16 +954,25 @@ class EpubChapterSource
     if (declaredMinHeight != null && declaredMinHeight > contentHeight) {
       contentHeight = declaredMinHeight;
     }
-    return PageBlock(
+    final absoluteBox = style.resolveAbsoluteBox(
+      containingWidth: contentWidth,
+      containingHeight: containingHeight,
+    );
+    final model = BoxModel.fromStyle(style, containingWidth: contentWidth);
+    final boxWidth =
+        absoluteBox?.width ??
+        (style.isOutOfFlow ? 0.0 : model.resolveContentWidth(contentWidth));
+    return PageBlock.styled(
       layout: TextLayoutEngine.layout(
         text: '',
         style: style,
-        maxWidth: contentWidth,
+        maxWidth: boxWidth,
       ),
       style: style,
-      spaceBefore: style.margin.top,
-      spaceAfter: style.margin.bottom,
-      declaredContentHeight: contentHeight > 0 ? contentHeight : null,
+      containingWidth: contentWidth,
+      absolute: style.isOutOfFlow,
+      absoluteTop: absoluteBox?.top,
+      absoluteLeft: absoluteBox?.left,
     );
   }
 
@@ -4466,7 +4479,11 @@ class EpubChapterSource
           // 空元素但盒子可见（声明尺寸 / 背景 / 边框）：仍要占位。
           // 真书里的分隔线、头像占位、章首留白 div 都是这种形态；早期直接
           // 丢弃会让后续内容整体上移（69-border-radius-percent 暴露）。
-          final emptyBox = _emptyBoxBlock(blockStyle, contentWidth);
+          final emptyBox = _emptyBoxBlock(
+            blockStyle,
+            contentWidth,
+            containingHeight: baseContentHeight,
+          );
           if (emptyBox != null) {
             blocks.add(emptyBox);
           }
@@ -4492,18 +4509,6 @@ class EpubChapterSource
           quotes: blockStyle.quotes,
           quoteDepth: qLevel,
         );
-        // `<q>` 的开/闭引号：引擎 UA 表没有 q 规则，这里按 CSS 语义补上
-        //（quotes 继承；嵌套层级取下一对；`quotes: none` 不生成）。
-        final quotedText = tag == 'q' && blockStyle.quotes is! CssQuotesNone
-            ? () {
-                final pair = quotePairAt(blockStyle.quotes, qLevel);
-                return '${pair.$1}$text${pair.$2}';
-              }()
-            : text;
-        final effectiveText =
-            (before == null && after == null) || textNode is! TextContentNode
-            ? quotedText
-            : '${before ?? ''}$quotedText${after ?? ''}';
         // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
         // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
         // 标题不参与——标题字号/行高继续跟随书籍样式族。
@@ -4582,13 +4587,165 @@ class EpubChapterSource
             _floatSideOfStyle(blockStyle) != null || containerFloat != null;
         final inlineFloats = <PageBlock>[];
         var inlineBoxes = <InlineBoxSpec>[];
-        var paragraphText = effectiveText;
+        var paragraphText = text;
         var paragraphMarks = textNode is TextContentNode
             ? textNode.inlineMarks
             : const <InlineMark>[];
         var paragraphImages = textNode is TextContentNode
             ? textNode.inlineImages
             : const <InlineImageMark>[];
+        var paragraphRubies = textNode is TextContentNode
+            ? textNode.rubies
+            : const <RubyMark>[];
+        final pseudoPrefix = textNode is TextContentNode ? before ?? '' : '';
+        final pseudoSuffix = textNode is TextContentNode ? after ?? '' : '';
+        // `<q>` 是聚合后的行内标记，不能只按块标签补引号；把每个 q 的
+        // 开闭引号插回文本，同时重映射样式区间、注音与行内图片偏移。
+        final quoteMarks = <InlineMark>[
+          if (tag == 'q' && qLevel >= 0)
+            InlineMark(
+              start: 0,
+              end: paragraphText.length,
+              tag: 'q',
+              classes: const <String>[],
+              chain: ancestors.map((element) {
+                final classes = (element.attributes['class'] ?? '')
+                    .split(RegExp(r'\s+'))
+                    .where((value) => value.isNotEmpty)
+                    .toSet();
+                return MarkSubject(
+                  tag: element.tag.toLowerCase(),
+                  classes: classes,
+                  attributes: element.attributes,
+                );
+              }).toList(growable: false),
+            ),
+          for (final mark in paragraphMarks)
+            if (mark.tag.toLowerCase() == 'q' && mark.end > mark.start) mark,
+        ];
+        final quoteInsertions = <_QuoteInsertion>[];
+        for (var i = 0; i < quoteMarks.length; i++) {
+          final mark = quoteMarks[i];
+          if (blockStyle.quotes is CssQuotesNone) {
+            continue;
+          }
+          final depth = quoteMarks
+                  .where(
+                    (other) =>
+                        other.start <= mark.start &&
+                        other.end >= mark.end,
+                  )
+                  .length -
+              1;
+          final pair = quotePairAt(blockStyle.quotes, depth);
+          quoteInsertions
+            ..add(
+              _QuoteInsertion(
+                offset: mark.start,
+                text: pair.$1,
+                depth: depth,
+                opening: true,
+              ),
+            )
+            ..add(
+              _QuoteInsertion(
+                offset: mark.end,
+                text: pair.$2,
+                depth: depth,
+                opening: false,
+              ),
+            );
+        }
+        quoteInsertions.sort((a, b) {
+          final byOffset = a.offset.compareTo(b.offset);
+          if (byOffset != 0) {
+            return byOffset;
+          }
+          // 相邻 q 先闭后开；嵌套 q 同时开启时外层优先，同时关闭时内层优先。
+          if (a.opening != b.opening) {
+            return a.opening ? 1 : -1;
+          }
+          return a.opening
+              ? a.depth.compareTo(b.depth)
+              : b.depth.compareTo(a.depth);
+        });
+        int mappedBoundary(int offset, {required bool includeOpening}) {
+          var inserted = 0;
+          for (final insertion in quoteInsertions) {
+            if (insertion.offset < offset ||
+                (includeOpening &&
+                    insertion.opening &&
+                    insertion.offset == offset)) {
+              inserted += insertion.text.length;
+            }
+          }
+          return pseudoPrefix.length + offset + inserted;
+        }
+
+        if (quoteInsertions.isNotEmpty) {
+          final quoted = StringBuffer();
+          var cursor = 0;
+          for (final insertion in quoteInsertions) {
+            quoted
+              ..write(paragraphText.substring(cursor, insertion.offset))
+              ..write(insertion.text);
+            cursor = insertion.offset;
+          }
+          quoted.write(paragraphText.substring(cursor));
+          paragraphText = quoted.toString();
+          paragraphMarks = <InlineMark>[
+            for (final mark in paragraphMarks)
+              InlineMark(
+                start: mappedBoundary(mark.start, includeOpening: true),
+                end: mappedBoundary(mark.end, includeOpening: false),
+                tag: mark.tag,
+                classes: mark.classes,
+                chain: mark.chain,
+              ),
+          ];
+          paragraphImages = <InlineImageMark>[
+            for (final image in paragraphImages)
+              InlineImageMark(
+                offset: mappedBoundary(image.offset, includeOpening: true),
+                node: image.node,
+              ),
+          ];
+          paragraphRubies = <RubyMark>[
+            for (final ruby in paragraphRubies)
+              RubyMark(
+                start: mappedBoundary(ruby.start, includeOpening: true),
+                end: mappedBoundary(ruby.end, includeOpening: false),
+                text: ruby.text,
+              ),
+          ];
+        } else if (pseudoPrefix.isNotEmpty || pseudoSuffix.isNotEmpty) {
+          paragraphMarks = <InlineMark>[
+            for (final mark in paragraphMarks)
+              InlineMark(
+                start: pseudoPrefix.length + mark.start,
+                end: pseudoPrefix.length + mark.end,
+                tag: mark.tag,
+                classes: mark.classes,
+                chain: mark.chain,
+              ),
+          ];
+          paragraphImages = <InlineImageMark>[
+            for (final image in paragraphImages)
+              InlineImageMark(
+                offset: pseudoPrefix.length + image.offset,
+                node: image.node,
+              ),
+          ];
+          paragraphRubies = <RubyMark>[
+            for (final ruby in paragraphRubies)
+              RubyMark(
+                start: pseudoPrefix.length + ruby.start,
+                end: pseudoPrefix.length + ruby.end,
+                text: ruby.text,
+              ),
+          ];
+        }
+        paragraphText = '$pseudoPrefix$paragraphText$pseudoSuffix';
         final inlineContext = (
           ancestors: ancestors,
           style: blockStyle,
@@ -4632,7 +4789,6 @@ class EpubChapterSource
         // 行内图片（P9-06）：占位符 → 书内图片路径 + 书籍 CSS 尺寸。
         final inlineImages = <InlineImageSpec>[];
         if (paragraphImages.isNotEmpty) {
-          final shift = (before ?? '').length;
           for (final mark in paragraphImages) {
             final attributesForImage = mark.node.attributes;
             final src =
@@ -4651,10 +4807,9 @@ class EpubChapterSource
                 const <SelectorElement>[],
               ),
             ]);
-            final rawOffset = mark.offset + shift;
             inlineImages.add(
               InlineImageSpec(
-                offset: rawOffset,
+                offset: mark.offset,
                 url: url,
                 width: imageStyle.width?.resolve(contentWidth),
                 height: imageStyle.height?.resolve(contentWidth),
@@ -4772,9 +4927,9 @@ class EpubChapterSource
             spaceBefore: spaceBefore,
             spaceAfter: spaceAfter,
             // P8-08：注音标注透传渲染层。
-            rubies: textNode is TextContentNode && textNode.rubies.isNotEmpty
+            rubies: paragraphRubies.isNotEmpty
                 ? [
-                    for (final ruby in textNode.rubies)
+                    for (final ruby in paragraphRubies)
                       RubyAnnotation(
                         start: ruby.start,
                         end: ruby.end,
@@ -4925,6 +5080,7 @@ class EpubChapterSource
               _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
             ]),
             contentWidth,
+            containingHeight: baseContentHeight,
           );
           if (emptyBox != null) {
             blocks.add(emptyBox);
@@ -5459,6 +5615,21 @@ typedef _AuxiliaryCssRule = ({
   SelectorList selectors,
   List<CssDeclaration> declarations,
 });
+
+/// `<q>` 生成的单个引号，用于同步扩写文本并重映射行内偏移。
+class _QuoteInsertion {
+  const _QuoteInsertion({
+    required this.offset,
+    required this.text,
+    required this.depth,
+    required this.opening,
+  });
+
+  final int offset;
+  final String text;
+  final int depth;
+  final bool opening;
+}
 
 /// 行内浮动提取结果（W17）：摘出的浮动块 + 剩余文本与偏移重映射。
 class _InlineFloatExtraction {
