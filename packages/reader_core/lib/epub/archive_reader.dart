@@ -37,7 +37,7 @@ class EpubArchive {
   /// 其余失败保持 [EpubException]（E_ARCHIVE/E_CRC）。
   ///
   /// [verify] 为 false 时跳过 CRC 校验：大文件（150MB+）解码能快数倍，
-  /// 阅读场景用（导入时已完整校验过一次）。
+  /// 阅读场景用（导入时已完整校验过一次）；条目内容在读取时才解压。
   factory EpubArchive.fromBytes(Uint8List bytes, {bool verify = true}) {
     List<ArchiveFile> files;
     try {
@@ -52,10 +52,14 @@ class EpubArchive {
         final repaired = _repairLocalHeaderOffsets(bytes);
         if (repaired != null) {
           try {
-            files = ZipDecoder().decodeBytes(repaired, verify: true).files;
-            return _build(files, diagnostics: const <String>[
-              'E_ZIP_LOCAL_HEADER: 局部头偏移错位，已扫描修补中心目录并恢复',
-            ]);
+            files = ZipDecoder().decodeBytes(repaired, verify: verify).files;
+            return _build(
+              files,
+              verify: verify,
+              diagnostics: const <String>[
+                'E_ZIP_LOCAL_HEADER: 局部头偏移错位，已扫描修补中心目录并恢复',
+              ],
+            );
           } catch (_) {
             // 修补后仍失败：落到分类抛出。
           }
@@ -64,26 +68,31 @@ class EpubArchive {
       }
     }
     // 本版 package:archive 对局部头错位会「静默丢条目」：解码成功但
-    // 条目变成空名零长占位——按「有名字段目」数少于中心目录触发修补
-    // 重解码（P7-15）。
-    final recovered = _recoverDroppedEntries(bytes, files);
+    // 条目变成空名零长占位——按「有名条目」数少于中心目录触发修补
+    // 重解码（P7-15）。目录也计入总数，避免正常目录触发无谓恢复。
+    final recovered = _recoverDroppedEntries(bytes, files, verify: verify);
     if (recovered != null) {
-      return _build(recovered, diagnostics: const <String>[
-        'E_ZIP_LOCAL_HEADER: 解码丢失条目，已按局部头扫描修补恢复',
-      ]);
+      return _build(
+        recovered,
+        verify: verify,
+        diagnostics: const <String>[
+          'E_ZIP_LOCAL_HEADER: 解码丢失条目，已按局部头扫描修补恢复',
+        ],
+      );
     }
-    return _build(files, diagnostics: const <String>[]);
+    return _build(files, verify: verify, diagnostics: const <String>[]);
   }
 
-  /// 静默丢条目的恢复：有名字段目数少于中心目录时修补偏移重解码，
-  /// 取回更多有名字段目则返回；无可恢复返回 null。
+  /// 静默丢条目的恢复：有名条目数少于中心目录时修补偏移重解码，
+  /// 取回更多有名条目则返回；无可恢复返回 null。
   static List<ArchiveFile>? _recoverDroppedEntries(
     Uint8List bytes,
-    List<ArchiveFile> decoded,
-  ) {
+    List<ArchiveFile> decoded, {
+    required bool verify,
+  }) {
     final centralCount = _centralEntryCount(bytes);
     final namedCount = decoded
-        .where((file) => file.isFile && file.name.trim().isNotEmpty)
+        .where((file) => file.name.trim().isNotEmpty)
         .length;
     if (centralCount == null || centralCount <= namedCount) {
       return null;
@@ -93,9 +102,8 @@ class EpubArchive {
       return null;
     }
     try {
-      final files = ZipDecoder().decodeBytes(repaired, verify: true).files;
-      return files.where((file) => file.isFile && file.name.trim().isNotEmpty).length >
-              namedCount
+      final files = ZipDecoder().decodeBytes(repaired, verify: verify).files;
+      return files.where((file) => file.name.trim().isNotEmpty).length > namedCount
           ? files
           : null;
     } catch (_) {
@@ -119,6 +127,7 @@ class EpubArchive {
   /// 损坏抛 `E_ZIP_ENTRY_TRUNCATED`，真空 ZIP 抛 `E_ARCHIVE`。
   static EpubArchive _build(
     List<ArchiveFile> files, {
+    required bool verify,
     required List<String> diagnostics,
   }) {
     final entries = <String, ArchiveFile>{};
@@ -129,7 +138,7 @@ class EpubArchive {
       if (!file.isFile) {
         continue;
       }
-      if (file.crc32 != null) {
+      if (verify && file.crc32 != null) {
         final actual = getCrc32(file.content);
         if (actual != file.crc32) {
           corrupted += 1;
@@ -200,7 +209,7 @@ class EpubArchive {
 
   /// 局部头偏移修补：按 EOCD 定位中心目录，逐条目校验局部头签名与
   /// 文件名；错位者在邻域扫描真实局部头（签名 + 同名）并回写偏移。
-  /// 任一条目无法定位返回 null。仅处理 32 位偏移（zip64 不修）。
+  /// 无需修补或任一条目无法定位返回 null。仅处理 32 位偏移（zip64 不修）。
   static Uint8List? _repairLocalHeaderOffsets(Uint8List bytes) {
     final eocd = _findEocd(bytes);
     if (eocd == null) {
@@ -210,8 +219,7 @@ class EpubArchive {
     final entryCount = data.getUint16(eocd + 10, Endian.little);
     var cursor = data.getUint32(eocd + 16, Endian.little);
     final cdStart = cursor;
-    final patched = Uint8List.fromList(bytes);
-    final patchedView = ByteData.sublistView(patched);
+    Uint8List? patched;
     for (var i = 0; i < entryCount; i++) {
       if (cursor + 46 > bytes.length ||
           data.getUint32(cursor, Endian.little) != 0x02014b50) {
@@ -235,7 +243,12 @@ class EpubArchive {
         return null;
       }
       if (repaired != localOffset) {
-        patchedView.setUint32(cursor + 42, repaired, Endian.little);
+        patched ??= Uint8List.fromList(bytes);
+        ByteData.sublistView(patched).setUint32(
+          cursor + 42,
+          repaired,
+          Endian.little,
+        );
       }
       cursor += 46 + nameLength + extraLength + commentLength;
     }
@@ -324,11 +337,11 @@ class EpubArchive {
 
   /// 读取文本（UTF-8）；不存在返回 null。
   String? readString(String path) {
-    final bytes = readBytes(path);
-    if (bytes == null) {
+    final entry = _entries[_normalizePath(path)];
+    if (entry == null) {
       return null;
     }
-    return utf8.decode(bytes, allowMalformed: true);
+    return utf8.decode(entry.content, allowMalformed: true);
   }
 
   /// 条目的压缩方式；不存在返回 null。

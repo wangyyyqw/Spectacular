@@ -554,6 +554,7 @@ class EpubChapterSource
   /// 映射；bookId 由 OPF 路径派生（同书同族隔离，多书不串）。
   BookFontLoader? _fontLoader;
   final Set<String> _fontFacesSeen = <String>{};
+  Future<void>? _fontRegistration;
 
   /// 书内字族 → 引擎族名（键为小写 CSS 族名）。
   ///
@@ -568,6 +569,10 @@ class EpubChapterSource
   /// 经 BookFontLoader 注册到引擎；字节解析沿用图片的多路径回退
   /// （直读 → OPF 目录 → 各章节目录）。
   Future<void> _ensureBookFonts(List<CssStylesheet> sheets) async {
+    // 连续跳章可能同时请求字体；去重标记不等于注册已完成。
+    while (_fontRegistration != null) {
+      await _fontRegistration!;
+    }
     final faces = <CssFontFace>[
       for (final sheet in sheets) ...sheet.fontFaces,
     ];
@@ -589,7 +594,7 @@ class EpubChapterSource
     if (pending.isEmpty) {
       return;
     }
-    await loader.load(pending, resolveBytes: (url) async {
+    final registration = loader.load(pending, resolveBytes: (url) async {
       final direct = document.archive.readBytes(url);
       if (direct != null) {
         return direct;
@@ -614,8 +619,13 @@ class EpubChapterSource
         }
       }
       return null;
-    });
-    _syncBookFontEngines(loader, faces);
+    }).then((_) => _syncBookFontEngines(loader, faces));
+    _fontRegistration = registration;
+    try {
+      await registration;
+    } finally {
+      if (identical(_fontRegistration, registration)) _fontRegistration = null;
+    }
   }
 
   /// 把已注册成功的族收进「CSS 族名 → 引擎族名」映射。
@@ -1374,6 +1384,38 @@ class EpubChapterSource
   static double _verticalBoxExtent(ComputedStyle style) =>
       style.padding.vertical + style.borders.top.width +
       style.borders.bottom.width;
+
+  /// 辅助属性仅匹配相关规则；选择器在章级解析一次，正文段落直接复用。
+  static List<_AuxiliaryCssRule> _prepareAuxiliaryRules(
+    List<CssStylesheet> sheets, {
+    String? pseudo,
+  }) {
+    const rawProperties = {'counter-reset', 'counter-increment', 'object-fit'};
+    final result = <_AuxiliaryCssRule>[];
+    for (final sheet in sheets) {
+      for (final rule in sheet.rules) {
+        if (!rule.declarations.any((declaration) => pseudo == null
+            ? rawProperties.contains(declaration.property)
+            : declaration.property == 'content')) {
+          continue;
+        }
+        if (pseudo == null && rule.selector.contains('::')) continue;
+        for (final raw in rule.selector.split(',')) {
+          var selector = raw.trim();
+          if (pseudo != null) {
+            if (!selector.endsWith(pseudo)) continue;
+            selector = selector.substring(0, selector.length - pseudo.length);
+          }
+          if (selector.isEmpty) continue;
+          final parsed = SelectorParser.parse(selector);
+          if (parsed.selectors.isNotEmpty) {
+            result.add((selectors: parsed, declarations: rule.declarations));
+          }
+        }
+      }
+    }
+    return result;
+  }
 
   /// 把容器的垂直占位和独立绘制片段挂到首末后代，不改变原文/CFI。
   static void _wrapContainerBlocks(
@@ -2391,6 +2433,11 @@ class EpubChapterSource
     // 引擎族名 `bi_<bookId>_<族>`，改写在级联之前，块样式与行内 run 样式
     // 都自然拿到引擎族名。
     final styledSheets = _rewriteBookFontSheets(sheets);
+    final auxiliaryRules = _prepareAuxiliaryRules(styledSheets);
+    final pseudoRules = {
+      for (final pseudo in ['::before', '::after'])
+        pseudo: _prepareAuxiliaryRules(styledSheets, pseudo: pseudo),
+    };
     // ---------- 内容生成（W20）：计数器 / 引号 / object-fit ----------
     /// CSS 计数器状态（§12.4）：扁平管线按文档序遍历，用单层映射近似
     /// 树作用域（真书里章节编号几乎都是 `h1 { counter-increment: chapter }`
@@ -2406,30 +2453,14 @@ class EpubChapterSource
       final element = ancestors.last;
       final parents = ancestors.sublist(0, ancestors.length - 1);
       final result = <String, String>{};
-      for (final sheet in styledSheets) {
-        for (final rule in sheet.rules) {
-          if (rule.selector.contains('::')) {
-            continue; // 伪元素规则由 pseudoContentOf 单独处理
-          }
-          for (final raw in rule.selector.split(',')) {
-            final parsed = SelectorParser.parse(raw.trim());
-            if (parsed.selectors.isEmpty) {
-              continue;
-            }
-            var matched = false;
-            for (final complex in parsed.selectors) {
-              if (complex.matches(element, parents)) {
-                matched = true;
-                break;
-              }
-            }
-            if (!matched) {
-              continue;
-            }
-            for (final declaration in rule.declarations) {
-              result[declaration.property] = declaration.value.trim();
-            }
-          }
+      for (final rule in auxiliaryRules) {
+        if (!rule.selectors.selectors.any(
+          (selector) => selector.matches(element, parents),
+        )) {
+          continue;
+        }
+        for (final declaration in rule.declarations) {
+          result[declaration.property] = declaration.value.trim();
         }
       }
       for (final declaration in _inlineDeclarationsOf(
@@ -2550,58 +2581,37 @@ class EpubChapterSource
       }
       final element = ancestors.last;
       final parents = ancestors.sublist(0, ancestors.length - 1);
-      for (final sheet in styledSheets) {
-        for (final rule in sheet.rules) {
-          for (final rawSelector in rule.selector.split(',')) {
-            final selector = rawSelector.trim();
-            if (!selector.endsWith(pseudo)) {
-              continue;
-            }
-            final main = selector.substring(0, selector.length - pseudo.length);
-            if (main.isEmpty) {
-              continue;
-            }
-            final parsed = SelectorParser.parse(main);
-            if (parsed.selectors.isEmpty) {
-              continue;
-            }
-            var matched = false;
-            for (final complex in parsed.selectors) {
-              if (complex.matches(element, parents)) {
-                matched = true;
-                break;
-              }
-            }
-            if (!matched) {
-              continue;
-            }
-            for (final declaration in rule.declarations) {
-              if (declaration.property != 'content') {
-                continue;
-              }
-              final value = declaration.value.trim();
-              if (value == 'normal' || value == 'none') {
-                return null;
-              }
-              // 伪元素规则里的计数器声明先生效（见 applyCounterMap 注释）。
-              applyCounterMap(<String, String>{
-                for (final d in rule.declarations)
-                  if (d.property == 'counter-reset' ||
-                      d.property == 'counter-increment')
-                    d.property: d.value,
-              });
-              return _evaluateContentValue(
-                value,
-                ancestors: ancestors,
-                quotes: quotes,
-                quoteDepth: quoteDepth,
-                counterValue: (name, style) => formatCounter(
-                  cssCounters[name] ?? 0,
-                  style,
-                ),
-              );
-            }
+      for (final rule in pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]) {
+        if (!rule.selectors.selectors.any(
+          (selector) => selector.matches(element, parents),
+        )) {
+          continue;
+        }
+        for (final declaration in rule.declarations) {
+          if (declaration.property != 'content') {
+            continue;
           }
+          final value = declaration.value.trim();
+          if (value == 'normal' || value == 'none') {
+            return null;
+          }
+          // 伪元素规则里的计数器声明先生效（见 applyCounterMap 注释）。
+          applyCounterMap(<String, String>{
+            for (final d in rule.declarations)
+              if (d.property == 'counter-reset' ||
+                  d.property == 'counter-increment')
+                d.property: d.value,
+          });
+          return _evaluateContentValue(
+            value,
+            ancestors: ancestors,
+            quotes: quotes,
+            quoteDepth: quoteDepth,
+            counterValue: (name, style) => formatCounter(
+              cssCounters[name] ?? 0,
+              style,
+            ),
+          );
         }
       }
       return null;
@@ -2620,6 +2630,25 @@ class EpubChapterSource
           startOrder: 1000 + i * 10000,
         ),
     ];
+    final candidateRuleCache = <(String, String?, String), List<CascadeRule>>{};
+    List<CascadeRule> candidateRulesFor(SelectorElement element) {
+      final tag = element.tag.toLowerCase();
+      final id = element.attributes['id'];
+      final classes = (element.attributes['class'] ?? '')
+          .split(RegExp(r'\s+')).where((value) => value.isNotEmpty).toSet();
+      final classKey = (classes.toList()..sort()).join(' ');
+      // 只按稳定的主体条件缩小候选集；属性、祖先、兄弟和伪类仍逐次匹配。
+      return candidateRuleCache.putIfAbsent((tag, id, classKey), () => [
+        for (final rule in cascadeRules)
+          if (rule.selectors.selectors.any((selector) {
+            if (selector.parts.isEmpty) return false;
+            final part = selector.parts.last;
+            return (part.tag == null || part.tag!.toLowerCase() == tag) &&
+                (part.id == null || part.id == id) &&
+                part.classes.every(classes.contains);
+          })) rule,
+      ]);
+    }
     final chainStyleCache = <String, ComputedStyle>{};
     var figureSeq = 0;
     // P9-25：最近一次 styleForChain 的最近容器是否带可见边框。局部状态，
@@ -2649,7 +2678,7 @@ class EpubChapterSource
         return Cascade.compute(
           element: chain.last,
           ancestors: chain.sublist(0, chain.length - 1),
-          rules: cascadeRules,
+          rules: candidateRulesFor(chain.last),
           inlineDeclarations: _rewriteBookFontDeclarations(
             _inlineDeclarationsOf(chain.last.attributes['style']),
           ),
@@ -2753,7 +2782,7 @@ class EpubChapterSource
       for (var i = context.ancestors.length; i < chain.length; i++) {
         parent = Cascade.compute(
           element: chain[i], ancestors: chain.sublist(0, i),
-          rules: cascadeRules,
+          rules: candidateRulesFor(chain[i]),
           inlineDeclarations: _rewriteBookFontDeclarations(
             _inlineDeclarationsOf(chain[i].attributes['style']),
           ),
@@ -5084,6 +5113,11 @@ typedef _InlineStyleContext = ({
   List<SelectorElement> ancestors,
   ComputedStyle style,
   double width,
+});
+
+typedef _AuxiliaryCssRule = ({
+  SelectorList selectors,
+  List<CssDeclaration> declarations,
 });
 
 /// 行内浮动提取结果（W17）：摘出的浮动块 + 剩余文本与偏移重映射。

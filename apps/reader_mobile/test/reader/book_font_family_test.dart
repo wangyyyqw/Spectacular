@@ -70,4 +70,28 @@ void main() {
     );
     expect(inlineRun.style.fontFamily, endsWith('_mm'));
   }, skip: skip);
+
+  test('并发章节请求共同等待字体注册，不先缓存回退字体的排版', () async {
+    final source = await openCssChapter(
+      body: '<p>并发读取仍使用书内字体</p>',
+      css:
+          '@font-face { font-family: "concurrent"; '
+          'src: url("../Fonts/c.otf"); } p { font-family: "concurrent", serif; }',
+      binaryFiles: {'OEBPS/Fonts/c.otf': fontFile.readAsBytesSync()},
+    );
+    final results = await Future.wait([
+      source.loadChapter(0),
+      source.loadChapter(0),
+      source.loadChapter(0),
+    ]);
+    for (final pages in results) {
+      final block = pages.first.slices.first.block;
+      expect(block.style!.fontFamily, startsWith('bi_'));
+      expect(block.style!.fontFamily, endsWith('_concurrent'));
+      expect(
+        block.layout.height,
+        results.first.first.slices.first.block.layout.height,
+      );
+    }
+  }, skip: skip);
 }

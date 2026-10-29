@@ -82,6 +82,47 @@ void main() {
     expect(archive.diagnostics.any((d) => d.contains('bad.txt')), isTrue);
   });
 
+  test('显式关闭 CRC 时保留条目，默认仍过滤损坏内容', () {
+    final zip = _twoEntryZip();
+    final index = _indexOf(zip, utf8.encode('bad content payload here'));
+    zip[index] ^= 0xFF;
+
+    final quick = EpubArchive.fromBytes(zip, verify: false);
+    expect(quick.contains('bad.txt'), isTrue);
+    expect(quick.readBytes('bad.txt')!.first, zip[index]);
+    expect(quick.diagnostics, isEmpty);
+    expect(EpubArchive.fromBytes(zip).contains('bad.txt'), isFalse);
+  });
+
+  test('局部头修补后仍遵守显式关闭 CRC', () {
+    final zip = _twoEntryZip();
+    zip[_indexOf(zip, utf8.encode('bad content payload here'))] ^= 0xFF;
+    final patched = _shiftCentralOffset(zip, 'bad.txt', 3)!;
+    final archive = EpubArchive.fromBytes(patched, verify: false);
+    expect(archive.contains('bad.txt'), isTrue);
+    expect(archive.diagnostics, contains(startsWith('E_ZIP_LOCAL_HEADER')));
+    expect(
+      archive.diagnostics,
+      isNot(contains(startsWith('E_ZIP_ENTRY_TRUNCATED'))),
+    );
+  });
+
+  test('含目录条目无需修补，文本读取与字节副本保持隔离', () {
+    final zip = Archive()
+      ..addFile(ArchiveFile.directory('text/'))
+      ..addFile(ArchiveFile.string('text/chapter.xhtml', '正文'));
+    final archive = EpubArchive.fromBytes(
+      Uint8List.fromList(ZipEncoder().encode(zip)),
+      verify: false,
+    );
+    expect(archive.names, ['text/chapter.xhtml']);
+    expect(archive.diagnostics, isEmpty);
+    final bytes = archive.readBytes('text/chapter.xhtml')!;
+    bytes.fillRange(0, bytes.length, 0);
+    expect(archive.readString('text/chapter.xhtml'), '正文');
+    expect(archive.readString('missing'), isNull);
+  });
+
   test('局部头偏移错位：扫描修补后恢复（P7-15）', () {
     final zip = _twoEntryZip();
     // 把中心目录里 bad.txt 的局部头偏移改错 3 字节。

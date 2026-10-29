@@ -122,8 +122,8 @@ void main() {
     expect(session.page, isNotNull);
     expect(
       session.currentVirtualPage,
-      10,
-      reason: '每章 2 页 → 第 5 章首页是第 11 页（0 基 10）',
+      2,
+      reason: '只映射已加载的第 0、5 章，不为窗口页码排版中间章节',
     );
 
     // 越界章节不动（pager 返回 false）。

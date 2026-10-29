@@ -78,15 +78,15 @@ void main() {
     expect(await pager.previous(), isFalse);
   });
 
-  test('前后各预取 1 页，章边界加载相邻章', () async {
+  test('前后邻页复用已加载页，章边界不提前排版其他章节', () async {
     await pager.initialize();
     expect(pager.prefetchedPages.map((page) => page.pageIndex), contains(1));
-    await pager.next(); // 页 0.1，章末，预取下一章
-    expect(loads, contains(1));
+    await pager.next(); // 页 0.1，章末仍只需要当前章
+    expect(loads, [0]);
     final prefetched = pager.prefetchedPages;
     expect(
       prefetched.map((page) => (page.spineIndex, page.pageIndex)),
-      containsAll(<(int, int)>[(0, 0), (1, 0)]),
+      [(0, 0)],
     );
   });
 
@@ -99,19 +99,19 @@ void main() {
     expect(pager.current!.pageIndex, 1);
   });
 
-  test('指定起始章初始化并保持页码连续', () async {
+  test('指定起始章只加载目标章，窗口页码从零开始', () async {
     await pager.initialize(startSpine: 1);
-    expect(loads, containsAll(<int>[0, 1]));
-    expect(pager.currentVirtualPage, 2);
+    expect(loads, [1]);
+    expect(pager.currentVirtualPage, 0);
     expect((pager.current!.spineIndex, pager.current!.pageIndex), (1, 0));
   });
 
   test('goTo 跳转后前后翻页仍连续', () async {
     await pager.initialize();
     expect(await pager.goTo(2, 1), isTrue);
-    expect(pager.currentVirtualPage, 6);
+    expect(pager.currentVirtualPage, 3);
     expect(await pager.previous(), isTrue);
-    expect(pager.currentVirtualPage, 5);
+    expect(pager.currentVirtualPage, 2);
     expect((pager.current!.spineIndex, pager.current!.pageIndex), (2, 0));
   });
 
