@@ -17,6 +17,33 @@ APP_ID = "com.spectacular.reader_mobile"
 TEST_ID = APP_ID + ".css_test"
 
 
+class DeviceHandler(SimpleHTTPRequestHandler):
+    """提供原书并按测试检查点截取 Android 正常渲染表面。"""
+
+    def __init__(self, *args, device, output, **kwargs):
+        self.device = device
+        self.output = output
+        super().__init__(*args, **kwargs)
+
+    def do_POST(self):
+        name = self.path.removeprefix("/capture/")
+        allowed = {"chapter6-page-1", "chapter6-page-2", "chapter6-page-3",
+                   "chapter6-enlarged"}
+        if self.path != f"/capture/{name}" or name not in allowed:
+            self.send_error(404)
+            return
+        result = subprocess.run(
+            ["adb", "-s", self.device, "exec-out", "screencap", "-p"],
+            check=True, capture_output=True)
+        if not result.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
+            self.send_error(500, "Invalid PNG")
+            return
+        self.output.mkdir(parents=True, exist_ok=True)
+        (self.output / f"{name}.png").write_bytes(result.stdout)
+        self.send_response(204)
+        self.end_headers()
+
+
 def run(command, *, cwd=ROOT, capture=False, env=None):
     """失败立即停止，不尝试卸载后重装。"""
     return subprocess.run(command, cwd=cwd, check=True, text=True,
@@ -85,7 +112,8 @@ def test_on_device(args):
         inputs.mkdir()
         (inputs / "book.epub").symlink_to(args.book.resolve())
         server = ThreadingHTTPServer(("127.0.0.1", 0),
-            partial(SimpleHTTPRequestHandler, directory=str(inputs)))
+            partial(DeviceHandler, directory=str(inputs), device=args.device,
+                    output=args.output.resolve()))
         port = str(server.server_port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:

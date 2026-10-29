@@ -23,20 +23,20 @@ void main() {
       final source = await _openReader(tester, bytes);
       final initial = await _checkChapter(source);
       expect(_page(tester).spineIndex, 32);
-      await binding.convertFlutterSurfaceToImage();
-      await tester.pump();
-      await _capturePages(tester, binding, initial['pages']! as int);
+      await _capturePages(tester, initial['pages']! as int);
       await _resizeText(tester);
       final enlarged = await _checkChapter(source);
       expect(enlarged['fontSize'], greaterThan(initial['fontSize']! as double));
       expect(_page(tester).spineIndex, 32, reason: '重排保持章节位置');
-      await binding.takeScreenshot('chapter6-enlarged');
-      binding.reportData!['chapter6'] = <String, Object?>{
-        'bytes': bytes.length,
-        'initial': initial,
-        'enlarged': enlarged,
-        'physicalSize': tester.view.physicalSize.toString(),
-        'devicePixelRatio': tester.view.devicePixelRatio,
+      await _capture('chapter6-enlarged');
+      binding.reportData = <String, dynamic>{
+        'chapter6': <String, Object?>{
+          'bytes': bytes.length,
+          'initial': initial,
+          'enlarged': enlarged,
+          'physicalSize': tester.view.physicalSize.toString(),
+          'devicePixelRatio': tester.view.devicePixelRatio,
+        },
       };
       expect(tester.takeException(), isNull);
     },
@@ -134,6 +134,7 @@ Future<Map<String, Object>> _checkChapter(EpubChapterSource source) async {
   for (final page in pages) {
     expect(page.slices, isNotEmpty);
     expect(page.usedHeight, lessThanOrEqualTo(page.pageHeight + .01));
+    _checkFragmentDecoration(page);
   }
   return <String, Object>{
     'pages': pages.length,
@@ -141,7 +142,34 @@ Future<Map<String, Object>> _checkChapter(EpubChapterSource source) async {
     'contentWidth': source.contentWidth,
     'fontSize': body.style!.fontSize,
     'containerDepth': body.containers.length,
+    'closedContinuationPages': pages
+        .where(
+          (page) =>
+              page.slices.last.block.containerBottomInset(
+                page.slices.last.endLine,
+              ) >
+              0,
+        )
+        .length,
   };
+}
+
+void _checkFragmentDecoration(PageContent page) {
+  final first = page.slices.first;
+  final last = page.slices.last;
+  final top = first.block.containers
+      .where((fragment) => !fragment.startsHere || first.continuesBefore)
+      .fold(0.0, (sum, fragment) => sum + fragment.container.topDecoration);
+  final bottom = last.block.containers
+      .where((fragment) => !fragment.endsHere || last.continuesAfter)
+      .fold(0.0, (sum, fragment) => sum + fragment.container.bottomDecoration);
+  expect(first.leadingExtent, greaterThanOrEqualTo(top));
+  expect(last.trailingExtent, greaterThanOrEqualTo(bottom));
+  expect(last.block.breakAfterAvoid, isFalse, reason: '效果标题与至少一行正文同页');
+  expect(
+    first.block.containers.every((f) => f.container.cloneDecoration),
+    isTrue,
+  );
 }
 
 void _checkContainers(Set<PageBlock> blocks) {
@@ -170,21 +198,31 @@ void _checkContainers(Set<PageBlock> blocks) {
   }
 }
 
-Future<void> _capturePages(
-  WidgetTester tester,
-  IntegrationTestWidgetsFlutterBinding binding,
-  int pageCount,
-) async {
+Future<void> _capturePages(WidgetTester tester, int pageCount) async {
   // 逐页走真实点击路径，前三页留图；其余页验证页序与非空内容。
   for (var i = 0; i < pageCount; i++) {
     expect(_page(tester).spineIndex, 32);
     expect(_page(tester).pageIndex, i);
     expect(_page(tester).slices, isNotEmpty);
-    if (i < 3) await binding.takeScreenshot('chapter6-page-${i + 1}');
+    if (i < 3) await _capture('chapter6-page-${i + 1}');
     if (i + 1 < pageCount) await _turn(tester, forward: true);
   }
   await _turn(tester, forward: false);
   expect(_page(tester).pageIndex, pageCount - 2, reason: '反向翻页可恢复上一页');
+}
+
+/// 由 USB 宿主直接截屏，避免 Android 表面转换留下旧帧叠影。
+Future<void> _capture(String name) async {
+  final url = Uri.parse(const String.fromEnvironment('EPUB_TEST_URL'));
+  final client = HttpClient();
+  try {
+    final response = await (await client.postUrl(url.resolve('/capture/$name')))
+        .close();
+    expect(response.statusCode, HttpStatus.noContent);
+    await response.drain<void>();
+  } finally {
+    client.close(force: true);
+  }
 }
 
 Future<void> _turn(WidgetTester tester, {required bool forward}) async {

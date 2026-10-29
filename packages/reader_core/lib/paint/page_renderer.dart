@@ -234,7 +234,7 @@ class PagePainter {
     double parentOpacity,
   ) {
     final canvas = context.canvas;
-    final geometry = _containerGeometry(group, depth);
+    final geometry = _containerGeometry(group, depth, context.page.pageHeight);
     _inBlockSpace(canvas, geometry, clip: false, () {
       _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
         if (!geometry.hidden) {
@@ -254,28 +254,58 @@ class PagePainter {
     });
   }
 
-  _SliceGeometry _containerGeometry(_PaintGroup group, int depth) {
+  /// 真实首尾按内容收口；克隆续页封到页底，外层留白逐层扣除。
+  Rect _containerBounds(_PaintGroup group, int depth, double pageHeight) {
     final first = group.geometries.first;
     final last = group.geometries.last;
     final start = first.slice.block.containers[depth];
     final end = last.slice.block.containers[depth];
     final starts = start.startsHere && first.startsBlock;
     final ends = end.endsHere && last.endsBlock;
-    final top = starts ? first.y + first.leading - start.topInset : first.y;
+    final container = group.container!;
+    final outerTop = first.slice.block.containerTopInset(
+      first.slice.startLine,
+      beforeDepth: depth,
+    );
+    final outerBottom = last.slice.block.containerBottomInset(
+      last.slice.endLine,
+      beforeDepth: depth,
+    );
+    final top = starts
+        ? first.y + first.leading - start.topInset
+        : first.y + outerTop;
     final bottom = ends
         ? last.y +
               last.slice.height -
               last.slice.trailingExtent +
               end.bottomInset
-        : last.y + last.slice.height;
+        : (container.cloneDecoration ? pageHeight : last.y + last.slice.height) -
+              outerBottom;
+    return Rect.fromLTWH(
+      container.left, top, container.width, math.max(0, bottom - top),
+    );
+  }
+
+  _SliceGeometry _containerGeometry(
+    _PaintGroup group,
+    int depth,
+    double pageHeight,
+  ) {
+    final first = group.geometries.first;
+    final last = group.geometries.last;
+    final start = first.slice.block.containers[depth];
+    final end = last.slice.block.containers[depth];
     final container = group.container!;
+    final bounds = _containerBounds(group, depth, pageHeight);
     return _SliceGeometry(
       slice: first.slice,
-      y: top,
+      y: bounds.top,
       style: container.style,
       textStyle: first.textStyle,
-      startsBlock: starts,
-      endsBlock: ends,
+      startsBlock:
+          container.cloneDecoration || start.startsHere && first.startsBlock,
+      endsBlock:
+          container.cloneDecoration || end.endsHere && last.endsBlock,
       hidden: container.style.visibility != CssVisibility.visible,
       leading: 0,
       leftInset: container.left,
@@ -285,12 +315,7 @@ class PagePainter {
       pageWidth: first.pageWidth,
       pageHeight: first.pageHeight,
       pageInsets: first.pageInsets,
-      paintBox: Rect.fromLTWH(
-        container.left,
-        top,
-        container.width,
-        bottom - top,
-      ),
+      paintBox: bounds,
     );
   }
 
