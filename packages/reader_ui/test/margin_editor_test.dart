@@ -166,6 +166,52 @@ void main() {
       expect(applied, isNull, reason: '没点保留不应回传');
     });
 
+    testWidgets('上层随预览重建时拖动不会中断', (tester) async {
+      final previews = <ReaderMargins>[];
+      var parentMargins = _defaults();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => MarginEditor(
+                margins: parentMargins,
+                defaults: _defaults(),
+                onCancel: () {},
+                onApply: (_) {},
+                onPreview: (value) {
+                  previews.add(value);
+                  setState(() => parentMargins = value);
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey<String>('margin-top-inner')),
+        ),
+      );
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      final beforeMoves = previews.length;
+      for (var i = 0; i < 5; i++) {
+        await gesture.moveBy(const Offset(0, 12));
+        await tester.pump();
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        previews.length - beforeMoves,
+        greaterThanOrEqualTo(5),
+        reason: '父级实时预览重建后，同一次拖动仍应持续回调',
+      );
+      expect(previews.last.topInner, closeTo(12 + 80 / 6, 0.1));
+    });
+
     testWidgets('四边胶囊拖动方向与间距扩张方向一致', (tester) async {
       final previews = <ReaderMargins>[];
       await tester.pumpWidget(

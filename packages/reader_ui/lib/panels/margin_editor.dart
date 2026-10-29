@@ -296,27 +296,61 @@ class _Pill extends StatefulWidget {
 
 class _PillState extends State<_Pill> {
   bool _dragging = false;
+  int? _pointer;
+  Offset _lastPosition = Offset.zero;
+  double _pendingDelta = 0;
 
   double _axisDelta(Offset delta) =>
       (widget.axis == Axis.horizontal ? delta.dx : delta.dy) * widget.dragSign;
 
-  void _dragStart(DragStartDetails details) {
-    setState(() => _dragging = true);
+  void _pointerDown(PointerDownEvent event) {
+    if (_pointer != null) {
+      return;
+    }
+    _pointer = event.pointer;
+    _lastPosition = event.localPosition;
+    _pendingDelta = 0;
   }
 
-  void _dragUpdate(DragUpdateDetails details) {
-    // 6 逻辑像素对应 1 个边距单位；把每帧增量直接交给上层，拖动连续且
-    // 边界沿手指方向移动。不要缓存到阈值后再结算，否则慢速拖动会失效。
-    widget.onDelta(_axisDelta(details.delta) / 6);
+  void _pointerMove(PointerMoveEvent event) {
+    if (event.pointer != _pointer) {
+      return;
+    }
+    final delta = event.localPosition - _lastPosition;
+    _lastPosition = event.localPosition;
+    final axisDelta = _axisDelta(delta);
+    if (!_dragging) {
+      _pendingDelta += axisDelta;
+      if (_pendingDelta.abs() < 3) {
+        return;
+      }
+      setState(() => _dragging = true);
+      // 越过手势阈值时补回前几次移动，慢速拖动也不会丢距离。
+      widget.onDelta(_pendingDelta / 6);
+      _pendingDelta = 0;
+      return;
+    }
+    // 6 逻辑像素对应 1 个边距单位；每帧直接消费增量，拖动连续。
+    widget.onDelta(axisDelta / 6);
   }
 
-  void _dragEnd(DragEndDetails details) {
+  void _pointerUp(PointerEvent event) {
+    if (event.pointer != _pointer) {
+      return;
+    }
+    _pointer = null;
+    _pendingDelta = 0;
     if (mounted) {
       setState(() => _dragging = false);
     }
   }
 
-  void _dragCancel() {
+  void _pointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _pointer) {
+      return;
+    }
+    _pointer = null;
+    _pendingDelta = 0;
     if (mounted) {
       setState(() => _dragging = false);
     }
@@ -329,25 +363,14 @@ class _PillState extends State<_Pill> {
       color: scheme.surface,
       elevation: _dragging ? 6 : 3,
       borderRadius: BorderRadius.circular(18),
-      child: GestureDetector(
-        // 整颗胶囊接收拖动；箭头仍作为子级点击目标，移动超过手势阈值后
-        // 拖动识别器获胜，不会出现只有箭头能点、胶囊拖不动的情况。
+      child: Listener(
+        // 使用原始指针移动：子级箭头仍能正常 tap，且不会与内部 InkResponse
+        // 争夺手势竞技场。上层预览触发的重建也不会打断正在进行的拖动。
         behavior: HitTestBehavior.opaque,
-        dragStartBehavior: DragStartBehavior.down,
-        onHorizontalDragStart: widget.axis == Axis.horizontal
-            ? _dragStart
-            : null,
-        onHorizontalDragUpdate: widget.axis == Axis.horizontal
-            ? _dragUpdate
-            : null,
-        onHorizontalDragEnd: widget.axis == Axis.horizontal ? _dragEnd : null,
-        onHorizontalDragCancel: widget.axis == Axis.horizontal
-            ? _dragCancel
-            : null,
-        onVerticalDragStart: widget.axis == Axis.vertical ? _dragStart : null,
-        onVerticalDragUpdate: widget.axis == Axis.vertical ? _dragUpdate : null,
-        onVerticalDragEnd: widget.axis == Axis.vertical ? _dragEnd : null,
-        onVerticalDragCancel: widget.axis == Axis.vertical ? _dragCancel : null,
+        onPointerDown: _pointerDown,
+        onPointerMove: _pointerMove,
+        onPointerUp: _pointerUp,
+        onPointerCancel: _pointerCancel,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           child: Row(
