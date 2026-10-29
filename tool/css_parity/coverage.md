@@ -6,15 +6,15 @@
 > style）中出现该属性声明（含厂商前缀别名）即算覆盖。
 
 - 审计条目 **116** 条，展开后属性名 **168** 个（同一条目里的多属性按名拆分）
-- 已覆盖 **140** 个（83.3%），未覆盖 **28** 个
-- 用例 **79** 个（编号 01–80）
-- 下一个可用用例编号：**81**（未覆盖表的「建议用例」按 1-2 属性/例分配）
+- 已覆盖 **141** 个（83.9%），未覆盖 **27** 个
+- 用例 **80** 个（编号 01–81）
+- 下一个可用用例编号：**82**（未覆盖表的「建议用例」按 1-2 属性/例分配）
 
 ## 1. 分组覆盖概览
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
-| 解析且消费（审计 A 组） | 122 | 121 | 99.2% |
+| 解析且消费（审计 A 组） | 122 | 122 | 100.0% |
 | 占位式（审计 C 组：有字段、零消费） | 1 | 1 | 100.0% |
 | 完全未处理（审计 D 组：无字段） | 45 | 18 | 40.0% |
 
@@ -24,7 +24,7 @@
 
 | 属性 | 审计编号 | 审计原文 | 建议用例 |
 | --- | --- | --- | --- |
-| `font-variant-caps` | #84 | font-variant / font-variant-caps | 81 |
+| - | - | - | - |
 
 ### 占位式（审计 C 组：有字段、零消费）
 
@@ -36,33 +36,33 @@
 
 | 属性 | 审计编号 | 审计原文 | 建议用例 |
 | --- | --- | --- | --- |
-| `border-image` | #99 | border-image | 81 |
-| `background-attachment` | #100 | background-attachment | 81 |
-| `backdrop-filter` | #102 | backdrop-filter | 82 |
-| `text-combine-upright` | #111 | text-combine-upright | 82 |
-| `orphans` | #113 | orphans / widows | 83 |
-| `widows` | #113 | orphans / widows | 83 |
-| `caption-side` | #115 | caption-side / empty-cells | 84 |
-| `empty-cells` | #115 | caption-side / empty-cells | 84 |
-| `aspect-ratio` | #116 | aspect-ratio | 85 |
-| `scroll-behavior` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 85 |
-| `scrollbar-width` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 86 |
-| `-ms-overflow-style` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 86 |
-| `cursor` | #119 | outline / cursor | 87 |
-| `user-select` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 87 |
-| `resize` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 88 |
-| `will-change` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 88 |
-| `contain` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 89 |
-| `isolation` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 89 |
-| `pointer-events` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 90 |
-| `clip-path` | #121 | clip-path / mask | 90 |
-| `mask` | #121 | clip-path / mask | 91 |
-| `transition` | #122 | transition / animation | 91 |
-| `animation` | #122 | transition / animation | 92 |
-| `font-kerning` | #123 | font-feature-settings / font-kerning / font-variant-ligatures | 92 |
-| `box-decoration-break` | #124 | box-decoration-break | 93 |
-| `justify-content` | #125 | justify-content / align-items / grid-* / flex-* | 93 |
-| `align-items` | #125 | justify-content / align-items / grid-* / flex-* | 94 |
+| `border-image` | #99 | border-image | 82 |
+| `background-attachment` | #100 | background-attachment | 82 |
+| `backdrop-filter` | #102 | backdrop-filter | 83 |
+| `text-combine-upright` | #111 | text-combine-upright | 83 |
+| `orphans` | #113 | orphans / widows | 84 |
+| `widows` | #113 | orphans / widows | 84 |
+| `caption-side` | #115 | caption-side / empty-cells | 85 |
+| `empty-cells` | #115 | caption-side / empty-cells | 85 |
+| `aspect-ratio` | #116 | aspect-ratio | 86 |
+| `scroll-behavior` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 86 |
+| `scrollbar-width` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 87 |
+| `-ms-overflow-style` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 87 |
+| `cursor` | #119 | outline / cursor | 88 |
+| `user-select` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 88 |
+| `resize` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 89 |
+| `will-change` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 89 |
+| `contain` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 90 |
+| `isolation` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 90 |
+| `pointer-events` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 91 |
+| `clip-path` | #121 | clip-path / mask | 91 |
+| `mask` | #121 | clip-path / mask | 92 |
+| `transition` | #122 | transition / animation | 92 |
+| `animation` | #122 | transition / animation | 93 |
+| `font-kerning` | #123 | font-feature-settings / font-kerning / font-variant-ligatures | 93 |
+| `box-decoration-break` | #124 | box-decoration-break | 94 |
+| `justify-content` | #125 | justify-content / align-items / grid-* / flex-* | 94 |
+| `align-items` | #125 | justify-content / align-items / grid-* / flex-* | 95 |
 
 ## 3. 已覆盖清单
 
@@ -70,23 +70,23 @@
 
 | 属性 | 审计编号 | 覆盖用例 |
 | --- | --- | --- |
-| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80 |
-| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67、69、70、71、72、73、74、75、76、78、79、80 |
-| `color` | #3 | 10、26、28、29、37、62、75、76、78、79、80 |
+| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81 |
+| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67、69、70、71、72、73、74、75、76、78、79、80、81 |
+| `color` | #3 | 10、26、28、29、37、62、75、76、78、79、80、81 |
 | `font-weight` | #4 | 07、12 |
 | `font-style` | #5 | 07 |
-| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80 |
+| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81 |
 | `font` | #7 | 58 |
 | `text-align` | #8 | 03、12、17、18、32 |
 | `text-indent` | #9 | 03、16、42、45 |
 | `letter-spacing` | #10 | 01、02 |
 | `word-spacing` | #11 | 02 |
-| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80 |
+| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81 |
 | `margin-top` | #13 | 46、73 |
 | `margin-right` | #13 | 14、23、38 |
 | `margin-bottom` | #13 | 46、79 |
 | `margin-left` | #13 | 23、38 |
-| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80 |
+| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81 |
 | `padding-top` | #15 | 23、48 |
 | `padding-right` | #15 | 47、48 |
 | `padding-bottom` | #15 | 47、49 |
@@ -119,7 +119,7 @@
 | `background-position` | #35 | 27、29 |
 | `background-origin` | #36 | 52 |
 | `background-clip` | #37 | 28 |
-| `background` | #38 | 10、26、68、69、71、73、74、75、76、79、80 |
+| `background` | #38 | 10、26、68、69、71、73、74、75、76、79、80、81 |
 | `display` | #39 | 53、72 |
 | `position` | #40 | 53、68、75、76 |
 | `top` | #41 | 53、68、76 |
@@ -173,6 +173,7 @@
 | `overflow-wrap` | #83 | 20、40 |
 | `word-wrap` | #83 | 62 |
 | `font-variant` | #84 | 15 |
+| `font-variant-caps` | #84 | 81 |
 | `overflow` | #85 | 14、22、40 |
 | `overflow-x` | #85 | 62 |
 | `column-count` | #86 | 63 |
@@ -262,6 +263,7 @@
 | 78 | `counter-increment`、`counter-reset` |
 | 79 | `-webkit-filter`、`-webkit-transform` |
 | 80 | `font-size-adjust` |
+| 81 | `font-variant-caps` |
 
 ## 5. 审计外的新增解析点
 

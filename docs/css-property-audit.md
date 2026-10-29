@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **1**：`initial-letter` |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（97 + 1 + 44） |
-| `tool/css_parity/cases/` | 79 个用例（编号 01–80，缺 65） |
+| `tool/css_parity/cases/` | 80 个用例（编号 01–81，缺 65） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -32,7 +32,8 @@
 > `80-font-size-adjust`。前者把 WebKit 效果/变换前缀并入标准属性级联槽；后者
 > 接入 `font-size-adjust` 的 x-height 计算与书籍字体度量。79/80 的几何与关键
 > 样式失配均为 0；80 的 Chrome Range 高度仍按字体盒返回，对照工具已将逐行 y
-> 按块顶 + CSS 行高归一。覆盖率与剩余属性名以
+> 按块顶 + CSS 行高归一。`81-font-variant-caps` 补齐 Chromium 同款小型大写
+> 合成、全字符缩放与混合字号 CSS 行盒，几何/样式失配为 0。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 

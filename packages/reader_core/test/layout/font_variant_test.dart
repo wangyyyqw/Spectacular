@@ -107,6 +107,16 @@ void main() {
         'font-variant-caps': 'small-caps',
       }),
     );
+    expect(
+      usesSyntheticSmallCaps(
+        _style(const {
+          'font-family': 'builtin_song',
+          'font-variant-caps': 'all-small-caps',
+        }),
+      ),
+      isTrue,
+      reason: '规范名 builtin_song 本身也必须命中内置宋体',
+    );
     final synthetic = buildSyntheticSmallCapsSpan(
       text: 'Abc小写',
       style: textStyle,
@@ -115,11 +125,53 @@ void main() {
     final children = synthetic.children!.cast<TextSpan>();
     expect(children.map((span) => span.text), <String>['A', 'BC', '小写']);
     expect(children[0].style!.fontSize, 16);
-    expect(
-      children[1].style!.fontSize,
-      closeTo(16 * syntheticSmallCapsScale, 0.001),
-    );
+    expect(children[1].style!.fontSize, 11);
     expect(children[2].style!.fontSize, 16);
+    final allSmall = buildSyntheticSmallCapsSpan(
+      text: 'Abc-中',
+      style: textStyle,
+      caps: CssFontVariantCaps.allSmallCaps,
+    ) as TextSpan;
+    final allSmallChild = allSmall.children!.single as TextSpan;
+    expect(allSmallChild.text, 'ABC-中');
+    expect(allSmallChild.style!.fontSize, 11);
+    final previous = LineBreaker.preserveFractionalLineHeight;
+    LineBreaker.preserveFractionalLineHeight = true;
+    try {
+      final capsLayout = TextLayoutEngine.layout(
+        text: 'abc',
+        style: _style(const {
+          'font-family': 'builtin_song',
+          'font-variant-caps': 'small-caps',
+        }),
+        maxWidth: 400,
+      );
+      expect(capsLayout.lines.single.height, closeTo(24, 0.1));
+
+      final inlineLayout = TextLayoutEngine.layout(
+        text: 'Abc',
+        style: _style(const {'font-family': 'builtin_song'}),
+        runs: <StyledRun>[
+          StyledRun(
+            start: 0,
+            end: 3,
+            style: _style(const {
+              'font-family': 'builtin_song',
+              'font-size': '22px',
+              'font-variant-caps': 'small-caps',
+            }),
+          ),
+        ],
+        maxWidth: 400,
+      );
+      expect(
+        inlineLayout.lines.single.height,
+        closeTo(33, 0.1),
+        reason: '行盒取 22px 行内文字的行高，而不是混合字号导致的 38px',
+      );
+    } finally {
+      LineBreaker.preserveFractionalLineHeight = previous;
+    }
     expect(
       syntheticSmallCapsFromTextStyle(textStyle),
       CssFontVariantCaps.smallCaps,
