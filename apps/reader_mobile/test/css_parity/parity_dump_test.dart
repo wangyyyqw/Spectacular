@@ -298,6 +298,9 @@ Map<String, Object?> _styleJson(ComputedStyle? style) {
     'outlineStyle': style.outline.style.name,
     'outlineOffset': _n(style.outline.offset),
     'textTransform': style.textTransform.name,
+    'textDecorationUnderline': style.textDecoration.hasUnderline,
+    'textDecorationLineThrough': style.textDecoration.hasLineThrough,
+    'textDecorationOverline': style.textDecoration.hasOverline,
     'fontWeight': style.fontWeight,
     'italic': style.italic,
     'whiteSpace': style.whiteSpace.name,
@@ -622,12 +625,20 @@ void main() {
         .where((file) => file.path.endsWith('.json'))
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
+    final selectedCases = (Platform.environment['CSS_PARITY_CASES'] ?? '')
+        .split(',')
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
 
     final failures = <String>[];
     for (final file in files) {
       final caseData =
           jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
       final name = caseData['name']! as String;
+      if (selectedCases.isNotEmpty && !selectedCases.contains(name)) {
+        continue;
+      }
       // 单个用例失败（引擎异常/渲染崩溃）不中断整批：写入带 error 的
       // engine_<name>.json，让 compare 报「缺少数据」，最后统一失败。
       try {

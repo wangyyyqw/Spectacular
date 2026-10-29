@@ -113,8 +113,47 @@ enum CssTextTransform { none, uppercase, lowercase, capitalize }
 /// 行内垂直对齐（CSS vertical-align 属性）。
 enum CssVerticalAlign { baseline, subscript, superscript, middle, top, bottom }
 
-/// 文本装饰线（CSS text-decoration 属性，P2-17）。
-enum CssTextDecoration { none, underline, lineThrough, overline }
+/// 文本装饰线（CSS `text-decoration-line`）。
+///
+/// 规范允许同时声明多条线，枚举保存全部非空组合，避免
+/// `overline line-through` 被解析成其中一条。
+enum CssTextDecoration {
+  none,
+  underline,
+  lineThrough,
+  overline,
+  underlineLineThrough,
+  underlineOverline,
+  lineThroughOverline,
+  underlineLineThroughOverline,
+}
+
+extension CssTextDecorationFlags on CssTextDecoration {
+  bool get hasUnderline =>
+      this == CssTextDecoration.underline ||
+      this == CssTextDecoration.underlineLineThrough ||
+      this == CssTextDecoration.underlineOverline ||
+      this == CssTextDecoration.underlineLineThroughOverline;
+
+  bool get hasLineThrough =>
+      this == CssTextDecoration.lineThrough ||
+      this == CssTextDecoration.underlineLineThrough ||
+      this == CssTextDecoration.lineThroughOverline ||
+      this == CssTextDecoration.underlineLineThroughOverline;
+
+  bool get hasOverline =>
+      this == CssTextDecoration.overline ||
+      this == CssTextDecoration.underlineOverline ||
+      this == CssTextDecoration.lineThroughOverline ||
+      this == CssTextDecoration.underlineLineThroughOverline;
+
+  /// 按浏览器计算值的固定顺序展开为单线枚举。
+  List<CssTextDecoration> get lineKinds => [
+    if (hasUnderline) CssTextDecoration.underline,
+    if (hasLineThrough) CssTextDecoration.lineThrough,
+    if (hasOverline) CssTextDecoration.overline,
+  ];
+}
 
 /// 装饰线线型（CSS `text-decoration-style`，P9-18）。
 enum CssTextDecorationStyle { solid, double, dotted, dashed, wavy }
@@ -6037,16 +6076,19 @@ class ComputedStyle {
     if (value == 'none') {
       return CssTextDecoration.none;
     }
-    if (value.contains('underline')) {
-      return CssTextDecoration.underline;
-    }
-    if (value.contains('line-through')) {
-      return CssTextDecoration.lineThrough;
-    }
-    if (value.contains('overline')) {
-      return CssTextDecoration.overline;
-    }
-    return null;
+    final underline = value.contains('underline');
+    final lineThrough = value.contains('line-through');
+    final overline = value.contains('overline');
+    return switch ((underline, lineThrough, overline)) {
+      (true, false, false) => CssTextDecoration.underline,
+      (false, true, false) => CssTextDecoration.lineThrough,
+      (false, false, true) => CssTextDecoration.overline,
+      (true, true, false) => CssTextDecoration.underlineLineThrough,
+      (true, false, true) => CssTextDecoration.underlineOverline,
+      (false, true, true) => CssTextDecoration.lineThroughOverline,
+      (true, true, true) => CssTextDecoration.underlineLineThroughOverline,
+      (false, false, false) => null,
+    };
   }
 
   static CssTextEmphasisStyle? _parseTextEmphasisStyle(String raw) {

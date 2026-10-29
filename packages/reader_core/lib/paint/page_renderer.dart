@@ -3430,13 +3430,13 @@ class PagePainter {
       canvas.drawLine(Offset(x, top), Offset(x, top + advance), paint);
     }
 
-    if (decoration == CssTextDecoration.underline) {
+    if (decoration.hasUnderline) {
       line(columnLeft + columnWidth * 0.13);
     }
-    if (decoration == CssTextDecoration.lineThrough) {
+    if (decoration.hasLineThrough) {
       line(columnLeft + columnWidth / 2);
     }
-    if (decoration == CssTextDecoration.overline) {
+    if (decoration.hasOverline) {
       line(columnLeft + columnWidth * 0.87);
     }
   }
@@ -3819,31 +3819,31 @@ class PagePainter {
       );
       final thickness = math.max(1.0, (band.fontSize / 10).floorToDouble());
       final baselineY = y + baseline + band.baselineShift;
-      // 实线顶边：line-through / overline 在基线上方，下划线在下方。
-      final double solidTop;
-      switch (band.decoration) {
-        case CssTextDecoration.overline:
-          solidTop = baselineY - (band.ascent + thickness).roundToDouble();
-        case CssTextDecoration.underline:
+      for (final decoration in band.decoration.lineKinds) {
+        // 实线顶边：line-through / overline 在基线上方，下划线在下方。
+        final solidTop = switch (decoration) {
+          CssTextDecoration.overline =>
+            baselineY - (band.ascent + thickness).roundToDouble(),
           // 下划线：基线下方 max(1, round(字号/16))（Chromium 17px 实测 +1）。
-          solidTop =
-              baselineY + math.max(1.0, (band.fontSize / 16).roundToDouble());
-        case CssTextDecoration.lineThrough:
-        case CssTextDecoration.none:
-          solidTop =
-              baselineY - ((band.ascent - band.descent) / 2).roundToDouble();
-      }
-      for (final box in boxes) {
-        if (box.width <= 0) continue;
-        _paintDecorationBand(
-          canvas,
-          band,
-          left: x + box.left,
-          right: x + box.right,
-          // 对齐设备像素（Chromium 同样把装饰线吸附到整数像素），细线更清晰。
-          solidTop: solidTop.roundToDouble(),
-          thickness: thickness,
-        );
+          CssTextDecoration.underline =>
+            baselineY + math.max(1.0, (band.fontSize / 16).roundToDouble()),
+          CssTextDecoration.lineThrough =>
+            baselineY - ((band.ascent - band.descent) / 2).roundToDouble(),
+          _ => baselineY,
+        };
+        for (final box in boxes) {
+          if (box.width <= 0) continue;
+          _paintDecorationBand(
+            canvas,
+            band,
+            decoration: decoration,
+            left: x + box.left,
+            right: x + box.right,
+            // 对齐设备像素（Chromium 同样把装饰线吸附到整数像素），细线更清晰。
+            solidTop: solidTop.roundToDouble(),
+            thickness: thickness,
+          );
+        }
       }
     }
   }
@@ -3885,6 +3885,7 @@ class PagePainter {
   void _paintDecorationBand(
     Canvas canvas,
     _DecorationBand band, {
+    required CssTextDecoration decoration,
     required double left,
     required double right,
     required double solidTop,
@@ -3919,7 +3920,7 @@ class PagePainter {
         final stroke = math.max(1.0, band.fontSize * 0.1);
         final amplitude = stroke; // 峰谷高 = 2×笔画
         final period = stroke * 5;
-        final bandTop = band.decoration == CssTextDecoration.underline
+        final bandTop = decoration == CssTextDecoration.underline
             ? solidTop + stroke / 2
             : solidTop - (2 * amplitude + stroke - thickness) / 2;
         final center = bandTop + amplitude + stroke / 2;

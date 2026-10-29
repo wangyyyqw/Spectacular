@@ -1957,6 +1957,17 @@ void main() {
     expect(through.textDecoration, CssTextDecoration.lineThrough);
     final overline = style('p', 'p { text-decoration: overline; }');
     expect(overline.textDecoration, CssTextDecoration.overline);
+    final combined = style(
+      'p',
+      'p { text-decoration: underline line-through overline; }',
+    );
+    expect(
+      combined.textDecoration,
+      CssTextDecoration.underlineLineThroughOverline,
+    );
+    expect(combined.textDecoration.hasUnderline, isTrue);
+    expect(combined.textDecoration.hasLineThrough, isTrue);
+    expect(combined.textDecoration.hasOverline, isTrue);
     final none = style('p', 'p { text-decoration: none; }');
     expect(none.textDecoration, CssTextDecoration.none);
 
