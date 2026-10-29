@@ -72,6 +72,7 @@ abstract final class Cascade {
     'overflow-wrap',
     'font-variant',
     'font-variant-caps',
+    'font-variant-ligatures',
     'font-stretch',
     'font-size-adjust',
     'quotes',

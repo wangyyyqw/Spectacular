@@ -2837,30 +2837,41 @@ abstract final class TextLayoutEngine {
   /// - `small-caps` = `smcp`；`all-small-caps` = `smcp` + `c2sc`（大写字母也转小号大写）
   /// - `petite-caps` = `pcap`；`all-petite-caps` = `pcap` + `c2pc`
   /// - `unicase` = `unic`；`titling-caps` = `titl`；`normal` 不加特性
-  static List<FontFeature>? _fontFeatures(CssFontVariantCaps caps) =>
-      switch (caps) {
-        CssFontVariantCaps.normal => null,
-        CssFontVariantCaps.smallCaps => const <FontFeature>[
-          FontFeature.enable('smcp'),
-        ],
-        CssFontVariantCaps.allSmallCaps => const <FontFeature>[
-          FontFeature.enable('smcp'),
-          FontFeature.enable('c2sc'),
-        ],
-        CssFontVariantCaps.petiteCaps => const <FontFeature>[
-          FontFeature.enable('pcap'),
-        ],
-        CssFontVariantCaps.allPetiteCaps => const <FontFeature>[
-          FontFeature.enable('pcap'),
-          FontFeature.enable('c2pc'),
-        ],
-        CssFontVariantCaps.unicase => const <FontFeature>[
-          FontFeature.enable('unic'),
-        ],
-        CssFontVariantCaps.titlingCaps => const <FontFeature>[
-          FontFeature.enable('titl'),
-        ],
-      };
+  static List<FontFeature>? _fontFeatures(ComputedStyle style) {
+    final features = switch (style.fontVariantCaps) {
+      CssFontVariantCaps.normal => null,
+      CssFontVariantCaps.smallCaps => const <FontFeature>[
+        FontFeature.enable('smcp'),
+      ],
+      CssFontVariantCaps.allSmallCaps => const <FontFeature>[
+        FontFeature.enable('smcp'),
+        FontFeature.enable('c2sc'),
+      ],
+      CssFontVariantCaps.petiteCaps => const <FontFeature>[
+        FontFeature.enable('pcap'),
+      ],
+      CssFontVariantCaps.allPetiteCaps => const <FontFeature>[
+        FontFeature.enable('pcap'),
+        FontFeature.enable('c2pc'),
+      ],
+      CssFontVariantCaps.unicase => const <FontFeature>[
+        FontFeature.enable('unic'),
+      ],
+      CssFontVariantCaps.titlingCaps => const <FontFeature>[
+        FontFeature.enable('titl'),
+      ],
+    };
+    final disableLigatures =
+        style.fontVariantLigatures == CssFontVariantLigatures.none;
+    if (!disableLigatures) {
+      return features;
+    }
+    return <FontFeature>[
+      ...?features,
+      const FontFeature.disable('liga'),
+      const FontFeature.disable('clig'),
+    ];
+  }
 
   static TextStyle textStyleFor(
     ComputedStyle style, {
@@ -2871,7 +2882,7 @@ abstract final class TextLayoutEngine {
     leadingDistribution: leadingDistribution,
     // 小型大写（`font-variant-caps`）：CSS 的 caps 族映射到 OpenType 特性，
     // 测量与绘制共用本方法，因此宽度与字形两端一致；字体缺特性时不生效。
-    fontFeatures: _fontFeatures(style.fontVariantCaps),
+    fontFeatures: _fontFeatures(style),
     fontWeight: _fontWeight(style.fontWeight),
     fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
     // 别名映射（P3-03）：宋体/黑体/楷体等中文族名与 serif/sans-serif

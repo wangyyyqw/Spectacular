@@ -676,6 +676,15 @@ enum CssFontVariantCaps {
   titlingCaps,
 }
 
+/// 连字策略（CSS `font-variant-ligatures`）。
+enum CssFontVariantLigatures {
+  /// 使用字体默认的常用连字。
+  normal,
+
+  /// 关闭常用连字和上下文连字（`none` / `no-common-ligatures`）。
+  none,
+}
+
 /// 一对引号（CSS `quotes` 的 `<string> <string>`）。
 class CssQuotePair {
   /// 创建一对引号。
@@ -1726,6 +1735,12 @@ class ComputedStyle {
         : _parseFontVariantCaps(rawVariantCaps) ??
               parent?.fontVariantCaps ??
               CssFontVariantCaps.normal;
+    final rawLigatures = explicitValue('font-variant-ligatures');
+    final fontVariantLigatures = rawLigatures == null
+        ? (parent?.fontVariantLigatures ?? CssFontVariantLigatures.normal)
+        : _parseFontVariantLigatures(rawLigatures) ??
+              parent?.fontVariantLigatures ??
+              CssFontVariantLigatures.normal;
 
     // font-stretch（继承，初始 100%）：关键字/百分比统一折成百分比数值。
     final rawFontStretch = explicitValue('font-stretch');
@@ -2157,6 +2172,7 @@ class ComputedStyle {
       tabSize: tabSize,
       mixBlendMode: mixBlendMode,
       fontVariantCaps: fontVariantCaps,
+      fontVariantLigatures: fontVariantLigatures,
       quotes: quotes,
       fontStretch: fontStretch,
       fontSizeAdjust: fontSizeAdjust,
@@ -2303,6 +2319,7 @@ class ComputedStyle {
       tabSize: tabSize,
       mixBlendMode: mixBlendMode,
       fontVariantCaps: fontVariantCaps,
+      fontVariantLigatures: fontVariantLigatures,
       quotes: quotes,
       fontStretch: fontStretch,
       fontSizeAdjust: fontSizeAdjust,
@@ -2421,6 +2438,7 @@ class ComputedStyle {
     required this.tabSize,
     required this.mixBlendMode,
     required this.fontVariantCaps,
+    required this.fontVariantLigatures,
     required this.quotes,
     required this.fontStretch,
     required this.fontSizeAdjust,
@@ -2676,6 +2694,9 @@ class ComputedStyle {
   /// `small-caps` token）。绘制层可用 `FontFeature.enable('smcp')` 实现，
   /// 字体无对应特性时按原样绘制（stub）。
   final CssFontVariantCaps fontVariantCaps;
+
+  /// 连字策略（继承，初始 [CssFontVariantLigatures.normal]）。
+  final CssFontVariantLigatures fontVariantLigatures;
 
   /// 引号规则（继承，初始 [CssQuotesAuto]）。
   ///
@@ -4709,6 +4730,15 @@ class ComputedStyle {
       }
     }
     return null;
+  }
+
+  /// `font-variant-ligatures`：阅读场景只需区分是否关闭常用连字。
+  static CssFontVariantLigatures? _parseFontVariantLigatures(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'normal' || 'common-ligatures' => CssFontVariantLigatures.normal,
+      'none' || 'no-common-ligatures' => CssFontVariantLigatures.none,
+      _ => null,
+    };
   }
 
   /// `font-stretch`：关键字或百分比 → 百分比数值（50–200），非法返回 null。

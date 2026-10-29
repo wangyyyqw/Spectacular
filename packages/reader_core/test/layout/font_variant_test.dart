@@ -39,6 +39,18 @@ void main() {
     );
   });
 
+  test('font-variant-ligatures: none 关闭 liga 与 clig', () {
+    final style = _style(const {'font-variant-ligatures': 'none'});
+    expect(_tags(style), containsAll(<String>['liga', 'clig']));
+    expect(
+      (TextLayoutEngine.textStyleFor(style).fontFeatures ??
+              const <FontFeature>[])
+          .where((feature) => feature.value == 0)
+          .length,
+      2,
+    );
+  });
+
   test('其它 caps 族映射到对应 OpenType 标签', () {
     expect(_tags(_style(const {'font-variant-caps': 'petite-caps'})), contains('pcap'));
     expect(
