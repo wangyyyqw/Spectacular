@@ -89,6 +89,17 @@ void main() {
     expect(_blank(data, 1, 1), isTrue, reason: '角点仍在椭圆外');
   });
 
+  test('斜杠前后的像素半径分别控制横向与纵向', () async {
+    final data = await _render(
+      const {'border-radius': '30px / 10px'},
+      width: 100,
+      height: 50,
+    );
+    // (8,8) 在横向 30px、纵向 10px 的椭圆内；旧的圆形 30px 会裁掉此点。
+    expect(_red(data, 8, 8), isTrue);
+    expect(_blank(data, 1, 1), isTrue);
+  });
+
   test('无圆角时四角填满', () async {
     final data = await _render(const {});
     expect(_red(data, 1, 1), isTrue);

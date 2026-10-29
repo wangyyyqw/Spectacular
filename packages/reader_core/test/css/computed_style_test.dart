@@ -366,6 +366,43 @@ void main() {
     expect(radii.borders.bottomRightRadius, 8);
     expect(radii.borders.bottomLeftRadius, 0);
 
+    final elliptical = style('p', 'p { border-radius: 30px / 10px; }');
+    expect(elliptical.borders.topLeftRadius, 30);
+    expect(elliptical.borders.topLeftRadiusY, 10);
+    expect(elliptical.borders.bottomRightRadius, 30);
+    expect(elliptical.borders.bottomRightRadiusY, 10);
+
+    final corner = style(
+      'p',
+      'p { border-top-left-radius: 20px 8px; '
+          'border-bottom-right-radius: 10%; }',
+    );
+    expect(corner.borders.topLeftRadius, 20);
+    expect(corner.borders.topLeftRadiusY, 8);
+    expect(corner.borders.bottomRightRadiusPercent, closeTo(0.1, 0.0001));
+    expect(corner.borders.bottomRightRadiusPercentY, closeTo(0.1, 0.0001));
+
+    final ellipticalPercent = style(
+      'p',
+      'p { border-radius: 20% 10% / 5% 15%; }',
+    );
+    expect(
+      ellipticalPercent.borders.topLeftRadiusPercent,
+      closeTo(0.2, 0.0001),
+    );
+    expect(
+      ellipticalPercent.borders.topLeftRadiusPercentY,
+      closeTo(0.05, 0.0001),
+    );
+    expect(
+      ellipticalPercent.borders.topRightRadiusPercent,
+      closeTo(0.1, 0.0001),
+    );
+    expect(
+      ellipticalPercent.borders.topRightRadiusPercentY,
+      closeTo(0.15, 0.0001),
+    );
+
     final plain = style('p', 'p { color: red; }');
     expect(plain.borders.hasBorder, isFalse);
     expect(plain.backgroundColor.a, 0);
