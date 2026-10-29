@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:ui' show Color, Size;
+import 'dart:ui' show Color, Radius, Size;
 
 import 'package:csslib/parser.dart' as csslib;
 
@@ -1161,16 +1161,15 @@ class CssBorders {
   /// 左下圆角的百分比（0..1）。
   final double? bottomLeftRadiusPercent;
 
-  /// 给定盒子尺寸下的像素圆角（CSS Backgrounds §5.1：横向按盒宽、纵向按
-  /// 盒高解算；引擎的 [Radius] 是圆形的，取两者较小值——方盒上的
-  /// `border-radius: 50%` 与浏览器一样是正圆）。
-  ({double topLeft, double topRight, double bottomRight, double bottomLeft})
+  /// 给定盒子尺寸下的像素圆角（CSS Backgrounds §5.1：百分比横向按盒宽、
+  /// 纵向按盒高分别解算，因此非方盒上的百分比圆角是椭圆）。
+  ({Radius topLeft, Radius topRight, Radius bottomRight, Radius bottomLeft})
   radiiFor(Size box) {
-    double resolve(double radius, double? percent) {
+    Radius resolve(double radius, double? percent) {
       if (percent == null) {
-        return radius;
+        return Radius.circular(radius);
       }
-      return math.min(percent * box.width, percent * box.height);
+      return Radius.elliptical(percent * box.width, percent * box.height);
     }
 
     return (
