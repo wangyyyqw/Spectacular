@@ -73,6 +73,12 @@ abstract final class CssPropertyAliases {
     'epub-text-combine': 'text-combine-upright',
     'webkit-text-combine': 'text-combine-upright',
     'ms-text-combine-horizontal': 'text-combine-upright',
+    // 浏览器旧前缀与标准属性是同一个 CSS 属性，必须共用级联槽位；
+    // 分开保存会让后声明的标准属性错误压过后声明的前缀属性。
+    'webkit-filter': 'filter',
+    'webkit-backdrop-filter': 'backdrop-filter',
+    'webkit-transform': 'transform',
+    'webkit-transform-origin': 'transform-origin',
     // 逻辑方向边距/内边距：中文 EPUB 都是横排 LTR，按左/右近似
     // （真实书用 -webkit-margin-start 做首行缩进时的常见写法）。
     // -webkit-margin/padding-start/end 本质是逻辑属性（受书写模式/方向影响），

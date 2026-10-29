@@ -787,6 +787,21 @@ void main() {
     final webkit = style('p', 'p { -webkit-filter: blur(3px); }').filters;
     expect(webkit.single.kind, CssFilterKind.blur);
     expect(webkit.single.amount, 3);
+    // 厂商前缀与标准名共用级联槽位：同特异性按声明顺序取胜。
+    expect(
+      style(
+        'p',
+        'p { -webkit-filter: blur(1px); filter: blur(2px); }',
+      ).filters.single.amount,
+      2,
+    );
+    expect(
+      style(
+        'p',
+        'p { filter: blur(2px); -webkit-filter: blur(1px); }',
+      ).filters.single.amount,
+      1,
+    );
   });
 
   test('effectiveOpacity 沿父链累计（W5）', () {
@@ -886,6 +901,30 @@ void main() {
     ).transforms;
     expect(unsupported, hasLength(1), reason: '未支持的 translate3d 被跳过');
     expect(unsupported.single.kind, CssTransformKind.rotate);
+    // 前缀名与标准名同槽级联，不能固定让标准名获胜。
+    expect(
+      style(
+        'p',
+        'p { -webkit-transform: translateX(1px); '
+            'transform: translateX(2px); }',
+      ).transforms.single.x!.value,
+      2,
+    );
+    expect(
+      style(
+        'p',
+        'p { transform: translateX(2px); '
+            '-webkit-transform: translateX(1px); }',
+      ).transforms.single.x!.value,
+      1,
+    );
+    expect(
+      style(
+        'p',
+        'p { -webkit-transform-origin: 20px 30%; }',
+      ).transformOriginX.value,
+      20,
+    );
   });
 
   test('transform-origin：默认 50%/50%，关键词与长度（W11）', () {
