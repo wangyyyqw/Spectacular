@@ -148,7 +148,7 @@ void main() {
         reason: '孙级不命中（子代组合器）');
   });
 
-  test('容器盒近似传导：div.panel 的背景色/内边距透传后代块', () async {
+  test('容器背景独立保留，正文使用容器内容区', () async {
     final source = await EpubChapterSource.open(_buildEpubWithCss(
       'div.panel { background-color: #FFF3E0; padding-left: 12px; }',
       '<div class="panel"><p>面板段落一。</p><p>面板段落二。</p></div>',
@@ -157,8 +157,9 @@ void main() {
         .expand((page) => page.slices.map((s) => s.block))
         .toList();
     for (final block in blocks.where((b) => b.layout.text.contains('面板'))) {
-      expect(block.style!.backgroundColor, const Color(0xFFFFF3E0),
-          reason: '容器背景透传后代块');
+      expect(block.containers.single.container.style.backgroundColor,
+          const Color(0xFFFFF3E0), reason: '容器背景独立保存');
+      expect(block.style!.backgroundColor.a, 0, reason: '正文不重复绘制祖先背景');
       // 容器 padding-left 折算成后代块的左内缩；flat 管线把它记在
       // margin.left（P9-27 后不再同时写进 leftInset，避免重复计算），
       // 实际文字 x 仍是 leftInset + margin.left。
@@ -209,12 +210,17 @@ void main() {
     final first = blocks.firstWhere((b) => b.layout.text.contains('首段'));
     final middle = blocks.firstWhere((b) => b.layout.text.contains('中段'));
     final last = blocks.firstWhere((b) => b.layout.text.contains('末段'));
-    expect(first.style!.borders.top.width, 2, reason: '首块拼上边框');
-    expect(first.style!.borders.bottom.width, 0, reason: '首块无下边框');
-    expect(middle.style!.borders.top.width, 0);
-    expect(middle.style!.borders.bottom.width, 0, reason: '中块无上下框');
-    expect(last.style!.borders.bottom.width, 2, reason: '末块拼下边框');
-    expect(last.style!.borders.top.width, 0);
+    expect(first.containers.single.startsHere, isTrue);
+    expect(first.containers.single.endsHere, isFalse);
+    expect(middle.containers.single.startsHere, isFalse);
+    expect(middle.containers.single.endsHere, isFalse);
+    expect(last.containers.single.endsHere, isTrue);
+    expect(last.containers.single.startsHere, isFalse);
+    expect(first.containers.single.container.style.borders.top.width, 2);
+    expect(identical(first.containers.single.container,
+        last.containers.single.container), isTrue);
+    expect(first.style!.borders.hasBorder, isFalse);
+
   });
 
   test('无 link 的书不受影响（UA 默认路径）', () async {

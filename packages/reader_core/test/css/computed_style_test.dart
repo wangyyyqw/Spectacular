@@ -1597,15 +1597,15 @@ void main() {
     expect(overridden.padding.left, 32);
   });
 
-  test('负 padding 钳 0', () {
+  test('负 padding 使整条声明无效', () {
     final negative = style('p', 'p { padding: -4px 8px; }');
     expect(negative.padding.top, 0);
-    expect(negative.padding.right, 8);
+    expect(negative.padding.right, 0);
     expect(negative.padding.bottom, 0);
-    expect(negative.padding.left, 8);
+    expect(negative.padding.left, 0);
 
-    final longhand = style('p', 'p { padding-top: -1em; }');
-    expect(longhand.padding.top, 0);
+    final longhand = style('p', 'p { padding-top: 4px; padding-top: -1em; }');
+    expect(longhand.padding.top, 4);
   });
 
   test('百分比 padding 按 containingWidth 解算', () {
@@ -1866,7 +1866,7 @@ void main() {
     expect(sup.verticalAlignShift, closeTo(-(16 / 3 + 1), 0.001));
   });
 
-  test('list-style-position 解析、简写展开且不继承（W2）', () {
+  test('list-style-position 解析、简写展开且继承（W2）', () {
     expect(
       ComputedStyle(const <String, String>{}).listStylePosition,
       CssListStylePosition.outside,
@@ -1889,8 +1889,8 @@ void main() {
     final child = style('p', 'p { color: red; }', parent: parent);
     expect(
       child.listStylePosition,
-      CssListStylePosition.outside,
-      reason: 'list-style-position 不继承',
+      CssListStylePosition.inside,
+      reason: 'list-style-position 按 CSS 继承父值',
     );
     // 未知值回退 outside。
     expect(

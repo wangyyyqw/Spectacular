@@ -33,6 +33,43 @@ class InlineImageSpec {
   final double? height;
 }
 
+/// 分页前保留的容器盒；后代共享实例，以便每页按嵌套顺序绘制。
+class PageContainer {
+  const PageContainer({
+    required this.style,
+    required this.left,
+    required this.width,
+  });
+
+  final ComputedStyle style;
+  final double left;
+  final double width;
+
+  double get contentLeft => left + style.borders.left.width + style.padding.left;
+  double get contentWidth => math.max(
+    0,
+    width - style.padding.horizontal -
+        style.borders.left.width - style.borders.right.width,
+  );
+}
+
+/// 一个文本块在祖先容器中的位置；距离均以本块内容区为基准。
+class PageContainerFragment {
+  const PageContainerFragment({
+    required this.container,
+    this.startsHere = false,
+    this.endsHere = false,
+    this.topInset = 0,
+    this.bottomInset = 0,
+  });
+
+  final PageContainer container;
+  final bool startsHere;
+  final bool endsHere;
+  final double topInset;
+  final double bottomInset;
+}
+
 /// 一个待分页的文本块。
 class PageBlock {
   /// 创建块。
@@ -64,6 +101,7 @@ class PageBlock {
     this.bleedTop = false,
     this.bleedBottom = false,
     this.containerSides = false,
+    this.containers = const <PageContainerFragment>[],
     this.declaredContentHeight,
     this.effectiveOpacity = 1,
     this.multicol,
@@ -228,6 +266,9 @@ class PageBlock {
   /// 被拆成多块的卡片/面板拼回一片，块间缝隙不露页底、边框不断开。
   final bool containerSides;
 
+  /// 真实祖先盒，顺序为外层到内层；不把背景和边框复制到正文。
+  final List<PageContainerFragment> containers;
+
   /// 声明高度解算后的内容盒高（`height`/`min-height`/`max-height`）；
   /// null 表示未声明，按测量高。
   ///
@@ -265,8 +306,14 @@ class PageBlock {
   /// 块末行之后的额外高度（下内缩 + 段后间距）。
   double get trailingExtent => bottomInset + spaceAfter;
 
-  /// 复制块并替换段前/段后间距（其余字段共享引用）。
-  PageBlock withSpacing({double? spaceBefore, double? spaceAfter}) =>
+  /// 复制块并替换段距或容器分页占位（其余字段共享引用）。
+  PageBlock withSpacing({
+    double? spaceBefore,
+    double? spaceAfter,
+    double? topInset,
+    double? bottomInset,
+    List<PageContainerFragment>? containers,
+  }) =>
       PageBlock(
         layout: layout,
         pageBreakBefore: pageBreakBefore,
@@ -276,8 +323,8 @@ class PageBlock {
         style: style,
         spaceBefore: spaceBefore ?? this.spaceBefore,
         spaceAfter: spaceAfter ?? this.spaceAfter,
-        topInset: topInset,
-        bottomInset: bottomInset,
+        topInset: topInset ?? this.topInset,
+        bottomInset: bottomInset ?? this.bottomInset,
         leftInset: leftInset,
         breakInsideAvoid: breakInsideAvoid,
         breakAfterAvoid: breakAfterAvoid,
@@ -297,6 +344,7 @@ class PageBlock {
         bleedTop: bleedTop,
         bleedBottom: bleedBottom,
         containerSides: containerSides,
+        containers: containers ?? this.containers,
         declaredContentHeight: declaredContentHeight,
         effectiveOpacity: effectiveOpacity,
         multicol: multicol,
@@ -321,7 +369,15 @@ class PageBlock {
     for (var i = 1; i < blocks.length; i++) {
       final previous = result[i - 1];
       final current = blocks[i];
-      if (previous.spaceAfter == 0) {
+      // 容器边界处的段距属于盒内留白，不能穿过边框/内边距与外部块折叠。
+      final containerBoundary =
+          previous.containers.any((fragment) => fragment.endsHere &&
+              fragment.container.style.padding.bottom +
+                  fragment.container.style.borders.bottom.width > 0) ||
+          current.containers.any((fragment) => fragment.startsHere &&
+              fragment.container.style.padding.top +
+                  fragment.container.style.borders.top.width > 0);
+      if (previous.spaceAfter == 0 || containerBoundary) {
         result.add(current);
         continue;
       }
@@ -850,6 +906,7 @@ class Paginator {
     bleedTop: source.bleedTop,
     bleedBottom: source.bleedBottom,
     containerSides: source.containerSides,
+    containers: source.containers,
     effectiveOpacity: source.effectiveOpacity,
     multicol: multicol,
     // 注音/行内图片按列文本区间切片并平移到片段坐标。
@@ -981,6 +1038,7 @@ class Paginator {
       bottomInset: block.bottomInset,
       leftInset: block.leftInset,
       effectiveOpacity: block.effectiveOpacity,
+      containers: block.containers,
       multicol: block.multicol,
     );
   }
@@ -1006,6 +1064,7 @@ class Paginator {
     bottomInset: block.bottomInset,
     leftInset: block.leftInset,
     effectiveOpacity: block.effectiveOpacity,
+    containers: block.containers,
     multicol: block.multicol,
   );
 
@@ -1145,6 +1204,7 @@ class Paginator {
       bleedTop: source.bleedTop,
       bleedBottom: source.bleedBottom,
       containerSides: source.containerSides,
+      containers: source.containers,
       effectiveOpacity: source.effectiveOpacity,
     );
   }

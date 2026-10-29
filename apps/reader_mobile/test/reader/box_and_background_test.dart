@@ -35,15 +35,15 @@ void main() {
         .map((slice) => slice.block)
         .firstWhere((block) => block.layout.text.contains('面板正文'));
     final style = panel.style!;
-    expect(style.backgroundColor.a, closeTo(0.8, 0.001));
-    expect(style.borders.left.width, 3);
-    expect(style.borders.top.width, 1);
-    // flat 管线把容器左右内边距折算成子块 margin-left（面板宽度不变）。
-    expect(style.margin.left, 14);
-    // 上下内边距拼合到首个/末个后代块（P9-03）。
-    expect(style.padding.top, 10);
-    expect(panel.leftInset, 3, reason: '左边框占 3px，内边距折算进 margin');
-    expect(panel.topInset, closeTo(11, 0.001), reason: '1 上边框 + 10 上内边距');
+    final container = panel.containers.single.container.style;
+    expect(container.backgroundColor.a, closeTo(0.8, 0.001));
+    expect(container.borders.left.width, 3);
+    expect(container.borders.top.width, 1);
+    expect(container.padding.top, 10);
+    expect(style.margin.left, 17, reason: '祖先左边框与内边距只计算一次');
+    expect(panel.leftInset, 0, reason: '正文没有独立边框');
+    expect(panel.topInset, closeTo(21, 0.001),
+        reason: '容器上外边距10 + 上边框1 + 上内边距10');
     expect(style.color, const Color(0xFFCBD5E1), reason: '书籍文字颜色照书');
 
     final plain = page.slices

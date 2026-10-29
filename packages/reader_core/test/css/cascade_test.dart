@@ -143,13 +143,13 @@ void main() {
       )['color'],
       'red',
     );
-    // 7 方案 §7.2：内联正常高于作者 !important
+    // 7 作者 !important 高于普通内联样式
     expect(
       compute(
         rules: [rule('p { color: green !important; }', order: 1)],
         inline: CssParser.parseStyleAttribute('color: red'),
       )['color'],
-      'red',
+      'green',
     );
     // 8 内联 !important 最高
     expect(
@@ -274,7 +274,9 @@ void main() {
   });
 
   test('继承字段清单与显式文字色标记', () {
-    expect(Cascade.inheritedProperties, hasLength(28));
+    expect(Cascade.inheritedProperties, containsAll(
+      ['font-size', 'word-spacing', 'visibility', 'border-spacing'],
+    ));
     final parent = compute(
       id: 'parent',
       rules: [rule('div { color: red; font-size: 18px; }')],

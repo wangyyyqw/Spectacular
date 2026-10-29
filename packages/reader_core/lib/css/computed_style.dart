@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:ui' show Color, Size;
 
+import 'package:csslib/parser.dart' as csslib;
+
 import 'property_aliases.dart';
 
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
@@ -1172,6 +1174,202 @@ class CssBorders {
 ///
 /// P1-21 最小字段集：字号、行高、颜色、字重、斜体、text-align、margin。
 class ComputedStyle {
+  /// 级联关键字使用初始值，避免解析失败后意外沿用父样式。
+  static String initialValue(String property, [double rootFontSize = 16]) {
+    if (property.startsWith('margin-') || property.startsWith('padding-')) {
+      return '0px';
+    }
+    if (property.startsWith('border-')) {
+      if (property.endsWith('-width')) return 'medium';
+      if (property.endsWith('-color')) return 'currentcolor';
+      if (property.endsWith('-style')) return 'none';
+    }
+    return switch (property) {
+      'font-size' => '${rootFontSize}px',
+      'color' => '#000000',
+      'font-family' => 'serif',
+      'font-size-adjust' || 'text-shadow' || 'list-style-image' ||
+      'text-emphasis-style' || 'hanging-punctuation' || 'text-autospace' ||
+      'text-transform' || 'text-combine-upright' => 'none',
+      'text-indent' || 'word-spacing' => '0px',
+      'text-align' => 'start',
+      'text-align-last' || 'text-justify' || 'quotes' || 'line-break' => 'auto',
+      'writing-mode' => 'horizontal-tb',
+      'text-orientation' => 'mixed',
+      'direction' => 'ltr',
+      'hyphens' => 'manual',
+      'list-style-type' => 'disc',
+      'list-style-position' => 'outside',
+      'visibility' => 'visible',
+      'tab-size' => '8',
+      'text-emphasis-color' => 'currentcolor',
+      'text-emphasis-position' => 'over right',
+      'ruby-align' => 'space-around',
+      'ruby-position' => 'over',
+      'border-collapse' => 'separate',
+      'border-spacing' => '0px',
+      _ => 'normal',
+    };
+  }
+
+  /// 显式继承非继承属性时，长度必须传递计算值，不能重复解算 em。
+  String? computedValue(String property) {
+    final edge = RegExp(r'^(margin|padding)-(top|right|bottom|left)$')
+        .firstMatch(property);
+    if (edge != null) {
+      final edges = edge[1] == 'margin' ? margin : padding;
+      final value = switch (edge[2]) {
+        'top' => edges.top,
+        'right' => edges.right,
+        'bottom' => edges.bottom,
+        _ => edges.left,
+      };
+      return '${value}px';
+    }
+    final border = RegExp(r'^border-(top|right|bottom|left)-(width|style|color)$')
+        .firstMatch(property);
+    if (border != null) {
+      final side = switch (border[1]) {
+        'top' => borders.top,
+        'right' => borders.right,
+        'bottom' => borders.bottom,
+        _ => borders.left,
+      };
+      return switch (border[2]) {
+        'width' => '${side.width}px',
+        'style' => side.style.name,
+        _ => 'rgba(${(side.color.r * 255).round()}, '
+            '${(side.color.g * 255).round()}, ${(side.color.b * 255).round()}, '
+            '${side.color.a})',
+      };
+    }
+    return values[property];
+  }
+
+  /// 复用类型解析器过滤已支持属性的无效值，保留较早的有效声明。
+  static bool isValidDeclaration(String property, String raw) {
+    final value = raw.trim().toLowerCase();
+    if (property.startsWith('--') || raw.contains('var(') ||
+        const {'inherit', 'initial', 'unset'}.contains(value)) {
+      return true;
+    }
+    if (property == 'border' ||
+        const {'border-top', 'border-right', 'border-bottom', 'border-left'}
+            .contains(property)) {
+      return parseBorderShorthand(raw) != null;
+    }
+    if (property == 'margin' || property == 'padding' ||
+        const {'border-width', 'border-style', 'border-color'}.contains(property)) {
+      final tokens = _cssTokens(raw);
+      final longhand = property.startsWith('border-')
+          ? 'border-top-${property.substring(7)}' : '$property-top';
+      return tokens.isNotEmpty && tokens.length <= 4 &&
+          tokens.every((token) => isValidDeclaration(longhand, token));
+    }
+    if (property.startsWith('border-') && property.endsWith('-style')) {
+      return _parseBorderStyle(value) != null;
+    }
+    if (property == 'color' || property.endsWith('-color')) {
+      return value == 'currentcolor' || _parseColor(value) != null;
+    }
+    final lengthResult = _validLengthDeclaration(property, value);
+    if (lengthResult != null) return lengthResult;
+    return _validKeywordDeclaration(property, value);
+  }
+
+  static bool _validKeywordDeclaration(String property, String value) {
+    return switch (property) {
+      'font' => parseFontShorthand(value) != null,
+      'font-weight' => _parseFontWeight(value) != null,
+      'font-style' => const {'normal', 'italic', 'oblique'}.contains(value),
+      'text-align' => _parseTextAlign(value) != null,
+      'visibility' => _parseVisibility(value) != null,
+      'white-space' => _parseWhiteSpace(value) != null,
+      'position' => _parsePosition(value) != null,
+      'float' => _parseFloat(value) != null,
+      'direction' => _parseDirection(value) != null,
+      'writing-mode' => _parseWritingMode(value) != null,
+      'list-style-position' => _parseListStylePosition(value) != null,
+      'opacity' => double.tryParse(value)?.isFinite ?? false,
+      _ => true,
+    };
+  }
+
+  static bool? _validLengthDeclaration(String property, String value) {
+    final borderWidth = property.startsWith('border-') &&
+        property.endsWith('-width');
+    final margin = property.startsWith('margin-');
+    final padding = property.startsWith('padding-');
+    const lengths = {'font-size', 'line-height', 'letter-spacing',
+      'word-spacing', 'text-indent', 'width', 'height', 'min-width',
+      'min-height', 'max-width', 'max-height', 'top', 'right', 'bottom', 'left'};
+    if (!borderWidth && !margin && !padding && !lengths.contains(property)) {
+      return null;
+    }
+    if (borderWidth && const {'thin', 'medium', 'thick'}.contains(value)) {
+      return true;
+    }
+    if ((margin || const {'width', 'height', 'min-width', 'min-height',
+      'top', 'right', 'bottom', 'left'}.contains(property)) && value == 'auto') {
+      return true;
+    }
+    if (property.startsWith('max-') && value == 'none') return true;
+    if (const {'line-height', 'letter-spacing', 'word-spacing'}.contains(property)
+        && value == 'normal') {
+      return true;
+    }
+    if (property == 'font-size' && const {'xx-small', 'x-small', 'small',
+      'medium', 'large', 'x-large', 'xx-large', 'smaller', 'larger'}.contains(value)) {
+      return true;
+    }
+    final length = _resolveLength(value, fontSize: 16, parentFontSize: 16,
+        rootFontSize: 16, percentBase: 100);
+    if (length == null || !length.isFinite) return false;
+    final nonnegative = padding || borderWidth || const {'font-size',
+      'line-height', 'width', 'height', 'min-width', 'min-height', 'max-width',
+      'max-height'}.contains(property);
+    // calc() 的百分比基准直到布局时才确定，此处不能用探测宽度判负值。
+    return !nonnegative || value.startsWith('calc(') || length >= 0;
+  }
+
+  /// 边框简写统一拆成长属性，缺项也要重置为初始值。
+  static Map<String, String>? parseBorderShorthand(String raw) {
+    final result = <String, String>{};
+    for (final token in _cssTokens(raw)) {
+      final lower = token.toLowerCase();
+      final String key;
+      if (_parseBorderStyle(lower) != null) {
+        key = 'style';
+      } else if (lower == 'currentcolor' || _parseColor(token) != null) {
+        key = 'color';
+      } else if (_validLengthDeclaration('border-top-width', lower) == true &&
+          !lower.contains('%')) {
+        key = 'width';
+      } else {
+        return null;
+      }
+      if (result.containsKey(key)) return null;
+      result[key] = token;
+    }
+    return result.isEmpty ? null : result;
+  }
+
+  static List<String> _cssTokens(String raw) {
+    final tokens = <String>[];
+    var start = 0;
+    var depth = 0;
+    for (var i = 0; i < raw.length; i++) {
+      if (raw[i] == '(') depth++;
+      if (raw[i] == ')') depth--;
+      if (depth == 0 && RegExp(r'\s').hasMatch(raw[i])) {
+        if (i > start) tokens.add(raw.substring(start, i));
+        start = i + 1;
+      }
+    }
+    if (start < raw.length) tokens.add(raw.substring(start));
+    return tokens;
+  }
+
   /// 从层叠后的字符串值计算类型化字段。
   ///
   /// [explicitProperties] 为元素自身层叠出的属性；未提供的属性从 [parent]
@@ -1644,6 +1842,8 @@ class ComputedStyle {
     final rawEmphasisColor = explicitValue('text-emphasis-color');
     final textEmphasisColor = rawEmphasisColor == null
         ? parent?.textEmphasisColor
+        : rawEmphasisColor.toLowerCase() == 'currentcolor'
+        ? color
         : _parseColor(rawEmphasisColor) ?? parent?.textEmphasisColor;
     final pageBreakBefore = _parsePageBreak(
       explicitValue('page-break-before') ?? explicitValue('break-before'),
@@ -1723,12 +1923,13 @@ class ComputedStyle {
         : _parseListStyleType(rawListStyle) ??
               parent?.listStyleType ??
               CssListStyleType.disc;
-    // list-style-position（W2）：不继承，初始 outside；`list-style` 简写里的
+    // list-style-position 继承，初始 outside；`list-style` 简写里的
     // inside/outside 由层叠层展开成长属性（与 list-style-type 同一条路径）。
     final listStylePosition =
         _parseListStylePosition(
           explicitValue('list-style-position'),
         ) ??
+        parent?.listStylePosition ??
         CssListStylePosition.outside;
     final tableLayout =
         _parseTableLayout(explicitValue('table-layout')) ??
@@ -2925,7 +3126,7 @@ class ComputedStyle {
 
     CssBorderSide? parseSide(String raw) {
       final tokens = raw.trim().split(RegExp(r'\s+'));
-      var width = 0.0;
+      var width = 3.0;
       var style = CssBorderStyle.none;
       var sideColor = color;
       var sawToken = false;
@@ -2941,7 +3142,7 @@ class ComputedStyle {
         }
         final parsedColor = _parseColor(token);
         final parsedWidth = length(token);
-        if (parsedWidth != null && RegExp(r'^[+-]?[\d.]').hasMatch(token)) {
+        if (parsedWidth != null) {
           width = parsedWidth;
           sawToken = true;
         } else if (parsedColor != null) {
@@ -2955,7 +3156,7 @@ class ComputedStyle {
     }
 
     final initial = CssBorderSide(
-      width: 0,
+      width: 3,
       style: CssBorderStyle.none,
       color: color,
     );
@@ -3061,7 +3262,8 @@ class ComputedStyle {
       }
       final rawColor = value('border-$name-color');
       if (rawColor != null) {
-        final parsed = _parseColor(rawColor);
+        final parsed = rawColor.trim().toLowerCase() == 'currentcolor'
+            ? color : _parseColor(rawColor);
         if (parsed != null) {
           sides[index] = CssBorderSide(
             width: sides[index].width,
@@ -3080,8 +3282,6 @@ class ComputedStyle {
       for (final side in sides)
         if (side.style == CssBorderStyle.none)
           CssBorderSide(style: CssBorderStyle.none, color: side.color)
-        else if (side.width == 0)
-          CssBorderSide(width: 3, style: side.style, color: side.color)
         else
           side,
     ];
@@ -5652,23 +5852,11 @@ class ComputedStyle {
         channel(parts[2]),
       );
     }
-    const named = <String, int>{
-      'black': 0xFF000000,
-      'white': 0xFFFFFFFF,
-      'red': 0xFFFF0000,
-      'green': 0xFF008000,
-      'blue': 0xFF0000FF,
-      'gray': 0xFF808080,
-      'grey': 0xFF808080,
-      'yellow': 0xFFFFFF00,
-      'orange': 0xFFFFA500,
-      'purple': 0xFF800080,
-      'silver': 0xFFC0C0C0,
-      'maroon': 0xFF800000,
-      'navy': 0xFF000080,
-    };
-    final argb = named[value];
-    return argb == null ? null : Color(argb);
+    // 复用 csslib 的标准颜色表，合法命名色不能使整个边框声明失效。
+    final named = csslib.TokenKind.matchColorName(value);
+    return named == null
+        ? null
+        : Color(0xFF000000 | csslib.TokenKind.colorValue(named));
   }
 }
 

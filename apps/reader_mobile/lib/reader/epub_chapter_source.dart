@@ -12,6 +12,7 @@ import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/ua_stylesheet.dart' show UaBlockDefaults, uaRules;
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -769,32 +770,26 @@ class EpubChapterSource
   }
 
   List<CssStylesheet> _chapterStylesheets(int spineIndex) {
-    return _chapterSheetCache.putIfAbsent(spineIndex, () {
+    final sheets = _chapterSheetCache.putIfAbsent(spineIndex, () {
       final item = document.spine[spineIndex];
       final xhtmlPath =
           document.resources.resolve(
             item.href,
             baseDir: p.posix.dirname(document.opfPath),
-          ) ??
-          item.href;
+          ) ?? item.href;
       final xhtmlBytes = document.archive.readBytes(xhtmlPath);
       if (xhtmlBytes == null) {
         return const <CssStylesheet>[];
       }
-      final inline = CssParser.extractFromXhtml(
+      final sources = CssParser.extractFromXhtml(
         utf8.decode(xhtmlBytes, allowMalformed: true),
-      );
-      final chapterBase = p.posix.dirname(xhtmlPath);
-      final sheets = <CssStylesheet>[];
-      final visited = <String>{};
-
-      /// 加载一张样式表并先展开它的 @import（P9-10）：被导入的规则在
-      /// 层叠顺序上位于导入方之前，之前完全没加载等于整份样式丢失。
-      void loadSheet(String url, {int depth = 0}) {
-        if (depth > 8 || !visited.add(url)) {
-          return;
-        }
-        final sheet = _cssSheetCache.putIfAbsent(url, () {
+      ).sources;
+      final loader = CssStylesheetLoader(
+        resolveUrl: (url, baseDir) =>
+            document.resources.resolve(url, baseDir: baseDir) ?? url,
+        prepareInline: (css, baseDir) =>
+            _absolutizeSheet(CssParser.parse(css), baseDir),
+        readSheet: (url) => _cssSheetCache.putIfAbsent(url, () {
           final bytes = document.archive.readBytes(url);
           if (bytes == null) {
             return const CssStylesheet(rules: [], imports: [], warnings: []);
@@ -803,33 +798,17 @@ class EpubChapterSource
             CssParser.parse(utf8.decode(bytes, allowMalformed: true)),
             p.posix.dirname(url),
           );
-        });
-        for (final imported in sheet.imports) {
-          final media = imported.media?.toLowerCase() ?? '';
-          if (media.contains('print') || media.contains('speech')) {
-            continue;
-          }
-          final target =
-              document.resources.resolve(
-                imported.url,
-                baseDir: p.posix.dirname(url),
-              ) ??
-              imported.url;
-          loadSheet(target, depth: depth + 1);
-        }
-        sheets.add(sheet);
-      }
-
-      for (final href in inline.links) {
-        final url =
-            document.resources.resolve(href, baseDir: chapterBase) ?? href;
-        loadSheet(url);
-      }
-      if (inline.css.isNotEmpty) {
-        sheets.add(_absolutizeSheet(CssParser.parse(inline.css), chapterBase));
-      }
-      return sheets;
+        }),
+      );
+      return loader.load(sources, p.posix.dirname(xhtmlPath));
     });
+    // 缓存完整来源，在重排时重新判断媒体条件，旋转后不沿用旧视口结果。
+    return [
+      for (final sheet in sheets)
+        if (sheet.mediaConditions.every(
+          (media) => Cascade.mediaMatches(media, contentWidth),
+        )) sheet,
+    ];
   }
 
   /// 章节作者 CSS 是否声明了「保留空白」族的 `white-space`
@@ -1306,6 +1285,64 @@ class EpubChapterSource
       parts.add('${view.tag}|$attrs');
     }
     return parts.join('>');
+  }
+
+  /// 浮动分页会把一段拆为多个块，只让真正的首末片段封闭容器。
+  static List<PageContainerFragment> _containerFragmentsFor(
+    PageBlock block, {
+    required bool starts,
+    required bool ends,
+  }) => [
+    for (final fragment in block.containers)
+      PageContainerFragment(
+        container: fragment.container,
+        startsHere: starts && fragment.startsHere,
+        endsHere: ends && fragment.endsHere,
+        topInset: fragment.topInset,
+        bottomInset: fragment.bottomInset,
+      ),
+  ];
+
+  /// 有块级后代的普通容器保留盒结构，浮动和特殊排版仍走各自路径。
+  static bool _retainsContainer(BlockNode node, ComputedStyle style) {
+    const tags = {'div', 'section', 'article', 'aside', 'main', 'header',
+      'footer', 'blockquote', 'figure'};
+    return tags.contains(node.tag) &&
+        node.children.any((child) => child is BlockNode) &&
+        style.cssFloat == CssFloat.none &&
+        style.position == CssPosition.static &&
+        style.writingMode == CssWritingMode.horizontalTb;
+  }
+
+  /// 把容器的垂直占位和独立绘制片段挂到首末后代，不改变原文/CFI。
+  static void _wrapContainerBlocks(
+    List<PageBlock> blocks,
+    int start,
+    PageContainer container,
+  ) {
+    if (start == blocks.length) return;
+    final style = container.style;
+    final top = style.padding.top + style.borders.top.width;
+    final bottom = style.padding.bottom + style.borders.bottom.width;
+    for (var i = start; i < blocks.length; i++) {
+      final block = blocks[i];
+      final first = i == start;
+      final last = i == blocks.length - 1;
+      blocks[i] = block.withSpacing(
+        topInset: block.topInset + (first ? top + style.margin.top : 0),
+        bottomInset: block.bottomInset + (last ? bottom + style.margin.bottom : 0),
+        containers: [
+          PageContainerFragment(
+            container: container,
+            startsHere: first,
+            endsHere: last,
+            topInset: first ? block.leadingExtent + top : 0,
+            bottomInset: last ? block.trailingExtent + bottom : 0,
+          ),
+          ...block.containers,
+        ],
+      );
+    }
   }
 
   /// 祖先传导的盒类近似属性：flat 无嵌套盒子，容器面板（背景/左右
@@ -1953,6 +1990,8 @@ class EpubChapterSource
                 leftInset: leftInset,
                 topInset: block.topInset,
                 bottomInset: block.bottomInset,
+                containers: block.containers,
+                effectiveOpacity: block.effectiveOpacity,
                 declaredContentHeight: boxHeight,
               ),
               startLine: 0,
@@ -2079,6 +2118,10 @@ class EpubChapterSource
               leftInset: block.leftInset,
               topInset: block.topInset,
               bottomInset: block.bottomInset,
+              containers: _containerFragmentsFor(
+                block, starts: blockLines.first.start == 0, ends: finished,
+              ),
+              effectiveOpacity: block.effectiveOpacity,
             ),
             startLine: 0,
             endLine: blockLines.length,
@@ -2273,6 +2316,7 @@ class EpubChapterSource
     // `position: fixed`（W18）：相对页面定位、每页重复——不进流，分页完成
     // 后给每一页追加覆盖切片。
     final fixedBlocks = <PageBlock>[];
+    final retainedContainers = <SelectorElement, PageContainer>{};
 
     // 块级样式（P8-02 链式级联）：UA（uaRules）+ 作者样式表（私有钩子
     // 契约过滤）+ 内联 style 三源进 Cascade.compute——特异性/!important/
@@ -2529,7 +2573,12 @@ class EpubChapterSource
       if (chain.isEmpty) {
         return style;
       }
-      final key = _chainKey(chain);
+      var containing = contentWidth;
+      for (final ancestor in chain.take(chain.length - 1)) {
+        final box = retainedContainers[ancestor];
+        if (box != null) containing = box.contentWidth;
+      }
+      final key = '${_chainKey(chain)}@$containing';
       return chainStyleCache.putIfAbsent(key, () {
         final parent = chain.length > 1
             ? chainStyle(chain.sublist(0, chain.length - 1))
@@ -2543,7 +2592,8 @@ class EpubChapterSource
           ),
           parent: parent,
           rootFontSize: style.fontSize,
-          containingWidth: contentWidth,
+          containingWidth: containing,
+          viewportWidth: contentWidth,
         );
       });
     }
@@ -2923,6 +2973,13 @@ class EpubChapterSource
           continue;
         }
         final ancStyle = chainStyle(chain.sublist(0, i + 1));
+        final retained = retainedContainers[chain[i]];
+        if (retained != null) {
+          // 后代使用容器内容区；右侧同时吸收容器声明宽留下的空白。
+          extraLeft = retained.contentLeft;
+          extraRight = contentWidth - retained.contentLeft - retained.contentWidth;
+          continue;
+        }
         if (i == chain.length - 2 && ancStyle.borders.hasBorder) {
           containerBorderedForLastChain = true;
         }
@@ -3287,6 +3344,9 @@ class EpubChapterSource
       );
       final tableChain = <SelectorElement>[...ancestors, tableView];
       final tableStyle = styleForChain(tableChain);
+      final tableAvailableWidth = math.max(
+        1.0, contentWidth - tableStyle.margin.horizontal,
+      );
       final tableInBorderedContainer = containerBorderedForLastChain;
       // 表格块同样要带祖先累计 opacity（单元格自己读 cellStyle）。
       final tableOpacity = effectiveOpacityForLastChain;
@@ -3343,14 +3403,14 @@ class EpubChapterSource
               final result = _layoutCache.layout(
                 text: node.text,
                 style: cellStyle,
-                maxWidth: contentWidth,
+                maxWidth: tableAvailableWidth,
               );
               if (result.lineCount > 0) {
                 blocks.add(
                   PageBlock.styled(
                     layout: result,
                     style: cellStyle,
-                    containingWidth: contentWidth,
+                    containingWidth: tableAvailableWidth,
                   ),
                 );
               }
@@ -3504,7 +3564,7 @@ class EpubChapterSource
         final css = style.width;
         if (css != null && !css.isAuto) {
           return css.isPercent
-              ? contentWidth * css.value / 100
+              ? tableAvailableWidth * css.value / 100
               : css.value;
         }
         final raw = attributes['width']?.trim();
@@ -3515,7 +3575,7 @@ class EpubChapterSource
           final percent = double.tryParse(
             raw.substring(0, raw.length - 1),
           );
-          return percent == null ? null : contentWidth * percent / 100;
+          return percent == null ? null : tableAvailableWidth * percent / 100;
         }
         return double.tryParse(raw.replaceAll(RegExp(r'[^0-9.]'), ''));
       }
@@ -3611,7 +3671,7 @@ class EpubChapterSource
             rowView,
             _NodeView(cell.tag, cell.attributes, const <SelectorElement>[]),
           ];
-          final cellStyle = styleForChain(cellChain);
+          final cellStyle = chainStyle(cellChain);
           final content = cellContentOf(cell, cellChain);
           final text = content.text;
           final runs = resolveInlineRuns(content.marks);
@@ -3647,7 +3707,7 @@ class EpubChapterSource
           texts.add(text);
           rowSpecs.add(
             TableCellSpec(
-              naturalWidth: naturalWidth(contentWidth, cellStyle),
+              naturalWidth: naturalWidth(tableAvailableWidth, cellStyle),
               colspan: colspan,
               rowspan: rowspan,
               measureHeight: (width) {
@@ -3705,9 +3765,9 @@ class EpubChapterSource
         //「表宽 - border-spacing」为基准，与浏览器一致），剩余空间平分给
         // 未声明列；列宽是「边框盒宽」= 内容宽 + 该列单元格内缩。
         var target = tableWidthPercent != null
-            ? contentWidth * tableWidthPercent.clamp(0.0, 1.0)
-            : (tableWidthPx ?? contentWidth);
-        target = target.clamp(0.0, contentWidth);
+            ? tableAvailableWidth * tableWidthPercent.clamp(0.0, 1.0)
+            : (tableWidthPx ?? tableAvailableWidth);
+        target = target.clamp(0.0, tableAvailableWidth);
         final columnSpace = math.max(
           0.0,
           target - spacingX * (columnCount + 1),
@@ -3735,8 +3795,8 @@ class EpubChapterSource
             continue;
           }
           final content = (c < columnPercent.length && columnPercent[c] &&
-                  contentWidth > 0)
-              ? specified * columnSpace / contentWidth
+                  tableAvailableWidth > 0)
+              ? specified * columnSpace / tableAvailableWidth
               : specified;
           widths[c] = content + columnInset[c];
           specifiedTotal += widths[c];
@@ -3850,7 +3910,7 @@ class EpubChapterSource
           columnSpecified: columnSpecified,
           tableWidthPx: tableWidthPx,
           tableWidthPercent: tableWidthPercent,
-          containerWidth: contentWidth,
+          containerWidth: tableAvailableWidth,
           borderSpacingX: spacingX,
           borderSpacingY: spacingY,
         );
@@ -3934,7 +3994,12 @@ class EpubChapterSource
             .toList();
         blocks.add(
           PageBlock.styled(
-            style: tableStyle,
+            style: ComputedStyle(
+              {...tableStyle.values, 'width': '${tableWidthPxFinal}px'},
+              parent: tableStyle,
+              containingWidth: contentWidth,
+              explicitProperties: tableStyle.explicitProperties,
+            ),
             containingWidth: contentWidth,
             // P9-25：带边框容器内的表格块同样参与背景/边框拼合。
             containerSides: tableInBorderedContainer,
@@ -4534,6 +4599,20 @@ class EpubChapterSource
         var childContainerFloatWidth = containerFloatWidth;
         var childContainerFloatGroup = containerFloatGroup;
         final selfStyle = chainStyle(childAncestors);
+        final retainedStart = blocks.length;
+        PageContainer? retained;
+        if (containerFloat == null && _retainsContainer(node, selfStyle)) {
+          final parentBoxes = ancestors.map((a) => retainedContainers[a]).nonNulls;
+          final parentBox = parentBoxes.isEmpty ? null : parentBoxes.last;
+          final availableWidth = parentBox?.contentWidth ?? contentWidth;
+          final model = BoxModel.fromStyle(selfStyle, containingWidth: availableWidth);
+          retained = PageContainer(
+            style: selfStyle,
+            left: (parentBox?.contentLeft ?? 0) + selfStyle.margin.left,
+            width: model.borderBoxWidth(model.resolveContentWidth(availableWidth)),
+          );
+          retainedContainers[selfView] = retained;
+        }
         final selfFloat = _floatSideOfStyle(selfStyle);
         if (selfFloat != null) {
           containerFloatSeq += 1;
@@ -4596,7 +4675,9 @@ class EpubChapterSource
             groupId: childGroup,
             list: childList,
             quoteDepth: childQuoteDepth,
-            ancestors: childAncestors,
+            ancestors: retained != null && child is TextBlockNode
+                ? [...childAncestors, _NodeView('reader-anonymous', const {}, const [])]
+                : childAncestors,
             firstInContainer: childFirst,
             lastInContainer: childLast,
             listFirst: isListContainer
@@ -4609,6 +4690,9 @@ class EpubChapterSource
             containerFloatWidth: childContainerFloatWidth,
             containerFloatGroup: childContainerFloatGroup,
           );
+        }
+        if (retained != null) {
+          _wrapContainerBlocks(blocks, retainedStart, retained);
         }
       } else if (node is InlineNode) {
         for (final child in node.children) {

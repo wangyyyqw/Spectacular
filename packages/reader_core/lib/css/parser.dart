@@ -63,6 +63,7 @@ class CssStylesheet {
     required this.imports,
     required this.warnings,
     this.fontFaces = const <CssFontFace>[],
+    this.mediaConditions = const <String>[],
   });
 
   /// 规则。
@@ -77,18 +78,48 @@ class CssStylesheet {
   /// `@font-face` 声明（P3-01，声明顺序；去重由
   /// [CssFontFaceRegistry] 负责）。
   final List<CssFontFace> fontFaces;
+
+  /// 来源元素及逐层 `@import` 的媒体条件，全部命中时才启用本表。
+  ///
+  /// 与规则自身的 `@media` 分开保存，避免把带逗号或 not 的条件错误拼接。
+  final List<String> mediaConditions;
+}
+
+/// 按文档顺序出现的一张内嵌或外链样式表。
+class CssStyleSource {
+  /// 内嵌 `<style>`。
+  const CssStyleSource.embedded(this.css, {this.media}) : href = null;
+
+  /// 外链 `<link rel="stylesheet">`。
+  const CssStyleSource.linked(this.href, {this.media}) : css = null;
+
+  /// CSS 文本；外链为 null。
+  final String? css;
+
+  /// 原始地址；内嵌为 null。
+  final String? href;
+
+  /// 元素上的媒体条件。
+  final String? media;
 }
 
 /// XHTML 中提取出的样式来源。
 class InlineStyles {
   /// 创建结果。
-  const InlineStyles({required this.css, required this.links});
+  const InlineStyles({
+    required this.css,
+    required this.links,
+    this.sources = const <CssStyleSource>[],
+  });
 
   /// 所有 `<style>` 的 CSS 文本（按文档顺序拼接）。
   final String css;
 
   /// `<link rel="stylesheet">` 的 href。
   final List<String> links;
+
+  /// 内嵌与外链交错的文档顺序，含各自媒体条件。
+  final List<CssStyleSource> sources;
 }
 
 /// CSS 基础解析器。
@@ -338,10 +369,14 @@ abstract final class CssParser {
     final document = html_parser.parse(xhtml);
     final css = StringBuffer();
     final links = <String>[];
-    for (final element in document.querySelectorAll('style')) {
-      css.writeln(element.text);
-    }
-    for (final element in document.querySelectorAll('link')) {
+    final sources = <CssStyleSource>[];
+    for (final element in document.querySelectorAll('style, link')) {
+      final media = element.attributes['media']?.trim();
+      if (element.localName == 'style') {
+        css.writeln(element.text);
+        sources.add(CssStyleSource.embedded(element.text, media: media));
+        continue;
+      }
       final rel = element.attributes['rel']?.toLowerCase().trim() ?? '';
       if (!rel.split(RegExp(r'\s+')).contains('stylesheet')) {
         continue;
@@ -349,9 +384,14 @@ abstract final class CssParser {
       final href = element.attributes['href']?.trim() ?? '';
       if (href.isNotEmpty) {
         links.add(href);
+        sources.add(CssStyleSource.linked(href, media: media));
       }
     }
-    return InlineStyles(css: css.toString(), links: links);
+    return InlineStyles(
+      css: css.toString(),
+      links: List.unmodifiable(links),
+      sources: List.unmodifiable(sources),
+    );
   }
 
   static List<CssDeclaration> _declarations(
