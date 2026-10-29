@@ -255,6 +255,9 @@ class PagePainter {
             geometry.style.effectiveOpacity,
           );
         });
+        if (!geometry.hidden) {
+          _paintBlockOutline(canvas, geometry);
+        }
       });
     });
   }
@@ -353,6 +356,7 @@ class PagePainter {
         _notifyPhase(PagePaintPhase.decoration);
         _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
         _paintBlockRubies(canvas, geometry);
+        _paintBlockOutline(canvas, geometry);
       });
     });
   }
@@ -388,6 +392,73 @@ class PagePainter {
       geometry.style,
       startsBlock: geometry.startsBlock,
       endsBlock: geometry.endsBlock,
+    );
+  }
+
+  /// 轮廓不影响布局，绘制在边框盒外侧并覆盖在本块内容之上。
+  void _paintBlockOutline(Canvas canvas, _SliceGeometry geometry) {
+    final outline = geometry.style.outline;
+    if (!outline.isVisible) {
+      return;
+    }
+    final half = outline.width / 2;
+    final extra = outline.offset + half;
+    final borders = geometry.style.borders;
+    final box = geometry.borderBox;
+    final strokeBox = box.inflate(extra);
+    final side = CssBorderSide(
+      width: outline.width,
+      style: outline.style,
+      color: outline.color,
+    );
+    if (outline.style == CssBorderStyle.solid) {
+      final radii = borders.radiiFor(box.size);
+      Radius grow(Radius radius) => Radius.elliptical(
+        math.max(0, radius.x + extra),
+        math.max(0, radius.y + extra),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          strokeBox,
+          topLeft: grow(radii.topLeft),
+          topRight: grow(radii.topRight),
+          bottomRight: grow(radii.bottomRight),
+          bottomLeft: grow(radii.bottomLeft),
+        ),
+        Paint()
+          ..color = outline.color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = outline.width,
+      );
+      return;
+    }
+    _paintSide(
+      canvas,
+      side,
+      strokeBox.topLeft,
+      strokeBox.topRight,
+      outward: const Offset(0, -1),
+    );
+    _paintSide(
+      canvas,
+      side,
+      strokeBox.topRight,
+      strokeBox.bottomRight,
+      outward: const Offset(1, 0),
+    );
+    _paintSide(
+      canvas,
+      side,
+      strokeBox.bottomRight,
+      strokeBox.bottomLeft,
+      outward: const Offset(0, 1),
+    );
+    _paintSide(
+      canvas,
+      side,
+      strokeBox.bottomLeft,
+      strokeBox.topLeft,
+      outward: const Offset(-1, 0),
     );
   }
 

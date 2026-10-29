@@ -10,12 +10,12 @@
 | --- | ---: |
 | 真实书语料（`test_corpus/real/*.epub`） | 7 本 / 105 个 CSS |
 | 语料中出现的不同属性名 | 132 |
-| `ComputedStyle` 类型化字段 | 91 |
-| **有字段且真正参与布局/绘制** | **94 条属性**（68 完整 + 26 部分） |
+| `ComputedStyle` 类型化字段 | 92 |
+| **有字段且真正参与布局/绘制** | **95 条属性**（69 完整 + 26 部分） |
 | **有字段但零消费（占位式）** | **4**：`initial-letter`、`quotes`、`font-stretch`、`font-size-adjust` |
 | **无字段、值进 `values` 后被静默丢弃** | **变体统计**（`border-image`、`z-index`、`line-break`、`quotes` 已接入、`background-attachment` 等价降级、`object-fit` 已映射、`counter-*` 已在章节源生效） |
-| 本文覆盖的属性条目 | **142**（94 + 4 + 44） |
-| `tool/css_parity/cases/` | 66 个用例 |
+| 本文覆盖的属性条目 | **142**（95 + 4 + 43） |
+| `tool/css_parity/cases/` | 73 个用例 |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -292,8 +292,8 @@
 | 115 | `caption-side` / `empty-cells` | 0 | 表格标题位置、空单元格边框 |
 | 116 | `aspect-ratio` | 0 | 图片容器比例约束 |
 | 117 | `scroll-behavior` / `scrollbar-width` / `-ms-overflow-style` | 0-2 | 分页阅读器无滚动条，影响 0 |
-| 118 | `overflow-y` | 1 / 1 | 只读 `overflow-x`，按轴细化裁剪不支持 |
-| 119 | `outline` / `cursor` | 0 / 3 | 无交互，影响 0 |
+| 118 | `overflow-y` | 1 / 1 | 已实现：任一轴非 `visible` 即启用裁剪 |
+| 119 | `outline` / `cursor` | 0 / 3 | `outline` 已实现（不占布局，支持线型/颜色/宽度/偏移）；`cursor` 无交互，影响 0 |
 | 120 | `user-select` / `resize` / `will-change` / `contain` / `isolation` / `pointer-events` | 0-1 | 交互与渲染提示，影响 ~0 |
 | 121 | `clip-path` / `mask` | 0 | 异形裁剪/遮罩 |
 | 122 | `transition` / `animation` | 0 | 分页静态渲染，可长期不支持 |
@@ -512,14 +512,14 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
-| 已实现并接入绘制/布局 | 107 | 审计 A 组全量（含本轮新增：`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`；`orphans`/`widows` 为产品决策不做） |
+| 已实现并接入绘制/布局 | 108 | 审计 A 组全量（含新增：`z-index`、`ruby-position`/`ruby-align`、`border-image`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`/`content` 引号、`object-fit`、`outline`；`orphans`/`widows` 为产品决策不做） |
 | 有字段、绘制层通过等价路径消费 | 15 | 审计 C 组全量（如 `direction`→`isRtl`、`vertical-align` 长度） |
-| 明确不需要（阅读器无交互面） | 12 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`outline`（非聚焦态不绘制）、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
+| 明确不需要（阅读器无交互面） | 11 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
 | 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
 | 仍未实现 | 0 | 本轮补完最后三项：`tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 125/168（用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 132/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法

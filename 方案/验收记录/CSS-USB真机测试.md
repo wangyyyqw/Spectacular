@@ -335,9 +335,19 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 `20-hyphens-quotes` 的几何/样式失配为 0，视觉差异 1.05%。该结果表示对照集
 内几何与关键样式已清零，不能表述为与 Chromium 逐像素一致。
 
-最终本地验证：`reader_core` 1198 项通过、3 项跳过；`reader_ui` 146 项通过；
+同日继续补齐 `outline` 解析、层叠与绘制：支持线宽、线型、颜色、偏移和简写，
+不参与布局，按 `outline-offset` 绘制在边框盒外侧；实线支持圆角。新增
+`74-outline` 对照用例与像素回归，并修正浏览器在 `outline-style:none` 时仍报告
+3px 线宽的对照口径。当前覆盖 132/168 个属性、73 个用例；浏览器与引擎导出
+全部通过，几何/样式失配 **0**，未配对 7 个块（涉及 3 个用例，不计失配）。
+`74-outline` 几何/样式失配为 0，视觉差异 4.46%，人工复核轮廓位置、虚实线与
+圆角接近。报告位于 `/tmp/css_parity/report.md`，并排截图位于
+`/tmp/css_parity/side_74-outline.png`。
+
+最终本地验证：`reader_core` 1204 项通过、3 项跳过；`reader_ui` 146 项通过；
 `reader_mobile` 357 项通过、5 项跳过；`reader_mobile` 静态检查无问题。
 Release APK 已构建并移至下载目录：
 `/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
-大小 88,626,352 字节，SHA-256
-`5bcfcf3b6d86755e3edd8bccfa5d318dc97cf510e8f7a83a89ee01ac3c98cb45`。
+大小 88,691,888 字节，SHA-256
+`cd072ff525253801f5f2ec464fcb38c2649f264e594251bd35ef2158b22cc5ea`；
+包名 `com.spectacular.reader_mobile`，版本 `1.0.0+1`。

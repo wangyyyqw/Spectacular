@@ -249,6 +249,10 @@ const collectScript = `(() => {
         margin: [cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft].join(' '),
         padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].join(' '),
         border: [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth].join(' '),
+        // outline-style:none 时浏览器仍报告 medium（3px），但不会绘制。
+        outlineWidth: cs.outlineStyle === 'none' ? '0px' : cs.outlineWidth,
+        outlineStyle: cs.outlineStyle,
+        outlineOffset: cs.outlineOffset,
         whiteSpace: cs.whiteSpace,
         textTransform: cs.textTransform,
         fontWeight: cs.fontWeight,

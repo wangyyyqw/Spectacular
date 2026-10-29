@@ -397,6 +397,32 @@ void main() {
     expect(medium.borders.top.width, 3);
   });
 
+  test('outline 简写与长属性独立于盒模型', () {
+    final parsed = style(
+      'p',
+      'p { color: #00FF00; outline: 4px dashed #FF0000; '
+          'outline-width: 6px; outline-offset: -2px; }',
+    );
+    expect(parsed.outline.width, 6);
+    expect(parsed.outline.style, CssBorderStyle.dashed);
+    expect(parsed.outline.color, const Color(0xFFFF0000));
+    expect(parsed.outline.offset, -2);
+    expect(parsed.margin.top, 0, reason: 'outline 不占布局空间');
+
+    final current = style('p', 'p { color: #00FF00; outline: 2px solid; }');
+    expect(current.outline.style, CssBorderStyle.solid);
+    expect(current.outline.color, const Color(0xFF00FF00));
+
+    final reset = style(
+      'p',
+      'p { outline-width: 9px; outline-style: dashed; '
+          'outline: 1px solid #0000FF; }',
+    );
+    expect(reset.outline.width, 1, reason: '后置简写重置遗漏的长属性');
+    expect(reset.outline.style, CssBorderStyle.solid);
+    expect(reset.outline.color, const Color(0xFF0000FF));
+  });
+
   test('box-shadow 保留 blur/spread/inset', () {
     final shadow = style(
       'p',

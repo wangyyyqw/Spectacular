@@ -455,6 +455,19 @@ abstract final class Cascade {
           for (var i = 0; i < 4; i++)
             'border-${sides[i]}-$suffix': parts[i],
         };
+      case 'outline':
+        if (_isGlobalKeyword(value)) {
+          return {
+            for (final suffix in const ['width', 'style', 'color'])
+              'outline-$suffix': value,
+          };
+        }
+        final parts = ComputedStyle.parseOutlineShorthand(value);
+        return {
+          for (final suffix in const ['width', 'style', 'color'])
+            'outline-$suffix':
+                parts?[suffix] ?? ComputedStyle.initialValue('outline-$suffix'),
+        };
       default:
         return const <String, String>{};
     }

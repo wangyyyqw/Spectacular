@@ -1036,6 +1036,35 @@ class CssBorderSide {
   String toString() => 'CssBorderSide($width,$style,$color)';
 }
 
+/// 元素轮廓（CSS `outline`）：不参与盒模型，绘制在边框盒外侧。
+class CssOutline {
+  /// 创建轮廓。
+  const CssOutline({
+    this.width = 3,
+    this.style = CssBorderStyle.none,
+    this.color = const Color(0xFF000000),
+    this.offset = 0,
+  });
+
+  /// 无轮廓。
+  static const none = CssOutline(width: 0);
+
+  /// 线宽。
+  final double width;
+
+  /// 线型；`outline-style: auto` 在读入时按 `solid` 近似。
+  final CssBorderStyle style;
+
+  /// 轮廓色。
+  final Color color;
+
+  /// 边框盒到轮廓内缘的距离，可为负。
+  final double offset;
+
+  /// 是否需要绘制。
+  bool get isVisible => style != CssBorderStyle.none && width > 0;
+}
+
 /// 出血方向（多看私有属性 `duokan-bleed`，P9-22）。
 class CssBleed {
   /// 创建出血方向。
@@ -1257,6 +1286,10 @@ class ComputedStyle {
       'ruby-position' => 'over',
       'border-collapse' => 'separate',
       'border-spacing' => '0px',
+      'outline-width' => 'medium',
+      'outline-style' => 'none',
+      'outline-color' => 'currentcolor',
+      'outline-offset' => '0px',
       _ => 'normal',
     };
   }
@@ -1294,6 +1327,17 @@ class ComputedStyle {
               '${side.color.a})',
       };
     }
+    if (property.startsWith('outline-')) {
+      return switch (property) {
+        'outline-width' => '${outline.width}px',
+        'outline-style' => outline.style.name,
+        'outline-offset' => '${outline.offset}px',
+        _ =>
+          'rgba(${(outline.color.r * 255).round()}, '
+              '${(outline.color.g * 255).round()}, '
+              '${(outline.color.b * 255).round()}, ${outline.color.a})',
+      };
+    }
     return values[property];
   }
 
@@ -1314,6 +1358,9 @@ class ComputedStyle {
         }.contains(property)) {
       return parseBorderShorthand(raw) != null;
     }
+    if (property == 'outline') {
+      return parseOutlineShorthand(raw) != null;
+    }
     if (property == 'margin' ||
         property == 'padding' ||
         const {
@@ -1329,10 +1376,15 @@ class ComputedStyle {
           tokens.length <= 4 &&
           tokens.every((token) => isValidDeclaration(longhand, token));
     }
-    if (property.startsWith('border-') && property.endsWith('-style')) {
-      return _parseBorderStyle(value) != null;
+    if ((property.startsWith('border-') || property.startsWith('outline-')) &&
+        property.endsWith('-style')) {
+      return _parseBorderStyle(value) != null ||
+          (property == 'outline-style' && value == 'auto');
     }
     if (property == 'color' || property.endsWith('-color')) {
+      if (property == 'outline-color' && value == 'invert') {
+        return true;
+      }
       return value == 'currentcolor' || _parseColor(value) != null;
     }
     final lengthResult = _validLengthDeclaration(property, value);
@@ -1360,7 +1412,8 @@ class ComputedStyle {
 
   static bool? _validLengthDeclaration(String property, String value) {
     final borderWidth =
-        property.startsWith('border-') && property.endsWith('-width');
+        (property.startsWith('border-') || property.startsWith('outline-')) &&
+        property.endsWith('-width');
     final margin = property.startsWith('margin-');
     final padding = property.startsWith('padding-');
     const lengths = {
@@ -1379,6 +1432,7 @@ class ComputedStyle {
       'right',
       'bottom',
       'left',
+      'outline-offset',
     };
     if (!borderWidth && !margin && !padding && !lengths.contains(property)) {
       return null;
@@ -1459,6 +1513,30 @@ class ComputedStyle {
       } else if (lower == 'currentcolor' || _parseColor(token) != null) {
         key = 'color';
       } else if (_validLengthDeclaration('border-top-width', lower) == true &&
+          !lower.contains('%')) {
+        key = 'width';
+      } else {
+        return null;
+      }
+      if (result.containsKey(key)) return null;
+      result[key] = token;
+    }
+    return result.isEmpty ? null : result;
+  }
+
+  /// `outline` 简写统一拆成长属性，缺项由调用方补初始值。
+  static Map<String, String>? parseOutlineShorthand(String raw) {
+    final result = <String, String>{};
+    for (final token in _cssTokens(raw)) {
+      final lower = token.toLowerCase();
+      final String key;
+      if (_parseBorderStyle(lower) != null || lower == 'auto') {
+        key = 'style';
+      } else if (lower == 'currentcolor' ||
+          lower == 'invert' ||
+          _parseColor(token) != null) {
+        key = 'color';
+      } else if (_validLengthDeclaration('outline-width', lower) == true &&
           !lower.contains('%')) {
         key = 'width';
       } else {
@@ -2116,6 +2194,13 @@ class ComputedStyle {
       rootFontSize: rootFontSize,
       color: color,
     );
+    final outline = _resolveOutline(
+      values,
+      explicit,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+      color: color,
+    );
 
     // 尺寸、内边距与 box-sizing 均不继承，未声明时按初始值兜底（P2-14 盒模型）。
     CssLength? dimension(String property) {
@@ -2239,6 +2324,7 @@ class ComputedStyle {
       backgroundImage: backgroundImage,
       backgroundGradient: backgroundGradient,
       borders: borders,
+      outline: outline,
       borderImage: _parseBorderImage(
         explicitValue('border-image') ?? explicitValue('border-image-source'),
       ),
@@ -2386,6 +2472,7 @@ class ComputedStyle {
       backgroundImage: backgroundImage,
       backgroundGradient: backgroundGradient,
       borders: borders,
+      outline: outline,
       borderImage: _parseBorderImage(
         nextValues['border-image'] ?? nextValues['border-image-source'],
       ),
@@ -2412,6 +2499,7 @@ class ComputedStyle {
 
   const ComputedStyle._({
     this.borderImage,
+    this.outline = CssOutline.none,
     required this.values,
     required this.hasExplicitTextColor,
     required this.fontSize,
@@ -3128,6 +3216,9 @@ class ComputedStyle {
   /// 四边边框与四角圆角。
   final CssBorders borders;
 
+  /// 边框外侧轮廓；不参与布局。
+  final CssOutline outline;
+
   /// 九宫格边图（`border-image`）；未声明为 null。边框绘制时替代普通边框色。
   final CssBorderImage? borderImage;
 
@@ -3556,6 +3647,100 @@ class ComputedStyle {
       topRightRadiusPercent: radiusPercents[1],
       bottomRightRadiusPercent: radiusPercents[2],
       bottomLeftRadiusPercent: radiusPercents[3],
+    );
+  }
+
+  /// 解析轮廓及其长属性；简写缺项重置为 CSS 初始值。
+  static CssOutline _resolveOutline(
+    Map<String, String> values,
+    Set<String> explicit, {
+    required double fontSize,
+    required double rootFontSize,
+    required Color color,
+  }) {
+    String? value(String property) =>
+        explicit.contains(property) ? values[property] : null;
+
+    CssBorderStyle styleOf(String raw) {
+      if (raw.trim().toLowerCase() == 'auto') {
+        return CssBorderStyle.solid;
+      }
+      return _parseBorderStyle(raw) ?? CssBorderStyle.none;
+    }
+
+    double widthOf(String raw) => switch (raw.trim().toLowerCase()) {
+      'thin' => 1,
+      'medium' => 3,
+      'thick' => 5,
+      _ => math.max(
+        0,
+        _resolveLength(
+              raw,
+              fontSize: fontSize,
+              parentFontSize: fontSize,
+              rootFontSize: rootFontSize,
+              percentBase: 0,
+            ) ??
+            0,
+      ),
+    };
+
+    Color colorOf(String raw) {
+      final lower = raw.trim().toLowerCase();
+      if (lower == 'currentcolor' || lower == 'invert') {
+        return color;
+      }
+      return _parseColor(raw) ?? color;
+    }
+
+    var width = 3.0;
+    var style = CssBorderStyle.none;
+    var outlineColor = color;
+    final shorthand = value('outline');
+    if (shorthand != null) {
+      for (final token in _cssTokens(shorthand)) {
+        final lower = token.toLowerCase();
+        if (_parseBorderStyle(lower) != null || lower == 'auto') {
+          style = styleOf(token);
+        } else if (lower == 'currentcolor' ||
+            lower == 'invert' ||
+            _parseColor(token) != null) {
+          outlineColor = colorOf(token);
+        } else {
+          width = widthOf(token);
+        }
+      }
+    }
+
+    final rawWidth = value('outline-width');
+    if (rawWidth != null) {
+      width = widthOf(rawWidth);
+    }
+    final rawStyle = value('outline-style');
+    if (rawStyle != null) {
+      style = styleOf(rawStyle);
+    }
+    final rawColor = value('outline-color');
+    if (rawColor != null) {
+      outlineColor = colorOf(rawColor);
+    }
+    final rawOffset = value('outline-offset');
+    final offset =
+        (rawOffset == null
+            ? null
+            : _resolveLength(
+                rawOffset,
+                fontSize: fontSize,
+                parentFontSize: fontSize,
+                rootFontSize: rootFontSize,
+                percentBase: 0,
+              )) ??
+        0;
+    return CssOutline(
+      width: width,
+      style: style,
+      color: outlineColor,
+      offset: offset,
     );
   }
 
