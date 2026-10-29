@@ -199,16 +199,30 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 已保存的页边距：参与分页；「保留」后才更新，更新即触发一次重排。
   ReaderMargins? _savedMargins;
 
-  /// 当前生效的页边距（未设置时按安全区 + padding 推导）。
+  /// 从基础 padding 生成调节器值，保证打开调节器时画面不跳。
+  ReaderMargins _marginsFromPadding(EdgeInsets padding) {
+    return ReaderMargins(
+      left: padding.left,
+      right: padding.right,
+      topOuter: padding.top,
+      topInner: widget.showPageFooter ? PageFurniture.headerGap : 0,
+      bottomInner: widget.showPageFooter ? PageFurniture.footerGap : 0,
+      bottomOuter: padding.bottom,
+    );
+  }
+
+  /// 当前生效的页边距（未设置时按实际安全区 + padding 推导）。
   ReaderMargins get _activeMargins =>
       _previewMargins ??
       _savedMargins ??
-      ReaderMargins.defaults(
-        safeTop: MediaQuery.maybeViewPaddingOf(context)?.top ?? 0,
-        safeBottom: MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0,
-        side: _effectivePadding().left,
-        inner: 12,
-      );
+      _marginsFromPadding(_fallbackPadding());
+
+  /// 首次进入阅读页时的默认边距，恢复默认后仍保持原排版。
+  ReaderMargins get _defaultMargins =>
+      _marginsFromPadding(_fallbackPadding());
+
+  ReaderMargins? _layoutMargins({bool forLayout = false}) =>
+      forLayout ? _savedMargins : (_previewMargins ?? _savedMargins);
 
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
@@ -274,20 +288,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ///
   /// [forLayout] 为 true 时只用已保存的边距（分页依据），忽略拖动预览值——
   /// 这样拖动时只重绘当前页，不会每帧重排整章。
-  EdgeInsets _effectivePadding({bool forLayout = false}) {
+  EdgeInsets _fallbackPadding() {
     final edges = _overrides.padding;
     final base = edges == null
         ? widget.padding
         : EdgeInsets.fromLTRB(edges.left, edges.top, edges.right, edges.bottom);
-    // 设置里显式给了页边距（含安全区两段）时直接用它：边距调节器允许把
-    // 上下外段调到 0，让正文铺进安全区，所以这里不能再叠加 viewPadding。
-    final margins = forLayout
-        ? _savedMargins
-        : (_previewMargins ?? _savedMargins);
-    if (margins != null) {
-      return margins.toPadding();
-    }
-    // 未设置时：安全区顶部（状态栏/挖孔）与底部（手势条）都不放正文。
     // 用缓存值而不是实时 MediaQuery —— 菜单开关、系统栏显隐都不该改排版。
     final topInset = _safeTop;
     final bottomInset = _safeBottom;
@@ -297,9 +302,38 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return base + EdgeInsets.only(top: topInset, bottom: bottomInset);
   }
 
-  /// 正文区 padding：在页边距基础上让出页眉/页脚槽（设计稿 .page-header/footer）。
-  EdgeInsets _bodyPadding() {
-    final base = _effectivePadding();
+  EdgeInsets _effectivePadding({bool forLayout = false}) {
+    // 设置里显式给了页边距（含安全区两段）时直接用它：边距调节器允许把
+    // 上下外段调到 0，让正文铺进安全区，所以这里不能再叠加 viewPadding。
+    final margins = forLayout
+        ? _savedMargins
+        : (_previewMargins ?? _savedMargins);
+    if (margins != null) {
+      return margins.toPadding();
+    }
+    return _fallbackPadding();
+  }
+
+  /// 页眉页脚外侧 padding：外段从屏幕边界排到页家具，内段不参与。
+  EdgeInsets _furniturePadding({bool forLayout = false}) {
+    final margins = _layoutMargins(forLayout: forLayout);
+    if (margins != null) {
+      return margins.toOuterPadding();
+    }
+    return _effectivePadding(forLayout: forLayout);
+  }
+
+  /// 正文区 padding：外段 + 页眉页脚高度 + 内段。
+  EdgeInsets _bodyPadding({bool forLayout = false}) {
+    final margins = _layoutMargins(forLayout: forLayout);
+    if (margins != null) {
+      return margins.toBodyPadding(
+        showFurniture: widget.showPageFooter,
+        headerHeight: PageFurniture.headerHeight,
+        footerHeight: PageFurniture.footerHeight,
+      );
+    }
+    final base = _effectivePadding(forLayout: forLayout);
     if (!widget.showPageFooter) {
       return base;
     }
@@ -404,11 +438,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
   void _scheduleContentSize(Size pageSize) {
-    final padding = _effectivePadding(forLayout: true);
-    final reserved = widget.showPageFooter ? PageFurniture.reservedHeight : 0.0;
+    final padding = _bodyPadding(forLayout: true);
     final content = Size(
       pageSize.width - padding.horizontal,
-      pageSize.height - padding.vertical - reserved,
+      pageSize.height - padding.vertical,
     );
     if (content.width <= 0 || content.height <= 0) {
       return;
@@ -913,7 +946,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (page == null) {
       return;
     }
-    final padding = _effectivePadding();
+    final padding = _bodyPadding();
     final hit = TextHitTester.hitTest(
       page,
       localPosition - Offset(padding.left, padding.top),
@@ -934,7 +967,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (page == null) {
       return;
     }
-    final padding = _effectivePadding();
+    final padding = _bodyPadding();
     final hit = TextHitTester.hitTest(
       page,
       localPosition - Offset(padding.left, padding.top),
@@ -1247,13 +1280,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       key: ValueKey<String>('reader-page-${page.spineIndex}-${page.pageIndex}'),
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final padding = _effectivePadding();
-        _schedulePrefetch(page, size.width - padding.horizontal);
+        final furniturePadding = _furniturePadding();
+        final bodyPadding = _bodyPadding();
+        _schedulePrefetch(page, size.width - bodyPadding.horizontal);
         // 出血页把整页让给图：绘制画布取满屏，正文由 pageInsets 内缩，
         // 出血块才能铺到屏幕边缘。页眉页脚按页类型让位：
         // - 整页背景图页（封面/扉页）：页眉页脚都不画；
         // - 顶部出血页（章首横幅图）：只让位页眉，页脚保留。
-        final bodyPadding = _bodyPadding();
         final fullPageBackground = _isFullPageBackground(page);
         final topBleed = _hasTopBleed(page);
         final hideHeader = fullPageBackground || topBleed;
@@ -1274,10 +1307,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             // 正文语义层（P4-27）：读屏用，不接收指针事件。
             Positioned.fill(
               child: Padding(
-                padding: _effectivePadding(),
+                padding: bodyPadding,
                 child: ReaderSemanticsLayer(
                   page: page,
-                  pageWidth: size.width - _effectivePadding().horizontal,
+                  pageWidth: size.width - bodyPadding.horizontal,
                   firstNodeFocus: _semanticsFirstFocus,
                   onNextPage: () => unawaited(_session.next()),
                   onPreviousPage: () => unawaited(_session.previous()),
@@ -1322,9 +1355,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             // 头图页仍需保留（时间 + 进度），只在整页背景图页一起让掉。
             if (widget.showPageFooter && !hideHeader)
               Positioned(
-                left: padding.left,
-                right: padding.right,
-                top: padding.top,
+                left: furniturePadding.left,
+                right: furniturePadding.right,
+                top: furniturePadding.top,
                 child: IgnorePointer(
                   child: ReaderPageHeader(
                     theme: _effectiveTheme,
@@ -1337,9 +1370,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             if (widget.showPageFooter && !hideFooter)
               Positioned(
-                left: padding.left,
-                right: padding.right,
-                bottom: padding.bottom,
+                left: furniturePadding.left,
+                right: furniturePadding.right,
+                bottom: furniturePadding.bottom,
                 child: IgnorePointer(
                   child: ReaderPageFooter(
                     theme: _effectiveTheme,
@@ -1472,16 +1505,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               Positioned.fill(
                 child: MarginEditor(
                   margins: _activeMargins,
-                  defaults: ReaderMargins.defaults(
-                    safeTop:
-                        MediaQuery.maybeViewPaddingOf(context)?.top ?? 0,
-                    safeBottom:
-                        MediaQuery.maybeViewPaddingOf(context)?.bottom ?? 0,
-                    side: ReaderSettingsDefaults.horizontalPadding,
-                    inner: 12,
-                  ),
+                  defaults: _defaultMargins,
                   onPreview: (margins) =>
                       setState(() => _previewMargins = margins),
+                  showPageFurniture: widget.showPageFooter,
                   onCancel: () => setState(() {
                     _editingMargins = false;
                     _previewMargins = null;
