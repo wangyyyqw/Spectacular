@@ -325,3 +325,19 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 
 边距调节器专项与完整 `reader_ui` 测试通过，覆盖六个方向的拖动、保存位置和
 上下内间距阴影；未引入新依赖。
+
+## CSS 对照收口（2026-10-30）
+
+本轮以 `hyph_en_US` 词典实现 `hyphens: auto`，连字符改用 U+2010 并计入行宽；
+同时补齐合成小型大写、着重号形状、伪元素自身级联和 `quotes` 对照。浏览器端
+71 个用例渲染成功，Flutter dump 全部通过。70 个已配对用例的几何/样式失配为
+**0**，3 项仍因无对应节点未配对，19 组截图视觉差异超过 2%；
+`20-hyphens-quotes` 的几何/样式失配为 0，视觉差异 1.05%。该结果表示对照集
+内几何与关键样式已清零，不能表述为与 Chromium 逐像素一致。
+
+最终本地验证：`reader_core` 1198 项通过、3 项跳过；`reader_ui` 146 项通过；
+`reader_mobile` 357 项通过、5 项跳过；`reader_mobile` 静态检查无问题。
+Release APK 已构建并移至下载目录：
+`/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
+大小 88,609,968 字节，SHA-256
+`c07f5e3fc196bd8056db2c76c44ffcbacba4c588285fef0d642d560848f6f789`。
