@@ -1,15 +1,13 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 
-ReaderMargins _defaults() => ReaderMargins.defaults(
-  safeTop: 41,
-  safeBottom: 16,
-  side: 20,
-  inner: 12,
-);
+ReaderMargins _defaults() =>
+    ReaderMargins.defaults(safeTop: 41, safeBottom: 16, side: 20, inner: 12);
 
 void main() {
   group('页边距模型（P8-10）', () {
@@ -134,16 +132,25 @@ void main() {
           find.byKey(const ValueKey<String>('margin-top-inner')),
         ),
       );
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      final beforeMoves = previews.length;
       for (var i = 0; i < 5; i++) {
         await gesture.moveBy(const Offset(0, 12));
         await tester.pump();
       }
       await gesture.up();
       await tester.pumpAndSettle();
-      expect(previews.length, greaterThanOrEqualTo(5),
-          reason: '整颗胶囊都可直接拖动，且过程连续');
-      expect(previews.last.topInner, closeTo(22, 0.1),
-          reason: '60px 按 6px = 1 改值');
+      expect(
+        previews.length - beforeMoves,
+        greaterThanOrEqualTo(5),
+        reason: '整颗胶囊都可直接拖动，且过程连续',
+      );
+      expect(
+        previews.last.topInner,
+        closeTo(12 + 80 / 6, 0.1),
+        reason: '先移动 20px 越过手势阈值，再连续移动 60px',
+      );
       expect(find.text('上内 ${previews.last.topInner.round()}'), findsOneWidget);
 
       // 点箭头同样触发预览。
@@ -187,19 +194,105 @@ void main() {
         expect(read(previews.last), greaterThan(before), reason: '$key 应随拖动变大');
       }
 
-      // 上侧向下、下侧向上、左边界向左、右边界向右，都是留白扩张方向。
-      await expectDragGrows('margin-top-outer', const Offset(0, 48),
-          (value) => value.topOuter);
-      await expectDragGrows('margin-top-inner', const Offset(0, 48),
-          (value) => value.topInner);
-      await expectDragGrows('margin-bottom-inner', const Offset(0, -48),
-          (value) => value.bottomInner);
-      await expectDragGrows('margin-bottom-outer', const Offset(0, -48),
-          (value) => value.bottomOuter);
-      await expectDragGrows('margin-left', const Offset(-48, 0),
-          (value) => value.left);
-      await expectDragGrows('margin-right', const Offset(48, 0),
-          (value) => value.right);
+      // 每条正文边界都沿着手指移动：上侧向下、下侧向上，左边界向右、
+      // 右边界向左时边距变大。
+      await expectDragGrows(
+        'margin-top-outer',
+        const Offset(0, 48),
+        (value) => value.topOuter,
+      );
+      await expectDragGrows(
+        'margin-top-inner',
+        const Offset(0, 48),
+        (value) => value.topInner,
+      );
+      await expectDragGrows(
+        'margin-bottom-inner',
+        const Offset(0, -48),
+        (value) => value.bottomInner,
+      );
+      await expectDragGrows(
+        'margin-bottom-outer',
+        const Offset(0, -48),
+        (value) => value.bottomOuter,
+      );
+      await expectDragGrows(
+        'margin-left',
+        const Offset(48, 0),
+        (value) => value.left,
+      );
+      await expectDragGrows(
+        'margin-right',
+        const Offset(-48, 0),
+        (value) => value.right,
+      );
+    });
+
+    testWidgets('页眉与正文间距非 0 时在间隙绘制阴影', (tester) async {
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(400, 800));
+
+      Future<List<Rect>> shadowRects({
+        required double topInner,
+        double bottomInner = 12,
+      }) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: MarginEditor(
+                key: ValueKey<double>(topInner * 100 + bottomInner),
+                margins: _defaults().copyWith(
+                  topInner: topInner,
+                  bottomInner: bottomInner,
+                ),
+                defaults: _defaults(),
+                onCancel: () {},
+                onApply: (_) {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final painter = tester
+            .widget<CustomPaint>(
+              find.byKey(const ValueKey<String>('margin-zone-painter')),
+            )
+            .painter!;
+        final canvas = _RecordingCanvas();
+        painter.paint(canvas, const Size(400, 800));
+        return canvas.shadowRects;
+      }
+
+      final defaults = _defaults();
+      final withGap = await shadowRects(topInner: 12);
+      final withoutGap = await shadowRects(topInner: 0, bottomInner: 0);
+      expect(
+        withGap.any(
+          (rect) =>
+              rect.top == defaults.topOuter + PageFurniture.headerHeight &&
+              rect.bottom ==
+                  defaults.topOuter +
+                      PageFurniture.headerHeight +
+                      defaults.topInner,
+        ),
+        isTrue,
+        reason: '页眉底边到正文顶边之间应画阴影',
+      );
+      expect(
+        withGap.any(
+          (rect) =>
+              rect.top ==
+                  800 -
+                      defaults.bottomOuter -
+                      PageFurniture.footerHeight -
+                      defaults.bottomInner &&
+              rect.bottom ==
+                  800 - defaults.bottomOuter - PageFurniture.footerHeight,
+        ),
+        isTrue,
+        reason: '正文底边到页脚顶边之间应画阴影',
+      );
+      expect(withoutGap, isEmpty, reason: '间隙为 0 时不画内段阴影');
     });
 
     testWidgets('保留按钮位于屏幕顶部 3/4 处且为紧凑胶囊', (tester) async {
@@ -257,9 +350,20 @@ void main() {
   });
 }
 
-ReaderMargins _defaultScanner() => ReaderMargins.defaults(
-  safeTop: 41,
-  safeBottom: 16,
-  side: 20,
-  inner: 12,
-);
+ReaderMargins _defaultScanner() =>
+    ReaderMargins.defaults(safeTop: 41, safeBottom: 16, side: 20, inner: 12);
+
+/// 只记录带渐变的矩形，用来确认页眉/正文和正文/页脚间隙的阴影。
+class _RecordingCanvas implements ui.Canvas {
+  final List<Rect> shadowRects = <Rect>[];
+
+  @override
+  void drawRect(Rect rect, Paint paint) {
+    if (paint.shader != null) {
+      shadowRects.add(rect);
+    }
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
