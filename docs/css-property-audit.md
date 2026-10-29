@@ -293,7 +293,7 @@
 | 116 | `aspect-ratio` | 0 | 图片容器比例约束 |
 | 117 | `scroll-behavior` / `scrollbar-width` / `-ms-overflow-style` | 0-2 | 分页阅读器无滚动条，影响 0 |
 | 118 | `overflow-y` | 1 / 1 | 已实现：任一轴非 `visible` 即启用裁剪 |
-| 119 | `outline` / `cursor` | 0 / 3 | `outline` 已实现（不占布局，支持线型/颜色/宽度/偏移）；`cursor` 无交互，影响 0 |
+| 119 | `outline` / `cursor` | 0 / 3 | `outline` 已实现（不占布局，支持线型/颜色/宽度/偏移及圆角虚线路径）；`cursor` 无交互，影响 0 |
 | 120 | `user-select` / `resize` / `will-change` / `contain` / `isolation` / `pointer-events` | 0-1 | 交互与渲染提示，影响 ~0 |
 | 121 | `clip-path` / `mask` | 0 | 异形裁剪/遮罩 |
 | 122 | `transition` / `animation` | 0 | 分页静态渲染，可长期不支持 |
