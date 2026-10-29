@@ -1,0 +1,9 @@
+{
+  "name": "79-vendor-effect-aliases",
+  "tags": [
+    "-webkit-filter",
+    "-webkit-transform"
+  ],
+  "css": "body { margin: 0; font-family: \"builtin_song\"; font-size: 17px; line-height: 1.5; color: #111; background: #fff; } .page { padding: 10px; } p { margin: 4px 0; } .box { width: 150px; height: 42px; margin-bottom: 22px; padding: 6px; color: #fff; background: #1f6f78; } .std-last { -webkit-transform: translateX(24px); transform: translateX(8px); } .prefix-last { transform: translateX(8px); -webkit-transform: translateX(24px); } .filter-std-last { -webkit-filter: grayscale(1); filter: brightness(1); } .filter-prefix-last { filter: brightness(1); -webkit-filter: grayscale(1); } .origin { -webkit-transform-origin: 0 0; transform: rotate(8deg); }",
+  "html": "<div class=\"page\"><p>标准名与 WebKit 前缀共用同一级联槽位</p><div class=\"box std-last\">标准名后声明 8px</div><div class=\"box prefix-last\">前缀名后声明 24px</div><div class=\"box filter-std-last\">标准滤镜覆盖灰度</div><div class=\"box filter-prefix-last\">前缀灰度覆盖标准滤镜</div><div class=\"box origin\">前缀变换原点</div></div>"
+}
