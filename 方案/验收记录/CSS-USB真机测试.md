@@ -344,10 +344,15 @@ text-emphasis 2 项；分别受断字词典、对照口径及 Skia/Chrome 行盒
 圆角接近。报告位于 `/tmp/css_parity/report.md`，并排截图位于
 `/tmp/css_parity/side_74-outline.png`。
 
-最终本地验证：`reader_core` 1204 项通过、3 项跳过；`reader_ui` 146 项通过；
-`reader_mobile` 357 项通过、5 项跳过；`reader_mobile` 静态检查无问题。
-Release APK 已构建并移至下载目录：
+对照复核又发现直角容器的实线 `outline` 被错误圆角化。渲染器现按边框盒
+圆角决定轮廓形状，直角容器保持直角，并新增像素回归；`reader_core` 全量
+1208 项通过、3 项跳过，`reader_ui` 146 项通过，`reader_mobile` 全量
+360 项通过、5 项跳过。73 个对照用例复跑后几何/样式失配仍为 **0**，
+未配对 7 个块；20 个用例的视觉差异超过 2%，复核归因于字体栅格、断行和
+分页介质差异，不记为 CSS 引擎缺陷。
+
+Release APK 已在上述修复后重新构建并移至下载目录：
 `/Users/aaa/Downloads/Spectacular-20261030-release.apk`；
-大小 88,724,656 字节，SHA-256
-`9d02eab91590026d92182e6429fbcbd3676578c98664e169ebbcdd10ada639c1`；
+大小 88,724,656 字节（约 84.6 MiB），SHA-256
+`d239a3f8d9c911e8a840afd4ed82f23b3125d26c569d6b29a244b32d5284dc4f`；
 包名 `com.spectacular.reader_mobile`，版本 `1.0.0+1`。
