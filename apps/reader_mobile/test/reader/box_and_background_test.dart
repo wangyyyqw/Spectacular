@@ -51,18 +51,48 @@ void main() {
         .firstWhere((block) => block.layout.text.contains('普通段落'));
     expect(plain.style!.backgroundColor.a, 0, reason: '面板背景不能漏到普通段落');
   });
+
+  test('无边框/内边距容器的父子上下外边距折叠', () async {
+    final source = await EpubChapterSource.open(
+      _buildPanelEpub(
+        css:
+            'body { margin: 0; } '
+            '.scope { margin: 12px 0; } '
+            '.scope p { margin: 8px 0; }',
+        chapter:
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+            '<title>折叠</title>'
+            '<link rel="stylesheet" type="text/css" href="../Styles/styles.css"/>'
+            '</head><body>'
+            '<div class="scope"><p>折叠正文</p></div>'
+            '</body></html>',
+      ),
+      contentWidth: 320,
+      contentHeight: 560,
+      verifyCrc: false,
+    );
+    final page = (await source.loadChapter(0)).first;
+    final block = page.slices
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.layout.text.contains('折叠正文'));
+    expect(block.spaceBefore, 12, reason: '父 12 / 子 8 取较大值');
+    expect(block.topInset, 0);
+    expect(block.spaceAfter, 12, reason: '下边距同样折叠');
+    expect(block.bottomInset, 0);
+  });
 }
 
 /// 最小 EPUB：body 背景图 + 一个带边框/内边距/背景色的 div 面板。
-Uint8List _buildPanelEpub() {
-  const css =
+Uint8List _buildPanelEpub({String? css, String? chapter}) {
+  const defaultCss =
       'body { background-image: url(../Images/bg.png); '
       'background-size: cover; background-repeat: no-repeat; }\n'
       '.panel { background-color: rgba(10, 20, 30, 0.8); '
       'border-left: 3px solid #e2b867; border-top: 1px solid #283652; '
       'padding: 10px 14px; margin: 10px 0; }\n'
       '.panel p { color: #cbd5e1; }\n';
-  const chapter =
+  const defaultChapter =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
       '<title>面板书</title>'
@@ -95,8 +125,8 @@ Uint8List _buildPanelEpub() {
     'mimetype': utf8.encode('application/epub+zip'),
     'META-INF/container.xml': utf8.encode(container),
     'OEBPS/content.opf': utf8.encode(opf),
-    'OEBPS/Text/c1.xhtml': utf8.encode(chapter),
-    'OEBPS/Styles/styles.css': utf8.encode(css),
+    'OEBPS/Text/c1.xhtml': utf8.encode(chapter ?? defaultChapter),
+    'OEBPS/Styles/styles.css': utf8.encode(css ?? defaultCss),
     // 1×1 透明 PNG（只验证 URL 解析，不参与解码）。
     'OEBPS/Images/bg.png': <int>[
       0x89,

@@ -65,6 +65,24 @@ void main() {
     expect(out.any((t) => t.contains('2. 第二')), isTrue, reason: '$out');
   });
 
+  test('同一伪元素的多条规则按级联覆盖 content 和 counter-*', () async {
+    final out = await texts(
+      '<div class="scope"><p class="item">第一章</p>'
+          '<p class="item">第二章</p>'
+          '<p class="item sub">小节</p>'
+          '<p class="item">第三章</p></div>',
+      '.scope { counter-reset: item; } '
+          '.item::before { counter-increment: item; '
+          'content: counter(item) ". "; } '
+          '.sub::before { counter-increment: step; '
+          'content: "[" counter(step) "] "; }',
+    );
+    expect(out.any((t) => t.contains('1. 第一章')), isTrue, reason: '$out');
+    expect(out.any((t) => t.contains('2. 第二章')), isTrue, reason: '$out');
+    expect(out.any((t) => t.contains('[1] 小节')), isTrue, reason: '$out');
+    expect(out.any((t) => t.contains('3. 第三章')), isTrue, reason: '$out');
+  });
+
   test('open-quote/close-quote 按 quotes 生成引号', () async {
     final out = await texts(
       '<p class="q">引用</p>',

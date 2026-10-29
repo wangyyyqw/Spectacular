@@ -1,0 +1,10 @@
+{
+  "name": "78-counter-content",
+  "tags": [
+    "counter-reset",
+    "counter-increment",
+    "content"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 24px; line-height: 1.7; } .scope { counter-reset: item 0; margin: 12px 0; } .item { margin: 8px 0; } .item::before { counter-increment: item 1; content: counter(item) \". \"; color: #b23a2a; } .sub { counter-reset: step; } .sub::before { counter-increment: step; content: \"[\" counter(step) \"] \"; color: #2a5aa6; }",
+  "html": "<div class=\"scope\"><p class=\"item\">第一章：风起</p><p class=\"item\">第二章：云涌</p><p class=\"item sub\">小节：入夜</p><p class=\"item\">第三章：归途</p></div>"
+}
