@@ -875,7 +875,15 @@ class PagePainter {
           // flat 管线（P3-30 真机验收）：box.left 恒 0，块级 margin.left
           // 折算进左内缩——文本 x、标记 gutter、选区、省略宽度同步右移。
           // P8-05：margin.right/padding.right 同步折算右内缩。
-          leftInset: slice.leftInset + style.margin.left,
+          leftInset:
+              slice.leftInset +
+              style.margin.left +
+              (slice.overlay && style.isOutOfFlow
+                  ? (style.borders.left.isVisible
+                            ? style.borders.left.width
+                            : 0) +
+                        style.padding.left
+                  : 0),
           rightInset: style.margin.right + style.padding.right,
           upExtent: upExtent,
           downExtent: downExtent,

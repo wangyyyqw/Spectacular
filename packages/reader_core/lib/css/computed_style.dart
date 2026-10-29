@@ -3101,16 +3101,22 @@ class ComputedStyle {
       return length.resolve(base);
     }
 
-    final horizontalEdges =
+    double visibleBorderWidth(CssBorderSide side) =>
+        side.isVisible ? side.width : 0.0;
+    final borderHorizontal =
+        visibleBorderWidth(borders.left) + visibleBorderWidth(borders.right);
+    final borderVertical =
+        visibleBorderWidth(borders.top) + visibleBorderWidth(borders.bottom);
+    // `width`/`height` 是 content-box 的尺寸，还是 border-box 的尺寸，
+    // 后续减边时口径不同；margin 两种口径都要减。
+    final contentHorizontal = padding.horizontal + borderHorizontal;
+    final contentVertical = padding.vertical + borderVertical;
+    final horizontalOuter =
         margin.horizontal +
-        padding.horizontal +
-        borders.left.width +
-        borders.right.width;
-    final verticalEdges =
+        (boxSizing == CssBoxSizing.borderBox ? 0 : contentHorizontal);
+    final verticalOuter =
         margin.vertical +
-        padding.vertical +
-        borders.top.width +
-        borders.bottom.width;
+        (boxSizing == CssBoxSizing.borderBox ? 0 : contentVertical);
 
     var boxWidth = resolve(width, containingWidth);
     var boxHeight = resolve(height, containingHeight);
@@ -3123,13 +3129,13 @@ class ComputedStyle {
     if (boxWidth == null && boxLeft != null && boxRight != null) {
       boxWidth = math.max(
         0,
-        containingWidth - boxLeft - boxRight - horizontalEdges,
+        containingWidth - boxLeft - boxRight - horizontalOuter,
       );
     }
     if (boxHeight == null && boxTop != null && boxBottom != null) {
       boxHeight = math.max(
         0,
-        containingHeight - boxTop - boxBottom - verticalEdges,
+        containingHeight - boxTop - boxBottom - verticalOuter,
       );
     }
     // min/max 约束（CSS 2.1 §10.4）。
@@ -3155,14 +3161,14 @@ class ComputedStyle {
     }
     // 2) 尺寸已知、只给一侧偏移 → 推出另一侧（贴右/贴底）。
     if (boxLeft == null && boxRight != null && boxWidth != null) {
-      boxLeft = containingWidth - boxRight - boxWidth - horizontalEdges;
+      boxLeft = containingWidth - boxRight - boxWidth - horizontalOuter;
     } else if (boxRight == null && boxLeft != null && boxWidth != null) {
-      boxRight = containingWidth - boxLeft - boxWidth - horizontalEdges;
+      boxRight = containingWidth - boxLeft - boxWidth - horizontalOuter;
     }
     if (boxTop == null && boxBottom != null && boxHeight != null) {
-      boxTop = containingHeight - boxBottom - boxHeight - verticalEdges;
+      boxTop = containingHeight - boxBottom - boxHeight - verticalOuter;
     } else if (boxBottom == null && boxTop != null && boxHeight != null) {
-      boxBottom = containingHeight - boxTop - boxHeight - verticalEdges;
+      boxBottom = containingHeight - boxTop - boxHeight - verticalOuter;
     }
     return CssAbsoluteBox(
       left: boxLeft,

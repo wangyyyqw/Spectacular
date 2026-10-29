@@ -439,8 +439,23 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
   final block = slice.block;
   final style = block.style;
   // 切片顶 + 段前扩展 = 边框盒顶（与浏览器 border box 对齐）。
-  final top = sliceTop + slice.leadingExtent;
-  final left = slice.leftInset + (style?.margin.left ?? 0);
+  final overlay = slice.overlay && style?.isOutOfFlow == true;
+  final overlayBorderLeft = style?.borders.left.isVisible == true
+      ? style!.borders.left.width
+      : 0.0;
+  final overlayBorderTop = style?.borders.top.isVisible == true
+      ? style!.borders.top.width
+      : 0.0;
+  final top = overlay
+      ? sliceTop +
+            (style?.margin.top ?? 0) +
+            (style?.padding.top ?? 0) +
+            overlayBorderTop
+      : sliceTop + slice.leadingExtent;
+  final left =
+      slice.leftInset +
+      (style?.margin.left ?? 0) +
+      (overlay ? (style?.padding.left ?? 0) + overlayBorderLeft : 0);
   final lines = <Map<String, Object?>>[];
   for (var i = slice.startLine; i < slice.endLine; i++) {
     final line = block.layout.lines[i];
