@@ -25,7 +25,7 @@ PageBlock _absBlock(String text, Map<String, String> css) {
       style: style,
       maxWidth: css['width'] == null
           ? 350
-          : double.parse(css['width']!.replaceAll('px', '')),
+          : double.tryParse(css['width']!.replaceAll('px', '')) ?? 350,
     ),
     style: style,
     containingWidth: 350,
@@ -164,6 +164,56 @@ void main() {
     final slice = page.slices.single;
     expect(slice.block.layout.maxWidth, closeTo(300, 1));
     expect(slice.block.layout.lineCount, greaterThan(1));
+  });
+
+  test('宽:auto 声明值也参与 shrink-to-fit', () {
+    final block = _absBlock(
+      'abcdefgh',
+      const {'left': '10px', 'width': 'auto'},
+    );
+    final page = Paginator(pageHeight: 800, pageWidth: 300)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final slice = page.slices.single;
+    expect(slice.block.layout.maxWidth, closeTo(128, 1));
+    expect(slice.leftInset, closeTo(10, 0.01));
+  });
+
+  test('border-box 宽高扣除 padding/border，right/bottom 按边框盒解算', () {
+    final block = _absBlock(
+      'abcdefgh',
+      const {
+        'box-sizing': 'border-box',
+        'width': '80px',
+        'height': '40px',
+        'padding': '5px',
+        'border': '3px solid red',
+        'margin': '4px 6px',
+        'right': '10px',
+        'bottom': '20px',
+      },
+    );
+    final page = Paginator(pageHeight: 400, pageWidth: 300)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final slice = page.slices.single;
+    expect(slice.block.layout.maxWidth, closeTo(64, 0.01));
+    expect(slice.block.height, closeTo(24, 0.01));
+    expect(
+      slice.leftInset,
+      closeTo(300 - 10 - 80 - 12, 0.01),
+      reason: 'right 定位包含左右外边距',
+    );
+    expect(
+      slice.absoluteTop,
+      closeTo(400 - 20 - 40 - 8, 0.01),
+      reason: 'bottom 定位包含上下外边距',
+    );
+    expect(slice.leadingExtent, closeTo(12, 0.01));
+    expect(slice.trailingExtent, closeTo(12, 0.01));
+    expect(slice.height, closeTo(48, 0.01), reason: '段距 + 边框盒高 + 段距');
   });
 
   test('绝对定位切片不推进流高（后续块 y 不受影响）', () {

@@ -1054,15 +1054,33 @@ class Paginator {
     var prepared = style == null
         ? block
         : _shrinkToFit(block, style, containingWidth);
+    final model = style == null
+        ? null
+        : BoxModel.fromStyle(style, containingWidth: containingWidth);
     // 块盒宽：声明宽优先（百分比按包含块解算），否则用 shrink-to-fit 结果。
     // 声明宽与已测宽不一致时按声明宽重排，保证行宽/行数与盒宽同口径。
-    final declaredWidth = style?.width?.resolve(containingWidth);
-    final width = declaredWidth ?? prepared.layout.width;
+    final declaredContentWidth =
+        style != null && style.width != null && !style.width!.isAuto
+        ? model!.resolveContentWidth(containingWidth)
+        : null;
     if (style != null &&
-        declaredWidth != null &&
-        (prepared.layout.maxWidth - declaredWidth).abs() > 0.5) {
-      prepared = _relayoutAt(prepared, style, declaredWidth);
+        declaredContentWidth != null &&
+        (prepared.layout.maxWidth - declaredContentWidth).abs() > 0.5) {
+      prepared = _relayoutAt(prepared, style, declaredContentWidth);
     }
+    final contentWidth =
+        declaredContentWidth ??
+        (prepared.layout.maxWidth.isFinite
+            ? prepared.layout.maxWidth
+            : prepared.layout.width);
+    final outerWidth =
+        contentWidth +
+        (model?.horizontalInset ?? 0) +
+        (model?.margin.horizontal ?? 0);
+    final outerHeight =
+        prepared.height +
+        (model?.verticalInset ?? 0) +
+        (model?.margin.vertical ?? 0);
     double? left = block.absoluteLeft;
     double? top = block.absoluteTop;
     if (style != null) {
@@ -1072,11 +1090,11 @@ class Paginator {
       final bottomSpec = style.bottom?.resolve(containingHeight);
       left ??= leftSpec;
       if (left == null && rightSpec != null) {
-        left = containingWidth - rightSpec - width;
+        left = containingWidth - rightSpec - outerWidth;
       }
       top ??= topSpec;
       if (top == null && bottomSpec != null) {
-        top = containingHeight - bottomSpec - prepared.height;
+        top = containingHeight - bottomSpec - outerHeight;
       }
     }
     return _AbsolutePlacement(
@@ -1096,9 +1114,15 @@ class Paginator {
     ComputedStyle style,
     double availableWidth,
   ) {
-    if (style.width != null || block.layout.text.trim().isEmpty) {
+    if ((style.width != null && !style.width!.isAuto) ||
+        block.layout.text.trim().isEmpty) {
       return block;
     }
+    final model = BoxModel.fromStyle(style, containingWidth: availableWidth);
+    final contentAvailable = math.max(
+      0.0,
+      availableWidth - model.horizontalInset - model.margin.horizontal,
+    );
     final preferred = TextLayoutEngine.layout(
       text: block.layout.text,
       style: style,
@@ -1106,7 +1130,7 @@ class Paginator {
     ).width;
     // shrink-to-fit：min(max(min-content, 可用宽), max-content)。
     final minContent = _minContentWidth(block.layout.text, style);
-    final target = math.min(preferred, math.max(minContent, availableWidth));
+    final target = math.min(preferred, math.max(minContent, contentAvailable));
     if ((target - block.layout.maxWidth).abs() < 0.5) {
       return block;
     }
@@ -1415,7 +1439,12 @@ class Paginator {
             block: resolved.block,
             startLine: 0,
             endLine: resolved.block.layout.lineCount,
-            height: resolved.block.height,
+            height:
+                resolved.block.leadingExtent +
+                resolved.block.height +
+                resolved.block.trailingExtent,
+            leadingExtent: resolved.block.leadingExtent,
+            trailingExtent: resolved.block.trailingExtent,
             overlay: true,
             absoluteTop: top,
             leftInset: resolved.left,

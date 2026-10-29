@@ -26,6 +26,9 @@ void main() {
           '.abs2 { position: absolute; right: 12px; bottom: 16px; '
           'width: 80px; } '
           '.abs3 { position: absolute; width: 120px; } '
+          '.abs4 { position: absolute; box-sizing: border-box; right: 20px; '
+          'bottom: 28px; width: 112px; height: 54px; margin: 4px 6px; '
+          'padding: 5px; border: 3px solid #000; } '
           '.fix { position: fixed; left: 10px; bottom: 8px; width: 60px; } '
           '.box-a { position: absolute; left: 0; top: 0; width: 160px; '
           'height: 120px; background: #f00; z-index: 2; } '
@@ -51,6 +54,9 @@ void main() {
           '.abs2 { position: absolute; right: 12px; bottom: 16px; '
           'width: 80px; } '
           '.abs3 { position: absolute; width: 120px; } '
+          '.abs4 { position: absolute; box-sizing: border-box; right: 20px; '
+          'bottom: 28px; width: 112px; height: 54px; margin: 4px 6px; '
+          'padding: 5px; border: 3px solid #000; } '
           '.fix { position: fixed; left: 10px; bottom: 8px; width: 60px; } '
           '.box-a { position: absolute; left: 0; top: 0; width: 160px; '
           'height: 120px; background: #f00; z-index: 2; } '
@@ -124,6 +130,15 @@ void main() {
     // bottom 由分页层按真实页高解算：块底 = 页高 − 16。
     final bottom = abs.absoluteTop! + abs.block.height;
     expect(bottom, closeTo(800 - 16, 0.5));
+  });
+
+  test('border-box 绝对定位：反推位置只扣 margin，不重复扣 padding/border', () async {
+    final slices = await slicesOf('<div class="abs4">边框盒定位</div>');
+    final abs = blockOf(slices, '边框盒定位');
+    expect(abs.leftInset, closeTo(206, 0.01), reason: '350 − 20 − 112 − 12');
+    expect(abs.absoluteTop, closeTo(710, 0.01), reason: '800 − 28 − 54 − 8');
+    expect(abs.block.layout.maxWidth, closeTo(96, 0.01), reason: '112 − 16');
+    expect(abs.block.height, closeTo(38, 0.01), reason: '54 − 16');
   });
 
   test('左右上下都 auto：回退静态位置（本来会被排到的位置）', () async {

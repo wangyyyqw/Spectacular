@@ -1132,6 +1132,18 @@ void main() {
     // 垂直边总 = margin 8 + padding 4 + border 2 = 14
     expect(edged.height, 500 - 0 - 0 - 14);
 
+    // border-box 的声明尺寸已经包含 padding/border，反推位置时只再扣 margin。
+    final borderBoxEdged = style(
+      'p',
+      'p { position: absolute; box-sizing: border-box; right: 20px; '
+          'bottom: 28px; width: 112px; height: 54px; '
+          'margin: 4px 6px; padding: 5px; border: 3px solid #000; }',
+    ).resolveAbsoluteBox(containingWidth: 350, containingHeight: 800)!;
+    expect(borderBoxEdged.width, 112);
+    expect(borderBoxEdged.height, 54);
+    expect(borderBoxEdged.left, 350 - 20 - 112 - 12);
+    expect(borderBoxEdged.top, 800 - 28 - 54 - 8);
+
     // min/max 约束参与。
     final clamped = style(
       'p',
