@@ -1522,6 +1522,7 @@ class ComputedStyle {
       'direction' => _parseDirection(value) != null,
       'writing-mode' => _parseWritingMode(value) != null,
       'list-style-position' => _parseListStylePosition(value) != null,
+      'aspect-ratio' => _parseAspectRatio(value) != null,
       'opacity' => double.tryParse(value)?.isFinite ?? false,
       _ => true,
     };
@@ -2350,6 +2351,7 @@ class ComputedStyle {
     final maxWidth = dimension('max-width');
     final minHeight = dimension('min-height');
     final maxHeight = dimension('max-height');
+    final aspectRatio = _parseAspectRatio(explicitValue('aspect-ratio'));
     final padding = _resolvePadding(
       edgeValues,
       edgeExplicit,
@@ -2465,6 +2467,7 @@ class ComputedStyle {
       maxWidth: maxWidth,
       minHeight: minHeight,
       maxHeight: maxHeight,
+      aspectRatio: aspectRatio,
       padding: padding,
       boxSizing: boxSizing,
       explicitProperties: explicit,
@@ -2615,6 +2618,7 @@ class ComputedStyle {
       maxWidth: maxWidth,
       minHeight: minHeight,
       maxHeight: maxHeight,
+      aspectRatio: aspectRatio,
       padding: padding,
       boxSizing: boxSizing,
       explicitProperties: nextExplicit,
@@ -2734,6 +2738,7 @@ class ComputedStyle {
     required this.maxWidth,
     required this.minHeight,
     required this.maxHeight,
+    required this.aspectRatio,
     required this.padding,
     required this.boxSizing,
     required this.explicitProperties,
@@ -3386,6 +3391,9 @@ class ComputedStyle {
 
   /// 最大高度；`max-height: none` 时为 null。
   final CssLength? maxHeight;
+
+  /// 首选宽高比（`aspect-ratio: <ratio>`）；null 表示 auto。
+  final double? aspectRatio;
 
   /// 四边内边距（逻辑像素，百分比已按 containingWidth 解算，负值钳 0）。
   final CssEdges padding;
@@ -6148,6 +6156,36 @@ class ComputedStyle {
         'hide' => CssEmptyCells.hide,
         _ => null,
       };
+
+  static double? _parseAspectRatio(String? raw) {
+    var value = raw?.trim().toLowerCase();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    if (value.startsWith('auto')) {
+      value = value.substring(4).trim();
+      if (value.isEmpty) {
+        return null;
+      }
+    }
+    final parts = value.split('/');
+    if (parts.length > 2) {
+      return null;
+    }
+    final numerator = double.tryParse(parts.first.trim());
+    final denominator = parts.length == 2
+        ? double.tryParse(parts[1].trim())
+        : 1.0;
+    if (numerator == null ||
+        denominator == null ||
+        !numerator.isFinite ||
+        !denominator.isFinite ||
+        numerator <= 0 ||
+        denominator <= 0) {
+      return null;
+    }
+    return numerator / denominator;
+  }
 
   static CssEdges? _parseBorderSpacing(
     String raw, {

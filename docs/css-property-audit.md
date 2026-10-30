@@ -314,7 +314,7 @@
 | 113 | `orphans` / `widows` | 7 / 7 | 明确不做（产品决策）：电子书分页不考虑孤行/寡行，页尾单行可接受 |
 | 114 | `list-style-image` | 0 | 图片列表标记不支持 |
 | 115 | `caption-side` / `empty-cells` | 0 | 已实现：表格标题上下位置、空单元格边框/背景显隐与标题外边距折叠 |
-| 116 | `aspect-ratio` | 0 | 图片容器比例约束 |
+| 116 | `aspect-ratio` | 0 | 已实现：`ComputedStyle.aspectRatio` 解析单值/双值/`auto <ratio>`；图片块与行内图片单边尺寸按比例推导，双显式尺寸优先，并由 `88-aspect-ratio` 对照清零 |
 | 117 | `scroll-behavior` / `scrollbar-width` / `-ms-overflow-style` | 0-2 | 分页阅读器无滚动条，影响 0 |
 | 118 | `overflow-y` | 1 / 1 | 已实现：任一轴非 `visible` 即启用裁剪 |
 | 119 | `outline` / `cursor` | 0 / 3 | `outline` 已实现（不占布局，支持线型/颜色/宽度/偏移及圆角虚线路径）；`cursor` 无交互，影响 0 |

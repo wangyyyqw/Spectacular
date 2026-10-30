@@ -4213,7 +4213,9 @@ class PagePainter {
       if (boxes.isEmpty) {
         continue;
       }
-      final aspect = image.height == 0 ? 1.0 : image.width / image.height;
+      final aspect =
+          spec.aspectRatio ??
+          (image.height == 0 ? 1.0 : image.width / image.height);
       final declaredWidth = spec.width;
       final declaredHeight = spec.height;
       final double rawWidth;
