@@ -404,6 +404,18 @@ abstract final class Cascade {
           sequence,
         );
       }
+      final image = ComputedStyle.parseListStyleImageKeyword(declaration.value);
+      if (image != null) {
+        _consider(
+          winners,
+          'list-style-image',
+          image,
+          origin,
+          level,
+          specificity,
+          sequence,
+        );
+      }
     }
   }
 

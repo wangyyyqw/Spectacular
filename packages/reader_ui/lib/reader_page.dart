@@ -266,6 +266,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           ? _backgroundImage
           : null,
       imageLookup: widget.imageCache?.lookup,
+      listMarkerImageOf: (block) => block.style?.listStyleImage,
       textColor: theme?.text,
       paragraphCache: _paragraphCache,
     );

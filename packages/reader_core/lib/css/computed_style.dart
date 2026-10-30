@@ -2297,6 +2297,10 @@ class ComputedStyle {
         _parseListStylePosition(explicitValue('list-style-position')) ??
         parent?.listStylePosition ??
         CssListStylePosition.outside;
+    final rawListStyleImage = explicitValue('list-style-image');
+    final listStyleImage = rawListStyleImage == null
+        ? parent?.listStyleImage
+        : _parseUrl(rawListStyleImage);
     final tableLayout =
         _parseTableLayout(explicitValue('table-layout')) ?? CssTableLayout.auto;
     final rawSpacing = explicitValue('border-spacing');
@@ -2479,6 +2483,7 @@ class ComputedStyle {
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
       listStylePosition: listStylePosition,
+      listStyleImage: listStyleImage,
       tableLayout: tableLayout,
       textDecorationStyle: textDecorationStyle,
       textDecorationColor: textDecorationColor,
@@ -2631,6 +2636,7 @@ class ComputedStyle {
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
       listStylePosition: listStylePosition,
+      listStyleImage: listStyleImage,
       tableLayout: tableLayout,
       textDecorationStyle: textDecorationStyle,
       textDecorationColor: textDecorationColor,
@@ -2755,6 +2761,7 @@ class ComputedStyle {
     this.emptyCells = CssEmptyCells.show,
     required this.listStyleType,
     required this.listStylePosition,
+    this.listStyleImage,
     required this.tableLayout,
     required this.textDecorationStyle,
     required this.textDecorationColor,
@@ -3147,6 +3154,9 @@ class ComputedStyle {
 
   /// 列表标记位置（`list-style-position`，非继承，初始 outside；W2）。
   final CssListStylePosition listStylePosition;
+
+  /// 列表标记图片 URL（`list-style-image`，继承；null 表示 none）。
+  final String? listStyleImage;
 
   /// 自定义属性（`--token`，继承；P9-14）：`var()` 的取值表。
   final Map<String, String> customProperties;
@@ -5571,6 +5581,19 @@ class ComputedStyle {
       }
     }
     return null;
+  }
+
+  /// 从 `list-style` 简写里取出图片 URL 或 none（层叠层展开用）。
+  static String? parseListStyleImageKeyword(String raw) {
+    final match = RegExp(
+      r'''url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)''',
+      caseSensitive: false,
+    ).firstMatch(raw);
+    if (match != null) {
+      return match.group(0);
+    }
+    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+'));
+    return tokens.contains('none') ? 'none' : null;
   }
 
   static final RegExp _backgroundLengthToken = RegExp(
