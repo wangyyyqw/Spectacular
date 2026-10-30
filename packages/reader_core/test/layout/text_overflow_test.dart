@@ -148,4 +148,39 @@ void main() {
     expect(line.justifyExtra, 0, reason: '截断行不拉伸');
     expect(line.width, lessThanOrEqualTo(168 + 0.01));
   });
+
+  test('竖排 nowrap + ellipsis 按声明高度（列长）截断', () {
+    const text = 'abcdefghijklmnopqrst';
+    final layout = TextLayoutEngine.layout(
+      text: text,
+      style: _style(const {'writing-mode': 'vertical-rl', 'height': '100px'}),
+      maxWidth: 54,
+    );
+    final column = layout.lines.single;
+    expect(column.vertical, isTrue);
+    expect(column.ellipsized, isTrue);
+    expect(column.end, 6);
+    expect(column.height, closeTo(98, 0.01));
+    expect(column.height, lessThanOrEqualTo(100 + 0.01));
+    expect(column.offsetX, 0);
+  });
+
+  test('竖排 break-word 按列长判断超宽词并分列', () {
+    const text = 'abcdefghijklmno';
+    final layout = TextLayoutEngine.layout(
+      text: text,
+      style: _style(const {
+        'writing-mode': 'vertical-rl',
+        'height': '100px',
+        'white-space': 'normal',
+        'overflow-wrap': 'break-word',
+        'text-overflow': 'clip',
+      }),
+      maxWidth: 240,
+    );
+    expect(layout.lineCount, greaterThan(1));
+    for (final column in layout.lines) {
+      expect(column.height, lessThanOrEqualTo(100 + 0.01));
+    }
+  });
 }
