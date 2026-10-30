@@ -1,0 +1,6 @@
+{
+  "name": "98-structural-selectors",
+  "tags": ["structural-selectors", "nth-of-type", "nth-last-child", "only-child"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 16px; line-height: 24px; } h2, p { margin: 0; font-size: 16px; line-height: 24px; } p:nth-of-type(2n) { padding-left: 18px; background-color: #d8eee4; } p:nth-last-of-type(-n+2) { border-right: 4px solid #317558; } p:nth-last-child(2) { font-size: 22px; } h2:last-of-type { color: #a33424; } section > p:only-child { padding: 8px; background-color: #f1dfb5; } section:only-of-type { margin-top: 12px; }",
+  "html": "<h2>结构选择器对照</h2><p>第一段：不同标签不参与同类型计数。</p><p>第二段：偶数段需要缩进与底色。</p><h2>中间标题：这是最后一个标题。</h2><p>第三段：从末尾计算同类元素。</p><p>第四段：字号、底色与右边框。</p><section><p>唯一段：单子元素样式需要生效。</p></section>"
+}

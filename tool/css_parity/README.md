@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 92 组用例（编号 01–95，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
+当前 96 组用例（编号 01–99，缺 65、85、87），覆盖选择器、文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（92 组）
+## 用例清单（96 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -132,6 +132,14 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 93 | vertical-overflow | 竖排 `text-overflow: ellipsis`、`break-word` 按声明高度（列长）截断/分列 |
 | 94 | flex-grow-shrink-basis | 单行 Flex 的 `flex-grow`、`flex-shrink`、`flex-basis` 与 `flex` 简写 |
 | 95 | font-feature-settings | OpenType 特性开关、显式覆盖与 `normal` 重置 |
+| 96 | clip-path | inset/circle/ellipse/polygon 裁切 |
+| 97 | position-sticky | 分页静态位置中的 sticky 降级 |
+| 98 | structural-selectors | 同类型/倒序计数、唯一子元素，普通块流复用原始节点身份 |
+| 99 | not-specificity | 否定参数中的 ID/类型特异性、属性选择器与通配符 |
+
+2026-10-31 的优化、前后实测和剩余差异见
+[引擎审计记录](../../docs/epub-engine-audit-2026-10-31.md)。98/99 的新增声明不代表
+所有布局分支都已支持结构选择器；历史结果与覆盖百分比请结合最新 `coverage.md` 阅读。
 
 浏览器渲染：92/92 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应

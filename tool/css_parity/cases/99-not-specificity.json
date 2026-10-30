@@ -1,0 +1,6 @@
+{
+  "name": "99-not-specificity",
+  "tags": ["selector-specificity", "not"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 16px; line-height: 28px; } p { margin: 8px 0; line-height: 28px; } .id-rule:not(#excluded) { padding-left: 20px; background-color: #cce5dd; } .id-rule.fallback { padding-left: 2px; background-color: #f2cccc; } .type-rule.fallback { font-size: 20px; color: #155c45; } .type-rule:not(span) { font-size: 12px; color: #a00000; } .attribute-rule:not([data-skip]) { padding-left: 24px; background-color: #e9dfba; } p:not(*) { display: none; }",
+  "html": "<p class=\"id-rule fallback\">否定参数中的 ID 优先级不能降为类。</p><p class=\"type-rule fallback\">否定标签参数不能抬高选择器优先级。</p><p class=\"attribute-rule\">不带属性的段落需要缩进与底色。</p><p class=\"attribute-rule\" data-skip=\"true\">带跳过属性的段落保持原样。</p>"
+}

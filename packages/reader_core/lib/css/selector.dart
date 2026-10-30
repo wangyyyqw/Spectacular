@@ -223,19 +223,45 @@ class AttributeTest {
   }
 }
 
-/// 结构伪类测试（P8-01）：:first-child/:last-child/:nth-child(An+B)/
-/// :first-of-type/:not(compound)/:root；交互态（:hover 等）不匹配。
+/// 结构伪类与否定选择器；An+B 和否定参数只编译一次。
 class PseudoTest {
-  /// 创建测试：[name] 小写；[argument] 为 nth 参数或 :not 内复合。
-  const PseudoTest(this.name, this.argument);
+  /// 创建测试；[negation] 复用解析器已编译的否定参数。
+  PseudoTest(this.name, this.argument, {this.negation});
 
   final String name;
   final String? argument;
 
-  bool matches(
-    SelectorElement element,
-    List<SelectorElement> ancestors,
-  ) {
+  /// 否定参数的编译结果；省略时兼容从 [argument] 延迟解析。
+  final ComplexSelector? negation;
+
+  static const _nthNames = {
+    'nth-child',
+    'nth-last-child',
+    'nth-of-type',
+    'nth-last-of-type',
+  };
+  static const _positionNames = {
+    ..._nthNames,
+    'first-child',
+    'last-child',
+    'only-child',
+    'first-of-type',
+    'last-of-type',
+    'only-of-type',
+  };
+  late final _nth = _parseNth(argument ?? '');
+  late final _negation =
+      negation ??
+      (argument == null
+          ? null
+          : SelectorParser.parse(argument!).selectors.singleOrNull);
+
+  /// 是否需要元素的兄弟位置，而非仅依赖标签、属性和祖先链。
+  bool get usesTreePosition =>
+      _positionNames.contains(name) ||
+      (name == 'not' && (_negation?.usesTreePosition ?? false));
+
+  bool matches(SelectorElement element, List<SelectorElement> ancestors) {
     switch (name) {
       case 'hover':
       case 'visited':
@@ -248,94 +274,61 @@ class PseudoTest {
             element.attributes.containsKey('href');
       case 'root':
         return ancestors.isEmpty;
-      case 'first-child':
-        return _siblingIndex(element, ancestors) == 0;
-      case 'first-of-type':
-        final siblings = _parentChildren(ancestors);
-        if (siblings == null) return ancestors.isEmpty;
-        for (final sibling in siblings) {
-          if (sibling.tag.toLowerCase() == element.tag.toLowerCase()) {
-            return identical(sibling, element);
-          }
-        }
-        return false;
-      case 'last-child':
-        final index = _siblingIndex(element, ancestors);
-        if (index < 0) {
-          return false;
-        }
-        final siblings = _parentChildren(ancestors);
-        return siblings != null && index == siblings.length - 1;
-      case 'nth-child':
-        final index = _siblingIndex(element, ancestors);
-        if (index < 0 || argument == null) {
-          return false;
-        }
-        return _nthMatches(argument!, index + 1);
       case 'not':
-        if (argument == null) {
-          return true;
-        }
-        final inner = SelectorParser.parseCompound(argument!);
-        return inner == null || !inner.matches(element, ancestors);
+        return _negation != null && !_negation.matches(element, ancestors);
       default:
-        return false;
+        return _positionNames.contains(name) &&
+            _matchesPosition(element, ancestors);
     }
   }
 
-  static List<SelectorElement>? _parentChildren(List<SelectorElement> ancestors) =>
-      ancestors.isEmpty ? null : ancestors.last.childElements;
-
-  static int _siblingIndex(
+  bool _matchesPosition(
     SelectorElement element,
     List<SelectorElement> ancestors,
   ) {
-    final siblings = _parentChildren(ancestors);
-    if (siblings == null) {
-      return -1;
+    final ofType = name.endsWith('of-type');
+    final siblings = ancestors.isEmpty
+        ? [element]
+        : ancestors.last.childElements;
+    final tag = element.tag.toLowerCase();
+    var index = 0, count = 0;
+    for (final sibling in siblings) {
+      if (ofType && sibling.tag.toLowerCase() != tag) continue;
+      count++;
+      if (identical(sibling, element)) index = count;
     }
-    for (var i = 0; i < siblings.length; i++) {
-      if (identical(siblings[i], element)) {
-        return i;
-      }
+    if (index == 0) return false;
+    if (name.startsWith('only-')) return count == 1;
+    final fromEnd = name.startsWith('last-') || name.startsWith('nth-last-');
+    final position = fromEnd ? count - index + 1 : index;
+    if (name.startsWith('first-') || name.startsWith('last-')) {
+      return position == 1;
     }
-    return -1;
+    final pattern = _nth;
+    if (pattern == null) return false;
+    final (step, offset) = pattern;
+    if (step == 0) return position == offset;
+    final delta = position - offset;
+    return delta % step == 0 && delta ~/ step >= 0;
   }
 
-  /// An+B 求值（odd/even/整数/步进）。
-  static bool _nthMatches(String raw, int index) {
+  /// An+B 的 n 必须为非负整数；负步进如 -n+2 只选择前两个元素。
+  static (int, int)? _parseNth(String raw) {
     final arg = raw.toLowerCase().replaceAll(RegExp(r'\s+'), '');
-    int? step, offset;
-    if (arg == 'odd') {
-      step = 2;
-      offset = 1;
-    } else if (arg == 'even') {
-      step = 2;
-      offset = 0;
-    } else if (arg.contains('n')) {
-      final m = RegExp(r'^([+-]?\d*)n([+-]\d+)?$').firstMatch(arg);
-      if (m == null) {
-        return false;
-      }
-      final stepRaw = m.group(1);
-      step = stepRaw == null || stepRaw.isEmpty || stepRaw == '+'
-          ? 1
-          : stepRaw == '-'
-          ? -1
-          : int.tryParse(stepRaw);
-      offset = m.group(2) == null ? 0 : int.tryParse(m.group(2)!);
-    } else {
-      step = 0;
-      offset = int.tryParse(arg);
-    }
-    if (step == null || offset == null) {
-      return false;
-    }
-    if (step == 0) {
-      return index == offset;
-    }
-    final delta = index - offset;
-    return delta % step == 0 && delta ~/ step >= 0;
+    if (arg == 'odd') return (2, 1);
+    if (arg == 'even') return (2, 0);
+    final number = int.tryParse(arg);
+    if (number != null) return (0, number);
+    final match = RegExp(r'^([+-]?\d*)n([+-]\d+)?$').firstMatch(arg);
+    if (match == null) return null;
+    final coefficient = match.group(1)!;
+    final step = coefficient.isEmpty || coefficient == '+'
+        ? 1
+        : coefficient == '-'
+        ? -1
+        : int.tryParse(coefficient);
+    final offset = match.group(2) == null ? 0 : int.tryParse(match.group(2)!);
+    return step == null || offset == null ? null : (step, offset);
   }
 }
 
@@ -361,6 +354,17 @@ class ComplexSelector {
   /// 原始文本。
   final String text;
 
+  /// 结构伪类和兄弟组合器禁止同形元素共享最终样式。
+  bool get usesTreePosition =>
+      combinators.any(
+        (combinator) =>
+            combinator == SelectorCombinator.adjacentSibling ||
+            combinator == SelectorCombinator.generalSibling,
+      ) ||
+      parts.any(
+        (part) => part.pseudos.any((pseudo) => pseudo.usesTreePosition),
+      );
+
   /// 匹配元素；[ancestors] 从根到父节点（P8-01：兄弟组合器沿父的
   /// 元素子回溯）。
   bool matches(SelectorElement element, List<SelectorElement> ancestors) {
@@ -372,9 +376,7 @@ class ComplexSelector {
       if (index < 0) {
         return true;
       }
-      if (!parts[index].matches(candidate, [
-        ...path,
-      ])) {
+      if (!parts[index].matches(candidate, path)) {
         return false;
       }
       if (index == 0) {
@@ -555,55 +557,35 @@ abstract final class SelectorParser {
         classes += 1;
       } else if (simple is NegationSelector) {
         final arg = simple.negationArg;
-        if (arg is ElementSelector ||
-            arg is ClassSelector ||
-            arg is IdSelector) {
-          var text = '';
-          if (arg is ElementSelector) {
-            text = arg.name;
-          } else if (arg is ClassSelector) {
-            text = '.${arg.name}';
-          } else if (arg is IdSelector) {
-            text = '#${arg.name}';
-          }
-          pseudoTests[slot].add(PseudoTest('not', text));
-          classes += 1;
-        } else {
-          warnings.add('暂不支持 :not 参数：${selector.span?.text ?? ''}');
+        if (arg == null) {
+          warnings.add('否定选择器缺少参数');
           return null;
         }
+        final inner = _parseComplex(
+          Selector([SimpleSelectorSequence(arg, arg.span)], arg.span),
+          warnings,
+        );
+        if (inner == null) return null;
+        pseudoTests[slot].add(
+          PseudoTest('not', arg.span?.text, negation: inner),
+        );
+        id += inner.specificity.id;
+        classes += inner.specificity.classCount;
+        types += inner.specificity.type;
       } else if (simple is PseudoClassFunctionSelector) {
         final name = simple.name.toLowerCase();
-        if (name == 'nth-child') {
-          // csslib 的函数 span 仅到左括号，参数属于独立 expression 节点。
-          pseudoTests[slot].add(
-            PseudoTest(name, simple.argument.span?.text),
-          );
-          classes += 1;
-        } else if (name == 'not') {
-          final inner = simple.selector;
-          if (inner.simpleSelectorSequences.length == 1) {
-            final only = inner.simpleSelectorSequences.single.simpleSelector;
-            var text = '';
-            if (only is ElementSelector) {
-              text = only.name;
-            } else if (only is ClassSelector) {
-              text = '.${only.name}';
-            } else if (only is IdSelector) {
-              text = '#${only.name}';
-            }
-            if (text.isNotEmpty) {
-              pseudoTests[slot].add(PseudoTest('not', text));
-              classes += 1;
-              continue;
-            }
-          }
-          warnings.add('暂不支持 :not 参数：${selector.span?.text ?? ''}');
-          return null;
-        } else {
+        if (!PseudoTest._nthNames.contains(name)) {
           warnings.add('暂不支持函数伪类 :$name');
           return null;
         }
+        // csslib 的函数 span 仅到左括号，参数属于独立 expression 节点。
+        final pseudo = PseudoTest(name, simple.argument.span?.text);
+        if (pseudo._nth == null) {
+          warnings.add('无效的结构伪类参数：${simple.argument.span?.text}');
+          return null;
+        }
+        pseudoTests[slot].add(pseudo);
+        classes += 1;
       } else if (simple is PseudoClassSelector) {
         final name = simple.name.toLowerCase();
         pseudoTests[slot].add(PseudoTest(name, null));
@@ -634,15 +616,5 @@ abstract final class SelectorParser {
       specificity: Specificity(0, id, classes, types),
       text: selector.span?.text ?? ''.trim(),
     );
-  }
-
-  /// 解析单个复合片段（:not 参数等内部使用）。
-  static SelectorPart? parseCompound(String text) {
-    final list = parse(text);
-    if (list.selectors.length != 1 ||
-        list.selectors.single.parts.length != 1) {
-      return null;
-    }
-    return list.selectors.single.parts.single;
   }
 }
