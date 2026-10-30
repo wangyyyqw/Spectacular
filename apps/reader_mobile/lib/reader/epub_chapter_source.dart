@@ -107,6 +107,7 @@ class EpubChapterSource
   /// 阅读页传入的正文区尺寸（旋转/窗口变化后由 ReaderSession 设置）。
   double? _viewportContentWidth;
   double? _viewportContentHeight;
+  double? _viewportContentTopInset;
 
   /// 段落布局缓存（P2-26）：同一文本+样式的重复测量直接复用。
   final TextLayoutCache _layoutCache = TextLayoutCache();
@@ -171,6 +172,7 @@ class EpubChapterSource
   /// 即时生效，不失效任何缓存）。
   String _paginationKey(int spineIndex) =>
       '$spineIndex@${contentWidth.toString()}x${contentHeight.toString()}'
+      '|top=${_contentTopInset.toString()}'
       '|${_overrides.fingerprint}';
 
   /// 失效与续排日志（P7-27；对照 Reeden 失效诊断带 old/new——
@@ -223,6 +225,31 @@ class EpubChapterSource
             (_overrides.padding?.top ?? 0) -
             (_overrides.padding?.bottom ?? 0),
       );
+
+  /// 整页到正文的真实上内缩，包含安全区及页眉槽，不只是设置中的边距。
+  double get _contentTopInset =>
+      _viewportContentTopInset ?? (_overrides.padding?.top ?? 0);
+
+  /// 章首出血图从页顶排起；后续正文跟随图盒，不重复预留页眉槽。
+  double _chapterTopPadding(List<PageBlock> blocks) {
+    final first = blocks
+        .where(
+          (block) =>
+              !block.absolute &&
+              block.style?.display != CssDisplay.none &&
+              (block.layout.lineCount > 0 || block.height > 0),
+        )
+        .firstOrNull;
+    if (first == null ||
+        first.floatSide != null ||
+        !first.bleedTop ||
+        first.bleedBottom ||
+        first.layout.text.isNotEmpty ||
+        first.style?.backgroundImage == null) {
+      return 0;
+    }
+    return -_contentTopInset;
+  }
 
   /// 文本块的排版宽度 = 块的内容盒宽（CSS 2.1 §10.3.3）。
   ///
@@ -610,21 +637,26 @@ class EpubChapterSource
   Future<bool> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   }) async {
     final nextWidth = math.max(80.0, width);
     final nextHeight = math.max(120.0, height);
     final previousWidth = contentWidth;
     final previousHeight = contentHeight;
+    final previousTopInset = _contentTopInset;
     _viewportContentWidth = nextWidth;
     _viewportContentHeight = nextHeight;
-    if (previousWidth == nextWidth && previousHeight == nextHeight) {
+    _viewportContentTopInset = math.max(0.0, topInset);
+    if (previousWidth == nextWidth &&
+        previousHeight == nextHeight &&
+        previousTopInset == _contentTopInset) {
       return false;
     }
     // 尺寸变化等同重排：几何进排版键（P7-23 矩阵「几何全失效」）。
     _logInvalidation(
       'viewportSizeChanged',
-      '${previousWidth.toString()}x${previousHeight.toString()}',
-      '${nextWidth.toString()}x${nextHeight.toString()}',
+      '${previousWidth.toString()}x${previousHeight.toString()} top=$previousTopInset',
+      '${nextWidth.toString()}x${nextHeight.toString()} top=$_contentTopInset',
     );
     _layoutCache.clear();
     _pageCache.clear();
@@ -6364,6 +6396,7 @@ class EpubChapterSource
       Paginator(
         pageHeight: contentHeight,
         pageWidth: contentWidth,
+        topPadding: _chapterTopPadding(blocks),
       ).measureChapter(blocks: blocks, spineIndex: spineIndex).pages,
       fixedBlocks,
     );

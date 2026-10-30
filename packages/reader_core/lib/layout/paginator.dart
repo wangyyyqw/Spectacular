@@ -708,13 +708,13 @@ class PageContent implements PageSlice {
   /// 本页块切片。
   final List<PageBlockSlice> slices;
 
-  /// 已用高度（不含首页顶部留白）。
+  /// 已用高度（不含首页顶部偏移）。
   final double usedHeight;
 
   /// 页高。
   final double pageHeight;
 
-  /// 首页顶部留白。
+  /// 首页相对正文区的顶部偏移；负值用于让章首出血图从整页顶部排起。
   final double topPadding;
 
   /// 整页背景（书籍 body/html 的 background-image，P9-04）。
@@ -834,7 +834,7 @@ class Paginator {
   /// 页宽（绝对定位的包含块宽；0 表示用块内容宽兜底）。
   final double pageWidth;
 
-  /// 第一章顶部留白。
+  /// 章首页相对正文区的顶部偏移；负值回收章首出血图占用的上内缩。
   final double topPadding;
 
   /// 浮点容差（像素）。

@@ -14,6 +14,7 @@ class _Source implements RestylableChapterSource, ResizableChapterSource {
   ReaderOverrides overrides = const ReaderOverrides();
   double? width;
   double? height;
+  double topInset = 0;
 
   @override
   int get chapterCount => 2000;
@@ -25,10 +26,15 @@ class _Source implements RestylableChapterSource, ResizableChapterSource {
   Future<bool> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   }) async {
-    final changed = this.width != width || this.height != height;
+    final changed =
+        this.width != width ||
+        this.height != height ||
+        this.topInset != topInset;
     this.width = width;
     this.height = height;
+    this.topInset = topInset;
     return changed;
   }
 
@@ -68,6 +74,29 @@ Future<ReaderSession> _restored(_Source source) async {
 }
 
 void main() {
+  test('正文尺寸相同时，上内缩变化仍传给章节源并重排', () async {
+    final source = _Source();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'top-inset',
+    );
+    addTearDown(session.dispose);
+    await session.open(
+      contentWidth: 300,
+      contentHeight: 500,
+      contentTopInset: 80,
+    );
+    expect(source.topInset, 80);
+    source.loads.clear();
+    await session.applyContentSize(width: 300, height: 500, topInset: 100);
+    expect(source.topInset, 100);
+    expect(source.loads.map((e) => e.spine), [0]);
+    source.loads.clear();
+    await session.applyContentSize(width: 300, height: 500, topInset: 100);
+    expect(source.loads, isEmpty);
+  });
+
   test('保存的高章序直接恢复，改字号及尺寸仅重排当前章一次', () async {
     final source = _Source();
     final session = await _restored(source);

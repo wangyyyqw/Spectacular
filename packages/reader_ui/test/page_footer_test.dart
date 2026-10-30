@@ -62,6 +62,7 @@ class _SizedPageSource implements ResizableChapterSource {
   Future<bool> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   }) async {
     contentSize = Size(width, height);
     return true;

@@ -36,7 +36,7 @@ class PageIndexEntry {
   /// 该页页高。
   final double pageHeight;
 
-  /// 该页顶部留白（首页才有）。
+  /// 该页相对正文区的顶部偏移（首页才有，可为负值）。
   final double topPadding;
 
   @override
