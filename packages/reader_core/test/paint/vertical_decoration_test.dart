@@ -32,13 +32,34 @@ ComputedStyle _style(Map<String, String> overrides) =>
 
 Future<({ByteData bytes, TextLayoutResult layout})> _render(
   ComputedStyle style,
-  String text,
-) async {
-  final layout = TextLayoutEngine.layout(
+  String text, {
+  double maxWidth = 200,
+  bool alignVerticalRight = false,
+}) async {
+  var layout = TextLayoutEngine.layout(
     text: text,
     style: style,
-    maxWidth: _width.toDouble(),
+    maxWidth: maxWidth,
   );
+  if (alignVerticalRight && layout.isVertical) {
+    final shift = maxWidth - layout.width;
+    layout = TextLayoutResult(
+      text: layout.text,
+      lines: [
+        for (final line in layout.lines)
+          line.copyWith(
+            columnX: (line.columnX ?? 0) + shift,
+            offsetX: line.offsetX + shift,
+          ),
+      ],
+      width: layout.width,
+      height: layout.height,
+      maxWidth: layout.maxWidth,
+      runs: layout.runs,
+      isRtl: layout.isRtl,
+      writingMode: layout.writingMode,
+    );
+  }
   final page = Paginator(pageHeight: _height.toDouble())
       .measureChapter(
         blocks: [
@@ -53,20 +74,22 @@ Future<({ByteData bytes, TextLayoutResult layout})> _render(
       .single;
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  PagePainter(background: const Color(0xFFFFFFFF)).paint(
-    canvas,
-    page,
-    pageSize: Size(_width.toDouble(), _height.toDouble()),
-  );
+  PagePainter(
+    background: const Color(0xFFFFFFFF),
+  ).paint(canvas, page, pageSize: Size(_width.toDouble(), _height.toDouble()));
   final image = await recorder.endRecording().toImage(_width, _height);
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
   return (bytes: data!, layout: layout);
 }
 
-int _ch(ByteData b, int x, int y, int c) => b.getUint8((y * _width + x) * 4 + c);
+int _ch(ByteData b, int x, int y, int c) =>
+    b.getUint8((y * _width + x) * 4 + c);
 
-List<({int x, int y})> _pixels(ByteData b, bool Function(int r, int g, int bl) test) {
+List<({int x, int y})> _pixels(
+  ByteData b,
+  bool Function(int r, int g, int bl) test,
+) {
   final out = <({int x, int y})>[];
   for (var y = 0; y < _height; y++) {
     for (var x = 0; x < _width; x++) {
@@ -86,9 +109,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    final bytes = await File(
-      '../../test_fonts/SourceHanSerifSC-Regular.otf',
-    ).readAsBytes();
+    final bytes = await File('../../test_fonts/SourceHanSerifSC-Regular.otf')
+        .readAsBytes();
     await (FontLoader(
       _font,
     )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
@@ -116,8 +138,16 @@ void main() {
       }
     }
     expect(groups.length, 2, reason: '两个字各一个着重号');
-    expect(groups[0].first, closeTo(columnWidth / 2, 8), reason: '首字中心 y ≈ 半个字高');
-    expect(groups[1].first, closeTo(columnWidth * 1.5, 8), reason: '次字中心 y ≈ 1.5 字高');
+    expect(
+      groups[0].first,
+      closeTo(columnWidth / 2, 8),
+      reason: '首字中心 y ≈ 半个字高',
+    );
+    expect(
+      groups[1].first,
+      closeTo(columnWidth * 1.5, 8),
+      reason: '次字中心 y ≈ 1.5 字高',
+    );
     // 列右侧：点圆心 ≈ 列右缘。
     for (final dot in dots) {
       expect(
@@ -193,10 +223,41 @@ void main() {
     );
     expect(green, isNotEmpty, reason: '应画出删除线');
     final x = green.map((p) => p.x).reduce((a, b) => a + b) / green.length;
+    expect(x, closeTo(columnLeft + columnWidth / 2, 3), reason: '删除线应落在列中线');
+  });
+
+  test('竖排声明宽保留整块裁剪区，列带文字不被按单列宽裁掉', () async {
+    final style = _style(const {
+      'font-size': '24px',
+      'width': '54px',
+      'height': '150px',
+      'white-space': 'nowrap',
+      'overflow': 'hidden',
+      'text-overflow': 'ellipsis',
+    });
+    final result = await _render(
+      style,
+      '甲乙丙丁',
+      maxWidth: 54,
+      alignVerticalRight: true,
+    );
+
+    expect(result.layout.width, lessThan(54), reason: '实际列带窄于声明宽');
+    final columnLeft = result.layout.lines.first.columnX ?? 0;
     expect(
-      x,
-      closeTo(columnLeft + columnWidth / 2, 3),
-      reason: '删除线应落在列中线',
+      columnLeft,
+      greaterThan(result.layout.width),
+      reason: '列带从声明内容盒右缘起排',
+    );
+
+    final ink = _pixels(
+      result.bytes,
+      (r, g, b) => r < 100 && g < 100 && b < 100,
+    );
+    expect(
+      ink.where((pixel) => pixel.x >= 28),
+      isNotEmpty,
+      reason: '声明宽 54px 时，列左缘附近的文字不能被裁到单列宽 24px',
     );
   });
 
@@ -253,7 +314,9 @@ void main() {
         pageSize: Size(_width.toDouble(), _height.toDouble()),
       );
       final image = await recorder.endRecording().toImage(_width, _height);
-      final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+      final data = (await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      ))!;
       image.dispose();
       return data;
     }

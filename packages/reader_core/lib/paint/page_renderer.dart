@@ -4862,8 +4862,9 @@ class _SliceGeometry {
     // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：
     // 声明了 width 的块背景与 overflow 裁剪都要收在声明宽内（Chromium 的
     // used width 口径）；auto 时与「页宽 − margin」等价。
-    // 竖排块（W22）：内容是「列带」，块宽收缩到列数×列宽（Chromium 实测
-    // 35 用例 .v 宽 98 = 4 列×24 + 边框），不能用页宽。
+    // 竖排块（W22）：未声明宽时内容盒收缩到列带宽（列数×列宽）；声明宽时
+    // 浏览器仍保留声明宽，列带在 vertical-rl 下从内容盒右缘起排。若这里
+    // 只看列带宽，`width: 54px` 的单列省略号会被裁到 24px，文字整列消失。
     final model = _boxModel;
     // 出血：盒子扩到整页边（内容坐标里页边是 −insets / +pageWidth+insets）。
     // 覆盖切片的 leftInset 已由分页层解算为盒左缘（绝对定位/浮动/多列），
@@ -4872,7 +4873,9 @@ class _SliceGeometry {
         ? slice.leftInset + style.margin.left
         : style.margin.left;
     final left = block.bleedLeft ? -pageInsets.left : boxLeft;
-    final contentWidth = isVerticalBlock
+    final contentWidth = !isVerticalBlock
+        ? model.resolveContentWidth(pageWidth)
+        : model.contentWidth == null
         ? block.layout.width
         : model.resolveContentWidth(pageWidth);
     final right = block.bleedRight
