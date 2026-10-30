@@ -269,6 +269,7 @@ Map<String, Object?> _styleJson(ComputedStyle? style) {
     'fontFamily': style.fontFamily,
     'fontVariantCaps': style.fontVariantCaps.name,
     'fontFeatureSettings': style.fontFeatureSettingsValue,
+    'clipPath': style.clipPath?.cssValue ?? 'none',
     'fontStretch': _n(style.fontStretch),
     'fontSize': _n(style.fontSize),
     'lineHeight': _n(style.lineHeight),
