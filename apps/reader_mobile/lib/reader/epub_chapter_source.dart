@@ -3887,6 +3887,10 @@ class EpubChapterSource
       );
       final tableChain = <SelectorElement>[...ancestors, tableView];
       final tableStyle = styleForChain(tableChain);
+      final caption = tableNode.children
+          .whereType<BlockNode>()
+          .where((child) => child.tag == 'caption')
+          .firstOrNull;
       final tableAvailableWidth = math.max(
         1.0,
         contentWidth - tableStyle.margin.horizontal,
@@ -4194,6 +4198,7 @@ class EpubChapterSource
       final specs = <List<TableCellSpec>>[];
       final cellTexts = <List<String>>[];
       final cellLayouts = <List<TextLayoutResult Function(double)>>[];
+      final cellHeights = <List<double Function(double)>>[];
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
         final row = rows[rowIndex];
         final rowView = _NodeView(
@@ -4205,6 +4210,7 @@ class EpubChapterSource
         final rowSpecs = <TableCellSpec>[];
         final texts = <String>[];
         final rowLayouts = <TextLayoutResult Function(double)>[];
+        final rowHeights = <double Function(double)>[];
         for (final cell in row) {
           final cellChain = <SelectorElement>[
             ...tableChain,
@@ -4221,7 +4227,23 @@ class EpubChapterSource
             cellStyle,
             math.max(8.0, width - horizontalInset(cellStyle)),
           );
+          double measureHeight(double width) {
+            final inset = verticalInset(cellStyle);
+            final natural = text.isEmpty
+                ? cellStyle.lineHeight * 0.6 + inset
+                : measureCell(width).height + inset;
+            final declared = cellStyle.height?.resolve(baseContentHeight);
+            if (declared == null) {
+              return natural;
+            }
+            final boxHeight = cellStyle.boxSizing == CssBoxSizing.borderBox
+                ? declared
+                : declared + inset;
+            return math.max(natural, boxHeight);
+          }
+
           rowLayouts.add(measureCell);
+          rowHeights.add(measureHeight);
           final colspan =
               int.tryParse(cell.attributes['colspan']?.trim() ?? '') ?? 1;
           // rowspan（a）：跨行格的高度回填与合并矩形都靠它，之前完全
@@ -4247,18 +4269,14 @@ class EpubChapterSource
               naturalWidth: naturalWidth(tableAvailableWidth, cellStyle),
               colspan: colspan,
               rowspan: rowspan,
-              measureHeight: (width) {
-                if (text.isEmpty) {
-                  return cellStyle.lineHeight * 0.6;
-                }
-                return measureCell(width).height + verticalInset(cellStyle);
-              },
+              measureHeight: measureHeight,
             ),
           );
         }
         cellStyles.add(styles);
         cellTexts.add(texts);
         cellLayouts.add(rowLayouts);
+        cellHeights.add(rowHeights);
         specs.add(rowSpecs);
       }
 
@@ -4377,14 +4395,7 @@ class EpubChapterSource
             if (rowSpan > 1) {
               continue;
             }
-            final style = cellStyles[r][i];
-            final text = cellTexts[r][i];
-            final measuredCell = text.isEmpty
-                ? null
-                : cellLayouts[r][i](cellWidth);
-            final height =
-                (measuredCell?.height ?? style.lineHeight * 0.6) +
-                verticalInset(style);
+            final height = cellHeights[r][i](cellWidth);
             heights[r] = math.max(heights[r], height);
           }
           rowspans.add(spans);
@@ -4404,14 +4415,7 @@ class EpubChapterSource
             if (rowSpan <= 1) {
               continue;
             }
-            final style = cellStyles[r][i];
-            final text = cellTexts[r][i];
-            final measuredCell = text.isEmpty
-                ? null
-                : cellLayouts[r][i](cellWidth);
-            final height =
-                (measuredCell?.height ?? style.lineHeight * 0.6) +
-                verticalInset(style);
+            final height = cellHeights[r][i](cellWidth);
             final spanRows = math.min(rowSpan, rows.length - r);
             var current = 0.0;
             for (var k = 0; k < spanRows; k += 1) {
@@ -4448,6 +4452,43 @@ class EpubChapterSource
         borderSpacingX: spacingX,
         borderSpacingY: spacingY,
       );
+      PageBlock? captionBlock;
+      var captionOnTop = false;
+      var captionOnBottom = false;
+      if (caption != null) {
+        final captionChain = <SelectorElement>[
+          ...tableChain,
+          _NodeView(caption.tag, caption.attributes, const <SelectorElement>[]),
+        ];
+        final captionStyle = styleForChain(captionChain);
+        final captionContent = cellContentOf(caption, captionChain);
+        if (captionContent.text.isNotEmpty) {
+          final layout = layoutCellContent(
+            captionContent.text,
+            captionContent.marks,
+            captionChain,
+            captionStyle,
+            math.max(8.0, tableWidthPxFinal - horizontalInset(captionStyle)),
+          );
+          captionBlock = PageBlock.styled(
+            layout: layout,
+            style: captionStyle,
+            containingWidth: tableWidthPxFinal,
+            spaceBefore:
+                captionStyle.margin.top +
+                (tableStyle.captionSide == CssCaptionSide.top
+                    ? tableStyle.margin.top
+                    : 0),
+            spaceAfter:
+                captionStyle.margin.bottom +
+                (tableStyle.captionSide == CssCaptionSide.bottom
+                    ? tableStyle.margin.bottom
+                    : 0),
+          );
+          captionOnTop = tableStyle.captionSide == CssCaptionSide.top;
+          captionOnBottom = tableStyle.captionSide == CssCaptionSide.bottom;
+        }
+      }
       // 格终布局（按最终列宽）与渲染格。
       final allCells = <TableCellRender>[];
       for (var r = 0; r < rows.length; r++) {
@@ -4459,11 +4500,14 @@ class EpubChapterSource
           final text = cellTexts[r][c];
           final cellStyle = cellStyles[r][c];
           final layout = text.isEmpty
-              ? null
+              ? TextLayoutResult(
+                  text: '',
+                  lines: const <LineBox>[],
+                  width: 0,
+                  height: 0,
+                  maxWidth: rect.rect.width,
+                )
               : cellLayouts[r][c](rect.rect.width);
-          if (layout == null || layout.lineCount == 0) {
-            continue;
-          }
           allCells.add(
             TableCellRender(
               row: r,
@@ -4499,7 +4543,11 @@ class EpubChapterSource
       );
       final gridRowYs = grid.rowYs;
       final gridColumnXs = grid.columnXs;
-      for (final slice in slices) {
+      if (captionBlock != null && captionOnTop) {
+        blocks.add(captionBlock);
+      }
+      for (var sliceIndex = 0; sliceIndex < slices.length; sliceIndex += 1) {
+        final slice = slices[sliceIndex];
         final sliceTop = gridRowYs[slice.firstRow];
         var sliceHeight = slice.clippedRowHeight > 0
             ? slice.clippedRowHeight
@@ -4533,6 +4581,14 @@ class EpubChapterSource
             // P9-25：带边框容器内的表格块同样参与背景/边框拼合。
             containerSides: tableInBorderedContainer,
             effectiveOpacity: tableOpacity,
+            // caption 属于表格的外框：外边距落在标题外侧，避免标题前后
+            // 各折叠一次表格外边距。跨页切片只保留首片/末片的外边距。
+            spaceBefore: sliceIndex == 0 && !captionOnTop
+                ? tableStyle.margin.top
+                : 0,
+            spaceAfter: sliceIndex == slices.length - 1 && !captionOnBottom
+                ? tableStyle.margin.bottom
+                : 0,
             layout: TextLayoutResult(
               text: '',
               lines: [
@@ -4562,6 +4618,9 @@ class EpubChapterSource
             ),
           ),
         );
+      }
+      if (captionBlock != null && captionOnBottom) {
+        blocks.add(captionBlock);
       }
     }
 

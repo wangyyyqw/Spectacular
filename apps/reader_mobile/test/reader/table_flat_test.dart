@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 /// 表格块接入 flat 管线的回归（渲染载荷 + 分页几何）。
-Uint8List _buildTableEpub(String bodyHtml) {
+Uint8List _buildTableEpub(String bodyHtml, {String css = ''}) {
   final archive = Archive();
   void addText(String name, String content) {
     final bytes = Uint8List.fromList(utf8.encode(content));
@@ -38,7 +38,8 @@ Uint8List _buildTableEpub(String bodyHtml) {
   );
   addText(
     'OEBPS/c1.xhtml',
-    '<html xmlns="http://www.w3.org/1999/xhtml"><body>$bodyHtml</body></html>',
+    '<html xmlns="http://www.w3.org/1999/xhtml"><head><style>$css</style></head>'
+        '<body>$bodyHtml</body></html>',
   );
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
@@ -99,6 +100,43 @@ void main() {
       expect(block.height, lessThanOrEqualTo(480 + 0.5),
           reason: '每片不超页高');
     }
+  });
+
+  test('caption-side 控制标题顺序，empty-cells 保留空格布局', () async {
+    final source = await EpubChapterSource.open(
+      _buildTableEpub(
+        '<table class="bottom"><caption>底标题</caption>'
+        '<tr><td>甲</td><td></td></tr></table>'
+        '<table class="top"><caption>顶标题</caption>'
+        '<tr><td>乙</td><td>丙</td></tr></table>',
+        css:
+            'body { margin: 0; } table { width: 180px; margin: 10px 0; } '
+            'caption { font-size: 14px; } '
+            'td { height: 38px; box-sizing: border-box; } '
+            'caption { caption-side: inherit; } '
+            '.bottom { caption-side: bottom; empty-cells: hide; } '
+            '.top { caption-side: top; empty-cells: show; }',
+      ),
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .toList();
+
+    final captions = blocks
+        .where((block) => const {'底标题', '顶标题'}.contains(block.layout.text))
+        .toList();
+    expect(captions.map((block) => block.layout.text), ['底标题', '顶标题']);
+    expect(captions.last.spaceBefore, 10, reason: '相邻表外边距只折叠一次');
+
+    final tableBlocks = blocks.where((block) => block.table != null).toList();
+    expect(tableBlocks, hasLength(2));
+    expect(tableBlocks.first.spaceBefore, 10, reason: '首表上外边距在表外');
+    expect(tableBlocks.first.spaceAfter, 0, reason: '下外边距由底标题承载');
+    expect(tableBlocks.last.spaceBefore, 0);
+    expect(tableBlocks.last.spaceAfter, 10, reason: '无底标题时下外边距留在表后');
+    final emptyCell = tableBlocks.first.table!.cells.last;
+    expect(emptyCell.layout.text, isEmpty, reason: '隐藏空格仍保留布局占位');
+    expect(emptyCell.rect.height, closeTo(38, 0.01));
   });
 
   test('hr 分隔线：产出带下边框的空行块', () async {
