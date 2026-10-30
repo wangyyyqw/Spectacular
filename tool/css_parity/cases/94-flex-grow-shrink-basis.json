@@ -1,0 +1,12 @@
+{
+  "name": "94-flex-grow-shrink-basis",
+  "tags": [
+    "display",
+    "flex",
+    "flex-grow",
+    "flex-shrink",
+    "flex-basis"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 15px; } .row { display: flex; align-items: stretch; width: 300px; height: 36px; margin: 10px; column-gap: 10px; background-color: #e8edf0; } .item { height: 36px; box-sizing: border-box; border: 1px solid #425c68; background-color: #d8e5eb; } .grow-a { flex-basis: 40px; flex-grow: 1; } .grow-b { flex-basis: 40px; flex-grow: 2; } .fixed { flex: 0 0 60px; } .shrink-a { flex: 0 2 180px; } .shrink-b, .shrink-c { flex: 0 1 180px; } .equal { flex: 1; } .percent-a { flex: 0 0 20%; } .percent-b { flex: 1 1 40%; } .percent-c { flex: 2 1 20%; }",
+  "html": "<div class=\"row\"><div class=\"item grow-a\"></div><div class=\"item grow-b\"></div><div class=\"item fixed\"></div></div><div class=\"row\"><div class=\"item shrink-a\"></div><div class=\"item shrink-b\"></div><div class=\"item shrink-c\"></div></div><div class=\"row\"><div class=\"item equal\"></div><div class=\"item equal\"></div><div class=\"item equal\"></div></div><div class=\"row\"><div class=\"item percent-a\"></div><div class=\"item percent-b\"></div><div class=\"item percent-c\"></div></div>"
+}

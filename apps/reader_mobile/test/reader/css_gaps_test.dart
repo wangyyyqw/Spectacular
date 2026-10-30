@@ -381,6 +381,54 @@ void main() {
       120,
     ], reason: '剩余 40px 在上下各留 20px');
   });
+
+  test('Flex grow/shrink/basis 与 flex 简写参与主轴分配', () async {
+    Future<TableRenderSpec> measure(String css) async {
+      final source = await open(
+        body:
+            '<div class="wrap">'
+            '<div class="item a"></div><div class="item b"></div>'
+            '<div class="item c"></div></div>',
+        css: css,
+        overrides: const ReaderOverrides(),
+      );
+      return (await source.loadChapter(0))
+          .expand((page) => page.slices)
+          .map((slice) => slice.block)
+          .firstWhere((block) => block.table?.flex ?? false)
+          .table!;
+    }
+
+    final grown = await measure(
+      '.wrap { display: flex; width: 300px; height: 40px; '
+      'column-gap: 10px; } '
+      '.item { flex-basis: 40px; height: 40px; } '
+      '.a { flex-grow: 1; } .b { flex-grow: 2; }',
+    );
+    expect(grown.cells.map((cell) => cell.rect.width).toList(), <Matcher>[
+      closeTo(93.33333333333333, 0.001),
+      closeTo(146.66666666666666, 0.001),
+      closeTo(40, 0.001),
+    ]);
+
+    final shrunk = await measure(
+      '.wrap { display: flex; width: 300px; height: 40px; '
+      'column-gap: 10px; } '
+      '.a { flex: 0 2 180px; height: 40px; } '
+      '.b, .c { flex: 0 1 180px; height: 40px; }',
+    );
+    expect(shrunk.cells[0].rect.width, closeTo(50, 0.001));
+    expect(shrunk.cells[1].rect.width, closeTo(115, 0.001));
+
+    final shorthand = await measure(
+      '.wrap { display: flex; width: 300px; height: 40px; '
+      'column-gap: 10px; } .item { flex: 1; height: 40px; }',
+    );
+    expect(
+      shorthand.cells.map((cell) => cell.rect.width).toList(),
+      everyElement(closeTo(93.33333333333333, 0.001)),
+    );
+  });
 }
 
 Uint8List _book({

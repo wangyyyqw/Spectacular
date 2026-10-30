@@ -437,6 +437,16 @@ abstract final class Cascade {
         // `font: 700 17px/1.6 serif` → font-size/family/weight/style/line-height。
         return ComputedStyle.parseFontShorthand(value) ??
             const <String, String>{};
+      case 'flex':
+        if (_isGlobalKeyword(value)) {
+          return <String, String>{
+            'flex-grow': value,
+            'flex-shrink': value,
+            'flex-basis': value,
+          };
+        }
+        return ComputedStyle.parseFlexShorthand(value) ??
+            const <String, String>{};
       case 'gap':
         if (_isGlobalKeyword(value)) {
           return {'row-gap': value, 'column-gap': value};

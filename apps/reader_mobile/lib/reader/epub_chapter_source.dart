@@ -1548,12 +1548,15 @@ class EpubChapterSource
     }
 
     // Flex 子项未声明 width 时按内容收缩，不能沿用块流测出的整行可用宽。
-    double intrinsicContentWidth(PageBlock block) {
+    double intrinsicContentWidth(
+      PageBlock block, {
+      bool ignoreDeclaredWidth = false,
+    }) {
       final available = block.layout.maxWidth.isFinite
           ? block.layout.maxWidth
           : block.layout.width;
       final style = block.style;
-      if (style?.width != null) {
+      if (!ignoreDeclaredWidth && style?.width != null) {
         return BoxModel.fromStyle(
           style!,
           containingWidth: containingWidth,
@@ -1568,15 +1571,36 @@ class EpubChapterSource
           : available;
     }
 
+    // flex-basis 优先于 width；border-box 的基准含 padding/border。
+    double flexBaseWidth(PageBlock block) {
+      final style = block.style;
+      final basis = style?.flexBasis;
+      if (style?.flexBasisIsContent ?? false) {
+        return intrinsicContentWidth(block, ignoreDeclaredWidth: true) +
+            horizontalInset(block);
+      }
+      if (style != null && basis != null && !basis.isAuto) {
+        final resolved = basis.resolve(containerWidth);
+        if (resolved != null) {
+          final inset = horizontalInset(block);
+          return math.max(
+            0,
+            style.boxSizing == CssBoxSizing.borderBox
+                ? resolved
+                : resolved + inset,
+          );
+        }
+      }
+      return intrinsicContentWidth(block) + horizontalInset(block);
+    }
+
     final itemWidths = <double>[];
     final itemHeights = <double>[];
     for (final item in items) {
       var width = 0.0;
       var height = 0.0;
       for (final block in item) {
-        final contentWidth = intrinsicContentWidth(block);
-        final borderWidth = contentWidth + horizontalInset(block);
-        width = math.max(width, borderWidth);
+        width = math.max(width, flexBaseWidth(block));
         height +=
             block.spaceBefore +
             block.topInset +
@@ -1614,6 +1638,40 @@ class EpubChapterSource
     }
     if (containerStyle.flexWrap == CssFlexWrap.wrapReverse) {
       rows = rows.reversed.toList();
+    }
+
+    // 每行先按 flex-basis 分组，再分配正/负剩余空间。收缩权重按规范取
+    // flex-shrink × 基准尺寸，避免所有子项被无条件等分压缩。
+    for (final row in rows) {
+      final baseTotal =
+          row.fold(0.0, (sum, index) => sum + itemWidths[index]) +
+          gap * math.max(0, row.length - 1);
+      final free = containerWidth - baseTotal;
+      if (free > 0) {
+        final totalGrow = row.fold(
+          0.0,
+          (sum, index) => sum + (items[index].first.style?.flexGrow ?? 0),
+        );
+        if (totalGrow > 0) {
+          for (final index in row) {
+            final grow = items[index].first.style?.flexGrow ?? 0;
+            itemWidths[index] += free * grow / totalGrow;
+          }
+        }
+      } else if (free < 0) {
+        final shrinkWeights = <int, double>{
+          for (final index in row)
+            index:
+                (items[index].first.style?.flexShrink ?? 1) * itemWidths[index],
+        };
+        final totalWeight = shrinkWeights.values.fold(0.0, (a, b) => a + b);
+        if (totalWeight > 0) {
+          for (final index in row) {
+            final reduction = -free * shrinkWeights[index]! / totalWeight;
+            itemWidths[index] = math.max(0, itemWidths[index] - reduction);
+          }
+        }
+      }
     }
 
     final rowHeights = [
@@ -1725,8 +1783,6 @@ class EpubChapterSource
         for (final block in item) {
           final style = block.style ?? containerStyle;
           itemY += block.spaceBefore;
-          final borderWidth =
-              intrinsicContentWidth(block) + horizontalInset(block);
           final borderHeight = block.topInset + block.height + block.bottomInset;
           cells.add(
             TableCellRender(
@@ -1734,7 +1790,7 @@ class EpubChapterSource
               rect: Rect.fromLTWH(
                 cursor,
                 itemY,
-                math.min(borderWidth, containerWidth),
+                math.min(itemWidth, containerWidth),
                 borderHeight,
               ),
               layout: block.layout,

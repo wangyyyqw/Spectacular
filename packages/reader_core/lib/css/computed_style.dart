@@ -1578,6 +1578,9 @@ class ComputedStyle {
       'writing-mode' => _parseWritingMode(value) != null,
       'list-style-position' => _parseListStylePosition(value) != null,
       'aspect-ratio' => _parseAspectRatio(value) != null,
+      'flex' => parseFlexShorthand(value) != null,
+      'flex-grow' || 'flex-shrink' =>
+        (double.tryParse(value)?.isFinite ?? false) && double.parse(value) >= 0,
       'opacity' => double.tryParse(value)?.isFinite ?? false,
       _ => true,
     };
@@ -1601,6 +1604,7 @@ class ComputedStyle {
       'min-height',
       'max-width',
       'max-height',
+      'flex-basis',
       'top',
       'right',
       'bottom',
@@ -1623,10 +1627,12 @@ class ComputedStyle {
               'right',
               'bottom',
               'left',
+              'flex-basis',
             }.contains(property)) &&
         value == 'auto') {
       return true;
     }
+    if (property == 'flex-basis' && value == 'content') return true;
     if (property.startsWith('max-') && value == 'none') return true;
     if (const {
           'line-height',
@@ -1670,6 +1676,7 @@ class ComputedStyle {
           'min-height',
           'max-width',
           'max-height',
+          'flex-basis',
         }.contains(property);
     // calc() 的百分比基准直到布局时才确定，此处不能用探测宽度判负值。
     return !nonnegative || value.startsWith('calc(') || length >= 0;
@@ -2965,6 +2972,41 @@ class ComputedStyle {
     };
   }
 
+  /// Flex 主轴剩余空间的扩展系数（初始 `0`，负值无效）。
+  double get flexGrow {
+    final value = double.tryParse(values['flex-grow']?.trim() ?? '');
+    return value != null && value.isFinite && value >= 0 ? value : 0;
+  }
+
+  /// Flex 主轴空间不足时的收缩系数（初始 `1`，负值无效）。
+  double get flexShrink {
+    final value = double.tryParse(values['flex-shrink']?.trim() ?? '');
+    return value != null && value.isFinite && value >= 0 ? value : 1;
+  }
+
+  /// `flex-basis: content` 标记。
+  ///
+  /// `auto` 会回退到声明宽；`content` 必须忽略声明宽，布局层据此选择。
+  bool get flexBasisIsContent =>
+      values['flex-basis']?.trim().toLowerCase() == 'content';
+
+  /// Flex 主轴基准尺寸（初始 `auto`）。
+  CssLength get flexBasis {
+    final raw = values['flex-basis']?.trim().toLowerCase();
+    if (raw == null || raw.isEmpty || raw == 'auto' || raw == 'content') {
+      return const CssLength.auto();
+    }
+    final length = _resolveCssLength(
+      raw,
+      fontSize: fontSize,
+      // ComputedStyle 不保存根字号；EPUB 根字号通常为 16px。
+      rootFontSize: 16,
+    );
+    return length != null && length.value.isFinite && length.value >= 0
+        ? length
+        : const CssLength.auto();
+  }
+
   /// 可见性（继承，初始 visible）。
   final CssVisibility visibility;
 
@@ -4218,6 +4260,88 @@ class ComputedStyle {
         'double' => CssBorderStyle.double,
         _ => null,
       };
+
+  /// 解析 `flex` 简写为三个长属性。
+  ///
+  /// 支持规范中阅读器常见的单值/双值/三值形式：`auto`、`none`、
+  /// `<grow>`、`<grow> <shrink>`、`<grow> <shrink?> <basis>`。
+  /// 单值数字把 basis 重置为 `0%`，双数字形式同样如此；单值尺寸
+  /// （如 `flex: 10px`）等价于 `1 1 10px`。
+  static Map<String, String>? parseFlexShorthand(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim().toLowerCase();
+    if (value == 'none') {
+      return const <String, String>{
+        'flex-grow': '0',
+        'flex-shrink': '0',
+        'flex-basis': 'auto',
+      };
+    }
+    if (value == 'auto') {
+      return const <String, String>{
+        'flex-grow': '1',
+        'flex-shrink': '1',
+        'flex-basis': 'auto',
+      };
+    }
+    final tokens = _cssTokens(value);
+    if (tokens.isEmpty || tokens.length > 3) {
+      return null;
+    }
+    double? number(String token) {
+      final parsed = double.tryParse(token);
+      return parsed != null && parsed.isFinite && parsed >= 0 ? parsed : null;
+    }
+
+    bool basis(String token) {
+      if (token == 'auto' || token == 'content') {
+        return true;
+      }
+      final length = _resolveCssLength(token, fontSize: 16, rootFontSize: 16);
+      return length != null && length.value.isFinite && length.value >= 0;
+    }
+
+    String grow;
+    String shrink = '1';
+    String basisValue;
+    final first = number(tokens[0]);
+    if (tokens.length == 1 && first != null) {
+      grow = tokens[0];
+      basisValue = '0%';
+    } else if (tokens.length == 1 && basis(tokens[0])) {
+      grow = '1';
+      basisValue = tokens[0];
+    } else if (first != null && tokens.length == 2) {
+      final second = number(tokens[1]);
+      if (second != null) {
+        grow = tokens[0];
+        shrink = tokens[1];
+        basisValue = '0%';
+      } else if (basis(tokens[1])) {
+        grow = tokens[0];
+        basisValue = tokens[1];
+      } else {
+        return null;
+      }
+    } else if (first != null && tokens.length == 3) {
+      final second = number(tokens[1]);
+      if (second == null || !basis(tokens[2])) {
+        return null;
+      }
+      grow = tokens[0];
+      shrink = tokens[1];
+      basisValue = tokens[2];
+    } else {
+      return null;
+    }
+    return <String, String>{
+      'flex-grow': grow,
+      'flex-shrink': shrink,
+      'flex-basis': basisValue,
+    };
+  }
 
   static final RegExp _fontSizePattern = RegExp(
     r'^(\d*\.?\d+)(px|pt|pc|em|rem|%)?(?:/(\S+))?$',

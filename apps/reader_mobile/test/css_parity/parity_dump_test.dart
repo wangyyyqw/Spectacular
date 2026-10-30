@@ -308,6 +308,9 @@ Map<String, Object?> _styleJson(ComputedStyle? style) {
     'verticalAlign': style.verticalAlign.name,
     'boxSizing': style.boxSizing.name,
     'textOverflow': style.textOverflow.name,
+    'flexGrow': _n(style.flexGrow),
+    'flexShrink': _n(style.flexShrink),
+    'flexBasis': _lengthJson(style.flexBasis),
     // ==== 本轮新增（W5/W7/W11）====
     'transform': <Map<String, Object?>>[
       for (final transform in style.transforms) _transformJson(transform),
