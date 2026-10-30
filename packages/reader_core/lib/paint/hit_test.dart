@@ -196,12 +196,17 @@ abstract final class TextHitTester {
   static List<Rect> selectionRects(PageLineBox box, int start, int end) {
     final painter = _painterFor(box);
     final line = box.slice.block.layout.lines[box.lineIndex];
+    final baselineOffset = textLineBaselineOffset(
+      box.slice.block.layout,
+      line,
+      painter,
+    );
     final result = <Rect>[];
     for (final part in lineTextFragments(line, start: start, end: end)) {
       for (final rect in painter.getBoxesForSelection(
         TextSelection(baseOffset: part.start, extentOffset: part.end),
       )) {
-        result.add(rect.toRect().shift(Offset(part.advance, 0)));
+        result.add(rect.toRect().shift(Offset(part.advance, baselineOffset)));
       }
     }
     painter.dispose();
@@ -217,8 +222,13 @@ abstract final class TextHitTester {
       affinity: position.affinity,
     );
     final caret = painter.getOffsetForCaret(clamped, Rect.zero);
+    final baselineOffset = textLineBaselineOffset(
+      box.slice.block.layout,
+      line,
+      painter,
+    );
     painter.dispose();
-    return caret.translate(inlineBoxAdvanceAt(line, clamped), 0);
+    return caret.translate(inlineBoxAdvanceAt(line, clamped), baselineOffset);
   }
 
   static int _charOffsetFor(TextPainter painter, LineBox line, double x) {

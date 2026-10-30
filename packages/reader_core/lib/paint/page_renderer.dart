@@ -599,8 +599,9 @@ class PagePainter {
               textColorOverride: geometry.textColorOverride,
             );
             final lineRuns = _lineRuns(layout, line);
+            final textY = lineY + textLineBaselineOffset(layout, line, painter);
             // 普通 run 与独立行内盒都在文字之前绘制，不能互相替代。
-            _paintInlineBoxes(canvas, painter, lineRuns, x, lineY, line: line);
+            _paintInlineBoxes(canvas, painter, lineRuns, x, textY, line: line);
             if (line.inlineBoxes.isNotEmpty) {
               _paintInlineBoxPlacements(
                 canvas,
@@ -618,7 +619,7 @@ class PagePainter {
               lineRuns,
               geometry.textStyle,
               x,
-              lineY,
+              textY,
               line: line,
             );
             // 装饰线（P2-17/P9-18）：line-through / overline 的实线按
@@ -630,7 +631,7 @@ class PagePainter {
               line,
               geometry.style,
               x,
-              lineY,
+              textY,
               fontMetricsCache,
             );
             _paintInlineImages(
@@ -640,7 +641,7 @@ class PagePainter {
               line,
               lineText,
               x,
-              lineY,
+              textY,
             );
             // 行尾字形（W13）：布局层只截断/计宽不画字——
             // 省略号 `…`（行宽含省略号 advance）与断词连字符 U+2010 都由
@@ -1946,6 +1947,8 @@ class PagePainter {
                 ? TextDirection.rtl
                 : TextDirection.ltr,
           )..layout(maxWidth: innerWidth);
+          final textY =
+              lineY + textLineBaselineOffset(cell.layout, line, painter);
           final contentLeft = left + cell.rect.left + leftInset;
           final contentRight = left + cell.rect.right - rightInset;
           var x = contentLeft;
@@ -1960,7 +1963,7 @@ class PagePainter {
             painter,
             cellRuns,
             line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
-            lineY - (painter.height - line.height) / 2,
+            textY - (painter.height - line.height) / 2,
             line: line,
           );
           if (line.inlineBoxes.isNotEmpty) {
@@ -1980,7 +1983,7 @@ class PagePainter {
             cellRuns,
             textStyle,
             line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
-            lineY,
+            textY,
             line: line,
           );
           painter.dispose();
@@ -2347,7 +2350,12 @@ class PagePainter {
         )..layout(maxWidth: contentWidth);
         painter.paint(
           canvas,
-          Offset(contentLeft + line.offsetX, contentTop + line.top),
+          Offset(
+            contentLeft + line.offsetX,
+            contentTop +
+                line.top +
+                textLineBaselineOffset(layout, line, painter),
+          ),
         );
         painter.dispose();
       }

@@ -7,6 +7,27 @@ import '../layout/line_breaker.dart';
 import '../layout/punct_trim.dart';
 import '../layout/text_layout.dart';
 
+/// 拆行后按已排好的基线定位混排文字，不让小字号行自行贴到行顶。
+/// 显式上下标继续走既有分段位移路径，避免重复补偿。
+double textLineBaselineOffset(
+  TextLayoutResult layout,
+  LineBox line,
+  TextPainter painter,
+) {
+  if (layout.runs.isEmpty ||
+      layout.runs.any(
+        (run) =>
+            run.start < line.end &&
+            run.end > line.start &&
+            run.baselineShift != 0,
+      )) {
+    return 0;
+  }
+  return line.baseline -
+      line.top -
+      painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+}
+
 /// 原文位置之前的行内盒占宽；同位置多个盒累加，不向原文插入字符。
 /// 起点贴盒后（downstream），终点贴盒前（upstream）。
 double inlineBoxAdvanceAt(LineBox line, TextPosition position) {

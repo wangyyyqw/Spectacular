@@ -125,7 +125,7 @@ class LineBox {
   /// 后行尾正好落在版心右缘；对照浏览器时要用本值（浏览器量的是绘制宽）。
   double get advanceWidth => width + justifyExtra;
 
-  /// 复制并更新标志。
+  /// 复制并更新标志；行顶搬移时基线同步搬移，保持行内基线位置。
   LineBox copyWith({
     int? start,
     int? end,
@@ -150,7 +150,7 @@ class LineBox {
     end: end ?? this.end,
     top: top ?? this.top,
     height: height,
-    baseline: baseline,
+    baseline: baseline + ((top ?? this.top) - this.top),
     width: width ?? this.width,
     indent: indent ?? this.indent,
     isLastLine: isLastLine ?? this.isLastLine,
