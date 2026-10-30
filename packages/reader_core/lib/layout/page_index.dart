@@ -64,8 +64,8 @@ class PageIndex {
   const PageIndex({required this.schemaVersion, required this.entries});
 
   /// 当前 schema 版本；换代即整体失效（不迁移，对照 RPI2 换代策略）。
-  // 行内标签的真实盒宽改变断行，旧索引必须重新生成。
-  static const int currentSchemaVersion = 3;
+  // 页边界行高留白参与容行决策，旧索引必须重新生成。
+  static const int currentSchemaVersion = 4;
 
   /// schema 版本。
   final int schemaVersion;
@@ -180,6 +180,7 @@ class PageIndex {
     PageIndex index,
     List<PageBlock> blocks, {
     required int spineIndex,
+    bool trimTextEdges = false,
   }) {
     if (index.schemaVersion != currentSchemaVersion || index.entries.isEmpty) {
       return null;
@@ -234,11 +235,20 @@ class PageIndex {
         if (stop == line) {
           return null; // 空切片（重排不会产出）。
         }
-        final leading = (line == 0 ? block.leadingExtent : 0.0) +
-            (slices.isEmpty ? block.containerTopInset(line) : 0.0);
-        final trailing = (stop == block.layout.lineCount
-            ? block.trailingExtent
-            : 0.0) + (bi == endBlockIndex ? block.containerBottomInset(stop) : 0.0);
+        final topTrim = trimTextEdges && slices.isEmpty && entry.topPadding >= 0
+            ? block.textEdgesAt(line).top
+            : 0.0;
+        final bottomTrim = trimTextEdges && bi == endBlockIndex
+            ? block.textEdgesAt(stop - 1).bottom
+            : 0.0;
+        final leading =
+            (line == 0 ? block.leadingExtent : 0.0) +
+            (slices.isEmpty ? block.containerTopInset(line) : 0.0) -
+            topTrim;
+        final trailing =
+            (stop == block.layout.lineCount ? block.trailingExtent : 0.0) +
+            (bi == endBlockIndex ? block.containerBottomInset(stop) : 0.0) -
+            bottomTrim;
         var sliceHeight = leading + trailing;
         for (var l = line; l < stop; l++) {
           sliceHeight += block.layout.lines[l].height;
@@ -252,6 +262,8 @@ class PageIndex {
             leadingExtent: leading,
             trailingExtent: trailing,
             leftInset: block.leftInset,
+            textTopTrim: topTrim,
+            textBottomTrim: bottomTrim,
           ),
         );
         used += sliceHeight;
