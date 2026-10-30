@@ -56,7 +56,7 @@ void main() {
   });
 
   group('边距调节器（设计稿「边距调节器」）', () {
-    testWidgets('点上箭头步进、上外可归零、保留回传草稿', (tester) async {
+    testWidgets('点箭头步进并移动按钮、保存回传草稿', (tester) async {
       ReaderMargins? applied;
       var cancelled = false;
       await tester.pumpWidget(
@@ -81,6 +81,7 @@ void main() {
         of: find.byKey(const ValueKey<String>('margin-top-inner')),
         matching: find.byIcon(Icons.keyboard_arrow_up),
       );
+      final initialTop = tester.getTopLeft(upArrow).dy;
       await tester.tap(upArrow);
       await tester.pump();
       await tester.tap(upArrow);
@@ -88,8 +89,9 @@ void main() {
       await tester.tap(upArrow);
       await tester.pump();
       expect(find.text('上内 15'), findsOneWidget);
+      expect(tester.getTopLeft(upArrow).dy, initialTop + 3);
 
-      // 上外连点 41 次上限？这里只验证能往下调到 39。
+      // 上外减小后，上内按钮也随正文边界上移。
       final downArrow = find.descendant(
         of: find.byKey(const ValueKey<String>('margin-top-outer')),
         matching: find.byIcon(Icons.keyboard_arrow_down),
@@ -99,6 +101,7 @@ void main() {
       await tester.tap(downArrow);
       await tester.pump();
       expect(find.text('上外 39'), findsOneWidget);
+      expect(tester.getTopLeft(upArrow).dy, initialTop + 1);
 
       await tester.tap(find.byKey(const ValueKey<String>('margin-apply')));
       await tester.pumpAndSettle();
@@ -136,7 +139,7 @@ void main() {
       await tester.pump();
       final beforeMoves = previews.length;
       for (var i = 0; i < 5; i++) {
-        await gesture.moveBy(const Offset(0, 12));
+        await gesture.moveBy(const Offset(0, 3));
         await tester.pump();
       }
       await gesture.up();
@@ -148,8 +151,8 @@ void main() {
       );
       expect(
         previews.last.topInner,
-        closeTo(12 + 80 / 6, 0.1),
-        reason: '先移动 20px 越过手势阈值，再连续移动 60px',
+        closeTo(12 + 35, 0.1),
+        reason: '先移动 20px 越过手势阈值，再连续移动 15px，按 1:1 调节',
       );
       expect(find.text('上内 ${previews.last.topInner.round()}'), findsOneWidget);
 
@@ -163,7 +166,7 @@ void main() {
       );
       await tester.pump();
       expect(previews.length, greaterThan(before));
-      expect(applied, isNull, reason: '没点保留不应回传');
+      expect(applied, isNull, reason: '没点保存不应回传');
     });
 
     testWidgets('上层随预览重建时拖动不会中断', (tester) async {
@@ -198,7 +201,7 @@ void main() {
       await tester.pump();
       final beforeMoves = previews.length;
       for (var i = 0; i < 5; i++) {
-        await gesture.moveBy(const Offset(0, 12));
+        await gesture.moveBy(const Offset(0, 3));
         await tester.pump();
       }
       await gesture.up();
@@ -209,7 +212,7 @@ void main() {
         greaterThanOrEqualTo(5),
         reason: '父级实时预览重建后，同一次拖动仍应持续回调',
       );
-      expect(previews.last.topInner, closeTo(12 + 80 / 6, 0.1));
+      expect(previews.last.topInner, closeTo(12 + 35, 0.1));
     });
 
     testWidgets('四边胶囊拖动方向与间距扩张方向一致', (tester) async {
@@ -235,9 +238,17 @@ void main() {
         double Function(ReaderMargins) read,
       ) async {
         final before = read(previews.isEmpty ? _defaults() : previews.last);
-        await tester.drag(find.byKey(ValueKey<String>(key)), offset);
+        final pill = find.byKey(ValueKey<String>(key));
+        final position = tester.getCenter(pill);
+        await tester.drag(pill, offset);
         await tester.pumpAndSettle();
-        expect(read(previews.last), greaterThan(before), reason: '$key 应随拖动变大');
+        final change = read(previews.last) - before;
+        expect(change, greaterThan(0), reason: '$key 应随拖动变大');
+        expect(
+          tester.getCenter(pill) - position,
+          offset / offset.distance * change,
+          reason: '$key 的位置变化必须等于边距变化，方向与手指一致',
+        );
       }
 
       // 每条正文边界都沿着手指移动：上侧向下、下侧向上，左边界向右、
@@ -272,6 +283,88 @@ void main() {
         const Offset(-48, 0),
         (value) => value.right,
       );
+    });
+
+    final controls = <(String, Offset, double, double Function(ReaderMargins))>[
+      ('top-outer', const Offset(0, 1), 96, (value) => value.topOuter),
+      ('top-inner', const Offset(0, 1), 60, (value) => value.topInner),
+      ('bottom-inner', const Offset(0, -1), 60, (value) => value.bottomInner),
+      ('bottom-outer', const Offset(0, -1), 96, (value) => value.bottomOuter),
+      ('left', const Offset(1, 0), 48, (value) => value.left),
+      ('right', const Offset(-1, 0), 48, (value) => value.right),
+    ];
+    for (final (key, direction, max, read) in controls) {
+      testWidgets('$key 达到上下限不越界，反向移动 3 时数值与按钮同步移动 3', (tester) async {
+        final previews = <ReaderMargins>[];
+        await _showEditor(tester, onPreview: previews.add);
+        final pill = find.byKey(ValueKey<String>('margin-$key'));
+        final origin = tester.getCenter(pill);
+        final initial = read(_defaults());
+        final gesture = await tester.startGesture(origin);
+        await gesture.moveBy(direction * 200);
+        await tester.pump();
+        expect(read(previews.last), max);
+        expect(tester.getCenter(pill) - origin, direction * (max - initial));
+        final calls = previews.length;
+        await gesture.moveBy(direction * 20);
+        await tester.pump();
+        expect(previews.length, calls, reason: '上限处不重复触发无变化的预览');
+        await gesture.moveBy(direction * -3);
+        await tester.pump();
+        expect(read(previews.last), max - 3);
+        expect(
+          tester.getCenter(pill) - origin,
+          direction * (max - 3 - initial),
+        );
+        await gesture.moveBy(direction * -200);
+        await tester.pump();
+        expect(read(previews.last), 0);
+        expect(tester.getCenter(pill) - origin, direction * -initial);
+        await gesture.moveBy(direction * 3);
+        await tester.pump();
+        expect(read(previews.last), 3);
+        expect(tester.getCenter(pill) - origin, direction * (3 - initial));
+        await gesture.up();
+        await tester.pumpAndSettle();
+      });
+    }
+
+    testWidgets('同一帧内多次移动累计，不因未重建而丢失增量', (tester) async {
+      final previews = <ReaderMargins>[];
+      await _showEditor(tester, onPreview: previews.add);
+      final pill = find.byKey(const ValueKey<String>('margin-top-inner'));
+      final origin = tester.getCenter(pill);
+      final gesture = await tester.startGesture(origin);
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 3));
+      await gesture.moveBy(const Offset(0, 3));
+      await tester.pump();
+      expect(previews.last.topInner, 38);
+      expect(tester.getCenter(pill) - origin, const Offset(0, 26));
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('从箭头拖动不误触步进，取消手势后仍可点击新位置', (tester) async {
+      final previews = <ReaderMargins>[];
+      await _showEditor(tester, onPreview: previews.add);
+      final arrow = find.descendant(
+        of: find.byKey(const ValueKey<String>('margin-top-inner')),
+        matching: find.byIcon(Icons.keyboard_arrow_up),
+      );
+      await tester.drag(arrow, const Offset(0, 24));
+      await tester.pumpAndSettle();
+      expect(previews.last.topInner, 36, reason: '松手不能额外增加 1');
+      final gesture = await tester.startGesture(tester.getCenter(arrow));
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(previews.last.topInner, 16);
+      await tester.tap(arrow);
+      await tester.pumpAndSettle();
+      expect(previews.last.topInner, 17);
     });
 
     testWidgets('页眉与正文间距非 0 时在间隙绘制阴影', (tester) async {
@@ -341,7 +434,7 @@ void main() {
       expect(withoutGap, isEmpty, reason: '间隙为 0 时不画内段阴影');
     });
 
-    testWidgets('保留按钮位于屏幕顶部 3/4 处且为紧凑胶囊', (tester) async {
+    testWidgets('取消、恢复默认、保存并排位于底部，不遮挡下边距调节', (tester) async {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.binding.setSurfaceSize(const Size(400, 800));
       await tester.pumpWidget(
@@ -360,44 +453,137 @@ void main() {
 
       final apply = find.byKey(const ValueKey<String>('margin-apply'));
       final rect = tester.getRect(apply);
-      expect(rect.top, closeTo(600, 0.5), reason: '800 × 3/4 = 600');
-      expect(rect.height, lessThanOrEqualTo(32));
+      final cancel = tester.getRect(
+        find.byKey(const ValueKey<String>('margin-cancel')),
+      );
+      final reset = tester.getRect(
+        find.byKey(const ValueKey<String>('margin-reset')),
+      );
+      expect(cancel.top, rect.top);
+      expect(reset.top, rect.top);
+      expect(cancel.right, lessThan(reset.left));
+      expect(reset.right, lessThan(rect.left));
+      expect(rect.bottom, closeTo(792, 0.5), reason: '操作栏距底部 8px');
+      expect(rect.height, lessThanOrEqualTo(36));
       expect(rect.width, lessThanOrEqualTo(80));
+      expect(find.text('保存'), findsOneWidget);
+      for (final key in ['margin-bottom-inner', 'margin-bottom-outer']) {
+        expect(
+          tester.getRect(find.byKey(ValueKey<String>(key))).bottom,
+          lessThan(rect.top),
+        );
+      }
 
-      final materials = tester.widgetList<Material>(
-        find.ancestor(of: apply, matching: find.byType(Material)),
+      final material = tester.widget<Material>(
+        find.descendant(of: apply, matching: find.byType(Material)),
       );
-      expect(
-        materials.where((material) => material.shape is StadiumBorder),
-        isNotEmpty,
-      );
+      expect(material.shape, isA<StadiumBorder>());
     });
 
-    testWidgets('恢复默认值与取消不应用', (tester) async {
-      ReaderMargins defaults = _defaultScanner();
+    for (final size in [const Size(320, 640), const Size(800, 400)]) {
+      testWidgets('窄屏或横屏 $size 安全区内显示操作栏，放大文字无溢出', (tester) async {
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.binding.setSurfaceSize(size);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData.dark(),
+            home: MediaQuery(
+              data: const MediaQueryData(
+                padding: EdgeInsets.fromLTRB(24, 24, 24, 24),
+                textScaler: TextScaler.linear(1.5),
+              ),
+              child: Scaffold(
+                body: MarginEditor(
+                  margins: _defaults().copyWith(left: 48, right: 48),
+                  defaults: _defaults(),
+                  onCancel: () {},
+                  onApply: (_) {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final left = tester.getRect(
+          find.byKey(const ValueKey<String>('margin-left')),
+        );
+        final right = tester.getRect(
+          find.byKey(const ValueKey<String>('margin-right')),
+        );
+        expect(left.right, lessThanOrEqualTo(right.left));
+        for (final key in ['margin-cancel', 'margin-reset', 'margin-apply']) {
+          final rect = tester.getRect(find.byKey(ValueKey<String>(key)));
+          expect(rect.left, greaterThanOrEqualTo(24));
+          expect(rect.right, lessThanOrEqualTo(size.width - 24));
+          expect(rect.bottom, lessThanOrEqualTo(size.height - 24));
+          for (final control in [
+            'margin-bottom-inner',
+            'margin-bottom-outer',
+          ]) {
+            expect(
+              tester.getRect(find.byKey(ValueKey<String>(control))).bottom,
+              lessThan(rect.top),
+            );
+          }
+        }
+      });
+    }
+
+    testWidgets('恢复默认同步数值、位置和预览，取消不保存', (tester) async {
+      final defaults = _defaults();
+      final previews = <ReaderMargins>[];
+      final applied = <ReaderMargins>[];
+      var cancelled = false;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: MarginEditor(
               margins: defaults.copyWith(topInner: 30),
               defaults: defaults,
-              onCancel: () => tester.binding,
-              onApply: (_) {},
+              onCancel: () => cancelled = true,
+              onApply: applied.add,
+              onPreview: previews.add,
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
       expect(find.text('上内 30'), findsOneWidget);
+      final pill = find.byKey(const ValueKey<String>('margin-top-inner'));
+      final top = tester.getTopLeft(pill).dy;
       await tester.tap(find.byKey(const ValueKey<String>('margin-reset')));
       await tester.pumpAndSettle();
       expect(find.text('上内 12'), findsOneWidget);
+      expect(tester.getTopLeft(pill).dy, top - 18);
+      expect(previews, [defaults]);
+      await tester.tap(find.byKey(const ValueKey<String>('margin-cancel')));
+      await tester.pumpAndSettle();
+      expect(cancelled, isTrue);
+      expect(applied, isEmpty);
     });
   });
 }
 
-ReaderMargins _defaultScanner() =>
-    ReaderMargins.defaults(safeTop: 41, safeBottom: 16, side: 20, inner: 12);
+Future<void> _showEditor(
+  WidgetTester tester, {
+  required ValueChanged<ReaderMargins> onPreview,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: MarginEditor(
+          margins: _defaults(),
+          defaults: _defaults(),
+          onCancel: () {},
+          onApply: (_) {},
+          onPreview: onPreview,
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
 
 /// 只记录带渐变的矩形，用来确认页眉/正文和正文/页脚间隙的阴影。
 class _RecordingCanvas implements ui.Canvas {
