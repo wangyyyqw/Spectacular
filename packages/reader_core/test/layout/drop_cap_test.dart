@@ -20,7 +20,7 @@ void main() {
     expect(sheet.rules, hasLength(2), reason: '规则保留但伪元素选择器不匹配');
   });
 
-  test('initial-letter 解析与继承', () {
+  test('initial-letter 解析且不继承', () {
     ComputedStyle parse(String value) => ComputedStyle(<String, String>{
       'font-size': '16px',
       'initial-letter': value,
@@ -34,7 +34,7 @@ void main() {
       parent: parent,
       explicitProperties: const <String>{'color'},
     );
-    expect(child.initialLetterLines, 2.0, reason: '可继承');
+    expect(child.initialLetterLines, isNull, reason: '仅作用于声明该属性的块容器');
   });
 
   test('段首大字 run：首行放大且基线对齐、后续行正常（近似渲染核心）', () {
@@ -65,15 +65,14 @@ void main() {
     expect(layout.lines.first.baseline, greaterThan(layout.lines.first.top + 24));
   });
 
-  test('纯字母段首不误触发近似（无大字 run 时行高正常）', () {
+  test('纯布局层不自动放大，首字 run 由章节源生成', () {
     final style = ComputedStyle(const <String, String>{
       'font-size': '16px',
       'line-height': '1.5',
       'font-family': 'Ahem',
       'initial-letter': '3',
     });
-    // 属性登记不代表自动放大：无匹配 run 时布局与现状一致
-    // （放大由样式引擎按段首 run 驱动，随作者样式接线启用）。
+    // 布局层只消费显式 run；章节源负责把 initial-letter 转成首字 run。
     final layout = TextLayoutEngine.layout(
       text: 'abc def ghi',
       style: style,

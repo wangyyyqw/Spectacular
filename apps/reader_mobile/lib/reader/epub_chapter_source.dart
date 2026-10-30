@@ -35,6 +35,7 @@ import 'package:reader_core/parser/document_parser.dart' show ParsedElement;
 import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
+import 'package:reader_core/position/cfi.dart' show cfiWithCharOffset;
 import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -341,6 +342,60 @@ class EpubChapterSource
       startCfi: startCfi,
       groupId: groupId,
       containerSides: containerSides,
+    );
+  }
+
+  /// `initial-letter` 首字块：只保留字符自身的文字样式，清空段落盒的
+  /// 背景、边框、内边距和上下外边距，右侧留出 [gap] 给正文绕排。
+  PageBlock _dropCapBlock({
+    required String text,
+    required ComputedStyle style,
+    required double bodyLineHeight,
+    required double lineCount,
+    required double gap,
+    required double effectiveOpacity,
+    String? startCfi,
+  }) {
+    final extent = bodyLineHeight * lineCount;
+    final declarations = <String, String>{
+      'margin': '0 ${gap.toStringAsFixed(2)}px 0 0',
+      'padding': '0',
+      'border': '0',
+      'background-color': 'transparent',
+      'background-image': 'none',
+      'line-height': '${extent.toStringAsFixed(2)}px',
+      'float': 'left',
+    };
+    if (!style.explicitProperties.contains('font-size')) {
+      declarations['font-size'] = '${(extent * 0.85).toStringAsFixed(2)}px';
+    }
+    final dropStyle = ComputedStyle(
+      declarations,
+      parent: style,
+      explicitProperties: declarations.keys.toSet(),
+      containingWidth: contentWidth,
+      rootFontSize: style.fontSize,
+    );
+    final measured = _layoutCache.layout(
+      text: text,
+      style: dropStyle,
+      maxWidth: contentWidth,
+    );
+    final glyphWidth = measured.lines.isEmpty
+        ? 1.0
+        : measured.lines.first.advanceWidth.clamp(1.0, contentWidth);
+    return _floatedTextBlock(
+      layout: withLayoutWidth(
+        measured,
+        width: glyphWidth,
+        maxWidth: glyphWidth,
+      ),
+      style: dropStyle,
+      side: FloatSide.left,
+      spaceBefore: 0,
+      spaceAfter: 0,
+      startCfi: startCfi,
+      effectiveOpacity: effectiveOpacity,
     );
   }
 
@@ -1280,14 +1335,15 @@ class EpubChapterSource
     return buffer.toString();
   }
 
-  /// ::first-letter（P8-09）：命中规则的声明合成首字符 run（字号/
-  /// 颜色/字重放大），借用行内 run 机制排版（行高随之撑起）。
+  /// 首字符 run：合并作者 `::first-letter` 声明与 `initial-letter` 的首字
+  /// 下沉语义，借用行内 run 机制放大首字并撑高首行。
   StyledRun? _firstLetterRun(
     List<CssStylesheet> sheets,
     List<SelectorElement> ancestors,
     String text,
-    ComputedStyle baseStyle,
-  ) {
+    ComputedStyle baseStyle, {
+    bool sizeInitialLetter = true,
+  }) {
     if (ancestors.isEmpty || text.isEmpty) {
       return null;
     }
@@ -1328,7 +1384,19 @@ class EpubChapterSource
         }
       }
     }
-    if (declarations.isEmpty) {
+    final initialLetterLines = baseStyle.initialLetterLines;
+    final hasInitialLetter =
+        initialLetterLines != null && initialLetterLines > 0;
+    if (sizeInitialLetter && hasInitialLetter) {
+      // `initial-letter: n` 的首值表示占用 n 行；用绝对行高让首行精确
+      // 让出 n 倍正文行距。两值写法的下沉行数暂按首值近似。
+      final extent = baseStyle.lineHeight * initialLetterLines!;
+      // 字形实际墨高可能大于 line-height；略收小字号，避免字体度量的
+      // ascent+descent 把浮动盒撑过 n 行、多挤掉一行正文。
+      declarations.putIfAbsent('font-size', () => '${extent * 0.85}px');
+      declarations.putIfAbsent('line-height', () => '${extent}px');
+    }
+    if (declarations.isEmpty && !hasInitialLetter) {
       return null;
     }
     // 首字符 = 首个非空白字符。
@@ -1357,6 +1425,12 @@ class EpubChapterSource
       codeUnit == 0x09 ||
       codeUnit == 0x0A ||
       codeUnit == 0x0D;
+
+  static bool _isHighSurrogate(int codeUnit) =>
+      codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
+
+  static bool _isLowSurrogate(int codeUnit) =>
+      codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
 
   static String _chainKey(List<SelectorElement> chain) {
     final parts = <String>[];
@@ -5051,6 +5125,85 @@ class EpubChapterSource
                 pseudo: '::after',
               ),
         ];
+        // `initial-letter` 的首字符必须脱离正文行盒，作为一个左侧浮动块
+        // 占住 n 行；正文随后按剩余宽度重排，才能得到真正的多行绕排。
+        String? dropCapText;
+        ComputedStyle? dropCapStyle;
+        final initialLetterLines = blockStyle.initialLetterLines;
+        if (initialLetterLines != null &&
+            initialLetterLines > 0 &&
+            paragraphText.isNotEmpty &&
+            _floatSideOfStyle(blockStyle) == null &&
+            containerFloat == null) {
+          final firstLetter = _firstLetterRun(
+            styledSheets,
+            ancestors,
+            paragraphText,
+            blockStyle,
+            sizeInitialLetter: false,
+          );
+          if (firstLetter != null) {
+            final start = firstLetter.start;
+            var end = firstLetter.end;
+            if (end < paragraphText.length &&
+                _isHighSurrogate(paragraphText.codeUnitAt(start)) &&
+                _isLowSurrogate(paragraphText.codeUnitAt(end))) {
+              end += 1;
+            }
+            dropCapText = paragraphText.substring(start, end);
+            dropCapStyle = firstLetter.style;
+            int remap(int offset) {
+              if (offset <= start) {
+                return offset;
+              }
+              if (offset >= end) {
+                return offset - (end - start);
+              }
+              return start;
+            }
+
+            paragraphText =
+                paragraphText.substring(0, start) +
+                paragraphText.substring(end);
+            paragraphMarks = <InlineMark>[
+              for (final mark in paragraphMarks)
+                if (remap(mark.end) > remap(mark.start))
+                  InlineMark(
+                    start: remap(mark.start),
+                    end: remap(mark.end),
+                    tag: mark.tag,
+                    classes: mark.classes,
+                    chain: mark.chain,
+                  ),
+            ];
+            paragraphImages = <InlineImageMark>[
+              for (final image in paragraphImages)
+                if (image.offset < start || image.offset >= end)
+                  InlineImageMark(
+                    offset: remap(image.offset),
+                    node: image.node,
+                  ),
+            ];
+            paragraphRubies = <RubyMark>[
+              for (final ruby in paragraphRubies)
+                if (remap(ruby.end) > remap(ruby.start))
+                  RubyMark(
+                    start: remap(ruby.start),
+                    end: remap(ruby.end),
+                    text: ruby.text,
+                  ),
+            ];
+            pseudoImageMarks = <_PseudoImageMark>[
+              for (final image in pseudoImageMarks)
+                if (image.offset < start || image.offset >= end)
+                  _PseudoImageMark(
+                    offset: remap(image.offset),
+                    url: image.url,
+                    pseudo: image.pseudo,
+                  ),
+            ];
+          }
+        }
         final inlineContext = (
           ancestors: ancestors,
           style: blockStyle,
@@ -5164,12 +5317,14 @@ class EpubChapterSource
             ),
           );
         }
-        final firstLetter = _firstLetterRun(
-          styledSheets,
-          ancestors,
-          paragraphText,
-          blockStyle,
-        );
+        final firstLetter = dropCapText == null
+            ? _firstLetterRun(
+                styledSheets,
+                ancestors,
+                paragraphText,
+                blockStyle,
+              )
+            : null;
         if (firstLetter != null) {
           runs = [...runs, firstLetter];
         }
@@ -5231,6 +5386,24 @@ class EpubChapterSource
           // 浮动块排在段落之前：分页时它们先占位，段落行按剩余宽度收窄。
           blocks.addAll(inlineFloats);
         }
+        if (dropCapText != null && dropCapStyle != null) {
+          blocks.add(
+            _dropCapBlock(
+              text: dropCapText,
+              style: dropCapStyle,
+              bodyLineHeight: layout.lines.first.height,
+              lineCount: initialLetterLines!,
+              gap: blockStyle.fontSize * 0.25,
+              effectiveOpacity: blockOpacity,
+              startCfi: cfi,
+            ),
+          );
+        }
+        // 首字拆出后，正文块内偏移 0 已对应原文偏移
+        // dropCapText.length；锚点 CFI 也同步前移，标注区间才不会错一位。
+        final contentCfi = dropCapText == null || cfi == null
+            ? cfi
+            : cfiWithCharOffset(cfi, dropCapText.length);
         if (layout.lineCount > 0) {
           // 相对定位只抵扣下一个常规流块；绝对/固定定位和浮动不占流，
           // 不能在中途吞掉抵扣，否则其后的正文会整体多下移一次。
@@ -5255,7 +5428,7 @@ class EpubChapterSource
                 side: floatSide,
                 spaceBefore: spaceBefore,
                 spaceAfter: spaceAfter,
-                startCfi: cfi,
+                startCfi: contentCfi,
                 // 容器浮动组用专属组号（分页时整组当一个浮动盒）。
                 groupId: floatSide == containerFloat && containerFloat != null
                     ? containerFloatGroup
@@ -5270,7 +5443,7 @@ class EpubChapterSource
             layout: layout,
             style: blockStyle,
             containingWidth: contentWidth,
-            startCfi: cfi,
+            startCfi: contentCfi,
             groupId: groupId,
             listMarker: marker,
             // 块级上下边距进分页几何（含负值）：作者/UA margin 生效，

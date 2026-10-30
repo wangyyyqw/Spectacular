@@ -338,10 +338,16 @@ abstract final class SelectionOps {
     if (startCfi == null || startCfi.isEmpty) {
       return null;
     }
+    final startBaseOffset = cfiCharOffset(startCfi) ?? 0;
+    final endBaseOffset = cfiCharOffset(endCfi ?? startCfi) ?? 0;
     final startOffset =
-        selection.start.lineBox.blockTextOffset + selection.start.charOffset;
+        startBaseOffset +
+        selection.start.lineBox.blockTextOffset +
+        selection.start.charOffset;
     final endOffset =
-        selection.end.lineBox.blockTextOffset + selection.end.charOffset;
+        endBaseOffset +
+        selection.end.lineBox.blockTextOffset +
+        selection.end.charOffset;
     return (
       start: cfiWithCharOffset(startCfi, startOffset),
       end: cfiWithCharOffset(endCfi ?? startCfi, endOffset),

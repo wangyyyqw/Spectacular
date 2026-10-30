@@ -1850,8 +1850,8 @@ class ComputedStyle {
         : _parseTextAlign(rawAlignLast) ?? parent?.textAlignLast;
     final rawInitialLetter = explicitValue('initial-letter');
     final initialLetterLines = rawInitialLetter == null
-        ? parent?.initialLetterLines
-        : _parseInitialLetter(rawInitialLetter) ?? parent?.initialLetterLines;
+        ? null
+        : _parseInitialLetter(rawInitialLetter);
     // P2-37 抽样属性（均不继承）：opacity 初始 1；text-overflow 初始
     // clip；box-shadow 初始无。
     final rawOpacity = explicitValue('opacity');
