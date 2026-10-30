@@ -523,6 +523,7 @@ STYLE_KEYS = (
     ('textIndent', 'textIndent', 'number'),
     ('fontWeight', 'fontWeight', 'number'),
     ('fontStretch', 'fontStretch', 'percent'),
+    ('fontFeatureSettings', 'fontFeatureSettings', 'string'),
     ('textAlign', 'textAlign', 'enum'),
     ('whiteSpace', 'whiteSpace', 'enum'),
     ('textTransform', 'textTransform', 'enum'),
@@ -585,11 +586,19 @@ def compare_style(browser_style, engine_style):
             equal = a is not None and b is not None and abs(a - b) <= STYLE_EPS
         elif kind == 'length_json':
             equal = length_json_equal(left, right)
+        elif kind == 'string':
+            equal = norm_css_string(left) == norm_css_string(right)
         else:
             equal = norm_enum(left) == norm_enum(right)
         if not equal:
             problems.append(f'{e_key}: 浏览器 {left} / 引擎 {right}')
     return problems
+
+
+def norm_css_string(value):
+    """归一化逗号分隔的计算值字符串（引号、空白）。"""
+    text = re.sub(r'\s+', ' ', str(value).strip()).replace("'", '"')
+    return re.sub(r'\s*,\s*', ', ', text)
 
 
 def length_json_equal(browser_value, engine_value):

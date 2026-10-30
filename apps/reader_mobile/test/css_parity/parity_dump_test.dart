@@ -268,6 +268,7 @@ Map<String, Object?> _styleJson(ComputedStyle? style) {
   return <String, Object?>{
     'fontFamily': style.fontFamily,
     'fontVariantCaps': style.fontVariantCaps.name,
+    'fontFeatureSettings': style.fontFeatureSettingsValue,
     'fontStretch': _n(style.fontStretch),
     'fontSize': _n(style.fontSize),
     'lineHeight': _n(style.lineHeight),

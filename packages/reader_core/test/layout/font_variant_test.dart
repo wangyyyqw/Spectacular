@@ -63,6 +63,57 @@ void main() {
     );
   });
 
+  test('font-feature-settings 解析、映射并覆盖简写推导值', () {
+    final style = _style(const {
+      'font-variant-ligatures': 'none',
+      'font-feature-settings': '"liga" on, \'ss01\' 1, "kern" on',
+    });
+    expect(style.fontFeatureSettingsValue, '"kern", "liga", "ss01"');
+    expect(style.fontFeatureSettings, const <CssFontFeatureSetting>[
+      CssFontFeatureSetting('kern', 1),
+      CssFontFeatureSetting('liga', 1),
+      CssFontFeatureSetting('ss01', 1),
+    ]);
+    final features = TextLayoutEngine.textStyleFor(style).fontFeatures!;
+    expect(features, contains(const FontFeature.disable('clig')));
+    expect(features.sublist(features.length - 3), const <FontFeature>[
+      FontFeature.enable('kern'),
+      FontFeature.enable('liga'),
+      FontFeature.enable('ss01'),
+    ], reason: '显式设置位于最后，可覆盖 font-variant-ligatures:none');
+  });
+
+  test('font-feature-settings 继承、normal 重置与非法值回退', () {
+    final parent = _style(const {
+      'font-feature-settings': '"kern" 0, "liga" off',
+    });
+    final inherited = ComputedStyle(const <String, String>{}, parent: parent);
+    expect(inherited.fontFeatureSettingsValue, '"kern" 0, "liga" 0');
+
+    final reset = ComputedStyle(const <String, String>{
+      'font-feature-settings': 'normal',
+    }, parent: parent);
+    expect(reset.fontFeatureSettingsValue, 'normal');
+
+    final invalid = ComputedStyle(const <String, String>{
+      'font-feature-settings': '"bad" 1',
+    }, parent: parent);
+    expect(invalid.fontFeatureSettingsValue, '"kern" 0, "liga" 0');
+  });
+
+  test('font-feature-settings 同名标签后值覆盖并按标签归一', () {
+    final style = _style(const {
+      'font-feature-settings': '"liga" off, "kern" 0, "liga" on',
+    });
+    expect(style.fontFeatureSettingsValue, '"kern" 0, "liga"');
+  });
+
+  test('font-feature-settings 进入布局指纹', () {
+    final normal = _style();
+    final kernOff = _style(const {'font-feature-settings': '"kern" 0'});
+    expect(kernOff.layoutFingerprint, isNot(normal.layoutFingerprint));
+  });
+
   test('font-stretch 映射到 wdth 可变字体轴', () {
     final condensed = TextLayoutEngine.textStyleFor(
       _style(const {'font-stretch': 'condensed'}),

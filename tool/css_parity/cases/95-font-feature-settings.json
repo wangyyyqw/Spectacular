@@ -1,0 +1,8 @@
+{
+  "name": "95-font-feature-settings",
+  "tags": [
+    "font-feature-settings"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 24px; line-height: 1.6; } p { margin: 8px 0; } .kern-off { font-feature-settings: \"kern\" 0; } .kern-on { font-kerning: none; font-feature-settings: \"kern\" 1; } .multi { font-variant-ligatures: none; font-feature-settings: \"liga\" on, 'ss01' 1, \"kern\" off; } .palt { font-feature-settings: \"palt\" 1; } .normal { font-feature-settings: normal; }",
+  "html": "<p class=\"normal\">默认字偶距 AVATAR To. WA LT P, F.</p><p class=\"kern-off\">关闭字偶距 AVATAR To. WA LT P, F.</p><p class=\"kern-on\">显式开启 AVATAR To. WA LT P, F.</p><p class=\"multi\">多特性 Abc AVATAR To. Wa</p><p class=\"palt\">比例宽度 Abc AVATAR，标点「引号」。</p>"
+}

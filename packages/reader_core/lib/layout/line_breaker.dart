@@ -3289,6 +3289,11 @@ abstract final class TextLayoutEngine {
     if (style.fontKerning == CssFontKerning.none) {
       features.add(const FontFeature.disable('kern'));
     }
+    // 作者显式特性最后追加，同标签可覆盖上面由 font-variant/kerning
+    // 推导出的默认值。
+    for (final setting in style.fontFeatureSettings) {
+      features.add(FontFeature(setting.tag, setting.value));
+    }
     return features.isEmpty ? null : features;
   }
 
