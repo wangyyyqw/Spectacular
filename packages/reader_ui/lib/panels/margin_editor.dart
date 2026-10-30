@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../page_furniture/page_furniture.dart';
@@ -6,8 +7,8 @@ import '../theme/reader_margins.dart';
 /// 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态，正文可见，
 /// 上下各拆「外/内」两段，可一直调到 0 让正文铺进安全区。
 ///
-/// 交互：点数值两侧的箭头步进 1，或在胶囊上沿对应方向拖动；
-/// 「恢复初始默认值」回到默认，「取消」丢弃改动，「保留」应用并退出。
+/// 交互：点箭头步进 1，或沿对应方向拖动，按钮与边距按 1:1 同步移动；
+/// 「恢复默认」回到默认，「取消」丢弃改动，「保存」应用并退出。
 class MarginEditor extends StatefulWidget {
   /// 创建编辑器。
   const MarginEditor({
@@ -32,7 +33,7 @@ class MarginEditor extends StatefulWidget {
   /// 取消（丢弃改动）。
   final VoidCallback onCancel;
 
-  /// 保留（应用改动）。
+  /// 保存（应用改动）。
   final ValueChanged<ReaderMargins> onApply;
 
   /// 草稿变化（拖动/步进时实时回调，供上层立即预览排版）。
@@ -59,6 +60,7 @@ class _MarginEditorState extends State<MarginEditor> {
 
   /// 更新草稿并立即通知上层预览（拖动/步进都走这里）。
   void _apply(ReaderMargins next) {
+    if (next == _draft) return;
     setState(() => _draft = next);
     widget.onPreview?.call(next);
   }
@@ -71,199 +73,193 @@ class _MarginEditorState extends State<MarginEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) => Stack(
         children: <Widget>[
-          // 斜纹只画在外段和页眉页脚与正文之间的内段，正文不盖遮罩。
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                key: const ValueKey<String>('margin-zone-painter'),
-                painter: _MarginZonePainter(
-                  outerPadding: _draft.toOuterPadding(),
-                  bodyPadding: _bodyPadding,
-                  showPageFurniture: widget.showPageFurniture,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-                  shadowColor: theme.colorScheme.onSurface.withValues(
-                    alpha: 0.1,
-                  ),
-                  lineColor: theme.colorScheme.primary.withValues(alpha: 0.35),
-                ),
-                size: constraints.biggest,
-              ),
-            ),
-          ),
-          // 顶部：上外 / 上内
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    _Pill(
-                      label: '上外',
-                      axis: Axis.vertical,
-                      value: _draft.topOuter,
-                      max: widget.maxOuter,
-                      onDelta: (delta) => _apply(
-                        _draft.copyWith(
-                          topOuter: (_draft.topOuter + delta).clamp(
-                            0,
-                            widget.maxOuter,
-                          ),
-                        ),
-                      ),
-                      key: const ValueKey<String>('margin-top-outer'),
-                    ),
-                    const SizedBox(width: 12),
-                    _Pill(
-                      label: '上内',
-                      axis: Axis.vertical,
-                      value: _draft.topInner,
-                      max: widget.maxInner,
-                      onDelta: (delta) => _apply(
-                        _draft.copyWith(
-                          topInner: (_draft.topInner + delta).clamp(
-                            0,
-                            widget.maxInner,
-                          ),
-                        ),
-                      ),
-                      key: const ValueKey<String>('margin-top-inner'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // 左右
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: _Pill(
-                    label: '左',
-                    value: _draft.left,
-                    max: widget.maxSide,
-                    onDelta: (delta) => _apply(
-                      _draft.copyWith(
-                        left: (_draft.left + delta).clamp(0, widget.maxSide),
-                      ),
-                    ),
-                    key: const ValueKey<String>('margin-left'),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _Pill(
-                    label: '右',
-                    dragSign: -1,
-                    value: _draft.right,
-                    max: widget.maxSide,
-                    onDelta: (delta) => _apply(
-                      _draft.copyWith(
-                        right: (_draft.right + delta).clamp(0, widget.maxSide),
-                      ),
-                    ),
-                    key: const ValueKey<String>('margin-right'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 底部：下内 / 下外
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      _Pill(
-                        label: '下内',
-                        axis: Axis.vertical,
-                        dragSign: -1,
-                        value: _draft.bottomInner,
-                        max: widget.maxInner,
-                        onDelta: (delta) => _apply(
-                          _draft.copyWith(
-                            bottomInner: (_draft.bottomInner + delta).clamp(
-                              0,
-                              widget.maxInner,
-                            ),
-                          ),
-                        ),
-                        key: const ValueKey<String>('margin-bottom-inner'),
-                      ),
-                      const SizedBox(width: 12),
-                      _Pill(
-                        label: '下外',
-                        axis: Axis.vertical,
-                        dragSign: -1,
-                        value: _draft.bottomOuter,
-                        max: widget.maxOuter,
-                        onDelta: (delta) => _apply(
-                          _draft.copyWith(
-                            bottomOuter: (_draft.bottomOuter + delta).clamp(
-                              0,
-                              widget.maxOuter,
-                            ),
-                          ),
-                        ),
-                        key: const ValueKey<String>('margin-bottom-outer'),
-                      ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        _CompactAction(
-                          key: const ValueKey<String>('margin-reset'),
-                          onTap: () => _apply(widget.defaults),
-                          icon: Icons.restore,
-                          label: '恢复默认',
-                        ),
-                        _CompactAction(
-                          key: const ValueKey<String>('margin-cancel'),
-                          onTap: widget.onCancel,
-                          icon: Icons.close,
-                          label: '取消',
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // 保存放在屏幕 3/4 高度，避开底部预览，并使用轻量胶囊。
-          Positioned(
-            top: constraints.maxHeight * 0.75,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _ApplyCapsule(onTap: () => widget.onApply(_draft)),
-            ),
-          ),
+          _buildZones(context, constraints.biggest),
+          _verticalControls(top: true),
+          _sideControls(),
+          _verticalControls(top: false),
         ],
       ),
     );
   }
+
+  Widget _buildZones(BuildContext context, Size size) {
+    final scheme = Theme.of(context).colorScheme;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: CustomPaint(
+          key: const ValueKey<String>('margin-zone-painter'),
+          painter: _MarginZonePainter(
+            outerPadding: _draft.toOuterPadding(),
+            bodyPadding: _bodyPadding,
+            showPageFurniture: widget.showPageFurniture,
+            color: scheme.onSurface.withValues(alpha: 0.06),
+            shadowColor: scheme.onSurface.withValues(alpha: 0.1),
+            lineColor: scheme.primary.withValues(alpha: 0.35),
+          ),
+          size: size,
+        ),
+      ),
+    );
+  }
+
+  Widget _verticalControls({required bool top}) => Positioned(
+    top: top ? 0 : null,
+    bottom: top ? null : 0,
+    left: 0,
+    right: 0,
+    child: SafeArea(
+      top: top,
+      bottom: !top,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Padding(
+            padding: EdgeInsets.only(top: top ? 12 : 0, bottom: top ? 0 : 12),
+            child: _verticalRow(top: top),
+          ),
+          // 操作栏固定在底部，调节按钮在它上方移动，避免拖到保存按钮下面。
+          if (!top) ...<Widget>[_buildActions(), const SizedBox(height: 8)],
+        ],
+      ),
+    ),
+  );
+
+  Widget _verticalRow({required bool top}) => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    crossAxisAlignment: top ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+    children: <Widget>[
+      _verticalControl(top: top, outer: top),
+      const SizedBox(width: 12),
+      _verticalControl(top: top, outer: !top),
+    ],
+  );
+
+  Widget _verticalControl({required bool top, required bool outer}) {
+    final value = _verticalValue(top: top, outer: outer);
+    final offset = outer
+        ? value
+        : (top ? _bodyPadding.top : _bodyPadding.bottom);
+    final max = outer ? widget.maxOuter : widget.maxInner;
+    return Padding(
+      padding: EdgeInsets.only(top: top ? offset : 0, bottom: top ? 0 : offset),
+      child: _Pill(
+        key: ValueKey<String>(
+          'margin-${top ? 'top' : 'bottom'}-${outer ? 'outer' : 'inner'}',
+        ),
+        label: '${top ? '上' : '下'}${outer ? '外' : '内'}',
+        axis: Axis.vertical,
+        dragSign: top ? 1 : -1,
+        value: value,
+        max: max,
+        onDelta: (delta) => _changeVertical(delta, top: top, outer: outer),
+      ),
+    );
+  }
+
+  double _verticalValue({required bool top, required bool outer}) => top
+      ? (outer ? _draft.topOuter : _draft.topInner)
+      : (outer ? _draft.bottomOuter : _draft.bottomInner);
+
+  void _changeVertical(double delta, {required bool top, required bool outer}) {
+    final max = outer ? widget.maxOuter : widget.maxInner;
+    final next = (_verticalValue(top: top, outer: outer) + delta).clamp(
+      0.0,
+      max,
+    );
+    _apply(
+      _draft.copyWith(
+        topOuter: top && outer ? next : null,
+        topInner: top && !outer ? next : null,
+        bottomOuter: !top && outer ? next : null,
+        bottomInner: !top && !outer ? next : null,
+      ),
+    );
+  }
+
+  Widget _sideControls() => Center(
+    child: SafeArea(
+      top: false,
+      bottom: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 按上限预留移动空间，窄屏也保持按钮宽度稳定，左右不会相互覆盖。
+          final width = (constraints.maxWidth / 2 - widget.maxSide - 8).clamp(
+            52.0,
+            100.0,
+          );
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              _sideControl(left: true, width: width),
+              _sideControl(left: false, width: width),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+
+  Widget _sideControl({required bool left, required double width}) {
+    final value = left ? _draft.left : _draft.right;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: left ? 8 + value : 0,
+        right: left ? 0 : 8 + value,
+      ),
+      child: SizedBox(
+        width: width,
+        child: _Pill(
+          key: ValueKey<String>('margin-${left ? 'left' : 'right'}'),
+          label: left ? '左' : '右',
+          dragSign: left ? 1 : -1,
+          value: value,
+          max: widget.maxSide,
+          onDelta: (delta) => _changeSide(delta, left: left),
+        ),
+      ),
+    );
+  }
+
+  void _changeSide(double delta, {required bool left}) {
+    final current = left ? _draft.left : _draft.right;
+    final next = (current + delta).clamp(0.0, widget.maxSide);
+    _apply(
+      _draft.copyWith(left: left ? next : null, right: left ? null : next),
+    );
+  }
+
+  Widget _buildActions() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: <Widget>[
+        _ActionCapsule(
+          key: const ValueKey<String>('margin-cancel'),
+          onTap: widget.onCancel,
+          icon: Icons.close,
+          label: '取消',
+        ),
+        _ActionCapsule(
+          key: const ValueKey<String>('margin-reset'),
+          onTap: () => _apply(widget.defaults),
+          icon: Icons.restore,
+          label: '恢复默认',
+        ),
+        _ActionCapsule(
+          key: const ValueKey<String>('margin-apply'),
+          onTap: () => widget.onApply(_draft),
+          icon: Icons.check,
+          label: '保存',
+          primary: true,
+        ),
+      ],
+    ),
+  );
 }
 
 /// 数值胶囊：`⌃ 标签 值 ⌄`，点箭头步进或在胶囊上沿对应方向拖动。
@@ -295,115 +291,87 @@ class _Pill extends StatefulWidget {
 
 class _PillState extends State<_Pill> {
   bool _dragging = false;
-  int? _pointer;
   Offset _lastPosition = Offset.zero;
-  double _pendingDelta = 0;
 
   double _axisDelta(Offset delta) =>
       (widget.axis == Axis.horizontal ? delta.dx : delta.dy) * widget.dragSign;
 
-  void _pointerDown(PointerDownEvent event) {
-    if (_pointer != null) {
-      return;
-    }
-    _pointer = event.pointer;
-    _lastPosition = event.localPosition;
-    _pendingDelta = 0;
+  void _dragStart(DragStartDetails details) {
+    _lastPosition = details.globalPosition;
+    setState(() => _dragging = true);
   }
 
-  void _pointerMove(PointerMoveEvent event) {
-    if (event.pointer != _pointer) {
-      return;
-    }
-    final delta = event.localPosition - _lastPosition;
-    _lastPosition = event.localPosition;
-    final axisDelta = _axisDelta(delta);
-    if (!_dragging) {
-      _pendingDelta += axisDelta;
-      if (_pendingDelta.abs() < 3) {
-        return;
-      }
-      setState(() => _dragging = true);
-      // 越过手势阈值时补回前几次移动，慢速拖动也不会丢距离。
-      widget.onDelta(_pendingDelta / 6);
-      _pendingDelta = 0;
-      return;
-    }
-    // 6 逻辑像素对应 1 个边距单位；每帧直接消费增量，拖动连续。
-    widget.onDelta(axisDelta / 6);
+  void _dragUpdate(DragUpdateDetails details) {
+    // 按钮也在移动，必须以屏幕坐标计增量，避免局部坐标产生抵消或跳变。
+    final delta = details.globalPosition - _lastPosition;
+    _lastPosition = details.globalPosition;
+    widget.onDelta(_axisDelta(delta));
   }
 
-  void _pointerUp(PointerEvent event) {
-    if (event.pointer != _pointer) {
-      return;
-    }
-    _pointer = null;
-    _pendingDelta = 0;
-    if (mounted) {
-      setState(() => _dragging = false);
-    }
-  }
-
-  void _pointerCancel(PointerCancelEvent event) {
-    if (event.pointer != _pointer) {
-      return;
-    }
-    _pointer = null;
-    _pendingDelta = 0;
-    if (mounted) {
-      setState(() => _dragging = false);
-    }
-  }
+  void _dragEnd() => setState(() => _dragging = false);
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final horizontal = widget.axis == Axis.horizontal;
     return Material(
-      color: scheme.surface,
-      elevation: _dragging ? 6 : 3,
-      borderRadius: BorderRadius.circular(18),
-      child: Listener(
-        // 使用原始指针移动：子级箭头仍能正常 tap，且不会与内部 InkResponse
-        // 争夺手势竞技场。上层预览触发的重建也不会打断正在进行的拖动。
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: _pointerDown,
-        onPointerMove: _pointerMove,
-        onPointerUp: _pointerUp,
-        onPointerCancel: _pointerCancel,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _Arrow(
-                icon: Icons.keyboard_arrow_up,
-                onTap: widget.value >= widget.max
-                    ? null
-                    : () => widget.onDelta(1),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Text(
-                  '${widget.label} ${widget.value.round()}',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: scheme.onSurface,
-                    fontFeatures: const <FontFeature>[
-                      FontFeature.tabularFigures(),
-                    ],
-                  ),
-                ),
-              ),
-              _Arrow(
-                icon: Icons.keyboard_arrow_down,
-                onTap: widget.value <= 0 ? null : () => widget.onDelta(-1),
-              ),
-            ],
-          ),
+      color: _dragging ? scheme.primaryContainer : scheme.surface,
+      elevation: _dragging ? 6 : 2,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: _dragging ? scheme.primary : scheme.outlineVariant,
         ),
+      ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        dragStartBehavior: DragStartBehavior.down,
+        onHorizontalDragStart: horizontal ? _dragStart : null,
+        onHorizontalDragUpdate: horizontal ? _dragUpdate : null,
+        onHorizontalDragEnd: horizontal ? (_) => _dragEnd() : null,
+        onHorizontalDragCancel: horizontal ? _dragEnd : null,
+        onVerticalDragStart: horizontal ? null : _dragStart,
+        onVerticalDragUpdate: horizontal ? null : _dragUpdate,
+        onVerticalDragEnd: horizontal ? null : (_) => _dragEnd(),
+        onVerticalDragCancel: horizontal ? null : _dragEnd,
+        child: _buildContent(scheme),
       ),
     );
   }
+
+  Widget _buildContent(ColorScheme scheme) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _Arrow(
+          icon: Icons.keyboard_arrow_up,
+          onTap: widget.value >= widget.max ? null : () => widget.onDelta(1),
+        ),
+        Flexible(child: _buildValue(scheme)),
+        _Arrow(
+          icon: Icons.keyboard_arrow_down,
+          onTap: widget.value <= 0 ? null : () => widget.onDelta(-1),
+        ),
+      ],
+    ),
+  );
+
+  // 固定标签宽度，个位与两位数切换时按钮不会横向抖动。
+  Widget _buildValue(ColorScheme scheme) => SizedBox(
+    width: (widget.label.length + 3) * 12,
+    height: 36,
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        '${widget.label} ${widget.value.round()}',
+        style: TextStyle(
+          fontSize: 12,
+          color: _dragging ? scheme.onPrimaryContainer : scheme.onSurface,
+          fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+        ),
+      ),
+    ),
+  );
 }
 
 class _Arrow extends StatelessWidget {
@@ -418,52 +386,16 @@ class _Arrow extends StatelessWidget {
     return InkResponse(
       onTap: onTap,
       radius: 16,
-      child: Padding(
-        padding: const EdgeInsets.all(2),
-        child: Icon(
-          icon,
-          size: 18,
-          color: onTap == null
-              ? scheme.onSurface.withValues(alpha: 0.25)
-              : scheme.onSurface.withValues(alpha: 0.8),
-        ),
-      ),
-    );
-  }
-}
-
-class _ApplyCapsule extends StatelessWidget {
-  const _ApplyCapsule({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      elevation: 2,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        key: const ValueKey<String>('margin-apply'),
-        customBorder: const StadiumBorder(),
-        onTap: onTap,
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(Icons.check, size: 15, color: Color(0xFF2B5B84)),
-              SizedBox(width: 4),
-              Text(
-                '保留',
-                style: TextStyle(
-                  color: Color(0xFF2B5B84),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+      child: SizedBox(
+        width: 24,
+        height: 36,
+        child: Center(
+          child: Icon(
+            icon,
+            size: 18,
+            color: onTap == null
+                ? scheme.onSurface.withValues(alpha: 0.25)
+                : scheme.onSurface.withValues(alpha: 0.8),
           ),
         ),
       ),
@@ -471,44 +403,54 @@ class _ApplyCapsule extends StatelessWidget {
   }
 }
 
-class _CompactAction extends StatelessWidget {
-  const _CompactAction({
+class _ActionCapsule extends StatelessWidget {
+  const _ActionCapsule({
     super.key,
     required this.onTap,
     required this.icon,
     required this.label,
+    this.primary = false,
   });
 
   final VoidCallback onTap;
   final IconData icon;
   final String label;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final foreground = primary ? scheme.onPrimary : scheme.onSurfaceVariant;
     return Material(
-      color: scheme.surface.withValues(alpha: 0.94),
-      borderRadius: BorderRadius.circular(14),
+      color: primary ? scheme.primary : scheme.surface,
+      elevation: primary ? 2 : 1,
+      shape: const StadiumBorder(),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        customBorder: const StadiumBorder(),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(icon, size: 14, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-              ),
-            ],
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: _buildLabel(foreground),
         ),
       ),
     );
   }
+
+  Widget _buildLabel(Color foreground) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: <Widget>[
+      Icon(icon, size: 14, color: foreground),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: foreground,
+          fontWeight: primary ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+    ],
+  );
 }
 
 /// 只画留白区的斜纹与边框：正文矩形、页眉页脚槽内不落任何颜色。
