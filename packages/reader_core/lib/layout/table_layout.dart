@@ -37,6 +37,7 @@ class TableRenderSpec {
     required this.columnXs,
     required this.rowYs,
     required this.tableWidth,
+    this.flex = false,
   });
 
   /// 本切片内的格（行区间过滤 + 坐标已平移到切片顶）。
@@ -50,6 +51,9 @@ class TableRenderSpec {
 
   /// 表格总宽。
   final double tableWidth;
+
+  /// 该载荷由 Flex 行生成：复用单元格绘制，但块角色仍是普通块。
+  final bool flex;
 }
 
 /// 表格列宽两遍测量（P3-17，技术方案 §8.5、CSS Tables 3 的简化口径）。

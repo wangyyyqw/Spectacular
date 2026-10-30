@@ -1667,9 +1667,15 @@ class PagePainter {
           style.emptyCells == CssEmptyCells.hide &&
           style.borderCollapse == CssBorderCollapse.separate;
       if (!hideEmpty) {
-        if (style.backgroundColor.a > 0) {
-          canvas.drawRect(cellRect, Paint()..color = style.backgroundColor);
-        }
+        // Flex 子项复用单元格绘制：图片块以背景图承载，单元格也必须走完整
+        // 背景链路，而不能只铺背景色。
+        _paintBackground(
+          canvas,
+          cellRect,
+          style,
+          startsBlock: true,
+          endsBlock: true,
+        );
         _paintCellBorders(canvas, cellRect, style.borders);
       }
     }

@@ -254,6 +254,9 @@ const collectScript = `(() => {
     'inline-table', 'contents', 'none']);
   const blockChild = (el) => Array.from(el.children).some(
     (child) => !inlineish.has(getComputedStyle(child).display));
+  const flexContainers = Array.from(document.body.querySelectorAll('*'))
+    .filter((el) => ['flex', 'inline-flex'].includes(getComputedStyle(el).display));
+  const flexIndex = new Map(flexContainers.map((el, index) => [el, index]));
   const semanticText = (el) => {
     const clone = el.cloneNode(true);
     for (const annotation of clone.querySelectorAll('rt,rp')) {
@@ -273,6 +276,13 @@ const collectScript = `(() => {
       tag: el.tagName.toLowerCase(),
       directText,
       container: directText.length === 0 && blockChild(el),
+      flexIndex: flexIndex.has(el) ? flexIndex.get(el) : null,
+      parentFlexIndex: el.parentElement && flexIndex.has(el.parentElement)
+        ? flexIndex.get(el.parentElement)
+        : null,
+      flexChildIndex: el.parentElement && flexIndex.has(el.parentElement)
+        ? Array.from(el.parentElement.children).indexOf(el)
+        : null,
       cls: el.className || '',
       text: semanticText(el).slice(0, 400),
       rect: { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2) },

@@ -1,0 +1,8 @@
+{
+  "name": "90-flex-basic",
+  "tags": [
+    "flex"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } .row { display: flex; height: 60px; margin: 0 0 12px; background-color: #eee; } .center { justify-content: center; align-items: center; } .between { justify-content: space-between; align-items: flex-start; height: 54px; } .end { justify-content: flex-end; align-items: flex-end; height: 54px; } .photo { height: 84px; } .a, .b, .c, .pic { border: 2px solid #333; } .a { width: 36px; height: 16px; background-color: #d44; } .b { width: 66px; height: 26px; background-color: #4a7; } .c { width: 44px; padding: 3px 5px; font-size: 15px; line-height: 20px; background-color: #9cf; } .pic, .cover { width: 72px; height: 45px; } .cover { display: block; overflow: visible; } .pic { background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIklEQVR4nGM0TjvDQApgIkk1w6gG4gATkergYFQDMYBkDQB2OQGFVVAHNQAAAABJRU5ErkJggg==\"); background-repeat: no-repeat; background-size: contain; }",
+  "html": "<div class=\"row center\"><div class=\"a\"></div><div class=\"b\"></div></div><div class=\"row between\"><div class=\"a\"></div><div class=\"c\">甲乙</div><div class=\"b\"></div></div><div class=\"row end\"><div class=\"b\"></div><div class=\"c\">丙丁</div></div><div class=\"row photo center\"><div class=\"pic\"></div><img class=\"cover\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAcUlEQVR42u3RsQ1AYBSF0cciCjUS46htYgy1OdQKiajtYITfEkLC+Ra4ObnZ0TbxRuW6RUQxLA/v5vGzgIGBgYGBgYGBgYGBgYGBgb9XllLy8KcfrsbuleG9nyLinGsPAwMDAwMDAwMDAwMDAwMD390F5PcMjFHVasAAAAAASUVORK5CYII=\"/></div><p>Flex 后正文</p>"
+}

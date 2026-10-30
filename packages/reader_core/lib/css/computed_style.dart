@@ -78,6 +78,22 @@ enum CssDisplay {
   none,
 }
 
+/// Flex 主轴方向（CSS Flexbox §5.1）。
+enum CssFlexDirection { row, rowReverse, column, columnReverse }
+
+/// Flex 主轴对齐（CSS Flexbox §8.2）。
+enum CssJustifyContent {
+  flexStart,
+  flexEnd,
+  center,
+  spaceBetween,
+  spaceAround,
+  spaceEvenly,
+}
+
+/// Flex 交叉轴对齐（CSS Flexbox §8.3）。
+enum CssAlignItems { stretch, flexStart, flexEnd, center, baseline }
+
 /// 可见性（CSS visibility 属性）。
 enum CssVisibility { visible, hidden, collapse }
 
@@ -2851,6 +2867,42 @@ class ComputedStyle {
 
   /// 显示类型（不继承，初始 `block`）。
   final CssDisplay display;
+
+  /// Flex 主轴方向；非法值按初始 `row`。
+  CssFlexDirection get flexDirection {
+    final value = values['flex-direction']?.trim().toLowerCase();
+    return switch (value) {
+      'row-reverse' => CssFlexDirection.rowReverse,
+      'column' => CssFlexDirection.column,
+      'column-reverse' => CssFlexDirection.columnReverse,
+      _ => CssFlexDirection.row,
+    };
+  }
+
+  /// Flex 主轴对齐；兼容 `start/end/left/right` 的现代别名。
+  CssJustifyContent get justifyContent {
+    final value = values['justify-content']?.trim().toLowerCase();
+    return switch (value) {
+      'flex-end' || 'end' || 'right' => CssJustifyContent.flexEnd,
+      'center' => CssJustifyContent.center,
+      'space-between' => CssJustifyContent.spaceBetween,
+      'space-around' => CssJustifyContent.spaceAround,
+      'space-evenly' => CssJustifyContent.spaceEvenly,
+      _ => CssJustifyContent.flexStart,
+    };
+  }
+
+  /// Flex 交叉轴对齐；非法值按初始 `stretch`，`baseline` 先按起点近似。
+  CssAlignItems get alignItems {
+    final value = values['align-items']?.trim().toLowerCase();
+    return switch (value) {
+      'flex-start' || 'start' || 'self-start' => CssAlignItems.flexStart,
+      'flex-end' || 'end' || 'self-end' => CssAlignItems.flexEnd,
+      'center' => CssAlignItems.center,
+      'baseline' => CssAlignItems.baseline,
+      _ => CssAlignItems.stretch,
+    };
+  }
 
   /// 可见性（继承，初始 visible）。
   final CssVisibility visibility;

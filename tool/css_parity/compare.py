@@ -137,8 +137,27 @@ def browser_tables(browser):
     return [el for el in browser['elements'] if el['tag'] == 'table']
 
 
+def browser_flex_containers(browser):
+    """浏览器 Flex 容器，按 DOM 顺序对应引擎 flex 块。"""
+    return sorted(
+        (el for el in browser['elements'] if el.get('flexIndex') is not None),
+        key=lambda el: el['flexIndex'],
+    )
+
+
+def browser_flex_children(browser, flex_index):
+    """指定 Flex 容器的直接元素子项，按子项顺序返回。"""
+    return sorted(
+        (
+            el for el in browser['elements']
+            if el.get('parentFlexIndex') == flex_index
+        ),
+        key=lambda el: el.get('flexChildIndex') or 0,
+    )
+
+
 def block_role(block):
-    """引擎块角色：table（表格）/ li（列表项）/ block（普通块）。
+    """引擎块角色：table（表格）/ flex / li（列表项）/ block（普通块）。
 
     dump 会直接给 role；旧数据没有时按 cells / listMarker 推断。
     """
@@ -146,6 +165,8 @@ def block_role(block):
     if role:
         return role
     if block.get('cells'):
+        if block.get('flex'):
+            return 'flex'
         return 'table'
     return 'li' if block.get('listMarker') else 'block'
 
@@ -552,6 +573,84 @@ def compare_table_cells(browser, engine_blocks):
     return problems
 
 
+def _union_rect(rects):
+    left = min(rect['x'] for rect in rects)
+    top = min(rect['y'] for rect in rects)
+    right = max(rect['x'] + rect['w'] for rect in rects)
+    bottom = max(rect['y'] + rect['h'] for rect in rects)
+    return {'x': left, 'y': top, 'w': right - left, 'h': bottom - top}
+
+
+def flex_items(block):
+    """把同一条 Flex 行的多个单元格合成一个子项边框盒。"""
+    grouped = {}
+    for cell in block.get('cells') or []:
+        grouped.setdefault(cell['row'], []).append(cell)
+    return [
+        {
+            'row': row,
+            'rect': _union_rect([cell['rect'] for cell in cells]),
+            'text': ''.join(str(cell.get('text', '')) for cell in cells),
+            'lines': [
+                line
+                for cell in cells
+                for line in (cell.get('lines') or [])
+            ],
+            'style': cells[0].get('style') or {},
+        }
+        for row, cells in grouped.items()
+    ]
+
+
+def compare_flex_items(engine_block, browser_children):
+    """比较 Flex 子项的边框盒、文字行与关键样式。"""
+    problems = []
+    items = flex_items(engine_block)
+    if len(items) != len(browser_children):
+        problems.append(
+            f'子项数: 浏览器 {len(browser_children)} / 引擎 {len(items)}'
+        )
+    used = set()
+    for item in items:
+        key = nkey(item['text'])
+        match = None
+        for index, el in enumerate(browser_children):
+            if index in used:
+                continue
+            if key and nkey(el.get('text', '')) == key:
+                match = (index, el)
+                break
+        if match is None:
+            for index, el in enumerate(browser_children):
+                if index not in used:
+                    match = (index, el)
+                    break
+        if match is None:
+            problems.append(f'子项[{item["row"]}]未配到浏览器元素')
+            continue
+        index, el = match
+        used.add(index)
+        label = f'子项[{item["row"]}]「{nkey(item["text"], 12)}」'
+        if key and nkey(el.get('text', '')) != key:
+            problems.append(
+                f'{label} 文本: 浏览器「{nkey(el.get("text", ""), 12)}」'
+            )
+        for issue in compare_rect(el['rect'], item['rect'], tol=2.0):
+            problems.append(f'{label} {issue}')
+        browser_lines = el.get('lines') or []
+        engine_lines = item.get('lines') or []
+        if browser_lines and engine_lines:
+            for issue in compare_lines(
+                browser_lines,
+                engine_lines[:len(browser_lines)],
+                2.0,
+            ):
+                problems.append(f'{label} {issue}')
+        for issue in compare_style(el.get('style') or {}, item['style']):
+            problems.append(f'{label} {issue}')
+    return problems
+
+
 # ---------------------------------------------------------------- 单页用例
 def is_vertical(style):
     """书写模式是否为竖排（引擎 `verticalRl` / 浏览器 `vertical-rl` 等）。"""
@@ -655,10 +754,21 @@ def diff_single_page(name, browser, engine, meta):
     used_tables = set()
     pages = engine.get('pages') or [{'index': 0, 'blocks': engine.get('blocks', [])}]
     blocks = pages[0].get('blocks', [])
-    text_blocks = [block for block in blocks if not block.get('cells')]
-    table_blocks = [block for block in blocks if block.get('cells')]
+    flex_blocks = [
+        block for block in blocks
+        if block_role(block) == 'flex'
+    ]
+    text_blocks = [
+        block for block in blocks
+        if not block.get('cells') and block_role(block) != 'flex'
+    ]
+    table_blocks = [
+        block for block in blocks
+        if block.get('cells') and block_role(block) != 'flex'
+    ]
     lines.append(
-        f'- 引擎块 {len(text_blocks)}（文字）+ {len(table_blocks)}（表格），'
+        f'- 引擎块 {len(text_blocks)}（文字）+ {len(table_blocks)}（表格）'
+        f'+ {len(flex_blocks)}（Flex），'
         f'浏览器可配对元素 {len(elements)}'
     )
     partial = []
@@ -813,6 +923,46 @@ def diff_single_page(name, browser, engine, meta):
                 continue
             found.extend(compare_rect(table_element['rect'], engine_box_rect(block)))
         found.extend(compare_table_cells(browser, table_blocks))
+        if found:
+            problems.append(f'「{label}」')
+            problems.extend(found)
+    if flex_blocks:
+        found = []
+        def flex_text(block):
+            # 图片子项在引擎文本里是 U+FFFC 占位；容器本身仍应按无文字配对。
+            return nkey(block.get('text', '')).replace('\ufffc', '').strip()
+
+        dynamic = [block for block in flex_blocks if flex_text(block)]
+        fixed = [block for block in flex_blocks if not flex_text(block)]
+        containers = browser_flex_containers(browser)
+        used_containers = set()
+        for block in dynamic + fixed:
+            el = None
+            key = flex_text(block)
+            if key:
+                el = _pick(key, containers, used_containers)
+            if el is None:
+                for index, candidate in enumerate(containers):
+                    if index not in used_containers:
+                        el = candidate
+                        used_containers.add(index)
+                        break
+            if el is None:
+                unpaired.append(
+                    f'Flex「{nkey(block.get("text", ""), 12)}」容器未配对'
+                )
+                continue
+            found.extend(compare_rect(el['rect'], engine_box_rect(block)))
+            found.extend(
+                compare_flex_items(
+                    block,
+                    browser_flex_children(browser, el['flexIndex']),
+                )
+            )
+        label = (
+            f'Flex ×{len(flex_blocks)}'
+            f'（合计 {sum(len(block["cells"]) for block in flex_blocks)} 个子项格）'
+        )
         if found:
             problems.append(f'「{label}」')
             problems.extend(found)
