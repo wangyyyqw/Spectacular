@@ -6381,7 +6381,12 @@ class EpubChapterSource
     if (cachedIndexBytes != null) {
       final index = PageIndex.decode(cachedIndexBytes);
       if (index != null) {
-        final replayed = PageIndex.apply(index, blocks, spineIndex: spineIndex);
+        final replayed = PageIndex.apply(
+          index,
+          blocks,
+          spineIndex: spineIndex,
+          trimTextEdges: true,
+        );
         if (replayed != null) {
           _putPageCache(paginationKey, replayed);
           return replayed;
@@ -6397,6 +6402,7 @@ class EpubChapterSource
         pageHeight: contentHeight,
         pageWidth: contentWidth,
         topPadding: _chapterTopPadding(blocks),
+        trimTextEdges: true,
       ).measureChapter(blocks: blocks, spineIndex: spineIndex).pages,
       fixedBlocks,
     );

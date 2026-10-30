@@ -9,6 +9,7 @@ import 'float_occupancy.dart' show FloatSide;
 import 'page_background.dart';
 import 'table_layout.dart' show TableRenderSpec;
 import 'text_layout.dart';
+import 'text_edges.dart';
 
 /// 行内图片（P9-06）：占位符下标 + 已解析成书内路径的图片地址。
 class InlineImageSpec {
@@ -356,6 +357,59 @@ class PageBlock {
   /// 块末行之后的额外高度（下内缩 + 段后间距）。
   double get trailingExtent => bottomInset + spaceAfter;
 
+  /// 只回收普通文字的行高留白，保留装饰盒、图片和特殊基线的完整几何。
+  PageTextEdges textEdgesAt(int lineIndex) {
+    final computed = style;
+    if (computed == null || !_canTrimTextEdges(computed)) {
+      return const PageTextEdges();
+    }
+    final line = layout.lines[lineIndex];
+    if (line.inlineBoxes.isNotEmpty ||
+        layout.text.substring(line.start, line.end).trim().isEmpty) {
+      return const PageTextEdges();
+    }
+    return textLineEdges(layout, line, computed);
+  }
+
+  bool _canTrimTextEdges(ComputedStyle computed) =>
+      !(layout.isVertical ||
+          absolute ||
+          floatSide != null ||
+          table != null ||
+          multicol != null ||
+          (height - measuredHeight).abs() > 0.01 ||
+          computed.height != null ||
+          computed.minHeight != null ||
+          computed.maxHeight != null ||
+          clipsContent ||
+          bleedTop ||
+          bleedBottom ||
+          bleedLeft ||
+          bleedRight ||
+          listMarker != null ||
+          inlineImages.isNotEmpty ||
+          (rubies?.isNotEmpty ?? false) ||
+          layout.runs.any((run) => run.baselineShift != 0) ||
+          _hasTextEdgeDecoration(computed) ||
+          layout.runs.any((run) => _hasTextEdgeDecoration(run.style)) ||
+          containers.any(
+            (fragment) => fragment.container.isPageRoot
+                ? fragment.container.topDecoration > 0 ||
+                      fragment.container.bottomDecoration > 0
+                : _hasTextEdgeDecoration(fragment.container.style),
+          ));
+
+  static bool _hasTextEdgeDecoration(ComputedStyle style) =>
+      style.backgroundColor.a > 0 ||
+      style.backgroundImage != null ||
+      style.backgroundGradient != null ||
+      style.borders.hasBorder ||
+      style.boxShadow != null ||
+      style.textShadow.isNotEmpty ||
+      style.filters.isNotEmpty ||
+      style.transforms.isNotEmpty ||
+      style.padding.vertical != 0;
+
   /// 续页首需要补上的祖先装饰；真实容器首片已含这部分占位。
   double containerTopInset(int startLine, {int? beforeDepth}) {
     var extent = 0.0;
@@ -598,6 +652,8 @@ class PageBlockSlice {
     this.leftInset = 0,
     this.overlay = false,
     this.absoluteTop,
+    this.textTopTrim = 0,
+    this.textBottomTrim = 0,
   });
 
   /// 来源块。
@@ -612,11 +668,15 @@ class PageBlockSlice {
   /// 本切片高度（含首尾额外高度）。
   final double height;
 
-  /// 首行之前的额外高度（段前间距 + 上内缩），只在块首切片出现。
+  /// 首行之前的额外高度（段前间距 + 上内缩 - 回收的行高留白）。
   final double leadingExtent;
 
-  /// 末行之后的额外高度（下内缩 + 段后间距），只在块尾切片出现。
+  /// 末行之后的额外高度（下内缩 + 段后间距 - 回收的行高留白）。
   final double trailingExtent;
+
+  /// 仅阅读模式回收的行高留白，与作者负边距分开记录。
+  final double textTopTrim;
+  final double textBottomTrim;
 
   /// 行内容的左内缩（border.left + padding.left）。
   final double leftInset;
@@ -660,6 +720,23 @@ class PageBlockSlice {
     leftInset: leftInset,
     overlay: overlay,
     absoluteTop: absoluteTop,
+    textTopTrim: textTopTrim,
+    textBottomTrim: textBottomTrim,
+  );
+
+  /// 收页时回收末行下方留白，不改变其它行的绘制原点。
+  PageBlockSlice withTextBottomTrim(double extent) => PageBlockSlice(
+    block: block,
+    startLine: startLine,
+    endLine: endLine,
+    height: height - extent,
+    leadingExtent: leadingExtent,
+    trailingExtent: trailingExtent - extent,
+    leftInset: leftInset,
+    overlay: overlay,
+    absoluteTop: absoluteTop,
+    textTopTrim: textTopTrim,
+    textBottomTrim: extent,
   );
 }
 
@@ -826,7 +903,11 @@ class Paginator {
     this.pageWidth = 0,
     this.topPadding = 0,
     this.tolerance = 2,
+    this.trimTextEdges = false,
   });
+
+  /// 阅读模式：页首、页尾不计行高留白；默认保留 CSS 完整行盒。
+  final bool trimTextEdges;
 
   /// 页高。
   final double pageHeight;
@@ -1383,9 +1464,20 @@ class Paginator {
         ? 0.0
         : tolerance;
 
+    double topCredit(PageBlock block, int startLine) =>
+        trimTextEdges && slices.isEmpty && !(firstPage && topPadding < 0)
+        ? block.textEdgesAt(startLine).top
+        : 0;
+
     double leadingOf(PageBlock block, int startLine) =>
         (startLine == 0 ? block.leadingExtent : 0) +
-        (slices.isEmpty ? block.containerTopInset(startLine) : 0);
+        (slices.isEmpty ? block.containerTopInset(startLine) : 0) -
+        topCredit(block, startLine);
+
+    double bottomCredit(PageBlock block, int endLine) =>
+        trimTextEdges && endLine > 0
+        ? block.textEdgesAt(endLine - 1).bottom
+        : 0;
 
     void record() {
       // 空页不记录，避免零长度页。
@@ -1408,6 +1500,11 @@ class Paginator {
         if (decoration > 0) {
           slices[lastFlow] = last.withBottomDecoration(decoration);
           used += decoration;
+        }
+        final credit = bottomCredit(last.block, last.endLine);
+        if (credit > 0) {
+          slices[lastFlow] = slices[lastFlow].withTextBottomTrim(credit);
+          used -= credit;
         }
       }
       pages.add(
@@ -1820,7 +1917,7 @@ class Paginator {
       final wholeLeading = leadingOf(block, 0);
       final wholeExtent = wholeLeading + boxHeight + block.trailingExtent;
       if (wholeExtent + block.containerBottomInset(lineLimit) <=
-          available + fitTolerance) {
+          available + fitTolerance + bottomCredit(block, lineLimit)) {
         slices.add(
           PageBlockSlice(
             block: block,
@@ -1828,6 +1925,7 @@ class Paginator {
             endLine: lineLimit,
             height: wholeExtent,
             leadingExtent: wholeLeading,
+            textTopTrim: topCredit(block, 0),
             trailingExtent: block.trailingExtent,
             leftInset: block.leftInset,
           ),
@@ -1853,7 +1951,7 @@ class Paginator {
               block.containerBottomInset(candidateEnd) +
               (candidateEnd == lineLimit ? block.trailingExtent : 0);
           if (leading + linesHeight + lineHeight + bottom <=
-              available + fitTolerance) {
+              available + fitTolerance + bottomCredit(block, candidateEnd)) {
             linesHeight += lineHeight;
             fitEnd += 1;
           } else {
@@ -1882,7 +1980,7 @@ class Paginator {
         final sliceHeight = leading + linesHeight + trailing + boxTail;
         // 盒内留白也占页高：当前页放不下整盒时先把本块移到新页（页已非空）。
         if (sliceHeight + block.containerBottomInset(fitEnd) >
-                available + fitTolerance &&
+                available + fitTolerance + bottomCredit(block, fitEnd) &&
             slices.isNotEmpty) {
           record();
           continue;
@@ -1896,6 +1994,7 @@ class Paginator {
             leadingExtent: leading,
             trailingExtent: trailing,
             leftInset: block.leftInset,
+            textTopTrim: topCredit(block, lineStart),
           ),
         );
         used += sliceHeight;
@@ -1946,6 +2045,12 @@ extension PaginatorStreaming on Paginator {
       if (slices.isEmpty) {
         return null;
       }
+      if (trimTextEdges) {
+        final last = slices.last;
+        final credit = last.block.textEdgesAt(last.endLine - 1).bottom;
+        slices[slices.length - 1] = last.withTextBottomTrim(credit);
+        used -= credit;
+      }
       final page = PageContent(
         spineIndex: spineIndex,
         pageIndex: -1,
@@ -1988,10 +2093,17 @@ extension PaginatorStreaming on Paginator {
           return;
         }
         var fitEnd = lineStart;
-        var sliceHeight = 0.0;
+        final topTrim =
+            trimTextEdges && slices.isEmpty && !(firstPage && topPadding < 0)
+            ? block.textEdgesAt(lineStart).top
+            : 0.0;
+        var sliceHeight = -topTrim;
         while (fitEnd < lines.length) {
           final lineHeight = lines[fitEnd].height;
-          if (sliceHeight + lineHeight <= available + tolerance) {
+          final bottomTrim = trimTextEdges
+              ? block.textEdgesAt(fitEnd).bottom
+              : 0.0;
+          if (sliceHeight + lineHeight <= available + tolerance + bottomTrim) {
             sliceHeight += lineHeight;
             fitEnd += 1;
           } else {
@@ -2010,7 +2122,7 @@ extension PaginatorStreaming on Paginator {
             }
             continue;
           }
-          sliceHeight = lines[lineStart].height;
+          sliceHeight = lines[lineStart].height - topTrim;
           fitEnd = lineStart + 1;
         }
         slices.add(
@@ -2019,6 +2131,8 @@ extension PaginatorStreaming on Paginator {
             startLine: lineStart,
             endLine: fitEnd,
             height: sliceHeight,
+            leadingExtent: -topTrim,
+            textTopTrim: topTrim,
           ),
         );
         used += sliceHeight;

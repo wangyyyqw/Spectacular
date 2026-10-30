@@ -89,12 +89,13 @@ void main() {
       final heading = table
           ? '<table><tr><td>效果名称</td></tr></table>'
           : '<span>效果名称</span>';
+      // 用声明盒高固定前置占位，不能依赖阅读模式会回收的行高留白。
       final source = await openCssChapter(
         body:
             '<p class="filler">前置内容</p>'
             '<div class="card">$heading<p>$_longText</p></div>',
         css:
-            '$_css .filler { line-height: 76px; } '
+            '$_css .filler { height: 76px; line-height: 76px; } '
             'table, td { padding: 0; border: none; margin: 0; } '
             'td { line-height: 20px; }',
         contentWidth: 200,

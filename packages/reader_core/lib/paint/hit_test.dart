@@ -17,6 +17,7 @@ class PageLineBox {
     required this.textOffset,
     required this.blockTextOffset,
     required this.slice,
+    this.textTop,
   });
 
   /// 页内切片下标。
@@ -27,6 +28,9 @@ class PageLineBox {
 
   /// 行在页内坐标系中的矩形。
   final Rect rect;
+
+  /// 未回收行高留白前的绘制原点；首尾可见行框与文字原点分开保存。
+  final double? textTop;
 
   /// 行文本。
   final String text;
@@ -149,16 +153,22 @@ abstract final class TextHitTester {
         final line = layout.lines[lineIndex];
         final text = layout.text.substring(line.start, line.end);
         final lineLeft = leftInset + line.offsetX;
+        final visibleTop =
+            lineY + (lineIndex == slice.startLine ? slice.textTopTrim : 0);
+        final lineBottom = lineY + line.height;
+        final visibleBottom =
+            lineBottom - (lineIndex == last - 1 ? slice.textBottomTrim : 0);
         boxes.add(
           PageLineBox(
             sliceIndex: sliceIndex,
             lineIndex: lineIndex,
-            rect: Rect.fromLTWH(
+            rect: Rect.fromLTRB(
               lineLeft,
-              lineY,
-              line.advanceWidth,
-              line.height,
+              visibleTop,
+              lineLeft + line.advanceWidth,
+              visibleBottom,
             ),
+            textTop: lineY,
             text: text,
             textOffset: pageOffset + line.start,
             blockTextOffset: line.start,
@@ -196,11 +206,10 @@ abstract final class TextHitTester {
   static List<Rect> selectionRects(PageLineBox box, int start, int end) {
     final painter = _painterFor(box);
     final line = box.slice.block.layout.lines[box.lineIndex];
-    final baselineOffset = textLineBaselineOffset(
-      box.slice.block.layout,
-      line,
-      painter,
-    );
+    final baselineOffset =
+        (box.textTop ?? box.rect.top) -
+        box.rect.top +
+        textLineBaselineOffset(box.slice.block.layout, line, painter);
     final result = <Rect>[];
     for (final part in lineTextFragments(line, start: start, end: end)) {
       for (final rect in painter.getBoxesForSelection(
@@ -222,11 +231,10 @@ abstract final class TextHitTester {
       affinity: position.affinity,
     );
     final caret = painter.getOffsetForCaret(clamped, Rect.zero);
-    final baselineOffset = textLineBaselineOffset(
-      box.slice.block.layout,
-      line,
-      painter,
-    );
+    final baselineOffset =
+        (box.textTop ?? box.rect.top) -
+        box.rect.top +
+        textLineBaselineOffset(box.slice.block.layout, line, painter);
     painter.dispose();
     return caret.translate(inlineBoxAdvanceAt(line, clamped), baselineOffset);
   }
