@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 89 组用例（编号 01–92，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
+当前 90 组用例（编号 01–93，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（89 组）
+## 用例清单（90 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -129,8 +129,9 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 90 | flex-basic | 单行 Flex 的 `center` / `space-between` / `flex-end`、交叉轴起止/居中、背景图与 `img` 子项 |
 | 91 | flex-wrap | 多行 Flex 的换行分组、行高累计与 `column-gap` |
 | 92 | flex-align-content | 多行 Flex 的 `align-content`、`row-gap` 与 `gap` 简写 |
+| 93 | vertical-overflow | 竖排 `text-overflow: ellipsis`、`break-word` 按声明高度（列长）截断/分列 |
 
-浏览器渲染：89/89 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：90/90 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
 属性或缺少可比的分页/注音口径，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
@@ -140,7 +141,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 89 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 90 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |

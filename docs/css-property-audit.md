@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **0** |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（98 + 44） |
-| `tool/css_parity/cases/` | 89 个用例（编号 01–92，缺 65、85、87） |
+| `tool/css_parity/cases/` | 90 个用例（编号 01–93，缺 65、85、87） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -45,7 +45,9 @@
 > 与视觉差异均为 0；同时修正标题前后重复折叠表格外边距、空单元格占位和声明
 > 高度。`89-font-kerning` 覆盖 `auto/normal/none` 的解析、继承与 `kern`
 > 字形特性；同时补齐布局缓存键中的 OpenType 字体输入，几何/样式失配为 0，
-> 3.88% 视觉差异来自字体抗锯齿与亚像素采样。`content: url()` 已接入伪元素
+> 3.88% 视觉差异来自字体抗锯齿与亚像素采样。`93-vertical-overflow` 覆盖
+> 竖排 `text-overflow`、`overflow-wrap`：内联轴改按声明高度（列长）约束，
+> `vertical-rl` 声明宽从内容盒右缘起排；几何/样式失配为 0。`content: url()` 已接入伪元素
 > 行内图片链路：相对地址按书内资源解析，宽高读取伪元素计算样式；组合文本、
 > 前后图片与偏移重映射由章节源回归锁定。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
@@ -433,7 +435,7 @@ parity 用例仍为 `engine_only`。
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **89 个用例**（编号 `01`–`92`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **90 个用例**（编号 `01`–`93`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |

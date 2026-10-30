@@ -1,0 +1,8 @@
+{
+  "name": "93-vertical-overflow",
+  "tags": [
+    "text-overflow"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } div { border: 1px solid #999; margin: 8px 0; font-size: 16px; line-height: 1.5; } .ellipsis { writing-mode: vertical-rl; width: 54px; height: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .break-word { writing-mode: vertical-rl; width: 96px; height: 130px; white-space: normal; overflow-wrap: break-word; text-overflow: clip; }",
+  "html": "<div class=\"ellipsis\">竖排省略号：这段文字很长，应在列尾显示省略号。</div><div class=\"break-word\">SUPERCALIFRAGILISTIC 超长西文词应按列长断行。</div>"
+}

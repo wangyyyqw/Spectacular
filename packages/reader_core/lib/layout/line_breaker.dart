@@ -990,10 +990,15 @@ abstract final class TextLayoutEngine {
         declaredColumnLength != null && declaredColumnLength > 0
         ? declaredColumnLength
         : measureWidth;
+    // 竖排的内联轴是纵向，可用尺寸必须取列长；块宽只决定列带宽度。
+    final inlineWidth = vertical ? columnLength : width;
+    final verticalMeasureWidth = softWrap ? columnLength : double.infinity;
     // 负 text-indent 是合法的「首行外凸」（CSS Text 3 §3.1）：首行可用宽
     // 变宽（width - indent > width）、行左缘画到内容盒左侧，不能钳成 0。
-    final indent = softWrap && width.isFinite
-        ? style.textIndent.clamp(-width, math.max(0.0, width - 1)).toDouble()
+    final indent = softWrap && inlineWidth.isFinite
+        ? style.textIndent
+              .clamp(-inlineWidth, math.max(0.0, inlineWidth - 1))
+              .toDouble()
         : 0.0;
     final ordered = _applyVerticalAlign(
       _normalizeRuns(runs, text.length),
@@ -1064,7 +1069,7 @@ abstract final class TextLayoutEngine {
             hyphens: style.hyphens,
             overflowWrap: style.overflowWrap,
             wordBreak: style.wordBreak,
-            contentWidth: width,
+            contentWidth: inlineWidth,
             style: style,
             textScaleFactor: textScaleFactor,
             hyphenAdvance: hyphenAdvance,
@@ -1077,8 +1082,8 @@ abstract final class TextLayoutEngine {
           ? _measureSegment(
               text: source,
               inlineBoxMarks: inlineBoxMarks,
-              width: columnLength,
-              contentWidth: vertical ? columnLength : width,
+              width: vertical ? verticalMeasureWidth : measureWidth,
+              contentWidth: inlineWidth,
               style: style,
               textScaleFactor: textScaleFactor,
               leadingDistribution: leadingDistribution,
@@ -1087,8 +1092,8 @@ abstract final class TextLayoutEngine {
           : _measureWithIndent(
               text: source,
               inlineBoxMarks: inlineBoxMarks,
-              width: measureWidth,
-              contentWidth: width,
+              width: vertical ? verticalMeasureWidth : measureWidth,
+              contentWidth: inlineWidth,
               indent: indent,
               style: style,
               textScaleFactor: textScaleFactor,

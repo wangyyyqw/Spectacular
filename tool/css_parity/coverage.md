@@ -7,8 +7,8 @@
 
 - 审计条目 **116** 条，展开后属性名 **169** 个（同一条目里的多属性按名拆分）
 - 已覆盖 **152** 个（89.9%），未覆盖 **17** 个
-- 用例 **89** 个（编号 01–92）
-- 下一个可用用例编号：**93**（未覆盖表的「建议用例」按 1-2 属性/例分配）
+- 用例 **90** 个（编号 01–93）
+- 下一个可用用例编号：**94**（未覆盖表的「建议用例」按 1-2 属性/例分配）
 
 ## 1. 分组覆盖概览
 
@@ -36,23 +36,23 @@
 
 | 属性 | 审计编号 | 审计原文 | 建议用例 |
 | --- | --- | --- | --- |
-| `orphans` | #113 | orphans / widows | 93 |
-| `widows` | #113 | orphans / widows | 93 |
-| `scroll-behavior` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 94 |
-| `scrollbar-width` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 94 |
-| `-ms-overflow-style` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 95 |
-| `cursor` | #119 | outline / cursor | 95 |
-| `user-select` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 96 |
-| `resize` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 96 |
-| `will-change` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 97 |
-| `contain` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 97 |
-| `isolation` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 98 |
-| `pointer-events` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 98 |
-| `clip-path` | #121 | clip-path / mask | 99 |
-| `mask` | #121 | clip-path / mask | 99 |
-| `transition` | #122 | transition / animation | 100 |
-| `animation` | #122 | transition / animation | 100 |
-| `box-decoration-break` | #124 | box-decoration-break | 101 |
+| `orphans` | #113 | orphans / widows | 94 |
+| `widows` | #113 | orphans / widows | 94 |
+| `scroll-behavior` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 95 |
+| `scrollbar-width` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 95 |
+| `-ms-overflow-style` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 96 |
+| `cursor` | #119 | outline / cursor | 96 |
+| `user-select` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 97 |
+| `resize` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 97 |
+| `will-change` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 98 |
+| `contain` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 98 |
+| `isolation` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 99 |
+| `pointer-events` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 99 |
+| `clip-path` | #121 | clip-path / mask | 100 |
+| `mask` | #121 | clip-path / mask | 100 |
+| `transition` | #122 | transition / animation | 101 |
+| `animation` | #122 | transition / animation | 101 |
+| `box-decoration-break` | #124 | box-decoration-break | 102 |
 
 ## 3. 已覆盖清单
 
@@ -60,28 +60,28 @@
 
 | 属性 | 审计编号 | 覆盖用例 |
 | --- | --- | --- |
-| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92 |
-| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67、69、70、71、72、73、74、75、76、78、79、80、81、83、84、88、89、90 |
+| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92、93 |
+| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67、69、70、71、72、73、74、75、76、78、79、80、81、83、84、88、89、90、93 |
 | `color` | #3 | 10、26、28、29、37、62、75、76、78、79、80、81、83、86 |
 | `font-weight` | #4 | 07、12 |
 | `font-style` | #5 | 07 |
-| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92 |
+| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92、93 |
 | `font` | #7 | 58 |
 | `text-align` | #8 | 03、12、17、18、32、86 |
 | `text-indent` | #9 | 03、16、42、45 |
 | `letter-spacing` | #10 | 01、02 |
 | `word-spacing` | #11 | 02 |
-| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92 |
+| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92、93 |
 | `margin-top` | #13 | 46、73 |
 | `margin-right` | #13 | 14、23、38 |
 | `margin-bottom` | #13 | 46、79 |
 | `margin-left` | #13 | 23、38 |
-| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92 |
+| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89、90、91、92、93 |
 | `padding-top` | #15 | 23、48 |
 | `padding-right` | #15 | 47、48 |
 | `padding-bottom` | #15 | 47、49 |
 | `padding-left` | #15 | 11、16、30、31、49、54 |
-| `border` | #16 | 09、12、21、24、27、28、32、33、35、40、43、47、50、51、52、62、64、66、67、69、70、73、74、76、82、83、84、86、88、90、91、92 |
+| `border` | #16 | 09、12、21、24、27、28、32、33、35、40、43、47、50、51、52、62、64、66、67、69、70、73、74、76、82、83、84、86、88、90、91、92、93 |
 | `border-top` | #17 | 48 |
 | `border-right` | #17 | 48 |
 | `border-bottom` | #17 | 49 |
@@ -94,8 +94,8 @@
 | `border-top-right-radius` | #22 | 50 |
 | `border-bottom-right-radius` | #22 | 51 |
 | `border-bottom-left-radius` | #22 | 51 |
-| `width` | #23 | 09、12、14、21、24、25、32、33、38、40、43、53、62、68、69、71、72、73、74、75、76、79、82、83、86、88、90、91、92 |
-| `height` | #24 | 14、22、24、25、26、27、29、35、38、50、51、53、64、68、69、72、73、75、76、79、82、83、84、86、88、90、91、92 |
+| `width` | #23 | 09、12、14、21、24、25、32、33、38、40、43、53、62、68、69、71、72、73、74、75、76、79、82、83、86、88、90、91、92、93 |
+| `height` | #24 | 14、22、24、25、26、27、29、35、38、50、51、53、64、68、69、72、73、75、76、79、82、83、84、86、88、90、91、92、93 |
 | `min-width` | #25 | 22 |
 | `max-width` | #26 | 22 |
 | `min-height` | #27 | 22、75、82、83 |
@@ -119,7 +119,7 @@
 | `float` | #45 | 14、38 |
 | `clear` | #46 | 38 |
 | `visibility` | #47 | 54 |
-| `white-space` | #48 | 06、40、62 |
+| `white-space` | #48 | 06、40、62、93 |
 | `list-style-type` | #49 | 11、30、31 |
 | `list-style-position` | #50 | 30 |
 | `list-style` | #51 | 54 |
@@ -155,23 +155,23 @@
 | `transform` | #76 | 36、79 |
 | `-webkit-transform` | #76 | 79 |
 | `transform-origin` | #77 | 36 |
-| `writing-mode` | #78 | 35、64、66、67、84 |
+| `writing-mode` | #78 | 35、64、66、67、84、93 |
 | `text-orientation` | #79 | 64、66、67 |
 | `direction` | #80 | 61 |
 | `hyphens` | #81 | 20 |
 | `word-break` | #82 | 20、62 |
-| `overflow-wrap` | #83 | 20、40 |
+| `overflow-wrap` | #83 | 20、40、93 |
 | `word-wrap` | #83 | 62 |
 | `font-variant` | #84 | 15 |
 | `font-variant-caps` | #84 | 81 |
-| `overflow` | #85 | 14、22、40、90 |
+| `overflow` | #85 | 14、22、40、90、93 |
 | `overflow-x` | #85 | 62 |
 | `column-count` | #86 | 63 |
 | `column-width` | #87 | 63 |
 | `column-gap` | #88 | 34、63、91 |
 | `column-rule` | #89 | 34、63 |
 | `columns` | #90 | 34 |
-| `text-overflow` | #91 | 40 |
+| `text-overflow` | #91 | 40、93 |
 | `box-shadow` | #92 | 13、83 |
 | `duokan-bleed` | #93 | 60 |
 | `-duokan-bleed` | #93 | 60 |

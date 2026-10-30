@@ -311,6 +311,39 @@ class EpubChapterSource
     writingMode: source.writingMode,
   );
 
+  /// 竖排声明宽大于实际列带时，`vertical-rl` 从内容盒右缘起排。
+  ///
+  /// 排版层不知道传入宽是“整页可用宽”还是作者声明宽，因此对齐放在章节
+  /// 源拿到盒模型后处理；`vertical-lr` 保持左对齐。
+  static TextLayoutResult _alignVerticalBand(
+    TextLayoutResult source, {
+    required double contentWidth,
+  }) {
+    if (!source.isVertical || source.lines.isEmpty) {
+      return source;
+    }
+    final gap = math.max(0.0, contentWidth - source.width);
+    final rl = source.writingMode == CssWritingMode.verticalRl;
+    return TextLayoutResult(
+      text: source.text,
+      lines: [
+        for (final line in source.lines)
+          line.copyWith(
+            offsetX: line.offsetX + (rl ? gap : 0),
+            columnX: line.columnX == null
+                ? null
+                : line.columnX! + (rl ? gap : 0),
+          ),
+      ],
+      width: source.width,
+      height: source.height,
+      maxWidth: contentWidth,
+      runs: source.runs,
+      isRtl: source.isRtl,
+      writingMode: source.writingMode,
+    );
+  }
+
   /// 浮动文本块：`PageBlock.styled` 不透传 floatSide，这里按同一口径
   /// 直接构造（内缩 = 边框 + 内边距；声明高度走 [BoxModel] 解算）。
   PageBlock _floatedTextBlock({
@@ -5644,11 +5677,21 @@ class EpubChapterSource
         // 竖排（W19）：行排版层给出的 `layout.width` 是**列带总宽**
         //（列数 × 列宽），块的内容宽就取它——沿用整页宽
         //（`layout.maxWidth`）会让块盒比浏览器宽一截（35-writing-mode）。
+        // 作者声明了 width 时不能覆盖，否则 `.box{width:54px}` 会被压成
+        // 单列字宽；只有 auto 宽才收紧到实际列带。
+        final hasDeclaredWidth =
+            measureStyle.width != null && !measureStyle.width!.isAuto;
         if (measureStyle.writingMode != CssWritingMode.horizontalTb &&
+            !hasDeclaredWidth &&
             layout.width.isFinite &&
             layout.width > 0 &&
             layout.width != layout.maxWidth) {
           layout = withLayoutWidth(layout, maxWidth: layout.width);
+        }
+        if (measureStyle.writingMode != CssWritingMode.horizontalTb &&
+            hasDeclaredWidth &&
+            layout.maxWidth.isFinite) {
+          layout = _alignVerticalBand(layout, contentWidth: layout.maxWidth);
         }
         if (inlineFloats.isNotEmpty) {
           // 浮动块排在段落之前：分页时它们先占位，段落行按剩余宽度收窄。
