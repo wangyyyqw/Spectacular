@@ -10,6 +10,13 @@ import 'package:reader_core/position/cfi.dart';
 
 import 'virtual_pager.dart';
 
+typedef _ContentSizeRequest = ({
+  double width,
+  double height,
+  double topInset,
+  bool preview,
+});
+
 /// 阅读进度：章序号 + 章内页序号。
 class ReaderProgress {
   /// 创建进度。
@@ -212,6 +219,11 @@ class ReaderSession extends ChangeNotifier {
   double? _contentWidth;
   double? _contentHeight;
   double _contentTopInset = 0;
+  _ContentSizeRequest? _pendingContentSize;
+  Future<void>? _contentSizeTask;
+  ReaderAnchor? _contentSizePreviewAnchor;
+  ReaderProgress? _contentSizePreviewProgress;
+  (double?, double?, double)? _contentSizeBeforePreview;
 
   /// 当前正文区高度（分页依据；测试与诊断用）。
   double? get contentHeight => _contentHeight;
@@ -250,6 +262,7 @@ class ReaderSession extends ChangeNotifier {
   /// 取消后旧任务不会再改写 [page]、[error]、[loading]，可安全重新打开。
   void cancelPendingLoads() {
     _generation += 1;
+    _pendingContentSize = null;
     _jumpToken += 1;
     _jumpLoadingTitle = null;
     _pager?.cancelPendingNavigation();
@@ -588,37 +601,113 @@ class ReaderSession extends ChangeNotifier {
 
   /// 应用新的正文区尺寸（旋转/窗口变化，P2-31）。
   ///
-  /// 尺寸变化时重排当前章节并按锚点恢复；尺寸未变时直接返回。
+  /// 只重排当前章，其他章仍在导航到该章时加载；在途请求合并到最新尺寸。
+  /// [preview] 期间固定阅读锚点且不保存临时页码，退出预览时再提交位置。
   Future<void> applyContentSize({
     required double width,
     required double height,
     double topInset = 0,
-  }) async {
-    if (_contentWidth == width &&
-        _contentHeight == height &&
-        _contentTopInset == topInset) {
-      return;
-    }
-    _contentWidth = width;
-    _contentHeight = height;
-    _contentTopInset = topInset;
-    final src = source;
-    if (src is! ResizableChapterSource) {
-      return;
-    }
-    final currentPage = _pager?.current?.content;
-    final spine = currentPage?.spineIndex ?? 0;
-    final anchor = _anchorOf(currentPage);
-    final generation = ++_generation;
-    final changed = await src.applyContentSize(
+    bool preview = false,
+  }) {
+    if (_disposed) return Future.value();
+    _pendingContentSize = (
       width: width,
       height: height,
       topInset: topInset,
+      preview: preview,
     );
-    if (!changed || generation != _generation) {
+    return _contentSizeTask ??= _drainContentSizes();
+  }
+
+  Future<void> _drainContentSizes() async {
+    try {
+      while (!_disposed && _pendingContentSize != null) {
+        final next = _pendingContentSize!;
+        _pendingContentSize = null;
+        try {
+          await _applyContentSize(next);
+        } catch (error) {
+          _error = error;
+          _notify();
+        }
+      }
+    } finally {
+      _contentSizeTask = null;
+    }
+  }
+
+  Future<void> _applyContentSize(_ContentSizeRequest next) async {
+    final currentPage = _pager?.current?.content;
+    if (next.preview && _contentSizePreviewAnchor == null) {
+      _contentSizePreviewAnchor = _anchorOf(currentPage);
+      _contentSizePreviewProgress = progress;
+      _contentSizeBeforePreview = (
+        _contentWidth,
+        _contentHeight,
+        _contentTopInset,
+      );
+    }
+    final anchor = _contentSizePreviewAnchor ?? _anchorOf(currentPage);
+    if (_contentWidth == next.width &&
+        _contentHeight == next.height &&
+        _contentTopInset == next.topInset &&
+        _error == null) {
+      if (!next.preview) _finishContentSizePreview();
       return;
     }
-    await _reloadChapter(generation: generation, spine: spine, anchor: anchor);
+    final src = source;
+    if (src is! ResizableChapterSource) {
+      _setContentSize(next);
+      if (!next.preview) _finishContentSizePreview();
+      return;
+    }
+    await _resizeCurrentChapter(src, next, anchor);
+  }
+
+  Future<void> _resizeCurrentChapter(
+    ResizableChapterSource src,
+    _ContentSizeRequest next,
+    ReaderAnchor anchor,
+  ) async {
+    final spine = page?.spineIndex ?? 0;
+    final generation = ++_generation;
+    final changed = await src.applyContentSize(
+      width: next.width,
+      height: next.height,
+      topInset: next.topInset,
+    );
+    if (generation != _generation) return;
+    _setContentSize(next);
+    if (changed || _error != null) {
+      final original = _contentSizePreviewProgress;
+      // 原尺寸直接恢复原页号，避免锚点恰在页边界时退到前一页。
+      final restoresOriginalSize =
+          (next.width, next.height, next.topInset) == _contentSizeBeforePreview;
+      await _reloadChapter(
+        generation: generation,
+        spine: spine,
+        anchor: anchor,
+        pageIndex: restoresOriginalSize && original?.spineIndex == spine
+            ? original?.pageIndex
+            : null,
+      );
+    }
+    if (generation != _generation || _error != null) return;
+    if (!next.preview) _finishContentSizePreview();
+  }
+
+  void _setContentSize(_ContentSizeRequest next) {
+    _contentWidth = next.width;
+    _contentHeight = next.height;
+    _contentTopInset = next.topInset;
+  }
+
+  void _finishContentSizePreview() {
+    if (_contentSizePreviewAnchor == null) return;
+    _contentSizePreviewAnchor = null;
+    _contentSizePreviewProgress = null;
+    _contentSizeBeforePreview = null;
+    _persist();
   }
 
   /// 重载当前章节并回到锚点；失败时不丢弃旧页（避免闪空白）。
@@ -627,6 +716,7 @@ class ReaderSession extends ChangeNotifier {
     required int spine,
     required ReaderAnchor anchor,
     Future<void> Function()? prepare,
+    int? pageIndex,
   }) async {
     _pager?.cancelPendingNavigation();
     _loading = true;
@@ -644,11 +734,13 @@ class ReaderSession extends ChangeNotifier {
       }
       final pager = VirtualPager(
         spineCount: source.chapterCount,
-        loader: (index) => index == spine
-            ? Future.value(pages)
-            : source.loadChapter(index),
+        loader: (index) =>
+            index == spine ? Future.value(pages) : source.loadChapter(index),
       );
-      await pager.initialize(startSpine: spine, startPage: _locatePage(pages, anchor));
+      await pager.initialize(
+        startSpine: spine,
+        startPage: pageIndex ?? _locatePage(pages, anchor),
+      );
       if (generation != _generation) {
         return;
       }
@@ -723,7 +815,7 @@ class ReaderSession extends ChangeNotifier {
   /// 首次变化立即落盘（leading），避免「翻一页就退出」的短会话丢进度；
   /// 之后的连续变化走 trailing 合并。
   void _persist() {
-    final value = progress;
+    final value = _progressToPersist;
     if (value == null || value == _lastPersisted) {
       return;
     }
@@ -738,10 +830,13 @@ class ReaderSession extends ChangeNotifier {
   /// 立即落盘（生命周期切后台/退出阅读页/强杀前调用）。
   Future<void> flushProgress() => _flushProgress();
 
+  ReaderProgress? get _progressToPersist =>
+      _contentSizePreviewProgress ?? progress;
+
   Future<void> _flushProgress() async {
     _persistTimer?.cancel();
     _persistTimer = null;
-    final value = progress;
+    final value = _progressToPersist;
     if (value == null || value == _lastPersisted) {
       return;
     }
@@ -759,10 +854,11 @@ class ReaderSession extends ChangeNotifier {
   @override
   void dispose() {
     _generation += 1; // 丢弃未完成任务
+    _pendingContentSize = null;
     _jumpToken += 1;
     _pager?.cancelPendingNavigation();
     // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
-    final value = progress;
+    final value = _progressToPersist;
     if (value != null && value != _lastPersisted) {
       _lastPersisted = value;
       _persistWrites += 1;

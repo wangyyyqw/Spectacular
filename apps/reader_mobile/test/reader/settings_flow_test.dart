@@ -268,7 +268,7 @@ void main() {
     final pagesBefore = session.chapterPageCount;
     final heightBefore = session.contentHeight ?? 0;
 
-    // 向下拖「上内」胶囊：留白向下扩张，数值实时变化，但只重绘当前页。
+    // 向下拖「上内」胶囊：留白向下扩张，当前章同步重新分页。
     await tester.drag(
       find.byKey(const ValueKey<String>('margin-top-inner')),
       const Offset(0, 120),
@@ -287,8 +287,10 @@ void main() {
     expect(
       session.layoutFingerprint,
       before,
-      reason: '拖动阶段不重新分页（只调当前页）',
+      reason: '边距只改变正文区尺寸，不改变字号等排版设置指纹',
     );
+    expect(session.contentHeight, lessThan(heightBefore));
+    expect(session.page!.pageHeight, session.contentHeight);
 
     // 取消：不应用，边距回到原样。
     await tester.tap(find.byKey(const ValueKey<String>('margin-cancel')));
@@ -300,8 +302,9 @@ void main() {
       reason: '取消后分页不变',
     );
     expect(session.layoutFingerprint, before, reason: '取消后排版指纹不变');
+    expect(session.contentHeight, heightBefore, reason: '取消恢复原分页尺寸');
 
-    // 再进一次：这次点「保留」→ 立即按新边距重排（不用重开阅读页）。
+    // 再进一次：保存保留实时重排结果，无需重开阅读页。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-type')));

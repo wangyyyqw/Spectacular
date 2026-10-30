@@ -18,6 +18,9 @@ class _AnchoredSource
   double width = 120;
   double height = 200;
   int loadCount = 0;
+  Completer<void>? loadGate;
+  final loadedHeights = <double>[];
+  bool failNextLoad = false;
 
   @override
   int get chapterCount => 1;
@@ -51,6 +54,12 @@ class _AnchoredSource
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
     loadCount += 1;
+    loadedHeights.add(height);
+    await loadGate?.future;
+    if (failNextLoad) {
+      failNextLoad = false;
+      throw StateError('测试分页失败');
+    }
     final style = ComputedStyle(<String, String>{
       'font-size': '${fontSize}px',
       'line-height': '1.5',
@@ -127,7 +136,7 @@ Future<ReaderSession> _openSession(_AnchoredSource source) async {
     store: MemoryReaderProgressStore(),
     bookId: 'book',
   );
-  await session.open();
+  await session.open(contentWidth: source.width, contentHeight: source.height);
   return session;
 }
 
@@ -196,5 +205,111 @@ void main() {
     expect(session.loading, isFalse);
     expect(session.error, isNull);
     session.dispose();
+  });
+
+  test('预览反复重排固定原锚点，取消恢复原页且不保存临时页码', () async {
+    final source = _AnchoredSource();
+    final session = await _openSession(source);
+    addTearDown(session.dispose);
+    await session.next();
+    await session.next();
+    await session.flushProgress();
+    final before = session.progress;
+    final anchor = _anchorOf(session.page!);
+    for (final height in [120.0, 180.0, 140.0]) {
+      await session.applyContentSize(width: 120, height: height, preview: true);
+      expect(session.page!.pageHeight, height);
+      expect(_contains(session.page!, anchor), isTrue);
+      await session.flushProgress();
+      expect(await session.store.load('book'), before);
+    }
+    await session.applyContentSize(width: 120, height: 200);
+    expect(session.progress, before);
+    expect(session.page!.pageHeight, 200);
+  });
+
+  test('保存已完成的预览不重复分页，退出未保存预览仍保留原进度', () async {
+    final source = _AnchoredSource();
+    final session = await _openSession(source);
+    await session.next();
+    await session.applyContentSize(width: 120, height: 120, preview: true);
+    final loads = source.loadCount;
+    final previewProgress = session.progress;
+    await session.applyContentSize(width: 120, height: 120);
+    expect(source.loadCount, loads);
+    await session.flushProgress();
+    expect(await session.store.load('book'), previewProgress);
+    await session.applyContentSize(width: 120, height: 80, preview: true);
+    session.dispose();
+    expect(await session.store.load('book'), previewProgress);
+  });
+
+  test('慢分页期间合并中间请求，取消恢复尺寸不会被旧预览覆盖', () async {
+    final source = _AnchoredSource();
+    final session = await _openSession(source);
+    addTearDown(session.dispose);
+    await session.applyContentSize(width: 120, height: 200);
+    await session.next();
+    final before = session.progress;
+    source.loadedHeights.clear();
+    source.loadGate = Completer<void>();
+    final first = session.applyContentSize(
+      width: 120,
+      height: 180,
+      preview: true,
+    );
+    await Future<void>.delayed(Duration.zero);
+    final middle = session.applyContentSize(
+      width: 120,
+      height: 160,
+      preview: true,
+    );
+    final cancel = session.applyContentSize(width: 120, height: 200);
+    expect(source.height, 180, reason: '在途分页完成前不改变共享章节源尺寸');
+    source.loadGate!.complete();
+    await Future.wait([first, middle, cancel]);
+    expect(source.loadedHeights, [180, 200]);
+    expect(session.page!.pageHeight, 200);
+    expect(session.contentHeight, 200);
+    expect(session.progress, before);
+  });
+
+  test('预览分页失败后取消，章节源尺寸和当前页都恢复', () async {
+    final source = _AnchoredSource();
+    final session = await _openSession(source);
+    addTearDown(session.dispose);
+    await session.next();
+    final before = session.progress;
+    source.failNextLoad = true;
+    await session.applyContentSize(width: 120, height: 120, preview: true);
+    expect(session.error, isA<StateError>());
+    expect(session.page!.pageHeight, 200, reason: '失败期间保留旧页');
+    await session.applyContentSize(width: 120, height: 200);
+    expect(session.error, isNull);
+    expect(source.height, 200);
+    expect(session.page!.pageHeight, 200);
+    expect(session.progress, before);
+  });
+
+  test('预览尚未完成就保存，等待同次分页完成后提交最终进度', () async {
+    final source = _AnchoredSource();
+    final session = await _openSession(source);
+    addTearDown(session.dispose);
+    await session.next();
+    source.loadedHeights.clear();
+    source.loadGate = Completer<void>();
+    final preview = session.applyContentSize(
+      width: 120,
+      height: 120,
+      preview: true,
+    );
+    await Future<void>.delayed(Duration.zero);
+    final save = session.applyContentSize(width: 120, height: 120);
+    source.loadGate!.complete();
+    await Future.wait([preview, save]);
+    expect(source.loadedHeights, [120]);
+    expect(session.page!.pageHeight, 120);
+    await session.flushProgress();
+    expect(await session.store.load('book'), session.progress);
   });
 }
