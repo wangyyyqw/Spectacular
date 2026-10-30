@@ -168,10 +168,12 @@ class ReaderAnchor {
 
 /// 可应用正文区尺寸的章节源（旋转/窗口变化，P2-31）。
 abstract interface class ResizableChapterSource implements ReaderChapterSource {
-  /// 应用正文区尺寸；返回是否真的发生变化（变化后调用方重新加载章节）。
+  /// 应用正文区尺寸及整页到正文的上内缩（含安全区与页眉槽）。
+  /// 返回是否真的发生变化，变化后调用方重新加载章节。
   Future<bool> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   });
 }
 
@@ -209,6 +211,7 @@ class ReaderSession extends ChangeNotifier {
 
   double? _contentWidth;
   double? _contentHeight;
+  double _contentTopInset = 0;
 
   /// 当前正文区高度（分页依据；测试与诊断用）。
   double? get contentHeight => _contentHeight;
@@ -423,6 +426,7 @@ class ReaderSession extends ChangeNotifier {
     ReaderOverrides? overrides,
     double? contentWidth,
     double? contentHeight,
+    double contentTopInset = 0,
   }) async {
     if (_loading || _pager != null) {
       return;
@@ -435,7 +439,12 @@ class ReaderSession extends ChangeNotifier {
       if (source.chapterCount <= 0) {
         throw StateError('书籍没有章节');
       }
-      await _prepareInitialLayout(overrides, contentWidth, contentHeight);
+      await _prepareInitialLayout(
+        overrides,
+        contentWidth,
+        contentHeight,
+        contentTopInset,
+      );
       if (generation != _generation) return;
       final saved = await store.load(bookId);
       if (generation != _generation) return;
@@ -465,7 +474,10 @@ class ReaderSession extends ChangeNotifier {
 
   /// 第一章排版之前应用最终设置与尺寸，避免首屏出现后再立即重排。
   Future<void> _prepareInitialLayout(
-    ReaderOverrides? overrides, double? width, double? height,
+    ReaderOverrides? overrides,
+    double? width,
+    double? height,
+    double topInset,
   ) async {
     final src = source;
     if (overrides != null) {
@@ -475,8 +487,13 @@ class ReaderSession extends ChangeNotifier {
     if (width != null && height != null) {
       _contentWidth = width;
       _contentHeight = height;
+      _contentTopInset = topInset;
       if (src is ResizableChapterSource) {
-        await src.applyContentSize(width: width, height: height);
+        await src.applyContentSize(
+          width: width,
+          height: height,
+          topInset: topInset,
+        );
       }
     }
   }
@@ -575,12 +592,16 @@ class ReaderSession extends ChangeNotifier {
   Future<void> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   }) async {
-    if (_contentWidth == width && _contentHeight == height) {
+    if (_contentWidth == width &&
+        _contentHeight == height &&
+        _contentTopInset == topInset) {
       return;
     }
     _contentWidth = width;
     _contentHeight = height;
+    _contentTopInset = topInset;
     final src = source;
     if (src is! ResizableChapterSource) {
       return;
@@ -589,7 +610,11 @@ class ReaderSession extends ChangeNotifier {
     final spine = currentPage?.spineIndex ?? 0;
     final anchor = _anchorOf(currentPage);
     final generation = ++_generation;
-    final changed = await src.applyContentSize(width: width, height: height);
+    final changed = await src.applyContentSize(
+      width: width,
+      height: height,
+      topInset: topInset,
+    );
     if (!changed || generation != _generation) {
       return;
     }

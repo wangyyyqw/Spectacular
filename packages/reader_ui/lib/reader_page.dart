@@ -397,6 +397,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 上一次布局的正文区尺寸（旋转/窗口变化检测，P2-31）。
   Size? _lastContentSize;
+  double? _lastContentTopInset;
   Future<void>? _initialOpen;
 
   /// 预取本页引用的背景图；解码完成后 setState，占位替换为真图。
@@ -447,10 +448,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (content.width <= 0 || content.height <= 0) {
       return;
     }
-    if (_lastContentSize == content) {
+    if (_lastContentSize == content && _lastContentTopInset == padding.top) {
       return;
     }
     _lastContentSize = content;
+    _lastContentTopInset = padding.top;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final opening = _initialOpen;
@@ -459,14 +461,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             overrides: _effectiveOverrides(),
             contentWidth: content.width,
             contentHeight: content.height,
+            contentTopInset: padding.top,
           );
         } else {
-          unawaited(opening.then((_) async {
-            if (!mounted) return;
-            await _session.applyContentSize(
-              width: content.width, height: content.height,
-            );
-          }));
+          unawaited(
+            opening.then((_) async {
+              if (!mounted) return;
+              await _session.applyContentSize(
+                width: content.width,
+                height: content.height,
+                topInset: padding.top,
+              );
+            }),
+          );
         }
       }
     });

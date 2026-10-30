@@ -38,6 +38,7 @@ class _AnchoredSource
   Future<bool> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   }) async {
     if (this.width == width && this.height == height) {
       return false;

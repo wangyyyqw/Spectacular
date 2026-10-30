@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_session.dart';
 /// 记录 applyContentSize 的假源（P2-36：全面屏手势区兜底）。
 class _SizingSource implements RestylableChapterSource, ResizableChapterSource {
   Size? appliedSize;
+  double? appliedTopInset;
 
   @override
   int get chapterCount => 1;
@@ -31,8 +32,10 @@ class _SizingSource implements RestylableChapterSource, ResizableChapterSource {
   Future<bool> applyContentSize({
     required double width,
     required double height,
+    double topInset = 0,
   }) async {
     appliedSize = Size(width, height);
+    appliedTopInset = topInset;
     return false;
   }
 }
@@ -68,6 +71,10 @@ void main() {
     expect(
       size!.height,
       closeTo(200 - 16 * 2 - 44 - 20 - PageFurniture.reservedHeight, 0.5),
+    );
+    expect(
+      source.appliedTopInset,
+      16 + 44 + PageFurniture.headerHeight + PageFurniture.headerGap,
     );
   });
 }
