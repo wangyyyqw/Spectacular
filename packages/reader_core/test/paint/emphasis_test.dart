@@ -19,6 +19,13 @@ Future<void> _loadFont() async {
   await (FontLoader(
     _serif,
   )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
+  // 测试子集字体缺少部分着重号，加载与宿主一致的内置回退字体。
+  final fallback = await File(
+    '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+  ).readAsBytes();
+  await (FontLoader(
+    'builtin_song',
+  )..addFont(Future.value(ByteData.sublistView(fallback)))).load();
 }
 
 ComputedStyle _style([Map<String, String> overrides = const {}]) =>
@@ -36,7 +43,8 @@ Future<ByteData> _render(String text, ComputedStyle style) async {
     style: style,
     maxWidth: 200,
   );
-  final page = Paginator(pageHeight: 160)
+  // 留出上侧注音区，避免页边裁剪干扰字形轮廓断言。
+  final page = Paginator(pageHeight: 160, topPadding: 32)
       .measureChapter(
         blocks: [
           PageBlock.styled(layout: layout, style: style, containingWidth: 200),
@@ -169,5 +177,46 @@ void main() {
       _style(const {'text-emphasis': 'filled sesame'}),
     );
     expect(circle, isNot(equals(sesame)), reason: '圆点和芝麻点形态应不同');
+  });
+
+  test('着重号跳过标点、分隔符和控制字符', () async {
+    const text = '，。：；！？「」（）-\u00a0\u200b';
+    final plain = await _render(text, _style());
+    final marked = await _render(text, _style(const {'text-emphasis': 'dot'}));
+    expect(marked.buffer.asUint8List(), plain.buffer.asUint8List());
+  });
+
+  test('着重号保留百分号、井号和与号等规范例外', () async {
+    const text = '#%&@§¶';
+    final plain = await _render(text, _style());
+    final marked = await _render(text, _style(const {'text-emphasis': 'dot'}));
+    final glyphRows = _inkRows(plain);
+    final extra = _inkRows(marked)
+        .where((row) => !glyphRows.contains(row))
+        .toList();
+    expect(_clusters(extra, marked), text.length);
+  });
+
+  test('实心和空心芝麻点保留字体中的不同轮廓', () async {
+    final filled = await _render(
+      '中文',
+      _style(const {'text-emphasis': 'filled sesame'}),
+    );
+    final open = await _render(
+      '中文',
+      _style(const {'text-emphasis': 'open sesame'}),
+    );
+    expect(filled.buffer.asUint8List(), isNot(open.buffer.asUint8List()));
+  });
+
+  test('组合字符和补充平面汉字按字素簇各画一个着重号', () async {
+    const text = '中e\u0301𠀀';
+    final plain = await _render(text, _style());
+    final marked = await _render(text, _style(const {'text-emphasis': 'dot'}));
+    final glyphRows = _inkRows(plain);
+    final extra = _inkRows(marked)
+        .where((row) => !glyphRows.contains(row))
+        .toList();
+    expect(_clusters(extra, marked), 3);
   });
 }
