@@ -203,16 +203,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 是否在边距调节器里（全屏编辑态，压在菜单之上）。
   bool _editingMargins = false;
 
+  /// 保存或取消的最后一次重排完成前阻止翻章，避免旧分页覆盖导航结果。
+  bool _finishingMarginEdit = false;
+
   /// 是否在九宫格点击区域编辑页。
   bool _editingTapZones = false;
 
   /// 当前九宫格点击区域配置。
   late ReaderTapZones _tapZones = widget.tapZones;
 
-  /// 调节器拖动中的预览值：只影响绘制，不参与分页（拖起来才不卡）。
+  /// 调节器草稿：实时参与当前章分页，保存前不写入设置和阅读进度。
   ReaderMargins? _previewMargins;
 
-  /// 已保存的页边距：参与分页；「保留」后才更新，更新即触发一次重排。
+  /// 已保存的页边距：取消预览时恢复。
   ReaderMargins? _savedMargins;
 
   /// 从基础 padding 生成调节器值，保证打开调节器时画面不跳。
@@ -237,8 +240,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ReaderMargins get _defaultMargins =>
       _marginsFromPadding(_fallbackPadding());
 
-  ReaderMargins? _layoutMargins({bool forLayout = false}) =>
-      forLayout ? _savedMargins : (_previewMargins ?? _savedMargins);
+  ReaderMargins? get _layoutMargins => _previewMargins ?? _savedMargins;
 
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
@@ -302,9 +304,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 页边距：设置优先，其次 ReaderPage.padding。
-  ///
-  /// [forLayout] 为 true 时只用已保存的边距（分页依据），忽略拖动预览值——
-  /// 这样拖动时只重绘当前页，不会每帧重排整章。
   EdgeInsets _fallbackPadding() {
     final edges = _overrides.padding;
     final base = edges == null
@@ -319,12 +318,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return base + EdgeInsets.only(top: topInset, bottom: bottomInset);
   }
 
-  EdgeInsets _effectivePadding({bool forLayout = false}) {
+  EdgeInsets _effectivePadding() {
     // 设置里显式给了页边距（含安全区两段）时直接用它：边距调节器允许把
     // 上下外段调到 0，让正文铺进安全区，所以这里不能再叠加 viewPadding。
-    final margins = forLayout
-        ? _savedMargins
-        : (_previewMargins ?? _savedMargins);
+    final margins = _layoutMargins;
     if (margins != null) {
       return margins.toPadding();
     }
@@ -332,17 +329,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 页眉页脚外侧 padding：外段从屏幕边界排到页家具，内段不参与。
-  EdgeInsets _furniturePadding({bool forLayout = false}) {
-    final margins = _layoutMargins(forLayout: forLayout);
+  EdgeInsets _furniturePadding() {
+    final margins = _layoutMargins;
     if (margins != null) {
       return margins.toOuterPadding();
     }
-    return _effectivePadding(forLayout: forLayout);
+    return _effectivePadding();
   }
 
   /// 正文区 padding：外段 + 页眉页脚高度 + 内段。
-  EdgeInsets _bodyPadding({bool forLayout = false}) {
-    final margins = _layoutMargins(forLayout: forLayout);
+  EdgeInsets _bodyPadding() {
+    final margins = _layoutMargins;
     if (margins != null) {
       return margins.toBodyPadding(
         showFurniture: widget.showPageFooter,
@@ -350,7 +347,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         footerHeight: PageFurniture.footerHeight,
       );
     }
-    final base = _effectivePadding(forLayout: forLayout);
+    final base = _effectivePadding();
     if (!widget.showPageFooter) {
       return base;
     }
@@ -414,6 +411,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 上一次布局的正文区尺寸（旋转/窗口变化检测，P2-31）。
   Size? _lastContentSize;
   double? _lastContentTopInset;
+  bool? _lastContentSizePreview;
   Future<void>? _initialOpen;
 
   /// 预取本页引用的背景图；解码完成后 setState，占位替换为真图。
@@ -456,7 +454,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
   void _scheduleContentSize(Size pageSize) {
-    final padding = _bodyPadding(forLayout: true);
+    final padding = _bodyPadding();
+    final preview = _editingMargins;
     final content = Size(
       pageSize.width - padding.horizontal,
       pageSize.height - padding.vertical,
@@ -464,35 +463,44 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (content.width <= 0 || content.height <= 0) {
       return;
     }
-    if (_lastContentSize == content && _lastContentTopInset == padding.top) {
+    if (_lastContentSize == content &&
+        _lastContentTopInset == padding.top &&
+        _lastContentSizePreview == preview) {
       return;
     }
     _lastContentSize = content;
     _lastContentTopInset = padding.top;
+    _lastContentSizePreview = preview;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final opening = _initialOpen;
-        if (opening == null) {
-          _initialOpen = _session.open(
-            overrides: _effectiveOverrides(),
-            contentWidth: content.width,
-            contentHeight: content.height,
-            contentTopInset: padding.top,
-          );
-        } else {
-          unawaited(
-            opening.then((_) async {
-              if (!mounted) return;
-              await _session.applyContentSize(
-                width: content.width,
-                height: content.height,
-                topInset: padding.top,
-              );
-            }),
-          );
-        }
-      }
+      if (mounted) _applyContentSize(content, padding.top, preview);
     });
+  }
+
+  void _applyContentSize(Size content, double topInset, bool preview) {
+    final opening = _initialOpen;
+    if (opening == null) {
+      _initialOpen = _session.open(
+        overrides: _effectiveOverrides(),
+        contentWidth: content.width,
+        contentHeight: content.height,
+        contentTopInset: topInset,
+      );
+      return;
+    }
+    unawaited(
+      opening.then((_) async {
+        if (!mounted) return;
+        await _session.applyContentSize(
+          width: content.width,
+          height: content.height,
+          topInset: topInset,
+          preview: preview,
+        );
+        if (mounted && !preview && _finishingMarginEdit) {
+          setState(() => _finishingMarginEdit = false);
+        }
+      }),
+    );
   }
 
   void _schedulePrefetch(PageContent page, double displayWidth) {
@@ -1242,9 +1250,22 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             _scheduleContentSize(Size(constraints.maxWidth, constraints.maxHeight));
             return ColoredBox(
               color: _effectiveTheme?.background ?? widget.background,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                child: _buildBody(context),
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: _buildBody(context),
+                  ),
+                  // 编辑器不随章内页码切换重建，重排期间同一次拖动可以继续。
+                  if (_editingMargins || _finishingMarginEdit)
+                    const ModalBarrier(
+                      key: ValueKey<String>('margin-pagination-barrier'),
+                      dismissible: false,
+                    ),
+                  if (_editingMargins)
+                    Positioned.fill(child: _buildMarginEditor()),
+                ],
               ),
             );
           },
@@ -1553,37 +1574,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               safeTop: _safeTop,
               safeBottom: _safeBottom,
             ),
-            // 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态。
-            if (_editingMargins)
-              Positioned.fill(
-                child: MarginEditor(
-                  margins: _activeMargins,
-                  defaults: _defaultMargins,
-                  onPreview: (margins) =>
-                      setState(() => _previewMargins = margins),
-                  showPageFurniture: widget.showPageFooter,
-                  onCancel: () => setState(() {
-                    _editingMargins = false;
-                    _previewMargins = null;
-                  }),
-                  onApply: (margins) {
-                    _log('user_margins', <String, Object?>{
-                      'left': margins.left,
-                      'right': margins.right,
-                      'top_outer': margins.topOuter,
-                      'top_inner': margins.topInner,
-                      'bottom_inner': margins.bottomInner,
-                      'bottom_outer': margins.bottomOuter,
-                    });
-                    widget.onMarginsChanged?.call(margins);
-                    setState(() {
-                      _savedMargins = margins;
-                      _editingMargins = false;
-                      _previewMargins = null;
-                    });
-                  },
-                ),
-              ),
             // 九宫格点击区域编辑页：每个格子循环切换点击动作。
             if (_editingTapZones)
               Positioned.fill(
@@ -1606,6 +1596,35 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       },
     );
   }
+
+  Widget _buildMarginEditor() => MarginEditor(
+    margins: _activeMargins,
+    defaults: _defaultMargins,
+    onPreview: (margins) => setState(() => _previewMargins = margins),
+    showPageFurniture: widget.showPageFooter,
+    onCancel: () => setState(() {
+      _editingMargins = false;
+      _finishingMarginEdit = true;
+      _previewMargins = null;
+    }),
+    onApply: (margins) {
+      _log('user_margins', <String, Object?>{
+        'left': margins.left,
+        'right': margins.right,
+        'top_outer': margins.topOuter,
+        'top_inner': margins.topInner,
+        'bottom_inner': margins.bottomInner,
+        'bottom_outer': margins.bottomOuter,
+      });
+      widget.onMarginsChanged?.call(margins);
+      setState(() {
+        _savedMargins = margins;
+        _editingMargins = false;
+        _finishingMarginEdit = true;
+        _previewMargins = null;
+      });
+    },
+  );
 }
 
 class _ReaderPageCustomPainter extends CustomPainter {
