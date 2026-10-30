@@ -118,6 +118,16 @@ void main() {
     image.dispose();
   });
 
+  test('fill 中间区域按源图尺寸重复而不是拉伸', () async {
+    final image = await _quadImage();
+    final data = await _render(image, 'url(frame) 25% fill repeat');
+    // 内容区 160×160，源中心 20×20 按边框缩放成 40×40 后平铺 4×4；
+    // 该采样点落在右侧绿色源象限，拉伸时会错误落到左侧红色源象限。
+    expect(_r(data, 55, 35), lessThan(80));
+    expect(_g(data, 55, 35), greaterThan(120));
+    image.dispose();
+  });
+
   test('无 border-image 时边框保持透明（不画图片）', () async {
     final image = await _quadImage();
     final data = await _render(image, 'none');

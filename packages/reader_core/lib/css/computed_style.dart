@@ -3913,21 +3913,25 @@ class ComputedStyle {
     if (raw == null) {
       return null;
     }
-    final value = raw.trim().toLowerCase();
-    if (value.isEmpty || value == 'none') {
+    final value = raw.trim();
+    if (value.isEmpty || value.toLowerCase() == 'none') {
       return null;
     }
-    final urlMatch = RegExp(r'url\(\s*["\x27]?([^"\x27)]+)["\x27]?\s*\)')
-        .firstMatch(value);
+    final urlMatch = RegExp(
+      r'url\(\s*["\x27]?([^"\x27)]+)["\x27]?\s*\)',
+      caseSensitive: false,
+    ).firstMatch(value);
     if (urlMatch == null) {
       return null;
     }
+    // data URL 的 base64 区分大小写，不能先整串转小写。
     final url = urlMatch.group(1)!;
     final rest = value.replaceFirst(urlMatch.group(0)!, ' ');
     final tokens = rest
         .replaceAll('/', ' / ')
         .split(RegExp(r'\s+'))
         .where((token) => token.isNotEmpty)
+        .map((token) => token.toLowerCase())
         .toList();
     var fill = false;
     var repeat = CssBorderImageRepeat.stretch;

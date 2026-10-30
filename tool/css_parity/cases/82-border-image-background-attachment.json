@@ -1,0 +1,9 @@
+{
+  "name": "82-border-image-background-attachment",
+  "tags": [
+    "border-image",
+    "background-attachment"
+  ],
+  "css": "body { margin: 0; padding: 0; min-height: 800px; font-family: \"builtin_song\"; font-size: 13px; background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP48ukNAAWwAtPacHMoAAAAAElFTkSuQmCC\"); background-attachment: fixed; background-repeat: repeat; background-size: 1px 1px; } .frame { width: 270px; height: 54px; margin: 0 22px; padding: 8px 12px; border: 16px solid transparent; border-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAQElEQVR42u3NMQ0AIAwAMLzsQQkiUIcSlHDjgB8Pe9ekf9vtPS3WSGtisVgsFovFheKYJ+3tSBOLxWKxWCwuFH9cO3xZw4O2pwAAAABJRU5ErkJggg==\") 50% repeat; } .fill { width: 270px; height: 54px; margin: 6px 22px 14px; padding: 8px 12px; border: 16px solid transparent; border-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAQElEQVR42u3NMQ0AIAwAMLzsQQkiUIcSlHDjgB8Pe9ekf9vtPS3WSGtisVgsFovFheKYJ+3tSBOLxWKxWCwuFH9cO3xZw4O2pwAAAABJRU5ErkJggg==\") 25% fill round; }",
+  "html": "<div class=\"frame\">border-image 四边 repeat</div><div class=\"fill\">fill + round 中间区域</div>"
+}

@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **1**：`initial-letter` |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（97 + 1 + 44） |
-| `tool/css_parity/cases/` | 80 个用例（编号 01–81，缺 65） |
+| `tool/css_parity/cases/` | 81 个用例（编号 01–82，缺 65） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -33,7 +33,10 @@
 > 接入 `font-size-adjust` 的 x-height 计算与书籍字体度量。79/80 的几何与关键
 > 样式失配均为 0；80 的 Chrome Range 高度仍按字体盒返回，对照工具已将逐行 y
 > 按块顶 + CSS 行高归一。`81-font-variant-caps` 补齐 Chromium 同款小型大写
-> 合成、全字符缩放与混合字号 CSS 行盒，几何/样式失配为 0。覆盖率与剩余属性名以
+> 合成、全字符缩放与混合字号 CSS 行盒，几何/样式失配为 0。
+> `82-border-image-background-attachment` 覆盖九宫格切割、`repeat`/`round`/`fill`
+> 与固定底纹，几何/样式失配为 0、视觉差异 0.43%；同时修复 data URL 被整体
+> 转小写和 `fill` 中间区域未按 repeat 规则平铺的问题。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 
@@ -284,8 +287,8 @@
 
 | # | 属性 | 语料频次/书数 | 缺失后果 |
 | ---: | --- | --- | --- |
-| 99 | `border-image` | 11 / 3 | 已实现：`CssBorderImage` + 九宫格绘制（角拉伸/边 repeat/round/stretch/fill）；语料内规则未被引用，靠 fixture 验证 |
-| 100 | `background-attachment` | 218 / 3 | 已记录等价降级：真实书里都是 `body.headNNN` 章节标题页底纹，引擎按每页页背景重绘，观感等价 |
+| 99 | `border-image` | 11 / 3 | 已实现并由 `82-border-image-background-attachment` 对照：`CssBorderImage` + 九宫格绘制，覆盖切割、边 `repeat`/`round`、`fill` 中间区平铺与 data URL |
+| 100 | `background-attachment` | 218 / 3 | 已记录分页介质下的等价降级，并由 `82-border-image-background-attachment` 验证 body 固定底纹按每页页背景重绘 |
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
 | 102 | `backdrop-filter` | 3 / 2 | 已按「页面背景作为 backdrop」近似（纯 Canvas 无法采样已绘制内容） |
 | 103 | `z-index` | 4 / 2 | 已实现：绘制顺序按层级升序稳定排序，同层保持文档序 |
@@ -389,7 +392,7 @@
 | 9 | `object-position` | ~~P2~~ 已完成 | `object-fit` 与声明位置均映射到背景尺寸/位置 | — | — |
 | 10 | `transform` 3D（`translate3d`/`rotate3d`/`perspective`） | P2 | `pr:661` 只构造 2D 仿射，4×4 矩阵其余位补零（`pr:682-687`） | M | `page_renderer.dart`（`_affineOfTransform` / `_transformMatrixOf`） |
 | 11 | `border-image` | ~~P2~~ 已完成 | 切割/repeat/fill 全部实现（`cs:_parseBorderImage` + `pr:_paintBorderImage`） | — | — |
-| 12 | `background-attachment` | P2（可显式声明不支持） | 218 次 / 3 本，最高频缺失项；`cs:4369` 简写不解析 | S | `computed_style.dart`（`_parseBackgroundShorthand`）+ 文档化降级 |
+| 12 | `background-attachment` | ~~P2~~ 已完成 | 218 次 / 3 本；分页介质下 `fixed` 等价为每页页背景，已由 `82` 用例对照验收 | — | — |
 | 13 | `border-radius` 椭圆（`a / b`）与百分比 | ~~P1~~ 已完成 | 解析横向/纵向双半径；百分比横向按盒宽、纵向按盒高，绘制为四角椭圆 | — | — |
 | 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
 | 15 | `display: flex` + `justify-content`/`align-items` | P2 | `bf:528` 无 flex 分支；221/5 + 14/4 + 13/3 | L | `block_flow.dart`（新增 flex 分派） |
@@ -419,7 +422,7 @@
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **73 个用例**（编号 `01`–`74`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **81 个用例**（编号 `01`–`82`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -433,8 +436,8 @@
 | #8 content/counter | `62-word-wrap-content`（含 `content`） | 部分；`counter-*` 缺 |
 | #9 object-fit | **无** | 建议新增 `69-object-fit.json` |
 | #10 transform 3D | `36-transform` | 2D 已覆盖，3D 缺 |
-| #11 border-image | 由 `border_image_test.dart` 覆盖（需要图片资源，不进 cases） | — |
-| #12 background-attachment | **无** | 建议新增 `71-background-attachment.json` |
+| #11 border-image | `82-border-image-background-attachment` | 已覆盖切割、`repeat`/`round`/`fill` 与 data URL |
+| #12 background-attachment | `82-border-image-background-attachment` | 已覆盖 body 固定底纹的等价降级 |
 | #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值、`a / b` 与百分比双半径 |
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
 | #15 flex | **无**（`53-display-position` 只覆盖 display/position） | 建议新增 `72-flex-basic.json` |
@@ -442,9 +445,9 @@
 | #18 sticky | `53-display-position` | 已覆盖 |
 | #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
-**当前还缺的对照面**：`flex`、`background-attachment`；竖排 ruby 已加入 77
-用例但仍为 `engine_only`（注音行高口径未稳定），`counter-*` 已由 78 用例覆盖；
-`border-image` 需要图片资源，已由单测覆盖。
+**当前还缺的对照面**：`flex`；竖排 ruby 已加入 77 用例但仍为 `engine_only`
+（注音行高口径未稳定），`counter-*` 已由 78 用例覆盖，`border-image` 与
+`background-attachment` 已由 82 用例对照。
 
 ---
 
@@ -534,7 +537,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
 | 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 140/168（用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 143/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法
@@ -545,14 +548,17 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：77 用例 / 几何与样式失配 **0** / 未配对 7 项；
-  20 组截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
+- 最新结果（2026-10-30）：81 用例基线 / 几何与样式失配 **0** / 未配对 7 项；
+  部分截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
   `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。
 - `77-ruby-position-align` 覆盖 `ruby-position` 与规范 `ruby-align` 值；
   flat 管线按单注音盒近似，未撑高行高，暂标 `engine_only`。
 - `78-counter-content` 覆盖伪元素计数器、级联胜者和父子 margin 折叠；
   几何/样式失配 0，视觉差异 1.83% 来自字体栅格与行宽。
+- `79-vendor-effect-aliases`、`80-font-size-adjust`、`81-font-variant-caps`
+  几何/样式失配均为 0；`82-border-image-background-attachment` 几何/样式失配
+  0、视觉差异 0.43%，覆盖九宫格 `fill` 平铺与 data URL 保真。
 - `border-radius: a / b` 已补齐四角双半径解析与绘制；`24-border-radius-corners`
   几何/样式失配 0、视觉差异 0.24%，并新增像素与解析回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
