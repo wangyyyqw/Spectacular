@@ -2093,6 +2093,39 @@ void main() {
     );
   });
 
+  test('list-style-image 解析 url、简写展开且继承（W6）', () {
+    expect(ComputedStyle(const <String, String>{}).listStyleImage, isNull);
+    expect(
+      style('p', 'p { list-style-image: url("marker.png"); }').listStyleImage,
+      'marker.png',
+    );
+    expect(
+      style(
+        'p',
+        'p { list-style: square url(marker.png) inside; }',
+      ).listStyleImage,
+      'marker.png',
+    );
+
+    final parent = style(
+      'parent',
+      'div { list-style-image: url(parent.png); }',
+    );
+    expect(
+      style('p', 'p { color: red; }', parent: parent).listStyleImage,
+      'parent.png',
+    );
+    expect(
+      style(
+        'p',
+        'p { list-style-image: none; }',
+        parent: parent,
+      ).listStyleImage,
+      isNull,
+      reason: '显式 none 必须覆盖继承图片',
+    );
+  });
+
   test('text-decoration / text-emphasis / 分页属性解析', () {
     final deco = style(
       'p',

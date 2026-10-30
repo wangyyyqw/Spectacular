@@ -300,6 +300,18 @@ void main() {
         .toList();
     expect(markers, isEmpty);
   });
+
+  test('list-style-image 继承到列表项并保留图片标记（W6）', () async {
+    final source = await open(
+      body: '<ul class="img"><li>图片标记</li></ul>',
+      css:
+          'ul.img { list-style-type: none; '
+          'list-style-image: url("../Images/i.png"); }',
+    );
+    final block = (await source.loadChapter(0)).first.slices.first.block;
+    expect(block.style!.listStyleImage, 'OEBPS/Images/i.png');
+    expect(block.listMarker, isEmpty, reason: 'list-style-type 不提供回退文字');
+  });
 }
 
 Uint8List _book({

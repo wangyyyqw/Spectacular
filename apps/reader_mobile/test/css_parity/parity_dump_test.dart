@@ -695,6 +695,7 @@ void main() {
           background: const Color(0xFFFFFFFF),
           textColor: const Color(0xFF000000),
           imageLookup: (url) => dataImages[url],
+          listMarkerImageOf: (block) => block.style?.listStyleImage,
         ).paint(
           Canvas(recorder),
           page,

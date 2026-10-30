@@ -5077,7 +5077,9 @@ class EpubChapterSource
         if (isListItem && list.markerPending) {
           list.markerPending = false;
           final markerText = list.nextMarker(blockStyle.listStyleType);
-          marker = markerText.isEmpty ? null : markerText;
+          marker = markerText.isEmpty
+              ? (blockStyle.listStyleImage == null ? null : '')
+              : markerText;
         }
         // `list-style-position: inside`（g）：标记并入首行，首行让出
         // 「标记宽 + 间隙」；outside 保持整行宽度（标记画在内容框外）。
