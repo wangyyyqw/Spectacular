@@ -3248,39 +3248,43 @@ abstract final class TextLayoutEngine {
   /// - `petite-caps` = `pcap`；`all-petite-caps` = `pcap` + `c2pc`
   /// - `unicase` = `unic`；`titling-caps` = `titl`；`normal` 不加特性
   static List<FontFeature>? _fontFeatures(ComputedStyle style) {
-    final features = switch (style.fontVariantCaps) {
-      CssFontVariantCaps.normal => null,
-      CssFontVariantCaps.smallCaps => const <FontFeature>[
-        FontFeature.enable('smcp'),
-      ],
-      CssFontVariantCaps.allSmallCaps => const <FontFeature>[
-        FontFeature.enable('smcp'),
-        FontFeature.enable('c2sc'),
-      ],
-      CssFontVariantCaps.petiteCaps => const <FontFeature>[
-        FontFeature.enable('pcap'),
-      ],
-      CssFontVariantCaps.allPetiteCaps => const <FontFeature>[
-        FontFeature.enable('pcap'),
-        FontFeature.enable('c2pc'),
-      ],
-      CssFontVariantCaps.unicase => const <FontFeature>[
-        FontFeature.enable('unic'),
-      ],
-      CssFontVariantCaps.titlingCaps => const <FontFeature>[
-        FontFeature.enable('titl'),
-      ],
-    };
+    final features = <FontFeature>[
+      ...switch (style.fontVariantCaps) {
+        CssFontVariantCaps.normal => const <FontFeature>[],
+        CssFontVariantCaps.smallCaps => const <FontFeature>[
+          FontFeature.enable('smcp'),
+        ],
+        CssFontVariantCaps.allSmallCaps => const <FontFeature>[
+          FontFeature.enable('smcp'),
+          FontFeature.enable('c2sc'),
+        ],
+        CssFontVariantCaps.petiteCaps => const <FontFeature>[
+          FontFeature.enable('pcap'),
+        ],
+        CssFontVariantCaps.allPetiteCaps => const <FontFeature>[
+          FontFeature.enable('pcap'),
+          FontFeature.enable('c2pc'),
+        ],
+        CssFontVariantCaps.unicase => const <FontFeature>[
+          FontFeature.enable('unic'),
+        ],
+        CssFontVariantCaps.titlingCaps => const <FontFeature>[
+          FontFeature.enable('titl'),
+        ],
+      },
+    ];
     final disableLigatures =
         style.fontVariantLigatures == CssFontVariantLigatures.none;
-    if (!disableLigatures) {
-      return features;
+    if (disableLigatures) {
+      features.addAll(const <FontFeature>[
+        FontFeature.disable('liga'),
+        FontFeature.disable('clig'),
+      ]);
     }
-    return <FontFeature>[
-      ...?features,
-      const FontFeature.disable('liga'),
-      const FontFeature.disable('clig'),
-    ];
+    if (style.fontKerning == CssFontKerning.none) {
+      features.add(const FontFeature.disable('kern'));
+    }
+    return features.isEmpty ? null : features;
   }
 
   static TextStyle textStyleFor(

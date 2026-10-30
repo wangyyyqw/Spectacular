@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **1**：`initial-letter` |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（97 + 1 + 44） |
-| `tool/css_parity/cases/` | 84 个用例（编号 01–86，缺 65、85） |
+| `tool/css_parity/cases/` | 86 个用例（编号 01–89，缺 65、85、87） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -43,7 +43,9 @@
 > `engine_only` 用例锁定竖排 2–4 位数字合并。`86-caption-side-empty-cells`
 > 覆盖 `caption-side: top/bottom` 与 `empty-cells: show/hide`，几何/样式失配
 > 与视觉差异均为 0；同时修正标题前后重复折叠表格外边距、空单元格占位和声明
-> 高度。覆盖率与剩余属性名以
+> 高度。`89-font-kerning` 覆盖 `auto/normal/none` 的解析、继承与 `kern`
+> 字形特性；同时补齐布局缓存键中的 OpenType 字体输入，几何/样式失配为 0，
+> 3.88% 视觉差异来自字体抗锯齿与亚像素采样。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 
@@ -321,7 +323,7 @@
 | 120 | `user-select` / `resize` / `will-change` / `contain` / `isolation` / `pointer-events` | 0-1 | 交互与渲染提示，影响 ~0 |
 | 121 | `clip-path` / `mask` | 0 | 异形裁剪/遮罩 |
 | 122 | `transition` / `animation` | 0 | 分页静态渲染，可长期不支持 |
-| 123 | `font-feature-settings` / `font-kerning` / `font-variant-ligatures` | 0 | OpenType 特性开关（中文书影响小） |
+| 123 | `font-feature-settings` / `font-kerning` / `font-variant-ligatures` | 0 | `font-kerning` 已实现：`auto/normal` 保持默认，`none` 关闭 `kern` 并同步行宽测量；`font-variant-ligatures` 已实现；`font-feature-settings` 仍不支持 |
 | 124 | `box-decoration-break` | 1 / 1 | 跨页切片装饰重复语义 |
 | 125 | `justify-content` / `align-items` / `grid-*` / `flex-*` | 14 / 13 | `flex`/`grid` 容器（`display:flex` 已退化为 block） |
 | 126 | `inset`（简写） | 0 | `inset: 0` 不生效（仅 4 个长属性可用） |
@@ -429,7 +431,7 @@
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **84 个用例**（编号 `01`–`86`，缺 65、85）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **86 个用例**（编号 `01`–`89`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -544,7 +546,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
 | 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 147/168（用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 149/168（88.7%，用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法
@@ -555,7 +557,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：81 用例基线 / 几何与样式失配 **0** / 未配对 7 项；
+- 最新结果（2026-10-30）：86 用例基线 / 几何与样式失配 **0** / 未配对 15 项；
   部分截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
   `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。
@@ -566,6 +568,9 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - `79-vendor-effect-aliases`、`80-font-size-adjust`、`81-font-variant-caps`
   几何/样式失配均为 0；`82-border-image-background-attachment` 几何/样式失配
   0、视觉差异 0.43%，覆盖九宫格 `fill` 平铺与 data URL 保真。
+- `89-font-kerning` 几何/样式失配 0；修复前同一文本在 `font-kerning: none`
+  与默认值间会错误复用布局，现布局指纹包含字偶距、大小写、连字、字宽与
+  `font-size-adjust`。
 - `border-radius: a / b` 已补齐四角双半径解析与绘制；`24-border-radius-corners`
   几何/样式失配 0、视觉差异 0.24%，并新增像素与解析回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）

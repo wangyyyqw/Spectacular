@@ -1,0 +1,8 @@
+{
+  "name": "89-font-kerning",
+  "tags": [
+    "font-kerning"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 24px; line-height: 1.6; } p { margin: 8px 0; } .none { font-kerning: none; } .normal { font-kerning: normal; }",
+  "html": "<p class=\"normal\">Kerning normal：AV To Wa Ya LT P. F,</p><p class=\"none\">Kerning none：AV To Wa Ya LT P. F,</p><p class=\"normal\">混合对照：WA Typeface AVATAR To.</p><p class=\"none\">混合对照：WA Typeface AVATAR To.</p>"
+}

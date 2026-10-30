@@ -6,9 +6,9 @@
 > style）中出现该属性声明（含厂商前缀别名）即算覆盖。
 
 - 审计条目 **116** 条，展开后属性名 **168** 个（同一条目里的多属性按名拆分）
-- 已覆盖 **148** 个（88.1%），未覆盖 **20** 个
-- 用例 **85** 个（编号 01–88）
-- 下一个可用用例编号：**89**（未覆盖表的「建议用例」按 1-2 属性/例分配）
+- 已覆盖 **149** 个（88.7%），未覆盖 **19** 个
+- 用例 **86** 个（编号 01–89）
+- 下一个可用用例编号：**90**（未覆盖表的「建议用例」按 1-2 属性/例分配）
 
 ## 1. 分组覆盖概览
 
@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | 解析且消费（审计 A 组） | 122 | 122 | 100.0% |
 | 占位式（审计 C 组：有字段、零消费） | 1 | 1 | 100.0% |
-| 完全未处理（审计 D 组：无字段） | 45 | 25 | 55.6% |
+| 完全未处理（审计 D 组：无字段） | 45 | 26 | 57.8% |
 
 ## 2. 未覆盖清单（按分组，附建议用例编号）
 
@@ -36,26 +36,25 @@
 
 | 属性 | 审计编号 | 审计原文 | 建议用例 |
 | --- | --- | --- | --- |
-| `orphans` | #113 | orphans / widows | 89 |
-| `widows` | #113 | orphans / widows | 89 |
-| `scroll-behavior` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 90 |
-| `scrollbar-width` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 90 |
-| `-ms-overflow-style` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 91 |
-| `cursor` | #119 | outline / cursor | 91 |
-| `user-select` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 92 |
-| `resize` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 92 |
-| `will-change` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 93 |
-| `contain` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 93 |
-| `isolation` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 94 |
-| `pointer-events` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 94 |
-| `clip-path` | #121 | clip-path / mask | 95 |
-| `mask` | #121 | clip-path / mask | 95 |
-| `transition` | #122 | transition / animation | 96 |
-| `animation` | #122 | transition / animation | 96 |
-| `font-kerning` | #123 | font-feature-settings / font-kerning / font-variant-ligatures | 97 |
-| `box-decoration-break` | #124 | box-decoration-break | 97 |
+| `orphans` | #113 | orphans / widows | 90 |
+| `widows` | #113 | orphans / widows | 90 |
+| `scroll-behavior` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 91 |
+| `scrollbar-width` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 91 |
+| `-ms-overflow-style` | #117 | scroll-behavior / scrollbar-width / -ms-overflow-style | 92 |
+| `cursor` | #119 | outline / cursor | 92 |
+| `user-select` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 93 |
+| `resize` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 93 |
+| `will-change` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 94 |
+| `contain` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 94 |
+| `isolation` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 95 |
+| `pointer-events` | #120 | user-select / resize / will-change / contain / isolation / pointer-events | 95 |
+| `clip-path` | #121 | clip-path / mask | 96 |
+| `mask` | #121 | clip-path / mask | 96 |
+| `transition` | #122 | transition / animation | 97 |
+| `animation` | #122 | transition / animation | 97 |
+| `box-decoration-break` | #124 | box-decoration-break | 98 |
 | `justify-content` | #125 | justify-content / align-items / grid-* / flex-* | 98 |
-| `align-items` | #125 | justify-content / align-items / grid-* / flex-* | 98 |
+| `align-items` | #125 | justify-content / align-items / grid-* / flex-* | 99 |
 
 ## 3. 已覆盖清单
 
@@ -63,23 +62,23 @@
 
 | 属性 | 审计编号 | 覆盖用例 |
 | --- | --- | --- |
-| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88 |
-| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67、69、70、71、72、73、74、75、76、78、79、80、81、83、84、88 |
+| `font-size` | #1 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89 |
+| `line-height` | #2 | 01、02、03、04、05、06、07、08、09、10、11、13、14、15、16、17、18、19、20、21、23、30、31、34、35、36、38、39、41、42、43、44、45、46、47、48、49、53、54、55、56、57、59、60、61、62、63、64、66、67、69、70、71、72、73、74、75、76、78、79、80、81、83、84、88、89 |
 | `color` | #3 | 10、26、28、29、37、62、75、76、78、79、80、81、83、86 |
 | `font-weight` | #4 | 07、12 |
 | `font-style` | #5 | 07 |
-| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88 |
+| `font-family` | #6 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89 |
 | `font` | #7 | 58 |
 | `text-align` | #8 | 03、12、17、18、32、86 |
 | `text-indent` | #9 | 03、16、42、45 |
 | `letter-spacing` | #10 | 01、02 |
 | `word-spacing` | #11 | 02 |
-| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88 |
+| `margin` | #12 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89 |
 | `margin-top` | #13 | 46、73 |
 | `margin-right` | #13 | 14、23、38 |
 | `margin-bottom` | #13 | 46、79 |
 | `margin-left` | #13 | 23、38 |
-| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88 |
+| `padding` | #14 | 01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31、32、33、34、35、36、37、38、39、40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、55、56、57、58、59、60、61、62、63、64、66、67、68、69、70、71、72、73、74、75、76、77、78、79、80、81、82、83、84、86、88、89 |
 | `padding-top` | #15 | 23、48 |
 | `padding-right` | #15 | 47、48 |
 | `padding-bottom` | #15 | 47、49 |
@@ -224,6 +223,7 @@
 | `overflow-y` | #118 | 73 |
 | `outline` | #119 | 74 |
 | `font-feature-settings` | #123 | 15 |
+| `font-kerning` | #123 | 89 |
 | `font-variant-ligatures` | #123 | 15 |
 | `inset` | #126 | 75 |
 
@@ -269,6 +269,7 @@
 | 84 | `text-combine-upright` |
 | 86 | `caption-side`、`empty-cells` |
 | 88 | `aspect-ratio` |
+| 89 | `font-kerning` |
 
 ## 5. 审计外的新增解析点
 

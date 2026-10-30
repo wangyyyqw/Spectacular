@@ -1491,6 +1491,29 @@ void main() {
     );
   });
 
+  test('font-kerning 解析、默认值与继承', () {
+    final defaults = style('p', 'p { color: red; }');
+    expect(defaults.fontKerning, CssFontKerning.auto);
+    expect(
+      style('p', 'p { font-kerning: normal; }').fontKerning,
+      CssFontKerning.normal,
+    );
+    expect(
+      style('p', 'p { font-kerning: none; }').fontKerning,
+      CssFontKerning.none,
+    );
+    expect(
+      style('p', 'p { font-kerning: invalid; }').fontKerning,
+      CssFontKerning.auto,
+    );
+
+    final parent = style('parent', 'div { font-kerning: none; }');
+    expect(
+      style('p', 'p { color: red; }', parent: parent).fontKerning,
+      CssFontKerning.none,
+    );
+  });
+
   test('逻辑属性：inline/block 按 writing-mode + direction 落物理（W18）', () {
     // horizontal-tb + ltr：inline-start = left，block-start = top。
     final ltr = style(
