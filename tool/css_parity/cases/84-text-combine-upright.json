@@ -1,0 +1,9 @@
+{
+  "name": "84-text-combine-upright",
+  "tags": [
+    "text-combine-upright"
+  ],
+  "engine_only": true,
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 18px; } div { writing-mode: vertical-rl; height: 260px; margin: 8px 0; padding: 8px; line-height: 28px; border: 1px solid #9aa7b0; } .all { text-combine-upright: all; } .none { text-combine-upright: none; }",
+  "html": "<div class=\"all\">縦中横：2024年、12月、7日。编号第3456号。</div><div class=\"none\">对照 none：2024年、12月、7日。编号第3456号。</div>"
+}

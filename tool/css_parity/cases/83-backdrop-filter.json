@@ -1,0 +1,8 @@
+{
+  "name": "83-backdrop-filter",
+  "tags": [
+    "backdrop-filter"
+  ],
+  "css": "body { margin: 0; padding: 0; min-height: 800px; font-family: \"builtin_song\"; font-size: 16px; line-height: 1.6; color: #16212a; background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAkklEQVR42mP8+fQSAw7wjk8XU1Do02WS1DNhFcVjFqnqmcjQQ5J6JvLcRbx6JrL9TqR6JkrClxj1TBTGIUH1jM8//6c8LeJRz0SVtIhHPRO10jsu9UxUzFPYczJ18y2meiaqlw1o6ploUf4gq2eiURkHV89Eu3IUop6JpmX1Oz7d0fpgtD4YrQ9G64PR+mBI1AcASv/EdxHmBcgAAAAASUVORK5CYII=\"); background-repeat: repeat; background-size: 32px 32px; } .page { min-height: 800px; padding: 20px; box-sizing: border-box; } p { margin: 0 0 18px; } .glass { width: 260px; height: 104px; margin: 28px 25px; padding: 16px; box-sizing: border-box; border: 2px solid rgba(255,255,255,.72); border-radius: 22px; background: rgba(255,255,255,.28); backdrop-filter: blur(5px) grayscale(.8); box-shadow: 0 8px 24px rgba(18,49,70,.2); } .translucent { width: 260px; height: 88px; margin: 22px 25px; padding: 14px; box-sizing: border-box; border-radius: 14px; background: rgba(20,70,90,.35); backdrop-filter: sepia(.65) brightness(1.1); color: #fff; }",
+  "html": "<div class=\"page\"><p>backdrop-filter 应采样卡片背后的斜纹背景</p><div class=\"glass\">blur + grayscale 玻璃卡片</div><p>半透明底色与边框共同参与合成</p><div class=\"translucent\">sepia + brightness 深色卡片</div><p>卡片外仍保持原背景与正文对比度</p></div>"
+}

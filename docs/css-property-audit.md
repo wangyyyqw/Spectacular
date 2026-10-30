@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **1**：`initial-letter` |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（97 + 1 + 44） |
-| `tool/css_parity/cases/` | 81 个用例（编号 01–82，缺 65） |
+| `tool/css_parity/cases/` | 83 个用例（编号 01–84，缺 65） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -36,7 +36,11 @@
 > 合成、全字符缩放与混合字号 CSS 行盒，几何/样式失配为 0。
 > `82-border-image-background-attachment` 覆盖九宫格切割、`repeat`/`round`/`fill`
 > 与固定底纹，几何/样式失配为 0、视觉差异 0.43%；同时修复 data URL 被整体
-> 转小写和 `fill` 中间区域未按 repeat 规则平铺的问题。覆盖率与剩余属性名以
+> 转小写和 `fill` 中间区域未按 repeat 规则平铺的问题。
+> `83-backdrop-filter` 覆盖毛玻璃、灰度与半透明背景，几何/样式失配为 0；
+> 当前实现受纯 Canvas 限制，以页面背景近似采样元素背后的已绘制内容，视觉
+> 差异 3.62% 主要来自该近似与字体栅格。`84-text-combine-upright` 以
+> `engine_only` 用例锁定竖排 2–4 位数字合并。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 
@@ -290,7 +294,7 @@
 | 99 | `border-image` | 11 / 3 | 已实现并由 `82-border-image-background-attachment` 对照：`CssBorderImage` + 九宫格绘制，覆盖切割、边 `repeat`/`round`、`fill` 中间区平铺与 data URL |
 | 100 | `background-attachment` | 218 / 3 | 已记录分页介质下的等价降级，并由 `82-border-image-background-attachment` 验证 body 固定底纹按每页页背景重绘 |
 | 101 | `mix-blend-mode` | 0 | 叠加模式失效 |
-| 102 | `backdrop-filter` | 3 / 2 | 已按「页面背景作为 backdrop」近似（纯 Canvas 无法采样已绘制内容） |
+| 102 | `backdrop-filter` | 3 / 2 | 已按「页面背景作为 backdrop」近似（纯 Canvas 无法采样已绘制内容）；`83-backdrop-filter` 对照失配 0 |
 | 103 | `z-index` | 4 / 2 | 已实现：绘制顺序按层级升序稳定排序，同层保持文档序 |
 | 105 | `line-break` | 0 | 已实现 `anywhere`（软断行），其余值按现有 CJK 断点规则 |
 | 106 | `tab-size` | 0 | 已实现：`pre*` 文本制表符按制表位展开 |
@@ -302,7 +306,7 @@
 | 108 | `unicode-bidi` | 0 | `bdo` 覆写不生效（UA 表有规则，无消费） |
 | 109 | `ruby-align` | 4 / 3 | 已接入规范值 `start/center/space-between/space-around`；flat 管线按单注音盒近似 |
 | 110 | `ruby-position` | 0 | 已实现横排 over/under 与竖排两侧选择 |
-| 111 | `text-combine-upright` | 4 别名 / 1 | 已实现：竖排 2–4 位数字合并占 1em |
+| 111 | `text-combine-upright` | 4 别名 / 1 | 已实现：竖排 2–4 位数字合并占 1em；`84-text-combine-upright` 以 `engine_only` 锁定行为 |
 | 112 | `tab-size` | 0 | `pre` 制表符按固定宽近似 |
 | 113 | `orphans` / `widows` | 7 / 7 | 明确不做（产品决策）：电子书分页不考虑孤行/寡行，页尾单行可接受 |
 | 114 | `list-style-image` | 0 | 图片列表标记不支持 |
@@ -422,7 +426,7 @@
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **81 个用例**（编号 `01`–`82`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **83 个用例**（编号 `01`–`84`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -537,7 +541,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
 | 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 143/168（用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 145/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法
