@@ -1587,25 +1587,69 @@ class EpubChapterSource
       for (final row in rows)
         row.fold(0.0, (height, index) => math.max(height, itemHeights[index])),
     ];
-    final naturalHeight = rowHeights.fold(0.0, (sum, height) => sum + height);
-    final declaredHeight =
-        BoxModel.fromStyle(
-          containerStyle,
-          containingWidth: containingWidth,
-        ).resolveContentHeight(
-          naturalHeight,
-          containingHeight: pageContentHeight,
-        );
+    final rowGap = wraps && rows.length > 1
+        ? math.max(0.0, containerStyle.rowGap ?? 0.0)
+        : 0.0;
+    final naturalHeight =
+        rowHeights.fold(0.0, (sum, height) => sum + height) +
+        rowGap * math.max(0, rows.length - 1);
+    final declaredHeight = BoxModel.fromStyle(
+      containerStyle,
+      containingWidth: containingWidth,
+    ).resolveContentHeight(naturalHeight, containingHeight: pageContentHeight);
     final layoutHeight = math.max(declaredHeight, naturalHeight);
     if (!wraps) {
       // 单行 Flex 的交叉轴可用高仍是容器声明高，align-items 以此为基准。
       rowHeights[0] = math.max(rowHeights[0], declaredHeight);
     }
+
+    final freeCross = math.max(0.0, layoutHeight - naturalHeight);
+    var contentOffset = 0.0;
+    var lineGap = rowGap;
+    if (wraps && rows.length > 1) {
+      switch (containerStyle.alignContent) {
+        case CssAlignContent.stretch:
+          final extra = freeCross / rows.length;
+          for (var i = 0; i < rowHeights.length; i++) {
+            rowHeights[i] += extra;
+          }
+          break;
+        case CssAlignContent.flexEnd:
+          contentOffset = containerStyle.flexWrap == CssFlexWrap.wrapReverse
+              ? 0
+              : freeCross;
+          break;
+        case CssAlignContent.center:
+          contentOffset = freeCross / 2;
+          break;
+        case CssAlignContent.spaceBetween:
+          lineGap += freeCross / (rows.length - 1);
+          break;
+        case CssAlignContent.spaceAround:
+          final extra = freeCross / rows.length;
+          contentOffset = extra / 2;
+          lineGap += extra;
+          break;
+        case CssAlignContent.spaceEvenly:
+          final extra = freeCross / (rows.length + 1);
+          contentOffset = extra;
+          lineGap += extra;
+          break;
+        case CssAlignContent.flexStart:
+          contentOffset = containerStyle.flexWrap == CssFlexWrap.wrapReverse
+              ? freeCross
+              : 0;
+          break;
+      }
+    }
     final rowTops = <double>[];
-    var rowTop = 0.0;
-    for (final height in rowHeights) {
+    var rowTop = contentOffset;
+    for (var i = 0; i < rowHeights.length; i++) {
       rowTops.add(rowTop);
-      rowTop += height;
+      rowTop += rowHeights[i];
+      if (i + 1 < rowHeights.length) {
+        rowTop += lineGap;
+      }
     }
 
     final cells = <TableCellRender>[];

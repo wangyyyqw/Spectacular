@@ -74,6 +74,29 @@ void main() {
     expect(initial.margin.left, 0);
   });
 
+  test('Flex 多行：align-content 与 gap/row-gap 解算', () {
+    final twoValues = style(
+      'p',
+      'p { display: flex; flex-wrap: wrap; align-content: space-between; '
+          'gap: 6px 12px; }',
+    );
+    expect(twoValues.alignContent, CssAlignContent.spaceBetween);
+    expect(twoValues.rowGap, 6);
+    expect(twoValues.columnGap, 12);
+
+    final singleValue = style(
+      'p',
+      'p { align-content: flex-end; gap: 1.5em; row-gap: 9px; }',
+    );
+    expect(singleValue.alignContent, CssAlignContent.flexEnd);
+    expect(singleValue.rowGap, 9);
+    expect(singleValue.columnGap, 24);
+    expect(
+      style('p', 'p { align-content: normal; }').alignContent,
+      CssAlignContent.stretch,
+    );
+  });
+
   test('font-size 的 px/em/%/pt/rem 换算', () {
     final parent = style('parent', 'div { font-size: 20px; }');
     expect(parent.fontSize, 20);

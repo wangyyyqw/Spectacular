@@ -437,6 +437,18 @@ abstract final class Cascade {
         // `font: 700 17px/1.6 serif` → font-size/family/weight/style/line-height。
         return ComputedStyle.parseFontShorthand(value) ??
             const <String, String>{};
+      case 'gap':
+        if (_isGlobalKeyword(value)) {
+          return {'row-gap': value, 'column-gap': value};
+        }
+        final parts = value.trim().split(RegExp(r'\s+'));
+        if (parts.isEmpty || parts.length > 2) {
+          return const <String, String>{};
+        }
+        return {
+          'row-gap': parts[0],
+          'column-gap': parts.length == 2 ? parts[1] : parts[0],
+        };
       case 'margin':
       case 'padding':
       case 'inset':
