@@ -561,8 +561,10 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：87 用例基线 / 几何与样式失配 **0** / 未配对 15 项；
-  部分截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
+- 最新结果（2026-10-30）：90 用例基线 / 几何与样式失配 **0** / 未配对 **0**。
+  原始像素差超过 2% 的 23 组中，字体抗锯齿、亚像素定位和图片采样占主体；
+  浏览器连续流对引擎单页的跨页截图标为「不适用」。把暗像素膨胀 2px 后，
+  未重合墨迹超过 2% 的用例为 **0**。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
   `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。
 - `77-ruby-position-align` 覆盖 `ruby-position` 与规范 `ruby-align` 值；
@@ -579,3 +581,10 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
   几何/样式失配 0、视觉差异 0.24%，并新增像素与解析回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
 - 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
+
+**收口边界**：本次结论是「当前 7 本真实语料与 90 个对照用例中的已用 CSS 面
+已收口」，不是 CSS 全规范兼容声明。`display:grid`、Flex
+`grow/shrink/basis`、`position:sticky`、精确断字词典和
+`font-feature-settings` 仍不在此次实现范围内；`backdrop-filter` 仍按页面背景
+近似。新增真实书语料或多个背景、3D transform 等路径时，需要重新扩展用例与
+审计结论。

@@ -103,7 +103,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 61 | logical-properties | 逻辑属性 margin/padding/border-inline-* + direction: rtl |
 | 62 | word-wrap-content | word-wrap: break-word、::before/::after content、overflow-x |
 | 63 | columns-rule | column-count / column-width / column-rule（2/3 列） |
-| 64 | vertical-rl | writing-mode: vertical-rl + text-orientation（Chrome 支持、引擎布局未实现，engine_only） |
+| 64 | vertical-rl | writing-mode: vertical-rl + text-orientation（Chrome Range 竖排口径不可直接对照，engine_only） |
 | 66 | vertical-multipage | 竖排跨页：350×800、`vertical-rl`、无声明高、约 2100 字（engine_only；页内容高 786 → 每列 49 字、每页 14 列；期望 4 页 ±1） |
 | 67 | vertical-columns | 竖排页内列数：同参数 300 字（engine_only；期望 1 页 / 7 列 / 每列 49 字 / 首块宽 168） |
 | 68 | z-index-stacking | `z-index` 与绝对定位叠序 |
@@ -133,8 +133,8 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 
 浏览器渲染：90/90 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
-属性或缺少可比的分页/注音口径，
-`compare.py` 只打印引擎块数、不计失配也不算视觉差异。
+属性，或 Range/分页口径无法直接对照；`compare.py` 只记录引擎几何与期望值，
+不计失配，也不把截图纳入自动视觉判定。
 
 ## 覆盖矩阵（属性 × 用例）
 
@@ -164,12 +164,11 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   审计分组和建议编号以最新 `coverage.md` 为准，避免 README 与脚本结果漂移。
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
-  （engine_only，等引擎实现竖排后去掉标记即可参与比较）。
+  （engine_only；Chrome 的竖排 Range 高度不能按水平行盒口径直接比较）。
 - `68-z-index-stacking`：两个绝对定位色块重叠，验证 `z-index` 绘制叠序
   （几何 0 失配，视觉可对照）。
 - `69-border-radius-percent`：`border-radius: 50%` 圆形头像 + 四角百分比，
-  同时覆盖「空元素但有可见盒子要占位」（未配对 1 块是引擎为无文本 div 生成的
-  占位块，浏览器侧没有对应元素，属预期）。
+  同时覆盖「空元素但有可见盒子要占位」。对照工具按几何就近配对无文字装饰盒。
 - `70-border-3d-style`：`groove/ridge/inset/outset` 四种 3D 边框（视觉对照
   明暗两半；`outset` 的 y 差来自 `line-height: normal` 的字体度量取整）。
 - `71-tab-line-break-blend`：`tab-size`（4/8）、`line-break`、`mix-blend-mode`；
@@ -340,19 +339,15 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
     与 CJK。混合字号不再让 Skia 撑高行盒，CSS 行高按该行所有行内盒取最大值；
     `font-variant-caps` 用例几何/样式失配 0，视觉差异 1.83% 来自字体栅格。
 
-## 当前收敛状态（87 用例基线：失配 0 / 未配对 15；新增 79–90 失配 0）
+## 当前收敛状态（90 用例基线：失配 0 / 未配对 0 / 形状显著差异 0）
 
-> 87 用例数字来自 2026-10-30 全量重跑（render_browser + dump + compare）；
-> 79–90 新增后几何/样式失配为 0；90 的截图差异 0.41%，来自图片采样；80 视觉差异 2.96%，来自大字号字体栅格与
-> 字形盒绘制差异；81 视觉差异 1.83%，来自合成小型大写的字体栅格；82 视觉差异
-> 0.43%，来自边框圆角采样；83 视觉差异 3.62%，来自 backdrop 从页面背景近似
-> 采样和字体栅格；84 为 engine_only，只校验竖排数字合并的引擎行为；89 的
-> 3.88% 视觉差异来自字体抗锯齿与亚像素采样。
-> 这些都不是布局位置或断行差异。
-> 未配对 15 项来自 `68`、`69`、`72`、`86`、`88` 的空块、原子行内盒或表格，不计失配。
+> 90 用例数字来自 2026-10-30 全量重跑（render_browser + dump + compare）。
+> 文字块、表格标题、空装饰盒和图片占位均已配对；几何与关键样式失配清零。
+> 原始像素差超过 2% 的 23 组中，字体抗锯齿、亚像素定位和图片采样占主体；
+> 跨页用例的浏览器连续流截图与引擎单页截图范围不同，工具标记为「不适用」。
+> 将暗像素膨胀 2px 后，未重合墨迹超过 2% 的用例为 0，因此不再用原始像素差
+> 直接判定实现缺陷。仍不能据此宣称逐像素一致。
 
-几何与关键样式失配已清零，仍不能据此宣称逐像素一致：21 组截图的差异像素
-超过 2%，人工抽查后均归因于字体栅格、断行、分页介质或横向截图拼接口径。
 `43-multipage-table` 的表格在引擎第 2 页，9 个单元格与浏览器逐格误差均
 不超过 2px；`74-outline` 修复后轮廓位置、虚实线与圆角形状一致。
 `72-object-fit-position` 的背景图缩放改用中等质量采样，与 Chrome 的
