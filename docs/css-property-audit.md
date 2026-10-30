@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **1**：`initial-letter` |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（97 + 1 + 44） |
-| `tool/css_parity/cases/` | 83 个用例（编号 01–84，缺 65） |
+| `tool/css_parity/cases/` | 84 个用例（编号 01–86，缺 65、85） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -40,7 +40,10 @@
 > `83-backdrop-filter` 覆盖毛玻璃、灰度与半透明背景，几何/样式失配为 0；
 > 当前实现受纯 Canvas 限制，以页面背景近似采样元素背后的已绘制内容，视觉
 > 差异 3.62% 主要来自该近似与字体栅格。`84-text-combine-upright` 以
-> `engine_only` 用例锁定竖排 2–4 位数字合并。覆盖率与剩余属性名以
+> `engine_only` 用例锁定竖排 2–4 位数字合并。`86-caption-side-empty-cells`
+> 覆盖 `caption-side: top/bottom` 与 `empty-cells: show/hide`，几何/样式失配
+> 与视觉差异均为 0；同时修正标题前后重复折叠表格外边距、空单元格占位和声明
+> 高度。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 
@@ -310,7 +313,7 @@
 | 112 | `tab-size` | 0 | `pre` 制表符按固定宽近似 |
 | 113 | `orphans` / `widows` | 7 / 7 | 明确不做（产品决策）：电子书分页不考虑孤行/寡行，页尾单行可接受 |
 | 114 | `list-style-image` | 0 | 图片列表标记不支持 |
-| 115 | `caption-side` / `empty-cells` | 0 | 表格标题位置、空单元格边框 |
+| 115 | `caption-side` / `empty-cells` | 0 | 已实现：表格标题上下位置、空单元格边框/背景显隐与标题外边距折叠 |
 | 116 | `aspect-ratio` | 0 | 图片容器比例约束 |
 | 117 | `scroll-behavior` / `scrollbar-width` / `-ms-overflow-style` | 0-2 | 分页阅读器无滚动条，影响 0 |
 | 118 | `overflow-y` | 1 / 1 | 已实现：任一轴非 `visible` 即启用裁剪 |
@@ -426,7 +429,7 @@
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **83 个用例**（编号 `01`–`84`，缺 65）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **84 个用例**（编号 `01`–`86`，缺 65、85）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -534,14 +537,14 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
-| 已实现并接入绘制/布局 | 109 | 含 `quotes`、`z-index`、`ruby-position`/`ruby-align`、`border-image`、`font-size-adjust`、`text-combine-upright`、`backdrop-filter`、百分比圆角、3D 边框、`counter-*`、`object-fit`、`outline`；部分条目仍有第 9 章列出的已知差异 |
+| 已实现并接入绘制/布局 | 110 | 含 `quotes`、`z-index`、`ruby-position`/`ruby-align`、`border-image`、`font-size-adjust`、`text-combine-upright`、`backdrop-filter`、`caption-side`/`empty-cells`、百分比圆角、3D 边框、`counter-*`、`object-fit`、`outline`；部分条目仍有第 9 章列出的已知差异 |
 | 有字段但尚未消费 | 1 | `initial-letter`；需补消费或删除字段 |
-| 明确不需要（阅读器无交互面） | 11 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`caption-side`/`empty-cells`（语料 0 次）、`object-position`（图片块恒居中） |
+| 明确不需要（阅读器无交互面） | 9 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`object-position`（图片块恒居中） |
 | 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
 | 已知差异，不追平 | 6 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负） |
 | 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 145/168（用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 147/168（用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法

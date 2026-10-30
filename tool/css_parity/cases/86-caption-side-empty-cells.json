@@ -1,0 +1,9 @@
+{
+  "name": "86-caption-side-empty-cells",
+  "tags": [
+    "caption-side",
+    "empty-cells"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 15px; } table { width: 300px; margin: 10px 0; table-layout: fixed; border-collapse: separate; border-spacing: 0; } caption { padding: 5px; color: #1f5266; font-size: 14px; } td { width: 100px; height: 38px; padding: 5px; box-sizing: border-box; border: 2px solid #557887; text-align: center; } .bottom { caption-side: bottom; } .hide-empty { empty-cells: hide; } .top { caption-side: top; } .show-empty { empty-cells: show; }",
+  "html": "<table class=\"bottom hide-empty\"><caption>底部标题 + 隐藏空单元格</caption><tr><td>甲</td><td></td><td>丙</td></tr><tr><td>丁</td><td>戊</td><td>己</td></tr></table><table class=\"top show-empty\"><caption>顶部标题 + 显示空单元格</caption><tr><td>一</td><td></td><td>三</td></tr><tr><td>四</td><td>五</td><td>六</td></tr></table>"
+}

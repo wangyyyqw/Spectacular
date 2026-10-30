@@ -907,6 +907,12 @@ enum CssListStylePosition { inside, outside }
 /// 表格边框合并（CSS border-collapse）。
 enum CssBorderCollapse { separate, collapse }
 
+/// 表格标题位置（CSS caption-side）。
+enum CssCaptionSide { top, bottom }
+
+/// 空单元格边框/背景是否绘制（CSS empty-cells）。
+enum CssEmptyCells { show, hide }
+
 /// 四边长度（逻辑像素）。
 class CssEdges {
   /// 创建四边。
@@ -2225,6 +2231,18 @@ class ComputedStyle {
         : _parseBorderCollapse(rawCollapse) ??
               parent?.borderCollapse ??
               CssBorderCollapse.separate;
+    final rawCaptionSide = explicitValue('caption-side');
+    final captionSide = rawCaptionSide == null
+        ? (parent?.captionSide ?? CssCaptionSide.top)
+        : _parseCaptionSide(rawCaptionSide) ??
+              parent?.captionSide ??
+              CssCaptionSide.top;
+    final rawEmptyCells = explicitValue('empty-cells');
+    final emptyCells = rawEmptyCells == null
+        ? (parent?.emptyCells ?? CssEmptyCells.show)
+        : _parseEmptyCells(rawEmptyCells) ??
+              parent?.emptyCells ??
+              CssEmptyCells.show;
     // 多看出血（P9-22）：`duokan-bleed: left` 允许元素延伸到页面边距。
     // 出血常写在容器上（`div.x { duokan-bleed: lefttopright }`），
     // 由 flat 管线的盒属性传导注入，因此从 values 读而不是只读显式值。
@@ -2419,6 +2437,8 @@ class ComputedStyle {
       backgroundClip: backgroundClip,
       clear: clear,
       borderCollapse: borderCollapse,
+      captionSide: captionSide,
+      emptyCells: emptyCells,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
       listStylePosition: listStylePosition,
@@ -2567,6 +2587,8 @@ class ComputedStyle {
       backgroundClip: backgroundClip,
       clear: clear,
       borderCollapse: borderCollapse,
+      captionSide: captionSide,
+      emptyCells: emptyCells,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
       listStylePosition: listStylePosition,
@@ -2688,6 +2710,8 @@ class ComputedStyle {
     required this.backgroundClip,
     required this.clear,
     required this.borderCollapse,
+    this.captionSide = CssCaptionSide.top,
+    this.emptyCells = CssEmptyCells.show,
     required this.listStyleType,
     required this.listStylePosition,
     required this.tableLayout,
@@ -3027,6 +3051,12 @@ class ComputedStyle {
 
   /// 表格边框合并（`border-collapse`，继承）。
   final CssBorderCollapse borderCollapse;
+
+  /// 表格标题位置（`caption-side`）。
+  final CssCaptionSide captionSide;
+
+  /// 空单元格是否绘制边框与背景（`empty-cells`）。
+  final CssEmptyCells emptyCells;
 
   /// 表格边框间距（`border-spacing`，继承；top/bottom 存垂直，left/right 存水平）。
   final CssEdges borderSpacing;
@@ -6102,6 +6132,20 @@ class ComputedStyle {
       switch (raw?.trim().toLowerCase()) {
         'separate' => CssBorderCollapse.separate,
         'collapse' => CssBorderCollapse.collapse,
+        _ => null,
+      };
+
+  static CssCaptionSide? _parseCaptionSide(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'top' => CssCaptionSide.top,
+        'bottom' => CssCaptionSide.bottom,
+        _ => null,
+      };
+
+  static CssEmptyCells? _parseEmptyCells(String? raw) =>
+      switch (raw?.trim().toLowerCase()) {
+        'show' => CssEmptyCells.show,
+        'hide' => CssEmptyCells.hide,
         _ => null,
       };
 

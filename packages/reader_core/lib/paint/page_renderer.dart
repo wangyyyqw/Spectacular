@@ -1662,10 +1662,16 @@ class PagePainter {
         cell.rect.width,
         cell.rect.height,
       );
-      if (style.backgroundColor.a > 0) {
-        canvas.drawRect(cellRect, Paint()..color = style.backgroundColor);
+      final hideEmpty =
+          cell.layout.lineCount == 0 &&
+          style.emptyCells == CssEmptyCells.hide &&
+          style.borderCollapse == CssBorderCollapse.separate;
+      if (!hideEmpty) {
+        if (style.backgroundColor.a > 0) {
+          canvas.drawRect(cellRect, Paint()..color = style.backgroundColor);
+        }
+        _paintCellBorders(canvas, cellRect, style.borders);
       }
-      _paintCellBorders(canvas, cellRect, style.borders);
     }
     for (final cell in spec.cells) {
       if (cell.layout.lineCount == 0) {

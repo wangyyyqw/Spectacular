@@ -312,6 +312,20 @@ void main() {
     expect(child.display, CssDisplay.block, reason: 'display 不继承');
   });
 
+  test('caption-side / empty-cells 解析、默认值与继承', () {
+    final parsed = style('p', 'p { caption-side: bottom; empty-cells: hide; }');
+    expect(parsed.captionSide, CssCaptionSide.bottom);
+    expect(parsed.emptyCells, CssEmptyCells.hide);
+
+    final child = style('p', 'p { color: red; }', parent: parsed);
+    expect(child.captionSide, CssCaptionSide.bottom, reason: 'caption-side 继承');
+    expect(child.emptyCells, CssEmptyCells.hide, reason: 'empty-cells 继承');
+
+    final initial = style('p', 'p { color: red; }');
+    expect(initial.captionSide, CssCaptionSide.top);
+    expect(initial.emptyCells, CssEmptyCells.show);
+  });
+
   test('font-family 列表、fallback 链与继承', () {
     final parsed = style('p', 'p { font-family: "Book Serif", Ahem, serif; }');
     expect(parsed.fontFamilies, <String>['Book Serif', 'Ahem', 'serif']);

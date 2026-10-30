@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 83 组用例（编号 01–84，缺 65），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
+当前 84 组用例（编号 01–86，缺 65、85），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（83 组）
+## 用例清单（84 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -123,8 +123,9 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 82 | border-image-background-attachment | `border-image` 切割/repeat/round/fill、body 固定底纹 |
 | 83 | backdrop-filter | 毛玻璃卡片、灰度/半透明滤镜与页面背景近似采样 |
 | 84 | text-combine-upright | 竖排 2–4 位数字合并（Chrome 不支持，engine_only） |
+| 86 | caption-side-empty-cells | 顶/底表格标题、空单元格显隐与标题外边距折叠 |
 
-浏览器渲染：83/83 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：84/84 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
 属性或缺少可比的分页/注音口径，
 `compare.py` 只打印引擎块数、不计失配也不算视觉差异。
@@ -134,14 +135,14 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 83 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 84 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
 | 解析且消费（审计 A 组） | 122 | 122 | 100.0% |
 | 占位式（审计 C 组：有字段、零消费） | 1 | 1 | 100.0% |
-| 完全未处理（审计 D 组：无字段） | 45 | 22 | 48.9% |
-| **合计（116 条审计展开为 168 个属性名）** | **168** | **145** | **86.3%** |
+| 完全未处理（审计 D 组：无字段） | 45 | 24 | 53.3% |
+| **合计（116 条审计展开为 168 个属性名）** | **168** | **147** | **87.5%** |
 
 - 覆盖判定是「声明出现即算覆盖」；简写不自动覆盖长属性（`margin` 不算
   `margin-top`），所以 46–51 专门用长属性声明补齐。
@@ -150,10 +151,10 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   字体简写、分页长属性、多看出血）。其中 53 为测 `position` 同时声明了
   `top/right/bottom/left`（C 组占位属性），所以它「首次覆盖」的条目较多；
   逐条清单见 `coverage.md` 第 4 节。
-- A 组已完成 `font-variant-caps` 单独对照并清零；C 组也已清零。其余 23 个未覆盖
-  属性名在 D 组，`coverage.md` 按 85+ 编号给出
+- A 组已完成 `font-variant-caps` 单独对照并清零；C 组也已清零。其余 21 个未覆盖
+  属性名在 D 组，`coverage.md` 按 87+ 编号给出
   排期建议。
-- 未覆盖的主体是分页阅读器无交互面或明确降级的属性；具体 23 个属性名、
+- 未覆盖的主体是分页阅读器无交互面或明确降级的属性；具体 21 个属性名、
   审计分组和建议编号以最新 `coverage.md` 为准，避免 README 与脚本结果漂移。
 - 46–60 为长尾用例，61–64 为「A/C 组清零 + 竖排/列分隔线」补充用例：
   61 逻辑属性与 RTL、62 word-wrap 与伪元素 content、63 列分隔线、64 竖排
