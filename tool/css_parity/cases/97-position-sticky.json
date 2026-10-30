@@ -1,0 +1,9 @@
+{
+  "name": "97-position-sticky",
+  "tags": [
+    "position",
+    "sticky"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 17px; } p { margin: 8px 0; line-height: 1.6; } .sticky { position: sticky; top: 0; margin: 0; padding: 6px 8px; background: #fee; border-bottom: 1px solid #c88; }",
+  "html": "<p>分页静态页中的 sticky 初始位置对照。</p><p class=\"sticky\">position: sticky / top: 0</p><p>普通正文位于 sticky 之后。</p><p>分页阅读器没有滚动视口，sticky 保持在普通流初始位置。</p>"
+}

@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **0** |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（98 + 44） |
-| `tool/css_parity/cases/` | 91 个用例（编号 01–94，缺 65、85、87） |
+| `tool/css_parity/cases/` | 94 个用例（编号 01–97，缺 65、85、87） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -138,7 +138,7 @@
 | text-decoration | 57 | 6 | 部分（竖排装饰线未沿列轴） |
 | white-space | 54 | 3 | 完整（`pre` 族已修） |
 | border-collapse | 52 | 4 | 完整（本轮接通） |
-| position | 41 | 4 | 部分（`sticky` 无效果） |
+| position | 41 | 4 | 完整（分页静态位置；`sticky` 无滚动吸附交互） |
 | text-transform | 40 | 3 | 完整 |
 | text-align-last | 28 | 1 | 完整 |
 | **overflow** | **25** | **4** | 完整（本轮接通） |
@@ -214,7 +214,7 @@
 | 37 | `background-clip` | cs:1574 | pr:2020 | 部分 | `text` 降级 `padding-box`（pr:2018 注释） |
 | 38 | `background`（简写） | `_parseBackgroundShorthand` cs:4369 | pr:1821-1823 | 部分 | 不含 `attachment`、不含多背景 |
 | 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | ecs:1488 起（行/换行 Flex）；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 接通主轴/交叉轴对齐、`flex-wrap`、`gap`/`row-gap`、`align-content`、`flex-basis` 与 grow/shrink，`grid` 未实现 |
-| 40 | `position` | cs:1414（`_parsePosition` cs:4631） | bf:522；ecs:3723 | 部分 | `absolute/fixed` 完整 ★、`relative` 完整 ★；`sticky` 无效果 |
+| 40 | `position` | cs:1414（`_parsePosition` cs:4631） | bf:522；ecs:3723 | 完整 | `absolute/fixed` 完整 ★、`relative` 完整 ★；`sticky` 在无滚动视口的分页页中保持普通流静态位置 |
 | 41 | `top` | cs:1620（`_parseOffset` cs:5034） | pg:849 | 完整 ★ | `inset` 简写未解析 |
 | 42 | `right` | cs:1627 | pg:848 | 完整 ★ | — |
 | 43 | `bottom` | cs:1634 | pg:850 | 完整 ★ | — |
@@ -282,7 +282,7 @@
 | --- | --- | --- |
 | 值解析不全/降级 | `border-style`(19) | 非 solid 四值画成实线 |
 | 只实现一种上下文 | `line-height`(2)、`text-decoration`(55)、`text-overflow`(91)、`vertical-align`(69)、`writing-mode`(78)、`hyphens`(81)、`initial-letter`(98) | 竖排/多列/行盒语境下失真；首字绕排只覆盖常规横排普通段落 |
-| 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`position`(40)、`text-orientation`(79) | 未实现值落到默认分支（`grid`、`sticky` 等） |
+| 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`text-orientation`(79) | 未实现值落到默认分支（如 `grid`） |
 | 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
 | 绘制近似 | `background-image`(31)、`background-clip`(37)、`transform`(76) | 多背景不支持、`clip:text` 降级、无 3D |
 
@@ -416,7 +416,7 @@ parity 用例仍为 `engine_only`。
 | 15 | `display: flex` + `justify-content`/`align-items`/`flex-wrap` | ~~P2~~ 已完成（单行/换行） | 221/5 + 14/4 + 13/3；语料集中在头像/封面的单行居中 | — | `epub_chapter_source.dart`（Flex 行块）+ `computed_style.dart` |
 | 16 | `initial-letter` 完整多行绕排 | ~~P2~~ 已完成 | 首字浮动占 n 行，正文前 n 行绕排；两值下沉深度和自动字号保留近似 | — | — |
 | 17 | `font-size-adjust` 字号补偿 | ~~P2~~ 已完成 | `TextLayoutEngine.textStyleFor` 按字体 x-height 比例补偿字号；内置宋体和书籍字体注册真实度量 | — | — |
-| 18 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |
+| 18 | `sticky` 滚动吸附 | ~~已完成~~ | 分页阅读器没有滚动视口，`sticky` 保持普通流初始位置；97 用例几何/样式失配 0 | — | `97-position-sticky` |
 | 19 | `orphans` / `widows` 孤行控制 | — | 明确不做：电子书排版不考虑孤行/寡行（产品决策） | — | — |
 
 候补（低成本）：`unicode-bidi`/`bdo` 的文本重排；其余 D 组属性按第 9 章分类保持现状。
@@ -440,7 +440,7 @@ parity 用例仍为 `engine_only`。
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **91 个用例**（编号 `01`–`94`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **94 个用例**（编号 `01`–`97`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -460,7 +460,7 @@ parity 用例仍为 `engine_only`。
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
 | #15 flex | `90-flex-basic`、`91-flex-wrap`、`92-flex-align-content`、`94-flex-grow-shrink-basis` | 已覆盖单行对齐、换行、`gap`/`row-gap`、`align-content` 与 grow/shrink/basis 主轴分配；几何/样式失配 0 |
 | #16–17 initial-letter / font-size-adjust | `45-initial-letter`、`80-font-size-adjust` | `font-size-adjust` 已有对照；`initial-letter` 由三行浮动/绕排和代理对回归锁定 |
-| #18 sticky | `53-display-position` | 已覆盖 |
+| #18 sticky | `53-display-position`、`97-position-sticky` | 已覆盖（分页静态位置；无滚动吸附） |
 | #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
 **当前还缺的对照面**：Flex `grow/shrink` 与 `grid`；竖排 ruby 已加入 77 用例但仍为 `engine_only`
@@ -555,7 +555,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 | 已知差异，不追平 | 7 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负）、`initial-letter` 两值下沉深度与自动字号近似 |
 | 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 152/169（89.9%，用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 153/169（90.5%，用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法
@@ -566,8 +566,8 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：91 用例基线 / 几何与样式失配 **0** / 未配对 **0**。
-  原始像素差超过 2% 的 23 组中，字体抗锯齿、亚像素定位和图片采样占主体；
+- 最新结果（2026-10-30）：94 用例基线 / 几何与样式失配 **0** / 未配对 **0**。
+  原始像素差超过 2% 的 24 组中，字体抗锯齿、亚像素定位和图片采样占主体；
   浏览器连续流对引擎单页的跨页截图标为「不适用」。把暗像素膨胀 2px 后，
   未重合墨迹超过 2% 的用例为 **0**。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
@@ -587,9 +587,9 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
 - 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
 
-**收口边界**：本次结论是「当前 7 本真实语料与 91 个对照用例中的已用 CSS 面
-已收口」，不是 CSS 全规范兼容声明。`display:grid`、
-`position:sticky`、精确断字词典和
-`font-feature-settings` 仍不在此次实现范围内；`backdrop-filter` 仍按页面背景
+**收口边界**：本次结论是「当前 7 本真实语料与 94 个对照用例中的已用 CSS 面
+已收口」，不是 CSS 全规范兼容声明。`display:grid`、精确断字词典和
+3D transform 仍不在此次实现范围内；`sticky` 只承诺分页静态位置，
+`backdrop-filter` 仍按页面背景
 近似。新增真实书语料或多个背景、3D transform 等路径时，需要重新扩展用例与
 审计结论。

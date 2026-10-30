@@ -374,6 +374,9 @@ void main() {
     expect(parsed.cssFloat, CssFloat.left);
     expect(parsed.display, CssDisplay.table);
 
+    final sticky = style('p', 'p { position: sticky; top: 0; }');
+    expect(sticky.position, CssPosition.sticky);
+
     final parent = style(
       'parent',
       'div { display: inline; position: fixed; float: right; }',
