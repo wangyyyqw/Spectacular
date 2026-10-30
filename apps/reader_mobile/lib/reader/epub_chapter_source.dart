@@ -120,8 +120,10 @@ class EpubChapterSource
   /// - pagination：页缓存与页索引，键=spineIndex+排版指纹（几何+设置
   ///   排版字段）。主题颜色不进任何键 → 切主题零重排。
   // 作者 display 取决于媒体条件；每章仅保留最近一次排版环境的聚合结果。
-  final Map<int, ({String key, BlockDocument document})> _displayDocumentCache =
-      {};
+  final Map<
+    int,
+    ({String key, BlockDocument document, _ParsedSelectorIndex selectors})
+  > _displayDocumentCache = {};
   // 满屏判定与紧随的正文聚合共用一次解析；不长期保留第二棵原始树。
   BlockDocument? _pendingBlockDocument;
   // 原始元素树提供结构伪类/兄弟组合器所需的真实 childElements。
@@ -1501,17 +1503,24 @@ class EpubChapterSource
   static bool _isLowSurrogate(int codeUnit) =>
       codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
 
-  static String _chainKey(List<SelectorElement> chain) {
-    final parts = <String>[];
-    for (final view in chain) {
-      final attrKeys = view.attributes.keys.toList()..sort();
-      final attrs = [for (final key in attrKeys) '$key=${view.attributes[key]}']
-          .join(';');
-      final identity = view is _NodeView ? view.cacheIdentity : '';
-      parts.add('${view.tag}|$attrs|$identity');
-    }
-    return parts.join('>');
-  }
+  static String _chainKey(
+    List<SelectorElement> chain,
+    Map<SelectorElement, String> viewKeys,
+    CascadeRuleSet rules,
+  ) => chain
+      .map(
+        (view) => viewKeys.putIfAbsent(view, () {
+          final attrKeys = view.attributes.keys.toList()..sort();
+          final attrs = [for (final key in attrKeys) '$key=${view.attributes[key]}']
+              .join(';');
+          final identity =
+              view is _NodeView && rules.candidatesFor(view).usesTreePosition
+              ? view.cacheIdentity
+              : '';
+          return '${view.tag}|$attrs|$identity';
+        }),
+      )
+      .join('>');
 
   /// 浮动分页会把一段拆为多个块，只让真正的首末片段封闭容器。
   static List<PageContainerFragment> _containerFragmentsFor(
@@ -2272,9 +2281,9 @@ class EpubChapterSource
   /// 章节是否走满屏路径（单图无正文无宽高属性，§8.6）。
   FullBleedChapter fullBleedAnalysis(int spineIndex) {
     return _fullBleedCache.putIfAbsent(spineIndex, () {
-      final blocks = document.parseBlocks(spineIndex);
-      _pendingBlockDocument = blocks;
       final parsed = document.parseDocument(spineIndex);
+      final blocks = BlockBuilder.build(parsed);
+      _pendingBlockDocument = blocks;
       final selectorIndex = _ParsedSelectorIndex(parsed.root);
       _pendingSelectorIndex = selectorIndex;
       final structural = analyzeFullBleed(blocks);
@@ -2282,7 +2291,7 @@ class EpubChapterSource
         return structural;
       }
       // 快路只覆盖真会绘制的唯一图片；隐藏图交给普通路径按 CSS 剔除。
-      final rules = <CascadeRule>[
+      final rules = CascadeRuleSet([
         ...uaRules(),
         for (var i = 0; i < _chapterStylesheets(spineIndex).length; i++)
           ...CascadeRule.fromStylesheet(
@@ -2290,31 +2299,7 @@ class EpubChapterSource
             origin: CascadeOrigin.author,
             startOrder: 1000 + i * 10000,
           ),
-      ];
-      final candidates = <(String, String?, String), List<CascadeRule>>{};
-      List<CascadeRule> candidatesFor(SelectorElement element) {
-        final tag = element.tag.toLowerCase();
-        final id = element.attributes['id'];
-        final classes = (element.attributes['class'] ?? '')
-            .split(RegExp(r'\s+'))
-            .where((value) => value.isNotEmpty)
-            .toSet();
-        return candidates.putIfAbsent(
-          (tag, id, (classes.toList()..sort()).join(' ')),
-          () => [
-            for (final rule in rules)
-              if (rule.selectors.selectors.any((selector) {
-                if (selector.parts.isEmpty) return false;
-                final part = selector.parts.last;
-                return (part.tag == null || part.tag!.toLowerCase() == tag) &&
-                    (part.id == null || part.id == id) &&
-                    part.classes.every(classes.contains);
-              }))
-                rule,
-          ],
-        );
-      }
-
+      ]);
       bool isRendered(EpubNode node) {
         final chain = selectorIndex.chainOf(node);
         if (chain == null) return true;
@@ -2323,7 +2308,7 @@ class EpubChapterSource
           style = Cascade.compute(
             element: chain[i],
             ancestors: chain.sublist(0, i),
-            rules: candidatesFor(chain[i]),
+            rules: rules.candidatesFor(chain[i]),
             inlineDeclarations: _inlineDeclarationsOf(
               chain[i].attributes['style'],
             ),
@@ -3033,6 +3018,26 @@ class EpubChapterSource
     ];
   }
 
+  /// 聚合树与选择器视图必须来自同一次解析，重排时也成对复用。
+  (BlockDocument, _ParsedSelectorIndex) _takeChapterStructure(
+    int spineIndex,
+    String paginationKey,
+  ) {
+    final pending = _pendingBlockDocument;
+    final selectors = _pendingSelectorIndex;
+    _pendingBlockDocument = null;
+    _pendingSelectorIndex = null;
+    final cached = _displayDocumentCache[spineIndex];
+    if (cached?.key == paginationKey) {
+      return (cached!.document, cached.selectors);
+    }
+    if (pending?.spineIndex == spineIndex && selectors != null) {
+      return (pending!, selectors);
+    }
+    final parsed = document.parseDocument(spineIndex);
+    return (BlockBuilder.build(parsed), _ParsedSelectorIndex(parsed.root));
+  }
+
   /// 分页主体：产物不带整页背景，由 [loadChapter] 统一贴上。
   Future<List<PageContent>> _loadChapterPages(int spineIndex) async {
     final trace = readerTraceEnabled ? ReaderTrace.instance : null;
@@ -3115,14 +3120,10 @@ class EpubChapterSource
     }
     // 满屏扫描后的原树直接交给作者 display 聚合；已有结果不重复解析。
     final displayCached = _displayDocumentCache[spineIndex];
-    var document = displayCached?.key == paginationKey
-        ? displayCached!.document
-        : _pendingBlockDocument?.spineIndex == spineIndex
-        ? _pendingBlockDocument!
-        : this.document.parseBlocks(spineIndex);
-    _pendingBlockDocument = null;
-    final selectorIndex = _pendingSelectorIndex;
-    _pendingSelectorIndex = null;
+    var (document, selectorIndex) = _takeChapterStructure(
+      spineIndex,
+      paginationKey,
+    );
     // 图片块（真实书适配）：聚合树中折叠出的 img 块 → 背景图块。
     // 先预取章内图片的原始尺寸（同步按 URL 缓存，跨章复用），供
     // collect 按属性宽/高与宽高比换算显示尺寸。
@@ -3445,7 +3446,7 @@ class EpubChapterSource
       );
     }
 
-    final cascadeRules = <CascadeRule>[
+    final cascadeRules = CascadeRuleSet([
       // 列表缩进改由列表容器的级联盒计算（g）：UA 里的近似
       // `li { margin-left: 40px }` 会盖掉作者 `ul { padding-left: 28px }`，
       // 且重复叠加，这里整条跳过（其他 UA 规则照旧）。
@@ -3457,35 +3458,31 @@ class EpubChapterSource
           origin: CascadeOrigin.author,
           startOrder: 1000 + i * 10000,
         ),
-    ];
-    final candidateRuleCache = <(String, String?, String), List<CascadeRule>>{};
-    List<CascadeRule> candidateRulesFor(SelectorElement element) {
-      final tag = element.tag.toLowerCase();
-      final id = element.attributes['id'];
-      final classes = (element.attributes['class'] ?? '')
-          .split(RegExp(r'\s+'))
-          .where((value) => value.isNotEmpty)
-          .toSet();
-      final classKey = (classes.toList()..sort()).join(' ');
-      // 只按稳定的主体条件缩小候选集；属性、祖先、兄弟和伪类仍逐次匹配。
-      return candidateRuleCache.putIfAbsent(
-        (tag, id, classKey),
-        () => [
-          for (final rule in cascadeRules)
-            if (rule.selectors.selectors.any((selector) {
-              if (selector.parts.isEmpty) return false;
-              final part = selector.parts.last;
-              return (part.tag == null || part.tag!.toLowerCase() == tag) &&
-                  (part.id == null || part.id == id) &&
-                  part.classes.every(classes.contains);
-            }))
-              rule,
-        ],
-      );
-    }
+    ]);
 
     final chainStyleCache = <String, ComputedStyle>{};
+    // 只给候选规则依赖结构位置的节点加身份；普通同形段落仍可共享样式。
+    final viewKeys = <SelectorElement, String>{};
     final promotedInlineStyles = <SelectorElement, ComputedStyle>{};
+    final fallbackViews = <EpubNode, SelectorElement>{};
+    var fallbackViewId = 0;
+
+    SelectorElement selectorViewOf(EpubNode node) {
+      final original = selectorIndex.chainOf(node)?.last;
+      if (original != null) return original;
+      return fallbackViews.putIfAbsent(node, () {
+        final (tag, attributes, children) = switch (node) {
+          BlockNode() => (node.tag, node.attributes, node.children),
+          InlineNode() => (node.tag, node.attributes, node.children),
+          _ => ('reader-anonymous', const <String, String>{}, const <EpubNode>[]),
+        };
+        return _NodeView(tag, attributes, [
+          for (final child in children)
+            if (child is BlockNode || child is InlineNode) selectorViewOf(child),
+        ], cacheIdentity: 'generated:${fallbackViewId++}');
+      });
+    }
+
     var figureSeq = 0;
     // P9-25：最近一次 styleForChain 的最近容器是否带可见边框。局部状态，
     // 调用后立刻读取，避免为同一链再跑一次级联。
@@ -3508,7 +3505,7 @@ class EpubChapterSource
         final box = retainedContainers[ancestor];
         if (box != null) containing = box.contentWidth;
       }
-      final key = '${_chainKey(chain)}@$containing';
+      final key = '${_chainKey(chain, viewKeys, cascadeRules)}@$containing';
       return chainStyleCache.putIfAbsent(key, () {
         final parent = chain.length > 1
             ? chainStyle(chain.sublist(0, chain.length - 1))
@@ -3516,7 +3513,7 @@ class EpubChapterSource
         return Cascade.compute(
           element: chain.last,
           ancestors: chain.sublist(0, chain.length - 1),
-          rules: candidateRulesFor(chain.last),
+          rules: cascadeRules.candidatesFor(chain.last),
           inlineDeclarations: _rewriteBookFontDeclarations(
             _inlineDeclarationsOf(chain.last.attributes['style']),
           ),
@@ -3528,6 +3525,8 @@ class EpubChapterSource
       });
     }
 
+    final pseudoCascadeRules = <String, CascadeRuleSet>{};
+
     /// 伪元素自身声明参与级联；其默认样式继承生成它的元素。
     ComputedStyle pseudoStyleFor(
       List<SelectorElement> ancestors,
@@ -3537,23 +3536,26 @@ class EpubChapterSource
       if (ancestors.isEmpty) {
         return parent;
       }
-      final rules = <CascadeRule>[
-        for (final (index, rule)
-            in (pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]).indexed)
-          CascadeRule(
-            rule: CssRule(
-              selector: rule.selectorText,
-              declarations: rule.declarations,
-              media: rule.media,
+      final rules = pseudoCascadeRules.putIfAbsent(
+        pseudo,
+        () => CascadeRuleSet([
+          for (final (index, rule)
+              in (pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]).indexed)
+            CascadeRule(
+              rule: CssRule(
+                selector: rule.selectorText,
+                declarations: rule.declarations,
+                media: rule.media,
+              ),
+              origin: CascadeOrigin.author,
+              order: index,
             ),
-            origin: CascadeOrigin.author,
-            order: index,
-          ),
-      ];
+        ]),
+      );
       return Cascade.compute(
         element: ancestors.last,
         ancestors: ancestors.sublist(0, ancestors.length - 1),
-        rules: rules,
+        rules: rules.candidatesFor(ancestors.last),
         parent: parent,
         rootFontSize: style.fontSize,
         containingWidth: _textWidthFor(parent),
@@ -3562,7 +3564,7 @@ class EpubChapterSource
     }
 
     CssDisplay inlineDisplay(InlineNode node, List<MarkSubject> ancestors) {
-      final structural = selectorIndex?.chainOf(node);
+      final structural = selectorIndex.chainOf(node);
       final computed = chainStyle(
         structural ??
             [
@@ -3590,6 +3592,7 @@ class EpubChapterSource
       _displayDocumentCache[spineIndex] = (
         key: paginationKey,
         document: document,
+        selectors: selectorIndex,
       );
       _preservedRawTexts.remove(spineIndex);
       _preservedPreLineTexts.remove(spineIndex);
@@ -3694,7 +3697,7 @@ class EpubChapterSource
         parent = Cascade.compute(
           element: chain[i],
           ancestors: chain.sublist(0, i),
-          rules: candidateRulesFor(chain[i]),
+          rules: cascadeRules.candidatesFor(chain[i]),
           inlineDeclarations: _rewriteBookFontDeclarations(
             _inlineDeclarationsOf(chain[i].attributes['style']),
           ),
@@ -6034,7 +6037,7 @@ class EpubChapterSource
         // hidden]/dialog:not([open]) 等经级联命中的形态）。
         if (chainStyle(<SelectorElement>[
               ...ancestors,
-              _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
+              selectorViewOf(node),
             ]).display ==
             CssDisplay.none) {
           return;
@@ -6102,7 +6105,7 @@ class EpubChapterSource
           final emptyBox = _emptyBoxBlock(
             chainStyle(<SelectorElement>[
               ...ancestors,
-              _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
+              selectorViewOf(node),
             ]),
             contentWidth,
             containingHeight: baseContentHeight,
@@ -6122,15 +6125,8 @@ class EpubChapterSource
         final childQuoteDepth = node.tag == 'blockquote'
             ? quoteDepth + 1
             : quoteDepth;
-        // 祖先链（P8-02）：块级元素入链（含兄弟池视图），选择器匹配用。
-        final childViews = <SelectorElement>[
-          for (final child in node.children)
-            if (child is BlockNode)
-              _NodeView(child.tag, child.attributes, const <SelectorElement>[])
-            else if (child is InlineNode)
-              _NodeView(child.tag, child.attributes, const <SelectorElement>[]),
-        ];
-        final selfView = _NodeView(node.tag, node.attributes, childViews);
+        // 匹配阶段与布局阶段复用节点身份，避免兄弟伪类失配或同形段落串用缓存。
+        final selfView = selectorViewOf(node);
         final childAncestors = <SelectorElement>[...ancestors, selfView];
         if (node is PromotedBlockNode) {
           var parent = chainStyle(sourceAncestors);

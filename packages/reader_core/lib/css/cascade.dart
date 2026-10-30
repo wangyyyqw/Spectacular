@@ -1,54 +1,12 @@
+import 'cascade_rule.dart';
+import 'cascade_rule_set.dart';
 import 'computed_style.dart';
 import 'parser.dart';
 import 'property_aliases.dart';
-import 'reader_contract.dart';
 import 'selector.dart';
 
-/// 样式来源。
-enum CascadeOrigin { userAgent, author, inline }
-
-/// 带来源与文档顺序的规则。
-class CascadeRule {
-  /// 从已解析 CSS 规则创建；选择器在此解析。
-  CascadeRule({required this.rule, required this.origin, this.order = 0})
-    : selectors = SelectorParser.parse(rule.selector);
-
-  /// 从多规则样式表批量创建。
-  ///
-  /// 作者 origin（P7-17）：私有钩子过滤——`-reader-*` 属性剥除、
-  /// `:-reader-*` 伪类规则整条丢弃，警告写入 [warnings]（可空收集器）。
-  static List<CascadeRule> fromStylesheet(
-    CssStylesheet sheet, {
-    required CascadeOrigin origin,
-    int startOrder = 0,
-    List<String>? warnings,
-  }) {
-    var rules = sheet.rules;
-    if (origin == CascadeOrigin.author) {
-      final (cleaned, contractWarnings) = ReaderContract.filterAuthorStylesheet(
-        rules,
-      );
-      rules = cleaned;
-      warnings?.addAll(contractWarnings);
-    }
-    return <CascadeRule>[
-      for (var i = 0; i < rules.length; i++)
-        CascadeRule(rule: rules[i], origin: origin, order: startOrder + i),
-    ];
-  }
-
-  /// 原始规则。
-  final CssRule rule;
-
-  /// 选择器组。
-  final SelectorList selectors;
-
-  /// 来源。
-  final CascadeOrigin origin;
-
-  /// 文档顺序（越小越靠前）。
-  final int order;
-}
+export 'cascade_rule.dart';
+export 'cascade_rule_set.dart';
 
 /// 层叠与继承。
 abstract final class Cascade {
@@ -118,17 +76,10 @@ abstract final class Cascade {
   }) {
     final winners = <String, _Winner>{};
     final declarations = <_Candidate>[];
-    final sorted =
-        <(CascadeRule, int)>[
-          for (var i = 0; i < rules.length; i++) (rules[i], i),
-        ]..sort((a, b) {
-          final byOrder = a.$1.order.compareTo(b.$1.order);
-          return byOrder != 0 ? byOrder : a.$2.compareTo(b.$2);
-        });
+    final sorted = rules is CascadeRuleSet ? rules : CascadeRuleSet(rules);
 
     var sequence = 0;
-    for (final entry in sorted) {
-      final rule = entry.$1;
+    for (final rule in sorted) {
       // @media 过滤（P8-02）：条件不命中视口的规则不参与级联。
       final media = rule.rule.media;
       if (media != null && !mediaMatches(media, viewportWidth ?? containingWidth)) {

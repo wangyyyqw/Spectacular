@@ -127,7 +127,7 @@ void main() {
   test('仍不支持的选择器跳过并记录 warning', () {
     for (final selector in <String>[
       'p::before',
-      'p:nth-of-type(2)',
+      'p:nth-child(2 of .a)',
       'p:has(a)',
     ]) {
       final result = SelectorParser.parse(selector);
@@ -163,9 +163,50 @@ void main() {
     expect(match('span:first-of-type', 'sp2'), isTrue);
   });
 
+  test('倒序、同类型与唯一子元素的结构伪类', () {
+    final cases = <(String, String, bool)>[
+      ('p:nth-of-type(1)', 'p2', true),
+      ('span:nth-of-type(2)', 'sp2', false),
+      ('span:nth-last-child(1)', 'sp2', true),
+      ('p:nth-last-child(2)', 'p2', true),
+      ('p:nth-last-child(-n+2)', 'p2', true),
+      ('span:nth-last-of-type(odd)', 'sp2', true),
+      ('span:nth-last-of-type(even)', 'sp2', false),
+      ('div:last-of-type', 'mid', true),
+      ('p:last-child', 'p2', false),
+      ('span:only-child', 'sp1', true),
+      ('p:only-child', 'p2', false),
+      ('p:only-of-type', 'p2', true),
+      ('p:nth-child(0)', 'p1', false),
+      ('p:nth-child(-1)', 'p1', false),
+    ];
+    for (final (selector, id, expected) in cases) {
+      expect(match(selector, id), expected, reason: '$selector -> $id');
+    }
+    for (final selector in ['*:first-child', '*:last-child', '*:only-child']) {
+      expect(SelectorParser.parse(selector).matches(rootView, []), isTrue);
+    }
+  });
+
+  test('否定参数预编译，支持属性与结构伪类，并保留参数特异性', () {
+    expect(match('p:not([title])', 'p1'), isTrue);
+    expect(match('p:not([class~=a])', 'p1'), isFalse);
+    expect(match('p:not(:first-child)', 'p1'), isFalse);
+    expect(match('span:not(:first-child)', 'sp2'), isTrue);
+    expect(match('p:not(*)', 'p1'), isFalse);
+    Specificity spec(String text) =>
+        SelectorParser.parse(text).selectors.single.specificity;
+    expect(spec('p:not(#excluded)'), const Specificity(0, 1, 0, 1));
+    expect(spec('p:not(span)'), const Specificity(0, 0, 0, 2));
+    expect(spec('p:not(.excluded)'), const Specificity(0, 0, 1, 1));
+    expect(spec('p:not([hidden])'), const Specificity(0, 0, 1, 1));
+    expect(spec('p:not(*)'), const Specificity(0, 0, 0, 1));
+  });
+
   test('link 匹配带 href 的静态链接而不依赖交互状态', () {
     final parsed = DocumentParser.parse(
-      xhtml: '<html><body><a id="link" href="#next">链接</a>'
+      xhtml:
+          '<html><body><a id="link" href="#next">链接</a>'
           '<a id="anchor">锚点</a></body></html>',
       spineIndex: 0,
     );
