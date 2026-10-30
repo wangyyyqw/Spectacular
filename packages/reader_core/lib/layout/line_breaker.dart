@@ -1159,7 +1159,7 @@ abstract final class TextLayoutEngine {
       // Chromium 会给横排 under 着重号增加约 0.12em 的块底部空间。
       bottomOverflow:
           style.textEmphasisStyle != CssTextEmphasisStyle.none &&
-              style.textEmphasisPosition == CssTextEmphasisPosition.under
+              style.textEmphasisPosition.isUnder
           ? style.fontSize * 0.12
           : 0,
     );

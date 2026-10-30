@@ -189,7 +189,20 @@ enum CssTextEmphasisStyle {
 }
 
 /// 着重号位置（CSS text-emphasis-position 属性）。
-enum CssTextEmphasisPosition { over, under }
+///
+/// 横排取 [isUnder]，竖排取 [isVerticalLeft]；默认 `over right`。
+enum CssTextEmphasisPosition {
+  over,
+  under,
+  overLeft,
+  underLeft;
+
+  bool get isOver => this == over || this == overLeft;
+
+  bool get isUnder => this == under || this == underLeft;
+
+  bool get isVerticalLeft => this == overLeft || this == underLeft;
+}
 
 /// 縦中横（CSS Writing Modes §9.1 `text-combine-upright`）：竖排里把 2–4 位
 /// 数字合并成一个正立字块、纵向只占 1em。
@@ -6514,11 +6527,31 @@ class ComputedStyle {
   }
 
   static CssTextEmphasisPosition? _parseTextEmphasisPosition(String raw) {
-    final value = raw.trim().toLowerCase();
-    if (value.contains('under')) {
-      return CssTextEmphasisPosition.under;
+    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+')).toSet();
+    final under = tokens.contains('under');
+    final over = tokens.contains('over');
+    final left = tokens.contains('left');
+    final right = tokens.contains('right');
+    if ((!under && !over && !left && !right) ||
+        (under && over) ||
+        (left && right)) {
+      return null;
     }
-    if (value.contains('over')) {
+    final verticalLeft = left;
+    if (under) {
+      return verticalLeft
+          ? CssTextEmphasisPosition.underLeft
+          : CssTextEmphasisPosition.under;
+    }
+    if (over) {
+      return verticalLeft
+          ? CssTextEmphasisPosition.overLeft
+          : CssTextEmphasisPosition.over;
+    }
+    if (left) {
+      return CssTextEmphasisPosition.overLeft;
+    }
+    if (right) {
       return CssTextEmphasisPosition.over;
     }
     return null;

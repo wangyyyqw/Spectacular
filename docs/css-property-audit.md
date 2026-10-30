@@ -233,7 +233,7 @@
 | 63 | `text-spacing-trim` | cs:1439 | pr:3288 | 部分 | `space-first/trim-start/trim-both` 按相邻折叠近似 |
 | 64 | `text-autospace` | cs:1445 | pr:596、3284 附近 | 部分 | 未声明默认 none（与规范 normal 有偏差，cs 已注释） |
 | 65 | `text-emphasis-style` | cs:1502（`_parseTextEmphasisStyle` cs:5111） | pr:370、2495 区域 | 完整 | — |
-| 66 | `text-emphasis-position` | cs:1508（`_parseTextEmphasisPosition` cs:5128） | pr:2512 | 部分 | 仅 `over`/`under`，无竖排向 `left`/`right` |
+| 66 | `text-emphasis-position` | cs:1508（`_parseTextEmphasisPosition` cs:5128） | pr:2512 | 完整 | — |
 | 67 | `text-emphasis-color` | cs:1514 | pr:2505、3073 | 完整 | — |
 | 68 | `text-emphasis`（简写） | cs:1502 | 同上 | 完整 | — |
 | 69 | `vertical-align` | cs:1471（`_parseVerticalAlign` cs:5147；长度值 cs:5162） | lb:2220/2234（行盒）、`verticalAlignShift`→`ecs:2745`、pr:1276（单元格） | 部分 | 长度/百分比本轮补齐 ★；行内 `text-top/text-bottom/middle` 与竖排仍不完整 |
@@ -274,7 +274,7 @@
 | 缺失性质 | 属性（编号） | 后果 |
 | --- | --- | --- |
 | 值解析不全/降级 | `border-style`(19) | 非 solid 四值画成实线 |
-| 只实现一种上下文 | `line-height`(2)、`text-decoration`(55)、`text-overflow`(91)、`vertical-align`(69)、`text-emphasis-position`(66)、`writing-mode`(78)、`hyphens`(81)、`initial-letter`(98) | 竖排/多列/行盒语境下失真；首字绕排只覆盖常规横排普通段落 |
+| 只实现一种上下文 | `line-height`(2)、`text-decoration`(55)、`text-overflow`(91)、`vertical-align`(69)、`writing-mode`(78)、`hyphens`(81)、`initial-letter`(98) | 竖排/多列/行盒语境下失真；首字绕排只覆盖常规横排普通段落 |
 | 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`position`(40)、`text-orientation`(79) | 未实现值落到默认分支（`grid`、`sticky` 等） |
 | 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
 | 绘制近似 | `background-image`(31)、`background-clip`(37)、`transform`(76) | 多背景不支持、`clip:text` 降级、无 3D |
