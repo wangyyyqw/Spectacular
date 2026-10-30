@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 
 /// P9 回归：CSS 长尾属性的真实管线效果。
@@ -337,6 +338,48 @@ void main() {
     expect(spec.rowYs, hasLength(4));
     expect(spec.cells[2].rect.top, greaterThanOrEqualTo(spec.cells[0].rect.top));
     expect(spec.cells[4].rect.top, greaterThan(spec.cells[2].rect.top));
+  });
+
+  test('Flex 多行支持 row-gap 与 align-content 交叉轴分布', () async {
+    Future<TableRenderSpec> measure(String alignContent) async {
+      final source = await open(
+        body:
+            '<div class="wrap">'
+            '<div class="item">甲</div><div class="item">乙</div>'
+            '<div class="item">丙</div><div class="item">丁</div>'
+            '<div class="item">戊</div></div>',
+        css:
+            '.wrap { display: flex; flex-wrap: wrap; width: 240px; '
+            'height: 180px; gap: 10px 12px; '
+            'align-content: $alignContent; } '
+            '.item { width: 110px; height: 40px; }',
+        overrides: const ReaderOverrides(),
+      );
+      return (await source.loadChapter(0))
+          .expand((page) => page.slices)
+          .map((slice) => slice.block)
+          .firstWhere((block) => block.table?.flex ?? false)
+          .table!;
+    }
+
+    final spaced = await measure('space-between');
+    expect(spaced.cells.map((cell) => cell.rect.top).toList(), <double>[
+      0,
+      0,
+      70,
+      70,
+      140,
+    ], reason: '自然高 120 + 两个 10px 行距，剩余 40px 分到两条行间');
+    expect(spaced.cells[1].rect.left, 122, reason: 'gap 的列向值应为 12px');
+
+    final centered = await measure('center');
+    expect(centered.cells.map((cell) => cell.rect.top).toList(), <double>[
+      20,
+      20,
+      70,
+      70,
+      120,
+    ], reason: '剩余 40px 在上下各留 20px');
   });
 }
 

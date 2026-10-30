@@ -97,6 +97,17 @@ enum CssJustifyContent {
 /// Flex 交叉轴对齐（CSS Flexbox §8.3）。
 enum CssAlignItems { stretch, flexStart, flexEnd, center, baseline }
 
+/// Flex 多行交叉轴分布（CSS Flexbox §8.4）。
+enum CssAlignContent {
+  stretch,
+  flexStart,
+  flexEnd,
+  center,
+  spaceBetween,
+  spaceAround,
+  spaceEvenly,
+}
+
 /// 可见性（CSS visibility 属性）。
 enum CssVisibility { visible, hidden, collapse }
 
@@ -2468,6 +2479,7 @@ class ComputedStyle {
       columnCount: columns.count,
       columnWidth: columns.width,
       columnGap: columns.gap,
+      rowGap: columns.rowGap,
       columnRule: columns.rule,
       textOverflow: textOverflow,
       boxShadow: boxShadow,
@@ -2621,6 +2633,7 @@ class ComputedStyle {
       columnCount: columnCount,
       columnWidth: columnWidth,
       columnGap: columnGap,
+      rowGap: rowGap,
       columnRule: columnRule,
       textOverflow: textOverflow,
       boxShadow: boxShadow,
@@ -2747,6 +2760,7 @@ class ComputedStyle {
     required this.columnCount,
     required this.columnWidth,
     required this.columnGap,
+    required this.rowGap,
     required this.columnRule,
     required this.textOverflow,
     required this.boxShadow,
@@ -2937,6 +2951,20 @@ class ComputedStyle {
     };
   }
 
+  /// Flex 多行交叉轴分布；`normal` 与非法值按初始值 `stretch`。
+  CssAlignContent get alignContent {
+    final value = values['align-content']?.trim().toLowerCase();
+    return switch (value) {
+      'flex-start' || 'start' => CssAlignContent.flexStart,
+      'flex-end' || 'end' => CssAlignContent.flexEnd,
+      'center' => CssAlignContent.center,
+      'space-between' => CssAlignContent.spaceBetween,
+      'space-around' => CssAlignContent.spaceAround,
+      'space-evenly' => CssAlignContent.spaceEvenly,
+      _ => CssAlignContent.stretch,
+    };
+  }
+
   /// 可见性（继承，初始 visible）。
   final CssVisibility visibility;
 
@@ -3083,6 +3111,9 @@ class ComputedStyle {
 
   /// `column-gap` 像素值（非继承）；null = normal（布局层按 1em 处理）。
   final double? columnGap;
+
+  /// `row-gap` 像素值（非继承）；null = normal（Flex 按 0 处理）。
+  final double? rowGap;
 
   /// `column-rule` 简写（非继承）；null = 无分隔线。复用 [CssBorderSide]。
   final CssBorderSide? columnRule;
@@ -5370,7 +5401,13 @@ class ComputedStyle {
   ///
   /// `columns` 简写在本层展开（`columns: 3 60px`），整数值归 count、
   /// 长度值归 width，与级联层无关（直接构造 ComputedStyle 也能吃到）。
-  static ({int? count, CssLength? width, double? gap, CssBorderSide? rule})
+  static ({
+    int? count,
+    CssLength? width,
+    double? gap,
+    double? rowGap,
+    CssBorderSide? rule,
+  })
   _resolveColumns(
     Map<String, String> values,
     Set<String> explicit, {
@@ -5405,11 +5442,21 @@ class ComputedStyle {
         );
       }
     }
+    final gapTokens = value('gap')?.trim().split(RegExp(r'\s+')) ?? const [];
+    final rowGapSource = value('row-gap') ?? gapTokens.firstOrNull;
+    final columnGapSource =
+        value('column-gap') ??
+        (gapTokens.length > 1 ? gapTokens[1] : gapTokens.firstOrNull);
     return (
       count: count,
       width: width,
       gap: _parseColumnGap(
-        value('column-gap'),
+        columnGapSource,
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+      ),
+      rowGap: _parseColumnGap(
+        rowGapSource,
         fontSize: fontSize,
         rootFontSize: rootFontSize,
       ),
