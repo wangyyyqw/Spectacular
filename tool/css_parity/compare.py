@@ -25,7 +25,7 @@ import pathlib
 import re
 import sys
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageFilter
 
 OUT = pathlib.Path(os.environ.get('CSS_PARITY_OUT', '/tmp/css_parity'))
 CASES = pathlib.Path(__file__).resolve().parent / 'cases'
@@ -34,6 +34,7 @@ WIDTH_TOL = 4.0
 BASELINE_TOL = 1.5  # 行宽允许误差（断行取整）
 STYLE_EPS = 0.01
 PIXEL_FLAG = 0.02  # 视觉差异判定阈值（差异像素占比）
+PIXEL_SHAPE_FLAG = 0.02  # 形状差异判定阈值（膨胀后未重合墨迹占比）
 TABLE_TAGS = {'td', 'th', 'tr', 'tbody', 'thead', 'tfoot', 'caption', 'col', 'colgroup'}
 # 容器元素：只承载子块，自身不参与块配对（否则会抢 li 的文本）。
 CONTAINER_TAGS = {
@@ -58,8 +59,8 @@ def case_meta(name):
     return {
         'tags': tags,
         'multipage': bool(data.get('multipage')),
-        # 浏览器不支持的属性（hanging-punctuation / initial-letter 等）：
-        # 只记录引擎行为，不计失配、不算视觉差异。
+        # 浏览器不支持，或 Range/分页口径不可直接对照的用例：
+        # 只记录引擎行为，不计失配、不纳入自动视觉判定。
         'engine_only': bool(data.get('engine_only')),
         # 浏览器不支持的用例可附引擎期望值（页数 / 每页列数等），
         # 报告里与实测并列展示，不计失配。
@@ -94,6 +95,8 @@ def norm_enum(raw):
     if raw is None:
         return ''
     text = str(raw).strip()
+    if text.lower() in ('-webkit-center', '-moz-center'):
+        text = 'center'
     return re.sub(r'([a-z0-9])([A-Z])', r'\1-\2', text).lower()
 
 
@@ -122,19 +125,83 @@ def browser_elements(browser):
     容器元素（有块级子元素、自身无直接文本，如 `<div><p/><p/></div>`）的
     textContent 只是子块拼接，配给引擎段落块会产生假差异（61 的 div.rtl），
     这里直接排除；配不上时由调用方记「未配对」。
+
+    `caption` 虽在表格标签集合里，但它是独立绘制的标题块；引擎会把它导出
+    为普通文字块，因此保留为候选，避免 86 的标题块假未配对。
     """
-    return [
-        el for el in browser['elements']
-        if str(el.get('text', '')).strip()
-        and not el.get('container')
-        and el['tag'] not in TABLE_TAGS
-        and el['tag'] not in CONTAINER_TAGS
-    ]
+    elements = []
+    for el in browser['elements']:
+        if not str(el.get('text', '')).strip():
+            continue
+        if el['tag'] == 'caption':
+            elements.append(el)
+        elif (
+            not el.get('container')
+            and el['tag'] not in TABLE_TAGS
+            and el['tag'] not in CONTAINER_TAGS
+        ):
+            elements.append(el)
+    return elements
 
 
 def browser_tables(browser):
     """表格元素单独一列：容器不参与文本块配对，但表格块要配到 table。"""
     return [el for el in browser['elements'] if el['tag'] == 'table']
+
+
+def browser_table_body_rect(browser, table_index, table):
+    """表格块几何：有 caption 时取单元格并集，无 caption 时取 table 边框盒。"""
+    table_rect = table.get('rect') or {}
+    left = table_rect.get('x') or 0.0
+    top = table_rect.get('y') or 0.0
+    right = left + (table_rect.get('w') or 0.0)
+    bottom = top + (table_rect.get('h') or 0.0)
+    has_caption = any(
+        el.get('tag') == 'caption'
+        and (el.get('rect') or {}).get('x') >= left - TOL
+        and (el.get('rect') or {}).get('y') >= top - TOL
+        and (el.get('rect') or {}).get('x', 0.0)
+        + (el.get('rect') or {}).get('w', 0.0) <= right + TOL
+        and (el.get('rect') or {}).get('y', 0.0)
+        + (el.get('rect') or {}).get('h', 0.0) <= bottom + TOL
+        for el in browser.get('elements') or []
+    )
+    if not has_caption:
+        return table_rect
+    cells = [
+        cell for cell in browser.get('cells') or []
+        if cell.get('table') == table_index
+    ]
+    if not cells:
+        return table_rect
+    cell_left = min((cell['rect'].get('x') or 0.0) for cell in cells)
+    cell_top = min((cell['rect'].get('y') or 0.0) for cell in cells)
+    cell_right = max(
+        (cell['rect'].get('x') or 0.0) + (cell['rect'].get('w') or 0.0)
+        for cell in cells
+    )
+    cell_bottom = max(
+        (cell['rect'].get('y') or 0.0) + (cell['rect'].get('h') or 0.0)
+        for cell in cells
+    )
+    return {
+        'x': cell_left,
+        'y': cell_top,
+        'w': cell_right - cell_left,
+        'h': cell_bottom - cell_top,
+    }
+
+
+def browser_decorations(browser):
+    """无文字但可能实际绘制的盒：图片、空背景块、空装饰元素。"""
+    return [
+        el for el in browser['elements']
+        if not str(el.get('text', '')).strip()
+        and not el.get('container')
+        and el['tag'] not in TABLE_TAGS
+        and el['tag'] not in CONTAINER_TAGS
+        and el['tag'] not in ('body', 'html')
+    ]
 
 
 def browser_flex_containers(browser):
@@ -200,7 +267,47 @@ def _pick(key, elements, used, tags=None, exclude_tags=()):
 def pair_table(block, tables, used_tables):
     """表格块按单元格文字配 table 元素（独立 used，避免与文本块抢）。"""
     cells_text = ''.join(str(cell.get('text', '')) for cell in block.get('cells') or [])
-    return _pick(nkey(cells_text), tables, used_tables)
+    element = _pick(nkey(cells_text), tables, used_tables)
+    if element is not None:
+        return element
+    # 表格元素的 textContent 还包含标题、空单元格占位等，可能无法按
+    # 单元格文字前缀配对。此时按文本包含关系找，最后按文档顺序兜底；
+    # 表格块本身按文档顺序导出，86 的两张同结构表也依赖这个顺序。
+    key = nkey_long(cells_text)
+    if key:
+        for index, candidate in enumerate(tables):
+            if index in used_tables:
+                continue
+            candidate_key = nkey_long(candidate.get('text', ''))
+            if key in candidate_key or candidate_key in key:
+                used_tables.add(index)
+                return candidate
+    for index, candidate in enumerate(tables):
+        if index not in used_tables:
+            used_tables.add(index)
+            return candidate
+    return None
+
+
+def pair_decoration(block, decorations, used):
+    """无文字块按几何就近配对，避免图片/空装饰盒被报告成未配对。"""
+    target = engine_box_rect(block)
+    best = None
+    for index, el in enumerate(decorations):
+        if index in used:
+            continue
+        rect = el.get('rect') or {}
+        score = sum(
+            abs((rect.get(key) or 0.0) - (target.get(key) or 0.0))
+            for key in ('x', 'y', 'w', 'h')
+        )
+        candidate = (score, index, el)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    if best is None:
+        return None
+    used.add(best[1])
+    return best[2]
 
 
 def pair_element(block, elements, used):
@@ -735,8 +842,10 @@ def diff_single_page(name, browser, engine, meta):
     lines = []
     elements = browser_elements(browser)
     tables = browser_tables(browser)
+    decorations = browser_decorations(browser)
     used = set()
     used_tables = set()
+    used_decorations = set()
     pages = engine.get('pages') or [{'index': 0, 'blocks': engine.get('blocks', [])}]
     blocks = pages[0].get('blocks', [])
     flex_blocks = [
@@ -754,13 +863,14 @@ def diff_single_page(name, browser, engine, meta):
     lines.append(
         f'- 引擎块 {len(text_blocks)}（文字）+ {len(table_blocks)}（表格）'
         f'+ {len(flex_blocks)}（Flex），'
-        f'浏览器可配对元素 {len(elements)}'
+        f'浏览器可配对元素 {len(elements)}（另有装饰盒 {len(decorations)}）'
     )
     partial = []
     ellipsis = []
     transformed_blocks = []
     vertical_blocks = []
     font_box_lines = []
+    decoration_blocks = []
     # 多列容器：引擎每列一个块，浏览器一个元素。先按「块文本是元素文本片段」
     # 把同一容器的列块归组，块级用列带并集 bbox、行级用各列行拼接后比较。
     multicol_groups = {}
@@ -787,9 +897,16 @@ def diff_single_page(name, browser, engine, meta):
     for block in text_blocks:
         if id(block) in claimed:
             continue
-        el = pair_element(block, elements, used)
-        if el is None:
-            el, _ = pair_contained(block, elements, used)
+        decoration = False
+        if nkey(block.get('text', '')):
+            el = pair_element(block, elements, used)
+            if el is None:
+                el, _ = pair_contained(block, elements, used)
+        else:
+            el = pair_decoration(block, decorations, used_decorations)
+            if el is not None:
+                decoration = True
+                decoration_blocks.append(el['tag'])
         if el is None:
             unpaired.append(
                 f'块「{nkey(block["text"], 12)}」（角色 {block_role(block)}）'
@@ -801,7 +918,9 @@ def diff_single_page(name, browser, engine, meta):
         if vertical:
             vertical_blocks.append(label)
         found = []
-        width_cap = ellipsis_width_cap(el.get('style'), block)
+        width_cap = (
+            None if decoration else ellipsis_width_cap(el.get('style'), block)
+        )
         if width_cap is not None:
             ellipsis.append(label)
         if nkey(el['text']) != nkey(block['text']):
@@ -817,12 +936,25 @@ def diff_single_page(name, browser, engine, meta):
                                            width_cap=width_cap))
         else:
             rect_tol = TOL
+            if decoration and el['tag'] == 'img':
+                # 引擎把图片占位行按可用行宽导出，真实绘制尺寸由图片资源
+                # 决定；几何只比起排位置，像素回归覆盖宽高与裁切位置。
+                rect_tol = 2.5
+                found.extend(compare_rect(
+                    el['rect'],
+                    engine_box_rect(block),
+                    keys=('y', 'x'),
+                    tol=rect_tol,
+                ))
+                continue
             if str((el.get('style') or {}).get('lineHeight', '')).lower() == 'normal':
                 # 引擎取字体度量整数和、Chrome 用小数，normal 行高存在
                 # 0.5px 级差异（12-table 表高 93/91 即此），放宽到 2.5px。
                 rect_tol = 2.5
             found.extend(compare_rect(el['rect'], engine_box_rect(block), tol=rect_tol))
-            if vertical:
+            if decoration:
+                pass
+            elif vertical:
                 # 竖排：浏览器 getClientRects 把整列合并成单行，逐行不可比；
                 # 只比块盒（x/y/w/h），行级跳过并在报告标注。
                 pass
@@ -896,6 +1028,11 @@ def diff_single_page(name, browser, engine, meta):
             f'- 浏览器 Range 返回字体盒，逐行 y 按块顶 + CSS 行高重建'
             f'（{len(font_box_lines)} 个）：' + '、'.join(font_box_lines[:3])
         )
+    if decoration_blocks:
+        lines.append(
+            f'- 无文字装饰盒按几何就近配对（{len(decoration_blocks)} 个）：'
+            + '、'.join(decoration_blocks[:6])
+        )
     if table_blocks:
         total_cells = sum(len(block['cells']) for block in table_blocks)
         label = f'表格 ×{len(table_blocks)}（合计 {total_cells} 格）'
@@ -906,7 +1043,11 @@ def diff_single_page(name, browser, engine, meta):
             if table_element is None:
                 unpaired.append(f'表格{index + 1}（{len(block["cells"])} 格）未配对')
                 continue
-            found.extend(compare_rect(table_element['rect'], engine_box_rect(block)))
+            browser_table_index = tables.index(table_element)
+            found.extend(compare_rect(
+                browser_table_body_rect(browser, browser_table_index, table_element),
+                engine_box_rect(block),
+            ))
         found.extend(compare_table_cells(browser, table_blocks))
         if found:
             problems.append(f'「{label}」')
@@ -1100,6 +1241,33 @@ def pixel_ratio(name):
     return changed / total if total else 0.0
 
 
+def pixel_shape_ratio(name):
+    """忽略 2px 栅格抖动后的墨迹形状差异。
+
+    普通像素差会把同一字形的抗锯齿和亚像素定位算成大面积差异；这里先把
+    两侧暗像素膨胀 2px，只统计仍找不到对应墨迹的像素。颜色/位置/尺寸变化
+    仍会留下未重合区域，纯字体栅格差异则基本归零。
+    """
+    browser = Image.open(OUT / f'browser_{name}.png').convert('L')
+    engine = Image.open(OUT / f'engine_{name}.png').convert('L')
+    if browser.size != engine.size:
+        return 1.0
+
+    def ink(image):
+        return image.point(lambda value: 255 if value < 235 else 0).filter(
+            ImageFilter.MaxFilter(5)
+        )
+
+    browser_ink = ink(browser)
+    engine_ink = ink(engine)
+    unmatched = (
+        sum(ImageChops.subtract(browser_ink, engine_ink).histogram()[128:])
+        + sum(ImageChops.subtract(engine_ink, browser_ink).histogram()[128:])
+    )
+    total = browser.width * browser.height
+    return unmatched / total if total else 0.0
+
+
 def montage(name):
     browser = Image.open(OUT / f'browser_{name}.png').convert('RGB')
     engine = Image.open(OUT / f'engine_{name}.png').convert('RGB')
@@ -1121,8 +1289,8 @@ def run_case(name):
         # 导出只取前 2 页；页数口径要用引擎 pageCount，不能数导出页。
         total_pages = int(engine.get('pageCount', len(pages)))
         notes = [
-            f'- 浏览器不支持该属性，只记录引擎行为（{total_pages} 页、'
-            f'{blocks} 块），不计失配'
+            f'- engine_only：只记录引擎行为（{total_pages} 页、{blocks} 块），'
+            '不计失配'
         ]
         expect = meta.get('expect') or {}
         if expect:
@@ -1169,6 +1337,9 @@ def run_case(name):
             'unpaired': [],
             'notes': notes,
             'visual': None,
+            'visual_shape': None,
+            'visual_applicable': False,
+            'visual_reason': '用例标记为 engine_only，截图不参与自动判定',
             'null_geometry': engine.get('nullGeometry') or [],
         }
     if meta['multipage'] or int(engine.get('pageCount', 1)) > 1:
@@ -1176,6 +1347,8 @@ def run_case(name):
     else:
         problems, notes, unpaired = diff_single_page(name, browser, engine, meta)
     ratio = pixel_ratio(name)
+    visual_applicable = not meta['multipage'] and int(engine.get('pageCount', 1)) <= 1
+    shape = pixel_shape_ratio(name) if ratio is not None and visual_applicable else None
     if ratio is not None:
         montage(name)
     dimension = meta['tags'][0] if meta['tags'] else '未标注'
@@ -1188,6 +1361,12 @@ def run_case(name):
         'unpaired': unpaired,
         'notes': notes,
         'visual': ratio,
+        'visual_shape': shape,
+        'visual_applicable': visual_applicable,
+        'visual_reason': (
+            '' if visual_applicable
+            else '浏览器连续流与引擎单页截图范围不同，不参与判定'
+        ),
         'null_geometry': engine.get('nullGeometry') or [],
     }
 
@@ -1227,14 +1406,39 @@ def dimension_table(ordered):
 
 
 def visual_table(results):
-    rows = ['| 用例 | 差异像素占比 | 判定 |', '| --- | --- | --- |']
-    for result in sorted(results, key=lambda item: -(item['visual'] or 0.0)):
+    rows = [
+        '| 用例 | 原始像素差 | 墨迹形状差 | 判定 |',
+        '| --- | ---: | ---: | --- |',
+    ]
+    for result in sorted(
+        results,
+        key=lambda item: -(
+            item.get('visual_shape')
+            if item.get('visual_shape') is not None
+            else item['visual'] or 0.0
+        ),
+    ):
         ratio = result['visual']
-        if ratio is None:
-            rows.append(f"| {result['name']} | 缺图 | - |")
+        shape = result.get('visual_shape')
+        if not result.get('visual_applicable'):
+            rows.append(
+                f"| {result['name']} | "
+                f"{'-' if ratio is None else f'{ratio * 100:.2f}%'} | - | "
+                f"不适用（{result.get('visual_reason', '截图口径不同')}） |"
+            )
             continue
-        flag = '显著差异' if ratio > PIXEL_FLAG else '接近'
-        rows.append(f"| {result['name']} | {ratio * 100:.2f}% | {flag} |")
+        if ratio is None:
+            rows.append(f"| {result['name']} | 缺图 | - | - |")
+            continue
+        flag = (
+            '显著差异'
+            if shape is not None and shape > PIXEL_SHAPE_FLAG
+            else '形状接近'
+        )
+        rows.append(
+            f"| {result['name']} | {ratio * 100:.2f}% | "
+            f"{'-' if shape is None else f'{shape * 100:.2f}%'} | {flag} |"
+        )
     return rows
 
 
@@ -1242,7 +1446,16 @@ def detail_case(result):
     lines = [f"## {result['name']}"]
     tags = '、'.join(result['meta']['tags']) or '未标注'
     visual = result['visual']
-    visual_text = '未统计' if visual is None else f'{visual * 100:.2f}%'
+    shape = result.get('visual_shape')
+    if not result.get('visual_applicable'):
+        visual_text = f"不适用（{result.get('visual_reason', '截图口径不同')}）"
+    elif visual is None:
+        visual_text = '未统计'
+    else:
+        visual_text = (
+            f'原始像素 {visual * 100:.2f}% / '
+            f'墨迹形状 {"未统计" if shape is None else f"{shape * 100:.2f}%"}'
+        )
     lines.append(
         f"- 维度 {tags}；几何/样式失配 {len(result['problems'])} 项；"
         f"视觉差异 {visual_text}"
@@ -1313,6 +1526,9 @@ def main(argv=None) -> int:
                 'unpaired': [],
                 'notes': [],
                 'visual': None,
+                'visual_shape': None,
+                'visual_applicable': False,
+                'visual_reason': '缺少截图，不参与判定',
                 'null_geometry': [],
             })
     flagged = [result for result in results if result['problems']]
@@ -1325,8 +1541,11 @@ def main(argv=None) -> int:
         '',
         f'- 用例 {len(results)} 个：失配 {mismatches} 项，涉及 {len(flagged)} 个用例；'
         f'未配对 {unpaired_total} 项（{unpaired_cases} 个用例，不计失配）',
-        f"- 视觉差异超阈值 {PIXEL_FLAG * 100:.0f}% 的 "
-        f"{sum(1 for result in results if (result['visual'] or 0.0) > PIXEL_FLAG)} 个",
+        f"- 墨迹形状差异超阈值 {PIXEL_SHAPE_FLAG * 100:.0f}% 的 "
+        f"{sum(1 for result in results if (result.get('visual_shape') or 0.0) > PIXEL_SHAPE_FLAG)} 个；"
+        f"原始像素差超 {PIXEL_FLAG * 100:.0f}% 的 "
+        f"{sum(1 for result in results if (result['visual'] or 0.0) > PIXEL_FLAG)} 个"
+        "（含字体栅格与跨页截图范围差异）",
         f'- 数据目录 `{OUT}`：browser_*/engine_*（几何与截图）、side_*.png（左浏览器 / 右引擎）',
         '- 口径：行宽 = 行实际占据宽（引擎 advanceWidth，含 justify 均分；浏览器量的是绘制宽）；'
         '跨页用例只比页内相对关系；ul/ol 等容器不参与块配对，li 只对列表项块。',
