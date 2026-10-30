@@ -84,7 +84,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 42 | multipage-flow | 12 段长文跨页（跨页，2 页） |
 | 43 | multipage-table | 表格被 page-break 推到第 2 页（跨页，2 页） |
 | 44 | hanging-punctuation | hanging-punctuation: allow-end（Chrome 不支持，仅记录引擎行为） |
-| 45 | initial-letter | initial-letter: 3（Chrome 不支持，仅记录引擎行为） |
+| 45 | initial-letter | 三行首字浮动与正文绕排（Chrome 不支持，仅记录引擎行为） |
 | 46 | margin-longhand | margin-top / margin-bottom（含负值） |
 | 47 | padding-longhand | padding-right / padding-bottom |
 | 48 | border-longhand-top-right | border-top / border-right |
@@ -141,8 +141,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
-| 解析且消费（审计 A 组） | 122 | 122 | 100.0% |
-| 占位式（审计 C 组：有字段、零消费） | 1 | 1 | 100.0% |
+| 解析且消费（审计 A 组） | 123 | 123 | 100.0% |
+| 占位式（审计 C 组：有字段、零消费） | 0 | 0 | 0.0% |
 | 完全未处理（审计 D 组：无字段） | 45 | 26 | 57.8% |
 | **合计（116 条审计展开为 168 个属性名）** | **168** | **149** | **88.7%** |
 
