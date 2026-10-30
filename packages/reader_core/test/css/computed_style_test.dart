@@ -626,6 +626,17 @@ void main() {
     expect(multi.first.blur, 2);
     expect(multi.last.blur, 4);
     expect(multi.last.offsetX, 0);
+
+    // 颜色函数内的逗号不是阴影分隔符，也不能被空白拆成伪偏移量。
+    final rgba = style(
+      'p',
+      'p { text-shadow: 0 0 4px rgba(251, 191, 36, 0.5); }',
+    ).textShadow;
+    expect(rgba, hasLength(1));
+    expect(rgba.single.offsetX, 0);
+    expect(rgba.single.offsetY, 0);
+    expect(rgba.single.blur, 4);
+    expect(rgba.single.color?.a, closeTo(0.5, 0.01));
   });
 
   test('渐变结构：linear（角度/方向 + 色标）', () {

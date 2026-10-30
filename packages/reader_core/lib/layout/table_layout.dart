@@ -191,6 +191,23 @@ abstract final class TableMeasurer {
         for (var c = 0; c < columnCount; c++) {
           widths[c] = math.max(widths[c], math.max(0.0, minWidths[c]));
         }
+        // 逐列抬到 min-content 后可能超过已声明的表宽。按各列高于最小宽的
+        // 可压缩余量回收溢出，既保留 min-content 下限，也不让表格越界。
+        final raisedTotal = widths.fold(0.0, (a, b) => a + b);
+        final overflow = raisedTotal - available;
+        if (overflow > 0) {
+          var slack = 0.0;
+          for (var c = 0; c < columnCount; c++) {
+            slack += math.max(0.0, widths[c] - minWidths[c]);
+          }
+          if (slack > 0) {
+            final scale = math.max(0.0, 1 - overflow / slack);
+            for (var c = 0; c < columnCount; c++) {
+              final minWidth = math.max(0.0, minWidths[c]);
+              widths[c] = minWidth + (widths[c] - minWidth) * scale;
+            }
+          }
+        }
       }
     }
     final total = widths.fold(0.0, (a, b) => a + b) + spacingTotal;

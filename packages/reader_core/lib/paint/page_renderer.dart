@@ -2313,7 +2313,6 @@ class PagePainter {
       return;
     }
     final textStyleBase = TextLayoutEngine.textStyleFor(style);
-    var lineY = contentTop;
     for (var lineIndex = 0; lineIndex < layout.lineCount; lineIndex++) {
       final line = layout.lines[lineIndex];
       final text = layout.text.substring(line.start, line.end);
@@ -2330,10 +2329,12 @@ class PagePainter {
                 ),
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: contentWidth);
-        painter.paint(canvas, Offset(contentLeft + line.offsetX, lineY));
+        painter.paint(
+          canvas,
+          Offset(contentLeft + line.offsetX, contentTop + line.top),
+        );
         painter.dispose();
       }
-      lineY += line.height;
     }
     if (clipsContent) {
       canvas.restore();

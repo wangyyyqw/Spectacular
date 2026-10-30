@@ -356,6 +356,8 @@ class EpubChapterSource
     int groupId = 0,
     bool containerSides = false,
     double effectiveOpacity = 1,
+    double? containingLeft,
+    double? containingWidth,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: contentWidth);
     return PageBlock(
@@ -375,6 +377,8 @@ class EpubChapterSource
       startCfi: startCfi,
       groupId: groupId,
       containerSides: containerSides,
+      floatContainingLeft: containingLeft,
+      floatContainingWidth: containingWidth,
     );
   }
 
@@ -2361,6 +2365,41 @@ class EpubChapterSource
       }
     }
 
+    /// 行内浮动的包含块。没有显式信息的块级浮动仍按整页版心排布。
+    ({double left, double width}) floatRegion(PageBlock block) {
+      final left = (block.floatContainingLeft ?? 0.0)
+          .clamp(0.0, width)
+          .toDouble();
+      final regionWidth = (block.floatContainingWidth ?? width)
+          .clamp(0.0, math.max(0.0, width - left))
+          .toDouble();
+      return (left: left, width: regionWidth);
+    }
+
+    double occupiedLeftWithin(double top, double bottom, double regionLeft) {
+      var used = 0.0;
+      for (final item in occupancy.items) {
+        if (item.side == FloatSide.left &&
+            item.rect.top < bottom &&
+            item.rect.bottom > top) {
+          used = math.max(used, item.rect.right - regionLeft);
+        }
+      }
+      return math.max(0.0, used);
+    }
+
+    double occupiedRightWithin(double top, double bottom, double regionRight) {
+      var used = 0.0;
+      for (final item in occupancy.items) {
+        if (item.side == FloatSide.right &&
+            item.rect.top < bottom &&
+            item.rect.bottom > top) {
+          used = math.max(used, regionRight - item.rect.left);
+        }
+      }
+      return math.max(0.0, used);
+    }
+
     /// 浮动排布（CSS 2.1 §9.5.1）：同一行还有空位就并排——左浮动贴已有
     /// 左浮动的右缘、右浮动贴已有右浮动的左缘；放不下就落到该侧浮动底边
     /// 另起一行。多列网格（双列目录）靠这条把同宽浮块两两并排。
@@ -2369,6 +2408,8 @@ class EpubChapterSource
       required double occupiedWidth,
       required double heightPx,
       required FloatSide side,
+      required double regionLeft,
+      required double regionWidth,
     }) {
       // 候选行位：静态位置，以及所有浮动底边（行边界）。逐行尝试比
       // 「直接落到最底边」更接近 CSS——同一行的矮浮块下面还能继续并排。
@@ -2380,13 +2421,17 @@ class EpubChapterSource
       }
       final ordered = rows.toList()..sort();
       for (final top in ordered) {
-        final leftUsed = occupancy.occupiedLeftAt(top, top + heightPx);
-        final rightUsed = occupancy.occupiedRightAt(top, top + heightPx, width);
-        if (leftUsed + rightUsed + occupiedWidth <= width + 0.5) {
+        final leftUsed = occupiedLeftWithin(top, top + heightPx, regionLeft);
+        final rightUsed = occupiedRightWithin(
+          top,
+          top + heightPx,
+          regionLeft + regionWidth,
+        );
+        if (leftUsed + rightUsed + occupiedWidth <= regionWidth + 0.5) {
           final x = side == FloatSide.left
-              ? leftUsed
-              : width - rightUsed - occupiedWidth;
-          return (top: top, x: math.max(0.0, x));
+              ? regionLeft + leftUsed
+              : regionLeft + regionWidth - rightUsed - occupiedWidth;
+          return (top: top, x: x);
         }
       }
       // 所有行位都放不下：落到该侧浮动底边另起一行。
@@ -2415,6 +2460,7 @@ class EpubChapterSource
       }
       final floatSide = block.floatSide;
       if (floatSide != null) {
+        final region = floatRegion(block);
         // 容器浮动组（W12）：一个被 flat 管线拆成多个子块的浮动容器
         //（双列目录 `.dk-toc-item{float:left;width:48%}`）作为一个浮动盒
         // 整体占位，组内块自上而下堆叠、相邻段距取大——否则每个子块各
@@ -2436,9 +2482,12 @@ class EpubChapterSource
                     groupStyle.borders.left.width +
                     groupStyle.borders.right.width;
           final groupContentW = first.layout.maxWidth.isFinite
-              ? math.min(first.layout.maxWidth, width)
+              ? math.min(first.layout.maxWidth, region.width)
               : first.layout.width;
-          final groupBorderW = math.min(width, groupContentW + groupInsetX);
+          final groupBorderW = math.min(
+            region.width,
+            groupContentW + groupInsetX,
+          );
           final groupMarginLeft = groupStyle?.margin.left ?? 0;
           final groupMarginRight = groupStyle?.margin.right ?? 0;
           final groupLeftSpace = floatSide == FloatSide.left
@@ -2446,7 +2495,7 @@ class EpubChapterSource
               : groupMarginLeft;
           final groupRightSpace = groupMarginRight;
           final groupOccupied = math.min(
-            width,
+            region.width,
             groupLeftSpace + groupBorderW + groupRightSpace,
           );
           // 组内各块的边框盒顶（相对组边框盒顶）与组总高。
@@ -2486,6 +2535,8 @@ class EpubChapterSource
             occupiedWidth: groupOccupied,
             heightPx: groupBorderHeight + groupMarginBottom,
             side: floatSide,
+            regionLeft: region.left,
+            regionWidth: region.width,
           );
           final groupOccupiedX = groupPlacement.x;
           final groupBoxX = groupOccupiedX + groupLeftSpace;
@@ -2531,9 +2582,9 @@ class EpubChapterSource
                   style.borders.left.width +
                   style.borders.right.width;
         final contentW = block.layout.maxWidth.isFinite
-            ? math.min(block.layout.maxWidth, width)
+            ? math.min(block.layout.maxWidth, region.width)
             : block.layout.width;
-        final borderW = math.min(width, contentW + insetX);
+        final borderW = math.min(region.width, contentW + insetX);
         final marginLeft = style?.margin.left ?? 0;
         final marginRight = style?.margin.right ?? 0;
         // 朝版心的一侧才占位：左边距只对右浮动的左侧有意义，右边距反之。
@@ -2546,7 +2597,10 @@ class EpubChapterSource
         final rightSpace = floatSide == FloatSide.right
             ? marginRight
             : math.max(marginRight, breathingGap);
-        final occupied = math.min(width, leftSpace + borderW + rightSpace);
+        final occupied = math.min(
+          region.width,
+          leftSpace + borderW + rightSpace,
+        );
         // 静态位置 = 当前流位置（上一个在流块的内容底边 + 它的下外边距；
         // 页首无在流块时用下一个在流块的段前距），再叠加自身 margin-top
         //（浮动的 margin 不参与折叠，原样相加）。
@@ -2554,7 +2608,18 @@ class EpubChapterSource
             ? lastContentBottom + lastBottomMargin
             : nextFlowLeading[blockIndex];
         final preferredTop = flowPosition() + block.spaceBefore;
-        if (y > 0 && preferredTop + h > height) {
+        final ownTop = style == null
+            ? 0.0
+            : style.padding.top +
+                  (style.borders.top.isVisible ? style.borders.top.width : 0);
+        final ownBottom = style == null
+            ? 0.0
+            : style.padding.bottom +
+                  (style.borders.bottom.isVisible
+                      ? style.borders.bottom.width
+                      : 0);
+        final overlayHeight = block.topInset + h + block.bottomInset;
+        if (y > 0 && preferredTop + overlayHeight > height) {
           closePage();
         }
         final placement = placeFloat(
@@ -2562,15 +2627,22 @@ class EpubChapterSource
               ? lastContentBottom + lastBottomMargin + block.spaceBefore
               : nextFlowLeading[blockIndex] + block.spaceBefore,
           occupiedWidth: occupied,
-          heightPx: h,
+          heightPx: overlayHeight,
           side: floatSide,
+          regionLeft: region.left,
+          regionWidth: region.width,
         );
         final occupiedX = placement.x;
         final boxX = occupiedX + leftSpace;
         final floatY = placement.top;
         occupancy.insert(
           BoxOccupied(
-            rect: Rect.fromLTWH(occupiedX, floatY, occupied, h),
+            rect: Rect.fromLTWH(
+              occupiedX,
+              floatY + block.topInset - ownTop,
+              occupied,
+              ownTop + h + ownBottom,
+            ),
             baseline: floatY,
             side: floatSide,
           ),
@@ -2580,7 +2652,9 @@ class EpubChapterSource
             block: block,
             startLine: 0,
             endLine: block.layout.lineCount,
-            height: h,
+            height: overlayHeight,
+            leadingExtent: block.topInset,
+            trailingExtent: block.bottomInset,
             overlay: true,
             absoluteTop: floatY,
             // 绘制层会在 leftInset 之上再加一次 margin.left，浮动框定位
@@ -2675,20 +2749,22 @@ class EpubChapterSource
       final boxHeight = block.height;
       if ((boxHeight - block.measuredHeight).abs() > 0.5 ||
           block.clipsContent) {
-        final available = _textWidthFor(block.style ?? style);
-        final occupiedLeft = occupancy.occupiedLeftAt(y, y + boxHeight);
-        final occupiedRight = occupancy.occupiedRightAt(
+        final boxStyle = block.style ?? style;
+        final available = _textWidthFor(boxStyle);
+        final flowLeft = block.leftInset + boxStyle.margin.left;
+        final occupiedLeft = occupiedLeftWithin(y, y + boxHeight, flowLeft);
+        final occupiedRight = occupiedRightWithin(
           y,
           y + boxHeight,
-          width,
+          flowLeft + available,
         );
-        final narrowed = occupiedLeft > 0 || occupiedRight > 0;
-        final batchWidth = narrowed
-            ? math.max(24.0, available - occupiedLeft - occupiedRight)
-            : available;
+        final batchWidth = math.max(
+          24.0,
+          available - occupiedLeft - occupiedRight,
+        );
         final measured = _layoutCache.layout(
           text: block.layout.text,
-          style: block.style ?? style,
+          style: boxStyle,
           maxWidth: batchWidth,
         );
         // overflow: visible 保留盒外全部行；显式裁剪时保留行顶位于盒内的
@@ -2703,7 +2779,10 @@ class EpubChapterSource
           closePage();
         }
         if (taken > 0) {
-          final segLines = measured.lines.take(taken).toList();
+          final segLines = [
+            for (final line in measured.lines.take(taken))
+              line.copyWith(offsetX: line.offsetX + occupiedLeft),
+          ];
           final segText = block.layout.text.substring(0, segLines.last.end);
           final segLayout = TextLayoutResult(
             text: segText,
@@ -2713,14 +2792,13 @@ class EpubChapterSource
             maxWidth: batchWidth,
             runs: const <StyledRun>[],
           );
-          final leftInset = narrowed ? occupiedLeft : block.leftInset;
           slices.add(
             PageBlockSlice(
               block: PageBlock(
                 layout: segLayout,
                 style: block.style,
                 startCfi: block.startCfi,
-                leftInset: leftInset,
+                leftInset: block.leftInset,
                 topInset: block.topInset,
                 bottomInset: block.bottomInset,
                 containers: block.containers,
@@ -2732,7 +2810,7 @@ class EpubChapterSource
               height: block.leadingExtent + boxHeight,
               leadingExtent: block.leadingExtent,
               trailingExtent: block.trailingExtent,
-              leftInset: leftInset,
+              leftInset: block.leftInset,
             ),
           );
         }
@@ -2747,7 +2825,10 @@ class EpubChapterSource
       // x（写进 LineBox.offsetX）。此前按「同占位状态」把段落切成多个块，
       // 块的宽度/行数于是对不上浏览器的「一个 <p> 一个块」。
       final fullText = block.layout.text;
-      final available = _textWidthFor(block.style ?? style);
+      final textStyle = block.style ?? style;
+      final available = _textWidthFor(textStyle);
+      final flowLeft = block.leftInset + textStyle.margin.left;
+      final flowRight = flowLeft + available;
       var charCursor = 0;
       var leadingLeft = block.leadingExtent;
       while (charCursor < fullText.length) {
@@ -2756,20 +2837,25 @@ class EpubChapterSource
         while (charCursor < fullText.length) {
           final probe = block.layout.lines.first.height;
           final lineY = y + leadingLeft + blockHeight;
-          final occupiedLeft = occupancy.occupiedLeftAt(lineY, lineY + probe);
-          final occupiedRight = occupancy.occupiedRightAt(
+          final occupiedLeft = occupiedLeftWithin(
             lineY,
             lineY + probe,
-            width,
+            flowLeft,
+          );
+          final occupiedRight = occupiedRightWithin(
+            lineY,
+            lineY + probe,
+            flowRight,
           );
           final narrowed = occupiedLeft > 0 || occupiedRight > 0;
-          final batchWidth = narrowed
-              ? math.max(24.0, available - occupiedLeft - occupiedRight)
-              : available;
+          final batchWidth = math.max(
+            24.0,
+            available - occupiedLeft - occupiedRight,
+          );
           final remaining = fullText.substring(charCursor);
           final measured = _layoutCache.layout(
             text: remaining,
-            style: block.style ?? style,
+            style: textStyle,
             maxWidth: batchWidth,
           );
           // 取行：直到占位状态变化（下一行的区间不同）、页尽或文本尽。
@@ -2781,11 +2867,11 @@ class EpubChapterSource
               break;
             }
             final nextY = y + leadingLeft + blockHeight + batchHeight;
-            final nextLeft = occupancy.occupiedLeftAt(nextY, nextY + lineH);
-            final nextRight = occupancy.occupiedRightAt(
+            final nextLeft = occupiedLeftWithin(nextY, nextY + lineH, flowLeft);
+            final nextRight = occupiedRightWithin(
               nextY,
               nextY + lineH,
-              width,
+              flowRight,
             );
             if ((nextLeft > 0 || nextRight > 0) != narrowed ||
                 (narrowed &&
@@ -3764,6 +3850,11 @@ class EpubChapterSource
             side: side!,
             spaceBefore: inlineStyle.margin.top,
             spaceAfter: inlineStyle.margin.bottom,
+            containingLeft:
+                context.style.margin.left +
+                context.style.borders.left.width +
+                context.style.padding.left,
+            containingWidth: context.width,
           );
         }
         // 从段落文本里摘掉这段内容，其余偏移重映射。
@@ -3900,6 +3991,11 @@ class EpubChapterSource
           side: side,
           spaceBefore: imageBlockStyle.margin.top,
           spaceAfter: imageBlockStyle.margin.bottom,
+          containingLeft:
+              context.style.margin.left +
+              context.style.borders.left.width +
+              context.style.padding.left,
+          containingWidth: context.width,
         );
         final removeStart = imageMark.offset;
         final removeEnd = imageMark.offset + 1;
