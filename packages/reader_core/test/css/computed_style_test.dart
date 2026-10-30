@@ -409,6 +409,18 @@ void main() {
     expect(plain.backgroundImage, isNull);
   });
 
+  test('border-image 保留 data URL 大小写并解析 repeat/fill', () {
+    const url = 'data:image/png;base64,AbCdEf==';
+    final parsed = style(
+      'p',
+      'p { border: 16px solid transparent; '
+          'border-image: url("$url") 25% fill round; }',
+    );
+    expect(parsed.borderImage?.url, url);
+    expect(parsed.borderImage?.fill, isTrue);
+    expect(parsed.borderImage?.repeat, CssBorderImageRepeat.round);
+  });
+
   test('border-style：3D 线型保留原值，none/hidden 宽度归零', () {
     // 四种立体线型与 solid 同宽同色，只有明暗差异；此前降级成 solid，
     // 现在保留原值由绘制层画两半明暗（CSS Backgrounds §4.4）。

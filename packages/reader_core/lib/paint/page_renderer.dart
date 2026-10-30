@@ -2740,9 +2740,11 @@ class PagePainter {
       paint: paint,
     );
 
-    // fill：中间区域（源九宫格中心 → 内容盒）。
+    // fill：中间区域（源九宫格中心 → 内容盒），按边条相同的 repeat 规则平铺。
     if (spec.fill) {
-      drawPart(
+      _paintBorderImageFill(
+        canvas,
+        image,
         Rect.fromLTWH(
           sliceLeft,
           sliceTop,
@@ -2755,8 +2757,79 @@ class PagePainter {
           box.width - left - right,
           box.height - top - bottom,
         ),
+        spec.repeat,
+        naturalWidth: left > 0 && sliceLeft > 0
+            ? (imageWidth - sliceLeft - sliceRight) * left / sliceLeft
+            : imageWidth - sliceLeft - sliceRight,
+        naturalHeight: top > 0 && sliceTop > 0
+            ? (imageHeight - sliceTop - sliceBottom) * top / sliceTop
+            : imageHeight - sliceTop - sliceBottom,
+        paint: paint,
       );
     }
+  }
+
+  /// 填充中间九宫格；`fill` 同样受 `border-image-repeat` 控制。
+  void _paintBorderImageFill(
+    Canvas canvas,
+    ui.Image image,
+    Rect src,
+    Rect dst,
+    CssBorderImageRepeat repeat, {
+    required double naturalWidth,
+    required double naturalHeight,
+    required Paint paint,
+  }) {
+    if (dst.width <= 0 ||
+        dst.height <= 0 ||
+        src.width <= 0 ||
+        src.height <= 0) {
+      return;
+    }
+    if (repeat == CssBorderImageRepeat.stretch) {
+      canvas.drawImageRect(image, src, dst, paint);
+      return;
+    }
+    final countX = _borderImageTileCount(repeat, dst.width, naturalWidth);
+    final countY = _borderImageTileCount(repeat, dst.height, naturalHeight);
+    final pieceWidth = repeat == CssBorderImageRepeat.round
+        ? dst.width / countX
+        : naturalWidth;
+    final pieceHeight = repeat == CssBorderImageRepeat.round
+        ? dst.height / countY
+        : naturalHeight;
+    canvas.save();
+    canvas.clipRect(dst);
+    for (var y = 0; y < countY; y++) {
+      for (var x = 0; x < countX; x++) {
+        canvas.drawImageRect(
+          image,
+          src,
+          Rect.fromLTWH(
+            dst.left + pieceWidth * x,
+            dst.top + pieceHeight * y,
+            pieceWidth,
+            pieceHeight,
+          ),
+          paint,
+        );
+      }
+    }
+    canvas.restore();
+  }
+
+  int _borderImageTileCount(
+    CssBorderImageRepeat repeat,
+    double target,
+    double natural,
+  ) {
+    if (natural <= 0 || target <= 0) {
+      return 1;
+    }
+    final ratio = target / natural;
+    return repeat == CssBorderImageRepeat.round
+        ? math.max(1, ratio.round())
+        : math.max(1, ratio.ceil());
   }
 
   /// 边条填充：`stretch` 一次拉满；`repeat/round/space` 沿边平铺。
@@ -2776,14 +2849,16 @@ class PagePainter {
       canvas.drawImageRect(image, src, dst, paint);
       return;
     }
-    final natural = horizontal ? src.width : src.height;
+    // 边条先按边框厚度等比缩放，再以缩放后的尺寸平铺；直接用源图像素
+    // 会让 25% 切割、16px 边框之类的组合密集成两倍以上。
+    final natural = horizontal
+        ? src.width * dst.height / src.height
+        : src.height * dst.width / src.width;
     final target = horizontal ? dst.width : dst.height;
     if (natural <= 0) {
       return;
     }
-    final count = repeat == CssBorderImageRepeat.round
-        ? math.max(1, (target / natural).round())
-        : (target / natural).ceil();
+    final count = _borderImageTileCount(repeat, target, natural);
     final piece = target / count;
     canvas.save();
     canvas.clipRect(dst);
