@@ -13,6 +13,7 @@ import '../layout/text_layout.dart';
 import 'background_image.dart';
 import 'line_spans.dart';
 import 'paragraph_cache.dart';
+import 'text_emphasis.dart';
 
 /// 页面先绘制背景，各块依次绘制背景、边框、文本、装饰，最后绘制选区。
 enum PagePaintPhase {
@@ -683,38 +684,53 @@ class PagePainter {
     if (geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
       return;
     }
-    _clipBlock(canvas, geometry, clip: true, contentClip: true, () {
-      final layout = geometry.slice.block.layout;
-      var lineY = geometry.y + geometry.leading;
-      for (
-        var lineIndex = geometry.slice.startLine;
-        lineIndex < geometry.slice.endLine;
-        lineIndex++
-      ) {
-        final line = layout.lines[lineIndex];
-        final lineText = layout.text.substring(line.start, line.end);
-        if (lineText.isNotEmpty) {
-          _paintLineEmphasis(
-            canvas,
-            _linePainterFor(
-              page,
-              sliceIndex,
-              lineIndex,
-              layout,
-              line,
-              geometry.textStyle,
-              punctCompression: geometry.punctCompression,
-              textColorOverride: geometry.textColorOverride,
-            ),
-            lineText,
-            geometry.style,
-            line.offsetX + geometry.leftInset,
-            lineY + line.baseline,
-          );
-        }
-        lineY += line.height;
+    final marks = HorizontalTextEmphasis(
+      geometry.style,
+      geometry.style.textEmphasisColor ??
+          geometry.textColorOverride ??
+          textColor ??
+          geometry.style.color,
+    );
+    try {
+      _clipBlock(canvas, geometry, clip: true, contentClip: true, () {
+        _paintEmphasisLines(canvas, page, geometry, sliceIndex, marks);
+      });
+    } finally {
+      marks.dispose();
+    }
+  }
+
+  void _paintEmphasisLines(
+    Canvas canvas,
+    PageContent page,
+    _SliceGeometry geometry,
+    int sliceIndex,
+    HorizontalTextEmphasis marks,
+  ) {
+    final layout = geometry.slice.block.layout;
+    var lineY = geometry.y + geometry.leading;
+    for (var i = geometry.slice.startLine; i < geometry.slice.endLine; i++) {
+      final line = layout.lines[i];
+      final lineText = layout.text.substring(line.start, line.end);
+      if (lineText.isNotEmpty) {
+        marks.paint(
+          canvas,
+          _linePainterFor(
+            page,
+            sliceIndex,
+            i,
+            layout,
+            line,
+            geometry.textStyle,
+            punctCompression: geometry.punctCompression,
+            textColorOverride: geometry.textColorOverride,
+          ),
+          lineText,
+          Offset(line.offsetX + geometry.leftInset, lineY + line.baseline),
+        );
       }
-    });
+      lineY += line.height;
+    }
   }
 
   void _paintBlockRubies(Canvas canvas, _SliceGeometry geometry) {
@@ -4497,65 +4513,6 @@ class PagePainter {
     }
   }
 
-  /// 画一行着重号（装饰阶段，P2-29）。
-  void _paintLineEmphasis(
-    Canvas canvas,
-    TextPainter painter,
-    String lineText,
-    ComputedStyle style,
-    double x,
-    double baselineY,
-  ) {
-    if (lineText.isEmpty ||
-        style.textEmphasisStyle == CssTextEmphasisStyle.none) {
-      return;
-    }
-    _paintEmphasis(canvas, lineText, style, painter, x, baselineY);
-  }
-
-  /// 画着重号（P2-17）：按字符取排版盒，在上/下方画实心或空心点。
-  ///
-  /// 参考阅微 `TextEmphasisDisplay`：字号取 `fontSize / 2` 区域，位置 over/under，
-  /// 颜色缺省跟随文字颜色。
-  void _paintEmphasis(
-    Canvas canvas,
-    String lineText,
-    ComputedStyle style,
-    TextPainter painter,
-    double x,
-    double baselineY,
-  ) {
-    final emphasis = style.textEmphasisStyle;
-    if (emphasis == CssTextEmphasisStyle.none) {
-      return;
-    }
-    final paint = Paint()
-      ..color = style.textEmphasisColor ?? textColor ?? style.color
-      ..strokeCap = StrokeCap.round;
-    final centerY = style.textEmphasisPosition.isOver
-        ? baselineY - style.fontSize * 1.3
-        : baselineY + style.fontSize * 0.44;
-    for (var i = 0; i < lineText.length; i++) {
-      if (lineText[i].trim().isEmpty) {
-        continue;
-      }
-      final boxes = painter.getBoxesForSelection(
-        TextSelection(baseOffset: i, extentOffset: i + 1),
-      );
-      if (boxes.isEmpty) {
-        continue;
-      }
-      final box = boxes.first;
-      _paintEmphasisMark(
-        canvas,
-        emphasis,
-        Offset(x + (box.left + box.right) / 2, centerY),
-        style.fontSize,
-        paint,
-      );
-    }
-  }
-
   static bool _isOpenEmphasis(CssTextEmphasisStyle style) =>
       style == CssTextEmphasisStyle.openDot ||
       style == CssTextEmphasisStyle.openCircle ||
@@ -4574,7 +4531,7 @@ class PagePainter {
     CssTextEmphasisStyle emphasis,
   ) => math.max(1.0, fontSize * (_isCircleEmphasis(emphasis) ? 0.16 : 0.08));
 
-  /// 按 CSS 的形状绘制着重号；竖排和横排共用同一套字形比例。
+  /// 竖排沿用既有合成字形；横排由 HorizontalTextEmphasis 绘制字体字形。
   void _paintEmphasisMark(
     Canvas canvas,
     CssTextEmphasisStyle emphasis,

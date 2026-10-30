@@ -121,7 +121,7 @@ def load_parse_points(path):
 
 def load_cases(directory):
     cases = []
-    for path in sorted(directory.glob('*.json')):
+    for path in sorted(directory.glob('*.json'), key=lambda p: int(p.stem.split('-')[0])):
         data = json.loads(path.read_text(encoding='utf-8'))
         cases.append({
             'id': path.stem.split('-')[0],

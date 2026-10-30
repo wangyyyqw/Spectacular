@@ -1,0 +1,6 @@
+{
+  "name": "100-emphasis-glyphs",
+  "tags": ["text-emphasis-style", "text-emphasis-position", "text-emphasis-color"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 24px; } p { margin: 12px 0; padding: 24px 0 0; line-height: 2; text-emphasis-color: #cc0000; } .dot { text-emphasis-style: filled dot; } .open-dot { text-emphasis-style: open dot; } .circle { text-emphasis-style: filled circle; } .open-circle { text-emphasis-style: open circle; } .sesame { text-emphasis-style: filled sesame; } .open-sesame { text-emphasis-style: open sesame; } .under { text-emphasis-style: filled sesame; text-emphasis-color: #0066cc; text-emphasis-position: under right; font-size: 17px; }",
+  "html": "<p class=\"dot\">实心点：中文，句末。</p><p class=\"open-dot\">空心点：引号「」与空格。</p><p class=\"circle\">实心圆：符号 #%&amp;@。</p><p class=\"open-circle\">空心圆：括号（）与横线-。</p><p class=\"sesame\">实心芝麻：中文 ABC。</p><p class=\"open-sesame\">空心芝麻：中文 XYZ。</p><p class=\"under\">下方着重号：观察位置和颜色。</p>"
+}
