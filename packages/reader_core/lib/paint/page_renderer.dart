@@ -841,7 +841,7 @@ class PagePainter {
       final style = slice.block.style;
       if (style != null &&
           style.textEmphasisStyle != CssTextEmphasisStyle.none) {
-        if (style.textEmphasisPosition == CssTextEmphasisPosition.under) {
+        if (style.textEmphasisPosition.isUnder) {
           downExtent = math.max(downExtent, style.fontSize * 0.55);
         } else {
           upExtent = math.max(upExtent, style.fontSize * 0.4);
@@ -3611,7 +3611,7 @@ class PagePainter {
       ..color = style.textEmphasisColor ?? textColorOverride ?? style.color
       ..strokeCap = StrokeCap.round;
     // over → 列右缘；under → 列左缘（竖排的 over 侧就是右）。
-    final centerX = style.textEmphasisPosition == CssTextEmphasisPosition.under
+    final centerX = style.textEmphasisPosition.isVerticalLeft
         ? columnLeft + radius + 1
         : columnLeft + columnWidth - radius - 1;
     _paintEmphasisMark(
@@ -4290,7 +4290,7 @@ class PagePainter {
     final paint = Paint()
       ..color = style.textEmphasisColor ?? textColor ?? style.color
       ..strokeCap = StrokeCap.round;
-    final centerY = style.textEmphasisPosition == CssTextEmphasisPosition.over
+    final centerY = style.textEmphasisPosition.isOver
         ? baselineY - style.fontSize * 1.3
         : baselineY + style.fontSize * 0.44;
     for (var i = 0; i < lineText.length; i++) {

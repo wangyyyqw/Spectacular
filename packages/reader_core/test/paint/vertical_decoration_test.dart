@@ -133,6 +133,26 @@ void main() {
     }
   });
 
+  test('竖排着重号：over left 改到列左侧', () async {
+    final style = _style(const {
+      'text-emphasis': 'filled dot',
+      'text-emphasis-position': 'over left',
+      'text-emphasis-color': '#ff0000',
+    });
+    final result = await _render(style, '一二');
+    final columnLeft = result.layout.lines.first.columnX ?? 0;
+    final columnWidth = result.layout.lines.first.width;
+    final dots = _pixels(result.bytes, _isRed);
+    expect(dots, isNotEmpty, reason: '应画出着重号');
+    for (final dot in dots) {
+      expect(
+        dot.x,
+        lessThan(columnLeft + columnWidth * 0.4),
+        reason: 'left 应把着重号放到列左缘',
+      );
+    }
+  });
+
   test('竖排下划线：沿列方向的纵线（x 固定、y 跨多字）', () async {
     final style = _style(const {
       'text-decoration': 'underline',

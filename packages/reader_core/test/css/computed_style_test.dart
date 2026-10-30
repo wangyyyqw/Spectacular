@@ -2136,6 +2136,21 @@ void main() {
     expect(deco.textEmphasisStyle, CssTextEmphasisStyle.dot);
     expect(deco.textEmphasisPosition, CssTextEmphasisPosition.under);
     expect(deco.textEmphasisColor, const Color(0xFFFF0000));
+    expect(
+      style(
+        'p',
+        'p { text-emphasis-position: under left; }',
+      ).textEmphasisPosition,
+      CssTextEmphasisPosition.underLeft,
+    );
+    expect(
+      style(
+        'p',
+        'p { text-emphasis-position: left; }',
+      ).textEmphasisPosition,
+      CssTextEmphasisPosition.overLeft,
+      reason: '只声明竖排侧时横排默认 over',
+    );
 
     final through = style('p', 'p { text-decoration: line-through; }');
     expect(through.textDecoration, CssTextDecoration.lineThrough);
