@@ -1897,7 +1897,12 @@ class EpubChapterSource
     final replacements = <PageContainer, PageContainer>{};
     PageContainer sliced(PageContainer box) => replacements.putIfAbsent(
       box,
-      () => PageContainer(style: box.style, left: box.left, width: box.width),
+      () => PageContainer(
+        style: box.style,
+        left: box.left,
+        width: box.width,
+        isPageRoot: box.isPageRoot,
+      ),
     );
     return [
       for (final block in blocks)
@@ -6156,6 +6161,7 @@ class EpubChapterSource
               model.resolveContentWidth(availableWidth),
             ),
             cloneDecoration: _clonesContainerDecoration(selfStyle),
+            isPageRoot: identical(node, document.root),
           );
           retainedContainers[selfView] = retained;
           if (!isFlexRow &&

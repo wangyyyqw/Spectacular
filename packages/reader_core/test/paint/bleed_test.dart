@@ -72,6 +72,49 @@ Color _pixel(ByteData bytes, int x, int y, [Size size = _pageSize]) {
   );
 }
 
+PageContainerFragment _containerFragment({bool root = false}) =>
+    PageContainerFragment(
+      container: PageContainer(
+        style: ComputedStyle({'overflow': 'hidden'}),
+        left: 0,
+        width: 176,
+        isPageRoot: root,
+      ),
+      startsHere: true,
+      endsHere: true,
+    );
+
+PageContent _containerPage({
+  required bool root,
+  bool bleed = true,
+  bool nestedClip = false,
+}) {
+  final block = PageBlock(
+    layout: TextLayoutResult(
+      text: '',
+      lines: const [
+        LineBox(start: 0, end: 0, top: 0, height: 40, baseline: 40, width: 176),
+      ],
+      width: 176,
+      height: 40,
+      maxWidth: 176,
+      runs: const [],
+    ),
+    style: ComputedStyle({'background-color': '#ff0000'}),
+    bleedLeft: bleed,
+    bleedRight: bleed,
+    bleedTop: bleed,
+    containers: [
+      _containerFragment(root: root),
+      if (nestedClip) _containerFragment(),
+    ],
+  );
+  return Paginator(
+    pageHeight: 84,
+    pageWidth: 176,
+  ).measureChapter(blocks: [block]).pages.single;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -134,4 +177,38 @@ void main() {
       reason: '块应从内缩处开始着色',
     );
   });
+
+  test('根容器 overflow 裁到整页，不截掉左上右出血', () async {
+    final data = await _render(
+      _containerPage(root: true),
+      pageInsets: const EdgeInsets.fromLTRB(12, 16, 12, 20),
+    );
+    expect(_pixel(data, 0, 0), const Color(0xFFFF0000));
+    expect(_pixel(data, 199, 0), const Color(0xFFFF0000));
+    expect(_pixel(data, 100, 119), _pageColor, reason: '未声明下出血');
+  });
+
+  test('根容器中的非出血块仍保留正文内缩', () async {
+    final data = await _render(
+      _containerPage(root: true, bleed: false),
+      pageInsets: const EdgeInsets.fromLTRB(12, 16, 12, 20),
+    );
+    expect(_pixel(data, 0, 20), _pageColor);
+    expect(_pixel(data, 199, 20), _pageColor);
+    expect(_pixel(data, 100, 0), _pageColor);
+    expect(_pixel(data, 100, 20), const Color(0xFFFF0000));
+  });
+
+  for (final root in [false, true]) {
+    test('普通容器的 overflow 裁剪仍生效（外层根容器：$root）', () async {
+      final data = await _render(
+        _containerPage(root: root, nestedClip: root),
+        pageInsets: const EdgeInsets.fromLTRB(12, 16, 12, 20),
+      );
+      expect(_pixel(data, 0, 20), _pageColor);
+      expect(_pixel(data, 199, 20), _pageColor);
+      expect(_pixel(data, 100, 0), _pageColor);
+      expect(_pixel(data, 100, 20), const Color(0xFFFF0000));
+    });
+  }
 }
