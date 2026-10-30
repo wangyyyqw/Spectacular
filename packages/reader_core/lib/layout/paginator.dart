@@ -18,6 +18,7 @@ class InlineImageSpec {
     required this.url,
     this.width,
     this.height,
+    this.aspectRatio,
   });
 
   /// 占位符在块文本中的下标（UTF-16）。
@@ -31,6 +32,9 @@ class InlineImageSpec {
 
   /// 书籍 CSS 声明的显示高（逻辑像素）。
   final double? height;
+
+  /// 书籍 CSS 声明的首选宽高比；null 表示沿用图片原始比例。
+  final double? aspectRatio;
 }
 
 /// 分页前保留的容器盒；后代共享实例，以便每页按嵌套顺序绘制。
@@ -1021,6 +1025,7 @@ class Paginator {
                   url: image.url,
                   width: image.width,
                   height: image.height,
+                  aspectRatio: image.aspectRatio,
                 ),
           ],
     // 第 2 列起脱离正常流，绘制在首列右侧（overlay 切片）。

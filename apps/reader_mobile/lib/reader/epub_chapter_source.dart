@@ -1620,6 +1620,7 @@ class EpubChapterSource
     double maxHeight, {
     double? cssWidth,
     double? cssHeight,
+    double? aspectRatio,
   }) {
     double? parseLength(String? raw, double percentBase) {
       if (raw == null) {
@@ -1648,18 +1649,26 @@ class EpubChapterSource
       height = maxHeight;
     }
     if (width == null && height == null) {
-      if (intrinsic == null) {
+      if (intrinsic == null && aspectRatio == null) {
         return (maxWidth, maxHeight * 0.6);
       }
       width = maxWidth;
     }
-    if (width != null && height == null && intrinsic != null) {
-      height = width * intrinsic.height / intrinsic.width;
-    } else if (height != null && width == null && intrinsic != null) {
-      width = height * intrinsic.width / intrinsic.height;
+    if (width != null && height == null) {
+      if (aspectRatio != null) {
+        height = width / aspectRatio;
+      } else if (intrinsic != null) {
+        height = width * intrinsic.height / intrinsic.width;
+      }
+    } else if (height != null && width == null) {
+      if (aspectRatio != null) {
+        width = height * aspectRatio;
+      } else if (intrinsic != null) {
+        width = height * intrinsic.width / intrinsic.height;
+      }
     }
     width ??= maxWidth;
-    height ??= width * 0.75;
+    height ??= aspectRatio == null ? width * 0.75 : width / aspectRatio;
     if (height > maxHeight) {
       height = maxHeight;
     }
@@ -3376,6 +3385,7 @@ class EpubChapterSource
           contentHeight,
           cssWidth: imageStyle.width?.resolve(contentWidth),
           cssHeight: imageStyle.height?.resolve(contentHeight),
+          aspectRatio: imageStyle.aspectRatio,
         );
         final objectFit = objectFitBackground(
           <SelectorElement>[
@@ -3753,6 +3763,7 @@ class EpubChapterSource
         contentHeight,
         cssWidth: imageStyle.width?.resolve(bleedWidth),
         cssHeight: imageStyle.height?.resolve(contentHeight),
+        aspectRatio: imageStyle.aspectRatio,
       );
       // 容器级浮动（W12）：`.avatar` 这类浮动挂在图片外面的容器/行内
       // 元素上，图片自身没有 float 属性，这里用容器浮动兜底。纯图块被
@@ -3808,6 +3819,9 @@ class EpubChapterSource
         // 图片块替换了原 img 盒，必须沿用 img 的盒模型与边距；否则图片
         // 与题注间距、图片之间的累计位置都会和浏览器偏离。
         ...imageStyle.values,
+        // height 单独声明时 style 没有 width，边框盒会按整页宽绘制背景；
+        // 写入解算后的 used width，让背景、边框与图片占位宽一致。
+        'width': '${size.$1}px',
         'background-image': 'url($url)',
         'background-size': objectFit.size,
         // 出血图（多看 `duokan-bleed`）：块盒被撑到页面边缘后，`contain`
@@ -5058,6 +5072,7 @@ class EpubChapterSource
                 url: url,
                 width: imageStyle.width?.resolve(contentWidth),
                 height: imageStyle.height?.resolve(contentWidth),
+                aspectRatio: imageStyle.aspectRatio,
               ),
             );
           }

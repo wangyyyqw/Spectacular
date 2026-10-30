@@ -112,4 +112,21 @@ void main() {
     );
     expect(_redPixels(data), 0);
   });
+
+  test('行内宽高比约束绘制高度', () async {
+    final image = await _redImage();
+    final data = await _render(
+      block: _blockWithInlineImage(
+        images: const <InlineImageSpec>[
+          InlineImageSpec(
+            offset: 1,
+            url: 'OEBPS/Images/icon.png',
+            aspectRatio: 2,
+          ),
+        ],
+      ),
+      imageLookup: (url) => image,
+    );
+    expect(_redPixels(data), 512, reason: '32px 宽按 2:1 应画成 32×16');
+  });
 }

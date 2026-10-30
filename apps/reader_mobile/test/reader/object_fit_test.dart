@@ -15,7 +15,7 @@ void main() {
     'gYGJgYHhPxMDAwMTAwMDA8N/BgYGAAAvBAH/8vJ4WQAAAABJRU5ErkJggg==',
   );
 
-  Future<Map<String, String>> styleOf(String css) async {
+  Future<(Map<String, String>, double)> imageBoxOf(String css) async {
     final source = await EpubChapterSource.open(
       buildCssChapterBook(
         // 附一段正文：避免单图章走「整页满屏」路径（那条路径固定 cover）。
@@ -32,12 +32,16 @@ void main() {
       for (final slice in page.slices) {
         final block = slice.block;
         if (block.style?.backgroundImage != null) {
-          return block.style!.values;
+          return (block.style!.values, block.layout.height);
         }
       }
     }
     fail('没有生成图片块');
   }
+
+  Future<Map<String, String>> styleOf(String css) async =>
+      (await imageBoxOf(css)).$1;
+  double cssPx(String? raw) => double.parse(raw!.replaceFirst('px', ''));
 
   test('object-fit: cover → background-size cover', () async {
     final values = await styleOf(
@@ -81,5 +85,31 @@ void main() {
     );
     expect(values['margin-top'], '6px');
     expect(values['margin-bottom'], '2px');
+  });
+
+  test('aspect-ratio：宽度定高、高度定宽，双显式尺寸不被覆盖', () async {
+    final byWidth = await imageBoxOf(
+      'img { width: 120px; aspect-ratio: 3/1; }',
+    );
+    expect(cssPx(byWidth.$1['width']), 120);
+    expect(byWidth.$2, 40);
+
+    final byHeight = await imageBoxOf(
+      'img { height: 40px; aspect-ratio: 4/1; }',
+    );
+    expect(cssPx(byHeight.$1['width']), 160);
+    expect(byHeight.$2, 40);
+
+    final explicit = await imageBoxOf(
+      'img { width: 96px; height: 48px; aspect-ratio: 5/1; }',
+    );
+    expect(cssPx(explicit.$1['width']), 96);
+    expect(explicit.$2, 48);
+  });
+
+  test('仅声明高度时，背景与边框收在图片比例宽度内', () async {
+    final byHeight = await imageBoxOf('img { height: 40px; }');
+    expect(cssPx(byHeight.$1['width']), 80, reason: '4:2 原图按高度推宽');
+    expect(byHeight.$2, 40);
   });
 }

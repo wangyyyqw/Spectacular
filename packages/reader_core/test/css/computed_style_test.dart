@@ -326,6 +326,20 @@ void main() {
     expect(initial.emptyCells, CssEmptyCells.show);
   });
 
+  test('aspect-ratio 解析、auto 回退与非法值', () {
+    final ratio = style('p', 'p { aspect-ratio: 16 / 9; }');
+    expect(ratio.aspectRatio, closeTo(16 / 9, 0.0001));
+
+    final single = style('p', 'p { aspect-ratio: 2; }');
+    expect(single.aspectRatio, 2);
+
+    final autoRatio = style('p', 'p { aspect-ratio: auto 4 / 3; }');
+    expect(autoRatio.aspectRatio, closeTo(4 / 3, 0.0001));
+
+    final invalid = style('p', 'p { aspect-ratio: 3 / 0; }');
+    expect(invalid.aspectRatio, isNull);
+  });
+
   test('font-family 列表、fallback 链与继承', () {
     final parsed = style('p', 'p { font-family: "Book Serif", Ahem, serif; }');
     expect(parsed.fontFamilies, <String>['Book Serif', 'Ahem', 'serif']);
