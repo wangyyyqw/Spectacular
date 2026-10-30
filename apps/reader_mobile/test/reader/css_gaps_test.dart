@@ -312,6 +312,32 @@ void main() {
     expect(block.style!.listStyleImage, 'OEBPS/Images/i.png');
     expect(block.listMarker, isEmpty, reason: 'list-style-type 不提供回退文字');
   });
+
+  test('flex-wrap: wrap 按可用宽分组并累计多行高度', () async {
+    final source = await open(
+      body:
+          '<div class="wrap">'
+          '<div class="item">甲</div><div class="item">乙</div>'
+          '<div class="item">丙</div><div class="item">丁</div>'
+          '<div class="item">戊</div></div>',
+      css:
+          '.wrap { display: flex; flex-wrap: wrap; width: 240px; '
+          'column-gap: 12px; } '
+          '.item { width: 110px; height: 40px; }',
+      overrides: const ReaderOverrides(),
+    );
+    final pages = await source.loadChapter(0);
+    final spec = pages
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.table?.flex ?? false)
+        .table!;
+
+    expect(spec.cells.map((cell) => cell.row), <int>[0, 0, 1, 1, 2]);
+    expect(spec.rowYs, hasLength(4));
+    expect(spec.cells[2].rect.top, greaterThanOrEqualTo(spec.cells[0].rect.top));
+    expect(spec.cells[4].rect.top, greaterThan(spec.cells[2].rect.top));
+  });
 }
 
 Uint8List _book({

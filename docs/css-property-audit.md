@@ -118,7 +118,7 @@
 | vertical-align | 319 | 7 | 部分（竖排/行内复杂对齐） |
 | background-size / position / repeat | 310 / 268 / 251 | 5 | 完整 |
 | border-width / border-style | 305 / 280 | 5 | 部分（四值降级 solid） |
-| display | 221 | 5 | 部分（单行 `flex` 已接通；`grid`、多行与伸缩算法未实现） |
+| display | 221 | 5 | 部分（`flex` 单行/换行已接通；`grid` 与伸缩算法未实现） |
 | background-attachment | 218 | 3 | 等价降级（分页器里 `fixed` 底纹 = 每页页背景，与引擎 body 背景每页重绘等价；`scroll/local` 同 `fixed`） |
 | background-image | 198 | 5 | 部分（单图层 + 渐变；无多背景） |
 | list-style-type | 182 | 5 | 部分（无 `counter()`） |
@@ -206,7 +206,7 @@
 | 36 | `background-origin` | cs:1571 | pr:2033 | 完整 | — |
 | 37 | `background-clip` | cs:1574 | pr:2020 | 部分 | `text` 降级 `padding-box`（pr:2018 注释） |
 | 38 | `background`（简写） | `_parseBackgroundShorthand` cs:4369 | pr:1821-1823 | 部分 | 不含 `attachment`、不含多背景 |
-| 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | ecs:1488 起（单行 Flex）；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 接通单行主轴/交叉轴对齐，`grid`、换行与 grow/shrink 未实现 |
+| 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | ecs:1488 起（行/换行 Flex）；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 接通主轴/交叉轴对齐与 `flex-wrap: wrap/wrap-reverse`，`grid`、grow/shrink 与 `align-content` 未实现 |
 | 40 | `position` | cs:1414（`_parsePosition` cs:4631） | bf:522；ecs:3723 | 部分 | `absolute/fixed` 完整 ★、`relative` 完整 ★；`sticky` 无效果 |
 | 41 | `top` | cs:1620（`_parseOffset` cs:5034） | pg:849 | 完整 ★ | `inset` 简写未解析 |
 | 42 | `right` | cs:1627 | pg:848 | 完整 ★ | — |
@@ -406,7 +406,7 @@ parity 用例仍为 `engine_only`。
 | 12 | `background-attachment` | ~~P2~~ 已完成 | 218 次 / 3 本；分页介质下 `fixed` 等价为每页页背景，已由 `82` 用例对照验收 | — | — |
 | 13 | `border-radius` 椭圆（`a / b`）与百分比 | ~~P1~~ 已完成 | 解析横向/纵向双半径；百分比横向按盒宽、纵向按盒高，绘制为四角椭圆 | — | — |
 | 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
-| 15 | `display: flex` + `justify-content`/`align-items` | ~~P2~~ 已完成（单行） | 221/5 + 14/4 + 13/3；语料集中在头像/封面的单行居中 | — | `epub_chapter_source.dart`（单行 Flex 行块）+ `computed_style.dart` |
+| 15 | `display: flex` + `justify-content`/`align-items`/`flex-wrap` | ~~P2~~ 已完成（单行/换行） | 221/5 + 14/4 + 13/3；语料集中在头像/封面的单行居中 | — | `epub_chapter_source.dart`（Flex 行块）+ `computed_style.dart` |
 | 16 | `initial-letter` 完整多行绕排 | ~~P2~~ 已完成 | 首字浮动占 n 行，正文前 n 行绕排；两值下沉深度和自动字号保留近似 | — | — |
 | 17 | `font-size-adjust` 字号补偿 | ~~P2~~ 已完成 | `TextLayoutEngine.textStyleFor` 按字体 x-height 比例补偿字号；内置宋体和书籍字体注册真实度量 | — | — |
 | 18 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |

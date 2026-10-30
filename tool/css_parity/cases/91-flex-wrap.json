@@ -1,0 +1,9 @@
+{
+  "name": "91-flex-wrap",
+  "tags": [
+    "display",
+    "flex-wrap"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 15px; } .wrap { display: flex; flex-wrap: wrap; column-gap: 12px; width: 300px; margin: 10px; padding: 8px; border: 1px solid #557887; } .item { width: 128px; padding: 8px; box-sizing: border-box; border: 1px solid #b06a44; background: #f6eee6; } .short { height: 45px; } .tall { height: 68px; }",
+  "html": "<div class=\"wrap\"><div class=\"item short\">甲</div><div class=\"item tall\">乙</div><div class=\"item tall\">丙</div><div class=\"item short\">丁</div><div class=\"item short\">戊</div></div>"
+}

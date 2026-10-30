@@ -81,6 +81,9 @@ enum CssDisplay {
 /// Flex 主轴方向（CSS Flexbox §5.1）。
 enum CssFlexDirection { row, rowReverse, column, columnReverse }
 
+/// Flex 换行方式（CSS Flexbox §5.2 `flex-wrap`）。
+enum CssFlexWrap { nowrap, wrap, wrapReverse }
+
 /// Flex 主轴对齐（CSS Flexbox §8.2）。
 enum CssJustifyContent {
   flexStart,
@@ -2896,6 +2899,16 @@ class ComputedStyle {
       'column' => CssFlexDirection.column,
       'column-reverse' => CssFlexDirection.columnReverse,
       _ => CssFlexDirection.row,
+    };
+  }
+
+  /// Flex 是否换行；非法值按初始 `nowrap`。
+  CssFlexWrap get flexWrap {
+    final value = values['flex-wrap']?.trim().toLowerCase();
+    return switch (value) {
+      'wrap' => CssFlexWrap.wrap,
+      'wrap-reverse' => CssFlexWrap.wrapReverse,
+      _ => CssFlexWrap.nowrap,
     };
   }
 

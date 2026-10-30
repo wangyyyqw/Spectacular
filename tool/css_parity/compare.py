@@ -573,32 +573,17 @@ def compare_table_cells(browser, engine_blocks):
     return problems
 
 
-def _union_rect(rects):
-    left = min(rect['x'] for rect in rects)
-    top = min(rect['y'] for rect in rects)
-    right = max(rect['x'] + rect['w'] for rect in rects)
-    bottom = max(rect['y'] + rect['h'] for rect in rects)
-    return {'x': left, 'y': top, 'w': right - left, 'h': bottom - top}
-
-
 def flex_items(block):
-    """把同一条 Flex 行的多个单元格合成一个子项边框盒。"""
-    grouped = {}
-    for cell in block.get('cells') or []:
-        grouped.setdefault(cell['row'], []).append(cell)
+    """按文档顺序返回 Flex 的每个直接子项。"""
     return [
         {
-            'row': row,
-            'rect': _union_rect([cell['rect'] for cell in cells]),
-            'text': ''.join(str(cell.get('text', '')) for cell in cells),
-            'lines': [
-                line
-                for cell in cells
-                for line in (cell.get('lines') or [])
-            ],
-            'style': cells[0].get('style') or {},
+            'row': index,
+            'rect': cell['rect'],
+            'text': str(cell.get('text', '')),
+            'lines': cell.get('lines') or [],
+            'style': cell.get('style') or {},
         }
-        for row, cells in grouped.items()
+        for index, cell in enumerate(block.get('cells') or [])
     ]
 
 
