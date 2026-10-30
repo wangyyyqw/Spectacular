@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 91 组用例（编号 01–94，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
+当前 92 组用例（编号 01–95，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（91 组）
+## 用例清单（92 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -131,8 +131,9 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 92 | flex-align-content | 多行 Flex 的 `align-content`、`row-gap` 与 `gap` 简写 |
 | 93 | vertical-overflow | 竖排 `text-overflow: ellipsis`、`break-word` 按声明高度（列长）截断/分列 |
 | 94 | flex-grow-shrink-basis | 单行 Flex 的 `flex-grow`、`flex-shrink`、`flex-basis` 与 `flex` 简写 |
+| 95 | font-feature-settings | OpenType 特性开关、显式覆盖与 `normal` 重置 |
 
-浏览器渲染：91/91 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：92/92 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
 属性，或 Range/分页口径无法直接对照；`compare.py` 只记录引擎几何与期望值，
 不计失配，也不把截图纳入自动视觉判定。
@@ -142,7 +143,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 91 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 92 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
@@ -217,8 +218,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 ### 样式与属性维度
 
 - 样式比对项：font-size、line-height、letter-spacing、word-spacing、text-indent、
-  font-weight、text-align、white-space、text-transform、box-sizing、vertical-align、
-  flex-grow、flex-shrink、flex-basis。
+  font-weight、font-stretch、font-feature-settings、text-align、white-space、
+  text-transform、box-sizing、vertical-align、flex-grow、flex-shrink、flex-basis。
   浏览器 computed 为 `normal` 的 line-height、以及保留百分比的值（如 `text-indent:10%`）
   跳过数值比对，由几何反映；枚举值按 kebab-case 归一后比较。
 - 行内 run：多 run 块导出每段文本的字重/斜体/字号，`compare.py` 按 run 文本到

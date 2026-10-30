@@ -310,6 +310,7 @@ const collectScript = `(() => {
         fontWeight: cs.fontWeight,
         fontStyle: cs.fontStyle,
         fontStretch: cs.fontStretch,
+        fontFeatureSettings: cs.fontFeatureSettings,
         display: cs.display,
         verticalAlign: cs.verticalAlign,
         listStyleType: cs.listStyleType,

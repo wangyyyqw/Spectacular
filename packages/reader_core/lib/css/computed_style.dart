@@ -790,6 +790,30 @@ enum CssFontKerning {
   none,
 }
 
+/// 一条 `font-feature-settings` 的 OpenType 特性设置。
+class CssFontFeatureSetting {
+  /// 创建特性设置。
+  const CssFontFeatureSetting(this.tag, this.value);
+
+  /// 四字符 OpenType 特性标签。
+  final String tag;
+
+  /// 特性值；0 关闭，1 开启，其它整数值交由字体处理。
+  final int value;
+
+  /// 规范化为 Chrome computed style 的常见写法。
+  String get cssValue => value == 1 ? '"$tag"' : '"$tag" $value';
+
+  @override
+  bool operator ==(Object other) =>
+      other is CssFontFeatureSetting &&
+      other.tag == tag &&
+      other.value == value;
+
+  @override
+  int get hashCode => Object.hash(tag, value);
+}
+
 /// 一对引号（CSS `quotes` 的 `<string> <string>`）。
 class CssQuotePair {
   /// 创建一对引号。
@@ -2015,6 +2039,12 @@ class ComputedStyle {
         : _parseFontKerning(rawFontKerning) ??
               parent?.fontKerning ??
               CssFontKerning.auto;
+    final rawFeatureSettings = explicitValue('font-feature-settings');
+    final fontFeatureSettings = rawFeatureSettings == null
+        ? (parent?.fontFeatureSettings ?? const <CssFontFeatureSetting>[])
+        : _parseFontFeatureSettings(rawFeatureSettings) ??
+              parent?.fontFeatureSettings ??
+              const <CssFontFeatureSetting>[];
 
     // font-stretch（继承，初始 100%）：关键字/百分比统一折成百分比数值。
     final rawFontStretch = explicitValue('font-stretch');
@@ -2479,6 +2509,7 @@ class ComputedStyle {
       fontVariantCaps: fontVariantCaps,
       fontVariantLigatures: fontVariantLigatures,
       fontKerning: fontKerning,
+      fontFeatureSettings: fontFeatureSettings,
       quotes: quotes,
       fontStretch: fontStretch,
       fontSizeAdjust: fontSizeAdjust,
@@ -2633,6 +2664,7 @@ class ComputedStyle {
       fontVariantCaps: fontVariantCaps,
       fontVariantLigatures: fontVariantLigatures,
       fontKerning: fontKerning,
+      fontFeatureSettings: fontFeatureSettings,
       quotes: quotes,
       fontStretch: fontStretch,
       fontSizeAdjust: fontSizeAdjust,
@@ -2760,6 +2792,7 @@ class ComputedStyle {
     required this.fontVariantCaps,
     required this.fontVariantLigatures,
     required this.fontKerning,
+    required this.fontFeatureSettings,
     required this.quotes,
     required this.fontStretch,
     required this.fontSizeAdjust,
@@ -3122,6 +3155,17 @@ class ComputedStyle {
   /// 字偶距策略（继承，初始 [CssFontKerning.auto]）。
   final CssFontKerning fontKerning;
 
+  /// 显式 OpenType 特性（继承，初始空列表）。
+  ///
+  /// 它最后追加到 `font-variant-*` 与 `font-kerning` 生成的特性的后面，
+  /// 因此作者显式设置的同一标签优先。
+  final List<CssFontFeatureSetting> fontFeatureSettings;
+
+  /// 规范化为 CSS computed style 的字符串表示。
+  String get fontFeatureSettingsValue => fontFeatureSettings.isEmpty
+      ? 'normal'
+      : fontFeatureSettings.map((setting) => setting.cssValue).join(', ');
+
   /// 引号规则（继承，初始 [CssQuotesAuto]）。
   ///
   /// 消费点在行内文本生成阶段：`<q>` 开/闭引号按嵌套层级取用。
@@ -3409,7 +3453,8 @@ class ComputedStyle {
       'wsp=${whiteSpace.name};fw=$fontWeight;it=$italic;'
       'ff=${fontFamilies.join(",")};'
       'vc=${fontVariantCaps.name};vl=${fontVariantLigatures.name};'
-      'fk=${fontKerning.name};fst=$fontStretch;fsa=${fontSizeAdjust ?? 0};'
+      'fk=${fontKerning.name};ffs=$fontFeatureSettingsValue;'
+      'fst=$fontStretch;fsa=${fontSizeAdjust ?? 0};'
       'disp=${display.name};vis=${visibility.name};'
       // P7-18~21 新增排版输入（影响缓存内的 justifyExtra/行宽）：缺失
       // 会撞键（P7-29 检查清单第 1 条的修正项）。
@@ -5422,6 +5467,107 @@ class ComputedStyle {
       'none' => CssFontKerning.none,
       _ => null,
     };
+  }
+
+  /// `font-feature-settings`：`normal` 或逗号分隔的四字符特性标签。
+  static List<CssFontFeatureSetting>? _parseFontFeatureSettings(String raw) {
+    final value = raw.trim();
+    if (value.toLowerCase() == 'normal') {
+      return const <CssFontFeatureSetting>[];
+    }
+    if (value.isEmpty) {
+      return null;
+    }
+
+    final groups = _splitCssList(value);
+    if (groups.isEmpty) {
+      return null;
+    }
+    // Chrome 的计算值按标签排序；同名标签后声明值覆盖前值。
+    final settings = <String, CssFontFeatureSetting>{};
+    for (final group in groups) {
+      final setting = _parseFontFeatureSetting(group);
+      if (setting == null) {
+        return null;
+      }
+      settings[setting.tag] = setting;
+    }
+    return settings.values.toList()
+      ..sort((left, right) => left.tag.compareTo(right.tag));
+  }
+
+  static CssFontFeatureSetting? _parseFontFeatureSetting(String raw) {
+    final value = raw.trim();
+    if (value.length < 2 || (value[0] != '"' && value[0] != "'")) {
+      return null;
+    }
+    final quote = value[0];
+    final close = value.indexOf(quote, 1);
+    if (close < 0) {
+      return null;
+    }
+    final tag = value.substring(1, close);
+    if (tag.length != 4 ||
+        tag.codeUnits.any((unit) => unit < 0x20 || unit > 0x7e)) {
+      return null;
+    }
+    final rest = value.substring(close + 1).trim();
+    if (rest.isEmpty) {
+      return CssFontFeatureSetting(tag, 1);
+    }
+    final lower = rest.toLowerCase();
+    if (lower == 'on') {
+      return CssFontFeatureSetting(tag, 1);
+    }
+    if (lower == 'off') {
+      return CssFontFeatureSetting(tag, 0);
+    }
+    final number = int.tryParse(rest);
+    return number == null ? null : CssFontFeatureSetting(tag, number);
+  }
+
+  /// 按顶层逗号拆分 CSS 列表，忽略引号内的逗号。
+  static List<String> _splitCssList(String raw) {
+    final parts = <String>[];
+    final buffer = StringBuffer();
+    String? quote;
+    var escaped = false;
+    for (final codeUnit in raw.codeUnits) {
+      final char = String.fromCharCode(codeUnit);
+      if (escaped) {
+        buffer.write(char);
+        escaped = false;
+        continue;
+      }
+      if (quote != null && char == '\\') {
+        buffer.write(char);
+        escaped = true;
+        continue;
+      }
+      if (quote != null) {
+        buffer.write(char);
+        if (char == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        quote = char;
+        buffer.write(char);
+        continue;
+      }
+      if (char == ',') {
+        parts.add(buffer.toString());
+        buffer.clear();
+        continue;
+      }
+      buffer.write(char);
+    }
+    if (quote != null) {
+      return const <String>[];
+    }
+    parts.add(buffer.toString());
+    return parts;
   }
 
   /// `font-stretch`：关键字或百分比 → 百分比数值（50–200），非法返回 null。
