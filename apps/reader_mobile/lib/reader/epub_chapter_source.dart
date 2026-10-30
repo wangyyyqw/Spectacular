@@ -983,6 +983,7 @@ class EpubChapterSource
     'background',
     'border-image',
     'border-image-source',
+    'content',
     'list-style-image',
     'list-style',
   };
@@ -1128,9 +1129,9 @@ class EpubChapterSource
   }
 
   /// `content` 值求值（W20）：字符串字面量、attr()、counter()/counters()、
-  /// open-quote/close-quote 可任意拼接（CSS 2.1 §12.2）。counter 的值由
-  /// 调用方按扁平计数器状态格式化后回调传入。
-  static String _evaluateContentValue(
+  /// open-quote/close-quote、url() 可任意拼接（CSS 2.1 §12.2）。
+  /// url() 生成 U+FFFC 占位符，并记录图片在图中的位置。
+  static _PseudoContent _evaluateContentValue(
     String raw, {
     required List<SelectorElement> ancestors,
     required CssQuotes quotes,
@@ -1151,6 +1152,7 @@ class EpubChapterSource
     }
 
     final out = StringBuffer();
+    final images = <_PseudoContentImage>[];
     var i = 0;
     while (i < raw.length) {
       final ch = raw[i];
@@ -1184,6 +1186,7 @@ class EpubChapterSource
       if (token.isEmpty) {
         continue;
       }
+      final lowerToken = token.toLowerCase();
       if (token == 'open-quote') {
         out.write(pairAt(quoteDepth).$1);
       } else if (token == 'close-quote') {
@@ -1211,9 +1214,24 @@ class EpubChapterSource
         out.write(
           counterValue(args.first, args.length > 2 ? args[2] : 'decimal'),
         );
+      } else if (lowerToken.startsWith('url(') && token.endsWith(')')) {
+        var url = token.substring(4, token.length - 1).trim();
+        if (url.length >= 2 &&
+            ((url.startsWith('"') && url.endsWith('"')) ||
+                (url.startsWith("'") && url.endsWith("'")))) {
+          url = url.substring(1, url.length - 1).trim();
+        }
+        if (url.isEmpty || url.toLowerCase() == 'none') {
+          continue;
+        }
+        out.write('\uFFFC');
+        images.add(_PseudoContentImage(offset: out.length - 1, url: url));
       }
     }
-    return out.toString();
+    return _PseudoContent(
+      text: out.toString(),
+      images: List<_PseudoContentImage>.unmodifiable(images),
+    );
   }
 
   /// `counter(name, upper-alpha)` 之类的字母计数（1 起）。
@@ -2819,8 +2837,19 @@ class EpubChapterSource
       };
     }
 
-    /// 生成内容求值：字符串 / attr() / counter() / open-quote 等可拼接。
-    String? pseudoContentOf(
+    String resolveContentImageUrl(String raw) {
+      final lower = raw.toLowerCase();
+      if (raw.isEmpty ||
+          lower.startsWith('data:') ||
+          lower.startsWith('http://') ||
+          lower.startsWith('https://')) {
+        return raw;
+      }
+      return this.document.resources.resolve(raw, baseDir: chapterBase) ?? raw;
+    }
+
+    /// 生成内容求值：字符串 / attr() / counter() / open-quote / url() 可拼接。
+    _PseudoContent? pseudoContentOf(
       List<SelectorElement> ancestors,
       String pseudo, {
       required CssQuotes quotes,
@@ -2844,13 +2873,23 @@ class EpubChapterSource
           if (entry.key == 'counter-reset' || entry.key == 'counter-increment')
             entry.key: entry.value.value,
       });
-      return _evaluateContentValue(
+      final evaluated = _evaluateContentValue(
         value,
         ancestors: ancestors,
         quotes: quotes,
         quoteDepth: quoteDepth,
         counterValue: (name, style) =>
             formatCounter(cssCounters[name] ?? 0, style),
+      );
+      return _PseudoContent(
+        text: evaluated.text,
+        images: [
+          for (final image in evaluated.images)
+            _PseudoContentImage(
+              offset: image.offset,
+              url: resolveContentImageUrl(image.url),
+            ),
+        ],
       );
     }
 
@@ -4734,13 +4773,13 @@ class EpubChapterSource
         final qLevel = tag == 'q' && qNesting > 0 ? qNesting - 1 : qNesting;
         // 伪元素生成内容（P8-09/W20）：::before/::after 的 content——
         // 字符串、attr()、counter()/counters()、open-quote/close-quote 可拼接。
-        final before = pseudoContentOf(
+        final beforeContent = pseudoContentOf(
           ancestors,
           '::before',
           quotes: blockStyle.quotes,
           quoteDepth: qLevel,
         );
-        final after = pseudoContentOf(
+        final afterContent = pseudoContentOf(
           ancestors,
           '::after',
           quotes: blockStyle.quotes,
@@ -4834,8 +4873,12 @@ class EpubChapterSource
         var paragraphRubies = textNode is TextContentNode
             ? textNode.rubies
             : const <RubyMark>[];
-        final pseudoPrefix = textNode is TextContentNode ? before ?? '' : '';
-        final pseudoSuffix = textNode is TextContentNode ? after ?? '' : '';
+        final pseudoPrefix = textNode is TextContentNode
+            ? beforeContent?.text ?? ''
+            : '';
+        final pseudoSuffix = textNode is TextContentNode
+            ? afterContent?.text ?? ''
+            : '';
         // `<q>` 是聚合后的行内标记，不能只按块标签补引号；把每个 q 的
         // 开闭引号插回文本，同时重映射样式区间、注音与行内图片偏移。
         final quoteMarks = <InlineMark>[
@@ -4985,6 +5028,29 @@ class EpubChapterSource
           ];
         }
         paragraphText = '$pseudoPrefix$paragraphText$pseudoSuffix';
+        final paragraphWithoutPseudoLength =
+            paragraphText.length - pseudoPrefix.length - pseudoSuffix.length;
+        var pseudoImageMarks = <_PseudoImageMark>[
+          if (textNode is TextContentNode)
+            for (final image
+                in beforeContent?.images ?? const <_PseudoContentImage>[])
+              _PseudoImageMark(
+                offset: image.offset,
+                url: image.url,
+                pseudo: '::before',
+              ),
+          if (textNode is TextContentNode)
+            for (final image
+                in afterContent?.images ?? const <_PseudoContentImage>[])
+              _PseudoImageMark(
+                offset:
+                    pseudoPrefix.length +
+                    paragraphWithoutPseudoLength +
+                    image.offset,
+                url: image.url,
+                pseudo: '::after',
+              ),
+        ];
         final inlineContext = (
           ancestors: ancestors,
           style: blockStyle,
@@ -5014,6 +5080,15 @@ class EpubChapterSource
             }
             paragraphText = extracted.text;
             paragraphMarks = extracted.marks;
+            pseudoImageMarks = <_PseudoImageMark>[
+              for (final image in pseudoImageMarks)
+                if (!extracted.removed(image.offset))
+                  _PseudoImageMark(
+                    offset: extracted.remapOffset(image.offset),
+                    url: image.url,
+                    pseudo: image.pseudo,
+                  ),
+            ];
             paragraphImages = <InlineImageMark>[
               for (final image in paragraphImages)
                 if (!extracted.removed(image.offset))
@@ -5076,6 +5151,18 @@ class EpubChapterSource
               ),
             );
           }
+        }
+        for (final mark in pseudoImageMarks) {
+          final imageStyle = pseudoStyleFor(ancestors, blockStyle, mark.pseudo);
+          inlineImages.add(
+            InlineImageSpec(
+              offset: mark.offset,
+              url: mark.url,
+              width: imageStyle.width?.resolve(contentWidth),
+              height: imageStyle.height?.resolve(contentWidth),
+              aspectRatio: imageStyle.aspectRatio,
+            ),
+          );
         }
         final firstLetter = _firstLetterRun(
           styledSheets,
@@ -5896,6 +5983,35 @@ class _QuoteInsertion {
   final String text;
   final int depth;
   final bool opening;
+}
+
+/// 生成内容的文本与图片占位位置。
+class _PseudoContent {
+  const _PseudoContent({required this.text, required this.images});
+
+  final String text;
+  final List<_PseudoContentImage> images;
+}
+
+/// 生成内容中的单张图片；[offset] 指向文本里的 U+FFFC。
+class _PseudoContentImage {
+  const _PseudoContentImage({required this.offset, required this.url});
+
+  final int offset;
+  final String url;
+}
+
+/// 伪元素图片在扩写、浮动摘除和切片后的当前块内位置。
+class _PseudoImageMark {
+  const _PseudoImageMark({
+    required this.offset,
+    required this.url,
+    required this.pseudo,
+  });
+
+  final int offset;
+  final String url;
+  final String pseudo;
 }
 
 /// 行内浮动提取结果（W17）：摘出的浮动块 + 剩余文本与偏移重映射。

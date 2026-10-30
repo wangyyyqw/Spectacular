@@ -5,7 +5,7 @@ import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
 
-/// W20 生成内容：`content` 的字符串/attr()/counter()/open-quote 组合。
+/// W20 生成内容：`content` 的字符串/attr()/counter()/open-quote/url() 组合。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -91,5 +91,37 @@ void main() {
           '.q::after { content: close-quote; }',
     );
     expect(out.any((t) => t.contains('«引用»')), isTrue, reason: '$out');
+  });
+
+  test('content: url() 生成行内图片占位并使用相对资源路径', () async {
+    final source = await EpubChapterSource.open(
+      buildCssChapterBook(
+        body: '<p class="t">正文</p>',
+        css:
+            '.t::before { content: "【" url("../Images/icon.png") "】"; } '
+            '.t::after { content: url("../Images/tail.png"); '
+            'width: 12px; height: 18px; }',
+        binaryFiles: const <String, List<int>>{
+          'OEBPS/Images/icon.png': <int>[137, 80, 78, 71],
+          'OEBPS/Images/tail.png': <int>[137, 80, 78, 71],
+        },
+      ),
+      verifyCrc: false,
+    );
+    final block = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((slice) => slice.block))
+        .first;
+
+    expect(block.layout.text, '【\uFFFC】正文\uFFFC');
+    expect(block.inlineImages.map((image) => image.url), <String>[
+      'OEBPS/Images/icon.png',
+      'OEBPS/Images/tail.png',
+    ]);
+    expect(block.inlineImages.map((image) => image.offset), <int>[
+      1,
+      block.layout.text.length - 1,
+    ]);
+    expect(block.inlineImages.last.width, 12);
+    expect(block.inlineImages.last.height, 18);
   });
 }
