@@ -250,20 +250,36 @@ class PagePainter {
             );
             _paintBlockBorder(canvas, geometry);
           }
-          _clipBlock(canvas, geometry, clip: false, contentClip: true, () {
-            _paintContents(
-              context,
-              group.geometries,
-              depth + 1,
-              geometry.style.effectiveOpacity,
-            );
-          });
+          _paintContainerContents(context, group, geometry, depth);
           if (!geometry.hidden) {
             _paintBlockOutline(canvas, geometry);
           }
         }),
       );
     });
+  }
+
+  void _paintContainerContents(
+    _PagePaintContext context,
+    _PaintGroup group,
+    _SliceGeometry geometry,
+    int depth,
+  ) {
+    final canvas = context.canvas;
+    canvas.save();
+    if (geometry.clipsOverflow) {
+      // 根容器承担页级裁剪；普通容器仍按 padding-box 限制后代内容。
+      canvas.clipRect(
+        group.container!.isPageRoot ? context.pageRect : geometry.paddingBox,
+      );
+    }
+    _paintContents(
+      context,
+      group.geometries,
+      depth + 1,
+      geometry.style.effectiveOpacity,
+    );
+    canvas.restore();
   }
 
   /// 真实首尾按内容收口；克隆续页封到页底，外层留白逐层扣除。

@@ -44,6 +44,7 @@ class PageContainer {
     required this.left,
     required this.width,
     this.cloneDecoration = false,
+    this.isPageRoot = false,
   });
 
   final ComputedStyle style;
@@ -52,6 +53,9 @@ class PageContainer {
 
   /// 每页片段独立保留边框与内边距；默认沿用 CSS slice 行为。
   final bool cloneDecoration;
+
+  /// 分页根容器的 overflow 按整页裁剪，不把多看出血截回正文区。
+  final bool isPageRoot;
 
   double get topDecoration => style.padding.top + style.borders.top.width;
   double get bottomDecoration =>
