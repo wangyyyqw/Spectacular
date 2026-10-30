@@ -45,7 +45,9 @@
 > 与视觉差异均为 0；同时修正标题前后重复折叠表格外边距、空单元格占位和声明
 > 高度。`89-font-kerning` 覆盖 `auto/normal/none` 的解析、继承与 `kern`
 > 字形特性；同时补齐布局缓存键中的 OpenType 字体输入，几何/样式失配为 0，
-> 3.88% 视觉差异来自字体抗锯齿与亚像素采样。覆盖率与剩余属性名以
+> 3.88% 视觉差异来自字体抗锯齿与亚像素采样。`content: url()` 已接入伪元素
+> 行内图片链路：相对地址按书内资源解析，宽高读取伪元素计算样式；组合文本、
+> 前后图片与偏移重映射由章节源回归锁定。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 
@@ -306,7 +308,7 @@
 | 97 | `mix-blend-mode` | 0 | 已实现：背景色画布混合（multiply/screen/overlay/darken/lighten） |
 | 104 | `object-fit` / `object-position` | 1 / 1 | 已实现 fit→background-size 映射（cover/contain/fill/none/scale-down）与声明位置解析 |
 | 105 | `counter-reset` / `counter-increment` | 0 | 已实现：元素与伪元素计入同一作用域，伪元素声明按级联胜者生效 |
-| 106 | `content`（部分） | 5 / 3 | 已支持字符串、`attr()`、`counter()`、`open/close-quote`；`url()` 仍不生成替换内容 |
+| 106 | `content`（部分） | 5 / 3 | 已支持字符串、`attr()`、`counter()`、`open/close-quote` 与 `url()` 行内图片；图片未声明尺寸时沿用现有行内图片的 1em 等比降级 |
 | 107 | `line-break` | 0（别名 6 处） | 标点禁则严格度不生效 |
 | 108 | `unicode-bidi` | 0 | `bdo` 覆写不生效（UA 表有规则，无消费） |
 | 109 | `ruby-align` | 4 / 3 | 已接入规范值 `start/center/space-between/space-around`；flat 管线按单注音盒近似 |
@@ -397,7 +399,7 @@
 | 5 | 竖排装饰线（`text-decoration` 沿列轴） | P1 | `pr:2459/2464` 装饰线绘制未读 `writingMode`；竖排重点线会横着画 | M | `page_renderer.dart`（`_paintDecorations` 系列） |
 | 6 | ruby 行高撑高与多注音分配 | P1 | `ruby-position`/`ruby-align` 已接入；flat 管线仍按单个注音盒近似，注音不参与行高撑高 | M | `line_breaker.dart` + `page_renderer.dart` |
 | 7 | 多列跨页 runs 分发 | P1 | `pg:239` 「只有首列块携带完整几何」；`MulticolGeometry` 自认一级近似 | L | `paginator.dart`、`page_renderer.dart` |
-| 8 | `content` 的 `url()` 替换内容 | P2 | 字符串、`attr()`、`counter()`、引号已实现；`url()` 仍不生成替换内容 | S | `epub_chapter_source.dart` |
+| 8 | `content` 的 `url()` 替换内容 | ~~P2~~ 已完成 | 生成 U+FFFC 占位与 `InlineImageSpec`；相对资源、伪元素宽高及文本偏移已由章节源回归覆盖 | — | — |
 | 9 | `object-position` | ~~P2~~ 已完成 | `object-fit` 与声明位置均映射到背景尺寸/位置 | — | — |
 | 10 | `transform` 3D（`translate3d`/`rotate3d`/`perspective`） | P2 | `pr:661` 只构造 2D 仿射，4×4 矩阵其余位补零（`pr:682-687`） | M | `page_renderer.dart`（`_affineOfTransform` / `_transformMatrixOf`） |
 | 11 | `border-image` | ~~P2~~ 已完成 | 切割/repeat/fill 全部实现（`cs:_parseBorderImage` + `pr:_paintBorderImage`） | — | — |
@@ -442,7 +444,7 @@
 | #5 竖排装饰线 | `04-decoration`、`35-writing-mode`、`64-vertical-rl` | 已覆盖 |
 | #6 竖排 ruby | **无** | 建议新增 `68-vertical-ruby.json` |
 | #7 多列跨页 runs | `34-columns`、`42-multipage-flow`、`63-columns-rule`、`66-vertical-multipage`、`67-vertical-columns` | 已覆盖（跨页 + 多列组合已有） |
-| #8 content/counter | `62-word-wrap-content`（含 `content`） | 部分；`counter-*` 缺 |
+| #8 content/counter | `62-word-wrap-content`、`78-counter-content` | `content` 的字符串/attr/counter/quote/url 与计数器均有回归；URL 图片未单列视觉用例 |
 | #9 object-fit | **无** | 建议新增 `69-object-fit.json` |
 | #10 transform 3D | `36-transform` | 2D 已覆盖，3D 缺 |
 | #11 border-image | `82-border-image-background-attachment` | 已覆盖切割、`repeat`/`round`/`fill` 与 data URL |
