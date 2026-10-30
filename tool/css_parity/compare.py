@@ -524,6 +524,7 @@ STYLE_KEYS = (
     ('fontWeight', 'fontWeight', 'number'),
     ('fontStretch', 'fontStretch', 'percent'),
     ('fontFeatureSettings', 'fontFeatureSettings', 'string'),
+    ('clipPath', 'clipPath', 'string'),
     ('textAlign', 'textAlign', 'enum'),
     ('whiteSpace', 'whiteSpace', 'enum'),
     ('textTransform', 'textTransform', 'enum'),

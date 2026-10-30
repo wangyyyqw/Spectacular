@@ -236,29 +236,33 @@ class PagePainter {
     final canvas = context.canvas;
     final geometry = _containerGeometry(group, depth, context.page.pageHeight);
     _inBlockSpace(canvas, geometry, clip: false, () {
-      _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
-        if (!geometry.hidden) {
-          _paintBoxShadow(canvas, geometry);
-          _paintBlockBackground(
-            canvas,
-            geometry,
-            context.page,
-            context.pageRect,
-          );
-          _paintBlockBorder(canvas, geometry);
-        }
-        _clipBlock(canvas, geometry, clip: false, contentClip: true, () {
-          _paintContents(
-            context,
-            group.geometries,
-            depth + 1,
-            geometry.style.effectiveOpacity,
-          );
-        });
-        if (!geometry.hidden) {
-          _paintBlockOutline(canvas, geometry);
-        }
-      });
+      _withClipPath(
+        canvas,
+        geometry,
+        () => _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
+          if (!geometry.hidden) {
+            _paintBoxShadow(canvas, geometry);
+            _paintBlockBackground(
+              canvas,
+              geometry,
+              context.page,
+              context.pageRect,
+            );
+            _paintBlockBorder(canvas, geometry);
+          }
+          _clipBlock(canvas, geometry, clip: false, contentClip: true, () {
+            _paintContents(
+              context,
+              group.geometries,
+              depth + 1,
+              geometry.style.effectiveOpacity,
+            );
+          });
+          if (!geometry.hidden) {
+            _paintBlockOutline(canvas, geometry);
+          }
+        }),
+      );
     });
   }
 
@@ -341,23 +345,27 @@ class PagePainter {
     final page = context.page;
     final sliceIndex = context.indexOf[geometry]!;
     _inBlockSpace(canvas, geometry, clip: false, () {
-      _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
-        _notifyPhase(PagePaintPhase.blockBackground);
-        _paintBoxShadow(canvas, geometry);
-        _clipBlock(canvas, geometry, clip: true, () {
-          _paintBlockBackground(canvas, geometry, page, context.pageRect);
-        });
-        _notifyPhase(PagePaintPhase.blockBorder);
-        _clipBlock(canvas, geometry, clip: true, () {
-          _paintBlockBorder(canvas, geometry);
-        });
-        _notifyPhase(PagePaintPhase.text);
-        _paintBlockText(canvas, page, geometry, sliceIndex);
-        _notifyPhase(PagePaintPhase.decoration);
-        _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
-        _paintBlockRubies(canvas, geometry);
-        _paintBlockOutline(canvas, geometry);
-      });
+      _withClipPath(
+        canvas,
+        geometry,
+        () => _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
+          _notifyPhase(PagePaintPhase.blockBackground);
+          _paintBoxShadow(canvas, geometry);
+          _clipBlock(canvas, geometry, clip: true, () {
+            _paintBlockBackground(canvas, geometry, page, context.pageRect);
+          });
+          _notifyPhase(PagePaintPhase.blockBorder);
+          _clipBlock(canvas, geometry, clip: true, () {
+            _paintBlockBorder(canvas, geometry);
+          });
+          _notifyPhase(PagePaintPhase.text);
+          _paintBlockText(canvas, page, geometry, sliceIndex);
+          _notifyPhase(PagePaintPhase.decoration);
+          _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
+          _paintBlockRubies(canvas, geometry);
+          _paintBlockOutline(canvas, geometry);
+        }),
+      );
     });
   }
 
@@ -418,6 +426,7 @@ class PagePainter {
         math.max(0, radius.y + extra),
       );
     }
+
     final strokeRRect = RRect.fromRectAndCorners(
       strokeBox,
       topLeft: grow(radii.topLeft),
@@ -1203,6 +1212,194 @@ class PagePainter {
     for (var i = 0; i < layers; i++) {
       canvas.restore();
     }
+  }
+
+  /// 按 `clip-path` 基本形状裁剪元素的全部绘制结果（含阴影与轮廓）。
+  void _withClipPath(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    void Function() body,
+  ) {
+    final clip = geometry.style.clipPath;
+    if (clip == null) {
+      body();
+      return;
+    }
+    final reference = _clipReferenceBox(
+      clip,
+      geometry.borderBox,
+      geometry.style,
+    );
+    _withClipShape(canvas, clip, reference, body);
+  }
+
+  Rect _clipReferenceBox(CssClipPath clip, Rect box, ComputedStyle style) =>
+      switch (clip.geometryBox) {
+        CssGeometryBox.marginBox => Rect.fromLTRB(
+          box.left - style.margin.left,
+          box.top - style.margin.top,
+          box.right + style.margin.right,
+          box.bottom + style.margin.bottom,
+        ),
+        CssGeometryBox.borderBox => box,
+        CssGeometryBox.paddingBox => Rect.fromLTRB(
+          box.left + style.borders.left.width,
+          box.top + style.borders.top.width,
+          box.right - style.borders.right.width,
+          box.bottom - style.borders.bottom.width,
+        ),
+        CssGeometryBox.contentBox => Rect.fromLTRB(
+          box.left + style.borders.left.width + style.padding.left,
+          box.top + style.borders.top.width + style.padding.top,
+          box.right - style.borders.right.width - style.padding.right,
+          box.bottom - style.borders.bottom.width - style.padding.bottom,
+        ),
+      };
+
+  void _withClipShape(
+    Canvas canvas,
+    CssClipPath clip,
+    Rect reference,
+    void Function() body,
+  ) {
+    if (reference.width <= 0 || reference.height <= 0) {
+      return;
+    }
+    final path = _clipPathFor(clip, reference);
+    if (path == null) {
+      return;
+    }
+    canvas.save();
+    canvas.clipPath(path, doAntiAlias: true);
+    body();
+    canvas.restore();
+  }
+
+  Path? _clipPathFor(CssClipPath clip, Rect box) {
+    final width = box.width;
+    final height = box.height;
+    double resolve(CssLength value, double base) => value.resolve(base) ?? 0;
+    final path = Path();
+    switch (clip.kind) {
+      case CssClipPathKind.inset:
+        final rect = Rect.fromLTRB(
+          box.left + resolve(clip.insetLeft, width),
+          box.top + resolve(clip.insetTop, height),
+          box.right - resolve(clip.insetRight, width),
+          box.bottom - resolve(clip.insetBottom, height),
+        );
+        if (clip.insetRadiiX.isEmpty) {
+          path.addRect(rect);
+          return path;
+        }
+        CssLength radiusAt(List<CssLength> values, int index) {
+          if (values.length == 1) {
+            return values[0];
+          }
+          if (values.length == 2) {
+            return values[index.isEven ? 0 : 1];
+          }
+          if (values.length == 3) {
+            return values[index == 2 ? 2 : (index.isEven ? 0 : 1)];
+          }
+          return values[index];
+        }
+
+        Radius corner(int index) {
+          final x = resolve(radiusAt(clip.insetRadiiX, index), width);
+          final ySource = clip.insetRadiiY.isEmpty
+              ? radiusAt(clip.insetRadiiX, index)
+              : radiusAt(clip.insetRadiiY, index);
+          return Radius.elliptical(x, resolve(ySource, height));
+        }
+
+        path.addRRect(
+          RRect.fromRectAndCorners(
+            rect,
+            topLeft: corner(0),
+            topRight: corner(1),
+            bottomRight: corner(2),
+            bottomLeft: corner(3),
+          ),
+        );
+      case CssClipPathKind.circle:
+        final center = Offset(
+          box.left + resolve(clip.centerX, width),
+          box.top + resolve(clip.centerY, height),
+        );
+        final distances = <double>[
+          center.dx - box.left,
+          box.right - center.dx,
+          center.dy - box.top,
+          box.bottom - center.dy,
+        ];
+        final normalizedDiagonal = math.sqrt(
+          (width * width + height * height) / 2,
+        );
+        final radius =
+            clip.circleRadius?.resolve(normalizedDiagonal) ??
+            switch (clip.circleExtent) {
+              CssClipRadiusExtent.farthestSide => distances.reduce(math.max),
+              _ => distances.reduce(math.min),
+            };
+        if (radius <= 0) {
+          return null;
+        }
+        path.addOval(Rect.fromCircle(center: center, radius: radius));
+      case CssClipPathKind.ellipse:
+        final center = Offset(
+          box.left + resolve(clip.centerX, width),
+          box.top + resolve(clip.centerY, height),
+        );
+        double extent(CssClipRadiusExtent? value, double near, double far) =>
+            value == CssClipRadiusExtent.farthestSide
+            ? math.max(near, far)
+            : math.min(near, far);
+        final radiusX =
+            clip.ellipseRadiusX?.resolve(width) ??
+            extent(
+              clip.ellipseExtentX,
+              center.dx - box.left,
+              box.right - center.dx,
+            );
+        final radiusY =
+            clip.ellipseRadiusY?.resolve(height) ??
+            extent(
+              clip.ellipseExtentY,
+              center.dy - box.top,
+              box.bottom - center.dy,
+            );
+        if (radiusX <= 0 || radiusY <= 0) {
+          return null;
+        }
+        path.addOval(
+          Rect.fromCenter(
+            center: center,
+            width: radiusX * 2,
+            height: radiusY * 2,
+          ),
+        );
+      case CssClipPathKind.polygon:
+        if (clip.points.isEmpty) {
+          return null;
+        }
+        final first = clip.points.first;
+        path.moveTo(
+          box.left + resolve(first.x, width),
+          box.top + resolve(first.y, height),
+        );
+        for (final point in clip.points.skip(1)) {
+          path.lineTo(
+            box.left + resolve(point.x, width),
+            box.top + resolve(point.y, height),
+          );
+        }
+        path.close();
+        path.fillType = clip.evenOdd
+            ? PathFillType.evenOdd
+            : PathFillType.nonZero;
+    }
+    return path;
   }
 
   /// `backdrop-filter`：把元素背后区域按「页背景」近似铺一层并应用滤镜。
@@ -1994,41 +2191,61 @@ class PagePainter {
       }
       // inline-block 盒子同样可能是半透明（payload.style.effectiveOpacity）。
       final opacity = math.min(style.effectiveOpacity, 1.0);
-      final layered = opacity < 1;
-      if (layered) {
-        canvas.saveLayer(
-          rect.inflate(8),
-          Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
-        );
-      }
-      _paintOuterShadow(canvas, rect, style);
-      _paintBackground(canvas, rect, style, startsBlock: true, endsBlock: true);
-      _paintInnerShadow(canvas, rect, style);
-      _paintBorders(canvas, rect, style, startsBlock: true, endsBlock: true);
-      final payload = placement.spec.payload;
-      if (payload is PageBlock) {
-        _paintInlineBoxContent(canvas, payload, rect);
-      } else if (payload is String && payload.isNotEmpty) {
-        final painter = TextPainter(
-          text: TextSpan(
-            text: payload,
-            style: TextLayoutEngine.textStyleFor(style),
-          ),
-          textDirection: style.isRtl ? TextDirection.rtl : TextDirection.ltr,
-          maxLines: 1,
-          ellipsis: '…',
-        )..layout(maxWidth: rect.width);
-        painter.paint(
+      void paintBox() {
+        final layered = opacity < 1;
+        if (layered) {
+          canvas.saveLayer(
+            rect.inflate(8),
+            Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+          );
+        }
+        _paintOuterShadow(canvas, rect, style);
+        _paintBackground(
           canvas,
-          Offset(
-            rect.left + (rect.width - painter.width) / 2,
-            rect.top + (rect.height - painter.height) / 2,
-          ),
+          rect,
+          style,
+          startsBlock: true,
+          endsBlock: true,
         );
-        painter.dispose();
+        _paintInnerShadow(canvas, rect, style);
+        _paintBorders(canvas, rect, style, startsBlock: true, endsBlock: true);
+        final payload = placement.spec.payload;
+        if (payload is PageBlock) {
+          _paintInlineBoxContent(canvas, payload, rect);
+        } else if (payload is String && payload.isNotEmpty) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: payload,
+              style: TextLayoutEngine.textStyleFor(style),
+            ),
+            textDirection: style.isRtl ? TextDirection.rtl : TextDirection.ltr,
+            maxLines: 1,
+            ellipsis: '…',
+          )..layout(maxWidth: rect.width);
+          painter.paint(
+            canvas,
+            Offset(
+              rect.left + (rect.width - painter.width) / 2,
+              rect.top + (rect.height - painter.height) / 2,
+            ),
+          );
+          painter.dispose();
+        }
+        if (layered) {
+          canvas.restore();
+        }
       }
-      if (layered) {
-        canvas.restore();
+
+      final clip = style.clipPath;
+      if (clip == null) {
+        paintBox();
+      } else {
+        _withClipShape(
+          canvas,
+          clip,
+          _clipReferenceBox(clip, rect, style),
+          paintBox,
+        );
       }
     }
   }

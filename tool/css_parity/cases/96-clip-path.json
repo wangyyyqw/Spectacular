@@ -1,0 +1,8 @@
+{
+  "name": "96-clip-path",
+  "tags": [
+    "clip-path"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: \"builtin_song\"; font-size: 16px; line-height: 1.4; } div { width: 180px; height: 90px; margin: 16px 0 14px 16px; padding: 10px; box-sizing: border-box; color: transparent; background: #d94a3d; } .inset { clip-path: inset(12px 18px round 18px); } .circle { clip-path: circle(45% at 40% 55%); background: #2f7f78; } .ellipse { clip-path: ellipse(38% 32% at 60% 50%) padding-box; background: #d7a83f; } .polygon { clip-path: polygon(0 0, 100% 0, 72% 100%, 18% 82%); background: #4569a8; }",
+  "html": "<div class=\"inset\">inset</div><div class=\"circle\">circle</div><div class=\"ellipse\">ellipse</div><div class=\"polygon\">polygon</div>"
+}

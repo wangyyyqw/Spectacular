@@ -1059,6 +1059,182 @@ class CssLength {
 /// 盒模型尺寸基准（CSS `box-sizing`）。
 enum CssBoxSizing { contentBox, borderBox }
 
+/// `clip-path` 基本形状。
+enum CssClipPathKind { inset, circle, ellipse, polygon }
+
+/// 基本形状的默认参照盒（CSS Masking §3.1）。
+enum CssGeometryBox { marginBox, borderBox, paddingBox, contentBox }
+
+/// 圆形/椭圆半径的关键字；null 字段表示显式长度。
+enum CssClipRadiusExtent { closestSide, farthestSide }
+
+/// `polygon()` 的一个顶点；百分比分别相对参照盒宽、高。
+class CssClipPoint {
+  /// 创建顶点。
+  const CssClipPoint(this.x, this.y);
+
+  /// 横坐标。
+  final CssLength x;
+
+  /// 纵坐标。
+  final CssLength y;
+}
+
+/// `clip-path` 的不可变基本形状。
+///
+/// 长度在解析时已把 em/rem 等换算成像素；百分比保留标记，绘制时按参照盒
+/// 尺寸解算。`inset` 的四边偏移分别按高、宽、高、宽解算。
+class CssClipPath {
+  /// 创建基本形状。
+  const CssClipPath({
+    required this.kind,
+    this.insetTop = const CssLength(0, isPercent: true),
+    this.insetRight = const CssLength(0, isPercent: true),
+    this.insetBottom = const CssLength(0, isPercent: true),
+    this.insetLeft = const CssLength(0, isPercent: true),
+    this.insetOffsets = const <CssLength>[],
+    this.insetRadiiX = const <CssLength>[],
+    this.insetRadiiY = const <CssLength>[],
+    this.circleRadius,
+    this.circleExtent,
+    this.ellipseRadiusX,
+    this.ellipseRadiusY,
+    this.ellipseExtentX,
+    this.ellipseExtentY,
+    this.centerX = const CssLength(50, isPercent: true),
+    this.centerY = const CssLength(50, isPercent: true),
+    this.positionSpecified = false,
+    this.radiiSpecified = false,
+    this.points = const <CssClipPoint>[],
+    this.evenOdd = false,
+    this.geometryBox = CssGeometryBox.borderBox,
+  });
+
+  /// 形状种类。
+  final CssClipPathKind kind;
+
+  /// 内缩形状的上偏移。
+  final CssLength insetTop;
+
+  /// 内缩形状的右偏移。
+  final CssLength insetRight;
+
+  /// 内缩形状的下偏移。
+  final CssLength insetBottom;
+
+  /// 内缩形状的左偏移。
+  final CssLength insetLeft;
+
+  /// 作者声明的偏移 token（保留 shorthand 数量，供计算值序列化）。
+  final List<CssLength> insetOffsets;
+
+  /// `round` 后的横向圆角（1..4 项）。
+  final List<CssLength> insetRadiiX;
+
+  /// `round` 后的纵向圆角；空表示与横向相同。
+  final List<CssLength> insetRadiiY;
+
+  /// 圆的显式半径；百分比相对标准化对角线。
+  final CssLength? circleRadius;
+
+  /// 圆半径关键字；与 [circleRadius] 同时为 null 时按 closest-side。
+  final CssClipRadiusExtent? circleExtent;
+
+  /// 椭圆的横向半径；null 时参考 [ellipseExtentX]。
+  final CssLength? ellipseRadiusX;
+
+  /// 椭圆的纵向半径；null 时参考 [ellipseExtentY]。
+  final CssLength? ellipseRadiusY;
+
+  /// 横向半径关键字。
+  final CssClipRadiusExtent? ellipseExtentX;
+
+  /// 纵向半径关键字。
+  final CssClipRadiusExtent? ellipseExtentY;
+
+  /// 圆心/椭圆中心的横坐标。
+  final CssLength centerX;
+
+  /// 圆心/椭圆中心的纵坐标。
+  final CssLength centerY;
+
+  /// 作者是否显式写了 `at <position>`。
+  final bool positionSpecified;
+
+  /// 作者是否显式写了圆/椭圆半径。
+  final bool radiiSpecified;
+
+  /// `polygon()` 顶点。
+  final List<CssClipPoint> points;
+
+  /// 是否使用 even-odd 填充规则。
+  final bool evenOdd;
+
+  /// 显式几何参照盒；默认 border-box，序列化时省略。
+  final CssGeometryBox geometryBox;
+
+  /// 计算值的规范化字符串（与 Chromium 的函数式序列化对齐）。
+  String get cssValue {
+    final boxSuffix = switch (geometryBox) {
+      CssGeometryBox.borderBox => '',
+      CssGeometryBox.marginBox => ' margin-box',
+      CssGeometryBox.paddingBox => ' padding-box',
+      CssGeometryBox.contentBox => ' content-box',
+    };
+    String length(CssLength value) => value.isPercent
+        ? '${_number(value.value)}%'
+        : '${_number(value.value)}px';
+    String radii(List<CssLength> values) => values.map(length).join(' ');
+    if (kind == CssClipPathKind.inset) {
+      final offsets =
+          (insetOffsets.isEmpty
+                  ? <CssLength>[insetTop, insetRight, insetBottom, insetLeft]
+                  : insetOffsets)
+              .map(length)
+              .join(' ');
+      final radiusX = radii(insetRadiiX);
+      final radiusY = radii(insetRadiiY);
+      final rounded = insetRadiiX.isEmpty
+          ? ''
+          : ' round $radiusX${insetRadiiY.isEmpty ? '' : ' / $radiusY'}';
+      return 'inset($offsets$rounded)$boxSuffix';
+    }
+    String centerSuffix() =>
+        positionSpecified ? ' at ${length(centerX)} ${length(centerY)}' : '';
+    return switch (kind) {
+          CssClipPathKind.circle =>
+            'circle('
+                '${radiiSpecified ? _radiusValue(circleRadius, circleExtent) : ''}'
+                '${centerSuffix()})',
+          CssClipPathKind.ellipse =>
+            'ellipse(${radiiSpecified ? '${_radiusValue(ellipseRadiusX, ellipseExtentX)} '
+                          '${_radiusValue(ellipseRadiusY, ellipseExtentY)}' : ''}'
+                '${centerSuffix()})',
+          CssClipPathKind.polygon =>
+            'polygon(${evenOdd ? 'evenodd, ' : ''}'
+                '${points.map((point) => '${length(point.x)} '
+                    '${length(point.y)}').join(', ')})',
+          CssClipPathKind.inset => throw StateError('inset 已提前返回'),
+        } +
+        boxSuffix;
+  }
+
+  static String _number(double value) =>
+      value == value.roundToDouble() ? value.toInt().toString() : '$value';
+
+  static String _radiusValue(CssLength? radius, CssClipRadiusExtent? extent) {
+    if (radius != null) {
+      return radius.isPercent
+          ? '${_number(radius.value)}%'
+          : '${_number(radius.value)}px';
+    }
+    return switch (extent) {
+      CssClipRadiusExtent.farthestSide => 'farthest-side',
+      _ => 'closest-side',
+    };
+  }
+}
+
 /// 边框线型（CSS `border-style<border-style>`）。
 enum CssBorderStyle {
   none,
@@ -1453,6 +1629,7 @@ class ComputedStyle {
       'font-size' => '${rootFontSize}px',
       'color' => '#000000',
       'font-family' => 'serif',
+      'clip-path' || '-webkit-clip-path' => 'none',
       'font-size-adjust' ||
       'text-shadow' ||
       'list-style-image' ||
@@ -1953,6 +2130,11 @@ class ComputedStyle {
     );
     final filters = _parseFilters(
       explicitValue('filter') ?? explicitValue('-webkit-filter'),
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+    final clipPath = _parseClipPath(
+      explicitValue('clip-path') ?? explicitValue('-webkit-clip-path'),
       fontSize: fontSize,
       rootFontSize: rootFontSize,
     );
@@ -2494,6 +2676,7 @@ class ComputedStyle {
       effectiveOpacity: effectiveOpacity,
       filters: filters,
       backdropFilters: backdropFilters,
+      clipPath: clipPath,
       transforms: transforms,
       transformOriginX: transformOrigin.x,
       transformOriginY: transformOrigin.y,
@@ -2649,6 +2832,7 @@ class ComputedStyle {
       effectiveOpacity: effectiveOpacity,
       filters: filters,
       backdropFilters: backdropFilters,
+      clipPath: clipPath,
       transforms: transforms,
       transformOriginX: transformOriginX,
       transformOriginY: transformOriginY,
@@ -2777,6 +2961,7 @@ class ComputedStyle {
     required this.effectiveOpacity,
     required this.filters,
     required this.backdropFilters,
+    required this.clipPath,
     required this.transforms,
     required this.transformOriginX,
     required this.transformOriginY,
@@ -3085,6 +3270,9 @@ class ComputedStyle {
   /// `backdrop-filter`（元素背后区域的滤镜）：分页阅读器里以「页面背景」
   /// 作为 backdrop 近似（无法采样已绘制内容，见审计文档的已知限制）。
   final List<CssFilter> backdropFilters;
+
+  /// `clip-path` 基本形状；null 表示 `none`（非继承，初始 none）。
+  final CssClipPath? clipPath;
 
   /// `transform` 的有序变换列表（非继承，初始空）。
   ///
@@ -4904,6 +5092,288 @@ class ComputedStyle {
     }
     parts.add(text.substring(start).trim());
     return parts;
+  }
+
+  /// 解析 `clip-path` 的 inset/circle/ellipse/polygon 基本形状。
+  ///
+  /// 不支持 `url()` SVG 引用与 `calc()`；这些值按无效声明处理，避免把浏览器
+  /// 会忽略的裁剪切出来。
+  static CssClipPath? _parseClipPath(
+    String? raw, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'none') {
+      return null;
+    }
+    final match = RegExp(
+      r'^(inset|circle|ellipse|polygon)\((.*)\)(?:\s+([a-z-]+))?$',
+      dotAll: true,
+    ).firstMatch(value);
+    if (match == null) {
+      return null;
+    }
+    final geometryBox = _parseClipGeometryBox(match.group(3));
+    if (match.group(3) != null && geometryBox == null) {
+      return null;
+    }
+    CssLength? length(String token) {
+      final resolved = _resolveCssLength(
+        token,
+        fontSize: fontSize,
+        rootFontSize: rootFontSize,
+      );
+      return resolved == null || resolved.isAuto ? null : resolved;
+    }
+
+    final inner = match.group(2)!.trim();
+    final kind = match.group(1)!;
+    if (kind == 'inset') {
+      final roundIndex = inner.indexOf(RegExp(r'\s+round\s+'));
+      final offsetsRaw = roundIndex < 0
+          ? inner
+          : inner.substring(0, roundIndex).trim();
+      final offsets = offsetsRaw.isEmpty
+          ? const <String>[]
+          : offsetsRaw.split(RegExp(r'\s+'));
+      if (offsets.isEmpty || offsets.length > 4) {
+        return null;
+      }
+      final parsedOffsets = <CssLength>[];
+      for (final token in offsets) {
+        final parsed = length(token);
+        if (parsed == null) {
+          return null;
+        }
+        parsedOffsets.add(parsed);
+      }
+      final originalOffsets = List<CssLength>.unmodifiable(parsedOffsets);
+      while (parsedOffsets.length < 4) {
+        final sourceIndex = parsedOffsets.length <= 2 ? 0 : 1;
+        parsedOffsets.add(parsedOffsets[sourceIndex]);
+      }
+      var radiiX = const <CssLength>[];
+      var radiiY = const <CssLength>[];
+      if (roundIndex >= 0) {
+        final roundRaw = inner.substring(roundIndex).trim().substring(5).trim();
+        if (roundRaw.isEmpty) {
+          return null;
+        }
+        final halves = _splitTopLevel(roundRaw, '/');
+        if (halves.length > 2) {
+          return null;
+        }
+        List<CssLength>? parseRadii(String source) {
+          final tokens = source.trim().split(RegExp(r'\s+'));
+          if (tokens.isEmpty || tokens.length > 4) {
+            return null;
+          }
+          final result = <CssLength>[];
+          for (final token in tokens) {
+            final parsed = length(token);
+            if (parsed == null || parsed.value < 0) {
+              return null;
+            }
+            result.add(parsed);
+          }
+          return result;
+        }
+
+        radiiX = parseRadii(halves[0]) ?? const <CssLength>[];
+        if (radiiX.isEmpty) {
+          return null;
+        }
+        if (halves.length == 2) {
+          radiiY = parseRadii(halves[1]) ?? const <CssLength>[];
+          if (radiiY.isEmpty) {
+            return null;
+          }
+        }
+      }
+      return CssClipPath(
+        kind: CssClipPathKind.inset,
+        insetTop: parsedOffsets[0],
+        insetRight: parsedOffsets[1],
+        insetBottom: parsedOffsets[2],
+        insetLeft: parsedOffsets[3],
+        insetOffsets: originalOffsets,
+        insetRadiiX: radiiX,
+        insetRadiiY: radiiY,
+        geometryBox: geometryBox ?? CssGeometryBox.borderBox,
+      );
+    }
+    if (kind == 'polygon') {
+      final parts = _splitTopLevel(inner, ',');
+      var evenOdd = false;
+      var pointStart = 0;
+      if (parts.isNotEmpty &&
+          (parts.first == 'evenodd' || parts.first == 'nonzero')) {
+        evenOdd = parts.first == 'evenodd';
+        pointStart = 1;
+      }
+      if (pointStart >= parts.length) {
+        return null;
+      }
+      final points = <CssClipPoint>[];
+      for (final part in parts.skip(pointStart)) {
+        final tokens = part.split(RegExp(r'\s+'));
+        if (tokens.length != 2) {
+          return null;
+        }
+        final x = length(tokens[0]);
+        final y = length(tokens[1]);
+        if (x == null || y == null) {
+          return null;
+        }
+        points.add(CssClipPoint(x, y));
+      }
+      return CssClipPath(
+        kind: CssClipPathKind.polygon,
+        points: points,
+        evenOdd: evenOdd,
+        geometryBox: geometryBox ?? CssGeometryBox.borderBox,
+      );
+    }
+
+    final atMatch = RegExp(r'\s+at\s+').firstMatch(inner);
+    final radiusRaw = atMatch == null
+        ? inner
+        : inner.substring(0, atMatch.start).trim();
+    final positionRaw = atMatch == null
+        ? ''
+        : inner.substring(atMatch.end).trim();
+    final position = _parseClipPosition(positionRaw, resolve: length);
+    if (position == null) {
+      return null;
+    }
+    if (kind == 'circle') {
+      CssLength? radius;
+      CssClipRadiusExtent? extent;
+      if (radiusRaw.isEmpty) {
+        extent = CssClipRadiusExtent.closestSide;
+      } else {
+        final parsedRadius = _parseClipRadius(radiusRaw, resolve: length);
+        if (parsedRadius == null) {
+          return null;
+        }
+        radius = parsedRadius.$1;
+        extent = parsedRadius.$2;
+      }
+      return CssClipPath(
+        kind: CssClipPathKind.circle,
+        circleRadius: radius,
+        circleExtent: extent,
+        centerX: position.$1,
+        centerY: position.$2,
+        positionSpecified: atMatch != null,
+        radiiSpecified: radiusRaw.isNotEmpty,
+        geometryBox: geometryBox ?? CssGeometryBox.borderBox,
+      );
+    }
+    if (radiusRaw.isEmpty) {
+      return CssClipPath(
+        kind: CssClipPathKind.ellipse,
+        ellipseExtentX: CssClipRadiusExtent.closestSide,
+        ellipseExtentY: CssClipRadiusExtent.closestSide,
+        centerX: position.$1,
+        centerY: position.$2,
+        positionSpecified: atMatch != null,
+        radiiSpecified: false,
+        geometryBox: geometryBox ?? CssGeometryBox.borderBox,
+      );
+    }
+    final radiiTokens = radiusRaw.split(RegExp(r'\s+'));
+    if (radiiTokens.length != 2) {
+      return null;
+    }
+    final radiusX = _parseClipRadius(radiiTokens[0], resolve: length);
+    final radiusY = _parseClipRadius(radiiTokens[1], resolve: length);
+    if (radiusX == null || radiusY == null) {
+      return null;
+    }
+    return CssClipPath(
+      kind: CssClipPathKind.ellipse,
+      ellipseRadiusX: radiusX.$1,
+      ellipseExtentX: radiusX.$2,
+      ellipseRadiusY: radiusY.$1,
+      ellipseExtentY: radiusY.$2,
+      centerX: position.$1,
+      centerY: position.$2,
+      positionSpecified: atMatch != null,
+      radiiSpecified: true,
+      geometryBox: geometryBox ?? CssGeometryBox.borderBox,
+    );
+  }
+
+  static CssGeometryBox? _parseClipGeometryBox(String? raw) => switch (raw) {
+    null || 'border-box' => CssGeometryBox.borderBox,
+    'margin-box' => CssGeometryBox.marginBox,
+    'padding-box' => CssGeometryBox.paddingBox,
+    'content-box' => CssGeometryBox.contentBox,
+    _ => null,
+  };
+
+  static (CssLength, CssLength)? _parseClipPosition(
+    String raw, {
+    required CssLength? Function(String) resolve,
+  }) {
+    CssLength? keyword(String token) => switch (token) {
+      'left' || 'top' => const CssLength(0, isPercent: true),
+      'right' || 'bottom' => const CssLength(100, isPercent: true),
+      'center' => const CssLength(50, isPercent: true),
+      _ => resolve(token),
+    };
+
+    if (raw.isEmpty) {
+      return (
+        const CssLength(50, isPercent: true),
+        const CssLength(50, isPercent: true),
+      );
+    }
+    final tokens = raw.split(RegExp(r'\s+'));
+    if (tokens.length == 1) {
+      final value = keyword(tokens.first);
+      if (value == null) {
+        return null;
+      }
+      if (tokens.first == 'top' || tokens.first == 'bottom') {
+        return (const CssLength(50, isPercent: true), value);
+      }
+      return (value, const CssLength(50, isPercent: true));
+    }
+    if (tokens.length != 2) {
+      return null;
+    }
+    final first = keyword(tokens[0]);
+    final second = keyword(tokens[1]);
+    if (first == null || second == null) {
+      return null;
+    }
+    if (tokens[0] == 'top' || tokens[0] == 'bottom') {
+      return (second, first);
+    }
+    return (first, second);
+  }
+
+  static (CssLength?, CssClipRadiusExtent?)? _parseClipRadius(
+    String raw, {
+    required CssLength? Function(String) resolve,
+  }) {
+    if (raw == 'closest-side') {
+      return (null, CssClipRadiusExtent.closestSide);
+    }
+    if (raw == 'farthest-side') {
+      return (null, CssClipRadiusExtent.farthestSide);
+    }
+    final value = resolve(raw);
+    if (value == null || value.value < 0) {
+      return null;
+    }
+    return (value, null);
   }
 
   /// 解析 `filter`（W5）：返回**有序**滤镜列表，`none`/空 → 空列表。
