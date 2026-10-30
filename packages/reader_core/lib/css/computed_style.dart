@@ -735,6 +735,18 @@ enum CssFontVariantLigatures {
   none,
 }
 
+/// 字偶距策略（CSS `font-kerning`）。
+enum CssFontKerning {
+  /// 由字体与排版引擎决定，不强制开关。
+  auto,
+
+  /// 强制启用字体字偶距。
+  normal,
+
+  /// 禁用字体字偶距。
+  none,
+}
+
 /// 一对引号（CSS `quotes` 的 `<string> <string>`）。
 class CssQuotePair {
   /// 创建一对引号。
@@ -1947,6 +1959,12 @@ class ComputedStyle {
         : _parseFontVariantLigatures(rawLigatures) ??
               parent?.fontVariantLigatures ??
               CssFontVariantLigatures.normal;
+    final rawFontKerning = explicitValue('font-kerning');
+    final fontKerning = rawFontKerning == null
+        ? (parent?.fontKerning ?? CssFontKerning.auto)
+        : _parseFontKerning(rawFontKerning) ??
+              parent?.fontKerning ??
+              CssFontKerning.auto;
 
     // font-stretch（继承，初始 100%）：关键字/百分比统一折成百分比数值。
     final rawFontStretch = explicitValue('font-stretch');
@@ -2406,6 +2424,7 @@ class ComputedStyle {
       mixBlendMode: mixBlendMode,
       fontVariantCaps: fontVariantCaps,
       fontVariantLigatures: fontVariantLigatures,
+      fontKerning: fontKerning,
       quotes: quotes,
       fontStretch: fontStretch,
       fontSizeAdjust: fontSizeAdjust,
@@ -2557,6 +2576,7 @@ class ComputedStyle {
       mixBlendMode: mixBlendMode,
       fontVariantCaps: fontVariantCaps,
       fontVariantLigatures: fontVariantLigatures,
+      fontKerning: fontKerning,
       quotes: quotes,
       fontStretch: fontStretch,
       fontSizeAdjust: fontSizeAdjust,
@@ -2681,6 +2701,7 @@ class ComputedStyle {
     required this.mixBlendMode,
     required this.fontVariantCaps,
     required this.fontVariantLigatures,
+    required this.fontKerning,
     required this.quotes,
     required this.fontStretch,
     required this.fontSizeAdjust,
@@ -2942,6 +2963,9 @@ class ComputedStyle {
 
   /// 连字策略（继承，初始 [CssFontVariantLigatures.normal]）。
   final CssFontVariantLigatures fontVariantLigatures;
+
+  /// 字偶距策略（继承，初始 [CssFontKerning.auto]）。
+  final CssFontKerning fontKerning;
 
   /// 引号规则（继承，初始 [CssQuotesAuto]）。
   ///
@@ -3223,6 +3247,8 @@ class ComputedStyle {
       'ta=${textAlign.name};ti=$textIndent;tt=${textTransform.name};'
       'wsp=${whiteSpace.name};fw=$fontWeight;it=$italic;'
       'ff=${fontFamilies.join(",")};'
+      'vc=${fontVariantCaps.name};vl=${fontVariantLigatures.name};'
+      'fk=${fontKerning.name};fst=$fontStretch;fsa=${fontSizeAdjust ?? 0};'
       'disp=${display.name};vis=${visibility.name};'
       // P7-18~21 新增排版输入（影响缓存内的 justifyExtra/行宽）：缺失
       // 会撞键（P7-29 检查清单第 1 条的修正项）。
@@ -5141,6 +5167,16 @@ class ComputedStyle {
     return switch (raw.trim().toLowerCase()) {
       'normal' || 'common-ligatures' => CssFontVariantLigatures.normal,
       'none' || 'no-common-ligatures' => CssFontVariantLigatures.none,
+      _ => null,
+    };
+  }
+
+  /// `font-kerning`：auto/normal 保持引擎默认，none 显式关闭字偶距。
+  static CssFontKerning? _parseFontKerning(String raw) {
+    return switch (raw.trim().toLowerCase()) {
+      'auto' => CssFontKerning.auto,
+      'normal' => CssFontKerning.normal,
+      'none' => CssFontKerning.none,
       _ => null,
     };
   }

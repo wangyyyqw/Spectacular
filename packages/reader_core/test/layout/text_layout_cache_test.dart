@@ -160,6 +160,39 @@ void main() {
     expect(cached.height, closeTo(direct.height, 0.001));
   });
 
+  test('OpenType 排版输入变化不撞键', () {
+    final cache = TextLayoutCache();
+    const text = 'Typeface AVATAR To.';
+    final base = _style(const {'font-family': 'builtin_song'});
+    final variants = <ComputedStyle>[
+      _style(const {
+        'font-family': 'builtin_song',
+        'font-variant-caps': 'small-caps',
+      }),
+      _style(const {
+        'font-family': 'builtin_song',
+        'font-variant-ligatures': 'none',
+      }),
+      _style(const {'font-family': 'builtin_song', 'font-kerning': 'none'}),
+      _style(const {
+        'font-family': 'builtin_song',
+        'font-stretch': 'condensed',
+      }),
+      _style(const {'font-family': 'builtin_song', 'font-size-adjust': '0.5'}),
+    ];
+
+    for (final style in variants) {
+      cache.layout(text: text, style: style, maxWidth: 300);
+    }
+    cache.layout(text: text, style: base, maxWidth: 300);
+
+    expect(cache.misses, variants.length + 1);
+    expect({
+      base.layoutFingerprint,
+      for (final style in variants) style.layoutFingerprint,
+    }, hasLength(variants.length + 1));
+  });
+
   test('命中率统计', () {
     final cache = TextLayoutCache();
     cache.layout(text: 'x', style: _style(), maxWidth: 100);

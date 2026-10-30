@@ -73,6 +73,7 @@ abstract final class Cascade {
     'font-variant',
     'font-variant-caps',
     'font-variant-ligatures',
+    'font-kerning',
     'font-stretch',
     'font-size-adjust',
     'quotes',

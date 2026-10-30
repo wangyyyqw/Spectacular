@@ -51,6 +51,18 @@ void main() {
     );
   });
 
+  test('font-kerning: none 关闭 kern 字偶距', () {
+    final features = TextLayoutEngine.textStyleFor(
+      _style(const {'font-kerning': 'none'}),
+    ).fontFeatures;
+    expect(features, contains(const FontFeature.disable('kern')));
+    expect(
+      TextLayoutEngine.textStyleFor(_style(const {'font-kerning': 'normal'}))
+          .fontFeatures,
+      isNull,
+    );
+  });
+
   test('font-stretch 映射到 wdth 可变字体轴', () {
     final condensed = TextLayoutEngine.textStyleFor(
       _style(const {'font-stretch': 'condensed'}),
