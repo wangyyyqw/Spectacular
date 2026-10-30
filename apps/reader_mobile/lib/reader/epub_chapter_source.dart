@@ -1483,11 +1483,11 @@ class EpubChapterSource
         style.writingMode == CssWritingMode.horizontalTb;
   }
 
-  /// 单行 Flex 容器：只在 flat 管线内排主轴位置，不引入完整 Flex 算法。
+  /// 单行/换行 Flex 容器：在 flat 管线内排行内主轴位置，不引入完整 Flex 算法。
   ///
-  /// 真书目前只用 `display:flex` 做头像/封面的单行居中。这里把每个直接
-  /// 子项映射成表格单元格载荷，复用其文本、背景图、边框和垂直对齐绘制；
-  /// `flex-direction: column` 以及换行仍走原块流，避免制造伪支持。
+  /// 每个直接子项映射成表格单元格载荷，复用其文本、背景图、边框和垂直
+  /// 对齐绘制。支持 `flex-wrap: wrap/wrap-reverse` 的按行分组；
+  /// `flex-direction: column` 与 `align-content` 仍走原块流/起点近似。
   static PageBlock? _flexRowBlock({
     required ComputedStyle containerStyle,
     required double containerWidth,
@@ -1541,12 +1541,9 @@ class EpubChapterSource
       var width = 0.0;
       var height = 0.0;
       for (final block in item) {
-        final style = block.style;
         final contentWidth = intrinsicContentWidth(block);
         final borderWidth = contentWidth + horizontalInset(block);
-        final marginWidth =
-            (style?.margin.left ?? 0) + (style?.margin.right ?? 0);
-        width = math.max(width, borderWidth + marginWidth);
+        width = math.max(width, borderWidth);
         height +=
             block.spaceBefore +
             block.topInset +
@@ -1558,74 +1555,119 @@ class EpubChapterSource
       itemHeights.add(height);
     }
 
+    final gap = math.max(0.0, containerStyle.columnGap ?? 0.0);
+    final wraps = containerStyle.flexWrap != CssFlexWrap.nowrap;
+    var rows = <List<int>>[];
+    if (wraps) {
+      var row = <int>[];
+      var rowWidth = 0.0;
+      for (var i = 0; i < items.length; i++) {
+        final nextWidth =
+            row.isEmpty ? itemWidths[i] : rowWidth + gap + itemWidths[i];
+        if (row.isNotEmpty && nextWidth > containerWidth + 0.5) {
+          rows.add(row);
+          row = <int>[];
+          rowWidth = itemWidths[i];
+        } else {
+          rowWidth = nextWidth;
+        }
+        row.add(i);
+      }
+      if (row.isNotEmpty) {
+        rows.add(row);
+      }
+    } else {
+      rows.add(List<int>.generate(items.length, (index) => index));
+    }
+    if (containerStyle.flexWrap == CssFlexWrap.wrapReverse) {
+      rows = rows.reversed.toList();
+    }
+
+    final rowHeights = [
+      for (final row in rows)
+        row.fold(0.0, (height, index) => math.max(height, itemHeights[index])),
+    ];
+    final naturalHeight = rowHeights.fold(0.0, (sum, height) => sum + height);
     final declaredHeight =
         BoxModel.fromStyle(
           containerStyle,
           containingWidth: containingWidth,
         ).resolveContentHeight(
-          itemHeights.fold(0.0, math.max),
+          naturalHeight,
           containingHeight: pageContentHeight,
         );
-    final rowHeight = math.max(declaredHeight, itemHeights.fold(0.0, math.max));
-    final gap = math.max(0.0, containerStyle.columnGap ?? 0.0);
-    final itemsWidth =
-        itemWidths.fold(0.0, (sum, width) => sum + width) +
-        gap * math.max(0, items.length - 1);
-    final free = math.max(0.0, containerWidth - itemsWidth);
-
-    var cursor = switch (containerStyle.justifyContent) {
-      CssJustifyContent.flexEnd => free,
-      CssJustifyContent.center => free / 2,
-      _ => 0.0,
-    };
-    final distributedGap = switch (containerStyle.justifyContent) {
-      CssJustifyContent.spaceBetween when items.length > 1 =>
-        free / (items.length - 1),
-      CssJustifyContent.spaceAround when items.isNotEmpty =>
-        free / items.length,
-      CssJustifyContent.spaceEvenly => free / (items.length + 1),
-      _ => 0.0,
-    };
-    if (containerStyle.justifyContent == CssJustifyContent.spaceAround) {
-      cursor = distributedGap / 2;
-    } else if (containerStyle.justifyContent == CssJustifyContent.spaceEvenly) {
-      cursor = distributedGap;
+    final layoutHeight = math.max(declaredHeight, naturalHeight);
+    if (!wraps) {
+      // 单行 Flex 的交叉轴可用高仍是容器声明高，align-items 以此为基准。
+      rowHeights[0] = math.max(rowHeights[0], declaredHeight);
+    }
+    final rowTops = <double>[];
+    var rowTop = 0.0;
+    for (final height in rowHeights) {
+      rowTops.add(rowTop);
+      rowTop += height;
     }
 
     final cells = <TableCellRender>[];
-    for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
-      final item = items[itemIndex];
-      final itemWidth = itemWidths[itemIndex];
-      final itemHeight = itemHeights[itemIndex];
-      final crossOffset = switch (containerStyle.alignItems) {
-        CssAlignItems.flexEnd => math.max(0.0, rowHeight - itemHeight),
-        CssAlignItems.center => math.max(0.0, (rowHeight - itemHeight) / 2),
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      final row = rows[rowIndex];
+      final rowHeight = rowHeights[rowIndex];
+      final itemsWidth =
+          row.fold(0.0, (sum, index) => sum + itemWidths[index]) +
+          gap * math.max(0, row.length - 1);
+      final free = math.max(0.0, containerWidth - itemsWidth);
+      var cursor = switch (containerStyle.justifyContent) {
+        CssJustifyContent.flexEnd => free,
+        CssJustifyContent.center => free / 2,
         _ => 0.0,
       };
-      var itemY = crossOffset;
-      for (final block in item) {
-        final style = block.style ?? containerStyle;
-        itemY += block.spaceBefore;
-        final borderWidth =
-            intrinsicContentWidth(block) + horizontalInset(block);
-        final borderHeight = block.topInset + block.height + block.bottomInset;
-        final left = cursor + (style.margin.left);
-        cells.add(
-          TableCellRender(
-            row: itemIndex,
-            rect: Rect.fromLTWH(
-              left,
-              itemY,
-              math.min(borderWidth, containerWidth),
-              borderHeight,
-            ),
-            layout: block.layout,
-            style: style,
-          ),
-        );
-        itemY += borderHeight + block.spaceAfter;
+      final distributedGap = switch (containerStyle.justifyContent) {
+        CssJustifyContent.spaceBetween when row.length > 1 =>
+          free / (row.length - 1),
+        CssJustifyContent.spaceAround when row.isNotEmpty =>
+          free / row.length,
+        CssJustifyContent.spaceEvenly => free / (row.length + 1),
+        _ => 0.0,
+      };
+      if (containerStyle.justifyContent == CssJustifyContent.spaceAround) {
+        cursor = distributedGap / 2;
+      } else if (containerStyle.justifyContent ==
+          CssJustifyContent.spaceEvenly) {
+        cursor = distributedGap;
       }
-      cursor += itemWidth + gap + distributedGap;
+      for (final itemIndex in row) {
+        final item = items[itemIndex];
+        final itemWidth = itemWidths[itemIndex];
+        final itemHeight = itemHeights[itemIndex];
+        final crossOffset = switch (containerStyle.alignItems) {
+          CssAlignItems.flexEnd => math.max(0.0, rowHeight - itemHeight),
+          CssAlignItems.center => math.max(0.0, (rowHeight - itemHeight) / 2),
+          _ => 0.0,
+        };
+        var itemY = rowTops[rowIndex] + crossOffset;
+        for (final block in item) {
+          final style = block.style ?? containerStyle;
+          itemY += block.spaceBefore;
+          final borderWidth =
+              intrinsicContentWidth(block) + horizontalInset(block);
+          final borderHeight = block.topInset + block.height + block.bottomInset;
+          cells.add(
+            TableCellRender(
+              row: rowIndex,
+              rect: Rect.fromLTWH(
+                cursor,
+                itemY,
+                math.min(borderWidth, containerWidth),
+                borderHeight,
+              ),
+              layout: block.layout,
+              style: style,
+            ),
+          );
+          itemY += borderHeight + block.spaceAfter;
+        }
+        cursor += itemWidth + gap + distributedGap;
+      }
     }
 
     final text = members.map((block) => block.layout.text).join();
@@ -1636,13 +1678,13 @@ class EpubChapterSource
           start: 0,
           end: text.length,
           top: 0,
-          height: rowHeight,
-          baseline: rowHeight,
+          height: layoutHeight,
+          baseline: layoutHeight,
           width: containerWidth,
         ),
       ],
       width: containerWidth,
-      height: rowHeight,
+      height: layoutHeight,
       maxWidth: containerWidth,
       runs: const <StyledRun>[],
     );
@@ -1656,7 +1698,7 @@ class EpubChapterSource
       table: TableRenderSpec(
         cells: cells,
         columnXs: const <double>[0],
-        rowYs: <double>[0, rowHeight],
+        rowYs: <double>[...rowTops, rowTop],
         tableWidth: containerWidth,
         flex: true,
       ),
