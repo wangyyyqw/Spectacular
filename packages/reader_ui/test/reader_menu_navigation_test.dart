@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/tap_zones.dart';
 
 class _Source implements ReaderChapterSource {
   _Source(this.chapterCount);
@@ -25,7 +27,11 @@ class _Source implements ReaderChapterSource {
   ];
 }
 
-Future<ReaderSession> _open(WidgetTester tester, int chapters) async {
+Future<ReaderSession> _open(
+  WidgetTester tester,
+  int chapters, {
+  ReaderTapZones tapZones = ReaderTapZones.defaults,
+}) async {
   late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
@@ -33,6 +39,7 @@ Future<ReaderSession> _open(WidgetTester tester, int chapters) async {
         source: _Source(chapters),
         store: MemoryReaderProgressStore(),
         bookId: 'menu',
+        tapZones: tapZones,
         onSessionReady: (value) => session = value,
       ),
     ),
@@ -47,6 +54,78 @@ Finder _button(String direction) =>
     find.byKey(ValueKey('menu-$direction-chapter'));
 
 void main() {
+  testWidgets('菜单外九宫格点击只关闭菜单，不改变阅读页', (tester) async {
+    final session = await _open(tester, 3);
+    await session.next();
+    await tester.pumpAndSettle();
+    final page = session.page;
+    final bounds = tester.getRect(find.byType(ReaderView));
+
+    // 上下行选在菜单栏之外，同时覆盖九宫格的全部点击动作。
+    for (final y in [0.32, 0.5, 0.67]) {
+      for (final x in [1 / 6, 0.5, 5 / 6]) {
+        await tester.tapAt(
+          bounds.topLeft + Offset(bounds.width * x, bounds.height * y),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+          isFalse,
+        );
+        expect(session.page, same(page));
+        expect(
+          session.progress,
+          const ReaderProgress(spineIndex: 0, pageIndex: 1),
+        );
+
+        await tester.tapAt(bounds.center);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+          isTrue,
+        );
+      }
+    }
+  });
+
+  testWidgets('关闭菜单的点击不翻页，下次点击恢复左右翻页', (tester) async {
+    final session = await _open(tester, 3);
+    await session.next();
+    await tester.pumpAndSettle();
+    final bounds = tester.getRect(find.byType(ReaderView));
+    final right = bounds.centerRight - const Offset(20, 0);
+
+    await tester.tapAt(right);
+    await tester.pumpAndSettle();
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 1));
+    await tester.tapAt(right);
+    await tester.pumpAndSettle();
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 2));
+    await tester.tapAt(bounds.centerLeft + const Offset(20, 0));
+    await tester.pumpAndSettle();
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 1));
+  });
+
+  testWidgets('自定义无动作区域也能关闭菜单', (tester) async {
+    final session = await _open(
+      tester,
+      3,
+      tapZones: ReaderTapZones.defaults.withAction(
+        ReaderTapZone.middleRight,
+        ReaderTapAction.none,
+      ),
+    );
+    final page = session.page;
+    final bounds = tester.getRect(find.byType(ReaderView));
+    await tester.tapAt(bounds.centerRight - const Offset(20, 0));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+      isFalse,
+    );
+    expect(session.page, same(page));
+  });
+
   testWidgets('进度按钮跳到相邻章首页，滑块仍按全书进度跳转', (tester) async {
     final semantics = tester.ensureSemantics();
     final session = await _open(tester, 3);

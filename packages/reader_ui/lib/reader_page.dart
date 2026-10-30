@@ -1484,6 +1484,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       : null,
                 ),
               ),
+            // 菜单外的点击只收起菜单，不能穿透到正文的翻页手势。
+            if (_menuOpen)
+              ModalBarrier(
+                onDismiss: _toggleReaderMenu,
+                semanticsLabel: '关闭阅读菜单',
+              ),
             // 沉浸式菜单（设计稿 .menu-top / .menu-bottom / .drawer）。
             ReaderMenuOverlay(
               open: _menuOpen,
