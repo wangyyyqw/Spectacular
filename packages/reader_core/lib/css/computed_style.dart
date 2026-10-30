@@ -6880,8 +6880,8 @@ class ComputedStyle {
       return const <CssTextShadow>[];
     }
     final shadows = <CssTextShadow>[];
-    for (final part in raw.split(',')) {
-      final tokens = part.trim().split(RegExp(r'\s+'));
+    for (final part in _splitTopLevel(raw, ',')) {
+      final tokens = _cssTokens(part.trim());
       var offsetX = 0.0;
       var offsetY = 0.0;
       var blur = 0.0;

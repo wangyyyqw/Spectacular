@@ -67,6 +67,53 @@ void main() {
     );
   });
 
+  test('卡片内的行内浮动相对段落内容盒定位，不贴整页右缘', () async {
+    final slices = await slicesOf(
+      '<div class="card"><p><span class="talent-tag">欺诈信仰天赋 · 主动</span>'
+          '<span>这段正文足够长，用来验证浮动标签只占卡片内容区。</span></p></div>',
+      '.card { padding: 12px; border: 1px solid #333; } '
+          'p { margin: 0; line-height: 1.6; } '
+          '.talent-tag { float: right; }',
+    );
+    final tag = slices.singleWhere(
+      (slice) => slice.block.floatSide == FloatSide.right,
+    );
+    final regionLeft = tag.block.floatContainingLeft!;
+    final regionRight = regionLeft + tag.block.floatContainingWidth!;
+    expect(regionLeft, greaterThan(0));
+    expect(regionRight, lessThan(320));
+    expect(tag.leftInset, greaterThanOrEqualTo(regionLeft - 0.01));
+    expect(
+      tag.leftInset + tag.block.layout.width,
+      closeTo(regionRight, 1),
+      reason: '右浮动应贴所在卡片内容盒右缘',
+    );
+  });
+
+  test('行内浮动的上下内缩计入覆盖切片高度，后续内容不压边', () async {
+    final slices = await slicesOf(
+      '<p><span class="talent-tag">主动</span>'
+          '<span>标签下方的正文不能覆盖标签边框。</span></p>',
+      'p { margin: 0; line-height: 1.6; } '
+          '.talent-tag { float: right; padding: 4px 8px; '
+          'border: 2px solid #c9a84c; }',
+    );
+    final tag = slices.singleWhere(
+      (slice) => slice.block.floatSide == FloatSide.right,
+    );
+    expect(tag.block.topInset, greaterThan(0));
+    expect(tag.block.bottomInset, greaterThan(0));
+    expect(
+      tag.height,
+      closeTo(
+        tag.block.topInset + tag.block.layout.height + tag.block.bottomInset,
+        0.01,
+      ),
+    );
+    expect(tag.leadingExtent, closeTo(tag.block.topInset, 0.01));
+    expect(tag.trailingExtent, closeTo(tag.block.bottomInset, 0.01));
+  });
+
   test('段中 span 浮动同样摘出，前后文字拼成同一段', () async {
     final slices = await slicesOf(
       '<p>这段文字前面有内容<span class="chip">居中标签</span>后面还有更多文字内容。</p>',

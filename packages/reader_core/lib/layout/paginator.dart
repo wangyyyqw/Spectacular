@@ -123,6 +123,8 @@ class PageBlock {
     this.groupId = 0,
     this.table,
     this.floatSide,
+    this.floatContainingLeft,
+    this.floatContainingWidth,
     this.rubies,
     this.inlineImages = const <InlineImageSpec>[],
     this.absolute = false,
@@ -265,6 +267,13 @@ class PageBlock {
   /// 图片块），由浮动感知分页登记占位并以覆盖切片渲染——不占流高。
   final FloatSide? floatSide;
 
+  /// 浮动的包含块左缘（页面坐标）。行内浮动必须相对所在段落收窄，
+  /// 不能按整页版心左右缘排布。
+  final double? floatContainingLeft;
+
+  /// 浮动的包含块宽度。
+  final double? floatContainingWidth;
+
   /// 注音标注（P8-08）：ruby/rt 结构（主文本区间 + 注音串），
   /// 渲染层注音趟在主文本区间上方绘制（50% 字号、居中）。
   final List<RubyAnnotation>? rubies;
@@ -394,6 +403,8 @@ class PageBlock {
     groupId: groupId,
     table: table,
     floatSide: floatSide,
+    floatContainingLeft: floatContainingLeft,
+    floatContainingWidth: floatContainingWidth,
     rubies: rubies,
     // 重建时必须带全字段（P9-19）：边距折叠会把相邻块换成新实例，
     // 漏字段会让行内图片/绝对定位在真机里随机消失。

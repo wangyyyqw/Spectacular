@@ -86,6 +86,30 @@ void main() {
       expect(result.columnWidths, [100, 80], reason: '无 auto 列时不强制铺满表宽');
     });
 
+    test('min-content 抬高列宽后仍受声明表宽约束', () {
+      const minWidths = <double>[115.2, 28.4, 64, 42.6];
+      final result = TableMeasurer.measureColumns(
+        naturalWidths: [
+          minWidths,
+        ],
+        specifiedWidths: const [88.2, 58.8, 73.5, 73.5],
+        tableWidthPercent: 1,
+        containerWidth: 294,
+        minWidths: minWidths,
+      );
+      expect(result.tableWidth, closeTo(294, 0.01));
+      expect(
+        result.columnWidths.fold(0.0, (a, b) => a + b),
+        closeTo(294, 0.01),
+      );
+      for (var c = 0; c < 4; c++) {
+        expect(
+          result.columnWidths[c],
+          greaterThanOrEqualTo(minWidths[c] - 0.01),
+        );
+      }
+    });
+
     test('空表返回零宽不崩溃', () {
       final result = TableMeasurer.measureColumns(
         naturalWidths: const [],
