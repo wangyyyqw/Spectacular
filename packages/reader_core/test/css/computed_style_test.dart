@@ -97,6 +97,55 @@ void main() {
     );
   });
 
+  test('Flex grow/shrink/basis 与 flex 简写解算', () {
+    final longhands = style(
+      'p',
+      'p { flex-grow: 2; flex-shrink: 0.5; flex-basis: 30%; }',
+    );
+    expect(longhands.flexGrow, 2);
+    expect(longhands.flexShrink, 0.5);
+    expect(longhands.flexBasis.isPercent, isTrue);
+    expect(longhands.flexBasis.value, 30);
+
+    final shorthand = style('p', 'p { flex: 1 2 40px; }');
+    expect(shorthand.flexGrow, 1);
+    expect(shorthand.flexShrink, 2);
+    expect(shorthand.flexBasis.value, 40);
+
+    final single = style('p', 'p { flex: 3; }');
+    expect(single.flexGrow, 3);
+    expect(single.flexShrink, 1);
+    expect(single.flexBasis.value, 0);
+    expect(single.flexBasis.isPercent, isTrue);
+
+    final none = style('p', 'p { flex: none; }');
+    expect(none.flexGrow, 0);
+    expect(none.flexShrink, 0);
+    expect(none.flexBasis.isAuto, isTrue);
+
+    final content = style('p', 'p { flex-basis: content; }');
+    expect(content.flexBasis.isAuto, isTrue);
+    expect(content.flexBasisIsContent, isTrue);
+
+    final negative = style('p', 'p { flex-basis: -20px; }');
+    expect(negative.flexBasis.isAuto, isTrue);
+    expect(style('p', 'p { flex: 1 1 -20px; }').flexGrow, 0);
+
+    final longhandWins = style(
+      'p',
+      'p { flex: 1 1 20px; } p { flex-grow: 3; }',
+    );
+    expect(longhandWins.flexGrow, 3);
+    expect(longhandWins.flexBasis.value, 20);
+
+    final shorthandWins = style(
+      'p',
+      'p { flex-grow: 3; } p { flex: 1 2 20px; }',
+    );
+    expect(shorthandWins.flexGrow, 1);
+    expect(shorthandWins.flexShrink, 2);
+  });
+
   test('font-size 的 px/em/%/pt/rem 换算', () {
     final parent = style('parent', 'div { font-size: 20px; }');
     expect(parent.fontSize, 20);

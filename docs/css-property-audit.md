@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **0** |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（98 + 44） |
-| `tool/css_parity/cases/` | 90 个用例（编号 01–93，缺 65、85、87） |
+| `tool/css_parity/cases/` | 91 个用例（编号 01–94，缺 65、85、87） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -49,7 +49,10 @@
 > 竖排 `text-overflow`、`overflow-wrap`：内联轴改按声明高度（列长）约束，
 > `vertical-rl` 声明宽从内容盒右缘起排；几何/样式失配为 0。`content: url()` 已接入伪元素
 > 行内图片链路：相对地址按书内资源解析，宽高读取伪元素计算样式；组合文本、
-> 前后图片与偏移重映射由章节源回归锁定。覆盖率与剩余属性名以
+> 前后图片与偏移重映射由章节源回归锁定。`94-flex-grow-shrink-basis`
+> 覆盖 `flex-grow`、`flex-shrink`、`flex-basis` 与 `flex` 简写：正/负剩余
+> 空间按 grow 系数和 shrink 加权分配，`content` 与 `auto` 区分声明宽回退，
+> 几何/样式失配为 0。覆盖率与剩余属性名以
 > `tool/css_parity/coverage.md` 的最新生成结果为准。本文的旧行号和「审计时」
 > 分类保留为历史定位信息。
 
@@ -120,7 +123,7 @@
 | vertical-align | 319 | 7 | 部分（竖排/行内复杂对齐） |
 | background-size / position / repeat | 310 / 268 / 251 | 5 | 完整 |
 | border-width / border-style | 305 / 280 | 5 | 部分（四值降级 solid） |
-| display | 221 | 5 | 部分（`flex` 单行/换行已接通；`grid` 与伸缩算法未实现） |
+| display | 221 | 5 | 部分（`flex` 单行/换行与主轴伸缩已接通；`grid` 未实现） |
 | background-attachment | 218 | 3 | 等价降级（分页器里 `fixed` 底纹 = 每页页背景，与引擎 body 背景每页重绘等价；`scroll/local` 同 `fixed`） |
 | background-image | 198 | 5 | 部分（单图层 + 渐变；无多背景） |
 | list-style-type | 182 | 5 | 部分（无 `counter()`） |
@@ -208,7 +211,7 @@
 | 36 | `background-origin` | cs:1571 | pr:2033 | 完整 | — |
 | 37 | `background-clip` | cs:1574 | pr:2020 | 部分 | `text` 降级 `padding-box`（pr:2018 注释） |
 | 38 | `background`（简写） | `_parseBackgroundShorthand` cs:4369 | pr:1821-1823 | 部分 | 不含 `attachment`、不含多背景 |
-| 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | ecs:1488 起（行/换行 Flex）；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 接通主轴/交叉轴对齐、`flex-wrap`、`gap`/`row-gap` 与 `align-content`，`grid`、grow/shrink 未实现 |
+| 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | ecs:1488 起（行/换行 Flex）；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 接通主轴/交叉轴对齐、`flex-wrap`、`gap`/`row-gap`、`align-content`、`flex-basis` 与 grow/shrink，`grid` 未实现 |
 | 40 | `position` | cs:1414（`_parsePosition` cs:4631） | bf:522；ecs:3723 | 部分 | `absolute/fixed` 完整 ★、`relative` 完整 ★；`sticky` 无效果 |
 | 41 | `top` | cs:1620（`_parseOffset` cs:5034） | pg:849 | 完整 ★ | `inset` 简写未解析 |
 | 42 | `right` | cs:1627 | pg:848 | 完整 ★ | — |
@@ -329,7 +332,7 @@ parity 用例仍为 `engine_only`。
 | 122 | `transition` / `animation` | 0 | 分页静态渲染，可长期不支持 |
 | 123 | `font-feature-settings` / `font-kerning` / `font-variant-ligatures` | 0 | `font-kerning` 已实现：`auto/normal` 保持默认，`none` 关闭 `kern` 并同步行宽测量；`font-variant-ligatures` 已实现；`font-feature-settings` 仍不支持 |
 | 124 | `box-decoration-break` | 1 / 1 | 跨页切片装饰重复语义 |
-| 125 | `justify-content` / `align-items` / `align-content` / `grid-*` / `flex-*` | 14 / 13 | `flex` 的主轴/交叉轴对齐、换行与多行分布已接入并由 90–92 用例对照；`grid`、grow/shrink 仍不支持 |
+| 125 | `justify-content` / `align-items` / `align-content` / `grid-*` / `flex-*` | 14 / 13 | `flex` 的主轴/交叉轴对齐、换行、多行分布与 grow/shrink/basis 已接入并由 90–92、94 用例对照；`grid` 仍不支持 |
 | 126 | `inset`（简写） | 0 | `inset: 0` 不生效（仅 4 个长属性可用） |
 
 > 26 行代表 44 个属性（第 105/107/110/111/113/117/119/120/123/125 行含同族多属性）。
@@ -435,7 +438,7 @@ parity 用例仍为 `engine_only`。
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **90 个用例**（编号 `01`–`93`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **91 个用例**（编号 `01`–`94`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -453,7 +456,7 @@ parity 用例仍为 `engine_only`。
 | #12 background-attachment | `82-border-image-background-attachment` | 已覆盖 body 固定底纹的等价降级 |
 | #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值、`a / b` 与百分比双半径 |
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
-| #15 flex | `90-flex-basic`、`91-flex-wrap`、`92-flex-align-content` | 已覆盖单行对齐、换行、`gap`/`row-gap` 与 `align-content` 交叉轴分布；几何/样式失配 0 |
+| #15 flex | `90-flex-basic`、`91-flex-wrap`、`92-flex-align-content`、`94-flex-grow-shrink-basis` | 已覆盖单行对齐、换行、`gap`/`row-gap`、`align-content` 与 grow/shrink/basis 主轴分配；几何/样式失配 0 |
 | #16–17 initial-letter / font-size-adjust | `45-initial-letter`、`80-font-size-adjust` | `font-size-adjust` 已有对照；`initial-letter` 由三行浮动/绕排和代理对回归锁定 |
 | #18 sticky | `53-display-position` | 已覆盖 |
 | #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
@@ -561,7 +564,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：90 用例基线 / 几何与样式失配 **0** / 未配对 **0**。
+- 最新结果（2026-10-30）：91 用例基线 / 几何与样式失配 **0** / 未配对 **0**。
   原始像素差超过 2% 的 23 组中，字体抗锯齿、亚像素定位和图片采样占主体；
   浏览器连续流对引擎单页的跨页截图标为「不适用」。把暗像素膨胀 2px 后，
   未重合墨迹超过 2% 的用例为 **0**。
@@ -582,9 +585,9 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
 - 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
 
-**收口边界**：本次结论是「当前 7 本真实语料与 90 个对照用例中的已用 CSS 面
-已收口」，不是 CSS 全规范兼容声明。`display:grid`、Flex
-`grow/shrink/basis`、`position:sticky`、精确断字词典和
+**收口边界**：本次结论是「当前 7 本真实语料与 91 个对照用例中的已用 CSS 面
+已收口」，不是 CSS 全规范兼容声明。`display:grid`、
+`position:sticky`、精确断字词典和
 `font-feature-settings` 仍不在此次实现范围内；`backdrop-filter` 仍按页面背景
 近似。新增真实书语料或多个背景、3D transform 等路径时，需要重新扩展用例与
 审计结论。

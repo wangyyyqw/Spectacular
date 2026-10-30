@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 90 组用例（编号 01–93，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
+当前 91 组用例（编号 01–94，缺 65、85、87），覆盖文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（90 组）
+## 用例清单（91 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -130,8 +130,9 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 91 | flex-wrap | 多行 Flex 的换行分组、行高累计与 `column-gap` |
 | 92 | flex-align-content | 多行 Flex 的 `align-content`、`row-gap` 与 `gap` 简写 |
 | 93 | vertical-overflow | 竖排 `text-overflow: ellipsis`、`break-word` 按声明高度（列长）截断/分列 |
+| 94 | flex-grow-shrink-basis | 单行 Flex 的 `flex-grow`、`flex-shrink`、`flex-basis` 与 `flex` 简写 |
 
-浏览器渲染：90/90 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：91/91 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
 属性，或 Range/分页口径无法直接对照；`compare.py` 只记录引擎几何与期望值，
 不计失配，也不把截图纳入自动视觉判定。
@@ -141,7 +142,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 `coverage.py` 从 `docs/css-property-audit.md`（116 条审计：A 组解析且消费 /
 C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立属性清单，
 再扫 `cases/*.json` 的 css 与 html（含内联 style）判断声明是否存在，输出
-`coverage.md`（幂等，可重复运行）。当前 90 个用例的覆盖情况：
+`coverage.md`（幂等，可重复运行）。当前 91 个用例的覆盖情况：
 
 | 分组 | 属性数 | 已覆盖 | 覆盖率 |
 | --- | --- | --- | --- |
@@ -158,7 +159,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   `top/right/bottom/left`（C 组占位属性），所以它「首次覆盖」的条目较多；
   逐条清单见 `coverage.md` 第 4 节。
 - A 组已完成 `font-variant-caps` 单独对照并清零；C 组也已清零。其余 17 个未覆盖
-  属性名在 D 组，`coverage.md` 按 93+ 编号给出
+  属性名在 D 组，`coverage.md` 按 95+ 编号给出
   排期建议。
 - 未覆盖的主体是分页阅读器无交互面或明确降级的属性；具体 17 个属性名、
   审计分组和建议编号以最新 `coverage.md` 为准，避免 README 与脚本结果漂移。
@@ -216,7 +217,8 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 ### 样式与属性维度
 
 - 样式比对项：font-size、line-height、letter-spacing、word-spacing、text-indent、
-  font-weight、text-align、white-space、text-transform、box-sizing、vertical-align。
+  font-weight、text-align、white-space、text-transform、box-sizing、vertical-align、
+  flex-grow、flex-shrink、flex-basis。
   浏览器 computed 为 `normal` 的 line-height、以及保留百分比的值（如 `text-indent:10%`）
   跳过数值比对，由几何反映；枚举值按 kebab-case 归一后比较。
 - 行内 run：多 run 块导出每段文本的字重/斜体/字号，`compare.py` 按 run 文本到
@@ -339,9 +341,9 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
     与 CJK。混合字号不再让 Skia 撑高行盒，CSS 行高按该行所有行内盒取最大值；
     `font-variant-caps` 用例几何/样式失配 0，视觉差异 1.83% 来自字体栅格。
 
-## 当前收敛状态（90 用例基线：失配 0 / 未配对 0 / 形状显著差异 0）
+## 当前收敛状态（91 用例基线：失配 0 / 未配对 0 / 形状显著差异 0）
 
-> 90 用例数字来自 2026-10-30 全量重跑（render_browser + dump + compare）。
+> 91 用例数字来自 2026-10-30 全量重跑（render_browser + dump + compare）。
 > 文字块、表格标题、空装饰盒和图片占位均已配对；几何与关键样式失配清零。
 > 原始像素差超过 2% 的 23 组中，字体抗锯齿、亚像素定位和图片采样占主体；
 > 跨页用例的浏览器连续流截图与引擎单页截图范围不同，工具标记为「不适用」。

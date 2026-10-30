@@ -546,6 +546,9 @@ STYLE_KEYS = (
     ('overflowWrap', 'overflowWrap', 'enum'),
     ('listStylePosition', 'listStylePosition', 'enum'),
     ('columnCount', 'columnCount', 'number'),
+    ('flexGrow', 'flexGrow', 'number'),
+    ('flexShrink', 'flexShrink', 'number'),
+    ('flexBasis', 'flexBasis', 'length_json'),
 )
 
 
@@ -580,11 +583,32 @@ def compare_style(browser_style, engine_style):
             a = norm_number(str(left).strip().removesuffix('%'))
             b = norm_number(str(right).strip().removesuffix('%'))
             equal = a is not None and b is not None and abs(a - b) <= STYLE_EPS
+        elif kind == 'length_json':
+            equal = length_json_equal(left, right)
         else:
             equal = norm_enum(left) == norm_enum(right)
         if not equal:
             problems.append(f'{e_key}: 浏览器 {left} / 引擎 {right}')
     return problems
+
+
+def length_json_equal(browser_value, engine_value):
+    """比较浏览器 CSS 长度字符串与引擎结构化的 value/percent/auto。"""
+    browser = str(browser_value).strip().lower()
+    if not isinstance(engine_value, dict):
+        return browser == str(engine_value).strip().lower()
+    if browser == 'auto':
+        return bool(engine_value.get('auto'))
+    match = re.fullmatch(r'(-?(?:\d+(?:\.\d*)?|\.\d+))(px|%)', browser)
+    if match is None:
+        return browser == str(engine_value).strip().lower()
+    value = norm_number(match.group(1))
+    engine_number = norm_number(engine_value.get('value'))
+    if value is None or engine_number is None:
+        return False
+    return (
+        match.group(2) == '%'
+    ) == bool(engine_value.get('percent')) and abs(value - engine_number) <= STYLE_EPS
 
 
 def compare_transform(browser_style, engine_style):
