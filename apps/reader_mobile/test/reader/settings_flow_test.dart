@@ -9,7 +9,9 @@ import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/panels/tap_zone_editor.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/tap_zones.dart';
 
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
@@ -137,6 +139,84 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.margins, margins);
     expect(reloaded.margins!.top, 14, reason: '外段归零后只剩内段');
+  });
+
+  test('九宫格点击区域持久化往返，损坏数据回落默认', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+
+    expect((await store.load()).tapZones, ReaderTapZones.defaults);
+    final zones = ReaderTapZones.defaults
+        .withAction(ReaderTapZone.middleLeft, ReaderTapAction.nextPage)
+        .withAction(ReaderTapZone.middleRight, ReaderTapAction.openMenu);
+    await store.save(ReaderSettings.defaults.copyWithTapZones(zones));
+    expect((await store.load()).tapZones, zones);
+
+    await library.setSetting(ReaderSettingsStore.keyTapZones, '{bad json');
+    expect((await store.load()).tapZones, ReaderTapZones.defaults);
+  });
+
+  test('修改排版不会重置九宫格点击区域', () {
+    final zones = ReaderTapZones.defaults.withAction(
+      ReaderTapZone.center,
+      ReaderTapAction.none,
+    );
+    final settings = ReaderSettings.defaults.copyWithTapZones(zones);
+    final changed = settings.copyWithOverrides(
+      settings.overrides.copyWith(fontSize: 21),
+    );
+    expect(changed.tapZones, zones);
+    expect(changed.fontSize, 21);
+  });
+
+  testWidgets('设置入口可编辑九宫格并立即生效', (tester) async {
+    final source = await openTestChapterSource(_corpusBook('basic.epub'));
+    late ReaderSession session;
+    ReaderTapZones? applied;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 520,
+              child: ReaderPage(
+                source: source,
+                store: MemoryReaderProgressStore(),
+                bookId: 'tap-zones',
+                onSessionReady: (value) => session = value,
+                onTapZonesChanged: (zones) => applied = zones,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(await session.next(), isTrue);
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
+    await tester.pumpAndSettle();
+    expect(find.byType(TapZoneEditor), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('tap-zone-topLeft')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('tap-zone-topLeft')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('tap-zone-apply')));
+    await tester.pumpAndSettle();
+    expect(applied?.actionAt(ReaderTapZone.topLeft), ReaderTapAction.openMenu);
+
+    final rect = tester.getRect(find.byType(ReaderView));
+    await tester.tapAt(Offset(rect.left + 4, rect.top + rect.height * 0.15));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsPanel), findsOneWidget);
   });
 
   testWidgets('边距调节器拖动实时预览，取消后恢复（P8-10）', (tester) async {

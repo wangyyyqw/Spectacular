@@ -5,6 +5,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/tap_zones.dart';
 
 import '../library/library_store.dart';
 
@@ -20,6 +21,7 @@ class ReaderSettings {
     this.backgroundId = 'none',
     this.inkMode = false,
     this.margins,
+    this.tapZones = ReaderTapZones.defaults,
   });
 
   /// 字号。
@@ -45,6 +47,9 @@ class ReaderSettings {
 
   /// 页边距（P8-10 边距调节器）；null 表示用默认 padding + 系统安全区。
   final ReaderMargins? margins;
+
+  /// 九宫格点击区域。
+  final ReaderTapZones tapZones;
 
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
@@ -81,6 +86,21 @@ class ReaderSettings {
     themeId: themeId,
   );
 
+  /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
+  ReaderSettings copyWithOverrides(ReaderOverrides value) => ReaderSettings(
+    fontSize: value.fontSize ?? ReaderSettingsDefaults.fontSize,
+    lineHeight: value.lineHeight ?? ReaderSettingsDefaults.lineHeight,
+    paragraphSpacing:
+        value.paragraphSpacing ?? ReaderSettingsDefaults.paragraphSpacing,
+    horizontalPadding:
+        value.padding?.left ?? ReaderSettingsDefaults.horizontalPadding,
+    themeId: themeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    tapZones: tapZones,
+  );
+
   /// 复制并替换主题。
   ReaderSettings copyWithTheme(String id) => ReaderSettings(
     fontSize: fontSize,
@@ -91,6 +111,7 @@ class ReaderSettings {
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: margins,
+    tapZones: tapZones,
   );
 
   /// 复制并替换背景。
@@ -103,6 +124,7 @@ class ReaderSettings {
     backgroundId: id,
     inkMode: inkMode,
     margins: margins,
+    tapZones: tapZones,
   );
 
   /// 复制并替换墨水屏开关。
@@ -115,6 +137,7 @@ class ReaderSettings {
     backgroundId: backgroundId,
     inkMode: enabled,
     margins: margins,
+    tapZones: tapZones,
   );
 
   /// 复制并替换页边距。
@@ -127,6 +150,20 @@ class ReaderSettings {
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: value,
+    tapZones: tapZones,
+  );
+
+  /// 复制并替换九宫格点击区域。
+  ReaderSettings copyWithTapZones(ReaderTapZones value) => ReaderSettings(
+    fontSize: fontSize,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    tapZones: value,
   );
 
   @override
@@ -139,7 +176,8 @@ class ReaderSettings {
       other.themeId == themeId &&
       other.backgroundId == backgroundId &&
       other.inkMode == inkMode &&
-      other.margins == margins;
+      other.margins == margins &&
+      other.tapZones == tapZones;
 
   @override
   int get hashCode => Object.hash(
@@ -151,6 +189,7 @@ class ReaderSettings {
     backgroundId,
     inkMode,
     margins,
+    tapZones,
   );
 }
 
@@ -173,6 +212,9 @@ class ReaderSettingsStore {
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyInkMode = 'reader.inkMode';
 
+  /// 九宫格点击区域（JSON）。
+  static const String keyTapZones = 'reader.tapZones';
+
   /// 读取设置（缺失或非法值回落到默认）。
   Future<ReaderSettings> load() async {
     return ReaderSettings(
@@ -190,6 +232,7 @@ class ReaderSettingsStore {
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
       margins: _readMargins(await _library.getSetting(keyMargins)),
+      tapZones: _readTapZones(await _library.getSetting(keyTapZones)),
     );
   }
 
@@ -203,6 +246,18 @@ class ReaderSettingsStore {
       return ReaderMargins.fromJson(jsonDecode(raw));
     } catch (_) {
       return null;
+    }
+  }
+
+  /// 读取九宫格 JSON（缺失或损坏时用默认布局）。
+  static ReaderTapZones _readTapZones(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return ReaderTapZones.defaults;
+    }
+    try {
+      return ReaderTapZones.fromJson(jsonDecode(raw));
+    } catch (_) {
+      return ReaderTapZones.defaults;
     }
   }
 
@@ -231,6 +286,10 @@ class ReaderSettingsStore {
     await _library.setSetting(
       keyMargins,
       margins == null ? '' : jsonEncode(margins.toJson()),
+    );
+    await _library.setSetting(
+      keyTapZones,
+      jsonEncode(settings.tapZones.toJson()),
     );
   }
 

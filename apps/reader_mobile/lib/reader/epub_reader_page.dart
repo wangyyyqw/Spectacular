@@ -190,12 +190,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       backgroundId: settings.backgroundId,
       inkMode: settings.inkMode,
       onOverridesChanged: (overrides) => widget.onSettingsChanged?.call(
-        ReaderSettings.fromOverrides(
-          overrides,
-          themeId: settings.themeId,
-          backgroundId: settings.backgroundId,
-      inkMode: settings.inkMode,
-        ),
+        settings.copyWithOverrides(overrides),
       ),
       onThemeChanged: (themeId) => widget.onSettingsChanged?.call(
         settings.copyWithTheme(themeId),
@@ -210,6 +205,10 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       bookTitle: widget.bookTitle,
       margins: settings.margins,
       onMarginsChanged: widget.onMarginsChanged,
+      tapZones: settings.tapZones,
+      onTapZonesChanged: (zones) => widget.onSettingsChanged?.call(
+        settings.copyWithTapZones(zones),
+      ),
       onLog: (event, fields) => unawaited(
         ReaderLog.instance.log(event, fields: fields),
       ),

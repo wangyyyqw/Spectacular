@@ -5,6 +5,7 @@ export 'package:reader_core/api.dart';
 
 export 'page_cache.dart';
 export 'reader_view.dart';
+export 'tap_zones.dart';
 export 'virtual_pager.dart';
 export 'reader_session.dart';
 export 'reader_page.dart';
