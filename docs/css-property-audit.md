@@ -15,7 +15,7 @@
 | **有字段但零消费（占位式）** | **0** |
 | **无字段、仅留在 `values`** | D 组变体条目；逐项状态见 3.4（多数已接入、等价降级或明确不支持） |
 | 本文覆盖的属性条目 | **142**（98 + 44） |
-| `tool/css_parity/cases/` | 86 个用例（编号 01–89，缺 65、85、87） |
+| `tool/css_parity/cases/` | 87 个用例（编号 01–90，缺 65、85、87） |
 
 **本轮（第 1 版 → 第 2 版）的主要变化**：18 个属性从「占位/未处理」推进到真实消费（`writing-mode`、`columns` 族、inset、`display:inline-block`、`hyphens`/`word-break`/`overflow-wrap`、`font-variant`、`direction`、`overflow`、`transform` 2D、`filter`、渐变、`border-collapse`/`border-spacing`、`list-style-position`、逻辑属性、`opacity` 组合成等）；第 1 版的 Top #1（`font-weight: bolder` 失效导致 `<b>/<strong>` 不加粗）已修复。对照表见第 1 章。
 
@@ -118,7 +118,7 @@
 | vertical-align | 319 | 7 | 部分（竖排/行内复杂对齐） |
 | background-size / position / repeat | 310 / 268 / 251 | 5 | 完整 |
 | border-width / border-style | 305 / 280 | 5 | 部分（四值降级 solid） |
-| display | 221 | 5 | 部分（`flex` 未实现） |
+| display | 221 | 5 | 部分（单行 `flex` 已接通；`grid`、多行与伸缩算法未实现） |
 | background-attachment | 218 | 3 | 等价降级（分页器里 `fixed` 底纹 = 每页页背景，与引擎 body 背景每页重绘等价；`scroll/local` 同 `fixed`） |
 | background-image | 198 | 5 | 部分（单图层 + 渐变；无多背景） |
 | list-style-type | 182 | 5 | 部分（无 `counter()`） |
@@ -140,7 +140,7 @@
 | max-width / table-layout / box-sizing | 21 / 21 / 20 | 2-4 | 完整 |
 | border-spacing | 19 | 1 | 完整（本轮接通） |
 | top / left / bottom / right | 16 / 15 / 10 / 8 | 3-4 | 完整（本轮接通） |
-| justify-content / align-items | 14 / 13 | 4 / 3 | 未处理（`flex` 容器） |
+| justify-content / align-items | 14 / 13 | 4 / 3 | 完整（语料仅用于单行 `flex`；主轴六种对齐、交叉轴起止/居中） |
 | word-break | 12 | 5 | 完整（本轮接通） |
 | page-break-before / after | 13 / 11 | 5 / 4 | 完整 |
 | border-image | 11 | 3 | 完整（本轮接通九宫格：切割/repeat/fill；真书里这些规则定义了但未引用） |
@@ -206,7 +206,7 @@
 | 36 | `background-origin` | cs:1571 | pr:2033 | 完整 | — |
 | 37 | `background-clip` | cs:1574 | pr:2020 | 部分 | `text` 降级 `padding-box`（pr:2018 注释） |
 | 38 | `background`（简写） | `_parseBackgroundShorthand` cs:4369 | pr:1821-1823 | 部分 | 不含 `attachment`、不含多背景 |
-| 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | bf:528-540；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 仍退化为 block |
+| 39 | `display` | cs:1416（`_parseDisplay` cs:5188） | ecs:1488 起（单行 Flex）；pg:1121 | 部分 | `inline-block` 完整 ★；`flex` 接通单行主轴/交叉轴对齐，`grid`、换行与 grow/shrink 未实现 |
 | 40 | `position` | cs:1414（`_parsePosition` cs:4631） | bf:522；ecs:3723 | 部分 | `absolute/fixed` 完整 ★、`relative` 完整 ★；`sticky` 无效果 |
 | 41 | `top` | cs:1620（`_parseOffset` cs:5034） | pg:849 | 完整 ★ | `inset` 简写未解析 |
 | 42 | `right` | cs:1627 | pg:848 | 完整 ★ | — |
@@ -275,7 +275,7 @@
 | --- | --- | --- |
 | 值解析不全/降级 | `border-style`(19) | 非 solid 四值画成实线 |
 | 只实现一种上下文 | `line-height`(2)、`text-decoration`(55)、`text-overflow`(91)、`vertical-align`(69)、`text-emphasis-position`(66)、`writing-mode`(78)、`hyphens`(81)、`initial-letter`(98) | 竖排/多列/行盒语境下失真；首字绕排只覆盖常规横排普通段落 |
-| 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`position`(40)、`text-orientation`(79) | 落到默认分支（`flex`→block、`sticky`→static） |
+| 只实现部分枚举 | `text-justify`(61)、`hanging-punctuation`(62)、`text-spacing-trim`(63)、`text-autospace`(64)、`display`(39)、`position`(40)、`text-orientation`(79) | 未实现值落到默认分支（`grid`、`sticky` 等） |
 | 简写丢成员 | `font`(7)、`background`(38)、`list-style-type`(49) | `background-attachment` 等价降级、`counter()` 已支持 |
 | 绘制近似 | `background-image`(31)、`background-clip`(37)、`transform`(76) | 多背景不支持、`clip:text` 降级、无 3D |
 
@@ -327,7 +327,7 @@ parity 用例仍为 `engine_only`。
 | 122 | `transition` / `animation` | 0 | 分页静态渲染，可长期不支持 |
 | 123 | `font-feature-settings` / `font-kerning` / `font-variant-ligatures` | 0 | `font-kerning` 已实现：`auto/normal` 保持默认，`none` 关闭 `kern` 并同步行宽测量；`font-variant-ligatures` 已实现；`font-feature-settings` 仍不支持 |
 | 124 | `box-decoration-break` | 1 / 1 | 跨页切片装饰重复语义 |
-| 125 | `justify-content` / `align-items` / `grid-*` / `flex-*` | 14 / 13 | `flex`/`grid` 容器（`display:flex` 已退化为 block） |
+| 125 | `justify-content` / `align-items` / `grid-*` / `flex-*` | 14 / 13 | 单行 `flex` 的 `justify-content`/`align-items` 已接入并由 90 用例对照；`grid`、换行与 grow/shrink 仍不支持 |
 | 126 | `inset`（简写） | 0 | `inset: 0` 不生效（仅 4 个长属性可用） |
 
 > 26 行代表 44 个属性（第 105/107/110/111/113/117/119/120/123/125 行含同族多属性）。
@@ -406,7 +406,7 @@ parity 用例仍为 `engine_only`。
 | 12 | `background-attachment` | ~~P2~~ 已完成 | 218 次 / 3 本；分页介质下 `fixed` 等价为每页页背景，已由 `82` 用例对照验收 | — | — |
 | 13 | `border-radius` 椭圆（`a / b`）与百分比 | ~~P1~~ 已完成 | 解析横向/纵向双半径；百分比横向按盒宽、纵向按盒高，绘制为四角椭圆 | — | — |
 | 14 | `border-style` 3D 线型 | ~~P2~~ 已完成 | 解析保留原值 + `_paintSide` 画外/内两半明暗 | — | — |
-| 15 | `display: flex` + `justify-content`/`align-items` | P2 | `bf:528` 无 flex 分支；221/5 + 14/4 + 13/3 | L | `block_flow.dart`（新增 flex 分派） |
+| 15 | `display: flex` + `justify-content`/`align-items` | ~~P2~~ 已完成（单行） | 221/5 + 14/4 + 13/3；语料集中在头像/封面的单行居中 | — | `epub_chapter_source.dart`（单行 Flex 行块）+ `computed_style.dart` |
 | 16 | `initial-letter` 完整多行绕排 | ~~P2~~ 已完成 | 首字浮动占 n 行，正文前 n 行绕排；两值下沉深度和自动字号保留近似 | — | — |
 | 17 | `font-size-adjust` 字号补偿 | ~~P2~~ 已完成 | `TextLayoutEngine.textStyleFor` 按字体 x-height 比例补偿字号；内置宋体和书籍字体注册真实度量 | — | — |
 | 18 | `sticky` 定位无效果 | P2 | `cs:4631` 能解析出 `sticky`，`bf:522` 只处理 absolute/fixed | M | `block_flow.dart`、`paginator.dart` |
@@ -433,7 +433,7 @@ parity 用例仍为 `engine_only`。
 
 ## 7. 与 parity 用例对照
 
-`tool/css_parity/cases/` 现有 **86 个用例**（编号 `01`–`89`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
+`tool/css_parity/cases/` 现有 **87 个用例**（编号 `01`–`90`，缺 65、85、87）。用例是靶子不是结论：里面的声明跑出来必然有差异，正好当回归。
 
 | Top 19 | 现有用例 | 覆盖判断 |
 | --- | --- | --- |
@@ -451,12 +451,12 @@ parity 用例仍为 `engine_only`。
 | #12 background-attachment | `82-border-image-background-attachment` | 已覆盖 body 固定底纹的等价降级 |
 | #13 椭圆 radius | `24-border-radius-corners`、`50/51-radius-longhand-*` | 已覆盖多值、`a / b` 与百分比双半径 |
 | #14 border-style 四值 | `25-border-style-all` | 已覆盖 |
-| #15 flex | **无**（`53-display-position` 只覆盖 display/position） | 建议新增 `72-flex-basic.json` |
+| #15 flex | `90-flex-basic` | 已覆盖 `center`/`space-between`/`flex-end`、`align-items` 起止/居中，以及背景图、`img` 子项；几何/样式失配 0，截图差异 0.41% 来自图片采样 |
 | #16–17 initial-letter / font-size-adjust | `45-initial-letter`、`80-font-size-adjust` | `font-size-adjust` 已有对照；`initial-letter` 由三行浮动/绕排和代理对回归锁定 |
 | #18 sticky | `53-display-position` | 已覆盖 |
 | #19 orphans/widows | 不适用 | 产品决策不做孤行/寡行控制，不补用例 |
 
-**当前还缺的对照面**：`flex`；竖排 ruby 已加入 77 用例但仍为 `engine_only`
+**当前还缺的对照面**：Flex 换行、`grow/shrink` 与 `grid`；竖排 ruby 已加入 77 用例但仍为 `engine_only`
 （注音行高口径未稳定），`counter-*` 已由 78 用例覆盖，`border-image` 与
 `background-attachment` 已由 82 用例对照。
 
@@ -541,14 +541,14 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
-| 已实现并接入绘制/布局 | 110 | 含 `quotes`、`z-index`、`ruby-position`/`ruby-align`、`border-image`、`font-size-adjust`、`text-combine-upright`、`backdrop-filter`、`caption-side`/`empty-cells`、百分比圆角、3D 边框、`counter-*`、`object-fit`、`outline`；部分条目仍有第 9 章列出的已知差异 |
+| 已实现并接入绘制/布局 | 111 | 含 `quotes`、`z-index`、`ruby-position`/`ruby-align`、`border-image`、`font-size-adjust`、`text-combine-upright`、`backdrop-filter`、`caption-side`/`empty-cells`、百分比圆角、3D 边框、`counter-*`、`object-fit`、`outline`、单行 Flex；部分条目仍有第 9 章列出的已知差异 |
 | 有字段但尚未消费 | 0 | 已清零；`initial-letter` 已由章节源生成首字下沉 run |
 | 明确不需要（阅读器无交互面） | 9 | `cursor`、`user-select`、`resize`、`will-change`、`contain`、`scrollbar-width`、`-ms-overflow-style`、`box-decoration-break`（分页切片已在 `Paginator` 侧处理）、`object-position`（图片块恒居中） |
-| 分页介质下等价降级 | 3 | `background-attachment`（每页重绘页背景）、`justify-content`/`align-items`（语料仅用于 `.custom-cover` 的整页图居中，引擎满屏 contain 路径等价） |
+| 分页介质下等价降级 | 2 | `background-attachment`（每页重绘页背景） |
 | 已知差异，不追平 | 7 | `hyphens`（近似音节 vs Chrome 词典）、`text-autospace`/`text-spacing-trim`（CSS Text 4 新默认，Chrome 149 未实现）、`text-overflow` 断点、`line-height: normal` 取整、`border-collapse` 半边框、`font-variant` 合成 small-caps（对内置宋体收益为负）、`initial-letter` 两值下沉深度与自动字号近似 |
 | 已补完的近期缺口 | 3 | `tab-size`（制表位展开）、`line-break`（`anywhere` 接入软断行）、`mix-blend-mode`（画布混合） |
 
-**覆盖率口径**：`tool/css_parity/cases` 声明的属性 149/168（88.7%，用例只覆盖能在
+**覆盖率口径**：`tool/css_parity/cases` 声明的属性 151/168（89.9%，用例只覆盖能在
 350×800 静态页里量化的属性）；本表才是「实现状态」口径。
 
 **技术限制**：`backdrop-filter` 的 backdrop 用「页面背景」近似（纯 Canvas 无法
@@ -559,7 +559,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 逐属性对照：`node tool/css_parity/render_browser.mjs`；
   `cd apps/reader_mobile && CSS_PARITY=1 flutter test test/css_parity/parity_dump_test.dart`；
   `/usr/bin/python3 tool/css_parity/compare.py`
-- 最新结果（2026-10-30）：86 用例基线 / 几何与样式失配 **0** / 未配对 15 项；
+- 最新结果（2026-10-30）：87 用例基线 / 几何与样式失配 **0** / 未配对 15 项；
   部分截图差异超过 2%，逐图复核后归因于字体栅格、断行或分页截图口径。
   `43-multipage-table` 的表格在第 2 页且 9 个单元格误差均不超过 2px；
   `74-outline` 修复直角轮廓被错误圆角化，已补像素回归。

@@ -1390,7 +1390,7 @@ class EpubChapterSource
     if (sizeInitialLetter && hasInitialLetter) {
       // `initial-letter: n` 的首值表示占用 n 行；用绝对行高让首行精确
       // 让出 n 倍正文行距。两值写法的下沉行数暂按首值近似。
-      final extent = baseStyle.lineHeight * initialLetterLines!;
+      final extent = baseStyle.lineHeight * initialLetterLines;
       // 字形实际墨高可能大于 line-height；略收小字号，避免字体度量的
       // ascent+descent 把浮动盒撑过 n 行、多挤掉一行正文。
       declarations.putIfAbsent('font-size', () => '${extent * 0.85}px');
@@ -1481,6 +1481,186 @@ class EpubChapterSource
         style.cssFloat == CssFloat.none &&
         style.position == CssPosition.static &&
         style.writingMode == CssWritingMode.horizontalTb;
+  }
+
+  /// 单行 Flex 容器：只在 flat 管线内排主轴位置，不引入完整 Flex 算法。
+  ///
+  /// 真书目前只用 `display:flex` 做头像/封面的单行居中。这里把每个直接
+  /// 子项映射成表格单元格载荷，复用其文本、背景图、边框和垂直对齐绘制；
+  /// `flex-direction: column` 以及换行仍走原块流，避免制造伪支持。
+  static PageBlock? _flexRowBlock({
+    required ComputedStyle containerStyle,
+    required double containerWidth,
+    required List<List<PageBlock>> items,
+    required double containingWidth,
+    required double pageContentHeight,
+    int groupId = 0,
+  }) {
+    final members = <PageBlock>[
+      for (final item in items)
+        for (final block in item) block,
+    ];
+    if (members.isEmpty) {
+      return null;
+    }
+
+    double horizontalInset(PageBlock block) {
+      final style = block.style;
+      if (style == null) {
+        return 0;
+      }
+      return style.padding.horizontal +
+          style.borders.left.width +
+          style.borders.right.width;
+    }
+
+    // Flex 子项未声明 width 时按内容收缩，不能沿用块流测出的整行可用宽。
+    double intrinsicContentWidth(PageBlock block) {
+      final available = block.layout.maxWidth.isFinite
+          ? block.layout.maxWidth
+          : block.layout.width;
+      final style = block.style;
+      if (style?.width != null) {
+        return BoxModel.fromStyle(
+          style!,
+          containingWidth: containingWidth,
+        ).resolveContentWidth(containerWidth);
+      }
+      if (block.table != null) {
+        return available;
+      }
+      final measured = block.layout.width;
+      return measured.isFinite && measured > 0
+          ? math.min(measured, available)
+          : available;
+    }
+
+    final itemWidths = <double>[];
+    final itemHeights = <double>[];
+    for (final item in items) {
+      var width = 0.0;
+      var height = 0.0;
+      for (final block in item) {
+        final style = block.style;
+        final contentWidth = intrinsicContentWidth(block);
+        final borderWidth = contentWidth + horizontalInset(block);
+        final marginWidth =
+            (style?.margin.left ?? 0) + (style?.margin.right ?? 0);
+        width = math.max(width, borderWidth + marginWidth);
+        height +=
+            block.spaceBefore +
+            block.topInset +
+            block.height +
+            block.bottomInset +
+            block.spaceAfter;
+      }
+      itemWidths.add(width);
+      itemHeights.add(height);
+    }
+
+    final declaredHeight =
+        BoxModel.fromStyle(
+          containerStyle,
+          containingWidth: containingWidth,
+        ).resolveContentHeight(
+          itemHeights.fold(0.0, math.max),
+          containingHeight: pageContentHeight,
+        );
+    final rowHeight = math.max(declaredHeight, itemHeights.fold(0.0, math.max));
+    final gap = math.max(0.0, containerStyle.columnGap ?? 0.0);
+    final itemsWidth =
+        itemWidths.fold(0.0, (sum, width) => sum + width) +
+        gap * math.max(0, items.length - 1);
+    final free = math.max(0.0, containerWidth - itemsWidth);
+
+    var cursor = switch (containerStyle.justifyContent) {
+      CssJustifyContent.flexEnd => free,
+      CssJustifyContent.center => free / 2,
+      _ => 0.0,
+    };
+    final distributedGap = switch (containerStyle.justifyContent) {
+      CssJustifyContent.spaceBetween when items.length > 1 =>
+        free / (items.length - 1),
+      CssJustifyContent.spaceAround when items.isNotEmpty =>
+        free / items.length,
+      CssJustifyContent.spaceEvenly => free / (items.length + 1),
+      _ => 0.0,
+    };
+    if (containerStyle.justifyContent == CssJustifyContent.spaceAround) {
+      cursor = distributedGap / 2;
+    } else if (containerStyle.justifyContent == CssJustifyContent.spaceEvenly) {
+      cursor = distributedGap;
+    }
+
+    final cells = <TableCellRender>[];
+    for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
+      final item = items[itemIndex];
+      final itemWidth = itemWidths[itemIndex];
+      final itemHeight = itemHeights[itemIndex];
+      final crossOffset = switch (containerStyle.alignItems) {
+        CssAlignItems.flexEnd => math.max(0.0, rowHeight - itemHeight),
+        CssAlignItems.center => math.max(0.0, (rowHeight - itemHeight) / 2),
+        _ => 0.0,
+      };
+      var itemY = crossOffset;
+      for (final block in item) {
+        final style = block.style ?? containerStyle;
+        itemY += block.spaceBefore;
+        final borderWidth =
+            intrinsicContentWidth(block) + horizontalInset(block);
+        final borderHeight = block.topInset + block.height + block.bottomInset;
+        final left = cursor + (style.margin.left);
+        cells.add(
+          TableCellRender(
+            row: itemIndex,
+            rect: Rect.fromLTWH(
+              left,
+              itemY,
+              math.min(borderWidth, containerWidth),
+              borderHeight,
+            ),
+            layout: block.layout,
+            style: style,
+          ),
+        );
+        itemY += borderHeight + block.spaceAfter;
+      }
+      cursor += itemWidth + gap + distributedGap;
+    }
+
+    final text = members.map((block) => block.layout.text).join();
+    final layout = TextLayoutResult(
+      text: text,
+      lines: [
+        LineBox(
+          start: 0,
+          end: text.length,
+          top: 0,
+          height: rowHeight,
+          baseline: rowHeight,
+          width: containerWidth,
+        ),
+      ],
+      width: containerWidth,
+      height: rowHeight,
+      maxWidth: containerWidth,
+      runs: const <StyledRun>[],
+    );
+    return PageBlock.styled(
+      layout: layout,
+      style: containerStyle,
+      containingWidth: containingWidth,
+      groupId: groupId,
+      startCfi: members.first.startCfi,
+      endCfi: members.last.endCfi,
+      table: TableRenderSpec(
+        cells: cells,
+        columnXs: const <double>[0],
+        rowYs: <double>[0, rowHeight],
+        tableWidth: containerWidth,
+        flex: true,
+      ),
+    );
   }
 
   /// 普通分页默认闭合带框容器；作者的显式 slice 优先。
@@ -5670,9 +5850,13 @@ class EpubChapterSource
         var childContainerFloatWidth = containerFloatWidth;
         var childContainerFloatGroup = containerFloatGroup;
         final selfStyle = chainStyle(childAncestors);
+        final isFlexRow =
+            selfStyle.display == CssDisplay.flex &&
+            selfStyle.flexDirection == CssFlexDirection.row;
         final retainedStart = blocks.length;
         PageContainer? retained;
-        if (containerFloat == null && _retainsContainer(node, selfStyle)) {
+        if (containerFloat == null &&
+            (isFlexRow || _retainsContainer(node, selfStyle))) {
           final parentBoxes = ancestors
               .map((a) => retainedContainers[a])
               .nonNulls;
@@ -5691,7 +5875,8 @@ class EpubChapterSource
             cloneDecoration: _clonesContainerDecoration(selfStyle),
           );
           retainedContainers[selfView] = retained;
-          if (node.children.any((child) => child is PromotedBlockNode)) {
+          if (!isFlexRow &&
+              node.children.any((child) => child is PromotedBlockNode)) {
             splitInlineContainers.add(selfView);
           }
         }
@@ -5738,6 +5923,7 @@ class EpubChapterSource
           for (final child in node.children)
             if (child is BlockNode) child,
         ];
+        final flexItems = <List<PageBlock>>[];
         for (final child in node.children) {
           var childFirst = firstInContainer;
           var childLast = lastInContainer;
@@ -5749,6 +5935,7 @@ class EpubChapterSource
           //（否则 li 里的文本块拿不到「首项」信息，标记与容器段距会丢）。
           final isListContainer = node.tag == 'ul' || node.tag == 'ol';
           final isListItem = node.tag == 'li';
+          final itemStart = blocks.length;
           collect(
             child,
             node.tag,
@@ -5774,8 +5961,26 @@ class EpubChapterSource
             containerFloatWidth: childContainerFloatWidth,
             containerFloatGroup: childContainerFloatGroup,
           );
+          if (isFlexRow && blocks.length > itemStart) {
+            flexItems.add(blocks.sublist(itemStart));
+          }
         }
-        if (retained != null) {
+        if (isFlexRow && retained != null) {
+          final flexRow = _flexRowBlock(
+            containerStyle: selfStyle,
+            containerWidth: retained.contentWidth,
+            items: flexItems,
+            containingWidth: contentWidth,
+            pageContentHeight: contentHeight,
+            groupId: childGroup,
+          );
+          if (flexRow != null) {
+            blocks.replaceRange(retainedStart, blocks.length, <PageBlock>[
+              flexRow,
+            ]);
+          }
+        }
+        if (retained != null && !isFlexRow) {
           _wrapContainerBlocks(
             blocks,
             retainedStart,

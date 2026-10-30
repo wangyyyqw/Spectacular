@@ -542,12 +542,13 @@ Map<String, Object?> _blockJson(PageBlockSlice slice, double sliceTop) {
       (line) => line.inlineBoxes.isNotEmpty,
     ),
     'role': block.table != null
-        ? 'table'
+        ? (block.table!.flex ? 'flex' : 'table')
         : (block.listMarker != null ? 'li' : 'block'),
     'listMarker': block.listMarker,
     'lines': lines,
     'runs': runs,
     'cells': cells,
+    'flex': table?.flex ?? false,
     'slice': <String, Object?>{
       'startLine': slice.startLine,
       'endLine': slice.endLine,
