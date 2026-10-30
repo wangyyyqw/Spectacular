@@ -19,8 +19,10 @@ import 'annotations/annotation_layer.dart';
 import 'a11y/semantics_layer.dart';
 import 'menu/reader_menu_overlay.dart';
 import 'panels/margin_editor.dart';
+import 'panels/tap_zone_editor.dart';
 import 'page_furniture/page_furniture.dart';
 import 'theme/reader_margins.dart';
+import 'tap_zones.dart';
 import 'annotations/relocator.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
@@ -64,6 +66,8 @@ class ReaderPage extends StatefulWidget {
     this.bookTitle = '阅读',
     this.margins,
     this.onMarginsChanged,
+    this.tapZones = ReaderTapZones.defaults,
+    this.onTapZonesChanged,
     this.onLog,
     this.onResolveSearchCfi,
     this.onSearchStream,
@@ -122,6 +126,12 @@ class ReaderPage extends StatefulWidget {
 
   /// 页边距变化（调节器「保留」时回调，调用方持久化）。
   final ValueChanged<ReaderMargins>? onMarginsChanged;
+
+  /// 九宫格点击区域配置。
+  final ReaderTapZones tapZones;
+
+  /// 九宫格点击区域变化（编辑页「保留」时回调，调用方持久化）。
+  final ValueChanged<ReaderTapZones>? onTapZonesChanged;
 
   /// 诊断日志回调（用户操作与耗时，由 app 层写入 ReaderLog）。
   final void Function(String event, Map<String, Object?> fields)? onLog;
@@ -192,6 +202,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 是否在边距调节器里（全屏编辑态，压在菜单之上）。
   bool _editingMargins = false;
+
+  /// 是否在九宫格点击区域编辑页。
+  bool _editingTapZones = false;
+
+  /// 当前九宫格点击区域配置。
+  late ReaderTapZones _tapZones = widget.tapZones;
 
   /// 调节器拖动中的预览值：只影响绘制，不参与分页（拖起来才不卡）。
   ReaderMargins? _previewMargins;
@@ -545,6 +561,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (oldWidget.margins != widget.margins && widget.margins != null) {
       _savedMargins = widget.margins;
     }
+    if (oldWidget.tapZones != widget.tapZones) {
+      _tapZones = widget.tapZones;
+    }
     if (oldWidget.theme != widget.theme) {
       _theme = widget.theme;
     }
@@ -620,6 +639,30 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
+    });
+  }
+
+  /// 打开九宫格点击区域编辑页。
+  void _openTapZoneEditor() {
+    _log('user_tap_zones_open');
+    setState(() {
+      _drawer = null;
+      _drawerTab = _DrawerTab.content;
+      _menuOpen = false;
+      _editingTapZones = true;
+    });
+  }
+
+  /// 应用九宫格点击区域配置。
+  void _applyTapZones(ReaderTapZones zones) {
+    _log('user_tap_zones', <String, Object?>{
+      for (final zone in ReaderTapZone.values)
+        zone.name: zones.actionAt(zone).name,
+    });
+    widget.onTapZonesChanged?.call(zones);
+    setState(() {
+      _tapZones = zones;
+      _editingTapZones = false;
     });
   }
 
@@ -1339,6 +1382,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 ),
               ),
             ReaderView(
+              config: ReaderGestureConfig(tapZones: _tapZones),
               onPrevious: () {
                 _clearSelection();
                 _log('user_page', <String, Object?>{'dir': 'prev'});
@@ -1503,6 +1547,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           _previewMargins = null;
                         });
                       },
+                      onOpenTapZoneEditor: _openTapZoneEditor,
                     ),
               onCloseDrawer: _closeDrawer,
               safeTop: _safeTop,
@@ -1537,6 +1582,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       _previewMargins = null;
                     });
                   },
+                ),
+              ),
+            // 九宫格点击区域编辑页：每个格子循环切换点击动作。
+            if (_editingTapZones)
+              Positioned.fill(
+                child: TapZoneEditor(
+                  zones: _tapZones,
+                  foreground:
+                      _effectiveTheme?.text ??
+                      Theme.of(context).colorScheme.onSurface,
+                  background: _effectiveTheme?.background ?? widget.background,
+                  onCancel: () => setState(() {
+                    _editingTapZones = false;
+                  }),
+                  onApply: _applyTapZones,
                 ),
               ),
             // 跳章浮层（P4-12，§27.2）：目标章名 + 不确定进度，完成后淡出。
@@ -1622,6 +1682,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onBookmarkSelect,
     required this.onAddBookmark,
     required this.onOpenMarginEditor,
+    required this.onOpenTapZoneEditor,
   });
 
   final ReaderMenuEntry entry;
@@ -1648,6 +1709,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
   final VoidCallback onAddBookmark;
   final VoidCallback onOpenMarginEditor;
+  final VoidCallback onOpenTapZoneEditor;
 
   @override
   State<_ReaderDrawerContent> createState() => _ReaderDrawerContentState();
@@ -1705,6 +1767,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           onThemeChanged: widget.onThemeChanged,
           onInkModeChanged: widget.onInkModeChanged,
           onReset: widget.onResetSettings,
+          onOpenTapZoneEditor: widget.onOpenTapZoneEditor,
         );
     }
   }

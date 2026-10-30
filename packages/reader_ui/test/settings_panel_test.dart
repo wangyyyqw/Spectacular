@@ -110,4 +110,24 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('设置段可打开九宫格点击区域编辑页', (tester) async {
+    var opened = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.settings,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            onOverridesChanged: (_) {},
+            onThemeChanged: (_) {},
+            onOpenTapZoneEditor: () => opened = true,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
+    expect(opened, isTrue);
+  });
 }

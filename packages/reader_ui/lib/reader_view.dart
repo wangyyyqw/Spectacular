@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'tap_zones.dart';
+
 /// 识别出的基础手势。
 enum ReaderGesture {
   tapLeft,
@@ -20,9 +22,9 @@ class ReaderGestureConfig {
   /// 创建配置。
   const ReaderGestureConfig({
     this.edgeRatio = 0.3,
-    this.safeEdge = 24,
     this.clickLeftNextPage = false,
     this.verticalWriting = false,
+    this.tapZones,
     this.distanceRatio = 0.3,
     this.speedThreshold = 800,
     this.dragStartTolerance = 8,
@@ -31,14 +33,14 @@ class ReaderGestureConfig {
   /// 左右区宽度占比。
   final double edgeRatio;
 
-  /// 系统边缘安全边（逻辑像素）。
-  final double safeEdge;
-
   /// 左区点击改为下一页（左利手）。
   final bool clickLeftNextPage;
 
   /// 竖排：左右语义反转。
   final bool verticalWriting;
+
+  /// 九宫格配置；为空时沿用旧版三区点击设置。
+  final ReaderTapZones? tapZones;
 
   /// 滑动翻页距离阈值（屏宽占比）。
   final double distanceRatio;
@@ -63,10 +65,6 @@ class ReaderGestureInterpreter {
     if (width <= 0) {
       return ReaderGesture.none;
     }
-    if (position.dx < config.safeEdge ||
-        position.dx > width - config.safeEdge) {
-      return ReaderGesture.none;
-    }
     final ratio = position.dx / width;
     if (ratio < config.edgeRatio) {
       return ReaderGesture.tapLeft;
@@ -75,6 +73,29 @@ class ReaderGestureInterpreter {
       return ReaderGesture.tapCenter;
     }
     return ReaderGesture.tapRight;
+  }
+
+  /// 点击所在九宫格。
+  ReaderTapZone tapZoneAt(Offset position, {required Size size}) {
+    if (size.width <= 0 || size.height <= 0) {
+      return ReaderTapZone.center;
+    }
+    final column = (position.dx / size.width * 3).floor().clamp(0, 2);
+    final row = (position.dy / size.height * 3).floor().clamp(0, 2);
+    return ReaderTapZone.values[row * 3 + column];
+  }
+
+  /// 点击动作；未配置九宫格时把旧版三区设置转换成动作。
+  ReaderTapAction tapActionAt(Offset position, {required Size size}) {
+    final zones = config.tapZones;
+    if (zones != null) {
+      return zones.actionAt(tapZoneAt(position, size: size));
+    }
+    return switch (tapIntent(tapAt(position, width: size.width))) {
+      PageTurnIntent.previous => ReaderTapAction.previousPage,
+      PageTurnIntent.next => ReaderTapAction.nextPage,
+      PageTurnIntent.none => ReaderTapAction.openMenu,
+    };
   }
 
   /// 主方向分类（不考虑阈值）。
@@ -193,9 +214,8 @@ class ReaderView extends StatefulWidget {
 }
 
 class _ReaderViewState extends State<ReaderView> {
-  late final ReaderGestureInterpreter _interpreter = ReaderGestureInterpreter(
-    widget.config,
-  );
+  ReaderGestureInterpreter get _interpreter =>
+      ReaderGestureInterpreter(widget.config);
   double _dragDx = 0;
   double _dragDy = 0;
   Offset? _lastTapPosition;
@@ -233,6 +253,7 @@ class _ReaderViewState extends State<ReaderView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapDown: (details) {
@@ -263,10 +284,19 @@ class _ReaderViewState extends State<ReaderView> {
               width: width,
             );
             _notify(gesture);
-            if (gesture == ReaderGesture.tapCenter) {
+            final action = _interpreter.tapActionAt(
+              details.localPosition,
+              size: Size(width, height),
+            );
+            switch (action) {
+              case ReaderTapAction.previousPage:
+                _turn(PageTurnIntent.previous);
+              case ReaderTapAction.nextPage:
+                _turn(PageTurnIntent.next);
+              case ReaderTapAction.openMenu:
               widget.onToggleToolbar?.call();
-            } else {
-              _turn(_interpreter.tapIntent(gesture));
+              case ReaderTapAction.none:
+                break;
             }
           },
           onLongPressStart: (details) {

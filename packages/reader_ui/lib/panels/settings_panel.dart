@@ -70,6 +70,7 @@ class SettingsPanel extends StatefulWidget {
     this.onBack,
     this.section = SettingsSection.all,
     this.onOpenMarginEditor,
+    this.onOpenTapZoneEditor,
     this.marginsActive = false,
   });
 
@@ -108,6 +109,9 @@ class SettingsPanel extends StatefulWidget {
 
   /// 打开边距调节器（排版段入口）。
   final VoidCallback? onOpenMarginEditor;
+
+  /// 打开九宫格点击区域编辑页（设置段入口）。
+  final VoidCallback? onOpenTapZoneEditor;
 
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
@@ -289,6 +293,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 ],
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.settings) ...[
+                if (widget.onOpenTapZoneEditor != null) ...[
+                  _EntryButton(
+                    key: const ValueKey<String>('settings-tap-zones'),
+                    icon: Icons.grid_on,
+                    label: '点击区域设置',
+                    onTap: widget.onOpenTapZoneEditor!,
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 if (widget.onInkModeChanged != null) ...[
                   const SizedBox(height: 12),
                   SwitchListTile(
