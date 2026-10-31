@@ -1057,6 +1057,7 @@ class Paginator {
             end: math.min(run.end, textEnd) - textStart,
             style: run.style,
             baselineShift: run.baselineShift,
+            syntheticFontFallback: run.syntheticFontFallback,
           ),
     ];
     return TextLayoutResult(

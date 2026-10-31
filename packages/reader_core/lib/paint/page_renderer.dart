@@ -2446,6 +2446,9 @@ class PagePainter {
     required LineBox line,
   }) {
     for (final run in runs) {
+      if (run.syntheticFontFallback) {
+        continue;
+      }
       final style = run.style;
       final hasBackground = style.backgroundColor.a > 0;
       final hasBorder = style.borders.hasBorder;
@@ -4605,6 +4608,7 @@ class PagePainter {
             end - line.start,
             run.style,
             run.baselineShift,
+            run.syntheticFontFallback,
           ),
         );
       }
@@ -4722,12 +4726,19 @@ class _PaintGroup {
 
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
 class _LineRun {
-  const _LineRun(this.start, this.end, this.style, this.baselineShift);
+  const _LineRun(
+    this.start,
+    this.end,
+    this.style,
+    this.baselineShift,
+    this.syntheticFontFallback,
+  );
 
   final int start;
   final int end;
   final ComputedStyle style;
   final double baselineShift;
+  final bool syntheticFontFallback;
 }
 
 /// 行内绘制段：样式为 null 时用基础样式。
