@@ -84,6 +84,45 @@ void main() {
         reason: 'UA th 居中');
   });
 
+  test('三列自动表格按 min/max-content 保留窄列，不把首列挤到换行', () async {
+    final source = await EpubChapterSource.open(
+      _buildTableEpub(
+        '<table class="wz">'
+        '<tr><th>世界</th><th>种族</th><th>代表角色</th></tr>'
+        '<tr><td>载酒</td><td>人族</td><td>寻歌</td></tr>'
+        '<tr><td rowspan="2">泽兰</td><td>亡灵</td>'
+        '<td>枯覆、骨影、语律、喑哑</td></tr>'
+        '<tr><td>月狐(雪乡)</td>'
+        '<td>雾刃、花殊、燃瓶、空涂、问风、涂风</td></tr>'
+        '</table>',
+        css:
+            'body { margin: 0; font-family: serif; font-size: 17px; } '
+            'table.wz { width: 100%; border-collapse: collapse; '
+            'margin: 20px 0; background: #fff; } '
+            'table.wz td, table.wz th { border: 1px solid #000; '
+            'padding: 8px 12px; vertical-align: middle; '
+            'font-size: .8em; text-align: center; }',
+      ),
+      contentWidth: 350,
+      contentHeight: 700,
+    );
+    final spec = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .firstWhere((slice) => slice.block.table != null)
+        .block
+        .table!;
+    final widths = <double>[
+      spec.columnXs[1] - spec.columnXs[0],
+      spec.columnXs[2] - spec.columnXs[1],
+      spec.columnXs[3] - spec.columnXs[2],
+    ];
+    expect(widths[0], inInclusiveRange(48, 51));
+    expect(widths[1], greaterThan(70));
+    expect(widths[2], greaterThan(widths[1] * 2));
+    final world = spec.cells.firstWhere((cell) => cell.layout.text == '世界');
+    expect(world.layout.lineCount, 1, reason: '首列不能被压成逐字竖排');
+  });
+
   test('多行超页高：行边界切分为多页片', () async {
     final rows = <String>[
       for (var i = 1; i <= 40; i++) '<tr><td>第${i}2行</td><td>数据$i</td></tr>',
