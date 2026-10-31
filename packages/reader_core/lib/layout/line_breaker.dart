@@ -2347,13 +2347,17 @@ abstract final class TextLayoutEngine {
     List<InlineBoxSpec> specs, {
     Set<int> forcedBreaks = const <int>{},
   }) {
-    final ordered = <InlineBoxSpec>[...specs]
-      ..sort((a, b) => a.offset.compareTo(b.offset));
+    // 空盒可能共享偏移；以输入顺序打破平局，避免不稳定排序打乱文档顺序。
+    final ordered = [for (var i = 0; i < specs.length; i++) (i, specs[i])]
+      ..sort((a, b) {
+        final offsetOrder = a.$2.offset.compareTo(b.$2.offset);
+        return offsetOrder == 0 ? a.$1.compareTo(b.$1) : offsetOrder;
+      });
     final buffer = StringBuffer();
     final offsets = <int>[0];
     final marks = <_InlineBoxMark>[];
     var cursor = 0;
-    for (final spec in ordered) {
+    for (final (_, spec) in ordered) {
       final stop = spec.offset.clamp(cursor, text.length);
       for (var i = cursor; i < stop; i++) {
         buffer.write(text[i]);
