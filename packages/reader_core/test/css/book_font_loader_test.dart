@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -130,6 +131,81 @@ void main() {
       await loader.load(faces, resolveBytes: counting);
       expect(calls, afterFirst, reason: '缓存键命中后不应再读取字形数据');
       expect(loader.engineFamily('C'), isNotNull);
+    });
+
+    test('内容寻址稳定隔离同书标识下的不同字形', () async {
+      final faces = _parse(
+        '@font-face { font-family: Content; src: url("font.otf"); }',
+      );
+      Future<String> register(String path) async {
+        final loader = BookFontLoader(bookId: 'same', contentAddressed: true);
+        addTearDown(loader.clear);
+        await loader.load(faces, resolveBytes: (_) => _fileBytes(path));
+        return loader.engineFamily('Content')!;
+      }
+
+      final regular = await register(_regularPath);
+      expect(await register(_regularPath), regular);
+      expect(await register(_boldPath), isNot(regular));
+    });
+
+    test('内容寻址增量与并发注册保留所有字重且不重复读取', () async {
+      final loader = BookFontLoader(bookId: 'incremental', contentAddressed: true);
+      addTearDown(loader.clear);
+      final regular = _parse(
+        '@font-face { font-family: Incremental; src: url("$_regularPath"); }',
+      );
+      final bold = _parse(
+        '@font-face { font-family: Incremental; src: url("$_boldPath"); '
+        'font-weight: bold; }',
+      );
+      var reads = 0;
+      Future<Uint8List?> resolve(String url) async {
+        reads++;
+        return _fileBytes(url);
+      }
+
+      await loader.load(regular, resolveBytes: resolve);
+      final firstName = loader.engineFamily('Incremental')!;
+      await Future.wait([
+        loader.load(bold, resolveBytes: resolve),
+        loader.load(regular, resolveBytes: resolve),
+      ]);
+      final combined = loader.engineFamily('Incremental')!;
+      expect(combined, isNot(firstName));
+      expect(loader.facesOf('Incremental').keys.toSet(), {'w400i0', 'w700i0'});
+      expect(reads, 2);
+      final regularPixels = await _render(combined, 400);
+      expect(_diffBytes(regularPixels, await _render(combined, 700)), greaterThan(0));
+      expect(_diffBytes(regularPixels, await _render(firstName, 400)), 0,
+          reason: '新增字重不能丢失已经加载的 regular face');
+
+      final concurrent = BookFontLoader(bookId: 'parallel', contentAddressed: true);
+      addTearDown(concurrent.clear);
+      await Future.wait([
+        concurrent.load(regular, resolveBytes: resolve),
+        concurrent.load(bold, resolveBytes: resolve),
+      ]);
+      expect(concurrent.facesOf('Incremental').keys.toSet(), {'w400i0', 'w700i0'});
+    });
+
+    test('clear取消在途注册，异步完成后不恢复字体字节缓存', () async {
+      final loader = BookFontLoader(bookId: 'closed', contentAddressed: true);
+      final bytes = Completer<Uint8List?>();
+      final started = Completer<void>();
+      final pending = loader.load(
+        _parse('@font-face { font-family: Closed; src: url("font.otf"); }'),
+        resolveBytes: (_) {
+          started.complete();
+          return bytes.future;
+        },
+      );
+      await started.future;
+      loader.clear();
+      bytes.complete(await _fileBytes(_regularPath));
+      expect((await pending).engineFamilies, isEmpty);
+      expect(loader.engineFamily('Closed'), isNull);
+      expect(loader.facesOf('Closed'), isEmpty);
     });
 
     test('同键去重在 registry 层完成，loader 收到即去重后的 faces', () async {
