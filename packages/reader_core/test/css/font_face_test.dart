@@ -146,6 +146,7 @@ p { margin: 0; }
         FontFamilyAliases.resolve('Noto Serif CJK SC'),
         FontFamilyAliases.song,
       );
+      expect(FontFamilyAliases.resolve('DK-FANGSONG'), FontFamilyAliases.song);
     });
 
     test('不做包含匹配：宋体黑不命中', () {
@@ -210,8 +211,8 @@ p { margin: 0; }
       }
       expect(mapped['宋体'], FontFamilyAliases.song);
       expect(mapped['Source Han Serif CN'], FontFamilyAliases.song);
-      // 仿宋不在表内：显式回退（保留原名），后续版本按需补。
-      expect(mapped['仿宋'], isNull);
+      // 仿宋没有独立内置字库，归入同一宋体类，避免系统无此族时出方块。
+      expect(mapped['仿宋'], FontFamilyAliases.song);
     });
 
     test('映射后渲染可用：族名交引擎回退仍出墨，无异常', () async {

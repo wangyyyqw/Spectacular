@@ -180,6 +180,10 @@ abstract final class FontFamilyAliases {
     '思源宋体': song, 'sourcehanserif': song, 'sourcehanserifsc': song,
     'sourcehanserifcn': song, 'sourcehanseriftc': song,
     'notoserifcjksc': song, 'notoserifcjk': song,
+    'dk-songti': song,
+    // 仿宋同样属于宋体类；无独立内置字库时复用内置宋体。
+    '仿宋': song, 'fangsong': song, 'dk-fangsong': song,
+    'stfangsong': song, '华文仿宋': song,
     // 楷体系
     '楷体': kai, 'kaiti': kai, 'kt': kai, 'stkaiti': kai, 'kai': kai,
     // 黑体系（含 CSS 泛型 sans-serif）

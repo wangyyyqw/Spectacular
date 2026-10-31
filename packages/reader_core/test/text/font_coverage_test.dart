@@ -48,6 +48,47 @@ Uint8List _buildFormat12Font() {
   return buffer.toBytes();
 }
 
+/// 构造最小 sfnt：format 4 中 A..C 映射到 glyph 0..2，用于验证
+/// `.notdef` 不会被误判为可用字形。
+Uint8List _buildFormat4Font() {
+  final buffer = BytesBuilder();
+  final header = ByteData(12)
+    ..setUint32(0, 0x00010000)
+    ..setUint16(4, 1);
+  buffer.add(header.buffer.asUint8List());
+  final record = ByteData(16)
+    ..setUint32(0, 0x636D6170)
+    ..setUint32(8, 28);
+  buffer.add(record.buffer.asUint8List());
+  final cmap = ByteData(12)
+    ..setUint16(2, 1)
+    ..setUint16(4, 3)
+    ..setUint16(6, 1)
+    ..setUint32(8, 12);
+  buffer.add(cmap.buffer.asUint8List());
+  final subtable = ByteData(32)
+    ..setUint16(0, 4)
+    ..setUint16(2, 32)
+    ..setUint16(6, 4)
+    ..setUint16(8, 4)
+    ..setUint16(10, 1)
+    ..setUint16(12, 0)
+    // endCode: A..C、0xFFFF 哨兵。
+    ..setUint16(14, 0x43)
+    ..setUint16(16, 0xFFFF)
+    // reservedPad + startCode。
+    ..setUint16(20, 0x41)
+    ..setUint16(22, 0xFFFF)
+    // idDelta：A 映射到 glyph 0，B/C 映射到 1/2；哨兵 delta 1。
+    ..setUint16(24, (0 - 0x41) & 0xFFFF)
+    ..setUint16(26, 1)
+    // idRangeOffset 全 0，走 idDelta 直接映射。
+    ..setUint16(28, 0)
+    ..setUint16(30, 0);
+  buffer.add(subtable.buffer.asUint8List());
+  return buffer.toBytes();
+}
+
 void main() {
   group('FontCoverage cmap 解析', () {
     test('真实字体：常用字覆盖、PUA 缺失、清单导出', () async {
@@ -70,6 +111,15 @@ void main() {
       expect(coverage.covers(0x20001), isTrue);
       expect(coverage.covers(0x20002), isFalse);
       expect(coverage.covers(0x4E2D), isFalse, reason: '无 format 4 子表');
+    });
+
+    test('合成 format 4：映射到 glyph 0 的码点视为缺字', () {
+      final coverage = FontCoverage.parse(_buildFormat4Font());
+      expect(coverage, isNotNull);
+      expect(coverage!.covers(0x41), isFalse, reason: '.notdef 不可渲染');
+      expect(coverage.covers(0x42), isTrue);
+      expect(coverage.covers(0x43), isTrue);
+      expect(coverage.covers(0x44), isFalse);
     });
 
     test('坏字节/截断/TTC 返回 null 不抛异常', () {

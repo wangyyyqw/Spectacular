@@ -109,16 +109,26 @@ class FontCoverage {
       return Uint32List(0);
     }
     final nGroups = data.getUint32(offset + 12);
-    final groups = Uint32List(nGroups * 2);
+    final groups = <int>[];
     for (var i = 0; i < nGroups; i++) {
       final record = offset + 16 + i * 12;
       if (record + 12 > length) {
-        return groups.sublist(0, i * 2); // 截断按已读部分计。
+        break; // 截断按已读部分计。
       }
-      groups[i * 2] = data.getUint32(record);
-      groups[i * 2 + 1] = data.getUint32(record + 4);
+      final startCode = data.getUint32(record);
+      final endCode = data.getUint32(record + 4);
+      final startGlyph = data.getUint32(record + 8);
+      // `.notdef`（glyph 0）不是可用字形。部分书籍字体会把 ASCII 等
+      // 声明在 cmap 中却映射到 0；若按码点区间误判为“已覆盖”，渲染器
+      // 会画黑方块而不会回退。这里只保留真实非零字形的码点。
+      final first = startGlyph == 0 ? startCode + 1 : startCode;
+      if (first <= endCode) {
+        groups
+          ..add(first)
+          ..add(endCode);
+      }
     }
-    return groups;
+    return Uint32List.fromList(groups);
   }
 
   static Uint32List _parseFormat4(ByteData data, int length, int offset) {
@@ -128,13 +138,19 @@ class FontCoverage {
     final segCount = data.getUint16(offset + 6) >> 1;
     final endCodesBase = offset + 14;
     final startCodesBase = endCodesBase + segCount * 2 + 2;
+    final deltasBase = startCodesBase + segCount * 2;
+    final rangeOffsetsBase = deltasBase + segCount * 2;
     // 末段 0xFFFF..0xFFFF 是规范哨兵，不代表真实覆盖，剔除。
-    final segments = Uint32List(segCount * 2);
-    var kept = 0;
+    final segments = <int>[];
     for (var i = 0; i < segCount; i++) {
       final end = endCodesBase + i * 2;
       final start = startCodesBase + i * 2;
-      if (end + 2 > length || start + 2 > length) {
+      final delta = deltasBase + i * 2;
+      final rangeOffset = rangeOffsetsBase + i * 2;
+      if (end + 2 > length ||
+          start + 2 > length ||
+          delta + 2 > length ||
+          rangeOffset + 2 > length) {
         break; // 截断按已读部分计。
       }
       final startCode = data.getUint16(start);
@@ -142,11 +158,42 @@ class FontCoverage {
       if (startCode == 0xFFFF && endCode == 0xFFFF) {
         continue;
       }
-      segments[kept * 2] = startCode;
-      segments[kept * 2 + 1] = endCode;
-      kept++;
+      final idDelta = data.getUint16(delta);
+      final idRangeOffset = data.getUint16(rangeOffset);
+      int? runStart;
+      for (var code = startCode; code <= endCode; code++) {
+        int glyphId;
+        if (idRangeOffset == 0) {
+          glyphId = (code + idDelta) & 0xFFFF;
+        } else {
+          final glyphOffset =
+              rangeOffset + idRangeOffset + (code - startCode) * 2;
+          if (glyphOffset + 2 > length) {
+            break;
+          }
+          glyphId = data.getUint16(glyphOffset);
+          if (glyphId != 0) {
+            glyphId = (glyphId + idDelta) & 0xFFFF;
+          }
+        }
+        if (glyphId == 0) {
+          if (runStart != null) {
+            segments
+              ..add(runStart)
+              ..add(code - 1);
+            runStart = null;
+          }
+        } else {
+          runStart ??= code;
+        }
+      }
+      if (runStart != null) {
+        segments
+          ..add(runStart)
+          ..add(endCode);
+      }
     }
-    return segments.sublist(0, kept * 2);
+    return Uint32List.fromList(segments);
   }
 
   /// 是否覆盖 [codePoint]（Unicode 码点，非 UTF-16 码元）。

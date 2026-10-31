@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/font_face.dart';
 
 import 'support/css_chapter_book.dart';
 
@@ -60,8 +61,9 @@ void main() {
     final inline = blocks.firstWhere(
       (block) => block.layout.text.contains('行内'),
     );
+    final spanStart = inline.layout.text.indexOf('书内字体');
     final inlineRun = inline.layout.runs.firstWhere(
-      (run) => run.style.fontFamily != null,
+      (run) => run.start <= spanStart && run.end > spanStart,
     );
     expect(
       inlineRun.style.fontFamily,
@@ -94,4 +96,46 @@ void main() {
       );
     }
   }, skip: skip);
+
+  test('local-only 书籍字族映射到可用内置字族', () async {
+    for (final family in <String>['zw', 'DK-SONGTI']) {
+      final source = await openCssChapter(
+        body: '<p class="book-font">缺字回退</p>',
+        css:
+            '@font-face { font-family: "$family"; '
+            'src: local("宋体"), local("DK-SONGTI"); } '
+            '.book-font { font-family: "$family", serif; }',
+      );
+      final block = (await source.loadChapter(0))
+          .expand((page) => page.slices)
+          .firstWhere((slice) => slice.block.layout.text == '缺字回退')
+          .block;
+      expect(
+        block.style!.fontFamily,
+        FontFamilyAliases.song,
+        reason: '$family 的 local-only 来源应复用内置宋体',
+      );
+      expect(block.style!.fontFamilies.last, 'serif');
+    }
+  });
+
+  test('无内置字库的楷体按字形回退到内置宋体', () async {
+    final source = await openCssChapter(
+      body: '<p class="book-font">制作说明</p>',
+      css: '.book-font { font-family: "楷体"; }',
+    );
+    final block = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .firstWhere((slice) => slice.block.layout.text == '制作说明')
+        .block;
+    expect(block.style!.fontFamily, '楷体');
+    expect(block.layout.runs, isNotEmpty);
+    expect(
+      block.layout.runs.every(
+        (run) => run.style.fontFamily == FontFamilyAliases.song,
+      ),
+      isTrue,
+      reason: '未注册的楷体主族须逐字落到内置宋体',
+    );
+  });
 }
