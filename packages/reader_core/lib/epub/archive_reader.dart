@@ -323,6 +323,19 @@ class EpubArchive {
   /// 文件数。
   int get length => _entries.length;
 
+  /// 释放所有条目持有的压缩字节与已解压缓存。
+  ///
+  /// ZIP 条目引用打开时的原始字节，读取资源后还会缓存解压结果；阅读页关闭
+  /// 后必须主动清空，否则大书或重复打开时内存会一直占用。关闭后再次读取返回
+  /// null，调用方不应继续使用本归档。
+  void close() {
+    for (final entry in _entries.values) {
+      entry.clear();
+    }
+    _entries.clear();
+    _orderedNames.clear();
+  }
+
   /// 是否存在指定路径。
   bool contains(String path) => _entries.containsKey(_normalizePath(path));
 

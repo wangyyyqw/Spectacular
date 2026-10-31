@@ -126,6 +126,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
         ),
       );
       if (!mounted) {
+        source.close();
         return;
       }
       source.bookIdForTrace = widget.bookId;
@@ -153,6 +154,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   void dispose() {
     _imageCache?.clear();
+    _source?.close();
     super.dispose();
   }
 

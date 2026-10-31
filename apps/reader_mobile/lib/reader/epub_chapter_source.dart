@@ -815,6 +815,44 @@ class EpubChapterSource
   final Map<String, String> _bookFontEngines = <String, String>{};
   final Map<String, FontCoverage> _bookFontCoverages = <String, FontCoverage>{};
 
+  bool _closed = false;
+
+  /// 是否已关闭。
+  bool get isClosed => _closed;
+
+  /// 释放章节派生缓存、字体字节与归档内容。
+  ///
+  /// 阅读页销毁后不再需要本来源；大书原始 ZIP、按需解压条目、三层分页缓存
+  /// 和段落布局缓存均在这里同步释放，避免重复进入书籍时内存持续叠加。
+  void close() {
+    if (_closed) {
+      return;
+    }
+    _closed = true;
+    _layoutCache.clear();
+    _pageCache.clear();
+    _pageCacheOrder.clear();
+    _pageIndexCache.clear();
+    _blockCache.clear();
+    _blockCacheOrder.clear();
+    _clearDisplayDocumentCache();
+    _pendingBlockDocument = null;
+    _pendingSelectorIndex = null;
+    _preservingWhiteSpaceCache.clear();
+    _preservedRawTexts.clear();
+    _preservedPreLineTexts.clear();
+    _fullBleedCache.clear();
+    _imageIntrinsicCache.clear();
+    _imageIntrinsicMiss.clear();
+    _cssSheetCache.clear();
+    _chapterSheetCache.clear();
+    _fontLoader?.clear();
+    _fontFacesSeen.clear();
+    _bookFontEngines.clear();
+    _bookFontCoverages.clear();
+    document.archive.close();
+  }
+
   String get _bookId => 'bk-${document.opfPath.hashCode}';
 
   /// 注册章内 `@font-face`（真实书适配）：书内字体按 face 键去重后
@@ -3304,6 +3342,9 @@ class EpubChapterSource
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (_closed) {
+      throw StateError('章节来源已关闭');
+    }
     return _loadChapterPages(spineIndex);
   }
 

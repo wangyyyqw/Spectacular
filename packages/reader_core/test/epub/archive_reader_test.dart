@@ -40,6 +40,21 @@ void main() {
     expect(archive.contains('META-INF/container.xml'), isTrue);
   }, skip: skip);
 
+  test('关闭归档后释放全部条目且不可再读取', () {
+    final archive = EpubArchive.fromBytes(_twoEntryZip(), verify: false);
+    expect(archive.length, 2);
+    expect(archive.readString('good.txt'), 'good content payload here');
+    expect(archive.names, isNotEmpty);
+
+    archive.close();
+
+    expect(archive.length, 0);
+    expect(archive.names, isEmpty);
+    expect(archive.contains('good.txt'), isFalse);
+    expect(archive.readBytes('good.txt'), isNull);
+    archive.close();
+  });
+
   test('全部条目损坏：截断档拒绝（P7-15）', () {
     final content = utf8.encode('hello epub content with crc check');
     final file = ArchiveFile('x.txt', content.length, content)
