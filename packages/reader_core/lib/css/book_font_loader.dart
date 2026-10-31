@@ -83,6 +83,17 @@ class BookFontLoader {
   final Map<String, FontCoverage?> _coverageCache =
       <String, FontCoverage?>{};
 
+  /// 释放书内字体字节与诊断缓存。
+  ///
+  /// 引擎已注册的字形数据由 Flutter 管理，无法同步卸载；这里清空 Dart 侧
+  /// 持有的字节，避免关闭阅读页后重复书仍保留整份字体资源。
+  void clear() {
+    _registered.clear();
+    _degradationSeen.clear();
+    degradationLog.clear();
+    _coverageCache.clear();
+  }
+
   /// 书内字体的字形覆盖（P3-04）：按 w400 face（无则首个 face）的
   /// 字节解析 cmap。诊断用途——缺失字符清单导出；运行期缺字仍由
   /// fontFamilyFallback 兜底（技术方案 §28.4）。解析失败返回 null。

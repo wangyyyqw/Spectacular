@@ -156,6 +156,21 @@ void main() {
     expect(source.cacheReport, contains('块缓存 0/'));
   });
 
+  test('关闭章节源释放缓存并拒绝后续渲染', () async {
+    final source = await openSource();
+    await source.loadChapter(0);
+    expect(source.cacheReport, isNot(contains('页缓存 0/')));
+
+    source.close();
+
+    expect(source.isClosed, isTrue);
+    expect(source.cacheReport, contains('页缓存 0/'));
+    expect(source.cacheReport, contains('块缓存 0/'));
+    expect(source.cacheReport, contains('文档缓存 0/'));
+    await expectLater(source.loadChapter(0), throwsStateError);
+    source.close();
+  });
+
   test('指纹口径：颜色不参与、排版字段参与（P7-23）', () {
     final base = const ReaderOverrides().fingerprint;
     final colored = const ReaderOverrides(

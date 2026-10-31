@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
@@ -44,8 +45,16 @@ Future<void> main() async {
     );
     for (var round = 0; round < 3; round++) {
       await _openRound(progress, round);
+      if (round == 2 && const bool.fromEnvironment('PERF_LONG_SCAN')) {
+        await _scanLongBook();
+      }
       _navigator.currentState!.pop();
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await Future<void>.delayed(
+        Duration(milliseconds: round == 2 ? 1500 : 500),
+      );
+    }
+    if (const bool.fromEnvironment('PERF_LONG_SCAN')) {
+      _results['after_close_rss_bytes'] = ProcessInfo.currentRss;
     }
     await _send('done', _results);
   } catch (error, stack) {
@@ -136,12 +145,52 @@ Future<Map<String, Object>> _sample(Stopwatch watch, int spine) async {
   // 首帧可能仍处于 AnimatedSwitcher 淡入，另记录完全显示后的时间。
   await _until(() => _fullyVisible(spine));
   await WidgetsBinding.instance.endOfFrame;
+  final memory = ProcessInfo.currentRss;
+  final source = _find<ReaderPage>((_) => true)?.source;
   return {
     'text_ms': textMs,
     'images_ms': imagesMs,
     'complete_ms': watch.elapsedMilliseconds,
     'spine': spine,
+    'rss_bytes': memory,
+    if (source is EpubChapterSource) 'cache': source.cacheReport,
   };
+}
+
+Future<void> _scanLongBook() async {
+  final source = _find<ReaderPage>((_) => true)?.source;
+  if (source is! EpubChapterSource) {
+    throw StateError('长书扫描未取得 EpubChapterSource');
+  }
+  final started = ProcessInfo.currentRss;
+  var peakRss = started;
+  final samples = <Map<String, Object>>[];
+  final count = source.chapterCount;
+  for (var spine = 0; spine < count; spine += 10) {
+    final watch = Stopwatch()..start();
+    final pages = await source.loadChapter(spine);
+    await WidgetsBinding.instance.endOfFrame;
+    final rss = ProcessInfo.currentRss;
+    if (rss > peakRss) peakRss = rss;
+    if (spine == 0 || spine % 100 == 0 || spine + 10 >= count) {
+      samples.add({
+        'spine': spine,
+        'load_ms': watch.elapsedMilliseconds,
+        'pages': pages.length,
+        'rss_bytes': rss,
+        'cache': source.cacheReport,
+      });
+    }
+  }
+  _results['long_scan'] = {
+    'chapters': count,
+    'stride': 10,
+    'start_rss_bytes': started,
+    'peak_rss_bytes': peakRss,
+    'end_rss_bytes': ProcessInfo.currentRss,
+    'samples': samples,
+  };
+  await _send('sample', _results);
 }
 
 bool _fullyVisible(int spine) {

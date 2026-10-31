@@ -60,12 +60,13 @@ def prepare(workspace, revision):
         'android:usesCleartextTraffic="true" android:label="阅读性能测试"'))
 
 
-def build(workspace, url, revision):
+def build(workspace, url, revision, long_scan):
     app = workspace / "apps/reader_mobile"
     run(["flutter", "pub", "get", "--offline"], cwd=app)
     run(["flutter", "build", "apk", "--release",
          "--target=integration_test/reader_perf_app.dart", "--target-platform=android-arm64",
          "--dart-define=PERF_SERVER=" + url,
+         "--dart-define=PERF_LONG_SCAN=" + ("true" if long_scan else "false"),
          "--dart-define=PERF_FAR_JUMP=" + ("false" if revision else "true")], cwd=app)
     apk = app / "build/app/outputs/flutter-apk/app-release.apk"
     actual = run(["apkanalyzer", "manifest", "application-id", str(apk)], capture=True).strip()
@@ -90,7 +91,8 @@ def benchmark(args):
         port = str(server.server_port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
-            apk = build(workspace, f"http://127.0.0.1:{port}", args.revision)
+            apk = build(workspace, f"http://127.0.0.1:{port}", args.revision,
+                        args.long_scan)
             run(adb + ["reverse", f"tcp:{port}", f"tcp:{port}"])
             run(adb + ["shell", "am", "force-stop", TEST_ID])
             run(adb + ["install", "-r", str(apk)])
@@ -115,6 +117,8 @@ def main():
     parser.add_argument("--book", type=Path, default=ROOT / "test_corpus/real/zhushen-yuxi.epub")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", help="可选基线 Git revision；当前测试入口保持不变")
+    parser.add_argument("--long-scan", action="store_true",
+                        help="连续加载全书抽样章节并记录 RSS 与缓存状态")
     args = parser.parse_args()
     if not args.book.is_file():
         parser.error("找不到原书")
