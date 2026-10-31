@@ -58,6 +58,34 @@ void main() {
     expect(doc.plainText, '正文');
     expect(doc.source, xhtml);
   });
+
+  test('合法 XHTML 的空自闭合 div 不吞后续兄弟节点', () {
+    const xhtml =
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+        '<div class="chat">'
+        '<div class="right"><span>甲</span>'
+        '<div style="clear: both;"/>'
+        '</div>'
+        '<div class="left"><span>乙</span>'
+        '<div style="clear: both;"/>'
+        '</div>'
+        '</div>'
+        '</body></html>';
+
+    final doc = DocumentParser.parse(xhtml: xhtml, spineIndex: 0);
+    final chat = doc.root.children.single as ParsedElement;
+    final messages = chat.children.whereType<ParsedElement>().toList();
+
+    expect(messages.map((node) => node.attributes['class']), [
+      'right',
+      'left',
+    ]);
+    for (final message in messages) {
+      final clear = message.children.whereType<ParsedElement>().last;
+      expect(clear.attributes['style'], 'clear: both;');
+      expect(clear.children, isEmpty);
+    }
+  });
 }
 
 ParsedElement? _findByTag(ParsedNode node, String tag) {
