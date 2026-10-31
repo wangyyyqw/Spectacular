@@ -53,6 +53,7 @@ class EpubChapterSource
     required this.baseContentWidth,
     required this.baseContentHeight,
     required this.baseStyle,
+    required this.trimTextEdges,
   });
 
   /// 打开 EPUB 并创建来源。
@@ -62,6 +63,7 @@ class EpubChapterSource
     double contentHeight = 480,
     ComputedStyle? style,
     bool verifyCrc = true,
+    bool trimTextEdges = true,
   }) async {
     // 小数行高（T1 实验开关）：Skia 会把行盒高取整成整数，CSS 的
     // `line-height: 1.7` × 15px = 25.5 会变成 26，列表/表格行位置逐行
@@ -86,6 +88,7 @@ class EpubChapterSource
             'font-size': '16px',
             'font-family': 'serif',
           }),
+      trimTextEdges: trimTextEdges,
     );
   }
 
@@ -104,6 +107,11 @@ class EpubChapterSource
 
   /// 书籍基础样式。
   final ComputedStyle baseStyle;
+
+  /// 是否回收页首/页尾的行高留白。
+  ///
+  /// 阅读模式默认开启；CSS 属性对照需要完整行盒时显式关闭。
+  final bool trimTextEdges;
 
   ReaderOverrides _overrides = const ReaderOverrides();
 
@@ -7028,7 +7036,7 @@ class EpubChapterSource
           index,
           blocks,
           spineIndex: spineIndex,
-          trimTextEdges: true,
+          trimTextEdges: trimTextEdges,
         );
         if (replayed != null) {
           final pages = _finishChapterPages(spineIndex, replayed, background);
@@ -7046,7 +7054,7 @@ class EpubChapterSource
         pageHeight: contentHeight,
         pageWidth: contentWidth,
         topPadding: _chapterTopPadding(blocks),
-        trimTextEdges: true,
+        trimTextEdges: trimTextEdges,
       ).measureChapter(blocks: blocks, spineIndex: spineIndex).pages,
       fixedBlocks,
     );
