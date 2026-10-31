@@ -2778,7 +2778,7 @@ class ComputedStyle {
     );
   }
 
-  /// 只覆盖排版属性（字号/行高/文本对齐），其余属性原样保留。
+  /// 只覆盖排版属性（字号/行高/文本对齐/字体），其余属性原样保留。
   ///
   /// 阅读器设置必须走这里。用 `ComputedStyle(declarations, parent: base)`
   /// 重建会把非继承属性（背景色/背景图/边框/内边距/外边距）按初始值归零，
@@ -2787,11 +2787,18 @@ class ComputedStyle {
     double? fontSize,
     double? lineHeightFactor,
     CssTextAlign? textAlign,
+    String? fontFamily,
   }) {
-    if (fontSize == null && lineHeightFactor == null && textAlign == null) {
+    if (fontSize == null &&
+        lineHeightFactor == null &&
+        textAlign == null &&
+        fontFamily == null) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
+    final nextFontFamilies = fontFamily == null
+        ? fontFamilies
+        : <String>[fontFamily];
     final nextUnitless = lineHeightFactor ?? unitlessLineHeightFactor;
     final nextLineHeightFactor = lineHeightFactor ?? this.lineHeightFactor;
     // 阅读器覆盖（lineHeightFactor 非空）→ 显式倍数；书籍自身的无单位因子
@@ -2809,12 +2816,14 @@ class ComputedStyle {
       if (fontSize != null) 'font-size': '${nextFontSize}px',
       if (lineHeightFactor != null) 'line-height': '$lineHeightFactor',
       if (textAlign != null) 'text-align': _textAlignToCss(textAlign),
+      if (fontFamily != null) 'font-family': fontFamily,
     };
     final nextExplicit = <String>{
       ...explicitProperties,
       if (fontSize != null) 'font-size',
       if (lineHeightFactor != null) 'line-height',
       if (textAlign != null) 'text-align',
+      if (fontFamily != null) 'font-family',
     };
     return ComputedStyle._(
       values: nextValues,
@@ -2827,7 +2836,7 @@ class ComputedStyle {
       color: color,
       fontWeight: fontWeight,
       italic: italic,
-      fontFamilies: fontFamilies,
+      fontFamilies: nextFontFamilies,
       textAlign: textAlign ?? this.textAlign,
       textIndent: textIndent,
       letterSpacing: letterSpacing,
