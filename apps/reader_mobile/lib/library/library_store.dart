@@ -222,9 +222,21 @@ class LibraryStore {
 
   Future<Directory> _bookDirectory(String id) async {
     final root = await _root();
-    final directory = Directory('${root.path}/books/$id');
+    final directory = _safeBookDirectory(root, id);
+    if (directory == null) {
+      throw const LibraryImportException('书籍标识无效，无法创建存储目录');
+    }
     await directory.create(recursive: true);
     return directory;
+  }
+
+  Directory? _safeBookDirectory(Directory root, String id) {
+    if (id == '.' || id == '..' || !RegExp(r'^[A-Za-z0-9._~-]+$').hasMatch(id)) {
+      return null;
+    }
+    final booksPath = p.normalize(p.join(root.path, 'books'));
+    final path = p.normalize(p.join(booksPath, id));
+    return p.isWithin(booksPath, path) ? Directory(path) : null;
   }
 
   /// 读取设置（`settings` 表 key/value，值由调用方约定格式）。
@@ -487,6 +499,8 @@ class LibraryStore {
     // §37.4：先删库行（级联清子表），再删书目录与旧格式原书文件；
     // 删文件失败留孤儿，启动扫描可清理。
     final db = _db!;
+    final root = await _root();
+    final directory = _safeBookDirectory(root, id);
     final rows = await (db.select(
       db.books,
     )..where((table) => table.uuid.equals(id))).get();
@@ -498,6 +512,15 @@ class LibraryStore {
       db.books,
     )..where((table) => table.uuid.equals(id))).go();
     for (final path in sourcePaths) {
+      // 旧库异常路径只能清理记录，不能扩大文件删除范围。
+      final normalized = p.normalize(path);
+      final legacyDirectory = p.normalize(p.join(root.path, 'books'));
+      final owned = directory != null && p.isWithin(directory.path, normalized);
+      final legacy = p.dirname(normalized) == legacyDirectory &&
+          p.extension(normalized).toLowerCase() == '.epub';
+      if (directory == null || (!owned && !legacy)) {
+        continue;
+      }
       final file = File(path);
       if (await file.exists()) {
         try {
@@ -508,9 +531,7 @@ class LibraryStore {
       }
     }
     _notify();
-    final root = await _root();
-    final directory = Directory('${root.path}/books/$id');
-    if (await directory.exists()) {
+    if (directory != null && await directory.exists()) {
       try {
         await directory.delete(recursive: true);
       } catch (_) {
@@ -750,9 +771,7 @@ class LibraryStore {
         if (document == null || coverBytes == null || coverBytes.isEmpty) {
           continue;
         }
-        final root = await _root();
-        final directory = Directory('${root.path}/books/${row.uuid}');
-        await directory.create(recursive: true);
+        final directory = await _bookDirectory(row.uuid);
         final extension = _coverExtension(document.coverResourcePath);
         final coverFile = File('${directory.path}/cover.$extension');
         await coverFile.writeAsBytes(coverBytes, flush: true);
@@ -847,6 +866,10 @@ class LibraryStore {
       return _newId();
     }
     final sanitized = trimmed.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    // 点段不是目录名；保留确定性以便查重，~ 不会与既有清洗结果冲突。
+    if (sanitized == '.' || sanitized == '..') {
+      return '~${base64Url.encode(utf8.encode(sanitized)).replaceAll('=', '')}';
+    }
     return sanitized.isEmpty ? _newId() : sanitized;
   }
 
