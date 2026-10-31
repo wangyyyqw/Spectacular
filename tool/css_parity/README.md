@@ -229,8 +229,9 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
 - 跨页用例（`multipage: true`）：引擎分页、浏览器连续流，**只比相对关系**
   （行距、页内相邻块间距、宽度），不比绝对 y；页界断裂与「块从第 n 行续排」
   只作为说明记录，不计入失配。跨页表格只比格宽/格高与行列间距。
-- 容差：块/单元格 1.5px，行宽 4px，行 y 按 `(line-height - font-size)/2 + 0.5`
-  放宽（字体盒 vs 行盒差异），跨页间距 2px。
+- 容差：块/单元格 1.5px，行宽 4px，跨页间距 2px。行 y 先按该行引擎
+  `line.h` 还原 Chrome Range 字体盒：字体盒高于 CSS 行盒时按高度差的一半下移，
+  再按普通几何容差比较；字体盒未超出行盒时沿用原行高容差。
 
 ### 样式与属性维度
 
@@ -446,8 +447,10 @@ currentcolor 继承；仅填充关键字的默认形状遵循 W3C，与本机 Ch
   当成段落；配不上时记「未配对」，不计失配。
 - 行级 y 口径：引擎 `line.y` 是行盒顶，浏览器 Range rect 是字形行矩形顶；
   **含行内盒 / 竖排的块改比基线**（浏览器 `baseline = rect.y + 字体 ascent`，
-  引擎 dump 导出 `baselineAbs = 块顶 + line.baseline`）；其余块仍用行盒顶 +
-  原有容差。实测 Chrome 画笔基线是 `rect.y + fontBoundingBoxAscent(20)`，
+  引擎 dump 导出 `baselineAbs = 块顶 + line.baseline`）。其余块中，Range
+  字体盒高于该行引擎行盒时，先按 `y + (字体盒高 - line.h) / 2` 还原为行盒顶；
+  混合字号必须用逐行 `line.h`，不能用块级声明 `line-height`。实测 Chrome 画笔
+  基线是 `rect.y + fontBoundingBoxAscent(20)`，
   墨迹 ascent（14.23）只定位字形墨迹顶，直接用会整体偏 5–6px；引擎按
   「基线 = 盒内最后一行基线」（ascent = contentHeight − half-leading − fontDescent）
   修正后，53 的首行基线与浏览器差 0.06px。
