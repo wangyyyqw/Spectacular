@@ -3,6 +3,26 @@ import 'package:csslib/visitor.dart';
 
 import '../parser/document_parser.dart';
 
+final _classWhitespace = RegExp(r'\s+');
+final _classTokens = <String, Set<String>>{};
+
+Set<String> _tokensOfClass(String value) {
+  final cached = _classTokens[value];
+  if (cached != null) return cached;
+  final tokens = value
+      .split(_classWhitespace)
+      .where((token) => token.isNotEmpty)
+      .toSet();
+  // 按属性值共享，避免规则与祖先匹配反复拆分；限量且不持有元素或整棵树。
+  if (value.length <= 1024) {
+    if (_classTokens.length >= 128) {
+      _classTokens.remove(_classTokens.keys.first);
+    }
+    _classTokens[value] = tokens;
+  }
+  return tokens;
+}
+
 /// 选择器匹配元素视图（P8-01）：tag + 属性 + 元素子树；由调用方适配
 ///（原始解析树 / flat 管线聚合树 / 行内标记链均可实现）。
 abstract class SelectorElement {
@@ -161,10 +181,7 @@ class SelectorPart {
       return false;
     }
     if (classes.isNotEmpty) {
-      final actual = (element.attributes['class'] ?? '')
-          .split(RegExp(r'\s+'))
-          .where((value) => value.isNotEmpty)
-          .toSet();
+      final actual = _tokensOfClass(element.attributes['class'] ?? '');
       if (!classes.every(actual.contains)) {
         return false;
       }

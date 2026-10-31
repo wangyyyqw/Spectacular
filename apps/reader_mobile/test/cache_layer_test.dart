@@ -40,6 +40,28 @@ void main() {
     );
   }
 
+  test('基础计算样式在同一环境复用，设置和尺寸变化后更新', () async {
+    final source = await openSource();
+    addTearDown(source.close);
+    await source.applyOverrides(
+      const ReaderOverrides(fontSize: 18, paragraphSpacing: 10),
+    );
+    final first = source.style;
+    expect(source.style, same(first));
+    await source.applyContentSize(width: 280, height: 420);
+    final resized = source.style;
+    expect(resized, isNot(same(first)));
+    expect(source.style, same(resized));
+    expect(await source.applyContentSize(width: 280, height: 420), isFalse);
+    expect(source.style, same(resized));
+    await source.applyOverrides(
+      const ReaderOverrides(fontSize: 22, textColor: Color(0xFF123456)),
+    );
+    expect(source.style.fontSize, 22);
+    expect(source.style.color, const Color(0xFF123456));
+    expect(source.style, same(source.style));
+  });
+
   test('切主题（颜色）：页对象原样复用（零重排）', () async {
     final source = await openSource();
     final before = await source.loadChapter(0);

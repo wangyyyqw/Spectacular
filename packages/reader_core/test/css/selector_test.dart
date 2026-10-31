@@ -14,6 +14,17 @@ const _xhtml = '''
 </body></html>
 ''';
 
+class _MutableElement implements SelectorElement {
+  @override
+  String get tag => 'p';
+
+  @override
+  final attributes = <String, String>{};
+
+  @override
+  List<SelectorElement> get childElements => const [];
+}
+
 void main() {
   final document = DocumentParser.parse(xhtml: _xhtml, spineIndex: 0);
   final viewOwner = <ParsedNode, ParsedElementView>{};
@@ -108,6 +119,35 @@ void main() {
   test('标签名大小写不敏感', () {
     expect(match('DIV', 'root'), isTrue);
     expect(match('DiV > P', 'p1'), isTrue);
+  });
+
+  test('class 重复匹配覆盖空白、大小写与可变属性', () {
+    final view = _MutableElement();
+    final part = SelectorPart(classes: {'a', 'b'});
+    for (final value in ['a b', '  a\tb\n a\r\f', 'b a']) {
+      view.attributes['class'] = value;
+      expect(part.matches(view), isTrue);
+      expect(part.matches(view), isTrue);
+    }
+    for (final value in ['a', 'a B', 'ab', '']) {
+      view.attributes['class'] = value;
+      expect(part.matches(view), isFalse);
+    }
+    view.attributes['class'] = 'a b';
+    expect(part.matches(view), isTrue, reason: '属性改变后不能复用元素旧匹配结果');
+  });
+
+  test('class 缓存淘汰与超长属性不改变匹配结果', () {
+    final view = _MutableElement();
+    for (var i = 0; i < 260; i++) {
+      view.attributes['class'] = 'common c$i';
+      expect(SelectorPart(classes: {'common', 'c$i'}).matches(view), isTrue);
+      expect(SelectorPart(classes: {'c${i + 1}'}).matches(view), isFalse);
+    }
+    view.attributes['class'] = 'common c0';
+    expect(SelectorPart(classes: {'common', 'c0'}).matches(view), isTrue);
+    view.attributes['class'] = '${'long ' * 300}target';
+    expect(SelectorPart(classes: {'long', 'target'}).matches(view), isTrue);
   });
 
   test('P8-01 升级后支持的选择器（属性/伪类/兄弟）', () {
