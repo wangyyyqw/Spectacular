@@ -214,8 +214,9 @@ abstract final class DocumentParser {
         '已回退容错解析',
       );
     }
+    final prepared = prepareHtml5InputWithOffsets(xhtml);
     final document = html_parser.parse(
-      prepareHtml5Input(xhtml),
+      prepared.xhtml,
       generateSpans: true,
     );
     final body = document.body;
@@ -235,9 +236,12 @@ abstract final class DocumentParser {
       return builder.build();
     }
 
-    int offsetStart(dom.Node node) => node.sourceSpan?.start.offset ?? 0;
-    int offsetEnd(dom.Node node) =>
-        node.sourceSpan?.end.offset ?? offsetStart(node);
+    int offsetStart(dom.Node node) => prepared.originalOffset(
+      node.sourceSpan?.start.offset ?? 0,
+    );
+    int offsetEnd(dom.Node node) => prepared.originalOffset(
+      node.sourceSpan?.end.offset ?? offsetStart(node),
+    );
 
     ParsedElement convert(dom.Element element, List<CfiStep> path, int depth) {
       final attributes = <String, String>{
