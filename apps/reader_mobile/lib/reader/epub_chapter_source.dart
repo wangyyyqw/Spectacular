@@ -402,6 +402,8 @@ class EpubChapterSource
       topInset: model.borders.top + model.padding.top,
       bottomInset: model.borders.bottom + model.padding.bottom,
       leftInset: model.borders.left + model.padding.left,
+      inlineImages: inlineImages,
+      rubies: rubies,
       declaredContentHeight: model.resolveContentHeight(
         layout.height,
         containingHeight: contentHeight,
