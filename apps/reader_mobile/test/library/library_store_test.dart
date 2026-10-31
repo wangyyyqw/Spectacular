@@ -2,7 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 
@@ -78,6 +80,58 @@ void main() {
       ),
     );
     expect(await store.list(), hasLength(1));
+  });
+
+  test('点段标识使用独立书目录，删除不影响其他书与设置', () async {
+    final dir = Directory.systemTemp.createTempSync('library_dot_id');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final sentinel = File('${dir.path}/settings-sentinel.txt')
+      ..writeAsStringSync('保留');
+    final other = await store.importBytes(buildTestEpub(identifier: 'other'));
+    for (final identifier in ['.', '..']) {
+      final book = await store.importBytes(
+        buildTestEpub(identifier: identifier),
+      );
+      expect(book.id, isNot(anyOf('.', '..')));
+      expect(
+        p.isWithin(p.join(dir.path, 'books'), p.normalize(book.filePath)),
+        isTrue,
+      );
+      await expectLater(
+        store.importBytes(buildTestEpub(identifier: identifier)),
+        throwsA(isA<LibraryImportException>()),
+      );
+      await store.remove(book.id);
+      expect(File(book.filePath).existsSync(), isFalse);
+      expect(sentinel.readAsStringSync(), '保留');
+      expect(File(other.filePath).existsSync(), isTrue);
+    }
+  });
+
+  test('旧库恶意标识只删记录，拒绝递归删除父目录或目录外原书', () async {
+    final dir = Directory.systemTemp.createTempSync('library_unsafe_legacy');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final sentinel = File('${dir.path}/sentinel.txt')..writeAsStringSync('保留');
+    for (final id in ['.', '..', '../outside']) {
+      await opened.db
+          .into(opened.db.books)
+          .insert(
+            BooksCompanion.insert(
+              uuid: id,
+              title: '旧库异常标识',
+              contentDir: 'books/$id',
+              sourcePath: Value(sentinel.path),
+              createdAt: 0,
+            ),
+          );
+      await opened.store.remove(id);
+      expect(sentinel.readAsStringSync(), '保留');
+    }
+    await opened.store.remove('..');
+    expect(await opened.store.list(), isEmpty);
+    expect(sentinel.existsSync(), isTrue);
   });
 
   test('导入报告落库：诊断码与分级（P4-06）', () async {
