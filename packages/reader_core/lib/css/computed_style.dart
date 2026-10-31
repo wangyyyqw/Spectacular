@@ -1767,6 +1767,8 @@ class ComputedStyle {
 
   static bool _validKeywordDeclaration(String property, String value) {
     return switch (property) {
+      'text-emphasis' => parseTextEmphasisShorthand(value) != null,
+      'text-emphasis-style' => _parseTextEmphasisStyle(value) != null,
       'font' => parseFontShorthand(value) != null,
       'font-weight' => _parseFontWeight(value) != null,
       'font-style' => const {'normal', 'italic', 'oblique'}.contains(value),
@@ -2411,11 +2413,21 @@ class ComputedStyle {
     final textDecorationColor =
         _parseColor(explicitValue('text-decoration-color') ?? '') ??
         _decorationColorFromShorthand(rawDecoration);
+    // 层叠入口已经展开简写；仅直接构造时补展开，避免盖过长属性的 inherit。
+    final shorthandEmphasis = explicitProperties == null
+        ? parseTextEmphasisShorthand(explicitValue('text-emphasis') ?? '')
+        : null;
     final rawEmphasis =
-        explicitValue('text-emphasis-style') ?? explicitValue('text-emphasis');
+        explicitValue('text-emphasis-style') ??
+        shorthandEmphasis?['text-emphasis-style'];
     final textEmphasisStyle = rawEmphasis == null
         ? (parent?.textEmphasisStyle ?? CssTextEmphasisStyle.none)
-        : _parseTextEmphasisStyle(rawEmphasis) ??
+        : _parseTextEmphasisStyle(
+                rawEmphasis,
+                vertical:
+                    writingMode != CssWritingMode.horizontalTb &&
+                    textOrientation != CssTextOrientation.sideways,
+              ) ??
               parent?.textEmphasisStyle ??
               CssTextEmphasisStyle.none;
     final rawEmphasisPosition = explicitValue('text-emphasis-position');
@@ -2442,11 +2454,14 @@ class ComputedStyle {
         : _parseTextCombine(rawTextCombine) ??
               parent?.textCombine ??
               CssTextCombine.none;
-    final rawEmphasisColor = explicitValue('text-emphasis-color');
+    final rawEmphasisColor =
+        explicitValue('text-emphasis-color') ??
+        shorthandEmphasis?['text-emphasis-color'];
+    // currentcolor 继承后才解算；null 沿用绘制层的正文颜色回退。
     final textEmphasisColor = rawEmphasisColor == null
         ? parent?.textEmphasisColor
         : rawEmphasisColor.toLowerCase() == 'currentcolor'
-        ? color
+        ? null
         : _parseColor(rawEmphasisColor) ?? parent?.textEmphasisColor;
     final pageBreakBefore = _parsePageBreak(
       explicitValue('page-break-before') ?? explicitValue('break-before'),
@@ -7222,29 +7237,54 @@ class ComputedStyle {
     };
   }
 
-  static CssTextEmphasisStyle? _parseTextEmphasisStyle(String raw) {
-    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+')).toSet();
-    if (tokens.contains('none')) {
-      return CssTextEmphasisStyle.none;
+  /// 着重号简写拆成长属性；缺项重置，位置独立参与继承。
+  static Map<String, String>? parseTextEmphasisShorthand(String raw) {
+    final styles = <String>[];
+    String? color;
+    for (final token in _cssTokens(raw)) {
+      if (token.toLowerCase() == 'currentcolor' || _parseColor(token) != null) {
+        if (color != null) return null;
+        color = token;
+      } else {
+        styles.add(token);
+      }
     }
-    final open = tokens.contains('open');
-    if (tokens.contains('circle')) {
-      return open
-          ? CssTextEmphasisStyle.openCircle
-          : CssTextEmphasisStyle.circle;
+    if (styles.isEmpty && color == null) return null;
+    final style = styles.isEmpty ? 'none' : styles.join(' ');
+    if (_parseTextEmphasisStyle(style) == null) return null;
+    return {
+      'text-emphasis-style': style,
+      'text-emphasis-color': color ?? 'currentcolor',
+    };
+  }
+
+  static CssTextEmphasisStyle? _parseTextEmphasisStyle(
+    String raw, {
+    bool vertical = false,
+  }) {
+    if (raw.trim().toLowerCase() == 'none') return CssTextEmphasisStyle.none;
+    final tokens = _cssTokens(raw.toLowerCase());
+    if (tokens.isEmpty) return null;
+    String? fill;
+    String? shape;
+    for (final token in tokens) {
+      if (const {'filled', 'open'}.contains(token)) {
+        if (fill != null) return null;
+        fill = token;
+      } else if (const {'dot', 'circle', 'sesame'}.contains(token)) {
+        if (shape != null) return null;
+        shape = token;
+      } else {
+        return null;
+      }
     }
-    if (tokens.contains('sesame')) {
-      return open
-          ? CssTextEmphasisStyle.openSesame
-          : CssTextEmphasisStyle.sesame;
-    }
-    if (tokens.contains('dot') ||
-        tokens.contains('filled') ||
-        tokens.contains('open')) {
-      // 只写 filled/open 时按规范默认形状 dot。
-      return open ? CssTextEmphasisStyle.openDot : CssTextEmphasisStyle.dot;
-    }
-    return null;
+    final open = fill == 'open';
+    return switch (shape ?? (vertical ? 'sesame' : 'circle')) {
+      'dot' => open ? CssTextEmphasisStyle.openDot : CssTextEmphasisStyle.dot,
+      'sesame' =>
+        open ? CssTextEmphasisStyle.openSesame : CssTextEmphasisStyle.sesame,
+      _ => open ? CssTextEmphasisStyle.openCircle : CssTextEmphasisStyle.circle,
+    };
   }
 
   static CssTextCombine? _parseTextCombine(String raw) {

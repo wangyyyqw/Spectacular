@@ -37,7 +37,11 @@ ComputedStyle _style([Map<String, String> overrides = const {}]) =>
       ...overrides,
     });
 
-Future<ByteData> _render(String text, ComputedStyle style) async {
+Future<ByteData> _render(
+  String text,
+  ComputedStyle style, {
+  Color? textColor,
+}) async {
   final layout = TextLayoutEngine.layout(
     text: text,
     style: style,
@@ -58,7 +62,7 @@ Future<ByteData> _render(String text, ComputedStyle style) async {
       const Rect.fromLTWH(0, 0, 240, 160),
       Paint()..color = const Color(0xFFFFFFFF),
     );
-  const PagePainter().paint(canvas, page, pageSize: _pageSize);
+  PagePainter(textColor: textColor).paint(canvas, page, pageSize: _pageSize);
   final image = await recorder.endRecording().toImage(240, 160);
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
@@ -72,6 +76,21 @@ List<int> _inkRows(ByteData bytes) => [
   for (var y = 0; y < 160; y++)
     if ([for (var x = 0; x < 240; x++) _isInk(bytes, x, y)].any((v) => v)) y,
 ];
+
+void _expectMarkTint(ByteData marked, List<int> rows, {required bool green}) {
+  expect(rows, isNotEmpty);
+  for (final y in rows) {
+    for (var x = 0; x < 240; x++) {
+      if (!_isInk(marked, x, y)) continue;
+      final offset = (y * 240 + x) * 4;
+      final red = marked.getUint8(offset);
+      final tint = marked.getUint8(offset + (green ? 1 : 2));
+      final other = marked.getUint8(offset + (green ? 2 : 1));
+      expect(tint, greaterThan(red));
+      expect(tint, greaterThan(other));
+    }
+  }
+}
 
 /// 额外墨迹行的水平簇数量（每个着重号是一个独立小圆点）。
 int _clusters(List<int> extraRows, ByteData bytes) {
@@ -218,5 +237,25 @@ void main() {
         .where((row) => !glyphRows.contains(row))
         .toList();
     expect(_clusters(extra, marked), 3);
+  });
+
+  test('着重号 currentcolor 使用正文主题策略，保留作者显式颜色', () async {
+    for (final explicit in [false, true]) {
+      ComputedStyle style(String emphasis) => ComputedStyle({
+        'font-family': _serif,
+        'font-size': '24px',
+        'line-height': '1.6',
+        'color': explicit ? '#008000' : '#000000',
+        'text-emphasis': emphasis,
+      }, hasExplicitTextColor: explicit);
+      const theme = Color(0xFF0000FF);
+      final plain = await _render('中文', style('none'), textColor: theme);
+      final marked = await _render('中文', style('circle'), textColor: theme);
+      final glyphRows = _inkRows(plain);
+      final extra = _inkRows(marked)
+          .where((row) => !glyphRows.contains(row))
+          .toList();
+      _expectMarkTint(marked, extra, green: explicit);
+    }
   });
 }

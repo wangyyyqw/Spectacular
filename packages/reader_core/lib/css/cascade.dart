@@ -370,7 +370,7 @@ abstract final class Cascade {
     }
   }
 
-  /// 盒类与 `font` 简写 → 长属性（P9-27）：与浏览器一致，在级联阶段展开，
+  /// 盒类与文字简写 → 长属性（P9-27）：与浏览器一致，在级联阶段展开，
   /// 这样作者简写与 UA 长属性按同一属性名比优先级。
   static Map<String, String> _expandShorthand(
     String property,
@@ -378,6 +378,12 @@ abstract final class Cascade {
   ) {
     const sides = <String>['top', 'right', 'bottom', 'left'];
     switch (property) {
+      case 'text-emphasis':
+        if (_isGlobalKeyword(value)) {
+          return {'text-emphasis-style': value, 'text-emphasis-color': value};
+        }
+        return ComputedStyle.parseTextEmphasisShorthand(value) ??
+            const <String, String>{};
       case 'font':
         if (_isGlobalKeyword(value)) {
           return {
