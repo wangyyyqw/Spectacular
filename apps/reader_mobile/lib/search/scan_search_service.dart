@@ -1,232 +1,149 @@
 import 'dart:async';
 
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/line_breaker.dart' show applyTextTransform;
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../reader/epub_chapter_source.dart';
 import 'chapter_text.dart';
 
-/// 扫描式全文搜索（对照 Reeden 2.0 的「即时扫描 + 独立 isolate」方案）。
+/// 扫描式全文搜索：只提取轻量正文，用户点击命中时才复用当前章节源排版。
 ///
-/// 不建倒排索引：查询时逐章取纯文本（只解析不排版），把文本丢进 isolate
-/// 做线性扫描；只有命中的章才走完整排版拿块级 CFI。
-///
-/// 为什么不用预建索引：156MB / 1541 章的书，建 2-gram 索引在真机上约
-/// 440ms/章（全书十几分钟），而线性扫描 368 万字符只要十几毫秒——瓶颈在
-/// 取文本，不在搜索本身。
+/// 服务由阅读页持有；不重复解包、不另存一份全文缓存，退出时取消在途查询。
 class ScanSearchService {
-  /// 创建服务。
-  ScanSearchService({
-    required this.source,
-    this.maxResults = 200,
-    this.onLog,
-  });
+  /// 创建服务；章节源生命周期由阅读页负责。
+  ScanSearchService({required this.source, this.maxResults = 200, this.onLog})
+    : assert(maxResults > 0);
 
-  /// 章节来源。
-  final ReaderChapterSource source;
+  /// 与正文阅读共用的章节源，保持排版几何与缓存一致。
+  final EpubChapterSource source;
 
   /// 结果上限（防爆量）。
   final int maxResults;
 
-  /// 诊断日志回调（搜索耗时打点，由 app 层写入 ReaderLog）。
+  /// 诊断日志回调（搜索耗时由宿主记录）。
   final void Function(String event, Map<String, Object?> fields)? onLog;
-
-  void _log(String event, Map<String, Object?> fields) =>
-      onLog?.call(event, fields);
 
   /// 上下文半径（前后各 12 字）。
   static const int contextRadius = 12;
 
-  /// 全章纯文本缓存（一次查询内复用；章节文本不可变小，可跨查询保留）。
-  final Map<int, String> _textCache = <int, String>{};
+  bool _disposed = false;
+  int _generation = 0;
 
-  /// 查询：取文本 → isolate 扫描 → 命中章校验并生成 CFI。
-  Future<List<SearchResult>> search(String query) async {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) {
-      return const <SearchResult>[];
-    }
-    final textWatch = Stopwatch()..start();
-    final texts = await _collectTexts();
-    textWatch.stop();
-    if (texts.isEmpty) {
-      return const <SearchResult>[];
-    }
-    // 直接在主 isolate 扫描：368 万字符 indexOf 约十几毫秒，
-    // 而把 9MB 文本序列化传给 isolate 反而更贵（真机实测）。
-    final scanWatch = Stopwatch()..start();
-    final rawHits = scanTexts(texts, trimmed, maxResults);
-    scanWatch.stop();
-    _log('search_scan', <String, Object?>{
-      'query': trimmed,
-      'chapters': texts.length,
-      'hits': rawHits.length,
-      'extract_ms': textWatch.elapsedMilliseconds,
-      'scan_ms': scanWatch.elapsedMilliseconds,
-    });
-    if (rawHits.isEmpty) {
-      return const <SearchResult>[];
-    }
-    final expandWatch = Stopwatch()..start();
-    final results = await _expandHits(rawHits, trimmed);
-    expandWatch.stop();
-    _log('search_done', <String, Object?>{
-      'query': trimmed,
-      'results': results.length,
-      'expand_ms': expandWatch.elapsedMilliseconds,
-    });
-    return results;
+  /// 取消查询；不关闭共用章节源，也不保留已退出书籍的全文副本。
+  void dispose() {
+    _disposed = true;
+    _generation++;
   }
 
-  /// 流式搜索：逐章扫描、边扫边推（搜到就显示，不等全书扫完）。
-  ///
-  /// 每章产出一次「当前累计结果」，UI 逐批渲染；`total` 是章节总数，供进度显示。
-  Stream<ScanProgress> searchStream(String query) async* {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) {
-      yield const ScanProgress(results: <SearchResult>[], scanned: 0, total: 0);
-      return;
+  bool _canContinue(int generation) =>
+      !_disposed && !source.isClosed && generation == _generation;
+
+  /// 一次性查询与流式查询共用同一扫描路径；结果达到上限后不再读后续章节。
+  Future<List<SearchResult>> search(String query) async {
+    final stream = searchStream(query);
+    final generation = _generation;
+    var results = const <SearchResult>[];
+    await for (final progress in stream) {
+      results = progress.results;
     }
-    final source = this.source;
-    if (source is! EpubChapterSource) {
+    return _canContinue(generation) ? results : const <SearchResult>[];
+  }
+
+  /// 逐章产出累计结果；开始新查询或退出阅读页后，旧查询不再访问章节源。
+  Stream<ScanProgress> searchStream(String query) =>
+      _scan(query.trim(), ++_generation);
+
+  Stream<ScanProgress> _scan(String query, int generation) async* {
+    if (!_canContinue(generation)) return;
+    if (query.isEmpty) {
       yield const ScanProgress(results: <SearchResult>[], scanned: 0, total: 0);
       return;
     }
     final titles = _chapterTitles();
-    final total = source.chapterCount;
     final results = <SearchResult>[];
+    final total = source.chapterCount;
     final watch = Stopwatch()..start();
     for (var spine = 0; spine < total; spine++) {
-      final text = _textCache[spine] ?? source.chapterPlainText(spine);
-      _textCache[spine] = text;
-      var from = 0;
-      var added = false;
-      while (results.length < maxResults) {
-        final at = text.indexOf(trimmed, from);
-        if (at < 0) {
-          break;
-        }
-        results.add(
-          SearchResult(
-            spineIndex: spine,
-            charOffset: at,
-            chapterTitle: titles[spine] ?? '',
-            context: _contextOf(text, at, trimmed.length),
-            matchLength: trimmed.length,
-          ),
-        );
-        from = at + trimmed.length;
-        added = true;
-      }
-      if (added) {
-        yield ScanProgress(
-          results: List<SearchResult>.of(results),
-          scanned: spine + 1,
-          total: total,
-          elapsedMs: watch.elapsedMilliseconds,
-        );
-      }
-      if (results.length >= maxResults) {
-        return;
-      }
-      // 每章让出一次事件循环，避免长书把主线程占住。
+      if (!_canContinue(generation)) return;
+      _scanChapter(spine, query, titles[spine] ?? '', results);
+      yield ScanProgress(
+        results: List<SearchResult>.of(results),
+        scanned: spine + 1,
+        total: total,
+        elapsedMs: watch.elapsedMilliseconds,
+      );
+      if (results.length >= maxResults) break;
       await Future<void>.delayed(Duration.zero);
     }
-    _log('search_scan', <String, Object?>{
-      'query': trimmed,
-      'chapters': total,
-      'hits': results.length,
-      'extract_scan_ms': watch.elapsedMilliseconds,
-    });
+    if (_canContinue(generation)) {
+      onLog?.call('search_scan', <String, Object?>{
+        'query': query,
+        'chapters': total,
+        'hits': results.length,
+        'extract_scan_ms': watch.elapsedMilliseconds,
+      });
+    }
   }
 
-  /// 逐章取纯文本：每章让出一次事件循环，避免长书把主线程占住。
-  Future<List<String>> _collectTexts() async {
-    final source = this.source;
-    if (source is! EpubChapterSource) {
-      return const <String>[];
-    }
-    final result = <String>[];
-    for (var spine = 0; spine < source.chapterCount; spine++) {
-      final cached = _textCache[spine];
-      if (cached != null) {
-        result.add(cached);
-        continue;
-      }
-      final text = source.chapterPlainText(spine);
-      _textCache[spine] = text;
-      result.add(text);
-      await Future<void>.delayed(Duration.zero);
-    }
-    return result;
-  }
-
-  /// 命中：用同一份轻量文本校正偏移并截上下文（不排版、不算 CFI）。
-  ///
-  /// 之前这里为每条命中走 `loadChapter` 拿块级 CFI，200 条命中要 19 秒；
-  /// 现在只在用户点开某一条时才排版算 CFI（见 [resolveCfi]）。
-  Future<List<SearchResult>> _expandHits(
-    List<ScanHit> hits,
+  void _scanChapter(
+    int spine,
     String query,
-  ) async {
-    final titles = _chapterTitles();
-    final results = <SearchResult>[];
-    for (final hit in hits) {
-      final chapter = _textCache[hit.spineIndex];
-      if (chapter == null) {
-        continue;
-      }
-      final offset = recenterOffset(chapter, query, hit.charOffset);
-      if (offset < 0) {
-        continue;
-      }
+    String title,
+    List<SearchResult> results,
+  ) {
+    final text = source.chapterPlainText(spine);
+    var from = 0;
+    while (results.length < maxResults) {
+      final at = text.indexOf(query, from);
+      if (at < 0) return;
       results.add(
         SearchResult(
-          spineIndex: hit.spineIndex,
-          charOffset: offset,
-          chapterTitle: titles[hit.spineIndex] ?? '',
-          context: _contextOf(chapter, offset, query.length),
+          spineIndex: spine,
+          charOffset: at,
+          chapterTitle: title,
+          context: _contextOf(text, at, query.length),
           matchLength: query.length,
-          cfi: null,
         ),
       );
-      if (results.length >= maxResults) {
-        break;
-      }
+      from = at + query.length;
     }
-    return results;
   }
 
-  /// 解析一条命中的 CFI（点击时才调用，只排版这一章，约 440ms）。
+  /// 仅排版被点击的章节，退出期间完成的旧结果会被丢弃。
   Future<String?> resolveCfi(SearchResult result) async {
-    final chapter = await _chapterTextOf(result.spineIndex);
-    if (chapter == null) {
-      return null;
-    }
-    return _cfiOf(chapter, result.charOffset);
-  }
-
-  Future<ChapterText?> _chapterTextOf(int spineIndex) async {
+    if (_disposed || source.isClosed) return null;
+    final generation = _generation;
     try {
-      final pages = await source.loadChapter(spineIndex);
-      return ChapterText.fromPages(pages);
+      final pages = await source.loadChapter(result.spineIndex);
+      if (!_canContinue(generation)) return null;
+      final scanned = source.chapterPlainText(result.spineIndex);
+      final end = result.charOffset + result.matchLength;
+      if (result.charOffset < 0 ||
+          result.matchLength <= 0 ||
+          end > scanned.length) {
+        return null;
+      }
+      final chapter = ChapterText.fromPages(pages);
+      final offset = mapSearchOffset(
+        chapter.text,
+        scanned,
+        scanned.substring(result.charOffset, end),
+        result.charOffset,
+        chapter: chapter,
+      );
+      final located = chapter.locate(offset);
+      final base = located?.block.startCfi;
+      if (base == null || base.isEmpty) return null;
+      // 单元格聚合了多个文本节点及原子盒，只返回精确元素页锚点，不能把
+      // 显示串偏移冒充某个原始文本节点的字符偏移。
+      if (located!.block.cell != null) return base;
+      return cfiWithCharOffset(base, located.localOffset);
     } catch (_) {
       return null;
     }
   }
-
-  String? _cfiOf(ChapterText chapter, int charOffset) {
-    final located = chapter.locate(charOffset);
-    if (located == null) {
-      return null;
-    }
-    final base = located.block.block.startCfi;
-    if (base == null || base.isEmpty) {
-      return null;
-    }
-    return cfiWithCharOffset(base, located.localOffset);
-  }
-
 
   static String _contextOf(String text, int offset, int length) {
     final start = offset - contextRadius < 0 ? 0 : offset - contextRadius;
@@ -237,72 +154,187 @@ class ScanSearchService {
   }
 
   Map<int, String> _chapterTitles() {
-    final chapterSource = source;
-    if (chapterSource is! TocChapterSource) {
-      return const <int, String>{};
-    }
     final titles = <int, String>{};
-    for (final row in flattenToc(chapterSource.toc)) {
+    for (final row in flattenToc(source.toc)) {
       titles.putIfAbsent(row.entry.spineIndex, () => row.entry.title);
     }
     return titles;
   }
 }
 
-/// 在命中位置附近重新找一次 query，校正两种文本来源之间的偏移差。
+/// 扫描偏移映射到排版正文；先比较去空白上下文，同上下文时保持命中序号。
 ///
-/// 扫描文本（xhtml 纯文本）与排版块文本长度并不一致，扫描偏移可能超出
-/// 本章排版文本长度，切片前必须夹到 `[0, text.length]`，否则 substring 会抛
-/// RangeError。窗口内找不到时退回全章查找，覆盖偏移差超过窗口的情况。
-int recenterOffset(String text, String query, int approx) {
-  final anchor = approx < 0 ? 0 : (approx > text.length ? text.length : approx);
-  final lower = anchor - 200 < 0 ? 0 : anchor - 200;
-  final upper = anchor + 200 > text.length ? text.length : anchor + 200;
-  final at = text.substring(lower, upper).indexOf(query);
-  if (at >= 0) {
-    return lower + at;
+/// 两套文本的块间换行、隐藏内容和生成内容不同，不能直接复用字符偏移；
+/// 也不能只取窗口内第一个同词命中，否则重复词会跳错位置。
+int mapSearchOffset(
+  String rendered,
+  String scanned,
+  String query,
+  int offset, {
+  ChapterText? chapter,
+}) {
+  if (query.isEmpty ||
+      offset < 0 ||
+      offset + query.length > scanned.length ||
+      !scanned.startsWith(query, offset)) {
+    return -1;
   }
-  return text.indexOf(query);
-}
-
-/// 一次扫描命中（可跨 isolate 传递）。
-class ScanHit {
-  /// 创建命中。
-  const ScanHit({required this.spineIndex, required this.charOffset});
-
-  /// 章节序号。
-  final int spineIndex;
-
-  /// 章内字符偏移（聚合文本坐标，后续会校正）。
-  final int charOffset;
-
-  /// 序列化（isolate 返回值必须可传）。
-  List<int> toList() => <int>[spineIndex, charOffset];
-
-  /// 反序列化。
-  static ScanHit fromList(List<int> value) =>
-      ScanHit(spineIndex: value[0], charOffset: value[1]);
-}
-
-/// 线性扫描章节纯文本（顶层函数，便于单独测试）。
-List<ScanHit> scanTexts(List<String> texts, String query, int maxResults) {
-  final hits = <ScanHit>[];
-  for (var spine = 0; spine < texts.length; spine++) {
-    final text = texts[spine];
-    var from = 0;
-    while (true) {
-      final at = text.indexOf(query, from);
-      if (at < 0) {
-        break;
-      }
-      hits.add(ScanHit(spineIndex: spine, charOffset: at));
-      if (hits.length >= maxResults) {
-        return hits;
-      }
-      from = at + query.length;
+  final transforms = chapter == null
+      ? {CssTextTransform.none}
+      : {for (final b in chapter.blocks) _blockTransform(b)};
+  final foldCase = transforms.any((value) => value != CssTextTransform.none);
+  var best = (offset: -1, score: -1, distance: rendered.length);
+  for (final transform in transforms) {
+    final pattern = _searchPattern(scanned, query, offset, transform, foldCase);
+    final candidate = _bestSearchMatch(rendered, pattern, transform, chapter);
+    if (candidate.score > best.score ||
+        (candidate.score == best.score && candidate.distance < best.distance)) {
+      best = candidate;
     }
   }
-  return hits;
+  return best.offset;
+}
+
+CssTextTransform _blockTransform(ChapterBlock block) =>
+    block.style?.textTransform ?? CssTextTransform.none;
+
+typedef _SearchPattern = ({
+  String query,
+  int ordinal,
+  (String, String) context,
+  bool foldCase,
+});
+
+_SearchPattern _searchPattern(
+  String scanned,
+  String query,
+  int offset,
+  CssTextTransform transform,
+  bool foldCase,
+) {
+  final text = applyTextTransform(scanned, transform);
+  // 按实际变换后的前缀长度换算 UTF-16 偏移，不依赖大小写变换保持等长。
+  final start = applyTextTransform(
+    scanned.substring(0, offset),
+    transform,
+  ).length;
+  final end = applyTextTransform(
+    scanned.substring(0, offset + query.length),
+    transform,
+  ).length;
+  final transformedQuery = text.substring(start, end);
+  final ordinalText = foldCase ? text.toUpperCase() : text;
+  final ordinalQuery = foldCase
+      ? transformedQuery.toUpperCase()
+      : transformedQuery;
+  final ordinalOffset = foldCase
+      ? text.substring(0, start).toUpperCase().length
+      : start;
+  return (
+    query: transformedQuery,
+    ordinal: _matchOrdinal(ordinalText, ordinalQuery, ordinalOffset),
+    context: _matchContext(text, start, end - start, foldCase: foldCase),
+    foldCase: foldCase,
+  );
+}
+
+({int offset, int score, int distance}) _bestSearchMatch(
+  String rendered,
+  _SearchPattern pattern,
+  CssTextTransform transform,
+  ChapterText? chapter,
+) {
+  var best = (offset: -1, score: -1, distance: rendered.length);
+  for (final (at, ordinal) in _searchCandidates(rendered, pattern)) {
+    final block = chapter?.blockAt(at);
+    if (chapter == null ||
+        block != null && _blockTransform(block) == transform) {
+      final candidate = _matchContext(
+        rendered,
+        at,
+        pattern.query.length,
+        foldCase: pattern.foldCase,
+      );
+      final score =
+          _commonEdge(pattern.context.$1, candidate.$1, fromEnd: true) +
+          _commonEdge(pattern.context.$2, candidate.$2, fromEnd: false);
+      final distance = (ordinal - pattern.ordinal).abs();
+      if (score > best.score ||
+          (score == best.score && distance < best.distance)) {
+        best = (offset: at, score: score, distance: distance);
+      }
+    }
+  }
+  return best;
+}
+
+Iterable<(int, int)> _searchCandidates(
+  String rendered,
+  _SearchPattern pattern,
+) sync* {
+  final folded = pattern.foldCase ? rendered.toUpperCase() : rendered;
+  final query = pattern.foldCase ? pattern.query.toUpperCase() : pattern.query;
+  var foldedAt = folded.indexOf(query);
+  var ordinal = 0;
+  var previous = 0;
+  var foldedOffset = 0;
+  var at = rendered.indexOf(pattern.query);
+  while (at >= 0) {
+    // 混合变换的段落共用全章序号；逐段转换前缀，避免每个命中重复扫描整章。
+    foldedOffset += pattern.foldCase
+        ? rendered.substring(previous, at).toUpperCase().length
+        : at - previous;
+    previous = at;
+    while (foldedAt >= 0 && foldedAt < foldedOffset) {
+      ordinal++;
+      foldedAt = folded.indexOf(query, foldedAt + query.length);
+    }
+    yield (at, ordinal);
+    at = rendered.indexOf(pattern.query, at + pattern.query.length);
+  }
+}
+
+int _matchOrdinal(String text, String query, int offset) {
+  var ordinal = 0;
+  var at = text.indexOf(query);
+  while (at >= 0 && at < offset) {
+    ordinal++;
+    at = text.indexOf(query, at + query.length);
+  }
+  return ordinal;
+}
+
+final RegExp _contextWhitespace = RegExp(r'\s+');
+
+(String, String) _matchContext(
+  String text,
+  int offset,
+  int length, {
+  bool foldCase = false,
+}) {
+  const radius = ScanSearchService.contextRadius;
+  final start = (offset - radius).clamp(0, text.length);
+  final end = (offset + length + radius).clamp(0, text.length);
+  final before = text
+      .substring(start, offset)
+      .replaceAll(_contextWhitespace, '');
+  final after = text
+      .substring(offset + length, end)
+      .replaceAll(_contextWhitespace, '');
+  return foldCase
+      ? (before.toUpperCase(), after.toUpperCase())
+      : (before, after);
+}
+
+int _commonEdge(String a, String b, {required bool fromEnd}) {
+  var count = 0;
+  while (count < a.length && count < b.length) {
+    final ai = fromEnd ? a.length - 1 - count : count;
+    final bi = fromEnd ? b.length - 1 - count : count;
+    if (a.codeUnitAt(ai) != b.codeUnitAt(bi)) break;
+    count++;
+  }
+  return count;
 }
 
 /// 一条搜索结果（P4-25，§66.5）。
@@ -332,7 +364,7 @@ class SearchResult {
   /// 命中词长度。
   final int matchLength;
 
-  /// 命中位置的 CFI（块 CFI + 块内偏移）；无法定位时为 null。
+  /// 命中位置的 CFI；正文带字符偏移，表格使用元素页锚点，无法定位时为空。
   final String? cfi;
 }
 

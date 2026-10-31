@@ -259,7 +259,8 @@ class EpubChapterSource
       '样式章索引 ${_chapterSheetCache.length}/$chapterIndexCacheLimit 章；'
       '满屏索引 ${_fullBleedCache.length}/$chapterIndexCacheLimit 章；'
       '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
-      '图片索引 ${_imageIntrinsicCache.length}/$imageIntrinsicCacheLimit 个';
+      '图片索引 ${_imageIntrinsicCache.length}/$imageIntrinsicCacheLimit 个；'
+      '纯文本缓存 ${_plainTextCache.length}/$chapterIndexCacheLimit 章';
   final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};
 
   /// 排版层指纹（P7-23）：几何 + 设置的排版字段；颜色不参与（绘制层
@@ -856,6 +857,8 @@ class EpubChapterSource
     _bookFontEngines.clear();
     _bookFontCoverages.clear();
     _resolvedBaseStyle = null;
+    _plainTextCache.clear();
+    _opfPageFlagsCache = null;
     document.archive.close();
   }
 
@@ -2045,6 +2048,7 @@ class EpubChapterSource
               ),
               layout: block.layout,
               style: style,
+              startCfi: block.startCfi,
             ),
           );
           itemY += borderHeight + block.spaceAfter;
@@ -2492,8 +2496,10 @@ class EpubChapterSource
     return (width, height);
   }
 
-  /// 章节纯文本缓存（轻量提取结果）。
-  final Map<int, String> _plainTextCache = <int, String>{};
+  /// 章节纯文本按章 LRU；全书搜索后不长期保留整本正文副本。
+  final BoundedCache<int, String> _plainTextCache = BoundedCache(
+    chapterIndexCacheLimit,
+  );
 
   /// 章节纯文本：扫描式全文搜索用。
   ///
@@ -2501,6 +2507,7 @@ class EpubChapterSource
   /// 约 2 秒 → 数百毫秒）。文本细节与排版结果可能有差异，所以搜索命中后要按
   /// 块级文本重新校验偏移，不能直接拿它算 CFI。
   String chapterPlainText(int spineIndex) {
+    if (_closed) return '';
     final cached = _plainTextCache[spineIndex];
     if (cached != null) {
       return cached;
@@ -5666,6 +5673,7 @@ class EpubChapterSource
           captionBlock = PageBlock.styled(
             layout: layout,
             style: captionStyle,
+            startCfi: caption.cfi.serialize(),
             containingWidth: tableWidthPxFinal,
             spaceBefore:
                 captionStyle.margin.top +
@@ -5698,6 +5706,7 @@ class EpubChapterSource
               rect: rect.rect,
               layout: layout,
               style: cellStyle,
+              startCfi: rows[r][c].cfi.serialize(),
             ),
           );
         }
@@ -5760,6 +5769,7 @@ class EpubChapterSource
                 ),
                 layout: cell.layout,
                 style: cell.style,
+                startCfi: cell.startCfi,
               ),
             )
             .toList();

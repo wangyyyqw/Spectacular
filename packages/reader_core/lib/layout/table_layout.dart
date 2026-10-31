@@ -13,6 +13,7 @@ class TableCellRender {
     required this.rect,
     required this.layout,
     required this.style,
+    this.startCfi,
   });
 
   /// 所在行号（全表行号）。
@@ -26,6 +27,9 @@ class TableCellRender {
 
   /// 格计算样式（对齐/字体等，绘制层消费）。
   final ComputedStyle style;
+
+  /// 来源单元格元素（或 Flex 子块）的稳定 CFI，用于定位载荷所在页。
+  final String? startCfi;
 }
 
 /// 一页表格切片的渲染规格：格载荷 + 网格线坐标 + 行区间。

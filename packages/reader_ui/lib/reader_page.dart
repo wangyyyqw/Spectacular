@@ -838,19 +838,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     // 扫描式搜索不给每条命中算 CFI，这里按点击结果现场排版这一章。
     var cfi = result.cfi;
     cfi ??= await widget.onResolveSearchCfi?.call(result);
-    if (cfi == null) {
+    if (cfi == null || !mounted) {
       return;
     }
     final resolvedCfi = cfi;
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-    final offset = cfiCharOffset(resolvedCfi) ?? 0;
-    final endCfi = cfiWithCharOffset(resolvedCfi, offset + result.matchLength);
+    final offset = cfiCharOffset(resolvedCfi);
     await _session.jumpToCfi(resolvedCfi, title: result.chapterTitle);
-    if (!mounted) {
+    // 表格只能提供精确元素页锚点时，不伪造文本节点的字符高亮区间。
+    if (!mounted || offset == null) {
       return;
     }
+    final endCfi = cfiWithCharOffset(resolvedCfi, offset + result.matchLength);
     _tempHighlightTimer?.cancel();
     setState(() {
       _tempHighlight = ReaderAnnotation(
@@ -1188,6 +1186,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           atLineStart: false,
           atLineEnd: true,
         ),
+        pageIndex: page.pageIndex,
       );
     });
   }
@@ -1393,13 +1392,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             // 标注装饰层（P4-18）：高亮底色 + 笔记标记，在正文之上、选区之下。
             if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
               Positioned.fill(
-                child: AnnotationLayer(
-                  page: page,
-                  annotations: <ReaderAnnotation>[
-                    ..._resolvedAnnotations,
-                    ?_tempHighlight,
-                  ],
-                  inkMode: _inkMode,
+                child: Padding(
+                  padding: bodyPadding,
+                  child: AnnotationLayer(
+                    page: page,
+                    annotations: <ReaderAnnotation>[
+                      ..._resolvedAnnotations,
+                      ?_tempHighlight,
+                    ],
+                    inkMode: _inkMode,
+                  ),
                 ),
               ),
             ReaderView(
@@ -1461,6 +1463,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   page: page,
                   pageIndex: page.pageIndex,
                   selection: _selection!,
+                  contentPadding: bodyPadding,
                   onChanged: _applyLocalSelection,
                   onEdgeDrag: _handleSelectionEdgeDrag,
                 ),
@@ -1468,7 +1471,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               // 选区菜单（P4-16）：贴在选区上方，不遮挡选区。
               SelectionMenu(
                 actions: _selectionActions(page, _selection!),
-                anchor: SelectionOps.boundsOf(page, _selection!),
+                anchor: SelectionOps.boundsOf(page, _selection!).shift(
+                  Offset(bodyPadding.left, bodyPadding.top),
+                ),
                 bounds: size,
               ),
             ],
