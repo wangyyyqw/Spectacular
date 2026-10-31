@@ -1348,7 +1348,9 @@ class Paginator {
   static PageBlock _tablePiece(PageBlock source, int startRow, int endRow) {
     final table = source.table!;
     final rowYs = table.rowYs;
-    final top = rowYs[startRow];
+    // 首页保留预切表格在内容盒顶部的留白（例如 Flex align-content
+    // center/flex-end）；只有从后续行开始时才把该行顶平移到切片顶。
+    final top = startRow == 0 ? 0.0 : rowYs[startRow];
     final bottom = rowYs[endRow];
     final height = bottom - top;
     final rowCount = rowYs.length - 1;
