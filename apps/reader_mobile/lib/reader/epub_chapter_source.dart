@@ -802,7 +802,7 @@ class EpubChapterSource
       BoundedCache(chapterIndexCacheLimit);
 
   /// 书内字体（P3-01/02 接入 flat 管线）：@font-face 注册器与引擎族名
-  /// 映射；bookId 由 OPF 路径派生（同书同族隔离，多书不串）。
+  /// 映射；族名同时包含实际字形摘要，隔离同 OPF 路径、同标识的不同书。
   BookFontLoader? _fontLoader;
   final Set<String> _fontFacesSeen = <String>{};
   Future<void>? _fontRegistration;
@@ -863,11 +863,15 @@ class EpubChapterSource
     while (_fontRegistration != null) {
       await _fontRegistration!;
     }
+    if (_closed) return;
     final faces = <CssFontFace>[for (final sheet in sheets) ...sheet.fontFaces];
     if (faces.isEmpty) {
       return;
     }
-    final loader = _fontLoader ??= BookFontLoader(bookId: _bookId);
+    final loader = _fontLoader ??= BookFontLoader(
+      bookId: _bookId,
+      contentAddressed: true,
+    );
     // 已注册过 face 的族也要补进映射：先打开的章节声明了 @font-face、
     // 后面章节只用 `font-family` 引用同一族（真书常见），此时 pending 为空。
     _syncBookFontEngines(loader, faces);
@@ -885,37 +889,15 @@ class EpubChapterSource
     final registration = loader
         .load(
           pending,
-          resolveBytes: (url) async {
-            final direct = document.archive.readBytes(url);
-            if (direct != null) {
-              return direct;
-            }
-            final resolved = document.resources.resolve(url);
-            if (resolved != null) {
-              final bytes = document.archive.readBytes(resolved);
-              if (bytes != null) {
-                return bytes;
-              }
-            }
-            for (final item in document.spine) {
-              final slash = item.href.lastIndexOf('/');
-              final baseDir = slash < 0 ? '' : item.href.substring(0, slash);
-              final candidate = document.resources.resolve(
-                url,
-                baseDir: baseDir,
-              );
-              if (candidate == null) {
-                continue;
-              }
-              final bytes = document.archive.readBytes(candidate);
-              if (bytes != null) {
-                return bytes;
-              }
-            }
-            return null;
-          },
+          resolveBytes: _readBookFont,
         )
-        .then((_) => _syncBookFontEngines(loader, faces));
+        .then((_) {
+          if (_closed) {
+            loader.clear();
+          } else {
+            _syncBookFontEngines(loader, faces);
+          }
+        });
     _fontRegistration = registration;
     try {
       await registration;
@@ -924,15 +906,39 @@ class EpubChapterSource
     }
   }
 
+  Future<Uint8List?> _readBookFont(String url) async {
+    if (_closed) return null;
+    // 只解析路径，不先读出原字节；所有成功分支统一经过解混淆入口。
+    var path = document.archive.contains(url)
+        ? url
+        : document.resources.resolve(url);
+    if (path == null) {
+      for (final item in document.spine) {
+        path = document.resources.resolve(
+          url,
+          baseDir: p.posix.dirname(item.href),
+        );
+        if (path != null) break;
+      }
+    }
+    return path == null ? null : document.readFontBytes('/$path');
+  }
+
   /// 把已注册成功的族收进「CSS 族名 → 引擎族名」映射。
   ///
   /// 只收注册成功的（[BookFontLoader.engineFamily] 非空）：加载失败的族
   /// 保持原样，让 `font-family` 回退链继续生效。
   void _syncBookFontEngines(BookFontLoader loader, List<CssFontFace> faces) {
+    var changed = false;
     for (final face in faces) {
       final engine = loader.engineFamily(face.family);
       if (engine != null) {
+        final previous = _bookFontEngines[face.family.toLowerCase()];
         _bookFontEngines[face.family.toLowerCase()] = engine;
+        if (previous != null && previous != engine) {
+          changed = true;
+          _bookFontCoverages.remove(previous);
+        }
         final coverage = loader.coverage(face.family);
         if (coverage != null) {
           _bookFontCoverages[engine] = coverage;
@@ -952,6 +958,18 @@ class EpubChapterSource
         }
       }
     }
+    if (changed) _invalidateBookFontLayouts();
+  }
+
+  void _invalidateBookFontLayouts() {
+    // 增量 face 会产生新引擎族名，旧块样式不可继续指向缺字重的旧族。
+    _logInvalidation('fontFacesChanged', 'cached', 'updated');
+    _layoutCache.clear();
+    _pageCache.clear();
+    _pageCacheOrder.clear();
+    _pageIndexCache.clear();
+    _blockCache.clear();
+    _blockCacheOrder.clear();
   }
 
   bool _hasBookFontGlyph(String family, int codeUnit) {
@@ -3536,6 +3554,7 @@ class EpubChapterSource
     // 传导与引用深度。前缀缓存：同容器兄弟块共享祖先计算结果。
     final sheets = _chapterStylesheets(spineIndex);
     await _ensureBookFonts(sheets);
+    if (_closed) throw StateError('章节来源已关闭');
     // 书内 @font-face 的族名改写（P0）：注册后把作者声明里的书内字族换成
     // 引擎族名 `bi_<bookId>_<族>`，改写在级联之前，块样式与行内 run 样式
     // 都自然拿到引擎族名。
