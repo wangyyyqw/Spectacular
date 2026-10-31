@@ -50,7 +50,7 @@ CSS_PARITY_OUT=/tmp/css-emphasis-shorthand /usr/bin/python3 tool/css_parity/comp
 ## 规范与浏览器取舍
 
 [CSS Text Decoration 3 §3.1](https://www.w3.org/TR/css-text-decor-3/#text-emphasis-style-property)
-规定仅填充关键字时横排圆形、竖排芝麻；本机 Chrome 的计算值探针却得到：
+规定仅填充关键字时横排圆形、竖排芝麻；本机 Chrome 的计算值检测结果却得到：
 
 | 第 101 组声明 | Chrome 计算样式 | 本次引擎 |
 | --- | --- | --- |
@@ -58,12 +58,12 @@ CSS_PARITY_OUT=/tmp/css-emphasis-shorthand /usr/bin/python3 tool/css_parity/comp
 | `open rgb(0, 102, 204)` | `open dot` | `open circle` |
 | 父级 `open currentcolor`、子级绿色 | `open dot` / `rgb(0, 128, 0)` | `openCircle` / 子级绿色 |
 
-探针数据位于 `/tmp/spectacular-css3-probe/browser_101-emphasis-shorthand.json`。
+检测结果数据位于 `/tmp/spectacular-css3-probe/browser_101-emphasis-shorthand.json`。
 选择规范默认值而非复制此版本 Chrome 的默认形状；需要点形的书籍仍可显式写 `dot`。
 [§3.2](https://www.w3.org/TR/css-text-decor-3/#text-emphasis-color-property)
 规定 `currentcolor` 在继承后解算；
 [§3.3](https://www.w3.org/TR/css-text-decor-3/#text-emphasis-property)
-规定简写重置样式/颜色但保留位置。以上规则以官方规范原文与本机探针双重核对。
+规定简写重置样式/颜色但保留位置。以上规则以官方规范原文与本机检测结果双重核对。
 
 ## 未处理风险与下一步
 

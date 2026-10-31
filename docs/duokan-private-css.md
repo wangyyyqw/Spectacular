@@ -1,4 +1,4 @@
-# 多看、掌阅与微信读书私有 CSS 属性调研
+# 多看、掌阅与微信读书扩展 CSS 属性调研
 
 调研时间 2026-10-27。语料为 `test_corpus/real/` 下 7 本真实 EPUB。基线提交 `abc6ed1` + 未提交改动（`computed_style.dart` 新增 transform/columns/writing-mode/overflow 等字段与解析，`line_breaker.dart` 接入 text-overflow 与断词断字）。状态按 2026-10-27 03:00 工作树复核，行号会漂移，实施前请复核。
 
@@ -15,21 +15,21 @@
 | E33-WB | 官方标准 | [-epub-word-break](https://www.w3.org/TR/epub-33/#sec-css-prefixed-text-epub-word-break) |
 | E33-WM | 官方标准 | [E.1 CSS writing modes](https://www.w3.org/TR/epub-33/#e-1-css-writing-modes) |
 | E33-TD | 官方标准 | [E.3 CSS text decoration level 3](https://www.w3.org/TR/epub-33/#e-3-css-text-decoration-level-3) |
-| DK-README | 社区提取 | [Eninix/sigil-template README](https://github.com/Eninix/sigil-template/blob/master/README.md)，作者提取多看 EPUB 的 CSS 并逐项说明 |
-| DK-CSS | 社区提取 | [Eninix/sigil-template duokanstyle.css](https://github.com/Eninix/sigil-template/blob/master/duokanstyle.css)，声称是多看 EPUB 原样式表 |
+| DK-README | 社区整理 | [Eninix/sigil-template README](https://github.com/Eninix/sigil-template/blob/master/README.md)，作者整理的多看 EPUB 的 CSS 并逐项说明 |
+| DK-CSS | 社区整理 | [Eninix/sigil-template duokanstyle.css](https://github.com/Eninix/sigil-template/blob/master/duokanstyle.css)，声称是多看 EPUB 原样式表 |
 | RD | 第三方实现 | [Readest style.ts](https://github.com/readest/readest/blob/main/apps/readest-app/src/utils/style.ts)，实现了 `duokan-bleed` 到负外边距的转换 |
-| FX | 第三方修复器 | [SamLaio/epubCssFixer](https://github.com/SamLaio/epubCssFixer)，其 [css.js](https://github.com/SamLaio/epubCssFixer/blob/main/src/css.js) 列出了一批私有属性名单 |
+| FX | 第三方修复器 | [SamLaio/epubCssFixer](https://github.com/SamLaio/epubCssFixer)，其 [css.js](https://github.com/SamLaio/epubCssFixer/blob/main/src/css.js) 列出了一批扩展属性名单 |
 | SX | 第三方清洗工具 | [SeptimusX/ebook-xhtml-clean SKILL.md](https://github.com/SeptimusX/ebook-xhtml-clean/blob/main/SKILL.md)，记录了多看、掌阅、微信读书的 HTML 与类名约定 |
 | MDN | 标准参考 | [writing-mode](https://developer.mozilla.org/en-US/docs/Web/CSS/writing-mode)、[text-orientation](https://developer.mozilla.org/en-US/docs/Web/CSS/text-orientation)、[text-emphasis](https://developer.mozilla.org/en-US/docs/Web/CSS/text-emphasis)、[line-break](https://developer.mozilla.org/en-US/docs/Web/CSS/line-break)、[hyphens](https://developer.mozilla.org/en-US/docs/Web/CSS/hyphens)、[text-combine-upright](https://developer.mozilla.org/en-US/docs/Web/CSS/text-combine-upright) |
 | BOOK | 书内位置 | 写法为 `书名 + CSS 文件 + 行号`。两本多看渠道书的 CSS 文件名被混淆成 `_*:*...`，完整名见附录 A |
 
-没有找到多看公开的 CSS 规范文档，因此多看私有属性只有三类证据：社区从多看 EPUB 提取的样式表、真实书里的声明与作者注释、第三方阅读器的兼容代码。三者的可靠性依次下降，本文在表中标注来源，不把二手材料写成官方规范。
+没有找到多看公开的 CSS 规范文档，因此多看扩展属性只有三类证据：社区整理的多看 EPUB 样式表、真实书里的声明与作者注释、第三方阅读器的兼容代码。三者的可靠性依次下降，本文在表中标注来源，不把二手材料写成官方规范。
 
 ## 2. 属性总表
 
 状态图例。✅ 完整生效。⚠️ 部分生效。🟡 字段或别名已接，布局/绘制未消费（伪支持）。❌ 未处理。状态以第 6 节的引擎快照为准。
 
-### 2.1 多看私有属性
+### 2.1 多看扩展属性
 
 | 属性 | 来源 | 语义 | 取值 | 标准映射 | 引擎状态 | 风险 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -54,7 +54,7 @@
 | `duokan-page-fitwindow` | DK-README | OPF 属性，插图上下居中 | 无值 | 图片页垂直居中 | ✅ | contain 适配并在页内居中，已有测试 |
 | `duokan-page-fullscreen-spread-left/right` | DK-README | OPF 属性，全屏跨页的左右页 | 无值 | 跨页布局 | ⚠️ | 单页模式按全屏处理；双页跨页摆放尚未建模 |
 
-### 2.2 标准前缀与掌阅、QQ 阅读私有属性
+### 2.2 标准前缀与掌阅、QQ 阅读扩展属性
 
 | 属性 | 来源 | 语义 | 取值 | 标准映射 | 引擎状态 | 风险 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -82,7 +82,7 @@
 
 ## 3. 任务点名但证据不足的属性
 
-下面这些属性在任务清单里被点名，但在 7 本真实书、Eninix 提取的多看样式表、Reeden 静态分析资料中的字符串、Readest 与 epubCssFixer 中都没有找到实例或说明。它们不应按「已知多看规范」实现。
+下面这些属性在任务清单里被点名，但在 7 本真实书、Eninix 整理的多看样式表、Reeden 静态分析资料中的字符串、Readest 与 epubCssFixer 中都没有找到实例或说明。它们不应按「已知多看规范」实现。
 
 | 属性 | 现有线索 | 引擎状态 | 结论 |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@
 | `duokan-page-break-inside` | 别名层已有 | ✅ | 同上，书内实际写的是 `duokan-break-inside` |
 | `duokan-hyphenate` | 无 | ❌ | 未证实存在，暂不建议实现；西文断字已由 `-epub-hyphens` 覆盖 |
 | `duokan-text-justify` | 无 | ❌ | 未证实存在，暂不建议实现；书内两端对齐用 `duokan-text-align: justify` |
-| `duokan-text-decoration-width` | 仅见于 Reeden 静态分析资料 | ❌ | 第三方字符串不能证明多看支持；先观察 |
+| `duokan-text-decoration-width` | 仅见于 Reeden 静态分析资料 | ❌ | 单一资料字符串不能证明多看支持；先观察 |
 | `duokan-text-decoration-color` | 仅见于 Reeden 静态分析资料 | ❌ | 同上 |
 
 ## 4. 书内真实用法片段
@@ -402,11 +402,11 @@ div.orig-card {
 
 ### 5.2 掌阅 iReader
 
-掌阅的 EPUB 导出以标准 CSS 与 WebKit 前缀为主，私有痕迹更多在 class 与 HTML 结构，而不是 CSS 属性前缀。`SX` 记录掌阅稿的类名有 `zhangyue-*`、`text-title-*`、`bodytext`、`noteref_N`，没有记录 `ireader-*` CSS 属性。第三方修复器 `FX` 把 `zybleed` 视作与 `duokan-bleed` 同类的私有出血属性，这是目前能找到的唯一 CSS 私有属性证据，且只有一份低星工具名单，可靠性低。
+掌阅的 EPUB 导出以标准 CSS 与 WebKit 前缀为主，扩展痕迹更多在 class 与 HTML 结构，而不是 CSS 属性前缀。`SX` 记录掌阅稿的类名有 `zhangyue-*`、`text-title-*`、`bodytext`、`noteref_N`，没有记录 `ireader-*` CSS 属性。第三方修复器 `FX` 把 `zybleed` 视作与 `duokan-bleed` 同类的扩展出血属性，这是目前能找到的唯一 CSS 扩展属性证据，且只有一份低星工具名单，可靠性低。
 
 ### 5.3 微信读书与 QQ 阅读
 
-微信读书没有发现私有 CSS 属性前缀。`SX` 记录的特征是 HTML 私有属性 `data-wr-bd`、`data-wr-id`、`data-wr-footernote`，以及 `readerChapterContent`、`p.content`、`p.quotation` 等类名，CSS 走标准子集与内联样式。QQ 阅读与微信读书共用清洗 profile，第三方修复器只列出 `qrbleed` 与 `qrfullpage` 两个私有属性，同样缺少一手证据。
+微信读书没有发现扩展 CSS 属性前缀。`SX` 记录的特征是 HTML 扩展属性 `data-wr-bd`、`data-wr-id`、`data-wr-footernote`，以及 `readerChapterContent`、`p.content`、`p.quotation` 等类名，CSS 走标准子集与内联样式。QQ 阅读与微信读书共用清洗 profile，第三方修复器只列出 `qrbleed` 与 `qrfullpage` 两个扩展属性，同样缺少一手证据。
 
 ### 5.4 只有多看支持的属性
 
@@ -425,13 +425,13 @@ div.orig-card {
 
 | 能力 | 多看 | 掌阅 | 微信读书 | QQ 阅读 |
 | --- | --- | --- | --- | --- |
-| 私有 CSS 前缀 | `duokan-*` 与 `-duokan-*` | `zybleed`（仅出血） | 未发现 | `qrbleed`、`qrfullpage` |
+| 扩展 CSS 前缀 | `duokan-*` 与 `-duokan-*` | `zybleed`（仅出血） | 未发现 | `qrbleed`、`qrfullpage` |
 | 出血 | `duokan-bleed` | `zybleed` | 未发现 | `qrbleed` |
 | 整页插图 | OPF `duokan-page-fullscreen` 等 | 未发现 | 未发现 | `qrfullpage` |
 | 竖排 | `duokan-writing-mode` 族 | 标准 `writing-mode` 子集 | 标准 CSS 子集 | 未发现 |
 | 着重号 | `-epub-text-emphasis-*` 与标准 | 未发现 | 未发现 | 未发现 |
 
-与 6.0 之后的多看相比，掌阅与微信读书的私有 CSS 面窄得多。多看把文本、竖排、出血、整页插图都做成了私有属性，掌阅目前只找到出血一个私有属性，微信读书没有私有 CSS 前缀，主要靠 HTML 属性与类名控制排版。
+与 6.0 之后的多看相比，掌阅与微信读书的扩展 CSS 面窄得多。多看把文本、竖排、出血、整页插图都做成了扩展属性，掌阅目前只找到出血一个扩展属性，微信读书没有扩展 CSS 前缀，主要靠 HTML 属性与类名控制排版。
 
 ## 6. 引擎现状统计
 
@@ -444,7 +444,7 @@ div.orig-card {
 
 ### 6.2 声明级统计
 
-7 本书共 1670 条私有属性声明。按当前工作区引擎的行为分类。
+7 本书共 1670 条扩展属性声明。按当前工作区引擎的行为分类。
 
 | 结果 | 声明数 | 占比 | 主要来源 |
 | --- | --- | --- | --- |
@@ -458,7 +458,7 @@ div.orig-card {
 
 按书分布。
 
-| 书 | 私有声明数 | 其中多看属性 | 备注 |
+| 书 | 扩展声明数 | 其中多看属性 | 备注 |
 | --- | --- | --- | --- |
 | zhushen-yuxi | 1070 | 1066 | 竖排模板、诗词、卡片、全屏封面 |
 | cloverfield-multi-author | 441 | 440 | 与 zhushen 共用的模板 |
@@ -470,7 +470,7 @@ div.orig-card {
 
 ### 6.3 属性级状态
 
-书内实际出现的私有属性与支持情况。
+书内实际出现的扩展属性与支持情况。
 
 | 书内属性 | 出现次数 | 引擎状态 |
 | --- | --- | --- |
@@ -507,7 +507,7 @@ div.orig-card {
 
 ### 6.4 伪支持风险
 
-[`docs/css-property-audit.md`](css-property-audit.md) 已经指出同一问题。别名把私有属性改名成标准属性，但标准属性本身零消费时，覆盖率看起来提高，排版没有任何变化，排查「为什么竖排不生效」时还会先怀疑别名层。竖排族就是典型。
+[`docs/css-property-audit.md`](css-property-audit.md) 已经指出同一问题。别名把扩展属性改名成标准属性，但标准属性本身零消费时，覆盖率看起来提高，排版没有任何变化，排查「为什么竖排不生效」时还会先怀疑别名层。竖排族就是典型。
 
 `duokan-text-orientation: upright` 必须映射到 `text-orientation`，不能并入 `writing-mode`。真实书里这两条声明紧挨着，同特异性下后写的 `upright` 会把 `writing-mode: vertical-rl` 覆盖成非法值，最终整章从竖排退回横排。当前工作区已经分开映射，后续重构不能合并。
 
@@ -608,7 +608,7 @@ div.orig-card {
 | 3 | `duokan-text-fill` 渐变兜底 | 6 条声明，当前纯色可用；渐变写法无多看侧证据，属于防御性支持 | 无 | `computed_style.dart` 存填充模型、`page_renderer.dart` 用着色器或渐变绘制 | 合成用例 `linear-gradient` 渲染出渐变，纯色仍正确 |
 | 4 | `line-break` 与 `-epub-line-break` 真正消费 | 无真实书实例，但多看排版常用；决定标点禁则严格度 | 1 | `property_aliases.dart` 补 `-epub-line-break`、`computed_style.dart`、`line_breaker.dart` | 长标点序列断行点与 Chrome 对齐 |
 | 5 | `overflow` 裁剪消费 | 真实书 25 条 / 4 本；字段已解析，绘制层未按它裁剪 | 无 | `page_renderer.dart` 块绘制前 `clipRect` | `overflow:hidden` 能裁掉装饰元素，`visible` 不误裁 |
-| 6 | `text-combine-upright` 縦中横 | 鹿鼎记 3 条私有 + 1 条标准，竖排年份与数字需要 | 1 | `computed_style.dart`、`page_renderer.dart` | `.tcy` 数字横排并占一格 |
+| 6 | `text-combine-upright` 縦中横 | 鹿鼎记 3 条扩展 + 1 条标准，竖排年份与数字需要 | 1 | `computed_style.dart`、`page_renderer.dart` | `.tcy` 数字横排并占一格 |
 | 7 | `initial-letter` 与 `duokan-drop-caps-style` | 多看模板首字下沉；当前字段零消费 | 1 可选 | `computed_style.dart` 值映射、`line_breaker.dart` 首字下沉 | 两行、三行首字下沉与模板一致 |
 | 8 | 掌阅与 QQ 出血别名 | 语料无样本，属于前瞻兼容 | 2 | `property_aliases.dart` 把 `zybleed`、`qrbleed` 映射到同一出血模型；`qrfullpage` 单独处理 | 合成用例生效；真实掌阅书待补样本 |
 | 9 | 补齐 `-epub-text-align-last`、`-epub-word-break` 别名 | 标准前缀缺失，成本低；两个目标属性都已支持 | 无 | `property_aliases.dart` | `-epub-text-align-last` 落到 `text-align-last`，`-epub-word-break` 落到 `word-break` |
@@ -633,7 +633,7 @@ div.orig-card {
 
 ## 10. 风险与未决问题
 
-1. 多看没有公开规范。Eninix 的样式表是社区提取，无法证明覆盖全部多看属性；本文的「多看语义」有一部分来自标准属性的类比。
+1. 多看没有公开规范。Eninix 的样式表来自社区整理，无法证明覆盖全部多看属性；本文的「多看语义」有一部分来自标准属性的类比。
 2. 版本差异只有书中注释作为二手证据。6.0 的具体变化无法验证，7.0 与 7.3 的结论也只来自《诸神愚戏》与《克洛弗菲尔德》两本模板书。
 3. 语料只有 7 本，5 本含多看属性。`duokan-text-emphasis*`、`duokan-page-break-*`、`duokan-line-break` 在语料中零出现，不能用「已支持」对外宣称。
 4. 伪支持面已经存在。竖排族、断行、縦中横的别名目标没有消费点；断字已完成，但竖排与断行仍是只落值不出效果。覆盖率数字会误导。
@@ -688,8 +688,8 @@ PY
 ### C. 外部来源
 
 - EPUB 3.3 附录 E，W3C Recommendation：<https://www.w3.org/TR/epub-33/#e-prefixed-css-properties>
-- 多看 EPUB CSS 模板与样式表提取，Eninix/sigil-template：<https://github.com/Eninix/sigil-template>
+- 多看 EPUB CSS 模板与样式表整理，Eninix/sigil-template：<https://github.com/Eninix/sigil-template>
 - Readest 的 `duokan-bleed` 转换实现：<https://github.com/readest/readest/blob/main/apps/readest-app/src/utils/style.ts>
-- epubCssFixer 私有属性名单：<https://github.com/SamLaio/epubCssFixer/blob/main/src/css.js>
+- epubCssFixer 扩展属性名单：<https://github.com/SamLaio/epubCssFixer/blob/main/src/css.js>
 - 微信读书、掌阅、多看清洗约定：<https://github.com/SeptimusX/ebook-xhtml-clean/blob/main/SKILL.md>
 - MDN CSS 参考：<https://developer.mozilla.org/en-US/docs/Web/CSS>

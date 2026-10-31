@@ -192,7 +192,7 @@ C 组占位式 / D 组完全未处理）+ `computed_style.dart` 取值点建立�
   明暗两半；`outset` 的 y 差来自 `line-height: normal` 的字体度量取整）。
 - `71-tab-line-break-blend`：`tab-size`（4/8）、`line-break`、`mix-blend-mode`；
   制表位宽度已对齐；余 2 项是 `mix-blend-mode` 块受 normal 行高取整影响。
-- `66-vertical-multipage` / `67-vertical-columns` 是竖排探针：浏览器不分页，
+- `66-vertical-multipage` / `67-vertical-columns` 是竖排检测项：浏览器不分页，
   按 `engine_only` 只记录引擎行为，compare 会把「期望 vs 实测」并列：
   - 页内容高按引擎实际口径：页面 800 − `topPadding` 14 = **786**，16px 竖排 →
     每列 `floor(786/16)=49` 字、每页 `floor(350/24)=14` 列；
@@ -437,7 +437,7 @@ currentcolor 继承；仅填充关键字的默认形状遵循 W3C，与本机 Ch
 
 ## 已知对照限制
 
-- 背景图/渐变的差异来自「dump 未注入图片解码器」，属对照工具限制；要判定
+- 背景图/渐变的差异来自「dump 未传入图片解码器」，属对照工具限制；要判定
   引擎背景能力，需在 dump 里接 `imageLookup` 或改用真机截图。
 - 跨页用例的 `side_*.png` 只拼第 1 页：引擎第 1 页内容与浏览器连续流第 1 屏
   不一定同构，视觉差异大是预期现象，不作为失配计数。
@@ -471,7 +471,7 @@ currentcolor 继承；仅填充关键字的默认形状遵循 W3C，与本机 Ch
 - 浏览器渲染线程与引擎字体一致（同一 OTF），字宽可比；换字体需同步更新
   `render_browser.mjs` 的 `@font-face`。
 - 报告以 `cases/*.json` 为准枚举用例；输出目录里已删除用例的残留 `browser_*.json`
-  不会再被当成「缺数据」的幽灵用例（并行调试留下的探针文件同理）。
+  不会再被当成「缺数据」的幽灵用例（并行调试留下的临时检测文件同理）。
 - `/tmp/css_parity` 是默认输出目录，多人同时跑会互相覆盖 JSON/PNG/report。
   并行验证时给三个脚本设同一个 `CSS_PARITY_OUT`（如
   `CSS_PARITY_OUT=/tmp/css_parity_t5`），浏览器调试端口用 `CSS_PARITY_PORT`

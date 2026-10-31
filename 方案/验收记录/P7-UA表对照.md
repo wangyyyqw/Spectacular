@@ -24,7 +24,7 @@
 | WHATWG 分区 | Reeden 规则要点 | 本项目处置 | 依据 |
 |---|---|---|---|
 | 15.3.1 隐藏元素 | noscript!important 隐藏、area/basefont/datalist/param 等 | **已落地**（样式表 + BlockBuilder 双路径） | 与 Chrome 一致 |
-| 15.3.2 页面 | body margin 8px | **margin:0**（阅读器边距接管） | Reeden 630 §4-3 注入规则；技术方案 §7.5 |
+| 15.3.2 页面 | body margin 8px | **margin:0**（阅读器边距接管） | Reeden 630 §4-3 补充规则；技术方案 §7.5 |
 | 15.3.3 流内容 | p/blockquote/figure margin-block 1em、blockquote/figure margin-inline 40px | blockquote/figure **已落地**；p 的默认段距**暂不启用**（段距按阅读器设置归一，待 P4-21 设置项接入后启用） | 技术方案 §7.5 第 3 条 |
 | 15.3.4 短语内容 | b/strong/i/em/code/sub/sup/mark/u/del 等 13 组 | **样式表已收**；行内 run 逐段样式随「逐 run 层接线」启用（当前聚合器单一 run） | 排线分阶段 |
 | 15.3.5 双向文字 | bdi/bdo unicode-bidi | 不做（§38.4 跟随引擎 bidi） | 技术方案边界 |
@@ -33,7 +33,7 @@
 | 15.3.8 表格 | border-spacing 2px、td/th padding 1px、th 加粗居中、table[border] 表现属性 | th **已落地**；裸表格网格线与表格默认值**待 P3-17～21** | 中文网文裸表格高频（630 §1） |
 | 15.3.10 表单 | radio/checkbox 静态图示 0.8em | 不做（一期无表单渲染） | 产品边界 |
 | 15.3.11 hr | margin-block 0.5em、inset 边框 | margin **已落地**；边框绘制**待 P3-24** | WHATWG |
-| 居中 | center/div[align] 的 -webkit-center 行为 | center **已落地**（text-align:center）；div[align] 需属性选择器，**随 P7-04 评估** | Chrome 复刻 |
+| 居中 | center/div[align] 的 -webkit-center 行为 | center **已落地**（text-align:center）；div[align] 需属性选择器，**随 P7-04 评估** | Chrome 对齐 |
 | ruby（CSS Ruby 1） | rt 50% 字号、缩进归零 | **样式表已收**，接线**待 P5-01～04** | Reeden 630 §2-4 |
 
 ## 3. 六处「与浏览器的刻意差异」处置（验收要求）

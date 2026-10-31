@@ -11,7 +11,7 @@
 ```
 EPUB bytes
   └─ openEpub（epub/epub_document.dart）
-       ├─ 资源索引 resource_index（嗅探修复 P3-25）→ archive.readBytes
+       ├─ 资源索引 resource_index（识别修复 P3-25）→ archive.readBytes
        ├─ 破损分级 L0~L4（epub/importer.dart；无 OPF 拼章 P3-26）
        └─ EpubDocumentImpl
             ├─ parseBlocks(spine) → BlockDocument（原始块树，fullBleed 判定用）
@@ -30,7 +30,7 @@ EpubChapterSource.loadChapter（apps/…/epub_chapter_source.dart，flat 管线�
   │    ├─ display:none 子树剔除（P8-07）
   │    ├─ 图片块（float 检测三来源 + inline-block 小图并排 P8-06）
   │    ├─ 表格块（collectTable：两遍列宽→网格→行边界切分，P8 表格接入）
-  │    ├─ 伪元素 content 注入 + ::first-letter run（P8-09）
+  │    ├─ 伪元素 content 生成 + ::first-letter run（P8-09）
   │    └─ 文本块：layout(runs) + rubies + 盒传导（背景/边框拼合 P8-05）
   ├─ 浮动章 → _paginateWithFloats（FloatOccupancy 区间模型）
   └─ 其余 → Paginator.measureChapter（分页状态机）+ PageIndex 重放

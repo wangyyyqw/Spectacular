@@ -70,7 +70,7 @@
 
 ## 5. 限制
 
-- `@import` 不递归抓取；只验证被 EPUB 直接引用的 CSS 文件。
+- `@import` 不递归采集；只验证被 EPUB 直接引用的 CSS 文件。
 - `@font-face`/`@page`/`@charset` 按设计跳过并记录，不是解析失败。
 - 非 UTF-8 CSS 以 `allowMalformed` 解码，中文可能出现替换字符；本次规则解析未受影响。
 - 分块恢复只在检测到 csslib 语法错误时启用；被截断的那一条规则本身仍可能丢失。

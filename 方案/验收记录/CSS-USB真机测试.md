@@ -246,7 +246,7 @@ Release APK 构建通过，手机正式版使用 `adb install -r` 覆盖更新�
 下一步以对照报告的残余失配分别建立最小复现，优先排查实际书籍命中的断行与表格问题。
 
 补充边界：Flex 的 align-items/justify-content 尚无布局消费者；本书该规则仅为未使用的
-占位图。静态分页未单独实现 background-attachment，私有字体平滑属性无消费者。
+占位图。静态分页未单独实现 background-attachment，扩展字体平滑属性无消费者。
 行内结构选择器缺少完整兄弟树，核心匹配器修复不能代表其端到端支持；display:block
 的 span 尚未完整重建块级树。带行内盒的文字装饰线和命中坐标也需继续审计。
 

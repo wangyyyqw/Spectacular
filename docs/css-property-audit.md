@@ -267,7 +267,7 @@
 | 90 | `columns`（简写） | 同上（`value('columns')` 4120 附近） | 同上 | 完整 ★ | — |
 | 91 | `text-overflow` | cs:1248（`_parseTextOverflow` cs:4727） | lb:2071（`_applyTextOverflow`） | 部分 | 截断点用水平 `getPositionForOffset` 反查，竖排/多列不可靠（Top #3） |
 | 92 | `box-shadow` | cs:1253（`_parseBoxShadow` cs:4738） | pr:1081（外）、1110（内） | 完整 ★ | 跨页切片不重复投影 |
-| 93 | `duokan-bleed` / `-duokan-bleed` | cs:1584 附近（`_parseBleed` cs:4280） | ecs:2834、2918 | 完整 | 多看私有扩展 |
+| 93 | `duokan-bleed` / `-duokan-bleed` | cs:1584 附近（`_parseBleed` cs:4280） | ecs:2834、2918 | 完整 | 多看扩展属性 |
 | 94 | 逻辑属性（`margin/padding/inset/border` × `inline/block` × `start/end`） | `alias:143` `logicalPhysicalMap` | 级联 `cas:158/222`；盒边 `cs:1345` 附近 | 完整 ★ | 按 writing-mode + direction 映射 |
 | 95 | `font-stretch` | cs:1324（`_parseFontStretch` cs:4011） | lb:3260（`fontVariations` 的 `wdth` 轴） | 完整 ★ | 可变字体按百分比映射；静态字体忽略 |
 | 96 | `quotes` | cs:1341（`_parseQuotes` cs:4028） | `ecs:2700`（`quotePairAt`）、`ecs:4716`（`q` 嵌套）、`ecs:1132`（`content: open-quote/close-quote`） | 完整 ★ | 支持 `none`/`auto`/显式配对，`q` 与生成内容共用嵌套层级 |
@@ -538,7 +538,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - 不覆盖 `@font-face` 描述符、`@supports`、`@page`、`@charset` 等 at-rule。
 - 伪元素（`::before`/`::after`/`::first-letter`/`::first-line`）只审到 `content` 边缘（D 组 #106），未展开作用域规则。
 - 「零消费」以「除 `lib/css/` 外无字段读取」为准；**经 `ComputedStyle` 派生 getter（`isRtl`、`verticalAlignShift`、`fontFamily`、`resolvedTextAlign`、`isOutOfFlow`、`layoutFingerprint`）间接消费的计入 A 组**——`direction` 与 `vertical-align` 长度值属此类。
-- 语料 7 本只给量级参考；`duokan-*` 私有属性在非多看渠道书里可能完全不存在。
+- 语料 7 本只给量级参考；`duokan-*` 扩展属性在非多看渠道书里可能完全不存在。
 
 ## 第 9 章 最终分类（需求 1 收口口径）
 
@@ -585,7 +585,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 - `border-radius: a / b` 已补齐四角双半径解析与绘制；`24-border-radius-corners`
   几何/样式失配 0、视觉差异 0.24%，并新增像素与解析回归。
 - 真书回归：`方案/验收记录/全书回归-R11.md`（1541 章页数/空页/浮动块与基线一致）
-- 多看私有属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的私有属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
+- 多看扩展属性：`apps/reader_mobile/test/reader/duokan_private_css_test.dart`（真实语料出现过的扩展属性全部有映射断言）+ `duokan_real_book_test.dart`（真书落点）
 
 **收口边界**：本次结论是「当前 7 本真实语料与 94 个对照用例中的已用 CSS 面
 已收口」，不是 CSS 全规范兼容声明。`display:grid`、精确断字词典和

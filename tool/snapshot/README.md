@@ -10,7 +10,7 @@ P0-23 的页序列哈希基建。真实页数据要等 P2-25 接入分页器后�
 
 ## 为什么没有 `tool/snapshot.dart`
 
-`tool/` 不是 Dart 包，直接放脚本无法 `import package:reader_core`；把哈希器放进 `reader_core` 并由包内测试运行，避免复制实现。该偏差登记在《P0 文档》附录 A-05。
+`tool/` 不是 Dart 包，直接放脚本无法 `import package:reader_core`；把哈希器放进 `reader_core` 并由包内测试运行，避免重复实现。该偏差登记在《P0 文档》附录 A-05。
 
 ## 使用约定
 
