@@ -382,6 +382,8 @@ class EpubChapterSource
     required FloatSide side,
     required double spaceBefore,
     required double spaceAfter,
+    List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
+    List<RubyAnnotation>? rubies,
     String? startCfi,
     int groupId = 0,
     bool containerSides = false,
@@ -2998,6 +3000,16 @@ class EpubChapterSource
                 starts: blockLines.first.start == 0,
                 ends: finished,
               ),
+              // 切片保留本段已排到的行内图片/注音；显示层按行号过滤，
+              // 续页仍能画出本页范围内的占位图。
+              inlineImages: <InlineImageSpec>[
+                for (final image in block.inlineImages)
+                  if (image.offset < blockLines.last.end) image,
+              ],
+              rubies: <RubyAnnotation>[
+                for (final ruby in block.rubies ?? const <RubyAnnotation>[])
+                  if (ruby.start < blockLines.last.end) ruby,
+              ],
               effectiveOpacity: block.effectiveOpacity,
             ),
             startLine: 0,
@@ -5574,6 +5586,30 @@ class EpubChapterSource
         final pseudoSuffix = textNode is TextContentNode
             ? afterContent?.text ?? ''
             : '';
+        // 图片与题注分属两个块时，图片不能当普通行内占位符：浮动/窄容器里
+        // 占位符只有一行高，绘制会被切片裁掉，容器高度也不含图片。
+        if (paragraphText.trim() == '\uFFFC' &&
+            paragraphImages.length == 1 &&
+            pseudoPrefix.isEmpty &&
+            pseudoSuffix.isEmpty) {
+          final image = paragraphImages.single.node;
+          collectImageBlock(
+            BlockNode(
+              tag: image.tag,
+              display: DisplayMode.block,
+              children: const <EpubNode>[],
+              cfi: image.cfi,
+              attributes: image.attributes,
+              start: image.start,
+              end: image.end,
+            ),
+            ancestors,
+            containerFloat: containerFloat,
+            containerFloatWidth: containerFloatWidth,
+            containerFloatGroup: containerFloatGroup,
+          );
+          return;
+        }
         // `<q>` 是聚合后的行内标记，不能只按块标签补引号；把每个 q 的
         // 开闭引号插回文本，同时重映射样式区间、注音与行内图片偏移。
         final quoteMarks = <InlineMark>[
@@ -6061,6 +6097,17 @@ class EpubChapterSource
                 side: floatSide,
                 spaceBefore: spaceBefore,
                 spaceAfter: spaceAfter,
+                inlineImages: inlineImages,
+                rubies: paragraphRubies.isNotEmpty
+                    ? [
+                        for (final ruby in paragraphRubies)
+                          RubyAnnotation(
+                            start: ruby.start,
+                            end: ruby.end,
+                            text: ruby.text,
+                          ),
+                      ]
+                    : null,
                 startCfi: contentCfi,
                 // 容器浮动组用专属组号（分页时整组当一个浮动盒）。
                 groupId: floatSide == containerFloat && containerFloat != null
