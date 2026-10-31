@@ -166,10 +166,14 @@ void main() {
     expect(containers, hasLength(1));
     expect(containers.single.style.margin.top, 7);
     expect(blocks.every((block) => !block.style!.borders.hasBorder), isTrue);
-    final tailRun = blocks.last.layout.runs.single;
-    expect(tailRun.start, 0);
-    expect(tailRun.end, 2);
-    expect(tailRun.style.fontWeight, 700);
+    final tailRuns = blocks.last.layout.runs;
+    expect(tailRuns, hasLength(2));
+    expect(tailRuns.first.start, 0);
+    expect(tailRuns.first.end, 2);
+    expect(tailRuns.first.style.fontWeight, 700);
+    expect(tailRuns.last.start, 2);
+    expect(tailRuns.last.end, 3);
+    expect(tailRuns.last.style.fontWeight, isNot(700));
   });
 
   test('块内保留空白与相邻块空白折叠不互相污染', () async {
