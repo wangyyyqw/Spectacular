@@ -276,3 +276,44 @@ spine 29 正常。单机单次样本受 JIT、字体与系统调度影响，且�
 原始记录：`/tmp/spectacular-device-fifth-before/report.json`、
 `/tmp/spectacular-device-fifth/report.json`。真机长书连续遍历的内存峰值仍未
 测量；32 张 CSS AST 与 512 项图片尺寸的容量也需要在更多真实书样本上校准。
+
+## 第六轮（同日）：保留 Flex 首片交叉轴偏移
+
+多行 Flex 的 `align-content` 已在表格测量阶段生成首行顶部偏移，但分页器把预切
+表格转换为首片时无条件减去 `rowYs[0]`，又把这段留白清零。修复只调整切片原点：
+首片从内容盒顶部开始，保留 `rowYs[0]`；只有从后续行开始时，才把该行顶平移到
+切片顶。未改变行高、Flex 分配或表格测量。
+
+定向断言覆盖 `center` 与 `flex-end`：5 个等高单元的 `top` 分别为
+`[20, 20, 70, 70, 120]` 和 `[40, 40, 90, 90, 140]`。修复前首片实际从 0 开始，
+`center` 被错误显示为 `[0, 0, 50, 50, 100]`。
+
+回归与静态检查：
+
+- `reader_core`：1313 项通过、4 项跳过；静态分析仍只有
+  `computed_style.dart` 与 `html5_input.dart` 两条既有 info。
+- `reader_mobile`：437 项通过、5 项跳过、2 项失败；静态分析无问题。
+- 剩余失败为既有 `empty_inline_block_test.dart` 空盒尺寸/基线断言，以及
+  `inline_block_test.dart` 固定布局表格标签盒的节点数量断言；本轮未改相关布局。
+
+真机继续使用 MEIZU 20、Android 16 和《诸神愚戏》148.5MB、1541 章。基线取
+`HEAD`（a19d594），修复后为当前工作树；单位 ms：
+
+| 检查点 | HEAD 基线（文/图/完成） | 本轮（文/图/完成） |
+| --- | ---: | ---: |
+| 首开 spine 29 | 1572 / 1636 / 1815 | 1561 / 1624 / 1806 |
+| 跳转 spine 30 | 227 / 243 / 276 | 227 / 239 / 289 |
+| 跳转 spine 47 | 111 / 142 / 290 | 110 / 162 / 290 |
+| 回访 spine 29 | 20 / 36 / 285 | 29 / 42 / 291 |
+| 跳转 spine 32 | 341 / 358 / 375 | 338 / 349 / 366 |
+| 再次打开（第二次） | 1455 / 1520 / 1719 | 1447 / 1514 / 1712 |
+| 再次打开（第三次） | 1492 / 1559 / 1755 | 1478 / 1550 / 1727 |
+
+本轮额外完成 spine 1515 远跳：91 / 143 / 288ms，随后回访 spine 29 正常。
+单机单次样本只用于发现明显回退，不据此宣称普遍提速。原始记录：
+`/tmp/spectacular-device-sixth-before/report.json`、
+`/tmp/spectacular-device-sixth/report.json`。
+
+正式 APK：`apps/reader_mobile/build/app/outputs/flutter-apk/app-release.apk`，
+包名 `com.spectacular.reader_mobile`，45.7MB，SHA-256
+`28e71f351b2cef1f982ac9314e0a156df9acd927f181a5881ebd48cc4227c37e`。

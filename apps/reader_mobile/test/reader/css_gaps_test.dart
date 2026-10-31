@@ -380,6 +380,15 @@ void main() {
       70,
       120,
     ], reason: '剩余 40px 在上下各留 20px');
+
+    final flexEnd = await measure('flex-end');
+    expect(flexEnd.cells.map((cell) => cell.rect.top).toList(), <double>[
+      40,
+      40,
+      90,
+      90,
+      140,
+    ], reason: '剩余 40px 全部留在上方，末尾行贴容器底');
   });
 
   test('Flex grow/shrink/basis 与 flex 简写参与主轴分配', () async {
