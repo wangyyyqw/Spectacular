@@ -40,6 +40,8 @@ import 'package:reader_core/text/font_coverage.dart';
 import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import 'bounded_cache.dart';
+
 /// 从 EPUB 文档读取章节并提供分页结果。
 class EpubChapterSource
     implements
@@ -133,11 +135,13 @@ class EpubChapterSource
 
   /// white-space 原文保留（P9-28）：命中章节的判定结果与两遍保留模式
   /// 聚合的文本节点（键 = 源码起止偏移），见 [_preservedTexts]。
-  final Map<int, bool> _preservingWhiteSpaceCache = <int, bool>{};
-  final Map<int, Map<String, TextContentNode>> _preservedRawTexts =
-      <int, Map<String, TextContentNode>>{};
-  final Map<int, Map<String, TextContentNode>> _preservedPreLineTexts =
-      <int, Map<String, TextContentNode>>{};
+  final BoundedCache<int, bool> _preservingWhiteSpaceCache = BoundedCache(
+    chapterIndexCacheLimit,
+  );
+  final BoundedCache<int, Map<String, TextContentNode>> _preservedRawTexts =
+      BoundedCache(chapterIndexCacheLimit);
+  final BoundedCache<int, Map<String, TextContentNode>> _preservedPreLineTexts =
+      BoundedCache(chapterIndexCacheLimit);
 
   /// 页缓存（key = paginationKey）：按章 LRU，上限 [pageCacheChapterLimit] 章
   /// （§44.4：只留当前章 ±2）。
@@ -147,9 +151,6 @@ class EpubChapterSource
   /// LRU 顺序（最近使用的在末尾）。
   final List<String> _pageCacheOrder = <String>[];
 
-  /// 章级整页背景（P9-04）：body 的 background-image，按章缓存。
-  final Map<int, PageBackground> _pageBackgrounds = <int, PageBackground>{};
-
   /// 页缓存保留的章数上限（当前章 ±2）。
   static const int pageCacheChapterLimit = 5;
 
@@ -158,6 +159,15 @@ class EpubChapterSource
 
   /// document 层缓存上限：聚合树与选择器视图只保留最近使用的章。
   static const int documentCacheChapterLimit = pageCacheChapterLimit;
+
+  /// 章节派生轻量索引上限：与已测块树使用同一章节窗口。
+  static const int chapterIndexCacheLimit = pageCacheChapterLimit;
+
+  /// 样式表 AST 上限；典型书远低于此值，异常书也不无界增长。
+  static const int cssSheetCacheLimit = 32;
+
+  /// 图片尺寸正值/缺失值上限；仅保存路径与尺寸，不保存图片字节。
+  static const int imageIntrinsicCacheLimit = 512;
 
   void _touchPageCache(String key) {
     _pageCacheOrder.remove(key);
@@ -180,7 +190,7 @@ class EpubChapterSource
   /// 重新跑一遍样式与测量。固定定位块不进流，必须与正文块成对保存。
   final Map<
     String,
-    ({List<PageBlock> flow, List<PageBlock> fixed})
+    ({List<PageBlock> flow, List<PageBlock> fixed, PageBackground? background})
   > _blockCache = {};
   final List<String> _blockCacheOrder = <String>[];
   int _blockCacheHits = 0;
@@ -194,8 +204,9 @@ class EpubChapterSource
     String key, {
     required List<PageBlock> flow,
     required List<PageBlock> fixed,
+    required PageBackground? background,
   }) {
-    _blockCache[key] = (flow: flow, fixed: fixed);
+    _blockCache[key] = (flow: flow, fixed: fixed, background: background);
     _touchBlockCache(key);
     while (_blockCache.length > blockCacheChapterLimit) {
       _blockCache.remove(_blockCacheOrder.removeAt(0));
@@ -236,7 +247,11 @@ class EpubChapterSource
   String get cacheReport =>
       '页缓存 ${_pageCache.length}/$pageCacheChapterLimit 章；'
       '块缓存 ${_blockCache.length}/$blockCacheChapterLimit 章；'
-      '文档缓存 ${_displayDocumentCache.length}/$documentCacheChapterLimit 章';
+      '文档缓存 ${_displayDocumentCache.length}/$documentCacheChapterLimit 章；'
+      '样式章索引 ${_chapterSheetCache.length}/$chapterIndexCacheLimit 章；'
+      '满屏索引 ${_fullBleedCache.length}/$chapterIndexCacheLimit 章；'
+      '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
+      '图片索引 ${_imageIntrinsicCache.length}/$imageIntrinsicCacheLimit 个';
   final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};
 
   /// 排版层指纹（P7-23）：几何 + 设置的排版字段；颜色不参与（绘制层
@@ -610,13 +625,13 @@ class EpubChapterSource
     if (cached != null) {
       return cached;
     }
-    if (_imageIntrinsicMiss.contains(url)) {
+    if (_imageIntrinsicMiss.containsKey(url)) {
       return null;
     }
     final bytes = document.archive.readBytes(url);
     final size = bytes == null ? null : ImageSizeParser.readImageSize(bytes);
     if (size == null) {
-      _imageIntrinsicMiss.add(url);
+      _imageIntrinsicMiss[url] = true;
     } else {
       _imageIntrinsicCache[url] = size;
     }
@@ -756,19 +771,25 @@ class EpubChapterSource
 
   /// 满屏判定缓存（P3-10）：spineIndex → 分析结果；聚合文本含 U+FFFC
   /// 才做深度分析，普通文字章零开销。
-  final Map<int, FullBleedChapter> _fullBleedCache = <int, FullBleedChapter>{};
+  final BoundedCache<int, FullBleedChapter> _fullBleedCache = BoundedCache(
+    chapterIndexCacheLimit,
+  );
 
   /// 图片原始尺寸缓存（按解析后 URL，跨章复用）；读取失败记 miss 防
   /// 重复解压。
-  final Map<String, ImageIntrinsicSize> _imageIntrinsicCache =
-      <String, ImageIntrinsicSize>{};
-  final Set<String> _imageIntrinsicMiss = <String>{};
+  final BoundedCache<String, ImageIntrinsicSize> _imageIntrinsicCache =
+      BoundedCache(imageIntrinsicCacheLimit);
+  final BoundedCache<String, bool> _imageIntrinsicMiss = BoundedCache(
+    imageIntrinsicCacheLimit,
+  );
 
   /// 作者样式表缓存：CSS 文件 URL → 解析结果（跨章共享）；章节 → 该章
   /// link 的样式表序列（文档顺序，级联后声明覆盖先声明）。
-  final Map<String, CssStylesheet> _cssSheetCache = <String, CssStylesheet>{};
-  final Map<int, List<CssStylesheet>> _chapterSheetCache =
-      <int, List<CssStylesheet>>{};
+  final BoundedCache<String, CssStylesheet> _cssSheetCache = BoundedCache(
+    cssSheetCacheLimit,
+  );
+  final BoundedCache<int, List<CssStylesheet>> _chapterSheetCache =
+      BoundedCache(chapterIndexCacheLimit);
 
   /// 书内字体（P3-01/02 接入 flat 管线）：@font-face 注册器与引擎族名
   /// 映射；bookId 由 OPF 路径派生（同书同族隔离，多书不串）。
@@ -3272,29 +3293,7 @@ class EpubChapterSource
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
-    var pages = await _loadChapterPages(spineIndex);
-    final background = _pageBackgrounds[spineIndex];
-    if (pages.isEmpty) {
-      // 纯装饰章（制作页/书籍信息/作者签名：只有 display:none 标题 +
-      // 空段，靠 body 背景图呈现）必须仍产出一页（P9-21）。否则阅读器
-      // 认为该章没有页面，翻页/进度会跳过甚至越界。
-      pages = <PageContent>[
-        PageContent(
-          spineIndex: spineIndex,
-          pageIndex: 0,
-          slices: const <PageBlockSlice>[],
-          usedHeight: 0,
-          pageHeight: contentHeight,
-          topPadding: 0,
-        ),
-      ];
-    }
-    if (background == null) {
-      return pages;
-    }
-    return <PageContent>[
-      for (final page in pages) page.withBackground(background),
-    ];
+    return _loadChapterPages(spineIndex);
   }
 
   /// 聚合树与选择器视图必须来自同一次解析，重排时也成对复用。
@@ -3351,6 +3350,7 @@ class EpubChapterSource
         paginationKey,
         cachedBlocks.flow,
         cachedBlocks.fixed,
+        cachedBlocks.background,
       );
       if (trace != null) {
         trace.record(
@@ -3446,13 +3446,13 @@ class EpubChapterSource
               this.document.resources.resolve(src, baseDir: chapterBase) ?? src;
           if (!imageSizes.containsKey(url)) {
             var size = _imageIntrinsicCache[url];
-            if (size == null && !_imageIntrinsicMiss.contains(url)) {
+            if (size == null && !_imageIntrinsicMiss.containsKey(url)) {
               final bytes = this.document.archive.readBytes(url);
               size = bytes == null
                   ? null
                   : ImageSizeParser.readImageSize(bytes);
               if (size == null) {
-                _imageIntrinsicMiss.add(url);
+                _imageIntrinsicMiss[url] = true;
               } else {
                 _imageIntrinsicCache[url] = size;
               }
@@ -3917,11 +3917,6 @@ class EpubChapterSource
     final bodyBackground = _pageBackgroundFrom(
       chainStyle(<SelectorElement>[bodyView]),
     );
-    if (bodyBackground != null) {
-      _pageBackgrounds[spineIndex] = bodyBackground;
-    } else {
-      _pageBackgrounds.remove(spineIndex);
-    }
 
     /// 列表项水平缩进（g）：累加祖先里每个 ul/ol 的「左边距 + 左边框 +
     /// 左内边距」。浏览器里 li 内容左缘就在这些盒内缩之后，作者写
@@ -6936,12 +6931,14 @@ class EpubChapterSource
       paginationKey,
       flow: blocks,
       fixed: fixedBlocks,
+      background: bodyBackground,
     );
     final pages = _paginateBlocks(
       spineIndex,
       paginationKey,
       blocks,
       fixedBlocks,
+      bodyBackground,
     );
     if (trace != null) {
       trace.record(
@@ -6953,12 +6950,46 @@ class EpubChapterSource
     return pages;
   }
 
+  /// 补齐纯装饰章的空页，并把同一章的整页背景写入最终页。
+  ///
+  /// 页缓存保存的是可直接绘制的页；块缓存则持有背景，供
+  /// [clearPaginationCache] 后重放时重新贴回，避免两份缓存独立淘汰。
+  List<PageContent> _finishChapterPages(
+    int spineIndex,
+    List<PageContent> source,
+    PageBackground? background,
+  ) {
+    var pages = source;
+    if (pages.isEmpty) {
+      // 纯装饰章（制作页/书籍信息/作者签名：只有 display:none 标题 +
+      // 空段，靠 body 背景图呈现）必须仍产出一页（P9-21）。否则阅读器
+      // 认为该章没有页面，翻页/进度会跳过甚至越界。
+      pages = <PageContent>[
+        PageContent(
+          spineIndex: spineIndex,
+          pageIndex: 0,
+          slices: const <PageBlockSlice>[],
+          usedHeight: 0,
+          pageHeight: contentHeight,
+          topPadding: 0,
+        ),
+      ];
+    }
+    if (background == null) {
+      return pages;
+    }
+    return <PageContent>[
+      for (final page in pages) page.withBackground(background),
+    ];
+  }
+
   /// 对已构建的块树分页或按页索引重放（styles 层命中时跳过重建）。
   List<PageContent> _paginateBlocks(
     int spineIndex,
     String paginationKey,
     List<PageBlock> blocks,
     List<PageBlock> fixedBlocks,
+    PageBackground? background,
   ) {
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
@@ -6967,8 +6998,9 @@ class EpubChapterSource
         _paginateWithFloats(blocks, spineIndex),
         fixedBlocks,
       );
-      _putPageCache(paginationKey, floated);
-      return floated;
+      final pages = _finishChapterPages(spineIndex, floated, background);
+      _putPageCache(paginationKey, pages);
+      return pages;
     }
 
     // pagination 层（P7-23）：先试页索引重放（P7-22），跳过分页状态
@@ -6996,8 +7028,9 @@ class EpubChapterSource
           trimTextEdges: true,
         );
         if (replayed != null) {
-          _putPageCache(paginationKey, replayed);
-          return replayed;
+          final pages = _finishChapterPages(spineIndex, replayed, background);
+          _putPageCache(paginationKey, pages);
+          return pages;
         }
         _logInvalidation('indexSchemaMismatch', paginationKey, paginationKey);
       } else {
@@ -7014,19 +7047,20 @@ class EpubChapterSource
       ).measureChapter(blocks: blocks, spineIndex: spineIndex).pages,
       fixedBlocks,
     );
-    _putPageCache(paginationKey, pages);
+    final finished = _finishChapterPages(spineIndex, pages, background);
+    _putPageCache(paginationKey, finished);
     if (!skipPageIndex) {
       _pageIndexCache[paginationKey] = PageIndex.from(
         ChapterPagination(
           spineIndex: spineIndex,
-          pages: pages,
+          pages: finished,
           pageHeight: contentHeight,
           totalHeight: 0,
         ),
         blocks,
       ).encode();
     }
-    return pages;
+    return finished;
   }
 }
 
