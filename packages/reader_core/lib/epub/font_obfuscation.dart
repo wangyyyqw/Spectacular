@@ -38,6 +38,8 @@ enum FontObfuscationAlgorithm {
 
 /// encryption.xml 解析结果：资源路径 → 算法。
 class FontEncryptionMap {
+  static const _xmlEncryptionNamespace = 'http://www.w3.org/2001/04/xmlenc#';
+
   /// 空表（无加密声明或解析失败）。
   const FontEncryptionMap.empty()
       : this._(const <String, FontObfuscationAlgorithm>{}, const <String>[]);
@@ -63,18 +65,15 @@ class FontEncryptionMap {
       final document = XmlDocument.parse(xml);
       final entries = <String, FontObfuscationAlgorithm>{};
       final unknown = <String>[];
-      for (final data in document.findAllElements('enc:EncryptedData')) {
-        final method = data.findElements('enc:EncryptionMethod').firstOrNull;
-        final reference = data
-            .findAllElements('enc:CipherReference')
-            .map((element) => element.getAttribute('URI')?.trim())
-            .whereType<String>()
-            .where((uri) => uri.isNotEmpty)
-            .toList();
+      for (final data in document.findAllElements(
+        'EncryptedData',
+        namespaceUri: _xmlEncryptionNamespace,
+      )) {
+        final reference = _referencesOf(data);
         if (reference.isEmpty) {
           continue;
         }
-        final algorithmUri = method?.getAttribute('Algorithm')?.trim();
+        final algorithmUri = _algorithmUriOf(data);
         final algorithm = algorithmUri == null
             ? null
             : FontObfuscationAlgorithm.fromUri(algorithmUri);
@@ -100,6 +99,21 @@ class FontEncryptionMap {
       return const FontEncryptionMap.empty();
     }
   }
+
+  static String? _algorithmUriOf(XmlElement data) => data
+      .findElements(
+        'EncryptionMethod',
+        namespaceUri: _xmlEncryptionNamespace,
+      )
+      .firstOrNull
+      ?.getAttribute('Algorithm')
+      ?.trim();
+
+  static Iterable<String> _referencesOf(XmlElement data) => data
+      .findAllElements('CipherReference', namespaceUri: _xmlEncryptionNamespace)
+      .map((element) => element.getAttribute('URI')?.trim())
+      .whereType<String>()
+      .where((uri) => uri.isNotEmpty);
 }
 
 /// 解混淆产物磁盘缓存：按内容键落文件，命中不重复解密（P3-05）。

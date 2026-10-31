@@ -5,8 +5,11 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/archive_reader.dart';
+import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/epub/resource_index.dart';
+
+import '../support/broken_samples.dart';
 
 /// 8 字节 PNG 魔数开头的伪图片（嗅探只读魔数）。
 final Uint8List _pngMagic = Uint8List.fromList(<int>[
@@ -118,6 +121,69 @@ void main() {
         ),
         'OEBPS/images/pic.png',
       );
+    });
+
+    test('导入报告修复后资源能从章节相对路径正常读取，原书保持不变', () async {
+      final bytes = brokenSamples['G-wrong-ext.epub']!;
+      final before = sha256.convert(bytes);
+      final opened = await openEpub(bytes);
+      expect(opened.ok, isTrue);
+      final document = opened.document!;
+      addTearDown(document.archive.close);
+      expect(opened.report.warnings, contains(contains('E_RESOURCE_REPAIRED')));
+      expect(
+        document.resources.resolve('images/pic.gif', baseDir: 'OEBPS'),
+        'OEBPS/images/pic.png',
+      );
+      expect(
+        document.resources.resolve('../images/pic.gif#fragment', baseDir: 'OEBPS/Text'),
+        'OEBPS/images/pic.png',
+      );
+      expect(
+        document.resources.read(document.archive, '/OEBPS/images/pic.gif'),
+        pngMagicBytes,
+      );
+      expect(sha256.convert(bytes), before);
+    });
+
+    test('同主名嗅探优先同目录，别名不污染其他目录', () {
+      final archive = EpubArchive.fromBytes(_buildEpub(<String, Object>{
+        'OEBPS/a/pic.png': _pngMagic,
+        'OEBPS/b/pic.png': <int>[..._pngMagic, 1],
+      }));
+      addTearDown(archive.close);
+      final index = ResourceIndex.build(
+        archive: archive,
+        manifest: const <OpfManifestItem>[],
+        opfPath: 'OEBPS/content.opf',
+      );
+      for (final dir in <String>['a', 'b']) {
+        expect(
+          index.sniffResolve(archive, 'pic.gif', baseDir: 'OEBPS/$dir', mediaType: 'image/gif'),
+          'OEBPS/$dir/pic.png',
+        );
+        expect(index.resolve('pic.gif', baseDir: 'OEBPS/$dir'), 'OEBPS/$dir/pic.png');
+      }
+      expect(index.resolve('pic.gif', baseDir: 'OEBPS/c'), isNull);
+    });
+
+    test('没有唯一同主名候选时不报告修复，也不建立别名', () {
+      final archive = EpubArchive.fromBytes(_buildEpub(<String, Object>{
+        'OEBPS/a/pic.png': _pngMagic,
+        'OEBPS/b/pic.png': _pngMagic,
+      }));
+      addTearDown(archive.close);
+      final index = ResourceIndex.build(
+        archive: archive,
+        manifest: const <OpfManifestItem>[],
+        opfPath: 'OEBPS/content.opf',
+      );
+      expect(
+        index.sniffResolve(archive, 'pic.gif', baseDir: 'OEBPS/c', mediaType: 'image/gif'),
+        isNull,
+      );
+      expect(index.fallbackHits, 0);
+      expect(index.resolve('pic.gif', baseDir: 'OEBPS/c'), isNull);
     });
 
     test('7 级内容嗅探：字体按类匹配，类型不符不误命中', () {
