@@ -5,10 +5,10 @@ import 'package:reader_core/parser/document_parser.dart';
 const _xhtml = '''
 <html><body>
 <div id="root" class="main">
-  <p id="p1" class="a b">one <span id="sp1" class="x">S</span></p>
+  <p id="p1" class="a b">one <span id="sp1" class="x deep">S</span></p>
   <div id="mid" class="box">
     <p id="p2" class="a">two</p>
-    <span id="sp2" class="x">T</span>
+    <span id="sp2" class="x">T <em class="deep">D</em></span>
   </div>
 </div>
 </body></html>
@@ -127,13 +127,81 @@ void main() {
   test('仍不支持的选择器跳过并记录 warning', () {
     for (final selector in <String>[
       'p::before',
-      'p:nth-child(2 of .a)',
-      'p:has(a)',
+      'p:lang(en)',
+      'p:is()',
+      'p:has(> )',
     ]) {
       final result = SelectorParser.parse(selector);
       expect(result.selectors, isEmpty, reason: selector);
       expect(result.warnings, isNotEmpty, reason: selector);
     }
+  });
+
+  test(':is() / :where() 列表匹配与特异性', () {
+    expect(match(':is(p, span)', 'p1'), isTrue);
+    expect(match(':is(p, span)', 'sp1'), isTrue);
+    expect(match(':is(p, span)', 'mid'), isFalse);
+    expect(match(':is(.box > p)', 'p2'), isTrue);
+    expect(match(':where(#p1, .box)', 'mid'), isTrue);
+    expect(match(':where(#p1, .box)', 'p2'), isFalse);
+
+    Specificity spec(String selector) =>
+        SelectorParser.parse(selector).selectors.single.specificity;
+    expect(spec('p:is(.a, #p1)'), const Specificity(0, 1, 0, 1));
+    expect(spec('p:where(#p1, .a)'), const Specificity(0, 0, 0, 1));
+  });
+
+  test(':not() 列表参数匹配与最高特异性', () {
+    expect(match('span:not(.a, #sp2)', 'sp1'), isTrue);
+    expect(match('span:not(.a, #sp2)', 'sp2'), isFalse);
+    expect(match('div:not(.a, #root)', 'mid'), isTrue);
+    expect(match('div:not(.a, #root)', 'root'), isFalse);
+    final specificity = SelectorParser.parse('p:not(.a, #p1)')
+        .selectors
+        .single
+        .specificity;
+    expect(specificity, const Specificity(0, 1, 0, 1));
+  });
+
+  test(':has() 后代、子代与兄弟相对选择器', () {
+    expect(match('div:has(> p)', 'root'), isTrue);
+    expect(match('div:has(> p)', 'mid'), isTrue);
+    expect(match('p:has(> p)', 'p1'), isFalse);
+    expect(match('div:has(.x)', 'root'), isTrue);
+    expect(match('div:has(.x)', 'mid'), isTrue);
+    expect(match('div:has(> p + span)', 'mid'), isTrue);
+    expect(match('div:has(> p + span)', 'root'), isFalse);
+    expect(match('p:has(+ span)', 'p2'), isTrue);
+    expect(match('p:has(+ span)', 'p1'), isFalse);
+    expect(match('p:has(~ span)', 'p2'), isTrue);
+    expect(match('p:has(~ span)', 'p1'), isFalse);
+    expect(match('div:has(.a, #sp2)', 'mid'), isTrue);
+    expect(match('div:has(> p .deep)', 'root'), isTrue);
+    expect(match('div:has(> p .deep)', 'mid'), isFalse);
+    expect(match('p:has(+ span .deep)', 'p2'), isTrue);
+  });
+
+  test('nth-child(An+B of S) 只在过滤后的兄弟中计数', () {
+    expect(match('*:nth-child(1 of .a)', 'p1'), isTrue);
+    expect(match('*:nth-child(2 of .a)', 'p1'), isFalse);
+    expect(match('*:nth-child(1 of .x)', 'sp2'), isTrue);
+    expect(match('*:nth-child(2 of .x)', 'sp2'), isFalse);
+    expect(match('*:nth-child(2n of .a)', 'p1'), isFalse);
+    expect(match('*:nth-last-child(1 of .a)', 'p1'), isTrue);
+    final specificity = SelectorParser.parse('li:nth-child(2n of .x)')
+        .selectors
+        .single
+        .specificity;
+    expect(specificity, const Specificity(0, 0, 2, 1));
+  });
+
+  test('函数伪类的结构依赖参与样式共享判定', () {
+    bool treePosition(String selector) =>
+        SelectorParser.parse(selector).selectors.single.usesTreePosition;
+    expect(treePosition('div:has(p)'), isTrue);
+    expect(treePosition('p:is(:first-child, .a)'), isTrue);
+    expect(treePosition('p:not(:last-child)'), isTrue);
+    expect(treePosition('p:is(.a, .b)'), isFalse);
   });
 
   test('P8-01 兄弟组合器匹配语义', () {

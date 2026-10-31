@@ -113,6 +113,27 @@ void main() {
     expect(result.warnings, isNotEmpty);
   });
 
+  test('现代函数选择器不截断同一张样式表的后续规则', () {
+    const css = '''
+:is(.a, .b) > p { color: red; }
+p:not(.a, .b) { color: blue; }
+div:has(> p .deep) { padding-left: 1em; }
+li:nth-child(2n of .item) { margin: 0; }
+:where(#x, .title) { font-weight: 700; }
+.after { color: green; }
+''';
+    final result = CssParser.parse(css);
+    expect(result.rules.map((rule) => rule.selector), [
+      ':is(.a, .b) > p',
+      'p:not(.a, .b)',
+      'div:has(> p .deep)',
+      'li:nth-child(2n of .item)',
+      ':where(#x, .title)',
+      '.after',
+    ]);
+    expect(result.warnings, isEmpty);
+  });
+
   test('样式来源保留交错顺序、重复引用及媒体条件', () {
     final result = CssParser.extractFromXhtml('''
 <html><head>
