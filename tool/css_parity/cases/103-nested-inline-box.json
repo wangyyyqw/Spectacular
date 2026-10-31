@@ -1,0 +1,6 @@
+{
+  "name": "103-nested-inline-box",
+  "tags": ["display", "color", "font-size", "width", "padding"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 24px; } p { margin: 8px 0; line-height: 2; } .red { color: #cc0000; } .green { color: #008000; } .box { display: inline-block; padding: 2px; border: 1px solid #666666; background: #eeeeee; } .fixed { width: 60px; } .outer { width: 150px; background: #ddeeff; } .inner { width: 36px; background: #ffcc99; } .small { font-size: .8em; } .half { width: 50%; font-size: .5em; } .empty { height: 18px; }",
+  "html": "<p><span class=\"red\">前<span class=\"box fixed\">盒内</span>后</span>普通。</p><p><span class=\"red\">甲<span class=\"green\">乙<span class=\"box fixed\">盒</span>丙</span>丁</span>尾。</p><p>头<span class=\"box outer\">前<span class=\"box inner\">芯</span>后</span>尾。</p><p>头<span class=\"box outer small\">甲<span class=\"box half\">乙</span>丙</span>尾。</p><p>头<span class=\"box outer\"><span class=\"box inner empty\"></span></span>尾。</p><p>头<span class=\"box\">前<span class=\"box inner\">芯</span>后</span>尾。</p>"
+}

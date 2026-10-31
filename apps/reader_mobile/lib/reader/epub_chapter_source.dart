@@ -3679,10 +3679,13 @@ class EpubChapterSource
       return [
         ...ancestors,
         for (final subject in mark.chain.skip(start))
-          _NodeView(subject.tag.toLowerCase(), {
-            'class': subject.classes.join(' '),
-            ...subject.attributes,
-          }, const <SelectorElement>[]),
+          _NodeView(
+            subject.tag.toLowerCase(),
+            subject.attributes.containsKey('class') || subject.classes.isEmpty
+                ? subject.attributes
+                : {'class': subject.classes.join(' '), ...subject.attributes},
+            const <SelectorElement>[],
+          ),
       ];
     }
 
@@ -3760,6 +3763,38 @@ class EpubChapterSource
       return runs;
     }
 
+    bool inlineDescendantOf(InlineMark child, InlineMark parent) =>
+        parent.chain.isNotEmpty &&
+        child.chain.length > parent.chain.length &&
+        child.start >= parent.start &&
+        child.end <= parent.end &&
+        identical(
+          child.chain[parent.chain.length - 1].attributes,
+          parent.chain.last.attributes,
+        );
+
+    List<InlineBoxSpec> appendInlineBox(
+      List<InlineBoxSpec> existingBoxes,
+      _InlineFloatExtraction extracted,
+    ) => [
+      for (final existing in existingBoxes)
+        InlineBoxSpec(
+          offset: extracted.remapOffset(existing.offset),
+          width: existing.width,
+          height: existing.height,
+          verticalAlign: existing.verticalAlign,
+          marginLeft: existing.marginLeft,
+          marginRight: existing.marginRight,
+          marginTop: existing.marginTop,
+          marginBottom: existing.marginBottom,
+          baselineOffset: existing.baselineOffset,
+          contentHeight: existing.contentHeight,
+          contentBaseline: existing.contentBaseline,
+          payload: existing.payload,
+        ),
+      if (extracted.inlineBox != null) extracted.inlineBox!,
+    ];
+
     /// 行内元素浮动提取（W17）。
     ///
     /// `span.talent-tag { float: right }` / `img.avatar { float: left }`
@@ -3799,8 +3834,31 @@ class EpubChapterSource
         if (side == null && !inlineBlock) {
           continue;
         }
+        // 聚合标记按子到父关闭；先提取最外原子盒，避免内盒成为正文兄弟。
+        if (marks.any(
+          (parent) =>
+              inlineDescendantOf(mark, parent) &&
+              inlineMarkStyle(parent, context).display ==
+                  CssDisplay.inlineBlock,
+        )) {
+          continue;
+        }
         final rawContent = text.substring(mark.start, mark.end);
-        final content = rawContent.trim();
+        final children = [
+          for (final child in marks)
+            if (inlineDescendantOf(child, mark)) child,
+        ];
+        bool hasBoxAt(int boundary, {required bool end}) => children.any(
+          (child) =>
+              (end ? child.end : child.start) == boundary &&
+              inlineMarkStyle(child, context).display == CssDisplay.inlineBlock,
+        );
+        final leftTrimmed = hasBoxAt(mark.start, end: false)
+            ? rawContent
+            : rawContent.trimLeft();
+        final content = hasBoxAt(mark.end, end: true)
+            ? leftTrimmed
+            : leftTrimmed.trimRight();
         if (content.isEmpty && !inlineBlock) {
           continue;
         }
@@ -3809,38 +3867,74 @@ class EpubChapterSource
           containingWidth: availableWidth,
         );
         final contentStart =
-            mark.start + rawContent.length - rawContent.trimLeft().length;
-        final contentRuns = resolveInlineRuns([
-          for (final child in marks)
-            if (child.chain.length > mark.chain.length &&
-                child.start >= mark.start &&
-                child.end <= mark.end)
-              InlineMark(
-                start: (child.start - contentStart).clamp(0, content.length),
-                end: (child.end - contentStart).clamp(0, content.length),
-                tag: child.tag,
-                classes: child.classes,
-                chain: child.chain,
-              ),
-        ], context);
+            mark.start + rawContent.length - leftTrimmed.length;
+        final contentMarks = [
+          for (final child in children)
+            InlineMark(
+              start: (child.start - contentStart).clamp(0, content.length),
+              end: (child.end - contentStart).clamp(0, content.length),
+              tag: child.tag,
+              classes: child.classes,
+              chain: child.chain,
+            ),
+        ];
         var contentWidthLimit = math.max(
           content.isEmpty ? 0.0 : 1.0,
           model.resolveContentWidth(availableWidth),
         );
-        TextLayoutResult layoutContent() => content.isEmpty
-            ? TextLayoutResult(
-                text: '',
-                lines: const [],
-                width: 0,
-                height: 0,
-                maxWidth: contentWidthLimit,
-              )
-            : _layoutCache.layout(
-                text: content,
-                style: inlineStyle,
-                maxWidth: contentWidthLimit,
-                runs: contentRuns,
-              );
+        ({String text, List<InlineMark> marks, List<InlineBoxSpec> boxes})
+        extractContentBoxes(_InlineStyleContext innerContext) {
+          var innerText = content;
+          var innerMarks = contentMarks;
+          var boxes = <InlineBoxSpec>[];
+          for (var i = 0; i < contentMarks.length; i++) {
+            final extracted = extractInlineFloat(
+              text: innerText,
+              marks: innerMarks,
+              images: const [],
+              context: innerContext,
+            );
+            if (extracted == null || extracted.block != null) break;
+            innerText = extracted.text;
+            innerMarks = extracted.marks;
+            boxes = appendInlineBox(boxes, extracted);
+          }
+          return (text: innerText, marks: innerMarks, boxes: boxes);
+        }
+
+        TextLayoutResult layoutContent() {
+          final innerContext = (
+            ancestors: inlineMarkChain(mark, context.ancestors),
+            style: inlineStyle,
+            width: contentWidthLimit,
+          );
+          final flow = extractContentBoxes(innerContext);
+          final runs = resolveInlineRuns(flow.marks, innerContext);
+          if (flow.boxes.isNotEmpty) {
+            return TextLayoutEngine.layout(
+              text: flow.text,
+              style: inlineStyle,
+              maxWidth: contentWidthLimit,
+              runs: runs,
+              inlineBoxes: flow.boxes,
+            );
+          }
+          return flow.text.isEmpty
+              ? TextLayoutResult(
+                  text: '',
+                  lines: const [],
+                  width: 0,
+                  height: 0,
+                  maxWidth: contentWidthLimit,
+                )
+              : _layoutCache.layout(
+                  text: flow.text,
+                  style: inlineStyle,
+                  maxWidth: contentWidthLimit,
+                  runs: runs,
+                );
+        }
+
         var layout = layoutContent();
         PageBlock? floatBlock;
         InlineBoxSpec? boxSpec;
@@ -3876,9 +3970,13 @@ class EpubChapterSource
             // 段落高度（53：120×34 盒、内部 2 行 → 段落高 54.38）。
             contentHeight: layout.height,
             // 无内容行的原子盒以底部 margin 边缘作为基线（CSS 2.2 §10.8.1）。
-            contentBaseline: content.isEmpty
+            contentBaseline: layout.lines.isEmpty
                 ? model.borderBoxHeight(contentHeightValue) +
                       model.margin.bottom
+                : layout.lines.any((line) => line.inlineBoxes.isNotEmpty)
+                ? model.padding.top +
+                      model.borders.top +
+                      layout.lines.last.baseline
                 : null,
             // 绘制载荷：盒子内部已构建好的块（背景/边框/文字都在其中），
             // 绘制层按 placement 矩形把它画在行内。
@@ -3936,12 +4034,10 @@ class EpubChapterSource
         final newMarks = <InlineMark>[
           for (final other in marks)
             if (!identical(other, mark) &&
+                !inlineDescendantOf(other, mark) &&
                 (other.end <= removeStart ||
                     other.start >= removeEnd ||
-                    (content.isEmpty &&
-                        other.chain.length < mark.chain.length &&
-                        other.start <= mark.start &&
-                        other.end >= mark.end)))
+                    inlineDescendantOf(mark, other)))
               InlineMark(
                 start: remap(other.start),
                 end: remap(other.end),
@@ -4090,28 +4186,6 @@ class EpubChapterSource
       }
       return null;
     }
-
-    List<InlineBoxSpec> appendInlineBox(
-      List<InlineBoxSpec> existingBoxes,
-      _InlineFloatExtraction extracted,
-    ) => [
-      for (final existing in existingBoxes)
-        InlineBoxSpec(
-          offset: extracted.remapOffset(existing.offset),
-          width: existing.width,
-          height: existing.height,
-          verticalAlign: existing.verticalAlign,
-          marginLeft: existing.marginLeft,
-          marginRight: existing.marginRight,
-          marginTop: existing.marginTop,
-          marginBottom: existing.marginBottom,
-          baselineOffset: existing.baselineOffset,
-          contentHeight: existing.contentHeight,
-          contentBaseline: existing.contentBaseline,
-          payload: existing.payload,
-        ),
-      if (extracted.inlineBox != null) extracted.inlineBox!,
-    ];
 
     TextLayoutResult layoutCellContent(
       String text,
