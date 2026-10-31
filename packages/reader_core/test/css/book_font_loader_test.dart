@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/book_font_loader.dart';
@@ -147,6 +149,41 @@ void main() {
       final regular = await register(_regularPath);
       expect(await register(_regularPath), regular);
       expect(await register(_boldPath), isNot(regular));
+    });
+
+    test('大字体分块摘要与完整SHA-256相同', () async {
+      final bytes = await _fileBytes(_regularPath);
+      expect(bytes.length, greaterThan(64 * 1024));
+      final loader = BookFontLoader(bookId: 'chunked', contentAddressed: true);
+      addTearDown(loader.clear);
+      await loader.load(
+        _parse('@font-face { font-family: Chunked; src: url("font.otf"); }'),
+        resolveBytes: (_) async => bytes,
+      );
+      final signature = 'w400i0:${sha256.convert(bytes)}';
+      final digest = sha256.convert(utf8.encode(signature));
+      expect(loader.engineFamily('Chunked'), 'bi_chunked_${digest}_Chunked');
+    });
+
+    test('大字体摘要期间可处理事件并在关闭后停止注册', () async {
+      final bytes = await _fileBytes(_regularPath);
+      final signature = 'w400i0:${sha256.convert(bytes)}';
+      final digest = sha256.convert(utf8.encode(signature));
+      final engine = 'bi_hash_cancel_${digest}_HashCancel';
+      final loader = BookFontLoader(bookId: 'hash_cancel', contentAddressed: true);
+      addTearDown(loader.clear);
+      final result = await loader.load(
+        _parse('@font-face { font-family: HashCancel; src: url("font.otf"); }'),
+        resolveBytes: (_) async {
+          Timer.run(loader.clear);
+          return bytes;
+        },
+      );
+      expect(result.engineFamilies, isEmpty);
+      expect(loader.engineFamily('HashCancel'), isNull);
+      expect(loader.facesOf('HashCancel'), isEmpty);
+      expect(FontMetricsRegistry.xHeightRatio(engine), isNull,
+          reason: '事件循环中的关闭必须早于字库度量与引擎注册');
     });
 
     test('内容寻址增量与并发注册保留所有字重且不重复读取', () async {

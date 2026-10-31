@@ -177,14 +177,16 @@ class BookFontLoader {
         if (bytes == null) {
           continue;
         }
+        if (contentAddressed) {
+          final digest = await sha256.bind(_fontChunks(bytes, generation)).single;
+          if (generation != _generation) return _cancelledLoad;
+          _faceDigests['$cssFamily|$key'] = digest.toString();
+        }
         cache[key] = RegisteredFontFace(
           weight: face.normalizedWeight ?? 400,
           italic: face.normalizedStyle == 'italic',
           bytes: bytes,
         );
-        if (contentAddressed) {
-          _faceDigests['$cssFamily|$key'] = sha256.convert(bytes).toString();
-        }
       }
 
       if (cache.isEmpty) {
@@ -250,6 +252,21 @@ class BookFontLoader {
     engineFamilies: <String, String>{},
     warnings: <String>[],
   );
+
+  Stream<List<int>> _fontChunks(Uint8List bytes, int generation) async* {
+    // 大字库的纯 Dart SHA-256 在 debug 下可阻塞数秒；分块只让出调度，不改摘要。
+    const chunkSize = 64 * 1024;
+    for (var start = 0; start < bytes.length; start += chunkSize) {
+      if (generation != _generation) return;
+      final end = start + chunkSize;
+      yield Uint8List.sublistView(
+        bytes,
+        start,
+        end < bytes.length ? end : bytes.length,
+      );
+      if (end < bytes.length) await Future<void>.delayed(Duration.zero);
+    }
+  }
 
   String _contentEngineName(
     String cssFamily,
