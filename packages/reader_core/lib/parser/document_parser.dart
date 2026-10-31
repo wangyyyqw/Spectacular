@@ -6,6 +6,7 @@ import '../position/cfi.dart';
 import '../src/api/interfaces.dart';
 import '../src/api/models.dart';
 import 'cfi_resolver.dart';
+import 'html5_input.dart';
 
 /// 解析路径选择（P7-11 双路径）。
 ///
@@ -213,7 +214,10 @@ abstract final class DocumentParser {
         '已回退容错解析',
       );
     }
-    final document = html_parser.parse(xhtml, generateSpans: true);
+    final document = html_parser.parse(
+      prepareHtml5Input(xhtml),
+      generateSpans: true,
+    );
     final body = document.body;
     if (body == null) {
       throw const FormatException('XHTML 缺少 body');

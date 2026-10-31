@@ -44,6 +44,20 @@ void main() {
     expect(tolerant.parserCacheKey, 'tolerant');
     expect(strict.parserCacheKey, isNot(tolerant.parserCacheKey));
   });
+
+  test('合法 XHTML 的空自闭合 title 不会吞掉正文', () {
+    const xhtml =
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head><title/>'
+        '</head><body><p id="p1">正文</p></body></html>';
+
+    final doc = DocumentParser.parse(xhtml: xhtml, spineIndex: 0);
+
+    expect(doc.parserChoice, DocumentParserChoice.strict);
+    expect(doc.root.tag, 'body');
+    expect(doc.elementById('p1'), isNotNull);
+    expect(doc.plainText, '正文');
+    expect(doc.source, xhtml);
+  });
 }
 
 ParsedElement? _findByTag(ParsedNode node, String tag) {
