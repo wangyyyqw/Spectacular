@@ -3966,18 +3966,17 @@ class EpubChapterSource
             marginRight: inlineStyle.margin.right,
             marginTop: inlineStyle.margin.top,
             marginBottom: inlineStyle.margin.bottom,
-            // 盒内内容高（可能超过声明盒高）：Chrome 把溢出内容计入行盒/
-            // 段落高度（53：120×34 盒、内部 2 行 → 段落高 54.38）。
+            // 保留内容排版高；实测基线路径以 margin 盒与文字 strut 合成行高。
             contentHeight: layout.height,
-            // 无内容行的原子盒以底部 margin 边缘作为基线（CSS 2.2 §10.8.1）。
-            contentBaseline: layout.lines.isEmpty
+            // CSS 2.2 §10.8.1：取实际末行基线；无行或非 visible 取底部 margin。
+            contentBaseline:
+                layout.lines.isEmpty ||
+                    inlineStyle.overflow != CssOverflow.visible
                 ? model.borderBoxHeight(contentHeightValue) +
                       model.margin.bottom
-                : layout.lines.any((line) => line.inlineBoxes.isNotEmpty)
-                ? model.padding.top +
+                : model.padding.top +
                       model.borders.top +
-                      layout.lines.last.baseline
-                : null,
+                      layout.lines.last.baseline,
             // 绘制载荷：盒子内部已构建好的块（背景/边框/文字都在其中），
             // 绘制层按 placement 矩形把它画在行内。
             payload: PageBlock.styled(

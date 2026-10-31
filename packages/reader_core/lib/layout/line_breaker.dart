@@ -316,12 +316,13 @@ class InlineBoxSpec {
 
   /// 盒内内容的排版高（`display:inline-block` 子内容溢出的高度，可空）。
   ///
-  /// Chrome 口径：盒内内容溢出时，行盒/段落高度取**内容高**（超出盒高的部分
-  /// 计入基线以上延伸），见 cases/53（120×34 盒、内部 2 行 54.38 → p 高 54.38）。
+  /// 未提供 [contentBaseline] 时用于近似溢出延伸；提供实测基线后以 margin
+  /// 盒与文字 strut 合成行高，不把溢出内容当作盒尺寸。
   final double? contentHeight;
 
   /// 盒内**最后一行的基线**相对盒边框盒顶的距离（`overflow: visible` 的
-  /// inline-block 基线，CSS 2.1 §10.8.1）。为空时退回按字体内边距近似。
+  /// inline-block 基线，CSS 2.2 §10.8.1）；无行或非 visible 时取底部 margin
+  /// 边缘。为空时退回按字体内边距近似。
   final double? contentBaseline;
 
   /// 绘制层用的引用（片段、样式等由上层决定）。
@@ -409,7 +410,7 @@ class InlineBoxPlacement {
   /// 基线以上延伸（含 margin）。
   final double ascent;
 
-  /// 基线以下延伸（含 margin）。
+  /// 基线以下延伸（含 margin）；实际基线在盒底之外时可为负。
   final double descent;
 
   /// 原始规格（绘制层从 `spec.payload` 取内容）。
@@ -2478,8 +2479,6 @@ abstract final class TextLayoutEngine {
       lines.length,
       (_) => <InlineBoxPlacement>[],
     );
-    final growUp = List<double>.filled(lines.length, 0);
-    final growDown = List<double>.filled(lines.length, 0);
     for (final mark in marks) {
       var lineIndex = lines.length - 1;
       for (var i = 0; i < lines.length; i++) {
@@ -2508,9 +2507,7 @@ abstract final class TextLayoutEngine {
             style,
             textScaleFactor,
           );
-      // 基线口径（CSS 2.1 §10.8.1 + Chrome 实测 cases/53）：`overflow: visible`
-      // 的 inline-block 基线 = 盒内**最后一行的基线**，因此基线相对盒内容顶
-      // = contentHeight − (half-leading + fontDescent)（T5 实测 48.19）。
+      // 优先使用调用方测得的末行基线；缺失时仍按外部字体近似下沉量。
       final spec = mark.spec;
       final contentHeight = spec.contentHeight ?? spec.height;
       final boxHeight = math.max(spec.outerHeight, contentHeight);
@@ -2519,9 +2516,10 @@ abstract final class TextLayoutEngine {
       if (spec.verticalAlign == InlineBoxVerticalAlign.baseline) {
         final declaredBaseline = spec.contentBaseline;
         if (declaredBaseline != null) {
-          // 调用方给了盒内最后一行基线（相对盒边框盒顶）→ 直接用。
+          // 距离相对边框盒顶；无行或非 visible 时由调用方提供底部 margin。
           ascent = spec.marginTop + declaredBaseline - spec.baselineOffset;
-          descent = math.max(0.0, boxHeight - ascent);
+          // 末行基线可能在边框盒外；溢出不改变 margin 盒，延伸可为负。
+          descent = spec.outerHeight - ascent;
         } else {
           final metrics = _fontBoxMetrics(baseStyle, textScaleFactor);
           final fontBoxHeight = metrics.ascent + metrics.descent;
@@ -2542,30 +2540,29 @@ abstract final class TextLayoutEngine {
         spec: spec,
       );
       perLine[lineIndex].add(placement);
-      final lineAscent = line.baseline - line.top;
-      final lineDescent = line.height - lineAscent;
-      growUp[lineIndex] = math.max(
-        growUp[lineIndex],
-        placement.ascent - lineAscent,
-      );
-      growDown[lineIndex] = math.max(
-        growDown[lineIndex],
-        placement.descent - lineDescent,
-      );
     }
-    // Chrome 口径（实测 cases/53）：行盒高 = max(行高, 盒 margin box 高)，
-    // 不是 ascent + descent 相加（否则会比 Chrome 多出文字 descent）。
+    // 实测基线路径按 CSS 2.2 §10.8 合成最上/最下边缘，包含文字 strut；
+    // 未声明基线的调用方仍保留原有近似，避免推测其内部内容结构。
     final heights = List<double>.filled(lines.length, 0);
     final ascents = List<double>.filled(lines.length, 0);
     for (var i = 0; i < lines.length; i++) {
       var boxHeight = 0.0;
       var boxAscent = 0.0;
+      var boxDescent = 0.0;
+      var measuredBaseline = false;
       for (final placement in perLine[i]) {
         boxHeight = math.max(boxHeight, placement.ascent + placement.descent);
         boxAscent = math.max(boxAscent, placement.ascent);
+        boxDescent = math.max(boxDescent, placement.descent);
+        measuredBaseline |=
+            placement.spec.contentBaseline != null &&
+            placement.spec.verticalAlign == InlineBoxVerticalAlign.baseline;
       }
       final baseAscent = lines[i].baseline - lines[i].top;
-      heights[i] = math.max(lines[i].height, boxHeight);
+      heights[i] = measuredBaseline
+          ? math.max(baseAscent, boxAscent) +
+                math.max(lines[i].height - baseAscent, boxDescent)
+          : math.max(lines[i].height, boxHeight);
       ascents[i] = math.min(heights[i], math.max(baseAscent, boxAscent));
     }
     var grown = false;
