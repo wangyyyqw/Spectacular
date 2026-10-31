@@ -422,6 +422,7 @@ class EpubChapterSource
     runs: source.runs,
     isRtl: source.isRtl,
     writingMode: source.writingMode,
+    plainTextLayout: source.plainTextLayout,
   );
 
   /// 竖排声明宽大于实际列带时，`vertical-rl` 从内容盒右缘起排。
@@ -454,6 +455,7 @@ class EpubChapterSource
       runs: source.runs,
       isRtl: source.isRtl,
       writingMode: source.writingMode,
+      plainTextLayout: source.plainTextLayout,
     );
   }
 
@@ -3234,6 +3236,7 @@ class EpubChapterSource
           height: blockHeight,
           maxWidth: available,
           runs: block.layout.runs,
+          plainTextLayout: block.layout.plainTextLayout,
         );
         final trailing = finished ? block.trailingExtent : 0.0;
         slices.add(

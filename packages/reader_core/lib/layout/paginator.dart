@@ -1068,6 +1068,7 @@ class Paginator {
       height: top,
       maxWidth: columnWidth,
       runs: List<StyledRun>.unmodifiable(runs),
+      plainTextLayout: source.plainTextLayout,
     );
   }
 
@@ -1521,6 +1522,7 @@ class Paginator {
         runs: layout.runs,
         isRtl: layout.isRtl,
         writingMode: layout.writingMode,
+        plainTextLayout: layout.plainTextLayout,
       ),
       startCfi: source.startCfi,
       endCfi: source.endCfi,

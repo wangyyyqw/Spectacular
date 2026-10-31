@@ -87,6 +87,61 @@ void main() {
       expect(plain.lines.single.width, 8 * 16.0);
     });
 
+    test('仅改变颜色的全文 run 仍参与标点挤压', () {
+      const text = '点：、。！？';
+      final colored = ComputedStyle(
+        const <String, String>{'color': 'red'},
+        parent: trimmed,
+        explicitProperties: const <String>{'color'},
+      );
+      final plain = TextLayoutEngine.layout(
+        text: text,
+        style: trimmed,
+        maxWidth: 400,
+      );
+      final withColorRun = TextLayoutEngine.layout(
+        text: text,
+        style: trimmed,
+        maxWidth: 400,
+        runs: <StyledRun>[
+          StyledRun(start: 0, end: text.length, style: colored),
+        ],
+      );
+
+      expect(plain.lines.single.width, 80);
+      expect(withColorRun.plainTextLayout, isTrue);
+      expect(withColorRun.lines.single.width, plain.lines.single.width);
+      expect(withColorRun.runs.single.style.color, colored.color);
+    });
+
+    test('改变测量或基线位移的 run 不按纯文本处理', () {
+      const text = '点：、。！？';
+      final larger = ComputedStyle(
+        const <String, String>{'font-size': '20px'},
+        parent: trimmed,
+        explicitProperties: const <String>{'font-size'},
+      );
+      final largerRun = TextLayoutEngine.layout(
+        text: text,
+        style: trimmed,
+        maxWidth: 400,
+        runs: <StyledRun>[
+          StyledRun(start: 0, end: text.length, style: larger),
+        ],
+      );
+      final shiftedRun = TextLayoutEngine.layout(
+        text: text,
+        style: trimmed,
+        maxWidth: 400,
+        runs: <StyledRun>[
+          StyledRun(start: 0, end: text.length, style: trimmed, baselineShift: 2),
+        ],
+      );
+
+      expect(largerRun.plainTextLayout, isFalse);
+      expect(shiftedRun.plainTextLayout, isFalse);
+    });
+
     test('text-spacing-trim 解析与继承', () {
       expect(trimmed.textSpacingTrim, CssTextSpacingTrim.trimAdjacent);
       expect(normal.textSpacingTrim, CssTextSpacingTrim.normal);
@@ -144,6 +199,42 @@ void main() {
         trimmedResult.pages.length,
         lessThanOrEqualTo(normalResult.pages.length),
       );
+    });
+
+    test('分页切片保留排版等价标记', () {
+      const text = '点：、。！？';
+      final trimmed = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': 'Ahem',
+        'text-spacing-trim': 'trim-adjacent',
+      });
+      final colored = ComputedStyle(
+        const <String, String>{'color': 'red'},
+        parent: trimmed,
+        explicitProperties: const <String>{'color'},
+      );
+      final layout = TextLayoutEngine.layout(
+        text: text,
+        style: trimmed,
+        maxWidth: 128,
+        runs: <StyledRun>[
+          StyledRun(start: 0, end: text.length, style: colored),
+        ],
+      );
+      final pages = Paginator(pageHeight: 200)
+          .measureChapter(
+            blocks: <PageBlock>[
+              PageBlock.styled(
+                layout: layout,
+                style: trimmed,
+                containingWidth: 128,
+              ),
+            ],
+          )
+          .pages;
+
+      expect(pages.single.slices.single.block.layout.plainTextLayout, isTrue);
     });
   });
 }

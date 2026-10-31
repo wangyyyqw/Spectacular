@@ -752,6 +752,7 @@ class TextLayoutResult implements TextLayout {
     this.runs = const <StyledRun>[],
     this.isRtl = false,
     this.writingMode = CssWritingMode.horizontalTb,
+    this.plainTextLayout = false,
   });
 
   /// 原始文本。
@@ -777,6 +778,12 @@ class TextLayoutResult implements TextLayout {
 
   /// 书写模式（竖排块的行列表其实是「列」表，见 [LineBox.vertical]）。
   final CssWritingMode writingMode;
+
+  /// 现有 runs 是否与块级测量样式等价（只允许颜色/装饰等排版无关差异）。
+  ///
+  /// 为 true 时，标点挤压和中西文自动间距仍可把整行当纯文本测量；绘制端
+  /// 继续按 run 取颜色与装饰，不会抹掉作者行内样式。
+  final bool plainTextLayout;
 
   /// 是否竖排。
   bool get isVertical => writingMode != CssWritingMode.horizontalTb;
@@ -1157,6 +1164,7 @@ abstract final class TextLayoutEngine {
       _align(measuredText, measured, style, width),
       width,
       styled,
+      style,
       isRtl: style.isRtl,
       // Chromium 会给横排 under 着重号增加约 0.12em 的块底部空间。
       bottomOverflow:
@@ -2162,11 +2170,12 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution: leadingDistribution,
     );
-    // 标点挤压（P7-19）与中西文间距（P7-20）：只作用于无行内样式
-    // 区间的纯文本段（测量与绘制同规则，见 buildLineSpan）；两者都
-    // 影响行宽，须在测量期生效。
+    // 标点挤压（P7-19）与中西文间距（P7-20）：只作用于排版等价的
+    // 纯文本段（测量与绘制同规则，见 buildLineSpan）；两者都影响行宽，
+    // 须在测量期生效。仅颜色/装饰不同的 run 仍按纯文本测量。
+    final plainTextLayout = !_runsAffectTextLayout(runs, style);
     final compress =
-        runs.isEmpty &&
+        plainTextLayout &&
         (style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent ||
             style.textAutospace == CssTextAutospace.normal);
     // `/`（UAX#14 SY）在 ICU/Skia 里会给出断行机会，而 Chrome 不在
@@ -2192,7 +2201,7 @@ abstract final class TextLayoutEngine {
               style,
               textScaleFactor,
             )
-          : runs.isEmpty
+          : plainTextLayout
           ? (compress
                 ? applySyntheticSmallCaps(
                     _plainSpan(measureText, style, baseStyle, textScaleFactor),
@@ -3279,6 +3288,7 @@ abstract final class TextLayoutEngine {
       runs: List<StyledRun>.unmodifiable(runs),
       isRtl: isRtl,
       writingMode: style.writingMode,
+      plainTextLayout: !_runsAffectTextLayout(runs, style),
     );
   }
 
@@ -3286,7 +3296,8 @@ abstract final class TextLayoutEngine {
     String text,
     List<LineBox> lines,
     double maxWidth,
-    List<StyledRun> runs, {
+    List<StyledRun> runs,
+    ComputedStyle style, {
     bool isRtl = false,
     double bottomOverflow = 0,
   }) {
@@ -3303,7 +3314,19 @@ abstract final class TextLayoutEngine {
       maxWidth: maxWidth,
       runs: List<StyledRun>.unmodifiable(runs),
       isRtl: isRtl,
+      plainTextLayout: !_runsAffectTextLayout(runs, style),
     );
+  }
+
+  /// runs 是否改变了文本测量；颜色、装饰等不影响排版的属性除外。
+  static bool _runsAffectTextLayout(List<StyledRun> runs, ComputedStyle style) {
+    for (final run in runs) {
+      if (run.baselineShift != 0 ||
+          run.style.layoutFingerprint != style.layoutFingerprint) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 从计算样式生成绘制/测量用 TextStyle。
