@@ -47,7 +47,11 @@ Uint8List _book(String body, String css) {
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
 
-Future<ByteData> _renderPage({String? body, String? css}) async {
+Future<ByteData> _renderPage({
+  String? body,
+  String? css,
+  Color background = const Color(0xFFFFFFFF),
+}) async {
   final source = await EpubChapterSource.open(
     _book(
       body ?? '<div class="card"><p>第一段文字</p><p>第二段文字</p></div>',
@@ -62,7 +66,7 @@ Future<ByteData> _renderPage({String? body, String? css}) async {
   await source.applyOverrides(ReaderSettingsDefaults.overrides);
   final pages = await source.loadChapter(0);
   final recorder = ui.PictureRecorder();
-  PagePainter(background: const Color(0xFFFFFFFF)).paint(
+  PagePainter(background: background).paint(
     Canvas(recorder),
     pages.first,
     pageSize: _pageSize,
@@ -120,6 +124,27 @@ void main() {
     }
     expect(goldPixels, greaterThan(0), reason: '行内元素的金色边框应画出');
     expect(chipPixels, greaterThan(0), reason: '行内元素的背景色应画出');
+  });
+
+  test('普通行内 b 的白色底在深色页背景上可见', () async {
+    final bytes = await _renderPage(
+      body: '<div class="bookcover"><b>人</b> <b>物</b> <b>关</b> '
+          '<b>系</b> <b>图</b></div>',
+      css: '.bookcover { color: #000002; text-align: center; '
+          'margin-top: 40px; width: 10em; } '
+          '.bookcover b { background-color: #fff; padding: 3px; '
+          'font-weight: bold; }',
+      background: const Color(0xFF07151B),
+    );
+    var whitePixels = 0;
+    for (var i = 0; i < bytes.lengthInBytes; i += 4) {
+      if (bytes.getUint8(i) == 0xFF &&
+          bytes.getUint8(i + 1) == 0xFF &&
+          bytes.getUint8(i + 2) == 0xFF) {
+        whitePixels += 1;
+      }
+    }
+    expect(whitePixels, greaterThan(100), reason: 'b 的白色行内底应可见');
   });
 
   test('卡片四边框闭合且背景连成一片（P9-25）', () async {

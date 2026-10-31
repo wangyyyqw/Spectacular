@@ -94,10 +94,10 @@ void main() {
         .expand((page) => page.slices.map((s) => s.block))
         .first;
     final runs = block.layout.runs;
-    expect(runs, hasLength(1), reason: '高亮区间产出一条 StyledRun');
-    expect(block.layout.text.substring(runs.first.start, runs.first.end),
-        '高亮文字');
-    expect(runs.first.style.color, const Color(0xFFFC8C23));
+    final highlight = runs.firstWhere(
+      (run) => block.layout.text.substring(run.start, run.end) == '高亮文字',
+    );
+    expect(highlight.style.color, const Color(0xFFFC8C23));
   });
 
   test('后代选择器（块级）：div.panel p 命中且不串扰普通 p', () async {

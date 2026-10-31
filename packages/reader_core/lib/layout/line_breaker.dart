@@ -1818,12 +1818,7 @@ abstract final class TextLayoutEngine {
   static ComputedStyle _styleWithFontFamily(
     ComputedStyle source,
     String family,
-  ) => ComputedStyle(
-    <String, String>{'font-family': family},
-    parent: source,
-    explicitProperties: const <String>{'font-family'},
-    hasExplicitTextColor: source.hasExplicitTextColor,
-  );
+  ) => source.withTypography(fontFamily: family);
 
   /// 取 `[start, end)` 范围内的样式区间，偏移改为相对起点。
   static List<StyledRun> _sliceRuns(List<StyledRun> runs, int start, int end) {
