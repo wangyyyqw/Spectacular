@@ -688,7 +688,6 @@ class PagePainter {
       geometry.style,
       geometry.style.textEmphasisColor ??
           geometry.textColorOverride ??
-          textColor ??
           geometry.style.color,
     );
     try {

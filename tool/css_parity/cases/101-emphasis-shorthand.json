@@ -1,0 +1,6 @@
+{
+  "name": "101-emphasis-shorthand",
+  "tags": ["text-emphasis", "text-emphasis-style", "text-emphasis-color"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 24px; } p { margin: 8px 0; padding: 24px 0 0; line-height: 2; } .color { text-emphasis: open circle #cc0000; } .filled { text-emphasis: filled; } .open { text-emphasis: open rgb(0, 102, 204); } .reset { color: #008000; text-emphasis-color: #cc0000; text-emphasis: circle; } .longhand { text-emphasis: circle #cc0000; text-emphasis-color: #0066cc; } .invalid { text-emphasis: sesame #0066cc; text-emphasis: circle bogus; } .parent { color: #cc0000; text-emphasis: open currentcolor; } .child { color: #008000; } .none-parent { text-emphasis: sesame #0066cc; text-emphasis-position: under; } .none { text-emphasis: none; }",
+  "html": "<p class=\"color\">简写颜色：空心红圆。</p><p class=\"filled\">默认实心：横排圆形。</p><p class=\"open\">默认空心：蓝色圆形。</p><p class=\"reset\">简写重置：跟随绿色。</p><p class=\"longhand\">后写长属性：蓝色圆形。</p><p class=\"invalid\">无效值：保留蓝色芝麻。</p><div class=\"parent\"><p class=\"child\">继承当前色：绿色空心圆。</p></div><div class=\"none-parent\"><p class=\"none\">重置为无：不绘制标记。</p></div>"
+}
