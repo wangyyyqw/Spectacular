@@ -2352,44 +2352,59 @@ class PagePainter {
       return;
     }
     final textStyleBase = TextLayoutEngine.textStyleFor(style);
-    for (var lineIndex = 0; lineIndex < layout.lineCount; lineIndex++) {
-      final line = layout.lines[lineIndex];
-      final text = layout.text.substring(line.start, line.end);
-      final runs = _lineRuns(layout, line);
-      if (line.inlineBoxes.isNotEmpty) {
-        _paintInlineBoxPlacements(
-          canvas,
-          style,
-          line,
-          runs,
-          contentLeft,
-          contentTop + line.top,
-        );
+    final emphasis = HorizontalTextEmphasis(layout, style, _textColorFor);
+    final hasEmphasis = emphasis.hasMarks;
+    try {
+      for (var lineIndex = 0; lineIndex < layout.lineCount; lineIndex++) {
+        final line = layout.lines[lineIndex];
+        final text = layout.text.substring(line.start, line.end);
+        final runs = _lineRuns(layout, line);
+        if (line.inlineBoxes.isNotEmpty) {
+          _paintInlineBoxPlacements(
+            canvas,
+            style,
+            line,
+            runs,
+            contentLeft,
+            contentTop + line.top,
+          );
+        }
+        if (text.isNotEmpty) {
+          final painter = TextPainter(
+            text: runs.isEmpty
+                ? TextSpan(text: text, style: textStyleBase)
+                : buildLineSpan(
+                    layout: layout,
+                    line: line,
+                    baseStyle: textStyleBase,
+                    styleOf: _paintTextStyleFor,
+                  ),
+            textDirection: TextDirection.ltr,
+          )..layout(maxWidth: contentWidth);
+          final origin = Offset(
+            contentLeft + line.offsetX,
+            contentTop +
+                line.top +
+                textLineBaselineOffset(layout, line, painter),
+          );
+          _paintLineText(
+            canvas,
+            painter,
+            text,
+            runs,
+            textStyleBase,
+            origin.dx,
+            origin.dy,
+            line: line,
+          );
+          if (hasEmphasis) {
+            emphasis.paint(canvas, painter, line, origin);
+          }
+          painter.dispose();
+        }
       }
-      if (text.isNotEmpty) {
-        final painter = TextPainter(
-          text: runs.isEmpty
-              ? TextSpan(text: text, style: textStyleBase)
-              : buildLineSpan(
-                  layout: layout,
-                  line: line,
-                  baseStyle: textStyleBase,
-                  styleOf: _paintTextStyleFor,
-                ),
-          textDirection: TextDirection.ltr,
-        )..layout(maxWidth: contentWidth);
-        _paintLineText(
-          canvas,
-          painter,
-          text,
-          runs,
-          textStyleBase,
-          contentLeft + line.offsetX,
-          contentTop + line.top + textLineBaselineOffset(layout, line, painter),
-          line: line,
-        );
-        painter.dispose();
-      }
+    } finally {
+      emphasis.dispose();
     }
     if (clipsContent) {
       canvas.restore();

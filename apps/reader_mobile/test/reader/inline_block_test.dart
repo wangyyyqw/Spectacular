@@ -183,6 +183,21 @@ void main() {
     ], List.generate(10, (i) => '$i'));
   });
 
+  test('原子盒内部的独立着重号样式保留到 payload', () async {
+    final lines = await linesOf(
+      '<p><span class="tag"><span class="mark">中文</span></span></p>',
+      '.tag { display: inline-block; padding: 2px; } '
+          '.mark { text-emphasis: circle #cc0000; }',
+    );
+    final payload = lines.single.inlineBoxes.single.spec.payload! as PageBlock;
+    final marked = payload.layout.runs.firstWhere(
+      (run) => run.style.textEmphasisStyle != CssTextEmphasisStyle.none,
+    );
+    expect(marked.start, 0);
+    expect(marked.end, 2);
+    expect(marked.style.textEmphasisColor?.toARGB32(), 0xffcc0000);
+  });
+
   test('固定布局表格的标签盒与内层文字共同决定行高', () async {
     final source = await openCssChapter(
       body:
