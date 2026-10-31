@@ -86,4 +86,68 @@ void main() {
       reason: 'clear: both 之后不应再绕排',
     );
   });
+
+  test('空的 clear div 也结束后续正文绕排', () async {
+    final slices = await slicesOf(
+      '<div class="f">右浮动</div><div class="cl"></div>'
+          '<p>${'清除后的整行正文。' * 18}</p>',
+      '.f { float: right; width: 80px; height: 60px; } .cl { clear: both; }',
+    );
+    final cleared = slices.firstWhere(
+      (slice) => slice.block.layout.text.startsWith('清除后的'),
+    );
+    expect(
+      cleared.block.layout.lines.first.width,
+      greaterThan(240),
+      reason: '空 clear 块必须占住清浮动位置，正文不能继续绕排',
+    );
+  });
+
+  test('图片浮动方向命中祖先选择器，不串到另一侧消息', () async {
+    final slices = await slicesOf(
+      '<div class="message right">'
+      '<img class="avatar" src="../Images/r.png"/>'
+      '<p>右侧消息</p><div style="clear: both;"/>'
+      '</div>'
+      '<div class="message left">'
+      '<img class="avatar" src="../Images/l.png"/>'
+      '<p>左侧消息</p><div style="clear: both;"/>'
+      '</div>',
+      '.avatar { float: left; width: 42px; height: 42px; } '
+      '.right .avatar { float: right; }',
+    );
+    final right = slices.firstWhere(
+      (slice) => slice.block.style?.backgroundImage?.endsWith('r.png') ?? false,
+    );
+    final left = slices.firstWhere(
+      (slice) => slice.block.style?.backgroundImage?.endsWith('l.png') ?? false,
+    );
+    expect(right.block.floatSide, FloatSide.right);
+    expect(left.block.floatSide, FloatSide.left);
+  });
+
+  test('浮动容器上内边距先推进游标，头像与名字同顶对齐', () async {
+    final slices = await slicesOf(
+      '<div class="chat">'
+      '<img class="avatar" src="../Images/a.png"/>'
+      '<div class="name">寻歌</div>'
+      '<p>消息正文</p><div style="clear: both;"/>'
+      '</div>',
+      '.chat { overflow: hidden; padding-top: 20px; } '
+      '.avatar { float: right; width: 42px; height: 42px; }',
+    );
+    final name = slices.firstWhere(
+      (slice) => slice.block.layout.text == '寻歌',
+    );
+    final avatar = slices.firstWhere(
+      (slice) => slice.block.floatSide != null,
+    );
+    var nameTop = name.leadingExtent;
+    for (final slice in slices) {
+      if (identical(slice, name)) break;
+      if (!slice.overlay) nameTop += slice.height;
+    }
+    expect(name.leadingExtent, 0, reason: '容器内边距由独立在流块承担');
+    expect(avatar.absoluteTop, closeTo(nameTop, 0.5));
+  });
 }

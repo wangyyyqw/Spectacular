@@ -109,6 +109,69 @@ void main() {
     });
   }
 
+  test('带左色条的非语义标题不单独留在页底', () async {
+    final source = await openCssChapter(
+      body:
+          '<p class="filler">前置内容</p>'
+          '<div class="xbt2">猫的理想（可升级）</div>'
+          '<p>${'标题后的正文。' * 20}</p>',
+      css:
+          '$_css .filler { height: 70px; line-height: 70px; } '
+          '.xbt2 { margin: 10px 0; padding-left: 10px; '
+          'border-left: 15px solid #304598; }',
+      contentWidth: 200,
+      contentHeight: 70,
+    );
+    final pages = await source.loadChapter(0);
+    final heading = pages
+        .expand((page) => page.slices)
+        .firstWhere((slice) => slice.block.layout.text == '猫的理想（可升级）');
+    expect(heading.block.breakAfterAvoid, isTrue);
+    expect(
+      pages.first.slices.map((slice) => slice.block.layout.text),
+      isNot(contains('猫的理想（可升级）')),
+    );
+    expect(pages[1].slices.first.block.layout.text, '猫的理想（可升级）');
+    expect(
+      pages[1].slices[1].block.layout.text,
+      startsWith('标题后的正文'),
+    );
+  });
+
+  test('含浮动的章节仍让结构化标题避开页底', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="float-mark">浮</div>'
+          '<p class="filler">前置内容</p>'
+          '<div class="xbt2">猫的理想（可升级）</div>'
+          '<p>${'标题后的正文。' * 20}</p>',
+      css:
+          '$_css .float-mark { float: left; width: 1px; height: 1px; '
+          'font-size: 1px; line-height: 1px; } '
+          '.filler { height: 70px; line-height: 70px; } '
+          '.xbt2 { margin: 10px 0; padding-left: 10px; '
+          'border-left: 15px solid #304598; }',
+      contentWidth: 200,
+      contentHeight: 100,
+    );
+    final pages = await source.loadChapter(0);
+    final headingSlice = pages
+        .expand((page) => page.slices)
+        .firstWhere((slice) => slice.block.layout.text == '猫的理想（可升级）');
+
+    expect(headingSlice.block.breakAfterAvoid, isTrue);
+    expect(
+      pages.first.slices.map((slice) => slice.block.layout.text),
+      isNot(contains('猫的理想（可升级）')),
+    );
+    expect(
+      pages[1].slices
+          .where((slice) => slice.block.floatSide == null)
+          .map((slice) => slice.block.layout.text),
+      containsAllInOrder(<String>['猫的理想（可升级）']),
+    );
+  });
+
   test('含长正文的单行表格不按短标题锁定后文', () async {
     final source = await openCssChapter(
       body:
