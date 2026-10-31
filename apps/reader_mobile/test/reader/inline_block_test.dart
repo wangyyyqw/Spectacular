@@ -199,9 +199,16 @@ void main() {
     final box = cell.layout.lines.single.inlineBoxes.single;
     final payload = box.spec.payload! as PageBlock;
     expect(payload.layout.text, 'RANK: SSS');
-    expect(payload.layout.runs.single.style.fontSize, 24);
+    final runs = payload.layout.runs;
+    expect(runs, hasLength(2));
+    expect(runs.first.start, 0);
+    expect(runs.first.end, 6);
+    expect(runs.first.style.fontSize, 12);
+    expect(runs.last.start, 6);
+    expect(runs.last.end, 9);
+    expect(runs.last.style.fontSize, 24);
     expect(
-      payload.layout.runs.single.style.fontWeight,
+      runs.last.style.fontWeight,
       greaterThanOrEqualTo(700),
     );
     expect(cell.rect.height, greaterThanOrEqualTo(box.height));
