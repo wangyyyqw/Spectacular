@@ -812,6 +812,7 @@ class EpubChapterSource
   BookFontLoader? _fontLoader;
   final Set<String> _fontFacesSeen = <String>{};
   Future<void>? _fontRegistration;
+  Set<String>? _bookFontDirectories;
 
   /// 书内字族 → 引擎族名（键为小写 CSS 族名）。
   ///
@@ -854,6 +855,7 @@ class EpubChapterSource
     _chapterSheetCache.clear();
     _fontLoader?.clear();
     _fontFacesSeen.clear();
+    _bookFontDirectories = null;
     _bookFontEngines.clear();
     _bookFontCoverages.clear();
     _resolvedBaseStyle = null;
@@ -922,11 +924,12 @@ class EpubChapterSource
         ? url
         : document.resources.resolve(url);
     if (path == null) {
-      for (final item in document.spine) {
-        path = document.resources.resolve(
-          url,
-          baseDir: p.posix.dirname(item.href),
-        );
+      // 同目录章节只试一次，保留首次出现顺序；缺失字体不逐章重复归一化。
+      final directories = _bookFontDirectories ??= {
+        for (final item in document.spine) p.posix.dirname(item.href),
+      };
+      for (final baseDir in directories) {
+        path = document.resources.resolve(url, baseDir: baseDir);
         if (path != null) break;
       }
     }
