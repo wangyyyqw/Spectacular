@@ -111,6 +111,32 @@ void main() {
     expect(image.style!.margin.left, closeTo(35, 0.01));
   });
 
+  test('嵌套定宽画廊中的图片同时叠加外层居中与内层行内居中', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="duokan-image-gallery">'
+          '<div class="duokan-image-gallery-cell">'
+          '<img src="../Images/gallery.jpg"/>'
+          '</div></div><p>正文</p>',
+      css:
+          'div.duokan-image-gallery { width: 65%; margin: 5% auto; '
+          'text-align: center; } '
+          'div.duokan-image-gallery-cell img { width: 80%; '
+          'margin: 0.35em 0; }',
+      contentWidth: 344,
+      contentHeight: 800,
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    final image = blocks.firstWhere((block) => block.layout.text.isEmpty);
+    expect(
+      image.style!.margin.left + image.style!.width!.resolve(344)! / 2,
+      closeTo(source.contentWidth / 2, 0.01),
+    );
+  });
+
   test('定宽标题的 auto margin 让文字与盒一起水平居中', () async {
     final source = await openCssChapter(
       body:
@@ -283,5 +309,23 @@ void main() {
       geometry(pages),
       reason: '清页缓存后的索引重放必须保留续框占高与分页边界',
     );
+  }, skip: !realBook.existsSync());
+
+  test('诸神愚戏画廊一：图片中心落在正文中心', () async {
+    final source = await EpubChapterSource.open(
+      realBook.readAsBytesSync(),
+      contentWidth: 344,
+      contentHeight: 800,
+      verifyCrc: false,
+    );
+    final page = (await source.loadChapter(20)).first;
+    final image = page.slices
+        .map((slice) => slice.block)
+        .firstWhere(
+          (block) =>
+              block.layout.text.isEmpty && block.style?.backgroundImage != null,
+        );
+    final width = image.style!.width!.resolve(344)!;
+    expect(image.style!.margin.left + width / 2, closeTo(172, 0.01));
   }, skip: !realBook.existsSync());
 }

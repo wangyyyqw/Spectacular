@@ -3692,6 +3692,10 @@ class EpubChapterSource
     // P9-25：最近一次 styleForChain 的最近容器是否带可见边框。局部状态，
     // 调用后立刻读取，避免为同一链再跑一次级联。
     var containerBorderedForLastChain = false;
+    // 最近一次 styleForChain 为对齐祖先盒累计到的左偏移。纯图块折叠后
+    // 仍要区分「祖先容器位移」和「图片自身 margin」，否则外层 auto margin
+    // 会被误当图片 margin，吞掉内层 text-align 的居中余量。
+    var promotedLeftForLastChain = 0.0;
     // 嵌套 opacity（W5）：flat 管线重建块样式会丢父链，这里把级联链上的
     // 祖先累计不透明度单独记下来供 PageBlock 使用（绘制层据此 saveLayer）。
     var effectiveOpacityForLastChain = 1.0;
@@ -4449,6 +4453,7 @@ class EpubChapterSource
       CssListStylePosition? listPosition,
     }) {
       containerBorderedForLastChain = false;
+      promotedLeftForLastChain = 0;
       final computed = chainStyle(chain);
       effectiveOpacityForLastChain = computed.effectiveOpacity;
       // 容器盒类近似传导：flat 无嵌套盒子，祖先的背景/左右边框/
@@ -4529,6 +4534,7 @@ class EpubChapterSource
       // 40px 近似；`list-style-position: inside` 的首行缩进走 text-indent
       //（行排版器只作用首行，与浏览器「标记并入首行」一致）。
       extraLeft += listIndent;
+      promotedLeftForLastChain = extraLeft;
       final declarations = <String, String>{...promoted, ...computed.values};
       if (extraLeft > 0) {
         declarations['margin-left'] = '${computed.margin.left + extraLeft}px';
@@ -4647,10 +4653,14 @@ class EpubChapterSource
                   const <SelectorElement>[],
                 ),
             ];
-      final imageStyle = styleForChain(<SelectorElement>[
-        ...foldedChain,
-        _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
-      ]);
+      final imageView = _NodeView(
+        node.tag,
+        node.attributes,
+        const <SelectorElement>[],
+      );
+      final imageChain = <SelectorElement>[...foldedChain, imageView];
+      final imageStyle = styleForChain(imageChain);
+      final promotedLeft = promotedLeftForLastChain;
       // 图片块：祖先累计 opacity 同样透传（嵌套容器里的半透明图）。
       final imageOpacity = effectiveOpacityForLastChain;
       // 出血图（P9-22）：显示宽按页面宽（正文宽 + 页边距）计算，
@@ -4748,20 +4758,34 @@ class EpubChapterSource
         imageStyle,
         containingWidth: imageContainingWidth,
       );
+      // styleForChain 把祖先 margin/padding 折算进图片 margin 只为摆放整块；
+      // 图片自身的 auto margin 必须以画廊内容宽重新解算，不能把两层偏移
+      // 混在一起后再拿来计算 text-align 的剩余空间。
+      final baseImageStyle = chainStyle(imageChain);
+      final ownImageStyle = ComputedStyle(
+        baseImageStyle.values,
+        parent: baseImageStyle,
+        explicitProperties: baseImageStyle.explicitProperties,
+        containingWidth: imageContainingWidth,
+      );
       final inlineLevel =
-          imageStyle.display == CssDisplay.inline ||
-          imageStyle.display == CssDisplay.inlineBlock;
-      var usedMarginLeft = imageStyle.margin.left;
+          ownImageStyle.display == CssDisplay.inline ||
+          ownImageStyle.display == CssDisplay.inlineBlock;
+      var usedMarginLeft = promotedLeft + ownImageStyle.margin.left;
       if (floatSide == null && !imageStyle.isOutOfFlow && inlineLevel) {
         final marginBoxWidth =
-            size.$1 + imageModel.horizontalInset + imageStyle.margin.horizontal;
+            size.$1 +
+            imageModel.horizontalInset +
+            ownImageStyle.margin.horizontal;
         final slack = math.max(0.0, imageContainingWidth - marginBoxWidth);
-        usedMarginLeft = switch (imageStyle.resolvedTextAlign) {
-          CssTextAlign.center => imageStyle.margin.left + slack / 2,
-          CssTextAlign.end ||
-          CssTextAlign.right => imageStyle.margin.left + slack,
-          _ => imageStyle.margin.left,
-        };
+        usedMarginLeft =
+            promotedLeft +
+            ownImageStyle.margin.left +
+            switch (ownImageStyle.resolvedTextAlign) {
+              CssTextAlign.center => slack / 2,
+              CssTextAlign.end || CssTextAlign.right => slack,
+              _ => 0.0,
+            };
       }
       final blockStyle = ComputedStyle(<String, String>{
         // 图片块替换了原 img 盒，必须沿用 img 的盒模型与边距；否则图片
