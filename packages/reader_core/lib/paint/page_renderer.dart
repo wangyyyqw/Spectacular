@@ -606,7 +606,7 @@ class PagePainter {
             if (line.inlineBoxes.isNotEmpty) {
               _paintInlineBoxPlacements(
                 canvas,
-                geometry,
+                geometry.style,
                 line,
                 lineRuns,
                 x,
@@ -1989,7 +1989,7 @@ class PagePainter {
           if (line.inlineBoxes.isNotEmpty) {
             _paintInlineBoxPlacements(
               canvas,
-              geometry,
+              geometry.style,
               line,
               cellRuns,
               contentLeft + line.offsetX,
@@ -2193,10 +2193,10 @@ class PagePainter {
   ///
   /// 样式优先级：payload 为 [ComputedStyle] 时用 payload；否则回退到插入点
   /// 所在 run 的样式（inline-block span 的样式）。内容：payload 为 [String]
-  /// 时按盒居中单行绘制（其余 payload 结构等章节源约定后接入）。
+  /// 时按盒居中单行绘制；[PageBlock] 载荷绘制内部文字与嵌套原子盒。
   void _paintInlineBoxPlacements(
     Canvas canvas,
-    _SliceGeometry geometry,
+    ComputedStyle baseStyle,
     LineBox line,
     List<_LineRun> runs,
     double x,
@@ -2206,7 +2206,7 @@ class PagePainter {
       return;
     }
     for (final placement in line.inlineBoxes) {
-      final style = _inlineBoxStyleOf(placement, runs) ?? geometry.style;
+      final style = _inlineBoxStyleOf(placement, runs) ?? baseStyle;
       final Rect rect;
       if (placement.vertical) {
         // 竖排 placement（W22）：`left` = 列内纵向偏移；`ascent` = 列的右延伸、
@@ -2289,7 +2289,7 @@ class PagePainter {
     }
   }
 
-  /// 行内盒内容（payload = [PageBlock]）：内容盒内逐行画文字。
+  /// 行内盒内容（payload = [PageBlock]）：内容盒内逐行画文字与嵌套盒。
   ///
   /// `placement.width/height` 是边框盒尺寸，内容盒要再扣掉 payload 样式的
   /// padding 与边框；行 x = 内容盒左缘 + `line.offsetX`，行 y 自内容盒顶按
@@ -2355,8 +2355,18 @@ class PagePainter {
     for (var lineIndex = 0; lineIndex < layout.lineCount; lineIndex++) {
       final line = layout.lines[lineIndex];
       final text = layout.text.substring(line.start, line.end);
+      final runs = _lineRuns(layout, line);
+      if (line.inlineBoxes.isNotEmpty) {
+        _paintInlineBoxPlacements(
+          canvas,
+          style,
+          line,
+          runs,
+          contentLeft,
+          contentTop + line.top,
+        );
+      }
       if (text.isNotEmpty) {
-        final runs = _lineRuns(layout, line);
         final painter = TextPainter(
           text: runs.isEmpty
               ? TextSpan(text: text, style: textStyleBase)
@@ -2368,14 +2378,15 @@ class PagePainter {
                 ),
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: contentWidth);
-        painter.paint(
+        _paintLineText(
           canvas,
-          Offset(
-            contentLeft + line.offsetX,
-            contentTop +
-                line.top +
-                textLineBaselineOffset(layout, line, painter),
-          ),
+          painter,
+          text,
+          runs,
+          textStyleBase,
+          contentLeft + line.offsetX,
+          contentTop + line.top + textLineBaselineOffset(layout, line, painter),
+          line: line,
         );
         painter.dispose();
       }
