@@ -240,6 +240,58 @@ void main() {
     expect(small.lines.single.height, closeTo(24, 0.5), reason: '行高 24 主导');
   });
 
+  test('实测基线的盒按上下延伸与文字 strut 合成行高', () {
+    final plain = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(),
+      maxWidth: 400,
+    ).lines.single;
+    final layout = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(),
+      maxWidth: 400,
+      inlineBoxes: const [
+        InlineBoxSpec(
+          offset: 1,
+          width: 40,
+          height: 24,
+          marginTop: 3,
+          marginBottom: 4,
+          contentBaseline: 28,
+        ),
+      ],
+    );
+    final line = layout.lines.single;
+    expect(line.inlineBoxes.single.ascent, 31);
+    expect(line.height, closeTo(31 + plain.height - plain.baseline, .01));
+  });
+
+  test('实测末行基线可在边框盒外，不把溢出内容高当成 margin 盒高', () {
+    final plain = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(),
+      maxWidth: 400,
+    ).lines.single;
+    final layout = TextLayoutEngine.layout(
+      text: 'ab',
+      style: _style(),
+      maxWidth: 400,
+      inlineBoxes: const [
+        InlineBoxSpec(
+          offset: 1,
+          width: 40,
+          height: 20,
+          contentHeight: 96,
+          contentBaseline: 70,
+        ),
+      ],
+    );
+    final line = layout.lines.single;
+    expect(line.inlineBoxes.single.descent, -50);
+    expect(line.baseline, 70);
+    expect(line.height, closeTo(70 + plain.height - plain.baseline, .01));
+  });
+
   test('盒内内容溢出：行盒高取内容高（53 的 120×34 盒内 2 行 → 54.38）', () {
     final layout = TextLayoutEngine.layout(
       text: 'ab',
