@@ -8,9 +8,9 @@ class PreparedHtml5Input {
   /// 创建预处理结果。
   const PreparedHtml5Input({
     required this.xhtml,
-    required List<int> sourceOffsets,
+    required this._sourceOffsets,
     required this.sourceLength,
-  }) : _sourceOffsets = sourceOffsets;
+  });
 
   /// 交给 html5lib 的等义 XHTML。
   final String xhtml;
