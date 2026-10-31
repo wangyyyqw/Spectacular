@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart' show ByteData, FontLoader;
 
 import 'font_face.dart';
@@ -48,13 +50,20 @@ class BookFontLoadResult {
 /// 注册缓存键 `engineFamily → (weight, italic) → 字形数据`：
 /// 同键的后注册覆盖先注册；重复打开同一本书时键集一致则跳过重载。
 class BookFontLoader {
-  BookFontLoader({required this.bookId});
+  BookFontLoader({required this.bookId, this.contentAddressed = false});
 
   /// 书 id，用于引擎族名隔离（多书同开不串族）。
   final String bookId;
 
+  /// 实际阅读启用内容寻址，避免同路径、同标识的不同书籍共用全局字体族。
+  final bool contentAddressed;
+
   final Map<String, Map<String, RegisteredFontFace>> _registered =
       <String, Map<String, RegisteredFontFace>>{};
+  final Map<String, String> _engineNames = <String, String>{};
+  final Map<String, String> _faceDigests = <String, String>{};
+  Future<void> _pendingLoad = Future<void>.value();
+  int _generation = 0;
 
   /// 已播报过的降级键（P3-06）：同一 (族, 原因) 只进一次 result.warnings，
   /// 供 UI「提示只出现一次」口径；完整记录见 [degradationLog]。
@@ -63,8 +72,9 @@ class BookFontLoader {
   /// 全量降级记录（含重复），供诊断导出。
   final List<String> degradationLog = <String>[];
 
-  /// 引擎族名：`bi_<bookId>_<cssFamily>`（技术方案 §68.1 命名）。
-  String engineFamilyName(String cssFamily) => 'bi_${bookId}_$cssFamily';
+  /// 引擎族名；内容寻址模式在成功加载后插入稳定的字形摘要。
+  String engineFamilyName(String cssFamily) =>
+      _engineNames[cssFamily] ?? 'bi_${bookId}_$cssFamily';
 
   /// CSS family 是否已注册；返回引擎族名，未注册返回 null。
   String? engineFamily(String cssFamily) {
@@ -88,7 +98,10 @@ class BookFontLoader {
   /// 引擎已注册的字形数据由 Flutter 管理，无法同步卸载；这里清空 Dart 侧
   /// 持有的字节，避免关闭阅读页后重复书仍保留整份字体资源。
   void clear() {
+    _generation++;
     _registered.clear();
+    _engineNames.clear();
+    _faceDigests.clear();
     _degradationSeen.clear();
     degradationLog.clear();
     _coverageCache.clear();
@@ -118,7 +131,25 @@ class BookFontLoader {
   Future<BookFontLoadResult> load(
     List<CssFontFace> faces, {
     required Future<Uint8List?> Function(String url) resolveBytes,
-  }) async {
+  }) {
+    final generation = _generation;
+    // 增量章节可能并发添加同族的不同字重，串行合并才能保留全部 face。
+    final loading = _pendingLoad.then(
+      (_) => _load(faces, resolveBytes, generation),
+    );
+    _pendingLoad = loading.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return loading;
+  }
+
+  Future<BookFontLoadResult> _load(
+    List<CssFontFace> faces,
+    Future<Uint8List?> Function(String url) resolveBytes,
+    int generation,
+  ) async {
+    if (generation != _generation) return _cancelledLoad;
     final warnings = <String>[];
     final engineFamilies = <String, String>{};
 
@@ -129,7 +160,8 @@ class BookFontLoader {
 
     for (final entry in byFamily.entries) {
       final cssFamily = entry.key;
-      final engineName = engineFamilyName(cssFamily);
+      final previousEngineName = engineFamilyName(cssFamily);
+      var engineName = previousEngineName;
       final existing = _registered[engineName];
       final cache = existing == null
           ? <String, RegisteredFontFace>{}
@@ -141,6 +173,7 @@ class BookFontLoader {
           continue; // 缓存键命中：同 (weight, italic) 不重复加载。
         }
         final bytes = await _faceBytes(face, resolveBytes, warnings);
+        if (generation != _generation) return _cancelledLoad;
         if (bytes == null) {
           continue;
         }
@@ -149,6 +182,9 @@ class BookFontLoader {
           italic: face.normalizedStyle == 'italic',
           bytes: bytes,
         );
+        if (contentAddressed) {
+          _faceDigests['$cssFamily|$key'] = sha256.convert(bytes).toString();
+        }
       }
 
       if (cache.isEmpty) {
@@ -161,18 +197,18 @@ class BookFontLoader {
         }
         continue;
       }
+      final allCached = existing != null && cache.length == existing.length;
+      if (allCached) {
+        // 键集未变化：不重复 FontLoader.load。
+        engineFamilies[cssFamily] = engineName;
+        continue;
+      }
+      engineName = _contentEngineName(cssFamily, cache);
       final metricFace = cache['w400i0'] ?? cache.values.first;
       final metrics = FontMetrics.parse(metricFace.bytes);
       if (metrics != null) {
         FontMetricsRegistry.register(engineName, metrics);
         FontMetricsRegistry.register(cssFamily, metrics);
-      }
-      final allCached =
-          existing != null && cache.length == existing.length;
-      if (allCached) {
-        // 键集未变化：不重复 FontLoader.load。
-        engineFamilies[cssFamily] = engineName;
-        continue;
       }
       try {
         final loader = FontLoader(engineName);
@@ -188,7 +224,13 @@ class BookFontLoader {
           loader.addFont(Future.value(ByteData.sublistView(face.bytes)));
         }
         await loader.load();
+        if (generation != _generation) return _cancelledLoad;
+        if (engineName != previousEngineName) {
+          _registered.remove(previousEngineName);
+          _coverageCache.remove(previousEngineName);
+        }
         _registered[engineName] = cache;
+        _engineNames[cssFamily] = engineName;
         engineFamilies[cssFamily] = engineName;
       } catch (error) {
         _warn(
@@ -202,6 +244,24 @@ class BookFontLoader {
       engineFamilies: Map.unmodifiable(engineFamilies),
       warnings: List.unmodifiable(warnings),
     );
+  }
+
+  static const _cancelledLoad = BookFontLoadResult(
+    engineFamilies: <String, String>{},
+    warnings: <String>[],
+  );
+
+  String _contentEngineName(
+    String cssFamily,
+    Map<String, RegisteredFontFace> faces,
+  ) {
+    if (!contentAddressed) return engineFamilyName(cssFamily);
+    final keys = faces.keys.toList()..sort();
+    final signature = keys
+        .map((key) => '$key:${_faceDigests['$cssFamily|$key']}')
+        .join('|');
+    final digest = sha256.convert(utf8.encode(signature));
+    return 'bi_${bookId}_${digest}_$cssFamily';
   }
 
   static String _faceKey(CssFontFace face) => 'w${face.normalizedWeight ?? 400}'
