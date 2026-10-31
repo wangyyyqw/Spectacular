@@ -2315,14 +2315,6 @@ class ComputedStyle {
       }
     }
 
-    final margin = _resolveMargin(
-      edgeValues,
-      edgeExplicit,
-      fontSize: fontSize,
-      rootFontSize: rootFontSize,
-      containingWidth: containingWidth,
-    );
-
     // position/float/display 不继承，按 CSS 初始值兜底（§60.2 分派用）。
     final position =
         _parsePosition(explicitValue('position')) ?? CssPosition.static;
@@ -2659,6 +2651,32 @@ class ComputedStyle {
       containingWidth: containingWidth,
     );
     final boxSizing = _parseBoxSizing(explicitValue('box-sizing'));
+    final horizontalInset =
+        padding.horizontal + borders.left.width + borders.right.width;
+    // 定宽普通流的左右 `auto` margin 按可用宽均分/吸收剩余空间（CSS 2.1
+    // §10.3.3）。在样式层直接落成 used value，排版、背景、选区和命中测试
+    // 才能共用同一个盒左缘；此前的 `auto → 0` 会让 `margin: 0 auto` 的
+    // 定宽标题贴左。
+    final specifiedContentWidth = _specifiedContentWidth(
+      width,
+      minWidth: minWidth,
+      maxWidth: maxWidth,
+      containingWidth: containingWidth,
+      horizontalInset: horizontalInset,
+      boxSizing: boxSizing,
+    );
+    final margin = _resolveMargin(
+      edgeValues,
+      edgeExplicit,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+      containingWidth: containingWidth,
+      specifiedContentWidth: specifiedContentWidth,
+      horizontalInset: horizontalInset,
+      position: position,
+      cssFloat: cssFloat,
+      display: display,
+    );
 
     return ComputedStyle._(
       values: values,
@@ -3899,6 +3917,52 @@ class ComputedStyle {
         ? declared - inset
         : declared;
     return math.max(0.0, value);
+  }
+
+  /// 声明 `width` 按 box-sizing 与 min/max 约束钳制后的内容宽。
+  ///
+  /// 返回 null 表示 `width: auto`；此时 CSS 把 `margin-left/right: auto`
+  /// 视为 0，不能按定宽块居中。
+  static double? _specifiedContentWidth(
+    CssLength? width, {
+    required CssLength? minWidth,
+    required CssLength? maxWidth,
+    required double containingWidth,
+    required double horizontalInset,
+    required CssBoxSizing boxSizing,
+  }) {
+    if (width == null || width.isAuto) {
+      return null;
+    }
+    final declared = width.resolve(containingWidth);
+    if (declared == null) {
+      return null;
+    }
+    double? bound(CssLength? length) {
+      if (length == null || length.isAuto) {
+        return null;
+      }
+      final value = length.resolve(containingWidth);
+      if (value == null) {
+        return null;
+      }
+      return boxSizing == CssBoxSizing.borderBox
+          ? math.max(0.0, value - horizontalInset)
+          : math.max(0.0, value);
+    }
+
+    var result = boxSizing == CssBoxSizing.borderBox
+        ? math.max(0.0, declared - horizontalInset)
+        : math.max(0.0, declared);
+    final max = bound(maxWidth);
+    final min = bound(minWidth);
+    if (max != null) {
+      result = math.min(result, max);
+    }
+    if (min != null) {
+      result = math.max(result, min);
+    }
+    return result;
   }
 
   @override
@@ -6539,6 +6603,11 @@ class ComputedStyle {
     required double fontSize,
     required double rootFontSize,
     required double containingWidth,
+    required double? specifiedContentWidth,
+    required double horizontalInset,
+    required CssPosition position,
+    required CssFloat cssFloat,
+    required CssDisplay display,
   }) {
     var top = 0.0;
     var right = 0.0;
@@ -6595,7 +6664,60 @@ class ComputedStyle {
     right = override('margin-right') ?? right;
     bottom = override('margin-bottom') ?? bottom;
     left = override('margin-left') ?? left;
+    if (specifiedContentWidth != null &&
+        cssFloat == CssFloat.none &&
+        position != CssPosition.absolute &&
+        position != CssPosition.fixed &&
+        display != CssDisplay.inline &&
+        display != CssDisplay.inlineBlock &&
+        display != CssDisplay.tableRow &&
+        display != CssDisplay.tableCell &&
+        display != CssDisplay.none) {
+      final leftAuto = _isAutoMargin(values, explicit, 'margin-left');
+      final rightAuto = _isAutoMargin(values, explicit, 'margin-right');
+      if (leftAuto || rightAuto) {
+        final remaining = math.max(
+          0.0,
+          containingWidth - specifiedContentWidth - horizontalInset,
+        );
+        if (leftAuto && rightAuto) {
+          left = right = remaining / 2;
+        } else if (leftAuto) {
+          left = math.max(0.0, remaining - right);
+        } else {
+          right = math.max(0.0, remaining - left);
+        }
+      }
+    }
     return CssEdges(top: top, right: right, bottom: bottom, left: left);
+  }
+
+  /// 物理长写优先于 shorthand；只认元素自身声明的值。
+  static bool _isAutoMargin(
+    Map<String, String> values,
+    Set<String> explicit,
+    String property,
+  ) {
+    if (explicit.contains(property)) {
+      return values[property]?.trim().toLowerCase() == 'auto';
+    }
+    if (!explicit.contains('margin')) {
+      return false;
+    }
+    final shorthand = values['margin'];
+    if (shorthand == null) {
+      return false;
+    }
+    final tokens = shorthand.trim().split(RegExp(r'\s+'));
+    if (tokens.isEmpty || tokens.length > 4) {
+      return false;
+    }
+    final index = switch (tokens.length) {
+      1 => 0,
+      2 || 3 => 1,
+      _ => property == 'margin-left' ? 3 : 1,
+    };
+    return tokens[index].toLowerCase() == 'auto';
   }
 
   static double _marginValue(

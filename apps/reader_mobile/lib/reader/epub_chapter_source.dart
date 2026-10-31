@@ -2263,30 +2263,6 @@ class EpubChapterSource
   /// 图片显示尺寸（P9-08）：书籍 CSS 的 `width/height` 优先（px/%/em），
   /// 其次 HTML `width/height` 属性，缺边按原始宽高比补齐；都没有时按全宽
   /// 近似。高超出页高时钳制（contain 绘制不变形）。
-  static bool _isAutoHorizontalMargin(
-    ComputedStyle style, {
-    required bool left,
-  }) {
-    final longhand = style.values[left ? 'margin-left' : 'margin-right'];
-    if (longhand != null) {
-      return longhand.trim().toLowerCase() == 'auto';
-    }
-    final shorthand = style.values['margin'];
-    if (shorthand == null) {
-      return false;
-    }
-    final tokens = shorthand.trim().split(RegExp(r'\s+'));
-    if (tokens.isEmpty || tokens.length > 4) {
-      return false;
-    }
-    final index = switch (tokens.length) {
-      1 => 0,
-      2 || 3 => 1,
-      _ => left ? 3 : 1,
-    };
-    return tokens[index].toLowerCase() == 'auto';
-  }
-
   (double, double) _resolveImageDisplaySize(
     Map<String, String> attributes,
     ImageIntrinsicSize? intrinsic,
@@ -4690,7 +4666,6 @@ class EpubChapterSource
       // `containerChain` 中。这里重走折叠链求可用内容宽，否则
       // `div{width:35%} img{width:100%}` 会把图片放大到整页正文宽。
       var imageContainingWidth = bleedWidth;
-      var autoMarginLeft = 0.0;
       if (!bleed.left && !bleed.right) {
         var availableWidth = contentWidth;
         for (var i = 0; i < foldedChain.length; i++) {
@@ -4704,23 +4679,6 @@ class EpubChapterSource
             containingWidth: availableWidth,
           );
           final resolvedWidth = model.resolveContentWidth(availableWidth);
-          final borderBoxWidth = model.borderBoxWidth(resolvedWidth);
-          final leftAuto = _isAutoHorizontalMargin(containerStyle, left: true);
-          final rightAuto = _isAutoHorizontalMargin(
-            containerStyle,
-            left: false,
-          );
-          if (leftAuto && rightAuto) {
-            autoMarginLeft += math.max(
-              0.0,
-              (availableWidth - borderBoxWidth) / 2,
-            );
-          } else if (leftAuto) {
-            autoMarginLeft += math.max(
-              0.0,
-              availableWidth - borderBoxWidth - containerStyle.margin.right,
-            );
-          }
           availableWidth = resolvedWidth;
         }
         imageContainingWidth = availableWidth;
@@ -4786,6 +4744,25 @@ class EpubChapterSource
         boxWidth: size.$1,
         boxHeight: size.$2,
       );
+      final imageModel = BoxModel.fromStyle(
+        imageStyle,
+        containingWidth: imageContainingWidth,
+      );
+      final inlineLevel =
+          imageStyle.display == CssDisplay.inline ||
+          imageStyle.display == CssDisplay.inlineBlock;
+      var usedMarginLeft = imageStyle.margin.left;
+      if (floatSide == null && !imageStyle.isOutOfFlow && inlineLevel) {
+        final marginBoxWidth =
+            size.$1 + imageModel.horizontalInset + imageStyle.margin.horizontal;
+        final slack = math.max(0.0, imageContainingWidth - marginBoxWidth);
+        usedMarginLeft = switch (imageStyle.resolvedTextAlign) {
+          CssTextAlign.center => imageStyle.margin.left + slack / 2,
+          CssTextAlign.end ||
+          CssTextAlign.right => imageStyle.margin.left + slack,
+          _ => imageStyle.margin.left,
+        };
+      }
       final blockStyle = ComputedStyle(<String, String>{
         // 图片块替换了原 img 盒，必须沿用 img 的盒模型与边距；否则图片
         // 与题注间距、图片之间的累计位置都会和浏览器偏离。
@@ -4793,8 +4770,9 @@ class EpubChapterSource
         // height 单独声明时 style 没有 width，边框盒会按整页宽绘制背景；
         // 写入解算后的 used width，让背景、边框与图片占位宽一致。
         'width': '${size.$1}px',
-        if (autoMarginLeft > 0)
-          'margin-left': '${imageStyle.margin.left + autoMarginLeft}px',
+        // 纯图块已从行内提升为独立块，必须显式落成父级 text-align
+        // 解出的行内左缘，否则 `width:80%; text-align:center` 会贴左。
+        'margin-left': '${usedMarginLeft}px',
         'background-image': 'url($url)',
         'background-size': objectFit.size,
         // 出血图（多看 `duokan-bleed`）：块盒被撑到页面边缘后，`contain`
@@ -4824,7 +4802,7 @@ class EpubChapterSource
         maxWidth: blockWidth,
         runs: const <StyledRun>[],
       );
-      final imageModel = BoxModel.fromStyle(
+      final usedImageModel = BoxModel.fromStyle(
         blockStyle,
         containingWidth: contentWidth,
       );
@@ -4838,9 +4816,10 @@ class EpubChapterSource
           breakAfterAvoid: blockStyle.breakAfterAvoid,
           spaceBefore: blockStyle.margin.top,
           spaceAfter: blockStyle.margin.bottom,
-          topInset: imageModel.borders.top + imageModel.padding.top,
-          bottomInset: imageModel.borders.bottom + imageModel.padding.bottom,
-          leftInset: imageModel.borders.left + imageModel.padding.left,
+          topInset: usedImageModel.borders.top + usedImageModel.padding.top,
+          bottomInset:
+              usedImageModel.borders.bottom + usedImageModel.padding.bottom,
+          leftInset: usedImageModel.borders.left + usedImageModel.padding.left,
           floatSide: floatSide,
           bleedLeft: imageStyle.bleed.left,
           bleedRight: imageStyle.bleed.right,
@@ -4852,7 +4831,7 @@ class EpubChapterSource
               : (chainFloat != null && containerFloatGroup > 0
                     ? containerFloatGroup
                     : 0),
-          declaredContentHeight: imageModel.resolveContentHeight(
+          declaredContentHeight: usedImageModel.resolveContentHeight(
             layout.height,
             containingHeight: contentHeight,
           ),
