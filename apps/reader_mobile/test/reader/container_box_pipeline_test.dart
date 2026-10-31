@@ -69,6 +69,26 @@ void main() {
     expect(block.layout.maxWidth, 160);
   });
 
+  test('纯图块保留祖先百分比宽，并按 auto 外边距居中', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="intor"><img class="cover" '
+          'src="../Images/cover.jpg"/></div><p>制作说明</p>',
+      css:
+          'div.intor { width: 35%; margin: 1em auto; } '
+          'img.cover { width: 100%; }',
+      contentWidth: 350,
+      contentHeight: 800,
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    final image = blocks.firstWhere((block) => block.layout.text.isEmpty);
+    expect(image.style!.values['width'], '122.5px');
+    expect(image.style!.margin.left, closeTo(113.75, 0.01));
+  });
+
   test('卡片之间不折叠各自容器内部的段距', () async {
     final source = await openCssChapter(
       body: '<div><p>一</p></div><div><p>二</p></div>',
