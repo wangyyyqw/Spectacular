@@ -13,6 +13,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
+import '../search/scan_search_service.dart';
 import 'epub_chapter_source.dart';
 import 'reader_settings.dart';
 
@@ -36,11 +37,8 @@ class EpubReaderPage extends StatefulWidget {
     this.annotations,
     this.settings,
     this.onSettingsChanged,
-    this.onSearch,
     this.bookTitle = '阅读',
     this.onMarginsChanged,
-    this.onResolveSearchCfi,
-    this.onSearchStream,
   });
 
   /// EPUB 字节。
@@ -70,21 +68,13 @@ class EpubReaderPage extends StatefulWidget {
   /// 页边距变化（边距调节器「保留」）。
   final ValueChanged<ReaderMargins>? onMarginsChanged;
 
-  /// 点开搜索命中时解析 CFI（扫描式搜索不算预置 CFI）。
-  final Future<String?> Function(SearchPanelResult result)? onResolveSearchCfi;
-
-  /// 流式搜索（逐章推送结果）。
-  final Stream<SearchProgress> Function(String query)? onSearchStream;
-
-  /// 搜索回调（P4-26）：由调用方接入索引。
-  final Future<List<SearchPanelResult>> Function(String query)? onSearch;
-
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
 }
 
 class _EpubReaderPageState extends State<EpubReaderPage> {
   EpubChapterSource? _source;
+  ScanSearchService? _search;
   DecodedImageCache? _imageCache;
   Object? _error;
   bool _loading = true;
@@ -132,6 +122,11 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       source.bookIdForTrace = widget.bookId;
       setState(() {
         _source = source;
+        _search = ScanSearchService(
+          source: source,
+          onLog: (event, fields) =>
+              unawaited(ReaderLog.instance.log(event, fields: fields)),
+        );
         _imageCache = DecodedImageCache(
           // P4-32：条数与字节双上限（§44.4 的 512 张按解码字节折算成 32 张
           // + 48MB，避免大图书一次性吃满内存）。
@@ -153,6 +148,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   @override
   void dispose() {
+    _search?.dispose();
     _imageCache?.clear();
     _source?.close();
     super.dispose();
@@ -203,7 +199,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       onInkModeChanged: (enabled) => widget.onSettingsChanged?.call(
         settings.copyWithInkMode(enabled),
       ),
-      onSearch: widget.onSearch,
+      onSearch: _searchResults,
       bookTitle: widget.bookTitle,
       margins: settings.margins,
       onMarginsChanged: widget.onMarginsChanged,
@@ -214,10 +210,45 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
       onLog: (event, fields) => unawaited(
         ReaderLog.instance.log(event, fields: fields),
       ),
-      onResolveSearchCfi: widget.onResolveSearchCfi,
-      onSearchStream: widget.onSearchStream,
+      onResolveSearchCfi: _resolveSearchCfi,
+      onSearchStream: _searchStream,
     );
   }
+
+  Future<List<SearchPanelResult>> _searchResults(String query) async => [
+    for (final result in await _search!.search(query)) _panelResult(result),
+  ];
+
+  Stream<SearchProgress> _searchStream(String query) async* {
+    await for (final progress in _search!.searchStream(query)) {
+      yield SearchProgress(
+        results: [for (final result in progress.results) _panelResult(result)],
+        scanned: progress.scanned,
+        total: progress.total,
+      );
+    }
+  }
+
+  Future<String?> _resolveSearchCfi(SearchPanelResult result) =>
+      _search!.resolveCfi(
+        SearchResult(
+          spineIndex: result.spineIndex,
+          charOffset: result.charOffset,
+          chapterTitle: result.chapterTitle,
+          context: result.context,
+          matchLength: result.matchLength,
+        ),
+      );
+
+  static SearchPanelResult _panelResult(SearchResult result) =>
+      SearchPanelResult(
+        spineIndex: result.spineIndex,
+        charOffset: result.charOffset,
+        chapterTitle: result.chapterTitle,
+        context: result.context,
+        matchLength: result.matchLength,
+        cfi: result.cfi,
+      );
 }
 
 /// 从 EPUB 归档读取图片字节：先按原样路径找，再按 OPF 目录解析，

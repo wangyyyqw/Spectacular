@@ -36,10 +36,23 @@ class ReaderSelection {
   bool get isCollapsed => _compare(start, end) == 0;
 
   /// 创建已归一（start 在前）的选区。
-  factory ReaderSelection.normalized(TextHit a, TextHit b) =>
-      _compare(a, b) <= 0
-      ? ReaderSelection(start: a, end: b)
-      : ReaderSelection(start: b, end: a);
+  factory ReaderSelection.normalized(
+    TextHit a,
+    TextHit b, {
+    int pageIndex = 0,
+  }) => _compare(a, b) <= 0
+      ? ReaderSelection(
+          start: a,
+          end: b,
+          startPageIndex: pageIndex,
+          endPageIndex: pageIndex,
+        )
+      : ReaderSelection(
+          start: b,
+          end: a,
+          startPageIndex: pageIndex,
+          endPageIndex: pageIndex,
+        );
 
   /// 创建跨页选区（按页序归一）。
   factory ReaderSelection.spanning({
@@ -64,13 +77,7 @@ class ReaderSelection {
         endPageIndex: startPageIndex,
       );
     }
-    final ordered = ReaderSelection.normalized(start, end);
-    return ReaderSelection(
-      start: ordered.start,
-      end: ordered.end,
-      startPageIndex: startPageIndex,
-      endPageIndex: endPageIndex,
-    );
+    return ReaderSelection.normalized(start, end, pageIndex: startPageIndex);
   }
 
   static int _compare(TextHit a, TextHit b) {
@@ -129,15 +136,16 @@ abstract final class SelectionOps {
     final box = hit.lineBox;
     final text = box.text;
     if (text.isEmpty) {
-      return ReaderSelection(start: hit, end: hit);
+      return ReaderSelection.normalized(hit, hit, pageIndex: page.pageIndex);
     }
     final range = TextSegmenter.wordRangeAt(text, hit.charOffset);
     if (range.isEmpty) {
-      return ReaderSelection(start: hit, end: hit);
+      return ReaderSelection.normalized(hit, hit, pageIndex: page.pageIndex);
     }
     return ReaderSelection.normalized(
       _hitAt(box, range.start),
       _hitAt(box, range.end),
+      pageIndex: page.pageIndex,
     );
   }
 
@@ -152,11 +160,11 @@ abstract final class SelectionOps {
     );
     final range = TextSegmenter.sentenceRangeAt(blockText, offset);
     if (range.isEmpty) {
-      return ReaderSelection(start: hit, end: hit);
+      return ReaderSelection.normalized(hit, hit, pageIndex: page.pageIndex);
     }
     final start = _hitAtBlockOffset(boxes, box.sliceIndex, range.start, box);
     final end = _hitAtBlockOffset(boxes, box.sliceIndex, range.end, box);
-    return ReaderSelection.normalized(start, end);
+    return ReaderSelection.normalized(start, end, pageIndex: page.pageIndex);
   }
 
   /// 块内字符偏移 → 页内命中（跨软换行时落在对应行）。
@@ -261,7 +269,7 @@ abstract final class SelectionOps {
     final end = pageIndex == selection.endPageIndex
         ? selection.end
         : _hitAt(last, last.text.length);
-    return ReaderSelection.normalized(start, end);
+    return ReaderSelection.normalized(start, end, pageIndex: pageIndex);
   }
 
   /// 跨页选区文本（按页顺序拼接，§63.5「复制文本完整有序」）。

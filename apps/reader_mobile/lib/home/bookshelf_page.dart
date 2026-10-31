@@ -4,16 +4,13 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'package:reader_core/epub/importer.dart';
 
 import '../library/library_store.dart';
-import '../reader/epub_chapter_source.dart';
 import '../reader/epub_reader_page.dart';
 import '../reader/reader_settings.dart';
-import '../search/scan_search_service.dart';
 import 'book_detail_sheet.dart';
 import '../diagnostics/reader_log.dart';
 import '../storage/import_queue.dart';
@@ -296,71 +293,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 构造本书的搜索回调（P4-26）：扫描式搜索，不建索引。
-  ///
-  /// 对照 Reeden 2.0：查询时逐章取纯文本，丢进 isolate 线性扫描，命中章再
-  /// 走排版拿 CFI。大书首次查询只受「取文本」限制，不再有十几分钟的建索引。
-  /// 本书的扫描搜索服务（搜索与「点开命中算 CFI」共用）。
-  ScanSearchService? _scanService;
-
-  /// 流式搜索（逐章推送，搜到就显示）。
-  Stream<SearchProgress> Function(String query) _buildSearchStream(
-    BookEntry entry,
-    Uint8List bytes,
-  ) {
-    return (query) async* {
-      _scanService ??= ScanSearchService(
-        source: await EpubChapterSource.open(bytes, verifyCrc: false),
-        onLog: (event, fields) => unawaited(
-          ReaderLog.instance.log(event, fields: fields),
-        ),
-      );
-      await for (final progress in _scanService!.searchStream(query)) {
-        yield SearchProgress(
-          results: <SearchPanelResult>[
-            for (final result in progress.results)
-              SearchPanelResult(
-                spineIndex: result.spineIndex,
-                charOffset: result.charOffset,
-                chapterTitle: result.chapterTitle,
-                context: result.context,
-                matchLength: result.matchLength,
-                cfi: result.cfi,
-              ),
-          ],
-          scanned: progress.scanned,
-          total: progress.total,
-        );
-      }
-    };
-  }
-
-  Future<List<SearchPanelResult>> Function(String query)? _buildSearch(
-    BookEntry entry,
-    Uint8List bytes,
-  ) {
-    return (query) async {
-      _scanService ??= ScanSearchService(
-        source: await EpubChapterSource.open(bytes, verifyCrc: false),
-        onLog: (event, fields) => unawaited(
-          ReaderLog.instance.log(event, fields: fields),
-        ),
-      );
-      final results = await _scanService!.search(query);
-      return <SearchPanelResult>[
-        for (final result in results)
-          SearchPanelResult(
-            spineIndex: result.spineIndex,
-            charOffset: result.charOffset,
-            chapterTitle: result.chapterTitle,
-            context: result.context,
-            matchLength: result.matchLength,
-            cfi: result.cfi,
-          ),
-      ];
-    };
-  }
-
   /// 读取并缓存阅读设置（P4-21）。
   Future<void> _loadReaderSettings() async {
     final settings = await ReaderSettingsStore(widget.library).load();
@@ -418,9 +350,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
-    // 搜索索引不在打开时建：逐章「解析 + 排版」在真机上约 440ms/章，
-    // 1541 章的书要十几分钟，打开阅读页期间会一直抢占主线程。
-    // 改为首次搜索时后台建（见 [_buildSearch]）。
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => EpubReaderPage(
@@ -431,23 +360,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
           annotations: widget.library.annotationStore(entry.id),
           settings: _settings ?? ReaderSettings.defaults,
           onSettingsChanged: _saveReaderSettings,
-          onSearch: _buildSearch(entry, bytes),
-          onSearchStream: _buildSearchStream(entry, bytes),
-          onResolveSearchCfi: (result) async {
-            final service = _scanService;
-            if (service == null) {
-              return null;
-            }
-            return service.resolveCfi(
-              SearchResult(
-                spineIndex: result.spineIndex,
-                charOffset: result.charOffset,
-                chapterTitle: result.chapterTitle,
-                context: result.context,
-                matchLength: result.matchLength,
-              ),
-            );
-          },
           bookTitle: entry.title,
           onMarginsChanged: (margins) {
             final current = _settings ?? ReaderSettings.defaults;

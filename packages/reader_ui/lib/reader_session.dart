@@ -553,18 +553,27 @@ class ReaderSession extends ChangeNotifier {
       if (slice.startLine != 0) {
         continue;
       }
-      final cfi = slice.block.startCfi;
+      final cfi = _firstCfi(slice.block);
       if (cfi != null && cfi.isNotEmpty) {
         return ReaderAnchor(cfi: cfi, charOffset: _lineStartOffset(slice));
       }
     }
     for (final slice in page?.slices ?? const <PageBlockSlice>[]) {
-      final cfi = slice.block.startCfi;
+      final cfi = _firstCfi(slice.block);
       if (cfi != null && cfi.isNotEmpty) {
         return ReaderAnchor(cfi: cfi, charOffset: _lineStartOffset(slice));
       }
     }
     return const ReaderAnchor();
+  }
+
+  static String? _firstCfi(PageBlock block) {
+    final table = block.table;
+    if (table == null) return block.startCfi;
+    for (final cell in table.cells) {
+      if (cell.startCfi != null) return cell.startCfi;
+    }
+    return block.startCfi;
   }
 
   static int _lineStartOffset(PageBlockSlice slice) {
@@ -767,13 +776,19 @@ class ReaderSession extends ChangeNotifier {
       return 0;
     }
     final cfi = anchor.cfi;
-    final target = cfi == null ? null : EpubCfi.parse(cfi);
-    if (target == null) {
+    final parsedTarget = cfi == null ? null : EpubCfi.parse(cfi);
+    if (parsedTarget == null) {
       return pages.first.pageIndex;
     }
+    final target = parsedTarget.rangeStart ?? parsedTarget;
+    final targetPath = _cfiPath(target);
+    final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
     var fallback = -1;
     for (final page in pages) {
       for (final slice in page.slices) {
+        if (_tableContainsCfi(slice.block, targetPath, targetOffset)) {
+          return page.pageIndex;
+        }
         final value = slice.block.startCfi;
         if (value == null) {
           continue;
@@ -782,9 +797,10 @@ class ReaderSession extends ChangeNotifier {
         if (parsed == null) {
           continue;
         }
-        final comparison = parsed.compareTo(target);
+        final comparison = _cfiPath(parsed).compareTo(targetPath);
         if (comparison == 0) {
-          if (_sliceContainsOffset(slice, anchor.charOffset)) {
+          final offset = targetOffset - (parsed.segments.last.offset ?? 0);
+          if (_sliceContainsOffset(slice, offset)) {
             return page.pageIndex;
           }
           if (fallback < 0) {
@@ -798,12 +814,34 @@ class ReaderSession extends ChangeNotifier {
     return fallback >= 0 ? fallback : pages.last.pageIndex;
   }
 
+  static EpubCfi _cfiPath(EpubCfi cfi) =>
+      cfi.withCharOffset(0).copyWithSide(CfiSide.none);
+
+  static bool _tableContainsCfi(PageBlock block, EpubCfi path, int offset) {
+    final table = block.table;
+    if (table == null) return false;
+    for (final cell in table.cells) {
+      final parsed = cell.startCfi == null
+          ? null
+          : EpubCfi.parse(cell.startCfi!);
+      if (parsed == null || _cfiPath(parsed).compareTo(path) != 0) continue;
+      final local = offset - (parsed.segments.last.offset ?? 0);
+      // 单元格是不可分文本载荷，行内盒文字不在 layout.text 中；路径精确
+      // 命中后，格内偏移不会改变所在页，不能用空占位串长度拒绝它。
+      if (local >= 0) return true;
+    }
+    return false;
+  }
+
   static bool _sliceContainsOffset(PageBlockSlice slice, int offset) {
     final layout = slice.block.layout;
     final last = math.min(slice.endLine, layout.lines.length);
     for (var i = slice.startLine; i < last; i++) {
       final line = layout.lines[i];
-      if (offset >= line.start && offset <= line.end) {
+      if (offset >= line.start &&
+          (offset < line.end ||
+              line.start == line.end && offset == line.start ||
+              offset == layout.text.length && offset == line.end)) {
         return true;
       }
     }

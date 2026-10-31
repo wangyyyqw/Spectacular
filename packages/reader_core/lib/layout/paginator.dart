@@ -1369,6 +1369,7 @@ class Paginator {
             ),
             layout: cell.layout,
             style: cell.style,
+            startCfi: cell.startCfi,
           ),
     ];
     final layout = TextLayoutResult(
