@@ -164,8 +164,6 @@ class _Cover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final placeholder = Container(
-      width: 72,
-      height: 108,
       decoration: BoxDecoration(
         color: HSLColor.fromAHSL(
           1,
@@ -184,18 +182,22 @@ class _Cover extends StatelessWidget {
       ),
     );
     final path = entry.coverPath;
-    if (path == null) {
-      return placeholder;
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.file(
-        File(path),
-        width: 72,
-        height: 108,
-        fit: BoxFit.cover,
-        cacheWidth: 216,
-        errorBuilder: (_, _, _) => placeholder,
+    return SizedBox(
+      key: const ValueKey<String>('book-detail-cover'),
+      width: 120,
+      height: 90,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: path == null
+            ? placeholder
+            : Image.file(
+                File(path),
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                cacheWidth: 360,
+                errorBuilder: (_, _, _) => placeholder,
+              ),
       ),
     );
   }

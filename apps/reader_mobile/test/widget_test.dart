@@ -65,7 +65,11 @@ void main() {
     );
     await _settle(tester);
     expect(find.text('山海小记'), findsWidgets);
-    expect(find.text('测试作者'), findsOneWidget);
+    expect(find.text('测试作者'), findsNothing, reason: '书架只显示书名');
+    final cover = tester.widget<AspectRatio>(
+      find.byKey(const ValueKey<String>('book-card-cover')),
+    );
+    expect(cover.aspectRatio, closeTo(3 / 4, 0.001));
 
     await tester.tap(find.text('山海小记').first);
     // 打开是同步计算（微任务）+ 骨架屏无限动画：固定步进推进到内容出现。

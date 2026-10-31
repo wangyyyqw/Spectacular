@@ -51,6 +51,13 @@ enum BookSortOrder {
 /// 书架条目 + 进度（P4-09：百分比由字符权重表算，章级粒度）。
 typedef _ShelfItem = ({BookEntry entry, int? percentInt});
 
+const _shelfColumns = 3;
+const _shelfGridPadding = 16.0;
+const _shelfGridSpacing = 12.0;
+const _shelfCoverAspectRatio = 3 / 4;
+const _shelfTitleGap = 6.0;
+const _shelfTitleHeight = 20.0;
+
 /// 书架页：书籍网格/列表、EPUB 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
@@ -553,23 +560,43 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 : RefreshIndicator(
                     onRefresh: () async => _reload(),
                     child: _grid
-                        ? GridView.builder(
-                            key: const ValueKey<String>('bookshelf-grid'),
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              childAspectRatio: 0.62,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                            ),
-                            itemCount: ordered!.length,
-                            itemBuilder: (context, index) => _BookCard(
-                              entry: ordered[index].entry,
-                              percentInt: ordered[index].percentInt,
-                              onOpen: _open,
-                              onLongPress: _openBookDetail,
-                            ),
+                        ? LayoutBuilder(
+                            builder: (context, constraints) {
+                              final cardWidth =
+                                  (constraints.maxWidth -
+                                      _shelfGridPadding * 2 -
+                                      _shelfGridSpacing * (_shelfColumns - 1)) /
+                                  _shelfColumns;
+                              final titleHeight = MediaQuery.textScalerOf(
+                                context,
+                              ).scale(_shelfTitleHeight);
+                              return GridView.builder(
+                                key: const ValueKey<String>('bookshelf-grid'),
+                                padding: const EdgeInsets.fromLTRB(
+                                  _shelfGridPadding,
+                                  12,
+                                  _shelfGridPadding,
+                                  96,
+                                ),
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: _shelfColumns,
+                                      mainAxisExtent:
+                                          cardWidth / _shelfCoverAspectRatio +
+                                          _shelfTitleGap +
+                                          titleHeight,
+                                      mainAxisSpacing: _shelfGridSpacing,
+                                      crossAxisSpacing: _shelfGridSpacing,
+                                    ),
+                                itemCount: ordered!.length,
+                                itemBuilder: (context, index) => _BookCard(
+                                  entry: ordered[index].entry,
+                                  percentInt: ordered[index].percentInt,
+                                  onOpen: _open,
+                                  onLongPress: _openBookDetail,
+                                ),
+                              );
+                            },
                           )
                         : ListView.builder(
                             key: const ValueKey<String>('bookshelf-list'),
@@ -577,7 +604,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             itemCount: ordered!.length,
                             itemBuilder: (context, index) => _BookRow(
                               entry: ordered[index].entry,
-                              percentInt: ordered[index].percentInt,
                               onOpen: _open,
                               onLongPress: _openBookDetail,
                             ),
@@ -634,17 +660,15 @@ class _ImportBanner extends StatelessWidget {
   }
 }
 
-/// 列表视图的一行（P4-08）：封面缩略 + 标题/作者 + 状态。
+/// 列表视图的一行（P4-08）：封面缩略 + 书名。
 class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.entry,
-    required this.percentInt,
     required this.onOpen,
     required this.onLongPress,
   });
 
   final BookEntry entry;
-  final int? percentInt;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
 
@@ -652,8 +676,6 @@ class _BookRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final placeholder = Container(
-      width: 48,
-      height: 68,
       decoration: BoxDecoration(
         color: HSLColor.fromAHSL(
           1,
@@ -669,19 +691,24 @@ class _BookRow extends StatelessWidget {
         style: theme.textTheme.titleMedium?.copyWith(color: Colors.white),
       ),
     );
-    final cover = entry.coverPath == null
-        ? placeholder
-        : ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.file(
-              File(entry.coverPath!),
-              width: 48,
-              height: 68,
-              fit: BoxFit.cover,
-              cacheWidth: 144,
-              errorBuilder: (_, _, _) => placeholder,
+    final cover = SizedBox(
+      key: const ValueKey<String>('book-row-cover'),
+      width: 42,
+      height: 56,
+      child: entry.coverPath == null
+          ? placeholder
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.file(
+                File(entry.coverPath!),
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                cacheWidth: 126,
+                errorBuilder: (_, _, _) => placeholder,
+              ),
             ),
-          );
+    );
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       leading: cover,
@@ -690,19 +717,6 @@ class _BookRow extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium,
-      ),
-      subtitle: Text(
-        [
-          entry.author.isEmpty ? '未知作者' : entry.author,
-          if (entry.spineCount != null) '${entry.spineCount} 章',
-          if (entry.status == BookReadingStatus.reading)
-            percentInt == null ? '在读' : '在读 $percentInt%',
-        ].join(' · '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.outline,
-        ),
       ),
       trailing: entry.readabilityLevel >= 2
           ? Icon(
@@ -886,20 +900,22 @@ class _BookCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: cover),
-          const SizedBox(height: 6),
-          Text(
-            entry.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium,
+          AspectRatio(
+            key: const ValueKey<String>('book-card-cover'),
+            aspectRatio: _shelfCoverAspectRatio,
+            child: cover,
           ),
-          Text(
-            entry.author.isEmpty ? '未知作者' : entry.author,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
+          const SizedBox(height: _shelfTitleGap),
+          SizedBox(
+            height: MediaQuery.textScalerOf(context).scale(_shelfTitleHeight),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                entry.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium,
+              ),
             ),
           ),
         ],

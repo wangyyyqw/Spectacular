@@ -60,6 +60,11 @@ void main() {
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     expect(find.byKey(const ValueKey<String>('bookshelf-list')), findsOneWidget);
+    expect(find.text('测试作者'), findsNothing, reason: '书架只显示书名');
+    final rowCover = tester.getSize(
+      find.byKey(const ValueKey<String>('book-row-cover')).first,
+    );
+    expect(rowCover.width / rowCover.height, closeTo(3 / 4, 0.001));
     expect(await library.getSetting('bookshelf.grid'), 'false');
 
     // 默认最近阅读优先：都没读过 → 导入时间倒序（C, A, B 的导入顺序是 B,A,C）。
