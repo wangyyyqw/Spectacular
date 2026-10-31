@@ -118,6 +118,41 @@ void main() {
     expect(heading.spaceBefore, 24, reason: '标题段前距保留 1em（24px）');
   });
 
+  test('带左色条的结构化标题保留作者段距', () async {
+    final source = await EpubChapterSource.open(
+      _epub(
+        '.xbt2 { margin: 1.2em auto 1em; padding-left: 10px; '
+            'border-left: 15px solid #304598; } '
+            'p { margin: 1em 0; }',
+        '<div class="xbt2">猫的理想（可升级）</div>'
+            '<p>正文一段${'字' * 30}</p>'
+            '<p>正文二段${'字' * 30}</p>',
+        heading: false,
+      ),
+    );
+    await source.applyContentSize(width: 300, height: 600);
+    await source.applyOverrides(
+      const ReaderOverrides(paragraphSpacing: 10),
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    final title = blocks.firstWhere(
+      (block) => block.layout.text == '猫的理想（可升级）',
+    );
+    expect(title.spaceBefore, closeTo(19.2, 0.01));
+    expect(title.style!.margin.bottom, closeTo(16, 0.01));
+    final secondParagraph = blocks.firstWhere(
+      (block) => block.layout.text.startsWith('正文二段'),
+    );
+    expect(
+      secondParagraph.spaceBefore,
+      10,
+      reason: '普通正文仍使用阅读器段距',
+    );
+  });
+
   test('行内文字与标签继承覆盖后的正文，标题和表格继续采用作者字号', () async {
     final source = await openCssChapter(
       body:
@@ -165,6 +200,46 @@ void main() {
         closeTo(12 * .8, .001),
       );
     }
+  });
+
+  test('紧凑行高容器内的小字号组件保留作者排版', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="chat">'
+          '<div class="name">寻歌</div>'
+          '<div class="bubble"><p>我保证帮你弄到</p></div>'
+          '</div>'
+          '<p class="body">普通正文${'字' * 30}</p>',
+      css:
+          '.chat { line-height: 100%; } '
+          '.name { font-size: 11px; line-height: 100%; } '
+          '.bubble p { margin: 0; font-size: .75em; } '
+          '.body { font-size: 16px; line-height: 130%; }',
+    );
+    await source.applyOverrides(
+      const ReaderOverrides(fontSize: 20, lineHeight: 1.8),
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    final name = blocks.firstWhere((block) => block.layout.text == '寻歌');
+    final bubble = blocks.firstWhere(
+      (block) => block.layout.text == '我保证帮你弄到',
+    );
+    final paragraph = blocks.firstWhere(
+      (block) => block.layout.text.startsWith('普通正文'),
+    );
+
+    expect(name.style!.fontSize, 11);
+    expect(name.style!.lineHeight, closeTo(11, 0.01));
+    expect(
+      bubble.style!.fontSize,
+      closeTo(15, 0.01),
+      reason: '.75em 相对阅读器字号缩放，但不被提升为满字号',
+    );
+    expect(bubble.style!.lineHeight, closeTo(20, 0.01));
+    expect(paragraph.style!.fontSize, 20, reason: '普通正文仍跟随阅读器设置');
   });
 
   test('段距进排版指纹（设置变更触发重排）', () {

@@ -1104,10 +1104,12 @@ class EpubChapterSource
     final hasBackground =
         style.backgroundColor.a > 0 || style.backgroundImage != null;
     final hasBorder = style.borders.hasBorder;
+    final hasClearance = style.clear != CssClear.none;
     final declaredHeight = style.height?.resolve(contentWidth);
     final declaredMinHeight = style.minHeight?.resolve(contentWidth);
     if (!hasBackground &&
         !hasBorder &&
+        !hasClearance &&
         (declaredHeight == null || declaredHeight <= 0) &&
         (declaredMinHeight == null || declaredMinHeight <= 0)) {
       return null;
@@ -2061,6 +2063,52 @@ class EpubChapterSource
     final style = container.style;
     final top = style.padding.top + style.borders.top.width;
     final bottom = style.padding.bottom + style.borders.bottom.width;
+    // 含浮动的容器，上内边距必须先作为独立在流空间推进游标。若直接
+    // 挂在首个在流块上，浮动仍按填充前的游标定位，后续浮动（气泡）
+    // 又会把整段内边距计入静态位置，消息间距会被放大。
+    final hasFloatChild = blocks
+        .skip(start)
+        .any((block) => block.floatSide != null);
+    final hasTopSpacer = hasFloatChild && top > 0;
+    if (hasTopSpacer) {
+      blocks.insert(
+        start,
+        PageBlock(
+          layout: TextLayoutResult(
+            text: '',
+            lines: const <LineBox>[],
+            width: container.contentWidth,
+            height: top,
+            maxWidth: container.contentWidth,
+            runs: const <StyledRun>[],
+          ),
+          containers: <PageContainerFragment>[
+            PageContainerFragment(
+              container: container,
+              startsHere: true,
+            ),
+          ],
+        ),
+      );
+      start += 1;
+    }
+    // 容器上内边距必须落在第一个在流块上：浮动块由独立覆盖层绘制，
+    // 把顶部留白挂在浮动上只会推移覆盖层，不会推进正文游标，标题/名字
+    // 会和头像错位。下内边距同理优先交给最后一个在流块。
+    var topTarget = start;
+    for (var i = start; i < blocks.length; i++) {
+      if (blocks[i].floatSide == null && !blocks[i].absolute) {
+        topTarget = i;
+        break;
+      }
+    }
+    var bottomTarget = start;
+    for (var i = blocks.length - 1; i >= start; i--) {
+      if (blocks[i].floatSide == null && !blocks[i].absolute) {
+        bottomTarget = i;
+        break;
+      }
+    }
     // 无上边框/内边距的块容器与首个在流子块发生外边距折叠：父、子 margin
     // 取较大者，而不是相加。保留在 spaceBefore 上还能继续与外层折叠。
     final containerCollapses =
@@ -2083,15 +2131,15 @@ class EpubChapterSource
             : block.spaceAfter,
         topInset:
             block.topInset +
-            (first
-                ? top +
+            (i == topTarget
+                ? (hasTopSpacer ? 0 : top) +
                       (collapseTop
                           ? 0
                           : (paragraphSpacing ?? style.margin.top))
                 : 0),
         bottomInset:
             block.bottomInset +
-            (last
+            (i == bottomTarget
                 ? bottom +
                       (collapseBottom
                           ? 0
@@ -2100,9 +2148,11 @@ class EpubChapterSource
         containers: [
           PageContainerFragment(
             container: container,
-            startsHere: first,
+            startsHere: first && !hasTopSpacer,
             endsHere: last,
-            topInset: first ? block.leadingExtent + top : 0,
+            topInset: first && !hasTopSpacer
+                ? block.leadingExtent + top
+                : 0,
             bottomInset: last ? block.trailingExtent + bottom : 0,
           ),
           ...block.containers,
@@ -2142,6 +2192,73 @@ class EpubChapterSource
   /// 标题标签族：阅读器字号/行高覆盖不作用于标题（标题排版跟随书籍
   /// 样式族，段距也保留自身间距）。
   static const _headingTags = <String>{'h1', 'h2', 'h3', 'h4', 'h5', 'h6'};
+
+  /// 书籍常用带色条/居中样式表示标题，而不是语义 `h1..h6`。
+  static bool _hasStructuredTitleStyle(ComputedStyle style) =>
+      style.textAlign == CssTextAlign.center ||
+      style.borders.hasBorder ||
+      style.padding.horizontal > 0;
+
+  /// 短且带明显视觉结构的块标题，避免只身留在页底。
+  static bool _isStructuredHeading({
+    required String tag,
+    required ComputedStyle style,
+    required String text,
+    required int lineCount,
+  }) {
+    final compact = text.trim();
+    return !_headingTags.contains(tag) &&
+        lineCount > 0 &&
+        lineCount <= 2 &&
+        compact.isNotEmpty &&
+        compact.length <= 40 &&
+        _hasStructuredTitleStyle(style);
+  }
+
+  /// CJK 与全角字符通常可在相邻字符之间断行。
+  static bool _isCjkBreakRune(int rune) =>
+      (rune >= 0x2E80 && rune <= 0x303F) ||
+      (rune >= 0x3040 && rune <= 0x30FF) ||
+      (rune >= 0x3400 && rune <= 0x4DBF) ||
+      (rune >= 0x4E00 && rune <= 0x9FFF) ||
+      (rune >= 0xAC00 && rune <= 0xD7AF) ||
+      (rune >= 0xF900 && rune <= 0xFAFF) ||
+      (rune >= 0xFF00 && rune <= 0xFFEF) ||
+      (rune >= 0x1F000 && rune <= 0x1FAFF);
+
+  /// min-content 的近似：中文逐字可断，拉丁词保持完整。
+  static double _minContentTextWidth({
+    required String text,
+    required bool breakEverywhere,
+    required double Function(String) measure,
+  }) {
+    var widest = 0.0;
+    final buffer = StringBuffer();
+    void flush() {
+      if (buffer.isEmpty) return;
+      widest = math.max(widest, measure(buffer.toString()));
+      buffer.clear();
+    }
+
+    for (final rune in text.runes) {
+      if (rune == 0x09 ||
+          rune == 0x0A ||
+          rune == 0x0D ||
+          rune == 0x20) {
+        flush();
+        continue;
+      }
+      if (breakEverywhere || _isCjkBreakRune(rune)) {
+        flush();
+        final char = String.fromCharCode(rune);
+        widest = math.max(widest, measure(char));
+        continue;
+      }
+      buffer.writeCharCode(rune);
+    }
+    flush();
+    return widest;
+  }
 
   /// 图片显示尺寸（P9-08）：书籍 CSS 的 `width/height` 优先（px/%/em），
   /// 其次 HTML `width/height` 属性，缺边按原始宽高比补齐；都没有时按全宽
@@ -2746,14 +2863,6 @@ class EpubChapterSource
         );
         continue;
       }
-      if (block.layout.lineCount == 0) {
-        // 空盒块（hr 等）：按普通流处理。
-        if (y + block.leadingExtent + block.height > height && y > 0) {
-          closePage();
-        }
-        y += block.leadingExtent + block.height + block.trailingExtent;
-        continue;
-      }
       // clear（P3-14 语义）：推到该侧浮动底边并移除已满足占位；推移
       // 量以空白垫片切片占位（渲染层按切片累计 y，空隙须显式承载）。
       final clear = block.style?.clear ?? CssClear.none;
@@ -2798,6 +2907,46 @@ class EpubChapterSource
             ),
           );
           y = bottom;
+        }
+      }
+      if (block.layout.lineCount == 0) {
+        // 空盒块（hr、空 clear div 等）：清零浮动后按普通流处理。
+        if (y + block.leadingExtent + block.height > height && y > 0) {
+          closePage();
+        }
+        y += block.leadingExtent + block.height + block.trailingExtent;
+        continue;
+      }
+      // 浮动章节仍要遵守 break-after: avoid：标题能放进当前页，但下一段
+      // 的首行放不下时，整段标题移到下页，不能只身留在页底。
+      final blockFlowHeight = math.max(block.height, block.layout.height);
+      final blockExtent =
+          block.leadingExtent + blockFlowHeight + block.trailingExtent;
+      if (block.breakAfterAvoid &&
+          y > 0 &&
+          blockIndex + 1 < blocks.length &&
+          blockExtent <= height) {
+        PageBlock? next;
+        for (var i = blockIndex + 1; i < blocks.length; i++) {
+          if (!blocks[i].absolute && blocks[i].floatSide == null) {
+            next = blocks[i];
+            break;
+          }
+        }
+        if (next != null && !next.pageBreakBefore && !block.pageBreakAfter) {
+          final nextNeed =
+              next.leadingExtent +
+              (next.layout.lines.isEmpty
+                  ? 0.0
+                  : next.layout.lines.first.height) +
+              (next.layout.lineCount <= 1 ? next.trailingExtent : 0.0);
+          final pairExtent =
+              blockExtent + nextNeed;
+          // 即使标题和下一段首行本身超过一页，也应先把标题移到下页：
+          // 避免规则优先于“标题能否单页容纳”，否则会出现标题独留页底。
+          if (height - y < pairExtent) {
+            closePage();
+          }
         }
       }
       // 表格块/空布局块（浮动章节）：整块原子入流。表格的逐行切分在
@@ -2880,7 +3029,11 @@ class EpubChapterSource
               block: PageBlock(
                 layout: segLayout,
                 style: block.style,
+                pageBreakBefore: block.pageBreakBefore,
+                pageBreakAfter: block.pageBreakAfter,
                 startCfi: block.startCfi,
+                breakInsideAvoid: block.breakInsideAvoid,
+                breakAfterAvoid: block.breakAfterAvoid,
                 leftInset: block.leftInset,
                 topInset: block.topInset,
                 bottomInset: block.bottomInset,
@@ -3017,7 +3170,11 @@ class EpubChapterSource
             block: PageBlock(
               layout: segLayout,
               style: block.style,
+              pageBreakBefore: block.pageBreakBefore,
+              pageBreakAfter: block.pageBreakAfter,
               startCfi: block.startCfi,
+              breakInsideAvoid: block.breakInsideAvoid,
+              breakAfterAvoid: block.breakAfterAvoid,
               leftInset: block.leftInset,
               topInset: block.topInset,
               bottomInset: block.bottomInset,
@@ -4444,7 +4601,10 @@ class EpubChapterSource
     /// 匹配视图走引擎级联；自身有显式声明的区间产出 StyledRun。
     /// 浮动方向检测（flat 管线接入）：内联 style `float:`、历史 `align`
     /// 属性、作者 CSS class 规则三处来源（P8-02：CSS 规则经引擎级联）。
-    FloatSide? floatSideOf(Map<String, String> attributes) {
+    FloatSide? floatSideOf(
+      Map<String, String> attributes, {
+      List<SelectorElement> ancestors = const <SelectorElement>[],
+    }) {
       final inline = attributes['style'] ?? '';
       final inlineMatch = RegExp(
         r'float\s*:\s*(left|right)',
@@ -4462,7 +4622,7 @@ class EpubChapterSource
       final view = _NodeView('img', <String, String>{
         if (attributes['class'] != null) 'class': attributes['class']!,
       }, const <SelectorElement>[]);
-      final imgStyle = chainStyle([view]);
+      final imgStyle = chainStyle([...ancestors, view]);
       final declared = imgStyle.values['float']?.toLowerCase();
       if (declared == 'left' || declared == 'right') {
         return declared == 'left' ? FloatSide.left : FloatSide.right;
@@ -4590,7 +4750,9 @@ class EpubChapterSource
         }
       }
       final floatSide =
-          floatSideOf(node.attributes) ?? containerFloat ?? chainFloat;
+          floatSideOf(node.attributes, ancestors: foldedChain) ??
+          containerFloat ??
+          chainFloat;
       final floatColumnWidth = containerFloat != null
           ? containerFloatWidth
           : chainFloatWidth;
@@ -5092,11 +5254,41 @@ class EpubChapterSource
             }
             return widest + horizontalInset(cs);
           }
+          double minContentWidth(ComputedStyle cs) {
+            if (!hasContent) {
+              return 0;
+            }
+            final width = _minContentTextWidth(
+              text: text,
+              breakEverywhere:
+                  cs.wordBreak == CssWordBreak.breakAll ||
+                  cs.overflowWrap == CssOverflowWrap.anywhere,
+              measure: (segment) => TextLayoutEngine.layout(
+                text: segment,
+                style: cs,
+                maxWidth: double.infinity,
+                hasGlyph: _hasBookFontGlyph,
+              ).width,
+            );
+            var minWidth = width;
+            if (content.marks.isNotEmpty || text.contains('\uFFFC')) {
+              // 行内图片/盒子可能宽于文字；窄宽测量兜住这类内容。
+              minWidth = math.max(
+                minWidth,
+                measureCell(8).lines.fold<double>(
+                  0,
+                  (widest, line) => math.max(widest, line.width),
+                ),
+              );
+            }
+            return minWidth + horizontalInset(cs);
+          }
 
           styles.add(cellStyle);
           rowSpecs.add(
             TableCellSpec(
               naturalWidth: naturalWidth(tableAvailableWidth, cellStyle),
+              minWidth: minContentWidth(cellStyle),
               colspan: colspan,
               rowspan: rowspan,
               measureHeight: measureHeight,
@@ -5568,7 +5760,28 @@ class EpubChapterSource
         // 阅读器排版覆盖（reader origin 高于 author）：字号/行高/对齐作用
         // 在级联结果之上，否则作者 p{font-size;line-height} 会让设置失效。
         // 标题不参与——标题字号/行高继续跟随书籍样式族。
-        if (!isHeading && !ancestors.any(promotedInlineStyles.containsKey)) {
+        // 紧凑行高组件（聊天名字、气泡、注释标签等）也不能被正文覆盖
+        // 成一个 17px/1.6 的正文块：这些元素由作者主动缩到父级以下，
+        // 放大后会挤高消息高度并与头像错位。
+        final parentStyle = ancestors.length > 1
+            ? chainStyle(ancestors.sublist(0, ancestors.length - 1))
+            : null;
+        var hasCompactAncestor = false;
+        for (var i = 0; i < ancestors.length - 1; i++) {
+          final ancestorStyle = chainStyle(ancestors.sublist(0, i + 1));
+          final factor = ancestorStyle.lineHeightFactor;
+          if (factor != null && factor <= 1.05) {
+            hasCompactAncestor = true;
+            break;
+          }
+        }
+        final compactAuthoredComponent =
+            parentStyle != null &&
+            blockStyle.fontSize < parentStyle.fontSize * 0.9 &&
+            hasCompactAncestor;
+        if (!isHeading &&
+            !compactAuthoredComponent &&
+            !ancestors.any(promotedInlineStyles.containsKey)) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
         // 绝对/固定定位（P9-19/W18）：脱离正常流（不推进 y、不计页高）。
@@ -5594,7 +5807,18 @@ class EpubChapterSource
             ancestors.any(promotedInlineStyles.containsKey) ||
             (tag == 'reader-anonymous' &&
                 ancestors.any(splitInlineContainers.contains));
-        final paragraphSpacing = isHeading || tag == 'li' || splitInlineFragment
+        // 非语义标题（如带左边色条的 div.xbt2）也保留作者段距，阅读器
+        // 段距只接管普通正文，否则 1.2em/1em 会被 10px 覆盖。
+        final structuredTitle =
+            !isHeading &&
+            text.trim().length <= 40 &&
+            _hasStructuredTitleStyle(blockStyle);
+        final paragraphSpacing =
+            isHeading ||
+                tag == 'li' ||
+                splitInlineFragment ||
+                structuredTitle ||
+                compactAuthoredComponent
             ? null
             : overrides.paragraphSpacing;
         // 列表标记（P3-23）：每个 li 一项标记，只挂在该项首个文本块上
@@ -6267,6 +6491,14 @@ class EpubChapterSource
             if (relativeTop != 0) {
               pendingRelativeTop += relativeTop;
             }
+          }
+          if (_isStructuredHeading(
+            tag: tag,
+            style: blockStyle,
+            text: layout.text,
+            lineCount: layout.lineCount,
+          )) {
+            textBlock = textBlock.withSpacing(breakAfterAvoid: true);
           }
           if (isFixed) {
             // 固定定位块每页重复，分页后再逐页追加（见 _withFixedOverlays）。
