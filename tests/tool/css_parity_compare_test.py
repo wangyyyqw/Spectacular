@@ -35,5 +35,31 @@ class BrowserLineBoxTest(unittest.TestCase):
         )
 
 
+class AtomicInlineBoxLinesTest(unittest.TestCase):
+    def test_parent_with_atomic_inline_box_can_have_no_browser_lines(self):
+        self.assertTrue(
+            compare.browser_omits_atomic_inline_box_lines(
+                {'hasInlineBox': True},
+                [],
+            )
+        )
+
+    def test_browser_lines_are_compared_when_available(self):
+        self.assertFalse(
+            compare.browser_omits_atomic_inline_box_lines(
+                {'hasInlineBox': True},
+                [{'y': 10}],
+            )
+        )
+
+    def test_plain_block_without_lines_still_reports_mismatch(self):
+        self.assertFalse(
+            compare.browser_omits_atomic_inline_box_lines(
+                {'hasInlineBox': False},
+                [],
+            )
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
