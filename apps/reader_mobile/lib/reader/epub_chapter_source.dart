@@ -710,14 +710,18 @@ class EpubChapterSource
     return pages;
   }
 
-  /// 文本块样式：书籍样式叠加阅读器覆盖。
+  ComputedStyle? _resolvedBaseStyle;
+
+  /// 文本块样式：同一环境复用书籍样式叠加阅读器覆盖的结果。
   ComputedStyle get style =>
-      _overrides.apply(baseStyle, containingWidth: contentWidth);
+      _resolvedBaseStyle ??=
+          _overrides.apply(baseStyle, containingWidth: contentWidth);
 
   @override
   Future<void> applyOverrides(ReaderOverrides overrides) async {
     final previous = _overrides;
     _overrides = overrides;
+    _resolvedBaseStyle = null;
     // 失效矩阵（P7-23）：只有排版字段（字号/行高/对齐/边距）变化才
     // 失效 pagination 层与段落缓存；颜色变化零重排（绘制层即时生效）。
     if (previous.fingerprint != overrides.fingerprint) {
@@ -756,6 +760,7 @@ class EpubChapterSource
         previousTopInset == _contentTopInset) {
       return false;
     }
+    _resolvedBaseStyle = null;
     // 尺寸变化等同重排：几何进排版键（P7-23 矩阵「几何全失效」）。
     _logInvalidation(
       'viewportSizeChanged',
@@ -850,6 +855,7 @@ class EpubChapterSource
     _fontFacesSeen.clear();
     _bookFontEngines.clear();
     _bookFontCoverages.clear();
+    _resolvedBaseStyle = null;
     document.archive.close();
   }
 

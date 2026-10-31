@@ -29,6 +29,9 @@ Future<void> main() async {
   try {
     final root = await getApplicationSupportDirectory();
     final file = await _download(root);
+    if (const bool.fromEnvironment('PERF_IMPORT')) {
+      await _measureImport(root, file);
+    }
     final db = AppDatabase(NativeDatabase(File('${root.path}/perf.sqlite')));
     await _seedBook(db, file);
     final progress = DriftProgressStore(db);
@@ -59,6 +62,42 @@ Future<void> main() async {
     await _send('done', _results);
   } catch (error, stack) {
     await _send('done', {..._results, 'error': '$error', 'stack': '$stack'});
+  }
+}
+
+Future<void> _measureImport(Directory root, File original) async {
+  final directory = await root.createTemp('import-perf-');
+  final db = AppDatabase(
+    NativeDatabase(File('${directory.path}/import.sqlite')),
+  );
+  try {
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => directory,
+    );
+    final stages = <String, int>{};
+    final watch = Stopwatch()..start();
+    final bytes = await original.readAsBytes();
+    stages['read_ms'] = watch.elapsedMilliseconds;
+    final entry = await library.importBytes(
+      bytes,
+      onProgress: (progress) {
+        if (progress == 0.45) stages['verified_ms'] = watch.elapsedMilliseconds;
+        if (progress == 0.85) stages['written_ms'] = watch.elapsedMilliseconds;
+        if (progress == 0.95) stages['counted_ms'] = watch.elapsedMilliseconds;
+      },
+    );
+    final weights = await library.progressWeights(entry.id);
+    _results['import'] = {
+      ...stages,
+      'complete_ms': watch.elapsedMilliseconds,
+      'chapters': entry.spineCount,
+      'characters': weights.totalCharacters,
+    };
+    await _send('sample', _results);
+  } finally {
+    await db.close();
+    await directory.delete(recursive: true);
   }
 }
 
