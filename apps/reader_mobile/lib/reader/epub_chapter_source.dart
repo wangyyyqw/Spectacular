@@ -125,6 +125,7 @@ class EpubChapterSource
     int,
     ({String key, BlockDocument document, _ParsedSelectorIndex selectors})
   > _displayDocumentCache = {};
+  final List<int> _displayDocumentCacheOrder = <int>[];
   // 满屏判定与紧随的正文聚合共用一次解析；不长期保留第二棵原始树。
   BlockDocument? _pendingBlockDocument;
   // 原始元素树提供结构伪类/兄弟组合器所需的真实 childElements。
@@ -154,6 +155,9 @@ class EpubChapterSource
 
   /// styles 层块缓存上限：与页缓存一致，只保留最近排版过的章。
   static const int blockCacheChapterLimit = pageCacheChapterLimit;
+
+  /// document 层缓存上限：聚合树与选择器视图只保留最近使用的章。
+  static const int documentCacheChapterLimit = pageCacheChapterLimit;
 
   void _touchPageCache(String key) {
     _pageCacheOrder.remove(key);
@@ -201,10 +205,38 @@ class EpubChapterSource
   /// styles 层块缓存命中次数（测试/诊断用）。
   int get blockCacheHits => _blockCacheHits;
 
+  void _touchDisplayDocumentCache(int spineIndex) {
+    _displayDocumentCacheOrder.remove(spineIndex);
+    _displayDocumentCacheOrder.add(spineIndex);
+  }
+
+  void _putDisplayDocumentCache(
+    int spineIndex, {
+    required String key,
+    required BlockDocument document,
+    required _ParsedSelectorIndex selectors,
+  }) {
+    _displayDocumentCache[spineIndex] = (
+      key: key,
+      document: document,
+      selectors: selectors,
+    );
+    _touchDisplayDocumentCache(spineIndex);
+    while (_displayDocumentCache.length > documentCacheChapterLimit) {
+      _displayDocumentCache.remove(_displayDocumentCacheOrder.removeAt(0));
+    }
+  }
+
+  void _clearDisplayDocumentCache() {
+    _displayDocumentCache.clear();
+    _displayDocumentCacheOrder.clear();
+  }
+
   /// 缓存报告（P4-32）：页缓存章数与容量。
   String get cacheReport =>
       '页缓存 ${_pageCache.length}/$pageCacheChapterLimit 章；'
-      '块缓存 ${_blockCache.length}/$blockCacheChapterLimit 章';
+      '块缓存 ${_blockCache.length}/$blockCacheChapterLimit 章；'
+      '文档缓存 ${_displayDocumentCache.length}/$documentCacheChapterLimit 章';
   final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};
 
   /// 排版层指纹（P7-23）：几何 + 设置的排版字段；颜色不参与（绘制层
@@ -675,6 +707,7 @@ class EpubChapterSource
       _pageIndexCache.clear();
       _blockCache.clear();
       _blockCacheOrder.clear();
+      _clearDisplayDocumentCache();
       _fullBleedCache.clear();
     }
   }
@@ -710,6 +743,7 @@ class EpubChapterSource
     _pageIndexCache.clear();
     _blockCache.clear();
     _blockCacheOrder.clear();
+    _clearDisplayDocumentCache();
     _fullBleedCache.clear();
     return true;
   }
@@ -3274,6 +3308,7 @@ class EpubChapterSource
     _pendingSelectorIndex = null;
     final cached = _displayDocumentCache[spineIndex];
     if (cached?.key == paginationKey) {
+      _touchDisplayDocumentCache(spineIndex);
       return (cached!.document, cached.selectors);
     }
     if (pending?.spineIndex == spineIndex && selectors != null) {
@@ -3860,7 +3895,8 @@ class EpubChapterSource
         whiteSpace: style.whiteSpace,
         inlineDisplay: inlineDisplay,
       );
-      _displayDocumentCache[spineIndex] = (
+      _putDisplayDocumentCache(
+        spineIndex,
         key: paginationKey,
         document: document,
         selectors: selectorIndex,

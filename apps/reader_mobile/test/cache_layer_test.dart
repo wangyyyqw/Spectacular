@@ -143,6 +143,7 @@ void main() {
 
     await source.applyOverrides(const ReaderOverrides(fontSize: 20));
     expect(source.cacheReport, contains('块缓存 0/'));
+    expect(source.cacheReport, contains('文档缓存 0/'));
 
     await source.loadChapter(0);
     expect(source.blockCacheHits, 0, reason: '失效后重新构建，不复用旧块');

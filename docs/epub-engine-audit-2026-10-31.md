@@ -167,6 +167,25 @@ spine 30 重放中的样式/布局热点与分配。
 空安全写法、`html5_input.dart` 初始化形参），本轮未改。块缓存的常驻内存为
 最多 5 章块树，长书连续遍历的真机内存峰值仍需测量。
 
+## 第三轮（同日）：document 层缓存有界
+
+块缓存解决重放重建后，`_displayDocumentCache` 仍按 spineIndex 永久保存每章
+聚合树与完整选择器视图；1541 章连续遍历时这是最大的一块无界增长。页缓存和
+块缓存的 LRU 不会回收它，且旧几何下的条目也不会自动释放。
+
+实现：document 层同样改为 LRU 5 章，命中时刷新顺序，超限淘汰最久未用章；
+排版字段或几何变化时与块缓存一起清空；`cacheReport` 增加
+`文档缓存 n/5 章`。该缓存只服务块重建，淘汰后再次访问会重新解析/聚合，
+不影响页索引校验或渲染结果。
+
+验证：新增 LRU 测试连续加载 8 章后文档缓存保持 `5/5`，排版字段变化后为
+`0/5`；真书重放 29/30/47 为 5.244/0.495/0.175ms，页数仍为 20/11/11，
+未因缓存淘汰回退。原始记录：`/tmp/navigation-doc-bounded.json`。
+
+仍未处理：`_pageBackgrounds`、`_chapterSheetCache`、`_fullBleedCache`、
+`_imageIntrinsicCache` 等按章/按资源的轻量索引仍会随遍历增长；它们不保存
+完整文档树，但真机长书内存峰值与淘汰策略仍需测量后决定。
+
 规范依据（已读取官方文档并以本机 Chromium 实测核对）：
 
 - [Selectors Level 4：特异性](https://www.w3.org/TR/selectors-4/#specificity-rules)
