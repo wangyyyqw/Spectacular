@@ -2834,7 +2834,7 @@ class ComputedStyle {
       if (fontSize != null) 'font-size': '${nextFontSize}px',
       if (lineHeightFactor != null) 'line-height': '$lineHeightFactor',
       if (textAlign != null) 'text-align': _textAlignToCss(textAlign),
-      if (fontFamily != null) 'font-family': fontFamily,
+      'font-family': ?fontFamily,
     };
     final nextExplicit = <String>{
       ...explicitProperties,
