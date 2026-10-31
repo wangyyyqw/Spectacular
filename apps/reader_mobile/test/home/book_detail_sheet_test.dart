@@ -68,6 +68,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('无修复或告警'), findsOneWidget);
     expect(find.text('未知作者'), findsOneWidget);
+    final coverSize = tester.getSize(
+      find.byKey(const ValueKey<String>('book-detail-cover')),
+    );
+    expect(coverSize.width / coverSize.height, closeTo(4 / 3, 0.001));
   });
 
   testWidgets('点删除返回 delete，由书架执行确认流程', (tester) async {
