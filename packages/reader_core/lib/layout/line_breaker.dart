@@ -461,6 +461,7 @@ class StyledRun {
     required this.end,
     required this.style,
     this.baselineShift = 0,
+    this.syntheticFontFallback = false,
   });
 
   /// 起始偏移（UTF-16，含）。
@@ -474,6 +475,11 @@ class StyledRun {
 
   /// 行内基线偏移（逻辑像素，正值向下）：上下标用，0 表示不偏移。
   final double baselineShift;
+
+  /// 是否为字体回退从正文样式合成的纯文本区间。
+  ///
+  /// 这类区间没有对应的行内元素，不能据此重复绘制块的背景、边框或内边距。
+  final bool syntheticFontFallback;
 }
 
 /// 按制表位展开制表符（CSS Text 3 `tab-size`）：每遇到 `\t` 补齐到下一个
@@ -1625,6 +1631,7 @@ abstract final class TextLayoutEngine {
             end: end,
             style: run.style,
             baselineShift: run.baselineShift,
+            syntheticFontFallback: run.syntheticFontFallback,
           ),
         );
       }
@@ -1711,6 +1718,7 @@ abstract final class TextLayoutEngine {
     int? openEnd;
     ComputedStyle? openStyle;
     var openShift = 0.0;
+    var openSynthetic = false;
     void flush() {
       final start = openStart;
       final end = openEnd;
@@ -1722,6 +1730,7 @@ abstract final class TextLayoutEngine {
             end: end,
             style: style,
             baselineShift: openShift,
+            syntheticFontFallback: openSynthetic,
           ),
         );
       }
@@ -1729,6 +1738,7 @@ abstract final class TextLayoutEngine {
       openEnd = null;
       openStyle = null;
       openShift = 0;
+      openSynthetic = false;
     }
 
     for (var i = 0; i + 1 < boundaries.length; i++) {
@@ -1744,11 +1754,13 @@ abstract final class TextLayoutEngine {
       );
       final style = _segmentStyle(owner, family, baseStyle, withFamily);
       final shift = owner?.baselineShift ?? 0;
+      final synthetic = owner?.syntheticFontFallback ?? true;
       if (style == null) {
         flush(); // 无族的空隙不产出区间
       } else if (openStyle != null &&
           identical(openStyle, style) &&
           openShift == shift &&
+          openSynthetic == synthetic &&
           openEnd == start) {
         openEnd = end; // 同源同族同偏移，继续延伸
       } else {
@@ -1757,6 +1769,7 @@ abstract final class TextLayoutEngine {
         openEnd = end;
         openStyle = style;
         openShift = shift;
+        openSynthetic = synthetic;
       }
     }
     flush();
@@ -1841,6 +1854,7 @@ abstract final class TextLayoutEngine {
             end: runEnd - start,
             style: run.style,
             baselineShift: run.baselineShift,
+            syntheticFontFallback: run.syntheticFontFallback,
           ),
         );
       }
@@ -2890,6 +2904,7 @@ abstract final class TextLayoutEngine {
           end: run.end,
           style: run.style,
           baselineShift: shift,
+          syntheticFontFallback: run.syntheticFontFallback,
         ),
       );
     }

@@ -27,6 +27,7 @@ Future<ByteData> _render({
   required bool crossBox,
   required bool withBox,
   bool selection = false,
+  bool syntheticFontFallback = false,
 }) async {
   final style = _style({});
   final layout = TextLayoutEngine.layout(
@@ -34,7 +35,12 @@ Future<ByteData> _render({
     style: style,
     maxWidth: _width.toDouble(),
     runs: [
-      StyledRun(start: crossBox ? 0 : 1, end: 2, style: _style(properties)),
+      StyledRun(
+        start: crossBox ? 0 : 1,
+        end: 2,
+        style: _style(properties),
+        syntheticFontFallback: syntheticFontFallback,
+      ),
     ],
     inlineBoxes: [
       if (withBox)
@@ -174,4 +180,26 @@ void main() {
       if (crossBox) expect(_redPixels(pixels, 2, 18), greaterThan(0));
     });
   }
+  test('字体回退合成 run 不重复绘制块级盒装饰', () async {
+    final properties = {'border': '2px solid #ff0000'};
+    final synthetic = await _render(
+      properties: properties,
+      table: false,
+      crossBox: false,
+      withBox: false,
+      syntheticFontFallback: true,
+    );
+    final authorRun = await _render(
+      properties: properties,
+      table: false,
+      crossBox: false,
+      withBox: false,
+    );
+    expect(_redPixels(synthetic, 0, _width), 0, reason: '合成 run 没有行内元素盒');
+    expect(
+      _redPixels(authorRun, 0, _width),
+      greaterThan(0),
+      reason: '作者 run 的盒仍应绘制',
+    );
+  });
 }
