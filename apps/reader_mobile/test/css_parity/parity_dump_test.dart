@@ -672,6 +672,7 @@ void main() {
           contentWidth: _width,
           contentHeight: _height,
           verifyCrc: false,
+          trimTextEdges: false,
         );
         await source.applyOverrides(const ReaderOverrides());
         final pages = await source.loadChapter(0);
