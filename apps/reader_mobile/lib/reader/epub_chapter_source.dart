@@ -5311,14 +5311,24 @@ class EpubChapterSource
         if (slice.lastRow >= rowHeights.length) {
           sliceHeight += spacingY;
         }
+        // rowspan 格可能从上一片开始、延伸到本片：按矩形相交保留并裁到
+        // 本片可见范围，否则分组列会在续片整列消失。
+        final sliceBottom = sliceTop + sliceHeight;
         final cells = allCells
             .where(
-              (cell) => cell.row >= slice.firstRow && cell.row < slice.lastRow,
+              (cell) =>
+                  cell.rect.bottom > sliceTop + 0.01 &&
+                  cell.rect.top < sliceBottom - 0.01,
             )
             .map(
               (cell) => TableCellRender(
                 row: cell.row,
-                rect: cell.rect.translate(0, -sliceTop),
+                rect: Rect.fromLTRB(
+                  cell.rect.left,
+                  math.max(0.0, cell.rect.top - sliceTop),
+                  cell.rect.right,
+                  math.min(sliceHeight, cell.rect.bottom - sliceTop),
+                ),
                 layout: cell.layout,
                 style: cell.style,
               ),

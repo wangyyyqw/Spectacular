@@ -7,7 +7,7 @@ import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
 import 'float_occupancy.dart' show FloatSide;
 import 'page_background.dart';
-import 'table_layout.dart' show TableRenderSpec;
+import 'table_layout.dart' show TableCellRender, TableRenderSpec;
 import 'text_layout.dart';
 import 'text_edges.dart';
 
@@ -1328,6 +1328,103 @@ class Paginator {
     return widest;
   }
 
+  /// 可继续按行拆分的表格行数；预切表格的 [TableRenderSpec.rowYs] 从 0 起
+  /// 严格递增。单行切片或末行被裁剪的切片不在这里重复拆。
+  static int _splittableTableRows(PageBlock block) {
+    final rows = block.table?.rowYs;
+    if (rows == null || rows.length < 3) {
+      return 0;
+    }
+    for (var i = 1; i < rows.length; i++) {
+      if (!rows[i].isFinite || rows[i] <= rows[i - 1] + 0.01) {
+        return 0;
+      }
+    }
+    return rows.length - 1;
+  }
+
+  /// 从预切表格块中截出 `[startRow, endRow)`，并把单元格和行界坐标平移到
+  /// 切片顶。rowspan 格跨过分页边界时只保留可见矩形，避免续页整列消失。
+  static PageBlock _tablePiece(PageBlock source, int startRow, int endRow) {
+    final table = source.table!;
+    final rowYs = table.rowYs;
+    final top = rowYs[startRow];
+    final bottom = rowYs[endRow];
+    final height = bottom - top;
+    final rowCount = rowYs.length - 1;
+    final cells = <TableCellRender>[
+      for (final cell in table.cells)
+        if (cell.rect.bottom > top + 0.01 && cell.rect.top < bottom - 0.01)
+          TableCellRender(
+            row: cell.row,
+            rect: Rect.fromLTRB(
+              cell.rect.left,
+              math.max(0.0, cell.rect.top - top),
+              cell.rect.right,
+              math.min(height, cell.rect.bottom - top),
+            ),
+            layout: cell.layout,
+            style: cell.style,
+          ),
+    ];
+    final layout = TextLayoutResult(
+      text: source.layout.text,
+      lines: <LineBox>[
+        LineBox(
+          start: 0,
+          end: 0,
+          top: 0,
+          height: height,
+          baseline: height,
+          width: table.tableWidth,
+        ),
+      ],
+      width: table.tableWidth,
+      height: height,
+      maxWidth: source.layout.maxWidth,
+      runs: const <StyledRun>[],
+    );
+    return PageBlock(
+      layout: layout,
+      pageBreakBefore: startRow == 0 && source.pageBreakBefore,
+      pageBreakAfter: endRow == rowCount && source.pageBreakAfter,
+      startCfi: source.startCfi,
+      endCfi: source.endCfi,
+      style: source.style,
+      spaceBefore: startRow == 0 ? source.spaceBefore : 0,
+      spaceAfter: endRow == rowCount ? source.spaceAfter : 0,
+      topInset: startRow == 0 ? source.topInset : 0,
+      bottomInset: endRow == rowCount ? source.bottomInset : 0,
+      leftInset: source.leftInset,
+      breakInsideAvoid: source.breakInsideAvoid,
+      breakAfterAvoid: source.breakAfterAvoid,
+      listMarker: source.listMarker,
+      groupId: source.groupId,
+      table: TableRenderSpec(
+        cells: cells,
+        columnXs: table.columnXs,
+        rowYs: <double>[
+          for (var row = startRow; row <= endRow; row++) rowYs[row] - top,
+        ],
+        tableWidth: table.tableWidth,
+        flex: table.flex,
+      ),
+      containerSides: source.containerSides,
+      containers: <PageContainerFragment>[
+        for (final fragment in source.containers)
+          PageContainerFragment(
+            container: fragment.container,
+            startsHere: startRow == 0 && fragment.startsHere,
+            endsHere: endRow == rowCount && fragment.endsHere,
+            topInset: fragment.topInset,
+            bottomInset: fragment.bottomInset,
+          ),
+      ],
+      declaredContentHeight: height,
+      effectiveOpacity: source.effectiveOpacity,
+    );
+  }
+
   /// 竖排块按页分栏：列长 = 本页可用高重新分列 → 每页容纳
   /// `floor(页宽 / 列宽)` 列，剩余列顺延下一页。返回每页的列块与每页占高；
   /// 列长与页高一致时返回 null（调用方走整块单页路径，保持原语义）。
@@ -1887,10 +1984,19 @@ class Paginator {
           blockExtent <= available + fitTolerance &&
           blockExtent <= pageHeight + fitTolerance) {
         final next = flow[blockIndex + 1];
+        final nextTableRows = _splittableTableRows(next);
+        final nextLineNeed = nextTableRows > 1
+            ? _tablePiece(next, 0, 1).height
+            : (next.layout.lines.isEmpty
+                  ? 0.0
+                  : next.layout.lines.first.height);
+        final nextTrailing = nextTableRows <= 1 && next.layout.lineCount <= 1
+            ? next.trailingExtent
+            : 0.0;
         final nextNeed =
             next.leadingExtent +
-            (next.layout.lines.isEmpty ? 0.0 : next.layout.lines.first.height) +
-            (next.layout.lineCount <= 1 ? next.trailingExtent : 0) +
+            nextLineNeed +
+            nextTrailing +
             next.containerBottomInset(1);
         // 强制断页优先；整组在新页也放不下时不反复推页。
         final pairExtent = blockExtent + nextNeed;
@@ -1901,6 +2007,67 @@ class Paginator {
             available < pairExtent - fitTolerance) {
           record();
         }
+      }
+
+      // 表格预切片仍可能只差几行才放得进当前页。把预切片继续按 rowYs
+      // 拆分，首页先排能容纳的行，其余行顺延下一页，而不是整片下移。
+      final tableRows = _splittableTableRows(block);
+      if (tableRows > 1) {
+        var rowStart = 0;
+        while (rowStart < tableRows) {
+          PageBlock? fitted;
+          var fittedEnd = rowStart;
+          var fittedLeading = 0.0;
+          for (
+            var candidate = rowStart + 1;
+            candidate <= tableRows;
+            candidate++
+          ) {
+            final piece = _tablePiece(block, rowStart, candidate);
+            final leading = leadingOf(piece, 0);
+            final extent = leading + piece.height + piece.trailingExtent;
+            if (extent + piece.containerBottomInset(1) <=
+                available + fitTolerance) {
+              fitted = piece;
+              fittedEnd = candidate;
+              fittedLeading = leading;
+            } else {
+              break;
+            }
+          }
+          if (fitted == null) {
+            if (slices.isNotEmpty) {
+              record();
+              continue;
+            }
+            // 单行高于整页：强制放一行，由渲染层按页面裁剪，避免死循环。
+            fitted = _tablePiece(block, rowStart, rowStart + 1);
+            fittedEnd = rowStart + 1;
+            fittedLeading = leadingOf(fitted, 0);
+          }
+          final extent = fittedLeading + fitted.height + fitted.trailingExtent;
+          slices.add(
+            PageBlockSlice(
+              block: fitted,
+              startLine: 0,
+              endLine: 1,
+              height: extent,
+              leadingExtent: fittedLeading,
+              trailingExtent: fitted.trailingExtent,
+              leftInset: fitted.leftInset,
+            ),
+          );
+          used += extent;
+          available -= extent;
+          rowStart = fittedEnd;
+          if (rowStart < tableRows) {
+            record();
+          }
+        }
+        if (block.pageBreakAfter) {
+          record();
+        }
+        continue;
       }
 
       // 盒高约束（CSS height/min-height/max-height）：内容盒高可能高于

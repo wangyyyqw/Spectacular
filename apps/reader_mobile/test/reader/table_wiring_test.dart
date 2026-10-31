@@ -7,12 +7,16 @@ import 'support/css_chapter_book.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<List<BlockOrTable>> tablesOf(String body, String css) async {
+  Future<List<BlockOrTable>> tablesOf(
+    String body,
+    String css, {
+    double contentHeight = 800,
+  }) async {
     final source = await openCssChapter(
       body: body,
       css: css,
       contentWidth: 320,
-      contentHeight: 800,
+      contentHeight: contentHeight,
     );
     final pages = await source.loadChapter(0);
     return [
@@ -45,6 +49,35 @@ void main() {
       ),
       reason: '跨行格高 = 跨过的两行之和',
     );
+  });
+
+  test('跨页 rowspan：每个表格切片都保留跨行分组格', () async {
+    final tables = await tablesOf(
+      '<table>'
+          '<tr><td rowspan="8">分组</td><td>1</td></tr>'
+          '<tr><td>2</td></tr><tr><td>3</td></tr><tr><td>4</td></tr>'
+          '<tr><td>5</td></tr><tr><td>6</td></tr><tr><td>7</td></tr>'
+          '<tr><td>8</td></tr>'
+          '</table>',
+      'body { margin: 0; } table { width: 100%; margin: 0; '
+          'border-collapse: collapse; } '
+          'td { height: 48px; box-sizing: border-box; '
+          'border: 1px solid #000; padding: 2px; font-size: 13px; }',
+      contentHeight: 180,
+    );
+    expect(tables.length, greaterThan(1), reason: '八行表格应跨页切片');
+    for (final table in tables) {
+      final group = table.spec.cells.where(
+        (cell) => cell.layout.text == '分组',
+      );
+      expect(group, isNotEmpty, reason: '续片仍须绘制从首行跨入的分组格');
+      expect(group.single.rect.top, closeTo(0, 0.01), reason: '续片裁到片顶');
+      expect(
+        group.single.rect.bottom,
+        lessThanOrEqualTo(table.blockHeight + 0.01),
+        reason: '跨行格不得越出当前切片',
+      );
+    }
   });
 
   test('collapse 时单元格不再加整条边框（只分摊一半）', () async {

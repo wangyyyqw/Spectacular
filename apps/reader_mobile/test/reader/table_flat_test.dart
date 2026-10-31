@@ -102,6 +102,52 @@ void main() {
     }
   });
 
+  test('前置提示后的大表从当前页开始，并按行续排', () async {
+    final rows = <String>[
+      for (var i = 1; i <= 24; i++) '<tr><td>第$i行</td><td>数据$i</td></tr>',
+    ].join();
+    final source = await EpubChapterSource.open(
+      _buildTableEpub(
+        '<p class="tips">表格提示</p><table>$rows</table>',
+        css:
+            'body { margin: 0; } p { margin: 0; } '
+            '.tips { break-after: avoid; } '
+            'td { height: 32px; box-sizing: border-box; }',
+      ),
+      contentWidth: 320,
+      contentHeight: 480,
+    );
+    final pages = await source.loadChapter(0);
+    final firstPageTables = pages.first.slices
+        .where((slice) => slice.block.table != null)
+        .toList();
+    expect(firstPageTables, isNotEmpty, reason: '提示后的大表不应整表下移到下一页');
+    expect(
+      firstPageTables.first.block.table!.rowYs.last,
+      lessThan(24 * 32),
+      reason: '首页只排当前页能容纳的表格行',
+    );
+
+    final tableBlocks = pages
+        .expand((page) => page.slices)
+        .where((slice) => slice.block.table != null)
+        .map((slice) => slice.block)
+        .toList();
+    expect(tableBlocks.length, greaterThan(firstPageTables.length));
+    final texts = tableBlocks
+        .expand((block) => block.table!.cells)
+        .map((cell) => cell.layout.text)
+        .toSet();
+    for (var i = 1; i <= 24; i++) {
+      expect(texts, contains('第$i行'));
+    }
+    expect(
+      tableBlocks.every((block) => block.height <= 480.5),
+      isTrue,
+      reason: '续排切片不得越过页面高度',
+    );
+  });
+
   test('caption-side 控制标题顺序，empty-cells 保留空格布局', () async {
     final source = await EpubChapterSource.open(
       _buildTableEpub(
