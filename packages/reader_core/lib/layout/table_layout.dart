@@ -154,10 +154,33 @@ abstract final class TableMeasurer {
       // auto 列分剩余空间：按自然宽比例；无剩余则压缩到 0 下限均分。
       final autoNaturalSum =
           autoIndices.fold(0.0, (sum, c) => sum + natural[c]);
+      final hasMinWidths =
+          minWidths != null && minWidths.length >= columnCount;
+      final autoMinSum = hasMinWidths
+          ? autoIndices.fold<double>(
+              0,
+              (sum, c) =>
+                  sum + math.min(natural[c], math.max(0.0, minWidths[c])),
+            )
+          : 0.0;
       if (autoNaturalSum <= 0) {
         final share = remaining / autoIndices.length;
         for (final c in autoIndices) {
           widths[c] = share;
+        }
+      } else if (hasMinWidths && remaining < autoNaturalSum) {
+        // 表宽落在 min/max-content 之间时，按每个 auto 列的可增长余量
+        // 插值；只按 max 比例压缩会把短列直接压到 min-content 以下。
+        final range = autoNaturalSum - autoMinSum;
+        final fraction = range > 0
+            ? ((remaining - autoMinSum) / range).clamp(0.0, 1.0)
+            : 1.0;
+        for (final c in autoIndices) {
+          final minWidth = math.min(
+            natural[c],
+            math.max(0.0, minWidths[c]),
+          );
+          widths[c] = minWidth + (natural[c] - minWidth) * fraction;
         }
       } else if (autoNaturalSum <= remaining) {
         // auto 列保自然宽，剩余按比例加宽。
