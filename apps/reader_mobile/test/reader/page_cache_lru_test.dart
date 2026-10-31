@@ -22,6 +22,11 @@ void main() {
       contains('${EpubChapterSource.pageCacheChapterLimit}/'),
       reason: '页缓存保持在章数上限内',
     );
+    expect(
+      source.cacheReport,
+      contains('块缓存 ${EpubChapterSource.blockCacheChapterLimit}/'),
+      reason: 'styles 层块缓存与页缓存同上限',
+    );
 
     // 再访问第 6 章：命中（不报错）且依然是上限内。
     await source.loadChapter(6);

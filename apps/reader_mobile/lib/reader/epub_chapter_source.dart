@@ -152,6 +152,9 @@ class EpubChapterSource
   /// 页缓存保留的章数上限（当前章 ±2）。
   static const int pageCacheChapterLimit = 5;
 
+  /// styles 层块缓存上限：与页缓存一致，只保留最近排版过的章。
+  static const int blockCacheChapterLimit = pageCacheChapterLimit;
+
   void _touchPageCache(String key) {
     _pageCacheOrder.remove(key);
     _pageCacheOrder.add(key);
@@ -167,8 +170,41 @@ class EpubChapterSource
     }
   }
 
+  /// styles 层缓存：章节聚合树 → 已级联样式并完成行测量的块树。
+  ///
+  /// 页索引重放（P7-22）只需块边界与行几何；没有这层时每次重放都要
+  /// 重新跑一遍样式与测量。固定定位块不进流，必须与正文块成对保存。
+  final Map<
+    String,
+    ({List<PageBlock> flow, List<PageBlock> fixed})
+  > _blockCache = {};
+  final List<String> _blockCacheOrder = <String>[];
+  int _blockCacheHits = 0;
+
+  void _touchBlockCache(String key) {
+    _blockCacheOrder.remove(key);
+    _blockCacheOrder.add(key);
+  }
+
+  void _putBlockCache(
+    String key, {
+    required List<PageBlock> flow,
+    required List<PageBlock> fixed,
+  }) {
+    _blockCache[key] = (flow: flow, fixed: fixed);
+    _touchBlockCache(key);
+    while (_blockCache.length > blockCacheChapterLimit) {
+      _blockCache.remove(_blockCacheOrder.removeAt(0));
+    }
+  }
+
+  /// styles 层块缓存命中次数（测试/诊断用）。
+  int get blockCacheHits => _blockCacheHits;
+
   /// 缓存报告（P4-32）：页缓存章数与容量。
-  String get cacheReport => '页缓存 ${_pageCache.length}/$pageCacheChapterLimit 章';
+  String get cacheReport =>
+      '页缓存 ${_pageCache.length}/$pageCacheChapterLimit 章；'
+      '块缓存 ${_blockCache.length}/$blockCacheChapterLimit 章';
   final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};
 
   /// 排版层指纹（P7-23）：几何 + 设置的排版字段；颜色不参与（绘制层
@@ -197,8 +233,8 @@ class EpubChapterSource
   /// 当前阅读器设置。
   ReaderOverrides get overrides => _overrides;
 
-  /// 仅清空页缓存（保留页索引）：供冷启动重放路径测试与 P7-27 续排
-  /// 使用——页索引仍在时 loadChapter 直接按边界出页。
+  /// 仅清空页缓存（保留页索引与 styles 层块缓存）：供冷启动重放路径
+  /// 测试与 P7-27 续排使用——页索引仍在时 loadChapter 直接按边界出页。
   void clearPaginationCache() {
     _pageCache.clear();
     _pageCacheOrder.clear();
@@ -637,6 +673,8 @@ class EpubChapterSource
       _pageCache.clear();
       _pageCacheOrder.clear();
       _pageIndexCache.clear();
+      _blockCache.clear();
+      _blockCacheOrder.clear();
       _fullBleedCache.clear();
     }
   }
@@ -670,6 +708,8 @@ class EpubChapterSource
     _pageCache.clear();
     _pageCacheOrder.clear();
     _pageIndexCache.clear();
+    _blockCache.clear();
+    _blockCacheOrder.clear();
     _fullBleedCache.clear();
     return true;
   }
@@ -3264,6 +3304,27 @@ class EpubChapterSource
     }
     if (trace != null) {
       trace.count(ReaderTraceCounter.pageCacheMiss, bookId: traceBook);
+    }
+    // styles 层命中：聚合树、级联样式与行测量都已完成，只需按页索引
+    // 重放（或重新分页）。页缓存清空后的章节回访走这里。
+    final cachedBlocks = _blockCache[paginationKey];
+    if (cachedBlocks != null) {
+      _blockCacheHits += 1;
+      _touchBlockCache(paginationKey);
+      final pages = _paginateBlocks(
+        spineIndex,
+        paginationKey,
+        cachedBlocks.flow,
+        cachedBlocks.fixed,
+      );
+      if (trace != null) {
+        trace.record(
+          ReaderTraceName.chapterLayout,
+          watch!.elapsedMicroseconds,
+          bookId: traceBook,
+        );
+      }
+      return pages;
     }
     // 满屏图页（P3-10，§8.6）：单图无正文无宽高属性 → 整页单块、
     // 多看全屏页（OPF `duokan-page-*`）：封面/插图整页铺满，正文样式
@@ -6835,6 +6896,34 @@ class EpubChapterSource
     );
     blocks = _collapseMarginsIgnoringFloats(blocks);
 
+    _putBlockCache(
+      paginationKey,
+      flow: blocks,
+      fixed: fixedBlocks,
+    );
+    final pages = _paginateBlocks(
+      spineIndex,
+      paginationKey,
+      blocks,
+      fixedBlocks,
+    );
+    if (trace != null) {
+      trace.record(
+        ReaderTraceName.chapterLayout,
+        watch!.elapsedMicroseconds,
+        bookId: traceBook,
+      );
+    }
+    return pages;
+  }
+
+  /// 对已构建的块树分页或按页索引重放（styles 层命中时跳过重建）。
+  List<PageContent> _paginateBlocks(
+    int spineIndex,
+    String paginationKey,
+    List<PageBlock> blocks,
+    List<PageBlock> fixedBlocks,
+  ) {
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
     if (blocks.any((b) => b.floatSide != null)) {
@@ -6890,13 +6979,6 @@ class EpubChapterSource
       fixedBlocks,
     );
     _putPageCache(paginationKey, pages);
-    if (trace != null) {
-      trace.record(
-        ReaderTraceName.chapterLayout,
-        watch!.elapsedMicroseconds,
-        bookId: traceBook,
-      );
-    }
     if (!skipPageIndex) {
       _pageIndexCache[paginationKey] = PageIndex.from(
         ChapterPagination(
