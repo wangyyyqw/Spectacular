@@ -399,3 +399,67 @@ spine 29 正常。单机单次样本受 JIT、字体与系统调度影响，且�
 `8b7d4fa3a510ca235a2d7385ed0b43da818109f97fa2ea661e9a23064034fc9c`。
 下一项优先处理横向行盒/字体盒计量口径，再核对 `01-text-basic` 的第二行宽度；
 不使用扩大容差掩盖 Range 字体盒与 CSS 行盒的差异。
+
+## 第九轮（同日）：排版等价 run 保留标点挤压
+
+`01-text-basic` 的第二行在浏览器中宽 85px，修复前引擎为 102px。差异不是行盒
+取整，而是标点挤压没有生效：宿主 `resolveInlineRuns()` 会为普通 `<p>` 生成一个
+覆盖全文的 `StyledRun`，其排版字段与块样式等价；`_measureSegment()` 却把
+“存在任意 run”误判为“存在显式行内样式”，从而跳过 `text-spacing-trim`。
+
+实现：
+
+- `TextLayoutResult` 新增 `plainTextLayout`，表示现有 runs 只含颜色、装饰等不影响
+  文本测量的差异。判断使用 `layoutFingerprint` 与非零 `baselineShift`，字号、字距、
+  字体、行高、对齐、断行等任一排版字段变化仍视为显式行内样式。
+- 标点挤压、中西文自动间距和实际基线计算改看该标记；绘制仍逐 run 取颜色与装饰，
+  不通过删除 run 换取纯文本测量。分页切片、多栏重排、竖排、浮动文本切片以及章节源
+  的宽度/竖排带对齐均传播该标记，避免派生布局重新丢失挤压。
+
+验证：
+
+- 新增核心回归：仅颜色不同的全文 run 与纯文本同宽并保留颜色；改变字号或基线位移的
+  run 不按纯文本处理；分页切片保留标记。
+- 新增真实章节源回归：默认 `trim-adjacent`、全文等价 run、两行断点下，第二行
+  `点：、。！？` 宽 85px；修复前为 102px。
+- `flutter analyze --no-fatal-infos`：`reader_ui` 与 `reader_mobile` 无问题；
+  `reader_core` 仅有既有的 `computed_style.dart`、`html5_input.dart` 两条 info。
+- 全量测试：`reader_core` **1317 项通过、4 项跳过**；`reader_ui`
+  **170 项通过、0 项跳过**；`reader_mobile` **441 项通过、5 项跳过、0 失败**。
+  `tool/run_all.sh` 当前会因上述两条既有 info 在 analyze 阶段退出，因此本轮按相同
+  范围显式执行 `flutter analyze --no-fatal-infos && flutter test --no-pub`。
+
+浏览器定向复跑只覆盖 `01-text-basic`，未重跑全部用例，不能据此宣称全量失配数下降：
+
+| 指标 | 修复前 | 修复后 |
+| --- | ---: | ---: |
+| 第二行 `点：、。！？` 宽 | 102px | 85px |
+| 几何/样式失配 | 2 | **0** |
+| 原始像素差 | 2.25% | 2.23% |
+| 墨迹形状差 | 0.89% | 0.76% |
+
+输出目录：`/tmp/spectacular-css-line-ninth/report.md` 与
+`side_01-text-basic.png`。剩余像素差仍包含 Range 字体盒、CSS 行盒与字体栅格的
+口径差异，没有修改容差或跳过条件。
+
+真机继续使用 MEIZU 20、Android 16 和《诸神愚戏》148.5MB、1541 章。单位为 ms：
+
+| 检查点 | 第八轮（文/图/完成） | 第九轮（文/图/完成） |
+| --- | ---: | ---: |
+| 首开 spine 29 | 1583 / 1646 / 1827 | 1575 / 1648 / 1830 |
+| 跳转 spine 30 | 224 / 236 / 285 | 226 / 240 / 288 |
+| 跳转 spine 47 | 126 / 174 / 389 | 111 / 142 / 290 |
+| 远跳 spine 1515 | 92 / 126 / 290 | 91 / 141 / 290 |
+| 回访 spine 29 | 28 / 43 / 292 | 25 / 42 / 290 |
+| 跳转 spine 32 | 330 / 342 / 359 | 344 / 357 / 374 |
+| 再次打开（第二次） | 1464 / 1528 / 1709 | 1458 / 1537 / 1719 |
+| 再次打开（第三次） | 1467 / 1534 / 1712 | 1465 / 1532 / 1729 |
+
+八个检查点均正常完成，未出现错误；单次样本只用于发现明显回退，不据此宣称提速。
+原始记录：`/tmp/spectacular-device-ninth/report.json`。
+
+正式 APK 已重建、安装并启动：
+`apps/reader_mobile/build/app/outputs/flutter-apk/app-release.apk`，通用包 89.6MB，
+包名 `com.spectacular.reader_mobile`，SHA-256
+`0fcf748a7febe15278bd4e326fb57c1e43f85c224a560db33b5dbf66f381f4c9`。
+横向 Range 字体盒与 CSS 行盒的剩余计量差异仍未关闭，后续不使用扩大容差掩盖。

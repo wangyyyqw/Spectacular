@@ -14,7 +14,7 @@ double textLineBaselineOffset(
   LineBox line,
   TextPainter painter,
 ) {
-  if (layout.runs.isEmpty ||
+  if ((layout.runs.isEmpty || layout.plainTextLayout) ||
       layout.runs.any(
         (run) =>
             run.start < line.end &&
@@ -76,8 +76,8 @@ Iterable<({int start, int end, double advance})> lineTextFragments(
 /// 只给「间隙左侧字符」加单字符 `SpanStyle` 并保留原 `letterSpacing`；末字之后
 /// 不加字距，因此不会在右缘留下多余间距（S3 结论）。
 ///
-/// 挤压（[punctCompression]）只作用于无行内样式区间的纯文本行，与测量
-/// 期（`_measureSegment`）同规则：相邻全角标点的前标点加 -0.5em 字距；
+/// 挤压（[punctCompression]）只作用于排版等价的纯文本行，与测量期
+/// （`_measureSegment`）同规则：相邻全角标点的前标点加 -0.5em 字距；
 /// 与 justify 同字符叠加时字距代数相加。
 ///
 /// 与阅微 `adaptiveJustify` 同构；差异只在 gap 判定（见 `cjk_justify.dart`）。
@@ -101,8 +101,9 @@ InlineSpan buildLineSpan({
   final gaps = line.justifyExtra > 0
       ? cjkJustifyGapOffsets(lineText, mode: line.justifyMode)
       : const <int>[];
-  // 挤压/自动间距与测量同条件：仅纯文本行（runs 为空）。
-  final plain = runs.isEmpty && lineText.length >= 2;
+  // 挤压/自动间距与测量同条件：runs 可以存在，但不能改变文本测量。
+  final plain =
+      (runs.isEmpty || layout.plainTextLayout) && lineText.length >= 2;
   final compressionOffsets = punctCompression && plain
       ? punctCompressionOffsets(
           lineText,
