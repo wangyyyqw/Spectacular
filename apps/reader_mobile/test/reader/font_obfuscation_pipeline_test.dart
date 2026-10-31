@@ -11,6 +11,38 @@ import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
 
+Uint8List _fallbackFontBook(Uint8List font) {
+  final archive = Archive();
+  void add(String path, List<int> bytes) =>
+      archive.addFile(ArchiveFile(path, bytes.length, bytes));
+  void text(String path, String content) => add(path, utf8.encode(content));
+  text('mimetype', 'application/epub+zip');
+  text('META-INF/container.xml', '''
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+<rootfiles><rootfile full-path="content.opf"
+ media-type="application/oebps-package+xml"/></rootfiles></container>''');
+  text('content.opf', '''
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="id">font-fallback</dc:identifier><dc:title>字体目录回退</dc:title>
+<dc:language>zh</dc:language></metadata><manifest>
+<item id="a" href="One/a.xhtml" media-type="application/xhtml+xml"/>
+<item id="b" href="Two/b.xhtml" media-type="application/xhtml+xml"/>
+</manifest><spine>${List.filled(256, '<itemref idref="a"/>').join()}
+<itemref idref="b"/></spine></package>''');
+  const chapter = '''
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>字体目录回退</title><style>
+@font-face {font-family: fallback; src: url("missing.otf"), url("nested/f.otf");}
+p {font-family: fallback, serif;}</style></head>
+<body><p>中文书内字体测试</p></body></html>''';
+  text('One/a.xhtml', chapter);
+  text('Two/b.xhtml', chapter);
+  // 两个同名字体使全库文件名回退失效，必须继续尝试后续章节目录。
+  add('Two/nested/f.otf', font);
+  add('Other/f.otf', Uint8List(12));
+  return ZipEncoder().encodeBytes(archive);
+}
+
 Uint8List _incrementalFontBook(Uint8List regular, Uint8List bold) {
   final archive = Archive();
   void add(String path, List<int> bytes) =>
@@ -112,6 +144,21 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final font = File('assets/test_fonts/SourceHanSerifSC-Regular.otf')
       .readAsBytesSync();
+
+  test('缺失字体跳过后仍按章节目录顺序找到同名资源的正确字体', () async {
+    final source = await EpubChapterSource.open(_fallbackFontBook(font));
+    addTearDown(source.close);
+    expect(source.document.spine, hasLength(257));
+    expect(source.document.resources.resolve('nested/f.otf'), isNull);
+    await ui.loadFontFromList(font, fontFamily: 'fallback_expected');
+    for (final chapter in [0, 256]) {
+      final pages = await source.loadChapter(chapter);
+      final family = pages.first.slices.first.block.style!.fontFamily!;
+      expect(family, startsWith('bi_'));
+      expect(await _pixels(family), await _pixels('fallback_expected'));
+      source.clearPaginationCache();
+    }
+  });
 
   for (final algorithm in FontObfuscationAlgorithm.values) {
     test('真实${algorithm.name}混淆字体经过章节源后与原字体像素一致', () async {
