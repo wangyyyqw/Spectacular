@@ -4700,6 +4700,7 @@ class EpubChapterSource
                 text: node.text,
                 style: cellStyle,
                 maxWidth: tableAvailableWidth,
+                hasGlyph: _hasBookFontGlyph,
               );
               if (result.lineCount > 0) {
                 blocks.add(
