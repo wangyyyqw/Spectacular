@@ -8,14 +8,16 @@ import 'package:reader_core/parser/text_aggregator.dart';
 
 import '../support/corpus.dart';
 
-BlockDocument _aggregate(String body) => TextAggregator.aggregate(
-  BlockBuilder.build(
-    DocumentParser.parse(
-      xhtml: '<html><body>$body</body></html>',
-      spineIndex: 0,
-    ),
-  ),
-);
+BlockDocument _aggregate(String body, {InlineDisplayResolver? inlineDisplay}) =>
+    TextAggregator.aggregate(
+      BlockBuilder.build(
+        DocumentParser.parse(
+          xhtml: '<html><body>$body</body></html>',
+          spineIndex: 0,
+        ),
+      ),
+      inlineDisplay: inlineDisplay,
+    );
 
 List<TextContentNode> _texts(EpubNode node) {
   final result = <TextContentNode>[];
@@ -128,6 +130,65 @@ void main() {
     final doc = _aggregate('<p id="empty">   </p><p id="keep">ok</p>');
     final texts = _texts(doc.root);
     expect(texts.map((t) => t.text), <String>['ok']);
+  });
+
+  test('空原子盒保留零长度标记和原始属性，普通空行内元素仍丢弃', () {
+    final text = _onlyText(
+      _aggregate(
+        '<p>前<span class="box" data-kind="empty"></span><span></span>后</p>',
+        inlineDisplay: (node, _) => node.attributes['class'] == 'box'
+            ? CssDisplay.inlineBlock
+            : CssDisplay.inline,
+      ),
+    );
+    expect(text.text, '前后');
+    final mark = text.inlineMarks.single;
+    expect(mark.start, 1);
+    expect(mark.end, 1);
+    expect(mark.chain.last.attributes['data-kind'], 'empty');
+  });
+
+  test('纯空原子盒不丢弃聚合节点，也不合成文本字符', () {
+    final text = _onlyText(
+      _aggregate(
+        '<p><span> </span></p>',
+        inlineDisplay: (_, _) => CssDisplay.inlineBlock,
+      ),
+    );
+    expect(text.text, isEmpty);
+    expect(text.runs, isEmpty);
+    expect(text.inlineMarks.single.start, 0);
+    expect(text.inlineMarks.single.end, 0);
+  });
+
+  test('空原子盒后的显式换行仍保留', () {
+    final text = _onlyText(
+      _aggregate(
+        '<p><span class="box"></span><br/>'
+        '<img src="x.png"/><span class="box"></span></p>',
+        inlineDisplay: (node, _) => node.attributes['class'] == 'box'
+            ? CssDisplay.inlineBlock
+            : CssDisplay.inline,
+      ),
+    );
+    expect(text.text, '\n\uFFFC');
+    expect(text.hardBreaks, [0]);
+    expect(text.inlineMarks.where((mark) => mark.tag == 'span'), hasLength(2));
+  });
+
+  test('空原子盒不被纯图片折叠吞掉', () {
+    final text = _onlyText(
+      _aggregate(
+        '<p><span class="box"></span><img src="x.png"/></p>',
+        inlineDisplay: (node, _) => node.attributes['class'] == 'box'
+            ? CssDisplay.inlineBlock
+            : CssDisplay.inline,
+      ),
+    );
+    expect(text.text, '\uFFFC');
+    expect(text.inlineMarks.first.start, 0);
+    expect(text.inlineMarks.first.end, 0);
+    expect(text.inlineImages.single.offset, 0);
   });
 
   test('行内图片占一个占位字符', () {

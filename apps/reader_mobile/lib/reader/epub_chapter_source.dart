@@ -3577,6 +3577,7 @@ class EpubChapterSource
       return switch (computed.values['display']?.trim().toLowerCase()) {
         'block' => CssDisplay.block,
         'none' => CssDisplay.none,
+        'inline-block' => CssDisplay.inlineBlock,
         _ => CssDisplay.inline,
       };
     }
@@ -3773,14 +3774,14 @@ class EpubChapterSource
       required List<InlineImageMark> images,
       required _InlineStyleContext context,
     }) {
-      if (text.isEmpty || marks.isEmpty) {
+      if (marks.isEmpty) {
         return null;
       }
       final ancestors = context.ancestors;
       final availableWidth = context.width;
 
       for (final mark in marks) {
-        if (mark.chain.isEmpty || mark.end <= mark.start) {
+        if (mark.chain.isEmpty || mark.end < mark.start) {
           continue;
         }
         // 图片标记（占位符）交给下面的图片分支处理，避免把 U+FFFC 当成
@@ -3800,7 +3801,7 @@ class EpubChapterSource
         }
         final rawContent = text.substring(mark.start, mark.end);
         final content = rawContent.trim();
-        if (content.isEmpty) {
+        if (content.isEmpty && !inlineBlock) {
           continue;
         }
         final model = BoxModel.fromStyle(
@@ -3823,15 +3824,24 @@ class EpubChapterSource
               ),
         ], context);
         var contentWidthLimit = math.max(
-          1.0,
+          content.isEmpty ? 0.0 : 1.0,
           model.resolveContentWidth(availableWidth),
         );
-        var layout = _layoutCache.layout(
-          text: content,
-          style: inlineStyle,
-          maxWidth: contentWidthLimit,
-          runs: contentRuns,
-        );
+        TextLayoutResult layoutContent() => content.isEmpty
+            ? TextLayoutResult(
+                text: '',
+                lines: const [],
+                width: 0,
+                height: 0,
+                maxWidth: contentWidthLimit,
+              )
+            : _layoutCache.layout(
+                text: content,
+                style: inlineStyle,
+                maxWidth: contentWidthLimit,
+                runs: contentRuns,
+              );
+        var layout = layoutContent();
         PageBlock? floatBlock;
         InlineBoxSpec? boxSpec;
         if (inlineBlock) {
@@ -3840,19 +3850,14 @@ class EpubChapterSource
             final preferred =
                 layout.width + model.horizontalInset + model.margin.horizontal;
             contentWidthLimit = math.max(
-              1.0,
+              content.isEmpty ? 0.0 : 1.0,
               model.resolveContentWidth(
                 inlineStyle.whiteSpace == CssWhiteSpace.nowrap
                     ? preferred
                     : math.min(availableWidth, preferred),
               ),
             );
-            layout = _layoutCache.layout(
-              text: content,
-              style: inlineStyle,
-              maxWidth: contentWidthLimit,
-              runs: contentRuns,
-            );
+            layout = layoutContent();
           }
           final contentHeightValue = model.resolveContentHeight(
             layout.height,
@@ -3870,6 +3875,11 @@ class EpubChapterSource
             // 盒内内容高（可能超过声明盒高）：Chrome 把溢出内容计入行盒/
             // 段落高度（53：120×34 盒、内部 2 行 → 段落高 54.38）。
             contentHeight: layout.height,
+            // 无内容行的原子盒以底部 margin 边缘作为基线（CSS 2.2 §10.8.1）。
+            contentBaseline: content.isEmpty
+                ? model.borderBoxHeight(contentHeightValue) +
+                      model.margin.bottom
+                : null,
             // 绘制载荷：盒子内部已构建好的块（背景/边框/文字都在其中），
             // 绘制层按 placement 矩形把它画在行内。
             payload: PageBlock.styled(
@@ -3925,7 +3935,13 @@ class EpubChapterSource
 
         final newMarks = <InlineMark>[
           for (final other in marks)
-            if (other.end <= removeStart || other.start >= removeEnd)
+            if (!identical(other, mark) &&
+                (other.end <= removeStart ||
+                    other.start >= removeEnd ||
+                    (content.isEmpty &&
+                        other.chain.length < mark.chain.length &&
+                        other.start <= mark.start &&
+                        other.end >= mark.end)))
               InlineMark(
                 start: remap(other.start),
                 end: remap(other.end),
@@ -3952,6 +3968,7 @@ class EpubChapterSource
                   marginBottom: boxSpec.marginBottom,
                   baselineOffset: boxSpec.baselineOffset,
                   contentHeight: boxSpec.contentHeight,
+                  contentBaseline: boxSpec.contentBaseline,
                   payload: boxSpec.payload,
                 ),
           remapOffset: remap,
@@ -4094,7 +4111,7 @@ class EpubChapterSource
           payload: existing.payload,
         ),
       if (extracted.inlineBox != null) extracted.inlineBox!,
-    ]..sort((a, b) => a.offset.compareTo(b.offset));
+    ];
 
     TextLayoutResult layoutCellContent(
       String text,
@@ -4612,11 +4629,16 @@ class EpubChapterSource
             // 聚合后的文本节点：文本已合并，行内标记挂在 inlineMarks 上
             // （相对该节点文本的偏移），这里按 trim 后的坐标整体平移。
             final raw = node.text;
-            final trimmed = raw.trim();
-            if (trimmed.isEmpty) {
+            final hasEmptyBox = node.inlineMarks.any(
+              (mark) => mark.start == mark.end,
+            );
+            // 空盒前后仍有可见空白，不能按纯文本单元格去掉首尾空格。
+            final trimmed = hasEmptyBox ? raw : raw.trim();
+            if (trimmed.isEmpty && node.inlineMarks.isEmpty) {
               return;
             }
-            final leading = raw.length - raw.trimLeft().length;
+            final leading = hasEmptyBox
+                ? 0 : raw.length - raw.trimLeft().length;
             if (buffer.isNotEmpty) {
               buffer.write('\n');
             }
@@ -4625,7 +4647,7 @@ class EpubChapterSource
             for (final mark in node.inlineMarks) {
               final start = math.max(0, mark.start - leading);
               final end = math.min(trimmed.length, mark.end - leading);
-              if (end <= start) {
+              if (end < start) {
                 continue;
               }
               marks.add(
@@ -4814,7 +4836,6 @@ class EpubChapterSource
       // 每格：样式、全宽自然测量、按宽测高闭包。
       final cellStyles = <List<ComputedStyle>>[];
       final specs = <List<TableCellSpec>>[];
-      final cellTexts = <List<String>>[];
       final cellLayouts = <List<TextLayoutResult Function(double)>>[];
       final cellHeights = <List<double Function(double)>>[];
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
@@ -4826,7 +4847,6 @@ class EpubChapterSource
         );
         final styles = <ComputedStyle>[];
         final rowSpecs = <TableCellSpec>[];
-        final texts = <String>[];
         final rowLayouts = <TextLayoutResult Function(double)>[];
         final rowHeights = <double Function(double)>[];
         for (final cell in row) {
@@ -4838,16 +4858,18 @@ class EpubChapterSource
           final cellStyle = chainStyle(cellChain);
           final content = cellContentOf(cell, cellChain);
           final text = content.text;
-          TextLayoutResult measureCell(double width) => layoutCellContent(
-            text,
-            content.marks,
-            cellChain,
-            cellStyle,
-            math.max(8.0, width - horizontalInset(cellStyle)),
-          );
+          final hasContent = text.isNotEmpty || content.marks.isNotEmpty;
+          TextLayoutResult measureCell(double width) => hasContent
+              ? layoutCellContent(
+                  text, content.marks, cellChain, cellStyle,
+                  math.max(8.0, width - horizontalInset(cellStyle)),
+                )
+              : TextLayoutResult(
+                  text: '', lines: const [], width: 0, height: 0, maxWidth: width,
+                );
           double measureHeight(double width) {
             final inset = verticalInset(cellStyle);
-            final natural = text.isEmpty
+            final natural = !hasContent
                 ? cellStyle.lineHeight * 0.6 + inset
                 : measureCell(width).height + inset;
             final declared = cellStyle.height?.resolve(baseContentHeight);
@@ -4869,7 +4891,7 @@ class EpubChapterSource
           final rowspan =
               int.tryParse(cell.attributes['rowspan']?.trim() ?? '') ?? 1;
           double naturalWidth(double width, ComputedStyle cs) {
-            if (text.isEmpty) {
+            if (!hasContent) {
               return 0;
             }
             final measured = measureCell(width);
@@ -4881,7 +4903,6 @@ class EpubChapterSource
           }
 
           styles.add(cellStyle);
-          texts.add(text);
           rowSpecs.add(
             TableCellSpec(
               naturalWidth: naturalWidth(tableAvailableWidth, cellStyle),
@@ -4892,7 +4913,6 @@ class EpubChapterSource
           );
         }
         cellStyles.add(styles);
-        cellTexts.add(texts);
         cellLayouts.add(rowLayouts);
         cellHeights.add(rowHeights);
         specs.add(rowSpecs);
@@ -5080,7 +5100,7 @@ class EpubChapterSource
         ];
         final captionStyle = styleForChain(captionChain);
         final captionContent = cellContentOf(caption, captionChain);
-        if (captionContent.text.isNotEmpty) {
+        if (captionContent.text.isNotEmpty || captionContent.marks.isNotEmpty) {
           final layout = layoutCellContent(
             captionContent.text,
             captionContent.marks,
@@ -5115,17 +5135,8 @@ class EpubChapterSource
           if (rect == null) {
             continue;
           }
-          final text = cellTexts[r][c];
           final cellStyle = cellStyles[r][c];
-          final layout = text.isEmpty
-              ? TextLayoutResult(
-                  text: '',
-                  lines: const <LineBox>[],
-                  width: 0,
-                  height: 0,
-                  maxWidth: rect.rect.width,
-                )
-              : cellLayouts[r][c](rect.rect.width);
+          final layout = cellLayouts[r][c](rect.rect.width);
           allCells.add(
             TableCellRender(
               row: r,
@@ -5316,7 +5327,10 @@ class EpubChapterSource
           inlineDisplay,
         );
         final text = textNode.text;
-        if (text.trim().isEmpty) {
+        final hasEmptyInlineBox =
+            textNode is TextContentNode &&
+            textNode.inlineMarks.any((mark) => mark.start == mark.end);
+        if (text.trim().isEmpty && !hasEmptyInlineBox) {
           // 空元素但盒子可见（声明尺寸 / 背景 / 边框）：仍要占位。
           // 真书里的分隔线、头像占位、章首留白 div 都是这种形态；早期直接
           // 丢弃会让后续内容整体上移（69-border-radius-percent 暴露）。

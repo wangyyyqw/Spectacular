@@ -38,7 +38,7 @@ class MarkSubject {
 
 /// 一个行内样式标记（真实书适配）：聚合文本中的区间 + 来源元素链
 /// （从最外祖先到自身，含块级与行内层级）。样式解析由消费方（章节
-/// 源）按作者 CSS 完成——聚合器只记结构，不依赖 CSS 层。
+/// 源）按作者 CSS 完成；空原子盒用零长度区间保留，不增加正文字数。
 class InlineMark {
   /// 创建标记。
   const InlineMark({
@@ -164,10 +164,11 @@ class PromotedBlockNode extends BlockNode {
 }
 
 class _OpenInlineMark {
-  _OpenInlineMark(this.node, this.ancestors, this.start);
+  _OpenInlineMark(this.node, this.ancestors, this.start, this.keepEmpty);
   final InlineNode node;
   final List<MarkSubject> ancestors;
   int start;
+  final bool keepEmpty;
 }
 
 class _OpenRuby {
@@ -296,7 +297,12 @@ abstract final class TextAggregator {
         accumulator.closeRuby(ruby.start);
       }
       for (final mark in activeMarks.reversed) {
-        accumulator.closeMark(mark.start, mark.node, mark.ancestors);
+        accumulator.closeMark(
+          mark.start,
+          mark.node,
+          mark.ancestors,
+          keepEmpty: mark.keepEmpty,
+        );
       }
       final content = accumulator.take();
       if (content != null) {
@@ -389,10 +395,17 @@ abstract final class TextAggregator {
       // 行内样式标记：带属性的元素与已知样式标签记录
       // 区间（含祖先链），样式解析由章节源按作者 CSS 完成。
       final markable =
-          node.attributes.isNotEmpty || _styleMarkTags.contains(node.tag);
+          display == CssDisplay.inlineBlock ||
+          node.attributes.isNotEmpty ||
+          _styleMarkTags.contains(node.tag);
       final markStart = markable ? accumulator.openMark() : -1;
       final openMark = markable
-          ? _OpenInlineMark(node, ancestors, markStart)
+          ? _OpenInlineMark(
+              node,
+              ancestors,
+              markStart,
+              display == CssDisplay.inlineBlock,
+            )
           : null;
       activeInline.add(node);
       if (openMark != null) activeMarks.add(openMark);
@@ -425,8 +438,16 @@ abstract final class TextAggregator {
         activeRubies.removeLast();
       }
       if (markable) {
-        accumulator.closeMark(openMark!.start, node, ancestors);
+        accumulator.closeMark(
+          openMark!.start,
+          node,
+          ancestors,
+          keepEmpty: openMark.keepEmpty,
+        );
         activeMarks.removeLast();
+      }
+      if (display == CssDisplay.inlineBlock) {
+        accumulator.endInlineBox();
       }
       activeInline.removeLast();
     }
@@ -461,6 +482,7 @@ abstract final class TextAggregator {
     final onlyImage =
         children.isEmpty &&
             accumulator.images.length == 1 &&
+            !accumulator.marks.any((mark) => mark.start == mark.end) &&
             accumulator.hasOnlyImages
         ? accumulator.images.single.node
         : null;
@@ -556,11 +578,15 @@ class _TextAccumulator {
     return _buffer.length;
   }
 
-  /// 关一个样式标记；区间为空（无文本）时丢弃。链 = 祖先（块/行内）
-  /// + 自身，供后代/子代选择器匹配。
-  void closeMark(int start, InlineNode node, List<MarkSubject> ancestors) {
+  /// 空原子盒保留零长度标记，不往正文/CFI 坐标写入占位字符。
+  void closeMark(
+    int start,
+    InlineNode node,
+    List<MarkSubject> ancestors, {
+    bool keepEmpty = false,
+  }) {
     final end = _buffer.length;
-    if (end <= start) {
+    if (end <= start && !keepEmpty) {
       return;
     }
     final classes = (node.attributes['class'] ?? '')
@@ -604,7 +630,9 @@ class _TextAccumulator {
       return;
     }
     _pendingSpace = false;
-    if (_buffer.isNotEmpty && _lastCodeUnit != 10 && _lastCodeUnit != 32) {
+    if ((_buffer.isNotEmpty || marks.isNotEmpty) &&
+        _lastCodeUnit != 10 &&
+        _lastCodeUnit != 32) {
       _buffer.write(' ');
       _lastCodeUnit = 32;
     }
@@ -663,6 +691,12 @@ class _TextAccumulator {
     _writeBreak();
   }
 
+  /// 盒内尾部折叠空白不泄漏；盒后的空格按新的原子边界保留。
+  void endInlineBox() {
+    _pendingSpace = false;
+    _lastCodeUnit = 0xFFFC;
+  }
+
   void addPlaceholder() {
     _pendingSpace = false;
     _buffer.write('\uFFFC');
@@ -696,7 +730,7 @@ class _TextAccumulator {
 
   /// 写一个换行并记录强制换行位置（块首换行忽略）。
   void _writeBreak() {
-    if (_buffer.isEmpty) {
+    if (_buffer.isEmpty && marks.isEmpty) {
       return;
     }
     _buffer.write('\n');
@@ -705,7 +739,7 @@ class _TextAccumulator {
   }
 
   TextContentNode? take() {
-    final content = _buffer.isEmpty
+    final content = _buffer.isEmpty && marks.isEmpty
         ? null
         : TextContentNode(
             text: _buffer.toString(),
