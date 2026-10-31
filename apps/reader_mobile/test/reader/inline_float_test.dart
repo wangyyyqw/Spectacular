@@ -164,6 +164,28 @@ void main() {
     expect(floated.single.block.style!.backgroundImage, 'OEBPS/Images/a.png');
   });
 
+  test('浮动容器内独立图片不再按一行占位裁切', () async {
+    final slices = await slicesOf(
+      '<div class="ctright"><div><img src="../Images/a.png"/></div>'
+          '<p>题注</p></div>',
+      '.ctright { float: right; width: 120px; } '
+          '.ctright img { display: block; width: 120px; } '
+          '.ctright p { margin: 4px 0 0; font-size: 12px; }',
+      binaryFiles: <String, List<int>>{'OEBPS/Images/a.png': _tinyPng()},
+    );
+    final image = slices.singleWhere(
+      (slice) => slice.block.style?.backgroundImage == 'OEBPS/Images/a.png',
+    );
+    expect(image.block.floatSide, FloatSide.right);
+    expect(image.block.layout.width, closeTo(120, 0.5));
+    expect(image.block.layout.height, closeTo(120, 0.5));
+    expect(
+      image.block.layout.width,
+      lessThanOrEqualTo(120.5),
+      reason: '浮动图片不得越过容器宽度',
+    );
+  });
+
   test('真书取证：zhushen-yuxi 天赋/职业章（spine 27/28）出现浮动块', () async {
     final file = File('../../test_corpus/real/zhushen-yuxi.epub');
     if (!file.existsSync()) {
