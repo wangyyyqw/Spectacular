@@ -35,9 +35,14 @@ void main() {
     final payload = box.spec.payload! as PageBlock;
     expect(payload.layout.text, isEmpty);
     expect(payload.layout.lines, isEmpty);
-    expect(block.layout.runs.single.start, 0);
-    expect(block.layout.runs.single.end, 4);
-    expect(block.layout.runs.single.style.color.toARGB32(), 0xffff0000);
+    final runs = block.layout.runs;
+    expect(runs, hasLength(2));
+    expect(runs.first.start, 0);
+    expect(runs.first.end, 4);
+    expect(runs.first.style.color.toARGB32(), 0xffff0000);
+    expect(runs.last.start, 4);
+    expect(runs.last.end, 7);
+    expect(runs.last.style.color.toARGB32(), isNot(0xffff0000));
   });
 
   test('只有空行内盒的段落仍参与排版和分页', () async {

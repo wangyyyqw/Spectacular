@@ -317,3 +317,32 @@ spine 29 正常。单机单次样本受 JIT、字体与系统调度影响，且�
 正式 APK：`apps/reader_mobile/build/app/outputs/flutter-apk/app-release.apk`，
 包名 `com.spectacular.reader_mobile`，45.7MB，SHA-256
 `28e71f351b2cef1f982ac9314e0a156df9acd927f181a5881ebd48cc4227c37e`。
+
+## 第七轮（同日）：真机复验与测试断言校正
+
+第六轮报告中的两项失败已复核为测试假设错误，不是渲染回退：
+
+- `empty_inline_block_test.dart` 的 HTML 实际在红色外层 `span` 之后还有普通文字
+  后缀，`runs` 应为 `[0,4]` 红字与 `[4,7]` 默认色两段，旧断言错误地要求单段。
+- `inline_block_test.dart` 的 `RANK: ` 不属于 `SSS` 的加粗大字号标签，
+  `runs` 应为 `[0,6]` 普通标签与 `[6,9]` 的 24px 粗体 `SSS` 两段。
+
+只修正测试区间，没有改布局代码、容差或基线。`reader_mobile` 全量回归为
+**439 项通过、5 项跳过、0 失败**，`flutter analyze --no-pub` 无问题。
+
+设备恢复后重新测量当前生产代码，环境仍为 MEIZU 20、Android 16 和
+《诸神愚戏》148.5MB、1541 章。单位为 ms：
+
+| 检查点 | 文/图/完成 |
+| --- | ---: |
+| 首开 spine 29 | 1569 / 1633 / 1814 |
+| 跳转 spine 30 | 221 / 239 / 287 |
+| 跳转 spine 47 | 111 / 160 / 291 |
+| 远跳 spine 1515 | 93 / 144 / 292 |
+| 回访 spine 29 | 27 / 42 / 291 |
+| 跳转 spine 32 | 351 / 367 / 383 |
+| 再次打开（第二次） | 1457 / 1523 / 1721 |
+| 再次打开（第三次） | 1463 / 1529 / 1727 |
+
+原始记录：`/tmp/spectacular-device-seventh/report.json`。该轮仅复验第六轮生产代码，
+不代表后续修复的性能结论。
