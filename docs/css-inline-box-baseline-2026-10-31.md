@@ -56,9 +56,10 @@ CSS_PARITY_OUT=/tmp/css-inline-baseline /usr/bin/python3 tool/css_parity/compare
 
 - 全量仍有 63 项既有失配；字体栅格、根 padding、页首裁剪口径未改。
   未提供实测基线的旧调用方、top/bottom/middle 等组合仍保留既有近似。
-- 盒内图片/浮动/ruby、保留空白、复杂双向/竖排、嵌套 opacity、内部着重号
-  及深层性能未完整验收；spine 30 重放性能与长书内存旧风险保留。
-- 下一步优先接通原子盒内的着重号绘制，补实际 EPUB 与像素回归。
+- 盒内图片/浮动/ruby、保留空白、复杂双向/竖排、嵌套 opacity 及深层性能未完整
+  验收；spine 30 重放性能与长书内存旧风险保留。
+- 横排原子盒内的着重号已由同日审计第八轮接通并补像素、实际 CSS 和浏览器对照；
+  下一步继续核对行盒/字体盒计量口径。
 
 依据：[CSS 2.2 §10.8 行盒高度](https://www.w3.org/TR/CSS22/visudet.html#line-height)
 及同节的 inline-block 末行基线、无行/非 visible 的底部 margin 基线规则。

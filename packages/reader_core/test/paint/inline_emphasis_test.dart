@@ -363,4 +363,36 @@ void main() {
       cache.dispose();
     }
   });
+
+  test('原子行内盒内部的独立着重号按内盒基线绘制', () async {
+    final outer = _style();
+    final inner = _style({'text-emphasis': 'circle #cc0000'});
+    final innerLayout = TextLayoutEngine.layout(
+      text: '中文',
+      style: inner,
+      maxWidth: 120,
+    );
+    final innerBlock = PageBlock.styled(
+      layout: innerLayout,
+      style: inner,
+      containingWidth: 120,
+    );
+    final layout = TextLayoutEngine.layout(
+      text: '前',
+      style: outer,
+      maxWidth: 300,
+      inlineBoxes: [
+        InlineBoxSpec(
+          offset: 1,
+          width: 120,
+          height: 80,
+          contentHeight: innerLayout.height,
+          contentBaseline: innerLayout.lines.last.baseline,
+          payload: innerBlock,
+        ),
+      ],
+    );
+    final marks = _marks(await _render(_pages(layout, outer).single), _red);
+    expect(marks, hasLength(2));
+  });
 }

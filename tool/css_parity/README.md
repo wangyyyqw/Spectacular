@@ -1,7 +1,7 @@
 # CSS 属性对照工具（引擎 vs 浏览器）
 
 目标：逐条 CSS 属性对比「引擎渲染」与「Chromium 渲染」，把差异收敛到接近浏览器。
-当前 100 组用例（编号 01–103，缺 65、85、87），覆盖选择器、文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
+当前 101 组用例（编号 01–104，缺 65、85、87），覆盖选择器、文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
 ## 组成
@@ -36,7 +36,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 - `side_<case>.png`（左浏览器 / 右引擎，仅第 1 页）
 - `../../tool/css_parity/coverage.md`（属性 × 用例覆盖矩阵，见下节）
 
-## 用例清单（100 组）
+## 用例清单（101 组）
 
 | 编号 | 用例 | 覆盖属性 |
 | --- | --- | --- |
@@ -140,6 +140,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 | 101 | emphasis-shorthand | 着重号简写、层叠重置、声明顺序与 currentcolor 继承 |
 | 102 | inline-emphasis | 行内独立着重号、混合字号、跨行与空原子盒 |
 | 103 | nested-inline-box | 非空盒外层颜色、嵌套盒、相对字号、百分比宽与空内盒 |
+| 104 | atomic-inline-emphasis | 原子行内盒内部的独立上/下着重号与盒内基线 |
 
 100 的前后对照、97 组回归与剩余差异见
 [横排着重号对照记录](../../docs/css-emphasis-parity-2026-10-31.md)。该用例用段落
@@ -149,7 +150,7 @@ CSS_PARITY_THRESHOLD=40 /usr/bin/python3 tool/css_parity/compare.py  # 同上，
 [引擎审计记录](../../docs/epub-engine-audit-2026-10-31.md)。98/99 的新增声明不代表
 所有布局分支都已支持结构选择器；历史结果与覆盖百分比请结合最新 `coverage.md` 阅读。
 
-浏览器渲染：100/100 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
+浏览器渲染：101/101 成功，无 skip。第 1 页截图用于视觉对照，第 2 页只导出几何。
 44/45/60/64/66/67/77/84 在用例 JSON 里标 `engine_only: true`：浏览器不支持对应
 属性，或 Range/分页口径无法直接对照；`compare.py` 只记录引擎几何与期望值，
 不计失配，也不把截图纳入自动视觉判定。

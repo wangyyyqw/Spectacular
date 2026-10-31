@@ -1,0 +1,6 @@
+{
+  "name": "104-atomic-inline-emphasis",
+  "tags": ["text-emphasis", "display", "inline-block"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 24px; } p { margin: 16px 0; padding: 24px 0 0; line-height: 2; } .box { display: inline-block; padding: 4px 8px; background: #eeeeee; } .mark { text-emphasis: circle #cc0000; } .under { text-emphasis: filled sesame #0066cc; text-emphasis-position: under; }",
+  "html": "<p>前<span class=\"box\"><span class=\"mark\">中文</span></span>后</p><p><span class=\"box\"><span class=\"mark\">上方</span><span class=\"under\">下方</span></span></p>"
+}

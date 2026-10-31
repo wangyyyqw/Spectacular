@@ -346,3 +346,56 @@ spine 29 正常。单机单次样本受 JIT、字体与系统调度影响，且�
 
 原始记录：`/tmp/spectacular-device-seventh/report.json`。该轮仅复验第六轮生产代码，
 不代表后续修复的性能结论。
+
+## 第八轮（同日）：原子行内盒内部着重号
+
+审计剩余项中，普通文本和普通行内 run 已能绘制着重号，但 `display: inline-block`
+的 `PageBlock` 载荷进入 `_paintInlineBoxContent()` 后只画文字，不执行着重号趟。
+因此盒内的独立 `text-emphasis`、颜色、上下位置和基线位移全部丢失。这是绘制路径
+遗漏，不是解析或级联问题；内盒 `StyledRun` 已保留正确样式。
+
+实现：
+
+- `page_renderer.dart` 的横排原子盒内容复用 `HorizontalTextEmphasis`，每行只创建
+  一次标记缓存，并与正文共用同一 `TextPainter`、行原点和实际基线。
+- 嵌套原子盒仍递归进入同一函数；无着重号的内盒只做一次 `hasMarks` 判断，不增加
+  逐行选区查询。
+- 竖排原子盒仍走 `_paintVerticalColumns()`，本轮不宣称竖排内着重号已支持。
+
+验证：
+
+- 新增核心像素回归：构造 `PageBlock` 原子盒载荷，旧代码红色标记数为 0，修复后
+  为 2；`inline_emphasis_test.dart` 13 项通过。
+- 新增实际 CSS/章节源回归：内盒 `text-emphasis: circle #cc0000` 的 run、颜色与
+  区间保留；`inline_block_test.dart` 与空盒测试合计 20 项通过。
+- 新增浏览器对照 `104-atomic-inline-emphasis`，覆盖盒内上方圆点、下方芝麻点与
+  混合内外文字。原始像素差 **0.05%**、墨迹形状差 **0.08%**、未配对 **0**；
+  已人工检查并排图，盒内标记位置与浏览器一致。报告的 2 项失配来自浏览器不单独
+  导出原子盒内部文本行，不是可见几何差异。
+- `reader_core` 全量 **1314 项通过、4 项跳过**；`reader_mobile` 全量
+  **440 项通过、5 项跳过、0 失败**。移动端静态分析无问题；核心仍有
+  `computed_style.dart` 与 `html5_input.dart` 两条既有 info。
+
+真机继续使用 MEIZU 20、Android 16 和《诸神愚戏》148.5MB、1541 章。单位为 ms：
+
+| 检查点 | 第七轮 | 第八轮 |
+| --- | ---: | ---: |
+| 首开 spine 29 | 1569 / 1633 / 1814 | 1583 / 1646 / 1827 |
+| 跳转 spine 30 | 221 / 239 / 287 | 224 / 236 / 285 |
+| 跳转 spine 47 | 111 / 160 / 291 | 126 / 174 / 389 |
+| 远跳 spine 1515 | 93 / 144 / 292 | 92 / 126 / 290 |
+| 回访 spine 29 | 27 / 42 / 291 | 28 / 43 / 292 |
+| 跳转 spine 32 | 351 / 367 / 383 | 330 / 342 / 359 |
+| 再次打开（第二次） | 1457 / 1523 / 1721 | 1464 / 1528 / 1709 |
+| 再次打开（第三次） | 1463 / 1529 / 1727 | 1467 / 1534 / 1712 |
+
+第八轮首开与 spine 47 有十几到近百毫秒波动，远跳、回访、spine 32 与重复打开
+未显示明确回退；单次样本不据此宣称整体加速或回退。原始记录：
+`/tmp/spectacular-device-eighth/report.json`。
+
+正式 APK 已重建并安装：
+`apps/reader_mobile/build/app/outputs/flutter-apk/app-release.apk`，通用包 89.6MB，
+包名 `com.spectacular.reader_mobile`，SHA-256
+`8b7d4fa3a510ca235a2d7385ed0b43da818109f97fa2ea661e9a23064034fc9c`。
+下一项优先处理横向行盒/字体盒计量口径，再核对 `01-text-basic` 的第二行宽度；
+不使用扩大容差掩盖 Range 字体盒与 CSS 行盒的差异。
