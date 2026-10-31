@@ -1,0 +1,6 @@
+{
+  "name": "105-background-position-keywords",
+  "tags": ["background-position", "background-image", "background-size"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 13px; } .sample { width: 280px; height: 72px; margin: 8px 0 0 12px; line-height: 1.4; background-color: #e8edf0; background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIklEQVR4nGM0TjvDQApgIkk1w6gG4gATkergYFQDMYBkDQB2OQGFVVAHNQAAAABJRU5ErkJggg==\"); background-repeat: no-repeat; background-size: 48px 32px; } .tc { background-position: top center; } .ct { background-position: center top; } .bc { background-position: bottom center; } .cb { background-position: center bottom; } .cl { background-position: center left; } .lc { background-position: left center; } .cr { background-position: center right; } .rc { background-position: right center; }",
+  "html": "<div class=\"sample tc\">top center：顶部居中</div><div class=\"sample ct\">center top：顶部居中</div><div class=\"sample bc\">bottom center：底部居中</div><div class=\"sample cb\">center bottom：底部居中</div><div class=\"sample cl\">center left：左侧居中</div><div class=\"sample lc\">left center：左侧居中</div><div class=\"sample cr\">center right：右侧居中</div><div class=\"sample rc\">right center：右侧居中</div>"
+}

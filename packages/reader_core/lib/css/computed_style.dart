@@ -7145,38 +7145,28 @@ class ComputedStyle {
       return null;
     }
     final tokens = value.split(RegExp(r'\s+'));
-    CssLength parseOne(String token) {
-      switch (token) {
-        case 'left':
-          return const CssLength(0, isPercent: true);
-        case 'right':
-          return const CssLength(100, isPercent: true);
-        case 'top':
-          return const CssLength(0, isPercent: true);
-        case 'bottom':
-          return const CssLength(100, isPercent: true);
-        case 'center':
-          return const CssLength(50, isPercent: true);
-      }
-      return _resolveCssLength(
-            token,
-            fontSize: fontSize,
-            rootFontSize: rootFontSize,
-          ) ??
-          const CssLength(50, isPercent: true);
-    }
-
-    const center = CssLength(50, isPercent: true);
-    if (tokens.length == 1) {
-      final token = tokens.first;
-      if (token == 'top' || token == 'bottom') {
-        return CssBackgroundPosition(x: center, y: parseOne(token));
-      }
-      return CssBackgroundPosition(x: parseOne(token), y: center);
-    }
+    CssLength parseOne(String token) => switch (token) {
+      'left' || 'top' => const CssLength(0, isPercent: true),
+      'right' || 'bottom' => const CssLength(100, isPercent: true),
+      'center' => const CssLength(50, isPercent: true),
+      _ =>
+        _resolveCssLength(
+              token,
+              fontSize: fontSize,
+              rootFontSize: rootFontSize,
+            ) ??
+            const CssLength(50, isPercent: true),
+    };
+    final first = tokens.first;
+    final second = tokens.length > 1 ? tokens[1] : 'center';
+    // 双关键字允许交换书写顺序；长度和百分比仍固定先横轴、后纵轴。
+    final swap =
+        ((first == 'top' || first == 'bottom') &&
+            const {'left', 'center', 'right'}.contains(second)) ||
+        (first == 'center' && (second == 'left' || second == 'right'));
     return CssBackgroundPosition(
-      x: parseOne(tokens[0]),
-      y: parseOne(tokens[1]),
+      x: parseOne(swap ? second : first),
+      y: parseOne(swap ? first : second),
     );
   }
 
