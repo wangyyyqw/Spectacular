@@ -1,0 +1,6 @@
+{
+  "name": "102-inline-emphasis",
+  "tags": ["text-emphasis", "text-emphasis-style", "text-emphasis-color", "text-emphasis-position"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 24px; } p { margin: 8px 0; padding: 24px 0 0; line-height: 2; } .red { text-emphasis: circle #cc0000; } .blue { text-emphasis: open circle #0066cc; } .none { text-emphasis: none; } .under { text-emphasis-position: under; } .big { font-size: 36px; } .green { color: #008000; text-emphasis: circle currentcolor; } .wrap { width: 180px; } .box { display: inline-block; width: 36px; height: 18px; background: #dddddd; }",
+  "html": "<p>普通前<span class=\"red\">红色中文</span>普通后。</p><p class=\"red\">继承<span class=\"none\">取消标记</span>保留。</p><p><span class=\"red\">上方</span>与<span class=\"blue under\">下方</span>标记。</p><p><span class=\"red\">小号</span><span class=\"blue big\">大号</span>普通。</p><p><span class=\"green\">跟随绿色</span>普通黑字。</p><p class=\"wrap\">前<span class=\"red\">跨行中文连续标记检查末尾</span>后。</p><p><span class=\"red\">盒前<span class=\"box\"></span>盒后</span>普通。</p>"
+}
