@@ -190,6 +190,39 @@ void main() {
   });
 
   group('FontEncryptionMap 解析（P3-05）', () {
+    test('替代前缀与默认命名空间均按同一 XML Encryption URI 识别', () {
+      for (final prefix in <String>['enc:', 'other:', '']) {
+        final declaration = prefix.isEmpty
+            ? 'xmlns="http://www.w3.org/2001/04/xmlenc#"'
+            : 'xmlns:${prefix.substring(0, prefix.length - 1)}="http://www.w3.org/2001/04/xmlenc#"';
+        final map = FontEncryptionMap.parse('''
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <${prefix}EncryptedData $declaration>
+    <${prefix}EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <${prefix}CipherData><${prefix}CipherReference URI="OEBPS/a.otf"/></${prefix}CipherData>
+  </${prefix}EncryptedData>
+</encryption>''');
+        expect(
+          map.entries,
+          <String, FontObfuscationAlgorithm>{
+            'OEBPS/a.otf': FontObfuscationAlgorithm.idpf,
+          },
+          reason: 'prefix=$prefix',
+        );
+      }
+    });
+
+    test('同名但命名空间不匹配的元素不能声明字体混淆', () {
+      final map = FontEncryptionMap.parse('''
+<encryption xmlns:enc="urn:not-xml-encryption">
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <enc:CipherData><enc:CipherReference URI="OEBPS/a.otf"/></enc:CipherData>
+  </enc:EncryptedData>
+</encryption>''');
+      expect(map.isEmpty, isTrue);
+    });
+
     test('识别 IDPF/Adobe URI，未知算法记录', () {
       const xml = '''
 <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"

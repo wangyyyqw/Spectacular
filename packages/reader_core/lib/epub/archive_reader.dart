@@ -123,7 +123,7 @@ class EpubArchive {
     return count == 0xFFFF ? null : count;
   }
 
-  /// 组装条目表；单条 CRC 失败记诊断跳过（截断档恢复）。全部条目
+  /// 组装条目表；单条解压或 CRC 失败记诊断跳过（截断档恢复）。全部条目
   /// 损坏抛 `E_ZIP_ENTRY_TRUNCATED`，真空 ZIP 抛 `E_ARCHIVE`。
   static EpubArchive _build(
     List<ArchiveFile> files, {
@@ -138,15 +138,13 @@ class EpubArchive {
       if (!file.isFile) {
         continue;
       }
-      if (verify && file.crc32 != null) {
-        final actual = getCrc32(file.content);
-        if (actual != file.crc32) {
-          corrupted += 1;
-          notes.add(
-            'E_ZIP_ENTRY_TRUNCATED: 条目 ${file.name} 损坏（CRC 不符），已跳过',
-          );
-          continue;
-        }
+      final failure = verify ? _entryFailure(file) : null;
+      if (failure != null) {
+        corrupted += 1;
+        notes.add(
+          'E_ZIP_ENTRY_TRUNCATED: 条目 ${file.name} 损坏（$failure），已跳过',
+        );
+        continue;
       }
       final name = _normalizePath(file.name);
       if (name.isEmpty || file.isDirectory) {
@@ -172,6 +170,18 @@ class EpubArchive {
       throw const EpubException('E_ARCHIVE', 'ZIP 中没有文件');
     }
     return EpubArchive._(entries, order, List<String>.unmodifiable(notes));
+  }
+
+  static String? _entryFailure(ArchiveFile file) {
+    if (file.crc32 == null) {
+      return null;
+    }
+    try {
+      return getCrc32(file.content) == file.crc32 ? null : 'CRC 不符';
+    } catch (error) {
+      // archive 惰性解压；压缩流异常必须与 CRC 不符一样按条目隔离。
+      return '解压失败：$error';
+    }
   }
 
   /// 把解码异常归类到 ZIP 四档（P7-15）。

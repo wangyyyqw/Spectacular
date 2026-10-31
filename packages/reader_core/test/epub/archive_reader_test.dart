@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/archive_reader.dart';
+import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/epub_exception.dart';
 
+import '../support/broken_samples.dart';
 import '../support/corpus.dart';
 
 void main() {
@@ -95,6 +97,38 @@ void main() {
       isTrue,
     );
     expect(archive.diagnostics.any((d) => d.contains('bad.txt')), isTrue);
+  });
+
+  test('压缩流解压失败只跳过坏条目，未引用资源不阻止 EPUB 打开', () async {
+    final files = ZipDecoder().decodeBytes(brokenSamples['A-refs-repair.epub']!);
+    files.addFile(ArchiveFile.string('unused.bin', 'deflate content ' * 1000));
+    final zip = _breakDeflate(Uint8List.fromList(ZipEncoder().encode(files)));
+
+    final result = await openEpub(zip);
+
+    expect(result.ok, isTrue, reason: result.report.message);
+    final archive = result.document!.archive;
+    addTearDown(archive.close);
+    expect(archive.readString('OEBPS/c1.xhtml'), contains('正文内容'));
+    expect(archive.contains('unused.bin'), isFalse);
+    expect(result.report.warnings, contains(contains('unused.bin')));
+    expect(result.report.warnings, contains(contains('E_ZIP_ENTRY_TRUNCATED')));
+  });
+
+  test('全部压缩流解压失败仍按条目截断分类拒绝', () {
+    final files = Archive()
+      ..addFile(ArchiveFile.string('unused.bin', 'deflate content ' * 1000));
+    final zip = _breakDeflate(Uint8List.fromList(ZipEncoder().encode(files)));
+    expect(
+      () => EpubArchive.fromBytes(zip),
+      throwsA(
+        isA<EpubException>().having(
+          (error) => error.code,
+          'code',
+          'E_ZIP_ENTRY_TRUNCATED',
+        ),
+      ),
+    );
   });
 
   test('显式关闭 CRC 时保留条目，默认仍过滤损坏内容', () {
@@ -214,6 +248,26 @@ int _indexOf(List<int> haystack, List<int> needle) {
     return i;
   }
   return -1;
+}
+
+/// 把指定 deflate 流的首块设为保留类型，确保失败发生在解压而非 CRC 比较。
+Uint8List _breakDeflate(Uint8List zip) {
+  final data = ByteData.sublistView(zip);
+  for (var offset = 0; offset < zip.length - 30; offset++) {
+    if (data.getUint32(offset, Endian.little) != 0x04034b50) {
+      continue;
+    }
+    final nameLength = data.getUint16(offset + 26, Endian.little);
+    final name = utf8.decode(zip.sublist(offset + 30, offset + 30 + nameLength));
+    if (name != 'unused.bin') {
+      continue;
+    }
+    expect(data.getUint16(offset + 8, Endian.little), 8);
+    final extraLength = data.getUint16(offset + 28, Endian.little);
+    zip[offset + 30 + nameLength + extraLength] = 0x07;
+    return zip;
+  }
+  throw StateError('缺少待损坏的压缩条目');
 }
 
 /// 两个 store 条目的最小 ZIP（字节可控，便于故障注入，P7-15）。

@@ -54,6 +54,7 @@ class ResourceIndex {
   final Map<String, String?> _lower;
   final Map<String, List<String>> _byBaseName;
   final Map<String, List<String>> _byMediaType;
+  final Map<String, String> _repaired = <String, String>{};
 
   /// 大小写冲突的路径（小写形式）。
   final Set<String> conflicts;
@@ -91,6 +92,12 @@ class ResourceIndex {
       final hit = _exact[candidate];
       if (hit != null) {
         return hit;
+      }
+    }
+    for (final candidate in candidates) {
+      final repaired = _repaired[candidate];
+      if (repaired != null) {
+        return repaired;
       }
     }
 
@@ -160,8 +167,9 @@ class ResourceIndex {
   ///
   /// 六级链路全部未命中时，按「同主名 + 嗅探类型匹配」找资源：扩展名
   /// 缺失/错误、media-type 声明错误的书籍靠字节魔数兜底。只对
-  /// [expectedMediaType] 可归类（图片/字体，见 [classifyMediaType]）的
-  /// 引用尝试，候选限定同主名条目，不读全库。未命中返回 null。
+  /// [mediaType] 可归类（图片/字体，见 [classifyMediaType]）的引用尝试。
+  /// 优先同目录的唯一候选，其余仅接受全库唯一候选；修复只记录内存别名，
+  /// 后续 [resolve] 与 [read] 共用，不改写原书。未命中或有歧义返回 null。
   String? sniffResolve(
     EpubArchive archive,
     String href, {
@@ -169,20 +177,43 @@ class ResourceIndex {
     String? mediaType,
   }) {
     final expected = classifyMediaType(mediaType);
-    if (expected == null) {
+    final cleaned = _stripQueryAndFragment(href).replaceAll('\\', '/');
+    if (expected == null || cleaned.isEmpty) {
       return null;
     }
-    final cleaned = _stripQueryAndFragment(href).replaceAll('\\', '/');
-    final decoded = _decode(cleaned);
-    final baseName = p.posix.basename(cleaned);
-    final decodedBase = p.posix.basename(decoded);
-    String stemOf(String name) {
-      final dot = name.lastIndexOf('.');
-      return dot < 0 ? name : name.substring(0, dot);
+    final base = _stripQueryAndFragment(baseDir ?? '').replaceAll('\\', '/');
+    final keys = <String>{
+      cleaned.startsWith('/') ? _normalize(cleaned) : _join(base, cleaned),
+      cleaned.startsWith('/')
+          ? _normalize(_decode(cleaned))
+          : _join(base, _decode(cleaned)),
+    };
+    final matches = _sniffMatches(archive, keys, expected);
+    final directories = keys.map(_dirOf).toSet();
+    final sameDirectory = matches
+        .where((name) => directories.contains(_dirOf(name)))
+        .toList(growable: false);
+    final candidates = sameDirectory.isEmpty ? matches : sameDirectory;
+    if (candidates.length != 1) {
+      return null;
     }
-    final stems = <String>{stemOf(baseName).toLowerCase(), stemOf(decodedBase).toLowerCase()};
+    final path = candidates.single;
+    for (final key in keys) {
+      _repaired[key] = path;
+    }
+    fallbackHits += 1;
+    return path;
+  }
+
+  static List<String> _sniffMatches(
+    EpubArchive archive,
+    Set<String> keys,
+    String expected,
+  ) {
+    final stems = keys.map(_stemOf).toSet();
+    final matches = <String>[];
     for (final name in archive.names) {
-      if (!stems.contains(stemOf(p.posix.basename(name)).toLowerCase())) {
+      if (!stems.contains(_stemOf(name))) {
         continue;
       }
       final bytes = archive.readBytes(name);
@@ -191,11 +222,16 @@ class ResourceIndex {
       }
       final actual = sniffMediaType(bytes);
       if (actual != null && classifyMediaType(actual) == expected) {
-        fallbackHits += 1;
-        return name;
+        matches.add(name);
       }
     }
-    return null;
+    return matches;
+  }
+
+  static String _stemOf(String path) {
+    final name = p.posix.basename(path);
+    final dot = name.lastIndexOf('.');
+    return (dot < 0 ? name : name.substring(0, dot)).toLowerCase();
   }
 
   /// media-type 归类：图片 / 字体 / 其他（null）。嗅探比对按类匹配，
