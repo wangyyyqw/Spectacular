@@ -1961,6 +1961,69 @@ void main() {
     }
   });
 
+  test('定宽普通流的 auto margin 解成 used value', () {
+    final centered = style(
+      'p',
+      'p { width: 240px; margin: 20% auto 0 auto; }',
+      containingWidth: 400,
+    );
+    expect(centered.margin.top, 80);
+    expect(centered.margin.left, 80);
+    expect(centered.margin.right, 80);
+
+    final leftAuto = style(
+      'p',
+      'p { width: 200px; margin-left: auto; margin-right: 10px; }',
+      containingWidth: 350,
+    );
+    expect(leftAuto.margin.left, 140);
+    expect(leftAuto.margin.right, 10);
+
+    final rightAuto = style(
+      'p',
+      'p { width: 200px; margin-left: 10px; margin-right: auto; }',
+      containingWidth: 350,
+    );
+    expect(rightAuto.margin.left, 10);
+    expect(rightAuto.margin.right, 140);
+
+    final borderBox = style(
+      'p',
+      'p { box-sizing: border-box; width: 200px; padding: 10px; '
+          'border: 3px solid; margin: 0 auto; }',
+      containingWidth: 350,
+    );
+    expect(borderBox.contentBoxWidth(350), 174);
+    expect(borderBox.margin.left, 75);
+    expect(borderBox.margin.right, 75);
+  });
+
+  test('auto margin 不改变 auto 宽、浮动与绝对定位语义', () {
+    final autoWidth = style(
+      'p',
+      'p { width: auto; margin: 0 auto; }',
+      containingWidth: 350,
+    );
+    expect(autoWidth.margin.left, 0);
+    expect(autoWidth.margin.right, 0);
+
+    final floated = style(
+      'p',
+      'p { float: left; width: 200px; margin: 0 auto; }',
+      containingWidth: 350,
+    );
+    expect(floated.margin.left, 0);
+    expect(floated.margin.right, 0);
+
+    final absolute = style(
+      'p',
+      'p { position: absolute; width: 200px; margin: 0 auto; }',
+      containingWidth: 350,
+    );
+    expect(absolute.margin.left, 0);
+    expect(absolute.margin.right, 0);
+  });
+
   test('尺寸/内边距/box-sizing 默认值且不继承', () {
     final initial = ComputedStyle(const <String, String>{});
     expect(initial.width, isNull);

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
@@ -87,6 +88,50 @@ void main() {
     final image = blocks.firstWhere((block) => block.layout.text.isEmpty);
     expect(image.style!.values['width'], '122.5px');
     expect(image.style!.margin.left, closeTo(113.75, 0.01));
+  });
+
+  test('纯图块按父级 text-align 居中', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="gallery"><div class="cell">'
+          '<img src="../Images/chart.jpg"/>'
+          '</div></div><p>正文</p>',
+      css:
+          'div.gallery { width: 100%; text-align: center; } '
+          'div.cell img { width: 80%; margin: 0.35em 0; }',
+      contentWidth: 350,
+      contentHeight: 800,
+    );
+    final blocks = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    final image = blocks.firstWhere((block) => block.layout.text.isEmpty);
+    expect(image.style!.values['width'], '280.0px');
+    expect(image.style!.margin.left, closeTo(35, 0.01));
+  });
+
+  test('定宽标题的 auto margin 让文字与盒一起水平居中', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="bookcoverdA1">'
+          '<b>人</b> <b>物</b> <b>关</b> <b>系</b> <b>图</b>'
+          '</div>',
+      css:
+          'body { margin: 0; } '
+          'div.bookcoverdA1 { width: 160px; margin: 20% auto 0 auto; '
+          'font-size: 20px; text-align: center; } '
+          'div.bookcoverdA1 b { background: #fff; }',
+      contentWidth: 320,
+      contentHeight: 800,
+    );
+    final page = (await source.loadChapter(0)).first;
+    final block = page.slices.single.block;
+    expect(block.layout.maxWidth, 160);
+    expect(block.style!.margin.left, 80);
+    expect(block.style!.margin.right, 80);
+    final line = TextHitTester.lineBoxes(page).single;
+    expect(line.rect.center.dx, closeTo(160, 1));
   });
 
   test('卡片之间不折叠各自容器内部的段距', () async {

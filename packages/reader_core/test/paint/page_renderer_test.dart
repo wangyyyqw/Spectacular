@@ -334,6 +334,39 @@ void main() {
     expect(_firstInkColumn(bytes, row), closeTo((180 - 48) / 2, 2));
   });
 
+  test('定宽块 auto margin 让背景盒左右等距', () async {
+    final style = ComputedStyle(const <String, String>{
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': _font,
+      'width': '80px',
+      'margin': '0 auto',
+      'background-color': '#ff0000',
+    }, containingWidth: _size.width);
+    final layout = TextLayoutEngine.layout(
+      text: 'a',
+      style: style,
+      maxWidth: style.contentBoxWidth(_size.width),
+    );
+    final page = Paginator(pageHeight: 100)
+        .measureChapter(
+          blocks: [
+            PageBlock.styled(
+              layout: layout,
+              style: style,
+              containingWidth: _size.width,
+            ),
+          ],
+        )
+        .pages
+        .single;
+    final bytes = await _renderPage(page);
+    final row = _firstInkRow(bytes);
+    expect(row, greaterThanOrEqualTo(0));
+    expect(_firstInkColumn(bytes, row), 60);
+    expect(_lastInkColumn(bytes, row), 139);
+  });
+
   test('right 对齐绘制贴内容区右边', () async {
     final bytes = await _renderAligned('right');
     final row = _firstInkRow(bytes);
