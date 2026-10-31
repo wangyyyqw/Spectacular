@@ -2146,6 +2146,30 @@ class EpubChapterSource
   /// 图片显示尺寸（P9-08）：书籍 CSS 的 `width/height` 优先（px/%/em），
   /// 其次 HTML `width/height` 属性，缺边按原始宽高比补齐；都没有时按全宽
   /// 近似。高超出页高时钳制（contain 绘制不变形）。
+  static bool _isAutoHorizontalMargin(
+    ComputedStyle style, {
+    required bool left,
+  }) {
+    final longhand = style.values[left ? 'margin-left' : 'margin-right'];
+    if (longhand != null) {
+      return longhand.trim().toLowerCase() == 'auto';
+    }
+    final shorthand = style.values['margin'];
+    if (shorthand == null) {
+      return false;
+    }
+    final tokens = shorthand.trim().split(RegExp(r'\s+'));
+    if (tokens.isEmpty || tokens.length > 4) {
+      return false;
+    }
+    final index = switch (tokens.length) {
+      1 => 0,
+      2 || 3 => 1,
+      _ => left ? 3 : 1,
+    };
+    return tokens[index].toLowerCase() == 'auto';
+  }
+
   (double, double) _resolveImageDisplaySize(
     Map<String, String> attributes,
     ImageIntrinsicSize? intrinsic,
@@ -4502,12 +4526,51 @@ class EpubChapterSource
           contentWidth +
           (bleed.left ? pageInsetLeft : 0) +
           (bleed.right ? pageInsetRight : 0);
+      // 纯图块会被聚合器提升到父容器之外，祖先宽度只保留在
+      // `containerChain` 中。这里重走折叠链求可用内容宽，否则
+      // `div{width:35%} img{width:100%}` 会把图片放大到整页正文宽。
+      var imageContainingWidth = bleedWidth;
+      var autoMarginLeft = 0.0;
+      if (!bleed.left && !bleed.right) {
+        var availableWidth = contentWidth;
+        for (var i = 0; i < foldedChain.length; i++) {
+          final tag = foldedChain[i].tag;
+          if (tag == 'body' || tag == 'html') {
+            continue;
+          }
+          final containerStyle = chainStyle(foldedChain.sublist(0, i + 1));
+          final model = BoxModel.fromStyle(
+            containerStyle,
+            containingWidth: availableWidth,
+          );
+          final resolvedWidth = model.resolveContentWidth(availableWidth);
+          final borderBoxWidth = model.borderBoxWidth(resolvedWidth);
+          final leftAuto = _isAutoHorizontalMargin(containerStyle, left: true);
+          final rightAuto = _isAutoHorizontalMargin(
+            containerStyle,
+            left: false,
+          );
+          if (leftAuto && rightAuto) {
+            autoMarginLeft += math.max(
+              0.0,
+              (availableWidth - borderBoxWidth) / 2,
+            );
+          } else if (leftAuto) {
+            autoMarginLeft += math.max(
+              0.0,
+              availableWidth - borderBoxWidth - containerStyle.margin.right,
+            );
+          }
+          availableWidth = resolvedWidth;
+        }
+        imageContainingWidth = availableWidth;
+      }
       var size = _resolveImageDisplaySize(
         node.attributes,
         imageSizes[url],
-        bleedWidth,
+        imageContainingWidth,
         contentHeight,
-        cssWidth: imageStyle.width?.resolve(bleedWidth),
+        cssWidth: imageStyle.width?.resolve(imageContainingWidth),
         cssHeight: imageStyle.height?.resolve(contentHeight),
         aspectRatio: imageStyle.aspectRatio,
       );
