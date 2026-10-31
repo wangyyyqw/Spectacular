@@ -90,6 +90,19 @@ void main() {
     expect(styles.links, <String>['css/main.css', 'css/extra.css']);
   });
 
+  test('空自闭合 title 不影响 style 与 stylesheet link 提取', () {
+    const xhtml = '''
+<html><head><title/><style>p { color: red; }</style>
+<link rel="stylesheet" href="css/main.css"/>
+</head><body><p>x</p></body></html>
+''';
+
+    final styles = CssParser.extractFromXhtml(xhtml);
+
+    expect(styles.css, contains('color: red'));
+    expect(styles.links, <String>['css/main.css']);
+  });
+
   test('语法错误后分块恢复后续规则', () {
     const css =
         'p { color: red; } } .good { color: blue; } .tail { margin: 0; }';

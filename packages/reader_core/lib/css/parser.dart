@@ -3,6 +3,7 @@ import 'package:csslib/parser.dart' as csslib;
 import 'package:csslib/visitor.dart';
 import 'package:html/parser.dart' as html_parser;
 
+import '../parser/html5_input.dart';
 import 'font_face.dart';
 
 /// 一条 CSS 声明。
@@ -366,7 +367,7 @@ abstract final class CssParser {
 
   /// 从 XHTML 中提取 `<style>` 与 `<link rel=stylesheet>`。
   static InlineStyles extractFromXhtml(String xhtml) {
-    final document = html_parser.parse(xhtml);
+    final document = html_parser.parse(prepareHtml5Input(xhtml));
     final css = StringBuffer();
     final links = <String>[];
     final sources = <CssStyleSource>[];
