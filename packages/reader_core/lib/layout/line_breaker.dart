@@ -1006,19 +1006,15 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution,
     );
-    // P2-12：按字形覆盖叠加字体族分段。未传 hasGlyph 或未声明 font-family 时
-    // 走原路径，行为与之前完全一致。
-    final styled = hasGlyph == null || style.fontFamilies.isEmpty
+    // P2-12：按字形覆盖叠加字体族分段。未传 hasGlyph 时走原路径，
+    // 行为与之前完全一致。
+    final styled = hasGlyph == null
         ? ordered
         : _applyScriptFallback(
+            text: text,
             runs: ordered,
-            scriptRuns: buildScriptFontRuns(
-              text,
-              style.fontFamilies,
-              hasGlyph: hasGlyph,
-            ),
             baseStyle: style,
-            length: text.length,
+            hasGlyph: hasGlyph,
           );
     // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
     var measuredEnd = text.length;
@@ -1635,23 +1631,62 @@ abstract final class TextLayoutEngine {
   /// font-family，字号/字重/颜色等保持原值；调用方未覆盖的文本以 [baseStyle]
   /// 兜底后再叠加。相邻且同源的片段会合并，尽量不把调用方区间打碎。
   static List<StyledRun> _applyScriptFallback({
+    required String text,
     required List<StyledRun> runs,
-    required List<ScriptFontRun> scriptRuns,
     required ComputedStyle baseStyle,
-    required int length,
+    required bool Function(String family, int codeUnit) hasGlyph,
   }) {
-    if (scriptRuns.isEmpty) {
-      return runs;
-    }
-    // 用两种区间的全部端点把文本切成互不重叠的小段。
-    final cuts = <int>{0, length};
+    final baseFamilies = _scriptFamilies(baseStyle);
+    final baseScriptRuns = buildScriptFontRuns(
+      text,
+      baseFamilies,
+      hasGlyph: hasGlyph,
+    );
+    var hasScriptCoverage = baseScriptRuns.isNotEmpty;
+    // 行内 run 的字体声明优先于正文默认链；为每个 owner 单独计算覆盖分段，
+    // 否则正文的默认回退字体会覆盖书内 span 自己声明的字体。
+    final ownerScriptRuns = <int, List<ScriptFontRun>>{};
+    final cuts = <int>{0, text.length};
     for (final run in runs) {
-      cuts.add(run.start);
-      cuts.add(run.end);
+      final start = run.start.clamp(0, text.length).toInt();
+      final end = run.end.clamp(start, text.length).toInt();
+      cuts
+        ..add(start)
+        ..add(end);
+      if (end <= start) {
+        continue;
+      }
+      final families = _scriptFamilies(run.style);
+      final localRuns = buildScriptFontRuns(
+        text.substring(start, end),
+        families,
+        hasGlyph: hasGlyph,
+      );
+      if (localRuns.isNotEmpty) {
+        hasScriptCoverage = true;
+      }
+      ownerScriptRuns[run.start] = <ScriptFontRun>[
+        for (final local in localRuns)
+          ScriptFontRun(
+            start: local.start + start,
+            end: local.end + start,
+            family: local.family,
+          ),
+      ];
+      for (final local in ownerScriptRuns[run.start]!) {
+        cuts
+          ..add(local.start)
+          ..add(local.end);
+      }
     }
-    for (final run in scriptRuns) {
-      cuts.add(run.start);
-      cuts.add(run.end);
+    for (final run in baseScriptRuns) {
+      cuts
+        ..add(run.start)
+        ..add(run.end);
+    }
+    // 用全部端点把文本切成互不重叠的小段。
+    if (!hasScriptCoverage) {
+      return runs;
     }
     final boundaries = cuts.toList()..sort();
 
@@ -1688,23 +1723,17 @@ abstract final class TextLayoutEngine {
       openShift = 0;
     }
 
-    var scriptIndex = 0;
     for (var i = 0; i + 1 < boundaries.length; i++) {
       final start = boundaries[i];
       final end = boundaries[i + 1];
       if (end <= start) {
         continue;
       }
-      while (scriptIndex < scriptRuns.length &&
-          scriptRuns[scriptIndex].end <= start) {
-        scriptIndex += 1;
-      }
-      final family =
-          scriptIndex < scriptRuns.length &&
-              scriptRuns[scriptIndex].start <= start
-          ? scriptRuns[scriptIndex].family
-          : null;
       final owner = _owningRun(runs, start, end);
+      final family = _scriptFamilyAt(
+        owner == null ? baseScriptRuns : ownerScriptRuns[owner.start],
+        start,
+      );
       final style = _segmentStyle(owner, family, baseStyle, withFamily);
       final shift = owner?.baselineShift ?? 0;
       if (style == null) {
@@ -1724,6 +1753,41 @@ abstract final class TextLayoutEngine {
     }
     flush();
     return merged;
+  }
+
+  static List<String> _scriptFamilies(ComputedStyle style) {
+    final families = <String>[];
+    void add(String family) {
+      if (!families.contains(family)) {
+        families.add(family);
+      }
+    }
+
+    for (final family in style.fontFamilies) {
+      // 这里同样要走别名映射：`仿宋`、`宋体` 等主族保留原名时，
+      // hasGlyph 能识别别名，但最终 run 仍写原名，引擎找不到对应字库
+      // 就画豆腐块。映射后选中项与实际可使用的主族一致。
+      add(FontFamilyAliases.resolve(family) ?? family);
+    }
+    for (final family in _fallbackChain(style) ?? const <String>[]) {
+      add(family);
+    }
+    return families;
+  }
+
+  static String? _scriptFamilyAt(List<ScriptFontRun>? runs, int offset) {
+    if (runs == null) {
+      return null;
+    }
+    for (final run in runs) {
+      if (run.start > offset) {
+        return null;
+      }
+      if (run.start <= offset && run.end > offset) {
+        return run.family;
+      }
+    }
+    return null;
   }
 
   /// 完整覆盖 `[start, end)` 的调用方区间；重叠时取升序首个（与绘制一致）。

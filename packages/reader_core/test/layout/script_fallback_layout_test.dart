@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/text/script.dart';
 
@@ -122,6 +123,25 @@ void main() {
       expect(run.style.fontSize, 16);
     }
     expect(outside.first.style.fontFamily, _familyCjk);
+  });
+
+  test('字体别名选中的 run 写规范族名，不保留未注册原名', () {
+    final style = ComputedStyle(const <String, String>{
+      'font-size': '16px',
+      'font-family': '"仿宋", serif',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: '制作说明',
+      style: style,
+      maxWidth: 200,
+      hasGlyph: (family, codeUnit) =>
+          family == FontFamilyAliases.song,
+    );
+    expect(layout.runs, isNotEmpty);
+    expect(
+      layout.runs.map((run) => run.style.fontFamily).toSet(),
+      <String>{FontFamilyAliases.song},
+    );
   });
 
   test('hasGlyph 缺省时 layout.runs 原样返回调用方区间', () {

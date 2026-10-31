@@ -36,6 +36,7 @@ import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
 import 'package:reader_core/position/cfi.dart' show cfiWithCharOffset;
+import 'package:reader_core/text/font_coverage.dart';
 import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -446,6 +447,7 @@ class EpubChapterSource
       text: text,
       style: dropStyle,
       maxWidth: contentWidth,
+      hasGlyph: _hasBookFontGlyph,
     );
     final glyphWidth = measured.lines.isEmpty
         ? 1.0
@@ -702,6 +704,7 @@ class EpubChapterSource
   /// 只认这个引擎族名；书名 CSS 里的 `font-family: "mm"` 不改写就等于整条
   /// font-face 链路白建（真书：章号被画成缺字方块）。
   final Map<String, String> _bookFontEngines = <String, String>{};
+  final Map<String, FontCoverage> _bookFontCoverages = <String, FontCoverage>{};
 
   String get _bookId => 'bk-${document.opfPath.hashCode}';
 
@@ -783,8 +786,36 @@ class EpubChapterSource
       final engine = loader.engineFamily(face.family);
       if (engine != null) {
         _bookFontEngines[face.family.toLowerCase()] = engine;
+        final coverage = loader.coverage(face.family);
+        if (coverage != null) {
+          _bookFontCoverages[engine] = coverage;
+        }
+        continue;
+      }
+      // 只在 `local()` 中声明系统宋体/黑体等的书籍字体没有可嵌入字节。
+      // 保留原族名会让引擎把其 cmap 中的 glyph 0 画成黑方块；复用现有
+      // 内置字族别名，既贴近浏览器 local() 结果，也能继续按字形回退。
+      for (final source in face.sources) {
+        final alias = source.isLocal
+            ? FontFamilyAliases.resolve(source.ref)
+            : null;
+        if (alias != null) {
+          _bookFontEngines[face.family.toLowerCase()] = alias;
+          break;
+        }
       }
     }
+  }
+
+  bool _hasBookFontGlyph(String family, int codeUnit) {
+    final engine = FontFamilyAliases.resolve(family) ?? family;
+    final coverage = _bookFontCoverages[family] ?? _bookFontCoverages[engine];
+    // 楷体/黑体目前没有内置字节，未知的 `builtin_*` 主族又不会触发
+    // TextStyle 的逐字回退；显式判缺后可落到内置宋体，避免豆腐块。
+    if (engine == FontFamilyAliases.kai || engine == FontFamilyAliases.hei) {
+      return coverage?.covers(codeUnit) ?? false;
+    }
+    return coverage == null || coverage.covers(codeUnit);
   }
 
   /// 重写作者样式表里的 `font-family` / `font` 简写：书内字族换成引擎族名。
@@ -1094,6 +1125,7 @@ class EpubChapterSource
         text: '',
         style: style,
         maxWidth: boxWidth,
+        hasGlyph: _hasBookFontGlyph,
       ),
       style: style,
       containingWidth: contentWidth,
@@ -2788,6 +2820,7 @@ class EpubChapterSource
           text: block.layout.text,
           style: boxStyle,
           maxWidth: batchWidth,
+          hasGlyph: _hasBookFontGlyph,
         );
         // overflow: visible 保留盒外全部行；显式裁剪时保留行顶位于盒内的
         // 行，末尾整行绘制仍由切片矩形裁掉，与浏览器部分可见行一致。
@@ -2879,6 +2912,7 @@ class EpubChapterSource
             text: remaining,
             style: textStyle,
             maxWidth: batchWidth,
+            hasGlyph: _hasBookFontGlyph,
           );
           // 取行：直到占位状态变化（下一行的区间不同）、页尽或文本尽。
           var taken = 0;
@@ -3917,6 +3951,7 @@ class EpubChapterSource
               maxWidth: contentWidthLimit,
               runs: runs,
               inlineBoxes: flow.boxes,
+              hasGlyph: _hasBookFontGlyph,
             );
           }
           return flow.text.isEmpty
@@ -3932,6 +3967,7 @@ class EpubChapterSource
                   style: inlineStyle,
                   maxWidth: contentWidthLimit,
                   runs: runs,
+                  hasGlyph: _hasBookFontGlyph,
                 );
         }
 
@@ -4217,6 +4253,7 @@ class EpubChapterSource
               style: cellStyle,
               maxWidth: width,
               runs: runs,
+              hasGlyph: _hasBookFontGlyph,
             )
           : TextLayoutEngine.layout(
               text: remainingText,
@@ -4224,6 +4261,7 @@ class EpubChapterSource
               maxWidth: width,
               runs: runs,
               inlineBoxes: boxes,
+              hasGlyph: _hasBookFontGlyph,
             );
     }
 
@@ -4516,6 +4554,8 @@ class EpubChapterSource
         // height 单独声明时 style 没有 width，边框盒会按整页宽绘制背景；
         // 写入解算后的 used width，让背景、边框与图片占位宽一致。
         'width': '${size.$1}px',
+        if (autoMarginLeft > 0)
+          'margin-left': '${imageStyle.margin.left + autoMarginLeft}px',
         'background-image': 'url($url)',
         'background-size': objectFit.size,
         // 出血图（多看 `duokan-bleed`）：块盒被撑到页面边缘后，`contain`
@@ -5938,6 +5978,7 @@ class EpubChapterSource
                 style: measureStyle,
                 maxWidth: measureWidth,
                 runs: runs,
+                hasGlyph: _hasBookFontGlyph,
               )
             : TextLayoutEngine.layout(
                 text: paragraphText,
@@ -5945,6 +5986,7 @@ class EpubChapterSource
                 maxWidth: measureWidth,
                 runs: runs,
                 inlineBoxes: inlineBoxes,
+                hasGlyph: _hasBookFontGlyph,
               );
         if (outOfFlowBoxWidth != null) {
           layout = withLayoutWidth(
