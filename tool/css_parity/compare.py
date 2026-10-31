@@ -406,8 +406,24 @@ def line_tolerance(engine_style):
     return max(TOL, (float(line_height) - float(font_size)) / 2 + 0.5)
 
 
+def browser_line_box_y(line, line_box_height):
+    """把 Chrome Range 的字体盒顶还原为 CSS 行盒顶。
+
+    非替换行内盒的字体盒在 CSS 行高内上下居中；字体比行高更大时，
+    Range 的 y 会高出 CSS 行盒，不能直接与引擎 LineBox.top 比较。
+    字体盒仍在行高内时保留浏览器原值，避免改变既有对照口径。
+    """
+    y = line.get('y')
+    height = line.get('h')
+    if y is None or height is None or line_box_height is None:
+        return y
+    if float(height) <= float(line_box_height):
+        return y
+    return y + (float(height) - float(line_box_height)) / 2
+
+
 def compare_lines(browser_lines, engine_lines, tol, width_cap=None,
-                  use_baseline=False):
+                  use_baseline=False, normalize_font_box_y=False):
     """逐行比 y/x/宽。
 
     [width_cap] 用于 `text-overflow: ellipsis|clip`：浏览器量到的是整行
@@ -428,6 +444,13 @@ def compare_lines(browser_lines, engine_lines, tol, width_cap=None,
                 # 引擎导出页内绝对基线。
                 a, b = left['baseline'], right['baselineAbs']
                 limit = BASELINE_TOL
+            elif key == 'y' and normalize_font_box_y:
+                # Range 是字体盒，引擎导出的是 CSS 行盒；还原后按普通
+                # 几何容差比较，不靠放大行高容差掩盖行顶偏差。
+                normalized_y = browser_line_box_y(left, right.get('h'))
+                if normalized_y != a:
+                    a = normalized_y
+                    limit = TOL
             if a is None or b is None:
                 problems.append(f'{pos} {key}: 浏览器 {fmt(a)} / 引擎 {fmt(b)}（缺失）')
                 continue
@@ -1016,7 +1039,9 @@ def diff_single_page(name, browser, engine, meta):
                     width_cap=width_cap,
                     use_baseline=bool(block.get('hasInlineBox')
                                       or is_vertical(block.get('style'))
-                                      or is_vertical(el.get('style')))))
+                                      or is_vertical(el.get('style'))),
+                    normalize_font_box_y=not meta.get(
+                        'browserLineRectsAreFontBoxes')))
         found.extend(compare_style(el.get('style') or {}, block.get('style') or {}))
         found.extend(compare_transform(el.get('style'), block.get('style')))
         found.extend(compare_runs(elements, block))
