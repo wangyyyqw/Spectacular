@@ -82,7 +82,7 @@
 
 ## 3. 任务点名但证据不足的属性
 
-下面这些属性在任务清单里被点名，但在 7 本真实书、Eninix 提取的多看样式表、Reeden 反编译字符串、Readest 与 epubCssFixer 中都没有找到实例或说明。它们不应按「已知多看规范」实现。
+下面这些属性在任务清单里被点名，但在 7 本真实书、Eninix 提取的多看样式表、Reeden 静态分析资料中的字符串、Readest 与 epubCssFixer 中都没有找到实例或说明。它们不应按「已知多看规范」实现。
 
 | 属性 | 现有线索 | 引擎状态 | 结论 |
 | --- | --- | --- | --- |
@@ -96,8 +96,8 @@
 | `duokan-page-break-inside` | 别名层已有 | ✅ | 同上，书内实际写的是 `duokan-break-inside` |
 | `duokan-hyphenate` | 无 | ❌ | 未证实存在，暂不建议实现；西文断字已由 `-epub-hyphens` 覆盖 |
 | `duokan-text-justify` | 无 | ❌ | 未证实存在，暂不建议实现；书内两端对齐用 `duokan-text-align: justify` |
-| `duokan-text-decoration-width` | 仅 Reeden 反编译字符串 | ❌ | 第三方字符串不能证明多看支持；先观察 |
-| `duokan-text-decoration-color` | 仅 Reeden 反编译字符串 | ❌ | 同上 |
+| `duokan-text-decoration-width` | 仅见于 Reeden 静态分析资料 | ❌ | 第三方字符串不能证明多看支持；先观察 |
+| `duokan-text-decoration-color` | 仅见于 Reeden 静态分析资料 | ❌ | 同上 |
 
 ## 4. 书内真实用法片段
 
