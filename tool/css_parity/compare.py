@@ -464,6 +464,15 @@ def compare_lines(browser_lines, engine_lines, tol, width_cap=None,
     return problems
 
 
+def browser_omits_atomic_inline_box_lines(block, browser_lines):
+    """浏览器不会为仅含原子行内盒的父元素导出 Range 文本行。
+
+    这类父块仍通过边框盒、子元素行与像素图对照；若强行比较 0 行对 N 行，
+    只会产生假失配。普通空文本块没有 [hasInlineBox]，仍按原逻辑报错。
+    """
+    return bool(block.get('hasInlineBox')) and not browser_lines
+
+
 def ellipsis_width_cap(browser_style, block):
     """text-overflow 截断元素的可用行宽上限；不需要时返回 None。
 
@@ -927,6 +936,7 @@ def diff_single_page(name, browser, engine, meta):
     transformed_blocks = []
     vertical_blocks = []
     font_box_lines = []
+    atomic_inline_lines = []
     decoration_blocks = []
     # 多列容器：引擎每列一个块，浏览器一个元素。先按「块文本是元素文本片段」
     # 把同一容器的列块归组，块级用列带并集 bbox、行级用各列行拼接后比较。
@@ -1025,7 +1035,9 @@ def diff_single_page(name, browser, engine, meta):
                     el.get('rect') or {},
                     el.get('style') or {},
                 )
-                if meta.get('browserLineRectsAreFontBoxes'):
+                if browser_omits_atomic_inline_box_lines(block, browser_lines):
+                    atomic_inline_lines.append(label)
+                elif meta.get('browserLineRectsAreFontBoxes'):
                     line_height = (block.get('style') or {}).get('lineHeight')
                     block_top = (el.get('rect') or {}).get('y')
                     if line_height is not None and block_top is not None:
@@ -1034,14 +1046,17 @@ def diff_single_page(name, browser, engine, meta):
                             for index, line in enumerate(browser_lines)
                         ]
                         font_box_lines.append(label)
-                found.extend(compare_lines(
-                    browser_lines, block.get('lines') or [], tol,
-                    width_cap=width_cap,
-                    use_baseline=bool(block.get('hasInlineBox')
-                                      or is_vertical(block.get('style'))
-                                      or is_vertical(el.get('style'))),
-                    normalize_font_box_y=not meta.get(
-                        'browserLineRectsAreFontBoxes')))
+                if not browser_omits_atomic_inline_box_lines(
+                    block, browser_lines
+                ):
+                    found.extend(compare_lines(
+                        browser_lines, block.get('lines') or [], tol,
+                        width_cap=width_cap,
+                        use_baseline=bool(block.get('hasInlineBox')
+                                          or is_vertical(block.get('style'))
+                                          or is_vertical(el.get('style'))),
+                        normalize_font_box_y=not meta.get(
+                            'browserLineRectsAreFontBoxes')))
         found.extend(compare_style(el.get('style') or {}, block.get('style') or {}))
         found.extend(compare_transform(el.get('style'), block.get('style')))
         found.extend(compare_runs(elements, block))
@@ -1086,6 +1101,12 @@ def diff_single_page(name, browser, engine, meta):
         lines.append(
             f'- 浏览器 Range 返回字体盒，逐行 y 按块顶 + CSS 行高重建'
             f'（{len(font_box_lines)} 个）：' + '、'.join(font_box_lines[:3])
+        )
+    if atomic_inline_lines:
+        lines.append(
+            f'- 浏览器不导出原子行内盒父元素的文本行，父块行级跳过'
+            f'（{len(atomic_inline_lines)} 个）：'
+            + '、'.join(atomic_inline_lines[:3])
         )
     if decoration_blocks:
         lines.append(
