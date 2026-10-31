@@ -1,4 +1,5 @@
 import 'property_aliases.dart';
+
 import 'package:csslib/parser.dart' as csslib;
 import 'package:csslib/visitor.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -147,7 +148,7 @@ abstract final class CssParser {
     final diagnostics = <String>[
       for (final selector in firstLetterRules)
         'E_FIRST_LETTER_APPROXIMATED: 伪元素 $selector 不支持，'
-        '首字下沉以内置近似（段首大字）渲染',
+            '首字下沉以内置近似（段首大字）渲染',
     ];
     if (!hasSyntaxErrors) {
       return diagnostics.isEmpty && base.fontFaces.isEmpty
@@ -192,9 +193,10 @@ abstract final class CssParser {
 
   static CssStylesheet _parseSingle(String css) {
     final errors = <csslib.Message>[];
+    final preprocessed = _preprocessSelectors(css);
     final StyleSheet sheet;
     try {
-      sheet = csslib.parse(css, errors: errors);
+      sheet = csslib.parse(preprocessed.text, errors: errors);
     } catch (error) {
       return CssStylesheet(
         rules: const <CssRule>[],
@@ -213,7 +215,8 @@ abstract final class CssParser {
     void collect(List<TreeNode> nodes, {String? media}) {
       for (final node in nodes) {
         if (node is RuleSet) {
-          final selector = node.selectorGroup?.span?.text.trim() ?? '';
+          final rawSelector = node.selectorGroup?.span?.text.trim() ?? '';
+          final selector = preprocessed.selectors[rawSelector] ?? rawSelector;
           if (selector.isEmpty) {
             warnings.add('跳过无选择器的规则');
             continue;
@@ -267,6 +270,152 @@ abstract final class CssParser {
       warnings: List<String>.unmodifiable(warnings),
       fontFaces: List<CssFontFace>.unmodifiable(fontFaces),
     );
+  }
+
+  /// csslib 不认识 `:is()`/`:where()`/`:has()`、列表 `:not()` 与
+  /// `nth-child(... of S)`。先把整条选择器换成合法占位类，解析完成后按
+  /// 原文还原；否则一条现代选择器会截断同一张表里的后续规则。
+  static _CssPreprocessResult _preprocessSelectors(String css) {
+    final selectors = <String, String>{};
+    final replacements = <(int, int, String)>[];
+    var start = 0;
+    var depth = 0;
+    var parens = 0;
+    var brackets = 0;
+    var inComment = false;
+    String? quote;
+
+    for (var i = 0; i < css.length; i++) {
+      final char = css[i];
+      if (inComment) {
+        if (char == '*' && i + 1 < css.length && css[i + 1] == '/') {
+          inComment = false;
+          i += 1;
+        }
+        continue;
+      }
+      if (quote != null) {
+        if (char == r'\' && i + 1 < css.length) {
+          i += 1;
+        } else if (char == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char == '/' && i + 1 < css.length && css[i + 1] == '*') {
+        inComment = true;
+        i += 1;
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        quote = char;
+        continue;
+      }
+      if (char == '(') {
+        parens += 1;
+        continue;
+      }
+      if (char == ')') {
+        if (parens > 0) parens -= 1;
+        continue;
+      }
+      if (char == '[') {
+        brackets += 1;
+        continue;
+      }
+      if (char == ']') {
+        if (brackets > 0) brackets -= 1;
+        continue;
+      }
+      if (parens > 0 || brackets > 0) continue;
+      if (char == ';') {
+        start = i + 1;
+        continue;
+      }
+      if (char == '{') {
+        final prelude = css.substring(start, i);
+        final trimmed = prelude.trimLeft();
+        if (!trimmed.startsWith('@') && _containsModernPseudo(prelude)) {
+          final placeholder = '.__reader_rp${selectors.length}';
+          selectors[placeholder] = prelude.trim();
+          replacements.add((start, i, placeholder));
+        }
+        depth += 1;
+        start = i + 1;
+        continue;
+      }
+      if (char == '}') {
+        if (depth > 0) depth -= 1;
+        start = i + 1;
+      }
+    }
+    if (replacements.isEmpty) {
+      return _CssPreprocessResult(
+        text: css,
+        selectors: const <String, String>{},
+      );
+    }
+    final buffer = StringBuffer();
+    var cursor = 0;
+    for (final (from, to, placeholder) in replacements) {
+      buffer
+        ..write(css.substring(cursor, from))
+        ..write(placeholder);
+      cursor = to;
+    }
+    buffer.write(css.substring(cursor));
+    return _CssPreprocessResult(text: buffer.toString(), selectors: selectors);
+  }
+
+  static bool _containsModernPseudo(String prelude) {
+    const names = {'is', 'where', 'not', 'has', 'nth-child', 'nth-last-child'};
+    var brackets = 0;
+    String? quote;
+    for (var i = 0; i < prelude.length; i++) {
+      final char = prelude[i];
+      if (quote != null) {
+        if (char == r'\' && i + 1 < prelude.length) {
+          i += 1;
+        } else if (char == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        quote = char;
+        continue;
+      }
+      if (char == '[') {
+        brackets += 1;
+        continue;
+      }
+      if (char == ']') {
+        if (brackets > 0) brackets -= 1;
+        continue;
+      }
+      if (brackets > 0 || char != ':') continue;
+      if (i > 0 && prelude[i - 1] == ':') continue;
+      var end = i + 1;
+      while (end < prelude.length && _isNameChar(prelude[end])) {
+        end += 1;
+      }
+      if (end == i + 1 || end >= prelude.length || prelude[end] != '(') {
+        continue;
+      }
+      if (names.contains(prelude.substring(i + 1, end).toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _isNameChar(String char) {
+    final unit = char.codeUnitAt(0);
+    return (unit >= 0x30 && unit <= 0x39) ||
+        (unit >= 0x41 && unit <= 0x5A) ||
+        (unit >= 0x61 && unit <= 0x7A) ||
+        char == '-' ||
+        char == '_';
   }
 
   /// 按顶层花括号分块，尽量保住语法错误之后的规则。
@@ -456,4 +605,11 @@ abstract final class CssParser {
     }
     return result;
   }
+}
+
+class _CssPreprocessResult {
+  const _CssPreprocessResult({required this.text, required this.selectors});
+
+  final String text;
+  final Map<String, String> selectors;
 }

@@ -187,4 +187,40 @@ void main() {
     expect(style['color'], 'blue');
     expect(style.padding.left, 5);
   });
+
+  test('现代函数伪类参与候选筛选、匹配与特异性层叠', () {
+    final rules = CascadeRuleSet(
+      _rules('''
+      .a { color: blue; }
+      :where(#x) { color: green; }
+      :is(#x, .missing) { color: red; }
+      p:not(.a, .b) { color: purple; }
+      div:has(> p) { padding-left: 11px; }
+    '''),
+    );
+    final target = _Element('p', {'id': 'x', 'class': 'a'});
+    final other = _Element('p', {'class': 'c'});
+    final div = _Element('div', {}, [target]);
+
+    final targetStyle = Cascade.compute(
+      element: target,
+      ancestors: [div],
+      rules: rules.candidatesFor(target),
+    );
+    expect(targetStyle['color'], 'red', reason: ':is(#x) 的 id 特异性胜出');
+
+    final otherStyle = Cascade.compute(
+      element: other,
+      ancestors: [],
+      rules: rules.candidatesFor(other),
+    );
+    expect(otherStyle['color'], 'purple', reason: ':not() 列表排除 .a/.b');
+
+    final divStyle = Cascade.compute(
+      element: div,
+      ancestors: [],
+      rules: rules.candidatesFor(div),
+    );
+    expect(divStyle.padding.left, 11);
+  });
 }
