@@ -124,14 +124,35 @@ void main() {
   test('页索引重放命中：页缓存清空后仍按索引直接出页（分页状态机跳过）', () async {
     final source = await openSource();
     final first = await source.loadChapter(0);
+    expect(source.blockCacheHits, 0);
     // 直接清页缓存（模拟重开书），页索引仍在。
     source.clearPaginationCache();
     final replayed = await source.loadChapter(0);
+    expect(source.blockCacheHits, 1, reason: 'styles 层块树复用，不重新级联/测量');
     expect(replayed, hasLength(first.length));
     for (var i = 0; i < first.length; i++) {
       expect(replayed[i].pageIndex, first[i].pageIndex);
       expect(replayed[i].usedHeight, closeTo(first[i].usedHeight, 0.01));
     }
+  });
+
+  test('排版字段变化：styles 层块缓存同步失效', () async {
+    final source = await openSource();
+    await source.loadChapter(0);
+    expect(source.cacheReport, contains('块缓存 1/'));
+
+    await source.applyOverrides(const ReaderOverrides(fontSize: 20));
+    expect(source.cacheReport, contains('块缓存 0/'));
+
+    await source.loadChapter(0);
+    expect(source.blockCacheHits, 0, reason: '失效后重新构建，不复用旧块');
+  });
+
+  test('几何变化：styles 层块缓存同步失效', () async {
+    final source = await openSource();
+    await source.loadChapter(0);
+    await source.applyContentSize(width: 280, height: 420);
+    expect(source.cacheReport, contains('块缓存 0/'));
   });
 
   test('指纹口径：颜色不参与、排版字段参与（P7-23）', () {
