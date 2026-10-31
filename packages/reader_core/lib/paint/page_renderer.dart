@@ -681,15 +681,12 @@ class PagePainter {
     _SliceGeometry geometry,
     int sliceIndex,
   ) {
-    if (geometry.style.textEmphasisStyle == CssTextEmphasisStyle.none) {
-      return;
-    }
     final marks = HorizontalTextEmphasis(
+      geometry.slice.block.layout,
       geometry.style,
-      geometry.style.textEmphasisColor ??
-          geometry.textColorOverride ??
-          geometry.style.color,
+      _textColorFor,
     );
+    if (!marks.hasMarks || geometry.isVerticalBlock) return;
     try {
       _clipBlock(canvas, geometry, clip: true, contentClip: true, () {
         _paintEmphasisLines(canvas, page, geometry, sliceIndex, marks);
@@ -712,21 +709,25 @@ class PagePainter {
       final line = layout.lines[i];
       final lineText = layout.text.substring(line.start, line.end);
       if (lineText.isNotEmpty) {
-        marks.paint(
-          canvas,
-          _linePainterFor(
-            page,
-            sliceIndex,
-            i,
-            layout,
-            line,
-            geometry.textStyle,
-            punctCompression: geometry.punctCompression,
-            textColorOverride: geometry.textColorOverride,
-          ),
-          lineText,
-          Offset(line.offsetX + geometry.leftInset, lineY + line.baseline),
+        final painter = _linePainterFor(
+          page,
+          sliceIndex,
+          i,
+          layout,
+          line,
+          geometry.textStyle,
+          punctCompression: geometry.punctCompression,
+          textColorOverride: geometry.textColorOverride,
         );
+        final origin = Offset(
+          line.offsetX + geometry.leftInset,
+          lineY + textLineBaselineOffset(layout, line, painter),
+        );
+        try {
+          marks.paint(canvas, painter, line, origin);
+        } finally {
+          if (paragraphCache == null) painter.dispose();
+        }
       }
       lineY += line.height;
     }
@@ -889,11 +890,15 @@ class PagePainter {
         }
       }
       for (final run in slice.block.layout.runs) {
-        if (run.baselineShift < 0) {
-          upExtent = math.max(upExtent, -run.baselineShift);
-        } else if (run.baselineShift > 0) {
-          downExtent = math.max(downExtent, run.baselineShift);
-        }
+        final marked = run.style.textEmphasisStyle != CssTextEmphasisStyle.none;
+        final above = marked && run.style.textEmphasisPosition.isOver
+            ? run.style.fontSize * 0.4
+            : 0.0;
+        final below = marked && run.style.textEmphasisPosition.isUnder
+            ? run.style.fontSize * 0.55
+            : 0.0;
+        upExtent = math.max(upExtent, above - run.baselineShift);
+        downExtent = math.max(downExtent, below + run.baselineShift);
       }
     }
     final geometries = <_SliceGeometry>[];
