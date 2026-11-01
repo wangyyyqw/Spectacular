@@ -30,13 +30,14 @@ double textLineBaselineOffset(
 }
 
 /// 原文位置之前的行内盒占宽；同位置多个盒累加，不向原文插入字符。
-/// 起点贴盒后（downstream），终点贴盒前（upstream）。
+/// 插入盒的边界按亲和选择前后；替换图则按原有 U+FFFC 的两个边界选择。
 double inlineBoxAdvanceAt(LineBox line, TextPosition position) {
   var advance = 0.0;
   for (final box in line.inlineBoxes) {
     final offset = box.offset - line.start;
     if (offset < position.offset ||
         (offset == position.offset &&
+            !box.spec.replacesPlaceholder &&
             position.affinity == TextAffinity.downstream)) {
       advance += box.spec.outerWidth;
     }
@@ -44,7 +45,7 @@ double inlineBoxAdvanceAt(LineBox line, TextPosition position) {
   return advance;
 }
 
-/// 按插入盒拆分行内原文区间，位移与绘制端一致，包含盒的左右外边距。
+/// 按原子盒拆分行内原文区间，跳过替换图占位，包含盒的左右外边距。
 /// [start]、[end] 为行内偏移；end 处的盒不属于当前半开选区。
 Iterable<({int start, int end, double advance})> lineTextFragments(
   LineBox line, {
@@ -59,9 +60,18 @@ Iterable<({int start, int end, double advance})> lineTextFragments(
     until,
     for (final box in line.inlineBoxes)
       (box.offset - line.start).clamp(from, until),
+    for (final box in line.inlineBoxes)
+      if (box.spec.replacesPlaceholder)
+        (box.offset + 1 - line.start).clamp(from, until),
   }.toList()..sort();
   for (var index = 0; index < boundaries.length - 1; index++) {
     final offset = boundaries[index];
+    if (line.inlineBoxes.any(
+      (box) =>
+          box.spec.replacesPlaceholder && box.offset == line.start + offset,
+    )) {
+      continue;
+    }
     yield (
       start: offset,
       end: boundaries[index + 1],
@@ -187,7 +197,20 @@ InlineSpan buildLineSpan({
   for (final rune in lineText.runes) {
     final char = String.fromCharCode(rune);
     final base = styleAt(line.start + offset);
-    final style = char == '\uFFFC'
+    final replaced =
+        char == '\uFFFC' &&
+        line.inlineBoxes.any(
+          (box) =>
+              box.spec.replacesPlaceholder && box.offset == line.start + offset,
+        );
+    final style = replaced
+        ? base.copyWith(
+            fontSize: 0,
+            letterSpacing: 0,
+            wordSpacing: 0,
+            color: const Color(0x00000000),
+          )
+        : char == '\uFFFC'
         ? base.copyWith(color: const Color(0x00000000))
         : base;
     final extraSpacing =

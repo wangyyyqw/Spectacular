@@ -265,11 +265,11 @@ enum InlineBoxVerticalAlign {
   bottom,
 }
 
-/// 行内盒规格（`display: inline-block` 的布局侧输入）。
+/// 行内盒规格（`display: inline-block` 与行内替换图的布局侧输入）。
 ///
 /// 章节源把 inline-block 元素描述成「在文本 [offset] 处插入 `width × height`
 /// 的盒」；排版器在该处预留宽度（放不下整块换行），并按 [verticalAlign] 与
-/// [marginTop]/[marginBottom] 参与行高与基线计算。
+/// [marginTop]/[marginBottom] 参与行高与基线计算；图片可复用原文占位符。
 class InlineBoxSpec {
   /// 创建规格。
   const InlineBoxSpec({
@@ -284,11 +284,15 @@ class InlineBoxSpec {
     this.baselineOffset = 0,
     this.contentHeight,
     this.contentBaseline,
+    this.replacesPlaceholder = false,
     this.payload,
   });
 
   /// 插入点（原文偏移；盒排在该偏移之前）。
   final int offset;
+
+  /// 替换原文该处的 U+FFFC，而非额外插入字符；保留图片的原文/CFI 偏移。
+  final bool replacesPlaceholder;
 
   /// 盒宽（含 padding/border，不含 margin）。
   final double width;
@@ -330,6 +334,23 @@ class InlineBoxSpec {
 
   /// 盒总高（含上下 margin）。
   double get outerHeight => height + marginTop + marginBottom;
+
+  /// 复用尺寸与载荷，仅移动原文插入点（段落摘取或绕排重测时使用）。
+  InlineBoxSpec atOffset(int offset) => InlineBoxSpec(
+    offset: offset,
+    width: width,
+    height: height,
+    verticalAlign: verticalAlign,
+    marginTop: marginTop,
+    marginBottom: marginBottom,
+    marginLeft: marginLeft,
+    marginRight: marginRight,
+    baselineOffset: baselineOffset,
+    contentHeight: contentHeight,
+    contentBaseline: contentBaseline,
+    replacesPlaceholder: replacesPlaceholder,
+    payload: payload,
+  );
 
   /// 参与行盒计算的盒高：`max(margin box 高, 内容高)`（内容溢出向下延伸）。
   double get effectiveHeight =>
@@ -2429,7 +2450,7 @@ abstract final class TextLayoutEngine {
   /// 行内盒占位符（U+FFFC：object replacement character）。
   static const String _inlineBoxPlaceholder = '\uFFFC';
 
-  /// 构造行内盒占位文本：在每个盒的插入点插入一个占位符，并给出偏移映射。
+  /// 构造行内盒占位文本：插入或复用图片原占位符，并给出原文偏移映射。
   static _InlineBoxText _buildInlineBoxText(
     String text,
     List<InlineBoxSpec> specs, {
@@ -2458,9 +2479,14 @@ abstract final class TextLayoutEngine {
       }
       buffer.write(_inlineBoxPlaceholder);
       marks.add(_InlineBoxMark(index: buffer.length - 1, spec: spec));
-      // 占位符前后两个边界都对应原文 [stop]（盒占 0 个字、只占宽度）。
-      offsets.add(stop);
-      cursor = stop;
+      // 图片复用原文占位符；普通行内块仍只插入盒、不消耗原文字。
+      cursor =
+          spec.replacesPlaceholder &&
+              stop < text.length &&
+              text.codeUnitAt(stop) == 0xFFFC
+          ? stop + 1
+          : stop;
+      offsets.add(cursor);
     }
     for (var i = cursor; i < text.length; i++) {
       buffer.write(text[i]);

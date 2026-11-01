@@ -4054,7 +4054,7 @@ class PagePainter {
     );
   }
 
-  /// 测量时行内盒占宽但不占原文字符；绘制分段平移，保持原文偏移稳定。
+  /// 按测量时的行内盒占宽分段平移，保持原文偏移稳定。
   /// 与背景、装饰线及命中共用 lineTextFragments 的原文分段和盒宽位移。
   /// 保留局部函数集中处理样式及基线偏移，避免重复移动坐标。
   void _paintTextAroundInlineBoxes(
@@ -4108,6 +4108,7 @@ class PagePainter {
     }
 
     for (final fragment in lineTextFragments(line)) {
+      cursor = fragment.start;
       extra = fragment.advance;
       paintUntil(fragment.end);
     }
@@ -4475,7 +4476,7 @@ class PagePainter {
     return cursor - start;
   }
 
-  /// 画行内图片（P9-06）：图片画在 U+FFFC 占位符的字形框上。
+  /// 画尚未转为替换盒的行内图片（P9-06），沿用 U+FFFC 字形框定位。
   ///
   /// 占位符字形已由 [buildLineSpan] 置透明，这里按行盒高度（1em）等比
   /// 缩放并底对齐；宽度超过版心时按版心收窄。
@@ -4500,6 +4501,11 @@ class PagePainter {
         continue;
       }
       final global = line.start + i;
+      if (line.inlineBoxes.any(
+        (box) => box.offset == global && box.spec.replacesPlaceholder,
+      )) {
+        continue;
+      }
       InlineImageSpec? spec;
       for (final candidate in specs) {
         if (candidate.offset == global) {

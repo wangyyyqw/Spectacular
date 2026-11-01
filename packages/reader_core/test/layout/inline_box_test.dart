@@ -16,6 +16,48 @@ ComputedStyle _style([Map<String, String> overrides = const {}]) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('替换图复用原文占位符，只计一次宽度并保留跨行原文偏移', () {
+    for (final width in [300.0, 100.0]) {
+      const text = '\uFFFCAB\uFFFCC';
+      final layout = TextLayoutEngine.layout(
+        text: text,
+        style: _style(),
+        maxWidth: width,
+        inlineBoxes: const [
+          InlineBoxSpec(
+            offset: 0,
+            width: 40,
+            height: 16,
+            marginLeft: 10,
+            marginRight: 10,
+            replacesPlaceholder: true,
+          ),
+          InlineBoxSpec(
+            offset: 3,
+            width: 40,
+            height: 16,
+            marginLeft: 10,
+            marginRight: 10,
+            replacesPlaceholder: true,
+          ),
+        ],
+      );
+      expect(layout.text, text);
+      final boxes = layout.lines.expand((line) => line.inlineBoxes).toList();
+      expect(boxes.map((box) => box.offset), [0, 3]);
+      expect(
+        layout.lines.map((line) => text.substring(line.start, line.end)).join(),
+        text,
+      );
+      expect(layout.lines.every((line) => line.width <= width), isTrue);
+      if (width == 300) expect(layout.width, closeTo(168, .01));
+      final moved = boxes.first.spec.atOffset(5);
+      expect(moved.offset, 5);
+      expect(moved.replacesPlaceholder, isTrue);
+      expect(moved.outerWidth, 60);
+    }
+  });
+
   test('行内盒左右外边距参与换行，但不扩大边框盒', () {
     final layout = TextLayoutEngine.layout(
       text: 'ab',
