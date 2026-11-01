@@ -129,7 +129,7 @@ void main() {
     expect(line.inlineBoxes[1].left, closeTo(116, 1), reason: '100 盒 + 中间 1 字（16）');
   });
 
-  test('vertical-align: middle 时盒在基线上下均分', () {
+  test('vertical-align: middle 时盒中点对齐父基线上方半个 x 高度', () {
     final layout = TextLayoutEngine.layout(
       text: 'ab',
       style: _style(),
@@ -144,9 +144,45 @@ void main() {
       ],
     );
     final box = layout.lines.single.inlineBoxes.single;
-    expect(box.ascent, closeTo(25, 0.01));
-    expect(box.descent, closeTo(25, 0.01));
+    expect(box.ascent, closeTo(29, 0.01));
+    expect(box.descent, closeTo(21, 0.01));
     expect(layout.lines.single.height, greaterThanOrEqualTo(50 - 0.01));
+  });
+
+  test('middle 对齐按父字号缩放，并合并正文 strut 与盒子上下沿', () {
+    for (final scale in [1.0, 1.5]) {
+      final style = _style({'font-size': '24px', 'line-height': '2'});
+      final plain = TextLayoutEngine.layout(
+        text: 'ab',
+        style: style,
+        maxWidth: 400,
+        textScaleFactor: scale,
+      ).lines.single;
+      final line = TextLayoutEngine.layout(
+        text: 'ab',
+        style: style,
+        maxWidth: 400,
+        textScaleFactor: scale,
+        inlineBoxes: const [
+          InlineBoxSpec(
+            offset: 1,
+            width: 40,
+            height: 40,
+            marginBottom: 2,
+            verticalAlign: InlineBoxVerticalAlign.middle,
+          ),
+        ],
+      ).lines.single;
+      final box = line.inlineBoxes.single;
+      expect(box.ascent, closeTo(21 + 6 * scale, .01));
+      expect(box.descent, closeTo(21 - 6 * scale, .01));
+      expect(line.baseline, greaterThanOrEqualTo(plain.baseline));
+      expect(line.height - line.baseline, greaterThanOrEqualTo(box.descent));
+      expect(
+        line.height - line.baseline,
+        greaterThanOrEqualTo(plain.height - plain.baseline),
+      );
+    }
   });
 
   test('margin 参与行高：上下各 10 → 行高至少 70', () {

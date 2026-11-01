@@ -53,6 +53,10 @@ void main() {
       expect(tag.spec.marginRight, 5);
       expect(tag.width, closeTo(payload.layout.width + 10, .01));
       expect(tag.left + tag.spec.outerWidth, lessThan(line.width));
+      final baseline = line.baseline - line.top;
+      final midpoint = baseline - tag.ascent + tag.spec.outerHeight / 2;
+      expect(midpoint, closeTo(baseline - size / 4, .01));
+      expect(line.height - baseline, greaterThanOrEqualTo(tag.descent - .001));
       expect(body.layout.text, endsWith('是否可以死去。'));
       expect(
         body.layout.lines.skip(1).every((line) => line.inlineBoxes.isEmpty),

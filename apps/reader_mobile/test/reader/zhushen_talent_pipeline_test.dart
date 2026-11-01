@@ -51,6 +51,23 @@ void main() {
       );
       expect(first.style!.padding.horizontal, 8);
       expect(tags.first.spec.marginRight, 5);
+      for (final block in blocks) {
+        for (final line in block.layout.lines) {
+          for (final tag in line.inlineBoxes) {
+            expect(tag.spec.verticalAlign, InlineBoxVerticalAlign.middle);
+            final baseline = line.baseline - line.top;
+            final midpoint = baseline - tag.ascent + tag.spec.outerHeight / 2;
+            final parent = block.style!;
+            final halfXHeight =
+                parent.fontSize * (parent.fontSizeAdjust ?? .5) / 2;
+            expect(midpoint, closeTo(baseline - halfXHeight, .01));
+            expect(
+              line.height - baseline,
+              greaterThanOrEqualTo(tag.descent - .001),
+            );
+          }
+        }
+      }
       for (final box in [...tags, ...ranks]) {
         final payload = box.spec.payload! as PageBlock;
         expect(payload.style!.borders.hasBorder, isTrue);

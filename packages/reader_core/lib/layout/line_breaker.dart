@@ -255,7 +255,7 @@ enum InlineBoxVerticalAlign {
   /// 盒底 margin 边对齐基线（CSS 默认）。
   baseline,
 
-  /// 盒竖直中点对齐「父基线 + x-height/2」（近似取行盒中线）。
+  /// 盒竖直中点对齐父基线上方半个 x 高度。
   middle,
 
   /// 盒顶对齐行盒顶。
@@ -2611,6 +2611,10 @@ abstract final class TextLayoutEngine {
               spec.marginTop + (contentHeight - sink) - spec.baselineOffset;
           descent = math.max(0.0, boxHeight - ascent);
         }
+      } else if (spec.verticalAlign == InlineBoxVerticalAlign.middle) {
+        final halfXHeight = _xHeightFor(style) * textScaleFactor / 2;
+        ascent += halfXHeight;
+        descent -= halfXHeight;
       }
       final placement = InlineBoxPlacement(
         offset: mark.index,
@@ -2623,25 +2627,26 @@ abstract final class TextLayoutEngine {
       );
       perLine[lineIndex].add(placement);
     }
-    // 实测基线路径按 CSS 2.2 §10.8 合成最上/最下边缘，包含文字 strut；
-    // 未声明基线的调用方仍保留原有近似，避免推测其内部内容结构。
+    // 实测基线和 middle 按 CSS 2.2 §10.8 合成上下边缘，包含文字 strut；
+    // 其余对齐保留原有近似，避免推测未声明基线的盒内结构。
     final heights = List<double>.filled(lines.length, 0);
     final ascents = List<double>.filled(lines.length, 0);
     for (var i = 0; i < lines.length; i++) {
       var boxHeight = 0.0;
       var boxAscent = 0.0;
       var boxDescent = 0.0;
-      var measuredBaseline = false;
+      var includeTextStrut = false;
       for (final placement in perLine[i]) {
         boxHeight = math.max(boxHeight, placement.ascent + placement.descent);
         boxAscent = math.max(boxAscent, placement.ascent);
         boxDescent = math.max(boxDescent, placement.descent);
-        measuredBaseline |=
-            placement.spec.contentBaseline != null &&
-            placement.spec.verticalAlign == InlineBoxVerticalAlign.baseline;
+        includeTextStrut |=
+            placement.spec.verticalAlign == InlineBoxVerticalAlign.middle ||
+            (placement.spec.contentBaseline != null &&
+                placement.spec.verticalAlign == InlineBoxVerticalAlign.baseline);
       }
       final baseAscent = lines[i].baseline - lines[i].top;
-      heights[i] = measuredBaseline
+      heights[i] = includeTextStrut
           ? math.max(baseAscent, boxAscent) +
                 math.max(lines[i].height - baseAscent, boxDescent)
           : math.max(lines[i].height, boxHeight);

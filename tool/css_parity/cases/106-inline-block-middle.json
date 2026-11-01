@@ -1,0 +1,6 @@
+{
+  "name": "106-inline-block-middle",
+  "tags": ["vertical-align", "display", "font-size", "line-height"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 24px; } p { margin: 8px 0; line-height: 1.6; } .tag { display: inline-block; font-size: .8em; vertical-align: middle; white-space: nowrap; margin-right: 5px; margin-bottom: 2px; padding: 1px 4px; border: 1px solid #3b485e; background: #dfe6ef; color: #35445d; } .tall { height: 60px; } .large { font-size: 32px; line-height: 2; }",
+  "html": "<p>命途<span class=\"tag\">虚无 / 主动</span>你与你的影子同根同源，观察标签和正文的对齐。</p><p>前文<span class=\"tag tall\">高盒</span>后文，行盒需保留正文的上下空间。</p><p class=\"large\">效果<span class=\"tag\">信仰 / 被动</span>大字号仍按父文字中线对齐。</p>"
+}
