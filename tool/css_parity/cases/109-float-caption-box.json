@@ -1,0 +1,12 @@
+{
+  "name": "109-float-caption-box",
+  "tags": [
+    "float",
+    "margin",
+    "padding",
+    "box-sizing",
+    "text-align"
+  ],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 17px; } div { margin: 0; padding: 0; } .float { width: 45%; margin-left: .7em; } .right { float: right; } .left { float: left; } .caption { margin: .5em; text-indent: 0; text-align: center; line-height: 1.6; color: #b32025; } .caption span { font-size: .72em; } .padded { padding: 0 3px; border: 1px solid black; } .declared { width: 80%; box-sizing: border-box; } .clear { clear: both; margin: 10px 0; } img { background: #d0d0d0; }",
+  "html": "<div class=\"float right\"><img width=\"98%\" height=\"70\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGO4cOHCfwAIVANwVMROmgAAAABJRU5ErkJggg==\"/><p class=\"caption\"><span>银色金属材质，里面有一块不规则灰色石头</span></p></div><p class=\"clear\">以下为左浮动带内边距图注。</p><div class=\"float left\"><img width=\"98%\" height=\"70\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGO4cOHCfwAIVANwVMROmgAAAABJRU5ErkJggg==\"/><p class=\"caption padded\"><span>左浮动图注按内容盒宽度完整断行</span></p><p class=\"caption padded declared\"><span>百分比边框盒不重复扣边距</span></p></div>"
+}

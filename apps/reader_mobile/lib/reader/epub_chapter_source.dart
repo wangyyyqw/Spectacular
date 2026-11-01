@@ -3934,6 +3934,23 @@ class EpubChapterSource
       });
     }
 
+    double textWidthInFloat(List<SelectorElement> chain, double floatWidth) {
+      var firstChild = chain.length - 1;
+      for (var i = chain.length - 2; i >= 0; i--) {
+        if (_floatSideOfStyle(chainStyle(chain.sublist(0, i + 1))) != null) {
+          firstChild = i + 1;
+          break;
+        }
+      }
+      // 浮动内容宽不含自身占位外边距；只扣内部各层原始盒模型，避免
+      // styleForChain 为绘制累加的祖先边距被重复扣除。
+      var width = floatWidth;
+      for (var i = firstChild; i < chain.length; i++) {
+        width = chainStyle(chain.sublist(0, i + 1)).contentBoxWidth(width);
+      }
+      return math.max(24.0, width);
+    }
+
     final pseudoCascadeRules = <String, CascadeRuleSet>{};
 
     /// 伪元素自身声明参与级联；其默认样式继承生成它的元素。
@@ -6491,9 +6508,11 @@ class EpubChapterSource
         // 排版并整体进同一个浮动盒。
         final ownFloatSide = _floatSideOfStyle(blockStyle);
         final floatSide = ownFloatSide ?? containerFloat;
-        // 容器浮动传导来的宽度优先（容器里可能有多个子块）。
-        final measureWidth = ownFloatSide == null && containerFloat != null
-            ? containerFloatWidth ?? _textWidthFor(measureStyle)
+        final measureWidth =
+            ownFloatSide == null &&
+                containerFloat != null &&
+                containerFloatWidth != null
+            ? textWidthInFloat(ancestors, containerFloatWidth)
             : _textWidthFor(measureStyle);
         // 绝对/固定定位且声明了宽：分页层解算 left/right 时把 layout.width
         // 当盒宽用，所以要把「最长行宽」换成**边框盒宽**（声明内容宽 +
