@@ -15,6 +15,7 @@ import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/block_flow.dart' show collapseMargins;
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
@@ -29,7 +30,8 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
-import 'package:reader_core/parser/document_parser.dart' show ParsedElement;
+import 'package:reader_core/parser/document_parser.dart'
+    show ParsedDocument, ParsedElement;
 import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
@@ -135,6 +137,9 @@ class EpubChapterSource
     ({String key, BlockDocument document, _ParsedSelectorIndex selectors})
   > _displayDocumentCache = {};
   final List<int> _displayDocumentCacheOrder = <int>[];
+
+  /// 当前书的注释正文缓存：引用节点键 → 已解析注释。
+  final Map<int, Map<String, FootnoteAnchor>> _footnoteReferenceCache = {};
   // 满屏判定与紧随的正文聚合共用一次解析；不长期保留第二棵原始树。
   BlockDocument? _pendingBlockDocument;
   // 原始元素树提供结构伪类/兄弟组合器所需的真实 childElements。
@@ -248,6 +253,104 @@ class EpubChapterSource
   void _clearDisplayDocumentCache() {
     _displayDocumentCache.clear();
     _displayDocumentCacheOrder.clear();
+  }
+
+  Map<String, FootnoteAnchor> _footnoteReferences(int spineIndex) =>
+      _footnoteReferenceCache.putIfAbsent(spineIndex, () {
+        final refs = <String, FootnoteAnchor>{};
+        for (final anchor in document.resolveFootnotes(spineIndex)) {
+          refs.putIfAbsent(anchor.referenceKey, () => anchor);
+        }
+        return Map<String, FootnoteAnchor>.unmodifiable(refs);
+      });
+
+  Set<String> _hiddenFootnoteIds(
+    int spineIndex,
+    Map<String, FootnoteAnchor> references,
+  ) => {
+    for (final anchor in references.values) ...[
+      if (anchor.kind != NoteKind.link &&
+          anchor.targetSpine == spineIndex &&
+          anchor.targetId != null &&
+          anchor.targetId!.isNotEmpty)
+        anchor.targetId!,
+      if (anchor.kind != NoteKind.link &&
+          anchor.targetSpine == spineIndex &&
+          anchor.definitionId != null &&
+          anchor.definitionId!.isNotEmpty)
+        anchor.definitionId!,
+    ],
+  };
+
+  static const Set<String> _footnoteDefinitionContainerTags = <String>{
+    'article',
+    'aside',
+    'blockquote',
+    'dd',
+    'div',
+    'dl',
+    'dt',
+    'figcaption',
+    'figure',
+    'li',
+    'ol',
+    'p',
+    'section',
+    'td',
+    'th',
+    'ul',
+  };
+
+  /// 注释目标可能位于无 id 的外层块中，需要隐藏最近的定义容器。
+  static Set<ParsedElement> _hiddenFootnoteElements(
+    ParsedElement root,
+    Set<String> hiddenIds,
+  ) {
+    if (hiddenIds.isEmpty) {
+      return const <ParsedElement>{};
+    }
+    final hidden = <ParsedElement>{};
+    final ancestors = <ParsedElement>[];
+    void walk(ParsedElement element) {
+      final id = element.id;
+      if (id != null && hiddenIds.contains(id)) {
+        var owner = element;
+        for (var index = ancestors.length - 1; index >= 0; index--) {
+          if (_footnoteDefinitionContainerTags.contains(
+            ancestors[index].tag,
+          )) {
+            owner = ancestors[index];
+            break;
+          }
+        }
+        hidden.add(owner);
+      }
+      ancestors.add(element);
+      for (final child in element.children) {
+        if (child is ParsedElement) {
+          walk(child);
+        }
+      }
+      ancestors.removeLast();
+    }
+
+    walk(root);
+    return hidden;
+  }
+
+  BlockDocument _buildDisplayDocument(
+    ParsedDocument parsed,
+    int spineIndex,
+  ) {
+    final references = _footnoteReferences(spineIndex);
+    final hiddenIds = _hiddenFootnoteIds(spineIndex, references);
+    final hiddenElements = _hiddenFootnoteElements(parsed.root, hiddenIds);
+    return BlockBuilder.build(
+      parsed,
+      skipElement: (element) =>
+          hiddenElements.contains(element) ||
+          FootnoteParser.isDefinitionElement(element.tag, element.attributes),
+    );
   }
 
   /// 缓存报告（P4-32）：页缓存章数与容量。
@@ -477,6 +580,7 @@ class EpubChapterSource
     required double spaceBefore,
     required double spaceAfter,
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
+    List<PageFootnote> footnotes = const <PageFootnote>[],
     List<RubyAnnotation>? rubies,
     String? startCfi,
     int groupId = 0,
@@ -497,6 +601,7 @@ class EpubChapterSource
       bottomInset: model.borders.bottom + model.padding.bottom,
       leftInset: model.borders.left + model.padding.left,
       inlineImages: inlineImages,
+      footnotes: footnotes,
       rubies: rubies,
       declaredContentHeight: model.resolveContentHeight(
         layout.height,
@@ -775,6 +880,7 @@ class EpubChapterSource
     _blockCache.clear();
     _blockCacheOrder.clear();
     _clearDisplayDocumentCache();
+    _footnoteReferenceCache.clear();
     _fullBleedCache.clear();
     return true;
   }
@@ -2701,7 +2807,7 @@ class EpubChapterSource
   FullBleedChapter fullBleedAnalysis(int spineIndex) {
     return _fullBleedCache.putIfAbsent(spineIndex, () {
       final parsed = document.parseDocument(spineIndex);
-      final blocks = BlockBuilder.build(parsed);
+      final blocks = _buildDisplayDocument(parsed, spineIndex);
       _pendingBlockDocument = blocks;
       final selectorIndex = _ParsedSelectorIndex(parsed.root);
       _pendingSelectorIndex = selectorIndex;
@@ -3525,7 +3631,10 @@ class EpubChapterSource
       return (pending!, selectors);
     }
     final parsed = document.parseDocument(spineIndex);
-    return (BlockBuilder.build(parsed), _ParsedSelectorIndex(parsed.root));
+    return (
+      _buildDisplayDocument(parsed, spineIndex),
+      _ParsedSelectorIndex(parsed.root),
+    );
   }
 
   /// 分页主体：产物不带整页背景，由 [loadChapter] 统一贴上。
@@ -3686,6 +3795,33 @@ class EpubChapterSource
     // `position: fixed`（W18）：相对页面定位、每页重复——不进流，分页完成
     // 后给每一页追加覆盖切片。
     final fixedBlocks = <PageBlock>[];
+    final chapterFootnotes = _footnoteReferences(spineIndex);
+    PageFootnote? footnoteForReference(
+      String tag,
+      Map<String, String> attributes,
+      String visibleText, {
+      required int start,
+      required int end,
+    }) {
+      final anchor =
+          chapterFootnotes[FootnoteParser.referenceKey(
+            tag,
+            attributes,
+            visibleText,
+          )];
+      if (anchor == null || anchor.kind == NoteKind.link) {
+        return null;
+      }
+      return PageFootnote(
+        start: start,
+        end: end,
+        label: anchor.label,
+        kind: anchor.kind,
+        text: anchor.noteText,
+        imageUrls: anchor.noteImages,
+      );
+    }
+
     final retainedContainers = <SelectorElement, PageContainer>{};
     final splitInlineContainers = <SelectorElement>{};
 
@@ -4998,6 +5134,7 @@ class EpubChapterSource
       FloatSide? containerFloat,
       double? containerFloatWidth,
       int containerFloatGroup = 0,
+      List<PageFootnote> footnotes = const <PageFootnote>[],
     }) {
       // src 键名兼容 SVG <image xlink:href> 折叠链。
       final src = node.attributes['src'] ?? node.attributes['xlink:href'];
@@ -5199,6 +5336,16 @@ class EpubChapterSource
         blockStyle,
         containingWidth: contentWidth,
       );
+      final directFootnote = footnoteForReference(
+        node.tag,
+        node.attributes,
+        '',
+        start: 0,
+        end: 1,
+      );
+      final imageFootnote = footnotes.isNotEmpty
+          ? footnotes
+          : <PageFootnote>[?directFootnote];
       blocks.add(
         PageBlock(
           layout: layout,
@@ -5228,6 +5375,7 @@ class EpubChapterSource
             layout.height,
             containingHeight: contentHeight,
           ),
+          footnotes: imageFootnote,
         ),
       );
     }
@@ -6288,6 +6436,28 @@ class EpubChapterSource
             pseudoPrefix.isEmpty &&
             pseudoSuffix.isEmpty) {
           final image = paragraphImages.single.node;
+          PageFootnote? imageFootnote;
+          for (final mark in paragraphMarks) {
+            imageFootnote = footnoteForReference(
+              mark.tag,
+              mark.chain.isEmpty
+                  ? const <String, String>{}
+                  : mark.chain.last.attributes,
+              paragraphText.substring(mark.start, mark.end),
+              start: 0,
+              end: 1,
+            );
+            if (imageFootnote != null) {
+              break;
+            }
+          }
+          imageFootnote ??= footnoteForReference(
+            image.tag,
+            image.attributes,
+            '',
+            start: 0,
+            end: 1,
+          );
           collectImageBlock(
             BlockNode(
               tag: image.tag,
@@ -6302,6 +6472,7 @@ class EpubChapterSource
             containerFloat: containerFloat,
             containerFloatWidth: containerFloatWidth,
             containerFloatGroup: containerFloatGroup,
+            footnotes: <PageFootnote>[?imageFootnote],
           );
           return;
         }
@@ -6689,6 +6860,53 @@ class EpubChapterSource
             ),
           );
         }
+        final paragraphFootnotes = <PageFootnote>[];
+        final seenFootnoteOffsets = <int>{};
+        void addFootnote(
+          String tag,
+          Map<String, String> attributes,
+          String visibleText,
+          int start, {
+          required int end,
+        }) {
+          if (seenFootnoteOffsets.contains(start)) {
+            return;
+          }
+          final footnote = footnoteForReference(
+            tag,
+            attributes,
+            visibleText,
+            start: start,
+            end: end,
+          );
+          if (footnote == null) {
+            return;
+          }
+          seenFootnoteOffsets.add(start);
+          paragraphFootnotes.add(footnote);
+        }
+
+        for (final mark in paragraphMarks) {
+          final attributes = mark.chain.isEmpty
+              ? const <String, String>{}
+              : mark.chain.last.attributes;
+          addFootnote(
+            mark.tag,
+            attributes,
+            paragraphText.substring(mark.start, mark.end),
+            mark.start,
+            end: mark.end,
+          );
+        }
+        for (final image in paragraphImages) {
+          addFootnote(
+            image.node.tag,
+            image.node.attributes,
+            '',
+            image.offset,
+            end: image.offset + 1,
+          );
+        }
         // 替换图的 vertical-align 已由原子盒参与排版，不能再作为文字 run 抬升。
         runs = [
           for (final run in runs)
@@ -6842,6 +7060,7 @@ class EpubChapterSource
                 spaceBefore: spaceBefore,
                 spaceAfter: spaceAfter,
                 inlineImages: inlineImages,
+                footnotes: paragraphFootnotes,
                 rubies: paragraphRubies.isNotEmpty
                     ? [
                         for (final ruby in paragraphRubies)
@@ -6888,6 +7107,7 @@ class EpubChapterSource
                 : null,
             // P9-06：行内图片（U+FFFC 占位）透传给绘制层。
             inlineImages: inlineImages,
+            footnotes: paragraphFootnotes,
             // P9-19：绝对定位块（不占流高，绘制在页内绝对坐标）。
             absolute: isOutOfFlow,
             absoluteTop: absoluteTop,
@@ -6922,6 +7142,7 @@ class EpubChapterSource
               listMarker: textBlock.listMarker,
               rubies: textBlock.rubies,
               inlineImages: textBlock.inlineImages,
+              footnotes: textBlock.footnotes,
               absolute: textBlock.absolute,
               absoluteTop: textBlock.absoluteTop,
               absoluteLeft: textBlock.absoluteLeft,

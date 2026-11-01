@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show Offset, Rect;
 
 import '../css/computed_style.dart';
+import '../epub/footnote.dart' show NoteKind;
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
@@ -36,6 +37,45 @@ class InlineImageSpec {
 
   /// 书籍 CSS 声明的首选宽高比；null 表示沿用图片原始比例。
   final double? aspectRatio;
+}
+
+/// 正文中的可点击注释引用。
+///
+/// [start]/[end] 是块文本坐标（UTF-16，半开区间）；图片注号用占位符
+/// `U+FFFC` 的一个字符区间表示。正文定义块已被过滤，弹窗只消费这里的
+/// 文本和书内图片路径。
+class PageFootnote {
+  /// 创建注释引用。
+  const PageFootnote({
+    required this.start,
+    required this.end,
+    required this.label,
+    required this.kind,
+    this.text,
+    this.imageUrls = const <String>[],
+  });
+
+  /// 引用起始偏移。
+  final int start;
+
+  /// 引用结束偏移。
+  final int end;
+
+  /// 注号文字。
+  final String label;
+
+  /// 注释类型。
+  final NoteKind kind;
+
+  /// 注释正文。
+  final String? text;
+
+  /// 注释内图片。
+  final List<String> imageUrls;
+
+  /// 是否命中当前块文本偏移。
+  bool contains(int offset) =>
+      offset >= start && (offset < end || (start == end && offset == start));
 }
 
 /// 分页前保留的容器盒；后代共享实例，以便每页按嵌套顺序绘制。
@@ -132,6 +172,7 @@ class PageBlock {
     this.floatContainingWidth,
     this.rubies,
     this.inlineImages = const <InlineImageSpec>[],
+    this.footnotes = const <PageFootnote>[],
     this.absolute = false,
     this.absoluteTop,
     this.absoluteLeft,
@@ -164,6 +205,7 @@ class PageBlock {
     String? listMarker,
     List<RubyAnnotation>? rubies,
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
+    List<PageFootnote> footnotes = const <PageFootnote>[],
     TableRenderSpec? table,
     bool absolute = false,
     double? absoluteTop,
@@ -195,6 +237,7 @@ class PageBlock {
       listMarker: listMarker,
       rubies: rubies,
       inlineImages: inlineImages,
+      footnotes: footnotes,
       table: table,
       absolute: absolute,
       absoluteTop: absoluteTop,
@@ -286,6 +329,9 @@ class PageBlock {
   /// 行内图片（P9-06）：U+FFFC 占位符位置与图片地址，绘制层按占位符
   /// 字形框画图。
   final List<InlineImageSpec> inlineImages;
+
+  /// 正文注释引用（点击弹窗）。
+  final List<PageFootnote> footnotes;
 
   /// 绝对定位块（P9-19）：不占流高，绘制在页内绝对坐标处。
   final bool absolute;
@@ -467,6 +513,7 @@ class PageBlock {
     // 重建时必须带全字段（P9-19）：边距折叠会把相邻块换成新实例，
     // 漏字段会让行内图片/绝对定位在真机里随机消失。
     inlineImages: inlineImages,
+    footnotes: footnotes,
     absolute: absolute,
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
@@ -1125,6 +1172,20 @@ class Paginator {
                   aspectRatio: image.aspectRatio,
                 ),
           ],
+    footnotes: textRange == null
+        ? source.footnotes
+        : <PageFootnote>[
+            for (final footnote in source.footnotes)
+              if (footnote.start < textRange.$2 && footnote.end > textRange.$1)
+                PageFootnote(
+                  start: math.max(footnote.start, textRange.$1) - textRange.$1,
+                  end: math.min(footnote.end, textRange.$2) - textRange.$1,
+                  label: footnote.label,
+                  kind: footnote.kind,
+                  text: footnote.text,
+                  imageUrls: footnote.imageUrls,
+                ),
+          ],
     // 第 2 列起脱离正常流，绘制在首列右侧（overlay 切片）。
     absolute: absoluteTop != null,
     absoluteTop: absoluteTop,
@@ -1285,6 +1346,7 @@ class Paginator {
     floatSide: source.floatSide,
     rubies: source.rubies,
     inlineImages: source.inlineImages,
+    footnotes: source.footnotes,
     absolute: source.absolute,
     absoluteTop: source.absoluteTop,
     absoluteLeft: source.absoluteLeft,
@@ -1427,6 +1489,7 @@ class Paginator {
       ],
       declaredContentHeight: height,
       effectiveOpacity: source.effectiveOpacity,
+      footnotes: source.footnotes,
     );
   }
 
@@ -1539,6 +1602,7 @@ class Paginator {
       containerSides: source.containerSides,
       containers: source.containers,
       effectiveOpacity: source.effectiveOpacity,
+      footnotes: source.footnotes,
     );
   }
 

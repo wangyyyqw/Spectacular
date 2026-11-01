@@ -555,6 +555,48 @@ class EpubDocumentImpl implements EpubDocument {
     );
   }
 
+  /// 解析当前章的全部注释，并按需加载 href 指向的跨章定义。
+  List<FootnoteAnchor> resolveFootnotes(int spineIndex) {
+    final source = parseFootnotes(spineIndex);
+    final documents = <String, FootnoteDocument>{source.path: source};
+    for (final anchor in source.anchors) {
+      final targetPath = FootnoteParser.targetPathOf(anchor, source.path);
+      if (targetPath == null ||
+          targetPath == source.path ||
+          documents.containsKey(targetPath)) {
+        continue;
+      }
+      final target = _parseFootnotesAtPath(targetPath);
+      if (target != null) {
+        documents[target.path] = target;
+      }
+    }
+    return FootnoteParser.resolve(source: source, documents: documents);
+  }
+
+  FootnoteDocument? _parseFootnotesAtPath(String path) {
+    final xhtml = archive.readString(path);
+    if (xhtml == null) {
+      return null;
+    }
+    var spineIndex = -1;
+    final baseDir = p.posix.dirname(opfPath);
+    for (final item in spine) {
+      final resolved =
+          resources.resolve(item.href, baseDir: baseDir) ??
+          p.posix.normalize(p.posix.join(baseDir, item.href));
+      if (resolved == path) {
+        spineIndex = item.index;
+        break;
+      }
+    }
+    return FootnoteParser.parse(
+      spineIndex: spineIndex,
+      path: path,
+      xhtml: xhtml,
+    );
+  }
+
   @override
   Future<SpineDocument> readSpine(int spineIndex) {
     throw UnimplementedError('P1-14 起实现文档树解析');

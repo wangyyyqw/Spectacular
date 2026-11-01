@@ -170,6 +170,7 @@ class ReaderView extends StatefulWidget {
     this.onLongPressAt,
     this.onDoubleTapAt,
     this.onTripleTapAt,
+    this.onTapAt,
     this.onGesture,
     this.pageIndex,
     this.pageCount,
@@ -196,6 +197,9 @@ class ReaderView extends StatefulWidget {
 
   /// 三击位置（P4-16 选句）。
   final ValueChanged<Offset>? onTripleTapAt;
+
+  /// 单击位置；返回 true 表示已消费，不再触发翻页或工具栏。
+  final bool Function(Offset position)? onTapAt;
 
   /// 手势观测回调（测试/埋点）。
   final ValueChanged<ReaderGesture>? onGesture;
@@ -277,6 +281,9 @@ class _ReaderViewState extends State<ReaderView> {
                     const Duration(milliseconds: 350)) {
               _doubleTapTime = null;
               widget.onTripleTapAt!(details.localPosition);
+              return;
+            }
+            if (widget.onTapAt?.call(details.localPosition) ?? false) {
               return;
             }
             final gesture = _interpreter.tapAt(

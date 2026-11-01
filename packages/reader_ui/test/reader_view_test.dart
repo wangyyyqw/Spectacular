@@ -95,6 +95,7 @@ void main() {
       required ValueNotifier<int> next,
       required ValueNotifier<int> toolbar,
       ReaderTapZones tapZones = ReaderTapZones.defaults,
+      bool Function(Offset position)? onTapAt,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -110,6 +111,7 @@ void main() {
                 onPrevious: () => previous.value += 1,
                 onNext: () => next.value += 1,
                 onToggleToolbar: () => toolbar.value += 1,
+                onTapAt: onTapAt,
               ),
             ),
           ),
@@ -158,6 +160,31 @@ void main() {
       await tester.tapAt(origin + const Offset(299, 100));
       await tester.pump();
       expect(next.value, 1);
+    });
+
+    testWidgets('单击回调消费手势后不再翻页或打开工具栏', (tester) async {
+      final previous = ValueNotifier<int>(0);
+      final next = ValueNotifier<int>(0);
+      final toolbar = ValueNotifier<int>(0);
+      final tapped = <Offset>[];
+      await pumpView(
+        tester,
+        pageIndex: 1,
+        previous: previous,
+        next: next,
+        toolbar: toolbar,
+        onTapAt: (position) {
+          tapped.add(position);
+          return true;
+        },
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      await tester.tapAt(origin + const Offset(150, 100));
+      await tester.pump();
+      expect(tapped, hasLength(1));
+      expect(previous.value, 0);
+      expect(next.value, 0);
+      expect(toolbar.value, 0);
     });
 
     testWidgets('九宫格动作可配置且更新后立即生效', (tester) async {
