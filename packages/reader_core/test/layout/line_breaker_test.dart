@@ -65,6 +65,29 @@ void main() {
     expect(warnings, isEmpty);
   });
 
+  test('行内块保留窄内容宽和右对齐，不触发正文 3em 告警', () {
+    final warnings = <LineBreakWarning>[];
+    final breaker = LineBreaker(onWarning: warnings.add);
+    for (final whiteSpace in ['normal', 'nowrap']) {
+      final result = breaker.layout(
+        text: 'S',
+        style: ComputedStyle({
+          'display': 'inline-block',
+          'font-family': 'Ahem',
+          'font-size': '16px',
+          'text-align': 'right',
+          'white-space': whiteSpace,
+        }),
+        maxWidth: 20,
+      );
+      expect(result.maxWidth, 20);
+      final line = result.lines.single;
+      expect(line.offsetX + line.width, closeTo(20, .01));
+    }
+    expect(breaker.tooNarrow, isFalse);
+    expect(warnings, isEmpty);
+  });
+
   test('无限宽不触发下限', () {
     final breaker = LineBreaker();
     final result = breaker.layout(

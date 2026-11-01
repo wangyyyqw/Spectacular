@@ -1,0 +1,6 @@
+{
+  "name": "107-inline-block-narrow-alignment",
+  "tags": ["display", "text-align", "white-space", "width"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 20px; } table { width: 100%; table-layout: fixed; border-collapse: collapse; } td { padding: 8px 0; border: none; } .grade { width: 90px; text-align: right; text-align-last: right; white-space: nowrap; } .tag { display: inline-block; padding: 1px 6px; border: 1px solid #d4af37; background: #3a2e12; color: #fce49d; font-size: .7em; font-weight: bold; } p { margin: 8px 0; text-align: center; text-align-last: center; } .fixed { width: 20px; } .left { text-align: left; text-align-last: left; }",
+  "html": "<table><tr><td>道具评级</td><td class=\"grade\"><span class=\"tag\">SSS</span></td></tr><tr><td>较短评级</td><td class=\"grade\"><span class=\"tag\">SS</span></td></tr><tr><td>单字母评级</td><td class=\"grade\"><span class=\"tag fixed\">S</span></td></tr></table><p>前<span class=\"tag\">SSS</span>后</p><p class=\"left\">前<span class=\"tag\">SSS</span>后</p>"
+}
