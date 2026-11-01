@@ -23,6 +23,7 @@ class SpacedParagraph {
     required this.width,
     required this.scale,
     this.firstLine = true,
+    this.maxLines,
   });
 
   final String text;
@@ -31,13 +32,18 @@ class SpacedParagraph {
   final double width;
   final double scale;
   final bool firstLine;
+  final int? maxLines;
 
-  TextPainter _painter(TextSpan text, [double width = double.infinity]) =>
-      TextPainter(
-        text: text,
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.linear(scale),
-      )..layout(maxWidth: width);
+  TextPainter _painter(
+    TextSpan text, [
+    double width = double.infinity,
+    int? maxLines,
+  ]) => TextPainter(
+    text: text,
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.linear(scale),
+    maxLines: maxLines,
+  )..layout(maxWidth: width);
 
   List<SpacedLine>? layout(TextPainter painter) {
     final edges = spacing.hasEdgeAdjustments;
@@ -97,6 +103,7 @@ class SpacedParagraph {
       final first = start == 0 ? firstLine : text[start - 1] == '\n';
       final line = _nextLine(start, extra, first, _windowEnd(start, measured));
       lines.add(line);
+      if (lines.length == maxLines) break;
       // 平台给出的空行不消耗正文，只越过它对应的硬换行。
       var next = line.end;
       if (next < text.length && text[next] == '\n') next++;
@@ -127,25 +134,46 @@ class SpacedParagraph {
   }
 
   SpacedLine _nextLine(int start, double extra, bool first, int limit) {
-    var remaining = _span(start, limit, first);
-    var end = _firstEnd(remaining, width) + start;
+    final probe = _lineProbe(start, first, limit);
+    try {
+      return _fitLine(probe, start, extra);
+    } finally {
+      probe.painter.dispose();
+    }
+  }
+
+  ({TextPainter painter, int end}) _lineProbe(
+    int start,
+    bool first,
+    int limit,
+  ) {
+    final probe = _painter(_span(start, limit, first), width, 1);
+    var end = probe.getLineBoundary(const TextPosition(offset: 0)).end + start;
     while (end == limit && limit < text.length) {
       limit = (limit + (limit - start) + 1).clamp(0, text.length);
-      remaining = _span(start, limit, first);
-      end = _firstEnd(remaining, width) + start;
+      probe.text = _span(start, limit, first);
+      end = _firstEnd(probe, width) + start;
     }
-    final extended = _extendEnd(remaining, start, end, extra);
+    return (painter: probe, end: end);
+  }
+
+  SpacedLine _fitLine(
+    ({TextPainter painter, int end}) probe,
+    int start,
+    double extra,
+  ) {
+    var end = probe.end;
+    final extended = _extendEnd(probe.painter, start, end, extra);
     if (extended != null) return extended;
     var line = measure(start, end);
     // 相邻标点跨行时需要还原被借走的空白；向前找平台认可的断点。
     while (line.metrics.width > width + 0.01 && end > start) {
-      final narrow = _painter(
-        remaining,
-        (width - (line.metrics.width - width) - 0.01).clamp(0.01, width),
-      );
       final next =
-          narrow.getLineBoundary(const TextPosition(offset: 0)).end + start;
-      narrow.dispose();
+          _firstEnd(
+            probe.painter,
+            (width - (line.metrics.width - width) - 0.01).clamp(0.01, width),
+          ) +
+          start;
       if (next >= end || next <= start) break;
       end = next;
       line = measure(start, end);
@@ -153,40 +181,38 @@ class SpacedParagraph {
     return line;
   }
 
-  SpacedLine? _extendEnd(TextSpan remaining, int start, int end, double extra) {
+  SpacedLine? _extendEnd(TextPainter probe, int start, int end, double extra) {
     if (extra <= 0 ||
         !width.isFinite ||
         end >= text.length ||
         text[end] == '\n') {
       return null;
     }
-    final widerEnd = _firstEnd(remaining, width + extra) + start;
+    final widerEnd = _firstEnd(probe, width + extra) + start;
     for (var candidate = widerEnd; candidate > end; candidate--) {
       if (!punctClosingSet.contains(text[candidate - 1])) continue;
       final line = measure(start, candidate);
       if (line.metrics.width <= width + 0.01 &&
-          _legalBoundary(remaining, start, candidate)) {
+          _legalBoundary(probe, start, candidate)) {
         return line;
       }
     }
     return null;
   }
 
-  int _firstEnd(TextSpan span, double width) {
-    final painter = _painter(span, width);
-    final end = painter.getLineBoundary(const TextPosition(offset: 0)).end;
-    painter.dispose();
-    return end;
+  int _firstEnd(TextPainter probe, double width) {
+    // 同一段落仅改约束即可复用字形塑形；候选宽度不再反复创建原生段落。
+    probe.layout(maxWidth: width);
+    return probe.getLineBoundary(const TextPosition(offset: 0)).end;
   }
 
-  bool _legalBoundary(TextSpan remaining, int start, int end) {
-    final prefix = _painter(sliceTextSpan(remaining, 0, end - start));
+  bool _legalBoundary(TextPainter probe, int start, int end) {
+    final prefix = _painter(
+      sliceTextSpan(probe.text! as TextSpan, 0, end - start),
+    );
     final natural = prefix.width;
     prefix.dispose();
-    final probe = _painter(remaining, natural + 0.01);
-    final actual = probe.getLineBoundary(const TextPosition(offset: 0)).end;
-    probe.dispose();
-    return actual == end - start;
+    return _firstEnd(probe, natural + 0.01) == end - start;
   }
 
   SpacedLine measure(int start, int end, {bool trimEnd = true}) {
