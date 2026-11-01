@@ -265,6 +265,9 @@ void main() {
       containingWidth: 320,
     );
     expect(percent.textIndent, 32);
+    final reset = parent.withTypography(textIndent: 0);
+    expect(reset.textIndent, 0);
+    expect(parent.textIndent, 40, reason: '覆盖返回新样式，不修改原样式');
   });
 
   test('颜色解析与继承', () {

@@ -2823,7 +2823,7 @@ class ComputedStyle {
     );
   }
 
-  /// 只覆盖排版属性（字号/行高/文本对齐/字体），其余属性原样保留。
+  /// 只覆盖排版属性（字号/行高/文本对齐/首行缩进/字体），其余原样保留。
   ///
   /// 阅读器设置必须走这里。用 `ComputedStyle(declarations, parent: base)`
   /// 重建会把非继承属性（背景色/背景图/边框/内边距/外边距）按初始值归零，
@@ -2834,12 +2834,14 @@ class ComputedStyle {
     CssTextAlign? textAlign,
     String? fontFamily,
     CssTextSpacingTrim? textSpacingTrim,
+    double? textIndent,
   }) {
     if (fontSize == null &&
         lineHeightFactor == null &&
         textAlign == null &&
         fontFamily == null &&
-        textSpacingTrim == null) {
+        textSpacingTrim == null &&
+        textIndent == null) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
@@ -2865,6 +2867,7 @@ class ComputedStyle {
       if (textAlign != null) 'text-align': _textAlignToCss(textAlign),
       if (textSpacingTrim != null)
         'text-spacing-trim': textSpacingTrim.cssValue,
+      if (textIndent != null) 'text-indent': '${textIndent}px',
       'font-family': ?fontFamily,
     };
     final nextExplicit = <String>{
@@ -2873,6 +2876,7 @@ class ComputedStyle {
       if (lineHeightFactor != null) 'line-height',
       if (textAlign != null) 'text-align',
       if (textSpacingTrim != null) 'text-spacing-trim',
+      if (textIndent != null) 'text-indent',
       if (fontFamily != null) 'font-family',
     };
     return ComputedStyle._(
@@ -2889,7 +2893,7 @@ class ComputedStyle {
       italic: italic,
       fontFamilies: nextFontFamilies,
       textAlign: textAlign ?? this.textAlign,
-      textIndent: textIndent,
+      textIndent: textIndent ?? this.textIndent,
       letterSpacing: letterSpacing,
       margin: margin,
       position: position,
