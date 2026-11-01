@@ -1109,13 +1109,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 输入笔记正文后保存（P4-17）。
   Future<void> _addNote(PageContent page, ReaderSelection selection) async {
-    final controller = TextEditingController();
+    var draft = '';
     final note = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('笔记'),
         content: TextField(
-          controller: controller,
+          // 由输入框管理控制器，随退场动画结束卸载，避免弹窗返回时提前释放。
+          onChanged: (value) => draft = value,
           autofocus: true,
           maxLines: 4,
           decoration: const InputDecoration(hintText: '写点什么…'),
@@ -1126,14 +1127,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
+            onPressed: () => Navigator.of(context).pop(draft),
             child: const Text('保存'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    if (note == null || note.trim().isEmpty) {
+    if (!mounted || note == null || note.trim().isEmpty) {
       return;
     }
     await _saveAnnotation(
