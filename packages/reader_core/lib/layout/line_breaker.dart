@@ -1082,7 +1082,14 @@ abstract final class TextLayoutEngine {
         : text.substring(0, measuredEnd);
     // 断词（hyphens / overflow-wrap / word-break）：插 U+200B 断点后测量，
     // 再把行区间映射回原文；行尾连字符宽在映射时补进行宽。
-    final hyphenAdvance = _measureChar(cssAutoHyphen, style, textScaleFactor);
+    // 普通正文没有连字符断点，不必为从不绘制的字形额外构建段落。
+    final hyphenAdvance =
+        inlineBoxes.isEmpty &&
+            (style.hyphens == CssHyphens.auto ||
+                (style.hyphens == CssHyphens.manual &&
+                    measuredText.contains('\u00AD')))
+        ? _measureChar(cssAutoHyphen, style, textScaleFactor)
+        : 0.0;
     // 行内盒与断词暂不叠加：两种文本改造同段生效会让偏移映射难以自洽
     // （图文混排段落不需要 hyphens 断词）。
     // TextPainter 遇到多个 ZWSP 时会优先停在词内较早的音节，而不是像
@@ -1990,6 +1997,7 @@ abstract final class TextLayoutEngine {
       leadingDistribution: leadingDistribution,
       runs: runs,
       spacingBarriers: spacingBarriers,
+      firstLineOnly: true,
     );
     if (head.isEmpty) {
       return const <LineBox>[];
@@ -2010,6 +2018,7 @@ abstract final class TextLayoutEngine {
           leadingDistribution: leadingDistribution,
           runs: runs,
           spacingBarriers: spacingBarriers,
+          firstLineOnly: true,
         );
       }
     }
@@ -2360,6 +2369,7 @@ abstract final class TextLayoutEngine {
     double? contentWidth,
     Set<int> spacingBarriers = const {},
     bool firstLine = true,
+    bool firstLineOnly = false,
   }) {
     final baseStyle = textStyleFor(
       style,
@@ -2385,6 +2395,11 @@ abstract final class TextLayoutEngine {
     final guardRanges = inlineBoxMarks.isEmpty && !allowsAnyBreak
         ? _guardedTokenRanges(text)
         : const <(int, int)>[];
+    // 首行缩进只消费首行；token 合并和可能被推到次行的盒仍需要完整行表。
+    final maxLines =
+        firstLineOnly && guardRanges.isEmpty && inlineBoxMarks.isEmpty
+        ? 1
+        : null;
     final measureText = text;
     final horizontal =
         !style.isRtl &&
@@ -2420,6 +2435,7 @@ abstract final class TextLayoutEngine {
             width: width,
             scale: textScaleFactor,
             firstLine: firstLine,
+            maxLines: maxLines,
           );
     final painter = TextPainter(
       text: spacingPlan != null
@@ -2434,6 +2450,7 @@ abstract final class TextLayoutEngine {
           : sourceSpan,
       textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
+      maxLines: maxLines,
     )..layout(maxWidth: width);
     final measuredLines = paragraph?.layout(painter);
     final metrics =

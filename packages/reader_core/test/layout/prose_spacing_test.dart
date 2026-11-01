@@ -467,6 +467,51 @@ void main() {
     _expectWidths(long, style);
   });
 
+  test('复用单行探测时不同候选宽度不泄漏，保留原有合法断点', () {
+    const text = '（甲乙丙，丁）。「戊己庚」，（辛壬癸）这是窄行正文；英文 reader 保持完整。';
+    final expected = {
+      61.0: [3, 5, 8, 11, 14, 17, 20, 23, 26, 29, 34, 38, 41],
+      83.0: [5, 10, 14, 19, 23, 27, 29, 36, 39, 41],
+      101.0: [5, 11, 17, 22, 27, 36, 41],
+      149.0: [8, 16, 23, 29, 39, 41],
+    };
+    final style = _style();
+    for (final entry in expected.entries) {
+      final layout = TextLayoutEngine.layout(
+        text: text,
+        style: style,
+        maxWidth: entry.key,
+      );
+      expect(layout.lines.map((line) => line.end), entry.value);
+      expect(layout.text, text);
+      _expectWidths(layout, style);
+    }
+  });
+
+  test('缩进仅探测首行时保留长段尾部、硬换行与间距', () {
+    const unit = '（甲乙），「丙丁》」。中西文 EPUB 混排；';
+    for (final indent in ['40px', '-20px']) {
+      final style = _style({'text-indent': indent});
+      final short = TextLayoutEngine.layout(
+        text: '$unit\n${unit * 4}',
+        style: style,
+        maxWidth: 153,
+      );
+      final long = TextLayoutEngine.layout(
+        text: '$unit\n${unit * 40}',
+        style: style,
+        maxWidth: 153,
+      );
+      for (var i = 0; i < short.lines.length - 2; i++) {
+        expect(long.lines[i].end, short.lines[i].end);
+        expect(long.lines[i].width, closeTo(short.lines[i].width, .01));
+      }
+      expect(long.lines.last.end, long.text.length);
+      expect(long.lines.where((line) => line.isHardBreak), hasLength(1));
+      _expectWidths(long, style);
+    }
+  });
+
   test('混合字号悬挂只使用已挤压后的句读宽，缩放不重复放大对齐余量', () {
     final style = _style({'hanging-punctuation': 'allow-end'});
     final large = ComputedStyle({'font-size': '30px'}, parent: style);
