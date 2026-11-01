@@ -2226,10 +2226,14 @@ class PagePainter {
           placement.height,
         );
       } else {
-        // 横排：盒顶 = 基线 − 基线以上延伸（行顶由 LineBox.baseline 反映）。
+        // ascent 含上外边距；绘制边框盒时须移回 margin 盒内的边框顶。
         rect = Rect.fromLTWH(
           x + placement.left,
-          lineY + line.baseline - line.top - placement.ascent,
+          lineY +
+              line.baseline -
+              line.top -
+              placement.ascent +
+              placement.spec.marginTop,
           placement.width,
           placement.height,
         );

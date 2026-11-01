@@ -1,0 +1,6 @@
+{
+  "name": "108-inline-block-margin-baseline",
+  "tags": ["vertical-align", "margin", "display", "font-size"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 20px; line-height: 2; } p { margin: 0 0 12px; } .tag { display: inline-block; padding: 1px 2px; border: 1px solid #4a3860; background: #e7deed; color: #3b2849; font-size: .65em; margin: .5em .3em .5em 0; } .alt { padding: 1px 7px; border-color: #7e3b41; background: #f3dddd; color: #682f34; font-size: .7em; margin: 2px 4px 2px 0; } .middle .tag { vertical-align: middle; font-size: 16px; } .first { margin: 9px 4px 9px 0; } .second { margin: 2px 0; } .negative { margin-top: -3px; } .outer { display: inline-block; padding: 5px; }",
+  "html": "<p><span class=\"tag\">沉沦命途·【腐朽】令使</span><span class=\"tag alt\">生命命途·【繁荣】前令使</span></p><p class=\"middle\">中线<span class=\"tag first\">甲</span><span class=\"tag second\">乙</span>后文</p><p>基线<span class=\"tag first\">甲</span><span class=\"tag second negative\">乙</span>后文</p><p><span class=\"outer\">嵌套<span class=\"tag first\">甲</span><span class=\"tag second\">乙</span>尾</span></p>"
+}
