@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/layout/block_flow.dart';
@@ -49,6 +50,32 @@ void main() {
       expect(style.values['font-size'], '2em');
       expect(style.values['font-weight'], 'bold');
       expect(style.values['page-break-after'], 'avoid');
+    });
+
+    test('hr 默认灰线在 UA 层，可被作者边框与高度覆盖', () {
+      final plain = Cascade.compute(
+        element: _element('hr'),
+        ancestors: const <SelectorElement>[],
+        rules: uaRules(),
+      );
+      final legacy = UaBlockDefaults.apply(ComputedStyle(const {}), 'hr')!;
+      for (final style in [plain, legacy]) {
+        expect(style.borders.bottom.style, CssBorderStyle.solid);
+        expect(style.borders.bottom.width, 1);
+        expect(style.height!.resolve(300), 1);
+      }
+      final authored = Cascade.compute(
+        element: _element('hr'),
+        ancestors: const <SelectorElement>[],
+        rules: uaRules(),
+        inlineDeclarations: CssParser.parse(
+          'hr { border: none; border-top: 2px dashed #304598; height: auto; }',
+        ).rules.single.declarations,
+      );
+      expect(authored.borders.top.style, CssBorderStyle.dashed);
+      expect(authored.borders.top.width, 2);
+      expect(authored.borders.bottom.width, 0);
+      expect(authored.height?.resolve(300), isNull);
     });
 
   test('层叠可消费：noscript 声明 display:none', () {
