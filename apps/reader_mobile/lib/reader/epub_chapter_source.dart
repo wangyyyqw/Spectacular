@@ -39,6 +39,7 @@ import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'bounded_cache.dart';
+import 'prose_spacing_defaults.dart';
 
 /// 从 EPUB 文档读取章节并提供分页结果。
 class EpubChapterSource
@@ -266,6 +267,7 @@ class EpubChapterSource
   String _paginationKey(int spineIndex) =>
       '$spineIndex@${contentWidth.toString()}x${contentHeight.toString()}'
       '|top=${_contentTopInset.toString()}'
+      '|spacing=$textSpacingRevision'
       '|${_overrides.fingerprint}';
 
   /// 失效与续排日志（P7-27；对照 Reeden 失效诊断带 old/new——
@@ -2557,12 +2559,22 @@ class EpubChapterSource
     ];
     final text = block.layout.text.substring(start);
     final runs = _sliceTextRuns(block.layout, start, block.layout.text.length);
-    return !boxes.any((box) => box.replacesPlaceholder)
+    final rubies = [
+      for (final ruby in block.rubies ?? const <RubyAnnotation>[])
+        if (ruby.end > start)
+          RubyAnnotation(
+            start: math.max(0, ruby.start - start),
+            end: ruby.end - start,
+            text: ruby.text,
+          ),
+    ];
+    return boxes.isEmpty
         ? _layoutCache.layout(
             text: text,
             style: style,
             maxWidth: width,
             runs: runs,
+            rubies: rubies,
             hasGlyph: _hasBookFontGlyph,
           )
         : TextLayoutEngine.layout(
@@ -2571,6 +2583,7 @@ class EpubChapterSource
             maxWidth: width,
             runs: runs,
             inlineBoxes: boxes,
+            rubies: rubies,
             hasGlyph: _hasBookFontGlyph,
           );
   }
@@ -3392,6 +3405,12 @@ class EpubChapterSource
                 offsetX: line.offsetX + occupiedLeft,
                 justifyExtra: line.justifyExtra,
                 justifyMode: line.justifyMode,
+                spacing: line.spacing,
+                isHardBreak: line.isHardBreak,
+                ellipsized: line.ellipsized,
+                ellipsisWidth: line.ellipsisWidth,
+                hyphenated: line.hyphenated,
+                hyphenWidth: line.hyphenWidth,
                 inlineBoxes: [
                   for (final box in line.inlineBoxes)
                     InlineBoxPlacement(
@@ -4909,6 +4928,7 @@ class EpubChapterSource
         declarations,
         parent: style,
         explicitProperties: declarations.keys.toSet(),
+        declaredTextProperties: computed.declaredTextProperties,
         containingWidth: contentWidth,
         rootFontSize: style.fontSize,
       );
@@ -6134,6 +6154,26 @@ class EpubChapterSource
             parentStyle != null &&
             blockStyle.fontSize < parentStyle.fontSize * 0.9 &&
             hasCompactAncestor;
+        blockStyle = proseSpacingDefaults(
+          blockStyle,
+          ancestors,
+          text,
+          specialComponent:
+              compactAuthoredComponent ||
+              containerFloat != null ||
+              ancestors.any(
+                (view) {
+                  final container = retainedContainers[view]?.style;
+                  return container != null &&
+                      (container.display == CssDisplay.flex ||
+                          (container.columnCount ?? 1) > 1 ||
+                          container.columnWidth != null);
+                },
+              ) ||
+              ancestors.any(promotedInlineStyles.containsKey) ||
+              (text.trim().length <= 40 &&
+                  _hasStructuredTitleStyle(blockStyle)),
+        );
         if (!isHeading &&
             !compactAuthoredComponent &&
             !ancestors.any(promotedInlineStyles.containsKey)) {
@@ -6702,6 +6742,14 @@ class EpubChapterSource
                 style: measureStyle,
                 maxWidth: measureWidth,
                 runs: runs,
+                rubies: [
+                  for (final ruby in paragraphRubies)
+                    RubyAnnotation(
+                      start: ruby.start,
+                      end: ruby.end,
+                      text: ruby.text,
+                    ),
+                ],
                 hasGlyph: _hasBookFontGlyph,
               )
             : TextLayoutEngine.layout(
@@ -6710,6 +6758,14 @@ class EpubChapterSource
                 maxWidth: measureWidth,
                 runs: runs,
                 inlineBoxes: inlineBoxes,
+                rubies: [
+                  for (final ruby in paragraphRubies)
+                    RubyAnnotation(
+                      start: ruby.start,
+                      end: ruby.end,
+                      text: ruby.text,
+                    ),
+                ],
                 hasGlyph: _hasBookFontGlyph,
               );
         if (outOfFlowBoxWidth != null) {

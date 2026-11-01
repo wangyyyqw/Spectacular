@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/painting.dart';
+import 'package:flutter/widgets.dart' show StringCharacters;
 
 import '../css/computed_style.dart';
 import '../css/font_face.dart';
@@ -9,8 +10,13 @@ import 'cjk_justify.dart';
 import 'autospace.dart';
 import 'hyphenation.dart';
 import 'punct_trim.dart';
+import 'punctuation_spacing.dart';
+import 'spaced_paragraph.dart';
+import 'text_spacing.dart';
 import '../text/font_metrics.dart';
 import '../text/script_fallback.dart';
+
+export 'text_spacing.dart' show LineSpacing, GlyphSpacing, textSpacingRevision;
 
 /// CSS `hyphens: auto` 在行尾补画的连字符。
 ///
@@ -34,6 +40,7 @@ class LineBox {
     this.offsetX = 0,
     this.justifyExtra = 0,
     this.justifyMode = CssTextJustify.auto,
+    this.spacing,
     this.ellipsized = false,
     this.ellipsisWidth = 0,
     this.hyphenated = false,
@@ -80,6 +87,9 @@ class LineBox {
   /// 本行的 justify 拉伸方式（P7-21）：绘制端按同一模式取 gap，
   /// 与测量期的 justifyExtra 一致。
   final CssTextJustify justifyMode;
+
+  /// 测量时确定的字簇占宽与可拉伸间隙；绘制、命中不再各自推算。
+  final LineSpacing? spacing;
 
   /// 本行是否被 `text-overflow: ellipsis` 截断（行尾需画省略号）。
   ///
@@ -136,6 +146,7 @@ class LineBox {
     double? offsetX,
     double? justifyExtra,
     CssTextJustify? justifyMode,
+    LineSpacing? spacing,
     double? width,
     bool? ellipsized,
     double? ellipsisWidth,
@@ -158,6 +169,7 @@ class LineBox {
     offsetX: offsetX ?? this.offsetX,
     justifyExtra: justifyExtra ?? this.justifyExtra,
     justifyMode: justifyMode ?? this.justifyMode,
+    spacing: spacing ?? this.spacing,
     ellipsized: ellipsized ?? this.ellipsized,
     ellipsisWidth: ellipsisWidth ?? this.ellipsisWidth,
     hyphenated: hyphenated ?? this.hyphenated,
@@ -808,8 +820,8 @@ class TextLayoutResult implements TextLayout {
 
   /// 现有 runs 是否与块级测量样式等价（只允许颜色/装饰等排版无关差异）。
   ///
-  /// 为 true 时，标点挤压和中西文自动间距仍可把整行当纯文本测量；绘制端
-  /// 继续按 run 取颜色与装饰，不会抹掉作者行内样式。
+  /// 为 true 时，旧的间距兼容路径仍可按纯文本测量；带 spacing 的行直接
+  /// 使用实际 run 的间距结果，绘制端继续保留作者颜色与装饰。
   final bool plainTextLayout;
 
   /// 是否竖排。
@@ -934,6 +946,7 @@ class LineBreaker {
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
   }) {
     // nowrap/pre 不软换行：测量时不软换行，但内容宽保持有限值（P9-28：
     // 无限宽会让对齐余量恒为 0，也让对照工具拿到 Infinity）。
@@ -949,6 +962,7 @@ class LineBreaker {
       runs: runs,
       hasGlyph: hasGlyph,
       inlineBoxes: inlineBoxes,
+      rubies: rubies,
       softWrap: softWrap,
     );
   }
@@ -973,6 +987,7 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
   }) {
     return (lineBreaker ?? LineBreaker()).layout(
       text: text,
@@ -983,6 +998,7 @@ abstract final class TextLayoutEngine {
       runs: runs,
       hasGlyph: hasGlyph,
       inlineBoxes: inlineBoxes,
+      rubies: rubies,
     );
   }
 
@@ -995,6 +1011,7 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool softWrap = true,
   }) {
     // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
@@ -1113,7 +1130,10 @@ abstract final class TextLayoutEngine {
     List<LineBox> measureText(
       String source,
       List<_InlineBoxMark> inlineBoxMarks,
+      List<int> offsets,
     ) {
+      final measuredRuns = _measurementRuns(styled, offsets);
+      final barriers = _spacingBarriers(rubies, inlineBoxMarks, offsets);
       final raw = measuredText.isEmpty || indent == 0
           ? _measureSegment(
               text: source,
@@ -1123,7 +1143,8 @@ abstract final class TextLayoutEngine {
               style: style,
               textScaleFactor: textScaleFactor,
               leadingDistribution: leadingDistribution,
-              runs: styled,
+              runs: measuredRuns,
+              spacingBarriers: barriers,
             )
           : _measureWithIndent(
               text: source,
@@ -1134,7 +1155,8 @@ abstract final class TextLayoutEngine {
               style: style,
               textScaleFactor: textScaleFactor,
               leadingDistribution: leadingDistribution,
-              runs: styled,
+              runs: measuredRuns,
+              spacingBarriers: barriers,
             );
       return _mapSoftBreaks(raw, breakPlan);
     }
@@ -1156,6 +1178,7 @@ abstract final class TextLayoutEngine {
       measured = measureText(
         boxText?.text ?? breakPlan.text,
         boxText?.marks ?? const <_InlineBoxMark>[],
+        boxText?.offsets ?? breakPlan.offsets,
       );
       if (boxText != null && boxText.changed) {
         measured = _mapInlineBoxLines(measured, boxText);
@@ -1193,7 +1216,10 @@ abstract final class TextLayoutEngine {
     }
     return _result(
       text,
-      _align(measuredText, measured, style, width),
+      _align(measuredText, measured, style, width, (
+        runs: styled,
+        scale: textScaleFactor,
+      )),
       width,
       styled,
       style,
@@ -1632,6 +1658,11 @@ abstract final class TextLayoutEngine {
         line.copyWith(
           start: plan.originalOffset(line.start),
           end: plan.originalOffset(line.end),
+          spacing: line.spacing?.remap(
+            (offset) =>
+                plan.originalOffset(line.start + offset) -
+                plan.originalOffset(line.start),
+          ),
           width: hyphenated ? line.width + plan.hyphenAdvance : line.width,
           hyphenated: hyphenated,
           hyphenWidth: hyphenated ? plan.hyphenAdvance : 0,
@@ -1640,6 +1671,52 @@ abstract final class TextLayoutEngine {
     }
     return mapped;
   }
+
+  static int _measuredOffset(List<int> offsets, int original) {
+    var low = 0;
+    var high = offsets.length - 1;
+    while (low < high) {
+      final middle = (low + high) ~/ 2;
+      if (offsets[middle] < original) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
+  }
+
+  static List<StyledRun> _measurementRuns(
+    List<StyledRun> runs,
+    List<int> offsets,
+  ) {
+    if (offsets.length == offsets.last + 1) return runs;
+    return [
+      for (final run in runs)
+        StyledRun(
+          start: _measuredOffset(offsets, run.start),
+          end: _measuredOffset(offsets, run.end),
+          style: run.style,
+          baselineShift: run.baselineShift,
+          syntheticFontFallback: run.syntheticFontFallback,
+        ),
+    ];
+  }
+
+  static Set<int> _spacingBarriers(
+    List<RubyAnnotation> rubies,
+    List<_InlineBoxMark> marks,
+    List<int> offsets,
+  ) => {
+    for (final mark in marks) ...[mark.index, mark.index + 1],
+    for (final ruby in rubies)
+      for (
+        var i = _measuredOffset(offsets, ruby.start);
+        i <= _measuredOffset(offsets, ruby.end);
+        i++
+      )
+        i,
+  };
 
   /// 排序并裁掉越界区间；空区间丢弃。
   static List<StyledRun> _normalizeRuns(List<StyledRun> runs, int length) {
@@ -1899,6 +1976,7 @@ abstract final class TextLayoutEngine {
     required TextLeadingDistribution leadingDistribution,
     List<StyledRun> runs = const <StyledRun>[],
     List<_InlineBoxMark> inlineBoxMarks = const <_InlineBoxMark>[],
+    Set<int> spacingBarriers = const {},
   }) {
     final firstWidth = math.max(1.0, width - indent);
     // 首段先不带行内盒测一次，拿到分界后再把「落在首段」的盒补进去
@@ -1911,6 +1989,7 @@ abstract final class TextLayoutEngine {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: runs,
+      spacingBarriers: spacingBarriers,
     );
     if (head.isEmpty) {
       return const <LineBox>[];
@@ -1930,6 +2009,7 @@ abstract final class TextLayoutEngine {
           textScaleFactor: textScaleFactor,
           leadingDistribution: leadingDistribution,
           runs: runs,
+          spacingBarriers: spacingBarriers,
         );
       }
     }
@@ -1948,6 +2028,11 @@ abstract final class TextLayoutEngine {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: _sliceRuns(runs, remainderStart, text.length),
+      spacingBarriers: {
+        for (final offset in spacingBarriers)
+          if (offset >= remainderStart) offset - remainderStart,
+      },
+      firstLine: remainderStart > 0 && text[remainderStart - 1] == '\n',
     );
     final lines = <LineBox>[first];
     for (var i = 0; i < rest.length; i++) {
@@ -1975,6 +2060,7 @@ abstract final class TextLayoutEngine {
     List<LineBox> lines,
     ComputedStyle style,
     double width,
+    ({List<StyledRun> runs, double scale}) context,
   ) {
     // 标点悬挂（P7-18）：`hanging-punctuation: allow-end` 时，两端
     // 对齐的非末行行尾句读挂到版心右缘外——该行的可分配余量加上
@@ -1982,9 +2068,34 @@ abstract final class TextLayoutEngine {
     // （_justifyExtra 内判定）。书内显式 CSS 优先：只有声明了
     // allow-end 才启用（默认 none）。
     final hanging = style.hangingPunctuation == CssHangingPunctuation.allowEnd;
-    final punctWidths = <String, double>{};
-    double punctWidthOf(String punct) =>
-        punctWidths[punct] ??= _measureChar(punct, style);
+    final punctWidths = <(ComputedStyle, String), double>{};
+    double hangingWidth(LineBox line) {
+      final end =
+          line.start +
+          (line.spacing?.trailingSpaceStart ?? line.end - line.start);
+      if (!hanging || end <= line.start || line.isLastLine || line.isHardBreak) {
+        return 0;
+      }
+      final char = text[end - 1];
+      if (!hangableTrailingPunctuation.contains(char)) return 0;
+      final css =
+          context.runs
+              .where((run) => run.start <= end - 1 && run.end >= end)
+              .map((run) => run.style)
+              .firstOrNull ??
+          style;
+      final advance = punctWidths[(css, char)] ??= _measureChar(
+        char,
+        css,
+        context.scale,
+      );
+      final glyph = line.spacing?.glyphs[end - line.start - 1];
+      final trimmed =
+          (glyph?.reduction ?? 0) *
+          (glyph?.halfWidth == true ? context.scale : 1);
+      return math.max(0, advance - trimmed);
+    }
+
     final mode = style.textJustify;
     // 末行（含硬换行）的对齐：text-align-last 优先，缺省 start。
     // text-justify: justify-all 或 text-align-last: justify 时末行参与拉伸。
@@ -2015,41 +2126,96 @@ abstract final class TextLayoutEngine {
       final stretch =
           !line.ellipsized &&
           (align == CssTextAlign.justify || (isFinal && lastMayJustify));
+      final gaps = stretch ? _lineJustifyGaps(text, line, mode) : const <int>[];
+      final spacing = line.spacing?.withJustifyGaps(gaps);
       final justifyExtra = stretch
           ? _justifyExtra(
-              text,
               line,
               slack,
-              mode: mode,
-              hanging: hanging,
-              punctWidthOf: punctWidthOf,
+              hangingWidth: hangingWidth(line),
               lastMayJustify: lastMayJustify,
+              gaps: gaps,
             )
           : 0.0;
+      final boxes =
+          spacing != null && justifyExtra > 0 && line.inlineBoxes.isNotEmpty
+          ? _justifyInlineBoxes(line, gaps, justifyExtra)
+          : line.inlineBoxes;
       aligned.add(switch (align) {
         CssTextAlign.start || CssTextAlign.left => line.copyWith(
           offsetX: line.indent,
           justifyExtra: justifyExtra,
           justifyMode: mode,
+          spacing: spacing,
+          inlineBoxes: boxes,
         ),
         CssTextAlign.end || CssTextAlign.right => line.copyWith(
           offsetX: line.indent + slack,
           justifyExtra: justifyExtra,
           justifyMode: mode,
+          spacing: spacing,
+          inlineBoxes: boxes,
         ),
         CssTextAlign.center => line.copyWith(
           offsetX: line.indent + slack / 2,
           justifyExtra: justifyExtra,
           justifyMode: mode,
+          spacing: spacing,
+          inlineBoxes: boxes,
         ),
         CssTextAlign.justify => line.copyWith(
           offsetX: line.indent,
           justifyExtra: justifyExtra,
           justifyMode: mode,
+          spacing: spacing,
+          inlineBoxes: boxes,
         ),
       });
     }
     return aligned;
+  }
+
+  static List<int> _lineJustifyGaps(
+    String text,
+    LineBox line,
+    CssTextJustify mode,
+  ) {
+    final gaps = cjkJustifyGapOffsets(
+      text.substring(line.start, line.end),
+      mode: mode,
+    );
+    final locked = line.spacing?.lockedGaps;
+    return locked == null || locked.isEmpty
+        ? gaps
+        : gaps.where((offset) => !locked.contains(offset)).toList();
+  }
+
+  static List<InlineBoxPlacement> _justifyInlineBoxes(
+    LineBox line,
+    List<int> gaps,
+    double extra,
+  ) {
+    return [
+      for (final box in line.inlineBoxes)
+        InlineBoxPlacement(
+          offset: box.offset,
+          left:
+              box.left +
+              (gaps.isEmpty
+                  ? 0
+                  : extra /
+                        gaps.length *
+                        gaps
+                            .where((offset) => offset < box.offset - line.start)
+                            .length),
+          width: box.width,
+          height: box.height,
+          ascent: box.ascent,
+          descent: box.descent,
+          spec: box.spec,
+          vertical: box.vertical,
+        ),
+    ];
   }
 
   /// 该行可用于 justify 的余量；没有可拉伸间隙时返回 0。
@@ -2058,13 +2224,11 @@ abstract final class TextLayoutEngine {
   /// 末行/硬换行仅在 `lastMayJustify`（justify-all 或 align-last:
   /// justify）时参与拉伸（P7-21）。
   static double _justifyExtra(
-    String text,
     LineBox line,
     double slack, {
-    required CssTextJustify mode,
-    required bool hanging,
-    required double Function(String) punctWidthOf,
+    required double hangingWidth,
     required bool lastMayJustify,
+    required List<int> gaps,
   }) {
     if (slack < 0) {
       return 0;
@@ -2073,21 +2237,10 @@ abstract final class TextLayoutEngine {
     if (isFinal && !lastMayJustify) {
       return 0;
     }
-    final lineText = text.substring(line.start, line.end);
-    final gaps = cjkJustifyGapOffsets(lineText, mode: mode);
     if (gaps.isEmpty) {
       return 0;
     }
-    if (hanging && !isFinal && lineText.isNotEmpty) {
-      // 悬挂句读均为单个 UTF-16 码元（U+2026 与 CJK 句读区）。
-      final lastChar = String.fromCharCode(
-        lineText.codeUnitAt(lineText.length - 1),
-      );
-      if (hangableTrailingPunctuation.contains(lastChar)) {
-        return slack + punctWidthOf(lastChar);
-      }
-    }
-    return slack;
+    return slack + hangingWidth;
   }
 
   /// 行尾可悬挂的句读（P7-18；Reeden 150 号 §0-#5 悬挂行为——行尾
@@ -2205,14 +2358,15 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     List<_InlineBoxMark> inlineBoxMarks = const <_InlineBoxMark>[],
     double? contentWidth,
+    Set<int> spacingBarriers = const {},
+    bool firstLine = true,
   }) {
     final baseStyle = textStyleFor(
       style,
       leadingDistribution: leadingDistribution,
     );
-    // 标点挤压（P7-19）与中西文间距（P7-20）：只作用于排版等价的
-    // 纯文本段（测量与绘制同规则，见 buildLineSpan）；两者都影响行宽，
-    // 须在测量期生效。仅颜色/装饰不同的 run 仍按纯文本测量。
+    // 横排新路径按实际 run 测量标点；其他排版保留旧的纯文本兼容规则。
+    // 中西文自动间距继续沿用已有适用范围，不扩展到混合字号。
     final plainTextLayout = !_runsAffectTextLayout(runs, style);
     final compress =
         plainTextLayout &&
@@ -2232,47 +2386,59 @@ abstract final class TextLayoutEngine {
         ? _guardedTokenRanges(text)
         : const <(int, int)>[];
     final measureText = text;
-    final painter = TextPainter(
-      text: inlineBoxMarks.isNotEmpty
-          ? _inlineBoxSpans(
-              measureText,
-              baseStyle,
-              inlineBoxMarks,
-              style,
-              textScaleFactor,
-            )
-          : plainTextLayout
-          ? (compress
-                ? applySyntheticSmallCaps(
-                    _plainSpan(measureText, style, baseStyle, textScaleFactor),
-                  )
-                : usesSyntheticSmallCaps(style)
-                ? buildSyntheticSmallCapsSpan(
-                    text: measureText,
-                    style: baseStyle,
-                    caps: style.fontVariantCaps,
-                  )
-                : TextSpan(text: measureText, style: baseStyle))
-          : applySyntheticSmallCaps(
-              TextSpan(
-                style: baseStyle,
-                children: buildStyledSpans(
-                  text: text,
-                  start: 0,
-                  end: text.length,
-                  runs: runs,
-                  baseStyle: baseStyle,
-                  styleOf: (runStyle) => textStyleFor(
-                    runStyle,
-                    leadingDistribution: leadingDistribution,
-                  ),
-                ),
-              ),
+    final horizontal =
+        !style.isRtl &&
+        style.writingMode == CssWritingMode.horizontalTb &&
+        (style.whiteSpace == CssWhiteSpace.normal ||
+            style.whiteSpace == CssWhiteSpace.nowrap);
+    final sourceSpan = _measurementSpan(text, runs, baseStyle, inlineBoxMarks, (
+      css: style,
+      scale: textScaleFactor,
+      leading: leadingDistribution,
+    ));
+    final spacingPlan = horizontal
+        ? _punctuationPlan(
+            text,
+            style,
+            runs,
+            (
+              base: baseStyle,
+              leading: leadingDistribution,
+              autospace:
+                  plainTextLayout &&
+                  style.textAutospace == CssTextAutospace.normal,
             ),
+            spacingBarriers,
+          )
+        : null;
+    final paragraph = spacingPlan == null
+        ? null
+        : SpacedParagraph(
+            text: text,
+            span: sourceSpan,
+            spacing: spacingPlan,
+            width: width,
+            scale: textScaleFactor,
+            firstLine: firstLine,
+          );
+    final painter = TextPainter(
+      text: spacingPlan != null
+          ? applyTextSpacing(
+              sourceSpan,
+              spacingPlan.range(0, text.length, trimTrailing: false),
+            )
+          : compress && inlineBoxMarks.isEmpty && plainTextLayout
+          ? applySyntheticSmallCaps(
+              _plainSpan(text, style, baseStyle, textScaleFactor),
+            )
+          : sourceSpan,
       textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(textScaleFactor),
     )..layout(maxWidth: width);
-    final metrics = painter.computeLineMetrics();
+    final measuredLines = paragraph?.layout(painter);
+    final metrics =
+        measuredLines?.map((line) => line.metrics).toList() ??
+        painter.computeLineMetrics();
     // 小数行高（实验）：Skia 行盒高取整为整数，ascent 已按小数行高计算；
     // 这里把「被取整的 strut 行盒」换回 CSS 行高像素值。
     final cssLineHeight =
@@ -2282,13 +2448,16 @@ abstract final class TextLayoutEngine {
         : null;
     final lines = <LineBox>[];
     var top = 0.0;
-    for (final metric in metrics) {
+    for (var metricIndex = 0; metricIndex < metrics.length; metricIndex++) {
+      final metric = metrics[metricIndex];
+      final measured = measuredLines?[metricIndex];
       // 用行框垂直中点取该行内的字符位置，再取边界；
       // 直接拿“上一行 end”做位置在硬换行/空行处会落回上一行。
-      final position = painter.getPositionForOffset(
-        Offset(0, top + metric.height / 2),
-      );
-      final boundary = painter.getLineBoundary(position);
+      final boundary = measured == null
+          ? painter.getLineBoundary(
+              painter.getPositionForOffset(Offset(0, top + metric.height / 2)),
+            )
+          : TextRange(start: measured.start, end: measured.end);
       final syntheticCapsLineHeight = LineBreaker.preserveFractionalLineHeight
           ? _syntheticCapsLineHeight(style, runs, boundary.start, boundary.end)
           : null;
@@ -2311,6 +2480,9 @@ abstract final class TextLayoutEngine {
           height: lineHeight,
           baseline: top + metric.ascent,
           width: math.max(0, metric.width).toDouble(),
+          spacing:
+              measured?.spacing ??
+              spacingPlan?.range(boundary.start, boundary.end),
         ),
       );
       top += lineHeight;
@@ -2334,20 +2506,23 @@ abstract final class TextLayoutEngine {
             baseStyle,
             textScaleFactor,
             guardRanges,
+            paragraph: paragraph,
           );
     var truncated = _applyTextOverflow(
       lines: mergedLines,
       painter: painter,
+      paragraph: paragraph,
       contentWidth: contentWidth ?? width,
       style: style,
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
     );
-    return _applyInlineVerticalBoxes(
+    final result = _applyInlineVerticalBoxes(
       _applyInlineBoxes(
         truncated,
         inlineBoxMarks,
         painter,
+        sourceSpan: paragraph == null ? null : sourceSpan,
         text: text,
         baseStyle: baseStyle,
         style: style,
@@ -2356,6 +2531,75 @@ abstract final class TextLayoutEngine {
       runs,
       style,
       leadingDistribution,
+    );
+    painter.dispose();
+    return result;
+  }
+
+  static TextSpan _measurementSpan(
+    String text,
+    List<StyledRun> runs,
+    TextStyle base,
+    List<_InlineBoxMark> marks,
+    ({ComputedStyle css, double scale, TextLeadingDistribution leading})
+    context,
+  ) {
+    var span = runs.isEmpty
+        ? TextSpan(text: text, style: base)
+        : TextSpan(
+            style: base,
+            children: buildStyledSpans(
+              text: text,
+              start: 0,
+              end: text.length,
+              runs: runs,
+              baseStyle: base,
+              styleOf: (style) =>
+                  textStyleFor(style, leadingDistribution: context.leading),
+            ),
+          );
+    if (usesSyntheticSmallCaps(context.css) ||
+        runs.any((run) => usesSyntheticSmallCaps(run.style))) {
+      span = applySyntheticSmallCaps(span) as TextSpan;
+    }
+    return marks.isEmpty
+        ? span
+        : _inlineBoxSpans(
+            text,
+            base,
+            marks,
+            context.css,
+            context.scale,
+            sourceSpan: span,
+          );
+  }
+
+  static PunctuationSpacing _punctuationPlan(
+    String text,
+    ComputedStyle style,
+    List<StyledRun> runs,
+    ({TextStyle base, TextLeadingDistribution leading, bool autospace}) context,
+    Set<int> barriers,
+  ) {
+    final styles = <ComputedStyle, TextStyle>{style: context.base};
+    TextStyle resolved(ComputedStyle css) =>
+        styles[css] ??= textStyleFor(css, leadingDistribution: context.leading);
+    return PunctuationSpacing(
+      text: text,
+      barriers: barriers,
+      autospace: context.autospace,
+      styleAt: (offset) {
+        for (final run in runs) {
+          if (run.start <= offset && offset < run.end) {
+            return (
+              css: run.style,
+              text: resolved(run.style),
+              baselineShift: run.baselineShift,
+            );
+          }
+        }
+        return (css: style, text: resolved(style), baselineShift: 0);
+      },
     );
   }
 
@@ -2412,6 +2656,11 @@ abstract final class TextLayoutEngine {
         line.copyWith(
           start: boxText.originalOffset(line.start),
           end: boxText.originalOffset(line.end),
+          spacing: line.spacing?.remap(
+            (offset) =>
+                boxText.originalOffset(line.start + offset) -
+                boxText.originalOffset(line.start),
+          ),
           inlineBoxes: line.inlineBoxes.isEmpty
               ? line.inlineBoxes
               : List<InlineBoxPlacement>.unmodifiable(<InlineBoxPlacement>[
@@ -2539,8 +2788,9 @@ abstract final class TextLayoutEngine {
     TextStyle baseStyle,
     List<_InlineBoxMark> marks,
     ComputedStyle style,
-    double textScaleFactor,
-  ) {
+    double textScaleFactor, {
+    TextSpan? sourceSpan,
+  }) {
     final placeholderAdvance = _measureChar(
       _inlineBoxPlaceholder,
       style,
@@ -2552,10 +2802,13 @@ abstract final class TextLayoutEngine {
       final index = mark.index.clamp(0, text.length);
       if (index > cursor) {
         children.add(
-          TextSpan(text: text.substring(cursor, index), style: baseStyle),
+          sourceSpan == null
+              ? TextSpan(text: text.substring(cursor, index), style: baseStyle)
+              : sliceTextSpan(sourceSpan, cursor, index),
         );
       }
-      final spacing = mark.spec.outerWidth - placeholderAdvance;
+      final spacing =
+          (mark.spec.outerWidth - placeholderAdvance) / textScaleFactor;
       children.add(
         TextSpan(
           text: _inlineBoxPlaceholder,
@@ -2569,7 +2822,11 @@ abstract final class TextLayoutEngine {
       cursor = index + 1;
     }
     if (cursor < text.length) {
-      children.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+      children.add(
+        sourceSpan == null
+            ? TextSpan(text: text.substring(cursor), style: baseStyle)
+            : sliceTextSpan(sourceSpan, cursor, text.length),
+      );
     }
     return TextSpan(style: baseStyle, children: children);
   }
@@ -2584,6 +2841,7 @@ abstract final class TextLayoutEngine {
     required TextStyle baseStyle,
     required ComputedStyle style,
     required double textScaleFactor,
+    TextSpan? sourceSpan,
   }) {
     if (marks.isEmpty || lines.isEmpty) {
       return lines;
@@ -2603,23 +2861,24 @@ abstract final class TextLayoutEngine {
       final line = lines[lineIndex];
       // 行内 x：占位符之前的前缀宽 - 行首之前的前缀宽（用同一套 span 结构
       // 前缀测量；caret 位置在 letterSpacing 下含半间距，不能直接用）。
-      final dx =
-          _prefixAdvance(
-            text,
-            mark.index,
-            baseStyle,
-            marks,
-            style,
-            textScaleFactor,
-          ) -
-          _prefixAdvance(
-            text,
-            line.start,
-            baseStyle,
-            marks,
-            style,
-            textScaleFactor,
-          );
+      final dx = sourceSpan != null
+          ? _linePrefixAdvance(sourceSpan, line, mark.index, textScaleFactor)
+          : _prefixAdvance(
+                  text,
+                  mark.index,
+                  baseStyle,
+                  marks,
+                  style,
+                  textScaleFactor,
+                ) -
+                _prefixAdvance(
+                  text,
+                  line.start,
+                  baseStyle,
+                  marks,
+                  style,
+                  textScaleFactor,
+                );
       // 优先使用调用方测得的末行基线；缺失时仍按外部字体近似下沉量。
       final spec = mark.spec;
       final contentHeight = spec.contentHeight ?? spec.height;
@@ -2722,6 +2981,7 @@ abstract final class TextLayoutEngine {
           offsetX: line.offsetX,
           justifyExtra: line.justifyExtra,
           justifyMode: line.justifyMode,
+          spacing: line.spacing,
           ellipsized: line.ellipsized,
           ellipsisWidth: line.ellipsisWidth,
           hyphenated: line.hyphenated,
@@ -2732,6 +2992,26 @@ abstract final class TextLayoutEngine {
       top += height;
     }
     return adjusted;
+  }
+
+  static double _linePrefixAdvance(
+    TextSpan span,
+    LineBox line,
+    int end,
+    double scale,
+  ) {
+    final source = sliceTextSpan(span, line.start, line.end);
+    final spaced = line.spacing == null
+        ? source
+        : applyTextSpacing(source, line.spacing!);
+    final painter = TextPainter(
+      text: sliceTextSpan(spaced, 0, end - line.start),
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.linear(scale),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
   }
 
   /// `text-overflow: ellipsis`（P2-37）：行宽超过内容宽时截成「最长可放
@@ -2747,6 +3027,7 @@ abstract final class TextLayoutEngine {
     required ComputedStyle style,
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
+    SpacedParagraph? paragraph,
   }) {
     if (style.textOverflow != CssTextOverflow.ellipsis ||
         !contentWidth.isFinite ||
@@ -2764,6 +3045,13 @@ abstract final class TextLayoutEngine {
     for (final line in lines) {
       if (line.width <= contentWidth + 0.5) {
         result.add(line);
+        continue;
+      }
+      if (paragraph != null) {
+        result.add(
+          _truncateSpacedLine(line, paragraph, available, ellipsisAdvance),
+        );
+        changed = true;
         continue;
       }
       // 用已排好的 painter 反查：内容宽内最长的字符位置即截断点。
@@ -2791,6 +3079,45 @@ abstract final class TextLayoutEngine {
       );
     }
     return changed ? result : lines;
+  }
+
+  static LineBox _truncateSpacedLine(
+    LineBox line,
+    SpacedParagraph paragraph,
+    double available,
+    double ellipsis,
+  ) {
+    final text = paragraph.text.substring(line.start, line.end);
+    final boundaries = <int>[line.start];
+    for (final cluster in text.characters) {
+      boundaries.add(boundaries.last + cluster.length);
+    }
+    var low = 0;
+    var high = boundaries.length - 1;
+    while (low < high) {
+      final mid = (low + high + 1) ~/ 2;
+      if (paragraph
+              .measure(line.start, boundaries[mid], trimEnd: false)
+              .metrics
+              .width <=
+          available) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    final prefix = paragraph.measure(
+      line.start,
+      boundaries[low],
+      trimEnd: false,
+    );
+    return line.copyWith(
+      end: prefix.end,
+      width: prefix.metrics.width + ellipsis,
+      spacing: prefix.spacing,
+      ellipsized: true,
+      ellipsisWidth: ellipsis,
+    );
   }
 
   /// 指定字符位置的行内 advance（用于省略号前缀宽度）。
@@ -2868,6 +3195,12 @@ abstract final class TextLayoutEngine {
           width: line.width,
           isLastLine: line.isLastLine,
           isHardBreak: line.isHardBreak,
+          spacing: line.spacing,
+          inlineBoxes: line.inlineBoxes,
+          ellipsized: line.ellipsized,
+          ellipsisWidth: line.ellipsisWidth,
+          hyphenated: line.hyphenated,
+          hyphenWidth: line.hyphenWidth,
         ),
       );
       top += height;
@@ -3002,8 +3335,9 @@ abstract final class TextLayoutEngine {
     String text,
     TextStyle baseStyle,
     double textScaleFactor,
-    List<(int, int)> guardRanges,
-  ) {
+    List<(int, int)> guardRanges, {
+    SpacedParagraph? paragraph,
+  }) {
     if (lines.length < 2 || guardRanges.isEmpty) {
       return lines;
     }
@@ -3019,6 +3353,17 @@ abstract final class TextLayoutEngine {
       if (canBreak) {
         merged.add(current);
         current = next;
+        continue;
+      }
+      if (paragraph != null) {
+        final combined = paragraph.measure(current.start, next.end);
+        current = current.copyWith(
+          end: next.end,
+          width: combined.metrics.width,
+          spacing: combined.spacing,
+          isLastLine: next.isLastLine,
+          isHardBreak: next.isHardBreak,
+        );
         continue;
       }
       // 合并：宽度按合并后子串重测（行内可能有空格/变形，不能简单相加）。
@@ -3059,6 +3404,7 @@ abstract final class TextLayoutEngine {
           offsetX: line.offsetX,
           justifyExtra: line.justifyExtra,
           justifyMode: line.justifyMode,
+          spacing: line.spacing,
           ellipsized: line.ellipsized,
           ellipsisWidth: line.ellipsisWidth,
           hyphenated: line.hyphenated,

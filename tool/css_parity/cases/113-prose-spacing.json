@@ -1,0 +1,6 @@
+{
+  "name": "113-prose-spacing",
+  "tags": ["text-align", "text-spacing-trim"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 17px; } p { margin: 10px 0; line-height: 1.8; } .flow { text-align: justify; text-spacing-trim: trim-both; text-indent: 2em; } .large { font-size: 22px; font-weight: bold; color: #a23b28; } .author { text-align: left; text-spacing-trim: trim-both; } .off { text-align: right; text-spacing-trim: space-all; } .small { font-size: 12px; vertical-align: super; } .chip { display: inline-block; width: 34px; border: 1px solid #808080; text-align: center; text-spacing-trim: space-all; }",
+  "html": "<p class=\"flow\">（《山中旧书》）。「甲乙》，（丙丁）」这是普通正文的两端对齐与标点留白挤压。混排 EPUB reader 保持英文单词完整，<span class=\"large\">大字》，「混排」</span>也按实际字号计算；末行不拉伸。</p><section class=\"author\"><p>（作者在祖先指定左对齐），「子段落继续保留」。这里的长段落不会被正文默认两端对齐覆盖，连续标点《《书名》》和句读。，仍采用显式挤压策略。</p></section><p class=\"flow\">（上下标测试）正文<span class=\"small\">甲》，。</span>回到基线，盒前》，<span class=\"chip\">盒</span>「盒后」，独立内容边界不跨越挤压。继续正文，以便观察非末行和末行。</p><p class=\"off\">（关闭挤压），「保持作者右对齐」。</p>"
+}

@@ -2154,8 +2154,8 @@ void main() {
     );
     expect(
       style('p', 'p { text-spacing-trim: trim-start; }').textSpacingTrim,
-      CssTextSpacingTrim.trimAdjacent,
-      reason: '行首半角未实现，按 normal 的相邻折叠近似',
+      CssTextSpacingTrim.trimStart,
+      reason: '保留行首策略，排版时由字体 halt 支持决定是否生效',
     );
 
     final spaced = style('parent', 'div { text-spacing-trim: space-all; }');

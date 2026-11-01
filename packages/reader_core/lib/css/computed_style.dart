@@ -128,7 +128,25 @@ enum CssHangingPunctuation { none, allowEnd }
 /// 所以默认必须开启才对得上浏览器。
 /// [normal]：不挤压，对应显式 `space-all`（成员名沿用旧枚举，改名会波及
 /// layout 层调用点，语义以本注释为准）。
-enum CssTextSpacingTrim { normal, trimAdjacent }
+enum CssTextSpacingTrim {
+  normal,
+  trimAdjacent,
+  trimStart,
+  trimBoth,
+  spaceFirst;
+
+  bool get enabled => this != normal;
+  bool get trimsStart =>
+      this == trimStart || this == trimBoth || this == spaceFirst;
+  bool get trimsEnd => this == trimBoth;
+  String get cssValue => switch (this) {
+    normal => 'space-all',
+    trimAdjacent => 'trim-adjacent',
+    trimStart => 'trim-start',
+    trimBoth => 'trim-both',
+    spaceFirst => 'space-first',
+  };
+}
 
 /// 中西文自动间距（CSS `text-autospace`；P7-20，语义子集）。
 ///
@@ -1956,6 +1974,7 @@ class ComputedStyle {
     bool hasExplicitTextColor = false,
     ComputedStyle? parent,
     Set<String>? explicitProperties,
+    Set<String>? declaredTextProperties,
     Map<String, String> customProperties = const <String, String>{},
     double rootFontSize = 16,
     double containingWidth = 0,
@@ -2680,6 +2699,14 @@ class ComputedStyle {
 
     return ComputedStyle._(
       values: values,
+      declaredTextProperties: Set.unmodifiable(
+        declaredTextProperties ??
+            {
+              ...?parent?.declaredTextProperties,
+              for (final property in const ['text-align', 'text-spacing-trim'])
+                if (explicit.contains(property)) property,
+            },
+      ),
       hasExplicitTextColor: hasExplicitTextColor,
       fontSize: fontSize,
       parentFontSize: parentFontSize,
@@ -2806,11 +2833,13 @@ class ComputedStyle {
     double? lineHeightFactor,
     CssTextAlign? textAlign,
     String? fontFamily,
+    CssTextSpacingTrim? textSpacingTrim,
   }) {
     if (fontSize == null &&
         lineHeightFactor == null &&
         textAlign == null &&
-        fontFamily == null) {
+        fontFamily == null &&
+        textSpacingTrim == null) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
@@ -2834,6 +2863,8 @@ class ComputedStyle {
       if (fontSize != null) 'font-size': '${nextFontSize}px',
       if (lineHeightFactor != null) 'line-height': '$lineHeightFactor',
       if (textAlign != null) 'text-align': _textAlignToCss(textAlign),
+      if (textSpacingTrim != null)
+        'text-spacing-trim': textSpacingTrim.cssValue,
       'font-family': ?fontFamily,
     };
     final nextExplicit = <String>{
@@ -2841,10 +2872,12 @@ class ComputedStyle {
       if (fontSize != null) 'font-size',
       if (lineHeightFactor != null) 'line-height',
       if (textAlign != null) 'text-align',
+      if (textSpacingTrim != null) 'text-spacing-trim',
       if (fontFamily != null) 'font-family',
     };
     return ComputedStyle._(
       values: nextValues,
+      declaredTextProperties: declaredTextProperties,
       hasExplicitTextColor: hasExplicitTextColor,
       fontSize: nextFontSize,
       parentFontSize: parentFontSize,
@@ -2865,7 +2898,7 @@ class ComputedStyle {
       visibility: visibility,
       whiteSpace: whiteSpace,
       hangingPunctuation: hangingPunctuation,
-      textSpacingTrim: textSpacingTrim,
+      textSpacingTrim: textSpacingTrim ?? this.textSpacingTrim,
       textAutospace: textAutospace,
       textJustify: textJustify,
       textAlignLast: textAlignLast,
@@ -2974,6 +3007,7 @@ class ComputedStyle {
     this.borderImage,
     this.outline = CssOutline.none,
     required this.values,
+    required this.declaredTextProperties,
     required this.hasExplicitTextColor,
     required this.fontSize,
     required this.parentFontSize,
@@ -3095,6 +3129,9 @@ class ComputedStyle {
 
   /// 属性 → 层叠后的字符串值。
   final Map<String, String> values;
+
+  /// 仅记录影响正文默认策略的声明；显式 inherit/unset 也保留来源。
+  final Set<String> declaredTextProperties;
 
   /// 叠放层级（CSS 2.1 §9.9）：`z-index` 整数；`auto`/未声明/非法值按 0。
   ///
@@ -6887,17 +6924,16 @@ class ComputedStyle {
   ///
   /// 与 Chrome 对齐：`normal`（规范初始值）会折叠相邻全角标点，因此映射到
   /// [CssTextSpacingTrim.trimAdjacent]；只有显式 `space-all` 才不挤压。
-  /// `space-first`/`trim-start`/`trim-both` 的行首半角细节本引擎未实现，
-  /// 按 `normal` 的相邻折叠近似；`auto` 按规范等同 `normal`。
+  /// 行边挤压仅在字体的 halt 特性实际改变留白时启用；`auto` 沿用相邻规则。
   static CssTextSpacingTrim? _parseTextSpacingTrim(String raw) =>
       switch (raw.trim().toLowerCase()) {
         'trim-adjacent' ||
         'normal' ||
         'auto' ||
-        'space-first' ||
-        'trim-start' ||
-        'trim-both' ||
         'trim-all' => CssTextSpacingTrim.trimAdjacent,
+        'space-first' => CssTextSpacingTrim.spaceFirst,
+        'trim-start' => CssTextSpacingTrim.trimStart,
+        'trim-both' => CssTextSpacingTrim.trimBoth,
         // `space-all`：全部全角标点保持全角，即不挤压。
         'space-all' => CssTextSpacingTrim.normal,
         _ => null,

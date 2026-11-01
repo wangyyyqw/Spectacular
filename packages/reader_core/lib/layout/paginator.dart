@@ -1023,6 +1023,7 @@ class Paginator {
           offsetX: line.offsetX,
           justifyExtra: line.justifyExtra,
           justifyMode: line.justifyMode,
+          spacing: line.spacing,
           ellipsized: line.ellipsized,
           ellipsisWidth: line.ellipsisWidth,
           hyphenated: line.hyphenated,
@@ -1080,7 +1081,7 @@ class Paginator {
     required double absoluteLeft,
     double? absoluteTop,
     MulticolGeometry? multicol,
-    (int, int)? range,
+    (int start, int end)? textRange,
   }) => PageBlock(
     layout: layout,
     startCfi: source.startCfi,
@@ -1100,26 +1101,24 @@ class Paginator {
     effectiveOpacity: source.effectiveOpacity,
     multicol: multicol,
     // 注音/行内图片按列文本区间切片并平移到片段坐标。
-    rubies: range == null
+    rubies: textRange == null
         ? source.rubies
         : <RubyAnnotation>[
             for (final ruby in source.rubies ?? const <RubyAnnotation>[])
-              if (ruby.start >= _columnTextStart(source, range) &&
-                  ruby.start < _columnTextEnd(source, range))
+              if (ruby.start < textRange.$2 && ruby.end > textRange.$1)
                 RubyAnnotation(
-                  start: ruby.start - _columnTextStart(source, range),
-                  end: ruby.end - _columnTextStart(source, range),
+                  start: math.max(ruby.start, textRange.$1) - textRange.$1,
+                  end: math.min(ruby.end, textRange.$2) - textRange.$1,
                   text: ruby.text,
                 ),
           ],
-    inlineImages: range == null
+    inlineImages: textRange == null
         ? source.inlineImages
         : <InlineImageSpec>[
             for (final image in source.inlineImages)
-              if (image.offset >= _columnTextStart(source, range) &&
-                  image.offset < _columnTextEnd(source, range))
+              if (image.offset >= textRange.$1 && image.offset < textRange.$2)
                 InlineImageSpec(
-                  offset: image.offset - _columnTextStart(source, range),
+                  offset: image.offset - textRange.$1,
                   url: image.url,
                   width: image.width,
                   height: image.height,
@@ -1133,11 +1132,12 @@ class Paginator {
   );
 
   /// 列区间在原文里的起止偏移（用于切片注音/行内图片）。
-  static int _columnTextStart(PageBlock source, (int, int) range) =>
-      range.$1 < range.$2 ? source.layout.lines[range.$1].start : 0;
-
-  static int _columnTextEnd(PageBlock source, (int, int) range) =>
-      range.$1 < range.$2 ? source.layout.lines[range.$2 - 1].end : 0;
+  static (int, int) _columnTextRange(
+    TextLayoutResult source,
+    (int, int) range,
+  ) => range.$1 < range.$2
+      ? (source.lines[range.$1].start, source.lines[range.$2 - 1].end)
+      : (0, 0);
 
   /// 绝对定位解算（CSS 2.1 §10.3.7/§10.6.4 的扁平管线口径）。
   ///
@@ -1723,6 +1723,11 @@ class Paginator {
           style: block.style!,
           maxWidth: multicol.columnWidth,
           runs: block.layout.runs,
+          inlineBoxes: [
+            for (final line in block.layout.lines)
+              for (final box in line.inlineBoxes) box.spec.atOffset(box.offset),
+          ],
+          rubies: block.rubies ?? const [],
         );
         if (relaid.lineCount > 0) {
           final ranges = _columnRanges(relaid.lines, multicol.count);
@@ -1761,7 +1766,7 @@ class Paginator {
                   firstLayout,
                   absoluteLeft: 0,
                   multicol: multicol,
-                  range: ranges.first,
+                  textRange: _columnTextRange(relaid, ranges.first),
                 ),
                 startLine: 0,
                 endLine: firstLayout.lineCount,
@@ -1785,7 +1790,7 @@ class Paginator {
                     layout,
                     absoluteLeft: left,
                     absoluteTop: bandTop,
-                    range: ranges[column],
+                    textRange: _columnTextRange(relaid, ranges[column]),
                   ),
                   startLine: 0,
                   endLine: layout.lineCount,
@@ -1859,7 +1864,7 @@ class Paginator {
                   firstLayout,
                   absoluteLeft: 0,
                   multicol: multicol,
-                  range: pageRanges.first,
+                  textRange: _columnTextRange(relaid, pageRanges.first),
                 ),
                 startLine: 0,
                 endLine: firstLayout.lineCount,
@@ -1883,7 +1888,7 @@ class Paginator {
                     layout,
                     absoluteLeft: left,
                     absoluteTop: bandTop,
-                    range: pageRanges[column],
+                    textRange: _columnTextRange(relaid, pageRanges[column]),
                   ),
                   startLine: 0,
                   endLine: layout.lineCount,

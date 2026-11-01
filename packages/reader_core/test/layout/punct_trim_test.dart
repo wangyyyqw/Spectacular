@@ -145,11 +145,10 @@ void main() {
     test('text-spacing-trim 解析与继承', () {
       expect(trimmed.textSpacingTrim, CssTextSpacingTrim.trimAdjacent);
       expect(normal.textSpacingTrim, CssTextSpacingTrim.normal);
-      expect(
-        _parse('space-all'),
-        CssTextSpacingTrim.normal,
-      );
-      expect(_parse('trim-start'), CssTextSpacingTrim.trimAdjacent);
+      expect(_parse('space-all'), CssTextSpacingTrim.normal);
+      expect(_parse('trim-start'), CssTextSpacingTrim.trimStart);
+      expect(_parse('trim-both'), CssTextSpacingTrim.trimBoth);
+      expect(_parse('space-first'), CssTextSpacingTrim.spaceFirst);
       final child = ComputedStyle(
         const <String, String>{'color': 'red'},
         parent: trimmed,
