@@ -835,6 +835,7 @@ typedef LineBreakWarningCallback = void Function(LineBreakWarning warning);
 ///
 /// 正文内容宽低于 [minimumWidthEm]（默认 3em）时钳制到下限，并只触发一次告警；
 /// 这是 S4 结论要求的工程约束，避免 2em 极端宽度下的禁则缺陷。
+/// 行内块按自身内容宽排版，不把短标签撑成正文宽度。
 class LineBreaker {
   /// 创建断行器。
   LineBreaker({this.onWarning, this.minimumWidthEm = 3.0})
@@ -873,8 +874,11 @@ class LineBreaker {
   double minimumWidthFor(ComputedStyle style) =>
       style.fontSize * minimumWidthEm;
 
-  /// 返回实际使用的宽度；低于下限时钳制并记录一次告警。
+  /// 返回实际使用的宽度；正文低于下限时钳制并记录一次告警。
   double effectiveWidth(ComputedStyle style, double requestedWidth) {
+    if (style.display == CssDisplay.inlineBlock) {
+      return requestedWidth;
+    }
     final minimum = minimumWidthFor(style);
     if (!requestedWidth.isFinite || requestedWidth >= minimum) {
       return requestedWidth;
@@ -895,8 +899,9 @@ class LineBreaker {
 
   /// 按 [maxWidth] 测量 [text]。
   ///
-  /// 宽度低于 3em 时钳制到 3em；`nowrap`/`pre` 不软换行（测量时按无限宽
-  /// 排一行），但 `maxWidth` 仍记录有限的内容宽，供对齐与诊断使用。
+  /// 正文宽度低于 3em 时钳制到 3em，行内块保留请求宽。
+  /// `nowrap`/`pre` 不软换行（测量时按无限宽排一行），但 `maxWidth` 仍记录
+  /// 有限的内容宽，供对齐与诊断使用。
   /// [runs] 为行内样式区间，用于混排字号与行内元素；未覆盖部分沿用 [style]。
   /// [hasGlyph] 非空时按字形覆盖把 `style.fontFamilies` 切分成族分段（P2-12）。
   TextLayoutResult layout({
