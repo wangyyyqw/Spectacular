@@ -152,6 +152,40 @@ void main() {
     );
   });
 
+  test('绕排占位结束后续行不重复应用 text-indent', () async {
+    final source = await EpubChapterSource.open(
+      _buildEpub(
+        '<p><img src="img.png" class="f"/></p>'
+        '<p>浮动图旁边的正文逐行绕排，图片占位结束后恢复全宽，'
+        '续行不能再次应用首行缩进，否则一句话会在绕排结束处被凭空断开。'
+        '这里继续补充文字，确保浮动下方仍有完整的正文行。</p>',
+        css:
+            'body { font-size: 20px; } '
+            'p { margin: 0; text-indent: 2em; line-height: 1.5; } '
+            '.f { float: right; width: 90px; height: 40px; }',
+      ),
+    );
+    final slices = [
+      for (final page in await source.loadChapter(0)) ...page.slices,
+    ];
+    final paragraph = slices
+        .where((slice) => slice.block.floatSide == null)
+        .first
+        .block
+        .layout;
+    expect(paragraph.lines.first.indent, greaterThan(0));
+    expect(
+      paragraph.lines.where((line) => line.offsetX == 0),
+      isNotEmpty,
+      reason: '浮动占位耗尽后应恢复全宽行',
+    );
+    expect(
+      paragraph.lines.skip(1).where((line) => line.indent != 0),
+      isEmpty,
+      reason: '只有源段落首行可以应用 text-indent',
+    );
+  });
+
   test('align=right 旧属性同样命中右浮', () async {
     final source = await EpubChapterSource.open(
       _buildEpub(

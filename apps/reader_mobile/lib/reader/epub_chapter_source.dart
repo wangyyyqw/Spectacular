@@ -2658,6 +2658,11 @@ class EpubChapterSource
     double width, {
     int start = 0,
   }) {
+    // text-indent 只作用于源块的首行。浮动占位变化或跨页后会从中间
+    // 重排同一段落，续排首行不能再次缩进，否则绕排结束处会凭空分段。
+    final layoutStyle = start == 0
+        ? style
+        : style.withTypography(textIndent: 0);
     final boxes = [
       for (final line in block.layout.lines)
         for (final box in line.inlineBoxes)
@@ -2677,7 +2682,7 @@ class EpubChapterSource
     return boxes.isEmpty
         ? _layoutCache.layout(
             text: text,
-            style: style,
+            style: layoutStyle,
             maxWidth: width,
             runs: runs,
             rubies: rubies,
@@ -2685,7 +2690,7 @@ class EpubChapterSource
           )
         : TextLayoutEngine.layout(
             text: text,
-            style: style,
+            style: layoutStyle,
             maxWidth: width,
             runs: runs,
             inlineBoxes: boxes,
