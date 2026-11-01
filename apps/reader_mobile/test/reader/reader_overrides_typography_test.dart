@@ -153,6 +153,27 @@ void main() {
     );
   });
 
+  test('非语义居中短标题保留作者字号和行高', () async {
+    final source = await openCssChapter(
+      body: '<p class="cover">作\u2002品\u2002\u2002\u2002相\u2002关</p>',
+      css:
+          'p.cover { font-size: 1.6em; line-height: 1.3; '
+          'text-align: center; margin: 15em 0 1em; }',
+      overrides: const ReaderOverrides(
+        fontSize: 17,
+        lineHeight: 1.6,
+        paragraphSpacing: 10,
+      ),
+    );
+    final title = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .single;
+    expect(title.style!.fontSize, closeTo(27.2, 0.001));
+    expect(title.style!.lineHeightFactor, closeTo(1.3, 0.001));
+    expect(title.spaceBefore, closeTo(408, 0.001));
+  });
+
   test('行内文字与标签继承覆盖后的正文，标题和表格继续采用作者字号', () async {
     final source = await openCssChapter(
       body:

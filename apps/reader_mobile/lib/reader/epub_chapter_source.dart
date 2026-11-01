@@ -6154,6 +6154,12 @@ class EpubChapterSource
             parentStyle != null &&
             blockStyle.fontSize < parentStyle.fontSize * 0.9 &&
             hasCompactAncestor;
+        // 非语义标题（如带左边色条的 div.xbt2、居中扉页文字）也保留
+        // 作者字号、行高与段距，阅读器排版只接管普通正文。
+        final structuredTitle =
+            !isHeading &&
+            text.trim().length <= 40 &&
+            _hasStructuredTitleStyle(blockStyle);
         blockStyle = proseSpacingDefaults(
           blockStyle,
           ancestors,
@@ -6175,6 +6181,7 @@ class EpubChapterSource
                   _hasStructuredTitleStyle(blockStyle)),
         );
         if (!isHeading &&
+            !structuredTitle &&
             !compactAuthoredComponent &&
             !ancestors.any(promotedInlineStyles.containsKey)) {
           blockStyle = overrides.applyTypography(blockStyle);
@@ -6202,12 +6209,6 @@ class EpubChapterSource
             ancestors.any(promotedInlineStyles.containsKey) ||
             (tag == 'reader-anonymous' &&
                 ancestors.any(splitInlineContainers.contains));
-        // 非语义标题（如带左边色条的 div.xbt2）也保留作者段距，阅读器
-        // 段距只接管普通正文，否则 1.2em/1em 会被 10px 覆盖。
-        final structuredTitle =
-            !isHeading &&
-            text.trim().length <= 40 &&
-            _hasStructuredTitleStyle(blockStyle);
         final paragraphSpacing =
             isHeading ||
                 tag == 'li' ||
