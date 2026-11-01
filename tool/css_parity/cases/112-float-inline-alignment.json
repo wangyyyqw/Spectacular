@@ -1,0 +1,6 @@
+{
+  "name": "112-float-inline-alignment",
+  "tags": ["text-align", "font-size", "float", "inline"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 17px; } p { margin: 10px; line-height: 1.6; text-indent: 0; text-align: center; color: #008000; } span { font-size: .72em; font-family: builtin_song; } .left { text-align: left; } .right { text-align: right; } .large { font-size: 22px; } .atomic { height: 50px; } .float { float: right; width: 60px; height: 15px; }",
+  "html": "<p><span>白金常规形态&amp;海浪使用形态</span></p><p class=\"left\"><span>左对齐的小字号图注</span></p><p class=\"right\"><span>右对齐的小字号图注</span></p><p class=\"large\"><span>大字号下的居中图注</span></p><p class=\"atomic\"><span>声明盒高的居中图注</span></p><p>前<span>较长图注在窄屏里自动换行，每一行都按实际字号宽度居中，保留字体、样式区间和原始文本偏移。</span>后</p><div class=\"float\">浮动</div>"
+}

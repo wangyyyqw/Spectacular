@@ -2524,7 +2524,26 @@ class EpubChapterSource
     );
   }
 
-  /// 浮动绕排重测也要保留行内原子盒，偏移仍以原段落为准。
+  List<StyledRun> _sliceTextRuns(TextLayoutResult layout, int start, int end) {
+    final runs = <StyledRun>[];
+    for (final run in layout.runs) {
+      final runStart = math.max(run.start, start);
+      final runEnd = math.min(run.end, end);
+      if (runEnd <= runStart) continue;
+      runs.add(
+        StyledRun(
+          start: runStart - start,
+          end: runEnd - start,
+          style: run.style,
+          baselineShift: run.baselineShift,
+          syntheticFontFallback: run.syntheticFontFallback,
+        ),
+      );
+    }
+    return runs;
+  }
+
+  /// 浮动绕排重测保留行内样式与原子盒，并将偏移平移到待测子串。
   TextLayoutResult _relayoutFloatText(
     PageBlock block,
     ComputedStyle style,
@@ -2537,17 +2556,20 @@ class EpubChapterSource
           if (box.offset >= start) box.spec.atOffset(box.offset - start),
     ];
     final text = block.layout.text.substring(start);
+    final runs = _sliceTextRuns(block.layout, start, block.layout.text.length);
     return !boxes.any((box) => box.replacesPlaceholder)
         ? _layoutCache.layout(
             text: text,
             style: style,
             maxWidth: width,
+            runs: runs,
             hasGlyph: _hasBookFontGlyph,
           )
         : TextLayoutEngine.layout(
             text: text,
             style: style,
             maxWidth: width,
+            runs: runs,
             inlineBoxes: boxes,
             hasGlyph: _hasBookFontGlyph,
           );
@@ -2712,8 +2734,7 @@ class EpubChapterSource
 
   /// 浮动感知分页（flat 管线接入，引擎 FloatOccupancy 区间模型）：
   /// - 浮动图不占流高，按侧登记占位，覆盖切片渲染（overlay/absoluteTop）；
-  /// - 文本按「同占位状态」行批切段——窄幅区间重测（行内样式区间不
-  ///   映射，记录为已知限制），区间外回全宽；
+  /// - 文本按「同占位状态」行批切段，保留行内样式重测窄幅区间，区间外回全宽；
   /// - clear：流游标推到该侧浮动底边并移除已满足占位；
   /// - 页界：浮动不跨页（整块移下页），收页时占位清空。
   List<PageContent> _paginateWithFloats(List<PageBlock> blocks, int spine) {
@@ -3242,7 +3263,8 @@ class EpubChapterSource
             width: batchWidth,
             height: visibleHeight,
             maxWidth: batchWidth,
-            runs: const <StyledRun>[],
+            runs: _sliceTextRuns(measured, 0, segText.length),
+            plainTextLayout: measured.plainTextLayout,
           );
           slices.add(
             PageBlockSlice(
