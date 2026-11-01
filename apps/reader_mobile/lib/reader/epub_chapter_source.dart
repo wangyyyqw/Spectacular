@@ -2276,11 +2276,6 @@ class EpubChapterSource
     ];
   }
 
-  static double _verticalBoxExtent(ComputedStyle style) =>
-      style.padding.vertical +
-      style.borders.top.width +
-      style.borders.bottom.width;
-
   /// 辅助属性仅匹配相关规则；选择器在章级解析一次，正文段落直接复用。
   static List<_AuxiliaryCssRule> _prepareAuxiliaryRules(
     List<CssStylesheet> sheets, {
@@ -5430,7 +5425,8 @@ class EpubChapterSource
 
       final rows = <List<BlockNode>>[];
       final rowNodes = <BlockNode>[];
-      void walkRows(EpubNode node) {
+      final rowInHeader = <bool>[];
+      void walkRows(EpubNode node, {bool inHeader = false}) {
         if (node is! BlockNode) {
           return;
         }
@@ -5442,14 +5438,16 @@ class EpubChapterSource
           if (cells.isNotEmpty) {
             rows.add(cells);
             rowNodes.add(node);
+            rowInHeader.add(inHeader);
           }
           return;
         }
         if (node.tag == 'td' || node.tag == 'th') {
           return;
         }
+        final childInHeader = inHeader || node.tag == 'thead';
         for (final child in node.children) {
-          walkRows(child);
+          walkRows(child, inHeader: childInHeader);
         }
       }
 
@@ -5998,6 +5996,14 @@ class EpubChapterSource
         borderSpacingX: spacingX,
         borderSpacingY: spacingY,
       );
+      var headerRowCount = 0;
+      while (headerRowCount < rowInHeader.length &&
+          rowInHeader[headerRowCount]) {
+        headerRowCount += 1;
+      }
+      final gridRowYs = grid.rowYs;
+      final gridColumnXs = grid.columnXs;
+      final headerHeight = headerRowCount > 0 ? gridRowYs[headerRowCount] : 0.0;
       PageBlock? captionBlock;
       var captionOnTop = false;
       var captionOnBottom = false;
@@ -6063,44 +6069,40 @@ class EpubChapterSource
       final paddedRowHeights = <double>[
         for (final height in rowHeights) height + spacingY,
       ];
-      // 表格先按行预切；给每页的祖先容器装饰和表自身盒预留高度，
-      // 避免整页高的表片随后加上边框/内边距而被强制裁掉。
-      final containerExtent = ancestors
-          .map((ancestor) => retainedContainers[ancestor])
-          .nonNulls
-          .fold(0.0, (total, box) => total + _verticalBoxExtent(box.style));
-      final tableExtent =
-          _verticalBoxExtent(tableStyle) +
-          math.max(0.0, tableStyle.margin.top) +
-          math.max(0.0, tableStyle.margin.bottom);
-      final slices = TablePaginator.paginateRows(
-        rowHeights: paddedRowHeights,
-        pageHeight: math.max(
-          1.0,
-          contentHeight - spacingY - containerExtent - tableExtent,
+      // 不在这里按假定页高预先切片：实际页首可能已有标题/图片，预留的
+      // 页高会在真正的分页器里产生多段，导致同一页重复出现表头。保留整表，
+      // 交给 Paginator 按当前页真实剩余高度切行并逐页重复表头。
+      final slices = <TablePageSlice>[
+        TablePageSlice(
+          firstRow: 0,
+          lastRow: rowHeights.length,
+          drawnHeight: paddedRowHeights.fold(0.0, (sum, height) => sum + height),
+          clippedRowHeight: 0,
         ),
-      );
-      final gridRowYs = grid.rowYs;
-      final gridColumnXs = grid.columnXs;
+      ];
       if (captionBlock != null && captionOnTop) {
         blocks.add(captionBlock);
       }
       for (var sliceIndex = 0; sliceIndex < slices.length; sliceIndex += 1) {
         final slice = slices[sliceIndex];
+        final repeatsHeader = sliceIndex > 0 && headerRowCount > 0;
+        final headerOffset = repeatsHeader ? headerHeight : 0.0;
         final sliceTop = gridRowYs[slice.firstRow];
-        var sliceHeight = slice.clippedRowHeight > 0
+        var dataSliceHeight = slice.clippedRowHeight > 0
             ? slice.clippedRowHeight
             : slice.drawnHeight;
         // 末段落补上表格底部的最后一份纵向间距。
         if (slice.lastRow >= rowHeights.length) {
-          sliceHeight += spacingY;
+          dataSliceHeight += spacingY;
         }
+        final sliceHeight = dataSliceHeight + headerOffset;
         // rowspan 格可能从上一片开始、延伸到本片：按矩形相交保留并裁到
         // 本片可见范围，否则分组列会在续片整列消失。
-        final sliceBottom = sliceTop + sliceHeight;
+        final sliceBottom = sliceTop + dataSliceHeight;
         final cells = allCells
             .where(
               (cell) =>
+                  !(repeatsHeader && cell.row < headerRowCount) &&
                   cell.rect.bottom > sliceTop + 0.01 &&
                   cell.rect.top < sliceBottom - 0.01,
             )
@@ -6109,9 +6111,10 @@ class EpubChapterSource
                 row: cell.row,
                 rect: Rect.fromLTRB(
                   cell.rect.left,
-                  math.max(0.0, cell.rect.top - sliceTop),
+                  math.max(0.0, cell.rect.top - sliceTop) + headerOffset,
                   cell.rect.right,
-                  math.min(sliceHeight, cell.rect.bottom - sliceTop),
+                  math.min(dataSliceHeight, cell.rect.bottom - sliceTop) +
+                      headerOffset,
                 ),
                 layout: cell.layout,
                 style: cell.style,
@@ -6119,6 +6122,27 @@ class EpubChapterSource
               ),
             )
             .toList();
+        if (repeatsHeader) {
+          cells.insertAll(
+            0,
+            allCells
+                .where((cell) => cell.row < headerRowCount)
+                .map(
+                  (cell) => TableCellRender(
+                    row: cell.row,
+                    rect: Rect.fromLTRB(
+                      cell.rect.left,
+                      math.max(0.0, cell.rect.top),
+                      cell.rect.right,
+                      math.min(headerHeight, cell.rect.bottom),
+                    ),
+                    layout: cell.layout,
+                    style: cell.style,
+                    startCfi: cell.startCfi,
+                  ),
+                ),
+          );
+        }
         blocks.add(
           PageBlock.styled(
             style: ComputedStyle(
@@ -6160,11 +6184,20 @@ class EpubChapterSource
               cells: cells,
               columnXs: gridColumnXs,
               rowYs: [
-                for (var r = slice.firstRow; r <= slice.lastRow; r++)
-                  gridRowYs[r] - sliceTop,
-                if (slice.clippedRowHeight > 0) slice.clippedRowHeight,
+                if (repeatsHeader)
+                  for (var r = 0; r <= headerRowCount; r++) gridRowYs[r],
+                for (
+                  var r = repeatsHeader ? slice.firstRow + 1 : slice.firstRow;
+                  r <= slice.lastRow;
+                  r += 1
+                )
+                  gridRowYs[r] - sliceTop + headerOffset,
+                if (slice.clippedRowHeight > 0)
+                  slice.clippedRowHeight + headerOffset,
               ],
               tableWidth: tableWidthPxFinal,
+              headerRowCount: headerRowCount,
+              headerHeight: headerHeight,
             ),
           ),
         );

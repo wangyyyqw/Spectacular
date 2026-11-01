@@ -1925,6 +1925,12 @@ class PagePainter {
         continue;
       }
       final style = cell.style;
+      final cellRect = Rect.fromLTWH(
+        left + cell.rect.left,
+        top + cell.rect.top,
+        cell.rect.width,
+        cell.rect.height,
+      );
       final borders = style.borders;
       final leftInset = style.padding.left + borders.left.width;
       final rightInset = style.padding.right + borders.right.width;
@@ -1954,6 +1960,8 @@ class PagePainter {
           ? textStyleBase
           : textStyleBase.copyWith(color: override);
       var lineY = top + cell.rect.top + topInset + alignOffset;
+      canvas.save();
+      canvas.clipRect(cellRect);
       for (var i = 0; i < cell.layout.lineCount; i++) {
         final line = cell.layout.lines[i];
         final text = cell.layout.text.substring(line.start, line.end);
@@ -1976,7 +1984,12 @@ class PagePainter {
             textDirection: cell.layout.isRtl
                 ? TextDirection.rtl
                 : TextDirection.ltr,
-          )..layout(maxWidth: innerWidth);
+          )..layout(
+            // 行已在测量阶段完成换行；重排到更窄的真实内宽会改变行数，
+            // 让后续行被裁剪且文字丢失。与测量宽保持一致，越界仍由下方
+            // clipRect 兜底。
+            maxWidth: math.max(innerWidth, cell.layout.maxWidth),
+          );
           final textY =
               lineY + textLineBaselineOffset(cell.layout, line, painter);
           final contentLeft = left + cell.rect.left + leftInset;
@@ -2020,6 +2033,7 @@ class PagePainter {
         }
         lineY += line.height;
       }
+      canvas.restore();
     }
   }
 

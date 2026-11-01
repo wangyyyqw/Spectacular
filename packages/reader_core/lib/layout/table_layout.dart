@@ -41,6 +41,8 @@ class TableRenderSpec {
     required this.columnXs,
     required this.rowYs,
     required this.tableWidth,
+    this.headerRowCount = 0,
+    this.headerHeight = 0,
     this.flex = false,
   });
 
@@ -55,6 +57,12 @@ class TableRenderSpec {
 
   /// 表格总宽。
   final double tableWidth;
+
+  /// 顶部可作为跨页表头重复的行数。
+  final int headerRowCount;
+
+  /// 表头占用的纵向高度（表格局部坐标）。
+  final double headerHeight;
 
   /// 该载荷由 Flex 行生成：复用单元格绘制，但块角色仍是普通块。
   final bool flex;
@@ -735,7 +743,8 @@ class TablePageSlice {
 /// - 列宽由整表测量决定（P3-17），切页后各页不重算；
 /// - 单行高于整页：独占一页并按页高裁剪（[TablePageSlice.clippedRowHeight]
 ///   记录已绘制高度，绘制只画裁剪段）；
-/// - 表头不重复（一期，§26.4 P1 优化保留）；
+/// - 预切本身不插入表头；跨页分页器会按 [TableRenderSpec.headerRowCount]
+///   在续片顶部重复表头；
 /// - `rowspan` 单元格跨页时按行边界切开（不拆分合并区域，跨页片段的合并
 ///   区域收缩到本页行区间；真正的跨页合并留待后续，见 [TableRenderSpec]）。
 abstract final class TablePaginator {
