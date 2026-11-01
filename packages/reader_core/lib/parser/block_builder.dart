@@ -188,9 +188,17 @@ abstract final class BlockBuilder {
   };
 
   /// 构建块树。
-  static BlockDocument build(ParsedDocument document) {
+  static BlockDocument build(
+    ParsedDocument document, {
+    bool Function(ParsedElement element)? skipElement,
+  }) {
     final root =
-        _convertElement(document.root, DisplayMode.block)! as BlockNode;
+        _convertElement(
+              document.root,
+              DisplayMode.block,
+              skipElement: skipElement,
+            )!
+            as BlockNode;
     _removeEmptyParagraphs(root);
     return BlockDocument(
       spineIndex: document.spineIndex,
@@ -216,14 +224,25 @@ abstract final class BlockBuilder {
     return DisplayMode.inline;
   }
 
-  static EpubNode? _convertElement(ParsedElement element, DisplayMode mode) {
+  static EpubNode? _convertElement(
+    ParsedElement element,
+    DisplayMode mode, {
+    bool Function(ParsedElement element)? skipElement,
+  }) {
     if (mode == DisplayMode.none) {
+      return null;
+    }
+    if (skipElement?.call(element) ?? false) {
       return null;
     }
     if (mode == DisplayMode.inline) {
       final children = <EpubNode>[];
       for (final child in element.children) {
-        final converted = _convertChild(child, DisplayMode.inline);
+        final converted = _convertChild(
+          child,
+          DisplayMode.inline,
+          skipElement: skipElement,
+        );
         if (converted != null) {
           children.add(converted);
         }
@@ -240,7 +259,7 @@ abstract final class BlockBuilder {
 
     final children = <EpubNode>[];
     for (final child in element.children) {
-      final converted = _convertChild(child, mode);
+      final converted = _convertChild(child, mode, skipElement: skipElement);
       if (converted != null) {
         children.add(converted);
       }
@@ -256,7 +275,11 @@ abstract final class BlockBuilder {
     );
   }
 
-  static EpubNode? _convertChild(ParsedNode child, DisplayMode parentMode) {
+  static EpubNode? _convertChild(
+    ParsedNode child,
+    DisplayMode parentMode, {
+    bool Function(ParsedElement element)? skipElement,
+  }) {
     if (child is ParsedText) {
       return child;
     }
@@ -267,7 +290,7 @@ abstract final class BlockBuilder {
     if (mode == DisplayMode.none) {
       return null;
     }
-    return _convertElement(child, mode);
+    return _convertElement(child, mode, skipElement: skipElement);
   }
 
   static void _removeEmptyParagraphs(BlockNode node) {

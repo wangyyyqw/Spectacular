@@ -17,6 +17,7 @@ import 'package:reader_core/paint/page_renderer.dart';
 import 'annotations/annotation.dart';
 import 'annotations/annotation_layer.dart';
 import 'a11y/semantics_layer.dart';
+import 'footnote_dialog.dart';
 import 'menu/reader_menu_overlay.dart';
 import 'panels/margin_editor.dart';
 import 'panels/tap_zone_editor.dart';
@@ -1039,6 +1040,33 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
+  /// 单击注释引用：命中时打开弹窗并消费本次点击，避免同时翻页。
+  bool _openFootnoteAt(Offset localPosition) {
+    final page = _session.page;
+    if (page == null) {
+      return false;
+    }
+    final padding = _bodyPadding();
+    final footnote = TextHitTester.footnoteAt(
+      page,
+      localPosition - Offset(padding.left, padding.top),
+    );
+    if (footnote == null) {
+      return false;
+    }
+    _clearSelection();
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (context) => ReaderFootnoteDialog(
+          footnote: footnote,
+          imageCache: widget.imageCache,
+        ),
+      ),
+    );
+    return true;
+  }
+
   /// 选区菜单动作（P4-16）：复制 / 全选 / 取消。
   List<SelectionAction> _selectionActions(
     PageContent page,
@@ -1423,6 +1451,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onLongPressAt: _selectWordAt,
               onDoubleTapAt: _selection == null ? null : _selectWordAt,
               onTripleTapAt: _selection == null ? null : _selectSentenceAt,
+              onTapAt: _openFootnoteAt,
               child: const SizedBox.expand(),
             ),
             // 页眉/页脚（P8-10 页家具；样式对齐设计稿 §page-header/footer）。

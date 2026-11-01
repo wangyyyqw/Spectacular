@@ -18,6 +18,7 @@ class FootnoteAnchor {
   /// 创建锚点。
   const FootnoteAnchor({
     required this.sourceSpine,
+    required this.referenceKey,
     required this.href,
     required this.label,
     required this.kind,
@@ -26,11 +27,20 @@ class FootnoteAnchor {
     this.sourceId,
     this.targetId,
     this.noteText,
+    this.noteImages = const <String>[],
     this.crossDocument = false,
+    this.heuristicReference = false,
+    this.definitionId,
   });
 
   /// 引用所在 spine。
   final int sourceSpine;
+
+  /// 正文引用节点的稳定匹配键。
+  ///
+  /// XHTML 解析与排版聚合使用两棵节点树；键由标签、属性和可见文字组成，
+  /// 让聚合出的行内标记无需依赖 XML 解析器的源码偏移即可找回注释正文。
+  final String referenceKey;
 
   /// 原始 href。
   final String href;
@@ -50,11 +60,20 @@ class FootnoteAnchor {
   /// 目标元素 id；按文字前缀兜底时可能为空。
   final String? targetId;
 
-  /// 目标注释容器文字（截断）。
+  /// 目标注释容器文字。
   final String? noteText;
+
+  /// 目标注释内的图片（ZIP 内绝对路径）。
+  final List<String> noteImages;
 
   /// 是否跨文档。
   final bool crossDocument;
+
+  /// 引用本身只有 `<sup>`、数字注号等弱特征，需目标也像注释才接收。
+  final bool heuristicReference;
+
+  /// 注释定义容器 id；目标 id 在内部节点时用于隐藏整个定义块。
+  final String? definitionId;
 
   /// 解析策略。
   final AnchorStrategy strategy;
@@ -89,6 +108,131 @@ class FootnoteDocument {
 
 /// 注释锚点解析：不修改原书 DOM。
 abstract final class FootnoteParser {
+  /// 生成正文引用节点的稳定匹配键。
+  static String referenceKey(
+    String tag,
+    Map<String, String> attributes,
+    String text,
+  ) {
+    const keys = <String>[
+      'id',
+      'href',
+      'class',
+      'role',
+      'epub:type',
+      'title',
+      'alt',
+      'data-wr-footernote',
+      'reader_footer_note',
+      'js_readerFooterNote',
+      'data-reeden-footnote-body',
+      'zy-footnote',
+    ];
+    final parts = <String>[tag.toLowerCase()];
+    for (final key in keys) {
+      parts.add('$key=${attributes[key] ?? ''}');
+    }
+    parts.add('text=${_normalizeText(text)}');
+    return parts.join('\u001f');
+  }
+
+  /// 是否为返回正文的反向链接，不应作为注释入口。
+  static bool isBacklink(String tag, Map<String, String> attributes) {
+    final type = (attributes['epub:type'] ?? '').toLowerCase();
+    final role = (attributes['role'] ?? '').toLowerCase();
+    final classes = (attributes['class'] ?? '').toLowerCase().split(
+      RegExp(r'\s+'),
+    );
+    return type.contains('backlink') ||
+        role == 'doc-backlink' ||
+        classes.contains('duokan-footnote-back') ||
+        classes.contains('footnote-backref');
+  }
+
+  /// 是否为可直接显示的注释入口（不含无 href 的普通链接）。
+  static bool isDirectReference(String tag, Map<String, String> attributes) {
+    if (isBacklink(tag, attributes)) {
+      return false;
+    }
+    if (_directContent(tag, attributes) != null) {
+      return true;
+    }
+    if (_directImageSource(attributes) != null) {
+      return true;
+    }
+    final classes = (attributes['class'] ?? '').toLowerCase().split(
+      RegExp(r'\s+'),
+    );
+    return tag.toLowerCase() == 'img' &&
+        classes.contains('duokan-footnote') &&
+        (attributes['alt']?.trim().isNotEmpty ?? false);
+  }
+
+  /// 是否为注释定义容器（注释正文在阅读页中应隐藏）。
+  static bool isDefinitionElement(String tag, Map<String, String> attributes) {
+    final lowerTag = tag.toLowerCase();
+    if (const <String>{
+      'a',
+      'img',
+      'image',
+      'span',
+      'sup',
+      'sub',
+    }.contains(lowerTag)) {
+      return false;
+    }
+    final type = (attributes['epub:type'] ?? '').toLowerCase();
+    final role = (attributes['role'] ?? '').toLowerCase();
+    final classes = (attributes['class'] ?? '')
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    if (type.contains('endnotes') ||
+        type == 'footnote' ||
+        type == 'endnote' ||
+        type == 'rearnote' ||
+        role == 'doc-footnote' ||
+        role == 'doc-endnote' ||
+        role == 'doc-endnotes') {
+      return true;
+    }
+    if (classes.contains('duokan-footnote-content') ||
+        classes.contains('duokan-footnote-item') ||
+        classes.contains('reeden-footnote-content') ||
+        classes.contains('reeden-footnote-item') ||
+        classes.contains('qqreader-footnote') ||
+        classes.contains('zhangyue-footnote') ||
+        classes.contains('epub-footnote') ||
+        classes.contains('footnotes') ||
+        classes.contains('endnotes')) {
+      return true;
+    }
+    if (lowerTag == 'aside' &&
+        (classes.contains('footnote') ||
+            classes.contains('endnote') ||
+            _noteLikeId(attributes['id']))) {
+      return true;
+    }
+    return const <String>{'li', 'dd', 'div', 'section'}.contains(lowerTag) &&
+        _noteLikeId(attributes['id']) &&
+        (classes.any((value) => value.contains('footnote')) ||
+            classes.any((value) => value.contains('endnote')));
+  }
+
+  /// 解析 href 所指向的 ZIP 内路径；无 `#fragment` 时返回 null。
+  static String? targetPathOf(FootnoteAnchor anchor, String sourcePath) {
+    final hash = anchor.href.indexOf('#');
+    if (hash < 0) {
+      return null;
+    }
+    return _resolvePath(
+      anchor.href.substring(0, hash),
+      _dirOf(sourcePath),
+      sourcePath,
+    );
+  }
+
   /// 解析单章 XHTML，收集 id 与引用候选。
   static FootnoteDocument parse({
     required int spineIndex,
@@ -116,33 +260,75 @@ abstract final class FootnoteParser {
       }
     }
 
-    final baseDir = _dirOf(path);
     final anchors = <FootnoteAnchor>[];
     for (final element in document.descendants.whereType<XmlElement>()) {
-      if (element.name.local != 'a') {
+      final tag = element.name.local.toLowerCase();
+      final attributes = _attributesOf(element);
+      if (isBacklink(tag, attributes)) {
         continue;
       }
-      final href = element.getAttribute('href')?.trim() ?? '';
+      if (!attributes.containsKey('href') && _hasAncestor(element, 'a')) {
+        continue;
+      }
+      final href = attributes['href']?.trim() ?? '';
       final hash = href.indexOf('#');
-      if (hash < 0 || hash == href.length - 1) {
+      final hasFragment = hash >= 0 && hash < href.length - 1;
+      final directContent =
+          _directContent(tag, attributes) ??
+          (tag == 'a' ? _nestedDirectContent(element) : null);
+      final directImage =
+          tag == 'img' &&
+          _classes(element).contains('duokan-footnote') &&
+          (attributes['alt']?.trim().isNotEmpty ?? false);
+      final directImageSource =
+          _directImageSource(attributes) ??
+          (tag == 'a' ? _nestedDirectImageSource(element) : null);
+      if (!hasFragment &&
+          directContent == null &&
+          !directImage &&
+          directImageSource == null) {
         continue;
       }
-      final targetPath = _resolvePath(href.substring(0, hash), baseDir, path);
-      final fragment = href.substring(hash + 1);
+      final targetPath = hasFragment
+          ? targetPathOf(
+              FootnoteAnchor(
+                sourceSpine: spineIndex,
+                referenceKey: '',
+                href: href,
+                label: '',
+                kind: NoteKind.link,
+                targetSpine: -1,
+                strategy: AnchorStrategy.unresolved,
+              ),
+              path,
+            )
+          : null;
+      final fragment = hasFragment ? href.substring(hash + 1) : '';
       final label = _normalizeText(element.innerText);
       final sourceId = element.getAttribute('id')?.trim();
       final kind = _kindOf(element, fragment, null);
+      final imageNote = directImage ? attributes['alt']?.trim() : null;
+      final directText = directContent ?? imageNote;
+      final noteImages = directImageSource == null
+          ? const <String>[]
+          : <String>[_resolveImageSource(directImageSource, path)];
       anchors.add(
         FootnoteAnchor(
           sourceSpine: spineIndex,
+          referenceKey: referenceKey(tag, attributes, label),
           href: href,
           label: label,
-          kind: kind,
+          kind: directText != null || directImageSource != null
+              ? NoteKind.footnote
+              : kind,
           sourceId: sourceId == null || sourceId.isEmpty ? null : sourceId,
           targetSpine: -1,
           targetId: null,
+          noteText: directText,
+          noteImages: noteImages,
           strategy: AnchorStrategy.unresolved,
-          crossDocument: targetPath != path,
+          crossDocument: targetPath != null && targetPath != path,
+          heuristicReference: _isHeuristicReference(element, label),
         ),
       );
     }
@@ -166,6 +352,18 @@ abstract final class FootnoteParser {
     final resolved = <FootnoteAnchor>[];
     for (final anchor in source.anchors) {
       final hash = anchor.href.indexOf('#');
+      if (hash < 0) {
+        resolved.add(
+          _withTarget(
+            anchor,
+            -1,
+            null,
+            anchor.noteText,
+            AnchorStrategy.unresolved,
+          ),
+        );
+        continue;
+      }
       final targetPath = _resolvePath(
         anchor.href.substring(0, hash),
         _dirOf(source.path),
@@ -227,21 +425,37 @@ abstract final class FootnoteParser {
       }
 
       final targetKind = _kindOfElement(element, fragment);
-      final kind = anchor.kind == NoteKind.link && targetKind != NoteKind.link
+      final kind = targetKind == NoteKind.endnote
+          ? NoteKind.endnote
+          : anchor.kind != NoteKind.link
+          ? anchor.kind
+          : targetKind != NoteKind.link
           ? targetKind
-          : anchor.kind;
-      final container = _noteContainer(element);
+          : anchor.heuristicReference && _isLikelyNoteTarget(element)
+          ? NoteKind.footnote
+          : NoteKind.link;
+      final container = _noteContainer(
+        element,
+        allowEnclosingBlock: kind != NoteKind.link,
+      );
+      final definitionId = _definitionContainerId(element);
+      final noteText = _noteText(container, anchor.label);
+      final noteImages = _noteImages(container, target.path);
       resolved.add(
         FootnoteAnchor(
           sourceSpine: anchor.sourceSpine,
+          referenceKey: anchor.referenceKey,
           href: anchor.href,
           label: anchor.label,
           kind: kind,
           sourceId: anchor.sourceId,
           targetSpine: target.spineIndex,
           targetId: targetId,
-          noteText: _noteText(container, anchor.label),
+          noteText: noteText ?? anchor.noteText,
+          noteImages: noteImages.isNotEmpty ? noteImages : anchor.noteImages,
           crossDocument: target.spineIndex != source.spineIndex,
+          heuristicReference: anchor.heuristicReference,
+          definitionId: definitionId,
           strategy: strategy,
         ),
       );
@@ -257,14 +471,18 @@ abstract final class FootnoteParser {
     AnchorStrategy strategy,
   ) => FootnoteAnchor(
     sourceSpine: anchor.sourceSpine,
+    referenceKey: anchor.referenceKey,
     href: anchor.href,
     label: anchor.label,
     kind: anchor.kind,
     sourceId: anchor.sourceId,
     targetSpine: targetSpine,
     targetId: targetId,
-    noteText: noteText,
+    noteText: noteText ?? anchor.noteText,
+    noteImages: anchor.noteImages,
     crossDocument: targetSpine != anchor.sourceSpine && targetSpine >= 0,
+    heuristicReference: anchor.heuristicReference,
+    definitionId: anchor.definitionId,
     strategy: strategy,
   );
 
@@ -274,21 +492,21 @@ abstract final class FootnoteParser {
     XmlElement? target,
   ) {
     final type = _epubType(element);
-    if (type.contains('noteref') || type.contains('footnote')) {
+    if (type.contains('noteref') || type == 'footnote') {
       return NoteKind.footnote;
     }
-    if (type.contains('endnote')) {
+    if (type == 'endnote' || type == 'rearnote') {
+      return NoteKind.endnote;
+    }
+    final role = (element.getAttribute('role') ?? '').toLowerCase();
+    if (role == 'doc-noteref' || role == 'doc-footnote') {
+      return NoteKind.footnote;
+    }
+    if (role == 'doc-endnote') {
       return NoteKind.endnote;
     }
     final classes = _classes(element);
     if (classes.any((c) => c.contains('noteref') || c.contains('footnote'))) {
-      return NoteKind.footnote;
-    }
-    if (_hasAncestor(element, 'sup')) {
-      return NoteKind.footnote;
-    }
-    if (RegExp(r'^[\[\(（]?\d+[\]\)）]?$')
-        .hasMatch(_normalizeText(element.innerText))) {
       return NoteKind.footnote;
     }
     if (target != null) {
@@ -297,14 +515,43 @@ abstract final class FootnoteParser {
     return NoteKind.link;
   }
 
+  static bool _isHeuristicReference(XmlElement element, String label) {
+    final tag = element.name.local.toLowerCase();
+    final alt = element.getAttribute('alt')?.trim() ?? '';
+    return _hasAncestor(element, 'sup') ||
+        RegExp(r'^[\[\(（]?\d+[\]\)）]?$').hasMatch(label) ||
+        (tag == 'img' && RegExp(r'^\d+$').hasMatch(alt));
+  }
+
+  static bool _isLikelyNoteTarget(XmlElement element) {
+    return _noteLikeId(element.getAttribute('id')) ||
+        _noteContainerOrNull(element) != null;
+  }
+
   static NoteKind _kindOfElement(XmlElement element, String fragment) {
     final type = _epubType(element);
-    if (type.contains('endnote')) {
+    final role = (element.getAttribute('role') ?? '').toLowerCase();
+    if (type.contains('endnote') ||
+        type.contains('rearnote') ||
+        role == 'doc-endnote' ||
+        role == 'doc-endnotes') {
       return NoteKind.endnote;
     }
     if (type.contains('footnote') ||
-        element.name.local == 'aside' ||
-        _classes(element).any((c) => c.contains('footnote'))) {
+        role == 'doc-footnote' ||
+        (_classes(element).any(_isFootnoteClass) &&
+            !element.name.local.endsWith('ref'))) {
+      return NoteKind.footnote;
+    }
+    final ancestor = _noteContainerOrNull(element);
+    if (ancestor != null &&
+        (_hasNoteSemantics(ancestor) ||
+            _noteLikeId(ancestor.getAttribute('id')))) {
+      return _hasEndnoteSemantics(ancestor)
+          ? NoteKind.endnote
+          : NoteKind.footnote;
+    }
+    if (_noteLikeId(element.getAttribute('id'))) {
       return NoteKind.footnote;
     }
     return NoteKind.link;
@@ -366,16 +613,99 @@ abstract final class FootnoteParser {
     return element;
   }
 
-  static XmlElement _noteContainer(XmlElement element) {
+  static String? _definitionContainerId(XmlElement element) {
+    var current = element;
+    for (var depth = 0; depth < 6; depth++) {
+      final tag = current.name.local;
+      if (tag == 'body') {
+        break;
+      }
+      final id = current.getAttribute('id')?.trim();
+      if (id != null &&
+          id.isNotEmpty &&
+          (_hasNoteSemantics(current) ||
+              current != element &&
+                  const <String>{
+                    'aside',
+                    'li',
+                    'dd',
+                    'td',
+                    'blockquote',
+                    'section',
+                  }.contains(tag))) {
+        return id;
+      }
+      final parent = current.parent;
+      if (parent is! XmlElement) {
+        break;
+      }
+      current = parent;
+    }
+    return null;
+  }
+
+  static XmlElement _noteContainer(
+    XmlElement element, {
+    bool allowEnclosingBlock = false,
+  }) {
+    return _noteContainerOrNull(
+          element,
+          allowEnclosingBlock: allowEnclosingBlock,
+        ) ??
+        element;
+  }
+
+  static XmlElement? _noteContainerOrNull(
+    XmlElement element, {
+    bool allowEnclosingBlock = false,
+  }) {
+    const blockTags = <String>{
+      'article',
+      'aside',
+      'blockquote',
+      'dd',
+      'div',
+      'dl',
+      'dt',
+      'figcaption',
+      'figure',
+      'li',
+      'ol',
+      'p',
+      'section',
+      'td',
+      'th',
+      'ul',
+    };
     var current = element;
     for (var depth = 0; depth < 6; depth++) {
       if (current.name.local == 'body') {
         break;
       }
-      if (current.name.local == 'aside' ||
-          current.name.local == 'li' ||
-          current.name.local == 'p' ||
-          _classes(current).any((c) => c.contains('footnote'))) {
+      if (_hasNoteSemantics(current) ||
+          const <String>{
+            'aside',
+            'li',
+            'p',
+            'dd',
+            'td',
+            'blockquote',
+            'section',
+          }.contains(current.name.local)) {
+        if (_hasNoteSemantics(current) ||
+            _noteLikeId(current.getAttribute('id')) ||
+            _hasBacklinkDescendant(current)) {
+          return current;
+        }
+      }
+      if (_classes(current).any(
+        (value) =>
+            value.contains('footnote-content') ||
+            value.contains('footnote-item'),
+      )) {
+        return current;
+      }
+      if (allowEnclosingBlock && blockTags.contains(current.name.local)) {
         return current;
       }
       final parent = current.parent;
@@ -384,11 +714,61 @@ abstract final class FootnoteParser {
       }
       current = parent;
     }
-    return element;
+    return null;
   }
 
   static String? _noteText(XmlElement container, String label) {
-    var text = _normalizeText(container.innerText);
+    final buffer = StringBuffer();
+    void visit(XmlNode node) {
+      if (node is XmlText) {
+        buffer.write(node.value);
+        return;
+      }
+      if (node is! XmlElement ||
+          isBacklink(node.name.local, _attributesOf(node))) {
+        return;
+      }
+      final tag = node.name.local.toLowerCase();
+      if (tag == 'br') {
+        buffer.write('\n');
+        return;
+      }
+      if (tag == 'img' || tag == 'image') {
+        return;
+      }
+      final block = const <String>{
+        'p',
+        'div',
+        'li',
+        'aside',
+        'section',
+        'blockquote',
+        'dd',
+        'td',
+        'ul',
+        'ol',
+      }.contains(tag);
+      if (block && buffer.isNotEmpty && !buffer.toString().endsWith('\n')) {
+        buffer.write('\n');
+      }
+      for (final child in node.children) {
+        visit(child);
+      }
+      if (block && !buffer.toString().endsWith('\n')) {
+        buffer.write('\n');
+      }
+    }
+
+    for (final child in container.children) {
+      visit(child);
+    }
+    var text = buffer
+        .toString()
+        .split('\n')
+        .map(_normalizeText)
+        .where((line) => line.isNotEmpty)
+        .join('\n')
+        .trim();
     for (final prefix in _candidatePrefixes(label)) {
       if (text.startsWith(prefix)) {
         text = text.substring(prefix.length).trim();
@@ -399,7 +779,33 @@ abstract final class FootnoteParser {
     if (text.isEmpty) {
       return null;
     }
-    return text.length <= 500 ? text : '${text.substring(0, 500)}…';
+    return text;
+  }
+
+  static List<String> _noteImages(XmlElement container, String targetPath) {
+    final baseDir = _dirOf(targetPath);
+    final result = <String>[];
+    final candidates = <XmlElement>[
+      container,
+      ...container.descendants.whereType<XmlElement>(),
+    ];
+    for (final image in candidates) {
+      if (image.name.local != 'img' && image.name.local != 'image') {
+        continue;
+      }
+      final src =
+          image.getAttribute('src') ??
+          image.getAttribute('xlink:href') ??
+          image.getAttribute('href');
+      if (src == null || src.trim().isEmpty) {
+        continue;
+      }
+      final resolved = _resolvePath(src.trim(), baseDir, targetPath);
+      if (!result.contains(resolved)) {
+        result.add(resolved);
+      }
+    }
+    return List<String>.unmodifiable(result);
   }
 
   static List<String> _candidatePrefixes(String label) {
@@ -423,6 +829,146 @@ abstract final class FootnoteParser {
       if (core.isNotEmpty) '$core)',
       if (core.isNotEmpty) '$core）',
     }.toList(growable: false);
+  }
+
+  static Map<String, String> _attributesOf(XmlElement element) => {
+    for (final attribute in element.attributes)
+      attribute.name.qualified: attribute.value,
+  };
+
+  static String? _directContent(String tag, Map<String, String> attributes) {
+    for (final key in const <String>[
+      'data-wr-footernote',
+      'reader_footer_note',
+      'js_readerFooterNote',
+      'data-reeden-footnote-body',
+      'zy-footnote',
+    ]) {
+      final value = attributes[key]?.trim();
+      if (value != null && value.isNotEmpty && !_looksLikeImageSource(value)) {
+        return value;
+      }
+    }
+    if (tag.toLowerCase() == 'a') {
+      final title = attributes['title']?.trim();
+      if (title != null && title.isNotEmpty) {
+        return title;
+      }
+    }
+    return null;
+  }
+
+  static String? _nestedDirectContent(XmlElement element) {
+    for (final child in element.descendants.whereType<XmlElement>()) {
+      final content = _directContent(child.name.local, _attributesOf(child));
+      if (content != null) {
+        return content;
+      }
+    }
+    return null;
+  }
+
+  static String? _nestedDirectImageSource(XmlElement element) {
+    for (final child in element.descendants.whereType<XmlElement>()) {
+      final source = _directImageSource(_attributesOf(child));
+      if (source != null) {
+        return source;
+      }
+    }
+    return null;
+  }
+
+  static String? _directImageSource(Map<String, String> attributes) {
+    for (final key in const <String>[
+      'data-wr-footernote',
+      'reader_footer_note',
+      'js_readerFooterNote',
+      'zy-footnote',
+    ]) {
+      final value = attributes[key]?.trim();
+      if (value != null && _looksLikeImageSource(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  static bool _looksLikeImageSource(String value) {
+    final lower = value.toLowerCase();
+    if (lower.startsWith('file:')) {
+      return true;
+    }
+    if (lower.contains(RegExp(r'\s'))) {
+      return false;
+    }
+    return RegExp(r'\.(?:apng|avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$')
+        .hasMatch(lower);
+  }
+
+  static String _resolveImageSource(String source, String documentPath) {
+    final value = source.toLowerCase().startsWith('file:')
+        ? source.substring(5)
+        : source;
+    return _resolvePath(value, _dirOf(documentPath), documentPath);
+  }
+
+  static bool _isFootnoteClass(String value) {
+    final lower = value.toLowerCase();
+    return lower.contains('footnote') ||
+        lower.contains('endnote') ||
+        lower.contains('rearnote') ||
+        lower == 'noteref' ||
+        lower == 'doc-noteref';
+  }
+
+  static bool _hasNoteSemantics(XmlElement element) {
+    final type = _epubType(element);
+    final role = (element.getAttribute('role') ?? '').toLowerCase();
+    return _isNoteType(type) ||
+        role == 'doc-footnote' ||
+        role == 'doc-endnote' ||
+        role == 'doc-endnotes' ||
+        _classes(element).any(_isFootnoteClass);
+  }
+
+  static bool _isNoteType(String value) {
+    final types = value.toLowerCase().split(RegExp(r'\s+')).toSet();
+    return types.any(
+      (type) => const <String>{
+        'footnote',
+        'footnotes',
+        'endnote',
+        'endnotes',
+        'rearnote',
+      }.contains(type),
+    );
+  }
+
+  static bool _hasEndnoteSemantics(XmlElement element) {
+    final type = _epubType(element);
+    final role = (element.getAttribute('role') ?? '').toLowerCase();
+    return type.contains('endnote') ||
+        type.contains('rearnote') ||
+        role == 'doc-endnote' ||
+        role == 'doc-endnotes';
+  }
+
+  static bool _hasBacklinkDescendant(XmlElement element) {
+    for (final child in element.descendants.whereType<XmlElement>()) {
+      if (isBacklink(child.name.local, _attributesOf(child))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _noteLikeId(String? value) {
+    final id = value?.trim().toLowerCase() ?? '';
+    return id.isNotEmpty &&
+        RegExp(
+          r'^(?:fn|redfn|n|note|footnote|endnote|rearnote)[\s._:-]*\d+(?:[\s._:-]*\d+)*$',
+        )
+            .hasMatch(id);
   }
 
   static String _epubType(XmlElement element) {
@@ -479,7 +1025,7 @@ abstract final class FootnoteParser {
   }
 
   static String _normalizeText(String text) =>
-      text.replaceAll(RegExp(r'\s+'), ' ').trim();
+      text.replaceAll('\uFFFC', '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
   static String _sanitizeEntities(String text) =>
       text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {

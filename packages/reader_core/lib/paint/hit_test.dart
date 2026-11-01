@@ -134,6 +134,21 @@ abstract final class TextHitTester {
     );
   }
 
+  /// 页内坐标命中的注释引用；没有注释时返回 null。
+  static PageFootnote? footnoteAt(PageContent page, Offset position) {
+    final hit = hitTest(page, position);
+    if (hit == null) {
+      return null;
+    }
+    final offset = hit.lineBox.blockTextOffset + hit.charOffset;
+    for (final footnote in hit.lineBox.slice.block.footnotes) {
+      if (footnote.contains(offset)) {
+        return footnote;
+      }
+    }
+    return null;
+  }
+
   /// 页内所有行几何（按阅读顺序）。
   static List<PageLineBox> lineBoxes(PageContent page) {
     final boxes = <PageLineBox>[];
