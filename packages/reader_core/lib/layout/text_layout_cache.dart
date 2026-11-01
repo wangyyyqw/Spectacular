@@ -43,6 +43,7 @@ class TextLayoutCache {
     double textScaleFactor = 1,
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
     List<StyledRun> runs = const <StyledRun>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool Function(String family, int codeUnit)? hasGlyph,
   }) {
     final key = _key(
@@ -52,6 +53,7 @@ class TextLayoutCache {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: runs,
+      rubies: rubies,
       hasGlyph: hasGlyph,
     );
     final cached = _entries.remove(key);
@@ -68,6 +70,7 @@ class TextLayoutCache {
       textScaleFactor: textScaleFactor,
       leadingDistribution: leadingDistribution,
       runs: runs,
+      rubies: rubies,
       hasGlyph: hasGlyph,
     );
     _entries[key] = result;
@@ -95,9 +98,10 @@ class TextLayoutCache {
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
     required List<StyledRun> runs,
+    required List<RubyAnnotation> rubies,
     required bool Function(String family, int codeUnit)? hasGlyph,
   }) {
-    final buffer = StringBuffer()
+    final buffer = StringBuffer('spacing=$textSpacingRevision|')
       ..write(style.layoutFingerprint)
       ..write('|w=')
       ..write(maxWidth.toStringAsFixed(2))
@@ -120,6 +124,9 @@ class TextLayoutCache {
           ..write(run.style.layoutFingerprint)
           ..write(';');
       }
+    }
+    for (final ruby in rubies) {
+      buffer.write('|ruby=${ruby.start}:${ruby.end}');
     }
     buffer
       ..write('|')

@@ -23,7 +23,8 @@ void main() {
           '<p>第二段用于观察段间距，letter-spacing: 0.1em 下面单独测。</p>',
       css:
           'body { margin: 0; padding: 0; font-family: "builtin_song"; '
-          'font-size: 17px; } p { margin: 8px 0; line-height: 1.6; }',
+          'font-size: 17px; } p { margin: 8px 0; line-height: 1.6; '
+          'text-align: left; text-spacing-trim: trim-adjacent; }',
     );
     final pages = await source.loadChapter(0);
     final block = pages.first.slices.first.block;

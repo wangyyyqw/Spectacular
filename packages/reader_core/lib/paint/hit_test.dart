@@ -230,7 +230,19 @@ abstract final class TextHitTester {
       offset: position.offset.clamp(0, box.text.length),
       affinity: position.affinity,
     );
-    final caret = painter.getOffsetForCaret(clamped, Rect.zero);
+    final trailing = line.spacing?.trailingSpaceStart;
+    // 折叠空白仍保留原文下标，但平台不能从零尺寸尾字形求光标；锚到可见边缘。
+    final caret = trailing != null && clamped.offset >= trailing
+        ? (trailing == 0
+              ? Offset.zero
+              : painter.getOffsetForCaret(
+                  TextPosition(
+                    offset: trailing,
+                    affinity: TextAffinity.upstream,
+                  ),
+                  Rect.zero,
+                ))
+        : painter.getOffsetForCaret(clamped, Rect.zero);
     final baselineOffset =
         (box.textTop ?? box.rect.top) -
         box.rect.top +

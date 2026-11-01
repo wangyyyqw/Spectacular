@@ -40,6 +40,15 @@ void main() {
     expect(decoded.entries, index.entries);
   });
 
+  test('间距规则换代拒绝 v4 索引，书签位置不属于页索引结构', () {
+    final blocks = blocksOf(['正文旧页边界不能重用。']);
+    final index = PageIndex.from(paginate(blocks), blocks);
+    expect(PageIndex.currentSchemaVersion, 5);
+    final old = PageIndex(schemaVersion: 4, entries: index.entries);
+    expect(PageIndex.decode(old.encode()), isNull);
+    expect(PageIndex.apply(old, blocks, spineIndex: 0), isNull);
+  });
+
   test('重放：apply 结果与重排逐页一致（切片行区间与几何）', () {
     final blocks = blocksOf(<String>['第一段内容比较长会跨页切分', '第二段', '第三段']);
     final pagination = paginate(blocks);

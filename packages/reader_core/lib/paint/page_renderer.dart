@@ -10,6 +10,7 @@ import '../layout/line_breaker.dart';
 import '../layout/paginator.dart';
 import '../layout/table_layout.dart';
 import '../layout/text_layout.dart';
+import '../layout/text_spacing.dart';
 import 'background_image.dart';
 import 'line_spans.dart';
 import 'paragraph_cache.dart';
@@ -1961,7 +1962,10 @@ class PagePainter {
           // 才和书籍一致（RANK 金框、标签 chip）。
           final cellRuns = _lineRuns(cell.layout, line);
           final painter = TextPainter(
-            text: cellRuns.isEmpty && line.inlineBoxes.isEmpty
+            text:
+                line.spacing == null &&
+                    cellRuns.isEmpty &&
+                    line.inlineBoxes.isEmpty
                 ? TextSpan(text: text, style: textStyle)
                 : buildLineSpan(
                     layout: cell.layout,
@@ -3681,12 +3685,15 @@ class PagePainter {
       return build();
     }
     final key =
+        'spacing=$textSpacingRevision|'
         '${page.spineIndex}:${page.pageIndex}:$sliceIndex:$lineIndex:'
         '${baseStyle.fontSize}:${baseStyle.height}:'
         '${baseStyle.letterSpacing}:${baseStyle.wordSpacing}:'
         '${baseStyle.color?.toARGB32()}:'
         '${textColorOverride?.toARGB32()}:'
-        '${line.justifyExtra.toStringAsFixed(3)}';
+        '${line.justifyExtra}:'
+        '${identityHashCode(layout)}:${baseStyle.hashCode}:'
+        '${line.start}:${line.end}:${line.spacing?.fingerprint}';
     return cache.obtain(key, build: build);
   }
 
@@ -4027,33 +4034,6 @@ class PagePainter {
         : textStyle.copyWith(color: textColorOverride);
   }
 
-  /// 保留原 span 样式与字距，只截取指定原文区间，不向原文插入占位字符。
-  TextSpan _textSpanRange(TextSpan span, int start, int end) {
-    final text = span.text ?? '';
-    final children = <InlineSpan>[];
-    var cursor = text.length;
-    for (final child in span.children ?? const <InlineSpan>[]) {
-      final length = child.toPlainText().length;
-      if (child is TextSpan && start < cursor + length && end > cursor) {
-        children.add(
-          _textSpanRange(
-            child,
-            math.max(0, start - cursor),
-            math.min(length, end - cursor),
-          ),
-        );
-      }
-      cursor += length;
-    }
-    return TextSpan(
-      text: start < text.length
-          ? text.substring(start, math.min(end, text.length))
-          : '',
-      style: span.style,
-      children: children,
-    );
-  }
-
   /// 按测量时的行内盒占宽分段平移，保持原文偏移稳定。
   /// 与背景、装饰线及命中共用 lineTextFragments 的原文分段和盒宽位移。
   /// 保留局部函数集中处理样式及基线偏移，避免重复移动坐标。
@@ -4082,7 +4062,7 @@ class PagePainter {
         final start = boundaries[index];
         final stop = boundaries[index + 1];
         final segment = TextPainter(
-          text: _textSpanRange(span, start, stop),
+          text: sliceTextSpan(span, start, stop),
           textDirection: painter.textDirection,
         )..layout();
         final offset = painter.getOffsetForCaret(
@@ -4149,18 +4129,23 @@ class PagePainter {
         continue;
       }
       final segmentPainter = TextPainter(
-        text: TextSpan(
-          text: lineText.substring(segment.start, segment.end),
-          style: segment.style == null
-              ? ((painter.text as TextSpan?)?.style ?? baseStyle)
-              : _paintTextStyleFor(segment.style!),
+        text: sliceTextSpan(
+          painter.text! as TextSpan,
+          segment.start,
+          segment.end,
         ),
         textDirection: painter.textDirection,
       )..layout();
+      final baseline =
+          painter.computeDistanceToActualBaseline(TextBaseline.alphabetic) -
+          segmentPainter.computeDistanceToActualBaseline(
+            TextBaseline.alphabetic,
+          );
       segmentPainter.paint(
         canvas,
-        Offset(x + boxes.first.left, y + segment.baselineShift),
+        Offset(x + boxes.first.left, y + baseline + segment.baselineShift),
       );
+      segmentPainter.dispose();
     }
   }
 

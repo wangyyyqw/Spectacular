@@ -182,6 +182,13 @@ abstract final class Cascade {
       hasExplicitTextColor: explicitTextColor,
       parent: parent,
       explicitProperties: explicit,
+      declaredTextProperties: {
+        ...?parent?.declaredTextProperties,
+        for (final property in const ['text-align', 'text-spacing-trim'])
+          if (winners[property] case final winner?
+              when winner.origin != CascadeOrigin.userAgent)
+            property,
+      },
       customProperties: customProperties,
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,

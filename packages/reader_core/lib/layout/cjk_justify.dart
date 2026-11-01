@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart' show StringCharacters;
+
 import '../css/computed_style.dart';
 import '../text/script.dart';
 
@@ -25,37 +27,70 @@ List<int> cjkJustifyGapOffsets(
   String text, {
   CssTextJustify mode = CssTextJustify.auto,
 }) {
+  text = text.trimRight();
   if (text.length < 2) {
     return const <int>[];
   }
   final hasCjk = containsCjk(text);
-  final runes = text.runes.toList(growable: false);
+  if (_simpleBmp.hasMatch(text)) {
+    return [
+      for (var i = 0; i + 1 < text.length; i++)
+        if (_stretchable(
+          text.codeUnitAt(i),
+          text.codeUnitAt(i + 1),
+          hasCjk,
+          mode,
+        ))
+          i,
+    ];
+  }
+  final clusters = text.characters.toList(growable: false);
   final offsets = <int>[];
   var offset = 0;
-  for (var i = 0; i < runes.length; i++) {
-    if (i < runes.length - 1) {
-      final left = runes[i];
-      final right = runes[i + 1];
-      final stretchable = switch (mode) {
-        CssTextJustify.interWord => left == 0x20,
-        CssTextJustify.interCharacter ||
-        CssTextJustify.distribute => left != 0x0A && right != 0x0A,
-        CssTextJustify.auto ||
-        CssTextJustify.justifyAll => hasCjk
-            ? left != 0x0A &&
-                  right != 0x0A &&
-                  !(isJustifyWordCodePoint(left) &&
-                      isJustifyWordCodePoint(right))
-            : left == 0x20,
-      };
-      if (stretchable) {
+  for (var i = 0; i < clusters.length; i++) {
+    if (i < clusters.length - 1) {
+      final left = _firstCodePoint(clusters[i]);
+      final right = _firstCodePoint(clusters[i + 1]);
+      // 多码点字簇的 letter-spacing 可能被平台累计多次，不在其内部施加字距。
+      if (_stretchable(left, right, hasCjk, mode) &&
+          clusters[i].length == (left > 0xFFFF ? 2 : 1)) {
         offsets.add(offset);
       }
     }
-    offset += runes[i] > 0xFFFF ? 2 : 1;
+    offset += clusters[i].length;
   }
   return offsets;
 }
+
+// 这些码位各自就是完整字簇；其他脚本和补充平面仍走 Unicode 字簇迭代。
+final _simpleBmp = RegExp(
+  r'^[\x20-\x7e\u3000-\u3029\u3400-\u9fff\uff01-\uff60\uffe0-\uffe6]+$',
+);
+
+bool _stretchable(int left, int right, bool hasCjk, CssTextJustify mode) {
+  if (left == 0x0A ||
+      right == 0x0A ||
+      _isBoundary(left) ||
+      _isBoundary(right)) {
+    return false;
+  }
+  return switch (mode) {
+    CssTextJustify.interWord => left == 0x20,
+    CssTextJustify.interCharacter || CssTextJustify.distribute => true,
+    CssTextJustify.auto || CssTextJustify.justifyAll =>
+      hasCjk ? !(_isWordPart(left) && _isWordPart(right)) : left == 0x20,
+  };
+}
+
+bool _isBoundary(int code) => code == 0xFFFC || code == 0x200B || code == 0x0D;
+
+int _firstCodePoint(String cluster) =>
+    cluster.length == 1 ? cluster.codeUnitAt(0) : cluster.runes.first;
+
+bool _isWordPart(int code) =>
+    isJustifyWordCodePoint(code) ||
+    (code >= 0x21 && code <= 0x7E) ||
+    code == 0x2019;
 
 /// 拉丁字母或数字（用于「不拆英文单词」判定）。
 ///

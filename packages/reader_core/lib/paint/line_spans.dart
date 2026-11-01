@@ -6,6 +6,7 @@ import '../layout/cjk_justify.dart';
 import '../layout/line_breaker.dart';
 import '../layout/punct_trim.dart';
 import '../layout/text_layout.dart';
+import '../layout/text_spacing.dart';
 
 /// 拆行后按已排好的基线定位混排文字及含行内盒的正文，避免自行贴到行顶。
 /// 显式上下标继续走既有分段位移路径，避免重复补偿。
@@ -87,9 +88,8 @@ Iterable<({int start, int end, double advance})> lineTextFragments(
 /// 只给「间隙左侧字符」加单字符 `SpanStyle` 并保留原 `letterSpacing`；末字之后
 /// 不加字距，因此不会在右缘留下多余间距（S3 结论）。
 ///
-/// 挤压（[punctCompression]）只作用于排版等价的纯文本行，与测量期
-/// （`_measureSegment`）同规则：相邻全角标点的前标点加 -0.5em 字距；
-/// 与 justify 同字符叠加时字距代数相加。
+/// 带 [LineBox.spacing] 的行直接消费测量结果，不重复判定标点或间隙。
+/// 无此数据的旧入口继续使用 [punctCompression] 纯文本兼容规则。
 ///
 /// 与阅微 `adaptiveJustify` 同构；差异只在 gap 判定（见 `cjk_justify.dart`）。
 InlineSpan buildLineSpan({
@@ -108,6 +108,37 @@ InlineSpan buildLineSpan({
   final lineText = layout.text.substring(line.start, line.end);
   final trailingBidiMark = _rtlTrailingBidiMark(layout, line);
   final runs = layout.runs;
+  if (line.spacing != null) {
+    final source = applySyntheticSmallCaps(
+      TextSpan(
+        style: effectiveBase,
+        children: [
+          ...buildStyledSpans(
+            text: layout.text,
+            start: line.start,
+            end: line.end,
+            runs: runs,
+            baseStyle: effectiveBase,
+            styleOf: styleOf ?? TextLayoutEngine.textStyleFor,
+          ),
+          if (trailingBidiMark.isNotEmpty) TextSpan(text: trailingBidiMark),
+        ],
+      ),
+    ) as TextSpan;
+    return applyTextSpacing(
+      source,
+      line.spacing!,
+      justifyExtra: line.justifyExtra,
+      hiddenPlaceholders: {
+        for (var i = 0; i < lineText.length; i++)
+          if (lineText.codeUnitAt(i) == 0xFFFC) i,
+      },
+      replacedPlaceholders: {
+        for (final box in line.inlineBoxes)
+          if (box.spec.replacesPlaceholder) box.offset - line.start,
+      },
+    );
+  }
   // 与测量期同模式取 gap（P7-21：text-justify 模式随行携带）。
   final gaps = line.justifyExtra > 0
       ? cjkJustifyGapOffsets(lineText, mode: line.justifyMode)
