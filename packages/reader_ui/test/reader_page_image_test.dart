@@ -68,6 +68,59 @@ PageContent _page({bool containerBackground = false}) {
 }
 
 void main() {
+  testWidgets('ReaderPage 沿用行内图片元数据预取装饰盒图片', (tester) async {
+    final image = PageBlock.styled(
+      layout: TextLayoutResult(
+        text: '',
+        lines: const [],
+        width: 60,
+        height: 20,
+        maxWidth: 60,
+      ),
+      style: _style(),
+      containingWidth: 100,
+    );
+    final style = ComputedStyle({'font-size': '16px'});
+    final block = PageBlock.styled(
+      layout: TextLayoutEngine.layout(
+        text: '标题',
+        style: style,
+        maxWidth: 300,
+        inlineBoxes: [
+          InlineBoxSpec(offset: 0, width: 60, height: 20, payload: image),
+        ],
+      ),
+      style: style,
+      containingWidth: 300,
+      inlineImages: const [InlineImageSpec(offset: 0, url: 'bg://one')],
+    );
+    final page = Paginator(pageHeight: 300)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final requested = <String>[];
+    final cache = DecodedImageCache(
+      loadBytes: (url) async {
+        requested.add(url);
+        return null;
+      },
+    );
+    addTearDown(cache.clear);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          source: _FakeSource(page),
+          store: MemoryReaderProgressStore(),
+          bookId: 'inline-image-book',
+          imageCache: cache,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(requested, contains('bg://one'));
+  });
+
   testWidgets('ReaderPage 使用注入的图片缓存并预取背景图', (tester) async {
     var loaderCalls = 0;
     final cache = DecodedImageCache(

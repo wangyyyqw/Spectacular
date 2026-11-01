@@ -2492,6 +2492,69 @@ class EpubChapterSource
     return (width, height);
   }
 
+  /// 行内替换图按原始尺寸收缩，不沿用块图的默认全宽。
+  ImageDisplaySize _inlineImageSize(
+    ComputedStyle style,
+    ImageIntrinsicSize? intrinsic,
+    double availableWidth,
+  ) {
+    final model = BoxModel.fromStyle(style, containingWidth: availableWidth);
+    var width = model.contentWidth;
+    var height = model.contentHeight;
+    final ratio = style.aspectRatio;
+    if (ratio != null) {
+      if (width != null && height == null) height = width / ratio;
+      if (height != null && width == null) width = height * ratio;
+    }
+    if (width == null && height == null && intrinsic == null) {
+      height = style.fontSize;
+      width = height * (ratio ?? 1);
+    }
+    final size = ImageDisplaySizing.compute(
+      maxWidth: math.max(
+        1,
+        availableWidth - model.horizontalInset - model.margin.horizontal,
+      ),
+      intrinsicWidth: intrinsic?.width,
+      intrinsicHeight: intrinsic?.height,
+      cssWidth: width,
+      cssHeight: height,
+    );
+    return ImageDisplaySize(
+      width: model.borderBoxWidth(size.width),
+      height: model.borderBoxHeight(size.height),
+    );
+  }
+
+  /// 浮动绕排重测也要保留行内原子盒，偏移仍以原段落为准。
+  TextLayoutResult _relayoutFloatText(
+    PageBlock block,
+    ComputedStyle style,
+    double width, {
+    int start = 0,
+  }) {
+    final boxes = [
+      for (final line in block.layout.lines)
+        for (final box in line.inlineBoxes)
+          if (box.offset >= start) box.spec.atOffset(box.offset - start),
+    ];
+    final text = block.layout.text.substring(start);
+    return !boxes.any((box) => box.replacesPlaceholder)
+        ? _layoutCache.layout(
+            text: text,
+            style: style,
+            maxWidth: width,
+            hasGlyph: _hasBookFontGlyph,
+          )
+        : TextLayoutEngine.layout(
+            text: text,
+            style: style,
+            maxWidth: width,
+            inlineBoxes: boxes,
+            hasGlyph: _hasBookFontGlyph,
+          );
+  }
+
   /// 章节纯文本按章 LRU；全书搜索后不长期保留整本正文副本。
   final BoundedCache<int, String> _plainTextCache = BoundedCache(
     chapterIndexCacheLimit,
@@ -3160,12 +3223,7 @@ class EpubChapterSource
           24.0,
           available - occupiedLeft - occupiedRight,
         );
-        final measured = _layoutCache.layout(
-          text: block.layout.text,
-          style: boxStyle,
-          maxWidth: batchWidth,
-          hasGlyph: _hasBookFontGlyph,
-        );
+        final measured = _relayoutFloatText(block, boxStyle, batchWidth);
         // overflow: visible 保留盒外全部行；显式裁剪时保留行顶位于盒内的
         // 行，末尾整行绘制仍由切片矩形裁掉，与浏览器部分可见行一致。
         final taken = block.clipsContent
@@ -3252,12 +3310,11 @@ class EpubChapterSource
             24.0,
             available - occupiedLeft - occupiedRight,
           );
-          final remaining = fullText.substring(charCursor);
-          final measured = _layoutCache.layout(
-            text: remaining,
-            style: textStyle,
-            maxWidth: batchWidth,
-            hasGlyph: _hasBookFontGlyph,
+          final measured = _relayoutFloatText(
+            block,
+            textStyle,
+            batchWidth,
+            start: charCursor,
           );
           // 取行：直到占位状态变化（下一行的区间不同）、页尽或文本尽。
           var taken = 0;
@@ -3315,6 +3372,18 @@ class EpubChapterSource
                 offsetX: line.offsetX + occupiedLeft,
                 justifyExtra: line.justifyExtra,
                 justifyMode: line.justifyMode,
+                inlineBoxes: [
+                  for (final box in line.inlineBoxes)
+                    InlineBoxPlacement(
+                      offset: box.offset + charCursor,
+                      left: box.left,
+                      width: box.width,
+                      height: box.height,
+                      ascent: box.ascent,
+                      descent: box.descent,
+                      spec: box.spec.atOffset(box.offset + charCursor),
+                    ),
+                ],
               ),
             );
           }
@@ -4200,22 +4269,69 @@ class EpubChapterSource
       _InlineFloatExtraction extracted,
     ) => [
       for (final existing in existingBoxes)
-        InlineBoxSpec(
-          offset: extracted.remapOffset(existing.offset),
-          width: existing.width,
-          height: existing.height,
-          verticalAlign: existing.verticalAlign,
-          marginLeft: existing.marginLeft,
-          marginRight: existing.marginRight,
-          marginTop: existing.marginTop,
-          marginBottom: existing.marginBottom,
-          baselineOffset: existing.baselineOffset,
-          contentHeight: existing.contentHeight,
-          contentBaseline: existing.contentBaseline,
-          payload: existing.payload,
-        ),
+        existing.atOffset(extracted.remapOffset(existing.offset)),
       if (extracted.inlineBox != null) extracted.inlineBox!,
     ];
+
+    PageBlock inlineImagePayload(
+      ComputedStyle imageStyle,
+      List<SelectorElement> chain,
+      String url,
+      ImageDisplaySize size,
+    ) {
+      final fit = objectFitBackground(
+        chain,
+        _intrinsicSizeOfUrl(url),
+        boxWidth: size.width,
+        boxHeight: size.height,
+      );
+      final payloadStyle = ComputedStyle({
+        ...imageStyle.values,
+        'background-image': 'url($url)',
+        'background-size': rawDeclarationsFor(chain).containsKey('object-fit')
+            ? fit.size
+            : '100% 100%',
+        'background-position': fit.position,
+        'background-repeat': 'no-repeat',
+        'background-origin': 'content-box',
+      });
+      return PageBlock(
+        layout: TextLayoutResult(
+          text: '',
+          lines: const [],
+          width: size.width,
+          height: size.height,
+          maxWidth: size.width,
+        ),
+        style: payloadStyle,
+      );
+    }
+
+    InlineBoxSpec inlineImageBox(
+      InlineImageSpec image,
+      ComputedStyle imageStyle,
+      List<SelectorElement> chain,
+      double availableWidth,
+    ) {
+      final size = _inlineImageSize(
+        imageStyle,
+        _intrinsicSizeOfUrl(image.url),
+        availableWidth,
+      );
+      return InlineBoxSpec(
+        offset: image.offset,
+        replacesPlaceholder: true,
+        width: size.width,
+        height: size.height,
+        verticalAlign: inlineBoxAlignOf(imageStyle.verticalAlign),
+        marginLeft: imageStyle.margin.left,
+        marginRight: imageStyle.margin.right,
+        marginTop: imageStyle.margin.top,
+        marginBottom: imageStyle.margin.bottom,
+        contentBaseline: size.height,
+        payload: inlineImagePayload(imageStyle, chain, image.url, size),
+      );
+    }
 
     /// 行内元素浮动提取（W17）。
     ///
@@ -6461,14 +6577,24 @@ class EpubChapterSource
             final url =
                 this.document.resources.resolve(src, baseDir: chapterBase) ??
                 src;
-            final imageStyle = styleForChain(<SelectorElement>[
-              ...ancestors,
-              _NodeView(
-                mark.node.tag,
-                attributesForImage,
-                const <SelectorElement>[],
-              ),
-            ]);
+            final sourceMark = paragraphMarks
+                .where(
+                  (candidate) =>
+                      candidate.start == mark.offset &&
+                      candidate.tag == mark.node.tag,
+                )
+                .firstOrNull;
+            final imageChain = sourceMark == null
+                ? <SelectorElement>[
+                    ...ancestors,
+                    _NodeView(
+                      mark.node.tag,
+                      attributesForImage,
+                      const <SelectorElement>[],
+                    ),
+                  ]
+                : inlineMarkChain(sourceMark, ancestors);
+            final imageStyle = chainStyle(imageChain);
             inlineImages.add(
               InlineImageSpec(
                 offset: mark.offset,
@@ -6478,6 +6604,16 @@ class EpubChapterSource
                 aspectRatio: imageStyle.aspectRatio,
               ),
             );
+            if (imageStyle.writingMode == CssWritingMode.horizontalTb) {
+              inlineBoxes.add(
+                inlineImageBox(
+                  inlineImages.last,
+                  imageStyle,
+                  imageChain,
+                  inlineContext.width,
+                ),
+              );
+            }
           }
         }
         for (final mark in pseudoImageMarks) {
@@ -6492,6 +6628,17 @@ class EpubChapterSource
             ),
           );
         }
+        // 替换图的 vertical-align 已由原子盒参与排版，不能再作为文字 run 抬升。
+        runs = [
+          for (final run in runs)
+            if (!inlineBoxes.any(
+              (box) =>
+                  box.replacesPlaceholder &&
+                  run.start == box.offset &&
+                  run.end == box.offset + 1,
+            ))
+              run,
+        ];
         final firstLetter = dropCapText == null
             ? _firstLetterRun(
                 styledSheets,

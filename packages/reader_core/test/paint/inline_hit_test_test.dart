@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart' show TextPosition;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
@@ -28,6 +29,44 @@ PageContent _page({
 }
 
 void main() {
+  test('替换图不进入正文选区，图后命中和光标保持原文字符偏移', () {
+    final page = _page(
+      text: '\uFFFCAB\uFFFC',
+      boxes: const [
+        InlineBoxSpec(
+          offset: 0,
+          width: 40,
+          height: 16,
+          marginLeft: 10,
+          marginRight: 10,
+          replacesPlaceholder: true,
+        ),
+        InlineBoxSpec(
+          offset: 3,
+          width: 40,
+          height: 16,
+          marginLeft: 10,
+          marginRight: 10,
+          replacesPlaceholder: true,
+        ),
+      ],
+    );
+    final line = TextHitTester.lineBoxes(page).single;
+    final selected = TextHitTester.selectionRects(line, 0, 4);
+    expect(selected, hasLength(1));
+    expect((selected.single.left, selected.single.right), (60.0, 92.0));
+    expect(TextHitTester.selectionRects(line, 0, 1), isEmpty);
+    expect(TextHitTester.selectionRects(line, 3, 4), isEmpty);
+    for (final (offset, x) in [(0, 0.0), (1, 60.0), (2, 76.0), (4, 152.0)]) {
+      expect(
+        TextHitTester.caretOffset(line, TextPosition(offset: offset)).dx,
+        closeTo(x, .01),
+      );
+    }
+    expect(TextHitTester.hitTest(page, const Offset(62, 10))!.charOffset, 1);
+    expect(TextHitTester.hitTest(page, const Offset(78, 10))!.charOffset, 2);
+  });
+
   test('混合字号命中保留行内样式，不按段落字号估算', () {
     final page = _page(
       runs: [
