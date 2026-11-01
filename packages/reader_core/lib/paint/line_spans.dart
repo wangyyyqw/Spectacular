@@ -7,14 +7,15 @@ import '../layout/line_breaker.dart';
 import '../layout/punct_trim.dart';
 import '../layout/text_layout.dart';
 
-/// 拆行后按已排好的基线定位混排文字，不让小字号行自行贴到行顶。
+/// 拆行后按已排好的基线定位混排文字及含行内盒的正文，避免自行贴到行顶。
 /// 显式上下标继续走既有分段位移路径，避免重复补偿。
 double textLineBaselineOffset(
   TextLayoutResult layout,
   LineBox line,
   TextPainter painter,
 ) {
-  if ((layout.runs.isEmpty || layout.plainTextLayout) ||
+  if ((line.inlineBoxes.isEmpty &&
+          (layout.runs.isEmpty || layout.plainTextLayout)) ||
       layout.runs.any(
         (run) =>
             run.start < line.end &&

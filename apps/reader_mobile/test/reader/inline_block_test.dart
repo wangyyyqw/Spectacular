@@ -64,11 +64,11 @@ void main() {
     );
   });
 
-  test('vertical-align: middle 时上行/下行延伸平分盒高', () async {
+  test('vertical-align: middle 时盒中心位于父基线上方半个 x 高度', () async {
     final lines = await linesOf(
       '<p>文字<span class="mid">盒</span></p>'
           '<p>文字<span class="top">盒</span></p>',
-      'p { margin: 0; line-height: 1.6; } '
+      'p { margin: 0; font-size: 24px; line-height: 1.6; } '
           '.mid { display: inline-block; width: 40px; height: 60px; '
           'vertical-align: middle; } '
           '.top { display: inline-block; width: 40px; height: 60px; '
@@ -79,8 +79,15 @@ void main() {
         if (line.inlineBoxes.isNotEmpty) line.inlineBoxes.single,
     ];
     expect(boxes, hasLength(2));
-    expect(boxes[0].ascent, closeTo(30, 0.01));
-    expect(boxes[0].descent, closeTo(30, 0.01));
+    final middle = lines.firstWhere((line) => line.inlineBoxes.isNotEmpty);
+    final parent = await linesOf(
+      '<p>文字</p>',
+      'p { margin: 0; font-size: 24px; line-height: 1.6; }',
+    );
+    // 父字号为 24px，x 高度沿用已有 0.5em 度量。
+    expect(boxes[0].ascent, closeTo(36, 0.01));
+    expect(boxes[0].descent, closeTo(24, 0.01));
+    expect(middle.baseline, greaterThanOrEqualTo(parent.single.baseline));
     expect(boxes[1].ascent, closeTo(60, 0.01), reason: 'top 对齐：全部在基线上方');
     expect(boxes[1].descent, closeTo(0, 0.01));
   });
