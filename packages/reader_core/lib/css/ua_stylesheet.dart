@@ -133,7 +133,8 @@ bdi, output { unicode-bidi: isolate; }
 bdo { unicode-bidi: isolate-override; }
 
 /* ==== hr（15.3.11）==== */
-hr { color: gray; margin-top: 0.5em; margin-bottom: 0.5em; }
+/* 保留阅读器既有默认灰线，作为 UA 声明允许作者正常覆盖。 */
+hr { color: gray; margin-top: 0.5em; margin-bottom: 0.5em; height: 1px; border-bottom: 1px solid #B0B0B0; }
 
 /* ==== 嵌入内容（15.4）==== */
 img, video { display: inline; }
@@ -276,10 +277,12 @@ abstract final class UaBlockDefaults {
         'dt': <String, String>{'font-weight': 'bold'},
         // 表头单元格（表格排版属 P3-17～21，先落字体语义）。
         'th': <String, String>{'font-weight': 'bold', 'text-align': 'center'},
-        // 分隔线：上下 0.5em（绘制属 P3-24）。
+        // 分隔线：与 UA 层叠路径共用既有默认灰线（绘制属 P3-24）。
         'hr': <String, String>{
           'margin-top': '0.5em',
           'margin-bottom': '0.5em',
+          'height': '1px',
+          'border-bottom': '1px solid #B0B0B0',
         },
         // 居中表现属性（WHATWG 15.3.3）。
         'center': <String, String>{'text-align': 'center'},

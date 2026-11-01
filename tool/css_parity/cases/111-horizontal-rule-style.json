@@ -1,0 +1,6 @@
+{
+  "name": "111-horizontal-rule-style",
+  "tags": ["border-style", "hr", "cascade", "margin"],
+  "css": "body { margin: 0; padding: 0; font-family: builtin_song; font-size: 17px; } p { margin: 0; line-height: 1.6; } .hr1 { margin: 1.5em 1em; height: 1px; border: none; border-top: 1px dashed #304598; } .large { font-size: 22px; } .solid, .dotted, .hidden { margin: 16px 20px; height: 2px; border: none; } .solid { border-bottom: 2px solid #008000; } .dotted { border-top: 2px dotted #cc0000; height: auto; }",
+  "html": "<p>原书蓝色虚线</p><hr class=\"hr1\"/><p>默认字号后文</p><div class=\"large\"><hr class=\"hr1\"/></div><p>大字号后文</p><hr class=\"solid\"/><p>绿色实线后文</p><hr class=\"dotted\"/><p>红色点线后文</p><hr class=\"hidden\"/><p>无边框后文</p>"
+}

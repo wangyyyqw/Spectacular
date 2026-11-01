@@ -9,8 +9,6 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/book_font_loader.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/selector.dart';
-import 'package:reader_core/css/ua_stylesheet.dart'
-    show UaBlockDefaults, uaRules;
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/stylesheet_loader.dart';
@@ -6911,20 +6909,18 @@ class EpubChapterSource
           collectTable(node, ancestors);
           return;
         }
-        // 分隔线 hr：空行块 + 下边框（绘制层 _paintBorders 画线）。
+        // 分隔线复用正常层叠与盒模型；空行只承担分页，不引入文字行高。
         if (node.tag == 'hr' && node.children.isEmpty) {
-          final hrStyle = ComputedStyle(
-            <String, String>{
-              ...UaBlockDefaults.declarationsFor('hr'),
-              'border-bottom': '1px solid #B0B0B0',
-            },
-            parent: style,
-            explicitProperties: <String>{
-              ...UaBlockDefaults.declarationsFor('hr').keys,
-              'border-bottom',
-            },
-            rootFontSize: style.fontSize,
+          final hrStyle = styleForChain(
+            [...ancestors, selectorViewOf(node)],
+            quoteDepth: quoteDepth,
+            firstInContainer: firstInContainer,
+            lastInContainer: lastInContainer,
           );
+          final ruleWidth = BoxModel.fromStyle(
+            hrStyle,
+            containingWidth: contentWidth,
+          ).resolveContentWidth(contentWidth);
           blocks.add(
             PageBlock.styled(
               layout: TextLayoutResult(
@@ -6934,14 +6930,14 @@ class EpubChapterSource
                     start: 0,
                     end: 0,
                     top: 0,
-                    height: 1,
-                    baseline: 1,
-                    width: contentWidth,
+                    height: 0,
+                    baseline: 0,
+                    width: ruleWidth,
                   ),
                 ],
-                width: contentWidth,
-                height: 1,
-                maxWidth: contentWidth,
+                width: ruleWidth,
+                height: 0,
+                maxWidth: ruleWidth,
                 runs: const <StyledRun>[],
               ),
               style: hrStyle,
