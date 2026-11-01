@@ -80,6 +80,38 @@ void main() {
     }
   });
 
+  test('thead 长表跨页后每页重复表头，正文行不丢失', () async {
+    final tables = await tablesOf(
+      '<table><thead><tr><th>列一</th><th>列二</th></tr></thead><tbody>'
+          '${List.generate(16, (i) => '<tr><td>名称$i</td><td>数据$i</td></tr>').join()}'
+          '</tbody></table>',
+      'body { margin: 0; } table { width: 100%; margin: 0; '
+          'border-collapse: collapse; } '
+          'td, th { height: 44px; box-sizing: border-box; '
+          'border: 1px solid #000; padding: 2px; font-size: 13px; }',
+      contentHeight: 180,
+    );
+    expect(tables.length, greaterThan(1), reason: '十六行表格应跨页');
+
+    final bodyTexts = <String>[];
+    for (final table in tables) {
+      final spec = table.spec;
+      final headers = spec.cells
+          .where((cell) => cell.row < spec.headerRowCount)
+          .map((cell) => cell.layout.text)
+          .toList();
+      expect(headers, <String>['列一', '列二'], reason: '每页有且仅有一次表头');
+      bodyTexts.addAll(
+        spec.cells
+            .where((cell) => cell.row >= spec.headerRowCount)
+            .map((cell) => cell.layout.text),
+      );
+    }
+    expect(bodyTexts, [
+      for (var i = 0; i < 16; i++) ...['名称$i', '数据$i'],
+    ], reason: '表头重复不能挤掉或重复正文行');
+  });
+
   test('collapse 时单元格不再加整条边框（只分摊一半）', () async {
     final collapsed = await tablesOf(
       '<table><tr><td>格</td></tr></table>',

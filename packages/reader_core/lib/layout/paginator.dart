@@ -1393,10 +1393,10 @@ class Paginator {
   }
 
   /// 可继续按行拆分的表格行数；预切表格的 [TableRenderSpec.rowYs] 从 0 起
-  /// 严格递增。单行切片或末行被裁剪的切片不在这里重复拆。
+  /// 严格递增。返回值包含表头行，供调用方在首个切片后至少取一行正文。
   static int _splittableTableRows(PageBlock block) {
     final rows = block.table?.rowYs;
-    if (rows == null || rows.length < 3) {
+    if (rows == null || rows.length < 2) {
       return 0;
     }
     for (var i = 1; i < rows.length; i++) {
@@ -1404,7 +1404,23 @@ class Paginator {
         return 0;
       }
     }
-    return rows.length - 1;
+    final rowCount = rows.length - 1;
+    final headerRows = math.min(block.table!.headerRowCount, rowCount);
+    if (headerRows > 0) {
+      // 表头之外至少还要有一行正文，且续片必须重复表头。
+      return rowCount > headerRows ? rowCount : 0;
+    }
+    // 保留原行为：无表头的单行表格不进入二次拆分。
+    return rowCount > 1 ? rowCount : 0;
+  }
+
+  /// 当前表格载荷顶部的表头行数（不超过实际行数）。
+  static int _tableHeaderRows(PageBlock block) {
+    final table = block.table;
+    if (table == null) {
+      return 0;
+    }
+    return math.min(table.headerRowCount, table.rowYs.length - 1);
   }
 
   /// 从预切表格块中截出 `[startRow, endRow)`，并把单元格和行界坐标平移到
@@ -1412,28 +1428,55 @@ class Paginator {
   static PageBlock _tablePiece(PageBlock source, int startRow, int endRow) {
     final table = source.table!;
     final rowYs = table.rowYs;
+    final rowCount = rowYs.length - 1;
+    final headerRows = math.min(table.headerRowCount, rowCount);
+    final headerHeight = headerRows > 0
+        ? math.min(table.headerHeight, rowYs[headerRows])
+        : 0.0;
+    final repeatsHeader = headerRows > 0 && startRow >= headerRows;
     // 首页保留预切表格在内容盒顶部的留白（例如 Flex align-content
     // center/flex-end）；只有从后续行开始时才把该行顶平移到切片顶。
     final top = startRow == 0 ? 0.0 : rowYs[startRow];
     final bottom = rowYs[endRow];
-    final height = bottom - top;
-    final rowCount = rowYs.length - 1;
+    final headerOffset = repeatsHeader ? headerHeight : 0.0;
+    final dataHeight = bottom - top;
+    final height = dataHeight + headerOffset;
     final cells = <TableCellRender>[
       for (final cell in table.cells)
-        if (cell.rect.bottom > top + 0.01 && cell.rect.top < bottom - 0.01)
+        if (!(repeatsHeader && cell.row < headerRows) &&
+            cell.rect.bottom > top + 0.01 &&
+            cell.rect.top < bottom - 0.01)
           TableCellRender(
             row: cell.row,
             rect: Rect.fromLTRB(
               cell.rect.left,
-              math.max(0.0, cell.rect.top - top),
+              math.max(0.0, cell.rect.top - top) + headerOffset,
               cell.rect.right,
-              math.min(height, cell.rect.bottom - top),
+              math.min(dataHeight, cell.rect.bottom - top) + headerOffset,
             ),
             layout: cell.layout,
             style: cell.style,
             startCfi: cell.startCfi,
           ),
     ];
+    if (repeatsHeader) {
+      cells.insertAll(0, [
+        for (final cell in table.cells)
+          if (cell.row < headerRows)
+            TableCellRender(
+              row: cell.row,
+              rect: Rect.fromLTRB(
+                cell.rect.left,
+                math.max(0.0, cell.rect.top),
+                cell.rect.right,
+                math.min(headerHeight, cell.rect.bottom),
+              ),
+              layout: cell.layout,
+              style: cell.style,
+              startCfi: cell.startCfi,
+            ),
+      ]);
+    }
     final layout = TextLayoutResult(
       text: source.layout.text,
       lines: <LineBox>[
@@ -1471,9 +1514,18 @@ class Paginator {
         cells: cells,
         columnXs: table.columnXs,
         rowYs: <double>[
-          for (var row = startRow; row <= endRow; row++) rowYs[row] - top,
+          if (repeatsHeader)
+            for (var row = 0; row <= headerRows; row++) rowYs[row],
+          for (
+            var row = repeatsHeader ? startRow + 1 : startRow;
+            row <= endRow;
+            row += 1
+          )
+            rowYs[row] - top + headerOffset,
         ],
         tableWidth: table.tableWidth,
+        headerRowCount: headerRows,
+        headerHeight: headerHeight,
         flex: table.flex,
       ),
       containerSides: source.containerSides,
@@ -2060,8 +2112,13 @@ class Paginator {
           blockExtent <= pageHeight + fitTolerance) {
         final next = flow[blockIndex + 1];
         final nextTableRows = _splittableTableRows(next);
+        final nextHeaderRows = _tableHeaderRows(next);
         final nextLineNeed = nextTableRows > 1
-            ? _tablePiece(next, 0, 1).height
+            ? _tablePiece(
+                next,
+                0,
+                math.min(nextTableRows, nextHeaderRows + 1),
+              ).height
             : (next.layout.lines.isEmpty
                   ? 0.0
                   : next.layout.lines.first.height);
@@ -2088,13 +2145,17 @@ class Paginator {
       // 拆分，首页先排能容纳的行，其余行顺延下一页，而不是整片下移。
       final tableRows = _splittableTableRows(block);
       if (tableRows > 1) {
+        final headerRows = _tableHeaderRows(block);
         var rowStart = 0;
         while (rowStart < tableRows) {
+          final firstCandidate = rowStart == 0 && headerRows > 0
+              ? math.min(tableRows, headerRows + 1)
+              : rowStart + 1;
           PageBlock? fitted;
           var fittedEnd = rowStart;
           var fittedLeading = 0.0;
           for (
-            var candidate = rowStart + 1;
+            var candidate = firstCandidate;
             candidate <= tableRows;
             candidate++
           ) {
@@ -2116,8 +2177,8 @@ class Paginator {
               continue;
             }
             // 单行高于整页：强制放一行，由渲染层按页面裁剪，避免死循环。
-            fitted = _tablePiece(block, rowStart, rowStart + 1);
-            fittedEnd = rowStart + 1;
+            fitted = _tablePiece(block, rowStart, firstCandidate);
+            fittedEnd = firstCandidate;
             fittedLeading = leadingOf(fitted, 0);
           }
           final extent = fittedLeading + fitted.height + fitted.trailingExtent;

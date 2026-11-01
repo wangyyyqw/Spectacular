@@ -123,4 +123,160 @@ void main() {
       }
     });
   }
+
+  test('单元格文字按格矩形裁剪，不画入后续行或下一表格区域', () async {
+    final cellStyle = ComputedStyle({
+      'font-size': '16px',
+      'font-family': 'Ahem',
+      'line-height': '20px',
+      'color': '#000000',
+    });
+    final cellLayout = TextLayoutEngine.layout(
+      text: 'AA\nBB',
+      style: cellStyle,
+      maxWidth: 100,
+    );
+    expect(cellLayout.height, greaterThan(32), reason: '测试文字须越过格底');
+    final block = PageBlock.styled(
+      layout: TextLayoutResult(
+        text: '',
+        lines: <LineBox>[
+          LineBox(
+            start: 0,
+            end: 0,
+            top: 0,
+            height: 80,
+            baseline: 80,
+            width: 100,
+          ),
+        ],
+        width: 100,
+        height: 80,
+        maxWidth: 100,
+        runs: <StyledRun>[],
+      ),
+      style: ComputedStyle({'font-size': '13px'}),
+      containingWidth: 120,
+      table: TableRenderSpec(
+        cells: [
+          TableCellRender(
+            row: 0,
+            rect: const Rect.fromLTWH(0, 0, 100, 30),
+            layout: cellLayout,
+            style: cellStyle,
+          ),
+        ],
+        columnXs: const [0, 100],
+        rowYs: const [0, 30, 80],
+        tableWidth: 100,
+      ),
+    );
+    final page = Paginator(pageHeight: 80)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final recorder = ui.PictureRecorder();
+    const PagePainter().paint(
+      Canvas(recorder),
+      page,
+      pageSize: const Size(120, 80),
+    );
+    final image = await recorder.endRecording().toImage(120, 80);
+    final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    image.dispose();
+    int darkPixels(int fromY, int toY) {
+      var count = 0;
+      for (var y = fromY; y < toY; y++) {
+        for (var x = 0; x < 100; x++) {
+          final offset = (y * 120 + x) * 4;
+          if (data.getUint8(offset) < 40 &&
+              data.getUint8(offset + 1) < 40 &&
+              data.getUint8(offset + 2) < 40) {
+            count += 1;
+          }
+        }
+      }
+      return count;
+    }
+
+    expect(darkPixels(0, 20), greaterThan(10), reason: '格内首行仍须绘制');
+    expect(darkPixels(32, 80), 0, reason: '格底以下不得残留文字墨迹');
+  });
+
+  test('单元格绘制沿用测量换行宽度，不在窄内宽中重新换行', () async {
+    final cellStyle = ComputedStyle({
+      'font-size': '16px',
+      'font-family': 'Ahem',
+      'line-height': '20px',
+      'color': '#000000',
+      'padding': '8px 12px',
+      'border': '1px solid #000000',
+    });
+    final cellLayout = TextLayoutEngine.layout(
+      text: 'AA',
+      style: cellStyle,
+      maxWidth: 18,
+    );
+    expect(cellLayout.maxWidth, 48, reason: '行宽被正文 3em 下限钳制');
+    expect(cellLayout.lineCount, 1, reason: '测量结果是一行');
+    final block = PageBlock.styled(
+      layout: TextLayoutResult(
+        text: '',
+        lines: <LineBox>[
+          LineBox(
+            start: 0,
+            end: 0,
+            top: 0,
+            height: 40,
+            baseline: 40,
+            width: 44,
+          ),
+        ],
+        width: 44,
+        height: 40,
+        maxWidth: 44,
+        runs: <StyledRun>[],
+      ),
+      style: ComputedStyle({'font-size': '13px'}),
+      containingWidth: 60,
+      table: TableRenderSpec(
+        cells: [
+          TableCellRender(
+            row: 0,
+            rect: const Rect.fromLTWH(0, 0, 44, 40),
+            layout: cellLayout,
+            style: cellStyle,
+          ),
+        ],
+        columnXs: const [0, 44],
+        rowYs: const [0, 40],
+        tableWidth: 44,
+      ),
+    );
+    final page = Paginator(pageHeight: 40)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final recorder = ui.PictureRecorder();
+    const PagePainter().paint(
+      Canvas(recorder),
+      page,
+      pageSize: const Size(60, 40),
+    );
+    final image = await recorder.endRecording().toImage(60, 40);
+    final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    image.dispose();
+    var rightInk = 0;
+    for (var y = 0; y < 40; y++) {
+      for (var x = 30; x < 42; x++) {
+        final offset = (y * 60 + x) * 4;
+        if (data.getUint8(offset) < 40 &&
+            data.getUint8(offset + 1) < 40 &&
+            data.getUint8(offset + 2) < 40) {
+          rightInk += 1;
+        }
+      }
+    }
+    expect(rightInk, greaterThan(10), reason: '第二个字仍须留在首行可见');
+  });
 }
