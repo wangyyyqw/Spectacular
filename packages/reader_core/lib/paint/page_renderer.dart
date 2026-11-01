@@ -4896,7 +4896,12 @@ class _SliceGeometry {
         ? slice.leftInset + style.margin.left
         : style.margin.left;
     final left = block.bleedLeft ? -pageInsets.left : boxLeft;
-    final contentWidth = !isVerticalBlock
+    // 浮动的自动宽/百分比宽已在排版阶段解算，不能再按整页宽扩张背景与边框。
+    final contentWidth = block.floatSide != null
+        ? (block.layout.maxWidth.isFinite
+              ? block.layout.maxWidth
+              : block.layout.width)
+        : !isVerticalBlock
         ? model.resolveContentWidth(pageWidth)
         : model.contentWidth == null
         ? block.layout.width
