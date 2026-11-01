@@ -65,7 +65,8 @@ void main() {
     '绝对定位': '.special { position: absolute; top: 0; }',
     '固定定位': '.special { position: fixed; top: 0; }',
   }.entries) {
-    test('${entry.key}章节的普通卡片保持原 slice 策略', () async {
+    final clone = !['竖排', '分栏'].contains(entry.key);
+    test('${entry.key}章节的普通卡片${clone ? '每页封框' : '保持原 slice 策略'}', () async {
       final source = await openCssChapter(
         body:
             '<p class="special">特殊排版正文。</p>'
@@ -76,7 +77,7 @@ void main() {
       );
       final containers = _containers(await source.loadChapter(0));
       expect(containers, isNotEmpty);
-      expect(containers.every((box) => !box.cloneDecoration), isTrue);
+      expect(containers.every((box) => box.cloneDecoration == clone), isTrue);
       expect(
         containers.every((box) => identical(box, containers.first)),
         isTrue,

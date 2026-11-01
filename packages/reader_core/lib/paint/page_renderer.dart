@@ -285,13 +285,19 @@ class PagePainter {
 
   /// 真实首尾按内容收口；克隆续页封到页底，外层留白逐层扣除。
   Rect _containerBounds(_PaintGroup group, int depth, double pageHeight) {
-    final first = group.geometries.first;
+    final container = group.container!;
+    // 页首浮动已避让续框内边距，祖先外框仍应从在流片段的页首起画。
+    final first = container.cloneDecoration
+        ? group.geometries.firstWhere(
+            (geometry) => !geometry.slice.overlay,
+            orElse: () => group.geometries.first,
+          )
+        : group.geometries.first;
     final last = group.geometries.last;
     final start = first.slice.block.containers[depth];
     final end = last.slice.block.containers[depth];
     final starts = start.startsHere && first.startsBlock;
     final ends = end.endsHere && last.endsBlock;
-    final container = group.container!;
     final outerTop = first.slice.block.containerTopInset(
       first.slice.startLine,
       beforeDepth: depth,

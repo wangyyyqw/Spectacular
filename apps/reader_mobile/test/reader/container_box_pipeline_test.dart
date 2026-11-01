@@ -174,7 +174,7 @@ void main() {
     expect(distance, 32);
   });
 
-  test('含浮动的章节跨页后仍保留容器，只在首末片段封框', () async {
+  test('含浮动的章节跨页后每页封框，仍保留真实容器首末标记', () async {
     final source = await openCssChapter(
       body:
           '<p class="float">浮</p><div class="card"><p>'
@@ -194,6 +194,7 @@ void main() {
         .toList();
     expect(blocks.every((block) => block.containers.length == 1), isTrue);
     final fragments = blocks.map((block) => block.containers.single).toList();
+    expect(fragments.every((f) => f.container.cloneDecoration), isTrue);
     expect(fragments.where((f) => f.startsHere), hasLength(1));
     expect(fragments.where((f) => f.endsHere), hasLength(1));
     expect(

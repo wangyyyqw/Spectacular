@@ -1733,7 +1733,7 @@ class EpubChapterSource
       )
       .join('>');
 
-  /// 浮动分页会把一段拆为多个块，只让真正的首末片段封闭容器。
+  /// 浮动分页会把一段拆为多个块，仍保留容器真实首末标记供装饰占位使用。
   static List<PageContainerFragment> _containerFragmentsFor(
     PageBlock block, {
     required bool starts,
@@ -2095,7 +2095,7 @@ class EpubChapterSource
     );
   }
 
-  /// 普通分页默认闭合带框容器；作者的显式 slice 优先。
+  /// 横排分页默认闭合带框容器；作者的显式 slice 优先。
   static bool _clonesContainerDecoration(ComputedStyle style) {
     final value =
         (style.values['box-decoration-break'] ??
@@ -2127,25 +2127,18 @@ class EpubChapterSource
     return hasText && block.layout.lineCount > 0 && block.layout.lineCount <= 2;
   }
 
-  /// 续页装饰本轮只用于普通横排；特殊分页仍保持原来的切片语义。
-  static List<PageBlock> _configureContainerDecoration(
-    List<PageBlock> blocks, {
-    bool hasFixed = false,
-  }) {
+  /// 竖排和分栏尚未按各自分页轴预留续框空间，仍保持切片语义。
+  static List<PageBlock> _configureContainerDecoration(List<PageBlock> blocks) {
     bool specialStyle(ComputedStyle? style) =>
         style != null &&
         (style.writingMode != CssWritingMode.horizontalTb ||
             (style.columnCount ?? 1) > 1 ||
             (style.columnWidth != null && !style.columnWidth!.isAuto));
-    final special =
-        hasFixed ||
-        blocks.any(
-          (block) =>
-              block.absolute ||
-              block.floatSide != null ||
-              specialStyle(block.style) ||
-              block.containers.any((f) => specialStyle(f.container.style)),
-        );
+    final special = blocks.any(
+      (block) =>
+          specialStyle(block.style) ||
+          block.containers.any((f) => specialStyle(f.container.style)),
+    );
     if (!special) return blocks;
     final replacements = <PageContainer, PageContainer>{};
     PageContainer sliced(PageContainer box) => replacements.putIfAbsent(
@@ -2684,6 +2677,14 @@ class EpubChapterSource
     }
 
     void closePage() {
+      // 容行时预留、收页时挂到末个在流片段，浮动覆盖层不推进正文。
+      final lastFlow = slices.lastIndexWhere((slice) => !slice.overlay);
+      if (lastFlow >= 0) {
+        final last = slices[lastFlow];
+        final decoration = last.block.containerBottomInset(last.endLine);
+        slices[lastFlow] = last.withBottomDecoration(decoration);
+        y += decoration;
+      }
       pages.add(
         PageContent(
           spineIndex: spine,
@@ -2700,6 +2701,20 @@ class EpubChapterSource
       lastContentBottom = 0;
       lastBottomMargin = 0;
       occupancy.clear();
+    }
+
+    double leadingOf(PageBlock block, {bool starts = true}) =>
+        (starts ? block.leadingExtent : 0) +
+        (hasFlowOnPage ? 0 : block.containerTopInset(starts ? 0 : 1));
+
+    double prepareAtomicBlock(PageBlock block) {
+      final bottom = block.containerBottomInset(block.layout.lineCount);
+      if (y > 0 &&
+          y + leadingOf(block) + block.height + block.trailingExtent + bottom >
+              height) {
+        closePage();
+      }
+      return leadingOf(block);
     }
 
     // 浮动块的静态位置（f）：CSS 2.1 §9.5——浮动框的外边距盒顶不得高于
@@ -2869,12 +2884,15 @@ class EpubChapterSource
           final groupMarginBottom = groupBlocks.last.spaceAfter;
           final groupFlowTop = hasFlowOnPage
               ? lastContentBottom + lastBottomMargin
-              : nextFlowLeading[blockIndex];
+              : nextFlowLeading[blockIndex] + first.containerTopInset(0);
           if (y > 0 &&
               groupFlowTop +
                       groupMarginTop +
                       groupBorderHeight +
-                      groupMarginBottom >
+                      groupMarginBottom +
+                      groupBlocks.last.containerBottomInset(
+                        groupBlocks.last.layout.lineCount,
+                      ) >
                   height) {
             closePage();
           }
@@ -2882,7 +2900,8 @@ class EpubChapterSource
             preferredTop:
                 (hasFlowOnPage
                     ? lastContentBottom + lastBottomMargin
-                    : nextFlowLeading[blockIndex]) +
+                    : nextFlowLeading[blockIndex] +
+                          first.containerTopInset(0)) +
                 groupMarginTop,
             occupiedWidth: groupOccupied,
             heightPx: groupBorderHeight + groupMarginBottom,
@@ -2958,7 +2977,7 @@ class EpubChapterSource
         //（浮动的 margin 不参与折叠，原样相加）。
         double flowPosition() => hasFlowOnPage
             ? lastContentBottom + lastBottomMargin
-            : nextFlowLeading[blockIndex];
+            : nextFlowLeading[blockIndex] + block.containerTopInset(0);
         final preferredTop = flowPosition() + block.spaceBefore;
         final ownTop = style == null
             ? 0.0
@@ -2971,13 +2990,15 @@ class EpubChapterSource
                       ? style.borders.bottom.width
                       : 0);
         final overlayHeight = block.topInset + h + block.bottomInset;
-        if (y > 0 && preferredTop + overlayHeight > height) {
+        if (y > 0 &&
+            preferredTop +
+                    overlayHeight +
+                    block.containerBottomInset(block.layout.lineCount) >
+                height) {
           closePage();
         }
         final placement = placeFloat(
-          preferredTop: hasFlowOnPage
-              ? lastContentBottom + lastBottomMargin + block.spaceBefore
-              : nextFlowLeading[blockIndex] + block.spaceBefore,
+          preferredTop: flowPosition() + block.spaceBefore,
           occupiedWidth: occupied,
           heightPx: overlayHeight,
           side: floatSide,
@@ -3049,7 +3070,7 @@ class EpubChapterSource
               maxWidth: width,
               runs: const <StyledRun>[],
             ),
-            style: block.style,
+            containers: _containerFragmentsFor(block, starts: false, ends: false),
           );
           slices.add(
             PageBlockSlice(
@@ -3062,19 +3083,11 @@ class EpubChapterSource
           y = bottom;
         }
       }
-      if (block.layout.lineCount == 0) {
-        // 空盒块（hr、空 clear div 等）：清零浮动后按普通流处理。
-        if (y + block.leadingExtent + block.height > height && y > 0) {
-          closePage();
-        }
-        y += block.leadingExtent + block.height + block.trailingExtent;
-        continue;
-      }
       // 浮动章节仍要遵守 break-after: avoid：标题能放进当前页，但下一段
       // 的首行放不下时，整段标题移到下页，不能只身留在页底。
       final blockFlowHeight = math.max(block.height, block.layout.height);
       final blockExtent =
-          block.leadingExtent + blockFlowHeight + block.trailingExtent;
+          leadingOf(block) + blockFlowHeight + block.trailingExtent;
       if (block.breakAfterAvoid &&
           y > 0 &&
           blockIndex + 1 < blocks.length &&
@@ -3092,9 +3105,9 @@ class EpubChapterSource
               (next.layout.lines.isEmpty
                   ? 0.0
                   : next.layout.lines.first.height) +
-              (next.layout.lineCount <= 1 ? next.trailingExtent : 0.0);
-          final pairExtent =
-              blockExtent + nextNeed;
+              (next.layout.lineCount <= 1 ? next.trailingExtent : 0.0) +
+              next.containerBottomInset(1);
+          final pairExtent = blockExtent + nextNeed;
           // 即使标题和下一段首行本身超过一页，也应先把标题移到下页：
           // 避免规则优先于“标题能否单页容纳”，否则会出现标题独留页底。
           if (height - y < pairExtent) {
@@ -3105,26 +3118,26 @@ class EpubChapterSource
       // 表格块/空布局块（浮动章节）：整块原子入流。表格的逐行切分在
       // collectTable 里已完成，这里只按块高占位——否则会被当成空文本块
       // 静默丢掉（浮动章里的表格直接消失），空文本块还会让收页循环空转。
-      if (block.table != null || block.layout.text.isEmpty) {
-        if (y > 0 && y + block.leadingExtent + block.height > height) {
-          closePage();
-        }
+      if (block.layout.lineCount == 0 ||
+          block.table != null ||
+          block.layout.text.isEmpty) {
+        final leading = prepareAtomicBlock(block);
         slices.add(
           PageBlockSlice(
             block: block,
             startLine: 0,
             endLine: block.layout.lineCount,
-            height: block.leadingExtent + block.height + block.trailingExtent,
-            leadingExtent: block.leadingExtent,
+            height: leading + block.height + block.trailingExtent,
+            leadingExtent: leading,
             trailingExtent: block.trailingExtent,
             leftInset: block.leftInset,
           ),
         );
         noteFlow(
-          y + block.leadingExtent + block.height,
+          y + leading + block.height,
           block.style?.margin.bottom ?? block.spaceAfter,
         );
-        y += block.leadingExtent + block.height + block.trailingExtent;
+        y += leading + block.height + block.trailingExtent;
         continue;
       }
       // 声明盒高块（height/min-height/overflow 裁剪）：浮动流里按原子块
@@ -3133,6 +3146,7 @@ class EpubChapterSource
       final boxHeight = block.height;
       if ((boxHeight - block.measuredHeight).abs() > 0.5 ||
           block.clipsContent) {
+        final leading = prepareAtomicBlock(block);
         final boxStyle = block.style ?? style;
         final available = _textWidthFor(boxStyle);
         final flowLeft = block.leftInset + boxStyle.margin.left;
@@ -3160,9 +3174,6 @@ class EpubChapterSource
         final visibleHeight = measured.lines
             .take(taken)
             .fold(0.0, (sum, line) => sum + line.height);
-        if (y > 0 && y + block.leadingExtent + boxHeight > height) {
-          closePage();
-        }
         if (taken > 0) {
           final segLines = [
             for (final line in measured.lines.take(taken))
@@ -3196,18 +3207,18 @@ class EpubChapterSource
               ),
               startLine: 0,
               endLine: taken,
-              height: block.leadingExtent + boxHeight,
-              leadingExtent: block.leadingExtent,
+              height: leading + boxHeight + block.trailingExtent,
+              leadingExtent: leading,
               trailingExtent: block.trailingExtent,
               leftInset: block.leftInset,
             ),
           );
         }
         noteFlow(
-          y + block.leadingExtent + boxHeight,
+          y + leading + boxHeight,
           block.style?.margin.bottom ?? block.spaceAfter,
         );
-        y += block.leadingExtent + boxHeight + block.trailingExtent;
+        y += leading + boxHeight + block.trailingExtent;
         continue;
       }
       // 行批切段（f）：一个源块只产出一个 PageBlock，绕排只改变行的起始
@@ -3219,8 +3230,8 @@ class EpubChapterSource
       final flowLeft = block.leftInset + textStyle.margin.left;
       final flowRight = flowLeft + available;
       var charCursor = 0;
-      var leadingLeft = block.leadingExtent;
       while (charCursor < fullText.length) {
+        final leadingLeft = leadingOf(block, starts: charCursor == 0);
         final blockLines = <LineBox>[];
         var blockHeight = 0.0;
         while (charCursor < fullText.length) {
@@ -3253,7 +3264,15 @@ class EpubChapterSource
           var batchHeight = 0.0;
           while (taken < measured.lineCount) {
             final lineH = measured.lines[taken].height;
-            if (y + leadingLeft + blockHeight + batchHeight + lineH > height) {
+            final finished =
+                charCursor + measured.lines[taken].end >= fullText.length;
+            final bottom =
+                block.containerBottomInset(
+                  finished ? block.layout.lineCount : 0,
+                ) +
+                (finished ? block.trailingExtent : 0);
+            if (y + leadingLeft + blockHeight + batchHeight + lineH + bottom >
+                height) {
               break;
             }
             final nextY = y + leadingLeft + blockHeight + batchHeight;
@@ -3305,7 +3324,6 @@ class EpubChapterSource
         if (blockLines.isEmpty) {
           // 页首也放不下任何一行：收页重试（此时必然 y > 0）。
           closePage();
-          leadingLeft = 0;
           continue;
         }
         final finished = charCursor >= fullText.length;
@@ -3362,7 +3380,6 @@ class EpubChapterSource
           block.style?.margin.bottom ?? block.spaceAfter,
         );
         y += leadingLeft + blockHeight + trailing;
-        leadingLeft = 0;
         if (!finished) {
           closePage();
         }
@@ -7011,10 +7028,7 @@ class EpubChapterSource
     // 相邻块上下外边距折叠（CSS 2.1 §8.3.1）：段距取 max，而不是两段
     // margin 相加。分页器、浮动分页与页索引重放共用这批块对象，
     // PageIndex.from 按块身份记录块序号，必须先折叠再分页。
-    blocks = _configureContainerDecoration(
-      blocks,
-      hasFixed: fixedBlocks.isNotEmpty,
-    );
+    blocks = _configureContainerDecoration(blocks);
     blocks = _collapseMarginsIgnoringFloats(blocks);
 
     _putBlockCache(
