@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
-import 'package:reader_core/api.dart';
+import 'package:reader_core/api.dart' hide ComputedStyle;
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:reader_core/paint/hit_test.dart';
@@ -421,21 +422,59 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (cache == null) {
       return;
     }
-    final urls = <String>{
-      for (final slice in page.slices)
-        if (slice.block.style?.backgroundImage != null)
-          slice.block.style!.backgroundImage!,
-      // 容器保留独立背景后，不能只预取正文块上的图片。
-      for (final slice in page.slices)
-        for (final fragment in slice.block.containers)
-          if (fragment.container.style.backgroundImage != null)
-            fragment.container.style.backgroundImage!,
-      // 整页背景（P9-04）：body 的 background-image 也要预解码。
-      if (page.background != null) page.background!.imageUrl,
-      // 行内图片（P9-06）：混排里的 emoji/图标同样需要先解码再绘制。
-      for (final slice in page.slices)
-        for (final image in slice.block.inlineImages) image.url,
-    };
+    final urls = <String>{};
+    final visited = <PageBlock>{};
+
+    void addStyle(ComputedStyle? style) {
+      final image = style?.backgroundImage;
+      if (image != null && image.isNotEmpty) {
+        urls.add(image);
+      }
+    }
+
+    void addBlock(PageBlock block) {
+      if (!visited.add(block)) {
+        return;
+      }
+      addStyle(block.style);
+      for (final fragment in block.containers) {
+        addStyle(fragment.container.style);
+      }
+      for (final image in block.inlineImages) {
+        urls.add(image.url);
+      }
+      for (final line in block.layout.lines) {
+        for (final placement in line.inlineBoxes) {
+          final payload = placement.spec.payload;
+          if (payload is PageBlock) {
+            addBlock(payload);
+          }
+        }
+      }
+      // Flex 行和普通表格都以单元格样式承载图片背景，不能只扫外层块样式。
+      final cells = block.table?.cells;
+      if (cells != null) {
+        for (final cell in cells) {
+          addStyle(cell.style);
+          for (final line in cell.layout.lines) {
+            for (final placement in line.inlineBoxes) {
+              final payload = placement.spec.payload;
+              if (payload is PageBlock) {
+                addBlock(payload);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for (final slice in page.slices) {
+      addBlock(slice.block);
+    }
+    // 整页背景（P9-04）：body 的 background-image 也要预解码。
+    if (page.background != null) {
+      urls.add(page.background!.imageUrl);
+    }
     if (urls.isEmpty) {
       return;
     }

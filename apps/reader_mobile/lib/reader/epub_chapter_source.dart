@@ -2190,14 +2190,31 @@ class EpubChapterSource
         for (final block in item) {
           final style = block.style ?? containerStyle;
           itemY += block.spaceBefore;
-          final borderHeight = block.topInset + block.height + block.bottomInset;
+          final declaredWidth = style.width?.resolve(itemWidth);
+          final ownWidth = item.length > 1 && declaredWidth != null
+              ? math.min(
+                  itemWidth,
+                  BoxModel.fromStyle(
+                    style,
+                    containingWidth: itemWidth,
+                  ).borderBoxWidth(declaredWidth),
+                )
+              : itemWidth;
+          final cellLeft = cursor +
+              switch (style.resolvedTextAlign) {
+                CssTextAlign.center => (itemWidth - ownWidth) / 2,
+                CssTextAlign.end || CssTextAlign.right => itemWidth - ownWidth,
+                _ => 0.0,
+              };
+          final borderHeight =
+              block.topInset + block.height + block.bottomInset;
           cells.add(
             TableCellRender(
               row: rowIndex,
               rect: Rect.fromLTWH(
-                cursor,
+                cellLeft,
                 itemY,
-                math.min(itemWidth, containerWidth),
+                math.min(ownWidth, containerWidth),
                 borderHeight,
               ),
               layout: block.layout,
@@ -2229,7 +2246,7 @@ class EpubChapterSource
       maxWidth: containerWidth,
       runs: const <StyledRun>[],
     );
-    return PageBlock.styled(
+    final flexRow = PageBlock.styled(
       layout: layout,
       style: containerStyle,
       containingWidth: containingWidth,
@@ -2244,6 +2261,7 @@ class EpubChapterSource
         flex: true,
       ),
     );
+    return flexRow;
   }
 
   /// 横排分页默认闭合带框容器；作者的显式 slice 优先。
