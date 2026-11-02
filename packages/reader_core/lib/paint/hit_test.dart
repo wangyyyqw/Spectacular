@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
@@ -84,6 +86,9 @@ class TextHit {
 /// [TextLayout] 的行框，不读绘制层私有状态；行内字符位置用
 /// [TextPainter.getPositionForOffset] 精确映射（与断行同一套引擎）。
 abstract final class TextHitTester {
+  /// 注号通常只有一两个字，按实际几何命中时保留少量触摸容差。
+  static const double _footnoteHitSlop = 6;
+
   /// 页内坐标 → 命中位置。
   ///
   /// [position] 是相对页内容区左上角（已扣除页边距）的坐标。超出内容时
@@ -136,17 +141,43 @@ abstract final class TextHitTester {
 
   /// 页内坐标命中的注释引用；没有注释时返回 null。
   static PageFootnote? footnoteAt(PageContent page, Offset position) {
-    final hit = hitTest(page, position);
-    if (hit == null) {
-      return null;
-    }
-    final offset = hit.lineBox.blockTextOffset + hit.charOffset;
-    for (final footnote in hit.lineBox.slice.block.footnotes) {
-      if (footnote.contains(offset)) {
-        return footnote;
+    for (final lineBox in lineBoxes(page)) {
+      for (final footnote in lineBox.slice.block.footnotes) {
+        if (_footnoteHitRects(
+          lineBox,
+          footnote,
+        ).any((rect) => rect.inflate(_footnoteHitSlop).contains(position))) {
+          return footnote;
+        }
       }
     }
     return null;
+  }
+
+  /// 注号在页内的实际可点击矩形：普通文字按字形框，图片/空标签按行内盒。
+  static List<Rect> _footnoteHitRects(PageLineBox box, PageFootnote footnote) {
+    final line = box.slice.block.layout.lines[box.lineIndex];
+    final start = math.max(footnote.start, line.start);
+    final end = math.min(footnote.end, line.end);
+    final result = <Rect>[
+      if (end > start)
+        for (final rect in selectionRects(
+          box,
+          start - line.start,
+          end - line.start,
+        ))
+          rect.shift(box.rect.topLeft),
+      for (final inlineBox in line.inlineBoxes)
+        if (footnote.contains(inlineBox.offset))
+          Rect.fromLTWH(
+            box.rect.left + inlineBox.left,
+            (box.textTop ?? box.rect.top) +
+                inlineBox.topIn(line.baseline - line.top),
+            inlineBox.width,
+            inlineBox.height,
+          ),
+    ];
+    return result;
   }
 
   /// 页内所有行几何（按阅读顺序）。
