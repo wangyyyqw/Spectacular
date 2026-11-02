@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/panels/toc_panel.dart';
 import 'package:reader_ui/reader_session.dart';
 
-TocEntry _entry(String title, int spineIndex, {List<TocEntry> children = const []}) =>
-    TocEntry(title: title, spineIndex: spineIndex, children: children);
+TocEntry _entry(
+  String title,
+  int spineIndex, {
+  String? cfi,
+  List<TocEntry> children = const [],
+}) => TocEntry(
+  title: title,
+  spineIndex: spineIndex,
+  cfi: cfi == null ? null : EpubCfi.parse(cfi),
+  children: children,
+);
 
 void main() {
   group('目录展开（P4-11）', () {
@@ -88,6 +98,73 @@ void main() {
 
       await tester.tap(find.text('2.1'));
       expect(selected.single.title, '2.1');
+    });
+
+    testWidgets('打开时把当前章移到目录中间', (tester) async {
+      final controller = ScrollController();
+      final entries = <TocEntry>[
+        for (var index = 0; index < 40; index += 1)
+          _entry('第${index + 1}章', index),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 400,
+              child: TocPanel(
+                entries: entries,
+                currentSpineIndex: 20,
+                scrollController: controller,
+                onSelect: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(controller.offset, greaterThan(0));
+      final row = tester.getRect(
+        find.byKey(const ValueKey<String>('toc-row-20-第21章')),
+      );
+      final viewport = tester.getRect(find.byType(ListView));
+      expect(row.center.dy, closeTo(viewport.center.dy, 0.5));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    });
+
+    testWidgets('同一 spine 按 CFI 定位当前顶层目录项', (tester) async {
+      final entries = <TocEntry>[
+        _entry(
+          '第一节',
+          0,
+          cfi: 'epubcfi(/6/2!/4/2)',
+          children: <TocEntry>[
+            _entry('第一节子目', 0, cfi: 'epubcfi(/6/2!/4/4)'),
+          ],
+        ),
+        _entry('第二节', 0, cfi: 'epubcfi(/6/2!/4/6)'),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TocPanel(
+              entries: entries,
+              currentSpineIndex: 0,
+              currentCfi: 'epubcfi(/6/2!/4/5)',
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      ListTile tileOf(String title) => tester.widget<ListTile>(
+        find.ancestor(of: find.text(title), matching: find.byType(ListTile)),
+      );
+      expect(tileOf('第一节').selected, isTrue);
+      expect(tileOf('第一节子目').selected, isFalse);
+      expect(tileOf('第二节').selected, isFalse);
     });
 
     testWidgets('无目录显示空态', (tester) async {
