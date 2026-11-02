@@ -69,7 +69,7 @@ void main() {
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     expect(find.byKey(const ValueKey<String>('bookshelf-list')), findsOneWidget);
-    expect(find.text('测试作者'), findsNothing, reason: '书架只显示书名');
+    expect(find.text('测试作者 · 未开始'), findsNWidgets(entries.length));
     expect(
       find.byWidgetPredicate(
         (widget) =>

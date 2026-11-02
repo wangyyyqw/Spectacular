@@ -53,5 +53,15 @@ void main() {
     await _settle(tester, frames: 16);
 
     expect(find.textContaining('在读 0%'), findsOneWidget);
+    await tester.tap(find.byTooltip('列表视图'));
+    await _settle(tester);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
+          )
+          .data,
+      '测试作者 · 在读 0%',
+    );
   });
 }
