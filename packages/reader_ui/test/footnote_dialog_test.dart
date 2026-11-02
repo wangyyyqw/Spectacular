@@ -115,5 +115,12 @@ void main() {
     expect(find.text('脚注'), findsOneWidget);
     expect(find.text('第一段注释\n第二段注释'), findsOneWidget);
     expect(session.progress?.pageIndex, 1);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('reader-footnote-close')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderFootnoteDialog), findsNothing);
+    expect(session.progress?.pageIndex, 1);
   });
 }
