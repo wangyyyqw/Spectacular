@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../reader/book_opener.dart';
 
 enum _ProgressBand {
   unread('未开始'),
@@ -39,6 +40,7 @@ class StatsPage extends StatefulWidget {
 }
 
 class _StatsPageState extends State<StatsPage> {
+  late final BookOpener _bookOpener;
   _LibraryStats? _stats;
   int _reloadToken = 0;
 
@@ -46,6 +48,10 @@ class _StatsPageState extends State<StatsPage> {
   void initState() {
     super.initState();
     widget.library.addListener(_reload);
+    _bookOpener = BookOpener(
+      library: widget.library,
+      progressStore: widget.progressStore,
+    );
     _reload();
   }
 
@@ -112,6 +118,13 @@ class _StatsPageState extends State<StatsPage> {
     );
     if (mounted && token == _reloadToken) {
       setState(() => _stats = stats);
+    }
+  }
+
+  Future<void> _openBook(BookEntry entry) async {
+    await _bookOpener.open(context, entry);
+    if (mounted) {
+      await _reload();
     }
   }
 
@@ -184,7 +197,10 @@ class _StatsPageState extends State<StatsPage> {
                     ))
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: _RecentBookCard(stat: row),
+                        child: _RecentBookCard(
+                          stat: row,
+                          onOpen: () => _openBook(row.book),
+                        ),
                       ),
                 ],
               ),
@@ -521,9 +537,10 @@ class _Legend extends StatelessWidget {
 }
 
 class _RecentBookCard extends StatelessWidget {
-  const _RecentBookCard({required this.stat});
+  const _RecentBookCard({required this.stat, required this.onOpen});
 
   final _BookReadingStat stat;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -532,66 +549,82 @@ class _RecentBookCard extends StatelessWidget {
     final percent = stat.percent;
     return Card(
       margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            _BookCover(book: book),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: ValueKey<String>('stats-open-${book.id}'),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              _BookCover(book: book),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      book.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _positionLabel(book, stat.progress),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        minHeight: 5,
+                        value: percent == null ? 0 : percent / 100,
+                        backgroundColor:
+                            theme.colorScheme.surfaceContainerHighest,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    book.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _positionLabel(book, stat.progress),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    percent == null ? '--' : '$percent%',
+                    key: ValueKey<String>('stats-book-${book.id}'),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 9),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      minHeight: 5,
-                      value: percent == null ? 0 : percent / 100,
-                      backgroundColor:
-                          theme.colorScheme.surfaceContainerHighest,
-                    ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _relativeTime(book.lastReadAt),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  percent == null ? '--' : '$percent%',
-                  key: ValueKey<String>('stats-book-${book.id}'),
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _relativeTime(book.lastReadAt),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

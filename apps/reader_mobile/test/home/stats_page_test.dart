@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_ui/reader_session.dart';
+
+import '../support/test_epub.dart';
 
 class _FakeLibrary extends LibraryStore {
   _FakeLibrary(this.books, this.weights) : super.memory();
@@ -151,5 +154,35 @@ void main() {
           .data,
       '51-75% 1 本',
     );
+  });
+
+  testWidgets('点击最近阅读卡片可直接续读', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '续读书'));
+      await library.touchLastRead(entry.id);
+    });
+    final progress = FileReaderProgressStore.memory();
+    await progress.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 0),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(library: library, progressStore: progress),
+      ),
+    );
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    await tester.tap(find.byKey(ValueKey<String>('stats-open-${entry.id}')));
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
   });
 }
