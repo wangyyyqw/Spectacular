@@ -8,6 +8,7 @@ import '../reader/book_opener.dart';
 
 enum _ProgressBand {
   unread('未开始'),
+  finished('已读完'),
   early('0-25%'),
   middle('26-50%'),
   advanced('51-75%'),
@@ -67,6 +68,7 @@ class _StatsPageState extends State<StatsPage> {
     final progress = await widget.progressStore.snapshot();
     final rows = <_BookReadingStat>[];
     var started = 0;
+    var finished = 0;
     var totalCharacters = 0;
     var percentSum = 0;
     var percentCount = 0;
@@ -81,6 +83,9 @@ class _StatsPageState extends State<StatsPage> {
       }
       if (current != null) {
         started += 1;
+        if (current.finished) {
+          finished += 1;
+        }
       }
       totalCharacters += weights.totalCharacters;
       rows.add(
@@ -128,6 +133,7 @@ class _StatsPageState extends State<StatsPage> {
     final stats = _LibraryStats(
       rows: rows,
       started: started,
+      finished: finished,
       recent: recent,
       activeDays: activity.where((day) => day.books > 0).length,
       activity: activity,
@@ -235,6 +241,7 @@ class _LibraryStats {
   const _LibraryStats({
     required this.rows,
     required this.started,
+    required this.finished,
     required this.recent,
     required this.activeDays,
     required this.activity,
@@ -244,6 +251,7 @@ class _LibraryStats {
 
   final List<_BookReadingStat> rows;
   final int started;
+  final int finished;
   final int recent;
   final int activeDays;
   final List<_DailyReading> activity;
@@ -273,6 +281,9 @@ class _BookReadingStat {
 _ProgressBand _progressBand(_BookReadingStat stat) {
   if (stat.progress == null) {
     return _ProgressBand.unread;
+  }
+  if (stat.progress!.finished) {
+    return _ProgressBand.finished;
   }
   final percent = stat.percent ?? 0;
   if (percent <= 25) {
@@ -324,7 +335,11 @@ class _OverviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  average == null ? '还没有开始阅读' : '已开始 ${stats.started} 本书',
+                  average == null
+                      ? '还没有开始阅读'
+                      : stats.finished == 0
+                      ? '已开始 ${stats.started} 本书'
+                      : '已开始 ${stats.started} 本 · 已读完 ${stats.finished} 本',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onPrimaryContainer.withValues(
                       alpha: 0.76,
@@ -333,7 +348,11 @@ class _OverviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  average == null ? '从书架打开一本书，进度会同步到这里。' : '保持节奏，继续下一章。',
+                  average == null
+                      ? '从书架打开一本书，进度会同步到这里。'
+                      : stats.finished > 0
+                      ? '完成一本书也值得记录。'
+                      : '保持节奏，继续下一章。',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onPrimaryContainer.withValues(
                       alpha: 0.68,
@@ -607,6 +626,11 @@ class _DistributionCard extends StatelessWidget {
         _ProgressBand.unread,
         theme.colorScheme.surfaceContainerHighest,
         count(_ProgressBand.unread),
+      ),
+      (
+        _ProgressBand.finished,
+        theme.colorScheme.secondary,
+        count(_ProgressBand.finished),
       ),
       (
         _ProgressBand.early,

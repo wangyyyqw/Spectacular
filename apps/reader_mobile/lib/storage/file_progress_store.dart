@@ -52,6 +52,7 @@ class FileReaderProgressStore implements ReaderProgressStore {
           _items[entry.key] = ReaderProgress(
             spineIndex: spine,
             pageIndex: page,
+            finished: value['finished'] == true,
           );
         }
       }
@@ -104,6 +105,7 @@ class FileReaderProgressStore implements ReaderProgressStore {
           entry.key: <String, Object?>{
             'spine': entry.value.spineIndex,
             'page': entry.value.pageIndex,
+            'finished': entry.value.finished,
           },
       };
       await file.writeAsString(jsonEncode(data), flush: true);

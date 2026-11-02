@@ -20,7 +20,11 @@ typedef _ContentSizeRequest = ({
 /// 阅读进度：章序号 + 章内页序号。
 class ReaderProgress {
   /// 创建进度。
-  const ReaderProgress({required this.spineIndex, required this.pageIndex});
+  const ReaderProgress({
+    required this.spineIndex,
+    required this.pageIndex,
+    this.finished = false,
+  });
 
   /// 章节序号。
   final int spineIndex;
@@ -28,17 +32,21 @@ class ReaderProgress {
   /// 章内页序号。
   final int pageIndex;
 
+  /// 是否已到达全书最后一页。
+  final bool finished;
+
   @override
   bool operator ==(Object other) =>
       other is ReaderProgress &&
       other.spineIndex == spineIndex &&
-      other.pageIndex == pageIndex;
+      other.pageIndex == pageIndex &&
+      other.finished == finished;
 
   @override
-  int get hashCode => Object.hash(spineIndex, pageIndex);
+  int get hashCode => Object.hash(spineIndex, pageIndex, finished);
 
   @override
-  String toString() => 'ReaderProgress($spineIndex,$pageIndex)';
+  String toString() => 'ReaderProgress($spineIndex,$pageIndex,$finished)';
 }
 
 /// 阅读进度存储。
@@ -396,10 +404,35 @@ class ReaderSession extends ChangeNotifier {
     if (current == null) {
       return null;
     }
+    final lastSpineIndex = _lastReadableSpineIndex;
+    final lastChapterPages = lastSpineIndex == null
+        ? null
+        : _pager?.spinePages[lastSpineIndex]?.length;
+    final finished =
+        lastChapterPages != null &&
+        lastChapterPages > 0 &&
+        current.spineIndex == lastSpineIndex &&
+        current.pageIndex >= lastChapterPages - 1;
     return ReaderProgress(
       spineIndex: current.spineIndex,
       pageIndex: current.pageIndex,
+      finished: finished,
     );
+  }
+
+  /// 末尾章节可能为空，只有向后导航到书尾时才全部加载。
+  int? get _lastReadableSpineIndex {
+    final pages = _pager?.spinePages ?? const <int, List<PageContent>>{};
+    for (var index = source.chapterCount - 1; index >= 0; index--) {
+      final chapter = pages[index];
+      if (chapter == null) {
+        return null;
+      }
+      if (chapter.isNotEmpty) {
+        return index;
+      }
+    }
+    return null;
   }
 
   /// 当前虚拟页号。
