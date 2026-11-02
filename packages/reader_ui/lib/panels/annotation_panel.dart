@@ -38,15 +38,36 @@ class AnnotationPanel extends StatefulWidget {
 enum _AnnotationFilter { all, note, highlight }
 
 class _AnnotationPanelState extends State<AnnotationPanel> {
+  final TextEditingController _searchController = TextEditingController();
   _AnnotationFilter _filter = _AnnotationFilter.all;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   List<ReaderAnnotation> get _sorted {
     return List<ReaderAnnotation>.of(widget.annotations)
       ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
   }
 
-  List<ReaderAnnotation> get _visible {
-    final items = _sorted;
+  List<ReaderAnnotation> get _searched {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _sorted;
+    }
+    return _sorted
+        .where(
+          (item) =>
+              item.quote.toLowerCase().contains(query) ||
+              (item.note?.toLowerCase().contains(query) ?? false),
+        )
+        .toList(growable: false);
+  }
+
+  List<ReaderAnnotation> _filtered(List<ReaderAnnotation> items) {
     return switch (_filter) {
       _AnnotationFilter.all => items,
       _AnnotationFilter.note =>
@@ -63,11 +84,14 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final items = _visible;
-    final noteCount = widget.annotations
+    final searched = _searched;
+    final items = _filtered(searched);
+    final noteCount = searched
         .where((item) => item.type == ReaderAnnotationType.note)
         .length;
-    final highlightCount = widget.annotations.length - noteCount;
+    final highlightCount = searched.length - noteCount;
+    final filtering =
+        _query.trim().isNotEmpty || _filter != _AnnotationFilter.all;
     return Material(
       color: theme.colorScheme.surface,
       child: Column(
@@ -86,12 +110,45 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                 Text('笔记与高亮', style: theme.textTheme.titleMedium),
                 const Spacer(),
                 Text(
-                  '共 ${widget.annotations.length} 条',
+                  filtering
+                      ? '显示 ${items.length} / ${widget.annotations.length} 条'
+                      : '共 ${widget.annotations.length} 条',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.outline,
                   ),
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: TextField(
+              key: const ValueKey<String>('annotation-search-input'),
+              controller: _searchController,
+              onChanged: (value) => setState(() => _query = value),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: '搜索原文或笔记',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        key: const ValueKey<String>('annotation-search-clear'),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        tooltip: '清除搜索',
+                        icon: const Icon(Icons.close, size: 18),
+                      ),
+                isDense: true,
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerLow,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
             ),
           ),
           SingleChildScrollView(
@@ -102,7 +159,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                 _FilterChip(
                   chipKey: const ValueKey<String>('annotation-filter-all'),
                   label: '全部',
-                  count: widget.annotations.length,
+                  count: searched.length,
                   selected: _filter == _AnnotationFilter.all,
                   onSelected: () =>
                       setState(() => _filter = _AnnotationFilter.all),
@@ -161,6 +218,9 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   }
 
   String get _emptyText {
+    if (_query.trim().isNotEmpty) {
+      return '没有匹配的笔记或高亮';
+    }
     return switch (_filter) {
       _AnnotationFilter.note => '还没有笔记',
       _AnnotationFilter.highlight => '还没有高亮',
@@ -230,93 +290,104 @@ class _AnnotationCard extends StatelessWidget {
       child: InkWell(
         key: ValueKey<String>('annotation-row-${annotation.id}'),
         onTap: onSelect,
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(width: 4, color: color),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            isNote
-                                ? Icons.sticky_note_2_outlined
-                                : Icons.border_color_outlined,
-                            size: 16,
-                            color: color.computeLuminance() > 0.72
-                                ? theme.colorScheme.onSurfaceVariant
-                                : color,
+                          Row(
+                            children: [
+                              Icon(
+                                isNote
+                                    ? Icons.sticky_note_2_outlined
+                                    : Icons.border_color_outlined,
+                                size: 16,
+                                color: color.computeLuminance() > 0.72
+                                    ? theme.colorScheme.onSurfaceVariant
+                                    : color,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                isNote ? '笔记' : '高亮',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                _formatTime(annotation.updatedAt),
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(height: 8),
                           Text(
-                            isNote ? '笔记' : '高亮',
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                            annotation.quote,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              height: 1.45,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const Spacer(),
-                          Text(
-                            _formatTime(annotation.updatedAt),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.outline,
+                          if (note != null && note.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surface,
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Text(
+                                note,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  height: 1.5,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        annotation.quote,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          height: 1.45,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      if (note != null && note.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: Text(
-                            note,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              height: 1.5,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: IconButton(
+                      key: ValueKey<String>('annotation-edit-${annotation.id}'),
+                      onPressed: onEdit,
+                      tooltip: '编辑标注',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.more_horiz, size: 20),
+                    ),
+                  ),
+                ],
               ),
-              Align(
-                alignment: Alignment.topCenter,
-                child: IconButton(
-                  key: ValueKey<String>('annotation-edit-${annotation.id}'),
-                  onPressed: onEdit,
-                  tooltip: '编辑标注',
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.more_horiz, size: 20),
-                ),
-              ),
-            ],
-          ),
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 4,
+              child: ColoredBox(color: color),
+            ),
+          ],
         ),
       ),
     );
