@@ -124,9 +124,10 @@ abstract interface class ReaderAnnotationStore {
     String? note,
   });
 
-  /// 更新颜色、样式或备注。
+  /// 更新类型、颜色、样式或备注。
   Future<void> update(
     String id, {
+    ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
     String? note,

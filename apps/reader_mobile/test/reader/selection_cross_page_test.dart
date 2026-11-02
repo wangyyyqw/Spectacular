@@ -134,6 +134,7 @@ class _NoopAnnotationStore implements ReaderAnnotationStore {
   @override
   Future<void> update(
     String id, {
+    ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
     String? note,

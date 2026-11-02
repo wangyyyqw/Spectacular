@@ -1207,8 +1207,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         if (note == null || note.isEmpty) {
           return;
         }
-        await store.update(annotation.id, note: note);
-        message = '笔记已更新';
+        if (annotation.type == ReaderAnnotationType.highlight) {
+          await store.update(
+            annotation.id,
+            type: ReaderAnnotationType.note,
+            note: note,
+          );
+          message = '已添加笔记';
+        } else {
+          await store.update(annotation.id, note: note);
+          message = '笔记已更新';
+        }
       case AnnotationEditActionType.remove:
         await store.remove(annotation.id);
         removed = true;

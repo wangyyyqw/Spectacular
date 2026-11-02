@@ -95,7 +95,7 @@ void main() {
     expect(await store.list(), hasLength(3));
   });
 
-  test('更新颜色、样式与备注，更新时间刷新', () async {
+  test('更新类型、颜色、样式与备注，更新时间刷新', () async {
     final store = library.annotationStore(book.id)!;
     final created = (await store.add(
       type: ReaderAnnotationType.highlight,
@@ -106,11 +106,13 @@ void main() {
     ))!;
     await store.update(
       created.id,
+      type: ReaderAnnotationType.note,
       color: 0xFF4CAF50,
       style: ReaderAnnotationStyle.dashedUnderline,
       note: '改了',
     );
     final item = (await store.list()).single;
+    expect(item.type, ReaderAnnotationType.note);
     expect(item.color, 0xFF4CAF50);
     expect(item.style, ReaderAnnotationStyle.dashedUnderline);
     expect(item.note, '改了');
