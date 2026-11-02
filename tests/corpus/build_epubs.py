@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""重建 test_corpus 下的 6 个最小 EPUB 样本与 manifest.json。
+"""重建 test_corpus 下的最小 EPUB 样本与 manifest.json。
 
 文本均为自写原创内容，放弃著作权（CC0-1.0）；broken-resource 为故意破损的自建测试样本。
-不依赖第三方库：ZIP 由 zip 命令完成（-X0 存 mimetype，-Xr9 压缩其余），PNG 由标准库生成。
+不依赖第三方 Python 库：ZIP 由 zip 命令完成（-X0 存 mimetype，-Xr9 压缩其余），
+PNG 由标准库生成；多看全屏样本复用 assets/ 下的原创 JPEG。
 
 用法：python3 tests/corpus/build_epubs.py
 """
@@ -22,6 +23,7 @@ from xml.etree import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORPUS_DIR = REPO_ROOT / "test_corpus"
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
 MIMETYPE = b"application/epub+zip"
 
 
@@ -106,14 +108,29 @@ def nav_xhtml(title: str, entries: list[tuple[str, str]]) -> str:
 """
 
 
-def opf3(book: dict, manifest: list[dict], spine: list[str], extra_meta: str = "") -> str:
+def opf3(
+    book: dict,
+    manifest: list[dict],
+    spine: list[str],
+    extra_meta: str = "",
+    spine_properties: dict[str, str] | None = None,
+) -> str:
     items = "\n".join(
         f'    <item id="{m["id"]}" href="{m["href"]}" media-type="{m["media_type"]}"'
         + (f' properties="{m["properties"]}"' if m.get("properties") else "")
         + "/>"
         for m in manifest
     )
-    spine_items = "\n".join(f'    <itemref idref="{sid}"/>' for sid in spine)
+    spine_items = "\n".join(
+        f'    <itemref idref="{sid}"'
+        + (
+            f' properties="{spine_properties[sid]}"'
+            if spine_properties and sid in spine_properties
+            else ""
+        )
+        + "/>"
+        for sid in spine
+    )
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="zh-CN">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -205,6 +222,17 @@ def png_rgb(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
         + chunk(b"IHDR", ihdr)
         + chunk(b"IDAT", zlib.compress(raw, 9))
         + chunk(b"IEND", b"")
+    )
+
+
+def xhtml_single_image(title: str, image_href: str) -> str:
+    """全屏页正文只保留一个图片元素，不产生可见空白文本节点。"""
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<!DOCTYPE html>'
+        '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN" lang="zh-CN">'
+        f"<head><meta charset=\"utf-8\"/><title>{esc(title)}</title></head>"
+        f'<body><img src="{image_href}" alt=""/></body></html>'
     )
 
 
@@ -784,6 +812,84 @@ def make_footnote_formats() -> tuple[dict, dict[str, bytes]]:
     return book, files
 
 
+def make_duokan_fullscreen() -> tuple[dict, dict[str, bytes]]:
+    book = base_book(
+        id="duokan-fullscreen",
+        file="duokan-fullscreen.epub",
+        title="多看全屏封面测试",
+        description=(
+            "封面页和插图页在 OPF 的 itemref 上声明 "
+            "duokan-page-fullscreen；封面页正文只有一个图片元素。"
+        ),
+        source="自建抽象封面测试样本",
+        features=[
+            "EPUB3", "OPF", "duokan-page-fullscreen", "全屏封面",
+            "全屏插图", "高清 JPEG", "4:3", "16:9", "a~slim 适配图",
+        ],
+    )
+    files: dict[str, bytes] = {
+        "META-INF/container.xml": container_xml().encode(),
+        "OEBPS/text/cover.xhtml": xhtml_single_image(
+            "封面", "../images/a.jpg"
+        ).encode(),
+        "OEBPS/text/illustration.xhtml": xhtml_single_image(
+            "全屏插图", "../images/illustration.jpg"
+        ).encode(),
+        "OEBPS/text/chapter1.xhtml": xhtml3(
+            "正文",
+            "<h1>正文</h1><p>前面的封面和插图应整页显示；本页应按普通章节分页。</p>",
+        ).encode(),
+        "OEBPS/images/a.jpg": (ASSET_DIR / "duokan-a.jpg").read_bytes(),
+        "OEBPS/images/a~slim.jpg": (
+            ASSET_DIR / "duokan-a-slim.jpg"
+        ).read_bytes(),
+        "OEBPS/images/illustration.jpg": (
+            ASSET_DIR / "duokan-illustration.jpg"
+        ).read_bytes(),
+    }
+    manifest = [
+        {
+            "id": "cover-image",
+            "href": "images/a.jpg",
+            "media_type": "image/jpeg",
+            "properties": "cover-image",
+        },
+        {"id": "slim-image", "href": "images/a~slim.jpg", "media_type": "image/jpeg"},
+        {
+            "id": "illustration-image",
+            "href": "images/illustration.jpg",
+            "media_type": "image/jpeg",
+        },
+        {"id": "cover", "href": "text/cover.xhtml", "media_type": "application/xhtml+xml"},
+        {
+            "id": "illustration",
+            "href": "text/illustration.xhtml",
+            "media_type": "application/xhtml+xml",
+        },
+        {"id": "chapter1", "href": "text/chapter1.xhtml", "media_type": "application/xhtml+xml"},
+        {"id": "nav", "href": "nav.xhtml", "media_type": "application/xhtml+xml", "properties": "nav"},
+    ]
+    files["OEBPS/nav.xhtml"] = nav_xhtml(
+        book["title"],
+        [
+            ("封面", "text/cover.xhtml"),
+            ("全屏插图", "text/illustration.xhtml"),
+            ("正文", "text/chapter1.xhtml"),
+        ],
+    ).encode()
+    files["OEBPS/content.opf"] = opf3(
+        book,
+        manifest,
+        ["cover", "illustration", "chapter1"],
+        extra_meta='    <meta name="cover" content="cover-image"/>\n',
+        spine_properties={
+            "cover": "duokan-page-fullscreen",
+            "illustration": "duokan-page-fullscreen",
+        },
+    ).encode()
+    return book, files
+
+
 BUILDERS = [
     make_basic,
     make_styles,
@@ -792,6 +898,7 @@ BUILDERS = [
     make_broken,
     make_cjk_vertical,
     make_footnote_formats,
+    make_duokan_fullscreen,
 ]
 
 
