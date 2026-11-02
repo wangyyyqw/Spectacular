@@ -129,11 +129,12 @@ void main() {
     expect(auto.resolveContentHeight(30, containingHeight: 500), 30);
   });
 
-  test('百分比 height 暂按 containingWidth 近似解算', () {
+  test('百分比 height 优先按 containingHeight 解算', () {
     final model = _model({'height': '50%'});
 
-    // 骨架期近似：200 × 50% = 100。
+    // 尚不知道包含块高度时沿用宽度近似：200 × 50% = 100。
     expect(model.contentHeight, 100);
+    expect(model.resolveContentHeight(999, containingHeight: 500), 250);
   });
 
   test('min/max 高钳制，min 优先于 max', () {

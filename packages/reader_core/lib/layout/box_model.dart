@@ -10,6 +10,7 @@ class BoxModel {
   const BoxModel._({
     required this.contentWidth,
     required this.contentHeight,
+    required this.declaredHeight,
     required this.padding,
     required this.borders,
     required this.margin,
@@ -56,6 +57,7 @@ class BoxModel {
     return BoxModel._(
       contentWidth: bound(style.width, horizontalInset),
       contentHeight: bound(style.height, verticalInset),
+      declaredHeight: style.height,
       padding: padding,
       borders: borders,
       margin: style.margin,
@@ -73,6 +75,9 @@ class BoxModel {
 
   /// 已按 box-sizing 解算的内容盒高；auto 或未声明为 null。
   final double? contentHeight;
+
+  /// 原始 height 声明；百分比高度要等包含块高度已知后再解算。
+  final CssLength? declaredHeight;
 
   /// 四边 padding（逻辑像素）。
   final CssEdges padding;
@@ -145,16 +150,28 @@ class BoxModel {
     double measuredContentHeight, {
     required double containingHeight,
   }) {
-    final height = contentHeight ?? math.max(0.0, measuredContentHeight);
+    // 百分比高度相对包含块高度；尚未提供包含块高度时沿用旧的宽度基准，
+    // 兼容分页前尚未拿到页面几何的调用点。
+    final verticalBase = containingHeight > 0
+        ? containingHeight
+        : containingWidth;
+    final height =
+        _resolveBound(
+          declaredHeight,
+          base: verticalBase,
+          inset: verticalInset,
+          boxSizing: boxSizing,
+        ) ??
+        math.max(0.0, measuredContentHeight);
     final min = _resolveBound(
       minHeight,
-      base: containingWidth,
+      base: verticalBase,
       inset: verticalInset,
       boxSizing: boxSizing,
     );
     final max = _resolveBound(
       maxHeight,
-      base: containingWidth,
+      base: verticalBase,
       inset: verticalInset,
       boxSizing: boxSizing,
     );
