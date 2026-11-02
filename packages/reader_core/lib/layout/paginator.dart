@@ -216,6 +216,7 @@ class PageBlock {
     bool bleedBottom = false,
     bool containerSides = false,
     double? effectiveOpacity,
+    double? declaredContentHeight,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     return PageBlock(
@@ -251,10 +252,12 @@ class PageBlock {
       effectiveOpacity: effectiveOpacity ?? style.effectiveOpacity,
       // 盒高约束（CSS height/min-height/max-height）：先按声明值解算，
       // 未声明时等于测量高（行高之和）。
-      declaredContentHeight: model.resolveContentHeight(
-        layout.height,
-        containingHeight: 0,
-      ),
+      declaredContentHeight:
+          declaredContentHeight ??
+          model.resolveContentHeight(
+            layout.height,
+            containingHeight: 0,
+          ),
     );
   }
 

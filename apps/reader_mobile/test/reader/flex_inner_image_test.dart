@@ -6,7 +6,7 @@ import 'package:reader_mobile/reader/epub_chapter_source.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Flex 内层图片按自身百分比宽度绘制', () async {
+  test('Flex 版权卡片保留图片宽度、背景、底部说明和垂直居中', () async {
     final file = File('../../test_corpus/real/shiji-yuewei.epub');
     final source = await EpubChapterSource.open(
       file.readAsBytesSync(),
@@ -19,8 +19,17 @@ void main() {
         .expand((page) => page.slices)
         .map((slice) => slice.block)
         .firstWhere((block) => block.table?.flex ?? false);
-    final imageCell = flexBlock.table!.cells.firstWhere(
+    final cells = flexBlock.table!.cells;
+    final imageCell = cells.firstWhere(
       (cell) => cell.style.backgroundImage == 'OEBPS/Images/cover.png',
+    );
+    final cardCell = cells.firstWhere(
+      (cell) =>
+          cell.style.backgroundColor.toARGB32() == 0xFFBDBBBE &&
+          cell.layout.lineCount == 0,
+    );
+    final footerCell = cells.firstWhere(
+      (cell) => cell.layout.text.contains('本书排版仅适配阅微app'),
     );
 
     expect(
@@ -29,5 +38,12 @@ void main() {
       reason: 'width:40% 的 102.4px 内容宽 + 左右 1px 边框',
     );
     expect(imageCell.rect.width, lessThan(flexBlock.table!.tableWidth / 2));
+    expect(cardCell.rect.width, closeTo(flexBlock.table!.tableWidth * 0.8, 0.1));
+    expect(footerCell.rect.bottom, lessThanOrEqualTo(flexBlock.height));
+    expect(
+      cardCell.rect.top,
+      closeTo(flexBlock.height - cardCell.rect.bottom, 0.1),
+      reason: 'flex align-items:center 应让版权卡片上下留白相等',
+    );
   });
 }

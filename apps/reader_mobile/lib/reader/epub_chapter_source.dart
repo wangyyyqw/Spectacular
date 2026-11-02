@@ -2187,6 +2187,26 @@ class EpubChapterSource
           _ => 0.0,
         };
         var itemY = rowTops[rowIndex] + crossOffset;
+        final itemContainer = _commonFlexItemContainer(item);
+        if (itemContainer != null) {
+          cells.add(
+            TableCellRender(
+              row: rowIndex,
+              rect: Rect.fromLTWH(
+                cursor,
+                itemY,
+                math.min(itemWidth, containerWidth),
+                itemHeight,
+              ),
+              layout: TextLayoutEngine.layout(
+                text: '',
+                style: itemContainer.style,
+                maxWidth: itemWidth,
+              ),
+              style: itemContainer.style,
+            ),
+          );
+        }
         for (final block in item) {
           final style = block.style ?? containerStyle;
           itemY += block.spaceBefore;
@@ -2260,8 +2280,34 @@ class EpubChapterSource
         tableWidth: containerWidth,
         flex: true,
       ),
+      declaredContentHeight: layoutHeight,
     );
     return flexRow;
+  }
+
+  /// Flex 直接子项的公共盒。卡片类容器在 `_wrapContainerBlocks` 后
+  /// 会挂到每个后代块上，取所有成员的共同前缀即可还原该子项背景。
+  static PageContainer? _commonFlexItemContainer(List<PageBlock> item) {
+    if (item.isEmpty || item.first.containers.isEmpty) {
+      return null;
+    }
+    var count = item.first.containers.length;
+    for (final block in item.skip(1)) {
+      count = math.min(count, block.containers.length);
+      for (var index = 0; index < count; index += 1) {
+        if (!identical(
+          block.containers[index].container,
+          item.first.containers[index].container,
+        )) {
+          count = index;
+          break;
+        }
+      }
+      if (count == 0) {
+        return null;
+      }
+    }
+    return item.first.containers.first.container;
   }
 
   /// 横排分页默认闭合带框容器；作者的显式 slice 优先。
