@@ -2576,6 +2576,12 @@ class EpubChapterSource
       style.borders.hasBorder ||
       style.padding.horizontal > 0;
 
+  /// 含行内图片占位符的短段落是图文正文，不按纯文字标题处理。
+  static bool _hasStructuredTitleText(String text, ComputedStyle style) =>
+      !text.contains('\uFFFC') &&
+      text.trim().length <= 40 &&
+      _hasStructuredTitleStyle(style);
+
   /// 短且带明显视觉结构的块标题，避免只身留在页底。
   static bool _isStructuredHeading({
     required String tag,
@@ -2588,8 +2594,7 @@ class EpubChapterSource
         lineCount > 0 &&
         lineCount <= 2 &&
         compact.isNotEmpty &&
-        compact.length <= 40 &&
-        _hasStructuredTitleStyle(style);
+        _hasStructuredTitleText(text, style);
   }
 
   /// CJK 与全角字符通常可在相邻字符之间断行。
@@ -5280,6 +5285,7 @@ class EpubChapterSource
       );
       final imageChain = <SelectorElement>[...foldedChain, imageView];
       final imageStyle = styleForChain(imageChain);
+      final intrinsic = imageSizes[url] ?? _intrinsicSizeOfUrl(url);
       final promotedLeft = promotedLeftForLastChain;
       // 图片块：祖先累计 opacity 同样透传（嵌套容器里的半透明图）。
       final imageOpacity = effectiveOpacityForLastChain;
@@ -5315,7 +5321,7 @@ class EpubChapterSource
       }
       var size = _resolveImageDisplaySize(
         node.attributes,
-        imageSizes[url],
+        intrinsic,
         imageContainingWidth,
         contentHeight,
         cssWidth: imageStyle.width?.resolve(imageContainingWidth),
@@ -5370,7 +5376,7 @@ class EpubChapterSource
           ...foldedChain,
           _NodeView(node.tag, node.attributes, const <SelectorElement>[]),
         ],
-        imageSizes[url],
+        intrinsic,
         boxWidth: size.$1,
         boxHeight: size.$2,
       );
@@ -6458,8 +6464,7 @@ class EpubChapterSource
         // 作者字号、行高与段距，阅读器排版只接管普通正文。
         final structuredTitle =
             !isHeading &&
-            text.trim().length <= 40 &&
-            _hasStructuredTitleStyle(blockStyle);
+            _hasStructuredTitleText(text, blockStyle);
         final specialComponent =
             compactAuthoredComponent ||
             containerFloat != null ||
@@ -6471,7 +6476,7 @@ class EpubChapterSource
                       container.columnWidth != null);
             }) ||
             ancestors.any(promotedInlineStyles.containsKey) ||
-            (text.trim().length <= 40 && _hasStructuredTitleStyle(blockStyle));
+            _hasStructuredTitleText(text, blockStyle);
         blockStyle = proseSpacingDefaults(
           blockStyle,
           ancestors,

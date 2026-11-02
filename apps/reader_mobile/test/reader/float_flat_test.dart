@@ -214,6 +214,21 @@ void main() {
     );
   });
 
+  test('浮动图片只声明百分比宽度时按原始比例补齐高度', () async {
+    final source = await EpubChapterSource.open(
+      _buildEpub(
+        '<img class="author-image" src="img.png"/>'
+        '<p>作者简介正文，用来验证浮动图片的占位尺寸。</p>',
+        css: '.author-image { float: left; width: 40%; }',
+      ),
+    );
+    final slices = (await source.loadChapter(0)).first.slices;
+    final image = slices.where((slice) => slice.overlay).single.block;
+
+    expect(image.layout.width, closeTo(128, 0.1));
+    expect(image.layout.height, closeTo(128, 0.1));
+  });
+
   test('clear:both：后续块从浮动底边之下开始', () async {
     final source = await EpubChapterSource.open(
       _buildEpub(
