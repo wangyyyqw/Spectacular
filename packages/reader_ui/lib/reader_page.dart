@@ -29,6 +29,7 @@ import 'page_furniture/page_furniture.dart';
 import 'theme/reader_margins.dart';
 import 'tap_zones.dart';
 import 'annotations/relocator.dart';
+import 'panels/annotation_panel.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
 import 'panels/settings_panel.dart';
@@ -253,7 +254,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前打开的抽屉。
   ReaderMenuEntry? _drawer;
 
-  /// 目录抽屉里的二级页签（内容/书签/搜索）。
+  /// 目录抽屉里的二级页签（内容/书签/笔记/搜索）。
   _DrawerTab _drawerTab = _DrawerTab.content;
 
   /// 已聚焦过的页（P4-28：每页只自动聚焦一次）。
@@ -1690,6 +1691,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       currentCfi: _session.currentCfi,
                       tocScrollController: _tocScrollController,
                       bookmarks: widget.bookmarks,
+                      annotations: widget.annotations,
+                      annotationItems: _annotations,
                       hasCfi: _session.currentCfi != null,
                       overrides: _overrides,
                       themeId: (_theme ?? ReaderTheme.white).id,
@@ -1725,6 +1728,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                       onAddBookmark: () {
                         unawaited(_addBookmark());
+                      },
+                      onAnnotationSelect: (annotation) {
+                        _closeDrawer();
+                        unawaited(
+                          _session.jumpToCfi(
+                            annotation.startCfi,
+                            title: annotation.quote,
+                          ),
+                        );
+                      },
+                      onAnnotationEdit: (annotation) {
+                        unawaited(_editAnnotation(annotation));
                       },
                       onOpenMarginEditor: () {
                         _closeDrawer();
@@ -1822,7 +1837,7 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.painter.background != painter.background;
 }
 
-/// 阅读菜单 sheet（P4-11/P4-13）：菜单 / 目录 / 书签三个视图在同一 sheet
+/// 阅读菜单 sheet（P4-11/P4-13）：菜单 / 目录 / 书签 / 笔记在同一 sheet
 /// 内切换，避免真机上「关掉 sheet 立刻开新 sheet」被关闭动画吞掉。
 ///
 /// 返回：选中的 [TocEntry] / [ReaderBookmark] / `'add-bookmark'`（null = 关闭）。
@@ -1834,11 +1849,14 @@ enum _DrawerTab {
   /// 书签列表。
   bookmarks,
 
+  /// 笔记与高亮列表。
+  annotations,
+
   /// 搜索。
   search,
 }
 
-/// 抽屉内容分发器：目录/主题/排版/设置四个面板 + 目录内的书签与搜索页签。
+/// 抽屉内容分发器：目录/主题/排版/设置四个面板 + 目录内的书签、笔记与搜索页签。
 ///
 /// 参数较多是因为它同时是四类面板的适配层（各面板回调不同），拆分收益不大。
 class _ReaderDrawerContent extends StatefulWidget {
@@ -1851,6 +1869,8 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.currentCfi,
     required this.tocScrollController,
     required this.bookmarks,
+    required this.annotations,
+    required this.annotationItems,
     required this.hasCfi,
     required this.overrides,
     required this.themeId,
@@ -1867,6 +1887,8 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onTocSelect,
     required this.onBookmarkSelect,
     required this.onAddBookmark,
+    required this.onAnnotationSelect,
+    required this.onAnnotationEdit,
     required this.onOpenMarginEditor,
     required this.onOpenTapZoneEditor,
   });
@@ -1879,6 +1901,8 @@ class _ReaderDrawerContent extends StatefulWidget {
   final String? currentCfi;
   final ScrollController tocScrollController;
   final ReaderBookmarkStore? bookmarks;
+  final ReaderAnnotationStore? annotations;
+  final List<ReaderAnnotation> annotationItems;
   final bool hasCfi;
   final ReaderOverrides overrides;
   final String themeId;
@@ -1895,6 +1919,8 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<TocEntry> onTocSelect;
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
   final VoidCallback onAddBookmark;
+  final ValueChanged<ReaderAnnotation> onAnnotationSelect;
+  final ValueChanged<ReaderAnnotation> onAnnotationEdit;
   final VoidCallback onOpenMarginEditor;
   final VoidCallback onOpenTapZoneEditor;
 
@@ -1963,7 +1989,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
     final theme = Theme.of(context);
     return Column(
       children: <Widget>[
-        // 目录抽屉内的二级页签：目录 / 书签 / 搜索（书签与搜索不占底部入口）。
+        // 目录抽屉内的二级页签：目录 / 书签 / 笔记 / 搜索。
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
           child: Row(
@@ -1983,6 +2009,13 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                     _reloadBookmarks();
                     widget.onTabChanged(_DrawerTab.bookmarks);
                   },
+                ),
+              if (widget.annotations != null)
+                _DrawerTabButton(
+                  buttonKey: const ValueKey<String>('drawer-tab-annotations'),
+                  label: '笔记',
+                  selected: widget.tab == _DrawerTab.annotations,
+                  onTap: () => widget.onTabChanged(_DrawerTab.annotations),
                 ),
               if (widget.onSearch != null)
                 _DrawerTabButton(
@@ -2027,6 +2060,11 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                   },
                 );
               },
+            ),
+            _DrawerTab.annotations => AnnotationPanel(
+              annotations: widget.annotationItems,
+              onSelect: widget.onAnnotationSelect,
+              onEdit: widget.onAnnotationEdit,
             ),
             _DrawerTab.search => widget.onSearch == null
                 ? const SizedBox.shrink()
