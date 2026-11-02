@@ -19,6 +19,7 @@ import 'annotations/annotation.dart';
 import 'annotations/annotation_editor_sheet.dart';
 import 'annotations/annotation_layer.dart';
 import 'annotations/decorations.dart';
+import 'annotations/note_composer_sheet.dart';
 import 'a11y/semantics_layer.dart';
 import 'footnote_dialog.dart';
 import 'menu/reader_menu_overlay.dart';
@@ -1263,28 +1264,22 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 输入笔记正文后保存（P4-17）。
   Future<void> _addNote(PageContent page, ReaderSelection selection) async {
-    var draft = '';
-    final note = await showDialog<String>(
+    final quote = selection.isMultiPage
+        ? SelectionOps.textAcrossPages(
+            await _session.chapterPages(),
+            selection,
+          )
+        : SelectionOps.textOf(page, selection);
+    if (!mounted) {
+      return;
+    }
+    final note = await showModalBottomSheet<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('笔记'),
-        content: TextField(
-          // 由输入框管理控制器，随退场动画结束卸载，避免弹窗返回时提前释放。
-          onChanged: (value) => draft = value,
-          autofocus: true,
-          maxLines: 4,
-          decoration: const InputDecoration(hintText: '写点什么…'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(draft),
-            child: const Text('保存'),
-          ),
-        ],
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => ReaderNoteComposerSheet(
+        quote: quote,
       ),
     );
     if (!mounted || note == null || note.trim().isEmpty) {
