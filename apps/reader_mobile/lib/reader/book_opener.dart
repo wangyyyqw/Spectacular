@@ -32,6 +32,9 @@ class BookOpener {
     _opening = true;
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final minimumReveal = MediaQuery.maybeOf(context)?.disableAnimations ?? false
+        ? Duration.zero
+        : BookOpeningView.revealDuration;
     var openingVisible = false;
     void closeOpening() {
       if (!openingVisible) {
@@ -67,8 +70,8 @@ class BookOpener {
           },
         ),
       );
-      // 小文件读盘几乎瞬时完成；保留最短动画，避免开场页只闪一下。
-      final remaining = const Duration(milliseconds: 420) - readWatch.elapsed;
+      // 小文件读盘几乎瞬时完成；等封面完整展开后再切入正文。
+      final remaining = minimumReveal - readWatch.elapsed;
       if (remaining > Duration.zero) {
         await Future<void>.delayed(remaining);
       }

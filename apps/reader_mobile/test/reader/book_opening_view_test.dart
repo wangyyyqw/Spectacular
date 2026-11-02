@@ -83,6 +83,52 @@ void main() {
     await openFuture;
   });
 
+  testWidgets('快速读盘也完整播放封面展开动画', (tester) async {
+    final library = LibraryStore.memory();
+    final bytes = buildTestEpub(title: '山海小记', author: '测试作者');
+    final entry = await library.importBytes(
+      bytes,
+      fallbackTitle: 'sample.epub',
+    );
+    final opener = BookOpener(
+      library: library,
+      progressStore: FileReaderProgressStore.memory(),
+    );
+    final contextKey = GlobalKey();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            key: contextKey,
+            builder: (context) => const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    final openFuture = opener.open(contextKey.currentContext!, entry);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.byKey(const ValueKey<String>('book-opening-view')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('reader-page')), findsNothing);
+
+    await _pumpFrames(tester, frames: 8);
+
+    expect(
+      find.byKey(const ValueKey<String>('book-opening-view')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
+
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await _pumpFrames(tester);
+    await openFuture;
+  });
+
   testWidgets('开场动画期间返回会取消后续阅读页打开', (tester) async {
     final library = _DelayedLibraryStore();
     final bytes = buildTestEpub(title: '山海小记', author: '测试作者');
