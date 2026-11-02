@@ -355,6 +355,64 @@ void main() {
     expect(find.text('笔记与高亮'), findsOneWidget);
   });
 
+  testWidgets('标注面板：长笔记可原位展开和收起', (tester) async {
+    final selected = <ReaderAnnotation>[];
+    final longNote = List<String>.filled(18, '这段笔记需要完整阅读').join('，');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'long-note',
+                type: ReaderAnnotationType.note,
+                quote: '需要解释的原文',
+                note: longNote,
+              ),
+            ],
+            onSelect: selected.add,
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    Text noteText() => tester.widget<Text>(
+      find.byKey(const ValueKey<String>('annotation-note-long-note')),
+    );
+
+    final collapsedHeight = tester.getSize(
+      find.byKey(const ValueKey<String>('annotation-note-long-note')),
+    ).height;
+    expect(noteText().maxLines, 3);
+    expect(find.text('展开笔记'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-expand-long-note')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selected, isEmpty);
+    expect(noteText().maxLines, isNull);
+    expect(
+      tester
+          .getSize(
+            find.byKey(const ValueKey<String>('annotation-note-long-note')),
+          )
+          .height,
+      greaterThan(collapsedHeight),
+    );
+    expect(find.text('收起笔记'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-expand-long-note')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(noteText().maxLines, 3);
+    expect(find.text('展开笔记'), findsOneWidget);
+  });
+
   testWidgets('标注面板：筛选和搜索变化时清空已选', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

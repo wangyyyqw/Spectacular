@@ -58,6 +58,7 @@ enum _AnnotationSort {
 class _AnnotationPanelState extends State<AnnotationPanel> {
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
+  final Set<String> _expandedIds = <String>{};
   _AnnotationFilter _filter = _AnnotationFilter.all;
   _AnnotationSort _sort = _AnnotationSort.updated;
   String _query = '';
@@ -75,6 +76,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     super.didUpdateWidget(oldWidget);
     final ids = widget.annotations.map((item) => item.id).toSet();
     _selectedIds.removeWhere((id) => !ids.contains(id));
+    _expandedIds.removeWhere((id) => !ids.contains(id));
     if (widget.onDelete == null || widget.annotations.isEmpty) {
       _selecting = false;
       _selectedIds.clear();
@@ -426,10 +428,18 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                         chapterTitle: _chapterTitleOf(annotation),
                         selecting: _selecting,
                         selected: _selectedIds.contains(annotation.id),
+                        expanded: _expandedIds.contains(annotation.id),
                         onToggleSelection: () =>
                             _toggleSelection(annotation.id),
                         onSelect: () => widget.onSelect(annotation),
                         onEdit: () => widget.onEdit(annotation),
+                        onToggleExpanded: () {
+                          setState(() {
+                            if (!_expandedIds.add(annotation.id)) {
+                              _expandedIds.remove(annotation.id);
+                            }
+                          });
+                        },
                       );
                     },
                   ),
@@ -494,18 +504,22 @@ class _AnnotationCard extends StatelessWidget {
     required this.chapterTitle,
     required this.selecting,
     required this.selected,
+    required this.expanded,
     required this.onToggleSelection,
     required this.onSelect,
     required this.onEdit,
+    required this.onToggleExpanded,
   });
 
   final ReaderAnnotation annotation;
   final String? chapterTitle;
   final bool selecting;
   final bool selected;
+  final bool expanded;
   final VoidCallback onToggleSelection;
   final VoidCallback onSelect;
   final VoidCallback onEdit;
+  final VoidCallback onToggleExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -513,6 +527,9 @@ class _AnnotationCard extends StatelessWidget {
     final isNote = annotation.type == ReaderAnnotationType.note;
     final color = Color(annotation.color ?? defaultHighlightColor);
     final note = annotation.note?.trim();
+    final hasNote = note != null && note.isNotEmpty;
+    final noteNeedsExpansion =
+        hasNote && (note.length > 66 || '\n'.allMatches(note).length >= 2);
     final borderRadius = BorderRadius.circular(14);
     return Material(
       color: selected
@@ -594,7 +611,7 @@ class _AnnotationCard extends StatelessWidget {
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          if (note != null && note.isNotEmpty) ...[
+                          if (hasNote) ...[
                             const SizedBox(height: 8),
                             Container(
                               width: double.infinity,
@@ -608,14 +625,42 @@ class _AnnotationCard extends StatelessWidget {
                               ),
                               child: Text(
                                 note,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
+                                key: ValueKey<String>(
+                                  'annotation-note-${annotation.id}',
+                                ),
+                                maxLines: expanded ? null : 3,
+                                overflow: expanded
+                                    ? TextOverflow.visible
+                                    : TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   height: 1.5,
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
+                            if (noteNeedsExpansion)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton.icon(
+                                  key: ValueKey<String>(
+                                    'annotation-expand-${annotation.id}',
+                                  ),
+                                  onPressed: onToggleExpanded,
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                  icon: Icon(
+                                    expanded
+                                        ? Icons.expand_less
+                                        : Icons.expand_more,
+                                    size: 18,
+                                  ),
+                                  label: Text(expanded ? '收起笔记' : '展开笔记'),
+                                ),
+                              ),
                           ],
                         ],
                       ),
