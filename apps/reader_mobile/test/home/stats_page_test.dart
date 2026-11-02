@@ -131,5 +131,25 @@ void main() {
       '60%',
     );
     expect(find.text('2 / 3 本已开始'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey<String>('stats-band-unread')))
+          .data,
+      '未开始 1 本',
+    );
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey<String>('stats-band-early')))
+          .data,
+      '0-25% 1 本',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-band-advanced')),
+          )
+          .data,
+      '51-75% 1 本',
+    );
   });
 }
