@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:drift/native.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -139,6 +140,34 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.margins, margins);
     expect(reloaded.margins!.top, 14, reason: '外段归零后只剩内段');
+  });
+
+  test('正文字体持久化，损坏值回落书籍字体', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+
+    expect((await store.load()).fontFamily, isNull);
+    final settings = ReaderSettings.fromOverrides(
+      ReaderSettings.defaults.overrides.copyWith(
+        fontFamily: FontFamilyAliases.song,
+      ),
+      themeId: ReaderSettings.defaults.themeId,
+    );
+    await store.save(settings);
+    expect((await store.load()).fontFamily, FontFamilyAliases.song);
+
+    await store.save(
+      ReaderSettings.fromOverrides(
+        settings.overrides.copyWith(
+          fontFamily: ReaderSettingsDefaults.fontSans,
+        ),
+        themeId: settings.themeId,
+      ),
+    );
+    expect((await store.load()).fontFamily, ReaderSettingsDefaults.fontSans);
+
+    await library.setSetting(ReaderSettingsStore.keyFontFamily, 'missing-font');
+    expect((await store.load()).fontFamily, isNull);
   });
 
   test('九宫格点击区域持久化往返，损坏数据回落默认', () async {
@@ -279,11 +308,7 @@ void main() {
       findsOneWidget,
       reason: '拖动时数值实时变化',
     );
-    expect(
-      find.text('上内 12'),
-      findsNothing,
-      reason: '数值已随拖动改变',
-    );
+    expect(find.text('上内 12'), findsNothing, reason: '数值已随拖动改变');
     expect(
       session.layoutFingerprint,
       before,
@@ -296,11 +321,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('margin-cancel')));
     await tester.pumpAndSettle();
     expect(applied, isEmpty, reason: '取消不应用');
-    expect(
-      session.chapterPageCount,
-      pagesBefore,
-      reason: '取消后分页不变',
-    );
+    expect(session.chapterPageCount, pagesBefore, reason: '取消后分页不变');
     expect(session.layoutFingerprint, before, reason: '取消后排版指纹不变');
     expect(session.contentHeight, heightBefore, reason: '取消恢复原分页尺寸');
 

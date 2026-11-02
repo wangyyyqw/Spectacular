@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
@@ -85,6 +87,67 @@ void main() {
       );
       expect(block.layout.maxWidth, greaterThan(0));
     }
+  });
+
+  test('正文字体覆盖作者块与行内样式', () async {
+    final source = await openCssChapter(
+      body: '<p class="quote">正文<span class="inline">行内</span></p>',
+      css:
+          '.quote { font-family: "楷体", serif; } '
+          '.inline { font-family: "宋体", serif; }',
+      overrides: const ReaderOverrides(fontFamily: FontFamilyAliases.hei),
+    );
+    final block = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.layout.text.startsWith('正文'));
+
+    expect(block.style!.fontFamily, FontFamilyAliases.hei);
+    expect(
+      block.layout.runs.map((run) => run.style.fontFamily),
+      everyElement(
+        predicate<String?>(
+          (family) =>
+              family == FontFamilyAliases.hei ||
+              FontFamilyAliases.sansChain.contains(family) ||
+              FontFamilyAliases.resolve(family ?? '') == FontFamilyAliases.hei,
+          '映射到黑体回退链',
+        ),
+      ),
+      reason: '行内作者字体也不能把正文换回其他字族',
+    );
+  });
+
+  test('真书带行内注释的行正文仍使用阅读器字体', () async {
+    final bytes = await File(
+      '../../test_corpus/real/shiji-yuewei.epub',
+    ).readAsBytes();
+    final source = await EpubChapterSource.open(bytes);
+    await source.applyContentSize(width: 300, height: 600);
+    await source.applyOverrides(
+      const ReaderOverrides(fontFamily: FontFamilyAliases.hei),
+    );
+    final blocks = (await source.loadChapter(136))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toList();
+    final block = blocks.firstWhere(
+      (block) => block.layout.text.contains('驾应龙'),
+    );
+
+    expect(block.style!.fontFamily, FontFamilyAliases.hei);
+    expect(
+      block.layout.runs.map((run) => run.style.fontFamily),
+      everyElement(
+        predicate<String?>(
+          (family) =>
+              family == FontFamilyAliases.hei ||
+              FontFamilyAliases.sansChain.contains(family) ||
+              FontFamilyAliases.resolve(family ?? '') == FontFamilyAliases.hei,
+          '映射到黑体回退链',
+        ),
+      ),
+    );
   });
 
   test('段距设置生效且相邻折叠后等于设置值', () async {

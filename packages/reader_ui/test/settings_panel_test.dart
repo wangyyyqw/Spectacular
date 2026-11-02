@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
@@ -32,8 +33,10 @@ void main() {
     ]) {
       expect(find.byKey(ValueKey<String>(key)), findsOneWidget, reason: key);
     }
-    expect(find.text(ReaderSettingsDefaults.fontSize.toStringAsFixed(0)),
-        findsWidgets);
+    expect(
+      find.text(ReaderSettingsDefaults.fontSize.toStringAsFixed(0)),
+      findsWidgets,
+    );
 
     // 拖字号滑块：值变化并回调。
     final slider = find.byKey(const ValueKey<String>('settings-font-size'));
@@ -43,7 +46,9 @@ void main() {
     expect(changes.last.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
     // 点主题块切换。
-    await tester.tap(find.byKey(const ValueKey<String>('settings-theme-sepia')));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-theme-sepia')),
+    );
     await tester.pump();
     expect(themes.single, 'sepia');
 
@@ -85,6 +90,53 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('settings-bg-wood')));
     await tester.pump();
     expect(backgrounds.single, 'wood');
+  });
+
+  testWidgets('设置面板可切换正文字体', (tester) async {
+    expect(
+      FontFamilyAliases.resolve(ReaderSettingsDefaults.fontSans),
+      FontFamilyAliases.hei,
+      reason: '黑体选项必须命中中文无衬线回退链',
+    );
+    final changes = <ReaderOverrides>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.type,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            onOverridesChanged: changes.add,
+            onThemeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey<String>('settings-font-book')),
+          )
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('settings-font-song')));
+    await tester.pump();
+
+    expect(changes.single.fontFamily, FontFamilyAliases.song);
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey<String>('settings-font-song')),
+          )
+          .selected,
+      isTrue,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('settings-font-hei')));
+    await tester.pump();
+    expect(changes.last.fontFamily, ReaderSettingsDefaults.fontSans);
   });
 
   testWidgets('设置面板支持返回按钮', (tester) async {

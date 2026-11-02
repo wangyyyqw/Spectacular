@@ -41,14 +41,16 @@ void main() {
     expect(after.lineHeight, closeTo(17 * 1.6, 0.001));
   });
 
-  test('applyTypography 同时覆盖对齐且不动颜色', () {
+  test('applyTypography 同时覆盖字体与对齐且不动颜色', () {
     const overrides = ReaderOverrides(
       fontSize: 20,
+      fontFamily: 'builtin_hei',
       lineHeight: 2.0,
       textAlign: CssTextAlign.center,
     );
     final after = overrides.applyTypography(panel());
     expect(after.textAlign, CssTextAlign.center);
+    expect(after.fontFamily, 'builtin_hei');
     expect(after.fontSize, 20);
     expect(after.lineHeight, closeTo(40, 0.001));
     expect(after.color, const Color(0xFFCBD5E1));

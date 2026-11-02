@@ -14,6 +14,7 @@ class ReaderSettings {
   /// 创建设置。
   const ReaderSettings({
     this.fontSize = ReaderSettingsDefaults.fontSize,
+    this.fontFamily,
     this.lineHeight = ReaderSettingsDefaults.lineHeight,
     this.paragraphSpacing = ReaderSettingsDefaults.paragraphSpacing,
     this.horizontalPadding = ReaderSettingsDefaults.horizontalPadding,
@@ -26,6 +27,9 @@ class ReaderSettings {
 
   /// 字号。
   final double fontSize;
+
+  /// 正文字体族；null 表示跟随书籍样式。
+  final String? fontFamily;
 
   /// 行高倍数。
   final double lineHeight;
@@ -57,6 +61,7 @@ class ReaderSettings {
   /// 转排版覆盖。
   ReaderOverrides get overrides => ReaderOverrides(
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     padding: CssEdges(
@@ -78,6 +83,7 @@ class ReaderSettings {
     bool inkMode = false,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
+    fontFamily: overrides.fontFamily,
     lineHeight: overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight,
     paragraphSpacing:
         overrides.paragraphSpacing ?? ReaderSettingsDefaults.paragraphSpacing,
@@ -89,6 +95,7 @@ class ReaderSettings {
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
   ReaderSettings copyWithOverrides(ReaderOverrides value) => ReaderSettings(
     fontSize: value.fontSize ?? ReaderSettingsDefaults.fontSize,
+    fontFamily: value.fontFamily,
     lineHeight: value.lineHeight ?? ReaderSettingsDefaults.lineHeight,
     paragraphSpacing:
         value.paragraphSpacing ?? ReaderSettingsDefaults.paragraphSpacing,
@@ -104,6 +111,7 @@ class ReaderSettings {
   /// 复制并替换主题。
   ReaderSettings copyWithTheme(String id) => ReaderSettings(
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -117,6 +125,7 @@ class ReaderSettings {
   /// 复制并替换背景。
   ReaderSettings copyWithBackground(String id) => ReaderSettings(
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -130,6 +139,7 @@ class ReaderSettings {
   /// 复制并替换墨水屏开关。
   ReaderSettings copyWithInkMode(bool enabled) => ReaderSettings(
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -143,6 +153,7 @@ class ReaderSettings {
   /// 复制并替换页边距。
   ReaderSettings copyWithMargins(ReaderMargins value) => ReaderSettings(
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -156,6 +167,7 @@ class ReaderSettings {
   /// 复制并替换九宫格点击区域。
   ReaderSettings copyWithTapZones(ReaderTapZones value) => ReaderSettings(
     fontSize: fontSize,
+    fontFamily: fontFamily,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -170,6 +182,7 @@ class ReaderSettings {
   bool operator ==(Object other) =>
       other is ReaderSettings &&
       other.fontSize == fontSize &&
+      other.fontFamily == fontFamily &&
       other.lineHeight == lineHeight &&
       other.paragraphSpacing == paragraphSpacing &&
       other.horizontalPadding == horizontalPadding &&
@@ -182,6 +195,7 @@ class ReaderSettings {
   @override
   int get hashCode => Object.hash(
     fontSize,
+    fontFamily,
     lineHeight,
     paragraphSpacing,
     horizontalPadding,
@@ -202,6 +216,7 @@ class ReaderSettingsStore {
 
   /// 设置键。
   static const String keyFontSize = 'reader.fontSize';
+  static const String keyFontFamily = 'reader.fontFamily';
   static const String keyLineHeight = 'reader.lineHeight';
   static const String keyParagraphSpacing = 'reader.paragraphSpacing';
   static const String keyPadding = 'reader.padding';
@@ -218,16 +233,21 @@ class ReaderSettingsStore {
   /// 读取设置（缺失或非法值回落到默认）。
   Future<ReaderSettings> load() async {
     return ReaderSettings(
-      fontSize: _readDouble(await _library.getSetting(keyFontSize)) ??
+      fontSize:
+          _readDouble(await _library.getSetting(keyFontSize)) ??
           ReaderSettingsDefaults.fontSize,
-      lineHeight: _readDouble(await _library.getSetting(keyLineHeight)) ??
+      fontFamily: _readFontFamily(await _library.getSetting(keyFontFamily)),
+      lineHeight:
+          _readDouble(await _library.getSetting(keyLineHeight)) ??
           ReaderSettingsDefaults.lineHeight,
       paragraphSpacing:
           _readDouble(await _library.getSetting(keyParagraphSpacing)) ??
           ReaderSettingsDefaults.paragraphSpacing,
-      horizontalPadding: _readDouble(await _library.getSetting(keyPadding)) ??
+      horizontalPadding:
+          _readDouble(await _library.getSetting(keyPadding)) ??
           ReaderSettingsDefaults.horizontalPadding,
-      themeId: await _library.getSetting(keyThemeId) ??
+      themeId:
+          await _library.getSetting(keyThemeId) ??
           ReaderSettingsDefaults.themeId,
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
@@ -261,12 +281,25 @@ class ReaderSettingsStore {
     }
   }
 
+  /// 读取正文字体；只接受当前内置字体，损坏或过期的值回落书籍字体。
+  static String? _readFontFamily(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    const supported = <String>{
+      ReaderSettingsDefaults.fontSong,
+      ReaderSettingsDefaults.fontSans,
+    };
+    return supported.contains(raw) ? raw : null;
+  }
+
   /// 保存设置（逐项 upsert）。
   Future<void> save(ReaderSettings settings) async {
     await _library.setSetting(
       keyFontSize,
       settings.fontSize.toStringAsFixed(1),
     );
+    await _library.setSetting(keyFontFamily, settings.fontFamily ?? '');
     await _library.setSetting(
       keyLineHeight,
       settings.lineHeight.toStringAsFixed(1),
