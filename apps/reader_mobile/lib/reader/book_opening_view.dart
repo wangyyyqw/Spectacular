@@ -11,6 +11,9 @@ import '../library/library_store.dart';
 class BookOpeningView extends StatefulWidget {
   const BookOpeningView({super.key, required this.book});
 
+  /// 封面完整展开所需时长；打开器据此避免快速读盘时提前切页。
+  static const Duration revealDuration = Duration(milliseconds: 560);
+
   final BookEntry book;
 
   @override
@@ -21,7 +24,7 @@ class _BookOpeningViewState extends State<BookOpeningView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 720),
+    duration: BookOpeningView.revealDuration,
   );
   late final Animation<double> _reveal = CurvedAnimation(
     parent: _controller,
