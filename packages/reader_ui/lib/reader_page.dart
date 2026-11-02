@@ -1601,6 +1601,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       entries: _session.toc,
                       currentSpineIndex:
                           _session.progress?.spineIndex ?? 0,
+                      currentCfi: _session.currentCfi,
                       tocScrollController: _tocScrollController,
                       bookmarks: widget.bookmarks,
                       hasCfi: _session.currentCfi != null,
@@ -1761,6 +1762,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onTabChanged,
     required this.entries,
     required this.currentSpineIndex,
+    required this.currentCfi,
     required this.tocScrollController,
     required this.bookmarks,
     required this.hasCfi,
@@ -1788,6 +1790,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<_DrawerTab> onTabChanged;
   final List<TocEntry> entries;
   final int currentSpineIndex;
+  final String? currentCfi;
   final ScrollController tocScrollController;
   final ReaderBookmarkStore? bookmarks;
   final bool hasCfi;
@@ -1919,6 +1922,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             _DrawerTab.content => TocPanel(
               entries: widget.entries,
               currentSpineIndex: widget.currentSpineIndex,
+              currentCfi: widget.currentCfi,
               scrollController: widget.tocScrollController,
               onSelect: widget.onTocSelect,
             ),
