@@ -116,7 +116,10 @@ class _BookOpeningViewState extends State<BookOpeningView>
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final coverWidth = math.min(
-                    constraints.maxWidth * 0.46,
+                    math.min(
+                      constraints.maxWidth * 0.46,
+                      constraints.maxHeight * 0.5 * 3 / 4,
+                    ),
                     228.0,
                   );
                   return Column(

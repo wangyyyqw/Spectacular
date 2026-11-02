@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
+import 'package:reader_mobile/reader/book_opening_view.dart';
 import 'package:reader_mobile/storage/file_progress_store.dart';
 
 import '../support/test_epub.dart';
@@ -114,5 +115,36 @@ void main() {
 
     expect(find.text('书架'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('reader-page')), findsNothing);
+  });
+
+  testWidgets('窄横屏和大字号下开场页不溢出', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final library = LibraryStore.memory();
+    final entry = await library.importBytes(
+      buildTestEpub(title: '一个足够长的开场动画测试书名'),
+      fallbackTitle: 'sample.epub',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: BookOpeningView(book: entry),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 800));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('book-opening-view')),
+      findsOneWidget,
+    );
   });
 }
