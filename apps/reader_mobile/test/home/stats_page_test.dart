@@ -177,6 +177,13 @@ void main() {
     for (var i = 0; i < 16; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Hero && widget.tag == bookCoverHeroTag(entry.id),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(ValueKey<String>('stats-open-${entry.id}')));
     for (var i = 0; i < 40; i++) {

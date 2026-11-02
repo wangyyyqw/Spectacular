@@ -660,19 +660,22 @@ class _BookCover extends StatelessWidget {
       ),
     );
     final coverPath = book.coverPath;
-    if (coverPath == null) {
-      return placeholder;
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.file(
-        File(coverPath),
-        width: 42,
-        height: 56,
-        fit: BoxFit.cover,
-        cacheWidth: 126,
-        errorBuilder: (_, _, _) => placeholder,
-      ),
+    return Hero(
+      tag: bookCoverHeroTag(book.id),
+      transitionOnUserGestures: true,
+      child: coverPath == null
+          ? placeholder
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.file(
+                File(coverPath),
+                width: 42,
+                height: 56,
+                fit: BoxFit.cover,
+                cacheWidth: 126,
+                errorBuilder: (_, _, _) => placeholder,
+              ),
+            ),
     );
   }
 }

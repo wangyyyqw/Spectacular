@@ -924,23 +924,27 @@ class _BookRow extends StatelessWidget {
         style: theme.textTheme.titleMedium?.copyWith(color: Colors.white),
       ),
     );
-    final cover = SizedBox(
-      key: const ValueKey<String>('book-row-cover'),
-      width: 42,
-      height: 56,
-      child: entry.coverPath == null
-          ? placeholder
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: Image.file(
-                File(entry.coverPath!),
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.cover,
-                cacheWidth: 126,
-                errorBuilder: (_, _, _) => placeholder,
+    final cover = Hero(
+      tag: bookCoverHeroTag(entry.id),
+      transitionOnUserGestures: true,
+      child: SizedBox(
+        key: const ValueKey<String>('book-row-cover'),
+        width: 42,
+        height: 56,
+        child: entry.coverPath == null
+            ? placeholder
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.file(
+                  File(entry.coverPath!),
+                  width: double.infinity,
+                  height: double.infinity,
+                  fit: BoxFit.cover,
+                  cacheWidth: 126,
+                  errorBuilder: (_, _, _) => placeholder,
+                ),
               ),
-            ),
+      ),
     );
     final trailing = <Widget>[
       if (entry.readabilityLevel >= 2)
@@ -1178,46 +1182,50 @@ class _BookCard extends StatelessWidget {
       ),
     );
     // 封面（§37.3）：缓存文件优先，缺失/解码失败退回书名首字占位。
-    final cover = ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (entry.coverPath == null)
-            placeholder
-          else
-            Image.file(
-              File(entry.coverPath!),
-              fit: BoxFit.cover,
-              cacheWidth: 320,
-              errorBuilder: (_, _, _) => placeholder,
-            ),
-          if (entry.status == BookReadingStatus.reading)
-            Align(
-              alignment: Alignment.bottomLeft,
-              child: _ReadingBadge(percentInt: percentInt),
-            ),
-          if (selectionMode)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  color: selected
-                      ? theme.colorScheme.primary.withAlpha(36)
-                      : Colors.transparent,
+    final cover = Hero(
+      tag: bookCoverHeroTag(entry.id),
+      transitionOnUserGestures: true,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (entry.coverPath == null)
+              placeholder
+            else
+              Image.file(
+                File(entry.coverPath!),
+                fit: BoxFit.cover,
+                cacheWidth: 320,
+                errorBuilder: (_, _, _) => placeholder,
+              ),
+            if (entry.status == BookReadingStatus.reading)
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: _ReadingBadge(percentInt: percentInt),
+              ),
+            if (selectionMode)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    color: selected
+                        ? theme.colorScheme.primary.withAlpha(36)
+                        : Colors.transparent,
+                  ),
                 ),
               ),
-            ),
-          if (selectionMode)
-            Positioned(
-              top: 6,
-              left: 6,
-              child: _BookSelectionMark(
-                key: ValueKey<String>('book-selected-${entry.id}'),
-                selected: selected,
+            if (selectionMode)
+              Positioned(
+                top: 6,
+                left: 6,
+                child: _BookSelectionMark(
+                  key: ValueKey<String>('book-selected-${entry.id}'),
+                  selected: selected,
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
     return InkWell(
