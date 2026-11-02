@@ -22,7 +22,14 @@ class ReaderFootnoteDialog extends StatelessWidget {
 
   String get _title => switch (footnote.kind) {
     NoteKind.endnote => '尾注',
-    _ => '脚注',
+    NoteKind.footnote => '脚注',
+    NoteKind.link => '注释',
+  };
+
+  IconData get _icon => switch (footnote.kind) {
+    NoteKind.endnote => Icons.article_outlined,
+    NoteKind.footnote => Icons.sticky_note_2_outlined,
+    NoteKind.link => Icons.link,
   };
 
   @override
@@ -30,6 +37,19 @@ class ReaderFootnoteDialog extends StatelessWidget {
     final theme = Theme.of(context);
     final text = footnote.text;
     final images = footnote.imageUrls;
+    final paragraphs = <String>[
+      for (final paragraph in (text ?? '').split(RegExp(r'\n+')))
+        if (paragraph.trim().isNotEmpty) paragraph.trim(),
+    ];
+    final characterCount = paragraphs
+        .join()
+        .replaceAll(RegExp(r'\s+'), '')
+        .length;
+    final details = <String>[
+      if (characterCount > 0) '$characterCount 字',
+      if (images.isNotEmpty) '${images.length} 张图片',
+    ];
+    final label = footnote.label.trim();
     return Material(
       key: const ValueKey('reader-footnote-dialog'),
       color: theme.colorScheme.surface,
@@ -53,88 +73,196 @@ class ReaderFootnoteDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.sticky_note_2_outlined,
-                        size: 20,
-                        color: theme.colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(_title, style: theme.textTheme.titleMedium),
-                          Text(
-                            '正文注释引用',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(13),
                           ),
-                        ],
-                      ),
+                          child: Icon(
+                            _icon,
+                            size: 21,
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text(
+                                    _title,
+                                    style: theme.textTheme.titleMedium,
+                                  ),
+                                  if (label.isNotEmpty)
+                                    Container(
+                                      key: const ValueKey(
+                                        'reader-footnote-label',
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color:
+                                            theme.colorScheme.surfaceContainer,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        border: Border.all(
+                                          color:
+                                              theme.colorScheme.outlineVariant,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                details.isEmpty
+                                    ? '正文注释引用'
+                                    : '正文注释引用 · ${details.join(' · ')}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          key: const ValueKey('reader-footnote-close'),
+                          onPressed: () => Navigator.of(context).pop(),
+                          tooltip: '关闭注释',
+                          icon: const Icon(Icons.close, size: 20),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      key: const ValueKey('reader-footnote-close'),
-                      onPressed: () => Navigator.of(context).pop(),
-                      tooltip: '关闭注释',
-                      icon: const Icon(Icons.close, size: 20),
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const Divider(height: 1),
               Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (text != null && text.isNotEmpty)
-                        SelectableText(
-                          text,
-                          key: const ValueKey('reader-footnote-text'),
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            height: 1.75,
-                          ),
-                        )
-                      else if (images.isEmpty)
-                        Text(
-                          '这条注释暂无内容',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                  key: const ValueKey('reader-footnote-scroll'),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (paragraphs.isNotEmpty)
+                              SelectionArea(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    for (
+                                      var index = 0;
+                                      index < paragraphs.length;
+                                      index++
+                                    ) ...[
+                                      if (index > 0) const SizedBox(height: 14),
+                                      Text(
+                                        paragraphs[index],
+                                        key: ValueKey(
+                                          'reader-footnote-paragraph-$index',
+                                        ),
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(height: 1.75),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              )
+                            else if (images.isEmpty)
+                              _EmptyFootnote(theme: theme),
+                            for (
+                              var index = 0;
+                              index < images.length;
+                              index++
+                            ) ...[
+                              if (paragraphs.isNotEmpty || index > 0)
+                                const SizedBox(height: 18),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: _FootnoteImage(
+                                  url: images[index],
+                                  imageCache: imageCache,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                      for (var index = 0; index < images.length; index++) ...[
-                        if (text != null && text.isNotEmpty || index > 0)
-                          const SizedBox(height: 14),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: _FootnoteImage(
-                            url: images[index],
-                            imageCache: imageCache,
-                          ),
-                        ),
-                      ],
-                    ],
+                      ),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EmptyFootnote extends StatelessWidget {
+  const _EmptyFootnote({required this.theme});
+
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.notes_outlined,
+            size: 28,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '这条注释暂无内容',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
