@@ -2030,6 +2030,30 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
         Future<List<ReaderBookmark>>.value(const <ReaderBookmark>[]);
   }
 
+  String? _annotationChapterTitle(ReaderAnnotation annotation) {
+    final cfi = EpubCfi.parse(annotation.startCfi);
+    final spine = cfi == null ? null : spineIndexOfCfi(cfi);
+    if (spine == null) {
+      return null;
+    }
+    TocEntry? exact;
+    TocEntry? nearest;
+    void visit(List<TocEntry> entries) {
+      for (final entry in entries) {
+        if (entry.spineIndex == spine) {
+          exact ??= entry;
+        } else if (entry.spineIndex < spine &&
+            (nearest == null || entry.spineIndex > nearest!.spineIndex)) {
+          nearest = entry;
+        }
+        visit(entry.children);
+      }
+    }
+
+    visit(widget.entries);
+    return exact?.title ?? nearest?.title;
+  }
+
   @override
   Widget build(BuildContext context) {
     switch (widget.entry) {
@@ -2150,6 +2174,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             ),
             _DrawerTab.annotations => AnnotationPanel(
               annotations: widget.annotationItems,
+              chapterTitleOf: _annotationChapterTitle,
               onSelect: widget.onAnnotationSelect,
               onEdit: widget.onAnnotationEdit,
               onDelete: widget.onAnnotationDelete,
