@@ -6460,29 +6460,27 @@ class EpubChapterSource
             !isHeading &&
             text.trim().length <= 40 &&
             _hasStructuredTitleStyle(blockStyle);
+        final specialComponent =
+            compactAuthoredComponent ||
+            containerFloat != null ||
+            ancestors.any((view) {
+              final container = retainedContainers[view]?.style;
+              return container != null &&
+                  (container.display == CssDisplay.flex ||
+                      (container.columnCount ?? 1) > 1 ||
+                      container.columnWidth != null);
+            }) ||
+            ancestors.any(promotedInlineStyles.containsKey) ||
+            (text.trim().length <= 40 && _hasStructuredTitleStyle(blockStyle));
         blockStyle = proseSpacingDefaults(
           blockStyle,
           ancestors,
           text,
-          specialComponent:
-              compactAuthoredComponent ||
-              containerFloat != null ||
-              ancestors.any(
-                (view) {
-                  final container = retainedContainers[view]?.style;
-                  return container != null &&
-                      (container.display == CssDisplay.flex ||
-                          (container.columnCount ?? 1) > 1 ||
-                          container.columnWidth != null);
-                },
-              ) ||
-              ancestors.any(promotedInlineStyles.containsKey) ||
-              (text.trim().length <= 40 &&
-                  _hasStructuredTitleStyle(blockStyle)),
+          specialComponent: specialComponent,
         );
         if (!isHeading &&
             !structuredTitle &&
-            !compactAuthoredComponent &&
+            !specialComponent &&
             !ancestors.any(promotedInlineStyles.containsKey)) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
