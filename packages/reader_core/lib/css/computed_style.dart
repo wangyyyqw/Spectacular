@@ -1049,11 +1049,21 @@ class CssEdges {
 ///
 /// 解析层只记录数值与单位标记，百分比按基准长度解算留到盒模型计算时。
 class CssLength {
-  /// 创建尺寸值；[isPercent] 为 true 时 [value] 是百分比数字（如 50 表示 50%）。
-  const CssLength(this.value, {this.isAuto = false, this.isPercent = false});
+  /// 创建尺寸值；[isPercent] 为 true 时 [value] 是百分比数字（如 50 表示
+  /// 50%）；[isViewportHeight] 为 true 时表示 `vh`。
+  const CssLength(
+    this.value, {
+    this.isAuto = false,
+    this.isPercent = false,
+    this.isViewportHeight = false,
+  });
 
   /// 关键字 `auto`。
-  const CssLength.auto() : value = 0, isAuto = true, isPercent = false;
+  const CssLength.auto()
+    : value = 0,
+      isAuto = true,
+      isPercent = false,
+      isViewportHeight = false;
 
   /// 数值（像素或百分比数字）。
   final double value;
@@ -1064,14 +1074,28 @@ class CssLength {
   /// 是否为百分比。
   final bool isPercent;
 
+  /// 是否使用视口高度单位（`vh`）。具体像素值需在拿到页面高度后解算。
+  final bool isViewportHeight;
+
   /// 按基准长度解算像素；auto 返回 null。
-  double? resolve(double base) =>
-      isAuto ? null : (isPercent ? value * base / 100 : value);
+  double? resolve(double base, {double? viewportHeight}) {
+    if (isAuto) {
+      return null;
+    }
+    if (isViewportHeight) {
+      return viewportHeight == null ? null : value * viewportHeight / 100;
+    }
+    return isPercent ? value * base / 100 : value;
+  }
 
   @override
   String toString() => isAuto
       ? 'CssLength(auto)'
-      : (isPercent ? 'CssLength($value%)' : 'CssLength($value)');
+      : (isPercent
+            ? 'CssLength($value%)'
+            : (isViewportHeight
+                  ? 'CssLength(${value}vh)'
+                  : 'CssLength($value)'));
 }
 
 /// 盒模型尺寸基准（CSS `box-sizing`）。
@@ -1876,6 +1900,23 @@ class ComputedStyle {
           'larger',
         }.contains(value)) {
       return true;
+    }
+    final viewportHeight = RegExp(
+      r'^(-?(?:\d+(?:\.\d+)?|\.\d+))vh$',
+    ).firstMatch(value);
+    if (viewportHeight != null) {
+      if (!const {
+        'width',
+        'height',
+        'min-width',
+        'min-height',
+        'max-width',
+        'max-height',
+      }.contains(property)) {
+        return false;
+      }
+      final number = double.parse(viewportHeight.group(1)!);
+      return number.isFinite && number >= 0;
     }
     final length = _resolveLength(
       value,
@@ -4046,6 +4087,14 @@ class ComputedStyle {
     final percent = _parsePercent(value);
     if (percent != null) {
       return CssLength(percent, isPercent: true);
+    }
+    final viewportHeight = RegExp(r'^(-?(?:\d+(?:\.\d+)?|\.\d+))vh$')
+        .firstMatch(value);
+    if (viewportHeight != null) {
+      return CssLength(
+        double.parse(viewportHeight.group(1)!),
+        isViewportHeight: true,
+      );
     }
     final resolved = _resolveLength(
       value,
