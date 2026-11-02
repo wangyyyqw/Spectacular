@@ -12,6 +12,7 @@ class AnnotationPanel extends StatefulWidget {
     required this.annotations,
     required this.onSelect,
     required this.onEdit,
+    this.onDelete,
     this.onBack,
     this.emptyHint = '还没有笔记或高亮',
   });
@@ -24,6 +25,9 @@ class AnnotationPanel extends StatefulWidget {
 
   /// 打开标注编辑弹层。
   final ValueChanged<ReaderAnnotation> onEdit;
+
+  /// 批量删除标注。
+  final Future<void> Function(List<ReaderAnnotation>)? onDelete;
 
   /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
   final VoidCallback? onBack;
@@ -39,13 +43,27 @@ enum _AnnotationFilter { all, note, highlight }
 
 class _AnnotationPanelState extends State<AnnotationPanel> {
   final TextEditingController _searchController = TextEditingController();
+  final Set<String> _selectedIds = <String>{};
   _AnnotationFilter _filter = _AnnotationFilter.all;
   String _query = '';
+  bool _selecting = false;
+  bool _deleting = false;
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant AnnotationPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final ids = widget.annotations.map((item) => item.id).toSet();
+    _selectedIds.removeWhere((id) => !ids.contains(id));
+    if (widget.onDelete == null || widget.annotations.isEmpty) {
+      _selecting = false;
+      _selectedIds.clear();
+    }
   }
 
   List<ReaderAnnotation> get _sorted {
@@ -81,6 +99,103 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     };
   }
 
+  void _setFilter(_AnnotationFilter filter) {
+    setState(() {
+      _filter = filter;
+      _selectedIds.clear();
+    });
+  }
+
+  void _setQuery(String value) {
+    setState(() {
+      _query = value;
+      _selectedIds.clear();
+    });
+  }
+
+  void _enterSelection() {
+    setState(() => _selecting = true);
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (!_selectedIds.add(id)) {
+        _selectedIds.remove(id);
+      }
+    });
+  }
+
+  void _toggleSelectAll(List<ReaderAnnotation> items) {
+    final visibleIds = items.map((item) => item.id).toSet();
+    final allSelected =
+        visibleIds.isNotEmpty && visibleIds.every(_selectedIds.contains);
+    setState(() {
+      if (allSelected) {
+        _selectedIds.removeAll(visibleIds);
+      } else {
+        _selectedIds.addAll(visibleIds);
+      }
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    final delete = widget.onDelete;
+    if (delete == null || _selectedIds.isEmpty || _deleting) {
+      return;
+    }
+    final selected = <ReaderAnnotation>[
+      for (final annotation in widget.annotations)
+        if (_selectedIds.contains(annotation.id)) annotation,
+    ];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('删除 ${selected.length} 条标注？'),
+        content: const Text('选中的笔记和高亮都会删除，且不可恢复。'),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('annotation-batch-confirm-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('annotation-batch-confirm-delete'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() => _deleting = true);
+    try {
+      await delete(selected);
+      if (!mounted) {
+        return;
+      }
+      _exitSelection();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(const SnackBar(content: Text('删除标注失败，请重试')));
+    } finally {
+      if (mounted) {
+        setState(() => _deleting = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -92,31 +207,74 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     final highlightCount = searched.length - noteCount;
     final filtering =
         _query.trim().isNotEmpty || _filter != _AnnotationFilter.all;
+    final allVisibleSelected =
+        items.isNotEmpty &&
+        items.every((annotation) => _selectedIds.contains(annotation.id));
     return Material(
       color: theme.colorScheme.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
             child: Row(
               children: [
-                if (widget.onBack != null)
+                if (_selecting)
+                  IconButton(
+                    key: const ValueKey<String>('annotation-batch-exit'),
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: _deleting ? null : _exitSelection,
+                    tooltip: '退出选择',
+                  )
+                else if (widget.onBack != null)
                   IconButton(
                     icon: const Icon(Icons.arrow_back, size: 20),
                     onPressed: widget.onBack,
                     tooltip: '返回',
                   ),
-                Text('笔记与高亮', style: theme.textTheme.titleMedium),
-                const Spacer(),
                 Text(
-                  filtering
-                      ? '显示 ${items.length} / ${widget.annotations.length} 条'
-                      : '共 ${widget.annotations.length} 条',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
+                  _selecting ? '已选 ${_selectedIds.length} 条' : '笔记与高亮',
+                  style: theme.textTheme.titleMedium,
                 ),
+                const Spacer(),
+                if (_selecting) ...[
+                  TextButton(
+                    key: const ValueKey<String>('annotation-batch-select-all'),
+                    onPressed: _deleting || items.isEmpty
+                        ? null
+                        : () => _toggleSelectAll(items),
+                    child: Text(allVisibleSelected ? '取消全选' : '全选'),
+                  ),
+                  IconButton(
+                    key: const ValueKey<String>('annotation-batch-delete'),
+                    tooltip: '删除选中标注',
+                    onPressed: _deleting || _selectedIds.isEmpty
+                        ? null
+                        : _deleteSelected,
+                    icon: _deleting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.delete_outline, size: 20),
+                  ),
+                ] else ...[
+                  Text(
+                    filtering
+                        ? '显示 ${items.length} / ${widget.annotations.length} 条'
+                        : '共 ${widget.annotations.length} 条',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  if (widget.onDelete != null && items.isNotEmpty)
+                    IconButton(
+                      key: const ValueKey<String>('annotation-batch-manage'),
+                      tooltip: '批量管理',
+                      onPressed: _enterSelection,
+                      icon: const Icon(Icons.checklist, size: 20),
+                    ),
+                ],
               ],
             ),
           ),
@@ -125,7 +283,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
             child: TextField(
               key: const ValueKey<String>('annotation-search-input'),
               controller: _searchController,
-              onChanged: (value) => setState(() => _query = value),
+              onChanged: _setQuery,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: '搜索原文或笔记',
@@ -136,7 +294,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                         key: const ValueKey<String>('annotation-search-clear'),
                         onPressed: () {
                           _searchController.clear();
-                          setState(() => _query = '');
+                          _setQuery('');
                         },
                         tooltip: '清除搜索',
                         icon: const Icon(Icons.close, size: 18),
@@ -161,8 +319,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   label: '全部',
                   count: searched.length,
                   selected: _filter == _AnnotationFilter.all,
-                  onSelected: () =>
-                      setState(() => _filter = _AnnotationFilter.all),
+                  onSelected: () => _setFilter(_AnnotationFilter.all),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
@@ -170,8 +327,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   label: '笔记',
                   count: noteCount,
                   selected: _filter == _AnnotationFilter.note,
-                  onSelected: () =>
-                      setState(() => _filter = _AnnotationFilter.note),
+                  onSelected: () => _setFilter(_AnnotationFilter.note),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
@@ -181,8 +337,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   label: '高亮',
                   count: highlightCount,
                   selected: _filter == _AnnotationFilter.highlight,
-                  onSelected: () =>
-                      setState(() => _filter = _AnnotationFilter.highlight),
+                  onSelected: () => _setFilter(_AnnotationFilter.highlight),
                 ),
               ],
             ),
@@ -206,6 +361,10 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       final annotation = items[index];
                       return _AnnotationCard(
                         annotation: annotation,
+                        selecting: _selecting,
+                        selected: _selectedIds.contains(annotation.id),
+                        onToggleSelection: () =>
+                            _toggleSelection(annotation.id),
                         onSelect: () => widget.onSelect(annotation),
                         onEdit: () => widget.onEdit(annotation),
                       );
@@ -269,11 +428,17 @@ class _FilterChip extends StatelessWidget {
 class _AnnotationCard extends StatelessWidget {
   const _AnnotationCard({
     required this.annotation,
+    required this.selecting,
+    required this.selected,
+    required this.onToggleSelection,
     required this.onSelect,
     required this.onEdit,
   });
 
   final ReaderAnnotation annotation;
+  final bool selecting;
+  final bool selected;
+  final VoidCallback onToggleSelection;
   final VoidCallback onSelect;
   final VoidCallback onEdit;
 
@@ -283,13 +448,21 @@ class _AnnotationCard extends StatelessWidget {
     final isNote = annotation.type == ReaderAnnotationType.note;
     final color = Color(annotation.color ?? defaultHighlightColor);
     final note = annotation.note?.trim();
+    final borderRadius = BorderRadius.circular(14);
     return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
+      color: selected
+          ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.45)
+          : theme.colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: borderRadius,
+        side: BorderSide(
+          color: selected ? theme.colorScheme.primary : Colors.transparent,
+        ),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: ValueKey<String>('annotation-row-${annotation.id}'),
-        onTap: onSelect,
+        onTap: selecting ? onToggleSelection : onSelect,
         child: Stack(
           children: [
             Padding(
@@ -367,16 +540,31 @@ class _AnnotationCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: IconButton(
-                      key: ValueKey<String>('annotation-edit-${annotation.id}'),
-                      onPressed: onEdit,
-                      tooltip: '编辑标注',
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.more_horiz, size: 20),
+                  if (selecting)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                      child: Checkbox(
+                        key: ValueKey<String>(
+                          'annotation-checkbox-${annotation.id}',
+                        ),
+                        value: selected,
+                        onChanged: (_) => onToggleSelection(),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: IconButton(
+                        key: ValueKey<String>(
+                          'annotation-edit-${annotation.id}',
+                        ),
+                        onPressed: onEdit,
+                        tooltip: '编辑标注',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.more_horiz, size: 20),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
