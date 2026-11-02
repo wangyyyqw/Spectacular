@@ -1013,6 +1013,26 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     await _relocateAnnotations();
   }
 
+  /// 批量删除标注，完成后只刷新一次阅读页。
+  Future<void> _deleteAnnotations(List<ReaderAnnotation> annotations) async {
+    final store = widget.annotations;
+    if (store == null || annotations.isEmpty) {
+      return;
+    }
+    try {
+      for (final annotation in annotations) {
+        await store.remove(annotation.id);
+      }
+    } finally {
+      if (mounted) {
+        await _reloadAnnotations();
+      }
+    }
+    if (mounted) {
+      _showToast('已删除 ${annotations.length} 条标注');
+    }
+  }
+
   /// 按当前章的分页重算标注位置（§30.4）：CFI 优先，失效按引文兜底。
   Future<void> _relocateAnnotations() async {
     final items = _annotations;
@@ -1741,6 +1761,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onAnnotationEdit: (annotation) {
                         unawaited(_editAnnotation(annotation));
                       },
+                      onAnnotationDelete: _deleteAnnotations,
                       onOpenMarginEditor: () {
                         _closeDrawer();
                         _toggleReaderMenu();
@@ -1889,6 +1910,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onAddBookmark,
     required this.onAnnotationSelect,
     required this.onAnnotationEdit,
+    required this.onAnnotationDelete,
     required this.onOpenMarginEditor,
     required this.onOpenTapZoneEditor,
   });
@@ -1921,6 +1943,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final VoidCallback onAddBookmark;
   final ValueChanged<ReaderAnnotation> onAnnotationSelect;
   final ValueChanged<ReaderAnnotation> onAnnotationEdit;
+  final Future<void> Function(List<ReaderAnnotation>) onAnnotationDelete;
   final VoidCallback onOpenMarginEditor;
   final VoidCallback onOpenTapZoneEditor;
 
@@ -2065,6 +2088,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               annotations: widget.annotationItems,
               onSelect: widget.onAnnotationSelect,
               onEdit: widget.onAnnotationEdit,
+              onDelete: widget.onAnnotationDelete,
             ),
             _DrawerTab.search => widget.onSearch == null
                 ? const SizedBox.shrink()

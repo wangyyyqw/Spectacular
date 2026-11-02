@@ -161,4 +161,151 @@ void main() {
     expect(find.text('落霞与孤鹜齐飞'), findsOneWidget);
     expect(find.text('春风又绿江南岸'), findsOneWidget);
   });
+
+  testWidgets('标注面板：批量选择并确认删除', (tester) async {
+    final selected = <ReaderAnnotation>[];
+    final deleted = <List<ReaderAnnotation>>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'note-batch',
+                type: ReaderAnnotationType.note,
+                quote: '需要保留到筛选后的笔记',
+                note: '批量删除测试',
+                minute: 1,
+              ),
+              _annotation(
+                id: 'highlight-batch',
+                type: ReaderAnnotationType.highlight,
+                quote: '需要批量选择的高亮',
+                minute: 2,
+              ),
+            ],
+            onSelect: selected.add,
+            onEdit: (_) {},
+            onDelete: (items) async => deleted.add(items),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-manage')),
+    );
+    await tester.pump();
+    expect(find.text('已选 0 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-row-highlight-batch')),
+    );
+    await tester.pump();
+    expect(selected, isEmpty);
+    expect(find.text('已选 1 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-select-all')),
+    );
+    await tester.pump();
+    expect(find.text('已选 2 条'), findsOneWidget);
+    expect(find.text('取消全选'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-select-all')),
+    );
+    await tester.pump();
+    expect(find.text('已选 0 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-filter-notes')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-select-all')),
+    );
+    await tester.pump();
+    expect(find.text('已选 1 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-delete')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('删除 1 条标注？'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-confirm-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(deleted, isEmpty);
+    expect(find.text('已选 1 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-delete')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-confirm-delete')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deleted.single.single.id, 'note-batch');
+    expect(find.text('笔记与高亮'), findsOneWidget);
+  });
+
+  testWidgets('标注面板：筛选和搜索变化时清空已选', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'note-reset',
+                type: ReaderAnnotationType.note,
+                quote: '筛选变化',
+                minute: 1,
+              ),
+              _annotation(
+                id: 'highlight-reset',
+                type: ReaderAnnotationType.highlight,
+                quote: '搜索变化',
+                minute: 2,
+              ),
+            ],
+            onSelect: (_) {},
+            onEdit: (_) {},
+            onDelete: (_) async {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-manage')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-row-highlight-reset')),
+    );
+    await tester.pump();
+    expect(find.text('已选 1 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-filter-notes')),
+    );
+    await tester.pump();
+    expect(find.text('已选 0 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-row-note-reset')),
+    );
+    await tester.pump();
+    expect(find.text('已选 1 条'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('annotation-search-input')),
+      '不存在',
+    );
+    await tester.pump();
+    expect(find.text('已选 0 条'), findsOneWidget);
+  });
 }
