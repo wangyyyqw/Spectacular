@@ -1,6 +1,7 @@
 import 'package:flutter/painting.dart' show TextPosition;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
@@ -12,6 +13,7 @@ PageContent _page({
   List<StyledRun> runs = const [],
   List<InlineBoxSpec> boxes = const [],
   String text = 'ABCD',
+  PageFootnote? footnote,
 }) {
   final layout = TextLayoutEngine.layout(
     text: text,
@@ -22,7 +24,15 @@ PageContent _page({
   );
   return Paginator(pageHeight: 200)
       .measureChapter(
-        blocks: [PageBlock(layout: layout, style: _style)],
+        blocks: [
+          PageBlock(
+            layout: layout,
+            style: _style,
+            footnotes: footnote == null
+                ? const <PageFootnote>[]
+                : <PageFootnote>[footnote],
+          ),
+        ],
       )
       .pages
       .single;
@@ -151,5 +161,35 @@ void main() {
         .single;
     expect(TextHitTester.hitTest(page, const Offset(42, 10))!.charOffset, 1);
     expect(TextHitTester.lineBoxes(page).single.rect.width, 96);
+  });
+
+  test('注释只命中实际注号，不把行外空白映射到最近字符', () {
+    const footnote = PageFootnote(
+      start: 1,
+      end: 2,
+      label: '1',
+      kind: NoteKind.footnote,
+      text: '注释正文',
+    );
+    final page = _page(text: '注1', footnote: footnote);
+    final line = TextHitTester.lineBoxes(page).single;
+    final glyph = TextHitTester.selectionRects(
+      line,
+      1,
+      2,
+    ).single.shift(line.rect.topLeft);
+
+    expect(TextHitTester.footnoteAt(page, glyph.center), same(footnote));
+    expect(
+      TextHitTester.footnoteAt(
+        page,
+        Offset(glyph.center.dx, line.rect.bottom + 80),
+      ),
+      isNull,
+    );
+    expect(
+      TextHitTester.footnoteAt(page, Offset(glyph.right + 20, glyph.center.dy)),
+      isNull,
+    );
   });
 }
