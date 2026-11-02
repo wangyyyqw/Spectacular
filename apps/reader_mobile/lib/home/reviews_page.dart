@@ -5,6 +5,16 @@ import 'package:flutter/material.dart';
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 
+enum _ReviewFilter {
+  all('全部'),
+  reviewed('已写'),
+  pending('待写');
+
+  const _ReviewFilter(this.label);
+
+  final String label;
+}
+
 /// 书评页：按书架展示已写书评与待写书目，支持评分、正文编辑和删除。
 class ReviewsPage extends StatefulWidget {
   /// 创建页面。
@@ -23,6 +33,10 @@ class ReviewsPage extends StatefulWidget {
 class _ReviewsPageState extends State<ReviewsPage> {
   List<BookEntry>? _books;
   Map<String, BookReview> _reviews = const <String, BookReview>{};
+  final TextEditingController _searchController = TextEditingController();
+  _ReviewFilter _filter = _ReviewFilter.all;
+  bool _searching = false;
+  String _query = '';
   int _reloadToken = 0;
 
   BookReviewStore? get _store =>
@@ -38,7 +52,36 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void dispose() {
     widget.library.removeListener(_reload);
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searching = !_searching;
+      if (!_searching) {
+        _query = '';
+        _searchController.clear();
+      }
+    });
+    if (!_searching) {
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
+
+  void _resetSearchAndFilter() {
+    _searchController.clear();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _searching = false;
+      _query = '';
+      _filter = _ReviewFilter.all;
+    });
   }
 
   Future<void> _reload() async {
@@ -94,15 +137,48 @@ class _ReviewsPageState extends State<ReviewsPage> {
     final books = _books;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('书评'),
-        actions: [
-          IconButton(
-            key: const ValueKey<String>('reviews-refresh'),
-            tooltip: '刷新书评',
-            onPressed: _reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        title: _searching
+            ? TextField(
+                key: const ValueKey<String>('reviews-search-field'),
+                controller: _searchController,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: '搜索书名、作者或书评',
+                  border: InputBorder.none,
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: _clearSearch,
+                          icon: const Icon(Icons.clear),
+                        ),
+                ),
+                onChanged: (value) => setState(() => _query = value),
+              )
+            : const Text('书评'),
+        actions: _searching
+            ? [
+                IconButton(
+                  tooltip: '关闭搜索',
+                  onPressed: _toggleSearch,
+                  icon: const Icon(Icons.close),
+                ),
+              ]
+            : [
+                if (books != null && books.isNotEmpty)
+                  IconButton(
+                    tooltip: '搜索书评',
+                    onPressed: _toggleSearch,
+                    icon: const Icon(Icons.search),
+                  ),
+                IconButton(
+                  key: const ValueKey<String>('reviews-refresh'),
+                  tooltip: '刷新书评',
+                  onPressed: _reload,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
       ),
       body: books == null
           ? const Center(child: CircularProgressIndicator())
@@ -113,6 +189,10 @@ class _ReviewsPageState extends State<ReviewsPage> {
               child: _ReviewList(
                 books: books,
                 reviews: _reviews,
+                query: _query,
+                filter: _filter,
+                onFilterChanged: (filter) => setState(() => _filter = filter),
+                onResetSearchAndFilter: _resetSearchAndFilter,
                 onEdit: _edit,
               ),
             ),
@@ -124,19 +204,43 @@ class _ReviewList extends StatelessWidget {
   const _ReviewList({
     required this.books,
     required this.reviews,
+    required this.query,
+    required this.filter,
+    required this.onFilterChanged,
+    required this.onResetSearchAndFilter,
     required this.onEdit,
   });
 
   final List<BookEntry> books;
   final Map<String, BookReview> reviews;
+  final String query;
+  final _ReviewFilter filter;
+  final ValueChanged<_ReviewFilter> onFilterChanged;
+  final VoidCallback onResetSearchAndFilter;
   final Future<void> Function(BookEntry) onEdit;
 
   @override
   Widget build(BuildContext context) {
+    final normalizedQuery = query.trim().toLowerCase();
+    bool matches(BookEntry book) {
+      if (normalizedQuery.isEmpty) {
+        return true;
+      }
+      final review = reviews[book.id];
+      return book.title.toLowerCase().contains(normalizedQuery) ||
+          book.author.toLowerCase().contains(normalizedQuery) ||
+          (review != null &&
+              review.content.toLowerCase().contains(normalizedQuery));
+    }
+
+    final allReviewed = <BookEntry>[
+      for (final book in books)
+        if (reviews[book.id] != null) book,
+    ];
     final reviewed =
-        [
-          for (final book in books)
-            if (reviews[book.id] != null) book,
+        <BookEntry>[
+          for (final book in allReviewed)
+            if (matches(book)) book,
         ]..sort(
           (left, right) => reviews[right.id]!.updatedAt.compareTo(
             reviews[left.id]!.updatedAt,
@@ -144,43 +248,164 @@ class _ReviewList extends StatelessWidget {
         );
     final pending = [
       for (final book in books)
-        if (reviews[book.id] == null) book,
+        if (reviews[book.id] == null && matches(book)) book,
     ];
+    final showReviewed = filter != _ReviewFilter.pending;
+    final showPending = filter != _ReviewFilter.reviewed;
+    final visibleReviewed = showReviewed ? reviewed : const <BookEntry>[];
+    final visiblePending = showPending ? pending : const <BookEntry>[];
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
       children: [
         _ReviewSummary(
-          reviewed: reviewed.length,
+          reviewed: allReviewed.length,
           total: books.length,
           reviews: reviews,
         ),
+        const SizedBox(height: 14),
+        _ReviewFilterBar(
+          reviewed: reviewed.length,
+          pending: pending.length,
+          selected: filter,
+          onSelected: onFilterChanged,
+        ),
         const SizedBox(height: 24),
-        _SectionTitle(title: '我的书评', detail: '${reviewed.length} 篇'),
-        const SizedBox(height: 10),
-        if (reviewed.isEmpty)
-          const _NoReviewCard()
-        else
-          for (final book in reviewed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _ReviewCard(
-                book: book,
-                review: reviews[book.id]!,
-                onTap: () => onEdit(book),
+        if (visibleReviewed.isEmpty && visiblePending.isEmpty)
+          _NoReviewMatches(
+            query: query.trim(),
+            filter: filter,
+            onReset: onResetSearchAndFilter,
+          )
+        else ...[
+          if (showReviewed) ...[
+            _SectionTitle(title: '我的书评', detail: '${reviewed.length} 篇'),
+            const SizedBox(height: 10),
+            if (reviewed.isEmpty)
+              const _NoReviewCard()
+            else
+              for (final book in reviewed)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _ReviewCard(
+                    book: book,
+                    review: reviews[book.id]!,
+                    onTap: () => onEdit(book),
+                  ),
+                ),
+          ],
+          if (showPending && pending.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _SectionTitle(title: '待写书评', detail: '${pending.length} 本'),
+            const SizedBox(height: 10),
+            for (final book in pending)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _PendingBookTile(book: book, onTap: () => onEdit(book)),
               ),
-            ),
-        if (pending.isNotEmpty) ...[
-          const SizedBox(height: 14),
-          _SectionTitle(title: '待写书评', detail: '${pending.length} 本'),
-          const SizedBox(height: 10),
-          for (final book in pending)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _PendingBookTile(book: book, onTap: () => onEdit(book)),
-            ),
+          ],
         ],
       ],
+    );
+  }
+}
+
+class _ReviewFilterBar extends StatelessWidget {
+  const _ReviewFilterBar({
+    required this.reviewed,
+    required this.pending,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final int reviewed;
+  final int pending;
+  final _ReviewFilter selected;
+  final ValueChanged<_ReviewFilter> onSelected;
+
+  int _count(_ReviewFilter filter) => switch (filter) {
+    _ReviewFilter.all => reviewed + pending,
+    _ReviewFilter.reviewed => reviewed,
+    _ReviewFilter.pending => pending,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          for (final filter in _ReviewFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                key: ValueKey<String>('reviews-filter-${filter.name}'),
+                label: Text('${filter.label} ${_count(filter)}'),
+                selected: filter == selected,
+                showCheckmark: false,
+                onSelected: (_) => onSelected(filter),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoReviewMatches extends StatelessWidget {
+  const _NoReviewMatches({
+    required this.query,
+    required this.filter,
+    required this.onReset,
+  });
+
+  final String query;
+  final _ReviewFilter filter;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final title = query.isNotEmpty
+        ? '没有找到相关书评'
+        : switch (filter) {
+            _ReviewFilter.all => '没有可显示的书评',
+            _ReviewFilter.reviewed => '还没有写过书评',
+            _ReviewFilter.pending => '没有待写书评',
+          };
+    return Card(
+      key: const ValueKey<String>('reviews-no-results'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Icon(
+              query.isNotEmpty ? Icons.search_off : Icons.rate_review_outlined,
+              color: theme.colorScheme.outline,
+              size: 36,
+            ),
+            const SizedBox(height: 10),
+            Text(title, style: theme.textTheme.titleMedium),
+            if (query.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '没有书名、作者或书评正文包含“$query”',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: onReset,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: Text(query.isEmpty ? '查看全部书评' : '清除搜索与筛选'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -392,6 +617,7 @@ class _PendingBookTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
+      key: ValueKey<String>('review-pending-${book.id}'),
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: ListTile(
