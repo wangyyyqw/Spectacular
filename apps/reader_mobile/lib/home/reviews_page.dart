@@ -785,13 +785,20 @@ class _ReviewEditorSheet extends StatefulWidget {
 
 class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   late final TextEditingController _controller;
+  late final int? _initialRating;
+  late final String _initialContent;
   int? _rating;
+  bool _allowPop = false;
+  bool _discardDialogVisible = false;
+  bool _closing = false;
 
   @override
   void initState() {
     super.initState();
-    _rating = widget.review?.rating;
-    _controller = TextEditingController(text: widget.review?.content ?? '')
+    _initialRating = widget.review?.rating;
+    _initialContent = widget.review?.content ?? '';
+    _rating = _initialRating;
+    _controller = TextEditingController(text: _initialContent)
       ..addListener(_refresh);
   }
 
@@ -807,9 +814,79 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
 
   bool get _canSave => _rating != null || _controller.text.trim().isNotEmpty;
 
+  bool get _dirty =>
+      _rating != _initialRating ||
+      _controller.text.trim() != _initialContent.trim();
+
+  void _finish(_ReviewDraft draft) {
+    if (_closing) {
+      return;
+    }
+    _closing = true;
+    if (_allowPop) {
+      Navigator.of(context).pop(draft);
+      return;
+    }
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.of(context).pop(draft);
+      }
+    });
+  }
+
+  Future<bool> _confirmDiscard() async {
+    if (_discardDialogVisible) {
+      return false;
+    }
+    _discardDialogVisible = true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('放弃未保存的书评？'),
+        content: const Text('评分或正文还没有保存，离开后本次修改会丢失。'),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('review-discard-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('review-discard-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('放弃修改'),
+          ),
+        ],
+      ),
+    );
+    _discardDialogVisible = false;
+    return discard == true;
+  }
+
+  Future<void> _close() async {
+    if (_closing) {
+      return;
+    }
+    if (!_dirty) {
+      _closing = true;
+      Navigator.of(context).pop();
+      return;
+    }
+    final discard = await _confirmDiscard();
+    if (!discard || !mounted) {
+      return;
+    }
+    _closing = true;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
   void _save() {
-    Navigator.of(context)
-        .pop(_ReviewDraft(rating: _rating, content: _controller.text.trim()));
+    _finish(_ReviewDraft(rating: _rating, content: _controller.text.trim()));
   }
 
   Future<void> _delete() async {
@@ -831,7 +908,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       ),
     );
     if (confirmed == true && mounted) {
-      Navigator.of(context).pop(const _ReviewDraft.delete());
+      _finish(const _ReviewDraft.delete());
     }
   }
 
@@ -839,121 +916,129 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isEditing = widget.review != null;
-    return Material(
-      key: const ValueKey<String>('review-editor'),
-      color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.outlineVariant,
-                      borderRadius: BorderRadius.circular(2),
+    return PopScope(
+      canPop: !_dirty || _allowPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          _close();
+        }
+      },
+      child: Material(
+        key: const ValueKey<String>('review-editor'),
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isEditing ? '编辑书评' : '写书评',
-                            style: theme.textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            widget.book.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isEditing ? '编辑书评' : '写书评',
+                              style: theme.textTheme.titleLarge,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 3),
+                            Text(
+                              widget.book.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Text('评分', style: theme.textTheme.labelLarge),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    for (var star = 1; star <= 5; star++)
                       IconButton(
-                        key: ValueKey<String>('review-rating-$star'),
-                        tooltip: '$star 星',
-                        onPressed: () => setState(
-                          () => _rating = _rating == star ? null : star,
-                        ),
-                        iconSize: 34,
-                        color: const Color(0xFFE0A327),
-                        icon: Icon(
-                          star <= (_rating ?? 0)
-                              ? Icons.star_rounded
-                              : Icons.star_outline_rounded,
-                        ),
+                        tooltip: '关闭',
+                        onPressed: _close,
+                        icon: const Icon(Icons.close),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('书评内容', style: theme.textTheme.labelLarge),
-                const SizedBox(height: 8),
-                TextField(
-                  key: const ValueKey<String>('review-content'),
-                  controller: _controller,
-                  minLines: 4,
-                  maxLines: 8,
-                  maxLength: 1000,
-                  textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(
-                    hintText: '写下这本书带给你的感受…',
-                    alignLabelWithHint: true,
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  key: const ValueKey<String>('review-save'),
-                  onPressed: _canSave ? _save : null,
-                  icon: const Icon(Icons.check),
-                  label: const Text('保存书评'),
-                ),
-                if (isEditing) ...[
+                  const SizedBox(height: 18),
+                  Text('评分', style: theme.textTheme.labelLarge),
                   const SizedBox(height: 8),
-                  TextButton.icon(
-                    key: const ValueKey<String>('review-delete'),
-                    onPressed: _delete,
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('删除书评'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: theme.colorScheme.error,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      for (var star = 1; star <= 5; star++)
+                        IconButton(
+                          key: ValueKey<String>('review-rating-$star'),
+                          tooltip: '$star 星',
+                          onPressed: () => setState(
+                            () => _rating = _rating == star ? null : star,
+                          ),
+                          iconSize: 34,
+                          color: const Color(0xFFE0A327),
+                          icon: Icon(
+                            star <= (_rating ?? 0)
+                                ? Icons.star_rounded
+                                : Icons.star_outline_rounded,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text('书评内容', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: 8),
+                  TextField(
+                    key: const ValueKey<String>('review-content'),
+                    controller: _controller,
+                    minLines: 4,
+                    maxLines: 8,
+                    maxLength: 1000,
+                    textInputAction: TextInputAction.newline,
+                    decoration: const InputDecoration(
+                      hintText: '写下这本书带给你的感受…',
+                      alignLabelWithHint: true,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    key: const ValueKey<String>('review-save'),
+                    onPressed: _canSave ? _save : null,
+                    icon: const Icon(Icons.check),
+                    label: const Text('保存书评'),
+                  ),
+                  if (isEditing) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      key: const ValueKey<String>('review-delete'),
+                      onPressed: _delete,
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('删除书评'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
