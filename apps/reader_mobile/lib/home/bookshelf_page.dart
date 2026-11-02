@@ -48,6 +48,23 @@ enum BookSortOrder {
 /// 书架条目 + 进度（P4-09：百分比由字符权重表算，章级粒度）。
 typedef _ShelfItem = ({BookEntry entry, int? percentInt});
 
+/// 书架阅读状态筛选。
+enum _ShelfStatusFilter {
+  all('全部'),
+  unread('未读'),
+  reading('在读');
+
+  const _ShelfStatusFilter(this.label);
+
+  final String label;
+
+  bool matches(BookReadingStatus status) => switch (this) {
+    all => true,
+    unread => status == BookReadingStatus.unread,
+    reading => status == BookReadingStatus.reading,
+  };
+}
+
 const _shelfColumns = 3;
 const _shelfGridPadding = 16.0;
 const _shelfGridSpacing = 12.0;
@@ -109,7 +126,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
   int _reportedJobs = 0;
   String? _error;
   BookSortOrder _sort = BookSortOrder.recent;
+  _ShelfStatusFilter _filter = _ShelfStatusFilter.all;
   bool _grid = true;
+  bool _searching = false;
+  String _query = '';
+  final TextEditingController _searchController = TextEditingController();
   int _reloadToken = 0;
 
   @override
@@ -145,6 +166,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
     await widget.library.setSetting(_viewKey, '$grid');
   }
 
+  void _toggleSearch() {
+    setState(() {
+      _searching = !_searching;
+      if (!_searching) {
+        _query = '';
+        _searchController.clear();
+      }
+    });
+    if (!_searching) {
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
+
+  void _resetFilters() {
+    _searchController.clear();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _searching = false;
+      _query = '';
+      _filter = _ShelfStatusFilter.all;
+    });
+  }
+
   /// 按当前排序方式排序（list() 默认最近阅读优先）。
   List<_ShelfItem> _sorted(List<_ShelfItem> items) {
     final sorted = List<_ShelfItem>.of(items);
@@ -159,9 +208,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return sorted;
   }
 
+  /// 先按关键词与阅读状态过滤，再沿用书架排序。
+  List<_ShelfItem> _visible(List<_ShelfItem> items) {
+    final query = _query.trim().toLowerCase();
+    final filtered = items.where((item) {
+      if (!_filter.matches(item.entry.status)) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      return item.entry.title.toLowerCase().contains(query) ||
+          item.entry.author.toLowerCase().contains(query);
+    });
+    return _sorted(filtered.toList());
+  }
+
   @override
   void dispose() {
     widget.library.removeListener(_reload);
+    _searchController.dispose();
     _queue
       ..removeListener(_onQueueChanged)
       ..dispose();
@@ -440,30 +506,64 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget build(BuildContext context) {
     final items = _items;
     final busy = _queue.isBusy;
-    final ordered = items == null ? null : _sorted(items);
+    final visible = items == null ? null : _visible(items);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('书架'),
-        actions: <Widget>[
-          PopupMenuButton<BookSortOrder>(
-            tooltip: '排序',
-            icon: const Icon(Icons.sort),
-            initialValue: _sort,
-            onSelected: _setSort,
-            itemBuilder: (_) => <PopupMenuEntry<BookSortOrder>>[
-              for (final order in BookSortOrder.values)
-                PopupMenuItem<BookSortOrder>(
-                  value: order,
-                  child: Text(order.label),
+        title: _searching
+            ? TextField(
+                key: const ValueKey<String>('bookshelf-search-field'),
+                controller: _searchController,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: '搜索书名或作者',
+                  border: InputBorder.none,
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: _clearSearch,
+                          icon: const Icon(Icons.clear),
+                        ),
                 ),
-            ],
-          ),
-          IconButton(
-            tooltip: _grid ? '列表视图' : '网格视图',
-            onPressed: _toggleView,
-            icon: Icon(_grid ? Icons.view_list_outlined : Icons.grid_view),
-          ),
-        ],
+                onChanged: (value) => setState(() => _query = value),
+              )
+            : const Text('书架'),
+        actions: _searching
+            ? <Widget>[
+                IconButton(
+                  tooltip: '关闭搜索',
+                  onPressed: _toggleSearch,
+                  icon: const Icon(Icons.close),
+                ),
+              ]
+            : <Widget>[
+                IconButton(
+                  tooltip: '搜索书架',
+                  onPressed: _toggleSearch,
+                  icon: const Icon(Icons.search),
+                ),
+                PopupMenuButton<BookSortOrder>(
+                  tooltip: '排序',
+                  icon: const Icon(Icons.sort),
+                  initialValue: _sort,
+                  onSelected: _setSort,
+                  itemBuilder: (_) => <PopupMenuEntry<BookSortOrder>>[
+                    for (final order in BookSortOrder.values)
+                      PopupMenuItem<BookSortOrder>(
+                        value: order,
+                        child: Text(order.label),
+                      ),
+                  ],
+                ),
+                IconButton(
+                  tooltip: _grid ? '列表视图' : '网格视图',
+                  onPressed: _toggleView,
+                  icon: Icon(
+                    _grid ? Icons.view_list_outlined : Icons.grid_view,
+                  ),
+                ),
+              ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: busy ? null : _import,
@@ -488,6 +588,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 }
               },
             ),
+          if (_error == null && items != null && items.isNotEmpty)
+            _ShelfFilterBar(
+              items: items,
+              selected: _filter,
+              onSelected: (filter) => setState(() => _filter = filter),
+            ),
           Expanded(
             child: _error != null
                 ? _ErrorPane(message: _error!, onRetry: _import)
@@ -495,6 +601,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 ? const Center(child: CircularProgressIndicator())
                 : items.isEmpty
                 ? const _EmptyPane()
+                : visible!.isEmpty
+                ? _NoMatchesPane(query: _query.trim(), onReset: _resetFilters)
                 : RefreshIndicator(
                     onRefresh: () async => _reload(),
                     child: _grid
@@ -526,10 +634,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                       mainAxisSpacing: _shelfGridSpacing,
                                       crossAxisSpacing: _shelfGridSpacing,
                                     ),
-                                itemCount: ordered!.length,
+                                itemCount: visible.length,
                                 itemBuilder: (context, index) => _BookCard(
-                                  entry: ordered[index].entry,
-                                  percentInt: ordered[index].percentInt,
+                                  entry: visible[index].entry,
+                                  percentInt: visible[index].percentInt,
                                   onOpen: _open,
                                   onLongPress: _openBookDetail,
                                 ),
@@ -539,15 +647,53 @@ class _BookshelfPageState extends State<BookshelfPage> {
                         : ListView.builder(
                             key: const ValueKey<String>('bookshelf-list'),
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-                            itemCount: ordered!.length,
+                            itemCount: visible.length,
                             itemBuilder: (context, index) => _BookRow(
-                              entry: ordered[index].entry,
+                              entry: visible[index].entry,
                               onOpen: _open,
                               onLongPress: _openBookDetail,
                             ),
                           ),
                   ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShelfFilterBar extends StatelessWidget {
+  const _ShelfFilterBar({
+    required this.items,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<_ShelfItem> items;
+  final _ShelfStatusFilter selected;
+  final ValueChanged<_ShelfStatusFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      child: Row(
+        children: <Widget>[
+          for (final filter in _ShelfStatusFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                key: ValueKey<String>('bookshelf-filter-${filter.name}'),
+                label: Text(
+                  '${filter.label} '
+                  '${items.where((item) => filter.matches(item.entry.status)).length}',
+                ),
+                selected: filter == selected,
+                showCheckmark: false,
+                onSelected: (_) => onSelected(filter),
+              ),
+            ),
         ],
       ),
     );
@@ -691,6 +837,48 @@ class _EmptyPane extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NoMatchesPane extends StatelessWidget {
+  const _NoMatchesPane({required this.query, required this.onReset});
+
+  final String query;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 48, color: theme.colorScheme.outline),
+            const SizedBox(height: 12),
+            Text(
+              query.isEmpty ? '没有符合筛选条件的书' : '没有找到相关书籍',
+              style: theme.textTheme.titleMedium,
+            ),
+            if (query.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '没有书名或作者包含“$query”',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: onReset,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: const Text('清除筛选'),
+            ),
+          ],
+        ),
       ),
     );
   }
