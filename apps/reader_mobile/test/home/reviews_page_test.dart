@@ -124,6 +124,9 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-review-book')),
     );
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('review-detail')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('review-detail-edit')));
+    await tester.pumpAndSettle();
     final delete = find.byKey(const ValueKey<String>('review-delete'));
     await tester.ensureVisible(delete);
     await tester.tap(delete);
@@ -133,6 +136,35 @@ void main() {
 
     expect(store.items, isEmpty);
     expect(find.textContaining('还没有书评'), findsOneWidget);
+  });
+
+  testWidgets('书评详情展示完整正文并可进入编辑', (tester) async {
+    final book = _book('detail-book', '详情测试书', '详情作者');
+    final longReview = List<String>.filled(30, '完整书评内容').join('，');
+    final store = _MemoryReviewStore()
+      ..items[book.id] = _review(book.id, longReview, rating: 5);
+    await _pumpReviews(tester, books: <BookEntry>[book], store: store);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('review-card-detail-book')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('review-detail')), findsOneWidget);
+    expect(find.text('详情作者'), findsOneWidget);
+    final detailContent = tester.widget<SelectableText>(
+      find.byKey(const ValueKey<String>('review-detail-content')),
+    );
+    expect(detailContent.data, longReview);
+
+    await tester.tap(find.byKey(const ValueKey<String>('review-detail-edit')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('review-editor')), findsOneWidget);
+    final editor = tester.widget<TextField>(
+      find.byKey(const ValueKey<String>('review-content')),
+    );
+    expect(editor.controller?.text, longReview);
   });
 
   testWidgets('未保存书评关闭前确认，可继续编辑或放弃修改', (tester) async {

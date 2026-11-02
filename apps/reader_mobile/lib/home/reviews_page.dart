@@ -143,6 +143,19 @@ class _ReviewsPageState extends State<ReviewsPage> {
     }
   }
 
+  Future<void> _openReview(BookEntry book, BookReview review) async {
+    final edit = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ReviewDetailSheet(book: book, review: review),
+    );
+    if (edit == true && mounted) {
+      await _edit(book);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final books = _books;
@@ -222,6 +235,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
                 sort: _sort,
                 onFilterChanged: (filter) => setState(() => _filter = filter),
                 onResetSearchAndFilter: _resetSearchAndFilter,
+                onOpen: _openReview,
                 onEdit: _edit,
               ),
             ),
@@ -238,6 +252,7 @@ class _ReviewList extends StatelessWidget {
     required this.sort,
     required this.onFilterChanged,
     required this.onResetSearchAndFilter,
+    required this.onOpen,
     required this.onEdit,
   });
 
@@ -248,6 +263,7 @@ class _ReviewList extends StatelessWidget {
   final _ReviewSort sort;
   final ValueChanged<_ReviewFilter> onFilterChanged;
   final VoidCallback onResetSearchAndFilter;
+  final Future<void> Function(BookEntry, BookReview) onOpen;
   final Future<void> Function(BookEntry) onEdit;
 
   @override
@@ -344,7 +360,7 @@ class _ReviewList extends StatelessWidget {
                   child: _ReviewCard(
                     book: book,
                     review: reviews[book.id]!,
-                    onTap: () => onEdit(book),
+                    onTap: () => onOpen(book, reviews[book.id]!),
                   ),
                 ),
           ],
@@ -640,18 +656,144 @@ class _ReviewCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Icon(
-                    Icons.edit_outlined,
+                    Icons.arrow_forward_rounded,
                     size: 16,
                     color: theme.colorScheme.primary,
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '编辑',
+                    '查看全文',
                     style: theme.textTheme.labelMedium?.copyWith(
                       color: theme.colorScheme.primary,
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviewDetailSheet extends StatelessWidget {
+  const _ReviewDetailSheet({required this.book, required this.review});
+
+  final BookEntry book;
+  final BookReview review;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final content = review.content.isEmpty ? '仅评分，未写正文。' : review.content;
+    return Material(
+      key: const ValueKey<String>('review-detail'),
+      color: theme.colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.84,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 12, 14),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _ReviewCover(book: book, width: 50, height: 68),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                book.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleLarge,
+                              ),
+                              if (book.author.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  book.author,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 10,
+                                runSpacing: 4,
+                                children: [
+                                  _StarRow(rating: review.rating, size: 18),
+                                  Text(
+                                    _relativeTime(review.updatedAt),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭书评详情',
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SelectableText(
+                      content,
+                      key: const ValueKey<String>('review-detail-content'),
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.75),
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const ValueKey<String>('review-detail-edit'),
+                    onPressed: () => Navigator.of(context).pop(true),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('编辑书评'),
+                  ),
+                ),
               ),
             ],
           ),
