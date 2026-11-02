@@ -291,12 +291,41 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsNothing,
     );
+
+    await tester.tapAt(wordPosition);
+    await tester.pumpAndSettle();
+    final reopenedInput = find.byKey(
+      const ValueKey<String>('annotation-note-input'),
+    );
+    await tester.enterText(reopenedInput, '未保存的修改');
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('放弃未保存的笔记修改？'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-discard-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(reopenedInput).controller?.text, '未保存的修改');
+
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-discard-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsNothing,
+    );
+    expect(notes.items.single.note, '更新后的笔记');
   });
 
   for (final action in ['取消', '遮罩', '系统返回']) {
-    testWidgets('$action 关闭笔记时无异常，不写入标注且再次打开为空', (tester) async {
+    testWidgets('$action 关闭笔记时确认放弃，可继续编辑且再次打开为空', (tester) async {
       final notes = await _showEditor(tester);
       await tester.enterText(find.byType(TextField), '未保存的草稿');
+      await tester.pump();
       switch (action) {
         case '取消':
           await tester.tap(_composerClose);
@@ -305,6 +334,27 @@ void main() {
         case '系统返回':
           await tester.binding.handlePopRoute();
       }
+      await tester.pumpAndSettle();
+      expect(find.text('放弃未保存的笔记？'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('note-discard-cancel')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('note-composer-sheet')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<EditableText>(find.byType(EditableText)).controller.text,
+        '未保存的草稿',
+      );
+
+      await tester.tap(_composerClose);
+      await tester.pumpAndSettle();
+      expect(find.text('放弃未保存的笔记？'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('note-discard-confirm')),
+      );
       await _finishExit(tester);
       expect(notes.items, isEmpty);
       expect(find.byType(SelectionLayer), findsOneWidget);

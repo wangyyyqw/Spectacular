@@ -75,14 +75,20 @@ class ReaderAnnotationEditorSheet extends StatefulWidget {
 class _ReaderAnnotationEditorSheetState
     extends State<ReaderAnnotationEditorSheet> {
   late final TextEditingController _noteController;
+  bool _allowPop = false;
+  bool _discardDialogVisible = false;
+  bool _closing = false;
 
   bool get _isNote => widget.annotation.type == ReaderAnnotationType.note;
 
   String get _trimmedNote => _noteController.text.trim();
 
+  String get _initialNote => widget.annotation.note?.trim() ?? '';
+
+  bool get _noteDraftChanged => _trimmedNote != _initialNote;
+
   bool get _noteChanged =>
-      _trimmedNote.isNotEmpty &&
-      _trimmedNote != (widget.annotation.note?.trim() ?? '');
+      _trimmedNote.isNotEmpty && _trimmedNote != _initialNote;
 
   @override
   void initState() {
@@ -96,63 +102,149 @@ class _ReaderAnnotationEditorSheetState
     super.dispose();
   }
 
+  void _finish(AnnotationEditAction action) {
+    if (_closing) {
+      return;
+    }
+    _closing = true;
+    if (_allowPop) {
+      Navigator.of(context).pop(action);
+      return;
+    }
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.of(context).pop(action);
+      }
+    });
+  }
+
+  Future<bool> _confirmDiscard() async {
+    if (_discardDialogVisible) {
+      return false;
+    }
+    _discardDialogVisible = true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('放弃未保存的笔记修改？'),
+        content: const Text('笔记内容还没有保存，离开后本次修改会丢失。'),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('annotation-discard-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('annotation-discard-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('放弃修改'),
+          ),
+        ],
+      ),
+    );
+    _discardDialogVisible = false;
+    return discard == true;
+  }
+
+  Future<void> _close() async {
+    if (_closing) {
+      return;
+    }
+    if (!_noteDraftChanged) {
+      _closing = true;
+      Navigator.of(context).pop();
+      return;
+    }
+    final discard = await _confirmDiscard();
+    if (!discard || !mounted) {
+      return;
+    }
+    _closing = true;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentColor = widget.annotation.color ?? defaultHighlightColor;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: Material(
-        key: const ValueKey<String>('annotation-editor-sheet'),
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        clipBehavior: Clip.antiAlias,
-        child: SafeArea(
-          top: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const _SheetHandle(),
-                const SizedBox(height: 14),
-                _SheetHeader(isNote: _isNote),
-                _AnnotationPreview(
-                  annotation: widget.annotation,
-                  currentColor: currentColor,
-                ),
-                if (_isNote) ...[
-                  const SizedBox(height: 16),
-                  _AnnotationNoteEditor(
-                    controller: _noteController,
-                    onChanged: (_) => setState(() {}),
+    return PopScope(
+      canPop: !_noteDraftChanged || _allowPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          _close();
+        }
+      },
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Material(
+          key: const ValueKey<String>('annotation-editor-sheet'),
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          clipBehavior: Clip.antiAlias,
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _SheetHandle(),
+                  const SizedBox(height: 14),
+                  _SheetHeader(isNote: _isNote, onClose: _close),
+                  _AnnotationPreview(
+                    annotation: widget.annotation,
+                    currentColor: currentColor,
                   ),
-                ],
-                const SizedBox(height: 18),
-                Text('高亮颜色', style: theme.textTheme.labelLarge),
-                const SizedBox(height: 10),
-                _ColorChoices(currentColor: currentColor),
-                const SizedBox(height: 18),
-                if (_isNote) ...[
-                  FilledButton.icon(
-                    key: const ValueKey<String>('annotation-save-note'),
-                    onPressed: _noteChanged
-                        ? () => Navigator.of(context)
-                              .pop(AnnotationEditAction.saveNote(_trimmedNote))
-                        : null,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
+                  if (_isNote) ...[
+                    const SizedBox(height: 16),
+                    _AnnotationNoteEditor(
+                      controller: _noteController,
+                      onChanged: (_) => setState(() {}),
                     ),
-                    icon: const Icon(Icons.check, size: 20),
-                    label: const Text('保存笔记'),
-                  ),
+                  ],
+                  const SizedBox(height: 18),
+                  Text('高亮颜色', style: theme.textTheme.labelLarge),
                   const SizedBox(height: 10),
+                  _ColorChoices(
+                    currentColor: currentColor,
+                    onSelected: (color) =>
+                        _finish(AnnotationEditAction.recolor(color)),
+                  ),
+                  const SizedBox(height: 18),
+                  if (_isNote) ...[
+                    FilledButton.icon(
+                      key: const ValueKey<String>('annotation-save-note'),
+                      onPressed: _noteChanged
+                          ? () => _finish(
+                              AnnotationEditAction.saveNote(_trimmedNote),
+                            )
+                          : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                      ),
+                      icon: const Icon(Icons.check, size: 20),
+                      label: const Text('保存笔记'),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  _RemoveAnnotationButton(
+                    isNote: _isNote,
+                    onRemove: () =>
+                        _finish(const AnnotationEditAction.remove()),
+                  ),
                 ],
-                _RemoveAnnotationButton(isNote: _isNote),
-              ],
+              ),
             ),
           ),
         ),
@@ -223,9 +315,10 @@ class _SheetHandle extends StatelessWidget {
 }
 
 class _SheetHeader extends StatelessWidget {
-  const _SheetHeader({required this.isNote});
+  const _SheetHeader({required this.isNote, required this.onClose});
 
   final bool isNote;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -241,7 +334,7 @@ class _SheetHeader extends StatelessWidget {
         Text(isNote ? '笔记' : '高亮', style: theme.textTheme.titleMedium),
         const Spacer(),
         IconButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: onClose,
           tooltip: '关闭',
           icon: const Icon(Icons.close, size: 20),
         ),
@@ -284,9 +377,10 @@ class _AnnotationPreview extends StatelessWidget {
 }
 
 class _ColorChoices extends StatelessWidget {
-  const _ColorChoices({required this.currentColor});
+  const _ColorChoices({required this.currentColor, required this.onSelected});
 
   final int currentColor;
+  final ValueChanged<int> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -297,9 +391,7 @@ class _ColorChoices extends StatelessWidget {
           _ColorChoice(
             option: option,
             selected: option.value == currentColor,
-            onTap: () =>
-                Navigator.of(context)
-                    .pop(AnnotationEditAction.recolor(option.value)),
+            onTap: () => onSelected(option.value),
           ),
       ],
     );
@@ -307,17 +399,17 @@ class _ColorChoices extends StatelessWidget {
 }
 
 class _RemoveAnnotationButton extends StatelessWidget {
-  const _RemoveAnnotationButton({required this.isNote});
+  const _RemoveAnnotationButton({required this.isNote, required this.onRemove});
 
   final bool isNote;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return OutlinedButton.icon(
       key: const ValueKey<String>('annotation-remove'),
-      onPressed: () =>
-          Navigator.of(context).pop(const AnnotationEditAction.remove()),
+      onPressed: onRemove,
       style: OutlinedButton.styleFrom(
         foregroundColor: theme.colorScheme.error,
         side: BorderSide(
