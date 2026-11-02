@@ -6,6 +6,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
+import 'book_opening_view.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
 
@@ -30,19 +31,29 @@ class BookOpener {
     }
     _opening = true;
     final messenger = ScaffoldMessenger.of(context);
-    try {
-      _settings ??= await ReaderSettingsStore(library).load();
-      if (!context.mounted) {
+    final navigator = Navigator.of(context);
+    var openingVisible = false;
+    void closeOpening() {
+      if (!openingVisible) {
         return;
       }
-      // 大书读盘要几秒：先给个反馈，避免「点了没反应」。
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('正在打开《${entry.title}》…'),
-          duration: const Duration(seconds: 2),
-        ),
+      openingVisible = false;
+      if (navigator.mounted) {
+        navigator.pop();
+      }
+    }
+
+    try {
+      unawaited(
+        navigator.push<void>(_openingRoute(entry)).then((_) {
+          openingVisible = false;
+        }),
       );
+      openingVisible = true;
+      _settings ??= await ReaderSettingsStore(library).load();
+      if (!context.mounted || !openingVisible) {
+        return;
+      }
       final readWatch = Stopwatch()..start();
       final bytes = await library.readBytes(entry);
       readWatch.stop();
@@ -56,19 +67,26 @@ class BookOpener {
           },
         ),
       );
-      if (!context.mounted) {
+      // 小文件读盘几乎瞬时完成；保留最短动画，避免开场页只闪一下。
+      final remaining = const Duration(milliseconds: 420) - readWatch.elapsed;
+      if (remaining > Duration.zero) {
+        await Future<void>.delayed(remaining);
+      }
+      if (!context.mounted || !openingVisible) {
         return;
       }
-      await Navigator.of(context).push(_readerRoute(entry, bytes));
+      await navigator.pushReplacement<void, void>(_readerRoute(entry, bytes));
       await library.touchLastRead(entry.id);
     } catch (error) {
       if (context.mounted) {
+        closeOpening();
         messenger.hideCurrentSnackBar();
         messenger.showSnackBar(
           SnackBar(content: Text('打开《${entry.title}》失败：$error')),
         );
       }
     } finally {
+      closeOpening();
       _opening = false;
     }
   }
@@ -91,7 +109,24 @@ class BookOpener {
     unawaited(ReaderSettingsStore(library).save(settings));
   }
 
-  /// 阅读页入场：淡入、轻微放大和上浮，反馈“书正在展开”。
+  /// 开场页入场：从书架柔和淡入，随后由封面动画接管。
+  Route<void> _openingRoute(BookEntry entry) {
+    return PageRouteBuilder<void>(
+      transitionDuration: const Duration(milliseconds: 220),
+      reverseTransitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (_, _, _) => BookOpeningView(book: entry),
+      transitionsBuilder: (_, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(opacity: curved, child: child);
+      },
+    );
+  }
+
+  /// 阅读页入场：淡入、轻微放大和上浮，承接封面展开动画。
   Route<void> _readerRoute(BookEntry entry, Uint8List bytes) {
     return PageRouteBuilder<void>(
       transitionDuration: const Duration(milliseconds: 360),
