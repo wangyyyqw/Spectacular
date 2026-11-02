@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -62,6 +63,56 @@ PageContent _page({bool containerBackground = false}) {
       ),
     ],
     usedHeight: height,
+    pageHeight: 200,
+    topPadding: 0,
+  );
+}
+
+PageContent _tableImagePage() {
+  final pageStyle = ComputedStyle(const <String, String>{
+    'font-size': '16px',
+    'line-height': '1.5',
+  });
+  final cellStyle = _style();
+  final cellLayout = TextLayoutEngine.layout(
+    text: '',
+    style: cellStyle,
+    maxWidth: 60,
+  );
+  final block = PageBlock(
+    layout: TextLayoutEngine.layout(
+      text: '',
+      style: pageStyle,
+      maxWidth: 100,
+    ),
+    style: pageStyle,
+    table: TableRenderSpec(
+      cells: <TableCellRender>[
+        TableCellRender(
+          row: 0,
+          rect: const Rect.fromLTWH(20, 0, 60, 60),
+          layout: cellLayout,
+          style: cellStyle,
+        ),
+      ],
+      columnXs: const <double>[0, 100],
+      rowYs: const <double>[0, 60],
+      tableWidth: 100,
+      flex: true,
+    ),
+  );
+  return PageContent(
+    spineIndex: 0,
+    pageIndex: 0,
+    slices: <PageBlockSlice>[
+      PageBlockSlice(
+        block: block,
+        startLine: 0,
+        endLine: 1,
+        height: 60,
+      ),
+    ],
+    usedHeight: 60,
     pageHeight: 200,
     topPadding: 0,
   );
@@ -145,6 +196,30 @@ void main() {
 
     expect(loaderCalls, greaterThan(0), reason: '背景图 URL 被交给宿主加载器');
   });
+
+  testWidgets('ReaderPage 预取 Flex 图片单元格的背景图', (tester) async {
+    final requested = <String>[];
+    final cache = DecodedImageCache(
+      loadBytes: (url) async {
+        requested.add(url);
+        return null;
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          source: _FakeSource(_tableImagePage()),
+          store: MemoryReaderProgressStore(),
+          bookId: 'table-image-book',
+          imageCache: cache,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(requested, contains('bg://one'));
+  });
+
   testWidgets('ReaderPage 预取独立容器上的背景图', (tester) async {
     final requested = <String>[];
     final cache = DecodedImageCache(
