@@ -244,8 +244,26 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
     );
     await tester.pumpAndSettle();
-    final recolored = (await annotations.list()).single;
-    expect(recolored.color, 0xFF90CAF9);
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    expect((await annotations.list()).single.color, defaultHighlightColor);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-style-wavyUnderline')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    final save = find.byKey(const ValueKey<String>('annotation-save-changes'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    final restyled = (await annotations.list()).single;
+    expect(restyled.color, 0xFF90CAF9);
+    expect(restyled.style, ReaderAnnotationStyle.wavyUnderline);
     expect(
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsNothing,
@@ -254,11 +272,24 @@ void main() {
     await tester.tapAt(center);
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-style-wavyUnderline')),
+      find.byKey(const ValueKey<String>('annotation-add-note')),
     );
     await tester.pumpAndSettle();
-    final restyled = (await annotations.list()).single;
-    expect(restyled.style, ReaderAnnotationStyle.wavyUnderline);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-color-0xFFA5D6A7')),
+    );
+    await tester.pumpAndSettle();
+    final appearanceSave = find.byKey(
+      const ValueKey<String>('annotation-save-note'),
+    );
+    expect(tester.widget<FilledButton>(appearanceSave).onPressed, isNotNull);
+    await tester.ensureVisible(appearanceSave);
+    await tester.tap(appearanceSave);
+    await tester.pumpAndSettle();
+    final appearanceOnly = (await annotations.list()).single;
+    expect(appearanceOnly.type, ReaderAnnotationType.highlight);
+    expect(appearanceOnly.color, 0xFFA5D6A7);
+    expect(appearanceOnly.note, isNull);
 
     await tester.tapAt(center);
     await tester.pumpAndSettle();
@@ -272,7 +303,7 @@ void main() {
     await tester.pumpAndSettle();
     final restored = (await annotations.list()).single;
     expect(restored.type, ReaderAnnotationType.highlight);
-    expect(restored.color, 0xFF90CAF9);
+    expect(restored.color, 0xFFA5D6A7);
     expect(restored.style, ReaderAnnotationStyle.wavyUnderline);
     expect(restored.quote, isNotEmpty);
   });

@@ -404,7 +404,7 @@ void main() {
     expect(notes.items.single.note, '更新后的笔记');
   });
 
-  testWidgets('修改笔记后换色或样式先保护草稿，当前选项不关闭弹层', (tester) async {
+  testWidgets('修改笔记后换色或样式不会丢失草稿，可一次保存', (tester) async {
     final source = _Source();
     final notes = _Notes();
     notes.items.add(
@@ -447,7 +447,7 @@ void main() {
     await tester.enterText(input, '尚未保存的修改');
     await tester.pump();
 
-    // 点击当前颜色只应保持弹层，不应被当成一次换色操作。
+    // 点击当前颜色不产生修改。
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-color-0xFFFFEB3B')),
     );
@@ -462,11 +462,6 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('放弃未保存的笔记修改？'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-discard-cancel')),
-    );
-    await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
     expect(notes.items.single.color, defaultHighlightColor);
 
@@ -476,31 +471,25 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('放弃未保存的笔记修改？'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-discard-cancel')),
-    );
-    await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
     expect(
       notes.items.single.style,
       ReaderAnnotationStyle.background,
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
+    final save = find.byKey(
+      const ValueKey<String>('annotation-save-note'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-discard-confirm')),
-    );
+    await tester.ensureVisible(save);
+    await tester.tap(save);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsNothing,
     );
     expect(notes.items.single.color, 0xFF90CAF9);
-    expect(notes.items.single.note, '旧笔记');
+    expect(notes.items.single.style, ReaderAnnotationStyle.wavyUnderline);
+    expect(notes.items.single.note, '尚未保存的修改');
   });
 
   testWidgets('删除笔记前确认，取消后保留弹层和正文', (tester) async {

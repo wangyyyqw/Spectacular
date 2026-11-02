@@ -7,14 +7,8 @@ import 'annotation_style_painter.dart';
 
 /// 标注编辑动作。
 enum AnnotationEditActionType {
-  /// 更换高亮颜色。
-  recolor,
-
-  /// 更换高亮样式。
-  restyle,
-
-  /// 保存笔记正文。
-  saveNote,
+  /// 保存颜色、样式或笔记修改。
+  save,
 
   /// 删除高亮或笔记。
   remove,
@@ -22,33 +16,39 @@ enum AnnotationEditActionType {
 
 /// 标注编辑弹层返回结果。
 class AnnotationEditAction {
-  const AnnotationEditAction._(this.type, {this.color, this.style, this.note});
+  const AnnotationEditAction._({
+    required this.type,
+    this.color,
+    this.style,
+    this.note,
+  });
 
-  /// 更换颜色。
-  const AnnotationEditAction.recolor(int color)
-    : this._(AnnotationEditActionType.recolor, color: color);
-
-  /// 更换样式。
-  const AnnotationEditAction.restyle(ReaderAnnotationStyle style)
-    : this._(AnnotationEditActionType.restyle, style: style);
-
-  /// 保存笔记。
-  const AnnotationEditAction.saveNote(String note)
-    : this._(AnnotationEditActionType.saveNote, note: note);
+  /// 保存当前修改。
+  const AnnotationEditAction.save({
+    required int color,
+    required ReaderAnnotationStyle style,
+    String? note,
+  }) : this._(
+         type: AnnotationEditActionType.save,
+         color: color,
+         style: style,
+         note: note,
+       );
 
   /// 删除标注。
-  const AnnotationEditAction.remove() : this._(AnnotationEditActionType.remove);
+  const AnnotationEditAction.remove()
+    : this._(type: AnnotationEditActionType.remove);
 
   /// 动作类型。
   final AnnotationEditActionType type;
 
-  /// 新颜色（仅换色时有效）。
+  /// 新颜色。
   final int? color;
 
-  /// 新样式（仅换样式时有效）。
+  /// 新样式。
   final ReaderAnnotationStyle? style;
 
-  /// 新笔记正文（仅保存笔记时有效）。
+  /// 新笔记正文；null 表示本次不修改笔记。
   final String? note;
 }
 
@@ -112,6 +112,8 @@ class _ReaderAnnotationEditorSheetState
   bool _removeDialogVisible = false;
   bool _closing = false;
   bool _showNoteEditor = false;
+  late int _selectedColor;
+  late ReaderAnnotationStyle _selectedStyle;
 
   bool get _isNote => widget.annotation.type == ReaderAnnotationType.note;
 
@@ -126,14 +128,42 @@ class _ReaderAnnotationEditorSheetState
   bool get _noteChanged =>
       _trimmedNote.isNotEmpty && _trimmedNote != _initialNote;
 
-  int get _currentColor => widget.annotation.color ?? defaultHighlightColor;
+  int get _currentColor => _selectedColor;
 
-  ReaderAnnotationStyle get _currentStyle => widget.annotation.style;
+  ReaderAnnotationStyle get _currentStyle => _selectedStyle;
+
+  bool get _appearanceChanged =>
+      _currentColor != (widget.annotation.color ?? defaultHighlightColor) ||
+      _currentStyle != widget.annotation.style;
+
+  bool get _hasChanges => _appearanceChanged || _noteDraftChanged;
+
+  bool get _canSave {
+    if (_isNote) {
+      return _trimmedNote.isNotEmpty && (_noteChanged || _appearanceChanged);
+    }
+    if (_showNoteEditor && _trimmedNote.isNotEmpty) {
+      return true;
+    }
+    return _appearanceChanged;
+  }
+
+  String? get _actionNote =>
+      _isNote || _trimmedNote.isNotEmpty ? _trimmedNote : null;
+
+  String get _saveLabel {
+    if (_isNote) {
+      return '保存笔记';
+    }
+    return _trimmedNote.isNotEmpty ? '保存为笔记' : '保存修改';
+  }
 
   @override
   void initState() {
     super.initState();
     _noteController = TextEditingController(text: widget.annotation.note ?? '');
+    _selectedColor = widget.annotation.color ?? defaultHighlightColor;
+    _selectedStyle = widget.annotation.style;
   }
 
   @override
@@ -145,14 +175,6 @@ class _ReaderAnnotationEditorSheetState
   Future<void> _finish(AnnotationEditAction action) async {
     if (_closing) {
       return;
-    }
-    if ((action.type == AnnotationEditActionType.recolor ||
-            action.type == AnnotationEditActionType.restyle) &&
-        _noteDraftChanged) {
-      final discard = await _confirmDiscard();
-      if (!discard || !mounted) {
-        return;
-      }
     }
     if (action.type == AnnotationEditActionType.remove && _isNote) {
       final remove = await _confirmRemoveNote();
@@ -208,14 +230,14 @@ class _ReaderAnnotationEditorSheetState
     if (color == _currentColor) {
       return;
     }
-    unawaited(_finish(AnnotationEditAction.recolor(color)));
+    setState(() => _selectedColor = color);
   }
 
   void _selectStyle(ReaderAnnotationStyle style) {
     if (style == _currentStyle) {
       return;
     }
-    unawaited(_finish(AnnotationEditAction.restyle(style)));
+    setState(() => _selectedStyle = style);
   }
 
   Future<bool> _confirmDiscard() async {
@@ -226,8 +248,14 @@ class _ReaderAnnotationEditorSheetState
     final discard = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('放弃未保存的笔记修改？'),
-        content: const Text('笔记内容还没有保存，离开后本次修改会丢失。'),
+        title: Text(
+          _noteDraftChanged ? '放弃未保存的笔记修改？' : '放弃未保存的修改？',
+        ),
+        content: Text(
+          _noteDraftChanged
+              ? '笔记内容还没有保存，离开后本次修改会丢失。'
+              : '颜色或样式还没有保存，离开后本次修改会丢失。',
+        ),
         actions: [
           TextButton(
             key: const ValueKey<String>('annotation-discard-cancel'),
@@ -250,7 +278,7 @@ class _ReaderAnnotationEditorSheetState
     if (_closing) {
       return;
     }
-    if (!_noteDraftChanged) {
+    if (!_hasChanges) {
       _closing = true;
       Navigator.of(context).pop();
       return;
@@ -274,7 +302,7 @@ class _ReaderAnnotationEditorSheetState
     final currentColor = _currentColor;
     final currentStyle = _currentStyle;
     return PopScope(
-      canPop: !_noteDraftChanged || _allowPop,
+      canPop: !_hasChanges || _allowPop,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) {
           _close();
@@ -342,10 +370,14 @@ class _ReaderAnnotationEditorSheetState
                   if (_canEditNote) ...[
                     FilledButton.icon(
                       key: const ValueKey<String>('annotation-save-note'),
-                      onPressed: _noteChanged
+                      onPressed: _canSave
                           ? () => unawaited(
                               _finish(
-                                AnnotationEditAction.saveNote(_trimmedNote),
+                                AnnotationEditAction.save(
+                                  color: _currentColor,
+                                  style: _currentStyle,
+                                  note: _actionNote,
+                                ),
                               ),
                             )
                           : null,
@@ -353,7 +385,27 @@ class _ReaderAnnotationEditorSheetState
                         minimumSize: const Size.fromHeight(44),
                       ),
                       icon: const Icon(Icons.check, size: 20),
-                      label: Text(_isNote ? '保存笔记' : '保存为笔记'),
+                      label: Text(_saveLabel),
+                    ),
+                    const SizedBox(height: 10),
+                  ] else ...[
+                    FilledButton.icon(
+                      key: const ValueKey<String>('annotation-save-changes'),
+                      onPressed: _canSave
+                          ? () => unawaited(
+                              _finish(
+                                AnnotationEditAction.save(
+                                  color: _currentColor,
+                                  style: _currentStyle,
+                                ),
+                              ),
+                            )
+                          : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                      ),
+                      icon: const Icon(Icons.check, size: 20),
+                      label: const Text('保存修改'),
                     ),
                     const SizedBox(height: 10),
                   ],
