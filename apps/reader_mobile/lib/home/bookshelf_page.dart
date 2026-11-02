@@ -751,6 +751,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         final item = books[index];
         return _BookRow(
           entry: item.entry,
+          percentInt: item.percentInt,
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
@@ -891,6 +892,7 @@ class _ImportBanner extends StatelessWidget {
 class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.entry,
+    required this.percentInt,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -899,6 +901,7 @@ class _BookRow extends StatelessWidget {
   });
 
   final BookEntry entry;
+  final int? percentInt;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -971,6 +974,15 @@ class _BookRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium,
       ),
+      subtitle: Text(
+        _shelfMetaLabel(entry, percentInt),
+        key: ValueKey<String>('book-row-meta-${entry.id}'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
       trailing: trailing.isEmpty
           ? null
           : Row(mainAxisSize: MainAxisSize.min, children: trailing),
@@ -992,6 +1004,16 @@ class _BookRow extends StatelessWidget {
       },
     );
   }
+}
+
+String _shelfMetaLabel(BookEntry entry, int? percentInt) {
+  final author = entry.author.trim().isEmpty ? '未知作者' : entry.author.trim();
+  final status = switch (entry.status) {
+    BookReadingStatus.unread => '未开始',
+    BookReadingStatus.reading => percentInt == null ? '在读' : '在读 $percentInt%',
+    BookReadingStatus.finished => '已读完',
+  };
+  return '$author · $status';
 }
 
 class _EmptyPane extends StatelessWidget {
