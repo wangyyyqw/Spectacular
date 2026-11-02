@@ -1936,10 +1936,6 @@ class PagePainter {
       final rightInset = style.padding.right + borders.right.width;
       final topInset = style.padding.top + borders.top.width;
       final bottomInset = style.padding.bottom + borders.bottom.width;
-      final innerWidth = math.max(
-        8.0,
-        cell.rect.width - leftInset - rightInset,
-      );
       final innerHeight = math.max(
         0.0,
         cell.rect.height - topInset - bottomInset,
@@ -1985,10 +1981,10 @@ class PagePainter {
                 ? TextDirection.rtl
                 : TextDirection.ltr,
           )..layout(
-            // 行已在测量阶段完成换行；重排到更窄的真实内宽会改变行数，
-            // 让后续行被裁剪且文字丢失。与测量宽保持一致，越界仍由下方
-            // clipRect 兜底。
-            maxWidth: math.max(innerWidth, cell.layout.maxWidth),
+            // 行已在测量阶段完成换行；单元格绘制的是单行切片，再次按内宽
+            // 约束会把行尾字距重新拆成下一行，造成文字重叠或错位。
+            // 越界仍由下方 clipRect 兜底。
+            maxWidth: double.infinity,
           );
           final textY =
               lineY + textLineBaselineOffset(cell.layout, line, painter);

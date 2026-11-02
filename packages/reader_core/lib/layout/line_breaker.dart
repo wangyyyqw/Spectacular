@@ -2478,17 +2478,14 @@ abstract final class TextLayoutEngine {
             style.lineHeightFactor != null
         ? style.lineHeight
         : null;
+    final lineRanges = textLineRanges(painter, text, metrics.length);
     final lines = <LineBox>[];
     var top = 0.0;
     for (var metricIndex = 0; metricIndex < metrics.length; metricIndex++) {
       final metric = metrics[metricIndex];
       final measured = measuredLines?[metricIndex];
-      // 用行框垂直中点取该行内的字符位置，再取边界；
-      // 直接拿“上一行 end”做位置在硬换行/空行处会落回上一行。
       final boundary = measured == null
-          ? painter.getLineBoundary(
-              painter.getPositionForOffset(Offset(0, top + metric.height / 2)),
-            )
+          ? lineRanges[metricIndex]
           : TextRange(start: measured.start, end: measured.end);
       final syntheticCapsLineHeight = LineBreaker.preserveFractionalLineHeight
           ? _syntheticCapsLineHeight(style, runs, boundary.start, boundary.end)
@@ -2528,12 +2525,27 @@ abstract final class TextLayoutEngine {
         isHardBreak: hardBreak,
       );
     }
+    final reflowedLines =
+        style.whiteSpace != CssWhiteSpace.nowrap &&
+            style.whiteSpace != CssWhiteSpace.pre
+        ? _recoverTrailingLetterSpacingOrphan(
+            lines: lines,
+            text: text,
+            width: contentWidth ?? width,
+            style: style,
+            runs: runs,
+            baseStyle: baseStyle,
+            textScaleFactor: textScaleFactor,
+            leadingDistribution: leadingDistribution,
+            paragraph: paragraph,
+          )
+        : lines;
     // Skia 会对放不下的 token 做逐字紧急断行，Chrome 则让 token 整段溢出：
     // 把「断点处没有合法断行机会」的相邻行合并回去（URL、right/bottom 等）。
     final mergedLines = guardRanges.isEmpty
-        ? lines
+        ? reflowedLines
         : _mergeUnbreakableLines(
-            lines,
+            reflowedLines,
             measureText,
             baseStyle,
             textScaleFactor,
@@ -2566,6 +2578,112 @@ abstract final class TextLayoutEngine {
     );
     painter.dispose();
     return result;
+  }
+
+  /// 收回被行尾字距挤到单独一行的末字。
+  ///
+  /// Skia 把正字距累计到行尾末字之后；当这一段不可见字距刚好让末字放不下时，
+  /// 标题会出现只剩一个字的孤行。若去掉该字距后两行可合并，则按原字序收回，
+  /// 不改字号或字距。
+  static List<LineBox> _recoverTrailingLetterSpacingOrphan({
+    required List<LineBox> lines,
+    required String text,
+    required double width,
+    required ComputedStyle style,
+    required List<StyledRun> runs,
+    required TextStyle baseStyle,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+    required SpacedParagraph? paragraph,
+  }) {
+    if (lines.length < 2 ||
+        style.isRtl ||
+        style.writingMode != CssWritingMode.horizontalTb ||
+        !width.isFinite) {
+      return lines;
+    }
+    final previous = lines[lines.length - 2];
+    final last = lines.last;
+    if (previous.isHardBreak ||
+        last.isHardBreak ||
+        previous.end != last.start) {
+      return lines;
+    }
+    final lastText = text.substring(last.start, last.end);
+    if (lastText.characters.length != 1) {
+      return lines;
+    }
+    final lastOffset = last.start + lastText.characters.first.length - 1;
+    var lastStyle = baseStyle;
+    for (final run in runs) {
+      if (lastOffset >= run.start && lastOffset < run.end) {
+        lastStyle = textStyleFor(
+          run.style,
+          leadingDistribution: leadingDistribution,
+        );
+        break;
+      }
+    }
+    final trailingSpacing = (lastStyle.letterSpacing ?? 0) * textScaleFactor;
+    if (trailingSpacing <= 0) {
+      return lines;
+    }
+    final merged = paragraph?.measure(previous.start, last.end);
+    final mergedWidth =
+        (merged?.metrics.width ??
+            _measureTextSpan(
+              _measurementSpan(
+                text.substring(previous.start, last.end),
+                _shiftRuns(runs, previous.start, last.end),
+                baseStyle,
+                const <_InlineBoxMark>[],
+                (
+                  css: style,
+                  scale: textScaleFactor,
+                  leading: leadingDistribution,
+                ),
+              ),
+              textScaleFactor,
+            )) -
+        trailingSpacing;
+    if (mergedWidth > width + 0.5) {
+      return lines;
+    }
+    return <LineBox>[
+      ...lines.take(lines.length - 2),
+      previous.copyWith(
+        end: last.end,
+        width: math.max(previous.width, mergedWidth),
+        isLastLine: true,
+        isHardBreak: false,
+        spacing: merged?.spacing ?? previous.spacing,
+      ),
+    ];
+  }
+
+  /// 截取子串测量时把行内样式区间平移、裁剪到子串范围。
+  static List<StyledRun> _shiftRuns(List<StyledRun> runs, int start, int end) =>
+      <StyledRun>[
+        for (final run in runs)
+          if (run.end > start && run.start < end)
+            StyledRun(
+              start: math.max(run.start, start) - start,
+              end: math.min(run.end, end) - start,
+              style: run.style,
+              baselineShift: run.baselineShift,
+              syntheticFontFallback: run.syntheticFontFallback,
+            ),
+      ];
+
+  static double _measureTextSpan(InlineSpan span, double textScaleFactor) {
+    final painter = TextPainter(
+      text: span,
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.linear(textScaleFactor),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
   }
 
   static TextSpan _measurementSpan(
