@@ -38,13 +38,13 @@ String _stripV3Columns(String statement) {
       .replaceAll(RegExp(r',\s*"?page_index"?\s+INTEGER(\s+NULL)?'), '');
 }
 
-/// 从当前 schema 导出 v1 建表语句（排除 v2 新增的 import_reports）。
+/// 从当前 schema 导出 v1 建表语句（排除后续版本新增的表）。
 Future<List<String>> _v1Schema() async {
   final database = AppDatabase(NativeDatabase.memory());
   await database.warmUp();
   final rows = await database.customSelect(
     'SELECT sql FROM sqlite_master WHERE sql IS NOT NULL '
-    "AND name NOT IN ('import_reports', 'idx_report_book') "
+    "AND name NOT IN ('import_reports', 'idx_report_book', 'book_reviews') "
     "AND name NOT LIKE 'sqlite_%'",
   ).get();
   final sql = <String>[
@@ -75,6 +75,7 @@ void main() {
         'user_fonts',
         'settings',
         'import_reports',
+        'book_reviews',
       ]),
     );
     final indexes = await database
@@ -99,7 +100,7 @@ void main() {
       await database.customSelect('PRAGMA user_version').getSingle().then(
         (row) => row.read<int>('user_version'),
       ),
-      5,
+      6,
     );
   });
 
@@ -146,6 +147,15 @@ void main() {
         updatedAt: const Value<int>(1),
       ),
     );
+    await database.into(database.bookReviews).insert(
+      BookReviewsCompanion.insert(
+        bookId: Value<int>(bookId),
+        rating: const Value<int?>(4),
+        content: const Value<String>('一段书评'),
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
 
     await (database.delete(database.books)
           ..where((table) => table.id.equals(bookId)))
@@ -157,9 +167,10 @@ void main() {
     expect(await database.select(database.annotations).get(), isEmpty);
     expect(await database.select(database.readingProgress).get(), isEmpty);
     expect(await database.select(database.importReports).get(), isEmpty);
+    expect(await database.select(database.bookReviews).get(), isEmpty);
   });
 
-  test('v1→v5 迁移：数据保留、新增 import_reports、进度列、旧索引表不建', () async {
+  test('v1→v6 迁移：数据保留、新增导入报告、进度列与书评表', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -178,7 +189,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 5, reason: 'schema 已升到 v5');
+    expect(version.read<int>('user_version'), 6, reason: 'schema 已升到 v6');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
@@ -195,6 +206,16 @@ void main() {
       ),
     );
     expect((await database.select(database.importReports).get()).length, 1);
+    await database.into(database.bookReviews).insert(
+      BookReviewsCompanion.insert(
+        bookId: Value<int>(books.single.id),
+        rating: const Value<int?>(5),
+        content: const Value<String>('迁移后可写书评'),
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    expect((await database.select(database.bookReviews).get()).length, 1);
 
     // 搜索改为扫描式后，旧的倒排索引两张表不再创建。
     final tables = await database

@@ -11,6 +11,7 @@ import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
 
+import '../storage/book_review_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
@@ -287,6 +288,12 @@ class LibraryStore {
   DriftAnnotationStore? annotationStore(String bookId) {
     final db = _db;
     return db == null ? null : DriftAnnotationStore(db, bookId);
+  }
+
+  /// 全库书评存储；内存模式下没有持久化能力时返回 null。
+  BookReviewStore? reviewStore() {
+    final db = _db;
+    return db == null ? null : DriftBookReviewStore(db);
   }
 
   /// 全部条目（最近阅读优先，其次导入时间倒序）。
