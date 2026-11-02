@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,10 +8,8 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_core/epub/importer.dart';
 
 import '../library/library_store.dart';
-import '../reader/epub_reader_page.dart';
-import '../reader/reader_settings.dart';
+import '../reader/book_opener.dart';
 import 'book_detail_sheet.dart';
-import '../diagnostics/reader_log.dart';
 import '../storage/import_queue.dart';
 
 /// 书架排序方式（P4-08）。
@@ -119,8 +116,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   List<_ShelfItem>? _items;
 
-  /// 阅读设置缓存（P4-21）。
-  ReaderSettings? _settings;
+  late final BookOpener _bookOpener;
   late final ImportQueue _queue;
   final List<ImportJob> _batch = <ImportJob>[];
   int _reportedJobs = 0;
@@ -140,6 +136,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
   void initState() {
     super.initState();
     widget.library.addListener(_reload);
+    _bookOpener = BookOpener(
+      library: widget.library,
+      progressStore: widget.progressStore,
+    );
     _queue = ImportQueue(widget.library)..addListener(_onQueueChanged);
     _reload();
     _loadPreferences();
@@ -422,111 +422,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 读取并缓存阅读设置（P4-21）。
-  Future<void> _loadReaderSettings() async {
-    final settings = await ReaderSettingsStore(widget.library).load();
-    if (mounted) {
-      setState(() => _settings = settings);
-    }
-  }
-
-  /// 保存阅读设置（P4-21）。
-  Future<void> _saveReaderSettings(ReaderSettings settings) async {
-    setState(() => _settings = settings);
-    unawaited(
-      ReaderLog.instance.log(
-        'user_settings',
-        fields: <String, Object?>{
-          'font_size': settings.fontSize,
-          'line_height': settings.lineHeight,
-          'paragraph_spacing': settings.paragraphSpacing,
-          'theme': settings.themeId,
-          'background': settings.backgroundId,
-          'ink_mode': settings.inkMode,
-        },
-      ),
-    );
-    await ReaderSettingsStore(widget.library).save(settings);
-  }
-
-  Future<void> _open(BookEntry entry) async {
-    if (_settings == null) {
-      await _loadReaderSettings();
-    }
-    if (!mounted) {
-      return;
-    }
-    // 大书读盘要几秒：先给个反馈，避免「点了没反应」。
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('正在打开《${entry.title}》…'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-    final readWatch = Stopwatch()..start();
-    final bytes = await widget.library.readBytes(entry);
-    readWatch.stop();
-    unawaited(
-      ReaderLog.instance.log(
-        'user_open_book',
-        fields: <String, Object?>{
-          'book': entry.title,
-          'bytes': bytes.length,
-          'read_ms': readWatch.elapsedMilliseconds,
-        },
-      ),
-    );
-    if (!mounted) {
-      return;
-    }
-    await Navigator.of(context).push(_readerRoute(entry, bytes));
-    await widget.library.touchLastRead(entry.id);
-  }
-
-  /// 阅读页入场：淡入、轻微放大和上浮，反馈“书正在展开”。
-  Route<void> _readerRoute(BookEntry entry, Uint8List bytes) {
-    return PageRouteBuilder<void>(
-      transitionDuration: const Duration(milliseconds: 360),
-      reverseTransitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (_, _, _) => EpubReaderPage(
-        bytes: bytes,
-        bookId: entry.id,
-        store: widget.progressStore,
-        bookmarks: widget.library.bookmarkStore(entry.id),
-        annotations: widget.library.annotationStore(entry.id),
-        settings: _settings ?? ReaderSettings.defaults,
-        onSettingsChanged: _saveReaderSettings,
-        bookTitle: entry.title,
-        onMarginsChanged: (margins) {
-          final current = _settings ?? ReaderSettings.defaults;
-          final next = current.copyWithMargins(margins);
-          setState(() => _settings = next);
-          unawaited(_saveReaderSettings(next));
-        },
-      ),
-      transitionsBuilder: (_, animation, _, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.018),
-              end: Offset.zero,
-            ).animate(curved),
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
-              alignment: Alignment.center,
-              child: child,
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Future<void> _open(BookEntry entry) => _bookOpener.open(context, entry);
 
   /// 长按卡片：书籍详情 + 导入报告（P4-06），详情里可删除。
   Future<void> _openBookDetail(BookEntry entry) async {
