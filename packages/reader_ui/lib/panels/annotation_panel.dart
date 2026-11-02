@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_core/position/cfi.dart';
 
 import '../annotations/annotation.dart';
 
@@ -13,6 +14,7 @@ class AnnotationPanel extends StatefulWidget {
     required this.onSelect,
     required this.onEdit,
     this.onDelete,
+    this.chapterTitleOf,
     this.onBack,
     this.emptyHint = '还没有笔记或高亮',
   });
@@ -29,6 +31,9 @@ class AnnotationPanel extends StatefulWidget {
   /// 批量删除标注。
   final Future<void> Function(List<ReaderAnnotation>)? onDelete;
 
+  /// 标注所在章节标题。
+  final String? Function(ReaderAnnotation)? chapterTitleOf;
+
   /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
   final VoidCallback? onBack;
 
@@ -41,10 +46,20 @@ class AnnotationPanel extends StatefulWidget {
 
 enum _AnnotationFilter { all, note, highlight }
 
+enum _AnnotationSort {
+  updated('最近更新'),
+  position('阅读顺序');
+
+  const _AnnotationSort(this.label);
+
+  final String label;
+}
+
 class _AnnotationPanelState extends State<AnnotationPanel> {
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   _AnnotationFilter _filter = _AnnotationFilter.all;
+  _AnnotationSort _sort = _AnnotationSort.updated;
   String _query = '';
   bool _selecting = false;
   bool _deleting = false;
@@ -67,8 +82,29 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   }
 
   List<ReaderAnnotation> get _sorted {
-    return List<ReaderAnnotation>.of(widget.annotations)
-      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    final items = List<ReaderAnnotation>.of(widget.annotations);
+    if (_sort == _AnnotationSort.updated) {
+      items.sort(
+        (left, right) => right.updatedAt.compareTo(left.updatedAt),
+      );
+      return items;
+    }
+    items.sort((left, right) {
+      final leftCfi = EpubCfi.parse(left.startCfi);
+      final rightCfi = EpubCfi.parse(right.startCfi);
+      if (leftCfi != null && rightCfi != null) {
+        final byPosition = leftCfi.compareTo(rightCfi);
+        if (byPosition != 0) {
+          return byPosition;
+        }
+      } else if (leftCfi == null && rightCfi != null) {
+        return 1;
+      } else if (leftCfi != null && rightCfi == null) {
+        return -1;
+      }
+      return right.updatedAt.compareTo(left.updatedAt);
+    });
+    return items;
   }
 
   List<ReaderAnnotation> get _searched {
@@ -78,11 +114,19 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     }
     return _sorted
         .where(
-          (item) =>
-              item.quote.toLowerCase().contains(query) ||
-              (item.note?.toLowerCase().contains(query) ?? false),
+          (item) {
+            final chapterTitle = _chapterTitleOf(item)?.toLowerCase() ?? '';
+            return item.quote.toLowerCase().contains(query) ||
+                (item.note?.toLowerCase().contains(query) ?? false) ||
+                chapterTitle.contains(query);
+          },
         )
         .toList(growable: false);
+  }
+
+  String? _chapterTitleOf(ReaderAnnotation annotation) {
+    final title = widget.chapterTitleOf?.call(annotation)?.trim();
+    return title == null || title.isEmpty ? null : title;
   }
 
   List<ReaderAnnotation> _filtered(List<ReaderAnnotation> items) {
@@ -267,6 +311,24 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       color: theme.colorScheme.outline,
                     ),
                   ),
+                  PopupMenuButton<_AnnotationSort>(
+                    key: const ValueKey<String>('annotation-sort'),
+                    tooltip: '标注排序',
+                    initialValue: _sort,
+                    onSelected: (value) => setState(() => _sort = value),
+                    icon: const Icon(Icons.sort, size: 20),
+                    itemBuilder: (_) => <PopupMenuEntry<_AnnotationSort>>[
+                      for (final sort in _AnnotationSort.values)
+                        CheckedPopupMenuItem<_AnnotationSort>(
+                          key: ValueKey<String>(
+                            'annotation-sort-${sort.name}',
+                          ),
+                          value: sort,
+                          checked: sort == _sort,
+                          child: Text(sort.label),
+                        ),
+                    ],
+                  ),
                   if (widget.onDelete != null && items.isNotEmpty)
                     IconButton(
                       key: const ValueKey<String>('annotation-batch-manage'),
@@ -286,7 +348,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
               onChanged: _setQuery,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: '搜索原文或笔记',
+                hintText: '搜索原文、笔记或章节',
                 prefixIcon: const Icon(Icons.search, size: 20),
                 suffixIcon: _query.isEmpty
                     ? null
@@ -361,6 +423,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       final annotation = items[index];
                       return _AnnotationCard(
                         annotation: annotation,
+                        chapterTitle: _chapterTitleOf(annotation),
                         selecting: _selecting,
                         selected: _selectedIds.contains(annotation.id),
                         onToggleSelection: () =>
@@ -428,6 +491,7 @@ class _FilterChip extends StatelessWidget {
 class _AnnotationCard extends StatelessWidget {
   const _AnnotationCard({
     required this.annotation,
+    required this.chapterTitle,
     required this.selecting,
     required this.selected,
     required this.onToggleSelection,
@@ -436,6 +500,7 @@ class _AnnotationCard extends StatelessWidget {
   });
 
   final ReaderAnnotation annotation;
+  final String? chapterTitle;
   final bool selecting;
   final bool selected;
   final VoidCallback onToggleSelection;
@@ -494,7 +559,23 @@ class _AnnotationCard extends StatelessWidget {
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
-                              const Spacer(),
+                              if (chapterTitle != null) ...[
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    chapterTitle!,
+                                    key: ValueKey<String>(
+                                      'annotation-chapter-${annotation.id}',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ] else
+                                const Spacer(),
                               Text(
                                 _formatTime(annotation.updatedAt),
                                 style: theme.textTheme.labelSmall?.copyWith(

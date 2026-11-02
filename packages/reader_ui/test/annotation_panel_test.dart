@@ -9,12 +9,13 @@ ReaderAnnotation _annotation({
   required String quote,
   String? note,
   int minute = 0,
+  String startCfi = 'epubcfi(/6/2!/4/2/1:0)',
 }) {
   final time = DateTime(2026, 11, 3, 10, minute);
   return ReaderAnnotation(
     id: id,
     type: type,
-    startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+    startCfi: startCfi,
     endCfi: 'epubcfi(/6/2!/4/2/1:4)',
     quote: quote,
     color: type == ReaderAnnotationType.highlight ? 0xFFFFEB3B : null,
@@ -160,6 +161,107 @@ void main() {
     expect(find.text('共 2 条'), findsOneWidget);
     expect(find.text('落霞与孤鹜齐飞'), findsOneWidget);
     expect(find.text('春风又绿江南岸'), findsOneWidget);
+  });
+
+  testWidgets('标注面板：可切换最近更新与阅读顺序', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'position-first',
+                type: ReaderAnnotationType.highlight,
+                quote: '书中靠前的内容',
+                minute: 1,
+                startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+              ),
+              _annotation(
+                id: 'position-later',
+                type: ReaderAnnotationType.highlight,
+                quote: '书中靠后的内容',
+                minute: 2,
+                startCfi: 'epubcfi(/6/4!/4/2/1:0)',
+              ),
+            ],
+            onSelect: (_) {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getTopLeft(find.text('书中靠后的内容')).dy,
+      lessThan(tester.getTopLeft(find.text('书中靠前的内容')).dy),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-sort')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('annotation-sort-position'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('书中靠前的内容')).dy,
+      lessThan(tester.getTopLeft(find.text('书中靠后的内容')).dy),
+    );
+  });
+
+  testWidgets('标注面板：展示章节并支持按章节搜索', (tester) async {
+    String? chapterTitleOf(ReaderAnnotation annotation) {
+      if (annotation.id == 'chapter-note') {
+        return '第三章 春风';
+      }
+      return '第一章 落霞';
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'chapter-note',
+                type: ReaderAnnotationType.note,
+                quote: '江南岸的原文',
+                note: '这里的笔记',
+                minute: 1,
+              ),
+              _annotation(
+                id: 'chapter-highlight',
+                type: ReaderAnnotationType.highlight,
+                quote: '孤鹜齐飞的原文',
+                minute: 2,
+              ),
+            ],
+            chapterTitleOf: chapterTitleOf,
+            onSelect: (_) {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('annotation-chapter-chapter-note')),
+      findsOneWidget,
+    );
+    expect(find.text('第三章 春风'), findsOneWidget);
+    expect(find.text('第一章 落霞'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('annotation-search-input')),
+      '第三章',
+    );
+    await tester.pump();
+    expect(find.text('江南岸的原文'), findsOneWidget);
+    expect(find.text('孤鹜齐飞的原文'), findsNothing);
   });
 
   testWidgets('标注面板：批量选择并确认删除', (tester) async {
