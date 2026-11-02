@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
@@ -278,5 +279,82 @@ void main() {
       }
     }
     expect(rightInk, greaterThan(10), reason: '第二个字仍须留在首行可见');
+  });
+
+  test('单元格居中沿用排版行偏移，行首空白不使可见文字偏右', () async {
+    final cellStyle = ComputedStyle({
+      'font-size': '16px',
+      'font-family': 'Ahem',
+      'line-height': '20px',
+      'color': '#000000',
+      'text-align': 'center',
+    });
+    final cellLayout = TextLayoutEngine.layout(
+      text: '\u00A0ab',
+      style: cellStyle,
+      maxWidth: 80,
+    );
+    expect(cellLayout.lines.single.offsetX, closeTo(8, 0.01));
+    final block = PageBlock.styled(
+      layout: TextLayoutResult(
+        text: '',
+        lines: <LineBox>[
+          LineBox(
+            start: 0,
+            end: 0,
+            top: 0,
+            height: 20,
+            baseline: 20,
+            width: 80,
+          ),
+        ],
+        width: 80,
+        height: 20,
+        maxWidth: 80,
+        runs: <StyledRun>[],
+      ),
+      style: ComputedStyle({'font-size': '13px'}),
+      containingWidth: 80,
+      table: TableRenderSpec(
+        cells: [
+          TableCellRender(
+            row: 0,
+            rect: const Rect.fromLTWH(0, 0, 80, 20),
+            layout: cellLayout,
+            style: cellStyle,
+          ),
+        ],
+        columnXs: const [0, 80],
+        rowYs: const [0, 20],
+        tableWidth: 80,
+      ),
+    );
+    final page = Paginator(pageHeight: 20)
+        .measureChapter(blocks: [block])
+        .pages
+        .single;
+    final recorder = ui.PictureRecorder();
+    const PagePainter().paint(
+      Canvas(recorder),
+      page,
+      pageSize: const Size(80, 20),
+    );
+    final image = await recorder.endRecording().toImage(80, 20);
+    final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    image.dispose();
+    var left = 80;
+    var right = -1;
+    for (var y = 0; y < 20; y++) {
+      for (var x = 0; x < 80; x++) {
+        final offset = (y * 80 + x) * 4;
+        if (data.getUint8(offset) < 40 &&
+            data.getUint8(offset + 1) < 40 &&
+            data.getUint8(offset + 2) < 40) {
+          left = math.min(left, x);
+          right = math.max(right, x);
+        }
+      }
+    }
+    expect((left + right) / 2, closeTo(40, 1.5));
   });
 }

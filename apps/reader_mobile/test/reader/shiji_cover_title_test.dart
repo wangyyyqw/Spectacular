@@ -1,13 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/line_spans.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('史记扉页标题在常见字号下完整且不重复', () async {
+  test('史记扉页标题完整、自动换行且可见文字居中', () async {
     final file = File('../../test_corpus/real/shiji-yuewei.epub');
     final source = await EpubChapterSource.open(
       file.readAsBytesSync(),
@@ -48,6 +51,39 @@ void main() {
         ],
         everyElement(isTrue),
         reason: '标题各行应按顺序向下排列',
+      );
+
+      final secondLine = title.layout.lines[1];
+      final painter = TextPainter(
+        text: buildLineSpan(
+          layout: title.layout,
+          line: secondLine,
+          baseStyle: TextLayoutEngine.textStyleFor(
+            title.layout.runs.last.style,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final visibleStart = painter
+          .getOffsetForCaret(const TextPosition(offset: 1), Rect.zero)
+          .dx;
+      final caretEnd = painter
+          .getOffsetForCaret(
+            TextPosition(offset: secondLine.end - secondLine.start),
+            Rect.zero,
+          )
+          .dx;
+      final visibleBoxes = painter.getBoxesForSelection(
+        TextSelection(
+          baseOffset: 1,
+          extentOffset: secondLine.end - secondLine.start,
+        ),
+      );
+      final visibleEnd = 2 * caretEnd - visibleBoxes.last.right;
+      expect(
+        secondLine.offsetX + (visibleStart + visibleEnd) / 2,
+        closeTo(title.layout.maxWidth / 2, 0.1),
+        reason: '行首 NBSP 不应让“十二本纪”整体偏右',
       );
     }
   });

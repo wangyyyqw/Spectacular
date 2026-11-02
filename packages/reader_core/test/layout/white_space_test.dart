@@ -63,6 +63,14 @@ void main() {
     expect(layout.maxWidth, closeTo(200, 0.01));
   });
 
+  test('center：行首 NBSP 不参与可见文字居中计算', () {
+    // Ahem 16px：NBSP + "ab" = 48，内容宽 80。忽略 NBSP 后，
+    // 可见的 "ab" 应从左缘 8px 处开始才能居中。
+    final layout = _layout('\u00A0ab', _style(textAlign: 'center'), width: 80);
+    expect(layout.lines.single.width, closeTo(48, 0.01));
+    expect(layout.lines.single.offsetX, closeTo(8, 0.01));
+  });
+
   test('pre-wrap：保留空白但允许软换行', () {
     final layout = _layout('aaaaaaaa', _style(whiteSpace: 'pre-wrap'));
     expect(layout.lineCount, greaterThan(1));
