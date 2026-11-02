@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -160,5 +161,53 @@ void main() {
     expect(find.text('参见'), findsOneWidget);
     expect(find.text('这条注释暂无内容'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('可复制整条多段注释并显示复制反馈', (tester) async {
+    MethodCall? clipboardCall;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardCall = call;
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: ReaderFootnoteDialog(
+              footnote: PageFootnote(
+                start: 0,
+                end: 1,
+                label: '1',
+                kind: NoteKind.footnote,
+                text: '第一段注释\n第二段注释',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('reader-footnote-copy')),
+    );
+    await tester.pump();
+
+    expect(clipboardCall?.method, 'Clipboard.setData');
+    expect(clipboardCall?.arguments, const <String, Object?>{
+      'text': '第一段注释\n第二段注释',
+    });
+    expect(find.text('已复制'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('复制注释'), findsOneWidget);
   });
 }
