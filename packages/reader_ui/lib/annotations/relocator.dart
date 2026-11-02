@@ -72,6 +72,7 @@ class AnnotationRelocation {
     contextBefore: annotation.contextBefore,
     contextAfter: annotation.contextAfter,
     color: annotation.color,
+    style: annotation.style,
     note: annotation.note,
     createdAt: annotation.createdAt,
     updatedAt: annotation.updatedAt,

@@ -166,6 +166,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(await annotations.list(), hasLength(1));
+    expect(
+      (await annotations.list()).single.style,
+      ReaderAnnotationStyle.background,
+    );
     // 等第一条 SnackBar 消失，避免第二条排队看不到。
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
@@ -249,6 +253,15 @@ void main() {
 
     await tester.tapAt(center);
     await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-style-wavyUnderline')),
+    );
+    await tester.pumpAndSettle();
+    final restyled = (await annotations.list()).single;
+    expect(restyled.style, ReaderAnnotationStyle.wavyUnderline);
+
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('annotation-remove')));
     await tester.pumpAndSettle();
     expect(await annotations.list(), isEmpty);
@@ -260,6 +273,7 @@ void main() {
     final restored = (await annotations.list()).single;
     expect(restored.type, ReaderAnnotationType.highlight);
     expect(restored.color, 0xFF90CAF9);
+    expect(restored.style, ReaderAnnotationStyle.wavyUnderline);
     expect(restored.quote, isNotEmpty);
   });
 }

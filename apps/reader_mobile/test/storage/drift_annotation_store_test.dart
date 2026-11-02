@@ -34,7 +34,7 @@ void main() {
     }
   });
 
-  test('新增高亮：落库含 CFI 区间、原文、前后文与颜色（P4-17）', () async {
+  test('新增高亮：落库含 CFI 区间、原文、前后文、颜色与样式（P4-17）', () async {
     final store = library.annotationStore(book.id)!;
     final created = await store.add(
       type: ReaderAnnotationType.highlight,
@@ -44,6 +44,7 @@ void main() {
       contextBefore: '毕竟帮他',
       contextAfter: '自己怎么着',
       color: 0xFFFFEB3B,
+      style: ReaderAnnotationStyle.wavyUnderline,
     );
     expect(created, isNotNull);
 
@@ -56,6 +57,7 @@ void main() {
     expect(item.quote, '找学习资源');
     expect(item.contextBefore, '毕竟帮他');
     expect(item.color, 0xFFFFEB3B);
+    expect(item.style, ReaderAnnotationStyle.wavyUnderline);
   });
 
   test('同一区间不重复：同类型同起止 CFI 返回 null', () async {
@@ -93,7 +95,7 @@ void main() {
     expect(await store.list(), hasLength(3));
   });
 
-  test('更新颜色与备注，更新时间刷新', () async {
+  test('更新颜色、样式与备注，更新时间刷新', () async {
     final store = library.annotationStore(book.id)!;
     final created = (await store.add(
       type: ReaderAnnotationType.highlight,
@@ -102,9 +104,15 @@ void main() {
       quote: '文字',
       color: 0xFFFFEB3B,
     ))!;
-    await store.update(created.id, color: 0xFF4CAF50, note: '改了');
+    await store.update(
+      created.id,
+      color: 0xFF4CAF50,
+      style: ReaderAnnotationStyle.dashedUnderline,
+      note: '改了',
+    );
     final item = (await store.list()).single;
     expect(item.color, 0xFF4CAF50);
+    expect(item.style, ReaderAnnotationStyle.dashedUnderline);
     expect(item.note, '改了');
     expect(
       item.updatedAt.isAfter(created.updatedAt) ||

@@ -3,9 +3,10 @@ import 'package:reader_core/layout/paginator.dart';
 
 import '../selection/selection.dart';
 import 'annotation.dart';
+import 'annotation_style_painter.dart';
 import 'decorations.dart';
 
-/// 标注装饰层（P4-18）：高亮底色 + 笔记标记。
+/// 标注装饰层（P4-18）：高亮样式 + 笔记标记。
 ///
 /// 绘制在正文之上、选区层之下：高亮按半透明底色叠加（§64.3 允许装饰层独立
 /// 绘制），重叠标注按创建时间顺序绘制，后来的覆盖先前的。
@@ -83,30 +84,24 @@ class _AnnotationPainter extends CustomPainter {
         line.startOffset,
         line.endOffset,
       );
-      if (inkMode) {
-        // 墨水屏只认黑白两级：高亮用 2px 黑色下划线（§42.2）。
-        final underline = Paint()
-          ..color = const Color(0xFF000000)
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke;
-        for (final rect in rects) {
-          final y = rect.bottom - 1;
-          canvas.drawLine(
-            Offset(rect.left, y),
-            Offset(rect.right, y),
-            underline,
-          );
-        }
-      } else {
-        final color = Color(line.annotation.color ?? defaultHighlightColor)
-            .withValues(alpha: highlightAlpha);
-        final paint = Paint()..color = color;
-        for (final rect in rects) {
-          canvas.drawRRect(
-            RRect.fromRectAndRadius(rect, const Radius.circular(2)),
-            paint,
-          );
-        }
+      // 墨水屏默认底色样式降级为黑色下划线，其他线型保留形状。
+      final style =
+          inkMode && line.annotation.style == ReaderAnnotationStyle.background
+          ? ReaderAnnotationStyle.underline
+          : line.annotation.style;
+      final color = inkMode
+          ? const Color(0xFF000000)
+          : Color(line.annotation.color ?? defaultHighlightColor);
+      for (final rect in rects) {
+        AnnotationStylePainter.paint(
+          canvas,
+          rect,
+          color: color,
+          style: style,
+          fillAlpha: highlightAlpha,
+          strokeAlpha: inkMode ? 1 : 0.9,
+          strokeWidth: inkMode ? 2 : 1.8,
+        );
       }
       if (line.annotation.type == ReaderAnnotationType.note && rects.isNotEmpty) {
         noteMarks.add(Offset(rects.last.right + 4, rects.last.center.dy));
@@ -140,7 +135,8 @@ class _AnnotationPainter extends CustomPainter {
           a.endOffset != b.endOffset ||
           a.annotation.id != b.annotation.id ||
           a.annotation.type != b.annotation.type ||
-          a.annotation.color != b.annotation.color) {
+          a.annotation.color != b.annotation.color ||
+          a.annotation.style != b.annotation.style) {
         return false;
       }
     }

@@ -127,11 +127,17 @@ class _NoopAnnotationStore implements ReaderAnnotationStore {
     String? contextBefore,
     String? contextAfter,
     int? color,
+    ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
     String? note,
   }) async => null;
 
   @override
-  Future<void> update(String id, {int? color, String? note}) async {}
+  Future<void> update(
+    String id, {
+    int? color,
+    ReaderAnnotationStyle? style,
+    String? note,
+  }) async {}
 
   @override
   Future<void> remove(String id) async {}

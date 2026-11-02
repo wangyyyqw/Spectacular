@@ -3,11 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'annotation.dart';
+import 'annotation_style_painter.dart';
 
 /// 标注编辑动作。
 enum AnnotationEditActionType {
   /// 更换高亮颜色。
   recolor,
+
+  /// 更换高亮样式。
+  restyle,
 
   /// 保存笔记正文。
   saveNote,
@@ -18,11 +22,15 @@ enum AnnotationEditActionType {
 
 /// 标注编辑弹层返回结果。
 class AnnotationEditAction {
-  const AnnotationEditAction._(this.type, {this.color, this.note});
+  const AnnotationEditAction._(this.type, {this.color, this.style, this.note});
 
   /// 更换颜色。
   const AnnotationEditAction.recolor(int color)
     : this._(AnnotationEditActionType.recolor, color: color);
+
+  /// 更换样式。
+  const AnnotationEditAction.restyle(ReaderAnnotationStyle style)
+    : this._(AnnotationEditActionType.restyle, style: style);
 
   /// 保存笔记。
   const AnnotationEditAction.saveNote(String note)
@@ -37,6 +45,9 @@ class AnnotationEditAction {
   /// 新颜色（仅换色时有效）。
   final int? color;
 
+  /// 新样式（仅换样式时有效）。
+  final ReaderAnnotationStyle? style;
+
   /// 新笔记正文（仅保存笔记时有效）。
   final String? note;
 }
@@ -47,6 +58,17 @@ class AnnotationColorOption {
 
   /// ARGB 颜色。
   final int value;
+
+  /// 无障碍与提示文案。
+  final String label;
+}
+
+/// 高亮样式选项。
+class AnnotationStyleOption {
+  const AnnotationStyleOption(this.value, this.label);
+
+  /// 装饰样式。
+  final ReaderAnnotationStyle value;
 
   /// 无障碍与提示文案。
   final String label;
@@ -64,6 +86,14 @@ class ReaderAnnotationEditorSheet extends StatefulWidget {
     AnnotationColorOption(0xFF90CAF9, '蓝色'),
     AnnotationColorOption(0xFFF48FB1, '粉色'),
     AnnotationColorOption(0xFFFFB74D, '橙色'),
+  ];
+
+  /// 可选高亮样式。
+  static const styles = <AnnotationStyleOption>[
+    AnnotationStyleOption(ReaderAnnotationStyle.background, '底色'),
+    AnnotationStyleOption(ReaderAnnotationStyle.underline, '直线'),
+    AnnotationStyleOption(ReaderAnnotationStyle.wavyUnderline, '波浪线'),
+    AnnotationStyleOption(ReaderAnnotationStyle.dashedUnderline, '虚线'),
   ];
 
   /// 当前标注。
@@ -95,6 +125,8 @@ class _ReaderAnnotationEditorSheetState
 
   int get _currentColor => widget.annotation.color ?? defaultHighlightColor;
 
+  ReaderAnnotationStyle get _currentStyle => widget.annotation.style;
+
   @override
   void initState() {
     super.initState();
@@ -111,7 +143,9 @@ class _ReaderAnnotationEditorSheetState
     if (_closing) {
       return;
     }
-    if (action.type == AnnotationEditActionType.recolor && _noteDraftChanged) {
+    if ((action.type == AnnotationEditActionType.recolor ||
+            action.type == AnnotationEditActionType.restyle) &&
+        _noteDraftChanged) {
       final discard = await _confirmDiscard();
       if (!discard || !mounted) {
         return;
@@ -174,6 +208,13 @@ class _ReaderAnnotationEditorSheetState
     unawaited(_finish(AnnotationEditAction.recolor(color)));
   }
 
+  void _selectStyle(ReaderAnnotationStyle style) {
+    if (style == _currentStyle) {
+      return;
+    }
+    unawaited(_finish(AnnotationEditAction.restyle(style)));
+  }
+
   Future<bool> _confirmDiscard() async {
     if (_discardDialogVisible) {
       return false;
@@ -228,6 +269,7 @@ class _ReaderAnnotationEditorSheetState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentColor = _currentColor;
+    final currentStyle = _currentStyle;
     return PopScope(
       canPop: !_noteDraftChanged || _allowPop,
       onPopInvokedWithResult: (didPop, _) {
@@ -260,6 +302,7 @@ class _ReaderAnnotationEditorSheetState
                   _AnnotationPreview(
                     annotation: widget.annotation,
                     currentColor: currentColor,
+                    currentStyle: currentStyle,
                   ),
                   if (_isNote) ...[
                     const SizedBox(height: 16),
@@ -274,6 +317,14 @@ class _ReaderAnnotationEditorSheetState
                   _ColorChoices(
                     currentColor: currentColor,
                     onSelected: _selectColor,
+                  ),
+                  const SizedBox(height: 18),
+                  Text('高亮样式', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: 10),
+                  _StyleChoices(
+                    currentColor: currentColor,
+                    currentStyle: currentStyle,
+                    onSelected: _selectStyle,
                   ),
                   const SizedBox(height: 18),
                   if (_isNote) ...[
@@ -403,10 +454,12 @@ class _AnnotationPreview extends StatelessWidget {
   const _AnnotationPreview({
     required this.annotation,
     required this.currentColor,
+    required this.currentStyle,
   });
 
   final ReaderAnnotation annotation;
   final int currentColor;
+  final ReaderAnnotationStyle currentStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -415,16 +468,28 @@ class _AnnotationPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
-            color: Color(currentColor).withValues(alpha: 0.22),
+            color: currentStyle == ReaderAnnotationStyle.background
+                ? Color(currentColor).withValues(alpha: 0.22)
+                : theme.colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Text(
-            annotation.quote,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+          child: CustomPaint(
+            painter: currentStyle == ReaderAnnotationStyle.background
+                ? null
+                : _AnnotationPreviewPainter(
+                    color: Color(currentColor),
+                    style: currentStyle,
+                  ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: Text(
+                annotation.quote,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+              ),
+            ),
           ),
         ),
       ],
@@ -452,6 +517,175 @@ class _ColorChoices extends StatelessWidget {
       ],
     );
   }
+}
+
+class _StyleChoices extends StatelessWidget {
+  const _StyleChoices({
+    required this.currentColor,
+    required this.currentStyle,
+    required this.onSelected,
+  });
+
+  final int currentColor;
+  final ReaderAnnotationStyle currentStyle;
+  final ValueChanged<ReaderAnnotationStyle> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        for (
+          var index = 0;
+          index < ReaderAnnotationEditorSheet.styles.length;
+          index += 1
+        ) ...[
+          if (index > 0) const SizedBox(width: 8),
+          Expanded(
+            child: _StyleChoice(
+              option: ReaderAnnotationEditorSheet.styles[index],
+              color: Color(currentColor),
+              selected:
+                  ReaderAnnotationEditorSheet.styles[index].value ==
+                  currentStyle,
+              onTap: () =>
+                  onSelected(ReaderAnnotationEditorSheet.styles[index].value),
+              background: theme.colorScheme.surfaceContainerLow,
+              selectedBackground: theme.colorScheme.primaryContainer,
+              borderColor: theme.colorScheme.outlineVariant,
+              selectedBorderColor: theme.colorScheme.primary,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _StyleChoice extends StatelessWidget {
+  const _StyleChoice({
+    required this.option,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+    required this.background,
+    required this.selectedBackground,
+    required this.borderColor,
+    required this.selectedBorderColor,
+  });
+
+  final AnnotationStyleOption option;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color background;
+  final Color selectedBackground;
+  final Color borderColor;
+  final Color selectedBorderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: option.label,
+      excludeSemantics: true,
+      onTap: onTap,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey<String>('annotation-style-${option.value.name}'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            height: 58,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+            decoration: BoxDecoration(
+              color: selected ? selectedBackground : background,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? selectedBorderColor : borderColor,
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 34,
+                  height: 14,
+                  child: CustomPaint(
+                    painter: _StyleSamplePainter(
+                      color: color,
+                      style: option.value,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  option.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StyleSamplePainter extends CustomPainter {
+  const _StyleSamplePainter({required this.color, required this.style});
+
+  final Color color;
+  final ReaderAnnotationStyle style;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    AnnotationStylePainter.paint(
+      canvas,
+      Offset.zero & size,
+      color: color,
+      style: style,
+      fillAlpha: 0.35,
+      strokeAlpha: 1,
+      strokeWidth: 1.8,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_StyleSamplePainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.style != style;
+}
+
+class _AnnotationPreviewPainter extends CustomPainter {
+  const _AnnotationPreviewPainter({required this.color, required this.style});
+
+  final Color color;
+  final ReaderAnnotationStyle style;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    AnnotationStylePainter.paint(
+      canvas,
+      Rect.fromLTRB(14, 0, size.width - 14, size.height - 7),
+      color: color,
+      style: style,
+      strokeWidth: 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_AnnotationPreviewPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.style != style;
 }
 
 class _RemoveAnnotationButton extends StatelessWidget {
