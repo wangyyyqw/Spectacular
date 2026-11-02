@@ -13,6 +13,7 @@ import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/db.dart';
 
 import '../support/test_epub.dart';
@@ -38,7 +39,10 @@ void main() {
   });
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, (call) async => null);
+        .setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async => null,
+        );
   });
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -59,28 +63,30 @@ void main() {
     await tester.runAsync(() async {
       book = await library.importBytes(bytes, fallbackTitle: 'basic');
     });
-    final source = await openTestChapterSource(bytes);
     final annotations = library.annotationStore(book.id)!;
 
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: SizedBox(
-              width: 360,
-              height: 520,
-              child: ReaderPage(
-                source: source,
-                store: MemoryReaderProgressStore(),
-                bookId: book.id,
-                annotations: annotations,
-              ),
-            ),
+        home: SizedBox(
+          width: 360,
+          height: 520,
+          child: EpubReaderPage(
+            bytes: bytes,
+            bookId: book.id,
+            store: MemoryReaderProgressStore(),
+            annotations: annotations,
+            bookTitle: book.title,
           ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(
+      find.byKey(const ValueKey<String>('epub-reader-scaffold')),
+      findsOneWidget,
+    );
 
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
@@ -243,11 +249,17 @@ void main() {
 
     await tester.tapAt(center);
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-remove')),
-    );
+    await tester.tap(find.byKey(const ValueKey<String>('annotation-remove')));
     await tester.pumpAndSettle();
     expect(await annotations.list(), isEmpty);
     expect(find.byType(AnnotationLayer), findsNothing);
+    expect(find.text('撤销'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    final restored = (await annotations.list()).single;
+    expect(restored.type, ReaderAnnotationType.highlight);
+    expect(restored.color, 0xFF90CAF9);
+    expect(restored.quote, isNotEmpty);
   });
 }
