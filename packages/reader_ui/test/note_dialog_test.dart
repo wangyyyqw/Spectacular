@@ -78,7 +78,26 @@ class _Notes implements ReaderAnnotationStore {
   }
 
   @override
-  Future<void> update(String id, {int? color, String? note}) async {}
+  Future<void> update(String id, {int? color, String? note}) async {
+    final index = items.indexWhere((item) => item.id == id);
+    if (index < 0) {
+      return;
+    }
+    final old = items[index];
+    items[index] = ReaderAnnotation(
+      id: old.id,
+      type: old.type,
+      startCfi: old.startCfi,
+      endCfi: old.endCfi,
+      quote: old.quote,
+      contextBefore: old.contextBefore,
+      contextAfter: old.contextAfter,
+      color: color ?? old.color,
+      note: note ?? old.note,
+      createdAt: old.createdAt,
+      updatedAt: DateTime.now(),
+    );
+  }
 
   @override
   Future<void> remove(String id) async =>
@@ -116,10 +135,10 @@ Future<_Notes> _showEditor(WidgetTester tester) async {
   );
   await tester.pumpAndSettle();
   final line = TextHitTester.lineBoxes(source.pages.first).first;
-  await tester.longPressAt(
-    tester.getTopLeft(find.byType(ReaderView)) +
-        Offset(line.rect.left + 6, line.rect.center.dy),
-  );
+  final wordPosition =
+      tester.getTopLeft(find.byType(ReaderView)) +
+      Offset(line.rect.left + 6, line.rect.center.dy);
+  await tester.longPressAt(wordPosition);
   await tester.pumpAndSettle();
   await _openEditor(tester);
   return notes;
@@ -149,6 +168,61 @@ void main() {
     expect(notes.items.single.note, '最终笔记');
     expect(notes.items.single.quote, 'word');
     expect(find.byType(SelectionLayer), findsNothing);
+  });
+
+  testWidgets('点击已有笔记可修改正文并保存', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'note-edit',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final wordPosition =
+        tester.getTopLeft(find.byType(ReaderView)) +
+        Offset(line.rect.left + 6, line.rect.center.dy);
+
+    await tester.longPressAt(wordPosition);
+    await tester.pumpAndSettle();
+    await _openEditor(tester);
+    await tester.enterText(find.byType(TextField), '第一版笔记');
+    await tester.tap(_dialogAction('保存'));
+    await _finishExit(tester);
+    expect(notes.items.single.note, '第一版笔记');
+
+    await tester.tapAt(wordPosition);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    final input = find.byKey(const ValueKey<String>('annotation-note-input'));
+    expect(tester.widget<TextField>(input).controller?.text, '第一版笔记');
+
+    await tester.enterText(input, '  更新后的笔记  ');
+    await tester.pump();
+    final save = find.byKey(const ValueKey<String>('annotation-save-note'));
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(notes.items.single.note, '更新后的笔记');
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsNothing,
+    );
   });
 
   for (final action in ['取消', '遮罩', '系统返回', '空白保存']) {

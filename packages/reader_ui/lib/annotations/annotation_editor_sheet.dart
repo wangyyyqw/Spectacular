@@ -7,17 +7,24 @@ enum AnnotationEditActionType {
   /// 更换高亮颜色。
   recolor,
 
+  /// 保存笔记正文。
+  saveNote,
+
   /// 删除高亮或笔记。
   remove,
 }
 
 /// 标注编辑弹层返回结果。
 class AnnotationEditAction {
-  const AnnotationEditAction._(this.type, {this.color});
+  const AnnotationEditAction._(this.type, {this.color, this.note});
 
   /// 更换颜色。
   const AnnotationEditAction.recolor(int color)
     : this._(AnnotationEditActionType.recolor, color: color);
+
+  /// 保存笔记。
+  const AnnotationEditAction.saveNote(String note)
+    : this._(AnnotationEditActionType.saveNote, note: note);
 
   /// 删除标注。
   const AnnotationEditAction.remove() : this._(AnnotationEditActionType.remove);
@@ -27,6 +34,9 @@ class AnnotationEditAction {
 
   /// 新颜色（仅换色时有效）。
   final int? color;
+
+  /// 新笔记正文（仅保存笔记时有效）。
+  final String? note;
 }
 
 /// 高亮颜色选项。
@@ -41,7 +51,7 @@ class AnnotationColorOption {
 }
 
 /// 点击已有高亮后打开的编辑弹层。
-class ReaderAnnotationEditorSheet extends StatelessWidget {
+class ReaderAnnotationEditorSheet extends StatefulWidget {
   /// 创建标注编辑弹层。
   const ReaderAnnotationEditorSheet({super.key, required this.annotation});
 
@@ -57,42 +67,139 @@ class ReaderAnnotationEditorSheet extends StatelessWidget {
   /// 当前标注。
   final ReaderAnnotation annotation;
 
-  bool get _isNote => annotation.type == ReaderAnnotationType.note;
+  @override
+  State<ReaderAnnotationEditorSheet> createState() =>
+      _ReaderAnnotationEditorSheetState();
+}
+
+class _ReaderAnnotationEditorSheetState
+    extends State<ReaderAnnotationEditorSheet> {
+  late final TextEditingController _noteController;
+
+  bool get _isNote => widget.annotation.type == ReaderAnnotationType.note;
+
+  String get _trimmedNote => _noteController.text.trim();
+
+  bool get _noteChanged =>
+      _trimmedNote.isNotEmpty &&
+      _trimmedNote != (widget.annotation.note?.trim() ?? '');
+
+  @override
+  void initState() {
+    super.initState();
+    _noteController = TextEditingController(text: widget.annotation.note ?? '');
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final currentColor = annotation.color ?? defaultHighlightColor;
-    return Material(
-      key: const ValueKey<String>('annotation-editor-sheet'),
-      color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _SheetHandle(),
-              const SizedBox(height: 14),
-              _SheetHeader(isNote: _isNote),
-              _AnnotationPreview(
-                annotation: annotation,
-                currentColor: currentColor,
-              ),
-              const SizedBox(height: 18),
-              Text('高亮颜色', style: theme.textTheme.labelLarge),
-              const SizedBox(height: 10),
-              _ColorChoices(currentColor: currentColor),
-              const SizedBox(height: 18),
-              _RemoveAnnotationButton(isNote: _isNote),
-            ],
+    final currentColor = widget.annotation.color ?? defaultHighlightColor;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Material(
+        key: const ValueKey<String>('annotation-editor-sheet'),
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _SheetHandle(),
+                const SizedBox(height: 14),
+                _SheetHeader(isNote: _isNote),
+                _AnnotationPreview(
+                  annotation: widget.annotation,
+                  currentColor: currentColor,
+                ),
+                if (_isNote) ...[
+                  const SizedBox(height: 16),
+                  _AnnotationNoteEditor(
+                    controller: _noteController,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                Text('高亮颜色', style: theme.textTheme.labelLarge),
+                const SizedBox(height: 10),
+                _ColorChoices(currentColor: currentColor),
+                const SizedBox(height: 18),
+                if (_isNote) ...[
+                  FilledButton.icon(
+                    key: const ValueKey<String>('annotation-save-note'),
+                    onPressed: _noteChanged
+                        ? () => Navigator.of(context)
+                              .pop(AnnotationEditAction.saveNote(_trimmedNote))
+                        : null,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    icon: const Icon(Icons.check, size: 20),
+                    label: const Text('保存笔记'),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                _RemoveAnnotationButton(isNote: _isNote),
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AnnotationNoteEditor extends StatelessWidget {
+  const _AnnotationNoteEditor({
+    required this.controller,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('笔记内容', style: theme.textTheme.labelLarge),
+        const SizedBox(height: 8),
+        TextField(
+          key: const ValueKey<String>('annotation-note-input'),
+          controller: controller,
+          onChanged: onChanged,
+          minLines: 3,
+          maxLines: 6,
+          textInputAction: TextInputAction.newline,
+          decoration: InputDecoration(
+            hintText: '写下此刻的想法…',
+            filled: true,
+            fillColor: theme.colorScheme.surfaceContainerLow,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -171,18 +278,6 @@ class _AnnotationPreview extends StatelessWidget {
             style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
           ),
         ),
-        if (annotation.note case final note? when note.trim().isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            note,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.55,
-            ),
-          ),
-        ],
       ],
     );
   }

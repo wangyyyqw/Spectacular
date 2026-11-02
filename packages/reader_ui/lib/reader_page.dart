@@ -1169,6 +1169,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         }
         await store.update(annotation.id, color: color);
         message = '已更换高亮颜色';
+      case AnnotationEditActionType.saveNote:
+        final note = action.note?.trim();
+        if (note == null || note.isEmpty) {
+          return;
+        }
+        await store.update(annotation.id, note: note);
+        message = '笔记已更新';
       case AnnotationEditActionType.remove:
         await store.remove(annotation.id);
         message = annotation.type == ReaderAnnotationType.note
