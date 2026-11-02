@@ -761,16 +761,54 @@ class EpubChapterSource
     return size;
   }
 
+  /// 同目录的 `~slim` 高清封面变体（多看按屏幕比例选择）。
+  String? _slimVariantUrl(String url) {
+    final slash = url.lastIndexOf('/');
+    final dot = url.lastIndexOf('.');
+    if (dot <= slash || url.substring(0, dot).endsWith('~slim')) {
+      return null;
+    }
+    return '${url.substring(0, dot)}~slim${url.substring(dot)}';
+  }
+
+  /// 全屏页按页面比例在 `a.jpg` 与 `a~slim.jpg` 中取更接近的一张。
+  ///
+  /// 多看封面常同时提供 4:3 与 16:9 两个版本；若只取主图，竖屏设备会
+  /// 出现上下白边，或被迫用 cover 大幅裁边。尺寸读不到时保持原图。
+  String _selectFullscreenImage(int spineIndex, String imageSrc) {
+    final originalUrl = _chapterImageUrl(spineIndex, imageSrc);
+    final slimUrl = _slimVariantUrl(originalUrl);
+    if (slimUrl == null) {
+      return originalUrl;
+    }
+    final slimSize = _intrinsicSizeOfUrl(slimUrl);
+    if (slimSize == null) {
+      return originalUrl;
+    }
+    final originalSize = _intrinsicSizeOfUrl(originalUrl);
+    if (originalSize == null) {
+      return slimUrl;
+    }
+    final pageRatio = contentWidth / math.max(1.0, contentHeight);
+    final originalRatio =
+        originalSize.width / math.max(1.0, originalSize.height);
+    final slimRatio = slimSize.width / math.max(1.0, slimSize.height);
+    return (slimRatio - pageRatio).abs() < (originalRatio - pageRatio).abs()
+        ? slimUrl
+        : originalUrl;
+  }
+
   List<PageContent> _buildFullBleedPages(
     int spineIndex,
     String imageSrc,
     String paginationKey, {
     bool contain = false,
     bool bleed = false,
+    String? resolvedImageUrl,
   }) {
-    final width = math.max(80.0, baseContentWidth);
-    final height = math.max(120.0, baseContentHeight);
-    final imageUrl = _chapterImageUrl(spineIndex, imageSrc);
+    final width = math.max(80.0, contentWidth);
+    final height = math.max(120.0, contentHeight);
+    final imageUrl = resolvedImageUrl ?? _chapterImageUrl(spineIndex, imageSrc);
     // 整页图铺法：多看全屏页默认 cover（铺满，可能裁边）；`fitwindow`
     // 用 contain 并在页内居中（插图上下居中、不裁切）。
     final blockStyle = ComputedStyle(<String, String>{
@@ -3696,26 +3734,19 @@ class EpubChapterSource
     if (pageFlags.isFullPage) {
       final singleImage = fullBleedAnalysis(spineIndex).singleImageSrc;
       if (singleImage != null && singleImage.isNotEmpty) {
-        // 铺法（R4 回归修正）：全屏页默认 **contain**（等比完整显示、页内
-        // 居中、允许留白）——强上 cover 会把 SVG 封面/插图裁掉（zhushen
-        // 封面是 `<image xMidYMid meet>`，像素差 97%）。只有「声明
-        // fullscreen 且图片宽高比与页面比差 <2%」这种几乎无损的情形才
-        // 用 cover 填满；`duokan-page-fitwindow` 一律 contain。
-        final imageUrl = _chapterImageUrl(spineIndex, singleImage);
-        final intrinsic = _intrinsicSizeOfUrl(imageUrl);
-        final pageRatio = baseContentWidth / math.max(1.0, baseContentHeight);
-        final imageRatio = intrinsic == null
-            ? pageRatio
-            : intrinsic.width / math.max(1.0, intrinsic.height);
-        final closeRatio = (imageRatio - pageRatio).abs() <= pageRatio * 0.02;
-        final useCover =
-            pageFlags.fullScreen && !pageFlags.fitWindow && closeRatio;
+        // `fullscreen` 必须铺满查看区域；若书内有 `~slim` 变体，优先选
+        // 与当前页面比例更接近的一张，避免只靠 cover 裁掉封面信息。
+        // `fitwindow` 的语义不同，保持 contain。
+        final imageUrl = pageFlags.fitWindow
+            ? _chapterImageUrl(spineIndex, singleImage)
+            : _selectFullscreenImage(spineIndex, singleImage);
         final pages = _buildFullBleedPages(
           spineIndex,
           singleImage,
           paginationKey,
-          contain: !useCover,
+          contain: pageFlags.fitWindow,
           bleed: true,
+          resolvedImageUrl: imageUrl,
         );
         _putPageCache(paginationKey, pages);
         if (trace != null) {
