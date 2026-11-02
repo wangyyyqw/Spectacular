@@ -5,6 +5,18 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
 
+enum _ProgressBand {
+  unread('未开始'),
+  early('0-25%'),
+  middle('26-50%'),
+  advanced('51-75%'),
+  late('76-100%');
+
+  const _ProgressBand(this.label);
+
+  final String label;
+}
+
 /// 统计页：书量、阅读进度、近七日阅读与最近阅读。
 ///
 /// 数据全部来自书架、阅读进度和导入期字符统计，不维护额外埋点。
@@ -209,6 +221,23 @@ class _BookReadingStat {
   final int? percent;
 }
 
+_ProgressBand _progressBand(_BookReadingStat stat) {
+  if (stat.progress == null) {
+    return _ProgressBand.unread;
+  }
+  final percent = stat.percent ?? 0;
+  if (percent <= 25) {
+    return _ProgressBand.early;
+  }
+  if (percent <= 50) {
+    return _ProgressBand.middle;
+  }
+  if (percent <= 75) {
+    return _ProgressBand.advanced;
+  }
+  return _ProgressBand.late;
+}
+
 class _OverviewCard extends StatelessWidget {
   const _OverviewCard({required this.stats});
 
@@ -386,7 +415,35 @@ class _DistributionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final total = stats.rows.length;
-    final unread = total - stats.started;
+    int count(_ProgressBand band) =>
+        stats.rows.where((row) => _progressBand(row) == band).length;
+    final bands = <(_ProgressBand, Color, int)>[
+      (
+        _ProgressBand.unread,
+        theme.colorScheme.surfaceContainerHighest,
+        count(_ProgressBand.unread),
+      ),
+      (
+        _ProgressBand.early,
+        theme.colorScheme.tertiaryContainer,
+        count(_ProgressBand.early),
+      ),
+      (
+        _ProgressBand.middle,
+        theme.colorScheme.tertiary,
+        count(_ProgressBand.middle),
+      ),
+      (
+        _ProgressBand.advanced,
+        theme.colorScheme.primary.withAlpha(170),
+        count(_ProgressBand.advanced),
+      ),
+      (
+        _ProgressBand.late,
+        theme.colorScheme.primary,
+        count(_ProgressBand.late),
+      ),
+    ];
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -405,21 +462,12 @@ class _DistributionCard extends StatelessWidget {
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          if (stats.started > 0)
-                            Expanded(
-                              flex: stats.started,
-                              child: ColoredBox(
-                                color: theme.colorScheme.primary,
+                          for (final band in bands)
+                            if (band.$3 > 0)
+                              Expanded(
+                                flex: band.$3,
+                                child: ColoredBox(color: band.$2),
                               ),
-                            ),
-                          if (unread > 0)
-                            Expanded(
-                              flex: unread,
-                              child: ColoredBox(
-                                color:
-                                    theme.colorScheme.surfaceContainerHighest,
-                              ),
-                            ),
                         ],
                       ),
               ),
@@ -429,14 +477,12 @@ class _DistributionCard extends StatelessWidget {
               spacing: 18,
               runSpacing: 8,
               children: [
-                _Legend(
-                  color: theme.colorScheme.primary,
-                  label: '已开始 ${stats.started} 本',
-                ),
-                _Legend(
-                  color: theme.colorScheme.outlineVariant,
-                  label: '未开始 $unread 本',
-                ),
+                for (final band in bands)
+                  _Legend(
+                    color: band.$2,
+                    label: '${band.$1.label} ${band.$3} 本',
+                    textKey: ValueKey<String>('stats-band-${band.$1.name}'),
+                  ),
               ],
             ),
           ],
@@ -447,10 +493,15 @@ class _DistributionCard extends StatelessWidget {
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({required this.color, required this.label});
+  const _Legend({
+    required this.color,
+    required this.label,
+    required this.textKey,
+  });
 
   final Color color;
   final String label;
+  final Key textKey;
 
   @override
   Widget build(BuildContext context) {
@@ -463,7 +514,7 @@ class _Legend extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 6),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        Text(label, key: textKey, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
