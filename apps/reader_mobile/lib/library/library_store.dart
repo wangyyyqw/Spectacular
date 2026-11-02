@@ -17,9 +17,6 @@ import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
-///
-/// 已读判定依赖进度百分比（P4-09 量化），当前只有「未读 / 在读」两态，
-/// `finished` 留给进度模型接入。
 enum BookReadingStatus {
   /// 从未打开。
   unread,
@@ -27,7 +24,7 @@ enum BookReadingStatus {
   /// 有阅读记录。
   reading,
 
-  /// 已读完（待 P4-09 进度百分比接入）。
+  /// 已到达全书最后一页。
   finished,
 }
 
@@ -77,6 +74,14 @@ class BookEntry {
   /// 阅读状态（由 lastReadAt 推导）。
   BookReadingStatus get status =>
       lastReadAt == null ? BookReadingStatus.unread : BookReadingStatus.reading;
+
+  /// 结合持久化完成标记返回阅读状态。
+  BookReadingStatus statusWith({bool finished = false}) {
+    if (lastReadAt == null) {
+      return BookReadingStatus.unread;
+    }
+    return finished ? BookReadingStatus.finished : BookReadingStatus.reading;
+  }
 
   /// 封面占位色：由 id 派生的稳定色相（§37.3 四级回退的第 4 级）。
   int get coverHue => id.hashCode.abs() % 360;

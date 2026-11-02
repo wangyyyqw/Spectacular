@@ -26,6 +26,29 @@ class _BoundarySource implements ReaderChapterSource {
   }
 }
 
+/// 0、1 章各一页，末尾第 2 章为空。
+class _TrailingEmptySource implements ReaderChapterSource {
+  @override
+  int get chapterCount => 3;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (spineIndex == 2) {
+      return const <PageContent>[];
+    }
+    return <PageContent>[
+      PageContent(
+        spineIndex: spineIndex,
+        pageIndex: 0,
+        slices: const <PageBlockSlice>[],
+        usedHeight: 0,
+        pageHeight: 100,
+        topPadding: 0,
+      ),
+    ];
+  }
+}
+
 ReaderSession _session(_BoundarySource source, [ReaderProgressStore? store]) =>
     ReaderSession(
       source: source,
@@ -45,12 +68,15 @@ void main() {
     await session.next();
     expect(
       session.progress,
-      const ReaderProgress(spineIndex: 2, pageIndex: 0),
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
       reason: '空章 1 应被跳过，页码从 0 开始',
     );
 
     expect(await session.next(), isFalse, reason: '末页不再前进');
-    expect(session.progress, const ReaderProgress(spineIndex: 2, pageIndex: 0));
+    expect(
+      session.progress,
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+    );
     session.dispose();
   });
 
@@ -80,7 +106,28 @@ void main() {
     await session.open();
 
     expect(session.page, isNotNull, reason: '不应停在空白页');
-    expect(session.progress, const ReaderProgress(spineIndex: 2, pageIndex: 0));
+    expect(
+      session.progress,
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+    );
+    session.dispose();
+  });
+
+  test('末尾空章被跳过后仍能识别全书完成', () async {
+    final session = ReaderSession(
+      source: _TrailingEmptySource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'trailing-empty',
+    );
+    await session.open();
+    await session.next();
+    expect(session.progress?.finished, isFalse, reason: '末尾章节尚未确认');
+
+    expect(await session.next(), isFalse);
+    expect(
+      session.progress,
+      const ReaderProgress(spineIndex: 1, pageIndex: 0, finished: true),
+    );
     session.dispose();
   });
 }

@@ -44,10 +44,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: BookshelfPage(
-          library: library,
-          progressStore: progressStore,
-        ),
+        home: BookshelfPage(library: library, progressStore: progressStore),
       ),
     );
     await _settle(tester, frames: 16);
@@ -62,6 +59,58 @@ void main() {
           )
           .data,
       '测试作者 · 在读 0%',
+    );
+  });
+
+  testWidgets('到达全书末页后书架显示已读完并支持筛选', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('bookshelf-finished');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => dir,
+    );
+    final progressStore = FileReaderProgressStore.memory();
+
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '读完书'));
+      await library.touchLastRead(entry.id);
+    });
+    await progressStore.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 0, finished: true),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(library: library, progressStore: progressStore),
+      ),
+    );
+    await _settle(tester, frames: 16);
+
+    expect(find.text('已读完 1'), findsOneWidget);
+    expect(find.text('在读 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('book-reading-badge')),
+      findsOneWidget,
+    );
+    expect(find.text('已读完'), findsWidgets);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('bookshelf-filter-finished')),
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('列表视图'));
+    await _settle(tester);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
+          )
+          .data,
+      '测试作者 · 已读完',
     );
   });
 }

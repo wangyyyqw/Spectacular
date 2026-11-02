@@ -86,14 +86,20 @@ void main() {
     expect(visited, hasLength(60));
     expect(visited.map((p) => p.spineIndex).toSet(), hasLength(30));
     expect(visited.first, const ReaderProgress(spineIndex: 0, pageIndex: 0));
-    expect(visited.last, const ReaderProgress(spineIndex: 29, pageIndex: 1));
+    expect(
+      visited.last,
+      const ReaderProgress(spineIndex: 29, pageIndex: 1, finished: true),
+    );
     expect(session.currentVirtualPage, 59);
     expect(await session.next(), isFalse);
 
     // P4-10：进度写入节流，测试里显式落盘再断言。
     await session.flushProgress();
     final saved = await store.load('book-1');
-    expect(saved, const ReaderProgress(spineIndex: 29, pageIndex: 1));
+    expect(
+      saved,
+      const ReaderProgress(spineIndex: 29, pageIndex: 1, finished: true),
+    );
 
     final restored = ReaderSession(
       source: source,
@@ -103,7 +109,7 @@ void main() {
     await restored.open();
     expect(
       restored.progress,
-      const ReaderProgress(spineIndex: 29, pageIndex: 1),
+      const ReaderProgress(spineIndex: 29, pageIndex: 1, finished: true),
     );
     expect(restored.currentText, contains('第29章'));
   });
@@ -215,7 +221,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey<String>('reader-jump-loading')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('reader-jump-loading')),
+      findsNothing,
+    );
 
     final pending = session.jumpToChapter(5, title: '第五章 出发');
     await tester.pump();

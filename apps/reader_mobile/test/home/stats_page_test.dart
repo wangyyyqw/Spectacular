@@ -252,6 +252,40 @@ void main() {
     );
   });
 
+  testWidgets('统计页单独展示已读完书籍', (tester) async {
+    final now = DateTime.now();
+    final books = [
+      _book('done', '读完的书', lastReadAt: now, spineCount: 2),
+      _book('reading', '在读的书', lastReadAt: now, spineCount: 2),
+    ];
+    final library = _FakeLibrary(books, {
+      'done': ProgressWeights.fromCharCounts([50, 50]),
+      'reading': ProgressWeights.fromCharCounts([50, 50]),
+    });
+    final progress = _FakeProgressStore({
+      'done': const ReaderProgress(spineIndex: 1, pageIndex: 0, finished: true),
+      'reading': const ReaderProgress(spineIndex: 0, pageIndex: 0),
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(library: library, progressStore: progress),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已开始 2 本 · 已读完 1 本'), findsOneWidget);
+    expect(find.text('完成一本书也值得记录。'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-band-finished')),
+          )
+          .data,
+      '已读完 1 本',
+    );
+  });
+
   testWidgets('点击最近阅读卡片可直接续读', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry entry;

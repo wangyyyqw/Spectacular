@@ -43,23 +43,28 @@ enum BookSortOrder {
 }
 
 /// 书架条目 + 进度（P4-09：百分比由字符权重表算，章级粒度）。
-typedef _ShelfItem = ({BookEntry entry, int? percentInt});
+typedef _ShelfItem = ({BookEntry entry, int? percentInt, bool finished});
 
 /// 书架阅读状态筛选。
 enum _ShelfStatusFilter {
   all('全部'),
   unread('未读'),
-  reading('在读');
+  reading('在读'),
+  finished('已读完');
 
   const _ShelfStatusFilter(this.label);
 
   final String label;
 
-  bool matches(BookReadingStatus status) => switch (this) {
-    all => true,
-    unread => status == BookReadingStatus.unread,
-    reading => status == BookReadingStatus.reading,
-  };
+  bool matches(_ShelfItem item) {
+    final status = item.entry.statusWith(finished: item.finished);
+    return switch (this) {
+      all => true,
+      unread => status == BookReadingStatus.unread,
+      reading => status == BookReadingStatus.reading,
+      finished => status == BookReadingStatus.finished,
+    };
+  }
 }
 
 const _shelfColumns = 3;
@@ -268,7 +273,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   List<_ShelfItem> _visible(List<_ShelfItem> items) {
     final query = _query.trim().toLowerCase();
     final filtered = items.where((item) {
-      if (!_filter.matches(item.entry.status)) {
+      if (!_filter.matches(item)) {
         return false;
       }
       if (query.isEmpty) {
@@ -347,7 +352,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
           percent = weights.percentInt(progress.spineIndex);
         }
       }
-      items.add((entry: book, percentInt: percent));
+      items.add((
+        entry: book,
+        percentInt: percent,
+        finished: progress?.finished ?? false,
+      ));
     }
     if (mounted && token == _reloadToken) {
       final validIds = <String>{for (final item in items) item.entry.id};
@@ -730,6 +739,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             return _BookCard(
               entry: item.entry,
               percentInt: item.percentInt,
+              finished: item.finished,
               selectionMode: _selectionMode,
               selected: _selectedIds.contains(item.entry.id),
               onSelect: () => _toggleSelected(item.entry.id),
@@ -752,6 +762,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         return _BookRow(
           entry: item.entry,
           percentInt: item.percentInt,
+          finished: item.finished,
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
@@ -831,7 +842,7 @@ class _ShelfFilterBar extends StatelessWidget {
                 key: ValueKey<String>('bookshelf-filter-${filter.name}'),
                 label: Text(
                   '${filter.label} '
-                  '${items.where((item) => filter.matches(item.entry.status)).length}',
+                  '${items.where(filter.matches).length}',
                 ),
                 selected: filter == selected,
                 showCheckmark: false,
@@ -893,6 +904,7 @@ class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.entry,
     required this.percentInt,
+    required this.finished,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -902,6 +914,7 @@ class _BookRow extends StatelessWidget {
 
   final BookEntry entry;
   final int? percentInt;
+  final bool finished;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -975,7 +988,7 @@ class _BookRow extends StatelessWidget {
         style: theme.textTheme.bodyMedium,
       ),
       subtitle: Text(
-        _shelfMetaLabel(entry, percentInt),
+        _shelfMetaLabel(entry, percentInt, finished),
         key: ValueKey<String>('book-row-meta-${entry.id}'),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
@@ -1006,9 +1019,9 @@ class _BookRow extends StatelessWidget {
   }
 }
 
-String _shelfMetaLabel(BookEntry entry, int? percentInt) {
+String _shelfMetaLabel(BookEntry entry, int? percentInt, bool finished) {
   final author = entry.author.trim().isEmpty ? '未知作者' : entry.author.trim();
-  final status = switch (entry.status) {
+  final status = switch (entry.statusWith(finished: finished)) {
     BookReadingStatus.unread => '未开始',
     BookReadingStatus.reading => percentInt == null ? '在读' : '在读 $percentInt%',
     BookReadingStatus.finished => '已读完',
@@ -1119,6 +1132,7 @@ class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
     required this.percentInt,
+    required this.finished,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -1128,6 +1142,7 @@ class _BookCard extends StatelessWidget {
 
   final BookEntry entry;
   final int? percentInt;
+  final bool finished;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -1221,10 +1236,14 @@ class _BookCard extends StatelessWidget {
                 cacheWidth: 320,
                 errorBuilder: (_, _, _) => placeholder,
               ),
-            if (entry.status == BookReadingStatus.reading)
+            if (entry.statusWith(finished: finished) !=
+                BookReadingStatus.unread)
               Align(
                 alignment: Alignment.bottomLeft,
-                child: _ReadingBadge(percentInt: percentInt),
+                child: _ReadingBadge(
+                  percentInt: percentInt,
+                  finished: finished,
+                ),
               ),
             if (selectionMode)
               Positioned.fill(
@@ -1332,16 +1351,21 @@ class _BookSelectionMark extends StatelessWidget {
   }
 }
 
-/// 「在读」角标（P4-04：状态随进度自动更新）。
+/// 「在读 / 已读完」角标（P4-04：状态随进度自动更新）。
 class _ReadingBadge extends StatelessWidget {
-  const _ReadingBadge({this.percentInt});
+  const _ReadingBadge({this.percentInt, this.finished = false});
 
   final int? percentInt;
+  final bool finished;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final label = percentInt == null ? '在读' : '在读 $percentInt%';
+    final label = finished
+        ? '已读完'
+        : percentInt == null
+        ? '在读'
+        : '在读 $percentInt%';
     return Container(
       key: const ValueKey<String>('book-reading-badge'),
       margin: const EdgeInsets.all(6),
