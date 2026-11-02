@@ -4129,6 +4129,367 @@ class ImportReportsCompanion extends UpdateCompanion<ImportReportRow> {
   }
 }
 
+class $BookReviewsTable extends BookReviews
+    with TableInfo<$BookReviewsTable, BookReviewRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BookReviewsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<int> bookId = GeneratedColumn<int>(
+    'book_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES books (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _ratingMeta = const VerificationMeta('rating');
+  @override
+  late final GeneratedColumn<int> rating = GeneratedColumn<int>(
+    'rating',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _contentMeta = const VerificationMeta(
+    'content',
+  );
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+    'content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    bookId,
+    rating,
+    content,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'book_reviews';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BookReviewRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    }
+    if (data.containsKey('rating')) {
+      context.handle(
+        _ratingMeta,
+        rating.isAcceptableOrUnknown(data['rating']!, _ratingMeta),
+      );
+    }
+    if (data.containsKey('content')) {
+      context.handle(
+        _contentMeta,
+        content.isAcceptableOrUnknown(data['content']!, _contentMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {bookId};
+  @override
+  BookReviewRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BookReviewRow(
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}book_id'],
+      )!,
+      rating: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}rating'],
+      ),
+      content: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $BookReviewsTable createAlias(String alias) {
+    return $BookReviewsTable(attachedDatabase, alias);
+  }
+}
+
+class BookReviewRow extends DataClass implements Insertable<BookReviewRow> {
+  /// 所属书籍，同时作为主键。
+  final int bookId;
+
+  /// 评分 1～5；null 表示未评分。
+  final int? rating;
+
+  /// 书评正文。
+  final String content;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+
+  /// 更新时间（毫秒）。
+  final int updatedAt;
+  const BookReviewRow({
+    required this.bookId,
+    this.rating,
+    required this.content,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['book_id'] = Variable<int>(bookId);
+    if (!nullToAbsent || rating != null) {
+      map['rating'] = Variable<int>(rating);
+    }
+    map['content'] = Variable<String>(content);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  BookReviewsCompanion toCompanion(bool nullToAbsent) {
+    return BookReviewsCompanion(
+      bookId: Value(bookId),
+      rating: rating == null && nullToAbsent
+          ? const Value.absent()
+          : Value(rating),
+      content: Value(content),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory BookReviewRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BookReviewRow(
+      bookId: serializer.fromJson<int>(json['bookId']),
+      rating: serializer.fromJson<int?>(json['rating']),
+      content: serializer.fromJson<String>(json['content']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'bookId': serializer.toJson<int>(bookId),
+      'rating': serializer.toJson<int?>(rating),
+      'content': serializer.toJson<String>(content),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  BookReviewRow copyWith({
+    int? bookId,
+    Value<int?> rating = const Value.absent(),
+    String? content,
+    int? createdAt,
+    int? updatedAt,
+  }) => BookReviewRow(
+    bookId: bookId ?? this.bookId,
+    rating: rating.present ? rating.value : this.rating,
+    content: content ?? this.content,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  BookReviewRow copyWithCompanion(BookReviewsCompanion data) {
+    return BookReviewRow(
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+      rating: data.rating.present ? data.rating.value : this.rating,
+      content: data.content.present ? data.content.value : this.content,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookReviewRow(')
+          ..write('bookId: $bookId, ')
+          ..write('rating: $rating, ')
+          ..write('content: $content, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(bookId, rating, content, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BookReviewRow &&
+          other.bookId == this.bookId &&
+          other.rating == this.rating &&
+          other.content == this.content &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class BookReviewsCompanion extends UpdateCompanion<BookReviewRow> {
+  final Value<int> bookId;
+  final Value<int?> rating;
+  final Value<String> content;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  const BookReviewsCompanion({
+    this.bookId = const Value.absent(),
+    this.rating = const Value.absent(),
+    this.content = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  BookReviewsCompanion.insert({
+    this.bookId = const Value.absent(),
+    this.rating = const Value.absent(),
+    this.content = const Value.absent(),
+    required int createdAt,
+    required int updatedAt,
+  }) : createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<BookReviewRow> custom({
+    Expression<int>? bookId,
+    Expression<int>? rating,
+    Expression<String>? content,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (bookId != null) 'book_id': bookId,
+      if (rating != null) 'rating': rating,
+      if (content != null) 'content': content,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  BookReviewsCompanion copyWith({
+    Value<int>? bookId,
+    Value<int?>? rating,
+    Value<String>? content,
+    Value<int>? createdAt,
+    Value<int>? updatedAt,
+  }) {
+    return BookReviewsCompanion(
+      bookId: bookId ?? this.bookId,
+      rating: rating ?? this.rating,
+      content: content ?? this.content,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (bookId.present) {
+      map['book_id'] = Variable<int>(bookId.value);
+    }
+    if (rating.present) {
+      map['rating'] = Variable<int>(rating.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookReviewsCompanion(')
+          ..write('bookId: $bookId, ')
+          ..write('rating: $rating, ')
+          ..write('content: $content, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4142,6 +4503,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $UserFontsTable userFonts = $UserFontsTable(this);
   late final $SettingsTableTable settingsTable = $SettingsTableTable(this);
   late final $ImportReportsTable importReports = $ImportReportsTable(this);
+  late final $BookReviewsTable bookReviews = $BookReviewsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4155,6 +4517,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     userFonts,
     settingsTable,
     importReports,
+    bookReviews,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -4192,6 +4555,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('import_reports', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'books',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('book_reviews', kind: UpdateKind.delete)],
     ),
   ]);
 }
@@ -4322,6 +4692,24 @@ final class $$BooksTableReferences
     ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_importReportsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$BookReviewsTable, List<BookReviewRow>>
+  _bookReviewsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.bookReviews,
+    aliasName: 'books__id__book_reviews__book_id',
+  );
+
+  $$BookReviewsTableProcessedTableManager get bookReviewsRefs {
+    final manager = $$BookReviewsTableTableManager(
+      $_db,
+      $_db.bookReviews,
+    ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_bookReviewsRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -4527,6 +4915,31 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
           }) => $$ImportReportsTableFilterComposer(
             $db: $db,
             $table: $db.importReports,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> bookReviewsRefs(
+    Expression<bool> Function($$BookReviewsTableFilterComposer f) f,
+  ) {
+    final $$BookReviewsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.bookReviews,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookReviewsTableFilterComposer(
+            $db: $db,
+            $table: $db.bookReviews,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -4810,6 +5223,31 @@ class $$BooksTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> bookReviewsRefs<T extends Object>(
+    Expression<T> Function($$BookReviewsTableAnnotationComposer a) f,
+  ) {
+    final $$BookReviewsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.bookReviews,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookReviewsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.bookReviews,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$BooksTableTableManager
@@ -4831,6 +5269,7 @@ class $$BooksTableTableManager
             bool annotationsRefs,
             bool readingProgressRefs,
             bool importReportsRefs,
+            bool bookReviewsRefs,
           })
         > {
   $$BooksTableTableManager(_$AppDatabase db, $BooksTable table)
@@ -4927,6 +5366,7 @@ class $$BooksTableTableManager
                 annotationsRefs = false,
                 readingProgressRefs = false,
                 importReportsRefs = false,
+                bookReviewsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -4936,6 +5376,7 @@ class $$BooksTableTableManager
                     if (annotationsRefs) db.annotations,
                     if (readingProgressRefs) db.readingProgress,
                     if (importReportsRefs) db.importReports,
+                    if (bookReviewsRefs) db.bookReviews,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -5045,6 +5486,27 @@ class $$BooksTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (bookReviewsRefs)
+                        await $_getPrefetchedData<
+                          BookRow,
+                          $BooksTable,
+                          BookReviewRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BooksTableReferences
+                              ._bookReviewsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BooksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).bookReviewsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.bookId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -5071,6 +5533,7 @@ typedef $$BooksTableProcessedTableManager =
         bool annotationsRefs,
         bool readingProgressRefs,
         bool importReportsRefs,
+        bool bookReviewsRefs,
       })
     >;
 typedef $$SpineItemsTableCreateCompanionBuilder = SpineItemsCompanion Function({
@@ -7317,6 +7780,315 @@ typedef $$ImportReportsTableProcessedTableManager =
       ImportReportRow,
       PrefetchHooks Function({bool bookId})
     >;
+typedef $$BookReviewsTableCreateCompanionBuilder =
+    BookReviewsCompanion Function({
+      Value<int> bookId,
+      Value<int?> rating,
+      Value<String> content,
+      required int createdAt,
+      required int updatedAt,
+    });
+typedef $$BookReviewsTableUpdateCompanionBuilder =
+    BookReviewsCompanion Function({
+      Value<int> bookId,
+      Value<int?> rating,
+      Value<String> content,
+      Value<int> createdAt,
+      Value<int> updatedAt,
+    });
+
+final class $$BookReviewsTableReferences
+    extends BaseReferences<_$AppDatabase, $BookReviewsTable, BookReviewRow> {
+  $$BookReviewsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $BooksTable _bookIdTable(_$AppDatabase db) =>
+      db.books.createAlias('book_reviews__book_id__books__id');
+
+  $$BooksTableProcessedTableManager get bookId {
+    final $_column = $_itemColumn<int>('book_id')!;
+
+    final manager = $$BooksTableTableManager(
+      $_db,
+      $_db.books,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_bookIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$BookReviewsTableFilterComposer
+    extends Composer<_$AppDatabase, $BookReviewsTable> {
+  $$BookReviewsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get rating => $composableBuilder(
+    column: $table.rating,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BooksTableFilterComposer get bookId {
+    final $$BooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableFilterComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookReviewsTableOrderingComposer
+    extends Composer<_$AppDatabase, $BookReviewsTable> {
+  $$BookReviewsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get rating => $composableBuilder(
+    column: $table.rating,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BooksTableOrderingComposer get bookId {
+    final $$BooksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableOrderingComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookReviewsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $BookReviewsTable> {
+  $$BookReviewsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get rating =>
+      $composableBuilder(column: $table.rating, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$BooksTableAnnotationComposer get bookId {
+    final $$BooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookReviewsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $BookReviewsTable,
+          BookReviewRow,
+          $$BookReviewsTableFilterComposer,
+          $$BookReviewsTableOrderingComposer,
+          $$BookReviewsTableAnnotationComposer,
+          $$BookReviewsTableCreateCompanionBuilder,
+          $$BookReviewsTableUpdateCompanionBuilder,
+          (BookReviewRow, $$BookReviewsTableReferences),
+          BookReviewRow,
+          PrefetchHooks Function({bool bookId})
+        > {
+  $$BookReviewsTableTableManager(_$AppDatabase db, $BookReviewsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BookReviewsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BookReviewsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BookReviewsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> bookId = const Value.absent(),
+                Value<int?> rating = const Value.absent(),
+                Value<String> content = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+              }) => BookReviewsCompanion(
+                bookId: bookId,
+                rating: rating,
+                content: content,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> bookId = const Value.absent(),
+                Value<int?> rating = const Value.absent(),
+                Value<String> content = const Value.absent(),
+                required int createdAt,
+                required int updatedAt,
+              }) => BookReviewsCompanion.insert(
+                bookId: bookId,
+                rating: rating,
+                content: content,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$BookReviewsTable, BookReviewRow>(table),
+                  $$BookReviewsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({bookId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (bookId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.bookId,
+                        referencedTable: $$BookReviewsTableReferences
+                            ._bookIdTable(db),
+                        referencedColumn: $$BookReviewsTableReferences
+                            ._bookIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$BookReviewsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $BookReviewsTable,
+      BookReviewRow,
+      $$BookReviewsTableFilterComposer,
+      $$BookReviewsTableOrderingComposer,
+      $$BookReviewsTableAnnotationComposer,
+      $$BookReviewsTableCreateCompanionBuilder,
+      $$BookReviewsTableUpdateCompanionBuilder,
+      (BookReviewRow, $$BookReviewsTableReferences),
+      BookReviewRow,
+      PrefetchHooks Function({bool bookId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -7337,4 +8109,6 @@ class $AppDatabaseManager {
       $$SettingsTableTableTableManager(_db, _db.settingsTable);
   $$ImportReportsTableTableManager get importReports =>
       $$ImportReportsTableTableManager(_db, _db.importReports);
+  $$BookReviewsTableTableManager get bookReviews =>
+      $$BookReviewsTableTableManager(_db, _db.bookReviews);
 }

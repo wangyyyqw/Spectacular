@@ -249,6 +249,29 @@ class ImportReports extends Table {
   IntColumn get createdAt => integer()();
 }
 
+/// 书评表：每本书保存一条评分与正文，删书时级联删除。
+@DataClassName('BookReviewRow')
+class BookReviews extends Table {
+  /// 所属书籍，同时作为主键。
+  IntColumn get bookId =>
+      integer().references(Books, #id, onDelete: KeyAction.cascade)();
+
+  /// 评分 1～5；null 表示未评分。
+  IntColumn get rating => integer().nullable()();
+
+  /// 书评正文。
+  TextColumn get content => text().withDefault(const Constant(''))();
+
+  /// 创建时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  /// 更新时间（毫秒）。
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{bookId};
+}
+
 /// 应用数据库：书库、进度、标注、搜索索引（技术方案 §36）。
 @DriftDatabase(
   tables: [
@@ -260,6 +283,7 @@ class ImportReports extends Table {
     UserFonts,
     SettingsTable,
     ImportReports,
+    BookReviews,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -271,7 +295,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -305,6 +329,10 @@ class AppDatabase extends _$AppDatabase {
         await customStatement('DROP TABLE IF EXISTS search_grams');
         await customStatement('DROP TABLE IF EXISTS chapter_text');
         version = 5;
+      }
+      if (version < 6) {
+        await migrator.createTable(bookReviews);
+        version = 6;
       }
       await _createIndexes();
     },
