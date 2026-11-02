@@ -210,4 +210,191 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(find.text('复制注释'), findsOneWidget);
   });
+
+  testWidgets('小屏长注释固定标题和复制入口且正文可滚动', (tester) async {
+    tester.view.physicalSize = const Size(320, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: ReaderFootnoteDialog(
+              footnote: PageFootnote(
+                start: 0,
+                end: 1,
+                label: '12',
+                kind: NoteKind.endnote,
+                text: List.generate(
+                  24,
+                  (index) => '第 ${index + 1} 段长注释内容。',
+                ).join('\n'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('尾注'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('reader-footnote-scrollbar')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('reader-footnote-close')),
+      ),
+      isA<Rect>().having(
+        (rect) => rect.bottom,
+        '关闭按钮底部',
+        lessThanOrEqualTo(360),
+      ),
+    );
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('reader-footnote-copy')),
+      ),
+      isA<Rect>().having(
+        (rect) => rect.bottom,
+        '复制按钮底部',
+        lessThanOrEqualTo(360),
+      ),
+    );
+
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('reader-footnote-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    await tester.drag(
+      find.byKey(const ValueKey<String>('reader-footnote-scroll')),
+      const Offset(0, -260),
+    );
+    await tester.pumpAndSettle();
+    expect(scrollable.position.pixels, greaterThan(0));
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('reader-footnote-scrollbar')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('横屏长注释保持操作入口可达且正文可滚动', (tester) async {
+    tester.view.physicalSize = const Size(640, 284);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: ReaderFootnoteDialog(
+              footnote: PageFootnote(
+                start: 0,
+                end: 1,
+                label: '3',
+                kind: NoteKind.footnote,
+                text: List.generate(
+                  18,
+                  (index) => '横屏第 ${index + 1} 段注释内容。',
+                ).join('\n'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('reader-footnote-close')),
+      ),
+      isA<Rect>().having(
+        (rect) => rect.bottom,
+        '关闭按钮底部',
+        lessThanOrEqualTo(284),
+      ),
+    );
+    final copyRect = tester.getRect(
+      find.byKey(const ValueKey<String>('reader-footnote-copy')),
+    );
+    expect(copyRect.bottom, lessThanOrEqualTo(284));
+
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('reader-footnote-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+  });
+
+  testWidgets('大字体下注释弹窗不溢出且操作仍可点击', (tester) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: ReaderFootnoteDialog(
+              footnote: PageFootnote(
+                start: 0,
+                end: 1,
+                label: '125',
+                kind: NoteKind.link,
+                text: List.generate(
+                  12,
+                  (index) => '大字体第 ${index + 1} 段注释内容。',
+                ).join('\n'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('reader-footnote-close')),
+      ),
+      isA<Rect>().having(
+        (rect) => rect.bottom,
+        '关闭按钮底部',
+        lessThanOrEqualTo(480),
+      ),
+    );
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('reader-footnote-copy')),
+      ),
+      isA<Rect>().having(
+        (rect) => rect.bottom,
+        '复制按钮底部',
+        lessThanOrEqualTo(480),
+      ),
+    );
+  });
 }

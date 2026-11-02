@@ -171,59 +171,63 @@ class ReaderFootnoteDialog extends StatelessWidget {
               ),
               const Divider(height: 1),
               Flexible(
-                child: SingleChildScrollView(
-                  key: const ValueKey('reader-footnote-scroll'),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (paragraphs.isNotEmpty)
-                              SelectionArea(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    for (
-                                      var index = 0;
-                                      index < paragraphs.length;
-                                      index++
-                                    ) ...[
-                                      if (index > 0) const SizedBox(height: 14),
-                                      Text(
-                                        paragraphs[index],
-                                        key: ValueKey(
-                                          'reader-footnote-paragraph-$index',
+                child: Scrollbar(
+                  key: const ValueKey('reader-footnote-scrollbar'),
+                  child: SingleChildScrollView(
+                    key: const ValueKey('reader-footnote-scroll'),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 720),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (paragraphs.isNotEmpty)
+                                SelectionArea(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      for (
+                                        var index = 0;
+                                        index < paragraphs.length;
+                                        index++
+                                      ) ...[
+                                        if (index > 0)
+                                          const SizedBox(height: 14),
+                                        Text(
+                                          paragraphs[index],
+                                          key: ValueKey(
+                                            'reader-footnote-paragraph-$index',
+                                          ),
+                                          style: theme.textTheme.bodyLarge
+                                              ?.copyWith(height: 1.75),
                                         ),
-                                        style: theme.textTheme.bodyLarge
-                                            ?.copyWith(height: 1.75),
-                                      ),
+                                      ],
                                     ],
-                                  ],
+                                  ),
+                                )
+                              else if (images.isEmpty)
+                                _EmptyFootnote(theme: theme),
+                              for (
+                                var index = 0;
+                                index < images.length;
+                                index++
+                              ) ...[
+                                if (paragraphs.isNotEmpty || index > 0)
+                                  const SizedBox(height: 18),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: _FootnoteImage(
+                                    url: images[index],
+                                    imageCache: imageCache,
+                                  ),
                                 ),
-                              )
-                            else if (images.isEmpty)
-                              _EmptyFootnote(theme: theme),
-                            for (
-                              var index = 0;
-                              index < images.length;
-                              index++
-                            ) ...[
-                              if (paragraphs.isNotEmpty || index > 0)
-                                const SizedBox(height: 18),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: _FootnoteImage(
-                                  url: images[index],
-                                  imageCache: imageCache,
-                                ),
-                              ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
