@@ -169,6 +169,60 @@ Future<void> _finishExit(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('目录抽屉可打开笔记页签并展示标注', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'drawer-note',
+        type: ReaderAnnotationType.highlight,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: '抽屉里的高亮原文',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'annotation-drawer',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('drawer-tab-annotations')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('笔记与高亮'), findsOneWidget);
+    expect(find.text('抽屉里的高亮原文'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-row-drawer-note')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('drawer-tab-annotations')),
+      findsNothing,
+    );
+  });
+
   testWidgets('保存笔记后退场无异常，保存最新输入并清除选区', (tester) async {
     final notes = await _showEditor(tester);
     await tester.enterText(find.byType(TextField), '第一版');
