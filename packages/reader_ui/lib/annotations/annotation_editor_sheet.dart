@@ -111,8 +111,11 @@ class _ReaderAnnotationEditorSheetState
   bool _discardDialogVisible = false;
   bool _removeDialogVisible = false;
   bool _closing = false;
+  bool _showNoteEditor = false;
 
   bool get _isNote => widget.annotation.type == ReaderAnnotationType.note;
+
+  bool get _canEditNote => _isNote || _showNoteEditor;
 
   String get _trimmedNote => _noteController.text.trim();
 
@@ -304,7 +307,16 @@ class _ReaderAnnotationEditorSheetState
                     currentColor: currentColor,
                     currentStyle: currentStyle,
                   ),
-                  if (_isNote) ...[
+                  if (!_isNote && !_showNoteEditor) ...[
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                      key: const ValueKey<String>('annotation-add-note'),
+                      onPressed: () => setState(() => _showNoteEditor = true),
+                      icon: const Icon(Icons.note_add_outlined, size: 20),
+                      label: const Text('为这条高亮添加笔记'),
+                    ),
+                  ],
+                  if (_canEditNote) ...[
                     const SizedBox(height: 16),
                     _AnnotationNoteEditor(
                       controller: _noteController,
@@ -327,7 +339,7 @@ class _ReaderAnnotationEditorSheetState
                     onSelected: _selectStyle,
                   ),
                   const SizedBox(height: 18),
-                  if (_isNote) ...[
+                  if (_canEditNote) ...[
                     FilledButton.icon(
                       key: const ValueKey<String>('annotation-save-note'),
                       onPressed: _noteChanged
@@ -341,7 +353,7 @@ class _ReaderAnnotationEditorSheetState
                         minimumSize: const Size.fromHeight(44),
                       ),
                       icon: const Icon(Icons.check, size: 20),
-                      label: const Text('保存笔记'),
+                      label: Text(_isNote ? '保存笔记' : '保存为笔记'),
                     ),
                     const SizedBox(height: 10),
                   ],

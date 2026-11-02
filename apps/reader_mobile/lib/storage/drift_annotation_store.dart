@@ -101,6 +101,7 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
   @override
   Future<void> update(
     String id, {
+    ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
     String? note,
@@ -109,6 +110,9 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
           ..where((table) => table.id.equals(id)))
         .write(
           AnnotationsCompanion(
+            type: type == null
+                ? const Value<int>.absent()
+                : Value<int>(type.storageValue),
             color: color == null ? const Value<int?>.absent() : Value<int?>(color),
             style: style == null
                 ? const Value<int?>.absent()

@@ -83,6 +83,7 @@ class _Notes implements ReaderAnnotationStore {
   @override
   Future<void> update(
     String id, {
+    ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
     String? note,
@@ -94,7 +95,7 @@ class _Notes implements ReaderAnnotationStore {
     final old = items[index];
     items[index] = ReaderAnnotation(
       id: old.id,
-      type: old.type,
+      type: type ?? old.type,
       startCfi: old.startCfi,
       endCfi: old.endCfi,
       quote: old.quote,
@@ -244,6 +245,79 @@ void main() {
     expect(notes.items.single.note, '最终笔记');
     expect(notes.items.single.quote, 'word');
     expect(find.byType(SelectionLayer), findsNothing);
+  });
+
+  testWidgets('已有高亮可补写笔记并转为笔记', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'highlight-to-note',
+        type: ReaderAnnotationType.highlight,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'highlight-to-note',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final wordPosition =
+        tester.getTopLeft(find.byType(ReaderView)) +
+        Offset(line.rect.left + 6, line.rect.center.dy);
+
+    await tester.tapAt(wordPosition);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-note-input')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-add-note')),
+    );
+    await tester.pumpAndSettle();
+    final input = find.byKey(
+      const ValueKey<String>('annotation-note-input'),
+    );
+    await tester.enterText(input, '  补写的高亮笔记  ');
+    await tester.pump();
+    final save = find.byKey(
+      const ValueKey<String>('annotation-save-note'),
+    );
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.note, '补写的高亮笔记');
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsNothing,
+    );
+    expect(find.text('已添加笔记'), findsOneWidget);
   });
 
   testWidgets('点击已有笔记可修改正文并保存', (tester) async {
