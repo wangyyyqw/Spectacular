@@ -14,6 +14,44 @@ class SpacedLine {
   final LineSpacing spacing;
 }
 
+/// 按字符位置提取每一行的原文区间。
+///
+/// 混排字号和书内自定义字体可能让 [TextPainter.computeLineMetrics] 的行高
+/// 与实际命中区域不一致；此时用行框纵向中点查找边界会把相邻行映射成同一
+/// 区间。逐行从上一行末尾继续查询，既能正确处理软换行，也能跳过硬换行，
+/// 与绘制端使用的原文坐标保持一致。
+List<TextRange> textLineRanges(
+  TextPainter painter,
+  String text,
+  int lineCount,
+) {
+  if (lineCount <= 0) {
+    return const <TextRange>[];
+  }
+  final ranges = <TextRange>[];
+  var cursor = 0;
+  while (ranges.length < lineCount) {
+    final boundary = painter.getLineBoundary(TextPosition(offset: cursor));
+    ranges.add(boundary);
+    var next = boundary.end;
+    if (next < text.length && text.codeUnitAt(next) == 10) {
+      next += 1;
+    } else if (next <= cursor) {
+      next = cursor + 1;
+    }
+    cursor = next.clamp(0, text.length);
+    if (cursor == text.length && ranges.length < lineCount) {
+      ranges.addAll(
+        List<TextRange>.filled(
+          lineCount - ranges.length,
+          TextRange.collapsed(text.length),
+        ),
+      );
+    }
+  }
+  return ranges;
+}
+
 /// 仍由平台决定合法断点；只试探字体可回收的行尾空白，不自行拆词。
 class SpacedParagraph {
   SpacedParagraph({
@@ -67,14 +105,12 @@ class SpacedParagraph {
   List<({int start, int end, LineMetrics metrics})> _lines(
     TextPainter painter,
   ) {
-    var top = 0.0;
+    final metrics = painter.computeLineMetrics();
+    final ranges = textLineRanges(painter, text, metrics.length);
     final lines = <({int start, int end, LineMetrics metrics})>[];
-    for (final metrics in painter.computeLineMetrics()) {
-      final boundary = painter.getLineBoundary(
-        painter.getPositionForOffset(Offset(0, top + metrics.height / 2)),
-      );
-      lines.add((start: boundary.start, end: boundary.end, metrics: metrics));
-      top += metrics.height;
+    for (var i = 0; i < metrics.length; i++) {
+      final range = ranges[i];
+      lines.add((start: range.start, end: range.end, metrics: metrics[i]));
     }
     return lines;
   }
