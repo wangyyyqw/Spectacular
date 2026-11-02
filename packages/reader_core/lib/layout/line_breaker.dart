@@ -1226,6 +1226,7 @@ abstract final class TextLayoutEngine {
       _align(measuredText, measured, style, width, (
         runs: styled,
         scale: textScaleFactor,
+        leading: leadingDistribution,
       )),
       width,
       styled,
@@ -2084,7 +2085,8 @@ abstract final class TextLayoutEngine {
     List<LineBox> lines,
     ComputedStyle style,
     double width,
-    ({List<StyledRun> runs, double scale}) context,
+    ({List<StyledRun> runs, double scale, TextLeadingDistribution leading})
+    context,
   ) {
     // 标点悬挂（P7-18）：`hanging-punctuation: allow-end` 时，两端
     // 对齐的非末行行尾句读挂到版心右缘外——该行的可分配余量加上
@@ -2143,6 +2145,9 @@ abstract final class TextLayoutEngine {
             : style.textAlign,
         style.isRtl,
       );
+      final centeredOffset = align == CssTextAlign.center
+          ? _centeredTextOffset(text, line, style, width, context)
+          : null;
       // 拉伸余量：justify 对齐；或末行在 justify-all / align-last:
       // justify 下参与拉伸（对齐仍是 start，通过 justifyExtra 拉伸）。
       // 其余对齐保持 0（否则左对齐行也会被绘制端拉伸）。
@@ -2181,7 +2186,9 @@ abstract final class TextLayoutEngine {
           inlineBoxes: boxes,
         ),
         CssTextAlign.center => line.copyWith(
-          offsetX: line.indent + slack / 2,
+          // 真实书里常用 &nbsp; 给标题做视觉留白。居中对齐按首末可见字形
+          // 的几何范围计算，不能把行首空白和行尾字距算进可见文字宽度。
+          offsetX: centeredOffset ?? line.indent + slack / 2,
           justifyExtra: justifyExtra,
           justifyMode: mode,
           spacing: spacing,
@@ -2197,6 +2204,69 @@ abstract final class TextLayoutEngine {
       });
     }
     return aligned;
+  }
+
+  static double? _centeredTextOffset(
+    String text,
+    LineBox line,
+    ComputedStyle style,
+    double width,
+    ({List<StyledRun> runs, double scale, TextLeadingDistribution leading})
+    context,
+  ) {
+    if (style.isRtl ||
+        style.writingMode != CssWritingMode.horizontalTb ||
+        style.whiteSpace != CssWhiteSpace.normal ||
+        !width.isFinite ||
+        line.inlineBoxes.isNotEmpty) {
+      return null;
+    }
+    final lineText = text.substring(line.start, line.end);
+    var prefixLength = 0;
+    for (final cluster in lineText.characters) {
+      if (cluster.trim().isNotEmpty) break;
+      prefixLength += cluster.length;
+    }
+    var contentEnd = lineText.length;
+    for (final cluster in lineText.characters.toList().reversed) {
+      if (cluster.trim().isNotEmpty) break;
+      contentEnd -= cluster.length;
+    }
+    if ((prefixLength == 0 && contentEnd == lineText.length) ||
+        prefixLength == contentEnd) {
+      return null;
+    }
+    final span = applyTextSpacing(
+      _measurementSpan(
+        lineText,
+        _shiftRuns(context.runs, line.start, line.end),
+        textStyleFor(style, leadingDistribution: context.leading),
+        const <_InlineBoxMark>[],
+        (css: style, scale: context.scale, leading: context.leading),
+      ),
+      line.spacing ?? LineSpacing.empty,
+    );
+    final painter = TextPainter(
+      text: span,
+      textDirection: _textDirectionOf(style),
+      textScaler: TextScaler.linear(context.scale),
+    )..layout();
+    final visibleStart = painter
+        .getOffsetForCaret(TextPosition(offset: prefixLength), Rect.zero)
+        .dx;
+    final caretEnd = painter
+        .getOffsetForCaret(TextPosition(offset: contentEnd), Rect.zero)
+        .dx;
+    final boxes = painter.getBoxesForSelection(
+      TextSelection(baseOffset: prefixLength, extentOffset: contentEnd),
+    );
+    // 正字距会在末字后再累计半个字距；从选区末缘反推最后一个可见字形。
+    final visibleEnd = boxes.isEmpty
+        ? caretEnd
+        : 2 * caretEnd - boxes.last.right;
+    painter.dispose();
+    final center = line.indent + (width - line.indent) / 2;
+    return center - (visibleStart + visibleEnd) / 2;
   }
 
   static List<int> _lineJustifyGaps(

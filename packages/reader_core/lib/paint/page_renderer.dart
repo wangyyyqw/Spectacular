@@ -1933,7 +1933,6 @@ class PagePainter {
       );
       final borders = style.borders;
       final leftInset = style.padding.left + borders.left.width;
-      final rightInset = style.padding.right + borders.right.width;
       final topInset = style.padding.top + borders.top.width;
       final bottomInset = style.padding.bottom + borders.bottom.width;
       final innerHeight = math.max(
@@ -1989,19 +1988,14 @@ class PagePainter {
           final textY =
               lineY + textLineBaselineOffset(cell.layout, line, painter);
           final contentLeft = left + cell.rect.left + leftInset;
-          final contentRight = left + cell.rect.right - rightInset;
-          var x = contentLeft;
-          if (style.textAlign == CssTextAlign.center) {
-            x = contentLeft + (contentRight - contentLeft - painter.width) / 2;
-          } else if (style.textAlign == CssTextAlign.right ||
-              style.textAlign == CssTextAlign.justify) {
-            x = contentRight - painter.width;
-          }
+          // 水平对齐已在排版阶段写入 LineBox.offsetX。绘制器按无限宽重排
+          // 后，painter.width 不再代表单元格可用宽度，不能据此二次居中。
+          final x = contentLeft + line.offsetX;
           _paintInlineBoxes(
             canvas,
             painter,
             cellRuns,
-            line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
+            x,
             textY - (painter.height - line.height) / 2,
             line: line,
           );
@@ -2011,7 +2005,7 @@ class PagePainter {
               geometry.style,
               line,
               cellRuns,
-              contentLeft + line.offsetX,
+              x,
               lineY,
             );
           }
@@ -2021,7 +2015,7 @@ class PagePainter {
             text,
             cellRuns,
             textStyle,
-            line.inlineBoxes.isEmpty ? x : contentLeft + line.offsetX,
+            x,
             textY,
             line: line,
           );
