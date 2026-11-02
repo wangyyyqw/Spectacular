@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/footnote.dart';
+import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
@@ -105,6 +106,62 @@ void main() {
         .toList(growable: false);
     expect(footnotes, hasLength(1));
     expect(footnotes.single.text, '图片注释');
+  });
+
+  test('空 span 背景图注号可被精确像素命中', () async {
+    final source = await openCssChapter(
+      body: '''
+<p>首先，如何巩固西汉王朝的统治，需要总结历史的经验，做出学术的综合。早在高帝之初，即让陆贾总结“秦所以失天下，吾所以得之者何，及古成败之国”<span class="reader js_readerFooterNote"
+  data-wr-footernote="［西汉］司马迁：《史记》卷九十七《郦生陆贾列传》。"></span>的历史经验。</p>
+''',
+      css: '''
+p { margin: 0; font-size: 24px; line-height: 2; text-indent: 2em; }
+span.reader {
+  position: relative;
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  vertical-align: sub;
+  margin: 0 3px;
+  background-image: url("../Images/note.png");
+  background-size: 100%;
+  background-repeat: no-repeat;
+}
+''',
+      contentWidth: 350,
+      contentHeight: 900,
+    );
+    addTearDown(source.close);
+
+    final pages = await source.loadChapter(0);
+    final page = pages.first;
+    final block = page.slices.first.block;
+    expect(block.footnotes, hasLength(1));
+    expect(block.footnotes.single.text, '［西汉］司马迁：《史记》卷九十七《郦生陆贾列传》。');
+
+    var found = false;
+    for (final candidatePage in pages) {
+      for (final lineBox in TextHitTester.lineBoxes(candidatePage)) {
+        final line = lineBox.slice.block.layout.lines[lineBox.lineIndex];
+        for (final box in line.inlineBoxes) {
+          if (box.offset != block.footnotes.single.start) {
+            continue;
+          }
+          found = true;
+          final center = Offset(
+            lineBox.rect.left + box.left + box.width / 2,
+            lineBox.rect.top +
+                box.topIn(line.baseline - line.top) +
+                box.height / 2,
+          );
+          expect(
+            TextHitTester.footnoteAt(candidatePage, center),
+            same(block.footnotes.single),
+          );
+        }
+      }
+    }
+    expect(found, isTrue);
   });
 
   test('QQ/微信读书图片注号从 alt 生成弹窗数据', () async {
