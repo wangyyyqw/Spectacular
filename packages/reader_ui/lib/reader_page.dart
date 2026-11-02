@@ -1489,6 +1489,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (_session.loading || _initialOpen == null) {
         return ReaderLoadingSkeleton(
           progress: _session.bookProgress > 0 ? _session.bookProgress : null,
+          title: widget.bookTitle,
         );
       }
       return const Center(

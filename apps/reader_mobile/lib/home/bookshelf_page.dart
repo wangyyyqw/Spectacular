@@ -350,27 +350,53 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => EpubReaderPage(
-          bytes: bytes,
-          bookId: entry.id,
-          store: widget.progressStore,
-          bookmarks: widget.library.bookmarkStore(entry.id),
-          annotations: widget.library.annotationStore(entry.id),
-          settings: _settings ?? ReaderSettings.defaults,
-          onSettingsChanged: _saveReaderSettings,
-          bookTitle: entry.title,
-          onMarginsChanged: (margins) {
-            final current = _settings ?? ReaderSettings.defaults;
-            final next = current.copyWithMargins(margins);
-            setState(() => _settings = next);
-            unawaited(_saveReaderSettings(next));
-          },
-        ),
-      ),
-    );
+    await Navigator.of(context).push(_readerRoute(entry, bytes));
     await widget.library.touchLastRead(entry.id);
+  }
+
+  /// 阅读页入场：淡入、轻微放大和上浮，反馈“书正在展开”。
+  Route<void> _readerRoute(BookEntry entry, Uint8List bytes) {
+    return PageRouteBuilder<void>(
+      transitionDuration: const Duration(milliseconds: 360),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (_, _, _) => EpubReaderPage(
+        bytes: bytes,
+        bookId: entry.id,
+        store: widget.progressStore,
+        bookmarks: widget.library.bookmarkStore(entry.id),
+        annotations: widget.library.annotationStore(entry.id),
+        settings: _settings ?? ReaderSettings.defaults,
+        onSettingsChanged: _saveReaderSettings,
+        bookTitle: entry.title,
+        onMarginsChanged: (margins) {
+          final current = _settings ?? ReaderSettings.defaults;
+          final next = current.copyWithMargins(margins);
+          setState(() => _settings = next);
+          unawaited(_saveReaderSettings(next));
+        },
+      ),
+      transitionsBuilder: (_, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.018),
+              end: Offset.zero,
+            ).animate(curved),
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
+              alignment: Alignment.center,
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// 长按卡片：书籍详情 + 导入报告（P4-06），详情里可删除。
