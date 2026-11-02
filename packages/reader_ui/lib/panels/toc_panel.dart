@@ -4,7 +4,7 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../reader_session.dart';
 
-/// 目录面板（P4-11）：层级缩进、当前章高亮、点击跳转。
+/// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
 ///
 /// 只负责展示与选择；跳转由调用方执行（`ReaderSession.jumpToChapter`）。
 class TocPanel extends StatefulWidget {
@@ -50,6 +50,7 @@ class _TocPanelState extends State<TocPanel> {
   static const double _listPadding = 4;
 
   final ScrollController _fallbackController = ScrollController();
+  final Set<TocEntry> _expanded = Set<TocEntry>.identity();
 
   ScrollController get _scrollController =>
       widget.scrollController ?? _fallbackController;
@@ -57,16 +58,21 @@ class _TocPanelState extends State<TocPanel> {
   @override
   void initState() {
     super.initState();
+    _expandCurrentPath();
     _scheduleCenterCurrentRow();
   }
 
   @override
   void didUpdateWidget(covariant TocPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentSpineIndex != widget.currentSpineIndex ||
-        oldWidget.currentCfi != widget.currentCfi ||
-        oldWidget.entries != widget.entries ||
+    if (oldWidget.entries != widget.entries ||
         oldWidget.scrollController != widget.scrollController) {
+      _expanded.clear();
+      _expandCurrentPath();
+      _scheduleCenterCurrentRow();
+    } else if (oldWidget.currentSpineIndex != widget.currentSpineIndex ||
+        oldWidget.currentCfi != widget.currentCfi) {
+      _expandCurrentPath();
       _scheduleCenterCurrentRow();
     }
   }
@@ -85,10 +91,63 @@ class _TocPanelState extends State<TocPanel> {
     });
   }
 
+  void _expandCurrentPath() {
+    final active = _activeEntry(flattenToc(widget.entries));
+    if (active == null) {
+      return;
+    }
+    final path = _pathToEntry(widget.entries, active);
+    _expanded.addAll(path);
+    if (active.children.isNotEmpty) {
+      _expanded.add(active);
+    }
+  }
+
+  List<TocEntry> _pathToEntry(List<TocEntry> entries, TocEntry target) {
+    for (final entry in entries) {
+      if (identical(entry, target)) {
+        return <TocEntry>[entry];
+      }
+      final childPath = _pathToEntry(entry.children, target);
+      if (childPath.isNotEmpty) {
+        return <TocEntry>[entry, ...childPath];
+      }
+    }
+    return const <TocEntry>[];
+  }
+
+  List<TocRow> _visibleRows() {
+    final rows = <TocRow>[];
+
+    void append(List<TocEntry> entries, int depth) {
+      for (final entry in entries) {
+        rows.add((entry: entry, depth: depth));
+        if (entry.children.isNotEmpty && _expanded.contains(entry)) {
+          append(entry.children, depth + 1);
+        }
+      }
+    }
+
+    append(widget.entries, 1);
+    return rows;
+  }
+
+  void _toggleEntry(TocEntry entry) {
+    setState(() {
+      if (!_expanded.remove(entry)) {
+        _expanded.add(entry);
+      }
+    });
+  }
+
   void _centerCurrentRow() {
-    final rows = flattenToc(widget.entries);
-    final index = _activeRowIndex(rows);
-    if (index == null) {
+    final active = _activeEntry(flattenToc(widget.entries));
+    if (active == null) {
+      return;
+    }
+    final rows = _visibleRows();
+    final index = rows.indexWhere((row) => identical(row.entry, active));
+    if (index < 0) {
       return;
     }
     final controller = _scrollController;
@@ -109,7 +168,7 @@ class _TocPanelState extends State<TocPanel> {
     }
   }
 
-  int? _activeRowIndex(List<TocRow> rows) {
+  TocEntry? _activeEntry(List<TocRow> rows) {
     if (rows.isEmpty) {
       return null;
     }
@@ -137,20 +196,21 @@ class _TocPanelState extends State<TocPanel> {
         }
       }
       if (active != null) {
-        return active;
+        return rows[active].entry;
       }
     }
     final fallback = rows.indexWhere(
       (row) => row.entry.spineIndex == widget.currentSpineIndex,
     );
-    return fallback < 0 ? null : fallback;
+    return fallback < 0 ? null : rows[fallback].entry;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final rows = flattenToc(widget.entries);
-    final activeIndex = _activeRowIndex(rows);
+    final allRows = flattenToc(widget.entries);
+    final rows = _visibleRows();
+    final active = _activeEntry(allRows);
     return Material(
       color: theme.colorScheme.surface,
       child: Column(
@@ -169,7 +229,7 @@ class _TocPanelState extends State<TocPanel> {
                 Text('目录', style: theme.textTheme.titleMedium),
                 const Spacer(),
                 Text(
-                  '共 ${rows.length} 章',
+                  '共 ${allRows.length} 章',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.outline,
                   ),
@@ -195,7 +255,9 @@ class _TocPanelState extends State<TocPanel> {
                     itemCount: rows.length,
                     itemBuilder: (context, index) {
                       final row = rows[index];
-                      final current = index == activeIndex;
+                      final current = identical(row.entry, active);
+                      final expanded = _expanded.contains(row.entry);
+                      final hasChildren = row.entry.children.isNotEmpty;
                       return ListTile(
                         key: ValueKey<String>(
                           'toc-row-${row.entry.spineIndex}-${row.entry.title}',
@@ -215,11 +277,38 @@ class _TocPanelState extends State<TocPanel> {
                               ? const TextStyle(fontWeight: FontWeight.w600)
                               : null,
                         ),
-                        trailing: current
-                            ? Icon(
-                                Icons.play_arrow,
-                                size: 16,
-                                color: theme.colorScheme.primary,
+                        trailing: current || hasChildren
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  if (current)
+                                    Icon(
+                                      Icons.play_arrow,
+                                      size: 16,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  if (hasChildren)
+                                    IconButton(
+                                      key: ValueKey<String>(
+                                        'toc-toggle-${row.entry.spineIndex}-'
+                                        '${row.entry.title}',
+                                      ),
+                                      constraints: const BoxConstraints.tightFor(
+                                        width: 32,
+                                        height: 32,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                      tooltip: expanded ? '收起子目录' : '展开子目录',
+                                      icon: Icon(
+                                        expanded
+                                            ? Icons.expand_less
+                                            : Icons.expand_more,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => _toggleEntry(row.entry),
+                                    ),
+                                ],
                               )
                             : null,
                         onTap: () => widget.onSelect(row.entry),

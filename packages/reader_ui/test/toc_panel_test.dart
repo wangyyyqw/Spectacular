@@ -100,6 +100,67 @@ void main() {
       expect(selected.single.title, '2.1');
     });
 
+    testWidgets('多级目录可折叠，当前分支默认展开', (tester) async {
+      final selected = <TocEntry>[];
+      final entries = <TocEntry>[
+        _entry(
+          '第一章',
+          0,
+          children: <TocEntry>[
+            _entry(
+              '1.1',
+              1,
+              children: <TocEntry>[_entry('1.1.1', 2)],
+            ),
+          ],
+        ),
+        _entry(
+          '第二章',
+          3,
+          children: <TocEntry>[_entry('2.1', 4)],
+        ),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TocPanel(
+              entries: entries,
+              currentSpineIndex: 0,
+              onSelect: selected.add,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('第一章'), findsOneWidget);
+      expect(find.text('1.1'), findsOneWidget);
+      expect(find.text('1.1.1'), findsNothing);
+      expect(find.text('第二章'), findsOneWidget);
+      expect(find.text('2.1'), findsNothing);
+      expect(find.text('共 5 章'), findsOneWidget);
+      expect(find.byIcon(Icons.expand_less), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-toggle-0-第一章')),
+      );
+      await tester.pump();
+      expect(find.text('1.1'), findsNothing);
+      expect(find.text('共 5 章'), findsOneWidget);
+      expect(selected, isEmpty);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-toggle-0-第一章')),
+      );
+      await tester.pump();
+      expect(find.text('1.1'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-toggle-1-1.1')),
+      );
+      await tester.pump();
+      expect(find.text('1.1.1'), findsOneWidget);
+    });
+
     testWidgets('打开时把当前章移到目录中间', (tester) async {
       final controller = ScrollController();
       final entries = <TocEntry>[
