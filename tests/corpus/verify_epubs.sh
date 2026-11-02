@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 校验 test_corpus 下的 6 个 EPUB 样本与 manifest.json。
+# 校验 test_corpus 下生成的 EPUB 样本与 manifest.json。
 #
 # 检查项：
 #   1. manifest.json 是合法 JSON，记录数 >= 6，字段齐全；
