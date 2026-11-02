@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 void main() {
@@ -11,6 +12,9 @@ void main() {
     final source = await EpubChapterSource.open(
       file.readAsBytesSync(),
       verifyCrc: false,
+    );
+    await source.applyOverrides(
+      const ReaderOverrides(fontSize: 17, lineHeight: 1.6),
     );
     await source.applyContentSize(width: 320, height: 640);
 
@@ -31,6 +35,9 @@ void main() {
     final footerCell = cells.firstWhere(
       (cell) => cell.layout.text.contains('本书排版仅适配阅微app'),
     );
+    final titleCell = cells.firstWhere(
+      (cell) => cell.layout.text.contains('书名：史记'),
+    );
 
     expect(
       imageCell.rect.width,
@@ -40,6 +47,9 @@ void main() {
     expect(imageCell.rect.width, lessThan(flexBlock.table!.tableWidth / 2));
     expect(cardCell.rect.width, closeTo(flexBlock.table!.tableWidth * 0.8, 0.1));
     expect(footerCell.rect.bottom, lessThanOrEqualTo(flexBlock.height));
+    expect(footerCell.style.fontSize, closeTo(11.9, 0.01));
+    expect(titleCell.style.fontSize, closeTo(16.15, 0.01));
+    expect(footerCell.style.fontSize, lessThan(titleCell.style.fontSize * 0.8));
     expect(
       cardCell.rect.top,
       closeTo(flexBlock.height - cardCell.rect.bottom, 0.1),
