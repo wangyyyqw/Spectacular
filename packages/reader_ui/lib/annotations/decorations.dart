@@ -1,7 +1,9 @@
+import 'package:flutter/painting.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 
+import '../selection/selection.dart';
 import 'annotation.dart';
 
 /// 标注在当前页的一行绘制片段（P4-18）。
@@ -35,6 +37,9 @@ class AnnotationLine {
 /// 支持同块与跨块区间：起点块从起点字符画到块末，终点块从块首画到终点
 /// 字符；跨页部分由翻页后的同一计算覆盖（§64.3）。
 abstract final class AnnotationDecorations {
+  /// 高亮触摸容差（逻辑像素）。
+  static const double tapSlop = 4;
+
   /// 计算当前页的标注片段，按创建时间排序（先创建的在下层叠加）。
   static List<AnnotationLine> linesFor(
     PageContent page,
@@ -94,5 +99,29 @@ abstract final class AnnotationDecorations {
       }
     }
     return result;
+  }
+
+  /// 命中点击位置下最新的标注；未命中返回 null。
+  ///
+  /// 使用实际绘制矩形而不是最近的字符偏移，避免点在空白处误触。
+  static ReaderAnnotation? annotationAt(
+    PageContent page,
+    Offset position,
+    List<ReaderAnnotation> annotations,
+  ) {
+    final lines = linesFor(page, annotations);
+    for (final line in lines.reversed) {
+      final rects = SelectionOps.lineRectsFor(
+        line.line,
+        line.startOffset,
+        line.endOffset,
+      );
+      for (final rect in rects) {
+        if (rect.inflate(tapSlop).contains(position)) {
+          return line.annotation;
+        }
+      }
+    }
+    return null;
   }
 }

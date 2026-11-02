@@ -98,7 +98,7 @@ class _AnnotationPainter extends CustomPainter {
           );
         }
       } else {
-        final color = Color(line.annotation.color ?? 0xFFFFEB3B)
+        final color = Color(line.annotation.color ?? defaultHighlightColor)
             .withValues(alpha: highlightAlpha);
         final paint = Paint()..color = color;
         for (final rect in rects) {
@@ -122,9 +122,28 @@ class _AnnotationPainter extends CustomPainter {
   @override
   bool shouldRepaint(_AnnotationPainter oldDelegate) =>
       oldDelegate.inkMode != inkMode ||
-      oldDelegate.lines.length != lines.length ||
+      !_sameLines(oldDelegate.lines, lines) ||
       oldDelegate.page.spineIndex != page.spineIndex ||
       oldDelegate.page.pageIndex != page.pageIndex ||
       oldDelegate.highlightAlpha != highlightAlpha ||
       oldDelegate.noteMarkerColor != noteMarkerColor;
+
+  bool _sameLines(List<AnnotationLine> left, List<AnnotationLine> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      final a = left[index];
+      final b = right[index];
+      if (!identical(a.line, b.line) ||
+          a.startOffset != b.startOffset ||
+          a.endOffset != b.endOffset ||
+          a.annotation.id != b.annotation.id ||
+          a.annotation.type != b.annotation.type ||
+          a.annotation.color != b.annotation.color) {
+        return false;
+      }
+    }
+    return true;
+  }
 }

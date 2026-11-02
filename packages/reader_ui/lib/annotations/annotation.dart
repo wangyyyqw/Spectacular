@@ -1,3 +1,6 @@
+/// 默认高亮颜色。
+const int defaultHighlightColor = 0xFFFFEB3B;
+
 /// 标注类型（P4-17，§30.2 / §36.1）。
 enum ReaderAnnotationType {
   /// 高亮。
