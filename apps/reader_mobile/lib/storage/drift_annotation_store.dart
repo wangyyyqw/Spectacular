@@ -105,6 +105,7 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
     int? color,
     ReaderAnnotationStyle? style,
     String? note,
+    bool clearNote = false,
   }) async {
     await (_db.update(_db.annotations)
           ..where((table) => table.id.equals(id)))
@@ -117,7 +118,11 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
             style: style == null
                 ? const Value<int?>.absent()
                 : Value<int?>(style.storageValue),
-            note: note == null ? const Value<String?>.absent() : Value<String?>(note),
+            note: clearNote
+                ? const Value<String?>(null)
+                : note == null
+                ? const Value<String?>.absent()
+                : Value<String?>(note),
             updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
           ),
         );

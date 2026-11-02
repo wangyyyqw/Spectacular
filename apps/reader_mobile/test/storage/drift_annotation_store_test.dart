@@ -121,6 +121,15 @@ void main() {
           item.updatedAt.isAtSameMomentAs(created.updatedAt),
       isTrue,
     );
+
+    await store.update(
+      created.id,
+      type: ReaderAnnotationType.highlight,
+      clearNote: true,
+    );
+    final highlight = (await store.list()).single;
+    expect(highlight.type, ReaderAnnotationType.highlight);
+    expect(highlight.note, isNull);
   });
 
   test('删除后列表为空', () async {

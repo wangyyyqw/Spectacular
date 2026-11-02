@@ -87,6 +87,7 @@ class _Notes implements ReaderAnnotationStore {
     int? color,
     ReaderAnnotationStyle? style,
     String? note,
+    bool clearNote = false,
   }) async {
     final index = items.indexWhere((item) => item.id == id);
     if (index < 0) {
@@ -103,7 +104,7 @@ class _Notes implements ReaderAnnotationStore {
       contextAfter: old.contextAfter,
       color: color ?? old.color,
       style: style ?? old.style,
-      note: note ?? old.note,
+      note: clearNote ? null : note ?? old.note,
       createdAt: old.createdAt,
       updatedAt: DateTime.now(),
     );
@@ -536,7 +537,9 @@ void main() {
 
     await tester.tapAt(wordPosition);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('annotation-remove')));
+    final remove = find.byKey(const ValueKey<String>('annotation-remove'));
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
     await tester.pumpAndSettle();
     expect(find.text('删除这条笔记？'), findsOneWidget);
     await tester.tap(
@@ -549,7 +552,8 @@ void main() {
     );
     expect(notes.items, hasLength(1));
 
-    await tester.tap(find.byKey(const ValueKey<String>('annotation-remove')));
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-remove-confirm')),
@@ -563,6 +567,68 @@ void main() {
     expect(notes.items, hasLength(1));
     expect(notes.items.single.type, ReaderAnnotationType.note);
     expect(notes.items.single.note, '待删除笔记');
+  });
+
+  testWidgets('仅删除笔记正文时保留高亮并可撤销', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'remove-note-only',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '需要保留高亮的笔记',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'remove-note-only',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    await tester.tapAt(
+      tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+
+    final removeNote = find.byKey(
+      const ValueKey<String>('annotation-remove-note'),
+    );
+    await tester.ensureVisible(removeNote);
+    await tester.tap(removeNote);
+    await tester.pumpAndSettle();
+    expect(find.text('删除笔记正文？'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-remove-note-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(notes.items, hasLength(1));
+    expect(notes.items.single.type, ReaderAnnotationType.highlight);
+    expect(notes.items.single.note, isNull);
+    expect(find.text('已删除笔记正文，保留高亮'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.note, '需要保留高亮的笔记');
   });
 
   for (final action in ['取消', '遮罩', '系统返回']) {

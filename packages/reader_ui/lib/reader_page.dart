@@ -1195,6 +1195,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         ? '已添加笔记'
         : '笔记已更新';
     var removed = false;
+    var removedNote = false;
     switch (action.type) {
       case AnnotationEditActionType.save:
         await store.update(
@@ -1206,6 +1207,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           style: action.style,
           note: note,
         );
+      case AnnotationEditActionType.removeNote:
+        await store.update(
+          annotation.id,
+          type: ReaderAnnotationType.highlight,
+          color: action.color,
+          style: action.style,
+          clearNote: true,
+        );
+        removedNote = true;
+        message = '已删除笔记正文，保留高亮';
       case AnnotationEditActionType.remove:
         await store.remove(annotation.id);
         removed = true;
@@ -1227,8 +1238,41 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             onPressed: () => unawaited(_restoreAnnotation(annotation)),
           ),
         );
+      } else if (removedNote) {
+        _showToast(
+          message,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: '撤销',
+            onPressed: () => unawaited(_restoreRemovedNote(annotation)),
+          ),
+        );
       } else {
         _showToast(message);
+      }
+    }
+  }
+
+  Future<void> _restoreRemovedNote(ReaderAnnotation annotation) async {
+    final store = widget.annotations;
+    if (store == null) {
+      return;
+    }
+    try {
+      await store.update(
+        annotation.id,
+        type: ReaderAnnotationType.note,
+        color: annotation.color,
+        style: annotation.style,
+        note: annotation.note,
+      );
+      await _reloadAnnotations();
+      if (mounted) {
+        _showToast('已恢复笔记');
+      }
+    } catch (_) {
+      if (mounted) {
+        _showToast('恢复失败，请重试');
       }
     }
   }

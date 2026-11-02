@@ -138,6 +138,7 @@ class _NoopAnnotationStore implements ReaderAnnotationStore {
     int? color,
     ReaderAnnotationStyle? style,
     String? note,
+    bool clearNote = false,
   }) async {}
 
   @override

@@ -131,6 +131,7 @@ abstract interface class ReaderAnnotationStore {
     int? color,
     ReaderAnnotationStyle? style,
     String? note,
+    bool clearNote = false,
   });
 
   /// 删除标注。

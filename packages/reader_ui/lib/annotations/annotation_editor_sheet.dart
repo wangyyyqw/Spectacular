@@ -10,6 +10,9 @@ enum AnnotationEditActionType {
   /// 保存颜色、样式或笔记修改。
   save,
 
+  /// 删除笔记正文并保留高亮。
+  removeNote,
+
   /// 删除高亮或笔记。
   remove,
 }
@@ -38,6 +41,16 @@ class AnnotationEditAction {
   /// 删除标注。
   const AnnotationEditAction.remove()
     : this._(type: AnnotationEditActionType.remove);
+
+  /// 删除笔记正文并保留高亮。
+  const AnnotationEditAction.removeNote({
+    required int color,
+    required ReaderAnnotationStyle style,
+  }) : this._(
+         type: AnnotationEditActionType.removeNote,
+         color: color,
+         style: style,
+       );
 
   /// 动作类型。
   final AnnotationEditActionType type;
@@ -110,6 +123,7 @@ class _ReaderAnnotationEditorSheetState
   bool _allowPop = false;
   bool _discardDialogVisible = false;
   bool _removeDialogVisible = false;
+  bool _removeNoteDialogVisible = false;
   bool _closing = false;
   bool _showNoteEditor = false;
   bool _autofocusNoteEditor = false;
@@ -177,6 +191,12 @@ class _ReaderAnnotationEditorSheetState
     if (_closing) {
       return;
     }
+    if (action.type == AnnotationEditActionType.removeNote) {
+      final remove = await _confirmRemoveNoteOnly();
+      if (!remove || !mounted) {
+        return;
+      }
+    }
     if (action.type == AnnotationEditActionType.remove && _isNote) {
       final remove = await _confirmRemoveNote();
       if (!remove || !mounted) {
@@ -224,6 +244,34 @@ class _ReaderAnnotationEditorSheetState
       ),
     );
     _removeDialogVisible = false;
+    return remove == true;
+  }
+
+  Future<bool> _confirmRemoveNoteOnly() async {
+    if (_removeNoteDialogVisible) {
+      return false;
+    }
+    _removeNoteDialogVisible = true;
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除笔记正文？'),
+        content: const Text('高亮会保留，删除后笔记正文无法恢复。'),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('annotation-remove-note-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('annotation-remove-note-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除正文'),
+          ),
+        ],
+      ),
+    );
+    _removeNoteDialogVisible = false;
     return remove == true;
   }
 
@@ -411,6 +459,25 @@ class _ReaderAnnotationEditorSheetState
                       ),
                       icon: const Icon(Icons.check, size: 20),
                       label: const Text('保存修改'),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (_isNote) ...[
+                    OutlinedButton.icon(
+                      key: const ValueKey<String>('annotation-remove-note'),
+                      onPressed: () => unawaited(
+                        _finish(
+                          AnnotationEditAction.removeNote(
+                            color: _currentColor,
+                            style: _currentStyle,
+                          ),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                      ),
+                      icon: const Icon(Icons.notes_outlined, size: 20),
+                      label: const Text('删除笔记正文，保留高亮'),
                     ),
                     const SizedBox(height: 10),
                   ],
@@ -780,7 +847,7 @@ class _RemoveAnnotationButton extends StatelessWidget {
         minimumSize: const Size.fromHeight(44),
       ),
       icon: const Icon(Icons.delete_outline, size: 20),
-      label: Text(isNote ? '删除笔记' : '取消高亮'),
+      label: Text(isNote ? '删除笔记与高亮' : '取消高亮'),
     );
   }
 }
