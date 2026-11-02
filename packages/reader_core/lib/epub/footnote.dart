@@ -128,9 +128,13 @@ abstract final class FootnoteParser {
       'data-reeden-footnote-body',
       'zy-footnote',
     ];
+    final normalized = <String, String>{
+      for (final entry in attributes.entries)
+        entry.key.toLowerCase(): entry.value,
+    };
     final parts = <String>[tag.toLowerCase()];
     for (final key in keys) {
-      parts.add('$key=${attributes[key] ?? ''}');
+      parts.add('$key=${normalized[key.toLowerCase()] ?? ''}');
     }
     parts.add('text=${_normalizeText(text)}');
     return parts.join('\u001f');
@@ -160,12 +164,7 @@ abstract final class FootnoteParser {
     if (_directImageSource(attributes) != null) {
       return true;
     }
-    final classes = (attributes['class'] ?? '').toLowerCase().split(
-      RegExp(r'\s+'),
-    );
-    return tag.toLowerCase() == 'img' &&
-        classes.contains('duokan-footnote') &&
-        (attributes['alt']?.trim().isNotEmpty ?? false);
+    return _isImageNoteReference(tag, attributes);
   }
 
   /// 是否为注释定义容器（注释正文在阅读页中应隐藏）。
@@ -276,10 +275,7 @@ abstract final class FootnoteParser {
       final directContent =
           _directContent(tag, attributes) ??
           (tag == 'a' ? _nestedDirectContent(element) : null);
-      final directImage =
-          tag == 'img' &&
-          _classes(element).contains('duokan-footnote') &&
-          (attributes['alt']?.trim().isNotEmpty ?? false);
+      final directImage = _isImageNoteReference(tag, attributes);
       final directImageSource =
           _directImageSource(attributes) ??
           (tag == 'a' ? _nestedDirectImageSource(element) : null);
@@ -451,7 +447,7 @@ abstract final class FootnoteParser {
           sourceId: anchor.sourceId,
           targetSpine: target.spineIndex,
           targetId: targetId,
-          noteText: noteText ?? anchor.noteText,
+          noteText: anchor.noteText ?? noteText,
           noteImages: noteImages.isNotEmpty ? noteImages : anchor.noteImages,
           crossDocument: target.spineIndex != source.spineIndex,
           heuristicReference: anchor.heuristicReference,
@@ -566,8 +562,9 @@ abstract final class FootnoteParser {
     }
     for (final element in target.ids.values) {
       for (final anchor in element.descendants.whereType<XmlElement>()) {
+        final href = (anchor.getAttribute('href') ?? '').trim();
         if (anchor.name.local == 'a' &&
-            (anchor.getAttribute('href') ?? '').trim() == '#$sourceId') {
+            (href == '#$sourceId' || href.endsWith('#$sourceId'))) {
           return _containerWithId(_noteContainer(anchor));
         }
       }
@@ -905,6 +902,27 @@ abstract final class FootnoteParser {
         .hasMatch(lower);
   }
 
+  /// 多看、QQ/微信读书、掌阅的弹注图标都把正文放在 `alt` 中。
+  static bool _isImageNoteReference(
+    String tag,
+    Map<String, String> attributes,
+  ) {
+    if (tag.toLowerCase() != 'img' ||
+        (attributes['alt']?.trim().isEmpty ?? true)) {
+      return false;
+    }
+    final classes = (attributes['class'] ?? '')
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .toSet();
+    return const <String>{
+      'duokan-footnote',
+      'qqreader-footnote',
+      'zhangyue-footnote',
+      'epub-footnote',
+    }.any(classes.contains);
+  }
+
   static String _resolveImageSource(String source, String documentPath) {
     final value = source.toLowerCase().startsWith('file:')
         ? source.substring(5)
@@ -967,8 +985,7 @@ abstract final class FootnoteParser {
     return id.isNotEmpty &&
         RegExp(
           r'^(?:fn|redfn|n|note|footnote|endnote|rearnote)[\s._:-]*\d+(?:[\s._:-]*\d+)*$',
-        )
-            .hasMatch(id);
+        ).hasMatch(id);
   }
 
   static String _epubType(XmlElement element) {

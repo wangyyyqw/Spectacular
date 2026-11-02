@@ -306,14 +306,27 @@ class EpubChapterSource
     ParsedElement root,
     Set<String> hiddenIds,
   ) {
-    if (hiddenIds.isEmpty) {
-      return const <ParsedElement>{};
-    }
     final hidden = <ParsedElement>{};
     final ancestors = <ParsedElement>[];
-    void walk(ParsedElement element) {
+    bool walk(ParsedElement element) {
       final id = element.id;
-      if (id != null && hiddenIds.contains(id)) {
+      var hasBacklink = false;
+      ancestors.add(element);
+      for (final child in element.children) {
+        if (child is ParsedElement) {
+          hasBacklink = walk(child) || hasBacklink;
+        }
+      }
+      ancestors.removeLast();
+      final isBacklink = FootnoteParser.isBacklink(
+        element.tag,
+        element.attributes,
+      );
+      // 跨文档定义页可能没有 epub:type/class，仅由“正文 → 定义”的返回
+      // 链接标识；这类容器也要从阅读流中移除。
+      final isBacklinkContainer =
+          hasBacklink && _footnoteDefinitionContainerTags.contains(element.tag);
+      if ((id != null && hiddenIds.contains(id)) || isBacklinkContainer) {
         var owner = element;
         for (var index = ancestors.length - 1; index >= 0; index--) {
           if (_footnoteDefinitionContainerTags.contains(
@@ -325,13 +338,7 @@ class EpubChapterSource
         }
         hidden.add(owner);
       }
-      ancestors.add(element);
-      for (final child in element.children) {
-        if (child is ParsedElement) {
-          walk(child);
-        }
-      }
-      ancestors.removeLast();
+      return isBacklink || hasBacklink;
     }
 
     walk(root);
@@ -4760,6 +4767,17 @@ class EpubChapterSource
                 chain: other.chain,
               ),
         ];
+        final extractedFootnote = inlineBlock
+            ? footnoteForReference(
+                mark.tag,
+                mark.chain.isEmpty
+                    ? const <String, String>{}
+                    : mark.chain.last.attributes,
+                rawContent,
+                start: removeStart,
+                end: removeStart + 1,
+              )
+            : null;
         return _InlineFloatExtraction(
           text: newText,
           marks: newMarks,
@@ -4781,6 +4799,7 @@ class EpubChapterSource
                   contentBaseline: boxSpec.contentBaseline,
                   payload: boxSpec.payload,
                 ),
+          footnote: extractedFootnote,
           remapOffset: remap,
           removeStart: removeStart,
           removeEnd: removeEnd,
@@ -6450,6 +6469,7 @@ class EpubChapterSource
         final paragraphIsFloat =
             _floatSideOfStyle(blockStyle) != null || containerFloat != null;
         final inlineFloats = <PageBlock>[];
+        final inlineBoxFootnotes = <PageFootnote>[];
         var inlineBoxes = <InlineBoxSpec>[];
         var paragraphText = text;
         var paragraphMarks = textNode is TextContentNode
@@ -6791,6 +6811,10 @@ class EpubChapterSource
             final box = extracted.inlineBox;
             if (box != null) {
               inlineBoxes = appendInlineBox(inlineBoxes, extracted);
+              final footnote = extracted.footnote;
+              if (footnote != null) {
+                inlineBoxFootnotes.add(footnote);
+              }
             }
             paragraphText = extracted.text;
             paragraphMarks = extracted.marks;
@@ -6898,7 +6922,7 @@ class EpubChapterSource
             ),
           );
         }
-        final paragraphFootnotes = <PageFootnote>[];
+        final paragraphFootnotes = <PageFootnote>[...inlineBoxFootnotes];
         final seenFootnoteOffsets = <int>{};
         void addFootnote(
           String tag,
@@ -7969,6 +7993,7 @@ class _InlineFloatExtraction {
     required this.removeEnd,
     this.block,
     this.inlineBox,
+    this.footnote,
   });
 
   /// 摘掉浮动内容后的段落文本。
@@ -7982,6 +8007,9 @@ class _InlineFloatExtraction {
 
   /// 摘出的行内盒子（`display: inline-block`）：交给行排版按行内盒放置。
   final InlineBoxSpec? inlineBox;
+
+  /// 行内盒本身作为注释入口时的弹窗数据。
+  final PageFootnote? footnote;
 
   /// 旧偏移 → 新偏移。
   final int Function(int offset) remapOffset;

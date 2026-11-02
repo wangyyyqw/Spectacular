@@ -602,7 +602,197 @@ def make_cjk_vertical() -> tuple[dict, dict[str, bytes]]:
     return book, files
 
 
-BUILDERS = [make_basic, make_styles, make_table, make_toc_ncx, make_broken, make_cjk_vertical]
+FOOTNOTE_CSS = """body { margin: 1em 1.2em; line-height: 1.6; }
+h1 { text-align: center; font-size: 1.35em; margin: 0.6em 0 1em; }
+h2 { font-size: 1.08em; margin: 1.2em 0 0.45em; color: #28536b; }
+p { margin: 0.45em 0; text-indent: 0; }
+a { color: #8b3f27; text-decoration: underline; }
+img.duokan-footnote,
+img.qqreader-footnote,
+img.zhangyue-footnote,
+img.epub-footnote {
+  width: 18px;
+  height: 18px;
+  margin: 0 0.2em;
+  vertical-align: middle;
+}
+span.reader {
+  display: inline-block;
+  width: 19px;
+  height: 19px;
+  margin: 0 0.25em;
+  vertical-align: middle;
+  background-image: url("../images/note-icon.png");
+  background-size: 100% 100%;
+}
+"""
+
+FOOTNOTE_DEMO_BODY = """<h1>注释结构总测</h1>
+<p>本页每一行对应一种注释入口。正常阅读时，下方注文和跨文档定义页的注文都不得进入正文；点击注号、链接或图标后应弹出“脚注/尾注”窗口。</p>
+<p><a href="notes.xhtml">普通链接：打开跨文档注释定义页</a>　<a href="normal-links.xhtml">普通链接：无注释章节</a></p>
+
+<h2>标准 EPUB 与通用结构</h2>
+<p>01 EPUB3 noteref 脚注<a id="ref-epub3" epub:type="noteref" href="#fn-epub3">〔01〕</a></p>
+<p>02 DPUB-ARIA 脚注<a id="ref-dpub" role="doc-noteref" href="#fn-dpub">〔02〕</a></p>
+<p>03 EPUB2 上标数字链接<sup><a id="ref-epub2" href="#fn2">[03]</a></sup></p>
+<p>04 跨 XHTML 标准尾注<a id="ref-cross" epub:type="noteref" href="notes.xhtml#fn-cross">〔04〕</a></p>
+<p>05 EPUB3 rearnote 尾注<a id="ref-rear" epub:type="noteref" href="notes.xhtml#fn-rear">〔05〕</a></p>
+<p>06 通用 epub-footnote 类名<a id="ref-generic" class="epub-footnote" href="notes.xhtml#fn-generic">〔06〕</a></p>
+<p>07 dl/dt/dd 注释列表<a id="ref-dl" epub:type="noteref" href="notes.xhtml#fn-dl">〔07〕</a></p>
+<p>08 title 属性兼容注<a title="这是写在 title 属性里的旧式弹注正文。">〔08〕</a></p>
+
+<h2>多看、QQ/微信读书、掌阅</h2>
+<p>09 多看文字注<a id="ref-duokan" class="duokan-footnote" href="#fn-duokan">〔09〕</a></p>
+<p>10 多看图片注 <img class="duokan-footnote" alt="这是多看图片注，注文放在 alt 属性中。" src="../images/note-icon.png"/> 点图标</p>
+<p>11 QQ/微信读书图片注 <img class="qqreader-footnote" alt="这是 QQ 阅读或微信读书图片注，注文放在 alt 属性中。" src="../images/note-icon.png"/> 点图标</p>
+<p>12 掌阅通用弹注法<sup><a id="ref-zy" class="duokan-footnote" epub:type="noteref" href="notes.xhtml#fn-zy"><img alt="note" class="zhangyue-footnote" src="../images/note-icon.png" zy-footnote="这是掌阅通用弹注法，正文来自 zy-footnote 属性。"/></a></sup></p>
+<p>13 掌阅/多看双类名图片注 <img alt="这是双类名图片注兼容变体。" class="duokan-footnote zhangyue-footnote" src="../images/note-icon.png"/> 点图标</p>
+
+<h2>WR/Reader 与 Reeden</h2>
+<p>14 WR/Reader 空元素图标 <span class="reader" data-wr-footernote="这是 WR/Reader 的真实空元素结构，正文位于 data-wr-footernote 属性。"></span> 点图标</p>
+<p>15 WR 直接文本<span class="js_readerFooterNote" data-wr-footernote="WR 直接文本兼容结构。">〔15〕</span></p>
+<p>16 Reader 图片注<span reader_footer_note="file:../images/note-card.png">〔16〕</span></p>
+<p>17 js_readerFooterNote 文本<span js_readerFooterNote="这是 js_readerFooterNote 直接文本兼容写法。">〔17〕</span></p>
+<p>18 Reeden 组合结构<a id="ref-reeden" class="reeden-footnote duokan-footnote" href="#fn-reeden">〔18〕</a></p>
+<p>19 Reeden 直接注文<span class="reeden-footnote" data-reeden-footnote-body="这是 data-reeden-footnote-body 直接注文。">〔19〕</span></p>
+
+<h2>兜底与误判边界</h2>
+<p>20 缺少目标 id，按序号文字兜底<a id="ref-text-fallback" epub:type="noteref" href="notes.xhtml#missing-target">[20]</a></p>
+<p>21 缺少目标 id，按返回链接兜底<a id="ref-backlink" href="notes.xhtml#gone">[21]</a></p>
+<p>22 得到兼容路径（仅标准 EPUB3）<a id="ref-dedao" epub:type="noteref" href="#fn-dedao">〔22〕</a></p>
+<p>23 普通数字站内链接不应弹注<a href="#section-target">〔23〕</a></p>
+<p id="section-target">这是普通内链目标，【23】不是注释。</p>
+
+<aside id="fn-epub3" epub:type="footnote">
+  <p>EPUB3 标准脚注第一段。</p>
+  <p>第二段与下方图片都应出现在同一个弹窗中。</p>
+  <img src="../images/note-card.png" alt="书内注释插图"/>
+  <a href="#ref-epub3" epub:type="backlink">返回</a>
+</aside>
+<aside id="fn-dpub" role="doc-footnote">
+  <p>DPUB-ARIA 脚注正文。</p>
+  <a href="#ref-dpub" role="doc-backlink">返回</a>
+</aside>
+<p id="fn2">EPUB2 上标数字链接命中的普通段落注释。</p>
+<p id="fn-dedao" epub:type="footnote">得到未检索到专用类名；此处验证其可用的标准 EPUB3 语义路径。</p>
+
+<ol class="duokan-footnote-content">
+  <li class="duokan-footnote-item" id="fn-duokan">
+    <p>多看文字注第一段，定义来自 duokan-footnote-item。</p>
+    <p>第二段保留完整文本。</p>
+    <a class="duokan-footnote-back" href="#ref-duokan">返回</a>
+  </li>
+</ol>
+<ol class="reeden-footnote-content duokan-footnote-content">
+  <li class="reeden-footnote-item duokan-footnote-item" id="fn-reeden">
+    Reeden 与多看双类名组合注文。
+    <a class="duokan-footnote-back" href="#ref-reeden">返回</a>
+  </li>
+</ol>
+"""
+
+FOOTNOTE_NOTES_BODY = """<h1>跨文档注释定义页</h1>
+<p>正常阅读只应看到本说明；以下所有注文定义都必须隐藏。</p>
+<aside id="fn-cross" role="doc-endnote">
+  <p>跨 XHTML 标准尾注正文。</p>
+  <a href="../text/footnote-demo.xhtml#ref-cross" role="doc-backlink">返回</a>
+</aside>
+<section epub:type="endnotes">
+  <h2>章末尾注集合</h2>
+  <ol><li id="fn-rear" epub:type="rearnote">EPUB3 rearnote 尾注正文。</li></ol>
+</section>
+<p id="fn-zy" class="epub-footnote">掌阅 zy-footnote 的真实定义目标。</p>
+<dl class="footnotes">
+  <dt>通用类名注释定义</dt>
+  <dd id="fn-generic" class="epub-footnote">epub-footnote 通用类名注文。</dd>
+  <dt>列表注释定义</dt>
+  <dd id="fn-dl">dl/dt/dd 列表中的注释正文。</dd>
+</dl>
+<ol class="footnotes">
+  <li epub:type="endnote">20 序号兜底注文：目标 id 缺失时由注号文字定位。</li>
+</ol>
+<aside id="fn-back">
+  <p>21 回链兜底注文：目标 id 缺失时由返回链接定位。</p>
+  <a href="../text/footnote-demo.xhtml#ref-backlink" epub:type="backlink">返回</a>
+</aside>
+"""
+
+FOOTNOTE_NORMAL_BODY = """<h1>普通链接对照页</h1>
+<p>本页没有注释定义。回到总测页，普通章节链接和普通数字内链都不应被误判为脚注。</p>
+<p><a href="footnote-demo.xhtml">返回注释结构总测</a></p>
+<p><a href="#ordinary-target">普通数字链接 23</a></p>
+<p id="ordinary-target">这是普通站内链接目标段落。</p>
+"""
+
+
+def make_footnote_formats() -> tuple[dict, dict[str, bytes]]:
+    book = base_book(
+        id="footnote-formats",
+        file="footnote-formats.epub",
+        title="注释结构总测",
+        description=(
+            "覆盖 EPUB3、DPUB-ARIA、多看、QQ/微信读书、掌阅、通用类名、"
+            "WR/Reader、Reeden 与标准兜底路径；含跨文档、图片和多段注释。"
+        ),
+        source=(
+            "自建原创测试正文；结构依据 710-epub-footnote-formats.md、"
+            "QQ/微信读书与掌阅公开结构样本、WR/Reader 真实书样本"
+        ),
+        features=[
+            "注释", "EPUB3 noteref", "DPUB-ARIA", "footnote", "endnote",
+            "rearnote", "多看 duokan-footnote", "QQ/微信读书 qqreader-footnote",
+            "掌阅 zhangyue-footnote", "通用 epub-footnote", "WR/Reader",
+            "Reeden", "跨 XHTML", "图片注释", "多段注释", "返回链接", "dl/dt/dd",
+            "序号兜底", "回链兜底", "普通链接误判边界",
+        ],
+    )
+    nav_entries = [
+        ("注释结构总测", "text/footnote-demo.xhtml"),
+        ("跨文档注释定义页", "text/notes.xhtml"),
+        ("普通链接对照页", "text/normal-links.xhtml"),
+    ]
+    files: dict[str, bytes] = {
+        "META-INF/container.xml": container_xml().encode(),
+        "OEBPS/styles/main.css": FOOTNOTE_CSS.encode(),
+        "OEBPS/text/footnote-demo.xhtml": xhtml3(
+            "注释结构总测", FOOTNOTE_DEMO_BODY, "../styles/main.css"
+        ).encode(),
+        "OEBPS/text/notes.xhtml": xhtml3(
+            "跨文档注释定义页", FOOTNOTE_NOTES_BODY, "../styles/main.css"
+        ).encode(),
+        "OEBPS/text/normal-links.xhtml": xhtml3(
+            "普通链接对照页", FOOTNOTE_NORMAL_BODY, "../styles/main.css"
+        ).encode(),
+        "OEBPS/images/note-icon.png": png_rgb(18, 18, (148, 62, 38)),
+        "OEBPS/images/note-card.png": png_rgb(96, 48, (37, 93, 116)),
+    }
+    manifest = [
+        {"id": "css", "href": "styles/main.css", "media_type": "text/css"},
+        {"id": "nav", "href": "nav.xhtml", "media_type": "application/xhtml+xml", "properties": "nav"},
+        {"id": "footnote-demo", "href": "text/footnote-demo.xhtml", "media_type": "application/xhtml+xml"},
+        {"id": "notes", "href": "text/notes.xhtml", "media_type": "application/xhtml+xml"},
+        {"id": "normal-links", "href": "text/normal-links.xhtml", "media_type": "application/xhtml+xml"},
+        {"id": "note-icon", "href": "images/note-icon.png", "media_type": "image/png"},
+        {"id": "note-card", "href": "images/note-card.png", "media_type": "image/png"},
+    ]
+    files["OEBPS/nav.xhtml"] = nav_xhtml(book["title"], nav_entries).encode()
+    files["OEBPS/content.opf"] = opf3(
+        book,
+        manifest,
+        ["footnote-demo", "notes", "normal-links"],
+    ).encode()
+    return book, files
+
+
+BUILDERS = [
+    make_basic,
+    make_styles,
+    make_table,
+    make_toc_ncx,
+    make_broken,
+    make_cjk_vertical,
+    make_footnote_formats,
+]
 
 
 # ---------------------------------------------------------------- 打包与校验

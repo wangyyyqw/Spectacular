@@ -117,6 +117,19 @@ void main() {
     expect(anchors[1].noteText, '掌阅图片注释');
   });
 
+  test('QQ/微信读书图片注从 alt 读取正文', () {
+    final source = _doc('''
+<html><body>
+  <p>正文<img class="qqreader-footnote" alt="QQ 阅读图片注正文"
+    src="Images/note.png"/></p>
+</body></html>
+''');
+    final anchor = _resolve(source, [source]).single;
+    expect(anchor.kind, NoteKind.footnote);
+    expect(anchor.noteText, 'QQ 阅读图片注正文');
+    expect(anchor.noteImages, isEmpty);
+  });
+
   test('注释正文内图片转为书内路径', () {
     final source = _doc('''
 <html><body>
