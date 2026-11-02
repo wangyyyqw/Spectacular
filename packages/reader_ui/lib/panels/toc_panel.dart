@@ -140,6 +140,43 @@ class _TocPanelState extends State<TocPanel> {
     });
   }
 
+  void _expandAll() {
+    setState(() {
+      for (final row in flattenToc(widget.entries)) {
+        if (row.entry.children.isNotEmpty) {
+          _expanded.add(row.entry);
+        }
+      }
+    });
+  }
+
+  void _collapseAll() {
+    setState(() {
+      _expanded.clear();
+      final active = _activeEntry(flattenToc(widget.entries));
+      if (active != null) {
+        final path = _pathToEntry(widget.entries, active);
+        if (path.length > 1) {
+          _expanded.addAll(path.take(path.length - 1));
+        }
+      }
+    });
+    _scheduleCenterCurrentRow();
+  }
+
+  void _locateCurrent() {
+    setState(() {
+      final active = _activeEntry(flattenToc(widget.entries));
+      if (active != null) {
+        final path = _pathToEntry(widget.entries, active);
+        if (path.length > 1) {
+          _expanded.addAll(path.take(path.length - 1));
+        }
+      }
+    });
+    _scheduleCenterCurrentRow();
+  }
+
   void _centerCurrentRow() {
     final active = _activeEntry(flattenToc(widget.entries));
     if (active == null) {
@@ -211,6 +248,14 @@ class _TocPanelState extends State<TocPanel> {
     final allRows = flattenToc(widget.entries);
     final rows = _visibleRows();
     final active = _activeEntry(allRows);
+    final hasCollapsibleRows = allRows.any(
+      (row) => row.entry.children.isNotEmpty,
+    );
+    final actionStyle = IconButton.styleFrom(
+      minimumSize: const Size(36, 36),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+    );
     return Material(
       color: theme.colorScheme.surface,
       child: Column(
@@ -234,6 +279,33 @@ class _TocPanelState extends State<TocPanel> {
                     color: theme.colorScheme.outline,
                   ),
                 ),
+                if (hasCollapsibleRows) ...<Widget>[
+                  IconButton(
+                    key: const ValueKey<String>('toc-expand-all'),
+                    onPressed: _expandAll,
+                    style: actionStyle,
+                    tooltip: '展开全部',
+                    iconSize: 20,
+                    icon: const Icon(Icons.unfold_more),
+                  ),
+                  IconButton(
+                    key: const ValueKey<String>('toc-collapse-all'),
+                    onPressed: _collapseAll,
+                    style: actionStyle,
+                    tooltip: '收起全部',
+                    iconSize: 20,
+                    icon: const Icon(Icons.unfold_less),
+                  ),
+                ],
+                if (active != null)
+                  IconButton(
+                    key: const ValueKey<String>('toc-locate-current'),
+                    onPressed: _locateCurrent,
+                    style: actionStyle,
+                    tooltip: '回到当前章',
+                    iconSize: 20,
+                    icon: const Icon(Icons.my_location_outlined),
+                  ),
               ],
             ),
           ),

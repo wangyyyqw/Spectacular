@@ -159,6 +159,26 @@ void main() {
       );
       await tester.pump();
       expect(find.text('1.1.1'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-collapse-all')),
+      );
+      await tester.pump();
+      expect(find.text('第一章'), findsOneWidget);
+      expect(find.text('1.1'), findsNothing);
+      expect(find.text('1.1.1'), findsNothing);
+      expect(find.text('第二章'), findsOneWidget);
+      expect(find.text('2.1'), findsNothing);
+      expect(find.text('共 5 章'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-expand-all')),
+      );
+      await tester.pump();
+      expect(find.text('1.1'), findsOneWidget);
+      expect(find.text('1.1.1'), findsOneWidget);
+      expect(find.text('2.1'), findsOneWidget);
+      expect(find.text('共 5 章'), findsOneWidget);
     });
 
     testWidgets('打开时把当前章移到目录中间', (tester) async {
@@ -191,8 +211,72 @@ void main() {
       final viewport = tester.getRect(find.byType(ListView));
       expect(row.center.dy, closeTo(viewport.center.dy, 0.5));
 
+      controller.jumpTo(0);
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-locate-current')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .getRect(find.byKey(const ValueKey<String>('toc-row-20-第21章')))
+            .center
+            .dy,
+        closeTo(viewport.center.dy, 0.5),
+      );
+
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
+    });
+
+    testWidgets('收起全部时保留当前子项的父级路径', (tester) async {
+      final entries = <TocEntry>[
+        _entry(
+          '第一章',
+          0,
+          children: <TocEntry>[
+            _entry(
+              '1.1',
+              1,
+              children: <TocEntry>[_entry('1.1.1', 2)],
+            ),
+          ],
+        ),
+        _entry(
+          '第二章',
+          3,
+          children: <TocEntry>[_entry('2.1', 4)],
+        ),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TocPanel(
+              entries: entries,
+              currentSpineIndex: 2,
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('toc-collapse-all')),
+      );
+      await tester.pump();
+
+      expect(find.text('第一章'), findsOneWidget);
+      expect(find.text('1.1'), findsOneWidget);
+      expect(find.text('1.1.1'), findsOneWidget);
+      expect(find.text('第二章'), findsOneWidget);
+      expect(find.text('2.1'), findsNothing);
+      final current = tester.widget<ListTile>(
+        find.ancestor(
+          of: find.text('1.1.1'),
+          matching: find.byType(ListTile),
+        ),
+      );
+      expect(current.selected, isTrue);
     });
 
     testWidgets('同一 spine 按 CFI 定位当前顶层目录项', (tester) async {
