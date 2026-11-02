@@ -19,6 +19,36 @@ enum ReaderAnnotationType {
       value == note.storageValue ? note : highlight;
 }
 
+/// 高亮装饰样式。
+enum ReaderAnnotationStyle {
+  /// 半透明底色（旧数据默认样式）。
+  background(0),
+
+  /// 实线下划线。
+  underline(1),
+
+  /// 波浪下划线。
+  wavyUnderline(2),
+
+  /// 虚线下划线。
+  dashedUnderline(3);
+
+  const ReaderAnnotationStyle(this.storageValue);
+
+  /// 数据库存储值（annotations.style）。
+  final int storageValue;
+
+  /// 由存储值解析；空值或未知值按底色处理。
+  static ReaderAnnotationStyle fromStorage(int? value) {
+    for (final style in values) {
+      if (style.storageValue == value) {
+        return style;
+      }
+    }
+    return background;
+  }
+}
+
 /// 标注（P4-17）：CFI 区间 + 颜色 + 备注 + 前后文上下文。
 ///
 /// CFI 是重排后仍能定位的唯一坐标；quote 与前后文用于兜底重定位（P4-20）。
@@ -35,6 +65,7 @@ class ReaderAnnotation {
     this.contextBefore,
     this.contextAfter,
     this.color,
+    this.style = ReaderAnnotationStyle.background,
     this.note,
   });
 
@@ -62,6 +93,9 @@ class ReaderAnnotation {
   /// 颜色（ARGB）。
   final int? color;
 
+  /// 高亮装饰样式。
+  final ReaderAnnotationStyle style;
+
   /// 笔记正文。
   final String? note;
 
@@ -86,11 +120,17 @@ abstract interface class ReaderAnnotationStore {
     String? contextBefore,
     String? contextAfter,
     int? color,
+    ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
     String? note,
   });
 
-  /// 更新颜色/备注。
-  Future<void> update(String id, {int? color, String? note});
+  /// 更新颜色、样式或备注。
+  Future<void> update(
+    String id, {
+    int? color,
+    ReaderAnnotationStyle? style,
+    String? note,
+  });
 
   /// 删除标注。
   Future<void> remove(String id);

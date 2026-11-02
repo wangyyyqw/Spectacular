@@ -65,6 +65,17 @@ ReaderAnnotation _annotation({
 
 void main() {
   group('标注装饰映射（P4-18）', () {
+    test('旧数据空样式和未知样式回退到底色', () {
+      expect(
+        ReaderAnnotationStyle.fromStorage(null),
+        ReaderAnnotationStyle.background,
+      );
+      expect(
+        ReaderAnnotationStyle.fromStorage(999),
+        ReaderAnnotationStyle.background,
+      );
+    });
+
     test('同块标注：行内字符区间与 CFI 偏移一致', () {
       final block = _block('0123456789abcdefghij', cfi: 'epubcfi(/6/4!/4/2/1)');
       final page = _page(<PageBlock>[block]);

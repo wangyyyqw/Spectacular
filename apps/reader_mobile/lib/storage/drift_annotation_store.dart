@@ -42,6 +42,7 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
     String? contextBefore,
     String? contextAfter,
     int? color,
+    ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
     String? note,
   }) async {
     final bookId = await _bookIdOf();
@@ -74,6 +75,7 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
         quote: quote,
         contextBefore: Value<String?>(contextBefore),
         contextAfter: Value<String?>(contextAfter),
+        style: Value<int?>(style.storageValue),
         color: Value<int?>(color),
         note: Value<String?>(note),
         createdAt: now.millisecondsSinceEpoch,
@@ -89,6 +91,7 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
       contextBefore: contextBefore,
       contextAfter: contextAfter,
       color: color,
+      style: style,
       note: note,
       createdAt: now,
       updatedAt: now,
@@ -96,12 +99,20 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
   }
 
   @override
-  Future<void> update(String id, {int? color, String? note}) async {
+  Future<void> update(
+    String id, {
+    int? color,
+    ReaderAnnotationStyle? style,
+    String? note,
+  }) async {
     await (_db.update(_db.annotations)
           ..where((table) => table.id.equals(id)))
         .write(
           AnnotationsCompanion(
             color: color == null ? const Value<int?>.absent() : Value<int?>(color),
+            style: style == null
+                ? const Value<int?>.absent()
+                : Value<int?>(style.storageValue),
             note: note == null ? const Value<String?>.absent() : Value<String?>(note),
             updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
           ),
@@ -124,6 +135,7 @@ class DriftAnnotationStore implements ReaderAnnotationStore {
     contextBefore: row.contextBefore,
     contextAfter: row.contextAfter,
     color: row.color,
+    style: ReaderAnnotationStyle.fromStorage(row.style),
     note: row.note,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
     updatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAt),

@@ -60,6 +60,7 @@ class _Notes implements ReaderAnnotationStore {
     String? contextBefore,
     String? contextAfter,
     int? color,
+    ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
     String? note,
   }) async {
     final now = DateTime.now();
@@ -69,6 +70,8 @@ class _Notes implements ReaderAnnotationStore {
       startCfi: startCfi,
       endCfi: endCfi,
       quote: quote,
+      color: color,
+      style: style,
       note: note,
       createdAt: now,
       updatedAt: now,
@@ -78,7 +81,12 @@ class _Notes implements ReaderAnnotationStore {
   }
 
   @override
-  Future<void> update(String id, {int? color, String? note}) async {
+  Future<void> update(
+    String id, {
+    int? color,
+    ReaderAnnotationStyle? style,
+    String? note,
+  }) async {
     final index = items.indexWhere((item) => item.id == id);
     if (index < 0) {
       return;
@@ -93,6 +101,7 @@ class _Notes implements ReaderAnnotationStore {
       contextBefore: old.contextBefore,
       contextAfter: old.contextAfter,
       color: color ?? old.color,
+      style: style ?? old.style,
       note: note ?? old.note,
       createdAt: old.createdAt,
       updatedAt: DateTime.now(),
@@ -321,7 +330,7 @@ void main() {
     expect(notes.items.single.note, '更新后的笔记');
   });
 
-  testWidgets('修改笔记后换色先保护草稿，当前颜色不关闭弹层', (tester) async {
+  testWidgets('修改笔记后换色或样式先保护草稿，当前选项不关闭弹层', (tester) async {
     final source = _Source();
     final notes = _Notes();
     notes.items.add(
@@ -386,6 +395,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
     expect(notes.items.single.color, defaultHighlightColor);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('annotation-style-wavyUnderline'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('放弃未保存的笔记修改？'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-discard-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
+    expect(
+      notes.items.single.style,
+      ReaderAnnotationStyle.background,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
