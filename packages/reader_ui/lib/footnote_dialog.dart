@@ -27,48 +27,115 @@ class ReaderFootnoteDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final text = footnote.text;
     final images = footnote.imageUrls;
-    return AlertDialog(
+    return Material(
       key: const ValueKey('reader-footnote-dialog'),
-      title: Row(
-        children: [
-          const Icon(Icons.sticky_note_2_outlined, size: 20),
-          const SizedBox(width: 8),
-          Text(_title),
-        ],
-      ),
-      content: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 420,
-          maxHeight: MediaQuery.sizeOf(context).height * 0.55,
-        ),
-        child: SingleChildScrollView(
+      color: theme.colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (text != null && text.isNotEmpty)
-                SelectableText(
-                  text,
-                  key: const ValueKey('reader-footnote-text'),
-                  style: const TextStyle(height: 1.65),
+              const SizedBox(height: 10),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              for (var index = 0; index < images.length; index++) ...[
-                if (text != null && text.isNotEmpty || index > 0)
-                  const SizedBox(height: 12),
-                _FootnoteImage(url: images[index], imageCache: imageCache),
-              ],
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.sticky_note_2_outlined,
+                        size: 20,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_title, style: theme.textTheme.titleMedium),
+                          Text(
+                            '正文注释引用',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      key: const ValueKey('reader-footnote-close'),
+                      onPressed: () => Navigator.of(context).pop(),
+                      tooltip: '关闭注释',
+                      icon: const Icon(Icons.close, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (text != null && text.isNotEmpty)
+                        SelectableText(
+                          text,
+                          key: const ValueKey('reader-footnote-text'),
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            height: 1.75,
+                          ),
+                        )
+                      else if (images.isEmpty)
+                        Text(
+                          '这条注释暂无内容',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      for (var index = 0; index < images.length; index++) ...[
+                        if (text != null && text.isNotEmpty || index > 0)
+                          const SizedBox(height: 14),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: _FootnoteImage(
+                            url: images[index],
+                            imageCache: imageCache,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('关闭'),
-        ),
-      ],
     );
   }
 }

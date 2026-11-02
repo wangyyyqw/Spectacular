@@ -1098,8 +1098,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     _clearSelection();
     unawaited(
-      showDialog<void>(
+      showModalBottomSheet<void>(
         context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
         builder: (context) => ReaderFootnoteDialog(
           footnote: footnote,
           imageCache: widget.imageCache,
