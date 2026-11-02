@@ -11,6 +11,7 @@ class ReaderOverrides {
   /// 创建设置。
   const ReaderOverrides({
     this.fontSize,
+    this.fontFamily,
     this.lineHeight,
     this.paragraphSpacing,
     this.textAlign,
@@ -21,6 +22,9 @@ class ReaderOverrides {
 
   /// 正文字号（逻辑像素）。
   final double? fontSize;
+
+  /// 正文字体族；null 表示跟随书籍样式。
+  final String? fontFamily;
 
   /// 行高倍数（相对字号）。
   final double? lineHeight;
@@ -45,6 +49,7 @@ class ReaderOverrides {
   /// 是否没有任何设置。
   bool get isEmpty =>
       fontSize == null &&
+      fontFamily == null &&
       lineHeight == null &&
       paragraphSpacing == null &&
       textAlign == null &&
@@ -56,6 +61,7 @@ class ReaderOverrides {
   /// P2-24）。
   String get fingerprint => [
     'fs=${fontSize ?? '-'}',
+    'ff=${fontFamily ?? '-'}',
     'lh=${lineHeight ?? '-'}',
     'ps=${paragraphSpacing ?? '-'}',
     'align=${textAlign?.name ?? '-'}',
@@ -69,6 +75,10 @@ class ReaderOverrides {
     final size = fontSize;
     if (size != null) {
       values['font-size'] = _px(size);
+    }
+    final family = fontFamily;
+    if (family != null) {
+      values['font-family'] = family;
     }
     final height = lineHeight;
     if (height != null) {
@@ -87,13 +97,17 @@ class ReaderOverrides {
   /// （CSS §7.5 reader origin 高于 author），必须作用在级联结果之上；
   /// 只覆盖这三项，页边距与颜色走各自通道。
   ComputedStyle applyTypography(ComputedStyle base) {
-    if (fontSize == null && lineHeight == null && textAlign == null) {
+    if (fontSize == null &&
+        fontFamily == null &&
+        lineHeight == null &&
+        textAlign == null) {
       return base;
     }
     // 只改排版属性：重建 ComputedStyle 会把背景/边框/内外边距这些
     // 非继承属性归零，书籍面板会整块消失（P9-01）。
     return base.withTypography(
       fontSize: fontSize,
+      fontFamily: fontFamily,
       lineHeightFactor: lineHeight,
       textAlign: textAlign,
     );
@@ -105,6 +119,10 @@ class ReaderOverrides {
     final size = fontSize;
     if (size != null) {
       values['font-size'] = _px(size);
+    }
+    final family = fontFamily;
+    if (family != null) {
+      values['font-family'] = family;
     }
     final height = lineHeight;
     if (height != null) {
@@ -152,6 +170,7 @@ class ReaderOverrides {
   /// 复制并覆盖部分字段。
   ReaderOverrides copyWith({
     double? fontSize,
+    String? fontFamily,
     double? lineHeight,
     double? paragraphSpacing,
     CssTextAlign? textAlign,
@@ -160,6 +179,7 @@ class ReaderOverrides {
     Color? backgroundColor,
   }) => ReaderOverrides(
     fontSize: fontSize ?? this.fontSize,
+    fontFamily: fontFamily ?? this.fontFamily,
     lineHeight: lineHeight ?? this.lineHeight,
     paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     textAlign: textAlign ?? this.textAlign,

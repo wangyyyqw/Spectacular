@@ -55,6 +55,7 @@ void main() {
     test('声明映射', () {
       final values = const ReaderOverrides(
         fontSize: 18,
+        fontFamily: 'builtin_song',
         lineHeight: 1.6,
         textAlign: CssTextAlign.center,
         padding: CssEdges(top: 1, right: 2, bottom: 3, left: 4),
@@ -63,6 +64,7 @@ void main() {
       ).toCssDeclarations();
 
       expect(values['font-size'], '18px');
+      expect(values['font-family'], 'builtin_song');
       expect(values['line-height'], '1.6');
       expect(values['text-align'], 'center');
       expect(values['padding-top'], '1px');
@@ -78,6 +80,8 @@ void main() {
 
       const c = ReaderOverrides(fontSize: 19);
       expect(c.fingerprint, isNot(a.fingerprint));
+      const family = ReaderOverrides(fontSize: 18, fontFamily: 'builtin_hei');
+      expect(family.fingerprint, isNot(a.fingerprint));
       const d = ReaderOverrides(
         padding: CssEdges(top: 8, right: 8, bottom: 8, left: 8),
       );

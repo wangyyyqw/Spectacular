@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
 import '../theme/reader_background.dart';
@@ -18,6 +19,12 @@ abstract final class ReaderSettingsDefaults {
 
   /// 页边距（左右）。
   static const double horizontalPadding = 20;
+
+  /// 内置宋体字族。
+  static const String fontSong = FontFamilyAliases.song;
+
+  /// 系统无衬线字族；经字体别名映射到系统中文字体回退链。
+  static const String fontSans = 'sans-serif';
 
   /// 默认主题。
   static const String themeId = 'white';
@@ -121,17 +128,21 @@ class SettingsPanel extends StatefulWidget {
 }
 
 class _SettingsPanelState extends State<SettingsPanel> {
-  late double _fontSize = widget.overrides.fontSize ??
-      ReaderSettingsDefaults.fontSize;
-  late double _lineHeight = widget.overrides.lineHeight ??
-      ReaderSettingsDefaults.lineHeight;
-  late double _paragraphSpacing = widget.overrides.paragraphSpacing ??
+  late double _fontSize =
+      widget.overrides.fontSize ?? ReaderSettingsDefaults.fontSize;
+  late String? _fontFamily = widget.overrides.fontFamily;
+  late double _lineHeight =
+      widget.overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight;
+  late double _paragraphSpacing =
+      widget.overrides.paragraphSpacing ??
       ReaderSettingsDefaults.paragraphSpacing;
   late double _horizontalPadding =
-      widget.overrides.padding?.left ?? ReaderSettingsDefaults.horizontalPadding;
+      widget.overrides.padding?.left ??
+      ReaderSettingsDefaults.horizontalPadding;
 
   ReaderOverrides _build() => ReaderOverrides(
     fontSize: _fontSize,
+    fontFamily: _fontFamily,
     lineHeight: _lineHeight,
     paragraphSpacing: _paragraphSpacing,
     padding: CssEdges(
@@ -171,6 +182,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     onPressed: () {
                       setState(() {
                         _fontSize = ReaderSettingsDefaults.fontSize;
+                        _fontFamily = null;
                         _lineHeight = ReaderSettingsDefaults.lineHeight;
                         _paragraphSpacing =
                             ReaderSettingsDefaults.paragraphSpacing;
@@ -191,134 +203,179 @@ class _SettingsPanelState extends State<SettingsPanel> {
               children: [
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.type) ...[
-                _slider(
-                  key: 'settings-font-size',
-                  label: '字号',
-                  value: _fontSize,
-                  min: 12,
-                  max: 28,
-                  divisions: 16,
-                  display: _fontSize.toStringAsFixed(0),
-                  onChanged: (value) {
-                    setState(() => _fontSize = value);
-                    _emit();
-                  },
-                ),
-                _slider(
-                  key: 'settings-line-height',
-                  label: '行高',
-                  value: _lineHeight,
-                  min: 1.2,
-                  max: 2.4,
-                  divisions: 12,
-                  display: _lineHeight.toStringAsFixed(1),
-                  onChanged: (value) {
-                    setState(() => _lineHeight = value);
-                    _emit();
-                  },
-                ),
-                _slider(
-                  key: 'settings-paragraph-spacing',
-                  label: '段间距',
-                  value: _paragraphSpacing,
-                  min: 0,
-                  max: 24,
-                  divisions: 24,
-                  display: _paragraphSpacing.toStringAsFixed(0),
-                  onChanged: (value) {
-                    setState(() => _paragraphSpacing = value);
-                    _emit();
-                  },
-                ),
-                if (!widget.marginsActive)
-                _slider(
-                  key: 'settings-padding',
-                  label: '页边距',
-                  value: _horizontalPadding,
-                  min: 8,
-                  max: 40,
-                  divisions: 16,
-                  display: _horizontalPadding.toStringAsFixed(0),
-                  onChanged: (value) {
-                    setState(() => _horizontalPadding = value);
-                    _emit();
-                  },
-                ),
-                if (widget.onOpenMarginEditor != null) ...[
+                  Text('字体', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 8),
-                  _EntryButton(
-                    key: const ValueKey<String>('settings-margin-editor'),
-                    icon: Icons.aspect_ratio,
-                    label: '边距调节器',
-                    onTap: widget.onOpenMarginEditor!,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _fontChoice(
+                        key: 'settings-font-book',
+                        label: '书籍字体',
+                        value: null,
+                      ),
+                      _fontChoice(
+                        key: 'settings-font-song',
+                        label: '宋体',
+                        value: ReaderSettingsDefaults.fontSong,
+                      ),
+                      _fontChoice(
+                        key: 'settings-font-hei',
+                        label: '黑体',
+                        value: ReaderSettingsDefaults.fontSans,
+                      ),
+                    ],
                   ),
-                ],
+                  const SizedBox(height: 12),
+                  _slider(
+                    key: 'settings-font-size',
+                    label: '字号',
+                    value: _fontSize,
+                    min: 12,
+                    max: 28,
+                    divisions: 16,
+                    display: _fontSize.toStringAsFixed(0),
+                    onChanged: (value) {
+                      setState(() => _fontSize = value);
+                      _emit();
+                    },
+                  ),
+                  _slider(
+                    key: 'settings-line-height',
+                    label: '行高',
+                    value: _lineHeight,
+                    min: 1.2,
+                    max: 2.4,
+                    divisions: 12,
+                    display: _lineHeight.toStringAsFixed(1),
+                    onChanged: (value) {
+                      setState(() => _lineHeight = value);
+                      _emit();
+                    },
+                  ),
+                  _slider(
+                    key: 'settings-paragraph-spacing',
+                    label: '段间距',
+                    value: _paragraphSpacing,
+                    min: 0,
+                    max: 24,
+                    divisions: 24,
+                    display: _paragraphSpacing.toStringAsFixed(0),
+                    onChanged: (value) {
+                      setState(() => _paragraphSpacing = value);
+                      _emit();
+                    },
+                  ),
+                  if (!widget.marginsActive)
+                    _slider(
+                      key: 'settings-padding',
+                      label: '页边距',
+                      value: _horizontalPadding,
+                      min: 8,
+                      max: 40,
+                      divisions: 16,
+                      display: _horizontalPadding.toStringAsFixed(0),
+                      onChanged: (value) {
+                        setState(() => _horizontalPadding = value);
+                        _emit();
+                      },
+                    ),
+                  if (widget.onOpenMarginEditor != null) ...[
+                    const SizedBox(height: 8),
+                    _EntryButton(
+                      key: const ValueKey<String>('settings-margin-editor'),
+                      icon: Icons.aspect_ratio,
+                      label: '边距调节器',
+                      onTap: widget.onOpenMarginEditor!,
+                    ),
+                  ],
                 ],
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.theme) ...[
-                Text('主题', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (final item in ReaderTheme.themes)
-                      _themeSwatch(
-                        key: 'settings-theme-${item.id}',
-                        theme: item,
-                        selected: item.id == widget.themeId,
-                        onTap: () => widget.onThemeChanged(item.id),
-                      ),
-                  ],
-                ),
-                if (widget.onBackgroundChanged != null) ...[
-                  const SizedBox(height: 16),
-                  Text('背景', style: theme.textTheme.titleSmall),
+                  Text('主题', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      for (final item in ReaderBackground.all)
-                        _backgroundChip(
-                          key: 'settings-bg-${item.id}',
-                          background: item,
-                          selected:
-                              !widget.inkMode && item.id == widget.backgroundId,
-                          onTap: () => widget.onBackgroundChanged!(item.id),
+                      for (final item in ReaderTheme.themes)
+                        _themeSwatch(
+                          key: 'settings-theme-${item.id}',
+                          theme: item,
+                          selected: item.id == widget.themeId,
+                          onTap: () => widget.onThemeChanged(item.id),
                         ),
                     ],
                   ),
-                ],
+                  if (widget.onBackgroundChanged != null) ...[
+                    const SizedBox(height: 16),
+                    Text('背景', style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final item in ReaderBackground.all)
+                          _backgroundChip(
+                            key: 'settings-bg-${item.id}',
+                            background: item,
+                            selected:
+                                !widget.inkMode &&
+                                item.id == widget.backgroundId,
+                            onTap: () => widget.onBackgroundChanged!(item.id),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.settings) ...[
-                if (widget.onOpenTapZoneEditor != null) ...[
-                  _EntryButton(
-                    key: const ValueKey<String>('settings-tap-zones'),
-                    icon: Icons.grid_on,
-                    label: '点击区域设置',
-                    onTap: widget.onOpenTapZoneEditor!,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                if (widget.onInkModeChanged != null) ...[
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    key: const ValueKey<String>('settings-ink-mode'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('墨水屏模式'),
-                    subtitle: const Text('纯黑白、禁用背景纹理、高亮改为下划线'),
-                    value: widget.inkMode,
-                    onChanged: widget.onInkModeChanged,
-                  ),
-                ],
+                  if (widget.onOpenTapZoneEditor != null) ...[
+                    _EntryButton(
+                      key: const ValueKey<String>('settings-tap-zones'),
+                      icon: Icons.grid_on,
+                      label: '点击区域设置',
+                      onTap: widget.onOpenTapZoneEditor!,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (widget.onInkModeChanged != null) ...[
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      key: const ValueKey<String>('settings-ink-mode'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('墨水屏模式'),
+                      subtitle: const Text('纯黑白、禁用背景纹理、高亮改为下划线'),
+                      value: widget.inkMode,
+                      onChanged: widget.onInkModeChanged,
+                    ),
+                  ],
                 ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _fontChoice({
+    required String key,
+    required String label,
+    required String? value,
+  }) {
+    return ChoiceChip(
+      key: ValueKey<String>(key),
+      label: Text(label),
+      selected: _fontFamily == value,
+      showCheckmark: false,
+      onSelected: (_) {
+        if (_fontFamily == value) {
+          return;
+        }
+        setState(() => _fontFamily = value);
+        _emit();
+      },
     );
   }
 
@@ -451,7 +508,11 @@ class _EntryButton extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Icon(icon, size: 16, color: scheme.onSurface.withValues(alpha: 0.8)),
+              Icon(
+                icon,
+                size: 16,
+                color: scheme.onSurface.withValues(alpha: 0.8),
+              ),
               const SizedBox(width: 8),
               Text(
                 label,

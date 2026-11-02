@@ -1138,9 +1138,10 @@ class EpubChapterSource
   bool _hasBookFontGlyph(String family, int codeUnit) {
     final engine = FontFamilyAliases.resolve(family) ?? family;
     final coverage = _bookFontCoverages[family] ?? _bookFontCoverages[engine];
-    // 楷体/黑体目前没有内置字节，未知的 `builtin_*` 主族又不会触发
-    // TextStyle 的逐字回退；显式判缺后可落到内置宋体，避免豆腐块。
-    if (engine == FontFamilyAliases.kai || engine == FontFamilyAliases.hei) {
+    // 楷体目前没有内置字节，未知的 `builtin_*` 主族不会触发 TextStyle
+    // 的逐字回退；显式判缺后可落到已有字族，避免豆腐块。黑体已随应用
+    // 注册全量思源黑体，与内置宋体一样交给 TextStyle 回退链处理。
+    if (engine == FontFamilyAliases.kai) {
       return coverage?.covers(codeUnit) ?? false;
     }
     return coverage == null || coverage.covers(codeUnit);
@@ -4559,7 +4560,10 @@ class EpubChapterSource
           viewportWidth: contentWidth,
         );
       }
-      return parent;
+      final readerFontFamily = context.readerFontFamily;
+      return readerFontFamily == null
+          ? parent
+          : parent.withTypography(fontFamily: readerFontFamily);
     }
 
     List<StyledRun> resolveInlineRuns(
@@ -4802,6 +4806,7 @@ class EpubChapterSource
             ancestors: inlineMarkChain(mark, context.ancestors),
             style: inlineStyle,
             width: contentWidthLimit,
+            readerFontFamily: context.readerFontFamily,
           );
           final flow = extractContentBoxes(innerContext);
           final runs = resolveInlineRuns(flow.marks, innerContext);
@@ -5105,7 +5110,12 @@ class EpubChapterSource
       var remainingText = text;
       var remainingMarks = marks;
       var boxes = <InlineBoxSpec>[];
-      final context = (ancestors: ancestors, style: cellStyle, width: width);
+      final context = (
+        ancestors: ancestors,
+        style: cellStyle,
+        width: width,
+        readerFontFamily: null,
+      );
       for (var i = 0; i < marks.length; i++) {
         final extracted = extractInlineFloat(
           text: remainingText,
@@ -6558,10 +6568,12 @@ class EpubChapterSource
           text,
           specialComponent: specialComponent,
         );
-        if (!isHeading &&
+        final applyReaderTypography =
+            !isHeading &&
             !structuredTitle &&
             !specialComponent &&
-            !ancestors.any(promotedInlineStyles.containsKey)) {
+            !ancestors.any(promotedInlineStyles.containsKey);
+        if (applyReaderTypography) {
           blockStyle = overrides.applyTypography(blockStyle);
         }
         // 绝对/固定定位（P9-19/W18）：脱离正常流（不推进 y、不计页高）。
@@ -6962,6 +6974,9 @@ class EpubChapterSource
           ancestors: ancestors,
           style: blockStyle,
           width: _textWidthFor(blockStyle),
+          readerFontFamily: applyReaderTypography
+              ? _overrides.fontFamily
+              : null,
         );
         if (!paragraphIsFloat && textNode is TextContentNode) {
           // 一段里可能有多个行内浮动（如职业标签 + 天赋标签），逐个摘出。
@@ -7513,8 +7528,10 @@ class EpubChapterSource
         final childAncestors = <SelectorElement>[...ancestors, selfView];
         if (node is PromotedBlockNode) {
           var parent = chainStyle(sourceAncestors);
-          if (!sourceAncestors.any(promotedInlineStyles.containsKey) &&
-              !_headingTags.contains(sourceAncestors.lastOrNull?.tag)) {
+          final applyReaderTypography =
+              !sourceAncestors.any(promotedInlineStyles.containsKey) &&
+              !_headingTags.contains(sourceAncestors.lastOrNull?.tag);
+          if (applyReaderTypography) {
             parent = overrides.applyTypography(parent);
           }
           // display 只改盒类型，字号仍从最终父正文继承，与普通行内标签相同。
@@ -7538,7 +7555,14 @@ class EpubChapterSource
                 ),
               ],
             ),
-            (ancestors: sourceAncestors, style: parent, width: contentWidth),
+            (
+              ancestors: sourceAncestors,
+              style: parent,
+              width: contentWidth,
+              readerFontFamily: applyReaderTypography
+                  ? _overrides.fontFamily
+                  : null,
+            ),
           );
         }
         // 容器级浮动传导（W12）：flat 管线把容器拆成子块后，容器上的
@@ -8116,6 +8140,7 @@ typedef _InlineStyleContext = ({
   List<SelectorElement> ancestors,
   ComputedStyle style,
   double width,
+  String? readerFontFamily,
 });
 
 typedef _AuxiliaryCssRule = ({
