@@ -129,7 +129,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
   _ShelfStatusFilter _filter = _ShelfStatusFilter.all;
   bool _grid = true;
   bool _searching = false;
+  bool _selectionMode = false;
+  bool _removing = false;
   String _query = '';
+  final Set<String> _selectedIds = <String>{};
   final TextEditingController _searchController = TextEditingController();
   int _reloadToken = 0;
 
@@ -191,6 +194,59 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _searching = false;
       _query = '';
       _filter = _ShelfStatusFilter.all;
+    });
+  }
+
+  void _enterSelectionMode() {
+    _searchController.clear();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _selectionMode = true;
+      _searching = false;
+      _query = '';
+      _filter = _ShelfStatusFilter.all;
+      _selectedIds.clear();
+    });
+  }
+
+  void _exitSelectionMode() {
+    if (_removing) {
+      return;
+    }
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelected(String id) {
+    if (_removing) {
+      return;
+    }
+    setState(() {
+      if (!_selectedIds.add(id)) {
+        _selectedIds.remove(id);
+      }
+    });
+  }
+
+  bool _allSelected(List<_ShelfItem>? items) {
+    final entries = items ?? const <_ShelfItem>[];
+    return entries.isNotEmpty &&
+        entries.every((item) => _selectedIds.contains(item.entry.id));
+  }
+
+  void _toggleSelectAll(List<_ShelfItem>? items) {
+    if (_removing) {
+      return;
+    }
+    final entries = items ?? const <_ShelfItem>[];
+    final allSelected = _allSelected(entries);
+    setState(() {
+      _selectedIds.clear();
+      if (!allSelected) {
+        _selectedIds.addAll(entries.map((item) => item.entry.id));
+      }
     });
   }
 
@@ -294,7 +350,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       items.add((entry: book, percentInt: percent));
     }
     if (mounted && token == _reloadToken) {
-      setState(() => _items = items);
+      final validIds = <String>{for (final item in items) item.entry.id};
+      setState(() {
+        _items = items;
+        _selectedIds.removeWhere((id) => !validIds.contains(id));
+        if (items.isEmpty) {
+          _selectionMode = false;
+        }
+      });
     }
   }
 
@@ -491,6 +554,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             child: const Text('删除'),
           ),
         ],
@@ -502,161 +569,341 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
+  List<BookEntry> _selectedEntries() => <BookEntry>[
+    for (final item in _items ?? const <_ShelfItem>[])
+      if (_selectedIds.contains(item.entry.id)) item.entry,
+  ];
+
+  Future<void> _confirmBatchRemove() async {
+    final entries = _selectedEntries();
+    if (entries.isEmpty || _removing) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('删除选中的 ${entries.length} 本书？'),
+        content: const Text('将永久删除书籍文件、阅读进度、书签、笔记和高亮，且不可恢复。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _removeSelected(entries);
+    }
+  }
+
+  Future<void> _removeSelected(List<BookEntry> entries) async {
+    setState(() => _removing = true);
+    var removed = 0;
+    final failedIds = <String>[];
+    for (final entry in entries) {
+      try {
+        await widget.progressStore.clear(entry.id);
+        await widget.library.remove(entry.id);
+        removed++;
+      } catch (_) {
+        failedIds.add(entry.id);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _removing = false;
+      _selectedIds
+        ..clear()
+        ..addAll(failedIds);
+      if (failedIds.isEmpty) {
+        _selectionMode = false;
+      }
+    });
+    final message = switch ((removed, failedIds.length)) {
+      (0, _) => '删除失败，请稍后重试',
+      (_, 0) => '已删除 $removed 本书',
+      (final done, final failed) => '已删除 $done 本，$failed 本删除失败',
+    };
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = _items;
     final busy = _queue.isBusy;
     final visible = items == null ? null : _visible(items);
     return Scaffold(
-      appBar: AppBar(
-        title: _searching
-            ? TextField(
-                key: const ValueKey<String>('bookshelf-search-field'),
-                controller: _searchController,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: '搜索书名或作者',
-                  border: InputBorder.none,
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: '清除搜索',
-                          onPressed: _clearSearch,
-                          icon: const Icon(Icons.clear),
-                        ),
-                ),
-                onChanged: (value) => setState(() => _query = value),
-              )
-            : const Text('书架'),
-        actions: _searching
-            ? <Widget>[
-                IconButton(
-                  tooltip: '关闭搜索',
-                  onPressed: _toggleSearch,
-                  icon: const Icon(Icons.close),
-                ),
-              ]
-            : <Widget>[
-                IconButton(
-                  tooltip: '搜索书架',
-                  onPressed: _toggleSearch,
-                  icon: const Icon(Icons.search),
-                ),
-                PopupMenuButton<BookSortOrder>(
-                  tooltip: '排序',
-                  icon: const Icon(Icons.sort),
-                  initialValue: _sort,
-                  onSelected: _setSort,
-                  itemBuilder: (_) => <PopupMenuEntry<BookSortOrder>>[
-                    for (final order in BookSortOrder.values)
-                      PopupMenuItem<BookSortOrder>(
-                        value: order,
-                        child: Text(order.label),
-                      ),
-                  ],
-                ),
-                IconButton(
-                  tooltip: _grid ? '列表视图' : '网格视图',
-                  onPressed: _toggleView,
-                  icon: Icon(
-                    _grid ? Icons.view_list_outlined : Icons.grid_view,
-                  ),
-                ),
-              ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: busy ? null : _import,
-        icon: busy
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.add),
-        label: Text(busy ? '导入中…' : '导入 EPUB'),
-      ),
-      body: Column(
-        children: [
-          if (busy)
-            _ImportBanner(
-              queue: _queue,
-              onCancel: () {
-                final job = _queue.activeJob;
-                if (job != null) {
-                  _queue.cancel(job.id);
-                }
-              },
-            ),
-          if (_error == null && items != null && items.isNotEmpty)
-            _ShelfFilterBar(
-              items: items,
-              selected: _filter,
-              onSelected: (filter) => setState(() => _filter = filter),
-            ),
-          Expanded(
-            child: _error != null
-                ? _ErrorPane(message: _error!, onRetry: _import)
-                : items == null
-                ? const Center(child: CircularProgressIndicator())
-                : items.isEmpty
-                ? const _EmptyPane()
-                : visible!.isEmpty
-                ? _NoMatchesPane(query: _query.trim(), onReset: _resetFilters)
-                : RefreshIndicator(
-                    onRefresh: () async => _reload(),
-                    child: _grid
-                        ? LayoutBuilder(
-                            builder: (context, constraints) {
-                              final cardWidth =
-                                  (constraints.maxWidth -
-                                      _shelfGridPadding * 2 -
-                                      _shelfGridSpacing * (_shelfColumns - 1)) /
-                                  _shelfColumns;
-                              final titleHeight = MediaQuery.textScalerOf(
-                                context,
-                              ).scale(_shelfTitleHeight);
-                              return GridView.builder(
-                                key: const ValueKey<String>('bookshelf-grid'),
-                                padding: const EdgeInsets.fromLTRB(
-                                  _shelfGridPadding,
-                                  12,
-                                  _shelfGridPadding,
-                                  96,
-                                ),
-                                gridDelegate:
-                                    SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: _shelfColumns,
-                                      mainAxisExtent:
-                                          cardWidth / _shelfCoverAspectRatio +
-                                          _shelfTitleGap +
-                                          titleHeight,
-                                      mainAxisSpacing: _shelfGridSpacing,
-                                      crossAxisSpacing: _shelfGridSpacing,
-                                    ),
-                                itemCount: visible.length,
-                                itemBuilder: (context, index) => _BookCard(
-                                  entry: visible[index].entry,
-                                  percentInt: visible[index].percentInt,
-                                  onOpen: _open,
-                                  onLongPress: _openBookDetail,
-                                ),
-                              );
-                            },
-                          )
-                        : ListView.builder(
-                            key: const ValueKey<String>('bookshelf-list'),
-                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-                            itemCount: visible.length,
-                            itemBuilder: (context, index) => _BookRow(
-                              entry: visible[index].entry,
-                              onOpen: _open,
-                              onLongPress: _openBookDetail,
-                            ),
-                          ),
-                  ),
+      appBar: _buildAppBar(items, busy),
+      floatingActionButton: _selectionMode ? null : _buildImportButton(busy),
+      bottomNavigationBar: _selectionMode ? _buildSelectionBar() : null,
+      body: _buildBody(items, visible, busy),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(List<_ShelfItem>? items, bool busy) {
+    if (_selectionMode) {
+      return AppBar(
+        leading: IconButton(
+          tooltip: '退出多选',
+          onPressed: _removing ? null : _exitSelectionMode,
+          icon: const Icon(Icons.close),
+        ),
+        title: Text(
+          _selectedIds.isEmpty ? '批量管理' : '已选 ${_selectedIds.length} 本',
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const ValueKey<String>('bookshelf-select-all'),
+            onPressed: _removing ? null : () => _toggleSelectAll(items),
+            child: Text(_allSelected(items) ? '取消全选' : '全选'),
           ),
         ],
+      );
+    }
+    return AppBar(
+      title: _searching
+          ? TextField(
+              key: const ValueKey<String>('bookshelf-search-field'),
+              controller: _searchController,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: '搜索书名或作者',
+                border: InputBorder.none,
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除搜索',
+                        onPressed: _clearSearch,
+                        icon: const Icon(Icons.clear),
+                      ),
+              ),
+              onChanged: (value) => setState(() => _query = value),
+            )
+          : const Text('书架'),
+      actions: _searching
+          ? <Widget>[
+              IconButton(
+                tooltip: '关闭搜索',
+                onPressed: _toggleSearch,
+                icon: const Icon(Icons.close),
+              ),
+            ]
+          : <Widget>[
+              IconButton(
+                tooltip: '搜索书架',
+                onPressed: _toggleSearch,
+                icon: const Icon(Icons.search),
+              ),
+              if (items != null && items.isNotEmpty)
+                IconButton(
+                  tooltip: '批量管理',
+                  onPressed: busy ? null : _enterSelectionMode,
+                  icon: const Icon(Icons.checklist),
+                ),
+              PopupMenuButton<BookSortOrder>(
+                tooltip: '排序',
+                icon: const Icon(Icons.sort),
+                initialValue: _sort,
+                onSelected: _setSort,
+                itemBuilder: (_) => <PopupMenuEntry<BookSortOrder>>[
+                  for (final order in BookSortOrder.values)
+                    PopupMenuItem<BookSortOrder>(
+                      value: order,
+                      child: Text(order.label),
+                    ),
+                ],
+              ),
+              IconButton(
+                tooltip: _grid ? '列表视图' : '网格视图',
+                onPressed: _toggleView,
+                icon: Icon(_grid ? Icons.view_list_outlined : Icons.grid_view),
+              ),
+            ],
+    );
+  }
+
+  Widget _buildImportButton(bool busy) {
+    return FloatingActionButton.extended(
+      onPressed: busy ? null : _import,
+      icon: busy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.add),
+      label: Text(busy ? '导入中…' : '导入 EPUB'),
+    );
+  }
+
+  Widget _buildBody(
+    List<_ShelfItem>? items,
+    List<_ShelfItem>? visible,
+    bool busy,
+  ) {
+    return Column(
+      children: [
+        if (busy)
+          _ImportBanner(
+            queue: _queue,
+            onCancel: () {
+              final job = _queue.activeJob;
+              if (job != null) {
+                _queue.cancel(job.id);
+              }
+            },
+          ),
+        if (!_selectionMode &&
+            _error == null &&
+            items != null &&
+            items.isNotEmpty)
+          _ShelfFilterBar(
+            items: items,
+            selected: _filter,
+            onSelected: (filter) => setState(() => _filter = filter),
+          ),
+        Expanded(child: _buildLibraryBody(items, visible)),
+      ],
+    );
+  }
+
+  Widget _buildLibraryBody(List<_ShelfItem>? items, List<_ShelfItem>? visible) {
+    if (_error != null) {
+      return _ErrorPane(message: _error!, onRetry: _import);
+    }
+    if (items == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (items.isEmpty) {
+      return const _EmptyPane();
+    }
+    final books = visible!;
+    if (books.isEmpty) {
+      return _NoMatchesPane(query: _query.trim(), onReset: _resetFilters);
+    }
+    return RefreshIndicator(
+      onRefresh: () async => _reload(),
+      child: _grid ? _buildBookGrid(books) : _buildBookList(books),
+    );
+  }
+
+  Widget _buildBookGrid(List<_ShelfItem> books) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth =
+            (constraints.maxWidth -
+                _shelfGridPadding * 2 -
+                _shelfGridSpacing * (_shelfColumns - 1)) /
+            _shelfColumns;
+        final titleHeight = MediaQuery.textScalerOf(context)
+            .scale(_shelfTitleHeight);
+        return GridView.builder(
+          key: const ValueKey<String>('bookshelf-grid'),
+          padding: EdgeInsets.fromLTRB(
+            _shelfGridPadding,
+            12,
+            _shelfGridPadding,
+            _selectionMode ? 160 : 96,
+          ),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: _shelfColumns,
+            mainAxisExtent:
+                cardWidth / _shelfCoverAspectRatio +
+                _shelfTitleGap +
+                titleHeight,
+            mainAxisSpacing: _shelfGridSpacing,
+            crossAxisSpacing: _shelfGridSpacing,
+          ),
+          itemCount: books.length,
+          itemBuilder: (context, index) {
+            final item = books[index];
+            return _BookCard(
+              entry: item.entry,
+              percentInt: item.percentInt,
+              selectionMode: _selectionMode,
+              selected: _selectedIds.contains(item.entry.id),
+              onSelect: () => _toggleSelected(item.entry.id),
+              onOpen: _open,
+              onLongPress: _openBookDetail,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildBookList(List<_ShelfItem> books) {
+    return ListView.builder(
+      key: const ValueKey<String>('bookshelf-list'),
+      padding: EdgeInsets.fromLTRB(12, 8, 12, _selectionMode ? 160 : 96),
+      itemCount: books.length,
+      itemBuilder: (context, index) {
+        final item = books[index];
+        return _BookRow(
+          entry: item.entry,
+          selectionMode: _selectionMode,
+          selected: _selectedIds.contains(item.entry.id),
+          onSelect: () => _toggleSelected(item.entry.id),
+          onOpen: _open,
+          onLongPress: _openBookDetail,
+        );
+      },
+    );
+  }
+
+  Widget _buildSelectionBar() {
+    final theme = Theme.of(context);
+    final count = _selectedIds.length;
+    return Material(
+      color: theme.colorScheme.surfaceContainer,
+      elevation: 8,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 10, 16, 10),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                count == 0 ? '请选择要删除的书籍' : '删除后不可恢复',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            FilledButton.icon(
+              key: const ValueKey<String>('bookshelf-batch-delete'),
+              onPressed: count == 0 || _removing ? null : _confirmBatchRemove,
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              icon: _removing
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.onError,
+                      ),
+                    )
+                  : const Icon(Icons.delete_outline),
+              label: Text(_removing ? '正在删除…' : '删除'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -748,11 +995,17 @@ class _ImportBanner extends StatelessWidget {
 class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.entry,
+    required this.selectionMode,
+    required this.selected,
+    required this.onSelect,
     required this.onOpen,
     required this.onLongPress,
   });
 
   final BookEntry entry;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onSelect;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
 
@@ -793,7 +1046,23 @@ class _BookRow extends StatelessWidget {
               ),
             ),
     );
+    final trailing = <Widget>[
+      if (entry.readabilityLevel >= 2)
+        Icon(
+          Icons.report_problem_outlined,
+          color: theme.colorScheme.error,
+          size: 18,
+        ),
+      if (selectionMode)
+        Checkbox(
+          key: ValueKey<String>('book-row-check-${entry.id}'),
+          value: selected,
+          onChanged: (_) => onSelect(),
+          visualDensity: VisualDensity.compact,
+        ),
+    ];
     return ListTile(
+      key: ValueKey<String>('book-row-${entry.id}'),
       contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       leading: cover,
       title: Text(
@@ -802,15 +1071,25 @@ class _BookRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium,
       ),
-      trailing: entry.readabilityLevel >= 2
-          ? Icon(
-              Icons.report_problem_outlined,
-              color: theme.colorScheme.error,
-              size: 18,
-            )
-          : null,
-      onTap: () => onOpen(entry),
-      onLongPress: () => onLongPress(entry),
+      trailing: trailing.isEmpty
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: trailing),
+      selected: selectionMode && selected,
+      selectedTileColor: theme.colorScheme.primary.withAlpha(18),
+      onTap: () {
+        if (selectionMode) {
+          onSelect();
+        } else {
+          onOpen(entry);
+        }
+      },
+      onLongPress: () {
+        if (selectionMode) {
+          onSelect();
+        } else {
+          onLongPress(entry);
+        }
+      },
     );
   }
 }
@@ -918,12 +1197,18 @@ class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
     required this.percentInt,
+    required this.selectionMode,
+    required this.selected,
+    required this.onSelect,
     required this.onOpen,
     required this.onLongPress,
   });
 
   final BookEntry entry;
   final int? percentInt;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onSelect;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
 
@@ -1016,13 +1301,46 @@ class _BookCard extends StatelessWidget {
               alignment: Alignment.bottomLeft,
               child: _ReadingBadge(percentInt: percentInt),
             ),
+          if (selectionMode)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  color: selected
+                      ? theme.colorScheme.primary.withAlpha(36)
+                      : Colors.transparent,
+                ),
+              ),
+            ),
+          if (selectionMode)
+            Positioned(
+              top: 6,
+              left: 6,
+              child: _BookSelectionMark(
+                key: ValueKey<String>('book-selected-${entry.id}'),
+                selected: selected,
+              ),
+            ),
         ],
       ),
     );
     return InkWell(
+      key: ValueKey<String>('book-card-${entry.id}'),
       borderRadius: BorderRadius.circular(8),
-      onTap: () => onOpen(entry),
-      onLongPress: () => onLongPress(entry),
+      onTap: () {
+        if (selectionMode) {
+          onSelect();
+        } else {
+          onOpen(entry);
+        }
+      },
+      onLongPress: () {
+        if (selectionMode) {
+          onSelect();
+        } else {
+          onLongPress(entry);
+        }
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1040,11 +1358,49 @@ class _BookCard extends StatelessWidget {
                 entry.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: selectionMode && selected
+                      ? theme.colorScheme.primary
+                      : null,
+                ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BookSelectionMark extends StatelessWidget {
+  const _BookSelectionMark({super.key, required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      selected: selected,
+      label: selected ? '已选择' : '未选择',
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.surface.withAlpha(232),
+          border: Border.all(
+            color: selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outline,
+          ),
+        ),
+        child: selected
+            ? Icon(Icons.check, size: 18, color: theme.colorScheme.onPrimary)
+            : null,
       ),
     );
   }
