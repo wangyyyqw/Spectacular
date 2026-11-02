@@ -102,15 +102,35 @@ class _StatsPageState extends State<StatsPage> {
       return rightTime.compareTo(leftTime);
     });
     final now = DateTime.now();
-    final weekAgo = now.subtract(const Duration(days: 7));
-    final recent = rows.where((row) {
+    final today = DateTime(now.year, now.month, now.day);
+    final activityDates = <DateTime>[
+      for (var offset = -6; offset <= 0; offset++)
+        DateTime(today.year, today.month, today.day + offset),
+    ];
+    final activityCounts = <DateTime, int>{};
+    var recent = 0;
+    for (final row in rows) {
       final lastReadAt = row.book.lastReadAt;
-      return lastReadAt != null && !lastReadAt.isBefore(weekAgo);
-    }).length;
+      if (lastReadAt == null) {
+        continue;
+      }
+      final date = DateTime(lastReadAt.year, lastReadAt.month, lastReadAt.day);
+      if (date.isBefore(activityDates.first)) {
+        continue;
+      }
+      recent += 1;
+      activityCounts[date] = (activityCounts[date] ?? 0) + 1;
+    }
+    final activity = <_DailyReading>[
+      for (final date in activityDates)
+        _DailyReading(date: date, books: activityCounts[date] ?? 0),
+    ];
     final stats = _LibraryStats(
       rows: rows,
       started: started,
       recent: recent,
+      activeDays: activity.where((day) => day.books > 0).length,
+      activity: activity,
       totalCharacters: totalCharacters,
       averageProgress: percentCount == 0
           ? null
@@ -164,8 +184,8 @@ class _StatsPageState extends State<StatsPage> {
                       const SizedBox(width: 8),
                       _MetricTile(
                         icon: Icons.local_fire_department_outlined,
-                        label: '近 7 天',
-                        value: '${stats.recent}',
+                        label: '阅读天数',
+                        value: '${stats.activeDays}',
                         valueKey: const ValueKey<String>('stats-recent-7-days'),
                       ),
                       const SizedBox(width: 8),
@@ -179,6 +199,8 @@ class _StatsPageState extends State<StatsPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  _WeekActivityCard(stats: stats),
                   const SizedBox(height: 24),
                   _SectionTitle(
                     title: '阅读分布',
@@ -214,6 +236,8 @@ class _LibraryStats {
     required this.rows,
     required this.started,
     required this.recent,
+    required this.activeDays,
+    required this.activity,
     required this.totalCharacters,
     required this.averageProgress,
   });
@@ -221,8 +245,17 @@ class _LibraryStats {
   final List<_BookReadingStat> rows;
   final int started;
   final int recent;
+  final int activeDays;
+  final List<_DailyReading> activity;
   final int totalCharacters;
   final int? averageProgress;
+}
+
+class _DailyReading {
+  const _DailyReading({required this.date, required this.books});
+
+  final DateTime date;
+  final int books;
 }
 
 class _BookReadingStat {
@@ -393,6 +426,142 @@ class _MetricTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _WeekActivityCard extends StatelessWidget {
+  const _WeekActivityCard({required this.stats});
+
+  final _LibraryStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final maxBooks = stats.activity.fold<int>(
+      0,
+      (maximum, day) => day.books > maximum ? day.books : maximum,
+    );
+    const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
+    return Card(
+      key: const ValueKey<String>('stats-week-activity'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('近 7 天阅读', style: theme.textTheme.titleSmall),
+                ),
+                Text(
+                  '${stats.activeDays} 天活跃 · ${stats.recent} 本书',
+                  key: const ValueKey<String>('stats-activity-summary'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 104,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var index = 0; index < stats.activity.length; index++)
+                    Expanded(
+                      child: _ActivityBar(
+                        day: stats.activity[index],
+                        maxBooks: maxBooks,
+                        weekday: index == stats.activity.length - 1
+                            ? '今天'
+                            : '周${weekdays[stats.activity[index].date.weekday - 1]}',
+                        countKey: ValueKey<String>(
+                          'stats-activity-count-$index',
+                        ),
+                        barKey: ValueKey<String>('stats-activity-bar-$index'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '按每本书的最后阅读日期统计',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityBar extends StatelessWidget {
+  const _ActivityBar({
+    required this.day,
+    required this.maxBooks,
+    required this.weekday,
+    required this.countKey,
+    required this.barKey,
+  });
+
+  final _DailyReading day;
+  final int maxBooks;
+  final String weekday;
+  final Key countKey;
+  final Key barKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasActivity = day.books > 0;
+    final ratio = maxBooks == 0 ? 0.0 : day.books / maxBooks;
+    return Tooltip(
+      message: '${day.date.month}月${day.date.day}日 · ${day.books} 本',
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(
+            '${day.books}',
+            key: countKey,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: hasActivity
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+              fontWeight: hasActivity ? FontWeight.w700 : FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Container(
+            key: barKey,
+            width: 18,
+            height: hasActivity ? 8 + ratio * 52 : 5,
+            decoration: BoxDecoration(
+              color: hasActivity
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            weekday,
+            maxLines: 1,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: hasActivity
+                  ? theme.colorScheme.onSurface
+                  : theme.colorScheme.onSurfaceVariant,
+              fontWeight: weekday == '今天' ? FontWeight.w700 : FontWeight.w400,
+            ),
+          ),
+        ],
       ),
     );
   }
