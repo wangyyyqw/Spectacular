@@ -16,7 +16,9 @@ import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 import 'annotations/annotation.dart';
+import 'annotations/annotation_editor_sheet.dart';
 import 'annotations/annotation_layer.dart';
+import 'annotations/decorations.dart';
 import 'a11y/semantics_layer.dart';
 import 'footnote_dialog.dart';
 import 'menu/reader_menu_overlay.dart';
@@ -1106,6 +1108,82 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return true;
   }
 
+  /// 单击正文：优先编辑命中的高亮/笔记，其次打开脚注或尾注。
+  bool _handleTapAt(Offset localPosition) {
+    final page = _session.page;
+    if (page == null) {
+      return false;
+    }
+    final padding = _bodyPadding();
+    final persistent = <ReaderAnnotation>[
+      for (final annotation in _resolvedAnnotations)
+        if (annotation.id != 'search-hit') annotation,
+    ];
+    final annotation = AnnotationDecorations.annotationAt(
+      page,
+      localPosition - Offset(padding.left, padding.top),
+      persistent,
+    );
+    if (annotation != null) {
+      _clearSelection();
+      unawaited(_editAnnotation(annotation));
+      return true;
+    }
+    return _openFootnoteAt(localPosition);
+  }
+
+  /// 打开高亮编辑弹层：更换颜色或删除标注。
+  Future<void> _editAnnotation(ReaderAnnotation annotation) async {
+    if (widget.annotations == null) {
+      return;
+    }
+    final action = await showModalBottomSheet<AnnotationEditAction>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => ReaderAnnotationEditorSheet(
+        annotation: annotation,
+      ),
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    await _applyAnnotationEdit(annotation, action);
+  }
+
+  Future<void> _applyAnnotationEdit(
+    ReaderAnnotation annotation,
+    AnnotationEditAction action,
+  ) async {
+    final store = widget.annotations;
+    if (store == null) {
+      return;
+    }
+    String message;
+    switch (action.type) {
+      case AnnotationEditActionType.recolor:
+        final color = action.color;
+        if (color == null) {
+          return;
+        }
+        await store.update(annotation.id, color: color);
+        message = '已更换高亮颜色';
+      case AnnotationEditActionType.remove:
+        await store.remove(annotation.id);
+        message = annotation.type == ReaderAnnotationType.note
+            ? '已删除笔记'
+            : '已取消高亮';
+    }
+    if (!mounted) {
+      return;
+    }
+    await _reloadAnnotations();
+    if (mounted) {
+      _showToast(message);
+    }
+  }
+
   /// 选区菜单动作（P4-16）：复制 / 全选 / 取消。
   List<SelectionAction> _selectionActions(
     PageContent page,
@@ -1161,7 +1239,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       quote: quote,
       contextBefore: context.before,
       contextAfter: context.after,
-      color: type == ReaderAnnotationType.highlight ? 0xFFFFEB3B : null,
+      color: type == ReaderAnnotationType.highlight
+          ? defaultHighlightColor
+          : null,
       note: note,
     );
     if (!mounted) {
@@ -1490,7 +1570,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onLongPressAt: _selectWordAt,
               onDoubleTapAt: _selection == null ? null : _selectWordAt,
               onTripleTapAt: _selection == null ? null : _selectSentenceAt,
-              onTapAt: _openFootnoteAt,
+              onTapAt: _handleTapAt,
               child: const SizedBox.expand(),
             ),
             // 页眉/页脚（P8-10 页家具；样式对齐设计稿 §page-header/footer）。

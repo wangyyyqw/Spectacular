@@ -1,0 +1,285 @@
+import 'package:flutter/material.dart';
+
+import 'annotation.dart';
+
+/// 标注编辑动作。
+enum AnnotationEditActionType {
+  /// 更换高亮颜色。
+  recolor,
+
+  /// 删除高亮或笔记。
+  remove,
+}
+
+/// 标注编辑弹层返回结果。
+class AnnotationEditAction {
+  const AnnotationEditAction._(this.type, {this.color});
+
+  /// 更换颜色。
+  const AnnotationEditAction.recolor(int color)
+    : this._(AnnotationEditActionType.recolor, color: color);
+
+  /// 删除标注。
+  const AnnotationEditAction.remove() : this._(AnnotationEditActionType.remove);
+
+  /// 动作类型。
+  final AnnotationEditActionType type;
+
+  /// 新颜色（仅换色时有效）。
+  final int? color;
+}
+
+/// 高亮颜色选项。
+class AnnotationColorOption {
+  const AnnotationColorOption(this.value, this.label);
+
+  /// ARGB 颜色。
+  final int value;
+
+  /// 无障碍与提示文案。
+  final String label;
+}
+
+/// 点击已有高亮后打开的编辑弹层。
+class ReaderAnnotationEditorSheet extends StatelessWidget {
+  /// 创建标注编辑弹层。
+  const ReaderAnnotationEditorSheet({super.key, required this.annotation});
+
+  /// 可选高亮颜色。
+  static const colors = <AnnotationColorOption>[
+    AnnotationColorOption(defaultHighlightColor, '黄色'),
+    AnnotationColorOption(0xFFA5D6A7, '绿色'),
+    AnnotationColorOption(0xFF90CAF9, '蓝色'),
+    AnnotationColorOption(0xFFF48FB1, '粉色'),
+    AnnotationColorOption(0xFFFFB74D, '橙色'),
+  ];
+
+  /// 当前标注。
+  final ReaderAnnotation annotation;
+
+  bool get _isNote => annotation.type == ReaderAnnotationType.note;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currentColor = annotation.color ?? defaultHighlightColor;
+    return Material(
+      key: const ValueKey<String>('annotation-editor-sheet'),
+      color: theme.colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SheetHandle(),
+              const SizedBox(height: 14),
+              _SheetHeader(isNote: _isNote),
+              _AnnotationPreview(
+                annotation: annotation,
+                currentColor: currentColor,
+              ),
+              const SizedBox(height: 18),
+              Text('高亮颜色', style: theme.textTheme.labelLarge),
+              const SizedBox(height: 10),
+              _ColorChoices(currentColor: currentColor),
+              const SizedBox(height: 18),
+              _RemoveAnnotationButton(isNote: _isNote),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 36,
+        height: 4,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.outlineVariant,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({required this.isNote});
+
+  final bool isNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(
+          isNote ? Icons.sticky_note_2_outlined : Icons.border_color_outlined,
+          size: 20,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(width: 8),
+        Text(isNote ? '笔记' : '高亮', style: theme.textTheme.titleMedium),
+        const Spacer(),
+        IconButton(
+          onPressed: () => Navigator.of(context).pop(),
+          tooltip: '关闭',
+          icon: const Icon(Icons.close, size: 20),
+        ),
+      ],
+    );
+  }
+}
+
+class _AnnotationPreview extends StatelessWidget {
+  const _AnnotationPreview({
+    required this.annotation,
+    required this.currentColor,
+  });
+
+  final ReaderAnnotation annotation;
+  final int currentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: Color(currentColor).withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            annotation.quote,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+          ),
+        ),
+        if (annotation.note case final note? when note.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            note,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.55,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ColorChoices extends StatelessWidget {
+  const _ColorChoices({required this.currentColor});
+
+  final int currentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        for (final option in ReaderAnnotationEditorSheet.colors)
+          _ColorChoice(
+            option: option,
+            selected: option.value == currentColor,
+            onTap: () =>
+                Navigator.of(context)
+                    .pop(AnnotationEditAction.recolor(option.value)),
+          ),
+      ],
+    );
+  }
+}
+
+class _RemoveAnnotationButton extends StatelessWidget {
+  const _RemoveAnnotationButton({required this.isNote});
+
+  final bool isNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return OutlinedButton.icon(
+      key: const ValueKey<String>('annotation-remove'),
+      onPressed: () =>
+          Navigator.of(context).pop(const AnnotationEditAction.remove()),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: theme.colorScheme.error,
+        side: BorderSide(
+          color: theme.colorScheme.error.withValues(alpha: 0.45),
+        ),
+        minimumSize: const Size.fromHeight(44),
+      ),
+      icon: const Icon(Icons.delete_outline, size: 20),
+      label: Text(isNote ? '删除笔记' : '取消高亮'),
+    );
+  }
+}
+
+class _ColorChoice extends StatelessWidget {
+  const _ColorChoice({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AnnotationColorOption option;
+  final bool selected;
+  final VoidCallback onTap;
+
+  String get _keyValue =>
+      '0x${option.value.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: option.label,
+      child: InkResponse(
+        key: ValueKey<String>('annotation-color-$_keyValue'),
+        onTap: onTap,
+        radius: 24,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Color(option.value),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected
+                  ? theme.colorScheme.onSurface
+                  : theme.colorScheme.outlineVariant,
+              width: selected ? 2.5 : 1,
+            ),
+          ),
+          child: selected
+              ? const Icon(Icons.check, size: 20, color: Color(0xFF1D1B20))
+              : null,
+        ),
+      ),
+    );
+  }
+}

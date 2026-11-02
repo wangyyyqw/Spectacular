@@ -7,6 +7,7 @@ import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
+import 'package:reader_ui/selection/selection.dart';
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-size': '16px',
@@ -152,6 +153,78 @@ void main() {
       expect(boxes.length, greaterThanOrEqualTo(2), reason: '跨两行');
       expect(boxes.first.startOffset, 2);
       expect(boxes.last.endOffset, 8, reason: '第二行到 18-10=8');
+    });
+
+    test('点击命中实际高亮矩形，空白位置不误触', () {
+      final block = _block('0123456789abcdefghij', cfi: 'epubcfi(/6/4!/4/2/1)');
+      final page = _page(<PageBlock>[block]);
+      final annotation = _annotation(
+        id: 'hit',
+        start: 'epubcfi(/6/4!/4/2/1:3)',
+        end: 'epubcfi(/6/4!/4/2/1:8)',
+        quote: '34567',
+      );
+      final line = AnnotationDecorations.linesFor(page, <ReaderAnnotation>[
+        annotation,
+      ]).single;
+      final rect = SelectionOps.lineRectsFor(
+        line.line,
+        line.startOffset,
+        line.endOffset,
+      ).first;
+
+      expect(
+        AnnotationDecorations.annotationAt(
+          page,
+          rect.center,
+          <ReaderAnnotation>[annotation],
+        )?.id,
+        'hit',
+      );
+      expect(
+        AnnotationDecorations.annotationAt(
+          page,
+          Offset(rect.right + 20, rect.center.dy),
+          <ReaderAnnotation>[annotation],
+        ),
+        isNull,
+      );
+    });
+
+    test('重叠高亮点击命中最新创建的标注', () {
+      final block = _block('0123456789abcdefghij', cfi: 'epubcfi(/6/4!/4/2/1)');
+      final page = _page(<PageBlock>[block]);
+      final older = _annotation(
+        id: 'older',
+        start: 'epubcfi(/6/4!/4/2/1:2)',
+        end: 'epubcfi(/6/4!/4/2/1:8)',
+        quote: '234567',
+        createdMs: 1000,
+      );
+      final newer = _annotation(
+        id: 'newer',
+        start: 'epubcfi(/6/4!/4/2/1:5)',
+        end: 'epubcfi(/6/4!/4/2/1:10)',
+        quote: '56789',
+        createdMs: 2000,
+      );
+      final newerLine = AnnotationDecorations.linesFor(page, <ReaderAnnotation>[
+        newer,
+      ]).single;
+      final overlayRect = SelectionOps.lineRectsFor(
+        newerLine.line,
+        newerLine.startOffset,
+        newerLine.endOffset,
+      ).first;
+
+      expect(
+        AnnotationDecorations.annotationAt(
+          page,
+          overlayRect.center,
+          <ReaderAnnotation>[newer, older],
+        )?.id,
+        'newer',
+      );
     });
   });
 

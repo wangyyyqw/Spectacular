@@ -175,4 +175,79 @@ void main() {
     expect(afterSecond, hasLength(1), reason: '重复区间不新增');
     expect(find.text('该位置已有标注'), findsOneWidget);
   });
+
+  testWidgets('点击高亮可更换颜色并取消', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('annotation-edit');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => dir,
+    );
+    final bytes = _corpusBook('basic.epub');
+    late BookEntry book;
+    await tester.runAsync(() async {
+      book = await library.importBytes(bytes, fallbackTitle: 'basic');
+    });
+    final source = await openTestChapterSource(bytes);
+    final annotations = library.annotationStore(book.id)!;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 520,
+              child: ReaderPage(
+                source: source,
+                store: MemoryReaderProgressStore(),
+                bookId: book.id,
+                annotations: annotations,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final center = tester.getCenter(find.byType(ReaderView));
+    await tester.longPressAt(center);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-highlight')),
+    );
+    await tester.pumpAndSettle();
+    expect(await annotations.list(), hasLength(1));
+
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('取消高亮'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
+    );
+    await tester.pumpAndSettle();
+    final recolored = (await annotations.list()).single;
+    expect(recolored.color, 0xFF90CAF9);
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsNothing,
+    );
+
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-remove')),
+    );
+    await tester.pumpAndSettle();
+    expect(await annotations.list(), isEmpty);
+    expect(find.byType(AnnotationLayer), findsNothing);
+  });
 }
