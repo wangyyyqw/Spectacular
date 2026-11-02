@@ -161,6 +161,7 @@ class BoxModel {
           base: verticalBase,
           inset: verticalInset,
           boxSizing: boxSizing,
+          viewportHeight: verticalBase,
         ) ??
         math.max(0.0, measuredContentHeight);
     final min = _resolveBound(
@@ -168,12 +169,14 @@ class BoxModel {
       base: verticalBase,
       inset: verticalInset,
       boxSizing: boxSizing,
+      viewportHeight: verticalBase,
     );
     final max = _resolveBound(
       maxHeight,
       base: verticalBase,
       inset: verticalInset,
       boxSizing: boxSizing,
+      viewportHeight: verticalBase,
     );
     return _clamp(height, min, max);
   }
@@ -184,11 +187,12 @@ class BoxModel {
     required double base,
     required double inset,
     required CssBoxSizing boxSizing,
+    double? viewportHeight,
   }) {
     if (length == null || length.isAuto) {
       return null;
     }
-    final declared = length.resolve(base);
+    final declared = length.resolve(base, viewportHeight: viewportHeight);
     if (declared == null) {
       return null;
     }

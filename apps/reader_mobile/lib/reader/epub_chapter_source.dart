@@ -1429,8 +1429,14 @@ class EpubChapterSource
         style.backgroundColor.a > 0 || style.backgroundImage != null;
     final hasBorder = style.borders.hasBorder;
     final hasClearance = style.clear != CssClear.none;
-    final declaredHeight = style.height?.resolve(contentWidth);
-    final declaredMinHeight = style.minHeight?.resolve(contentWidth);
+    final declaredHeight = style.height?.resolve(
+      contentWidth,
+      viewportHeight: containingHeight,
+    );
+    final declaredMinHeight = style.minHeight?.resolve(
+      contentWidth,
+      viewportHeight: containingHeight,
+    );
     if (!hasBackground &&
         !hasBorder &&
         !hasClearance &&
@@ -1921,6 +1927,75 @@ class EpubChapterSource
         style.cssFloat == CssFloat.none &&
         style.position == CssPosition.static &&
         style.writingMode == CssWritingMode.horizontalTb;
+  }
+
+  /// 页面根 `flex-direction: column` 的主轴居中。
+  ///
+  /// flat 管线没有完整 Flex 布局；这里只补页面根最常见的
+  /// `min-height: 100vh + justify-content: center` 版权页/扉页。用空白
+  /// 垫片推进正文流，保留所有后代块的 CFI、容器装饰与注释偏移。
+  static void _alignPageRootFlexColumn({
+    required List<PageBlock> blocks,
+    required int start,
+    required ComputedStyle containerStyle,
+    required double pageWidth,
+    required double pageHeight,
+  }) {
+    if (start >= blocks.length) {
+      return;
+    }
+    final align = containerStyle.justifyContent;
+    if (align != CssJustifyContent.center &&
+        align != CssJustifyContent.flexEnd) {
+      return;
+    }
+    var naturalHeight = 0.0;
+    for (final block in blocks.skip(start)) {
+      if (block.absolute || block.floatSide != null) {
+        continue;
+      }
+      naturalHeight +=
+          block.leadingExtent + block.height + block.trailingExtent;
+    }
+    final model = BoxModel.fromStyle(
+      containerStyle,
+      containingWidth: pageWidth,
+    );
+    final availableHeight = math.max(0.0, pageHeight - model.verticalInset);
+    final declaredHeight = math.min(
+      model.resolveContentHeight(naturalHeight, containingHeight: pageHeight),
+      availableHeight,
+    );
+    final free = math.max(0.0, declaredHeight - naturalHeight);
+    final offset =
+        model.padding.top +
+        model.borders.top +
+        (align == CssJustifyContent.center ? free / 2 : free);
+    if (offset <= 0.01) {
+      return;
+    }
+    blocks.insert(
+      start,
+      PageBlock(
+        layout: TextLayoutResult(
+          text: '',
+          lines: [
+            LineBox(
+              start: 0,
+              end: 0,
+              top: 0,
+              height: offset,
+              baseline: offset,
+              width: pageWidth,
+            ),
+          ],
+          width: pageWidth,
+          height: offset,
+          maxWidth: pageWidth,
+          runs: const <StyledRun>[],
+        ),
+      ),
+    );
   }
 
   /// 单行/换行 Flex 容器：在 flat 管线内排行内主轴位置，不引入完整 Flex 算法。
@@ -7477,6 +7552,10 @@ class EpubChapterSource
         final isFlexRow =
             selfStyle.display == CssDisplay.flex &&
             selfStyle.flexDirection == CssFlexDirection.row;
+        final isPageRootFlexColumn =
+            selfStyle.display == CssDisplay.flex &&
+            selfStyle.flexDirection == CssFlexDirection.column &&
+            node.tag == 'body';
         final retainedStart = blocks.length;
         PageContainer? retained;
         if (containerFloat == null &&
@@ -7604,6 +7683,15 @@ class EpubChapterSource
               flexRow,
             ]);
           }
+        }
+        if (isPageRootFlexColumn) {
+          _alignPageRootFlexColumn(
+            blocks: blocks,
+            start: retainedStart,
+            containerStyle: selfStyle,
+            pageWidth: contentWidth,
+            pageHeight: contentHeight,
+          );
         }
         if (retained != null && !isFlexRow) {
           _wrapContainerBlocks(

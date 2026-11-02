@@ -155,6 +155,22 @@ void main() {
     );
   });
 
+  test('min-height 支持 vh，并按页面高度解算', () {
+    final model = _model({'min-height': '100vh'});
+
+    expect(model.minHeight?.isViewportHeight, isTrue);
+    expect(
+      model.resolveContentHeight(120, containingHeight: 640),
+      640,
+      reason: '100vh 等于读者视口高度，版权页可据此做垂直居中',
+    );
+    expect(
+      model.resolveContentHeight(700, containingHeight: 640),
+      700,
+      reason: '内容高于视口时不能缩短内容盒',
+    );
+  });
+
   test('百分比 padding 已由样式层按 containingWidth 解析', () {
     final model = _model({'padding': '10%'});
 
