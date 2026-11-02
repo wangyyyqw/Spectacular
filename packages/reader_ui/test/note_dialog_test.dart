@@ -107,12 +107,21 @@ class _Notes implements ReaderAnnotationStore {
 Future<void> _openEditor(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('selection-action-note')));
   await tester.pumpAndSettle();
+  expect(
+    find.byKey(const ValueKey<String>('note-composer-sheet')),
+    findsOneWidget,
+  );
   expect(find.byType(TextField), findsOneWidget);
 }
 
-Finder _dialogAction(String label) => find.descendant(
-  of: find.byType(AlertDialog),
-  matching: find.widgetWithText(TextButton, label),
+final Finder _composerInput = find.byKey(
+  const ValueKey<String>('note-composer-input'),
+);
+final Finder _composerSave = find.byKey(
+  const ValueKey<String>('note-composer-save'),
+);
+final Finder _composerClose = find.byKey(
+  const ValueKey<String>('note-composer-close'),
 );
 
 Future<_Notes> _showEditor(WidgetTester tester) async {
@@ -152,7 +161,10 @@ Future<void> _finishExit(WidgetTester tester) async {
   expect(tester.takeException(), isNull);
   await tester.pumpAndSettle();
   expect(tester.takeException(), isNull);
-  expect(find.byType(AlertDialog), findsNothing);
+  expect(
+    find.byKey(const ValueKey<String>('note-composer-sheet')),
+    findsNothing,
+  );
   expect(find.byType(ReaderPage), findsOneWidget);
 }
 
@@ -161,7 +173,8 @@ void main() {
     final notes = await _showEditor(tester);
     await tester.enterText(find.byType(TextField), '第一版');
     await tester.enterText(find.byType(TextField), '  最终笔记  ');
-    await tester.tap(_dialogAction('保存'));
+    await tester.pump();
+    await tester.tap(_composerSave);
     await _finishExit(tester);
     expect(notes.items, hasLength(1));
     expect(notes.items.single.type, ReaderAnnotationType.note);
@@ -198,7 +211,8 @@ void main() {
     await tester.pumpAndSettle();
     await _openEditor(tester);
     await tester.enterText(find.byType(TextField), '第一版笔记');
-    await tester.tap(_dialogAction('保存'));
+    await tester.pump();
+    await tester.tap(_composerSave);
     await _finishExit(tester);
     expect(notes.items.single.note, '第一版笔记');
 
@@ -225,22 +239,17 @@ void main() {
     );
   });
 
-  for (final action in ['取消', '遮罩', '系统返回', '空白保存']) {
+  for (final action in ['取消', '遮罩', '系统返回']) {
     testWidgets('$action 关闭笔记时无异常，不写入标注且再次打开为空', (tester) async {
       final notes = await _showEditor(tester);
-      await tester.enterText(
-        find.byType(TextField),
-        action == '空白保存' ? '   ' : '未保存的草稿',
-      );
+      await tester.enterText(find.byType(TextField), '未保存的草稿');
       switch (action) {
         case '取消':
-          await tester.tap(_dialogAction('取消'));
+          await tester.tap(_composerClose);
         case '遮罩':
           await tester.tapAt(const Offset(5, 5));
         case '系统返回':
           await tester.binding.handlePopRoute();
-        case '空白保存':
-          await tester.tap(_dialogAction('保存'));
       }
       await _finishExit(tester);
       expect(notes.items, isEmpty);
@@ -250,9 +259,27 @@ void main() {
         tester.widget<EditableText>(find.byType(EditableText)).controller.text,
         isEmpty,
       );
-      await tester.tap(_dialogAction('取消'));
+      await tester.tap(_composerClose);
       await _finishExit(tester);
       expect(notes.items, isEmpty);
     });
   }
+
+  testWidgets('空白笔记不可保存且保留选区', (tester) async {
+    final notes = await _showEditor(tester);
+    await tester.enterText(_composerInput, '   ');
+    await tester.pump();
+
+    expect(tester.widget<FilledButton>(_composerSave).onPressed, isNull);
+    expect(
+      find.byKey(const ValueKey<String>('note-composer-sheet')),
+      findsOneWidget,
+    );
+    expect(notes.items, isEmpty);
+    expect(find.byType(SelectionLayer), findsOneWidget);
+
+    await tester.tap(_composerClose);
+    await _finishExit(tester);
+    expect(find.byType(SelectionLayer), findsOneWidget);
+  });
 }
