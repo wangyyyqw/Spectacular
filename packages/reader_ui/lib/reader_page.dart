@@ -1186,6 +1186,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     String message;
+    var removed = false;
     switch (action.type) {
       case AnnotationEditActionType.recolor:
         final color = action.color;
@@ -1203,6 +1204,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         message = '笔记已更新';
       case AnnotationEditActionType.remove:
         await store.remove(annotation.id);
+        removed = true;
         message = annotation.type == ReaderAnnotationType.note
             ? '已删除笔记'
             : '已取消高亮';
@@ -1212,7 +1214,54 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     await _reloadAnnotations();
     if (mounted) {
-      _showToast(message);
+      if (removed) {
+        _showToast(
+          message,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: '撤销',
+            onPressed: () => unawaited(_restoreAnnotation(annotation)),
+          ),
+        );
+      } else {
+        _showToast(message);
+      }
+    }
+  }
+
+  Future<void> _restoreAnnotation(ReaderAnnotation annotation) async {
+    final store = widget.annotations;
+    if (store == null) {
+      return;
+    }
+    try {
+      final restored = await store.add(
+        type: annotation.type,
+        startCfi: annotation.startCfi,
+        endCfi: annotation.endCfi,
+        quote: annotation.quote,
+        contextBefore: annotation.contextBefore,
+        contextAfter: annotation.contextAfter,
+        color: annotation.color,
+        note: annotation.note,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (restored == null) {
+        _showToast('无法撤销：该位置已有标注');
+        return;
+      }
+      await _reloadAnnotations();
+      if (mounted) {
+        _showToast(
+          annotation.type == ReaderAnnotationType.note ? '已恢复笔记' : '已恢复高亮',
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        _showToast('恢复失败，请重试');
+      }
     }
   }
 
@@ -1375,10 +1424,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  void _showToast(String message) {
+  void _showToast(
+    String message, {
+    SnackBarAction? action,
+    Duration duration = const Duration(seconds: 1),
+  }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
+    if (action != null) {
+      messenger?.hideCurrentSnackBar();
+    }
     messenger?.showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 1)),
+      SnackBar(content: Text(message), duration: duration, action: action),
     );
   }
 

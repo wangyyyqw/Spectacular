@@ -157,9 +157,14 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   Widget build(BuildContext context) {
     // 打开书期间先出骨架；就绪后由 ReaderPage 平滑接管（P2-27）。
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
-      child: _buildBody(),
+    return Scaffold(
+      key: const ValueKey<String>('epub-reader-scaffold'),
+      // 阅读页自行处理安全区，并让正文始终铺满可用区域。
+      resizeToAvoidBottomInset: false,
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        child: _buildBody(),
+      ),
     );
   }
 

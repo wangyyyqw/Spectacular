@@ -462,6 +462,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(notes.items, isEmpty);
+    expect(find.text('撤销'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(notes.items, hasLength(1));
+    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.note, '待删除笔记');
   });
 
   for (final action in ['取消', '遮罩', '系统返回']) {
