@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -151,6 +152,7 @@ void main() {
           source: source,
           store: MemoryReaderProgressStore(),
           bookId: 'book',
+          bookTitle: '测试书名',
           onSessionReady: (value) => session = value,
         ),
       ),
@@ -162,6 +164,8 @@ void main() {
       findsOneWidget,
       reason: '首帧应出现骨架',
     );
+    expect(find.text('测试书名'), findsOneWidget);
+    expect(find.text('正在排版…'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
 
     source.gate.complete();
@@ -175,6 +179,21 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     expect(session.page, isNotNull);
     expect(session.loading, isFalse);
+  });
+
+  testWidgets('加载骨架在小视口显示书名且不溢出', (tester) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(240, 220));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: ReaderLoadingSkeleton(title: '一本很长的测试书名')),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('一本很长的测试书名'), findsOneWidget);
+    expect(find.text('正在排版…'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('销毁时取消挂起加载，不回写已销毁会话', (tester) async {

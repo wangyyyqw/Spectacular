@@ -165,7 +165,7 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const ReaderLoadingSkeleton();
+      return ReaderLoadingSkeleton(title: widget.bookTitle);
     }
     final error = _error;
     if (error != null) {
