@@ -107,4 +107,58 @@ void main() {
     await tester.pump();
     expect(find.text('还没有笔记'), findsOneWidget);
   });
+
+  testWidgets('标注面板：搜索原文和笔记正文并清除', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'highlight-search',
+                type: ReaderAnnotationType.highlight,
+                quote: '落霞与孤鹜齐飞',
+                minute: 1,
+              ),
+              _annotation(
+                id: 'note-search',
+                type: ReaderAnnotationType.note,
+                quote: '春风又绿江南岸',
+                note: '这里想到故乡',
+                minute: 2,
+              ),
+            ],
+            onSelect: (_) {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final search = find.byKey(
+      const ValueKey<String>('annotation-search-input'),
+    );
+    await tester.enterText(search, '故乡');
+    await tester.pump();
+    expect(find.text('春风又绿江南岸'), findsOneWidget);
+    expect(find.text('落霞与孤鹜齐飞'), findsNothing);
+    expect(find.text('显示 1 / 2 条'), findsOneWidget);
+
+    await tester.enterText(search, '孤鹜');
+    await tester.pump();
+    expect(find.text('落霞与孤鹜齐飞'), findsOneWidget);
+    expect(find.text('春风又绿江南岸'), findsNothing);
+
+    await tester.enterText(search, '不存在');
+    await tester.pump();
+    expect(find.text('没有匹配的笔记或高亮'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-search-clear')),
+    );
+    await tester.pump();
+    expect(find.text('共 2 条'), findsOneWidget);
+    expect(find.text('落霞与孤鹜齐飞'), findsOneWidget);
+    expect(find.text('春风又绿江南岸'), findsOneWidget);
+  });
 }
