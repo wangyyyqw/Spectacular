@@ -51,8 +51,13 @@ BookEntry _book(String id, String title, String author) => BookEntry(
   addedAt: DateTime(2026),
 );
 
-BookReview _review(String bookId, String content, {int rating = 4}) {
-  final time = DateTime(2026);
+BookReview _review(
+  String bookId,
+  String content, {
+  int rating = 4,
+  DateTime? updatedAt,
+}) {
+  final time = updatedAt ?? DateTime(2026);
   return BookReview(
     bookId: bookId,
     rating: rating,
@@ -294,6 +299,56 @@ void main() {
       find.byKey(const ValueKey<String>('review-pending-pending-a')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('书评页支持最近更新、评分和书名排序', (tester) async {
+    final books = <BookEntry>[
+      _book('alpha', 'Alpha', '作者甲'),
+      _book('beta', 'Beta', '作者乙'),
+      _book('gamma', 'Gamma', '作者丙'),
+    ];
+    final store = _MemoryReviewStore()
+      ..items.addAll(<String, BookReview>{
+        'alpha': _review(
+          'alpha',
+          'Alpha 书评',
+          rating: 5,
+          updatedAt: DateTime(2026, 1, 1),
+        ),
+        'beta': _review(
+          'beta',
+          'Beta 书评',
+          rating: 2,
+          updatedAt: DateTime(2026, 1, 3),
+        ),
+        'gamma': _review(
+          'gamma',
+          'Gamma 书评',
+          rating: 4,
+          updatedAt: DateTime(2026, 1, 2),
+        ),
+      });
+    await _pumpReviews(tester, books: books, store: store);
+
+    double top(String id) =>
+        tester.getTopLeft(find.byKey(ValueKey<String>('review-card-$id'))).dy;
+
+    expect(top('beta'), lessThan(top('gamma')));
+    expect(top('gamma'), lessThan(top('alpha')));
+
+    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort-rating')));
+    await tester.pumpAndSettle();
+    expect(top('alpha'), lessThan(top('gamma')));
+    expect(top('gamma'), lessThan(top('beta')));
+
+    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort-title')));
+    await tester.pumpAndSettle();
+    expect(top('alpha'), lessThan(top('beta')));
+    expect(top('beta'), lessThan(top('gamma')));
   });
 
   testWidgets('书评无匹配时可清除搜索与筛选', (tester) async {

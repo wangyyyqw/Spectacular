@@ -15,6 +15,16 @@ enum _ReviewFilter {
   final String label;
 }
 
+enum _ReviewSort {
+  updated('最近更新'),
+  rating('评分优先'),
+  title('书名');
+
+  const _ReviewSort(this.label);
+
+  final String label;
+}
+
 /// 书评页：按书架展示已写书评与待写书目，支持评分、正文编辑和删除。
 class ReviewsPage extends StatefulWidget {
   /// 创建页面。
@@ -35,6 +45,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   Map<String, BookReview> _reviews = const <String, BookReview>{};
   final TextEditingController _searchController = TextEditingController();
   _ReviewFilter _filter = _ReviewFilter.all;
+  _ReviewSort _sort = _ReviewSort.updated;
   bool _searching = false;
   String _query = '';
   int _reloadToken = 0;
@@ -167,6 +178,23 @@ class _ReviewsPageState extends State<ReviewsPage> {
               ]
             : [
                 if (books != null && books.isNotEmpty)
+                  PopupMenuButton<_ReviewSort>(
+                    key: const ValueKey<String>('reviews-sort'),
+                    tooltip: '书评排序',
+                    initialValue: _sort,
+                    onSelected: (value) => setState(() => _sort = value),
+                    icon: const Icon(Icons.sort),
+                    itemBuilder: (_) => <PopupMenuEntry<_ReviewSort>>[
+                      for (final sort in _ReviewSort.values)
+                        CheckedPopupMenuItem<_ReviewSort>(
+                          key: ValueKey<String>('reviews-sort-${sort.name}'),
+                          value: sort,
+                          checked: sort == _sort,
+                          child: Text(sort.label),
+                        ),
+                    ],
+                  ),
+                if (books != null && books.isNotEmpty)
                   IconButton(
                     tooltip: '搜索书评',
                     onPressed: _toggleSearch,
@@ -191,6 +219,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
                 reviews: _reviews,
                 query: _query,
                 filter: _filter,
+                sort: _sort,
                 onFilterChanged: (filter) => setState(() => _filter = filter),
                 onResetSearchAndFilter: _resetSearchAndFilter,
                 onEdit: _edit,
@@ -206,6 +235,7 @@ class _ReviewList extends StatelessWidget {
     required this.reviews,
     required this.query,
     required this.filter,
+    required this.sort,
     required this.onFilterChanged,
     required this.onResetSearchAndFilter,
     required this.onEdit,
@@ -215,6 +245,7 @@ class _ReviewList extends StatelessWidget {
   final Map<String, BookReview> reviews;
   final String query;
   final _ReviewFilter filter;
+  final _ReviewSort sort;
   final ValueChanged<_ReviewFilter> onFilterChanged;
   final VoidCallback onResetSearchAndFilter;
   final Future<void> Function(BookEntry) onEdit;
@@ -237,19 +268,42 @@ class _ReviewList extends StatelessWidget {
       for (final book in books)
         if (reviews[book.id] != null) book,
     ];
-    final reviewed =
-        <BookEntry>[
-          for (final book in allReviewed)
-            if (matches(book)) book,
-        ]..sort(
-          (left, right) => reviews[right.id]!.updatedAt.compareTo(
+    final reviewed = <BookEntry>[
+      for (final book in allReviewed)
+        if (matches(book)) book,
+    ];
+    int compareBooks(BookEntry left, BookEntry right) {
+      switch (sort) {
+        case _ReviewSort.updated:
+          return reviews[right.id]!.updatedAt.compareTo(
             reviews[left.id]!.updatedAt,
-          ),
-        );
-    final pending = [
+          );
+        case _ReviewSort.rating:
+          final byRating = (reviews[right.id]!.rating ?? 0).compareTo(
+            reviews[left.id]!.rating ?? 0,
+          );
+          if (byRating != 0) {
+            return byRating;
+          }
+          return reviews[right.id]!.updatedAt.compareTo(
+            reviews[left.id]!.updatedAt,
+          );
+        case _ReviewSort.title:
+          return left.title.toLowerCase().compareTo(right.title.toLowerCase());
+      }
+    }
+
+    reviewed.sort(compareBooks);
+    final pending = <BookEntry>[
       for (final book in books)
         if (reviews[book.id] == null && matches(book)) book,
     ];
+    if (sort == _ReviewSort.title) {
+      pending.sort(
+        (left, right) =>
+            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      );
+    }
     final showReviewed = filter != _ReviewFilter.pending;
     final showPending = filter != _ReviewFilter.reviewed;
     final visibleReviewed = showReviewed ? reviewed : const <BookEntry>[];
