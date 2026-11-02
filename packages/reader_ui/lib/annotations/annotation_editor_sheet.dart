@@ -112,6 +112,7 @@ class _ReaderAnnotationEditorSheetState
   bool _removeDialogVisible = false;
   bool _closing = false;
   bool _showNoteEditor = false;
+  bool _autofocusNoteEditor = false;
   late int _selectedColor;
   late ReaderAnnotationStyle _selectedStyle;
 
@@ -339,7 +340,10 @@ class _ReaderAnnotationEditorSheetState
                     const SizedBox(height: 14),
                     OutlinedButton.icon(
                       key: const ValueKey<String>('annotation-add-note'),
-                      onPressed: () => setState(() => _showNoteEditor = true),
+                      onPressed: () => setState(() {
+                        _showNoteEditor = true;
+                        _autofocusNoteEditor = true;
+                      }),
                       icon: const Icon(Icons.note_add_outlined, size: 20),
                       label: const Text('为这条高亮添加笔记'),
                     ),
@@ -348,6 +352,7 @@ class _ReaderAnnotationEditorSheetState
                     const SizedBox(height: 16),
                     _AnnotationNoteEditor(
                       controller: _noteController,
+                      autofocus: _autofocusNoteEditor,
                       onChanged: (_) => setState(() {}),
                     ),
                   ],
@@ -427,10 +432,12 @@ class _ReaderAnnotationEditorSheetState
 class _AnnotationNoteEditor extends StatelessWidget {
   const _AnnotationNoteEditor({
     required this.controller,
+    required this.autofocus,
     required this.onChanged,
   });
 
   final TextEditingController controller;
+  final bool autofocus;
   final ValueChanged<String> onChanged;
 
   @override
@@ -444,6 +451,7 @@ class _AnnotationNoteEditor extends StatelessWidget {
         TextField(
           key: const ValueKey<String>('annotation-note-input'),
           controller: controller,
+          autofocus: autofocus,
           onChanged: onChanged,
           minLines: 3,
           maxLines: 6,

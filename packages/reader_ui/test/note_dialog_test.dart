@@ -301,6 +301,11 @@ void main() {
     final input = find.byKey(
       const ValueKey<String>('annotation-note-input'),
     );
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
+      isTrue,
+      reason: '点击添加笔记后应直接聚焦输入框',
+    );
     await tester.enterText(input, '  补写的高亮笔记  ');
     await tester.pump();
     final save = find.byKey(
