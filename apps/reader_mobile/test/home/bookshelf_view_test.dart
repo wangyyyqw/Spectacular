@@ -55,12 +55,29 @@ void main() {
     await tester.tap(find.text('导入 EPUB'));
     await _settle(tester, frames: 12);
     expect(find.byKey(const ValueKey<String>('bookshelf-grid')), findsOneWidget);
+    final entries = await library.list();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Hero &&
+            entries.any((entry) => widget.tag == bookCoverHeroTag(entry.id)),
+      ),
+      findsNWidgets(entries.length),
+    );
 
     // 切到列表视图。
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     expect(find.byKey(const ValueKey<String>('bookshelf-list')), findsOneWidget);
     expect(find.text('测试作者'), findsNothing, reason: '书架只显示书名');
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Hero &&
+            entries.any((entry) => widget.tag == bookCoverHeroTag(entry.id)),
+      ),
+      findsNWidgets(entries.length),
+    );
     final rowCover = tester.getSize(
       find.byKey(const ValueKey<String>('book-row-cover')).first,
     );

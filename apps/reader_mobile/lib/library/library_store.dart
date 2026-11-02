@@ -138,6 +138,9 @@ class BookEntry {
   );
 }
 
+/// 书架封面到开场页封面的 Hero 标识。
+String bookCoverHeroTag(String bookId) => 'book-cover-$bookId';
+
 /// 导入报告明细（P4-06，`import_reports` 表的一行）。
 @immutable
 class ImportReportEntry {

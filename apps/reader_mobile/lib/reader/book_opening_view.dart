@@ -253,54 +253,58 @@ class _OpeningCover extends StatelessWidget {
             top: 0,
             width: width,
             height: height,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 30,
-                    offset: const Offset(0, 18),
-                  ),
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.18),
-                    blurRadius: 42,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    _coverContent(context),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: 0.018,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: <Color>[
-                                Color(0x33000000),
-                                Color(0x08000000),
-                                Color(0x00000000),
-                              ],
+            child: Hero(
+              tag: bookCoverHeroTag(book.id),
+              transitionOnUserGestures: true,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 30,
+                      offset: const Offset(0, 18),
+                    ),
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.18),
+                      blurRadius: 42,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      _coverContent(context),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: FractionallySizedBox(
+                          widthFactor: 0.018,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: <Color>[
+                                  Color(0x33000000),
+                                  Color(0x08000000),
+                                  Color(0x00000000),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.all(Radius.circular(10)),
-                        border: Border.fromBorderSide(
-                          BorderSide(color: Color(0x22FFFFFF)),
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.all(Radius.circular(10)),
+                          border: Border.fromBorderSide(
+                            BorderSide(color: Color(0x22FFFFFF)),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
