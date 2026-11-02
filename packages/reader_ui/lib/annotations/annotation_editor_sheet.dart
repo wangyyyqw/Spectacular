@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'annotation.dart';
@@ -77,6 +79,7 @@ class _ReaderAnnotationEditorSheetState
   late final TextEditingController _noteController;
   bool _allowPop = false;
   bool _discardDialogVisible = false;
+  bool _removeDialogVisible = false;
   bool _closing = false;
 
   bool get _isNote => widget.annotation.type == ReaderAnnotationType.note;
@@ -90,6 +93,8 @@ class _ReaderAnnotationEditorSheetState
   bool get _noteChanged =>
       _trimmedNote.isNotEmpty && _trimmedNote != _initialNote;
 
+  int get _currentColor => widget.annotation.color ?? defaultHighlightColor;
+
   @override
   void initState() {
     super.initState();
@@ -102,7 +107,22 @@ class _ReaderAnnotationEditorSheetState
     super.dispose();
   }
 
-  void _finish(AnnotationEditAction action) {
+  Future<void> _finish(AnnotationEditAction action) async {
+    if (_closing) {
+      return;
+    }
+    if (action.type == AnnotationEditActionType.recolor && _noteDraftChanged) {
+      final discard = await _confirmDiscard();
+      if (!discard || !mounted) {
+        return;
+      }
+    }
+    if (action.type == AnnotationEditActionType.remove && _isNote) {
+      final remove = await _confirmRemoveNote();
+      if (!remove || !mounted) {
+        return;
+      }
+    }
     if (_closing) {
       return;
     }
@@ -117,6 +137,41 @@ class _ReaderAnnotationEditorSheetState
         Navigator.of(context).pop(action);
       }
     });
+  }
+
+  Future<bool> _confirmRemoveNote() async {
+    if (_removeDialogVisible) {
+      return false;
+    }
+    _removeDialogVisible = true;
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除这条笔记？'),
+        content: Text(_noteDraftChanged ? '笔记正文和尚未保存的修改都会被永久删除。' : '删除后无法恢复。'),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('annotation-remove-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('annotation-remove-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除笔记'),
+          ),
+        ],
+      ),
+    );
+    _removeDialogVisible = false;
+    return remove == true;
+  }
+
+  void _selectColor(int color) {
+    if (color == _currentColor) {
+      return;
+    }
+    unawaited(_finish(AnnotationEditAction.recolor(color)));
   }
 
   Future<bool> _confirmDiscard() async {
@@ -172,7 +227,7 @@ class _ReaderAnnotationEditorSheetState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final currentColor = widget.annotation.color ?? defaultHighlightColor;
+    final currentColor = _currentColor;
     return PopScope(
       canPop: !_noteDraftChanged || _allowPop,
       onPopInvokedWithResult: (didPop, _) {
@@ -218,16 +273,17 @@ class _ReaderAnnotationEditorSheetState
                   const SizedBox(height: 10),
                   _ColorChoices(
                     currentColor: currentColor,
-                    onSelected: (color) =>
-                        _finish(AnnotationEditAction.recolor(color)),
+                    onSelected: _selectColor,
                   ),
                   const SizedBox(height: 18),
                   if (_isNote) ...[
                     FilledButton.icon(
                       key: const ValueKey<String>('annotation-save-note'),
                       onPressed: _noteChanged
-                          ? () => _finish(
-                              AnnotationEditAction.saveNote(_trimmedNote),
+                          ? () => unawaited(
+                              _finish(
+                                AnnotationEditAction.saveNote(_trimmedNote),
+                              ),
                             )
                           : null,
                       style: FilledButton.styleFrom(
@@ -241,7 +297,7 @@ class _ReaderAnnotationEditorSheetState
                   _RemoveAnnotationButton(
                     isNote: _isNote,
                     onRemove: () =>
-                        _finish(const AnnotationEditAction.remove()),
+                        unawaited(_finish(const AnnotationEditAction.remove())),
                   ),
                 ],
               ),

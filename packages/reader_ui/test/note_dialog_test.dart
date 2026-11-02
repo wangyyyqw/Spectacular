@@ -321,6 +321,149 @@ void main() {
     expect(notes.items.single.note, '更新后的笔记');
   });
 
+  testWidgets('修改笔记后换色先保护草稿，当前颜色不关闭弹层', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'draft-color',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '旧笔记',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'note-color-draft',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final wordPosition =
+        tester.getTopLeft(find.byType(ReaderView)) +
+        Offset(line.rect.left + 6, line.rect.center.dy);
+
+    await tester.tapAt(wordPosition);
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey<String>('annotation-note-input'));
+    await tester.enterText(input, '尚未保存的修改');
+    await tester.pump();
+
+    // 点击当前颜色只应保持弹层，不应被当成一次换色操作。
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-color-0xFFFFEB3B')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('放弃未保存的笔记修改？'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('放弃未保存的笔记修改？'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-discard-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
+    expect(notes.items.single.color, defaultHighlightColor);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-discard-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsNothing,
+    );
+    expect(notes.items.single.color, 0xFF90CAF9);
+    expect(notes.items.single.note, '旧笔记');
+  });
+
+  testWidgets('删除笔记前确认，取消后保留弹层和正文', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'confirm-remove',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '待删除笔记',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'note-remove-confirm',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final wordPosition =
+        tester.getTopLeft(find.byType(ReaderView)) +
+        Offset(line.rect.left + 6, line.rect.center.dy);
+
+    await tester.tapAt(wordPosition);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('annotation-remove')));
+    await tester.pumpAndSettle();
+    expect(find.text('删除这条笔记？'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-remove-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    expect(notes.items, hasLength(1));
+
+    await tester.tap(find.byKey(const ValueKey<String>('annotation-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-remove-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(notes.items, isEmpty);
+  });
+
   for (final action in ['取消', '遮罩', '系统返回']) {
     testWidgets('$action 关闭笔记时确认放弃，可继续编辑且再次打开为空', (tester) async {
       final notes = await _showEditor(tester);
