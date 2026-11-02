@@ -2050,6 +2050,21 @@ abstract final class TextLayoutEngine {
         line.copyWith(
           start: line.start + remainderStart,
           end: line.end + remainderStart,
+          inlineBoxes: line.inlineBoxes.isEmpty
+              ? line.inlineBoxes
+              : <InlineBoxPlacement>[
+                  for (final box in line.inlineBoxes)
+                    InlineBoxPlacement(
+                      offset: box.offset + remainderStart,
+                      left: box.left,
+                      width: box.width,
+                      height: box.height,
+                      ascent: box.ascent,
+                      descent: box.descent,
+                      spec: box.spec,
+                      vertical: box.vertical,
+                    ),
+                ],
           top: first.height + line.top,
           isLastLine: i == rest.length - 1,
         ),
