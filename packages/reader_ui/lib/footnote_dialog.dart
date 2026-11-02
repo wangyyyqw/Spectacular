@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/image_cache.dart';
@@ -37,6 +39,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
     final theme = Theme.of(context);
     final text = footnote.text;
     final images = footnote.imageUrls;
+    final copyText = text?.trim();
     final paragraphs = <String>[
       for (final paragraph in (text ?? '').split(RegExp(r'\n+')))
         if (paragraph.trim().isNotEmpty) paragraph.trim(),
@@ -227,7 +230,76 @@ class ReaderFootnoteDialog extends StatelessWidget {
                   ),
                 ),
               ),
+              if (copyText != null && copyText.isNotEmpty) ...[
+                const Divider(height: 1),
+                _CopyFootnoteAction(text: copyText),
+              ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CopyFootnoteAction extends StatefulWidget {
+  const _CopyFootnoteAction({required this.text});
+
+  final String text;
+
+  @override
+  State<_CopyFootnoteAction> createState() => _CopyFootnoteActionState();
+}
+
+class _CopyFootnoteActionState extends State<_CopyFootnoteAction> {
+  Timer? _resetTimer;
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.text));
+    if (!mounted) {
+      return;
+    }
+    setState(() => _copied = true);
+    _resetTimer?.cancel();
+    _resetTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() => _copied = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          key: const ValueKey('reader-footnote-copy'),
+          onPressed: _copy,
+          icon: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            child: Icon(
+              _copied ? Icons.check_rounded : Icons.content_copy_rounded,
+              key: ValueKey(_copied),
+              size: 18,
+            ),
+          ),
+          label: Text(_copied ? '已复制' : '复制注释'),
+          style: TextButton.styleFrom(
+            foregroundColor: _copied
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
+            minimumSize: const Size(0, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
           ),
         ),
       ),
