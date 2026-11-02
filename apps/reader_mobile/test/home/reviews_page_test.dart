@@ -130,6 +130,39 @@ void main() {
     expect(find.textContaining('还没有书评'), findsOneWidget);
   });
 
+  testWidgets('未保存书评关闭前确认，可继续编辑或放弃修改', (tester) async {
+    final book = _book('draft-book', '草稿测试书', '作者');
+    final store = _MemoryReviewStore();
+    await _pumpReviews(tester, books: <BookEntry>[book], store: store);
+
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('review-content')),
+      '还没有保存的草稿',
+    );
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('放弃未保存的书评？'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('review-discard-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('review-editor')), findsOneWidget);
+    expect(find.text('还没有保存的草稿'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('review-discard-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('review-editor')), findsNothing);
+    expect(store.items, isEmpty);
+  });
+
   testWidgets('书评搜索支持书名、作者和正文且不改变顶部汇总', (tester) async {
     final books = <BookEntry>[
       _book('star', '星河', '刘慈欣'),
