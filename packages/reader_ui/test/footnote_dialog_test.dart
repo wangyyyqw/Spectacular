@@ -112,8 +112,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ReaderFootnoteDialog), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(ReaderFootnoteDialog)).height,
+      lessThan(400),
+      reason: '短注释应贴合内容高度，不能被最大高度撑开',
+    );
     expect(find.text('脚注'), findsOneWidget);
-    expect(find.text('第一段注释\n第二段注释'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('第一段注释'), findsOneWidget);
+    expect(find.text('第二段注释'), findsOneWidget);
+    expect(find.textContaining('正文注释引用 · 10 字'), findsOneWidget);
     expect(session.progress?.pageIndex, 1);
 
     await tester.tap(
@@ -122,5 +130,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ReaderFootnoteDialog), findsNothing);
     expect(session.progress?.pageIndex, 1);
+  });
+
+  testWidgets('空注释使用链接类型标题与空态卡片', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: ReaderFootnoteDialog(
+              footnote: PageFootnote(
+                start: 0,
+                end: 1,
+                label: '参见',
+                kind: NoteKind.link,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('注释'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('reader-footnote-label')),
+      findsOneWidget,
+    );
+    expect(find.text('参见'), findsOneWidget);
+    expect(find.text('这条注释暂无内容'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
