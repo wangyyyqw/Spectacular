@@ -15,6 +15,9 @@ import 'page_turn_painter.dart';
 /// 静态纸面和目标纸面共用同一个构建器，保证快照与排版一致。
 typedef ReaderPaperBuilder = Widget Function(PageContent page, Size size);
 
+/// 生成纸面快照前解码该页图片，避免翻页完成后才补图。
+typedef ReaderPageImagesPreparer = Future<void> Function(PageContent page);
+
 class PageTurnView extends StatefulWidget {
   const PageTurnView({
     super.key,
@@ -23,6 +26,7 @@ class PageTurnView extends StatefulWidget {
     required this.revision,
     required this.paperBuilder,
     required this.paperColor,
+    this.preparePageImages,
     this.rtl = false,
   });
 
@@ -31,6 +35,7 @@ class PageTurnView extends StatefulWidget {
   final Object revision;
   final ReaderPaperBuilder paperBuilder;
   final Color paperColor;
+  final ReaderPageImagesPreparer? preparePageImages;
   final bool rtl;
 
   @override
@@ -106,6 +111,11 @@ class PageTurnViewState extends State<PageTurnView>
     final cached = _cache.get(page);
     if (cached != null || !mounted) return cached;
     final token = _captureToken;
+    final prepare = widget.preparePageImages;
+    if (prepare != null) {
+      await prepare(page);
+      if (!mounted || token != _captureToken) return null;
+    }
     final current = identical(page, widget.session.page);
     if (!current) setState(() => _capturePage = page);
     ui.Image? image;
