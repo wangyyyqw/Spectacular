@@ -293,7 +293,13 @@ void main() {
           expect(controller.horizontal, y >= 192 && y <= 288);
           final geometry = controller.besselGeometry!;
           expect(geometry.horizontal, controller.horizontal);
-          expect(geometry.a, ui.Offset(220, y));
+          expect(geometry.a.dx, 220);
+          if (controller.horizontal) {
+            expect(geometry.a.dy, y);
+          } else {
+            expect(geometry.c.dx, greaterThanOrEqualTo(-0.001));
+            expect(geometry.a.dy, inInclusiveRange(0.1, 479.9));
+          }
           controller.cancel();
         }
       });
@@ -374,5 +380,42 @@ void main() {
       await forward.session.flushProgress();
       await backward.session.flushProgress();
     });
+  }
+
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      testWidgets('${rtl ? 'RTL' : 'LTR'} ${next ? '下一页' : '上一页'}'
+          '角部纵向过拉及松手收尾均受书脊边界限制', (tester) async {
+        for (final top in [false, true]) {
+          final controller = await _controller(tester, rtl: rtl)
+            ..next = next;
+          _drag(controller, ui.Offset(310, top ? 50 : 430), start: true);
+          _drag(controller, ui.Offset(220, top ? 100 : 380));
+          await tester.pump();
+          final touch = ui.Offset(90, top ? 430 : 50);
+          _drag(controller, touch);
+
+          expect(controller.point, touch);
+          expect(controller.horizontal, isFalse);
+          final geometry = controller.besselGeometry!;
+          expect(geometry.a.dx, touch.dx);
+          expect(top ? geometry.a.dy < 240 : geometry.a.dy > 240, isTrue);
+          expect(geometry.c.dx, greaterThanOrEqualTo(-0.001));
+          expect(controller.session.progress!.pageIndex, 1);
+          controller.endDrag(DragEndDetails());
+          await tester.pump();
+          for (var frame = 0; frame < 8; frame++) {
+            await tester.pump(const Duration(milliseconds: 32));
+            final geometry = controller.besselGeometry!;
+            expect(geometry.e.dx, greaterThanOrEqualTo(-0.001));
+            expect(geometry.c.dx, greaterThanOrEqualTo(-160.001));
+            expect(controller.session.progress!.pageIndex, 1);
+          }
+          await tester.pumpAndSettle();
+          expect(controller.session.progress!.pageIndex, next ? 2 : 0);
+          await controller.session.flushProgress();
+        }
+      });
+    }
   }
 }

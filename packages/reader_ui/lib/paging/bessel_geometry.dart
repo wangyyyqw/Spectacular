@@ -42,13 +42,33 @@ class BesselGeometry {
       return null;
     }
     if (horizontal) return _edge(size, touch, top);
-    final f = Offset(size.width, top ? 0 : size.height);
-    final a = Offset(
-      (touch.dx - f.dx).abs() < 0.1 ? f.dx - 0.1 : touch.dx,
-      (touch.dy - f.dy).abs() < 0.1 ? f.dy + (top ? 0.1 : -0.1) : touch.dy,
+    return _solve(
+      size,
+      _constrainCorner(size, touch, top),
+      Offset(size.width, top ? 0 : size.height),
+      top,
     );
-    // 控制点可以落在纸面外，由视口裁剪；不能为限制折痕而挪动抓取点。
-    return _solve(size, a, f, top);
+  }
+
+  static Offset _constrainCorner(Size size, Offset touch, bool top) {
+    final epsilon = math.min(0.1, size.shortestSide / 2);
+    final touchX = touch.dx.clamp(-size.width, size.width - epsilon);
+    final horizontalDistance = size.width - touchX;
+    final minimumCreaseX = math.min(0.0, touchX / 2);
+    final maximumDistance = 4 * (size.width - minimumCreaseX) / 3;
+    final maximumVertical = math.sqrt(
+      math.max(0, horizontalDistance * (maximumDistance - horizontalDistance)),
+    );
+    final verticalDistance = (top ? touch.dy : size.height - touch.dy)
+        .clamp(
+          epsilon,
+          math.max(epsilon, math.min(size.height - epsilon, maximumVertical)),
+        )
+        .toDouble();
+    return Offset(
+      touchX,
+      top ? verticalDistance : size.height - verticalDistance,
+    );
   }
 
   static BesselGeometry _edge(Size size, Offset touch, bool top) {
