@@ -17,10 +17,13 @@ Future<ui.Image> _solidImage(Color color) async {
   return image;
 }
 
-Future<ui.Image> _paperImage(bool markedPaper) async {
+Future<ui.Image> _paperImage(
+  bool markedPaper, {
+  Color color = const Color(0xFFFFFFFF),
+}) async {
   final paperRecorder = ui.PictureRecorder();
   final paperCanvas = Canvas(paperRecorder)
-    ..drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+    ..drawColor(color, BlendMode.src);
   if (markedPaper) {
     for (final left in <double>[142, 190]) {
       paperCanvas.drawRect(
@@ -40,12 +43,14 @@ Future<ByteData> _render({
   bool horizontal = false,
   double touchX = 120,
   bool markedPaper = false,
+  Color paperColor = const Color(0xFFFFFFFF),
+  Color pageColor = const Color(0xFFFFFFFF),
   Color bottomColor = const Color(0xFFFFFFFF),
 }) async {
-  final paper = await _paperImage(markedPaper);
+  final paper = await _paperImage(markedPaper, color: pageColor);
   final bottom = await _solidImage(bottomColor);
   final recorder = ui.PictureRecorder();
-  BesselPainter(paperColor: const Color(0xFFFFFFFF)).paint(
+  BesselPainter(paperColor: paperColor).paint(
     Canvas(recorder),
     BesselGeometry.resolve(
       _size,
@@ -218,5 +223,42 @@ void main() {
     expect(curvedInk, isNotEmpty);
     expect(curvedInk.length, lessThan(flatInk.length / 2));
     expect(curvedInk.first, greaterThan(flatInk.last));
+  });
+
+  test('深色图片页的折痕不露出固定纸色亮边', () async {
+    for (final mode in [
+      (top: false, horizontal: false),
+      (top: true, horizontal: false),
+      (top: false, horizontal: true),
+    ]) {
+      final data = await _render(
+        top: mode.top,
+        horizontal: mode.horizontal,
+        paperColor: const Color(0xFFF4EEDF),
+        pageColor: const Color(0xFF18171D),
+      );
+      final g = BesselGeometry.resolve(
+        _size,
+        Offset(120, mode.horizontal ? 150 : (mode.top ? 100 : 200)),
+        top: mode.top,
+        horizontal: mode.horizontal,
+      )!;
+      final union = Path.combine(
+        PathOperation.union,
+        g.frontPath(),
+        g.backPath(g.frontPath()),
+      );
+
+      for (var y = 1; y < 299; y++) {
+        for (var x = 1; x < 199; x++) {
+          if (!union.contains(Offset(x + 0.5, y + 0.5))) continue;
+          expect(
+            _brightness(data, Offset(x.toDouble(), y.toDouble())),
+            lessThan(200),
+            reason: '深色页面 (${x.toString()}, $y) 不应露出纸色亮边',
+          );
+        }
+      }
+    }
   });
 }
