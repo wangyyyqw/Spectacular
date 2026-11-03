@@ -388,10 +388,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   String _chapterTitleOf(int spineIndex) {
     final source = widget.source;
     if (source is TocChapterSource) {
-      for (final row in flattenToc(source.toc)) {
-        if (row.entry.spineIndex == spineIndex) {
-          return row.entry.title;
-        }
+      final title = _tocTitleForSpine(source.toc, spineIndex);
+      if (title != null) {
+        return title;
       }
     }
     return '第 ${spineIndex + 1} 章';
@@ -752,10 +751,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final progress = _session.progress;
     final spine = progress?.spineIndex ?? 0;
     final page = progress?.pageIndex ?? 0;
+    final chapterTitle = _chapterTitleOf(spine);
     final created = await store.add(
       cfi: cfi,
       spineIndex: spine,
-      label: '第 ${spine + 1} 章 · 第 ${page + 1} 页',
+      label: '$chapterTitle · 第 ${page + 1} 页',
     );
     if (!mounted) {
       return;
@@ -1988,6 +1988,29 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.painter.background != painter.background;
 }
 
+/// 目录中与指定 spine 对应的标题；无精确项时沿用最近的前置章节。
+String? _tocTitleForSpine(List<TocEntry> entries, int spineIndex) {
+  TocEntry? exact;
+  TocEntry? nearest;
+  void visit(List<TocEntry> rows) {
+    for (final entry in rows) {
+      final title = entry.title.trim();
+      if (title.isNotEmpty) {
+        if (entry.spineIndex == spineIndex) {
+          exact ??= entry;
+        } else if (entry.spineIndex < spineIndex &&
+            (nearest == null || entry.spineIndex > nearest!.spineIndex)) {
+          nearest = entry;
+        }
+      }
+      visit(entry.children);
+    }
+  }
+
+  visit(entries);
+  return exact?.title.trim() ?? nearest?.title.trim();
+}
+
 /// 阅读菜单 sheet（P4-11/P4-13）：菜单 / 目录 / 书签 / 笔记在同一 sheet
 /// 内切换，避免真机上「关掉 sheet 立刻开新 sheet」被关闭动画吞掉。
 ///
@@ -2102,22 +2125,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
     if (spine == null) {
       return null;
     }
-    TocEntry? exact;
-    TocEntry? nearest;
-    void visit(List<TocEntry> entries) {
-      for (final entry in entries) {
-        if (entry.spineIndex == spine) {
-          exact ??= entry;
-        } else if (entry.spineIndex < spine &&
-            (nearest == null || entry.spineIndex > nearest!.spineIndex)) {
-          nearest = entry;
-        }
-        visit(entry.children);
-      }
-    }
-
-    visit(widget.entries);
-    return exact?.title ?? nearest?.title;
+    return _tocTitleForSpine(widget.entries, spine);
   }
 
   @override
