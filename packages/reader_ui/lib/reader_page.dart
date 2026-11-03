@@ -1033,6 +1033,29 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
+  /// 批量更换标注颜色，完成后只刷新一次阅读页。
+  Future<void> _recolorAnnotations(
+    List<ReaderAnnotation> annotations,
+    int color,
+  ) async {
+    final store = widget.annotations;
+    if (store == null || annotations.isEmpty) {
+      return;
+    }
+    try {
+      for (final annotation in annotations) {
+        await store.update(annotation.id, color: color);
+      }
+    } finally {
+      if (mounted) {
+        await _reloadAnnotations();
+      }
+    }
+    if (mounted) {
+      _showToast('已更换 ${annotations.length} 条标注颜色');
+    }
+  }
+
   /// 按当前章的分页重算标注位置（§30.4）：CFI 优先，失效按引文兜底。
   Future<void> _relocateAnnotations() async {
     final items = _annotations;
@@ -1867,6 +1890,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                         unawaited(_editAnnotation(annotation));
                       },
                       onAnnotationDelete: _deleteAnnotations,
+                      onAnnotationRecolor: _recolorAnnotations,
                       onOpenMarginEditor: () {
                         _closeDrawer();
                         _toggleReaderMenu();
@@ -2016,6 +2040,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onAnnotationSelect,
     required this.onAnnotationEdit,
     required this.onAnnotationDelete,
+    required this.onAnnotationRecolor,
     required this.onOpenMarginEditor,
     required this.onOpenTapZoneEditor,
   });
@@ -2049,6 +2074,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<ReaderAnnotation> onAnnotationSelect;
   final ValueChanged<ReaderAnnotation> onAnnotationEdit;
   final Future<void> Function(List<ReaderAnnotation>) onAnnotationDelete;
+  final Future<void> Function(List<ReaderAnnotation>, int) onAnnotationRecolor;
   final VoidCallback onOpenMarginEditor;
   final VoidCallback onOpenTapZoneEditor;
 
@@ -2219,6 +2245,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               onSelect: widget.onAnnotationSelect,
               onEdit: widget.onAnnotationEdit,
               onDelete: widget.onAnnotationDelete,
+              onRecolor: widget.onAnnotationRecolor,
             ),
             _DrawerTab.search => widget.onSearch == null
                 ? const SizedBox.shrink()

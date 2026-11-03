@@ -234,6 +234,84 @@ void main() {
     );
   });
 
+  testWidgets('目录抽屉可批量更换高亮和笔记颜色', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.addAll([
+      ReaderAnnotation(
+        id: 'drawer-highlight',
+        type: ReaderAnnotationType.highlight,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: '第一条待换色标注',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+      ReaderAnnotation(
+        id: 'drawer-note',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:5)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:9)',
+        quote: '第二条待换色标注',
+        note: '一起换色',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    ]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'annotation-recolor',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('drawer-tab-annotations')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-manage')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-select-all')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-recolor')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('annotation-batch-color-0xFF90CAF9'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(notes.items, hasLength(2));
+    expect(
+      notes.items.every((item) => item.color == 0xFF90CAF9),
+      isTrue,
+    );
+    expect(find.text('已更换 2 条标注颜色'), findsOneWidget);
+  });
+
   testWidgets('保存笔记后退场无异常，保存最新输入并清除选区', (tester) async {
     final notes = await _showEditor(tester);
     await tester.enterText(find.byType(TextField), '第一版');
