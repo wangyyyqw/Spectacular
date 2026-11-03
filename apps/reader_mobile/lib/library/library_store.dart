@@ -15,6 +15,7 @@ import '../storage/book_review_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
+import '../storage/reading_session_store.dart';
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
 enum BookReadingStatus {
@@ -302,6 +303,12 @@ class LibraryStore {
   BookReviewStore? reviewStore() {
     final db = _db;
     return db == null ? null : DriftBookReviewStore(db);
+  }
+
+  /// 全库阅读会话存储；内存模式下没有持久化能力时返回 null。
+  ReadingSessionStore? readingSessionStore() {
+    final db = _db;
+    return db == null ? null : DriftReadingSessionStore(db);
   }
 
   /// 全部条目（最近阅读优先，其次导入时间倒序）。
