@@ -55,8 +55,9 @@ class _SingleChapterSource implements ReaderChapterSource {
   int get chapterCount => 1;
 
   @override
-  Future<List<PageContent>> loadChapter(int spineIndex) async =>
-      [for (var page = 0; page < 3; page++) _page(spineIndex, page)];
+  Future<List<PageContent>> loadChapter(int spineIndex) async => [
+    for (var page = 0; page < 3; page++) _page(spineIndex, page),
+  ];
 }
 
 Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
@@ -69,8 +70,15 @@ void main() {
   testWidgets('连续滚动恢复位置、懒构建并跨章扩展', (tester) async {
     final source = _Source();
     final store = MemoryReaderProgressStore();
-    await store.save('scroll', const ReaderProgress(spineIndex: 2, pageIndex: 1));
-    final session = ReaderSession(source: source, store: store, bookId: 'scroll');
+    await store.save(
+      'scroll',
+      const ReaderProgress(spineIndex: 2, pageIndex: 1, scrollOffset: 125),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll',
+    );
     await session.open();
     final built = <String>{};
 
@@ -110,8 +118,18 @@ void main() {
     );
 
     expect(source.loads.toSet(), containsAll(<int>[1, 2, 3]));
-    expect(find.byKey(const ValueKey<String>('scroll-page-2-1')), findsOneWidget);
-    expect(session.progress, const ReaderProgress(spineIndex: 2, pageIndex: 1));
+    expect(
+      find.byKey(const ValueKey<String>('scroll-page-2-1')),
+      findsOneWidget,
+    );
+    final restoredScrollable = tester.state<ScrollableState>(
+      find.byType(Scrollable),
+    );
+    expect(restoredScrollable.position.pixels, closeTo(9445, 0.01));
+    expect(
+      session.progress,
+      const ReaderProgress(spineIndex: 2, pageIndex: 1, scrollOffset: 125),
+    );
     expect(built.length, lessThan(90), reason: '长章节只构建可见范围');
 
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
@@ -128,7 +146,11 @@ void main() {
   testWidgets('滚动到下一张切片后同步阅读进度', (tester) async {
     final source = _SingleChapterSource();
     final store = MemoryReaderProgressStore();
-    final session = ReaderSession(source: source, store: store, bookId: 'progress');
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'progress',
+    );
     await session.open();
 
     await tester.pumpWidget(
@@ -153,7 +175,10 @@ void main() {
     scrollable.position.jumpTo(350);
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 1));
+    expect(
+      session.progress,
+      const ReaderProgress(spineIndex: 0, pageIndex: 1, scrollOffset: 30),
+    );
     session.dispose();
   });
 }

@@ -25,6 +25,7 @@ class ReaderProgress {
     required this.spineIndex,
     required this.pageIndex,
     this.finished = false,
+    this.scrollOffset,
   });
 
   /// 章节序号。
@@ -36,18 +37,24 @@ class ReaderProgress {
   /// 是否已到达全书最后一页。
   final bool finished;
 
+  /// 连续滚动模式在当前页切片内的垂直偏移；分页模式为 null。
+  final double? scrollOffset;
+
   @override
   bool operator ==(Object other) =>
       other is ReaderProgress &&
       other.spineIndex == spineIndex &&
       other.pageIndex == pageIndex &&
-      other.finished == finished;
+      other.finished == finished &&
+      other.scrollOffset == scrollOffset;
 
   @override
-  int get hashCode => Object.hash(spineIndex, pageIndex, finished);
+  int get hashCode =>
+      Object.hash(spineIndex, pageIndex, finished, scrollOffset);
 
   @override
-  String toString() => 'ReaderProgress($spineIndex,$pageIndex,$finished)';
+  String toString() =>
+      'ReaderProgress($spineIndex,$pageIndex,$finished,$scrollOffset)';
 }
 
 /// 阅读进度存储。
@@ -274,6 +281,7 @@ class ReaderSession extends ChangeNotifier {
         !(_pager?.commitPrepared(turn.origin, turn.target) ?? false)) {
       return false;
     }
+    _clearScrollPosition();
     _notify();
     _persist();
     return true;
@@ -290,20 +298,42 @@ class ReaderSession extends ChangeNotifier {
     );
   }
 
-  /// 滚动跨过页边界时同步阅读记录；页面内容本身不重新分页。
-  Future<bool> commitScrollPage(int spineIndex, int pageIndex) async {
+  /// 同步连续滚动的页号与页内偏移；页面内容本身不重新分页。
+  Future<bool> commitScrollPosition(
+    int spineIndex,
+    int pageIndex,
+    double scrollOffset,
+  ) async {
     final pager = _pager;
     if (_disposed || _loading || pager == null) return false;
-    final current = progress;
-    if (current?.spineIndex == spineIndex && current?.pageIndex == pageIndex) {
+    final offset = scrollOffset.isFinite
+        ? math.max(0.0, scrollOffset).toDouble()
+        : 0.0;
+    final previous = progress;
+    if (previous?.spineIndex == spineIndex &&
+        previous?.pageIndex == pageIndex &&
+        previous?.scrollOffset == offset) {
       return true;
     }
     final generation = _generation;
-    final changed = await pager.goTo(spineIndex, pageIndex);
-    if (!changed || _disposed || generation != _generation) return false;
-    _notify();
+    final pageChanged =
+        previous?.spineIndex != spineIndex || previous?.pageIndex != pageIndex;
+    if (pageChanged) {
+      final changed = await pager.goTo(spineIndex, pageIndex);
+      if (!changed || _disposed || generation != _generation) return false;
+    }
+    _scrollSpineIndex = spineIndex;
+    _scrollPageIndex = pageIndex;
+    _scrollOffset = offset;
+    if (pageChanged) _notify();
     _persist();
     return true;
+  }
+
+  void _clearScrollPosition() {
+    _scrollSpineIndex = null;
+    _scrollPageIndex = null;
+    _scrollOffset = null;
   }
 
   double? _contentWidth;
@@ -324,6 +354,9 @@ class ReaderSession extends ChangeNotifier {
   int _persistWrites = 0;
   int _jumpToken = 0;
   String? _jumpLoadingTitle;
+  int? _scrollSpineIndex;
+  int? _scrollPageIndex;
+  double? _scrollOffset;
 
   /// 已写库次数（节流验收用：连续翻 100 页应 ≤5 次）。
   int get persistWriteCount => _persistWrites;
@@ -369,9 +402,7 @@ class ReaderSession extends ChangeNotifier {
   /// 目录（源不支持目录时为空）。
   List<TocEntry> get toc {
     final source = this.source;
-    return source is TocChapterSource
-        ? source.toc
-        : const <TocEntry>[];
+    return source is TocChapterSource ? source.toc : const <TocEntry>[];
   }
 
   /// 当前页首个块的 CFI（书签/标注锚点用；无 CFI 时返回 null）。
@@ -390,12 +421,16 @@ class ReaderSession extends ChangeNotifier {
     if (spine == null || spine >= source.chapterCount) {
       return false;
     }
+    _clearScrollPosition();
     final token = ++_jumpToken;
     _generation += 1;
     _jumpLoadingTitle = title ?? '书签位置';
     _notify();
     final trace = readerTraceEnabled
-        ? ReaderTrace.instance.start(ReaderTraceName.chapterJump, bookId: bookId)
+        ? ReaderTrace.instance.start(
+            ReaderTraceName.chapterJump,
+            bookId: bookId,
+          )
         : null;
     try {
       final changed = await pager.goTo(spine, 0);
@@ -450,17 +485,22 @@ class ReaderSession extends ChangeNotifier {
     if (pager == null) {
       return false;
     }
+    _clearScrollPosition();
     final token = ++_jumpToken;
     // 跳转优先：让进行中的翻页/重排结果作废，避免旧结果回写。
     _generation += 1;
     _jumpLoadingTitle = title ?? '第 ${spineIndex + 1} 章';
     _notify();
     final trace = readerTraceEnabled
-        ? ReaderTrace.instance.start(ReaderTraceName.chapterJump, bookId: bookId)
+        ? ReaderTrace.instance.start(
+            ReaderTraceName.chapterJump,
+            bookId: bookId,
+          )
         : null;
     try {
       final changed = await pager.goTo(
-        spineIndex, 0,
+        spineIndex,
+        0,
         emptyDirection: spineIndex < (page?.spineIndex ?? 0) ? -1 : 1,
       );
       if (token != _jumpToken) {
@@ -499,6 +539,11 @@ class ReaderSession extends ChangeNotifier {
       spineIndex: current.spineIndex,
       pageIndex: current.pageIndex,
       finished: finished,
+      scrollOffset:
+          current.spineIndex == _scrollSpineIndex &&
+              current.pageIndex == _scrollPageIndex
+          ? _scrollOffset
+          : null,
     );
   }
 
@@ -590,6 +635,13 @@ class ReaderSession extends ChangeNotifier {
       );
       if (generation != _generation) return;
       _pager = pager;
+      if (saved?.scrollOffset != null) {
+        _scrollSpineIndex = saved!.spineIndex;
+        _scrollPageIndex = saved.pageIndex;
+        _scrollOffset = saved.scrollOffset;
+      } else {
+        _clearScrollPosition();
+      }
       _loading = false;
       // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
       _lastPersisted = progress;
@@ -846,6 +898,7 @@ class ReaderSession extends ChangeNotifier {
     Future<void> Function()? prepare,
     int? pageIndex,
   }) async {
+    _clearScrollPosition();
     _pager?.cancelPendingNavigation();
     _loading = true;
     _notify();
