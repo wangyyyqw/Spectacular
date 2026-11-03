@@ -58,19 +58,88 @@ void main() {
     );
   });
 
-  test('折痕越出纸面时上下页角仍与触点重合', () {
+  test('角部过度纵向拖动被限制在书脊边界，水平位置仍跟手', () {
     const size = Size(320, 480);
     for (final top in [false, true]) {
       final touch = Offset(280, top ? 170 : 310);
       final geometry = BesselGeometry.resolve(size, touch, top: top)!;
 
-      expectOffset(geometry.a, touch);
-      expectOffset(transform(geometry.reflection(), geometry.f), touch);
+      expect(geometry.a.dx, touch.dx);
+      expect(geometry.c.dx, closeTo(0, 0.001));
+      expect((geometry.a.dy - geometry.f.dy).abs(), lessThan(170));
+      expectOffset(transform(geometry.reflection(), geometry.f), geometry.a);
       expect(geometry.frontPath().getBounds().isFinite, isTrue);
       expect(
         geometry.backPath(geometry.frontPath()).getBounds().isFinite,
         isTrue,
       );
+    }
+  });
+
+  test('高屏大幅斜拖不会把纸角拉到对侧半屏或将折痕拉过书脊', () {
+    const size = Size(320, 700);
+    for (final top in [false, true]) {
+      final geometry = BesselGeometry.resolve(
+        size,
+        Offset(90, top ? 500 : 200),
+        top: top,
+      )!;
+
+      expect(geometry.a.dx, 90);
+      expect(geometry.c.dx, greaterThanOrEqualTo(-0.001));
+      expect((geometry.a.dy - geometry.f.dy).abs(), lessThan(size.width));
+      expect(top ? geometry.a.dy < 350 : geometry.a.dy > 350, isTrue);
+    }
+  });
+
+  test('上下角连续越界拖动的折痕和纸背反射均有效', () {
+    const size = Size(320, 700);
+    for (final top in [false, true]) {
+      for (var touchX = 320.0; touchX >= -320; touchX -= 4) {
+        final geometry = BesselGeometry.resolve(
+          size,
+          Offset(touchX, top ? 650 : 50),
+          top: top,
+        )!;
+
+        expect(geometry.a.dx, closeTo(touchX, 0.1001));
+        expect(geometry.c.dx, greaterThanOrEqualTo(-160.001));
+        expect(geometry.e.dx, greaterThanOrEqualTo(-0.001));
+        expect(
+          geometry.c.dx,
+          greaterThanOrEqualTo(geometry.a.dx.clamp(-320, 0) / 2 - 0.001),
+        );
+        expect(geometry.reflection().every((value) => value.isFinite), isTrue);
+        expectOffset(transform(geometry.reflection(), geometry.f), geometry.a);
+        expect(geometry.frontPath().getBounds().isFinite, isTrue);
+        expect(
+          geometry.backPath(geometry.frontPath()).getBounds().isFinite,
+          isTrue,
+        );
+      }
+    }
+  });
+
+  test('越界限制在合法触点和边界之间连续，上下角互为镜像', () {
+    const size = Size(320, 480);
+    BesselGeometry? previous;
+    for (var distance = 1.0; distance <= 479; distance += 0.5) {
+      final bottom = BesselGeometry.resolve(
+        size,
+        Offset(220, size.height - distance),
+      )!;
+      final top = BesselGeometry.resolve(
+        size,
+        Offset(220, distance),
+        top: true,
+      )!;
+
+      expectOffset(top.a, Offset(bottom.a.dx, size.height - bottom.a.dy));
+      expect(top.c.dx, closeTo(bottom.c.dx, 0.001));
+      if (previous != null) {
+        expect((bottom.a - previous.a).distance, lessThanOrEqualTo(0.5001));
+      }
+      previous = bottom;
     }
   });
 
