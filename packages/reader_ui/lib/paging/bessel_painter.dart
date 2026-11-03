@@ -30,6 +30,11 @@ class BesselPainter {
     final front = geometry.frontPath();
     final back = geometry.backPath(front);
     _bottomShadow(canvas, geometry);
+    // 正反面共用折痕边缘，先铺整页纸底，避免抗锯齿缝隙透出底页。
+    canvas.drawPath(
+      Path.combine(PathOperation.union, front, back),
+      Paint()..color = paperColor,
+    );
     canvas.save();
     canvas.clipPath(front);
     _drawImage(canvas, paper, geometry.size, rtl);
