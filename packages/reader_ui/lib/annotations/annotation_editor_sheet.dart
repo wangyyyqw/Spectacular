@@ -370,126 +370,164 @@ class _ReaderAnnotationEditorSheetState
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const _SheetHandle(),
-                  const SizedBox(height: 14),
-                  _SheetHeader(isNote: _isNote, onClose: _close),
-                  _AnnotationPreview(
-                    annotation: widget.annotation,
-                    currentColor: currentColor,
-                    currentStyle: currentStyle,
-                  ),
-                  if (!_isNote && !_showNoteEditor) ...[
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      key: const ValueKey<String>('annotation-add-note'),
-                      onPressed: () => setState(() {
-                        _showNoteEditor = true;
-                        _autofocusNoteEditor = true;
-                      }),
-                      icon: const Icon(Icons.note_add_outlined, size: 20),
-                      label: const Text('为这条高亮添加笔记'),
-                    ),
-                  ],
-                  if (_canEditNote) ...[
-                    const SizedBox(height: 16),
-                    _AnnotationNoteEditor(
-                      controller: _noteController,
-                      autofocus: _autofocusNoteEditor,
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  Text('高亮颜色', style: theme.textTheme.labelLarge),
-                  const SizedBox(height: 10),
-                  _ColorChoices(
-                    currentColor: currentColor,
-                    onSelected: _selectColor,
-                  ),
-                  const SizedBox(height: 18),
-                  Text('高亮样式', style: theme.textTheme.labelLarge),
-                  const SizedBox(height: 10),
-                  _StyleChoices(
-                    currentColor: currentColor,
-                    currentStyle: currentStyle,
-                    onSelected: _selectStyle,
-                  ),
-                  const SizedBox(height: 18),
-                  if (_canEditNote) ...[
-                    FilledButton.icon(
-                      key: const ValueKey<String>('annotation-save-note'),
-                      onPressed: _canSave
-                          ? () => unawaited(
-                              _finish(
-                                AnnotationEditAction.save(
-                                  color: _currentColor,
-                                  style: _currentStyle,
-                                  note: _actionNote,
-                                ),
-                              ),
-                            )
-                          : null,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(44),
-                      ),
-                      icon: const Icon(Icons.check, size: 20),
-                      label: Text(_saveLabel),
-                    ),
-                    const SizedBox(height: 10),
-                  ] else ...[
-                    FilledButton.icon(
-                      key: const ValueKey<String>('annotation-save-changes'),
-                      onPressed: _canSave
-                          ? () => unawaited(
-                              _finish(
-                                AnnotationEditAction.save(
-                                  color: _currentColor,
-                                  style: _currentStyle,
-                                ),
-                              ),
-                            )
-                          : null,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(44),
-                      ),
-                      icon: const Icon(Icons.check, size: 20),
-                      label: const Text('保存修改'),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  if (_isNote) ...[
-                    OutlinedButton.icon(
-                      key: const ValueKey<String>('annotation-remove-note'),
-                      onPressed: () => unawaited(
-                        _finish(
-                          AnnotationEditAction.removeNote(
-                            color: _currentColor,
-                            style: _currentStyle,
-                          ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const _SheetHandle(),
+                        const SizedBox(height: 14),
+                        _SheetHeader(isNote: _isNote, onClose: _close),
+                        _AnnotationPreview(
+                          annotation: widget.annotation,
+                          currentColor: currentColor,
+                          currentStyle: currentStyle,
                         ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(44),
-                      ),
-                      icon: const Icon(Icons.notes_outlined, size: 20),
-                      label: const Text('删除笔记正文，保留高亮'),
+                        if (!_isNote && !_showNoteEditor) ...[
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            key: const ValueKey<String>(
+                              'annotation-add-note',
+                            ),
+                            onPressed: () => setState(() {
+                              _showNoteEditor = true;
+                              _autofocusNoteEditor = true;
+                            }),
+                            icon: const Icon(Icons.note_add_outlined, size: 20),
+                            label: const Text('为这条高亮添加笔记'),
+                          ),
+                        ],
+                        if (_canEditNote) ...[
+                          const SizedBox(height: 16),
+                          _AnnotationNoteEditor(
+                            controller: _noteController,
+                            autofocus: _autofocusNoteEditor,
+                            onChanged: (_) => setState(() {}),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        Text('高亮颜色', style: theme.textTheme.labelLarge),
+                        const SizedBox(height: 10),
+                        _ColorChoices(
+                          currentColor: currentColor,
+                          onSelected: _selectColor,
+                        ),
+                        const SizedBox(height: 18),
+                        Text('高亮样式', style: theme.textTheme.labelLarge),
+                        const SizedBox(height: 10),
+                        _StyleChoices(
+                          currentColor: currentColor,
+                          currentStyle: currentStyle,
+                          onSelected: _selectStyle,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 10),
-                  ],
-                  _RemoveAnnotationButton(
-                    isNote: _isNote,
-                    onRemove: () =>
-                        unawaited(_finish(const AnnotationEditAction.remove())),
                   ),
-                ],
-              ),
+                ),
+                _AnnotationActionsFooter(
+                  isNote: _isNote,
+                  saveKey: ValueKey<String>(
+                    _canEditNote
+                        ? 'annotation-save-note'
+                        : 'annotation-save-changes',
+                  ),
+                  saveLabel: _saveLabel,
+                  onSave: _canSave
+                      ? () => unawaited(
+                          _finish(
+                            AnnotationEditAction.save(
+                              color: _currentColor,
+                              style: _currentStyle,
+                              note: _canEditNote ? _actionNote : null,
+                            ),
+                          ),
+                        )
+                      : null,
+                  onRemoveNote: _isNote
+                      ? () => unawaited(
+                          _finish(
+                            AnnotationEditAction.removeNote(
+                              color: _currentColor,
+                              style: _currentStyle,
+                            ),
+                          ),
+                        )
+                      : null,
+                  onRemove: () => unawaited(
+                    _finish(const AnnotationEditAction.remove()),
+                  ),
+                ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnnotationActionsFooter extends StatelessWidget {
+  const _AnnotationActionsFooter({
+    required this.isNote,
+    required this.saveKey,
+    required this.saveLabel,
+    required this.onSave,
+    required this.onRemoveNote,
+    required this.onRemove,
+  });
+
+  final bool isNote;
+  final Key saveKey;
+  final String saveLabel;
+  final VoidCallback? onSave;
+  final VoidCallback? onRemoveNote;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton.icon(
+              key: saveKey,
+              onPressed: onSave,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+              ),
+              icon: const Icon(Icons.check, size: 20),
+              label: Text(saveLabel),
+            ),
+            if (onRemoveNote != null) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                key: const ValueKey<String>('annotation-remove-note'),
+                onPressed: onRemoveNote,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44),
+                ),
+                icon: const Icon(Icons.notes_outlined, size: 20),
+                label: const Text('删除笔记正文，保留高亮'),
+              ),
+            ],
+            const SizedBox(height: 10),
+            _RemoveAnnotationButton(isNote: isNote, onRemove: onRemove),
+          ],
         ),
       ),
     );
