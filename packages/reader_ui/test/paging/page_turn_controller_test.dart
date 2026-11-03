@@ -89,6 +89,35 @@ Future<void> _startDrag(
   expect(controller.point, const ui.Offset(220, 380));
 }
 
+void _drag(
+  PageTurnController controller,
+  ui.Offset point, {
+  bool start = false,
+}) {
+  final physical = ui.Offset(
+    controller.fromRight ? point.dx : controller.size.width - point.dx,
+    point.dy,
+  );
+  if (start) {
+    controller.pointerDown(physical);
+    controller.beginDrag(DragStartDetails(localPosition: physical));
+  } else {
+    controller.updateDrag(
+      DragUpdateDetails(globalPosition: physical, localPosition: physical),
+    );
+  }
+}
+
+void _expectSameCurl(PageTurnController forward, PageTurnController backward) {
+  expect(backward.point, forward.point);
+  expect(backward.progress, closeTo(forward.progress, 0.00001));
+  expect(backward.horizontal, forward.horizontal);
+  expect(backward.top, forward.top);
+  expect(backward.besselGeometry!.a, forward.besselGeometry!.a);
+  expect(backward.besselGeometry!.f, forward.besselGeometry!.f);
+  expect(backward.fromRight, !forward.fromRight);
+}
+
 void main() {
   for (final rtl in [false, true]) {
     testWidgets('${rtl ? 'RTL' : 'LTR'} 回拖时页角与触点重合', (tester) async {
@@ -198,10 +227,10 @@ void main() {
 
     expect(controller.next, isFalse);
     expect(controller.horizontal, isTrue);
-    expect(controller.point, const ui.Offset(100, 300));
+    expect(controller.point, const ui.Offset(220, 300));
     expect(controller.besselGeometry!.a, const ui.Offset(220, 300));
     _move(controller, const ui.Offset(40, 200));
-    expect(controller.point, const ui.Offset(40, 200));
+    expect(controller.point, const ui.Offset(280, 200));
     expect(controller.besselGeometry!.a, const ui.Offset(280, 200));
     controller.cancel();
     expect(controller.session.progress!.pageIndex, 1);
@@ -296,6 +325,54 @@ void main() {
         );
       }
       await controller.session.flushProgress();
+    });
+  }
+
+  for (final rtl in [false, true]) {
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 前后翻页的拖动回拖与收尾共用轨迹且轴相反', (tester) async {
+      final forward = await _controller(tester, rtl: rtl);
+      final backward = await _controller(tester, rtl: rtl)
+        ..next = false;
+      for (final y in <double>[60, 240, 420]) {
+        _drag(forward, ui.Offset(310, y), start: true);
+        _drag(backward, ui.Offset(310, y), start: true);
+        _drag(forward, ui.Offset(220, y));
+        _drag(backward, ui.Offset(220, y));
+        await tester.pump();
+        _expectSameCurl(forward, backward);
+        _drag(forward, ui.Offset(290, y + 10));
+        _drag(backward, ui.Offset(290, y + 10));
+        _expectSameCurl(forward, backward);
+        forward.endDrag(DragEndDetails());
+        backward.endDrag(DragEndDetails());
+        await tester.pump();
+        for (var frame = 0; frame < 5; frame++) {
+          await tester.pump(const Duration(milliseconds: 40));
+          _expectSameCurl(forward, backward);
+        }
+        await tester.pumpAndSettle();
+        expect(forward.session.progress!.pageIndex, 1);
+        expect(backward.session.progress!.pageIndex, 1);
+      }
+    });
+
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 点击前后翻页的整段收尾动画互为镜像', (tester) async {
+      final forward = await _controller(tester, rtl: rtl);
+      final backward = await _controller(tester, rtl: rtl);
+      forward.request(true);
+      backward.request(false);
+      await tester.pump();
+      for (var frame = 0; frame < 5; frame++) {
+        await tester.pump(const Duration(milliseconds: 40));
+        _expectSameCurl(forward, backward);
+        expect(forward.session.progress!.pageIndex, 1);
+        expect(backward.session.progress!.pageIndex, 1);
+      }
+      await tester.pumpAndSettle();
+      expect(forward.session.progress!.pageIndex, 2);
+      expect(backward.session.progress!.pageIndex, 0);
+      await forward.session.flushProgress();
+      await backward.session.flushProgress();
     });
   }
 }

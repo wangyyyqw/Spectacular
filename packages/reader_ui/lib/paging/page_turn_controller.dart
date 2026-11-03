@@ -49,14 +49,17 @@ class PageTurnController extends ChangeNotifier {
 
   bool get active => phase != PageTurnPhase.idle;
 
-  /// 当前抓取点对应的卷曲几何；直接跟手，不再压到页缘。
+  /// 活动纸的物理起卷侧；前后翻页的轴互为镜像。
+  bool get fromRight => next != rtl;
+
+  /// 前后翻页共用右侧规范坐标，绘制时按起卷侧镜像。
   BesselGeometry? get besselGeometry {
     final current = point;
     return current == null
         ? null
         : BesselGeometry.resolve(
             size,
-            next ? current : ui.Offset(size.width - current.dx, current.dy),
+            current,
             top: top,
             horizontal: horizontal,
           );
@@ -139,33 +142,27 @@ class PageTurnController extends ChangeNotifier {
 
   bool _valid(int token) => !_disposed && token == _token;
 
-  ui.Offset _canonical(ui.Offset position) =>
-      ui.Offset(rtl ? size.width - position.dx : position.dx, position.dy);
+  ui.Offset _canonical(ui.Offset position) => ui.Offset(
+    fromRight ? position.dx : size.width - position.dx,
+    position.dy,
+  );
 
   void _initializePoint() {
     final down = _canonical(_down!);
     top = down.dy < size.height / 2;
     // 起手所在的中心五分之一从侧边卷起；手势内固定类型，跨区不跳变。
     horizontal = (down.dy - size.height / 2).abs() <= size.height / 10;
-    point = ui.Offset(
-      next ? size.width : 0,
-      down.dy.clamp(0.1, size.height - 0.1),
-    );
+    point = ui.Offset(size.width, down.dy.clamp(0.1, size.height - 0.1));
   }
 
   void _updateDragFrame() {
     if (mode == PageTurnMode.simulationBessel) {
       final latest = _canonical(_latest!);
       point = ui.Offset(
-        latest.dx.clamp(
-          next ? -size.width : 0,
-          next ? size.width : size.width * 2,
-        ),
+        latest.dx.clamp(-size.width, size.width),
         latest.dy.clamp(0.1, size.height - 0.1),
       );
-      progress =
-          ((next ? size.width - point!.dx : point!.dx) / (2 * size.width))
-              .clamp(0, 1);
+      progress = ((size.width - point!.dx) / (2 * size.width)).clamp(0, 1);
     } else {
       final sign = (next != rtl) ? -1 : 1;
       progress = ((_latest!.dx - _down!.dx) * sign / size.width).clamp(0, 1);
@@ -212,9 +209,7 @@ class PageTurnController extends ChangeNotifier {
         : top
         ? 0.1
         : size.height - 0.1;
-    final x = _complete
-        ? (next ? -size.width : size.width * 2)
-        : (next ? size.width - 0.1 : 0.1);
+    final x = _complete ? -size.width : size.width - 0.1;
     _endPoint = ui.Offset(x, y);
   }
 
