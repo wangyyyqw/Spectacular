@@ -53,18 +53,24 @@ class BesselGeometry {
 
   static BesselGeometry _edge(Size size, Offset touch, bool top) {
     final fold = (size.width + touch.dx) / 2;
-    final bow = math.max(0.0, math.min((size.width - touch.dx) / 8, fold / 8));
+    final remaining = math.max(
+      0.0,
+      math.min(size.width - touch.dx, size.width + touch.dx),
+    );
+    final radius = math.min(size.width * 0.16, remaining * 0.8 / math.pi);
+    final curveStart = fold - math.pi * radius / 2;
+    final crease = curveStart + radius;
     return BesselGeometry._(
       a: touch,
       f: Offset(size.width, touch.dy),
-      e: Offset(touch.dx, 0),
-      h: Offset(touch.dx, size.height),
+      e: Offset(curveStart, 0),
+      h: Offset(curveStart, size.height),
       c: Offset(fold, 0),
       j: Offset(fold, size.height),
-      b: Offset(touch.dx + bow, 0),
-      k: Offset(touch.dx + bow, size.height),
-      d: Offset(fold + bow, 0),
-      i: Offset(fold + bow, size.height),
+      b: Offset(touch.dx, 0),
+      k: Offset(touch.dx, size.height),
+      d: Offset(crease, 0),
+      i: Offset(crease, size.height),
       top: top,
       size: size,
       horizontal: true,
@@ -113,12 +119,7 @@ class BesselGeometry {
   Path frontPath() {
     if (horizontal) {
       return Path()
-        ..moveTo(0, 0)
-        ..lineTo(b.dx, b.dy)
-        ..quadraticBezierTo(e.dx, e.dy, a.dx, a.dy)
-        ..quadraticBezierTo(h.dx, h.dy, k.dx, k.dy)
-        ..lineTo(0, size.height)
-        ..close();
+        ..addRect(Rect.fromLTRB(0, 0, math.max(0, a.dx), size.height));
     }
     final path = Path()..moveTo(0, top ? size.height : 0);
     path.lineTo(0, top ? 0 : f.dy);
@@ -134,15 +135,7 @@ class BesselGeometry {
   /// 候选纸背减去正面；无效路径由绘制层降级。
   Path backPath(Path front) {
     if (horizontal) {
-      return Path()
-        ..moveTo(b.dx, b.dy)
-        ..lineTo(c.dx, c.dy)
-        ..quadraticBezierTo(d.dx, d.dy, d.dx, a.dy)
-        ..quadraticBezierTo(i.dx, i.dy, j.dx, j.dy)
-        ..lineTo(k.dx, k.dy)
-        ..quadraticBezierTo(h.dx, h.dy, a.dx, a.dy)
-        ..quadraticBezierTo(e.dx, e.dy, b.dx, b.dy)
-        ..close();
+      return Path()..addRect(Rect.fromLTRB(a.dx, 0, d.dx, size.height));
     }
     return Path.combine(
       PathOperation.difference,
