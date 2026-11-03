@@ -167,6 +167,34 @@ void main() {
     expect(editor.controller?.text, longReview);
   });
 
+  testWidgets('键盘弹出时书评操作栏固定在键盘上方', (tester) async {
+    final book = _book('keyboard-review', '键盘测试书', '作者');
+    final store = _MemoryReviewStore()
+      ..items[book.id] = _review(book.id, '需要继续编辑的书评', rating: 4);
+    await _pumpReviews(tester, books: <BookEntry>[book], store: store);
+    tester.view.devicePixelRatio = 3;
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('review-card-keyboard-review')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('review-detail-edit')));
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey<String>('review-content'));
+    await tester.showKeyboard(input);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 1200);
+    await tester.pumpAndSettle();
+
+    const keyboardTop = 400.0;
+    for (final key in <String>['review-save', 'review-delete']) {
+      final rect = tester.getRect(find.byKey(ValueKey<String>(key)));
+      expect(rect.top, greaterThanOrEqualTo(0), reason: '$key 顶部不可见');
+      expect(rect.bottom, lessThanOrEqualTo(keyboardTop), reason: '$key 被键盘遮挡');
+    }
+  });
+
   testWidgets('未保存书评关闭前确认，可继续编辑或放弃修改', (tester) async {
     final book = _book('draft-book', '草稿测试书', '作者');
     final store = _MemoryReviewStore();
