@@ -815,12 +815,18 @@ class PagePainter {
 
   /// 主题文字色是否覆盖某个块（P9-02）。
   ///
-  /// 书籍显式声明的可辨认颜色继续照书，保留金标题、灰注释等作者配色；
-  /// 与当前底色对比不足的文字跟随主题色，避免日间残留夜间的浅色字。
-  /// 未声明的默认深色字始终跟随主题色。
+  /// 书籍显式声明的颜色（含继承）始终照书，日间/夜间都不替换；
+  /// 只有未声明颜色的文字才跟随主题色。
   Color? _textColorFor(ComputedStyle style) {
     final theme = textColor;
     if (theme == null) {
+      return null;
+    }
+    // 透明字是书籍用于封面排版的隐藏文本，不能因为对比度低就画出来。
+    if (style.color.a == 0) {
+      return null;
+    }
+    if (style.hasExplicitTextColor) {
       return null;
     }
     final darkText = style.color.computeLuminance() <= 0.179;
@@ -833,11 +839,7 @@ class PagePainter {
     final fallback = darkBackground && theme.computeLuminance() >= 0.35
         ? const Color(0xFFE6E6E6)
         : theme;
-    // 透明字是书籍用于封面排版的隐藏文本，不能因为对比度低就画出来。
-    if (style.color.a == 0) {
-      return null;
-    }
-    if (!style.hasExplicitTextColor && darkText) {
+    if (darkText) {
       return fallback;
     }
     final foreground = Color.alphaBlend(style.color, blendedBackground);

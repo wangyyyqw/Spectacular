@@ -5334,6 +5334,7 @@ class EpubChapterSource
         parent: style,
         explicitProperties: declarations.keys.toSet(),
         declaredTextProperties: computed.declaredTextProperties,
+        hasExplicitTextColor: computed.hasExplicitTextColor,
         containingWidth: contentWidth,
         rootFontSize: style.fontSize,
       );

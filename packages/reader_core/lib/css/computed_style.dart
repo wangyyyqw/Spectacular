@@ -2023,6 +2023,10 @@ class ComputedStyle {
     final explicit = explicitProperties ?? values.keys.toSet();
     String? explicitValue(String property) =>
         explicit.contains(property) ? values[property] : null;
+    // 作者文字色沿继承链生效：子元素即使没有自己的 color 声明，也继续
+    // 使用祖先规定的颜色，主题色不得覆盖。
+    final authorTextColor =
+        hasExplicitTextColor || (parent?.hasExplicitTextColor ?? false);
 
     // `font` 简写（P9-09）：长属性缺失时从简写展开，否则整条简写会被
     // 静默丢弃（书籍常用 `font: italic bold 16px/1.5 serif`）。
@@ -2748,7 +2752,7 @@ class ComputedStyle {
                 if (explicit.contains(property)) property,
             },
       ),
-      hasExplicitTextColor: hasExplicitTextColor,
+      hasExplicitTextColor: authorTextColor,
       fontSize: fontSize,
       parentFontSize: parentFontSize,
       lineHeight: lineHeight,
@@ -3189,7 +3193,10 @@ class ComputedStyle {
     return int.tryParse(raw) ?? 0;
   }
 
-  /// 是否存在作者/内联显式指定的文字色（暗色替换需要）。
+  /// 元素自身或祖先是否存在作者/内联显式指定的文字色。
+  ///
+  /// 用于日间/夜间主题：作者规定的颜色始终保留，只有未规定的文字才跟随
+  /// 主题文字色。
   final bool hasExplicitTextColor;
 
   /// 最终字号（逻辑像素）。

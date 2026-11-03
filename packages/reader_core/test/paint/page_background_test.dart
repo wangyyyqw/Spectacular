@@ -144,10 +144,10 @@ void main() {
     expect(_redishPixels(data), 0, reason: '显式灰色应保留，不变成主题红');
   });
 
-  test('浅色页：与底色对比不足的显式浅字回退主题色', () async {
+  test('浅色页：显式浅字保持作者颜色，不换成主题色', () async {
     final page = _page(_style(color: '#ffffff', explicitColor: true));
     final data = await _render(page, textColor: _red);
-    expect(_redishPixels(data), greaterThan(0), reason: '白底白字日间应恢复为主题色');
+    expect(_redishPixels(data), 0, reason: '作者显式白色不应被主题色替换');
   });
 
   test('透明显式文字保持透明', () async {
@@ -158,13 +158,46 @@ void main() {
     expect(_redishPixels(data), 0, reason: '封面隐藏文字不能被主题色画出来');
   });
 
+  test('作者显式色在日间和夜间都保持不变', () async {
+    final page = _page(_style(color: '#ff0000', explicitColor: true));
+    final day = await _render(page, textColor: _white);
+    final night = await _render(
+      page,
+      background: const Color(0xFF2B2B2B),
+      textColor: _white,
+    );
+    expect(_redishPixels(day), greaterThan(0), reason: '日间应保留作者红色');
+    expect(_redishPixels(night), greaterThan(0), reason: '夜间应保留作者红色');
+  });
+
+  test('父级作者色继承到子元素后，日间和夜间都不被主题色替换', () async {
+    final parent = _style(color: '#ff0000', explicitColor: true);
+    final child = ComputedStyle(<String, String>{
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': 'Ahem',
+    }, parent: parent);
+    expect(child.color, const Color(0xFFFF0000));
+    expect(child.hasExplicitTextColor, isTrue);
+
+    final page = _page(child);
+    final day = await _render(page, textColor: _white);
+    final night = await _render(
+      page,
+      background: const Color(0xFF2B2B2B),
+      textColor: _white,
+    );
+    expect(_redishPixels(day), greaterThan(0), reason: '日间应保留继承的红色');
+    expect(_redishPixels(night), greaterThan(0), reason: '夜间应保留继承的红色');
+  });
+
   test('浅色页：未声明的默认黑字跟随主题色', () async {
     final page = _page(_style());
     final data = await _render(page, textColor: _red);
     expect(_redishPixels(data), greaterThan(0), reason: '默认黑字应取主题色');
   });
 
-  test('深色页：深色文字替换为主题色，浅色文字保留', () async {
+  test('深色页：显式深色与浅色文字都保持作者颜色', () async {
     final darkPage = _page(_style(color: '#000000', explicitColor: true));
     final darkData = await _render(
       darkPage,
@@ -179,7 +212,7 @@ void main() {
         whiteInk += 1;
       }
     }
-    expect(whiteInk, greaterThan(0), reason: '黑底黑字必须提亮为白色');
+    expect(whiteInk, 0, reason: '作者显式黑色不应被主题色替换');
 
     final lightPage = _page(_style(color: '#ffe08a', explicitColor: true));
     final lightData = await _render(
