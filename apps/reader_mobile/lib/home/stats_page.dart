@@ -157,7 +157,11 @@ class _StatsPageState extends State<StatsPage> {
     }
     final activity = <_DailyReading>[
       for (final date in activityDates)
-        _DailyReading(date: date, books: activityCounts[date] ?? 0),
+        _DailyReading(
+          date: date,
+          books: activityCounts[date] ?? 0,
+          duration: readingByDay[date] ?? Duration.zero,
+        ),
     ];
     final stats = _LibraryStats(
       rows: rows,
@@ -225,8 +229,8 @@ class _StatsPageState extends State<StatsPage> {
                       const SizedBox(width: 8),
                       _MetricTile(
                         icon: Icons.local_fire_department_outlined,
-                        label: '近7天活跃',
-                        value: '${stats.activeDays}',
+                        label: stats.hasReadingSessions ? '近7天阅读' : '近7天活跃',
+                        value: '${stats.weekReadingDays}',
                         valueKey: const ValueKey<String>('stats-recent-7-days'),
                       ),
                       const SizedBox(width: 8),
@@ -300,13 +304,22 @@ class _LibraryStats {
   final Duration totalReading;
   final int readingDays;
   final bool hasReadingSessions;
+
+  int get weekReadingDays => hasReadingSessions
+      ? activity.where((day) => day.duration > Duration.zero).length
+      : activeDays;
 }
 
 class _DailyReading {
-  const _DailyReading({required this.date, required this.books});
+  const _DailyReading({
+    required this.date,
+    required this.books,
+    required this.duration,
+  });
 
   final DateTime date;
   final int books;
+  final Duration duration;
 }
 
 class _BookReadingStat {
@@ -584,10 +597,21 @@ class _WeekActivityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final maxBooks = stats.activity.fold<int>(
-      0,
-      (maximum, day) => day.books > maximum ? day.books : maximum,
+    final useDuration = stats.hasReadingSessions;
+    final maxValue = stats.activity.fold<int>(0, (maximum, day) {
+      final value = useDuration ? day.duration.inSeconds : day.books;
+      return value > maximum ? value : maximum;
+    });
+    final weekDuration = stats.activity.fold<Duration>(
+      Duration.zero,
+      (total, day) => total + day.duration,
     );
+    final readingDays = stats.activity
+        .where((day) => day.duration > Duration.zero)
+        .length;
+    final summary = useDuration
+        ? '${_formatReadingDuration(weekDuration)} · $readingDays 天'
+        : '${stats.activeDays} 天活跃 · ${stats.recent} 本书';
     const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
     return Card(
       key: const ValueKey<String>('stats-week-activity'),
@@ -600,10 +624,13 @@ class _WeekActivityCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('近 7 天阅读', style: theme.textTheme.titleSmall),
+                  child: Text(
+                    useDuration ? '近 7 天阅读时长' : '近 7 天阅读',
+                    style: theme.textTheme.titleSmall,
+                  ),
                 ),
                 Text(
-                  '${stats.activeDays} 天活跃 · ${stats.recent} 本书',
+                  summary,
                   key: const ValueKey<String>('stats-activity-summary'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
@@ -621,7 +648,8 @@ class _WeekActivityCard extends StatelessWidget {
                     Expanded(
                       child: _ActivityBar(
                         day: stats.activity[index],
-                        maxBooks: maxBooks,
+                        maxValue: maxValue,
+                        useDuration: useDuration,
                         weekday: index == stats.activity.length - 1
                             ? '今天'
                             : '周${weekdays[stats.activity[index].date.weekday - 1]}',
@@ -636,7 +664,8 @@ class _WeekActivityCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              '按每本书的最后阅读日期统计',
+              useDuration ? '按实际前台阅读时长统计' : '按每本书的最后阅读日期统计',
+              key: const ValueKey<String>('stats-activity-caption'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -651,14 +680,16 @@ class _WeekActivityCard extends StatelessWidget {
 class _ActivityBar extends StatelessWidget {
   const _ActivityBar({
     required this.day,
-    required this.maxBooks,
+    required this.maxValue,
+    required this.useDuration,
     required this.weekday,
     required this.countKey,
     required this.barKey,
   });
 
   final _DailyReading day;
-  final int maxBooks;
+  final int maxValue;
+  final bool useDuration;
   final String weekday;
   final Key countKey;
   final Key barKey;
@@ -666,15 +697,23 @@ class _ActivityBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasActivity = day.books > 0;
-    final ratio = maxBooks == 0 ? 0.0 : day.books / maxBooks;
+    final value = useDuration ? day.duration.inSeconds : day.books;
+    final hasActivity = value > 0;
+    final ratio = maxValue == 0 ? 0.0 : value / maxValue;
+    final label = useDuration
+        ? _formatActivityDuration(day.duration)
+        : '$value';
+    final tooltip = useDuration
+        ? '${day.date.month}月${day.date.day}日 · '
+              '${_formatReadingDuration(day.duration)} · ${day.books} 本书'
+        : '${day.date.month}月${day.date.day}日 · ${day.books} 本';
     return Tooltip(
-      message: '${day.date.month}月${day.date.day}日 · ${day.books} 本',
+      message: tooltip,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           Text(
-            '${day.books}',
+            label,
             key: countKey,
             style: theme.textTheme.labelSmall?.copyWith(
               color: hasActivity
@@ -1085,6 +1124,23 @@ String _formatReadingDuration(Duration duration) {
   final hours = minutes ~/ 60;
   final rest = minutes % 60;
   return rest == 0 ? '$hours 小时' : '$hours 小时 $rest 分';
+}
+
+String _formatActivityDuration(Duration duration) {
+  if (duration <= Duration.zero) {
+    return '0';
+  }
+  if (duration < const Duration(minutes: 1)) {
+    return '<1分';
+  }
+  if (duration < const Duration(hours: 1)) {
+    return '${(duration.inSeconds / 60).ceil()}分';
+  }
+  if (duration.inMinutes % 60 == 0) {
+    return '${duration.inHours}时';
+  }
+  final hours = duration.inMinutes / 60;
+  return hours < 10 ? '${hours.toStringAsFixed(1)}时' : '${hours.round()}时';
 }
 
 String _formatCharacters(int count) {

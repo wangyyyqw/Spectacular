@@ -335,6 +335,48 @@ void main() {
           .data,
       '累计 1 小时 27 分',
     );
+    expect(find.text('近7天阅读'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-recent-7-days')),
+          )
+          .data,
+      '2',
+    );
+    expect(find.text('近 7 天阅读时长'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-activity-summary')),
+          )
+          .data,
+      '42 分钟 · 2 天',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-activity-count-6')),
+          )
+          .data,
+      '12分',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-activity-count-5')),
+          )
+          .data,
+      '30分',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-activity-caption')),
+          )
+          .data,
+      '按实际前台阅读时长统计',
+    );
   });
 
   testWidgets('切回统计页时按刷新令牌重新读取阅读会话', (tester) async {
