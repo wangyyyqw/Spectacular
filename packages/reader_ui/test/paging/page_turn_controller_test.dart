@@ -89,6 +89,11 @@ Future<void> _startDrag(
   expect(controller.point, const ui.Offset(220, 380));
 }
 
+ui.Rect _curlBounds(PageTurnController controller) {
+  final geometry = controller.besselGeometry!;
+  return geometry.backPath(geometry.frontPath()).getBounds();
+}
+
 void main() {
   for (final rtl in [false, true]) {
     testWidgets('${rtl ? 'RTL' : 'LTR'} 回拖时抓取点沿移动方向平滑返回', (tester) async {
@@ -118,6 +123,38 @@ void main() {
     expect(controller.point!.dy, inExclusiveRange(300, 380));
     await tester.pump(const Duration(milliseconds: 16));
     expect(controller.point, const ui.Offset(220, 300));
+  });
+
+  testWidgets('中段水平拖动按手指高度卷曲并覆盖半页宽度', (tester) async {
+    final controller = await _controller(tester);
+    const down = ui.Offset(310, 240);
+    controller.pointerDown(down);
+    controller.beginDrag(DragStartDetails(localPosition: down));
+    _move(controller, const ui.Offset(220, 240));
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(controller.horizontal, isTrue);
+    expect(controller.point, const ui.Offset(220, 240));
+    expect(
+      _curlBounds(controller).width,
+      greaterThan(controller.size.width * 0.4),
+    );
+  });
+
+  testWidgets('点击翻页从中段起卷，弯曲区域不缩回页缘', (tester) async {
+    final controller = await _controller(tester);
+    controller.request(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(controller.point!.dy, closeTo(controller.size.height / 2, 0.001));
+    expect(
+      _curlBounds(controller).width,
+      greaterThan(controller.size.width * 0.4),
+    );
+    controller.cancel();
   });
 
   testWidgets('拖出上下页缘后抓取点仍留在纸张范围内', (tester) async {

@@ -2,7 +2,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import 'bessel_geometry.dart';
 import 'bessel_painter.dart';
 import 'page_turn_controller.dart';
 import 'page_turn_mode.dart';
@@ -43,10 +42,7 @@ class PageTurnPainter extends CustomPainter {
   void _bessel(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final point = controller.point;
     if (point == null) return;
-    final touch = controller.horizontal
-        ? Offset(point.dx, size.height - 0.1)
-        : point;
-    final geometry = BesselGeometry.resolve(size, touch, top: controller.top);
+    final geometry = controller.besselGeometry;
     if (geometry == null) {
       _cover(canvas, size, origin, target);
       return;
