@@ -6,7 +6,7 @@ import 'selection.dart';
 /// 选区层（P4-15）：逐行高亮 + 起止手柄拖拽。
 ///
 /// 只有手柄热区接收手势，其余区域穿透给下层阅读视图（不挡翻页）。
-class SelectionLayer extends StatelessWidget {
+class SelectionLayer extends StatefulWidget {
   /// 创建选区层。
   const SelectionLayer({
     super.key,
@@ -48,47 +48,112 @@ class SelectionLayer extends StatelessWidget {
   final Color handleColor;
 
   @override
+  State<SelectionLayer> createState() => _SelectionLayerState();
+}
+
+class _SelectionLayerState extends State<SelectionLayer>
+    with SingleTickerProviderStateMixin {
+  static const Duration _entranceDuration = Duration(milliseconds: 180);
+
+  late final AnimationController _entranceController;
+  late final Animation<double> _entrance;
+  late final Animation<double> _handleScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: _entranceDuration,
+    )..forward();
+    _entrance = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    _handleScale = Tween<double>(begin: 0.72, end: 1).animate(_entrance);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _entranceController.value = 1;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant SelectionLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageIndex != widget.pageIndex &&
+        !(MediaQuery.maybeDisableAnimationsOf(context) ?? false)) {
+      _entranceController.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _entranceController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final geometry =
-        SelectionOps.geometryForPage(page, pageIndex, selection) ??
-        SelectionOps.geometryOf(page, selection);
-    final origin = Offset(contentPadding.left, contentPadding.top);
+        SelectionOps.geometryForPage(
+          widget.page,
+          widget.pageIndex,
+          widget.selection,
+        ) ??
+        SelectionOps.geometryOf(widget.page, widget.selection);
+    final origin = Offset(
+      widget.contentPadding.left,
+      widget.contentPadding.top,
+    );
     final hotSize =
         SelectionOps.handleDot + SelectionOps.handleTouchPadding * 2;
-    return Stack(
-      children: [
-        IgnorePointer(
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: _SelectionPainter(
-              geometry: geometry,
-              origin: origin,
-              color: color,
-              handleColor: handleColor,
+    return FadeTransition(
+      key: const ValueKey<String>('selection-entrance'),
+      opacity: _entrance,
+      child: Stack(
+        children: [
+          IgnorePointer(
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _SelectionPainter(
+                geometry: geometry,
+                origin: origin,
+                color: widget.color,
+              ),
             ),
           ),
-        ),
-        _handle(
-          context,
-          key: const ValueKey<String>('selection-handle-start'),
-          center: geometry.startHandle + origin,
-          hotSize: hotSize,
-          onDrag: (local) => _drag(selection, start: true, local: local),
-        ),
-        _handle(
-          context,
-          key: const ValueKey<String>('selection-handle-end'),
-          center: geometry.endHandle + origin,
-          hotSize: hotSize,
-          onDrag: (local) => _drag(selection, start: false, local: local),
-        ),
-      ],
+          _handle(
+            context,
+            key: const ValueKey<String>('selection-handle-start'),
+            scaleKey: const ValueKey<String>('selection-handle-start-scale'),
+            center: geometry.startHandle + origin,
+            hotSize: hotSize,
+            onDrag: (local) =>
+                _drag(widget.selection, start: true, local: local),
+          ),
+          _handle(
+            context,
+            key: const ValueKey<String>('selection-handle-end'),
+            scaleKey: const ValueKey<String>('selection-handle-end-scale'),
+            center: geometry.endHandle + origin,
+            hotSize: hotSize,
+            onDrag: (local) =>
+                _drag(widget.selection, start: false, local: local),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _handle(
     BuildContext context, {
     required Key key,
+    required Key scaleKey,
     required Offset center,
     required double hotSize,
     required ValueChanged<Offset> onDrag,
@@ -107,27 +172,34 @@ class SelectionLayer extends StatelessWidget {
             return;
           }
           final local = box.globalToLocal(details.globalPosition);
-          final onEdge = onEdgeDrag;
+          final onEdge = widget.onEdgeDrag;
           if (onEdge != null) {
             final height = box.size.height;
-            if (local.dy > height - edgeHotZone) {
+            if (local.dy > height - SelectionLayer.edgeHotZone) {
               onEdge(true);
               return;
             }
-            if (local.dy < edgeHotZone) {
+            if (local.dy < SelectionLayer.edgeHotZone) {
               onEdge(false);
               return;
             }
           }
-          onDrag(local - Offset(contentPadding.left, contentPadding.top));
+          onDrag(
+            local -
+                Offset(widget.contentPadding.left, widget.contentPadding.top),
+          );
         },
-        child: Center(
-          child: Container(
-            width: SelectionOps.handleDot,
-            height: SelectionOps.handleDot,
-            decoration: BoxDecoration(
-              color: handleColor,
-              shape: BoxShape.circle,
+        child: ScaleTransition(
+          key: scaleKey,
+          scale: _handleScale,
+          child: Center(
+            child: Container(
+              width: SelectionOps.handleDot,
+              height: SelectionOps.handleDot,
+              decoration: BoxDecoration(
+                color: widget.handleColor,
+                shape: BoxShape.circle,
+              ),
             ),
           ),
         ),
@@ -135,18 +207,29 @@ class SelectionLayer extends StatelessWidget {
     );
   }
 
-  void _drag(ReaderSelection current, {required bool start, required Offset local}) {
+  void _drag(
+    ReaderSelection current, {
+    required bool start,
+    required Offset local,
+  }) {
     // 拖拽是字符级（§63.2），命中已钳制在页内；跨页由边缘翻页扩展。
     final localSelection =
-        SelectionOps.localSelectionOf(page, pageIndex, current) ?? current;
-    final hit = SelectionOps.charAt(page, local);
+        SelectionOps.localSelectionOf(widget.page, widget.pageIndex, current) ??
+        current;
+    final hit = SelectionOps.charAt(widget.page, local);
     final next = start
         ? ReaderSelection.normalized(
-            hit, localSelection.end, pageIndex: pageIndex)
+            hit,
+            localSelection.end,
+            pageIndex: widget.pageIndex,
+          )
         : ReaderSelection.normalized(
-            localSelection.start, hit, pageIndex: pageIndex);
+            localSelection.start,
+            hit,
+            pageIndex: widget.pageIndex,
+          );
     if (next.start != current.start || next.end != current.end) {
-      onChanged(next);
+      widget.onChanged(next);
     }
   }
 }
@@ -156,13 +239,11 @@ class _SelectionPainter extends CustomPainter {
     required this.geometry,
     required this.origin,
     required this.color,
-    required this.handleColor,
   });
 
   final SelectionGeometry geometry;
   final Offset origin;
   final Color color;
-  final Color handleColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -175,10 +256,6 @@ class _SelectionPainter extends CustomPainter {
         fill,
       );
     }
-    final dot = Paint()..color = handleColor;
-    for (final center in [geometry.startHandle, geometry.endHandle]) {
-      canvas.drawCircle(center, SelectionOps.handleDot / 2, dot);
-    }
     canvas.restore();
   }
 
@@ -186,6 +263,5 @@ class _SelectionPainter extends CustomPainter {
   bool shouldRepaint(_SelectionPainter oldDelegate) =>
       oldDelegate.geometry != geometry ||
       oldDelegate.origin != origin ||
-      oldDelegate.color != color ||
-      oldDelegate.handleColor != handleColor;
+      oldDelegate.color != color;
 }
