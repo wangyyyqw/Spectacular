@@ -250,6 +250,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onTapZonesChanged: (zones) => widget.onSettingsChanged?.call(
         settings.copyWithTapZones(zones),
       ),
+      pageTurnMode: settings.pageTurnMode,
+      onPageTurnModeChanged: (mode) =>
+          widget.onSettingsChanged?.call(settings.copyWithPageTurnMode(mode)),
       onLog: (event, fields) => unawaited(
         ReaderLog.instance.log(event, fields: fields),
       ),

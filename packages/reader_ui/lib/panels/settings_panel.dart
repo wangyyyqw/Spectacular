@@ -3,6 +3,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
+import '../paging/page_turn_mode.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_theme.dart';
 
@@ -79,6 +80,8 @@ class SettingsPanel extends StatefulWidget {
     this.onOpenMarginEditor,
     this.onOpenTapZoneEditor,
     this.marginsActive = false,
+    this.pageTurnMode = PageTurnMode.cover,
+    this.onPageTurnModeChanged,
   });
 
   /// 初始排版覆盖。
@@ -122,6 +125,10 @@ class SettingsPanel extends StatefulWidget {
 
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
+
+  /// 动画设置单独回调，不写入排版覆盖。
+  final PageTurnMode pageTurnMode;
+  final ValueChanged<PageTurnMode>? onPageTurnModeChanged;
 
   @override
   State<SettingsPanel> createState() => _SettingsPanelState();
@@ -330,6 +337,20 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 ],
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.settings) ...[
+                  if (widget.onPageTurnModeChanged != null) ...[
+                    const Text('翻页方式'),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      for (final mode in PageTurnMode.values)
+                        ChoiceChip(
+                          key: ValueKey('settings-page-turn-${mode.id}'),
+                          label: Text(mode.label),
+                          selected: mode == widget.pageTurnMode,
+                          onSelected: (_) => widget.onPageTurnModeChanged!(mode),
+                        ),
+                    ]),
+                    const SizedBox(height: 16),
+                  ],
                   if (widget.onOpenTapZoneEditor != null) ...[
                     _EntryButton(
                       key: const ValueKey<String>('settings-tap-zones'),

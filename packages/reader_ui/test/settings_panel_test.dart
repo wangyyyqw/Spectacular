@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
@@ -181,5 +182,34 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
     expect(opened, isTrue);
+  });
+
+  testWidgets('设置段可切换翻页方式', (tester) async {
+    final changes = <PageTurnMode>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.settings,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            pageTurnMode: PageTurnMode.cover,
+            onPageTurnModeChanged: changes.add,
+            onOverridesChanged: (_) {},
+            onThemeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-page-turn-scroll')),
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-page-turn-scroll')),
+    );
+    expect(changes, [PageTurnMode.scroll]);
   });
 }

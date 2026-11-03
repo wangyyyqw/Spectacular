@@ -83,6 +83,41 @@ class VirtualPager {
   Future<bool> next() => _movePage(1);
   Future<bool> previous() => _movePage(-1);
 
+  /// 准备真实邻页但不改变阅读位置；空章按内容顺序跳过。
+  Future<VirtualPage?> prepareAdjacent(int direction) async {
+    assert(direction == -1 || direction == 1);
+    final origin = _currentReal;
+    if (origin == null) return null;
+    final cached = _cachedAdjacent(origin, direction);
+    if (cached != null) return _pageAt(cached);
+    for (
+      var spine = origin.$1 + direction;
+      spine >= 0 && spine < spineCount;
+      spine += direction
+    ) {
+      await _loadSpine(spine);
+      final pages = _spinePages[spine]!;
+      if (pages.isNotEmpty) {
+        return _pageAt((spine, direction < 0 ? pages.length - 1 : 0));
+      }
+    }
+    return null;
+  }
+
+  /// 动画结束时原子提交；来源改变或目标过期时拒绝提交。
+  bool commitPrepared(PageContent origin, VirtualPage target) {
+    if (!identical(current?.content, origin)) return false;
+    final pages = _spinePages[target.spineIndex];
+    if (pages == null ||
+        target.pageIndex >= pages.length ||
+        !identical(pages[target.pageIndex], target.content)) {
+      return false;
+    }
+    _navigationToken++;
+    _currentReal = (target.spineIndex, target.pageIndex);
+    return true;
+  }
+
   /// 跳到章内页；越界页码钳制，空章沿 [emptyDirection] 查找。
   Future<bool> goTo(int spineIndex, int pageIndex, {int emptyDirection = 1}) {
     _ensureInitialized();

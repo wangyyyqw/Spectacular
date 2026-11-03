@@ -41,6 +41,9 @@ import 'selection/selection_layer.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
 import 'reader_view.dart';
+import 'paging/continuous_scroll_view.dart';
+import 'paging/page_turn_mode.dart';
+import 'paging/page_turn_view.dart';
 import 'theme/reader_theme.dart';
 import 'loading_skeleton.dart';
 
@@ -77,6 +80,8 @@ class ReaderPage extends StatefulWidget {
     this.onLog,
     this.onResolveSearchCfi,
     this.onSearchStream,
+    this.pageTurnMode = PageTurnMode.cover,
+    this.onPageTurnModeChanged,
   });
 
   /// 章节页来源。
@@ -148,6 +153,10 @@ class ReaderPage extends StatefulWidget {
   /// 流式搜索（逐章推送结果）。
   final Stream<SearchProgress> Function(String query)? onSearchStream;
 
+  /// 翻页方式；独立于排版覆盖，不参与正文布局指纹。
+  final PageTurnMode pageTurnMode;
+  final ValueChanged<PageTurnMode>? onPageTurnModeChanged;
+
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
 
@@ -186,6 +195,20 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
+  late PageTurnMode _pageTurnMode = widget.pageTurnMode;
+  final _pageTurnKey = GlobalKey<PageTurnViewState>();
+  final _scrollKey = GlobalKey<ContinuousScrollViewState>();
+
+  PageTurnMode get _effectiveTurnMode =>
+      _inkMode || MediaQuery.disableAnimationsOf(context)
+      ? PageTurnMode.none
+      : _pageTurnMode;
+
+  bool get _readingRtl {
+    final style = _session.page?.slices.firstOrNull?.block.style;
+    return style?.values['direction'] == 'rtl' ||
+        style?.writingMode == CssWritingMode.verticalRl;
+  }
 
   /// 记录一条诊断日志（无回调时忽略）。
   void _log(String event, [Map<String, Object?> fields = const {}]) {
@@ -609,6 +632,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageTurnMode != widget.pageTurnMode) {
+      _pageTurnMode = widget.pageTurnMode;
+    }
     if (oldWidget.margins != widget.margins && widget.margins != null) {
       _savedMargins = widget.margins;
     }
@@ -670,6 +696,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
+    _pageTurnKey.currentState?.controller.cancel();
     final open = !_menuOpen;
     _log('user_menu', <String, Object?>{'open': open});
     // 不切系统栏模式：菜单是浮层，切 edgeToEdge 会改 viewPadding → 正文重排。
@@ -1003,6 +1030,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _applyOverrides(ReaderSettingsDefaults.overrides);
     _applyTheme(ReaderSettingsDefaults.themeId);
     _applyBackground(ReaderBackground.none.id);
+    _applyPageTurnMode(PageTurnMode.cover);
+  }
+
+  void _applyPageTurnMode(PageTurnMode mode) {
+    if (mode == _pageTurnMode) return;
+    _pageTurnKey.currentState?.controller.cancel();
+    _clearSelection();
+    setState(() => _pageTurnMode = mode);
+    widget.onPageTurnModeChanged?.call(mode);
+    _log('user_page_turn_mode', {'mode': mode.id});
   }
 
   /// 重新加载全书标注（P4-18）并重定位到当前章（P4-20）。
@@ -1530,6 +1567,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
+      _pageTurnKey.currentState?.controller.cancel();
       unawaited(_session.flushProgress());
     }
   }
@@ -1663,33 +1701,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       );
     }
     return LayoutBuilder(
-      key: ValueKey<String>('reader-page-${page.spineIndex}-${page.pageIndex}'),
+      key: const ValueKey<String>('reader-content'),
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final furniturePadding = _furniturePadding();
         final bodyPadding = _bodyPadding();
         _schedulePrefetch(page, size.width - bodyPadding.horizontal);
         // 出血页把整页让给图：绘制画布取满屏，正文由 pageInsets 内缩，
         // 出血块才能铺到屏幕边缘。页眉页脚按页类型让位：
         // - 整页背景图页（封面/扉页）：页眉页脚都不画；
         // - 顶部出血页（章首横幅图）：只让位页眉，页脚保留。
-        final fullPageBackground = _isFullPageBackground(page);
-        final topBleed = _hasTopBleed(page);
-        final hideHeader = fullPageBackground || topBleed;
-        final hideFooter = fullPageBackground;
         return Stack(
           fit: StackFit.expand,
           children: [
-            ClipRect(
-              child: CustomPaint(
-                painter: _ReaderPageCustomPainter(
-                  page: page,
-                  painter: _painter,
-                  imageRevision: _imageRevision,
-                  pageInsets: bodyPadding,
-                ),
-              ),
-            ),
+            _buildReadingView(size),
             // 正文语义层（P4-27）：读屏用，不接收指针事件。
             Positioned.fill(
               child: Padding(
@@ -1698,80 +1722,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   page: page,
                   pageWidth: size.width - bodyPadding.horizontal,
                   firstNodeFocus: _semanticsFirstFocus,
-                  onNextPage: () => unawaited(_session.next()),
-                  onPreviousPage: () => unawaited(_session.previous()),
+                  onNextPage: () => _requestPageTurn(true),
+                  onPreviousPage: () => _requestPageTurn(false),
                   onCopyBlock: _copyBlock,
                 ),
               ),
             ),
-            // 标注装饰层（P4-18）：高亮底色 + 笔记标记，在正文之上、选区之下。
-            if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
-              Positioned.fill(
-                child: Padding(
-                  padding: bodyPadding,
-                  child: AnnotationLayer(
-                    page: page,
-                    annotations: <ReaderAnnotation>[
-                      ..._resolvedAnnotations,
-                      ?_tempHighlight,
-                    ],
-                    inkMode: _inkMode,
-                  ),
-                ),
-              ),
-            ReaderView(
-              config: ReaderGestureConfig(tapZones: _tapZones),
-              onPrevious: () {
-                _clearSelection();
-                _log('user_page', <String, Object?>{'dir': 'prev'});
-                unawaited(_session.previous());
-              },
-              onNext: () {
-                _clearSelection();
-                _log('user_page', <String, Object?>{'dir': 'next'});
-                unawaited(_session.next());
-              },
-              onToggleToolbar: () {
-                _clearSelection();
-                _toggleReaderMenu();
-              },
-              onLongPressAt: _selectWordAt,
-              onDoubleTapAt: _selection == null ? null : _selectWordAt,
-              onTripleTapAt: _selection == null ? null : _selectSentenceAt,
-              onTapAt: _handleTapAt,
-              child: const SizedBox.expand(),
-            ),
-            // 页眉/页脚（P8-10 页家具；样式对齐设计稿 §page-header/footer）。
-            // 出血页让位：整页图要贴屏幕边缘，页眉会压在图上；页脚在
-            // 头图页仍需保留（时间 + 进度），只在整页背景图页一起让掉。
-            if (widget.showPageFooter && !hideHeader)
-              Positioned(
-                left: furniturePadding.left,
-                right: furniturePadding.right,
-                top: furniturePadding.top,
-                child: IgnorePointer(
-                  child: ReaderPageHeader(
-                    theme: _effectiveTheme,
-                    title: _chapterTitleOf(page.spineIndex),
-                    pageLabel:
-                        '${page.pageIndex + 1}/${_session.chapterPageCount}',
-                    inkMode: _inkMode,
-                  ),
-                ),
-              ),
-            if (widget.showPageFooter && !hideFooter)
-              Positioned(
-                left: furniturePadding.left,
-                right: furniturePadding.right,
-                bottom: furniturePadding.bottom,
-                child: IgnorePointer(
-                  child: ReaderPageFooter(
-                    theme: _effectiveTheme,
-                    progress: _bookProgressOf(page),
-                    inkMode: _inkMode,
-                  ),
-                ),
-              ),
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
             if (_selection != null) ...[
               Positioned.fill(
@@ -1859,6 +1815,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       themeId: (_theme ?? ReaderTheme.white).id,
                       backgroundId: _backgroundId,
                       inkMode: _inkMode,
+                      pageTurnMode: _pageTurnMode,
+                      onPageTurnModeChanged: _applyPageTurnMode,
                       onOverridesChanged: _applyOverrides,
                       onThemeChanged: _applyTheme,
                       onBackgroundChanged: widget.onBackgroundChanged == null
@@ -1969,6 +1927,184 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       });
     },
   );
+
+  void _requestPageTurn(bool next) {
+    _clearSelection();
+    _log('user_page', {
+      'dir': next ? 'next' : 'prev',
+      'mode': _pageTurnMode.id,
+    });
+    if (_effectiveTurnMode == PageTurnMode.scroll) {
+      unawaited(_scrollKey.currentState?.scrollPage(next) ?? Future.value());
+      return;
+    }
+    _pageTurnKey.currentState?.controller.request(next);
+  }
+
+  Widget _buildReadingView(Size size) {
+    final revision = (
+      _painter,
+      _imageRevision,
+      _resolvedAnnotations,
+      _tempHighlight,
+      _bodyPadding(),
+    );
+    if (_effectiveTurnMode == PageTurnMode.scroll) {
+      final padding = _bodyPadding();
+      return ReaderView(
+        config: ReaderGestureConfig(
+          tapZones: _tapZones,
+          verticalWriting: _readingRtl,
+        ),
+        continuousScroll: true,
+        onPrevious: () => _requestPageTurn(false),
+        onNext: () => _requestPageTurn(true),
+        onToggleToolbar: () {
+          _clearSelection();
+          _toggleReaderMenu();
+        },
+        onLongPressAt: _selectWordAt,
+        onDoubleTapAt: _selection == null ? null : _selectWordAt,
+        onTripleTapAt: _selection == null ? null : _selectSentenceAt,
+        onTapAt: _handleTapAt,
+        child: ContinuousScrollView(
+          key: _scrollKey,
+          session: _session,
+          revision: revision,
+          padding: padding,
+          paperBuilder: _buildScrollPaper,
+          onPageVisible: (page) =>
+              _schedulePrefetch(page, size.width - padding.horizontal),
+        ),
+      );
+    }
+    return ReaderView(
+      config: ReaderGestureConfig(
+        tapZones: _tapZones,
+        verticalWriting: _readingRtl,
+      ),
+      onPrevious: () => _requestPageTurn(false),
+      onNext: () => _requestPageTurn(true),
+      onToggleToolbar: () {
+        _clearSelection();
+        _toggleReaderMenu();
+      },
+      onPointerDown: (point) =>
+          _pageTurnKey.currentState?.controller.pointerDown(point),
+      onDragStart: (details) {
+        _clearSelection();
+        _pageTurnKey.currentState?.controller.beginDrag(details);
+      },
+      onDragUpdate: (details) =>
+          _pageTurnKey.currentState?.controller.updateDrag(details),
+      onDragEnd: (details) =>
+          _pageTurnKey.currentState?.controller.endDrag(details),
+      onDragCancel: () => _pageTurnKey.currentState?.controller.cancel(),
+      onLongPressAt: _selectWordAt,
+      onDoubleTapAt: _selection == null ? null : _selectWordAt,
+      onTripleTapAt: _selection == null ? null : _selectSentenceAt,
+      onTapAt: (point) => _pageTurnKey.currentState?.controller.active == true
+          ? false
+          : _handleTapAt(point),
+      child: PageTurnView(
+        key: _pageTurnKey,
+        session: _session,
+        mode: _effectiveTurnMode,
+        revision: revision,
+        paperBuilder: _buildPaper,
+        paperColor: _effectiveTheme?.background ?? widget.background,
+        rtl: _readingRtl,
+      ),
+    );
+  }
+
+  Widget _buildPaper(PageContent page, Size size) => ClipRect(
+    key: ValueKey('reader-page-${page.spineIndex}-${page.pageIndex}'),
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomPaint(
+          painter: _ReaderPageCustomPainter(
+            page: page,
+            painter: _painter,
+            imageRevision: _imageRevision,
+            pageInsets: _bodyPadding(),
+          ),
+        ),
+        if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
+          Positioned.fill(
+            child: Padding(
+              padding: _bodyPadding(),
+              child: AnnotationLayer(
+                page: page,
+                annotations: [..._resolvedAnnotations, ?_tempHighlight],
+                inkMode: _inkMode,
+              ),
+            ),
+          ),
+        ..._paperFurniture(page),
+      ],
+    ),
+  );
+
+  Widget _buildScrollPaper(PageContent page, Size size) => ClipRect(
+    key: ValueKey('scroll-page-${page.spineIndex}-${page.pageIndex}'),
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomPaint(
+          painter: _ReaderPageCustomPainter(
+            page: page,
+            painter: _painter,
+            imageRevision: _imageRevision,
+          ),
+        ),
+        if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
+          Positioned.fill(
+            child: AnnotationLayer(
+              page: page,
+              annotations: [..._resolvedAnnotations, ?_tempHighlight],
+              inkMode: _inkMode,
+            ),
+          ),
+      ],
+    ),
+  );
+
+  List<Widget> _paperFurniture(PageContent page) {
+    final padding = _furniturePadding();
+    final full = _isFullPageBackground(page);
+    return [
+      if (widget.showPageFooter && !full && !_hasTopBleed(page))
+        Positioned(
+          left: padding.left,
+          right: padding.right,
+          top: padding.top,
+          child: IgnorePointer(
+            child: ReaderPageHeader(
+              theme: _effectiveTheme,
+              title: _chapterTitleOf(page.spineIndex),
+              pageLabel:
+                  '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
+              inkMode: _inkMode,
+            ),
+          ),
+        ),
+      if (widget.showPageFooter && !full)
+        Positioned(
+          left: padding.left,
+          right: padding.right,
+          bottom: padding.bottom,
+          child: IgnorePointer(
+            child: ReaderPageFooter(
+              theme: _effectiveTheme,
+              progress: _bookProgressOf(page),
+              inkMode: _inkMode,
+            ),
+          ),
+        ),
+    ];
+  }
 }
 
 class _ReaderPageCustomPainter extends CustomPainter {
@@ -2062,6 +2198,8 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.themeId,
     required this.backgroundId,
     required this.inkMode,
+    required this.pageTurnMode,
+    required this.onPageTurnModeChanged,
     required this.onOverridesChanged,
     required this.onThemeChanged,
     required this.onBackgroundChanged,
@@ -2095,6 +2233,8 @@ class _ReaderDrawerContent extends StatefulWidget {
   final String themeId;
   final String backgroundId;
   final bool inkMode;
+  final PageTurnMode pageTurnMode;
+  final ValueChanged<PageTurnMode> onPageTurnModeChanged;
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
   final ValueChanged<String>? onBackgroundChanged;
@@ -2174,6 +2314,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           overrides: widget.overrides,
           themeId: widget.themeId,
           inkMode: widget.inkMode,
+          pageTurnMode: widget.pageTurnMode,
+          onPageTurnModeChanged: widget.onPageTurnModeChanged,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
           onInkModeChanged: widget.onInkModeChanged,
