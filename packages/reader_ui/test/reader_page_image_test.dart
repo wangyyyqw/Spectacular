@@ -5,6 +5,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/image_cache.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -25,6 +26,53 @@ class _FakeSource implements ReaderChapterSource {
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async => [page];
+}
+
+class _PagesSource implements ReaderChapterSource {
+  _PagesSource(this.pages);
+
+  final List<PageContent> pages;
+
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async => pages;
+}
+
+PageContent _imagePage(int pageIndex, String url) {
+  final style = ComputedStyle(<String, String>{
+    'font-size': '16px',
+    'line-height': '1.5',
+    'font-family': 'Ahem',
+    'background-image': 'url($url)',
+  });
+  final layout = TextLayoutEngine.layout(
+    text: '图片页',
+    style: style,
+    maxWidth: 100,
+  );
+  final block = PageBlock.styled(
+    layout: layout,
+    style: style,
+    containingWidth: 100,
+  );
+  final height = block.leadingExtent + block.height + block.trailingExtent;
+  return PageContent(
+    spineIndex: 0,
+    pageIndex: pageIndex,
+    slices: [
+      PageBlockSlice(
+        block: block,
+        startLine: 0,
+        endLine: layout.lineCount,
+        height: height,
+      ),
+    ],
+    usedHeight: height,
+    pageHeight: 200,
+    topPadding: 0,
+  );
 }
 
 PageContent _page({bool containerBackground = false}) {
@@ -241,5 +289,36 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(requested, contains('bg://one'));
+  });
+
+  testWidgets('仿真翻页预热邻页图片后再显示目标页', (tester) async {
+    final requested = <String>[];
+    final cache = DecodedImageCache(
+      loadBytes: (url) async {
+        requested.add(url);
+        return null;
+      },
+    );
+    addTearDown(cache.clear);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          source: _PagesSource([_page(), _imagePage(1, 'bg://next')]),
+          store: MemoryReaderProgressStore(),
+          bookId: 'turn-image-book',
+          imageCache: cache,
+          pageTurnMode: PageTurnMode.simulationBessel,
+        ),
+      ),
+    );
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(
+      requested,
+      contains('bg://next'),
+      reason: '邻页图片在翻页前完成预取，避免目标页先白屏再补图',
+    );
   });
 }

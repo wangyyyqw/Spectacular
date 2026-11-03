@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
@@ -89,6 +91,59 @@ void main() {
     expect(built.toSet(), containsAll(<int>[0, 1, 2]));
     expect(key.currentState!.snapshotCount, 3);
     expect(session.progress, const ReaderProgress(spineIndex: 1, pageIndex: 0));
+    session.dispose();
+  });
+
+  testWidgets('快照前等待目标页图片准备完成', (tester) async {
+    final source = _Source();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'warm-gate',
+      const ReaderProgress(spineIndex: 1, pageIndex: 0),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'warm-gate',
+    );
+    await session.open();
+    final key = GlobalKey<PageTurnViewState>();
+    final gate = Completer<void>();
+    final prepared = <int>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 320,
+          height: 480,
+          child: PageTurnView(
+            key: key,
+            session: session,
+            mode: PageTurnMode.cover,
+            revision: 1,
+            preparePageImages: (page) {
+              prepared.add(page.spineIndex);
+              return page.spineIndex == 1 ? gate.future : Future<void>.value();
+            },
+            paperBuilder: (page, size) => ColoredBox(
+              color: const Color(0xFFFFFFFF),
+              child: Text('${page.spineIndex}'),
+            ),
+            paperColor: const Color(0xFFFFFFFF),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(prepared, contains(1));
+    expect(key.currentState!.snapshotCount, 0);
+    gate.complete();
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(key.currentState!.snapshotCount, 3);
     session.dispose();
   });
 }

@@ -442,8 +442,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool? _lastContentSizePreview;
   Future<void>? _initialOpen;
 
-  /// 预取本页引用的背景图；解码完成后 setState，占位替换为真图。
-  void _prefetchPageImages(PageContent page, double displayWidth) {
+  /// 预取页内图片；解码完成后 setState，占位替换为真图。
+  ///
+  /// [notify] 为 false 时只等待解码，不更新图片版本。翻页快照需要图片已
+  /// 就绪，但版本变化会触发 PageTurnView 清空快照并取消进行中的手势。
+  Future<void> _prefetchPageImages(
+    PageContent page,
+    double displayWidth, {
+    bool notify = true,
+  }) async {
     final cache = widget.imageCache;
     if (cache == null) {
       return;
@@ -506,16 +513,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     final before = cache.revision;
     final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
-    unawaited(
-      cache
-          .prefetch(urls, displayWidth: displayWidth, devicePixelRatio: ratio)
-          .then((_) {
-            if (!mounted || cache.revision == before) {
-              return;
-            }
-            setState(() => _imageRevision = cache.revision);
-          }),
+    await cache.prefetch(
+      urls,
+      displayWidth: displayWidth,
+      devicePixelRatio: ratio,
     );
+    if (!notify || !mounted || cache.revision == before) {
+      return;
+    }
+    setState(() => _imageRevision = cache.revision);
+  }
+
+  /// 翻页快照前准备目标页图片；不触发版本失效，避免取消当前手势。
+  Future<void> _prepareTurnPageImages(PageContent page) {
+    final width = _lastContentSize?.width ?? 0;
+    if (width <= 0) {
+      return Future<void>.value();
+    }
+    return _prefetchPageImages(page, width, notify: false);
   }
 
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
@@ -2013,6 +2028,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         revision: revision,
         paperBuilder: _buildPaper,
         paperColor: _effectiveTheme?.background ?? widget.background,
+        preparePageImages: _prepareTurnPageImages,
         rtl: _readingRtl,
       ),
     );
