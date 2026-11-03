@@ -198,6 +198,69 @@ void main() {
   });
 
   group('选区层手柄（P4-15）', () {
+    testWidgets('选区入场淡入、手柄落位，拖拽期间不重播动画', (tester) async {
+      final page = _page('abcdefghij');
+      final boxes = TextHitTester.lineBoxes(page);
+      final start = TextHitTester.hitTest(
+        page,
+        Offset(boxes.first.rect.left + 20, boxes.first.rect.center.dy),
+      )!;
+      final end = TextHitTester.hitTest(
+        page,
+        Offset(boxes.first.rect.left + 80, boxes.first.rect.center.dy),
+      )!;
+      var selection = ReaderSelection.normalized(start, end);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => SizedBox(
+                width: 300,
+                height: 400,
+                child: SelectionLayer(
+                  page: page,
+                  pageIndex: 0,
+                  selection: selection,
+                  onChanged: (next) => setState(() => selection = next),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final fadeFinder = find.byKey(
+        const ValueKey<String>('selection-entrance'),
+      );
+      final scaleFinder = find.byKey(
+        const ValueKey<String>('selection-handle-end-scale'),
+      );
+      expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 0);
+      expect(
+        tester.widget<ScaleTransition>(scaleFinder).scale.value,
+        closeTo(0.72, 0.001),
+      );
+
+      await tester.pump(const Duration(milliseconds: 90));
+      expect(
+        tester.widget<FadeTransition>(fadeFinder).opacity.value,
+        inExclusiveRange(0, 1),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
+      expect(tester.widget<ScaleTransition>(scaleFinder).scale.value, 1);
+
+      final before = selection.end.charOffset;
+      await tester.drag(
+        find.byKey(const ValueKey<String>('selection-handle-end')),
+        const Offset(30, 0),
+      );
+      await tester.pump();
+      expect(selection.end.charOffset, greaterThan(before));
+      expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
+      expect(tester.widget<ScaleTransition>(scaleFinder).scale.value, 1);
+    });
+
     testWidgets('渲染两个手柄并能拖拽改变选区', (tester) async {
       final page = _page('abcdefghij');
       final boxes = TextHitTester.lineBoxes(page);
