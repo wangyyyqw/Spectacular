@@ -180,6 +180,23 @@ Future<void> _finishExit(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('键盘弹出时新建笔记操作栏固定在键盘上方', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    await _showEditor(tester);
+    await tester.enterText(_composerInput, '键盘弹出后仍需看见保存按钮');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 1500);
+    await tester.pumpAndSettle();
+
+    final rect = tester.getRect(_composerSave);
+    expect(rect.top, greaterThanOrEqualTo(0), reason: '保存按钮顶部不可见');
+    expect(rect.bottom, lessThanOrEqualTo(300), reason: '保存按钮被键盘遮挡');
+  });
+
   testWidgets('目录抽屉可打开笔记页签并展示标注', (tester) async {
     final source = _Source();
     final notes = _Notes();
@@ -459,7 +476,9 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsOneWidget,
     );
-    final input = find.byKey(const ValueKey<String>('annotation-note-input'));
+    final input = find.byKey(
+      const ValueKey<String>('annotation-note-input'),
+    );
     expect(tester.widget<TextField>(input).controller?.text, '第一版笔记');
 
     await tester.enterText(input, '  更新后的笔记  ');
@@ -549,9 +568,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final input = find.byKey(
-      const ValueKey<String>('annotation-note-input'),
-    );
+    final input = find.byKey(const ValueKey<String>('annotation-note-input'));
     await tester.showKeyboard(input);
     tester.view.viewInsets = const FakeViewPadding(bottom: 1200);
     await tester.pumpAndSettle();
