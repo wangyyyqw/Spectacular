@@ -76,7 +76,12 @@ void main() {
         expect(box.height, greaterThan(payload.layout.height));
       }
       for (final page in pages) {
-        expect(page.usedHeight, lessThanOrEqualTo(source.contentHeight + 2));
+        // 章首出血页可用负 topPadding 回收顶部空间，应校验内容底部而非
+        // 单独比较 usedHeight。
+        expect(
+          page.topPadding + page.usedHeight,
+          lessThanOrEqualTo(source.contentHeight + 2),
+        );
       }
       // 仅审计时导出真实章节图像，常规回归不产生工作区文件。
       if (const bool.fromEnvironment('CSS_AUDIT_RENDER')) {
