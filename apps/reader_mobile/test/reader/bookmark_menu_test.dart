@@ -86,6 +86,8 @@ void main() {
     final saved = await bookmarks.list();
     expect(saved, hasLength(1));
     expect(saved.single.spineIndex, session.progress!.spineIndex);
+    expect(saved.single.label, contains('第一章 旧纸'));
+    expect(saved.single.label, endsWith('第 1 页'));
 
     // 翻到下一章后再从书签列表跳回。
     await session.jumpToChapter(2);
