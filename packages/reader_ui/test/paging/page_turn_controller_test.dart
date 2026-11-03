@@ -245,6 +245,9 @@ void main() {
     expect(controller.session.progress!.pageIndex, 1);
     await tester.pump(const Duration(milliseconds: 150));
     expect(controller.session.progress!.pageIndex, 1);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(controller.phase, PageTurnPhase.settling);
+    expect(controller.session.progress!.pageIndex, 1);
     await tester.pumpAndSettle();
 
     expect(controller.phase, PageTurnPhase.idle);
