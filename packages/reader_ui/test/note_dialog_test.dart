@@ -504,6 +504,74 @@ void main() {
     expect(notes.items.single.note, '更新后的笔记');
   });
 
+  testWidgets('键盘弹出时标注操作栏固定在键盘上方', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'keyboard-actions',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '键盘弹出时仍需看见操作按钮',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'keyboard-actions',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    await tester.tapAt(
+      tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(
+      const ValueKey<String>('annotation-note-input'),
+    );
+    await tester.showKeyboard(input);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 1200);
+    await tester.pumpAndSettle();
+
+    const keyboardTop = 400.0;
+    for (final key in <String>[
+      'annotation-save-note',
+      'annotation-remove-note',
+      'annotation-remove',
+    ]) {
+      final rect = tester.getRect(find.byKey(ValueKey<String>(key)));
+      expect(rect.top, greaterThanOrEqualTo(0), reason: '$key 顶部不可见');
+      expect(
+        rect.bottom,
+        lessThanOrEqualTo(keyboardTop),
+        reason: '$key 被键盘遮挡',
+      );
+    }
+  });
+
   testWidgets('修改笔记后换色或样式不会丢失草稿，可一次保存', (tester) async {
     final source = _Source();
     final notes = _Notes();
@@ -565,11 +633,12 @@ void main() {
     expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
     expect(notes.items.single.color, defaultHighlightColor);
 
-    await tester.tap(
-      find.byKey(
-        const ValueKey<String>('annotation-style-wavyUnderline'),
-      ),
+    final wavyStyle = find.byKey(
+      const ValueKey<String>('annotation-style-wavyUnderline'),
     );
+    await tester.ensureVisible(wavyStyle);
+    await tester.pumpAndSettle();
+    await tester.tap(wavyStyle);
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
     expect(
