@@ -51,9 +51,9 @@ class PageTurnPainter extends CustomPainter {
       BesselPainter(paperColor: paperColor).paint(
         canvas,
         geometry,
-        controller.next ? target : origin,
-        controller.next ? origin : target,
-        rtl: controller.rtl,
+        target,
+        origin,
+        rtl: controller.next ? controller.rtl : !controller.rtl,
       );
     } on StateError {
       _cover(canvas, size, origin, target);

@@ -80,6 +80,7 @@ class BesselPainter {
   }
 
   void _frontShadows(Canvas canvas, BesselGeometry g, Path front) {
+    if (g.horizontal) return;
     final p = g.shadowPoint;
     final eClip = Path.combine(
       PathOperation.intersect,

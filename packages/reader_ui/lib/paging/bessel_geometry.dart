@@ -17,14 +17,23 @@ class BesselGeometry {
     required this.i,
     required this.top,
     required this.size,
+    this.horizontal = false,
   });
 
   final Offset a, f, e, h, c, j, b, k, d, i;
   final bool top;
   final Size size;
 
+  /// 中心区抓取侧边，其余位置抓取上下页角。
+  final bool horizontal;
+
   /// 在右页缘规范坐标中求解；退化输入返回空，不伪造控制点。
-  static BesselGeometry? resolve(Size size, Offset touch, {bool top = false}) {
+  static BesselGeometry? resolve(
+    Size size,
+    Offset touch, {
+    bool top = false,
+    bool horizontal = false,
+  }) {
     if (size.isEmpty ||
         !size.width.isFinite ||
         !size.height.isFinite ||
@@ -32,23 +41,34 @@ class BesselGeometry {
         !touch.dy.isFinite) {
       return null;
     }
+    if (horizontal) return _edge(size, touch, top);
     final f = Offset(size.width, top ? 0 : size.height);
-    var a = Offset(
+    final a = Offset(
       (touch.dx - f.dx).abs() < 0.1 ? f.dx - 0.1 : touch.dx,
       (touch.dy - f.dy).abs() < 0.1 ? f.dy + (top ? 0.1 : -0.1) : touch.dy,
     );
-    var geometry = _solve(size, a, f, top);
-    if (geometry == null) return null;
-    if (a.dx > 0 &&
-        a.dx < size.width &&
-        (geometry.c.dx < 0 || geometry.c.dx > size.width)) {
-      final dx = (f.dx - a.dx).abs();
-      final dy = (f.dy - a.dy).abs();
-      final distance = size.width * dx / (size.width - geometry.c.dx);
-      a = Offset((f.dx - distance).abs(), (f.dy - distance * dy / dx).abs());
-      geometry = _solve(size, a, f, top);
-    }
-    return geometry;
+    // 控制点可以落在纸面外，由视口裁剪；不能为限制折痕而挪动抓取点。
+    return _solve(size, a, f, top);
+  }
+
+  static BesselGeometry _edge(Size size, Offset touch, bool top) {
+    final fold = (size.width + touch.dx) / 2;
+    final bow = math.max(0.0, math.min((size.width - touch.dx) / 8, fold / 8));
+    return BesselGeometry._(
+      a: touch,
+      f: Offset(size.width, touch.dy),
+      e: Offset(touch.dx, 0),
+      h: Offset(touch.dx, size.height),
+      c: Offset(fold, 0),
+      j: Offset(fold, size.height),
+      b: Offset(touch.dx + bow, 0),
+      k: Offset(touch.dx + bow, size.height),
+      d: Offset(fold + bow, 0),
+      i: Offset(fold + bow, size.height),
+      top: top,
+      size: size,
+      horizontal: true,
+    );
   }
 
   static BesselGeometry? _solve(Size size, Offset a, Offset f, bool top) {
@@ -91,6 +111,15 @@ class BesselGeometry {
 
   /// 活动纸正面：两段二次曲线连接抓取点。
   Path frontPath() {
+    if (horizontal) {
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(b.dx, b.dy)
+        ..quadraticBezierTo(e.dx, e.dy, a.dx, a.dy)
+        ..quadraticBezierTo(h.dx, h.dy, k.dx, k.dy)
+        ..lineTo(0, size.height)
+        ..close();
+    }
     final path = Path()..moveTo(0, top ? size.height : 0);
     path.lineTo(0, top ? 0 : f.dy);
     path.lineTo(c.dx, c.dy);
@@ -103,19 +132,32 @@ class BesselGeometry {
   }
 
   /// 候选纸背减去正面；无效路径由绘制层降级。
-  Path backPath(Path front) =>
-      Path.combine(PathOperation.difference, polygon([a, b, d, i, k]), front);
+  Path backPath(Path front) {
+    if (horizontal) {
+      return Path()
+        ..moveTo(b.dx, b.dy)
+        ..lineTo(c.dx, c.dy)
+        ..quadraticBezierTo(d.dx, d.dy, d.dx, a.dy)
+        ..quadraticBezierTo(i.dx, i.dy, j.dx, j.dy)
+        ..lineTo(k.dx, k.dy)
+        ..quadraticBezierTo(h.dx, h.dy, a.dx, a.dy)
+        ..quadraticBezierTo(e.dx, e.dy, b.dx, b.dy)
+        ..close();
+    }
+    return Path.combine(
+      PathOperation.difference,
+      polygon([a, b, d, i, k]),
+      front,
+    );
+  }
 
-  /// 关于折线 EH 的反射，按 Canvas 的列主序存储。
+  /// 关于抓取点和原页缘中垂线的反射，按 Canvas 的列主序存储。
   Float64List reflection() {
-    final dx = f.dx - e.dx;
-    final dy = h.dy - f.dy;
-    final length = math.sqrt(dx * dx + dy * dy);
-    final u = dx / length;
-    final v = dy / length;
-    final aa = 2 * u * u - 1;
-    final bb = 2 * u * v;
-    final dd = 1 - 2 * u * u;
+    final normal = horizontal ? const Offset(1, 0) : (f - a) / (f - a).distance;
+    final midpoint = (f + a) / 2;
+    final aa = 1 - 2 * normal.dx * normal.dx;
+    final bb = -2 * normal.dx * normal.dy;
+    final dd = 1 - 2 * normal.dy * normal.dy;
     return Float64List.fromList([
       aa,
       bb,
@@ -129,8 +171,8 @@ class BesselGeometry {
       0,
       1,
       0,
-      e.dx - aa * e.dx - bb * e.dy,
-      e.dy - bb * e.dx - dd * e.dy,
+      midpoint.dx - aa * midpoint.dx - bb * midpoint.dy,
+      midpoint.dy - bb * midpoint.dx - dd * midpoint.dy,
       0,
       1,
     ]);
