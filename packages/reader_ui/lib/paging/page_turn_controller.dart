@@ -54,6 +54,14 @@ class PageTurnController extends ChangeNotifier {
 
   bool get active => phase != PageTurnPhase.idle;
 
+  /// 当前抓取点对应的卷曲几何；直接跟手，不再压到页缘。
+  BesselGeometry? get besselGeometry {
+    final current = point;
+    return current == null
+        ? null
+        : BesselGeometry.resolve(size, current, top: top);
+  }
+
   /// 原始按下位置只记录，不抢占长按、链接或选区手势。
   void pointerDown(ui.Offset position) {
     if (active) return;
@@ -146,14 +154,11 @@ class PageTurnController extends ChangeNotifier {
 
   void _initializePoint() {
     final down = _canonical(_down!);
-    top = next && down.dx >= size.width / 2 && down.dy < size.height / 3;
-    horizontal =
-        !next ||
-        down.dx < size.width / 2 ||
-        (down.dy >= size.height / 3 && down.dy <= size.height * 2 / 3);
+    top = next && down.dy < size.height / 3;
+    horizontal = !next || (!top && down.dy <= size.height * 2 / 3);
     point = ui.Offset(
       next ? size.width : 0,
-      top ? 1 : (horizontal ? down.dy : size.height - 1),
+      down.dy.clamp(0.1, size.height - 0.1),
     );
     _lastProcessed = point;
   }
@@ -204,9 +209,7 @@ class PageTurnController extends ChangeNotifier {
   }
 
   ui.Offset _processedPoint(ui.Offset point) {
-    final input = horizontal ? ui.Offset(point.dx, size.height - 0.1) : point;
-    final geometry = BesselGeometry.resolve(size, input, top: top);
-    return geometry?.a ?? input;
+    return BesselGeometry.resolve(size, point, top: top)?.a ?? point;
   }
 
   bool _shouldComplete() {
