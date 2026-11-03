@@ -272,6 +272,26 @@ class BookReviews extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{bookId};
 }
 
+/// 阅读会话表：只记录前台有效阅读时段，供统计页汇总时长与天数。
+@DataClassName('ReadingSessionRow')
+class ReadingSessions extends Table {
+  /// 主键。
+  IntColumn get id => integer().autoIncrement()();
+
+  /// 所属书籍，删书时级联删除。
+  IntColumn get bookId =>
+      integer().references(Books, #id, onDelete: KeyAction.cascade)();
+
+  /// 开始时间（毫秒）。
+  IntColumn get startedAt => integer()();
+
+  /// 结束时间（毫秒）。
+  IntColumn get endedAt => integer()();
+
+  /// 有效阅读时长（毫秒）。
+  IntColumn get durationMs => integer()();
+}
+
 /// 应用数据库：书库、进度、标注、搜索索引（技术方案 §36）。
 @DriftDatabase(
   tables: [
@@ -284,6 +304,7 @@ class BookReviews extends Table {
     SettingsTable,
     ImportReports,
     BookReviews,
+    ReadingSessions,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -295,7 +316,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -334,6 +355,10 @@ class AppDatabase extends _$AppDatabase {
         await migrator.createTable(bookReviews);
         version = 6;
       }
+      if (version < 7) {
+        await migrator.createTable(readingSessions);
+        version = 7;
+      }
       await _createIndexes();
     },
     beforeOpen: (details) async {
@@ -362,6 +387,10 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_report_book '
       'ON import_reports(book_id, severity)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_session_time '
+      'ON reading_sessions(started_at)',
     );
   }
 

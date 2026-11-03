@@ -140,6 +140,7 @@ class BookOpener {
         store: progressStore,
         bookmarks: library.bookmarkStore(entry.id),
         annotations: library.annotationStore(entry.id),
+        readingSessions: library.readingSessionStore(),
         settings: _settings ?? ReaderSettings.defaults,
         onSettingsChanged: _saveSettings,
         bookTitle: entry.title,

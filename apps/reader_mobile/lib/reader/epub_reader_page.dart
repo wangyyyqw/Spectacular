@@ -14,7 +14,9 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../search/scan_search_service.dart';
+import '../storage/reading_session_store.dart';
 import 'epub_chapter_source.dart';
+import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 
 /// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
@@ -35,6 +37,7 @@ class EpubReaderPage extends StatefulWidget {
     required this.store,
     this.bookmarks,
     this.annotations,
+    this.readingSessions,
     this.settings,
     this.onSettingsChanged,
     this.bookTitle = '阅读',
@@ -56,6 +59,9 @@ class EpubReaderPage extends StatefulWidget {
   /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
   final ReaderAnnotationStore? annotations;
 
+  /// 阅读会话存储；用于统计前台阅读时长。
+  final ReadingSessionStore? readingSessions;
+
   /// 初始阅读设置（P4-21）。
   final ReaderSettings? settings;
 
@@ -72,10 +78,12 @@ class EpubReaderPage extends StatefulWidget {
   State<EpubReaderPage> createState() => _EpubReaderPageState();
 }
 
-class _EpubReaderPageState extends State<EpubReaderPage> {
+class _EpubReaderPageState extends State<EpubReaderPage>
+    with WidgetsBindingObserver {
   EpubChapterSource? _source;
   ScanSearchService? _search;
   DecodedImageCache? _imageCache;
+  ReadingSessionTracker? _readingTracker;
   Object? _error;
   bool _loading = true;
 
@@ -87,6 +95,14 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   @override
   void initState() {
     super.initState();
+    final sessionStore = widget.readingSessions;
+    if (sessionStore != null) {
+      _readingTracker = ReadingSessionTracker(
+        store: sessionStore,
+        bookId: widget.bookId,
+      )..start();
+      WidgetsBinding.instance.addObserver(this);
+    }
     // 先让加载骨架绘制一帧，再做同步解析：openEpub 对 156MB 的书要 1.5 秒，
     // 直接同步跑会让页面转场期间黑屏（用户看不到任何东西）。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -147,7 +163,29 @@ class _EpubReaderPageState extends State<EpubReaderPage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final tracker = _readingTracker;
+    if (tracker == null) {
+      return;
+    }
+    switch (state) {
+      case AppLifecycleState.resumed:
+        tracker.start();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        unawaited(tracker.pause());
+      case AppLifecycleState.detached:
+        unawaited(tracker.finish());
+    }
+  }
+
+  @override
   void dispose() {
+    if (_readingTracker != null) {
+      WidgetsBinding.instance.removeObserver(this);
+      unawaited(_readingTracker!.finish());
+    }
     _search?.dispose();
     _imageCache?.clear();
     _source?.close();
