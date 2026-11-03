@@ -71,6 +71,18 @@ void main() {
     expect(layout.lines.single.offsetX, closeTo(8, 0.01));
   });
 
+  test('center：零宽字符无字形时退回普通居中且不中断排版', () {
+    final layout = _layout('\u200B', _style(textAlign: 'center'), width: 80);
+    expect(layout.lineCount, 1);
+    expect(layout.lines.single.offsetX, closeTo(40, 0.01));
+  });
+
+  test('center：行尾空格不触发空字形 caret 断言', () {
+    final layout = _layout('ab ', _style(textAlign: 'center'), width: 80);
+    expect(layout.lineCount, 1);
+    expect(layout.lines.single.offsetX, closeTo(24, 0.01));
+  });
+
   test('pre-wrap：保留空白但允许软换行', () {
     final layout = _layout('aaaaaaaa', _style(whiteSpace: 'pre-wrap'));
     expect(layout.lineCount, greaterThan(1));

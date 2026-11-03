@@ -2251,19 +2251,29 @@ abstract final class TextLayoutEngine {
       textDirection: _textDirectionOf(style),
       textScaler: TextScaler.linear(context.scale),
     )..layout();
-    final visibleStart = painter
-        .getOffsetForCaret(TextPosition(offset: prefixLength), Rect.zero)
-        .dx;
-    final caretEnd = painter
-        .getOffsetForCaret(TextPosition(offset: contentEnd), Rect.zero)
-        .dx;
     final boxes = painter.getBoxesForSelection(
       TextSelection(baseOffset: prefixLength, extentOffset: contentEnd),
     );
-    // 正字距会在末字后再累计半个字距；从选区末缘反推最后一个可见字形。
-    final visibleEnd = boxes.isEmpty
-        ? caretEnd
-        : 2 * caretEnd - boxes.last.right;
+    // 零宽字符可能既不参与 trim，也没有实际字形。此时 TextPainter 的
+    // caret 几何会触发 glyphBounds 断言，直接退回普通居中偏移。
+    if (boxes.isEmpty) {
+      painter.dispose();
+      return null;
+    }
+    final visibleStart = painter
+        .getOffsetForCaret(TextPosition(offset: prefixLength), Rect.zero)
+        .dx;
+    // 行尾空格会让 getOffsetForCaret 进入 Flutter 的空字形 caret 分支并
+    // 触发断言；可见文字已由选区盒确定，末尾空格不应再参与居中。
+    final endsWithWhitespace =
+        painter.plainText.isNotEmpty &&
+        painter.plainText.characters.last.trim().isEmpty;
+    final caretEnd = endsWithWhitespace
+        ? boxes.last.right
+        : painter
+              .getOffsetForCaret(TextPosition(offset: contentEnd), Rect.zero)
+              .dx;
+    final visibleEnd = 2 * caretEnd - boxes.last.right;
     painter.dispose();
     final center = line.indent + (width - line.indent) / 2;
     return center - (visibleStart + visibleEnd) / 2;
