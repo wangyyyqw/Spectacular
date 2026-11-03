@@ -560,9 +560,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
-  /// 目录面板滚动位置（重开时保持，P4-11 验收）。
-  final ScrollController _tocScrollController = ScrollController();
-
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
 
@@ -1534,7 +1531,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _tempHighlightTimer?.cancel();
     _semanticsFirstFocus.dispose();
     _backgroundImage?.dispose();
-    _tocScrollController.dispose();
     super.dispose();
   }
 
@@ -1837,7 +1833,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       currentSpineIndex:
                           _session.progress?.spineIndex ?? 0,
                       currentCfi: _session.currentCfi,
-                      tocScrollController: _tocScrollController,
                       bookmarks: widget.bookmarks,
                       annotations: widget.annotations,
                       annotationItems: _annotations,
@@ -2017,7 +2012,6 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.entries,
     required this.currentSpineIndex,
     required this.currentCfi,
-    required this.tocScrollController,
     required this.bookmarks,
     required this.annotations,
     required this.annotationItems,
@@ -2051,7 +2045,6 @@ class _ReaderDrawerContent extends StatefulWidget {
   final List<TocEntry> entries;
   final int currentSpineIndex;
   final String? currentCfi;
-  final ScrollController tocScrollController;
   final ReaderBookmarkStore? bookmarks;
   final ReaderAnnotationStore? annotations;
   final List<ReaderAnnotation> annotationItems;
@@ -2220,7 +2213,6 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               entries: widget.entries,
               currentSpineIndex: widget.currentSpineIndex,
               currentCfi: widget.currentCfi,
-              scrollController: widget.tocScrollController,
               onSelect: widget.onTocSelect,
             ),
             _DrawerTab.bookmarks => FutureBuilder<List<ReaderBookmark>>(
