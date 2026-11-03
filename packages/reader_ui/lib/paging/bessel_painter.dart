@@ -59,14 +59,19 @@ class BesselPainter {
       : math.sqrt(g.size.width * g.size.width + g.size.height * g.size.height);
 
   double _foldAngle(BesselGeometry g) =>
-      math.atan2(g.e.dx - g.f.dx, g.h.dy - g.f.dy);
+      math.atan2(g.a.dy - g.f.dy, g.a.dx - g.f.dx);
 
   void _bottomShadow(Canvas canvas, BesselGeometry g) {
     final width = (g.a - g.f).distance / 4;
-    final rect = g.top
-        ? Rect.fromLTRB(0, 0, width, _length(g))
-        : Rect.fromLTRB(-width, 0, 0, _length(g));
-    _shadow(canvas, rect, g.c, _foldAngle(g), g.top ? 0.5 : 0, g.top ? 0 : 0.5);
+    final length = _length(g);
+    // DI 是可见折痕；投影覆盖曲面边缘，并在折痕外侧衰减。
+    _shadow(
+      canvas,
+      Rect.fromLTRB(-width, -length, width / 2, length),
+      g.d,
+      _foldAngle(g),
+      _gradient(0, 0.42),
+    );
   }
 
   void _frontShadows(Canvas canvas, BesselGeometry g, Path front) {
@@ -74,11 +79,6 @@ class BesselPainter {
     final eClip = Path.combine(
       PathOperation.intersect,
       BesselGeometry.polygon([p, g.a, g.e, g.c]),
-      front,
-    );
-    final hClip = Path.combine(
-      PathOperation.intersect,
-      BesselGeometry.polygon([p, g.a, g.h, g.j]),
       front,
     );
     final length = _length(g);
@@ -91,10 +91,19 @@ class BesselPainter {
           : Rect.fromLTRB(-5, -length, 1, 0),
       g.e,
       math.atan2(g.a.dx - g.e.dx, g.e.dy - g.a.dy),
-      g.top ? 0.1 : 0,
-      g.top ? 0 : 0.1,
+      _gradient(g.top ? 0.1 : 0, g.top ? 0 : 0.1),
     );
     canvas.restore();
+    _frontHShadow(canvas, g, front);
+  }
+
+  void _frontHShadow(Canvas canvas, BesselGeometry g, Path front) {
+    final hClip = Path.combine(
+      PathOperation.intersect,
+      BesselGeometry.polygon([g.shadowPoint, g.a, g.h, g.j]),
+      front,
+    );
+    final length = _length(g);
     final adjustedY = g.h.dy < 0 ? g.h.dy - g.size.height : g.h.dy;
     final r = math.sqrt(g.h.dx * g.h.dx + adjustedY * adjustedY);
     final left = r > length ? -5 - r : -length;
@@ -108,9 +117,7 @@ class BesselPainter {
           : Rect.fromLTRB(left, -5, right, 1),
       g.h,
       math.atan2(g.h.dy - g.a.dy, g.h.dx - g.a.dx),
-      g.top ? 0.1 : 0,
-      g.top ? 0 : 0.1,
-      vertical: true,
+      _gradient(g.top ? 0.1 : 0, g.top ? 0 : 0.1, vertical: true),
     );
     canvas.restore();
   }
@@ -133,11 +140,16 @@ class BesselPainter {
       Offset.zero & g.size,
       Paint()..color = paperColor.withAlpha(128),
     );
-    final width =
-        math.min((g.c.dx - g.e.dx).abs() / 2, (g.k.dy - g.h.dy).abs() / 2) + 20;
-    // 保留原始负向 LTRB：other 分支在 Flutter 中为空，待对拍再调整。
-    final rect = Rect.fromLTRB(0, 0, g.top ? width : -width, _length(g));
-    _shadow(canvas, rect, g.c, _foldAngle(g), 0, 0.5);
+    final width = (g.a - g.f).distance / 8;
+    final length = _length(g);
+    // 曲面宽度对应贝塞尔中点到 CJ 的距离，纸背在折痕处最暗。
+    _shadow(
+      canvas,
+      Rect.fromLTRB(0, -length, width, length),
+      g.d,
+      _foldAngle(g),
+      _gradient(0.18, 0),
+    );
     canvas.restore();
   }
 
@@ -146,23 +158,26 @@ class BesselPainter {
     Rect rect,
     Offset origin,
     double angle,
-    double startAlpha,
-    double endAlpha, {
-    bool vertical = false,
-  }) {
+    Gradient gradient,
+  ) {
     if (rect.isEmpty || !angle.isFinite) return;
     canvas.save();
     canvas.translate(origin.dx, origin.dy);
     canvas.rotate(angle);
-    final gradient = LinearGradient(
-      begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
-      end: vertical ? Alignment.bottomCenter : Alignment.centerRight,
-      colors: [
-        Color.from(alpha: startAlpha, red: 0, green: 0, blue: 0),
-        Color.from(alpha: endAlpha, red: 0, green: 0, blue: 0),
-      ],
-    );
     canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
     canvas.restore();
   }
+
+  LinearGradient _gradient(
+    double startAlpha,
+    double endAlpha, {
+    bool vertical = false,
+  }) => LinearGradient(
+    begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
+    end: vertical ? Alignment.bottomCenter : Alignment.centerRight,
+    colors: [
+      Color.from(alpha: startAlpha, red: 0, green: 0, blue: 0),
+      Color.from(alpha: endAlpha, red: 0, green: 0, blue: 0),
+    ],
+  );
 }

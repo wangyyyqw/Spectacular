@@ -156,7 +156,10 @@ class PageTurnController extends ChangeNotifier {
   void _updateDragFrame() {
     if (mode == PageTurnMode.simulationBessel) {
       final latest = _canonical(_latest!);
-      _smoothTarget = next ? latest : ui.Offset(latest.dx, point!.dy);
+      _smoothTarget = ui.Offset(
+        latest.dx.clamp(next ? -size.width : 0, size.width),
+        horizontal ? point!.dy : latest.dy.clamp(0.1, size.height - 0.1),
+      );
       if (!_dragTicker.isActive) {
         _lastTick = null;
         _dragTicker.start();
@@ -168,28 +171,19 @@ class PageTurnController extends ChangeNotifier {
     }
   }
 
-  /// 700 §3.4：固定页缘跨度步进，与剩余距离指数追赶不同。
+  /// 按页宽限定每帧移动距离，回拖与纵向移动共用抓取点轨迹。
   void _smoothDrag(Duration elapsed) {
     final oldTick = _lastTick;
     _lastTick = elapsed;
     final dt = oldTick == null
         ? 1 / 60
         : (elapsed - oldTick).inMicroseconds / 1e6;
-    final k = 9 * dt.clamp(0, 0.05);
     final target = _smoothTarget!;
     final current = point!;
-    final step = (next ? size.width - target.dx : target.dx) * k;
-    final x = next
-        ? (current.dx - step).clamp(target.dx, double.infinity)
-        : (current.dx + step).clamp(double.negativeInfinity, target.dx);
-    final y = !next
-        ? current.dy
-        : horizontal
-        ? _canonical(_down!).dy
-        : top
-        ? (current.dy + step).clamp(double.negativeInfinity, target.dy)
-        : (current.dy - step).clamp(target.dy, double.infinity);
-    point = current.dx == target.dx ? target : ui.Offset(x, y);
+    final delta = target - current;
+    final distance = delta.distance;
+    final step = size.width * 9 * dt.clamp(0, 0.05);
+    point = distance <= step ? target : current + delta * (step / distance);
     _updateBesselProgress();
     if (point == target) _dragTicker.stop();
     notifyListeners();
