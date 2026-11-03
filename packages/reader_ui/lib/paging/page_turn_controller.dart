@@ -125,6 +125,11 @@ class PageTurnController extends ChangeNotifier {
       _initializePoint();
       phase = PageTurnPhase.dragging;
       if (_released) {
+        if (dragging && mode == PageTurnMode.simulationBessel) {
+          // 准备图片期间手指可能已经松开，此时 _lastProcessed 仍是初始化
+          // 后的页缘点。按松手前最后位置重新判定，避免已滑过阈值却回弹。
+          _lastProcessed = _processedPoint(_canonical(_latest!));
+        }
         _settle(dragging ? _shouldComplete() : true);
       } else {
         _updateDragFrame();
@@ -190,14 +195,18 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _updateBesselProgress() {
-    final input = horizontal ? ui.Offset(point!.dx, size.height - 0.1) : point!;
-    final geometry = BesselGeometry.resolve(size, input, top: top);
-    _lastProcessed = geometry?.a ?? input;
+    _lastProcessed = _processedPoint(point!);
     progress =
         (next
                 ? (size.width - point!.dx) / (2 * size.width)
                 : point!.dx / size.width)
             .clamp(0, 1);
+  }
+
+  ui.Offset _processedPoint(ui.Offset point) {
+    final input = horizontal ? ui.Offset(point.dx, size.height - 0.1) : point;
+    final geometry = BesselGeometry.resolve(size, input, top: top);
+    return geometry?.a ?? input;
   }
 
   bool _shouldComplete() {

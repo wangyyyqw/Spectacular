@@ -96,6 +96,7 @@ void main() {
       required ValueNotifier<int> toolbar,
       ReaderTapZones tapZones = ReaderTapZones.defaults,
       bool Function(Offset position)? onTapAt,
+      ValueChanged<DragStartDetails>? onDragStart,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -112,6 +113,7 @@ void main() {
                 onNext: () => next.value += 1,
                 onToggleToolbar: () => toolbar.value += 1,
                 onTapAt: onTapAt,
+                onDragStart: onDragStart,
               ),
             ),
           ),
@@ -246,6 +248,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(next.value, 1);
       expect(previous.value, 1);
+    });
+
+    testWidgets('起点略偏纵向后横向滑动仍进入拖动', (tester) async {
+      final previous = ValueNotifier<int>(0);
+      final next = ValueNotifier<int>(0);
+      final toolbar = ValueNotifier<int>(0);
+      var started = false;
+      await pumpView(
+        tester,
+        pageIndex: 1,
+        previous: previous,
+        next: next,
+        toolbar: toolbar,
+        onDragStart: (_) => started = true,
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      final gesture = await tester.startGesture(
+        origin + const Offset(150, 100),
+      );
+      await gesture.moveBy(const Offset(-12, 25));
+      await gesture.moveBy(const Offset(-60, 0));
+      await gesture.up();
+
+      expect(started, isTrue);
     });
 
     testWidgets('首尾边界不回调、不抛异常', (tester) async {
