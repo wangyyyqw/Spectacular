@@ -216,11 +216,27 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
     await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('reader-drawer-title')),
+          )
+          .data,
+      '目录',
+    );
     await tester.tap(
       find.byKey(const ValueKey<String>('drawer-tab-annotations')),
     );
     await tester.pumpAndSettle();
 
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('reader-drawer-title')),
+          )
+          .data,
+      '笔记',
+    );
     expect(find.text('笔记与高亮'), findsOneWidget);
     expect(find.text('抽屉里的高亮原文'), findsOneWidget);
 
