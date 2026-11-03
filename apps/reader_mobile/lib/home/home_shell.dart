@@ -10,7 +10,11 @@ import 'stats_page.dart';
 /// 四底栏应用壳：书架 / 统计 / 书评 / 我的。
 class HomeShell extends StatefulWidget {
   /// 创建壳。
-  const HomeShell({super.key, required this.library, required this.progressStore});
+  const HomeShell({
+    super.key,
+    required this.library,
+    required this.progressStore,
+  });
 
   /// 书架存储。
   final LibraryStore library;
@@ -24,6 +28,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  int _statsRefreshToken = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +40,7 @@ class _HomeShellState extends State<HomeShell> {
       StatsPage(
         library: widget.library,
         progressStore: widget.progressStore,
+        refreshToken: _statsRefreshToken,
       ),
       ReviewsPage(library: widget.library),
       const ProfilePage(),
@@ -43,7 +49,14 @@ class _HomeShellState extends State<HomeShell> {
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) {
+          setState(() {
+            _index = value;
+            if (value == 1) {
+              _statsRefreshToken += 1;
+            }
+          });
+        },
         destinations: const <Widget>[
           NavigationDestination(
             icon: Icon(Icons.library_books_outlined),
