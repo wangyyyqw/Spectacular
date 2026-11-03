@@ -8,17 +8,30 @@ import 'package:reader_ui/paging/bessel_painter.dart';
 
 const _size = Size(200, 300);
 
-Future<ByteData> _render({bool top = false}) async {
+Future<ui.Image> _solidImage(Color color) async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawColor(color, BlendMode.src);
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(200, 300);
+  picture.dispose();
+  return image;
+}
+
+Future<ByteData> _render({
+  bool top = false,
+  Color bottomColor = const Color(0xFFFFFFFF),
+}) async {
   final paperRecorder = ui.PictureRecorder();
   Canvas(paperRecorder).drawColor(const Color(0xFFFFFFFF), BlendMode.src);
   final paperPicture = paperRecorder.endRecording();
   final paper = await paperPicture.toImage(200, 300);
   paperPicture.dispose();
+  final bottom = await _solidImage(bottomColor);
   final recorder = ui.PictureRecorder();
   BesselPainter(paperColor: const Color(0xFFFFFFFF)).paint(
     Canvas(recorder),
     BesselGeometry.resolve(_size, Offset(120, top ? 100 : 200), top: top)!,
-    paper,
+    bottom,
     paper,
     rtl: false,
   );
@@ -28,6 +41,7 @@ Future<ByteData> _render({bool top = false}) async {
   image.dispose();
   picture.dispose();
   paper.dispose();
+  bottom.dispose();
   return data!;
 }
 
@@ -35,6 +49,11 @@ int _brightness(ByteData data, Offset point, {bool mirrored = false}) {
   final x = point.dx.floor();
   final y = mirrored ? 299 - point.dy.floor() : point.dy.floor();
   return data.getUint8((y * 200 + x) * 4);
+}
+
+List<int> _rgba(ByteData data, int x, int y) {
+  final offset = (y * 200 + x) * 4;
+  return List<int>.generate(4, (index) => data.getUint8(offset + index));
 }
 
 void main() {
@@ -76,6 +95,44 @@ void main() {
         closeTo(_brightness(bottom, point), 2),
         reason: '距折痕 $distance 像素处的明暗应一致',
       );
+    }
+  });
+
+  test('纸背背景完整覆盖弯曲区域，不露出底页', () async {
+    for (final top in [false, true]) {
+      final redBottom = await _render(
+        top: top,
+        bottomColor: const Color(0xFFFF0000),
+      );
+      final blueBottom = await _render(
+        top: top,
+        bottomColor: const Color(0xFF0000FF),
+      );
+      final g = BesselGeometry.resolve(
+        _size,
+        Offset(120, top ? 100 : 200),
+        top: top,
+      )!;
+      final back = g.backPath(g.frontPath());
+
+      for (var y = 3; y < 297; y += 3) {
+        for (var x = 3; x < 197; x += 3) {
+          final point = Offset(x + 0.5, y + 0.5);
+          // 折痕与纸背外轮廓有 1 像素抗锯齿过渡，只验证其内部。
+          if (!back.contains(point) ||
+              !back.contains(point + const Offset(2, 0)) ||
+              !back.contains(point - const Offset(2, 0)) ||
+              !back.contains(point + const Offset(0, 2)) ||
+              !back.contains(point - const Offset(0, 2))) {
+            continue;
+          }
+          expect(
+            _rgba(redBottom, x, y),
+            _rgba(blueBottom, x, y),
+            reason: '弯曲区域 ($x, $y) 不应透出底页颜色',
+          );
+        }
+      }
     }
   });
 }
