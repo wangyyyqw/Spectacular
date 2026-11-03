@@ -57,4 +57,56 @@ void main() {
       isNull,
     );
   });
+
+  test('折痕越出纸面时上下页角仍与触点重合', () {
+    const size = Size(320, 480);
+    for (final top in [false, true]) {
+      final touch = Offset(280, top ? 170 : 310);
+      final geometry = BesselGeometry.resolve(size, touch, top: top)!;
+
+      expectOffset(geometry.a, touch);
+      expectOffset(transform(geometry.reflection(), geometry.f), touch);
+      expect(geometry.frontPath().getBounds().isFinite, isTrue);
+      expect(
+        geometry.backPath(geometry.frontPath()).getBounds().isFinite,
+        isTrue,
+      );
+    }
+  });
+
+  test('中心起卷沿整条侧边弯曲且抓取点固定在触点', () {
+    const size = Size(320, 480);
+    for (final y in <double>[192, 240, 288]) {
+      final touch = Offset(220, y);
+      final geometry = BesselGeometry.resolve(size, touch, horizontal: true)!;
+      final front = geometry.frontPath();
+      final back = geometry.backPath(front);
+
+      expectOffset(geometry.a, touch);
+      expectOffset(geometry.f, Offset(320, y));
+      expectOffset(transform(geometry.reflection(), geometry.f), touch);
+      expect(front.contains(touch - const Offset(1, 0)), isTrue);
+      expect(front.contains(touch + const Offset(1, 0)), isFalse);
+      expect(back.contains(touch + const Offset(1, 0)), isTrue);
+      expect(back.getBounds().height, size.height);
+    }
+  });
+
+  test('中心起卷在首尾帧和越界点的路径及反射均有限', () {
+    const size = Size(320, 480);
+    for (final x in <double>[320, 319.9, 0, -319.9, -320]) {
+      final geometry = BesselGeometry.resolve(
+        size,
+        Offset(x, 240),
+        horizontal: true,
+      )!;
+
+      expect(geometry.reflection().every((value) => value.isFinite), isTrue);
+      expect(geometry.frontPath().getBounds().isFinite, isTrue);
+      expect(
+        geometry.backPath(geometry.frontPath()).getBounds().isFinite,
+        isTrue,
+      );
+    }
+  });
 }

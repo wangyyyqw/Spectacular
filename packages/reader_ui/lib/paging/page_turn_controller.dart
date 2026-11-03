@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:reader_core/layout/paginator.dart';
 
 import '../reader_session.dart';
@@ -22,14 +21,12 @@ class PageTurnController extends ChangeNotifier {
     required this.acquireImage,
   }) {
     _settling = AnimationController(vsync: vsync)..addListener(_animateFrame);
-    _dragTicker = vsync.createTicker(_smoothDrag);
     session.addListener(_sessionChanged);
   }
 
   final ReaderSession session;
   final Future<ui.Image?> Function(PageContent page) acquireImage;
   late final AnimationController _settling;
-  late final Ticker _dragTicker;
   PageTurnPhase phase = PageTurnPhase.idle;
   PageTurnMode mode = PageTurnMode.cover;
   ui.Size size = ui.Size.zero;
@@ -41,9 +38,7 @@ class PageTurnController extends ChangeNotifier {
   ui.Offset? point;
   ui.Image? originImage, targetImage;
   PreparedPageTurn? turn;
-  ui.Offset? _down, _latest, _smoothTarget, _lastProcessed;
-  DateTime? _downTime;
-  Duration? _lastTick;
+  ui.Offset? _down, _latest;
   bool _released = false, _complete = true, _dragging = false;
   bool _disposed = false, _committing = false;
   bool? _queued;
@@ -59,14 +54,18 @@ class PageTurnController extends ChangeNotifier {
     final current = point;
     return current == null
         ? null
-        : BesselGeometry.resolve(size, current, top: top);
+        : BesselGeometry.resolve(
+            size,
+            next ? current : ui.Offset(size.width - current.dx, current.dy),
+            top: top,
+            horizontal: horizontal,
+          );
   }
 
   /// 原始按下位置只记录，不抢占长按、链接或选区手势。
   void pointerDown(ui.Offset position) {
     if (active) return;
     _down = position;
-    _downTime = DateTime.now();
   }
 
   /// 点击、键盘等离散输入最多保留一个后续意图。
@@ -75,8 +74,7 @@ class PageTurnController extends ChangeNotifier {
       _queued = next;
       return;
     }
-    _down = ui.Offset(rtl ? 0 : size.width, size.height / 2);
-    _downTime = DateTime.now();
+    _down = ui.Offset(next != rtl ? size.width : 0, size.height / 2);
     _latest = _down;
     unawaited(_prepare(next, dragging: false));
   }
@@ -84,7 +82,6 @@ class PageTurnController extends ChangeNotifier {
   void beginDrag(DragStartDetails details) {
     if (active) return;
     _down ??= details.localPosition;
-    _downTime ??= DateTime.now();
     _latest = details.localPosition;
     _dragging = true;
   }
@@ -104,7 +101,6 @@ class PageTurnController extends ChangeNotifier {
     _released = true;
     _dragging = false;
     _releaseVelocity = details.primaryVelocity ?? 0;
-    _dragTicker.stop();
     if (phase == PageTurnPhase.dragging) _settle(_shouldComplete());
     if (!active) _resetPointer();
   }
@@ -132,15 +128,9 @@ class PageTurnController extends ChangeNotifier {
       }
       _initializePoint();
       phase = PageTurnPhase.dragging;
+      if (dragging) _updateDragFrame();
       if (_released) {
-        if (dragging && mode == PageTurnMode.simulationBessel) {
-          // 准备图片期间手指可能已经松开，此时 _lastProcessed 仍是初始化
-          // 后的页缘点。按松手前最后位置重新判定，避免已滑过阈值却回弹。
-          _lastProcessed = _processedPoint(_canonical(_latest!));
-        }
         _settle(dragging ? _shouldComplete() : true);
-      } else {
-        _updateDragFrame();
       }
     } catch (_) {
       if (_valid(token)) cancel();
@@ -154,82 +144,44 @@ class PageTurnController extends ChangeNotifier {
 
   void _initializePoint() {
     final down = _canonical(_down!);
-    top = next && down.dy < size.height / 3;
-    horizontal = !next || (!top && down.dy <= size.height * 2 / 3);
+    top = down.dy < size.height / 2;
+    // 起手所在的中心五分之一从侧边卷起；手势内固定类型，跨区不跳变。
+    horizontal = (down.dy - size.height / 2).abs() <= size.height / 10;
     point = ui.Offset(
       next ? size.width : 0,
       down.dy.clamp(0.1, size.height - 0.1),
     );
-    _lastProcessed = point;
   }
 
   void _updateDragFrame() {
     if (mode == PageTurnMode.simulationBessel) {
       final latest = _canonical(_latest!);
-      _smoothTarget = ui.Offset(
-        latest.dx.clamp(next ? -size.width : 0, size.width),
-        horizontal ? point!.dy : latest.dy.clamp(0.1, size.height - 0.1),
+      point = ui.Offset(
+        latest.dx.clamp(
+          next ? -size.width : 0,
+          next ? size.width : size.width * 2,
+        ),
+        latest.dy.clamp(0.1, size.height - 0.1),
       );
-      if (!_dragTicker.isActive) {
-        _lastTick = null;
-        _dragTicker.start();
-      }
+      progress =
+          ((next ? size.width - point!.dx : point!.dx) / (2 * size.width))
+              .clamp(0, 1);
     } else {
       final sign = (next != rtl) ? -1 : 1;
       progress = ((_latest!.dx - _down!.dx) * sign / size.width).clamp(0, 1);
-      notifyListeners();
     }
-  }
-
-  /// 按页宽限定每帧移动距离，回拖与纵向移动共用抓取点轨迹。
-  void _smoothDrag(Duration elapsed) {
-    final oldTick = _lastTick;
-    _lastTick = elapsed;
-    final dt = oldTick == null
-        ? 1 / 60
-        : (elapsed - oldTick).inMicroseconds / 1e6;
-    final target = _smoothTarget!;
-    final current = point!;
-    final delta = target - current;
-    final distance = delta.distance;
-    final step = size.width * 9 * dt.clamp(0, 0.05);
-    point = distance <= step ? target : current + delta * (step / distance);
-    _updateBesselProgress();
-    if (point == target) _dragTicker.stop();
     notifyListeners();
   }
 
-  void _updateBesselProgress() {
-    _lastProcessed = _processedPoint(point!);
-    progress =
-        (next
-                ? (size.width - point!.dx) / (2 * size.width)
-                : point!.dx / size.width)
-            .clamp(0, 1);
-  }
-
-  ui.Offset _processedPoint(ui.Offset point) {
-    return BesselGeometry.resolve(size, point, top: top)?.a ?? point;
-  }
-
   bool _shouldComplete() {
-    if (mode == PageTurnMode.simulationBessel) {
-      if (DateTime.now().difference(_downTime!) <
-          const Duration(milliseconds: 300)) {
-        return true;
-      }
-      final current = _lastProcessed ?? _canonical(_latest!);
-      final delta = current.dx - _canonical(_down!).dx;
-      return next ? delta <= -size.width / 4 : delta >= size.width / 4;
-    }
     final sign = (next != rtl) ? -1 : 1;
     final p = ((_latest!.dx - _down!.dx) * sign / size.width).clamp(0, 1);
     final velocity = _releaseVelocity * sign / size.width;
-    return velocity > -0.8 && (velocity >= 0.8 || p >= 0.35);
+    final threshold = mode == PageTurnMode.simulationBessel ? 0.25 : 0.35;
+    return velocity > -0.8 && (velocity >= 0.8 || p >= threshold);
   }
 
   void _settle(bool complete) {
-    _dragTicker.stop();
     _complete = complete;
     _startProgress = progress;
     if (mode == PageTurnMode.none ||
@@ -255,17 +207,15 @@ class PageTurnController extends ChangeNotifier {
 
   void _prepareBesselEnd() {
     _startPoint = point;
-    final y = top
-        ? (_complete ? 0.0 : 0.1)
-        : horizontal
+    final y = horizontal
         ? point!.dy
-        : size.height - (_complete ? 0 : 0.1);
+        : top
+        ? 0.1
+        : size.height - 0.1;
     final x = _complete
-        ? (next ? -size.width : size.width)
-        : next
-        ? size.width - 0.1
-        : -(point!.dx + size.width / 2);
-    _endPoint = ui.Offset(x, !next && _complete ? point!.dy : y);
+        ? (next ? -size.width : size.width * 2)
+        : (next ? size.width - 0.1 : 0.1);
+    _endPoint = ui.Offset(x, y);
   }
 
   Future<void> _runSettling(int token) async {
@@ -279,9 +229,7 @@ class PageTurnController extends ChangeNotifier {
 
   void _animateFrame() {
     final bessel = mode == PageTurnMode.simulationBessel;
-    final t = bessel
-        ? _settling.value
-        : Curves.easeOutCubic.transform(_settling.value);
+    final t = Curves.easeOutCubic.transform(_settling.value);
     progress = _startProgress + ((_complete ? 1 : 0) - _startProgress) * t;
     if (bessel) point = ui.Offset.lerp(_startPoint, _endPoint, t);
     notifyListeners();
@@ -317,7 +265,6 @@ class PageTurnController extends ChangeNotifier {
   void cancel() {
     _token++;
     _settling.stop(canceled: true);
-    _dragTicker.stop();
     phase = PageTurnPhase.idle;
     originImage = targetImage = null;
     turn = null;
@@ -329,10 +276,9 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _resetPointer() {
-    _down = _latest = _smoothTarget = _lastProcessed = null;
-    _downTime = null;
-    _lastTick = null;
+    _down = _latest = null;
     _released = _dragging = false;
+    _releaseVelocity = 0;
   }
 
   @override
@@ -341,7 +287,6 @@ class PageTurnController extends ChangeNotifier {
     cancel();
     session.removeListener(_sessionChanged);
     _settling.dispose();
-    _dragTicker.dispose();
     super.dispose();
   }
 }

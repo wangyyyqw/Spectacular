@@ -19,6 +19,7 @@ Future<ui.Image> _solidImage(Color color) async {
 
 Future<ByteData> _render({
   bool top = false,
+  bool horizontal = false,
   Color bottomColor = const Color(0xFFFFFFFF),
 }) async {
   final paperRecorder = ui.PictureRecorder();
@@ -30,7 +31,12 @@ Future<ByteData> _render({
   final recorder = ui.PictureRecorder();
   BesselPainter(paperColor: const Color(0xFFFFFFFF)).paint(
     Canvas(recorder),
-    BesselGeometry.resolve(_size, Offset(120, top ? 100 : 200), top: top)!,
+    BesselGeometry.resolve(
+      _size,
+      Offset(120, horizontal ? 150 : (top ? 100 : 200)),
+      top: top,
+      horizontal: horizontal,
+    )!,
     bottom,
     paper,
     rtl: false,
@@ -99,19 +105,26 @@ void main() {
   });
 
   test('纸背背景完整覆盖弯曲区域，不露出底页', () async {
-    for (final top in [false, true]) {
+    for (final mode in [
+      (top: false, horizontal: false),
+      (top: true, horizontal: false),
+      (top: false, horizontal: true),
+    ]) {
       final redBottom = await _render(
-        top: top,
+        top: mode.top,
+        horizontal: mode.horizontal,
         bottomColor: const Color(0xFFFF0000),
       );
       final blueBottom = await _render(
-        top: top,
+        top: mode.top,
+        horizontal: mode.horizontal,
         bottomColor: const Color(0xFF0000FF),
       );
       final g = BesselGeometry.resolve(
         _size,
-        Offset(120, top ? 100 : 200),
-        top: top,
+        Offset(120, mode.horizontal ? 150 : (mode.top ? 100 : 200)),
+        top: mode.top,
+        horizontal: mode.horizontal,
       )!;
       final back = g.backPath(g.frontPath());
 
@@ -133,6 +146,21 @@ void main() {
           );
         }
       }
+    }
+  });
+
+  test('中心起卷上下对称且整条侧边都有纸背', () async {
+    final data = await _render(
+      horizontal: true,
+      bottomColor: const Color(0xFFFF0000),
+    );
+    for (final y in [10, 75, 149]) {
+      final upper = _rgba(data, 145, y);
+      final lower = _rgba(data, 145, 299 - y);
+
+      expect(upper[0], upper[1], reason: '纸背内部不能漏出红色底页');
+      expect(upper[1], upper[2]);
+      expect(lower[0], closeTo(upper[0], 2));
     }
   });
 }

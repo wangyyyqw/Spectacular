@@ -89,22 +89,16 @@ Future<void> _startDrag(
   expect(controller.point, const ui.Offset(220, 380));
 }
 
-ui.Rect _curlBounds(PageTurnController controller) {
-  final geometry = controller.besselGeometry!;
-  return geometry.backPath(geometry.frontPath()).getBounds();
-}
-
 void main() {
   for (final rtl in [false, true]) {
-    testWidgets('${rtl ? 'RTL' : 'LTR'} 回拖时抓取点沿移动方向平滑返回', (tester) async {
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 回拖时页角与触点重合', (tester) async {
       final controller = await _controller(tester, rtl: rtl);
       await _startDrag(tester, controller);
 
       _move(controller, const ui.Offset(280, 410));
-      await tester.pump(const Duration(milliseconds: 16));
 
-      expect(controller.point!.dx, inExclusiveRange(220, 280));
-      expect(controller.point!.dy, inExclusiveRange(380, 410));
+      expect(controller.point, const ui.Offset(280, 410));
+      expect(controller.besselGeometry!.a, const ui.Offset(280, 410));
       expect(controller.session.progress!.pageIndex, 1);
       controller.cancel();
       expect(controller.phase, PageTurnPhase.idle);
@@ -112,20 +106,16 @@ void main() {
     });
   }
 
-  testWidgets('横坐标不变时纵向拖动仍逐帧移动', (tester) async {
+  testWidgets('横坐标不变时页角仍跟随纵向触点', (tester) async {
     final controller = await _controller(tester);
     await _startDrag(tester, controller);
 
     _move(controller, const ui.Offset(220, 300));
-    await tester.pump(const Duration(milliseconds: 16));
-
-    expect(controller.point!.dx, 220);
-    expect(controller.point!.dy, inExclusiveRange(300, 380));
-    await tester.pump(const Duration(milliseconds: 16));
     expect(controller.point, const ui.Offset(220, 300));
+    expect(controller.besselGeometry!.a, const ui.Offset(220, 300));
   });
 
-  testWidgets('中段水平拖动按手指高度卷曲并覆盖半页宽度', (tester) async {
+  testWidgets('中心拖动从整条侧边起卷且纸边经过触点', (tester) async {
     final controller = await _controller(tester);
     const down = ui.Offset(310, 240);
     controller.pointerDown(down);
@@ -137,23 +127,26 @@ void main() {
 
     expect(controller.horizontal, isTrue);
     expect(controller.point, const ui.Offset(220, 240));
-    expect(
-      _curlBounds(controller).width,
-      greaterThan(controller.size.width * 0.4),
-    );
+    final geometry = controller.besselGeometry!;
+    final back = geometry.backPath(geometry.frontPath());
+    expect(geometry.horizontal, isTrue);
+    expect(geometry.a, const ui.Offset(220, 240));
+    expect(back.getBounds().height, controller.size.height);
+    expect(back.getBounds().width, greaterThan(40));
+    expect(back.contains(const ui.Offset(240, 10)), isTrue);
+    expect(back.contains(const ui.Offset(240, 470)), isTrue);
   });
 
-  testWidgets('点击翻页从中段起卷，弯曲区域不缩回页缘', (tester) async {
+  testWidgets('点击翻页从整条侧边中部起卷', (tester) async {
     final controller = await _controller(tester);
     controller.request(true);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));
 
     expect(controller.point!.dy, closeTo(controller.size.height / 2, 0.001));
-    expect(
-      _curlBounds(controller).width,
-      greaterThan(controller.size.width * 0.4),
-    );
+    final geometry = controller.besselGeometry!;
+    expect(geometry.horizontal, isTrue);
+    expect(geometry.backPath(geometry.frontPath()).getBounds().height, 480);
     controller.cancel();
   });
 
@@ -184,8 +177,8 @@ void main() {
     expect(controller.horizontal, isFalse);
     expect(controller.point, const ui.Offset(220, 100));
     _move(controller, const ui.Offset(220, 10));
-    await tester.pump(const Duration(milliseconds: 16));
-    expect(controller.point!.dy, inExclusiveRange(10, 100));
+    expect(controller.point, const ui.Offset(220, 10));
+    expect(controller.besselGeometry!.a, const ui.Offset(220, 10));
     _move(controller, const ui.Offset(220, -100));
     for (var frame = 0; frame < 3; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
@@ -193,7 +186,7 @@ void main() {
     expect(controller.point!.dy, closeTo(0.1, 0.001));
   });
 
-  testWidgets('上一页回拖保持水平折痕并平滑移动', (tester) async {
+  testWidgets('上一页从左侧起卷且纸边随触点回拖', (tester) async {
     final controller = await _controller(tester);
     const down = ui.Offset(10, 240);
     controller.pointerDown(down);
@@ -205,11 +198,11 @@ void main() {
 
     expect(controller.next, isFalse);
     expect(controller.horizontal, isTrue);
-    expect(controller.point, const ui.Offset(100, 240));
+    expect(controller.point, const ui.Offset(100, 300));
+    expect(controller.besselGeometry!.a, const ui.Offset(220, 300));
     _move(controller, const ui.Offset(40, 200));
-    await tester.pump(const Duration(milliseconds: 16));
-    expect(controller.point!.dx, inExclusiveRange(40, 100));
-    expect(controller.point!.dy, 240);
+    expect(controller.point, const ui.Offset(40, 200));
+    expect(controller.besselGeometry!.a, const ui.Offset(280, 200));
     controller.cancel();
     expect(controller.session.progress!.pageIndex, 1);
   });
@@ -252,4 +245,57 @@ void main() {
     expect(controller.session.progress!.pageIndex, 2);
     await controller.session.flushProgress();
   });
+
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      testWidgets('${rtl ? 'RTL' : 'LTR'} ${next ? '下一页' : '上一页'}中心区恰为屏高五分之一', (
+        tester,
+      ) async {
+        final controller = await _controller(tester, rtl: rtl);
+        for (final y in <double>[191.9, 192, 240, 288, 288.1]) {
+          final down = ui.Offset((next != rtl) ? 310 : 10, y);
+          controller.pointerDown(down);
+          controller.beginDrag(DragStartDetails(localPosition: down));
+          _move(controller, ui.Offset(next ? 220 : 100, y));
+          await tester.pump();
+
+          expect(controller.next, next);
+          expect(controller.top, y < 240);
+          expect(controller.horizontal, y >= 192 && y <= 288);
+          final geometry = controller.besselGeometry!;
+          expect(geometry.horizontal, controller.horizontal);
+          expect(geometry.a, ui.Offset(220, y));
+          controller.cancel();
+        }
+      });
+    }
+  }
+
+  for (final next in [false, true]) {
+    testWidgets('${next ? '下一页' : '上一页'}松手按距离和速度判定且只提交一次', (tester) async {
+      final controller = await _controller(tester);
+      for (final flick in [false, true]) {
+        final down = ui.Offset(next ? 310 : 10, 240);
+        controller.pointerDown(down);
+        controller.beginDrag(DragStartDetails(localPosition: down));
+        _move(controller, ui.Offset(next ? 290 : 30, 240));
+        await tester.pump();
+        final velocity = flick ? (next ? -500.0 : 500.0) : 0.0;
+        controller.endDrag(
+          DragEndDetails(
+            primaryVelocity: velocity,
+            velocity: Velocity(pixelsPerSecond: ui.Offset(velocity, 0)),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(controller.phase, PageTurnPhase.idle);
+        expect(
+          controller.session.progress!.pageIndex,
+          flick ? (next ? 2 : 0) : 1,
+        );
+      }
+      await controller.session.flushProgress();
+    });
+  }
 }
