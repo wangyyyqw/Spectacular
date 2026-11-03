@@ -138,10 +138,24 @@ void main() {
     expect(_pixel(data, 60, 40), _white);
   });
 
-  test('浅色页：书籍显式颜色照书，不被主题色刷掉（P9-02）', () async {
-    final page = _page(_style(color: '#cbd5e1', explicitColor: true));
+  test('浅色页：可辨认的书籍显式颜色照书，不被主题色刷掉（P9-02）', () async {
+    final page = _page(_style(color: '#94a3b8', explicitColor: true));
     final data = await _render(page, textColor: _red);
     expect(_redishPixels(data), 0, reason: '显式灰色应保留，不变成主题红');
+  });
+
+  test('浅色页：与底色对比不足的显式浅字回退主题色', () async {
+    final page = _page(_style(color: '#ffffff', explicitColor: true));
+    final data = await _render(page, textColor: _red);
+    expect(_redishPixels(data), greaterThan(0), reason: '白底白字日间应恢复为主题色');
+  });
+
+  test('透明显式文字保持透明', () async {
+    final page = _page(
+      _style(color: 'rgba(255,255,255,0)', explicitColor: true),
+    );
+    final data = await _render(page, textColor: _red);
+    expect(_redishPixels(data), 0, reason: '封面隐藏文字不能被主题色画出来');
   });
 
   test('浅色页：未声明的默认黑字跟随主题色', () async {

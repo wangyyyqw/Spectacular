@@ -1997,7 +1997,8 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.page != page ||
       oldDelegate.imageRevision != imageRevision ||
       oldDelegate.pageInsets != pageInsets ||
-      oldDelegate.painter.background != painter.background;
+      oldDelegate.painter.background != painter.background ||
+      oldDelegate.painter.textColor != painter.textColor;
 }
 
 /// 目录中与指定 spine 对应的标题；无精确项时沿用最近的前置章节。
