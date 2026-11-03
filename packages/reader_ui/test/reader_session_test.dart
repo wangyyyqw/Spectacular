@@ -209,11 +209,11 @@ void main() {
     );
     await session.open();
 
-    expect(await session.commitScrollPage(1, 1), isTrue);
+    expect(await session.commitScrollPosition(1, 1, 42.5), isTrue);
     await session.flushProgress();
     expect(
       await session.store.load('scroll-sync'),
-      const ReaderProgress(spineIndex: 1, pageIndex: 1),
+      const ReaderProgress(spineIndex: 1, pageIndex: 1, scrollOffset: 42.5),
     );
   });
 

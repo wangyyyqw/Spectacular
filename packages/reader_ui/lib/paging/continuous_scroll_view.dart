@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -142,8 +143,16 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         .where((item) => item.spineIndex == spine)
         .firstOrNull;
     if (chapter == null) return;
+    final pageStart = chapter.offsetOfPage(page);
+    final pageExtent = math.max(
+      0.0,
+      chapter.offsetOfPage(page + 1) - pageStart,
+    );
+    final pageOffset = (progress?.scrollOffset ?? 0)
+        .clamp(0.0, pageExtent)
+        .toDouble();
     final offset =
-        widget.padding.top + _chapterTop(spine) + chapter.offsetOfPage(page);
+        widget.padding.top + _chapterTop(spine) + pageStart + pageOffset;
     _controller.jumpTo(offset.clamp(0.0, _controller.position.maxScrollExtent));
     _captureVisiblePage();
   }
@@ -163,9 +172,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     final page = _pageAtOffset(relative);
     if (page == null) return;
     final content = page.segment.content;
-    if (identical(content, _visibleContent)) return;
-    _visibleContent = content;
-    widget.onPageVisible?.call(content);
+    final pageOffset = (relative - page.top)
+        .clamp(0.0, page.segment.extent)
+        .toDouble();
+    if (!identical(content, _visibleContent)) {
+      _visibleContent = content;
+      widget.onPageVisible?.call(content);
+    }
     _syncTimer?.cancel();
     final generation = _layoutGeneration;
     _syncTimer = Timer(const Duration(milliseconds: 120), () {
@@ -175,9 +188,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         return;
       }
       unawaited(
-        widget.session.commitScrollPage(
+        widget.session.commitScrollPosition(
           page.chapter.spineIndex,
           page.segment.pageIndex,
+          pageOffset,
         ),
       );
     });

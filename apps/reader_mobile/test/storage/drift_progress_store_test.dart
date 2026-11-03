@@ -31,7 +31,10 @@ void main() {
 
   test('保存后读回：spine/page 与 updated_at 落库（P4-10）', () async {
     final entry = await library.importBytes(buildTestEpub(title: '进度书'));
-    await store.save(entry.id, const ReaderProgress(spineIndex: 1, pageIndex: 3));
+    await store.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 1, pageIndex: 3),
+    );
 
     final loaded = await store.load(entry.id);
     expect(loaded, const ReaderProgress(spineIndex: 1, pageIndex: 3));
@@ -44,22 +47,58 @@ void main() {
 
   test('重复保存是 upsert，不产生第二行', () async {
     final entry = await library.importBytes(buildTestEpub(title: '进度书2'));
-    await store.save(entry.id, const ReaderProgress(spineIndex: 0, pageIndex: 1));
-    await store.save(entry.id, const ReaderProgress(spineIndex: 2, pageIndex: 5));
+    await store.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 1),
+    );
+    await store.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 2, pageIndex: 5),
+    );
     final rows = await db.select(db.readingProgress).get();
     expect(rows, hasLength(1));
-    expect(await store.load(entry.id), const ReaderProgress(spineIndex: 2, pageIndex: 5));
+    expect(
+      await store.load(entry.id),
+      const ReaderProgress(spineIndex: 2, pageIndex: 5),
+    );
+  });
+
+  test('连续滚动的页内偏移可从位置串恢复', () async {
+    final entry = await library.importBytes(buildTestEpub(title: '滚动进度书'));
+    await store.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 1, pageIndex: 3, scrollOffset: 87.5),
+    );
+
+    expect(
+      await store.load(entry.id),
+      const ReaderProgress(spineIndex: 1, pageIndex: 3, scrollOffset: 87.5),
+    );
+    final row = (await db.select(db.readingProgress).get()).single;
+    expect(row.locatorCfi, 'spine:1/page:3/scroll:87.5');
   });
 
   test('clear 删进度；snapshot 返回 uuid → 进度', () async {
     final first = await library.importBytes(buildTestEpub(title: '甲书'));
     final second = await library.importBytes(buildTestEpub(title: '乙书'));
-    await store.save(first.id, const ReaderProgress(spineIndex: 0, pageIndex: 1));
-    await store.save(second.id, const ReaderProgress(spineIndex: 1, pageIndex: 2));
+    await store.save(
+      first.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 1),
+    );
+    await store.save(
+      second.id,
+      const ReaderProgress(spineIndex: 1, pageIndex: 2),
+    );
 
     final snapshot = await store.snapshot();
-    expect(snapshot[first.id], const ReaderProgress(spineIndex: 0, pageIndex: 1));
-    expect(snapshot[second.id], const ReaderProgress(spineIndex: 1, pageIndex: 2));
+    expect(
+      snapshot[first.id],
+      const ReaderProgress(spineIndex: 0, pageIndex: 1),
+    );
+    expect(
+      snapshot[second.id],
+      const ReaderProgress(spineIndex: 1, pageIndex: 2),
+    );
 
     await store.clear(first.id);
     expect(await store.load(first.id), isNull);

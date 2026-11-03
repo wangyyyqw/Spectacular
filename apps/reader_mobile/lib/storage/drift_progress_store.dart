@@ -8,13 +8,14 @@ import 'db.dart';
 
 /// 阅读进度的 drift 实现（P4-10）：写 `reading_progress` 表。
 ///
-/// 只存位置（spine/page）与时间；百分比由 `ProgressWeights` 按字符权重实时
-/// 计算（P4-09），避免存了百分比之后章内位置变化导致两者不一致。
+/// 位置串包含章、页及连续滚动的页内偏移；百分比由 `ProgressWeights`
+/// 按字符权重实时计算（P4-09）。
 class DriftProgressStore implements ReaderProgressStore {
   /// 创建存储。
   DriftProgressStore(this._db);
 
   final AppDatabase _db;
+  static final RegExp _scrollOffsetPattern = RegExp(r'(?:^|/)scroll:([^/]+)$');
 
   /// 读取某书进度。
   @override
@@ -26,6 +27,7 @@ class DriftProgressStore implements ReaderProgressStore {
     return ReaderProgress(
       spineIndex: row.spineIndex ?? 0,
       pageIndex: row.pageIndex ?? 0,
+      scrollOffset: _scrollOffsetOf(row.locatorCfi),
     );
   }
 
@@ -36,19 +38,19 @@ class DriftProgressStore implements ReaderProgressStore {
     if (bookIdValue == null) {
       return;
     }
-    await _db.into(_db.readingProgress).insertOnConflictUpdate(
-      ReadingProgressCompanion(
-        bookId: Value<int>(bookIdValue),
-        // P5 接入 CFI 前先用可读的位置串占位（§36.2：位置一律存字符串）。
-        locatorCfi: Value<String>(
-          'spine:${progress.spineIndex}/page:${progress.pageIndex}',
-        ),
-        percent: const Value<double>(0),
-        spineIndex: Value<int>(progress.spineIndex),
-        pageIndex: Value<int>(progress.pageIndex),
-        updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
-      ),
-    );
+    await _db
+        .into(_db.readingProgress)
+        .insertOnConflictUpdate(
+          ReadingProgressCompanion(
+            bookId: Value<int>(bookIdValue),
+            // P5 接入 CFI 前先用可读的位置串占位（§36.2：位置一律存字符串）。
+            locatorCfi: Value<String>(_locatorOf(progress)),
+            percent: const Value<double>(0),
+            spineIndex: Value<int>(progress.spineIndex),
+            pageIndex: Value<int>(progress.pageIndex),
+            updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
+          ),
+        );
   }
 
   /// 清除某书进度（删书时调用）。
@@ -82,6 +84,7 @@ class DriftProgressStore implements ReaderProgressStore {
           uuidById[row.bookId]!: ReaderProgress(
             spineIndex: row.spineIndex ?? 0,
             pageIndex: row.pageIndex ?? 0,
+            scrollOffset: _scrollOffsetOf(row.locatorCfi),
           ),
     };
   }
@@ -113,23 +116,40 @@ class DriftProgressStore implements ReaderProgressStore {
       if (spine is! int || page is! int) {
         continue;
       }
+      final scroll = value['scroll'];
+      final scrollOffset = scroll is num ? scroll.toDouble() : null;
       final bookIdValue = await _bookIdOf(entry.key);
       if (bookIdValue == null) {
         continue;
       }
-      await _db.into(_db.readingProgress).insertOnConflictUpdate(
-        ReadingProgressCompanion(
-          bookId: Value<int>(bookIdValue),
-          locatorCfi: Value<String>('spine:$spine/page:$page'),
-          percent: const Value<double>(0),
-          spineIndex: Value<int>(spine),
-          pageIndex: Value<int>(page),
-          updatedAt: Value<int>(now),
-        ),
-      );
+      await _db
+          .into(_db.readingProgress)
+          .insertOnConflictUpdate(
+            ReadingProgressCompanion(
+              bookId: Value<int>(bookIdValue),
+              locatorCfi: Value<String>(
+                'spine:$spine/page:$page'
+                '${scrollOffset == null ? '' : '/scroll:$scrollOffset'}',
+              ),
+              percent: const Value<double>(0),
+              spineIndex: Value<int>(spine),
+              pageIndex: Value<int>(page),
+              updatedAt: Value<int>(now),
+            ),
+          );
       migrated += 1;
     }
     return migrated;
+  }
+
+  static String _locatorOf(ReaderProgress progress) =>
+      'spine:${progress.spineIndex}/page:${progress.pageIndex}'
+      '${progress.scrollOffset == null ? '' : '/scroll:${progress.scrollOffset}'}';
+
+  static double? _scrollOffsetOf(String locator) {
+    final value = _scrollOffsetPattern.firstMatch(locator)?.group(1);
+    final offset = value == null ? null : double.tryParse(value);
+    return offset != null && offset.isFinite && offset >= 0 ? offset : null;
   }
 
   Future<int?> _bookIdOf(String bookUuid) async {

@@ -10,14 +10,24 @@ void main() {
     final first = FileReaderProgressStore(directoryProvider: () async => dir);
     await first.save(
       'book-a',
-      const ReaderProgress(spineIndex: 12, pageIndex: 3, finished: true),
+      const ReaderProgress(
+        spineIndex: 12,
+        pageIndex: 3,
+        finished: true,
+        scrollOffset: 37.25,
+      ),
     );
     expect(File('${dir.path}/reader_progress.json').existsSync(), isTrue);
 
     final second = FileReaderProgressStore(directoryProvider: () async => dir);
     expect(
       await second.load('book-a'),
-      const ReaderProgress(spineIndex: 12, pageIndex: 3, finished: true),
+      const ReaderProgress(
+        spineIndex: 12,
+        pageIndex: 3,
+        finished: true,
+        scrollOffset: 37.25,
+      ),
     );
     expect(await second.load('missing'), isNull);
     dir.deleteSync(recursive: true);

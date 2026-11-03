@@ -49,10 +49,12 @@ class FileReaderProgressStore implements ReaderProgressStore {
         final spine = value['spine'];
         final page = value['page'];
         if (spine is int && page is int) {
+          final scroll = value['scroll'];
           _items[entry.key] = ReaderProgress(
             spineIndex: spine,
             pageIndex: page,
             finished: value['finished'] == true,
+            scrollOffset: scroll is num ? scroll.toDouble() : null,
           );
         }
       }
@@ -106,6 +108,8 @@ class FileReaderProgressStore implements ReaderProgressStore {
             'spine': entry.value.spineIndex,
             'page': entry.value.pageIndex,
             'finished': entry.value.finished,
+            if (entry.value.scrollOffset != null)
+              'scroll': entry.value.scrollOffset,
           },
       };
       await file.writeAsString(jsonEncode(data), flush: true);
