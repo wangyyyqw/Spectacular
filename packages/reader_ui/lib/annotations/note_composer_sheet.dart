@@ -121,75 +121,106 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const _ComposerHandle(),
-                  const SizedBox(height: 14),
-                  _ComposerHeader(onClose: _close),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    decoration: BoxDecoration(
-                      color: Color(defaultHighlightColor)
-                          .withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      widget.quote,
-                      maxLines: 4,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('笔记内容', style: theme.textTheme.labelLarge),
-                  const SizedBox(height: 8),
-                  TextField(
-                    key: const ValueKey<String>('note-composer-input'),
-                    controller: _controller,
-                    autofocus: true,
-                    minLines: 4,
-                    maxLines: 8,
-                    textInputAction: TextInputAction.newline,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      hintText: '写下此刻的想法…',
-                      filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerLow,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const _ComposerHandle(),
+                        const SizedBox(height: 14),
+                        _ComposerHeader(onClose: _close),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                          decoration: BoxDecoration(
+                            color: Color(defaultHighlightColor)
+                                .withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            widget.quote,
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              height: 1.55,
+                            ),
+                          ),
                         ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant,
+                        const SizedBox(height: 16),
+                        Text('笔记内容', style: theme.textTheme.labelLarge),
+                        const SizedBox(height: 8),
+                        TextField(
+                          key: const ValueKey<String>('note-composer-input'),
+                          controller: _controller,
+                          autofocus: true,
+                          minLines: 4,
+                          maxLines: 8,
+                          textInputAction: TextInputAction.newline,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: '写下此刻的想法…',
+                            filled: true,
+                            fillColor: theme.colorScheme.surfaceContainerLow,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  FilledButton.icon(
-                    key: const ValueKey<String>('note-composer-save'),
-                    onPressed: _trimmedNote.isEmpty
-                        ? null
-                        : () => _finish(_trimmedNote),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                    ),
-                    icon: const Icon(Icons.check, size: 20),
-                    label: const Text('保存笔记'),
-                  ),
-                ],
-              ),
+                ),
+                _ComposerActions(
+                  canSave: _trimmedNote.isNotEmpty,
+                  onSave: () => _finish(_trimmedNote),
+                ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ComposerActions extends StatelessWidget {
+  const _ComposerActions({required this.canSave, required this.onSave});
+
+  final bool canSave;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+        child: FilledButton.icon(
+          key: const ValueKey<String>('note-composer-save'),
+          onPressed: canSave ? onSave : null,
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+          icon: const Icon(Icons.check, size: 20),
+          label: const Text('保存笔记'),
         ),
       ),
     );
