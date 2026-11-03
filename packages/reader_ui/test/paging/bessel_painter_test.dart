@@ -17,23 +17,39 @@ Future<ui.Image> _solidImage(Color color) async {
   return image;
 }
 
+Future<ui.Image> _paperImage(bool markedPaper) async {
+  final paperRecorder = ui.PictureRecorder();
+  final paperCanvas = Canvas(paperRecorder)
+    ..drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+  if (markedPaper) {
+    for (final left in <double>[142, 190]) {
+      paperCanvas.drawRect(
+        Rect.fromLTWH(left, 0, 8, 300),
+        Paint()..color = const Color(0xFF000000),
+      );
+    }
+  }
+  final paperPicture = paperRecorder.endRecording();
+  final image = await paperPicture.toImage(200, 300);
+  paperPicture.dispose();
+  return image;
+}
+
 Future<ByteData> _render({
   bool top = false,
   bool horizontal = false,
+  double touchX = 120,
+  bool markedPaper = false,
   Color bottomColor = const Color(0xFFFFFFFF),
 }) async {
-  final paperRecorder = ui.PictureRecorder();
-  Canvas(paperRecorder).drawColor(const Color(0xFFFFFFFF), BlendMode.src);
-  final paperPicture = paperRecorder.endRecording();
-  final paper = await paperPicture.toImage(200, 300);
-  paperPicture.dispose();
+  final paper = await _paperImage(markedPaper);
   final bottom = await _solidImage(bottomColor);
   final recorder = ui.PictureRecorder();
   BesselPainter(paperColor: const Color(0xFFFFFFFF)).paint(
     Canvas(recorder),
     BesselGeometry.resolve(
       _size,
-      Offset(120, horizontal ? 150 : (top ? 100 : 200)),
+      Offset(touchX, horizontal ? 150 : (top ? 100 : 200)),
       top: top,
       horizontal: horizontal,
     )!,
@@ -162,5 +178,45 @@ void main() {
       expect(upper[1], upper[2]);
       expect(lower[0], closeTo(upper[0], 2));
     }
+  });
+
+  test('中心卷面全高等宽，纸背折痕和底页投影连续渐变', () async {
+    final data = await _render(horizontal: true);
+    final geometry = BesselGeometry.resolve(
+      _size,
+      const Offset(120, 150),
+      horizontal: true,
+    )!;
+    final crease = geometry.d.dx.floor();
+    for (final sampleY in <double>[2, 75, 150, 225, 297]) {
+      expect(_brightness(data, Offset(123, sampleY)), greaterThan(250));
+      expect(_brightness(data, Offset(crease - 1.0, sampleY)), lessThan(205));
+      expect(_brightness(data, Offset(crease + 2.0, sampleY)), lessThan(225));
+      expect(_brightness(data, Offset(crease + 30.0, sampleY)), 255);
+    }
+    for (var sampleX = 115; sampleX < 180; sampleX++) {
+      for (final sampleY in [2, 297]) {
+        final actual = _rgba(data, sampleX, sampleY);
+        final center = _rgba(data, sampleX, 150);
+        for (var channel = 0; channel < 4; channel++) {
+          expect(actual[channel], closeTo(center[channel], 2));
+        }
+      }
+    }
+  });
+
+  test('中心纸背保留镜像图案且靠近圆柱折痕逐渐压缩', () async {
+    final data = await _render(horizontal: true, touchX: 80, markedPaper: true);
+    final flatInk = <int>[];
+    final curvedInk = <int>[];
+    for (var sampleX = 80; sampleX < 125; sampleX++) {
+      if (_brightness(data, Offset(sampleX.toDouble(), 150)) >= 150) continue;
+      (sampleX < 100 ? flatInk : curvedInk).add(sampleX);
+    }
+
+    expect(flatInk.length, inInclusiveRange(7, 9));
+    expect(curvedInk, isNotEmpty);
+    expect(curvedInk.length, lessThan(flatInk.length / 2));
+    expect(curvedInk.first, greaterThan(flatInk.last));
   });
 }

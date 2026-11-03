@@ -109,4 +109,33 @@ void main() {
       );
     }
   });
+
+  test('中心起卷的纸边和折痕贯穿全高且宽度不随纵向触点变化', () {
+    const size = Size(320, 480);
+    for (final touchX in <double>[300, 220, 80, 0, -160, -300]) {
+      Rect? previousBounds;
+      for (final touchY in <double>[192, 240, 288]) {
+        final geometry = BesselGeometry.resolve(
+          size,
+          Offset(touchX, touchY),
+          horizontal: true,
+        )!;
+        final front = geometry.frontPath();
+        final back = geometry.backPath(front);
+        final bounds = back.getBounds();
+        expect(bounds.left, touchX);
+        expect(bounds.top, 0);
+        expect(bounds.bottom, size.height);
+        expect(bounds.right, lessThan(geometry.c.dx));
+        if (previousBounds != null) expect(bounds, previousBounds);
+        previousBounds = bounds;
+        for (final sampleY in <double>[1, 120, 240, 360, 479]) {
+          expect(front.contains(Offset(touchX + 1, sampleY)), isFalse);
+          expect(back.contains(Offset(touchX + 0.5, sampleY)), isTrue);
+          expect(back.contains(Offset(bounds.right - 0.5, sampleY)), isTrue);
+          expect(back.contains(Offset(bounds.right + 0.5, sampleY)), isFalse);
+        }
+      }
+    }
+  });
 }

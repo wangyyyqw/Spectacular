@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
@@ -67,6 +68,10 @@ class BesselPainter {
       math.atan2(g.a.dy - g.f.dy, g.a.dx - g.f.dx);
 
   void _bottomShadow(Canvas canvas, BesselGeometry g) {
+    if (g.horizontal) {
+      _edgeBottomShadow(canvas, g);
+      return;
+    }
     final width = (g.a - g.f).distance / 4;
     final length = _length(g);
     // DI 是可见折痕；投影覆盖曲面边缘，并在折痕外侧衰减。
@@ -80,7 +85,10 @@ class BesselPainter {
   }
 
   void _frontShadows(Canvas canvas, BesselGeometry g, Path front) {
-    if (g.horizontal) return;
+    if (g.horizontal) {
+      _edgeContactShadow(canvas, g);
+      return;
+    }
     final p = g.shadowPoint;
     final eClip = Path.combine(
       PathOperation.intersect,
@@ -136,6 +144,10 @@ class BesselPainter {
     bool rtl,
   ) {
     if (back.getBounds().isEmpty) return;
+    if (g.horizontal) {
+      _edgeBack(canvas, g, back, image, rtl);
+      return;
+    }
     canvas.save();
     canvas.clipPath(back);
     canvas.save();
@@ -157,6 +169,107 @@ class BesselPainter {
       _gradient(0.18, 0),
     );
     canvas.restore();
+  }
+
+  void _edgeBottomShadow(Canvas canvas, BesselGeometry geometry) {
+    final width = geometry.d.dx - geometry.e.dx;
+    _shadow(
+      canvas,
+      Rect.fromLTWH(0, 0, width, geometry.size.height),
+      geometry.d,
+      0,
+      const LinearGradient(
+        colors: [Color(0x45000000), Color(0x1A000000), Color(0x00000000)],
+        stops: [0, 0.3, 1],
+      ),
+    );
+  }
+
+  void _edgeContactShadow(Canvas canvas, BesselGeometry geometry) {
+    final width = math.min(3.0, (geometry.d.dx - geometry.a.dx) / 12);
+    _shadow(
+      canvas,
+      Rect.fromLTRB(-width, 0, 0, geometry.size.height),
+      Offset(geometry.a.dx, 0),
+      0,
+      _gradient(0, 0.09),
+    );
+  }
+
+  void _edgeBack(
+    Canvas canvas,
+    BesselGeometry geometry,
+    Path back,
+    ui.Image image,
+    bool rtl,
+  ) {
+    final mesh = _edgeMesh(geometry, image, rtl);
+    final shader = ui.ImageShader(
+      image,
+      TileMode.clamp,
+      TileMode.clamp,
+      Float64List(16)
+        ..[0] = 1
+        ..[5] = 1
+        ..[10] = 1
+        ..[15] = 1,
+      filterQuality: FilterQuality.low,
+    );
+    canvas.save();
+    canvas.clipPath(back);
+    canvas.drawVertices(mesh, BlendMode.src, Paint()..shader = shader);
+    _edgeBackShading(canvas, back);
+    canvas.restore();
+    shader.dispose();
+    mesh.dispose();
+  }
+
+  void _edgeBackShading(Canvas canvas, Path back) {
+    canvas.drawPath(back, Paint()..color = paperColor.withAlpha(145));
+    canvas.drawPath(
+      back,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0x12000000),
+            Color(0x45000000),
+          ],
+          stops: [0, 0.5, 0.78, 1],
+        ).createShader(back.getBounds()),
+    );
+  }
+
+  ui.Vertices _edgeMesh(BesselGeometry geometry, ui.Image image, bool rtl) {
+    const segments = 32;
+    final positions = <Offset>[];
+    final texture = <Offset>[];
+    final radius = geometry.d.dx - geometry.e.dx;
+    for (var index = -1; index <= segments; index++) {
+      final angle = math.pi * (1 - index / (2 * segments));
+      final screenX = index < 0
+          ? geometry.a.dx
+          : geometry.e.dx + radius * math.sin(angle);
+      final source = index < 0
+          ? geometry.size.width
+          : geometry.e.dx + radius * angle;
+      final sourceX =
+          (rtl ? geometry.size.width - source : source) *
+          image.width /
+          geometry.size.width;
+      positions
+        ..add(Offset(screenX, 0))
+        ..add(Offset(screenX, geometry.size.height));
+      texture
+        ..add(Offset(sourceX, 0))
+        ..add(Offset(sourceX, image.height.toDouble()));
+    }
+    return ui.Vertices(
+      ui.VertexMode.triangleStrip,
+      positions,
+      textureCoordinates: texture,
+    );
   }
 
   void _shadow(

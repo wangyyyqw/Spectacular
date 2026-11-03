@@ -161,7 +161,7 @@ void main() {
     expect(geometry.horizontal, isTrue);
     expect(geometry.a, const ui.Offset(220, 240));
     expect(back.getBounds().height, controller.size.height);
-    expect(back.getBounds().width, greaterThan(40));
+    expect(back.getBounds().width, greaterThan(controller.size.width / 10));
     expect(back.contains(const ui.Offset(240, 10)), isTrue);
     expect(back.contains(const ui.Offset(240, 470)), isTrue);
   });
