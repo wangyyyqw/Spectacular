@@ -628,6 +628,7 @@ class _DrawerLayer extends StatelessWidget {
                     child: Row(
                       children: <Widget>[
                         Text(
+                          key: const ValueKey<String>('reader-drawer-title'),
                           title,
                           style: TextStyle(
                             fontSize: 14,

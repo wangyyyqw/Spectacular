@@ -647,13 +647,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 菜单 / 目录 / 书签在同一 sheet 内切换：真机上先 pop 菜单再开新 sheet 会
   /// 被关闭动画吃掉（表现为点了没反应）。
   /// 抽屉标题（设计稿 `.drawer-title`）。
-  String _drawerTitleOf(ReaderMenuEntry? entry) => switch (entry) {
-    ReaderMenuEntry.toc => '目录',
-    ReaderMenuEntry.theme => '主题',
-    ReaderMenuEntry.type => '排版',
-    ReaderMenuEntry.settings => '设置',
-    null => '',
-  };
+  String _drawerTitleOf(ReaderMenuEntry? entry, _DrawerTab tab) =>
+      switch (entry) {
+        ReaderMenuEntry.toc => switch (tab) {
+          _DrawerTab.content => '目录',
+          _DrawerTab.bookmarks => '书签',
+          _DrawerTab.annotations => '笔记',
+          _DrawerTab.search => '搜索',
+        },
+        ReaderMenuEntry.theme => '主题',
+        ReaderMenuEntry.type => '排版',
+        ReaderMenuEntry.settings => '设置',
+        null => '',
+      };
 
   /// 滑杆气泡文案：章名 + 章内页。
   String _chapterLabelOf(PageContent page) =>
@@ -1822,7 +1828,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 unawaited(_seekToProgress(value));
               },
               onEntry: _openDrawer,
-              drawerTitle: _drawerTitleOf(_drawer),
+              drawerTitle: _drawerTitleOf(_drawer, _drawerTab),
               drawerChild: _drawer == null
                   ? null
                   : _ReaderDrawerContent(
