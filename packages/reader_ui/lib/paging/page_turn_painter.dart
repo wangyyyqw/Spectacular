@@ -40,24 +40,32 @@ class PageTurnPainter extends CustomPainter {
   }
 
   void _bessel(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
-    final point = controller.point;
-    if (point == null) return;
     final geometry = controller.besselGeometry;
     if (geometry == null) {
-      _cover(canvas, size, origin, target);
+      _besselFallback(canvas, size, origin, target);
       return;
     }
+    final saveCount = canvas.getSaveCount();
     try {
-      BesselPainter(paperColor: paperColor).paint(
-        canvas,
-        geometry,
-        target,
-        origin,
-        rtl: controller.next ? controller.rtl : !controller.rtl,
-      );
+      BesselPainter(paperColor: paperColor)
+          .paint(canvas, geometry, target, origin, rtl: !controller.fromRight);
     } on StateError {
-      _cover(canvas, size, origin, target);
+      canvas.restoreToCount(saveCount);
+      _besselFallback(canvas, size, origin, target);
     }
+  }
+
+  void _besselFallback(
+    Canvas canvas,
+    Size size,
+    ui.Image origin,
+    ui.Image target,
+  ) {
+    _image(canvas, target, size);
+    final dx =
+        (controller.fromRight ? -1 : 1) * controller.progress * size.width;
+    _translated(canvas, origin, size, dx);
+    _edgeShadow(canvas, size, dx, fromRight: controller.fromRight);
   }
 
   void _cover(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
@@ -80,20 +88,25 @@ class PageTurnPainter extends CustomPainter {
     final dx = -(controller.next ? p : 1 - p) * size.width;
     final physicalDx = controller.rtl ? -dx : dx;
     _translated(canvas, controller.next ? origin : target, size, physicalDx);
-    _edgeShadow(canvas, size, physicalDx);
+    _edgeShadow(canvas, size, physicalDx, fromRight: !controller.rtl);
   }
 
-  void _edgeShadow(Canvas canvas, Size size, double dx) {
-    final edge = controller.rtl ? dx : dx + size.width;
+  void _edgeShadow(
+    Canvas canvas,
+    Size size,
+    double dx, {
+    required bool fromRight,
+  }) {
+    final edge = fromRight ? dx + size.width : dx;
     final rect = Rect.fromLTWH(
-      controller.rtl ? edge - 24 : edge,
+      fromRight ? edge : edge - 24,
       0,
       24,
       size.height,
     );
     final gradient = LinearGradient(
-      begin: controller.rtl ? Alignment.centerRight : Alignment.centerLeft,
-      end: controller.rtl ? Alignment.centerLeft : Alignment.centerRight,
+      begin: fromRight ? Alignment.centerLeft : Alignment.centerRight,
+      end: fromRight ? Alignment.centerRight : Alignment.centerLeft,
       colors: const [Color(0x30000000), Color(0x00000000)],
     );
     canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
