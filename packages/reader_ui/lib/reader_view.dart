@@ -358,7 +358,10 @@ class _ReaderViewState extends State<ReaderView> {
               }
             },
             onHorizontalDragCancel: widget.onDragCancel,
-            onVerticalDragEnd: widget.continuousScroll
+            // 阅读页不消费纵向滑动。无观察回调时不注册纵向识别器，
+            // 避免起手略偏纵向时抢走后续水平翻页手势。
+            onVerticalDragEnd:
+                widget.continuousScroll || widget.onGesture == null
                 ? null
                 : (details) {
                     final gesture = _interpreter.swipeDirection(

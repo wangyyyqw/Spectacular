@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -28,6 +29,7 @@ class _Source implements ReaderChapterSource {
 Future<PageTurnController> _controller(
   WidgetTester tester, {
   bool rtl = false,
+  Future<void>? imageGate,
 }) async {
   final store = MemoryReaderProgressStore();
   await store.save('curl', const ReaderProgress(spineIndex: 0, pageIndex: 1));
@@ -46,7 +48,10 @@ Future<PageTurnController> _controller(
       PageTurnController(
           session: session,
           vsync: tester,
-          acquireImage: (_) async => image,
+          acquireImage: (_) async {
+            await imageGate;
+            return image;
+          },
         )
         ..size = const ui.Size(320, 480)
         ..mode = PageTurnMode.simulationBessel
@@ -181,6 +186,29 @@ void main() {
     expect(controller.session.progress!.pageIndex, 1);
     await tester.pump(const Duration(milliseconds: 150));
     expect(controller.session.progress!.pageIndex, 1);
+    await tester.pumpAndSettle();
+
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 2);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('图片准备超时后松手仍按最后拖动距离完成翻页', (tester) async {
+    final gate = Completer<void>();
+    final controller = await _controller(tester, imageGate: gate.future);
+    const down = ui.Offset(310, 430);
+    controller.pointerDown(down);
+    controller.beginDrag(DragStartDetails(localPosition: down));
+    _move(controller, const ui.Offset(220, 380));
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.preparing);
+
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 320)),
+    );
+    controller.endDrag(DragEndDetails());
+    gate.complete();
+    await tester.pump();
     await tester.pumpAndSettle();
 
     expect(controller.phase, PageTurnPhase.idle);
