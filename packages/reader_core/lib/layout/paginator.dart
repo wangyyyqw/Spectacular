@@ -1397,7 +1397,7 @@ class Paginator {
 
   /// 可继续按行拆分的表格行数；预切表格的 [TableRenderSpec.rowYs] 从 0 起
   /// 严格递增。返回值包含表头行，供调用方在首个切片后至少取一行正文。
-  static int _splittableTableRows(PageBlock block) {
+  static int splittableTableRows(PageBlock block) {
     final rows = block.table?.rowYs;
     if (rows == null || rows.length < 2) {
       return 0;
@@ -1418,7 +1418,7 @@ class Paginator {
   }
 
   /// 当前表格载荷顶部的表头行数（不超过实际行数）。
-  static int _tableHeaderRows(PageBlock block) {
+  static int tableHeaderRows(PageBlock block) {
     final table = block.table;
     if (table == null) {
       return 0;
@@ -1428,7 +1428,7 @@ class Paginator {
 
   /// 从预切表格块中截出 `[startRow, endRow)`，并把单元格和行界坐标平移到
   /// 切片顶。rowspan 格跨过分页边界时只保留可见矩形，避免续页整列消失。
-  static PageBlock _tablePiece(PageBlock source, int startRow, int endRow) {
+  static PageBlock tablePiece(PageBlock source, int startRow, int endRow) {
     final table = source.table!;
     final rowYs = table.rowYs;
     final rowCount = rowYs.length - 1;
@@ -2114,10 +2114,10 @@ class Paginator {
           blockExtent <= available + fitTolerance &&
           blockExtent <= pageHeight + fitTolerance) {
         final next = flow[blockIndex + 1];
-        final nextTableRows = _splittableTableRows(next);
-        final nextHeaderRows = _tableHeaderRows(next);
+        final nextTableRows = splittableTableRows(next);
+        final nextHeaderRows = tableHeaderRows(next);
         final nextLineNeed = nextTableRows > 1
-            ? _tablePiece(
+            ? tablePiece(
                 next,
                 0,
                 math.min(nextTableRows, nextHeaderRows + 1),
@@ -2146,9 +2146,9 @@ class Paginator {
 
       // 表格预切片仍可能只差几行才放得进当前页。把预切片继续按 rowYs
       // 拆分，首页先排能容纳的行，其余行顺延下一页，而不是整片下移。
-      final tableRows = _splittableTableRows(block);
+      final tableRows = splittableTableRows(block);
       if (tableRows > 1) {
-        final headerRows = _tableHeaderRows(block);
+        final headerRows = tableHeaderRows(block);
         var rowStart = 0;
         while (rowStart < tableRows) {
           final firstCandidate = rowStart == 0 && headerRows > 0
@@ -2162,7 +2162,7 @@ class Paginator {
             candidate <= tableRows;
             candidate++
           ) {
-            final piece = _tablePiece(block, rowStart, candidate);
+            final piece = tablePiece(block, rowStart, candidate);
             final leading = leadingOf(piece, 0);
             final extent = leading + piece.height + piece.trailingExtent;
             if (extent + piece.containerBottomInset(1) <=
@@ -2180,7 +2180,7 @@ class Paginator {
               continue;
             }
             // 单行高于整页：强制放一行，由渲染层按页面裁剪，避免死循环。
-            fitted = _tablePiece(block, rowStart, firstCandidate);
+            fitted = tablePiece(block, rowStart, firstCandidate);
             fittedEnd = firstCandidate;
             fittedLeading = leadingOf(fitted, 0);
           }

@@ -3506,9 +3506,74 @@ class EpubChapterSource
           }
         }
       }
-      // 表格块/空布局块（浮动章节）：整块原子入流。表格的逐行切分在
-      // collectTable 里已完成，这里只按块高占位——否则会被当成空文本块
-      // 静默丢掉（浮动章里的表格直接消失），空文本块还会让收页循环空转。
+      // 表格按当前页真实剩余高度切行；续页由 tablePiece 重复表头。
+      final tableRows = block.table == null
+          ? 0
+          : Paginator.splittableTableRows(block);
+      if (tableRows > 1) {
+        final headerRows = Paginator.tableHeaderRows(block);
+        var rowStart = 0;
+        while (rowStart < tableRows) {
+          final firstCandidate = rowStart == 0 && headerRows > 0
+              ? math.min(tableRows, headerRows + 1)
+              : rowStart + 1;
+          PageBlock? fitted;
+          var fittedEnd = rowStart;
+          var fittedLeading = 0.0;
+          for (
+            var candidate = firstCandidate;
+            candidate <= tableRows;
+            candidate++
+          ) {
+            final piece = Paginator.tablePiece(block, rowStart, candidate);
+            final leading = leadingOf(piece);
+            final extent = leading + piece.height + piece.trailingExtent;
+            if (y + extent + piece.containerBottomInset(1) <= height + 0.01) {
+              fitted = piece;
+              fittedEnd = candidate;
+              fittedLeading = leading;
+            } else {
+              break;
+            }
+          }
+          if (fitted == null) {
+            if (y > 0) {
+              closePage();
+              continue;
+            }
+            fitted = Paginator.tablePiece(block, rowStart, firstCandidate);
+            fittedEnd = firstCandidate;
+            fittedLeading = leadingOf(fitted);
+          }
+          final extent = fittedLeading + fitted.height + fitted.trailingExtent;
+          slices.add(
+            PageBlockSlice(
+              block: fitted,
+              startLine: 0,
+              endLine: 1,
+              height: extent,
+              leadingExtent: fittedLeading,
+              trailingExtent: fitted.trailingExtent,
+              leftInset: fitted.leftInset,
+            ),
+          );
+          noteFlow(
+            y + fittedLeading + fitted.height,
+            fitted.style?.margin.bottom ?? fitted.spaceAfter,
+          );
+          y += extent;
+          rowStart = fittedEnd;
+          if (rowStart < tableRows) {
+            closePage();
+          }
+        }
+        if (block.pageBreakAfter) {
+          closePage();
+        }
+        continue;
+      }
+      // 空布局块（浮动章节）：整块原子入流。否则会被当成空文本块静默
+      // 丢掉，空文本块还会让收页循环空转。
       if (block.layout.lineCount == 0 ||
           block.table != null ||
           block.layout.text.isEmpty) {

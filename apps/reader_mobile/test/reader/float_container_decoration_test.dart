@@ -122,6 +122,34 @@ void main() {
     }
   });
 
+  test('浮动章节中的跨页表格每页重复表头，正文行不重复', () async {
+    final pages = await _pages(
+      '<p class="tag">浮</p><div class="outer"><table>'
+      '<thead><tr><th>表头</th></tr></thead><tbody>'
+      '${List.generate(24, (i) => '<tr><td>第$i行</td></tr>').join()}'
+      '</tbody></table></div>',
+      css: 'table { border-collapse: collapse; } th, td { padding: 0; }',
+    );
+    final tables = [
+      for (final page in pages)
+        for (final slice in page.slices)
+          if (slice.block.table != null) slice.block.table!,
+    ];
+    expect(pages.length, greaterThan(1));
+    expect(tables, hasLength(pages.length));
+    final headers = [
+      for (final table in tables)
+        for (final cell in table.cells)
+          if (cell.row == 0) cell.layout.text,
+    ];
+    expect(headers, List.filled(pages.length, '表头'));
+    expect([
+      for (final table in tables)
+        for (final cell in table.cells)
+          if (cell.row > 0) cell.layout.text,
+    ], List.generate(24, (i) => '第$i行'));
+  });
+
   test('浮动章节中的声明高度盒续页同样预留边框，不截断后续正文', () async {
     final pages = await _pages(
       '<p class="tag">浮</p><div class="outer">'
