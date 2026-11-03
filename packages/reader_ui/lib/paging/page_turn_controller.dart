@@ -193,7 +193,7 @@ class PageTurnController extends ChangeNotifier {
     final distance = ((complete ? 1 : 0) - progress).abs();
     _settling.duration = Duration(
       milliseconds: bessel
-          ? 300
+          ? 420
           : ((complete ? 240 : 180) * distance).round().clamp(
               60,
               complete ? 240 : 180,
