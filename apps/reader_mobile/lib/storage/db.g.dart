@@ -172,6 +172,17 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<int> deletedAt = GeneratedColumn<int>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -189,6 +200,7 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     layoutVersion,
     level,
     warnings,
+    deletedAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -303,6 +315,12 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
         warnings.isAcceptableOrUnknown(data['warnings']!, _warningsMeta),
       );
     }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
     return context;
   }
 
@@ -372,6 +390,10 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
         DriftSqlType.string,
         data['${effectivePrefix}warnings'],
       ),
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}deleted_at'],
+      ),
     );
   }
 
@@ -426,6 +448,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
 
   /// 导入修复与降级摘要（JSON 数组）。
   final String? warnings;
+
+  /// 从书架移除的时间（毫秒）；非空时保留用户数据但不对书架展示。
+  final int? deletedAt;
   const BookRow({
     required this.id,
     required this.uuid,
@@ -442,6 +467,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     required this.layoutVersion,
     required this.level,
     this.warnings,
+    this.deletedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -472,6 +498,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     map['level'] = Variable<int>(level);
     if (!nullToAbsent || warnings != null) {
       map['warnings'] = Variable<String>(warnings);
+    }
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<int>(deletedAt);
     }
     return map;
   }
@@ -505,6 +534,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       warnings: warnings == null && nullToAbsent
           ? const Value.absent()
           : Value(warnings),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
     );
   }
 
@@ -529,6 +561,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       layoutVersion: serializer.fromJson<int>(json['layoutVersion']),
       level: serializer.fromJson<int>(json['level']),
       warnings: serializer.fromJson<String?>(json['warnings']),
+      deletedAt: serializer.fromJson<int?>(json['deletedAt']),
     );
   }
   @override
@@ -550,6 +583,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       'layoutVersion': serializer.toJson<int>(layoutVersion),
       'level': serializer.toJson<int>(level),
       'warnings': serializer.toJson<String?>(warnings),
+      'deletedAt': serializer.toJson<int?>(deletedAt),
     };
   }
 
@@ -569,6 +603,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     int? layoutVersion,
     int? level,
     Value<String?> warnings = const Value.absent(),
+    Value<int?> deletedAt = const Value.absent(),
   }) => BookRow(
     id: id ?? this.id,
     uuid: uuid ?? this.uuid,
@@ -585,6 +620,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     layoutVersion: layoutVersion ?? this.layoutVersion,
     level: level ?? this.level,
     warnings: warnings.present ? warnings.value : this.warnings,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
   );
   BookRow copyWithCompanion(BooksCompanion data) {
     return BookRow(
@@ -613,6 +649,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           : this.layoutVersion,
       level: data.level.present ? data.level.value : this.level,
       warnings: data.warnings.present ? data.warnings.value : this.warnings,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
   }
 
@@ -633,7 +670,8 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           ..write('lastReadAt: $lastReadAt, ')
           ..write('layoutVersion: $layoutVersion, ')
           ..write('level: $level, ')
-          ..write('warnings: $warnings')
+          ..write('warnings: $warnings, ')
+          ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
   }
@@ -655,6 +693,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     layoutVersion,
     level,
     warnings,
+    deletedAt,
   );
   @override
   bool operator ==(Object other) =>
@@ -674,7 +713,8 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           other.lastReadAt == this.lastReadAt &&
           other.layoutVersion == this.layoutVersion &&
           other.level == this.level &&
-          other.warnings == this.warnings);
+          other.warnings == this.warnings &&
+          other.deletedAt == this.deletedAt);
 }
 
 class BooksCompanion extends UpdateCompanion<BookRow> {
@@ -693,6 +733,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
   final Value<int> layoutVersion;
   final Value<int> level;
   final Value<String?> warnings;
+  final Value<int?> deletedAt;
   const BooksCompanion({
     this.id = const Value.absent(),
     this.uuid = const Value.absent(),
@@ -709,6 +750,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.layoutVersion = const Value.absent(),
     this.level = const Value.absent(),
     this.warnings = const Value.absent(),
+    this.deletedAt = const Value.absent(),
   });
   BooksCompanion.insert({
     this.id = const Value.absent(),
@@ -726,6 +768,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.layoutVersion = const Value.absent(),
     this.level = const Value.absent(),
     this.warnings = const Value.absent(),
+    this.deletedAt = const Value.absent(),
   }) : uuid = Value(uuid),
        title = Value(title),
        contentDir = Value(contentDir),
@@ -746,6 +789,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Expression<int>? layoutVersion,
     Expression<int>? level,
     Expression<String>? warnings,
+    Expression<int>? deletedAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -763,6 +807,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       if (layoutVersion != null) 'layout_version': layoutVersion,
       if (level != null) 'level': level,
       if (warnings != null) 'warnings': warnings,
+      if (deletedAt != null) 'deleted_at': deletedAt,
     });
   }
 
@@ -782,6 +827,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Value<int>? layoutVersion,
     Value<int>? level,
     Value<String?>? warnings,
+    Value<int?>? deletedAt,
   }) {
     return BooksCompanion(
       id: id ?? this.id,
@@ -799,6 +845,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       layoutVersion: layoutVersion ?? this.layoutVersion,
       level: level ?? this.level,
       warnings: warnings ?? this.warnings,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 
@@ -850,6 +897,9 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     if (warnings.present) {
       map['warnings'] = Variable<String>(warnings.value);
     }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<int>(deletedAt.value);
+    }
     return map;
   }
 
@@ -870,7 +920,8 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
           ..write('lastReadAt: $lastReadAt, ')
           ..write('layoutVersion: $layoutVersion, ')
           ..write('level: $level, ')
-          ..write('warnings: $warnings')
+          ..write('warnings: $warnings, ')
+          ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
   }
@@ -4958,6 +5009,7 @@ typedef $$BooksTableCreateCompanionBuilder = BooksCompanion Function({
   Value<int> layoutVersion,
   Value<int> level,
   Value<String?> warnings,
+  Value<int?> deletedAt,
 });
 typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<int> id,
@@ -4975,6 +5027,7 @@ typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<int> layoutVersion,
   Value<int> level,
   Value<String?> warnings,
+  Value<int?> deletedAt,
 });
 
 final class $$BooksTableReferences
@@ -5192,6 +5245,11 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
 
   ColumnFilters<String> get warnings => $composableBuilder(
     column: $table.warnings,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5454,6 +5512,11 @@ class $$BooksTableOrderingComposer
     column: $table.warnings,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$BooksTableAnnotationComposer
@@ -5519,6 +5582,9 @@ class $$BooksTableAnnotationComposer
 
   GeneratedColumn<String> get warnings =>
       $composableBuilder(column: $table.warnings, builder: (column) => column);
+
+  GeneratedColumn<int> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 
   Expression<T> spineItemsRefs<T extends Object>(
     Expression<T> Function($$SpineItemsTableAnnotationComposer a) f,
@@ -5747,6 +5813,7 @@ class $$BooksTableTableManager
                 Value<int> layoutVersion = const Value.absent(),
                 Value<int> level = const Value.absent(),
                 Value<String?> warnings = const Value.absent(),
+                Value<int?> deletedAt = const Value.absent(),
               }) => BooksCompanion(
                 id: id,
                 uuid: uuid,
@@ -5763,6 +5830,7 @@ class $$BooksTableTableManager
                 layoutVersion: layoutVersion,
                 level: level,
                 warnings: warnings,
+                deletedAt: deletedAt,
               ),
           createCompanionCallback:
               ({
@@ -5781,6 +5849,7 @@ class $$BooksTableTableManager
                 Value<int> layoutVersion = const Value.absent(),
                 Value<int> level = const Value.absent(),
                 Value<String?> warnings = const Value.absent(),
+                Value<int?> deletedAt = const Value.absent(),
               }) => BooksCompanion.insert(
                 id: id,
                 uuid: uuid,
@@ -5797,6 +5866,7 @@ class $$BooksTableTableManager
                 layoutVersion: layoutVersion,
                 level: level,
                 warnings: warnings,
+                deletedAt: deletedAt,
               ),
           withReferenceMapper: (p0) => p0
               .map(

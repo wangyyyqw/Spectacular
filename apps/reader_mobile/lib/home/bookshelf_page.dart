@@ -451,7 +451,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('删除《${entry.title}》'),
-        content: const Text('将删除书籍文件与阅读进度，且不可恢复。'),
+        content: const Text(
+          '将删除书籍文件；阅读进度、书签、笔记和高亮会保留，重新导入同一本书后恢复。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -469,7 +471,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
       ),
     );
     if (confirmed == true) {
-      await widget.progressStore.clear(entry.id);
       await widget.library.remove(entry.id);
     }
   }
@@ -488,7 +489,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('删除选中的 ${entries.length} 本书？'),
-        content: const Text('将永久删除书籍文件、阅读进度、书签、笔记和高亮，且不可恢复。'),
+        content: const Text(
+          '将删除书籍文件；阅读进度、书签、笔记和高亮会保留，重新导入后恢复。',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -516,7 +519,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final failedIds = <String>[];
     for (final entry in entries) {
       try {
-        await widget.progressStore.clear(entry.id);
         await widget.library.remove(entry.id);
         removed++;
       } catch (_) {

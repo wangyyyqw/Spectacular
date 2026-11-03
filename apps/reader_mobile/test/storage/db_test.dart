@@ -27,15 +27,21 @@ Future<int> _insertBook(
   ),
 );
 
-/// 从当前 schema 还原 v1 建表语句：去掉 v2 的 import_reports 与 v3 给
-/// reading_progress 新增的两列。
-String _stripV3Columns(String statement) {
-  if (!statement.contains('reading_progress')) {
-    return statement;
+/// 从当前 schema 还原 v1 建表语句：去掉后续版本新增的列。
+String _stripPostV1Columns(String statement) {
+  var result = statement;
+  if (result.contains('"books"')) {
+    result = result.replaceAll(
+      RegExp(r',\s*"?deleted_at"?\s+INTEGER(\s+NULL)?'),
+      '',
+    );
   }
-  return statement
+  if (result.contains('reading_progress')) {
+    result = result
       .replaceAll(RegExp(r',\s*"?spine_index"?\s+INTEGER(\s+NULL)?'), '')
       .replaceAll(RegExp(r',\s*"?page_index"?\s+INTEGER(\s+NULL)?'), '');
+  }
+  return result;
 }
 
 /// 从当前 schema 导出 v1 建表语句（排除后续版本新增的表）。
@@ -50,7 +56,7 @@ Future<List<String>> _v1Schema() async {
   ).get();
   final sql = <String>[
     for (final row in rows)
-      _stripV3Columns(row.read<String>('sql')),
+      _stripPostV1Columns(row.read<String>('sql')),
   ];
   await database.close();
   return sql;
@@ -103,7 +109,7 @@ void main() {
       await database.customSelect('PRAGMA user_version').getSingle().then(
         (row) => row.read<int>('user_version'),
       ),
-      7,
+      8,
     );
   });
 
@@ -182,7 +188,7 @@ void main() {
     expect(await database.select(database.readingSessions).get(), isEmpty);
   });
 
-  test('v1→v7 迁移：数据保留、新增报告、进度列、书评与阅读会话表', () async {
+  test('v1→v8 迁移：数据保留并新增报告、进度列、书评、会话与软删除列', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -201,12 +207,19 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 7, reason: 'schema 已升到 v7');
+    expect(version.read<int>('user_version'), 8, reason: 'schema 已升到 v8');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
     final names = <String>{for (final row in columns) row.read<String>('name')};
     expect(names, containsAll(<String>['spine_index', 'page_index']));
+    final bookColumns = await database
+        .customSelect('PRAGMA table_info(books)')
+        .get();
+    expect(
+      <String>{for (final row in bookColumns) row.read<String>('name')},
+      contains('deleted_at'),
+    );
     final books = await database.select(database.books).get();
     expect(books.single.title, '旧书', reason: '迁移不丢数据');
     await database.into(database.importReports).insert(

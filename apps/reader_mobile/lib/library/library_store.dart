@@ -336,7 +336,9 @@ class LibraryStore {
     }
     final db = _db!;
     final rows =
-        await (db.select(db.books)..orderBy([
+        await (db.select(db.books)
+              ..where((table) => table.deletedAt.isNull())
+              ..orderBy([
               (table) => OrderingTerm(
                 expression: table.lastReadAt,
                 mode: OrderingMode.desc,
@@ -345,7 +347,7 @@ class LibraryStore {
                 expression: table.createdAt,
                 mode: OrderingMode.desc,
               ),
-            ]))
+              ]))
             .get();
     return <BookEntry>[
       for (final row in rows)
@@ -387,7 +389,10 @@ class LibraryStore {
     onProgress?.call(0.45);
     // §36.2：同一本书（OPF unique-identifier）只允许一份。
     final id = _bookKey(document.meta.identifier);
-    if (await _contains(id)) {
+    final existing = _isMemory ? null : await _bookRowOfUuid(id);
+    if (_isMemory
+        ? _memoryEntries.containsKey(id)
+        : existing != null && existing.deletedAt == null) {
       throw const LibraryImportException(
         '这本书已在书架中',
         errorCode: 'E_DUPLICATE',
@@ -426,12 +431,16 @@ class LibraryStore {
       charCounts,
       excluded: document.progressExcludedSpineIndexes,
     );
+    final now = DateTime.now();
+    final addedAt = existing == null
+        ? now
+        : DateTime.fromMillisecondsSinceEpoch(existing.createdAt);
     final entry = BookEntry(
       id: id,
       title: title,
       author: document.meta.author.trim(),
       filePath: filePath,
-      addedAt: DateTime.now(),
+      addedAt: addedAt,
       spineCount: document.spine.length,
       readabilityLevel: result.report.readabilityLevel,
       coverPath: coverPath,
@@ -440,39 +449,59 @@ class LibraryStore {
       _memoryEntries[id] = entry;
     } else {
       final db = _db!;
-      final bookId = await db.into(db.books).insert(
-        BooksCompanion.insert(
-          uuid: id,
-          title: title,
-          author: Value(
-            document.meta.author.trim().isEmpty
-                ? null
-                : document.meta.author.trim(),
-          ),
-          language: Value(
-            document.meta.language.trim().isEmpty
-                ? null
-                : document.meta.language.trim(),
-          ),
-          // 尚未解包：书目录即资源目录；P4-04 之后解包到 books/<id>/content。
-          contentDir: 'books/$id',
-          sourcePath: Value(filePath),
-          coverPath: Value(coverPath),
-          spineCount: Value(document.spine.length),
-          charCount: Value(weights.totalCharacters),
-          createdAt: entry.addedAt.millisecondsSinceEpoch,
-          level: Value(result.report.readabilityLevel),
-          warnings: Value(
-            result.report.warnings.isEmpty
-                ? null
-                : jsonEncode(result.report.warnings),
-          ),
+      final companion = BooksCompanion.insert(
+        uuid: id,
+        title: title,
+        author: Value(
+          document.meta.author.trim().isEmpty
+              ? null
+              : document.meta.author.trim(),
         ),
+        language: Value(
+          document.meta.language.trim().isEmpty
+              ? null
+              : document.meta.language.trim(),
+        ),
+        // 尚未解包：书目录即资源目录；P4-04 之后解包到 books/<id>/content。
+        contentDir: 'books/$id',
+        sourcePath: Value(filePath),
+        coverPath: Value(coverPath),
+        spineCount: Value(document.spine.length),
+        charCount: Value(weights.totalCharacters),
+        createdAt: addedAt.millisecondsSinceEpoch,
+        level: Value(result.report.readabilityLevel),
+        warnings: Value(
+          result.report.warnings.isEmpty
+              ? null
+              : jsonEncode(result.report.warnings),
+        ),
+        deletedAt: const Value<int?>(null),
       );
-      // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
-      await _writeImportReports(bookId, result.report);
-      // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
-      await _writeSpineItems(bookId, document, charCounts, weights);
+      await db.transaction(() async {
+        final int bookId;
+        if (existing == null) {
+          bookId = await db.into(db.books).insert(companion);
+        } else {
+          // 软删除记录的原主键不变；用户数据通过外键继续挂在同一本书上。
+          bookId = existing.id;
+          await (db.update(db.books)
+                ..where((table) => table.id.equals(bookId)))
+              .write(companion);
+          await (db.delete(
+            db.spineItems,
+          )..where((table) => table.bookId.equals(bookId))).go();
+          await (db.delete(
+            db.chapters,
+          )..where((table) => table.bookId.equals(bookId))).go();
+          await (db.delete(
+            db.importReports,
+          )..where((table) => table.bookId.equals(bookId))).go();
+        }
+        // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
+        await _writeImportReports(bookId, result.report);
+        // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
+        await _writeSpineItems(bookId, document, charCounts, weights);
+      });
     }
     onProgress?.call(1);
     _notify();
@@ -509,8 +538,10 @@ class LibraryStore {
     _notify();
   }
 
-  /// 删除书籍：先删库行（级联清标注/进度/spine/目录），再删书目录
-  /// （原书 + 封面缓存），不留孤儿文件。
+  /// 从书架移除书籍：保留用户数据，只清理书籍文件并标记为已删除。
+  ///
+  /// 重新导入同一 OPF identifier 时复用原书主键，进度、标注、书评和阅读
+  /// 会话随之恢复。
   Future<void> remove(String id) async {
     if (_isMemory) {
       _memoryBytes.remove(id);
@@ -518,8 +549,7 @@ class LibraryStore {
       _notify();
       return;
     }
-    // §37.4：先删库行（级联清子表），再删书目录与旧格式原书文件；
-    // 删文件失败留孤儿，启动扫描可清理。
+    // 软删除保留子表；文件删除失败留孤儿，启动扫描可清理。
     final db = _db!;
     final root = await _root();
     final directory = _safeBookDirectory(root, id);
@@ -530,9 +560,13 @@ class LibraryStore {
       for (final row in rows)
         if (row.sourcePath != null) row.sourcePath!,
     ];
-    await (db.delete(
-      db.books,
-    )..where((table) => table.uuid.equals(id))).go();
+    await (db.update(db.books)..where((table) => table.uuid.equals(id))).write(
+      BooksCompanion(
+        deletedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
+        sourcePath: const Value<String?>(null),
+        coverPath: const Value<String?>(null),
+      ),
+    );
     for (final path in sourcePaths) {
       // 旧库异常路径只能清理记录，不能扩大文件删除范围。
       final normalized = p.normalize(path);
@@ -704,7 +738,9 @@ class LibraryStore {
     if (!await booksDirectory.exists()) {
       return (removed: 0, bytes: 0);
     }
-    final rows = await db.select(db.books).get();
+    final rows = await (db.select(
+      db.books,
+    )..where((table) => table.deletedAt.isNull())).get();
     final knownIds = <String>{for (final row in rows) row.uuid};
     final knownFiles = <String>{
       for (final row in rows)
@@ -777,9 +813,11 @@ class LibraryStore {
       return 0;
     }
     final db = _db!;
-    final rows = await (db.select(
-      db.books,
-    )..where((table) => table.coverPath.isNull())).get();
+    final rows =
+        await (db.select(db.books)..where(
+              (table) => table.deletedAt.isNull() & table.coverPath.isNull(),
+            ))
+            .get();
     var filled = 0;
     for (final row in rows) {
       final sourcePath = row.sourcePath;
@@ -818,7 +856,9 @@ class LibraryStore {
       return 0;
     }
     final db = _db!;
-    final rows = await db.select(db.books).get();
+    final rows = await (db.select(
+      db.books,
+    )..where((table) => table.deletedAt.isNull())).get();
     if (rows.isNotEmpty) {
       return 0;
     }
@@ -895,16 +935,12 @@ class LibraryStore {
     return sanitized.isEmpty ? _newId() : sanitized;
   }
 
-  /// 书库里是否已有该主键的书。
-  Future<bool> _contains(String id) async {
-    if (_isMemory) {
-      return _memoryEntries.containsKey(id);
-    }
+  Future<BookRow?> _bookRowOfUuid(String id) async {
     final db = _db!;
     final rows = await (db.select(
       db.books,
     )..where((table) => table.uuid.equals(id))).get();
-    return rows.isNotEmpty;
+    return rows.isEmpty ? null : rows.single;
   }
 
   String _newId() {
