@@ -273,7 +273,7 @@ void main() {
     expect(tag('b', parentWeight: 100).fontWeight, 400, reason: 'bolder(100)');
   });
 
-  test('继承字段清单与显式文字色标记', () {
+  test('继承字段清单与作者文字色标记', () {
     expect(Cascade.inheritedProperties, containsAll(
       ['font-size', 'word-spacing', 'visibility', 'border-spacing'],
     ));
@@ -284,7 +284,7 @@ void main() {
     expect(parent.hasExplicitTextColor, isTrue);
     final inherited = compute(id: 'p', parent: parent);
     expect(inherited['font-size'], '18px');
-    expect(inherited.hasExplicitTextColor, isFalse);
+    expect(inherited.hasExplicitTextColor, isTrue);
   });
 }
 

@@ -171,6 +171,22 @@ void main() {
     }
   });
 
+  test('容器重建样式后仍保留作者文字色标记', () async {
+    final source = await EpubChapterSource.open(_buildEpubWithCss(
+      'div.panel { color: #33691E; padding-left: 12px; }',
+      '<div class="panel"><p>面板内继承色。</p></div>',
+    ));
+    final block = (await source.loadChapter(0))
+        .expand((page) => page.slices.map((s) => s.block))
+        .firstWhere((b) => b.layout.text.contains('面板内'));
+    expect(block.style!.color, const Color(0xFF33691E));
+    expect(
+      block.style!.hasExplicitTextColor,
+      isTrue,
+      reason: '容器 padding 触发样式重建，作者色标记不能丢',
+    );
+  });
+
   test('P8-05 块级上下边距进分页几何', () async {
     final source = await EpubChapterSource.open(_buildEpubWithCss(
       'p { margin-top: 24px; margin-bottom: 16px; }',
