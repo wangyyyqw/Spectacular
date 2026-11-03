@@ -11,6 +11,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/panels/tap_zone_editor.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/tap_zones.dart';
 
@@ -183,6 +184,25 @@ void main() {
 
     await library.setSetting(ReaderSettingsStore.keyTapZones, '{bad json');
     expect((await store.load()).tapZones, ReaderTapZones.defaults);
+  });
+
+  test('翻页方式持久化往返，损坏值回落覆盖翻页', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+
+    expect((await store.load()).pageTurnMode, PageTurnMode.cover);
+    await store.save(
+      ReaderSettings.defaults.copyWithPageTurnMode(
+        PageTurnMode.simulationBessel,
+      ),
+    );
+    expect((await store.load()).pageTurnMode, PageTurnMode.simulationBessel);
+
+    await library.setSetting(
+      ReaderSettingsStore.keyPageTurnMode,
+      'removed-mode',
+    );
+    expect((await store.load()).pageTurnMode, PageTurnMode.cover);
   });
 
   test('修改排版不会重置九宫格点击区域', () {

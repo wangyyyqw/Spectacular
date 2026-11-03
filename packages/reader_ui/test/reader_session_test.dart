@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_ui/paging/continuous_scroll_view.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -197,6 +199,159 @@ void main() {
       const ReaderProgress(spineIndex: 0, pageIndex: 0),
     );
     expect(await restored.previous(), isFalse);
+  });
+
+  test('连续滚动加载整章并同步当前页', () async {
+    final session = ReaderSession(
+      source: FakeSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'scroll-sync',
+    );
+    await session.open();
+
+    expect(await session.commitScrollPage(1, 1), isTrue);
+    await session.flushProgress();
+    expect(
+      await session.store.load('scroll-sync'),
+      const ReaderProgress(spineIndex: 1, pageIndex: 1),
+    );
+  });
+
+  test('翻页准备不修改进度，收尾只提交一次', () async {
+    final session = ReaderSession(
+      source: FakeSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'prepare-turn',
+    );
+    await session.open();
+    final origin = session.page;
+    final prepared = await session.preparePageTurn(true);
+
+    expect(prepared, isNotNull);
+    expect(identical(session.page, origin), isTrue);
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 0));
+
+    expect(session.commitPageTurn(prepared!), isTrue);
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 1));
+    expect(session.commitPageTurn(prepared), isFalse);
+    session.dispose();
+  });
+
+  test('外部跳转后丢弃旧翻页准备结果', () async {
+    final session = ReaderSession(
+      source: FakeSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'stale-turn',
+    );
+    await session.open();
+    final stale = await session.preparePageTurn(true);
+    expect(await session.jumpToChapter(5), isTrue);
+
+    expect(session.commitPageTurn(stale!), isFalse);
+    expect(session.progress, const ReaderProgress(spineIndex: 5, pageIndex: 0));
+    session.dispose();
+  });
+
+  testWidgets('连续滚动视图可翻越页切片并报告当前页', (tester) async {
+    final source = FakeSource(pagesPerChapter: 40);
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'scroll-widget',
+    );
+    await session.open();
+    final visible = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            height: 520,
+            child: ContinuousScrollView(
+              session: session,
+              revision: 1,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              onPageVisible: (page) => visible.add(page.pageIndex),
+              paperBuilder: (page, size) => Text(page.pageIndex.toString()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('continuous-scroll')),
+      findsOneWidget,
+    );
+
+    await tester.drag(
+      find.byKey(const ValueKey<String>('continuous-scroll')),
+      const Offset(0, -420),
+    );
+    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pumpAndSettle();
+
+    expect(visible, isNotEmpty);
+    expect(session.progress?.pageIndex, greaterThan(0));
+    session.dispose();
+  });
+
+  testWidgets('分页与连续滚动切换保留同一阅读进度', (tester) async {
+    final source = FakeSource(pagesPerChapter: 40);
+    final store = MemoryReaderProgressStore();
+    late ReaderSession session;
+    Widget build(PageTurnMode mode) => MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 360,
+            height: 520,
+            child: ReaderPage(
+              source: source,
+              store: store,
+              bookId: 'scroll-round-trip',
+              pageTurnMode: mode,
+              onSessionReady: (value) => session = value,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(build(PageTurnMode.cover));
+    await tester.pumpAndSettle();
+    expect(await session.next(), isTrue);
+    expect(await session.next(), isTrue);
+    await tester.pumpAndSettle();
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 2));
+
+    await tester.pumpWidget(build(PageTurnMode.scroll));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('continuous-scroll')),
+      findsOneWidget,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey<String>('continuous-scroll')),
+      const Offset(0, -220),
+    );
+    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pumpAndSettle();
+    final scrolled = session.progress!;
+    expect(scrolled.pageIndex, greaterThan(2));
+
+    await tester.pumpWidget(build(PageTurnMode.cover));
+    await tester.pumpAndSettle();
+    expect(session.progress, scrolled);
+    expect(
+      find.byKey(
+        ValueKey<String>(
+          'reader-page-${scrolled.spineIndex}-${scrolled.pageIndex}',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('跳转时显示目标章名浮层，完成后消失（P4-12）', (tester) async {

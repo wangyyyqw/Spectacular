@@ -172,6 +172,12 @@ class ReaderView extends StatefulWidget {
     this.onTripleTapAt,
     this.onTapAt,
     this.onGesture,
+    this.onPointerDown,
+    this.onDragStart,
+    this.onDragUpdate,
+    this.onDragEnd,
+    this.onDragCancel,
+    this.continuousScroll = false,
     this.pageIndex,
     this.pageCount,
     this.config = const ReaderGestureConfig(),
@@ -203,6 +209,18 @@ class ReaderView extends StatefulWidget {
 
   /// 手势观测回调（测试/埋点）。
   final ValueChanged<ReaderGesture>? onGesture;
+
+  /// 动画层记录原始按下点，不改变手势竞争。
+  final ValueChanged<Offset>? onPointerDown;
+
+  /// 水平拖动生命周期，用于驱动翻页动画。
+  final GestureDragStartCallback? onDragStart;
+  final GestureDragUpdateCallback? onDragUpdate;
+  final GestureDragEndCallback? onDragEnd;
+  final GestureDragCancelCallback? onDragCancel;
+
+  /// 连续滚动时纵向手势交给子滚动容器。
+  final bool continuousScroll;
 
   /// 当前页序号；提供 pageCount 时用于边界钳制。
   final int? pageIndex;
@@ -258,85 +276,99 @@ class _ReaderViewState extends State<ReaderView> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (details) {
-            _lastTapPosition = details.localPosition;
-          },
-          onDoubleTap: widget.onDoubleTapAt == null
+        return Listener(
+          onPointerDown: widget.onPointerDown == null
               ? null
-              : () {
-                  _doubleTapTime = DateTime.now();
-                  final position = _lastTapPosition;
-                  if (position != null) {
-                    widget.onDoubleTapAt!(position);
-                  }
-                },
-          onTapUp: (details) {
-            // 三击：双击后 350ms 内再落一次 → 选句（P4-16，§63.2）。
-            final doubleTap = _doubleTapTime;
-            if (widget.onTripleTapAt != null &&
-                doubleTap != null &&
-                DateTime.now().difference(doubleTap) <
-                    const Duration(milliseconds: 350)) {
-              _doubleTapTime = null;
-              widget.onTripleTapAt!(details.localPosition);
-              return;
-            }
-            if (widget.onTapAt?.call(details.localPosition) ?? false) {
-              return;
-            }
-            final gesture = _interpreter.tapAt(
-              details.localPosition,
-              width: width,
-            );
-            _notify(gesture);
-            final action = _interpreter.tapActionAt(
-              details.localPosition,
-              size: Size(width, height),
-            );
-            switch (action) {
-              case ReaderTapAction.previousPage:
-                _turn(PageTurnIntent.previous);
-              case ReaderTapAction.nextPage:
-                _turn(PageTurnIntent.next);
-              case ReaderTapAction.openMenu:
-              widget.onToggleToolbar?.call();
-              case ReaderTapAction.none:
-                break;
-            }
-          },
-          onLongPressStart: (details) {
-            widget.onLongPressAt?.call(details.localPosition);
-          },
-          onHorizontalDragStart: (_) {
-            _dragDx = 0;
-            _dragDy = 0;
-          },
-          onHorizontalDragUpdate: (details) {
-            _dragDx += details.delta.dx;
-            _dragDy += details.delta.dy;
-          },
-          onHorizontalDragEnd: (details) {
-            final gesture = _interpreter.swipeDirection(_dragDx, _dragDy);
-            _notify(gesture);
-            if (_interpreter.shouldTurnPage(
-              dx: _dragDx,
-              dy: _dragDy,
-              width: width,
-              velocityX: details.primaryVelocity ?? 0,
-            )) {
-              _turn(_interpreter.swipeIntent(gesture));
-            }
-          },
-          onVerticalDragEnd: (details) {
-            final gesture = _interpreter.swipeDirection(
-              0,
-              details.primaryVelocity ?? 0,
-            );
-            _notify(gesture);
-          },
-          child: widget.child ?? const SizedBox.expand(),
+              : (event) => widget.onPointerDown!(event.localPosition),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) {
+              _lastTapPosition = details.localPosition;
+            },
+            onDoubleTap: widget.onDoubleTapAt == null
+                ? null
+                : () {
+                    _doubleTapTime = DateTime.now();
+                    final position = _lastTapPosition;
+                    if (position != null) {
+                      widget.onDoubleTapAt!(position);
+                    }
+                  },
+            onTapUp: (details) {
+              // 三击：双击后 350ms 内再落一次 → 选句（P4-16，§63.2）。
+              final doubleTap = _doubleTapTime;
+              if (widget.onTripleTapAt != null &&
+                  doubleTap != null &&
+                  DateTime.now().difference(doubleTap) <
+                      const Duration(milliseconds: 350)) {
+                _doubleTapTime = null;
+                widget.onTripleTapAt!(details.localPosition);
+                return;
+              }
+              if (widget.onTapAt?.call(details.localPosition) ?? false) {
+                return;
+              }
+              final gesture = _interpreter.tapAt(
+                details.localPosition,
+                width: width,
+              );
+              _notify(gesture);
+              final action = _interpreter.tapActionAt(
+                details.localPosition,
+                size: Size(width, height),
+              );
+              switch (action) {
+                case ReaderTapAction.previousPage:
+                  _turn(PageTurnIntent.previous);
+                case ReaderTapAction.nextPage:
+                  _turn(PageTurnIntent.next);
+                case ReaderTapAction.openMenu:
+                  widget.onToggleToolbar?.call();
+                case ReaderTapAction.none:
+                  break;
+              }
+            },
+            onLongPressStart: (details) {
+              widget.onLongPressAt?.call(details.localPosition);
+            },
+            onHorizontalDragStart: (details) {
+              _dragDx = 0;
+              _dragDy = 0;
+              widget.onDragStart?.call(details);
+            },
+            onHorizontalDragUpdate: (details) {
+              _dragDx += details.delta.dx;
+              _dragDy += details.delta.dy;
+              widget.onDragUpdate?.call(details);
+            },
+            onHorizontalDragEnd: (details) {
+              final gesture = _interpreter.swipeDirection(_dragDx, _dragDy);
+              _notify(gesture);
+              if (widget.onDragEnd != null) {
+                widget.onDragEnd!(details);
+                return;
+              }
+              if (_interpreter.shouldTurnPage(
+                dx: _dragDx,
+                dy: _dragDy,
+                width: width,
+                velocityX: details.primaryVelocity ?? 0,
+              )) {
+                _turn(_interpreter.swipeIntent(gesture));
+              }
+            },
+            onHorizontalDragCancel: widget.onDragCancel,
+            onVerticalDragEnd: widget.continuousScroll
+                ? null
+                : (details) {
+                    final gesture = _interpreter.swipeDirection(
+                      0,
+                      details.primaryVelocity ?? 0,
+                    );
+                    _notify(gesture);
+                  },
+            child: widget.child ?? const SizedBox.expand(),
+          ),
         );
       },
     );

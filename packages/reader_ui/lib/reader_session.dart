@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/scroll_layout.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/cfi.dart';
 
@@ -181,6 +182,19 @@ class ReaderAnchor {
   bool get isEmpty => cfi == null;
 }
 
+/// 已准备的翻页目标；准备期间不修改当前页或保存阅读进度。
+class PreparedPageTurn {
+  const PreparedPageTurn({
+    required this.origin,
+    required this.target,
+    required this.generation,
+  });
+
+  final PageContent origin;
+  final VirtualPage target;
+  final int generation;
+}
+
 /// 可应用正文区尺寸的章节源（旋转/窗口变化，P2-31）。
 abstract interface class ResizableChapterSource implements ReaderChapterSource {
   /// 应用正文区尺寸及整页到正文的上内缩（含安全区与页眉槽）。
@@ -223,6 +237,74 @@ class ReaderSession extends ChangeNotifier {
 
   /// 异步任务代号：取消或开始新任务后，旧任务不再回写状态（P2-27）。
   int _generation = 0;
+
+  /// 版面或外部定位变化时递增，供动画丢弃过期准备结果。
+  int get generation => _generation;
+
+  /// 已加载的真实邻页；预热不触发正文重新测量。
+  List<PageContent> get adjacentPages => [
+    for (final page in _pager?.prefetchedPages ?? const <VirtualPage>[])
+      page.content,
+  ];
+
+  /// 准备邻页；加载失败交给调用方处理，原页继续可读。
+  Future<PreparedPageTurn?> preparePageTurn(bool next) async {
+    final pager = _pager;
+    final origin = page;
+    final generation = _generation;
+    if (pager == null || origin == null || _loading) return null;
+    final target = await pager.prepareAdjacent(next ? 1 : -1);
+    if (_disposed ||
+        generation != _generation ||
+        !identical(origin, page) ||
+        target == null) {
+      return null;
+    }
+    return PreparedPageTurn(
+      origin: origin,
+      target: target,
+      generation: generation,
+    );
+  }
+
+  /// 视觉收尾完成后提交一次；取消、跳转或重排均使旧目标失效。
+  bool commitPageTurn(PreparedPageTurn turn) {
+    if (_disposed ||
+        turn.generation != _generation ||
+        !(_pager?.commitPrepared(turn.origin, turn.target) ?? false)) {
+      return false;
+    }
+    _notify();
+    _persist();
+    return true;
+  }
+
+  /// 加载连续滚动所需的一章；复用章节源的排版缓存，不改变当前位置。
+  Future<ScrollChapterLayout> loadScrollChapter(int spineIndex) async {
+    if (spineIndex < 0 || spineIndex >= source.chapterCount) {
+      throw RangeError.index(spineIndex, source, 'spineIndex');
+    }
+    return ScrollChapterLayout.fromPages(
+      spineIndex,
+      await source.loadChapter(spineIndex),
+    );
+  }
+
+  /// 滚动跨过页边界时同步阅读记录；页面内容本身不重新分页。
+  Future<bool> commitScrollPage(int spineIndex, int pageIndex) async {
+    final pager = _pager;
+    if (_disposed || _loading || pager == null) return false;
+    final current = progress;
+    if (current?.spineIndex == spineIndex && current?.pageIndex == pageIndex) {
+      return true;
+    }
+    final generation = _generation;
+    final changed = await pager.goTo(spineIndex, pageIndex);
+    if (!changed || _disposed || generation != _generation) return false;
+    _notify();
+    _persist();
+    return true;
+  }
 
   double? _contentWidth;
   double? _contentHeight;
@@ -449,6 +531,10 @@ class ReaderSession extends ChangeNotifier {
     }
     return _pager?.spinePages[current.spineIndex]?.length ?? 0;
   }
+
+  /// 已加载章节的页数，供目标纸面页眉和跨章预热使用。
+  int pageCountOf(int spineIndex) =>
+      _pager?.spinePages[spineIndex]?.length ?? 0;
 
   /// 当前页文本（用于测试/无障碍）。
   String get currentText {

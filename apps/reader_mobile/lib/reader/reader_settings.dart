@@ -2,8 +2,9 @@ import 'dart:convert';
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
-import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/tap_zones.dart';
 
@@ -23,6 +24,7 @@ class ReaderSettings {
     this.inkMode = false,
     this.margins,
     this.tapZones = ReaderTapZones.defaults,
+    this.pageTurnMode = PageTurnMode.cover,
   });
 
   /// 字号。
@@ -55,6 +57,9 @@ class ReaderSettings {
   /// 九宫格点击区域。
   final ReaderTapZones tapZones;
 
+  /// 翻页方式；只影响交互与动画，不参与正文排版。
+  final PageTurnMode pageTurnMode;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -81,6 +86,7 @@ class ReaderSettings {
     required String themeId,
     String backgroundId = 'none',
     bool inkMode = false,
+    PageTurnMode pageTurnMode = PageTurnMode.cover,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -90,6 +96,9 @@ class ReaderSettings {
     horizontalPadding:
         overrides.padding?.left ?? ReaderSettingsDefaults.horizontalPadding,
     themeId: themeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    pageTurnMode: pageTurnMode,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -106,6 +115,7 @@ class ReaderSettings {
     inkMode: inkMode,
     margins: margins,
     tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
   );
 
   /// 复制并替换主题。
@@ -120,6 +130,7 @@ class ReaderSettings {
     inkMode: inkMode,
     margins: margins,
     tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
   );
 
   /// 复制并替换背景。
@@ -134,6 +145,7 @@ class ReaderSettings {
     inkMode: inkMode,
     margins: margins,
     tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
   );
 
   /// 复制并替换墨水屏开关。
@@ -148,6 +160,7 @@ class ReaderSettings {
     inkMode: enabled,
     margins: margins,
     tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
   );
 
   /// 复制并替换页边距。
@@ -162,6 +175,7 @@ class ReaderSettings {
     inkMode: inkMode,
     margins: value,
     tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -176,6 +190,22 @@ class ReaderSettings {
     inkMode: inkMode,
     margins: margins,
     tapZones: value,
+    pageTurnMode: pageTurnMode,
+  );
+
+  /// 复制并替换翻页方式。
+  ReaderSettings copyWithPageTurnMode(PageTurnMode value) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: value,
   );
 
   @override
@@ -190,7 +220,8 @@ class ReaderSettings {
       other.backgroundId == backgroundId &&
       other.inkMode == inkMode &&
       other.margins == margins &&
-      other.tapZones == tapZones;
+      other.tapZones == tapZones &&
+      other.pageTurnMode == pageTurnMode;
 
   @override
   int get hashCode => Object.hash(
@@ -204,6 +235,7 @@ class ReaderSettings {
     inkMode,
     margins,
     tapZones,
+    pageTurnMode,
   );
 }
 
@@ -226,6 +258,7 @@ class ReaderSettingsStore {
   static const String keyThemeId = 'reader.themeId';
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyInkMode = 'reader.inkMode';
+  static const String keyPageTurnMode = 'reader.pageTurnMode';
 
   /// 九宫格点击区域（JSON）。
   static const String keyTapZones = 'reader.tapZones';
@@ -253,6 +286,9 @@ class ReaderSettingsStore {
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
       margins: _readMargins(await _library.getSetting(keyMargins)),
       tapZones: _readTapZones(await _library.getSetting(keyTapZones)),
+      pageTurnMode: PageTurnMode.fromId(
+        await _library.getSetting(keyPageTurnMode),
+      ),
     );
   }
 
@@ -315,6 +351,7 @@ class ReaderSettingsStore {
     await _library.setSetting(keyThemeId, settings.themeId);
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
     await _library.setSetting(keyInkMode, settings.inkMode.toString());
+    await _library.setSetting(keyPageTurnMode, settings.pageTurnMode.id);
     final margins = settings.margins;
     await _library.setSetting(
       keyMargins,

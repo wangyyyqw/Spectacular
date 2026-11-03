@@ -139,4 +139,36 @@ void main() {
     expect(pager.current!.spineIndex, 0);
     expect(pager.current!.pageIndex, 1, reason: '0 章共 2 页，钳制到末页');
   });
+
+  test('准备邻页不提前改变当前位置', () async {
+    await pager.initialize();
+    final origin = pager.current!.content;
+
+    final prepared = await pager.prepareAdjacent(1);
+
+    expect(prepared, isNotNull);
+    expect((prepared!.spineIndex, prepared.pageIndex), (0, 1));
+    expect(identical(pager.current!.content, origin), isTrue);
+    expect(pager.currentVirtualPage, 0);
+  });
+
+  test('动画收尾只提交一次目标页', () async {
+    await pager.initialize();
+    final origin = pager.current!.content;
+    final prepared = await pager.prepareAdjacent(1);
+
+    expect(pager.commitPrepared(origin, prepared!), isTrue);
+    expect((pager.current!.spineIndex, pager.current!.pageIndex), (0, 1));
+    expect(pager.commitPrepared(origin, prepared), isFalse);
+  });
+
+  test('外部跳转后旧动画目标不能回写', () async {
+    await pager.initialize();
+    final origin = pager.current!.content;
+    final stale = await pager.prepareAdjacent(1);
+    expect(await pager.goTo(2, 0), isTrue);
+
+    expect(pager.commitPrepared(origin, stale!), isFalse);
+    expect((pager.current!.spineIndex, pager.current!.pageIndex), (2, 0));
+  });
 }
