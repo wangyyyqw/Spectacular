@@ -180,6 +180,80 @@ Future<void> _finishExit(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('打开笔记编辑层时隐藏选区菜单，关闭后恢复', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'note-hide-selection-menu',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    await tester.longPressAt(
+      tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('selection-action-note')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('note-composer-sheet')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsNothing,
+    );
+
+    await tester.tap(_composerClose);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('note-composer-sheet')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('selection-action-note')));
+    await tester.pumpAndSettle();
+    await tester.enterText(_composerInput, '保存后仍可再次打开选区菜单');
+    await tester.pump();
+    await tester.tap(_composerSave);
+    await _finishExit(tester);
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsNothing,
+    );
+
+    await tester.longPressAt(
+      tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('键盘弹出时新建笔记操作栏固定在键盘上方', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;

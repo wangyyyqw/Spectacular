@@ -562,6 +562,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
 
+  /// 笔记编辑层打开时隐藏选区菜单，避免菜单悬在遮罩后方。
+  bool _hideSelectionMenu = false;
+
   /// 全书标注（P4-18）：打开时加载，标注变更后刷新。
   List<ReaderAnnotation> _annotations = const <ReaderAnnotation>[];
 
@@ -1421,24 +1424,31 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (!mounted) {
       return;
     }
-    final note = await showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => ReaderNoteComposerSheet(
-        quote: quote,
-      ),
-    );
-    if (!mounted || note == null || note.trim().isEmpty) {
-      return;
+    setState(() => _hideSelectionMenu = true);
+    try {
+      final note = await showModalBottomSheet<String>(
+        context: context,
+        useSafeArea: true,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => ReaderNoteComposerSheet(
+          quote: quote,
+        ),
+      );
+      if (!mounted || note == null || note.trim().isEmpty) {
+        return;
+      }
+      await _saveAnnotation(
+        page,
+        selection,
+        ReaderAnnotationType.note,
+        note: note.trim(),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _hideSelectionMenu = false);
+      }
     }
-    await _saveAnnotation(
-      page,
-      selection,
-      ReaderAnnotationType.note,
-      note: note.trim(),
-    );
   }
 
   Future<void> _copySelection(PageContent page, ReaderSelection selection) async {
@@ -1495,6 +1505,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       setState(() {
         _selection = null;
         _selectionSpineIndex = null;
+        _hideSelectionMenu = false;
       });
     }
   }
@@ -1774,13 +1785,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 ),
               ),
               // 选区菜单（P4-16）：贴在选区上方，不遮挡选区。
-              SelectionMenu(
-                actions: _selectionActions(page, _selection!),
-                anchor: SelectionOps.boundsOf(page, _selection!).shift(
-                  Offset(bodyPadding.left, bodyPadding.top),
+              if (!_hideSelectionMenu)
+                SelectionMenu(
+                  actions: _selectionActions(page, _selection!),
+                  anchor: SelectionOps.boundsOf(page, _selection!).shift(
+                    Offset(bodyPadding.left, bodyPadding.top),
+                  ),
+                  bounds: size,
                 ),
-                bounds: size,
-              ),
             ],
             // 翻页/重排时保留旧页，只在顶部显示细进度条（P2-27）。
             if (_session.loading)
