@@ -815,38 +815,43 @@ class PagePainter {
 
   /// 主题文字色是否覆盖某个块（P9-02）。
   ///
-  /// 浅色页：书籍显式声明的颜色照书（金标题、灰注释不再被刷黑），
-  /// 只有未声明的默认黑字跟随主题色。
-  /// 深色页：按技术方案 §7.5-5，把深色（亮度 ≤ 0.179）文字替换为主题色，
-  /// 浅色文字保留——否则黑字落在黑底上不可读。
+  /// 书籍显式声明的可辨认颜色继续照书，保留金标题、灰注释等作者配色；
+  /// 与当前底色对比不足的文字跟随主题色，避免日间残留夜间的浅色字。
+  /// 未声明的默认深色字始终跟随主题色。
   Color? _textColorFor(ComputedStyle style) {
     final theme = textColor;
     if (theme == null) {
       return null;
     }
     final darkText = style.color.computeLuminance() <= 0.179;
-    // 块自带深色背景时（卡片/面板），按块内的有效底色判断：主题色是
-    // 浅色页的深字，直接套上去会在深色卡片里隐形。此时未声明颜色的
-    // 文字改用浅色（P9-23）。
+    // 块自带背景时按块内的有效底色判断：主题色在浅色页是深字，直接套到
+    // 深色卡片上会隐形，此时需要一个浅色兜底（P9-23）。
     final blendedBackground = style.backgroundColor.a > 0
         ? Color.alphaBlend(style.backgroundColor, background)
         : background;
-    if (blendedBackground.computeLuminance() < 0.35) {
-      // 与 §7.5-5 一致：深色底上的深色字必须提亮，哪怕书籍显式声明过。
-      if (!darkText) {
-        return null;
-      }
-      // 深色底 + 深色字：需要一个浅色。主题文字色在浅色主题里本身就是
-      // 深色，不能直接复用，此时固定用浅灰；深色主题才用主题色。
-      return theme.computeLuminance() < 0.35 ? const Color(0xFFE6E6E6) : theme;
-    }
-    if (background.computeLuminance() < 0.35) {
-      return darkText ? theme : null;
-    }
-    if (style.hasExplicitTextColor) {
+    final darkBackground = blendedBackground.computeLuminance() < 0.35;
+    final fallback = darkBackground && theme.computeLuminance() >= 0.35
+        ? const Color(0xFFE6E6E6)
+        : theme;
+    // 透明字是书籍用于封面排版的隐藏文本，不能因为对比度低就画出来。
+    if (style.color.a == 0) {
       return null;
     }
-    return darkText ? theme : null;
+    if (!style.hasExplicitTextColor && darkText) {
+      return fallback;
+    }
+    final foreground = Color.alphaBlend(style.color, blendedBackground);
+    // 2:1 只用于拦截“换主题后仍接近不可见”的浅字；金色、橙色等作者
+    // 强调色通常高于该阈值，继续保留。
+    return _contrastRatio(foreground, blendedBackground) < 2 ? fallback : null;
+  }
+
+  static double _contrastRatio(Color foreground, Color background) {
+    final fg = _relativeLuminance(foreground);
+    final bg = _relativeLuminance(background);
+    final lighter = math.max(fg, bg);
+    final darker = math.min(fg, bg);
+    return (lighter + 0.05) / (darker + 0.05);
   }
 
   /// 画书籍整页背景图（P9-04）：`body`/`html` 的 `background-image`。
