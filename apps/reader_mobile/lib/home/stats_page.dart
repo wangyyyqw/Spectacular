@@ -5,6 +5,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
 import '../reader/book_opener.dart';
+import '../storage/reading_session_store.dart';
 
 enum _ProgressBand {
   unread('未开始'),
@@ -21,13 +22,15 @@ enum _ProgressBand {
 
 /// 统计页：书量、阅读进度、近七日阅读与最近阅读。
 ///
-/// 数据全部来自书架、阅读进度和导入期字符统计，不维护额外埋点。
+/// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
 class StatsPage extends StatefulWidget {
   /// 创建页面。
   const StatsPage({
     super.key,
     required this.library,
     required this.progressStore,
+    this.sessionStore,
+    this.refreshToken = 0,
   });
 
   /// 书架存储。
@@ -35,6 +38,12 @@ class StatsPage extends StatefulWidget {
 
   /// 进度存储。
   final ReaderProgressStore progressStore;
+
+  /// 可注入的阅读会话存储；为空时使用书架数据库实现。
+  final ReadingSessionStore? sessionStore;
+
+  /// 外部切换页面时递增，用于重新读取阅读进度和会话数据。
+  final int refreshToken;
 
   @override
   State<StatsPage> createState() => _StatsPageState();
@@ -44,6 +53,9 @@ class _StatsPageState extends State<StatsPage> {
   late final BookOpener _bookOpener;
   _LibraryStats? _stats;
   int _reloadToken = 0;
+
+  ReadingSessionStore? get _sessionStore =>
+      widget.sessionStore ?? widget.library.readingSessionStore();
 
   @override
   void initState() {
@@ -62,10 +74,29 @@ class _StatsPageState extends State<StatsPage> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(StatsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshToken != widget.refreshToken ||
+        oldWidget.sessionStore != widget.sessionStore) {
+      _reload();
+    }
+  }
+
   Future<void> _reload() async {
     final token = ++_reloadToken;
     final books = await widget.library.list();
     final progress = await widget.progressStore.snapshot();
+    final sessions =
+        await (_sessionStore?.list() ??
+            Future<List<ReadingSession>>.value(const <ReadingSession>[]));
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final readingByDay = _readingByDay(sessions);
+    final totalReading = sessions.fold<Duration>(
+      Duration.zero,
+      (total, session) => total + session.duration,
+    );
     final rows = <_BookReadingStat>[];
     var started = 0;
     var finished = 0;
@@ -106,8 +137,6 @@ class _StatsPageState extends State<StatsPage> {
       }
       return rightTime.compareTo(leftTime);
     });
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
     final activityDates = <DateTime>[
       for (var offset = -6; offset <= 0; offset++)
         DateTime(today.year, today.month, today.day + offset),
@@ -141,6 +170,10 @@ class _StatsPageState extends State<StatsPage> {
       averageProgress: percentCount == 0
           ? null
           : (percentSum / percentCount).round(),
+      todayReading: readingByDay[today] ?? Duration.zero,
+      totalReading: totalReading,
+      readingDays: readingByDay.length,
+      hasReadingSessions: sessions.isNotEmpty,
     );
     if (mounted && token == _reloadToken) {
       setState(() => _stats = stats);
@@ -179,6 +212,8 @@ class _StatsPageState extends State<StatsPage> {
                 children: [
                   _OverviewCard(stats: stats),
                   const SizedBox(height: 12),
+                  _ReadingTimeCard(stats: stats),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       _MetricTile(
@@ -190,7 +225,7 @@ class _StatsPageState extends State<StatsPage> {
                       const SizedBox(width: 8),
                       _MetricTile(
                         icon: Icons.local_fire_department_outlined,
-                        label: '阅读天数',
+                        label: '近7天活跃',
                         value: '${stats.activeDays}',
                         valueKey: const ValueKey<String>('stats-recent-7-days'),
                       ),
@@ -247,6 +282,10 @@ class _LibraryStats {
     required this.activity,
     required this.totalCharacters,
     required this.averageProgress,
+    required this.todayReading,
+    required this.totalReading,
+    required this.readingDays,
+    required this.hasReadingSessions,
   });
 
   final List<_BookReadingStat> rows;
@@ -257,6 +296,10 @@ class _LibraryStats {
   final List<_DailyReading> activity;
   final int totalCharacters;
   final int? averageProgress;
+  final Duration todayReading;
+  final Duration totalReading;
+  final int readingDays;
+  final bool hasReadingSessions;
 }
 
 class _DailyReading {
@@ -393,6 +436,89 @@ class _OverviewCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ReadingTimeCard extends StatelessWidget {
+  const _ReadingTimeCard({required this.stats});
+
+  final _LibraryStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasSessions = stats.hasReadingSessions;
+    return Card(
+      key: const ValueKey<String>('stats-reading-time'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                Icons.timer_outlined,
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '今天已读',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    hasSessions
+                        ? _formatReadingDuration(stats.todayReading)
+                        : '--',
+                    key: const ValueKey<String>('stats-today-reading'),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  hasSessions ? '共 ${stats.readingDays} 天' : '等待开始阅读',
+                  key: const ValueKey<String>('stats-reading-days'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  hasSessions
+                      ? '累计 ${_formatReadingDuration(stats.totalReading)}'
+                      : '只记录前台阅读',
+                  key: const ValueKey<String>('stats-total-reading'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -919,6 +1045,46 @@ String _relativeTime(DateTime? time) {
   if (delta.inHours < 1) return '${delta.inMinutes} 分钟前';
   if (delta.inDays < 1) return '${delta.inHours} 小时前';
   return '${delta.inDays} 天前';
+}
+
+Map<DateTime, Duration> _readingByDay(List<ReadingSession> sessions) {
+  final result = <DateTime, Duration>{};
+  for (final session in sessions) {
+    if (session.duration <= Duration.zero ||
+        !session.endedAt.isAfter(session.startedAt)) {
+      continue;
+    }
+    var cursor = session.startedAt;
+    while (cursor.isBefore(session.endedAt)) {
+      final dayStart = DateTime(cursor.year, cursor.month, cursor.day);
+      final nextDay = DateTime(cursor.year, cursor.month, cursor.day + 1);
+      final segmentEnd = session.endedAt.isBefore(nextDay)
+          ? session.endedAt
+          : nextDay;
+      final overlap = segmentEnd.difference(cursor);
+      if (overlap > Duration.zero) {
+        result[dayStart] = (result[dayStart] ?? Duration.zero) + overlap;
+      }
+      cursor = segmentEnd;
+    }
+  }
+  return result;
+}
+
+String _formatReadingDuration(Duration duration) {
+  if (duration <= Duration.zero) {
+    return '0 分钟';
+  }
+  final minutes = (duration.inSeconds / 60).ceil();
+  if (minutes < 1) {
+    return '<1 分钟';
+  }
+  if (minutes < 60) {
+    return '$minutes 分钟';
+  }
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+  return rest == 0 ? '$hours 小时' : '$hours 小时 $rest 分';
 }
 
 String _formatCharacters(int count) {

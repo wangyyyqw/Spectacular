@@ -4,6 +4,7 @@ import 'package:reader_core/position/locator.dart';
 import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/file_progress_store.dart';
+import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -43,6 +44,22 @@ class _FakeProgressStore implements ReaderProgressStore {
   @override
   Future<Map<String, ReaderProgress>> snapshot() async =>
       Map<String, ReaderProgress>.unmodifiable(items);
+}
+
+class _FakeSessionStore implements ReadingSessionStore {
+  _FakeSessionStore(this.items);
+
+  final List<ReadingSession> items;
+
+  @override
+  Future<void> add({
+    required String bookId,
+    required DateTime startedAt,
+    required DateTime endedAt,
+  }) async {}
+
+  @override
+  Future<List<ReadingSession>> list() async => items;
 }
 
 BookEntry _book(
@@ -151,6 +168,10 @@ void main() {
           .data,
       '30%',
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('stats-band-unread')),
+      300,
+    );
     expect(find.text('2 / 3 本已开始'), findsOneWidget);
     expect(
       tester
@@ -252,6 +273,119 @@ void main() {
     );
   });
 
+  testWidgets('统计页汇总今日、累计阅读时长与阅读天数', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final sessions = [
+      ReadingSession(
+        bookId: 'a',
+        startedAt: today.add(const Duration(hours: 9)),
+        endedAt: today.add(const Duration(hours: 9, minutes: 12)),
+        duration: const Duration(minutes: 12),
+      ),
+      ReadingSession(
+        bookId: 'a',
+        startedAt: DateTime(today.year, today.month, today.day - 1, 9),
+        endedAt: DateTime(today.year, today.month, today.day - 1, 9, 30),
+        duration: const Duration(minutes: 30),
+      ),
+      ReadingSession(
+        bookId: 'b',
+        startedAt: DateTime(today.year, today.month, today.day - 10, 9),
+        endedAt: DateTime(today.year, today.month, today.day - 10, 9, 45),
+        duration: const Duration(minutes: 45),
+      ),
+    ];
+    final library = _FakeLibrary([
+      _book('a', '第一本', lastReadAt: now),
+    ], const {});
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: library,
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore(sessions),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-today-reading')),
+          )
+          .data,
+      '12 分钟',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-reading-days')),
+          )
+          .data,
+      '共 3 天',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-total-reading')),
+          )
+          .data,
+      '累计 1 小时 27 分',
+    );
+  });
+
+  testWidgets('切回统计页时按刷新令牌重新读取阅读会话', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final sessions = <ReadingSession>[];
+    final library = _FakeLibrary([_book('a', '第一本')], const {});
+
+    Widget buildPage(int refreshToken) {
+      return MaterialApp(
+        home: StatsPage(
+          library: library,
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore(sessions),
+          refreshToken: refreshToken,
+        ),
+      );
+    }
+
+    await tester.pumpWidget(buildPage(0));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-today-reading')),
+          )
+          .data,
+      '--',
+    );
+
+    sessions.add(
+      ReadingSession(
+        bookId: 'a',
+        startedAt: today.add(const Duration(hours: 9)),
+        endedAt: today.add(const Duration(hours: 9, minutes: 2)),
+        duration: const Duration(minutes: 2),
+      ),
+    );
+    await tester.pumpWidget(buildPage(1));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-today-reading')),
+          )
+          .data,
+      '2 分钟',
+    );
+  });
+
   testWidgets('统计页单独展示已读完书籍', (tester) async {
     final now = DateTime.now();
     final books = [
@@ -276,6 +410,10 @@ void main() {
 
     expect(find.text('已开始 2 本 · 已读完 1 本'), findsOneWidget);
     expect(find.text('完成一本书也值得记录。'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('stats-band-finished')),
+      300,
+    );
     expect(
       tester
           .widget<Text>(
