@@ -355,6 +355,71 @@ void main() {
     expect(find.text('笔记与高亮'), findsOneWidget);
   });
 
+  testWidgets('标注面板：窄屏批量更换标注颜色', (tester) async {
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final recolored = <(List<ReaderAnnotation>, int)>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'highlight-recolor',
+                type: ReaderAnnotationType.highlight,
+                quote: '需要更换颜色的高亮',
+                minute: 1,
+              ),
+              _annotation(
+                id: 'note-recolor',
+                type: ReaderAnnotationType.note,
+                quote: '需要更换颜色的笔记',
+                note: '批量更改颜色',
+                minute: 2,
+              ),
+            ],
+            onSelect: (_) {},
+            onEdit: (_) {},
+            onDelete: (_) async {},
+            onRecolor: (items, color) async =>
+                recolored.add((List.of(items), color)),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-manage')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-select-all')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-recolor')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('更换 2 条标注的颜色'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('annotation-batch-color-0xFF90CAF9'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(recolored, hasLength(1));
+    expect(recolored.single.$1, hasLength(2));
+    expect(recolored.single.$2, 0xFF90CAF9);
+    expect(find.text('已选 2 条'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('标注面板：长笔记可原位展开和收起', (tester) async {
     final selected = <ReaderAnnotation>[];
     final longNote = List<String>.filled(18, '这段笔记需要完整阅读').join('，');

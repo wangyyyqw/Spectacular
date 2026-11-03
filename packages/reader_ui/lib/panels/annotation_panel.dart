@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../annotations/annotation.dart';
+import '../annotations/annotation_editor_sheet.dart'
+    show ReaderAnnotationEditorSheet;
 
 /// 阅读器内的笔记与高亮列表。
 ///
@@ -14,6 +16,7 @@ class AnnotationPanel extends StatefulWidget {
     required this.onSelect,
     required this.onEdit,
     this.onDelete,
+    this.onRecolor,
     this.chapterTitleOf,
     this.onBack,
     this.emptyHint = '还没有笔记或高亮',
@@ -30,6 +33,9 @@ class AnnotationPanel extends StatefulWidget {
 
   /// 批量删除标注。
   final Future<void> Function(List<ReaderAnnotation>)? onDelete;
+
+  /// 批量更换标注颜色。
+  final Future<void> Function(List<ReaderAnnotation>, int)? onRecolor;
 
   /// 标注所在章节标题。
   final String? Function(ReaderAnnotation)? chapterTitleOf;
@@ -64,6 +70,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   String _query = '';
   bool _selecting = false;
   bool _deleting = false;
+  bool _recoloring = false;
 
   @override
   void dispose() {
@@ -242,9 +249,42 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     }
   }
 
+  Future<void> _recolorSelected() async {
+    final recolor = widget.onRecolor;
+    if (recolor == null || _selectedIds.isEmpty || _recoloring) {
+      return;
+    }
+    final selected = <ReaderAnnotation>[
+      for (final annotation in widget.annotations)
+        if (_selectedIds.contains(annotation.id)) annotation,
+    ];
+    final color = await showDialog<int>(
+      context: context,
+      builder: (context) => _BatchColorDialog(count: selected.length),
+    );
+    if (color == null || !mounted) {
+      return;
+    }
+    setState(() => _recoloring = true);
+    try {
+      await recolor(selected, color);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('更换标注颜色失败，请重试')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _recoloring = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final busy = _deleting || _recoloring;
     final searched = _searched;
     final items = _filtered(searched);
     final noteCount = searched
@@ -269,7 +309,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   IconButton(
                     key: const ValueKey<String>('annotation-batch-exit'),
                     icon: const Icon(Icons.close, size: 20),
-                    onPressed: _deleting ? null : _exitSelection,
+                    onPressed: busy ? null : _exitSelection,
                     tooltip: '退出选择',
                   )
                 else if (widget.onBack != null)
@@ -278,23 +318,40 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                     onPressed: widget.onBack,
                     tooltip: '返回',
                   ),
-                Text(
-                  _selecting ? '已选 ${_selectedIds.length} 条' : '笔记与高亮',
-                  style: theme.textTheme.titleMedium,
+                Expanded(
+                  child: Text(
+                    _selecting ? '已选 ${_selectedIds.length} 条' : '笔记与高亮',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium,
+                  ),
                 ),
-                const Spacer(),
                 if (_selecting) ...[
                   TextButton(
                     key: const ValueKey<String>('annotation-batch-select-all'),
-                    onPressed: _deleting || items.isEmpty
+                    onPressed: busy || items.isEmpty
                         ? null
                         : () => _toggleSelectAll(items),
                     child: Text(allVisibleSelected ? '取消全选' : '全选'),
                   ),
+                  if (widget.onRecolor != null)
+                    IconButton(
+                      key: const ValueKey<String>('annotation-batch-recolor'),
+                      tooltip: '更换颜色',
+                      onPressed: busy || _selectedIds.isEmpty
+                          ? null
+                          : _recolorSelected,
+                      icon: _recoloring
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.palette_outlined, size: 20),
+                    ),
                   IconButton(
                     key: const ValueKey<String>('annotation-batch-delete'),
                     tooltip: '删除选中标注',
-                    onPressed: _deleting || _selectedIds.isEmpty
+                    onPressed: busy || _selectedIds.isEmpty
                         ? null
                         : _deleteSelected,
                     icon: _deleting
@@ -458,6 +515,59 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       _AnnotationFilter.highlight => '还没有高亮',
       _AnnotationFilter.all => widget.emptyHint,
     };
+  }
+}
+
+class _BatchColorDialog extends StatelessWidget {
+  const _BatchColorDialog({required this.count});
+
+  final int count;
+
+  String _keyValue(int color) =>
+      '0x${color.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: Text('更换 $count 条标注的颜色'),
+      content: Wrap(
+        spacing: 14,
+        runSpacing: 14,
+        children: [
+          for (final option in ReaderAnnotationEditorSheet.colors)
+            Semantics(
+              button: true,
+              label: option.label,
+              child: InkResponse(
+                key: ValueKey<String>(
+                  'annotation-batch-color-${_keyValue(option.value)}',
+                ),
+                onTap: () => Navigator.of(context).pop(option.value),
+                radius: 24,
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: Color(option.value),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey<String>('annotation-batch-color-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+      ],
+    );
   }
 }
 
