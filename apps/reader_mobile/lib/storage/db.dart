@@ -55,6 +55,9 @@ class Books extends Table {
 
   /// 导入修复与降级摘要（JSON 数组）。
   TextColumn get warnings => text().nullable()();
+
+  /// 从书架移除的时间（毫秒）；非空时保留用户数据但不对书架展示。
+  IntColumn get deletedAt => integer().nullable()();
 }
 
 /// spine 项表（§36.1）：按 spine 建，供分页与虚拟页窗口使用。
@@ -316,7 +319,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -325,7 +328,6 @@ class AppDatabase extends _$AppDatabase {
       await _createIndexes();
     },
     // §70.2 三条纪律：每步单调递增不合并、不删列、索引单独建。
-    // 当前只有 v1→v2（新增 import_reports，P4-06 报告落库）。
     onUpgrade: (migrator, from, to) async {
       var version = from;
       if (version < 2) {
@@ -358,6 +360,11 @@ class AppDatabase extends _$AppDatabase {
       if (version < 7) {
         await migrator.createTable(readingSessions);
         version = 7;
+      }
+      if (version < 8) {
+        // 删书改为软删除：保留进度、标注、书评和阅读会话，重新导入可恢复。
+        await migrator.addColumn(books, books.deletedAt);
+        version = 8;
       }
       await _createIndexes();
     },

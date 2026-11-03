@@ -70,7 +70,9 @@ class DriftProgressStore implements ReaderProgressStore {
     if (rows.isEmpty) {
       return const <String, ReaderProgress>{};
     }
-    final books = await _db.select(_db.books).get();
+    final books = await (_db.select(
+      _db.books,
+    )..where((table) => table.deletedAt.isNull())).get();
     final uuidById = <int, String>{
       for (final book in books) book.id: book.uuid,
     };

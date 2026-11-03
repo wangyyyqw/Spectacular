@@ -53,13 +53,19 @@ void main() {
     expect(await store.snapshot(), isEmpty);
   });
 
-  test('删书时书评级联删除', () async {
+  test('删书后隐藏书评，重新导入同一本书后恢复', () async {
     final book = await library.importBytes(buildTestEpub(title: '级联书评'));
     await store.save(book.id, rating: 5, content: '会随书删除');
 
     await library.remove(book.id);
 
-    expect(await db.select(db.bookReviews).get(), isEmpty);
+    expect(await db.select(db.bookReviews).get(), hasLength(1));
     expect(await store.snapshot(), isEmpty);
+
+    final restored = await library.importBytes(buildTestEpub(title: '级联书评'));
+    expect(restored.id, book.id);
+    final review = (await store.snapshot())[book.id]!;
+    expect(review.rating, 5);
+    expect(review.content, '会随书删除');
   });
 }
