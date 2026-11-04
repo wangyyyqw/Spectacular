@@ -260,24 +260,31 @@ void main() {
     await controller.session.flushProgress();
   });
 
-  testWidgets('堆叠覆盖收尾使用 420 毫秒动画', (tester) async {
-    final controller = await _controller(tester);
-    controller
-      ..mode = PageTurnMode.coverStack
-      ..request(true);
-    await tester.pump();
-    expect(controller.phase, PageTurnPhase.settling);
+  for (final mode in <PageTurnMode>[
+    PageTurnMode.cover,
+    PageTurnMode.coverStack,
+    PageTurnMode.simulationBessel,
+    PageTurnMode.slideHorizontal,
+  ]) {
+    testWidgets('${mode.label}收尾统一使用 420 毫秒动画', (tester) async {
+      final controller = await _controller(tester);
+      controller
+        ..mode = mode
+        ..request(true);
+      await tester.pump();
+      expect(controller.phase, PageTurnPhase.settling);
 
-    await tester.pump(const Duration(milliseconds: 1));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(controller.phase, PageTurnPhase.settling);
-    await tester.pump(const Duration(milliseconds: 20));
-    expect(controller.progress, 1);
-    await tester.pumpAndSettle();
-    expect(controller.phase, PageTurnPhase.idle);
-    expect(controller.session.progress!.pageIndex, 2);
-    await controller.session.flushProgress();
-  });
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(controller.phase, PageTurnPhase.settling);
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(controller.progress, 1);
+      await tester.pumpAndSettle();
+      expect(controller.phase, PageTurnPhase.idle);
+      expect(controller.session.progress!.pageIndex, 2);
+      await controller.session.flushProgress();
+    });
+  }
 
   testWidgets('动画期间快速连续点击逐页排队翻页', (tester) async {
     final controller = await _controller(tester, pageCount: 5);
