@@ -150,8 +150,8 @@ class PageTurnController extends ChangeNotifier {
   void _initializePoint() {
     final down = _canonical(_down!);
     top = down.dy < size.height / 2;
-    // 起手所在的中心五分之一从侧边卷起；手势内固定类型，跨区不跳变。
-    horizontal = (down.dy - size.height / 2).abs() <= size.height / 10;
+    // 起手所在的中心二十分之一从侧边卷起；手势内固定类型，跨区不跳变。
+    horizontal = (down.dy - size.height / 2).abs() <= size.height / 40;
     point = ui.Offset(size.width, down.dy.clamp(0.1, size.height - 0.1));
   }
 
