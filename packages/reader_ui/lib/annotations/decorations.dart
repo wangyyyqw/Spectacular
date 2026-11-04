@@ -40,6 +40,15 @@ abstract final class AnnotationDecorations {
   /// 高亮触摸容差（逻辑像素）。
   static const double tapSlop = 4;
 
+  /// 笔记圆点相对行尾的距离（逻辑像素）。
+  static const double noteMarkerOffset = 4;
+
+  /// 笔记圆点绘制半径（逻辑像素）。
+  static const double noteMarkerRadius = 3;
+
+  /// 笔记圆点的可点击半径（逻辑像素）。
+  static const double noteMarkerTapRadius = 16;
+
   /// 计算当前页的标注片段，按创建时间排序（先创建的在下层叠加）。
   static List<AnnotationLine> linesFor(
     PageContent page,
@@ -118,6 +127,16 @@ abstract final class AnnotationDecorations {
       );
       for (final rect in rects) {
         if (rect.inflate(tapSlop).contains(position)) {
+          return line.annotation;
+        }
+      }
+      if (line.annotation.type == ReaderAnnotationType.note &&
+          rects.isNotEmpty) {
+        final markerCenter = Offset(
+          rects.last.right + noteMarkerOffset,
+          rects.last.center.dy,
+        );
+        if ((position - markerCenter).distance <= noteMarkerTapRadius) {
           return line.annotation;
         }
       }

@@ -103,14 +103,20 @@ class _AnnotationPainter extends CustomPainter {
           strokeWidth: inkMode ? 2 : 1.8,
         );
       }
-      if (line.annotation.type == ReaderAnnotationType.note && rects.isNotEmpty) {
-        noteMarks.add(Offset(rects.last.right + 4, rects.last.center.dy));
+      if (line.annotation.type == ReaderAnnotationType.note &&
+          rects.isNotEmpty) {
+        noteMarks.add(
+          Offset(
+            rects.last.right + AnnotationDecorations.noteMarkerOffset,
+            rects.last.center.dy,
+          ),
+        );
       }
     }
     // 笔记标记：行尾右侧的小圆点（P4-18）。
     final marker = Paint()..color = noteMarkerColor;
     for (final center in noteMarks) {
-      canvas.drawCircle(center, 3, marker);
+      canvas.drawCircle(center, AnnotationDecorations.noteMarkerRadius, marker);
     }
   }
 
