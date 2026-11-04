@@ -1,3 +1,6 @@
+/// 所有翻页动画统一的收尾时长。
+const Duration pageTurnAnimationDuration = Duration(milliseconds: 420);
+
 /// 阅读模式；稳定字符串用于持久化，顺序与设置面板一致。
 enum PageTurnMode {
   /// 底页固定，活动纸滑出或展开。

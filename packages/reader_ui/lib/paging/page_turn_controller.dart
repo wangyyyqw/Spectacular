@@ -195,17 +195,8 @@ class PageTurnController extends ChangeNotifier {
     }
     phase = PageTurnPhase.settling;
     final bessel = mode == PageTurnMode.simulationBessel;
-    final slow = bessel || mode == PageTurnMode.coverStack;
     if (bessel) _prepareBesselEnd();
-    final distance = ((complete ? 1 : 0) - progress).abs();
-    _settling.duration = Duration(
-      milliseconds: slow
-          ? 420
-          : ((complete ? 240 : 180) * distance).round().clamp(
-              60,
-              complete ? 240 : 180,
-            ),
-    );
+    _settling.duration = pageTurnAnimationDuration;
     unawaited(_runSettling(++_token));
   }
 

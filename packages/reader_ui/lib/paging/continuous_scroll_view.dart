@@ -7,6 +7,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 
 import '../reader_session.dart';
+import 'page_turn_mode.dart';
 
 /// 连续滚动的纸面构建器。
 typedef ScrollPaperBuilder = Widget Function(PageContent page, Size size);
@@ -479,7 +480,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         .clamp(0.0, _controller.position.maxScrollExtent);
     await _controller.animateTo(
       target,
-      duration: const Duration(milliseconds: 260),
+      duration: pageTurnAnimationDuration,
       curve: Curves.easeOutCubic,
     );
     _captureVisiblePage();
