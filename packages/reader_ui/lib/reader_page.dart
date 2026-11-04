@@ -1559,6 +1559,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         backgroundColor: Colors.transparent,
         builder: (context) => ReaderNoteComposerSheet(
           quote: quote,
+          inkMode: _inkMode,
         ),
       );
       if (!mounted || note == null || note.trim().isEmpty) {

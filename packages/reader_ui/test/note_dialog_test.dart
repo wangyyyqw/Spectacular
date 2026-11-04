@@ -574,6 +574,30 @@ void main() {
     );
   });
 
+  testWidgets('墨水屏新建笔记预览使用黑色下划线', (tester) async {
+    Widget sheet({required bool inkMode}) => MaterialApp(
+      home: Scaffold(
+        body: ReaderNoteComposerSheet(quote: 'word', inkMode: inkMode),
+      ),
+    );
+
+    await tester.pumpWidget(sheet(inkMode: true));
+    expect(
+      find.byKey(const ValueKey<String>('note-composer-ink-preview')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('note-composer-quote-preview')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(sheet(inkMode: false));
+    expect(
+      find.byKey(const ValueKey<String>('note-composer-quote-preview')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('点击已有笔记可修改正文并保存', (tester) async {
     final source = _Source();
     final notes = _Notes();
