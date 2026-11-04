@@ -1482,7 +1482,37 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       unawaited(_reloadAnnotations());
     }
     _clearSelection();
-    _showToast(created == null ? '该位置已有标注' : (type == ReaderAnnotationType.note ? '已添加笔记' : '已高亮'));
+    if (created != null) {
+      _showToast(
+        type == ReaderAnnotationType.note ? '已添加笔记' : '已高亮',
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '撤销',
+          onPressed: () => unawaited(_removeCreatedAnnotation(created)),
+        ),
+      );
+      return;
+    }
+    _showToast('该位置已有标注');
+  }
+
+  /// 撤销刚创建的标注，避免误触后还要去批注列表删除。
+  Future<void> _removeCreatedAnnotation(ReaderAnnotation annotation) async {
+    final store = widget.annotations;
+    if (store == null) {
+      return;
+    }
+    try {
+      await store.remove(annotation.id);
+      await _reloadAnnotations();
+      if (mounted) {
+        _showToast('已撤销');
+      }
+    } catch (_) {
+      if (mounted) {
+        _showToast('撤销失败，请重试');
+      }
+    }
   }
 
   /// 输入笔记正文后保存（P4-17）。
