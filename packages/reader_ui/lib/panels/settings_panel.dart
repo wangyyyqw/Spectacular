@@ -162,6 +162,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   void _emit() => widget.onOverridesChanged(_build());
 
+  String get _sectionTitle => switch (widget.section) {
+    SettingsSection.all || SettingsSection.type => '排版',
+    SettingsSection.theme => '主题',
+    SettingsSection.settings => '设置',
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -181,7 +187,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     onPressed: widget.onBack,
                     tooltip: '返回',
                   ),
-                Text('排版', style: theme.textTheme.titleMedium),
+                Text(
+                  _sectionTitle,
+                  key: const ValueKey<String>('settings-title'),
+                  style: theme.textTheme.titleMedium,
+                ),
                 const Spacer(),
                 if (widget.onReset != null)
                   TextButton(
