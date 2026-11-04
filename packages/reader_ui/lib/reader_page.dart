@@ -1049,10 +1049,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 恢复默认设置（P4-21）。
   void _resetSettings() {
+    final resetMargins = _savedMargins != null;
     _applyOverrides(ReaderSettingsDefaults.overrides);
     _applyTheme(ReaderSettingsDefaults.themeId);
     _applyBackground(ReaderBackground.none.id);
     _applyPageTurnMode(PageTurnMode.cover);
+    _applyInkMode(false);
+    if (_tapZones != ReaderTapZones.defaults) {
+      _applyTapZones(ReaderTapZones.defaults);
+    }
+    if (resetMargins) {
+      final margins = _defaultMargins;
+      setState(() {
+        _previewMargins = null;
+        _savedMargins = margins;
+      });
+      widget.onMarginsChanged?.call(margins);
+    }
   }
 
   void _applyPageTurnMode(PageTurnMode mode) {

@@ -374,4 +374,72 @@ void main() {
       reason: '保留后正文区立即变小（按新边距重排），无需重开页面',
     );
   });
+
+  testWidgets('恢复默认同时重置墨水屏、边距、点击区域和翻页方式', (tester) async {
+    final source = await openTestChapterSource(
+      buildTestEpub(
+        title: '恢复默认',
+        paragraphs: const <String>['第一段内容足够长以便分页。', '第二段内容。'],
+      ),
+    );
+    final inkValues = <bool>[];
+    final marginsValues = <ReaderMargins>[];
+    final tapZonesValues = <ReaderTapZones>[];
+    final pageTurnValues = <PageTurnMode>[];
+    final customMargins = ReaderMargins.defaults(
+      safeTop: 20,
+      safeBottom: 20,
+      side: 48,
+      inner: 30,
+    );
+    final customZones = ReaderTapZones.defaults.withAction(
+      ReaderTapZone.topLeft,
+      ReaderTapAction.openMenu,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 520,
+              child: ReaderPage(
+                source: source,
+                store: MemoryReaderProgressStore(),
+                bookId: 'reset-all-settings',
+                inkMode: true,
+                margins: customMargins,
+                tapZones: customZones,
+                pageTurnMode: PageTurnMode.scroll,
+                onInkModeChanged: inkValues.add,
+                onMarginsChanged: marginsValues.add,
+                onTapZonesChanged: tapZonesValues.add,
+                onPageTurnModeChanged: pageTurnValues.add,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('menu-entry-settings')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-reset')));
+    await tester.pumpAndSettle();
+
+    expect(inkValues, <bool>[false]);
+    expect(marginsValues, hasLength(1));
+    expect(
+      marginsValues.single.left,
+      ReaderSettingsDefaults.horizontalPadding,
+    );
+    expect(tapZonesValues.single, ReaderTapZones.defaults);
+    expect(pageTurnValues.single, PageTurnMode.cover);
+  });
 }
