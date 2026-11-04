@@ -5559,20 +5559,34 @@ class EpubChapterSource
           ownImageStyle.display == CssDisplay.inline ||
           ownImageStyle.display == CssDisplay.inlineBlock;
       var usedMarginLeft = promotedLeft + ownImageStyle.margin.left;
-      if (floatSide == null && !imageStyle.isOutOfFlow && inlineLevel) {
+      final widthIsAuto =
+          ownImageStyle.width == null || ownImageStyle.width!.isAuto;
+      final autoMargins =
+          widthIsAuto &&
+          (ownImageStyle.marginLeftIsAuto || ownImageStyle.marginRightIsAuto);
+      if (floatSide == null &&
+          !imageStyle.isOutOfFlow &&
+          (autoMargins || inlineLevel)) {
         final marginBoxWidth =
             size.$1 +
             imageModel.horizontalInset +
             ownImageStyle.margin.horizontal;
         final slack = math.max(0.0, imageContainingWidth - marginBoxWidth);
-        usedMarginLeft =
-            promotedLeft +
-            ownImageStyle.margin.left +
-            switch (ownImageStyle.resolvedTextAlign) {
-              CssTextAlign.center => slack / 2,
-              CssTextAlign.end || CssTextAlign.right => slack,
-              _ => 0.0,
-            };
+        usedMarginLeft +=
+            autoMargins
+                ? switch ((
+                    ownImageStyle.marginLeftIsAuto,
+                    ownImageStyle.marginRightIsAuto,
+                  )) {
+                    (true, true) => slack / 2,
+                    (true, false) => slack,
+                    _ => 0.0,
+                  }
+                : switch (ownImageStyle.resolvedTextAlign) {
+                    CssTextAlign.center => slack / 2,
+                    CssTextAlign.end || CssTextAlign.right => slack,
+                    _ => 0.0,
+                  };
       }
       final blockStyle = ComputedStyle(<String, String>{
         // 图片块替换了原 img 盒，必须沿用 img 的盒模型与边距；否则图片
