@@ -1854,6 +1854,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       page: selectionPage,
                       pageIndex: selectionPage.pageIndex,
                       selection: _selection!,
+                      inkMode: _inkMode,
                       contentPadding: selectionPadding,
                       onChanged: _applyLocalSelection,
                       onEdgeDrag: _effectiveTurnMode == PageTurnMode.scroll

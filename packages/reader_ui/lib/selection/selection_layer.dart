@@ -16,6 +16,7 @@ class SelectionLayer extends StatefulWidget {
     required this.onChanged,
     this.onEdgeDrag,
     this.contentPadding = EdgeInsets.zero,
+    this.inkMode = false,
     this.color = const Color(0x4D5B8DEF),
     this.handleColor = const Color(0xFF5B8DEF),
   });
@@ -38,6 +39,9 @@ class SelectionLayer extends StatefulWidget {
   /// 正文相对整页的内缩；绘制与拖拽共用，页边热区仍按整页判定。
   final EdgeInsets contentPadding;
 
+  /// 墨水屏模式：选区改用黑色描边，手柄改为纯黑。
+  final bool inkMode;
+
   /// 边缘热区高度（逻辑像素）：拖进底部/顶部这段区域即触发翻页。
   static const double edgeHotZone = 48;
 
@@ -46,6 +50,13 @@ class SelectionLayer extends StatefulWidget {
 
   /// 手柄颜色。
   final Color handleColor;
+
+  /// 墨水屏选区与手柄统一使用纯黑。
+  static const Color inkColor = Color(0xFF000000);
+
+  /// 按显示模式解析选区/手柄颜色。
+  static Color resolveColor({required bool inkMode, required Color color}) =>
+      inkMode ? inkColor : color;
 
   @override
   State<SelectionLayer> createState() => _SelectionLayerState();
@@ -124,6 +135,7 @@ class _SelectionLayerState extends State<SelectionLayer>
                 geometry: geometry,
                 origin: origin,
                 color: widget.color,
+                inkMode: widget.inkMode,
               ),
             ),
           ),
@@ -197,7 +209,10 @@ class _SelectionLayerState extends State<SelectionLayer>
               width: SelectionOps.handleDot,
               height: SelectionOps.handleDot,
               decoration: BoxDecoration(
-                color: widget.handleColor,
+                color: SelectionLayer.resolveColor(
+                  inkMode: widget.inkMode,
+                  color: widget.handleColor,
+                ),
                 shape: BoxShape.circle,
               ),
             ),
@@ -239,21 +254,29 @@ class _SelectionPainter extends CustomPainter {
     required this.geometry,
     required this.origin,
     required this.color,
+    required this.inkMode,
   });
 
   final SelectionGeometry geometry;
   final Offset origin;
   final Color color;
+  final bool inkMode;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
     canvas.translate(origin.dx, origin.dy);
-    final fill = Paint()..color = color;
+    final paint = Paint()
+      ..color = SelectionLayer.resolveColor(inkMode: inkMode, color: color);
+    if (inkMode) {
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5;
+    }
     for (final rect in geometry.lineRects) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, const Radius.circular(2)),
-        fill,
+        paint,
       );
     }
     canvas.restore();
@@ -263,5 +286,6 @@ class _SelectionPainter extends CustomPainter {
   bool shouldRepaint(_SelectionPainter oldDelegate) =>
       oldDelegate.geometry != geometry ||
       oldDelegate.origin != origin ||
-      oldDelegate.color != color;
+      oldDelegate.color != color ||
+      oldDelegate.inkMode != inkMode;
 }

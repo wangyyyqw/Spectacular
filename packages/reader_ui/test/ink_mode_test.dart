@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/theme/reader_environment.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
@@ -33,6 +34,18 @@ void main() {
       expect(
         AnnotationLayer.markerColor(inkMode: false, color: marker),
         marker,
+      );
+    });
+
+    test('墨水屏选区与手柄改为黑色，普通模式保留原色', () {
+      const color = Color(0x4D5B8DEF);
+      expect(
+        SelectionLayer.resolveColor(inkMode: true, color: color),
+        const Color(0xFF000000),
+      );
+      expect(
+        SelectionLayer.resolveColor(inkMode: false, color: color),
+        color,
       );
     });
 
