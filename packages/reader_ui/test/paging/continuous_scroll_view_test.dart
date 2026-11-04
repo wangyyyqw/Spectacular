@@ -391,4 +391,63 @@ void main() {
     expect(scrollable.position.pixels, closeTo(expected, 0.01));
     session.dispose();
   });
+
+  testWidgets('视口点击坐标映射到可见页切片的页内坐标', (tester) async {
+    final source = _SingleChapterSource();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'scroll-tap',
+    );
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+    PageContent? tappedPage;
+    Offset? tappedPosition;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 320,
+            height: 480,
+            child: ContinuousScrollView(
+              key: key,
+              session: session,
+              revision: 1,
+              padding: const EdgeInsets.all(20),
+              paperBuilder: (page, size) =>
+                  const ColoredBox(color: Colors.white),
+              onTapAtPage: (page, position) {
+                tappedPage = page;
+                tappedPosition = position;
+                return true;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    scrollable.position.jumpTo(350);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(key.currentState?.handleTapAt(const Offset(100, 50)), isTrue);
+    expect(tappedPage?.pageIndex, 1);
+    expect(tappedPosition, const Offset(80, 80));
+
+    // 滚动后正文会滑入顶部 padding，点击仍应映射到对应页。
+    expect(key.currentState?.handleTapAt(const Offset(100, 10)), isTrue);
+    expect(tappedPage?.pageIndex, 1);
+    expect(tappedPosition, const Offset(80, 40));
+
+    scrollable.position.jumpTo(0);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(key.currentState?.handleTapAt(const Offset(100, 10)), isFalse);
+    session.dispose();
+  });
 }

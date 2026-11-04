@@ -1205,16 +1205,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 单击注释引用：命中时打开弹窗并消费本次点击，避免同时翻页。
-  bool _openFootnoteAt(Offset localPosition) {
-    final page = _session.page;
-    if (page == null) {
-      return false;
-    }
-    final padding = _bodyPadding();
-    final footnote = TextHitTester.footnoteAt(
-      page,
-      localPosition - Offset(padding.left, padding.top),
-    );
+  bool _openFootnoteInPage(PageContent page, Offset pagePosition) {
+    final footnote = TextHitTester.footnoteAt(page, pagePosition);
     if (footnote == null) {
       return false;
     }
@@ -1241,13 +1233,20 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return false;
     }
     final padding = _bodyPadding();
+    return _handleTapInPage(
+      page,
+      localPosition - Offset(padding.left, padding.top),
+    );
+  }
+
+  bool _handleTapInPage(PageContent page, Offset pagePosition) {
     final persistent = <ReaderAnnotation>[
       for (final annotation in _resolvedAnnotations)
         if (annotation.id != 'search-hit') annotation,
     ];
     final annotation = AnnotationDecorations.annotationAt(
       page,
-      localPosition - Offset(padding.left, padding.top),
+      pagePosition,
       persistent,
     );
     if (annotation != null) {
@@ -1255,7 +1254,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       unawaited(_editAnnotation(annotation));
       return true;
     }
-    return _openFootnoteAt(localPosition);
+    return _openFootnoteInPage(page, pagePosition);
   }
 
   /// 打开高亮编辑弹层：组合调整颜色、样式、笔记或删除标注。
@@ -2042,13 +2041,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         onLongPressAt: _selectWordAt,
         onDoubleTapAt: _selection == null ? null : _selectWordAt,
         onTripleTapAt: _selection == null ? null : _selectSentenceAt,
-        onTapAt: _handleTapAt,
+        onTapAt: (point) =>
+            _scrollKey.currentState?.handleTapAt(point) ?? false,
         child: ContinuousScrollView(
           key: _scrollKey,
           session: _session,
           revision: revision,
           padding: padding,
           paperBuilder: _buildScrollPaper,
+          onTapAtPage: _handleTapInPage,
           onPageVisible: (page) =>
               _schedulePrefetch(page, size.width - padding.horizontal),
         ),
