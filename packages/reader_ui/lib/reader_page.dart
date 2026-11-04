@@ -1578,7 +1578,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     // 新反馈应替换旧提示，避免撤销条把后续操作结果排队遮挡。
     messenger?.clearSnackBars();
     messenger?.showSnackBar(
-      SnackBar(content: Text(message), duration: duration, action: action),
+      SnackBar(
+        content: Text(message),
+        duration: duration,
+        action: action,
+        persist: false,
+      ),
     );
   }
 
