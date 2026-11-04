@@ -420,6 +420,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('标注面板：墨水屏统一标记色并隐藏批量换色', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnnotationPanel(
+            annotations: [
+              _annotation(
+                id: 'highlight-ink',
+                type: ReaderAnnotationType.highlight,
+                quote: '墨水屏下应显示黑色标记',
+              ),
+            ],
+            inkMode: true,
+            onSelect: (_) {},
+            onEdit: (_) {},
+            onDelete: (_) async {},
+            onRecolor: (_, _) async {},
+          ),
+        ),
+      ),
+    );
+
+    final bar = tester.widget<ColoredBox>(
+      find.byKey(
+        const ValueKey<String>('annotation-color-bar-highlight-ink'),
+      ),
+    );
+    expect(bar.color, const Color(0xFF000000));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-batch-manage')),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-batch-recolor')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-batch-delete')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('标注面板：长笔记可原位展开和收起', (tester) async {
     final selected = <ReaderAnnotation>[];
     final longNote = List<String>.filled(18, '这段笔记需要完整阅读').join('，');
