@@ -9,11 +9,18 @@ import 'bessel_geometry.dart';
 /// 690 §3～5、700 §2 的页面合成；只消费准备好的位图。
 class BesselPainter {
   BesselPainter({required this.paperColor})
-    : _backPaperPaint = Paint()..color = paperColor;
+    : _backPaperPaint = Paint()..color = paperColor,
+      _backContentPaint = Paint()
+        ..filterQuality = FilterQuality.low
+        ..colorFilter = ColorFilter.matrix(_fadeMatrix(paperColor));
 
   final Color paperColor;
   final Paint _backPaperPaint;
+  final Paint _backContentPaint;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
+
+  /// 纸背油墨只保留约三成反差，并整体向纸色靠拢。
+  static const double _backInkFade = 0.36;
 
   void paint(
     Canvas canvas,
@@ -206,14 +213,12 @@ class BesselPainter {
     bool rtl,
   ) {
     final mesh = _edgeMesh(geometry, image, rtl);
-    final shader = _imageShader(image);
     canvas.save();
     canvas.clipPath(back);
     canvas.drawRect(Offset.zero & geometry.size, _backPaperPaint);
-    canvas.drawVertices(mesh, BlendMode.src, Paint()..shader = shader);
+    _drawBackContent(canvas, mesh, image);
     _edgeBackShading(canvas, back);
     canvas.restore();
-    shader.dispose();
     mesh.dispose();
   }
 
@@ -244,10 +249,46 @@ class BesselPainter {
     final bounds = back.getBounds().intersect(Offset.zero & geometry.size);
     if (bounds.isEmpty) return;
     final mesh = _cornerMesh(geometry, image, bounds, rtl);
-    final shader = _imageShader(image);
-    canvas.drawVertices(mesh, BlendMode.src, Paint()..shader = shader);
-    shader.dispose();
+    _drawBackContent(canvas, mesh, image);
     mesh.dispose();
+  }
+
+  /// 只压缩纸背油墨反差，alpha 保持为 1，纸背始终不透明。
+  void _drawBackContent(Canvas canvas, ui.Vertices mesh, ui.Image image) {
+    final shader = _imageShader(image);
+    _backContentPaint.shader = shader;
+    canvas.drawVertices(mesh, BlendMode.src, _backContentPaint);
+    _backContentPaint.shader = null;
+    shader.dispose();
+  }
+
+  static List<double> _fadeMatrix(Color paper) {
+    const fade = _backInkFade;
+    final red = paper.r * 255;
+    final green = paper.g * 255;
+    final blue = paper.b * 255;
+    return <double>[
+      fade,
+      0,
+      0,
+      0,
+      (1 - fade) * red,
+      0,
+      fade,
+      0,
+      0,
+      (1 - fade) * green,
+      0,
+      0,
+      fade,
+      0,
+      (1 - fade) * blue,
+      0,
+      0,
+      0,
+      1,
+      0,
+    ];
   }
 
   /// 角部纸背显示镜像页面，并沿折痕法线做非线性压缩模拟纸张弯曲。
