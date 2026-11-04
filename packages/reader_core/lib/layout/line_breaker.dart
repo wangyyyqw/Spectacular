@@ -1214,6 +1214,23 @@ abstract final class TextLayoutEngine {
             if (forcedBreaks.add(box.spec.offset)) {
               retry = true;
             }
+          } else if (box.offset == line.start &&
+              box.spec.offset > 0 &&
+              box.spec.offset < measuredText.length &&
+              punctLineStartProhibitedSet.contains(
+                measuredText[box.spec.offset],
+              )) {
+            // 注号等行内盒被单独挤到行首、后面紧跟收尾标点时，把前一个字
+            // 一起移到下一行，避免「注号 + 逗号/句号」占据行首。
+            final previous = _previousCharacterOffset(
+              measuredText,
+              box.spec.offset,
+            );
+            if (previous < box.spec.offset &&
+                !_isWhitespace(measuredText.codeUnitAt(previous)) &&
+                forcedBreaks.add(previous)) {
+              retry = true;
+            }
           }
         }
       }
@@ -2929,6 +2946,18 @@ abstract final class TextLayoutEngine {
   /// 行内盒占位符（U+FFFC：object replacement character）。
   static const String _inlineBoxPlaceholder = '\uFFFC';
 
+  /// 原文 [offset] 前一个字簇的起始下标。
+  static int _previousCharacterOffset(String text, int offset) {
+    if (offset <= 0) {
+      return 0;
+    }
+    final prefix = text.substring(0, math.min(offset, text.length));
+    if (prefix.isEmpty) {
+      return 0;
+    }
+    return prefix.length - prefix.characters.last.length;
+  }
+
   /// 构造行内盒占位文本：插入或复用图片原占位符，并给出原文偏移映射。
   static _InlineBoxText _buildInlineBoxText(
     String text,
@@ -2945,12 +2974,21 @@ abstract final class TextLayoutEngine {
     final offsets = <int>[0];
     final marks = <_InlineBoxMark>[];
     var cursor = 0;
-    for (final (_, spec) in ordered) {
-      final stop = spec.offset.clamp(cursor, text.length);
+    void writeUntil(int stop) {
       for (var i = cursor; i < stop; i++) {
+        if (i > 0 && forcedBreaks.contains(i)) {
+          buffer.write('\n');
+          offsets.add(i);
+        }
         buffer.write(text[i]);
         offsets.add(i + 1);
       }
+      cursor = stop;
+    }
+
+    for (final (_, spec) in ordered) {
+      final stop = spec.offset.clamp(cursor, text.length);
+      writeUntil(stop);
       // 盒放不下时先在容器内强制换行（CSS inline-block 整体换行）。
       if (forcedBreaks.contains(stop)) {
         buffer.write('\n');
@@ -2967,10 +3005,7 @@ abstract final class TextLayoutEngine {
           : stop;
       offsets.add(cursor);
     }
-    for (var i = cursor; i < text.length; i++) {
-      buffer.write(text[i]);
-      offsets.add(i + 1);
-    }
+    writeUntil(text.length);
     return _InlineBoxText(
       text: buffer.toString(),
       offsets: offsets,
