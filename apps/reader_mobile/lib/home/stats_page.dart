@@ -173,6 +173,7 @@ class _StatsPageState extends State<StatsPage> {
     ];
     final stats = _LibraryStats(
       rows: rows,
+      sessions: sessions,
       started: started,
       finished: finished,
       recent: recent,
@@ -275,7 +276,9 @@ class _StatsPageState extends State<StatsPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _WeekActivityCard(stats: stats),
+                  _ReadingChartCard(stats: stats, onOpenBook: _openBook),
+                  const SizedBox(height: 12),
+                  _ReadingHeatmap(stats: stats, onOpenBook: _openBook),
                   const SizedBox(height: 24),
                   _SectionTitle(
                     title: '阅读分布',
@@ -309,6 +312,7 @@ class _StatsPageState extends State<StatsPage> {
 class _LibraryStats {
   const _LibraryStats({
     required this.rows,
+    required this.sessions,
     required this.started,
     required this.finished,
     required this.recent,
@@ -325,6 +329,7 @@ class _LibraryStats {
   });
 
   final List<_BookReadingStat> rows;
+  final List<ReadingSession> sessions;
   final int started;
   final int finished;
   final int recent;
@@ -623,30 +628,75 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _WeekActivityCard extends StatelessWidget {
-  const _WeekActivityCard({required this.stats});
+enum _ChartPeriod {
+  day('日', '近 7 天'),
+  week('周', '近 8 周'),
+  month('月', '近 12 月'),
+  year('年', '近 5 年');
+
+  const _ChartPeriod(this.label, this.rangeLabel);
+
+  final String label;
+  final String rangeLabel;
+}
+
+class _ReadingBucket {
+  _ReadingBucket({
+    required this.start,
+    required this.end,
+    required this.label,
+    required this.rangeLabel,
+  });
+
+  final DateTime start;
+  final DateTime end;
+  final String label;
+  final String rangeLabel;
+  Duration duration = Duration.zero;
+  int sessionCount = 0;
+  final Map<String, Duration> bookDurations = <String, Duration>{};
+}
+
+class _ReadingChartCard extends StatefulWidget {
+  const _ReadingChartCard({required this.stats, required this.onOpenBook});
 
   final _LibraryStats stats;
+  final ValueChanged<BookEntry> onOpenBook;
+
+  @override
+  State<_ReadingChartCard> createState() => _ReadingChartCardState();
+}
+
+class _ReadingChartCardState extends State<_ReadingChartCard> {
+  _ChartPeriod _period = _ChartPeriod.day;
+  int _selectedIndex = 6;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final useDuration = stats.hasReadingSessions;
-    final maxValue = stats.activity.fold<int>(0, (maximum, day) {
-      final value = useDuration ? day.duration.inSeconds : day.books;
+    final useDuration = widget.stats.hasReadingSessions;
+    final buckets = _buildReadingBuckets(_period, DateTime.now());
+    for (final bucket in buckets) {
+      _fillReadingBucket(bucket, widget.stats.sessions);
+    }
+    final selectedIndex = _selectedIndex.clamp(0, buckets.length - 1);
+    final selected = buckets[selectedIndex];
+    final maxValue = buckets.fold<int>(0, (maximum, bucket) {
+      final value = _period == _ChartPeriod.day && !useDuration
+          ? _booksReadOnDay(widget.stats, bucket.start)
+          : bucket.duration.inSeconds;
       return value > maximum ? value : maximum;
     });
-    final weekDuration = stats.activity.fold<Duration>(
+    final total = buckets.fold<Duration>(
       Duration.zero,
-      (total, day) => total + day.duration,
+      (sum, bucket) => sum + bucket.duration,
     );
-    final readingDays = stats.activity
-        .where((day) => day.duration > Duration.zero)
+    final readingDays = buckets
+        .where((bucket) => bucket.duration > Duration.zero)
         .length;
-    final summary = useDuration
-        ? '${_formatReadingDuration(weekDuration)} · $readingDays 天'
-        : '${stats.activeDays} 天活跃 · ${stats.recent} 本书';
-    const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
+    final summary = _period == _ChartPeriod.day && !useDuration
+        ? '${widget.stats.activeDays} 天活跃 · ${widget.stats.recent} 本书'
+        : '${_formatReadingDuration(total)} · $readingDays ${_period == _ChartPeriod.day ? '天' : '段'}';
     return Card(
       key: const ValueKey<String>('stats-week-activity'),
       margin: EdgeInsets.zero,
@@ -659,7 +709,9 @@ class _WeekActivityCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    useDuration ? '近 7 天阅读时长' : '近 7 天阅读',
+                    _period == _ChartPeriod.day && !useDuration
+                        ? '近 7 天阅读'
+                        : '${_period.rangeLabel}阅读时长',
                     style: theme.textTheme.titleSmall,
                   ),
                 ),
@@ -672,25 +724,56 @@ class _WeekActivityCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
+            SegmentedButton<_ChartPeriod>(
+              key: const ValueKey<String>('stats-chart-period'),
+              segments: <ButtonSegment<_ChartPeriod>>[
+                for (final period in _ChartPeriod.values)
+                  ButtonSegment<_ChartPeriod>(
+                    value: period,
+                    label: Text(
+                      period.label,
+                      key: ValueKey<String>(
+                        'stats-chart-period-${period.name}',
+                      ),
+                    ),
+                  ),
+              ],
+              selected: <_ChartPeriod>{_period},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) {
+                final period = selection.single;
+                setState(() {
+                  _period = period;
+                  _selectedIndex = _bucketCount(period) - 1;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
             SizedBox(
-              height: 104,
+              height: 124,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  for (var index = 0; index < stats.activity.length; index++)
+                  for (var index = 0; index < buckets.length; index++)
                     Expanded(
-                      child: _ActivityBar(
-                        day: stats.activity[index],
+                      child: _PeriodBar(
+                        bucket: buckets[index],
+                        index: index,
+                        period: _period,
+                        selected: index == selectedIndex,
+                        useBooks: _period == _ChartPeriod.day && !useDuration,
+                        books: _booksReadOnDay(
+                          widget.stats,
+                          buckets[index].start,
+                        ),
                         maxValue: maxValue,
-                        useDuration: useDuration,
-                        weekday: index == stats.activity.length - 1
-                            ? '今天'
-                            : '周${weekdays[stats.activity[index].date.weekday - 1]}',
+                        label: _barLabel(_period, buckets[index], index),
                         countKey: ValueKey<String>(
                           'stats-activity-count-$index',
                         ),
                         barKey: ValueKey<String>('stats-activity-bar-$index'),
+                        onTap: () => setState(() => _selectedIndex = index),
                       ),
                     ),
                 ],
@@ -698,12 +781,717 @@ class _WeekActivityCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              useDuration ? '按实际前台阅读时长统计' : '按每本书的最后阅读日期统计',
+              _period == _ChartPeriod.day && !useDuration
+                  ? '按每本书的最后阅读日期统计'
+                  : '按实际前台阅读时长统计',
               key: const ValueKey<String>('stats-activity-caption'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            const SizedBox(height: 14),
+            _ReadingBucketDetail(
+              bucket: selected,
+              books: widget.stats.rows,
+              onOpenBook: widget.onOpenBook,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _barLabel(_ChartPeriod period, _ReadingBucket bucket, int index) {
+    switch (period) {
+      case _ChartPeriod.day:
+        if (index == 6) {
+          return '今天';
+        }
+        const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
+        return '周${weekdays[bucket.start.weekday - 1]}';
+      case _ChartPeriod.week:
+      case _ChartPeriod.month:
+      case _ChartPeriod.year:
+        return bucket.label;
+    }
+  }
+
+  int _booksReadOnDay(_LibraryStats stats, DateTime date) {
+    final day = DateTime(date.year, date.month, date.day);
+    return stats.activity
+        .where(
+          (item) =>
+              item.date.isAtSameMomentAs(day) && item.duration == Duration.zero,
+        )
+        .fold<int>(0, (total, item) => total + item.books);
+  }
+}
+
+class _PeriodBar extends StatelessWidget {
+  const _PeriodBar({
+    required this.bucket,
+    required this.index,
+    required this.period,
+    required this.selected,
+    required this.useBooks,
+    required this.books,
+    required this.maxValue,
+    required this.label,
+    required this.countKey,
+    required this.barKey,
+    required this.onTap,
+  });
+
+  final _ReadingBucket bucket;
+  final int index;
+  final _ChartPeriod period;
+  final bool selected;
+  final bool useBooks;
+  final int books;
+  final int maxValue;
+  final String label;
+  final Key countKey;
+  final Key barKey;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final value = useBooks ? books : bucket.duration.inSeconds;
+    final hasActivity = value > 0;
+    final ratio = maxValue == 0 ? 0.0 : value / maxValue;
+    final valueLabel = useBooks
+        ? '$value'
+        : (period == _ChartPeriod.day || selected) && hasActivity
+        ? _formatActivityDuration(bucket.duration)
+        : '';
+    final tooltip = useBooks
+        ? '${bucket.start.month}月${bucket.start.day}日 · $books 本'
+        : '${_bucketRangeLabel(bucket)} · '
+              '${_formatReadingDuration(bucket.duration)} · '
+              '${bucket.sessionCount} 次';
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        key: ValueKey<String>('stats-chart-bar-${period.name}-$index'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                valueLabel,
+                key: countKey,
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: hasActivity
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: hasActivity ? FontWeight.w700 : FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 5),
+              AnimatedContainer(
+                key: barKey,
+                duration: const Duration(milliseconds: 180),
+                width: selected ? 20 : 14,
+                height: hasActivity ? 8 + ratio * 62 : 5,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : hasActivity
+                      ? theme.colorScheme.primary.withValues(alpha: 0.55)
+                      : theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                label,
+                maxLines: 1,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: hasActivity
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadingBucketDetail extends StatelessWidget {
+  const _ReadingBucketDetail({
+    required this.bucket,
+    required this.books,
+    required this.onOpenBook,
+  });
+
+  final _ReadingBucket bucket;
+  final List<_BookReadingStat> books;
+  final ValueChanged<BookEntry> onOpenBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entries = bucket.bookDurations.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    final byId = <String, BookEntry>{
+      for (final row in books) row.book.id: row.book,
+    };
+    return Container(
+      key: const ValueKey<String>('stats-chart-detail'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _bucketRangeLabel(bucket),
+                  style: theme.textTheme.labelLarge,
+                ),
+              ),
+              Text(
+                _formatReadingDuration(bucket.duration),
+                key: const ValueKey<String>('stats-chart-bucket-duration'),
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (entries.isEmpty)
+            Text(
+              '该时段没有阅读记录',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            for (final entry in entries)
+              InkWell(
+                key: ValueKey<String>('stats-chart-book-${entry.key}'),
+                onTap: byId[entry.key] == null
+                    ? null
+                    : () => onOpenBook(byId[entry.key]!),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.menu_book_outlined,
+                        size: 16,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          byId[entry.key]?.title ?? '已移除的书籍',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatReadingDuration(entry.value),
+                        key: ValueKey<String>(
+                          'stats-chart-book-duration-${entry.key}',
+                        ),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+int _bucketCount(_ChartPeriod period) => switch (period) {
+  _ChartPeriod.day => 7,
+  _ChartPeriod.week => 8,
+  _ChartPeriod.month => 12,
+  _ChartPeriod.year => 5,
+};
+
+List<_ReadingBucket> _buildReadingBuckets(_ChartPeriod period, DateTime now) {
+  final today = DateTime(now.year, now.month, now.day);
+  switch (period) {
+    case _ChartPeriod.day:
+      return <_ReadingBucket>[
+        for (var offset = -6; offset <= 0; offset++)
+          _ReadingBucket(
+            start: DateTime(today.year, today.month, today.day + offset),
+            end: DateTime(today.year, today.month, today.day + offset + 1),
+            label: '',
+            rangeLabel:
+                '${DateTime(today.year, today.month, today.day + offset).month}月'
+                '${DateTime(today.year, today.month, today.day + offset).day}日',
+          ),
+      ];
+    case _ChartPeriod.week:
+      final monday = DateTime(
+        today.year,
+        today.month,
+        today.day - (today.weekday - 1),
+      );
+      return <_ReadingBucket>[
+        for (var offset = 7; offset >= 0; offset--)
+          _weekBucket(
+            DateTime(monday.year, monday.month, monday.day - offset * 7),
+          ),
+      ];
+    case _ChartPeriod.month:
+      return <_ReadingBucket>[
+        for (var offset = 11; offset >= 0; offset--)
+          _ReadingBucket(
+            start: DateTime(now.year, now.month - offset, 1),
+            end: DateTime(now.year, now.month - offset + 1, 1),
+            label: '${DateTime(now.year, now.month - offset, 1).month}月',
+            rangeLabel:
+                '${DateTime(now.year, now.month - offset, 1).year}年'
+                '${DateTime(now.year, now.month - offset, 1).month}月',
+          ),
+      ];
+    case _ChartPeriod.year:
+      return <_ReadingBucket>[
+        for (var offset = 4; offset >= 0; offset--)
+          _ReadingBucket(
+            start: DateTime(now.year - offset, 1, 1),
+            end: DateTime(now.year - offset + 1, 1, 1),
+            label: '${now.year - offset}',
+            rangeLabel: '${now.year - offset}年',
+          ),
+      ];
+  }
+}
+
+_ReadingBucket _weekBucket(DateTime start) {
+  final end = DateTime(start.year, start.month, start.day + 7);
+  final lastDay = DateTime(end.year, end.month, end.day - 1);
+  return _ReadingBucket(
+    start: start,
+    end: end,
+    label: '${start.month}/${start.day}',
+    rangeLabel: '${start.month}月${start.day}日–${lastDay.month}月${lastDay.day}日',
+  );
+}
+
+void _fillReadingBucket(_ReadingBucket bucket, List<ReadingSession> sessions) {
+  for (final session in sessions) {
+    if (session.duration <= Duration.zero ||
+        !session.endedAt.isAfter(session.startedAt)) {
+      continue;
+    }
+    final overlap = _sessionOverlap(session, bucket.start, bucket.end);
+    if (overlap <= Duration.zero) {
+      continue;
+    }
+    bucket.duration += overlap;
+    bucket.bookDurations[session.bookId] =
+        (bucket.bookDurations[session.bookId] ?? Duration.zero) + overlap;
+    if (!session.startedAt.isBefore(bucket.start) &&
+        session.startedAt.isBefore(bucket.end)) {
+      bucket.sessionCount += 1;
+    }
+  }
+}
+
+Duration _sessionOverlap(ReadingSession session, DateTime start, DateTime end) {
+  final from = session.startedAt.isAfter(start) ? session.startedAt : start;
+  final to = session.endedAt.isBefore(end) ? session.endedAt : end;
+  return to.isAfter(from) ? to.difference(from) : Duration.zero;
+}
+
+String _bucketRangeLabel(_ReadingBucket bucket) => bucket.rangeLabel;
+
+class _HeatmapDay {
+  _HeatmapDay({required this.date});
+
+  final DateTime date;
+  Duration duration = Duration.zero;
+  int sessionCount = 0;
+  int pageTurns = 0;
+  int charactersRead = 0;
+  final Map<String, Duration> bookDurations = <String, Duration>{};
+  final List<_DayReadingSegment> segments = <_DayReadingSegment>[];
+}
+
+class _DayReadingSegment {
+  const _DayReadingSegment({
+    required this.bookId,
+    required this.startedAt,
+    required this.endedAt,
+    required this.duration,
+  });
+
+  final String bookId;
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final Duration duration;
+}
+
+class _ReadingHeatmap extends StatelessWidget {
+  const _ReadingHeatmap({required this.stats, required this.onOpenBook});
+
+  final _LibraryStats stats;
+  final ValueChanged<BookEntry> onOpenBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final days = _buildHeatmapDays(stats.sessions, DateTime.now());
+    final weeks = <List<_HeatmapDay>>[
+      for (var week = 0; week < 12; week++)
+        <_HeatmapDay>[
+          for (var weekday = 0; weekday < 7; weekday++)
+            days[week * 7 + weekday],
+        ],
+    ];
+    const weekdays = <String>['一', '', '三', '', '五', '', '日'];
+    return Card(
+      key: const ValueKey<String>('stats-heatmap'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text('阅读热力图', style: theme.textTheme.titleSmall),
+                ),
+                Text(
+                  '近 12 周',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '点击色块查看当日阅读详情',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                SizedBox(
+                  width: 18,
+                  child: Column(
+                    children: <Widget>[
+                      for (final weekday in weekdays)
+                        SizedBox(
+                          height: 24,
+                          child: Center(
+                            child: Text(
+                              weekday,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Row(
+                    children: <Widget>[
+                      for (final week in weeks)
+                        Expanded(
+                          child: Column(
+                            children: <Widget>[
+                              for (final day in week)
+                                _HeatmapCell(
+                                  day: day,
+                                  onTap: () =>
+                                      _showDayDetail(context, day, onOpenBook),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[
+                Text(
+                  '少',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                for (final alpha in const <double>[0.18, 0.38, 0.62, 0.9])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 3),
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: alpha,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 2),
+                Text(
+                  '多',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDayDetail(
+    BuildContext context,
+    _HeatmapDay day,
+    ValueChanged<BookEntry> onOpenBook,
+  ) async {
+    final titles = <String, BookEntry>{
+      for (final row in stats.rows) row.book.id: row.book,
+    };
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _DayReadingSheet(
+        day: day,
+        books: titles,
+        onOpenBook: (book) {
+          Navigator.of(context).pop();
+          onOpenBook(book);
+        },
+      ),
+    );
+  }
+}
+
+class _HeatmapCell extends StatelessWidget {
+  const _HeatmapCell({required this.day, required this.onTap});
+
+  final _HeatmapDay day;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final alpha = day.duration <= Duration.zero
+        ? 0.0
+        : day.duration < const Duration(minutes: 15)
+        ? 0.18
+        : day.duration < const Duration(minutes: 30)
+        ? 0.38
+        : day.duration < const Duration(hours: 1)
+        ? 0.62
+        : 0.9;
+    final color = alpha == 0.0
+        ? theme.colorScheme.surfaceContainerHighest
+        : theme.colorScheme.primary.withValues(alpha: alpha);
+    return SizedBox(
+      key: ValueKey<String>('stats-heatmap-day-${_dateKey(day.date)}'),
+      height: 24,
+      child: Center(
+        child: Tooltip(
+          message:
+              '${day.date.month}月${day.date.day}日 · '
+              '${_formatReadingDuration(day.duration)} · '
+              '${day.sessionCount} 次',
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(3),
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(3),
+                border: Border.all(
+                  color: theme.colorScheme.surface.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DayReadingSheet extends StatelessWidget {
+  const _DayReadingSheet({
+    required this.day,
+    required this.books,
+    required this.onOpenBook,
+  });
+
+  final _HeatmapDay day;
+  final Map<String, BookEntry> books;
+  final ValueChanged<BookEntry> onOpenBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entries = day.bookDurations.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        key: const ValueKey<String>('stats-day-detail'),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '${day.date.year}年${day.date.month}月${day.date.day}日',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 20,
+              runSpacing: 10,
+              children: <Widget>[
+                _DetailMetric(
+                  label: '阅读时长',
+                  value: _formatReadingDuration(day.duration),
+                  valueKey: const ValueKey<String>('stats-day-detail-duration'),
+                ),
+                _DetailMetric(
+                  label: '阅读次数',
+                  value: '${day.sessionCount}',
+                  valueKey: const ValueKey<String>('stats-day-detail-sessions'),
+                ),
+                _DetailMetric(
+                  label: '翻页次数',
+                  value: '${day.pageTurns}',
+                  valueKey: const ValueKey<String>(
+                    'stats-day-detail-page-turns',
+                  ),
+                ),
+                _DetailMetric(
+                  label: '阅读字数',
+                  value: _formatMetricCharacters(day.charactersRead),
+                  valueKey: const ValueKey<String>(
+                    'stats-day-detail-characters',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text('阅读书目', style: theme.textTheme.labelLarge),
+            const SizedBox(height: 6),
+            if (entries.isEmpty)
+              Text(
+                '这一天没有阅读记录',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
+            else
+              for (final entry in entries)
+                InkWell(
+                  key: ValueKey<String>('stats-day-book-${entry.key}'),
+                  onTap: books[entry.key] == null
+                      ? null
+                      : () => onOpenBook(books[entry.key]!),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            books[entry.key]?.title ?? '已移除的书籍',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                        Text(
+                          _formatReadingDuration(entry.value),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            if (day.segments.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 18),
+              Text('阅读时段', style: theme.textTheme.labelLarge),
+              const SizedBox(height: 6),
+              for (final segment in day.segments)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    children: <Widget>[
+                      Text(
+                        '${_formatTime(segment.startedAt)}–'
+                        '${_formatTime(segment.endedAt)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          books[segment.bookId]?.title ?? '已移除的书籍',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                      Text(
+                        _formatReadingDuration(segment.duration),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ],
         ),
       ),
@@ -711,78 +1499,103 @@ class _WeekActivityCard extends StatelessWidget {
   }
 }
 
-class _ActivityBar extends StatelessWidget {
-  const _ActivityBar({
-    required this.day,
-    required this.maxValue,
-    required this.useDuration,
-    required this.weekday,
-    required this.countKey,
-    required this.barKey,
+class _DetailMetric extends StatelessWidget {
+  const _DetailMetric({
+    required this.label,
+    required this.value,
+    required this.valueKey,
   });
 
-  final _DailyReading day;
-  final int maxValue;
-  final bool useDuration;
-  final String weekday;
-  final Key countKey;
-  final Key barKey;
+  final String label;
+  final String value;
+  final Key valueKey;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final value = useDuration ? day.duration.inSeconds : day.books;
-    final hasActivity = value > 0;
-    final ratio = maxValue == 0 ? 0.0 : value / maxValue;
-    final label = useDuration
-        ? _formatActivityDuration(day.duration)
-        : '$value';
-    final tooltip = useDuration
-        ? '${day.date.month}月${day.date.day}日 · '
-              '${_formatReadingDuration(day.duration)} · ${day.books} 本书'
-        : '${day.date.month}月${day.date.day}日 · ${day.books} 本';
-    return Tooltip(
-      message: tooltip,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Text(
-            label,
-            key: countKey,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: hasActivity
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-              fontWeight: hasActivity ? FontWeight.w700 : FontWeight.w400,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(height: 5),
-          Container(
-            key: barKey,
-            width: 18,
-            height: hasActivity ? 8 + ratio * 52 : 5,
-            decoration: BoxDecoration(
-              color: hasActivity
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(6),
-            ),
+        ),
+        Text(
+          value,
+          key: valueKey,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
           ),
-          const SizedBox(height: 7),
-          Text(
-            weekday,
-            maxLines: 1,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: hasActivity
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant,
-              fontWeight: weekday == '今天' ? FontWeight.w700 : FontWeight.w400,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+}
+
+List<_HeatmapDay> _buildHeatmapDays(
+  List<ReadingSession> sessions,
+  DateTime now,
+) {
+  final today = DateTime(now.year, now.month, now.day);
+  final monday = DateTime(
+    today.year,
+    today.month,
+    today.day - (today.weekday - 1),
+  );
+  final start = DateTime(monday.year, monday.month, monday.day - 77);
+  final days = <_HeatmapDay>[
+    for (var offset = 0; offset < 84; offset++)
+      _HeatmapDay(date: DateTime(start.year, start.month, start.day + offset)),
+  ];
+  final byDate = <DateTime, _HeatmapDay>{for (final day in days) day.date: day};
+  for (final session in sessions) {
+    if (session.duration <= Duration.zero ||
+        !session.endedAt.isAfter(session.startedAt)) {
+      continue;
+    }
+    var cursor = session.startedAt;
+    while (cursor.isBefore(session.endedAt)) {
+      final dayStart = DateTime(cursor.year, cursor.month, cursor.day);
+      final nextDay = DateTime(cursor.year, cursor.month, cursor.day + 1);
+      final segmentEnd = session.endedAt.isBefore(nextDay)
+          ? session.endedAt
+          : nextDay;
+      final day = byDate[dayStart];
+      final overlap = segmentEnd.difference(cursor);
+      if (day != null && overlap > Duration.zero) {
+        day.duration += overlap;
+        day.bookDurations[session.bookId] =
+            (day.bookDurations[session.bookId] ?? Duration.zero) + overlap;
+        day.segments.add(
+          _DayReadingSegment(
+            bookId: session.bookId,
+            startedAt: cursor,
+            endedAt: segmentEnd,
+            duration: overlap,
+          ),
+        );
+        if (session.startedAt.isAtSameMomentAs(cursor)) {
+          day.sessionCount += 1;
+          day.pageTurns += session.pageTurns;
+          day.charactersRead += session.charactersRead;
+        }
+      }
+      cursor = segmentEnd;
+    }
+  }
+  return days;
+}
+
+String _dateKey(DateTime date) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${date.year}-${two(date.month)}-${two(date.day)}';
+}
+
+String _formatTime(DateTime time) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(time.hour)}:${two(time.minute)}';
 }
 
 class _SectionTitle extends StatelessWidget {
