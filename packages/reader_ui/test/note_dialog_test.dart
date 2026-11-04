@@ -950,4 +950,65 @@ void main() {
     await _finishExit(tester);
     expect(find.byType(SelectionLayer), findsOneWidget);
   });
+
+  testWidgets('新的操作提示替换旧的撤销提示', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'replace-toast',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '待删除笔记',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'replace-toast',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final wordPosition =
+        tester.getTopLeft(find.byType(ReaderView)) +
+        Offset(line.rect.left + 6, line.rect.center.dy);
+
+    await tester.tapAt(wordPosition);
+    await tester.pumpAndSettle();
+    final remove = find.byKey(const ValueKey<String>('annotation-remove'));
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('annotation-remove-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('已删除笔记'), findsOneWidget);
+
+    await tester.longPressAt(wordPosition);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-highlight')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(notes.items.single.type, ReaderAnnotationType.highlight);
+    expect(find.text('已高亮'), findsOneWidget);
+    expect(find.text('已删除笔记'), findsNothing);
+  });
 }

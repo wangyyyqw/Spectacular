@@ -1575,9 +1575,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     Duration duration = const Duration(seconds: 1),
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    if (action != null) {
-      messenger?.hideCurrentSnackBar();
-    }
+    // 新反馈应替换旧提示，避免撤销条把后续操作结果排队遮挡。
+    messenger?.clearSnackBars();
     messenger?.showSnackBar(
       SnackBar(content: Text(message), duration: duration, action: action),
     );
