@@ -99,7 +99,7 @@ void main() {
     expect(back.contains(near), isTrue);
     expect(back.contains(far), isTrue);
     expect(_brightness(data, near), lessThan(_brightness(data, far) - 15));
-    expect(_brightness(data, far), greaterThanOrEqualTo(240));
+    expect(_brightness(data, far), 255);
   });
 
   test('底页投影紧贴折痕，远离折痕后恢复纸色', () async {
@@ -108,7 +108,7 @@ void main() {
     final far = crease - normal * 40;
 
     expect(_brightness(data, near), lessThan(225));
-    expect(_brightness(data, far), greaterThanOrEqualTo(240));
+    expect(_brightness(data, far), 255);
   });
 
   test('上下角纸背渐变和底页投影相互镜像', () async {
@@ -119,7 +119,7 @@ void main() {
       final point = crease + normal * distance;
       expect(
         _brightness(top, point, mirrored: true),
-        closeTo(_brightness(bottom, point), 6),
+        closeTo(_brightness(bottom, point), 2),
         reason: '距折痕 $distance 像素处的明暗应一致',
       );
     }
@@ -196,33 +196,6 @@ void main() {
     }
   });
 
-  test('纸背内容淡化并向纸色靠拢，比正面更浅', () async {
-    final data = await _render(
-      pageColor: const Color(0xFF000000),
-      paperColor: const Color(0xFFFFFFFF),
-    );
-    final back = crease + normal * 30;
-    final backBrightness = _brightness(data, back);
-
-    expect(backBrightness, greaterThan(120));
-    expect(backBrightness, lessThan(200));
-    expect(_brightness(data, const Offset(20, 150)), lessThan(60));
-  });
-
-  test('纸背叠加低反差斑驳纹理', () async {
-    final data = await _render(horizontal: true);
-    var minimum = 255;
-    var maximum = 0;
-    for (var y = 10; y < 290; y += 2) {
-      final brightness = _brightness(data, Offset(135, y.toDouble()));
-      minimum = brightness < minimum ? brightness : minimum;
-      maximum = brightness > maximum ? brightness : maximum;
-    }
-
-    expect(maximum - minimum, greaterThan(3));
-    expect(maximum - minimum, lessThan(50));
-  });
-
   test('中心起卷上下对称且整条侧边都有纸背', () async {
     final data = await _render(
       horizontal: true,
@@ -234,7 +207,7 @@ void main() {
 
       expect(upper[0], upper[1], reason: '纸背内部不能漏出红色底页');
       expect(upper[1], upper[2]);
-      expect(lower[0], closeTo(upper[0], 6));
+      expect(lower[0], closeTo(upper[0], 2));
     }
   });
 
@@ -247,20 +220,17 @@ void main() {
     )!;
     final crease = geometry.d.dx.floor();
     for (final sampleY in <double>[2, 75, 150, 225, 297]) {
-      expect(_brightness(data, Offset(123, sampleY)), greaterThan(230));
+      expect(_brightness(data, Offset(123, sampleY)), greaterThan(250));
       expect(_brightness(data, Offset(crease - 1.0, sampleY)), lessThan(205));
       expect(_brightness(data, Offset(crease + 2.0, sampleY)), lessThan(225));
-      expect(
-        _brightness(data, Offset(crease + 30.0, sampleY)),
-        greaterThanOrEqualTo(230),
-      );
+      expect(_brightness(data, Offset(crease + 30.0, sampleY)), 255);
     }
     for (var sampleX = 115; sampleX < 180; sampleX++) {
       for (final sampleY in [2, 297]) {
         final actual = _rgba(data, sampleX, sampleY);
         final center = _rgba(data, sampleX, 150);
         for (var channel = 0; channel < 4; channel++) {
-          expect(actual[channel], closeTo(center[channel], 16));
+          expect(actual[channel], closeTo(center[channel], 2));
         }
       }
     }
