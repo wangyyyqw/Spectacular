@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
@@ -14,6 +12,7 @@ import 'library/library_store.dart';
 import 'storage/db.dart';
 import 'storage/drift_progress_store.dart';
 import 'storage/file_progress_store.dart';
+import 'storage/startup_storage.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,36 +64,25 @@ Future<void> main() async {
   final library = database == null
       ? LibraryStore.memory()
       : LibraryStore(database: database);
-  if (database != null) {
-    // 旧版 books.json 一次性迁入 drift（幂等）。
-    final migrated = await library.migrateLegacyJson();
-    if (migrated > 0) {
-      await log.log(
-        'library_migrated',
-        fields: <String, Object?>{'books': migrated},
-      );
-    }
-    // P4-05：清理数据库里已不存在的书目录/旧格式孤儿文件。
-    final swept = await library.sweepOrphans();
-    if (swept.removed > 0) {
-      await log.log(
-        'library_swept',
-        fields: <String, Object?>{
-          'entries': swept.removed,
-          'bytes': swept.bytes,
-        },
-      );
-    }
+  if (database != null && await prepareLibraryStorage(library, log)) {
     // 旧书封面回填放后台，不拖慢启动。
     unawaited(
-      library.backfillCovers().then((filled) async {
-        if (filled > 0) {
-          await log.log(
-            'covers_backfilled',
-            fields: <String, Object?>{'books': filled},
-          );
-        }
-      }),
+      library
+          .backfillCovers()
+          .then((filled) async {
+            if (filled > 0) {
+              await log.log(
+                'covers_backfilled',
+                fields: <String, Object?>{'books': filled},
+              );
+            }
+          })
+          .catchError((Object error, StackTrace stack) async {
+            await log.log(
+              'covers_backfill_failed',
+              fields: <String, Object?>{'error': error, 'stack': stack},
+            );
+          }),
     );
   }
   // P4-10：进度写 reading_progress 表；数据库不可用时退回内存存储。
@@ -104,16 +92,11 @@ Future<void> main() async {
   } else {
     final driftStore = DriftProgressStore(database);
     // 旧版 reader_progress.json 一次性迁入表（幂等）。
-    final support = await getApplicationSupportDirectory();
-    final migrated = await driftStore.migrateLegacyJson(
-      File(p.join(support.path, 'reader_progress.json')),
+    await prepareProgressStorage(
+      driftStore,
+      getApplicationSupportDirectory,
+      log,
     );
-    if (migrated > 0) {
-      await log.log(
-        'progress_migrated',
-        fields: <String, Object?>{'entries': migrated},
-      );
-    }
     progressStore = driftStore;
   }
   runApp(ReaderApp(library: library, progressStore: progressStore));
@@ -122,7 +105,11 @@ Future<void> main() async {
 /// 应用壳：四底栏（书架/统计/书评/我的）+ EPUB 导入 + 阅读页。
 class ReaderApp extends StatelessWidget {
   /// 创建应用。
-  const ReaderApp({super.key, required this.library, required this.progressStore});
+  const ReaderApp({
+    super.key,
+    required this.library,
+    required this.progressStore,
+  });
 
   /// 书架存储。
   final LibraryStore library;

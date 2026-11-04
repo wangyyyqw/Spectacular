@@ -1322,11 +1322,11 @@ class LibraryStore {
     }
     final decoded = jsonDecode(await file.readAsString());
     if (decoded is! Map<String, dynamic>) {
-      return 0;
+      throw const FormatException('旧书库数据必须是对象');
     }
     final entries = decoded['books'];
     if (entries is! List) {
-      return 0;
+      throw const FormatException('旧书库缺少书籍列表');
     }
     var migrated = 0;
     for (final raw in entries) {
