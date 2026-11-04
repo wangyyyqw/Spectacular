@@ -2728,8 +2728,14 @@ class EpubChapterSource
     double maxHeight, {
     double? cssWidth,
     double? cssHeight,
+    double? cssMaxWidth,
+    double? cssMaxHeight,
     double? aspectRatio,
   }) {
+    final widthLimit =
+        cssMaxWidth == null ? maxWidth : math.min(maxWidth, cssMaxWidth);
+    final heightLimit =
+        cssMaxHeight == null ? maxHeight : math.min(maxHeight, cssMaxHeight);
     double? parseLength(String? raw, double percentBase) {
       if (raw == null) {
         return null;
@@ -2750,17 +2756,17 @@ class EpubChapterSource
 
     var width = cssWidth ?? parseLength(attributes['width'], maxWidth);
     var height = cssHeight ?? parseLength(attributes['height'], maxHeight);
-    if (width != null && width > maxWidth) {
-      width = maxWidth;
+    if (width != null && width > widthLimit) {
+      width = widthLimit;
     }
-    if (height != null && height > maxHeight) {
-      height = maxHeight;
+    if (height != null && height > heightLimit) {
+      height = heightLimit;
     }
     if (width == null && height == null) {
       if (intrinsic == null && aspectRatio == null) {
-        return (maxWidth, maxHeight * 0.6);
+        return (widthLimit, heightLimit * 0.6);
       }
-      width = maxWidth;
+      width = widthLimit;
     }
     if (width != null && height == null) {
       if (aspectRatio != null) {
@@ -2775,10 +2781,10 @@ class EpubChapterSource
         width = height * intrinsic.width / intrinsic.height;
       }
     }
-    width ??= maxWidth;
+    width ??= widthLimit;
     height ??= aspectRatio == null ? width * 0.75 : width / aspectRatio;
-    if (height > maxHeight) {
-      height = maxHeight;
+    if (height > heightLimit) {
+      height = heightLimit;
     }
     return (width, height);
   }
@@ -5075,6 +5081,8 @@ class EpubChapterSource
           contentHeight,
           cssWidth: imageStyle.width?.resolve(contentWidth),
           cssHeight: imageStyle.height?.resolve(contentHeight),
+          cssMaxWidth: imageStyle.maxWidth?.resolve(contentWidth),
+          cssMaxHeight: imageStyle.maxHeight?.resolve(contentHeight),
           aspectRatio: imageStyle.aspectRatio,
         );
         final objectFit = objectFitBackground(
@@ -5477,6 +5485,8 @@ class EpubChapterSource
         contentHeight,
         cssWidth: imageStyle.width?.resolve(imageContainingWidth),
         cssHeight: imageStyle.height?.resolve(contentHeight),
+        cssMaxWidth: imageStyle.maxWidth?.resolve(imageContainingWidth),
+        cssMaxHeight: imageStyle.maxHeight?.resolve(contentHeight),
         aspectRatio: imageStyle.aspectRatio,
       );
       // 容器级浮动（W12）：`.avatar` 这类浮动挂在图片外面的容器/行内
