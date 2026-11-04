@@ -5,10 +5,17 @@ import 'annotation.dart';
 /// 新建笔记时打开的底部编辑弹层。
 class ReaderNoteComposerSheet extends StatefulWidget {
   /// 创建笔记编辑弹层。
-  const ReaderNoteComposerSheet({super.key, required this.quote});
+  const ReaderNoteComposerSheet({
+    super.key,
+    required this.quote,
+    this.inkMode = false,
+  });
 
   /// 当前选中的原文。
   final String quote;
+
+  /// 墨水屏模式：原文预览按黑色下划线呈现，不使用彩色底块。
+  final bool inkMode;
 
   @override
   State<ReaderNoteComposerSheet> createState() =>
@@ -135,21 +142,9 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
                         const SizedBox(height: 14),
                         _ComposerHeader(onClose: _close),
                         const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                          decoration: BoxDecoration(
-                            color: Color(defaultHighlightColor)
-                                .withValues(alpha: 0.22),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            widget.quote,
-                            maxLines: 4,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              height: 1.55,
-                            ),
-                          ),
+                        _ComposerQuotePreview(
+                          quote: widget.quote,
+                          inkMode: widget.inkMode,
                         ),
                         const SizedBox(height: 16),
                         Text('笔记内容', style: theme.textTheme.labelLarge),
@@ -191,6 +186,46 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ComposerQuotePreview extends StatelessWidget {
+  const _ComposerQuotePreview({required this.quote, required this.inkMode});
+
+  final String quote;
+  final bool inkMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: ValueKey<String>(
+        inkMode ? 'note-composer-ink-preview' : 'note-composer-quote-preview',
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: inkMode
+            ? theme.colorScheme.surfaceContainerLow
+            : Color(defaultHighlightColor).withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Container(
+        padding: EdgeInsets.only(bottom: inkMode ? 6 : 0),
+        decoration: inkMode
+            ? const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFF000000), width: 2),
+                ),
+              )
+            : null,
+        child: Text(
+          quote,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
         ),
       ),
     );
