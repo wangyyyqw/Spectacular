@@ -2555,6 +2555,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             _DrawerTab.annotations => AnnotationPanel(
               annotations: widget.annotationItems,
               chapterTitleOf: _annotationChapterTitle,
+              inkMode: widget.inkMode,
               onSelect: widget.onAnnotationSelect,
               onEdit: widget.onAnnotationEdit,
               onDelete: widget.onAnnotationDelete,

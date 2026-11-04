@@ -20,6 +20,7 @@ class AnnotationPanel extends StatefulWidget {
     this.chapterTitleOf,
     this.onBack,
     this.emptyHint = '还没有笔记或高亮',
+    this.inkMode = false,
   });
 
   /// 全书标注。
@@ -45,6 +46,9 @@ class AnnotationPanel extends StatefulWidget {
 
   /// 空态提示。
   final String emptyHint;
+
+  /// 墨水屏模式：标记色统一显示为黑色，并隐藏无效的换色入口。
+  final bool inkMode;
 
   @override
   State<AnnotationPanel> createState() => _AnnotationPanelState();
@@ -334,7 +338,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                         : () => _toggleSelectAll(items),
                     child: Text(allVisibleSelected ? '取消全选' : '全选'),
                   ),
-                  if (widget.onRecolor != null)
+                  if (widget.onRecolor != null && !widget.inkMode)
                     IconButton(
                       key: const ValueKey<String>('annotation-batch-recolor'),
                       tooltip: '更换颜色',
@@ -483,6 +487,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       return _AnnotationCard(
                         annotation: annotation,
                         chapterTitle: _chapterTitleOf(annotation),
+                        inkMode: widget.inkMode,
                         selecting: _selecting,
                         selected: _selectedIds.contains(annotation.id),
                         expanded: _expandedIds.contains(annotation.id),
@@ -612,6 +617,7 @@ class _AnnotationCard extends StatelessWidget {
   const _AnnotationCard({
     required this.annotation,
     required this.chapterTitle,
+    required this.inkMode,
     required this.selecting,
     required this.selected,
     required this.expanded,
@@ -623,6 +629,7 @@ class _AnnotationCard extends StatelessWidget {
 
   final ReaderAnnotation annotation;
   final String? chapterTitle;
+  final bool inkMode;
   final bool selecting;
   final bool selected;
   final bool expanded;
@@ -635,7 +642,9 @@ class _AnnotationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isNote = annotation.type == ReaderAnnotationType.note;
-    final color = Color(annotation.color ?? defaultHighlightColor);
+    final color = inkMode
+        ? const Color(0xFF000000)
+        : Color(annotation.color ?? defaultHighlightColor);
     final note = annotation.note?.trim();
     final hasNote = note != null && note.isNotEmpty;
     final noteNeedsExpansion =
@@ -809,7 +818,12 @@ class _AnnotationCard extends StatelessWidget {
               top: 0,
               bottom: 0,
               width: 4,
-              child: ColoredBox(color: color),
+              child: ColoredBox(
+                key: ValueKey<String>(
+                  'annotation-color-bar-${annotation.id}',
+                ),
+                color: color,
+              ),
             ),
           ],
         ),
