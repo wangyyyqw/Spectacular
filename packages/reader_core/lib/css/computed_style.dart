@@ -3989,6 +3989,13 @@ class ComputedStyle {
     return math.max(0.0, result);
   }
 
+  /// 左/右外边距是否声明为 `auto`。
+  bool get marginLeftIsAuto =>
+      _isAutoMargin(values, explicitProperties, 'margin-left');
+
+  bool get marginRightIsAuto =>
+      _isAutoMargin(values, explicitProperties, 'margin-right');
+
   /// 声明尺寸 → 内容宽：`border-box` 扣掉左右内缩；auto/未声明返回 null。
   double? _contentBoxLength(
     CssLength? length,

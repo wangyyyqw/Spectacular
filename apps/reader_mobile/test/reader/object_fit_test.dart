@@ -115,9 +115,11 @@ void main() {
 
   test('max-width 收窄图片盒，高度按原图比例随之收缩', () async {
     final box = await imageBoxOf(
-      'img { max-width: 60%; height: auto; display: block; }',
+      'img { max-width: 60%; height: auto; display: block; '
+      'margin: 0 auto; }',
     );
     expect(cssPx(box.$1['width']), closeTo(192, 0.01));
     expect(box.$2, closeTo(96, 0.01), reason: '宽度 60% 后高度仍保持 4:2');
+    expect(cssPx(box.$1['margin-left']), closeTo(64, 0.01));
   });
 }
