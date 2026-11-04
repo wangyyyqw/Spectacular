@@ -78,6 +78,7 @@ class PagePainter {
     this.imageLookup,
     this.listMarkerImageOf,
     this.textColor,
+    this.inkMode = false,
     this.selection,
     this.selectionColor = const Color(0x330066FF),
     this.onPhase,
@@ -108,6 +109,12 @@ class PagePainter {
 
   /// 正文颜色覆盖（主题用）：只改绘制颜色，不影响布局与分页（P2-23）。
   final Color? textColor;
+
+  /// 墨水屏模式：把正文文字与行内标记压成纯黑/纯白。
+  ///
+  /// 与 [textColor] 不同，这项会覆盖作者显式声明的颜色；按所在背景的
+  /// 明度选择黑色或白色，避免深色标记上的浅色字被压成黑字。
+  final bool inkMode;
 
   /// 页内选区（可选）：最后绘制，覆盖文本与装饰（P2-29）。
   final PageSelection? selection;
@@ -815,26 +822,30 @@ class PagePainter {
 
   /// 主题文字色是否覆盖某个块（P9-02）。
   ///
-  /// 书籍显式声明的颜色（含继承）始终照书，日间/夜间都不替换；
-  /// 只有未声明颜色的文字才跟随主题色。
+  /// 普通主题下书籍显式声明的颜色（含继承）始终照书，日间/夜间都不替换；
+  /// 只有未声明颜色的文字才跟随主题色。[inkMode] 为真时例外，
+  /// 所有非透明文字按背景压成纯黑或纯白。
   Color? _textColorFor(ComputedStyle style) {
-    final theme = textColor;
-    if (theme == null) {
-      return null;
-    }
     // 透明字是书籍用于封面排版的隐藏文本，不能因为对比度低就画出来。
     if (style.color.a == 0) {
+      return null;
+    }
+    // 块自带背景时按块内的有效底色判断：主题色在浅色页是深字，直接套到
+    // 深色卡片上会隐形，此时需要一个浅色兜底（P9-23）。
+    final blendedBackground = style.backgroundColor.a > 0
+        ? Color.alphaBlend(style.backgroundColor, background)
+        : background;
+    if (inkMode) {
+      return _monochromeForeground(blendedBackground);
+    }
+    final theme = textColor;
+    if (theme == null) {
       return null;
     }
     if (style.hasExplicitTextColor) {
       return null;
     }
     final darkText = style.color.computeLuminance() <= 0.179;
-    // 块自带背景时按块内的有效底色判断：主题色在浅色页是深字，直接套到
-    // 深色卡片上会隐形，此时需要一个浅色兜底（P9-23）。
-    final blendedBackground = style.backgroundColor.a > 0
-        ? Color.alphaBlend(style.backgroundColor, background)
-        : background;
     final darkBackground = blendedBackground.computeLuminance() < 0.35;
     final fallback = darkBackground && theme.computeLuminance() >= 0.35
         ? const Color(0xFFE6E6E6)
@@ -855,6 +866,32 @@ class PagePainter {
     final darker = math.min(fg, bg);
     return (lighter + 0.05) / (darker + 0.05);
   }
+
+  /// 纯黑白前景：深底用白、浅底用黑。
+  static Color _monochromeForeground(Color background) =>
+      background.computeLuminance() < 0.5
+      ? const Color(0xFFFFFFFF)
+      : const Color(0xFF000000);
+
+  /// 墨迹背景压成纯黑或纯白，避免半透明色块在墨水屏上留下灰阶。
+  Color _monochromeBackground(Color color) {
+    final blended = color.a < 1 ? Color.alphaBlend(color, background) : color;
+    return blended.computeLuminance() < 0.5
+        ? const Color(0xFF000000)
+        : const Color(0xFFFFFFFF);
+  }
+
+  /// 墨水屏行内标记图的亮度阈值滤镜：亮部保留白色、暗部压成黑色。
+  ///
+  /// 史记等 EPUB 用橙色圆底图片充当注号，只改文字颜色覆盖不到图片。
+  /// 40 倍增益把阈值附近的灰阶过渡带压到约 2.5%，避免整块图变灰；
+  /// 阈值取 0.78，让常见橙色标记落入暗部，同时保留米白底色。
+  static const ColorFilter _inkImageFilter = ColorFilter.matrix(<double>[
+    8.504, 28.608, 2.888, 0, -7828.5, //
+    8.504, 28.608, 2.888, 0, -7828.5, //
+    8.504, 28.608, 2.888, 0, -7828.5, //
+    0, 0, 0, 1, 0, //
+  ]);
 
   /// 画书籍整页背景图（P9-04）：`body`/`html` 的 `background-image`。
   ///
@@ -2270,6 +2307,10 @@ class PagePainter {
           style,
           startsBlock: true,
           endsBlock: true,
+          backgroundColorOverride: inkMode && style.backgroundColor.a > 0
+              ? _monochromeBackground(style.backgroundColor)
+              : null,
+          imageColorFilter: inkMode ? _inkImageFilter : null,
         );
         _paintInnerShadow(canvas, rect, style);
         _paintBorders(canvas, rect, style, startsBlock: true, endsBlock: true);
@@ -2280,7 +2321,7 @@ class PagePainter {
           final painter = TextPainter(
             text: TextSpan(
               text: payload,
-              style: TextLayoutEngine.textStyleFor(style),
+              style: _paintTextStyleFor(style),
             ),
             textDirection: style.isRtl ? TextDirection.rtl : TextDirection.ltr,
             maxLines: 1,
@@ -2365,7 +2406,7 @@ class PagePainter {
         canvas,
         layout,
         style,
-        textColorOverride: null,
+        textColorOverride: _textColorFor(style),
         contentLeft: contentLeft,
         contentTop: contentTop,
         startLine: 0,
@@ -2376,7 +2417,7 @@ class PagePainter {
       }
       return;
     }
-    final textStyleBase = TextLayoutEngine.textStyleFor(style);
+    final textStyleBase = _paintTextStyleFor(style);
     final emphasis = HorizontalTextEmphasis(layout, style, _textColorFor);
     final hasEmphasis = emphasis.hasMarks;
     try {
@@ -2497,6 +2538,9 @@ class PagePainter {
         _paintOuterShadow(canvas, rect, style);
         if (hasBackground) {
           final radii = style.borders.radiiFor(rect.size);
+          final backgroundColor = inkMode
+              ? _monochromeBackground(style.backgroundColor)
+              : style.backgroundColor;
           canvas.drawRRect(
             RRect.fromRectAndCorners(
               rect,
@@ -2505,7 +2549,7 @@ class PagePainter {
               bottomRight: radii.bottomRight,
               bottomLeft: radii.bottomLeft,
             ),
-            Paint()..color = style.backgroundColor,
+            Paint()..color = backgroundColor,
           );
         }
         _paintInnerShadow(canvas, rect, style);
@@ -2543,6 +2587,8 @@ class PagePainter {
     ComputedStyle style, {
     required bool startsBlock,
     required bool endsBlock,
+    Color? backgroundColorOverride,
+    ColorFilter? imageColorFilter,
   }) {
     // 百分比圆角按盒子尺寸解算（`border-radius: 50%` 的圆形头像）。
     final radii = style.borders.radiiFor(box.size);
@@ -2559,7 +2605,8 @@ class PagePainter {
         rounded.brRadiusX > 0 ||
         rounded.blRadiusX > 0;
     final layers = style.backgroundLayers;
-    if (style.backgroundColor.a != 0) {
+    final backgroundColor = backgroundColorOverride ?? style.backgroundColor;
+    if (backgroundColor.a != 0) {
       // 背景色按 background-clip 裁剪区域绘制（P3：origin/clip 语义）。
       // `mix-blend-mode`（CSS Compositing §5）用画布混合模式与已绘制的
       // 背景内容做混合（multiply/screen/overlay/darken/lighten）。
@@ -2575,7 +2622,7 @@ class PagePainter {
       canvas.drawRRect(
         rounded,
         Paint()
-          ..color = style.backgroundColor
+          ..color = backgroundColor
           ..blendMode = blend ?? BlendMode.srcOver,
       );
       canvas.restore();
@@ -2612,6 +2659,7 @@ class PagePainter {
           repeat: layer.repeat,
           size: layer.size,
           position: layer.position,
+          colorFilter: imageColorFilter,
         );
       }
       canvas.restore();

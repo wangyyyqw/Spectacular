@@ -29,6 +29,7 @@ void paintBackgroundImage(
     x: CssLength(0, isPercent: true),
     y: CssLength(0, isPercent: true),
   ),
+  ColorFilter? colorFilter,
 }) {
   final intrinsicWidth = image.width.toDouble();
   final intrinsicHeight = image.height.toDouble();
@@ -50,7 +51,9 @@ void paintBackgroundImage(
   final originY = position.y.resolve(bounds.height - tile.height) ?? 0;
   // CSS `image-rendering: auto` 由浏览器按高质量缩放；最近邻会把放大后的
   // 色块接缝硬切在整数像素上，与 Chromium 的平滑采样不一致。
-  final paint = Paint()..filterQuality = FilterQuality.medium;
+  final paint = Paint()
+    ..filterQuality = FilterQuality.medium
+    ..colorFilter = colorFilter;
   canvas.save();
   canvas.clipRect(bounds);
 
