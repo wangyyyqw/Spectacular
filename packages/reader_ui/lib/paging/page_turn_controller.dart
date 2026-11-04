@@ -41,7 +41,7 @@ class PageTurnController extends ChangeNotifier {
   ui.Offset? _down, _latest;
   bool _released = false, _complete = true, _dragging = false;
   bool _disposed = false, _committing = false;
-  bool? _queued;
+  final List<bool> _queued = <bool>[];
   int _token = 0;
   double _startProgress = 0;
   ui.Offset? _startPoint, _endPoint;
@@ -71,10 +71,10 @@ class PageTurnController extends ChangeNotifier {
     _down = position;
   }
 
-  /// 点击、键盘等离散输入最多保留一个后续意图。
+  /// 点击、键盘等离散输入按先后顺序排队，动画结束后逐页执行。
   void request(bool next) {
     if (active) {
-      _queued = next;
+      _queued.add(next);
       return;
     }
     _down = ui.Offset(next != rtl ? size.width : 0, size.height / 2);
@@ -106,6 +106,12 @@ class PageTurnController extends ChangeNotifier {
     _releaseVelocity = details.primaryVelocity ?? 0;
     if (phase == PageTurnPhase.dragging) _settle(_shouldComplete());
     if (!active) _resetPointer();
+  }
+
+  /// 仅取消真实拖动；轻点也会触发拖动手势取消，不能影响点击翻页队列。
+  void cancelDrag() {
+    if (!_dragging) return;
+    cancel();
   }
 
   Future<void> _prepare(bool direction, {required bool dragging}) async {
@@ -233,15 +239,16 @@ class PageTurnController extends ChangeNotifier {
 
   void _finish() {
     final prepared = turn;
-    final queued = _queued;
-    _queued = null;
+    final queued = List<bool>.of(_queued);
+    _queued.clear();
     _committing = true;
     if (_complete && prepared != null) session.commitPageTurn(prepared);
     _committing = false;
     cancel();
-    if (queued != null && !_disposed) {
+    if (queued.isNotEmpty && !_disposed) {
+      _queued.addAll(queued.skip(1));
       scheduleMicrotask(() {
-        if (!_disposed) request(queued);
+        if (!_disposed) request(queued.first);
       });
     }
   }
@@ -266,7 +273,7 @@ class PageTurnController extends ChangeNotifier {
     turn = null;
     point = null;
     progress = 0;
-    _queued = null;
+    _queued.clear();
     _resetPointer();
     if (!_disposed) notifyListeners();
   }

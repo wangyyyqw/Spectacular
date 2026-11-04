@@ -2202,7 +2202,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           _pageTurnKey.currentState?.controller.updateDrag(details),
       onDragEnd: (details) =>
           _pageTurnKey.currentState?.controller.endDrag(details),
-      onDragCancel: () => _pageTurnKey.currentState?.controller.cancel(),
+      onDragCancel: () => _pageTurnKey.currentState?.controller.cancelDrag(),
       onLongPressAt: _selectWordAt,
       onDoubleTapAt: _selection == null ? null : _selectWordAt,
       onTripleTapAt: _selection == null ? null : _selectSentenceAt,
