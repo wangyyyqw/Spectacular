@@ -27,11 +27,7 @@ enum ImportStatus {
 /// 任务持有原始字节：失败/取消后可原样重试；成功后释放字节，避免长
 /// 队列把整本书留在内存里。
 class ImportJob {
-  ImportJob({
-    required this.id,
-    required this.bytes,
-    this.fallbackTitle,
-  });
+  ImportJob({required this.id, required this.bytes, this.fallbackTitle});
 
   /// 任务标识。
   final String id;
@@ -67,7 +63,9 @@ class ImportJob {
       status == ImportStatus.cancelled;
 
   /// 是否可重试（失败或取消且仍持有字节）。
-  bool get canRetry => bytes != null && status != ImportStatus.succeeded;
+  bool get canRetry =>
+      bytes != null &&
+      (status == ImportStatus.failed || status == ImportStatus.cancelled);
 }
 
 /// 串行导入队列（P4-03）。
@@ -82,6 +80,9 @@ class ImportQueue extends ChangeNotifier {
   final LibraryStore _library;
   final List<ImportJob> _jobs = <ImportJob>[];
   bool _pumping = false;
+  bool _disposed = false;
+  ImportJob? _runningJob;
+  final Set<String> _retryAfterRun = <String>{};
   int _sequence = 0;
 
   /// 全部任务（含已结束，按入队顺序）。
@@ -109,42 +110,71 @@ class ImportQueue extends ChangeNotifier {
 
   /// 入队一本 EPUB；立即返回任务，实际导入在后台串行执行。
   ImportJob enqueue(Uint8List bytes, {String? fallbackTitle}) {
+    if (_disposed) throw StateError('导入队列已释放');
     final job = ImportJob(
       id: 'job-${_sequence++}',
       bytes: bytes,
       fallbackTitle: fallbackTitle,
     );
     _jobs.add(job);
-    notifyListeners();
+    _notify();
     unawaited(_pump());
     return job;
   }
 
   /// 取消任务：排队中的直接取消；执行中的等落盘后清理，不留半成品。
   void cancel(String jobId) {
+    if (_disposed) return;
     final job = _jobOf(jobId);
     if (job == null || job.isFinished) {
       return;
     }
     job.status = ImportStatus.cancelled;
     job.error = '已取消';
-    notifyListeners();
+    _notify();
   }
 
   /// 重试失败/已取消的任务。
   void retry(String jobId) {
+    if (_disposed) return;
     final job = _jobOf(jobId);
     if (job == null || !job.canRetry || job.status == ImportStatus.running) {
       return;
     }
+    if (identical(job, _runningJob)) {
+      // 底层导入仍在进行；先保留取消状态完成清理，再排入下一轮。
+      _retryAfterRun.add(job.id);
+      return;
+    }
+    _resetForRetry(job);
+    _notify();
+    unawaited(_pump());
+  }
+
+  void _resetForRetry(ImportJob job) {
     job
       ..status = ImportStatus.queued
       ..progress = 0
       ..error = null
       ..errorCode = null
       ..entry = null;
-    notifyListeners();
-    unawaited(_pump());
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _retryAfterRun.clear();
+    for (final job in _jobs) {
+      if (job.status == ImportStatus.queued) {
+        job.status = ImportStatus.cancelled;
+        job.error = '已取消';
+      }
+    }
+    super.dispose();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
   }
 
   /// 等待队列跑空（测试/退出前用）。
@@ -186,11 +216,14 @@ class ImportQueue extends ChangeNotifier {
         if (job == null) {
           break;
         }
+        _runningJob = job;
         await _run(job);
+        _runningJob = null;
+        if (_retryAfterRun.remove(job.id)) _resetForRetry(job);
       }
     } finally {
       _pumping = false;
-      notifyListeners();
+      _notify();
     }
   }
 
@@ -205,7 +238,7 @@ class ImportQueue extends ChangeNotifier {
       ..status = ImportStatus.running
       ..attempts += 1
       ..progress = 0.02;
-    notifyListeners();
+    _notify();
     try {
       final entry = await _library.importBytes(
         bytes,
@@ -216,7 +249,7 @@ class ImportQueue extends ChangeNotifier {
             return;
           }
           job.progress = 0.05 + value * 0.9;
-          notifyListeners();
+          _notify();
         },
       );
       if (job.status == ImportStatus.cancelled) {
@@ -231,16 +264,18 @@ class ImportQueue extends ChangeNotifier {
         ..status = ImportStatus.succeeded
         ..bytes = null;
     } on LibraryImportException catch (error) {
+      if (job.status == ImportStatus.cancelled) return;
       job
         ..status = ImportStatus.failed
         ..error = error.message
         ..errorCode = error.errorCode;
     } catch (error) {
+      if (job.status == ImportStatus.cancelled) return;
       job
         ..status = ImportStatus.failed
         ..error = '$error';
     } finally {
-      notifyListeners();
+      _notify();
     }
   }
 }
