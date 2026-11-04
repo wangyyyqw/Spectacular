@@ -116,6 +116,13 @@ void main() {
       findsOneWidget,
       reason: '保存后页面出现标注装饰层（P4-18）',
     );
+    expect(find.text('撤销'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(await annotations.list(), isEmpty);
+    expect(find.byType(AnnotationLayer), findsNothing);
+    expect(find.text('已撤销'), findsOneWidget);
   });
 
   testWidgets('同一区间重复高亮提示已存在（P4-17）', (tester) async {
