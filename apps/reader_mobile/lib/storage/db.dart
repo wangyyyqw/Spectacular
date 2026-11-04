@@ -296,6 +296,12 @@ class ReadingSessions extends Table {
 
   /// 有效阅读时长（毫秒）。
   IntColumn get durationMs => integer()();
+
+  /// 本段阅读的翻页次数。
+  IntColumn get pageTurns => integer().withDefault(const Constant(0))();
+
+  /// 本段阅读翻过页面的非空白字符数。
+  IntColumn get charactersRead => integer().withDefault(const Constant(0))();
 }
 
 /// 书架分组表：用户自定义的书籍分组。
@@ -392,7 +398,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -446,6 +452,25 @@ class AppDatabase extends _$AppDatabase {
         await migrator.createTable(bookTags);
         await migrator.createTable(bookTagLinks);
         version = 10;
+      }
+      if (version < 11) {
+        // v7 建表时使用当前表定义，旧库从更早版本升级时可能已包含新列。
+        final columns = await customSelect(
+          'PRAGMA table_info(reading_sessions)',
+        ).get();
+        final names = <String>{
+          for (final row in columns) row.read<String>('name'),
+        };
+        if (!names.contains('page_turns')) {
+          await migrator.addColumn(readingSessions, readingSessions.pageTurns);
+        }
+        if (!names.contains('characters_read')) {
+          await migrator.addColumn(
+            readingSessions,
+            readingSessions.charactersRead,
+          );
+        }
+        version = 11;
       }
       await _createIndexes();
     },

@@ -10,6 +10,8 @@ class _MemorySessionStore implements ReadingSessionStore {
     required String bookId,
     required DateTime startedAt,
     required DateTime endedAt,
+    int pageTurns = 0,
+    int charactersRead = 0,
   }) async {
     items.add(
       ReadingSession(
@@ -17,6 +19,8 @@ class _MemorySessionStore implements ReadingSessionStore {
         startedAt: startedAt,
         endedAt: endedAt,
         duration: endedAt.difference(startedAt),
+        pageTurns: pageTurns,
+        charactersRead: charactersRead,
       ),
     );
   }
@@ -69,5 +73,31 @@ void main() {
     await tracker.finish();
 
     expect(store.items, isEmpty);
+  });
+
+  test('翻页次数与阅读字数随片段落库，暂停后重新累计', () async {
+    final store = _MemorySessionStore();
+    var now = DateTime(2026, 11, 3, 8);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'book-a',
+      now: () => now,
+    )..start();
+
+    tracker.recordPageTurn(characters: 12);
+    tracker.recordPageTurn(characters: 8);
+    now = now.add(const Duration(minutes: 3));
+    await tracker.pause();
+
+    tracker.start();
+    tracker.recordPageTurn(characters: 20);
+    now = now.add(const Duration(minutes: 2));
+    await tracker.finish();
+
+    expect(store.items, hasLength(2));
+    expect(store.items[0].pageTurns, 2);
+    expect(store.items[0].charactersRead, 20);
+    expect(store.items[1].pageTurns, 1);
+    expect(store.items[1].charactersRead, 20);
   });
 }

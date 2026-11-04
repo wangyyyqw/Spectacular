@@ -97,6 +97,14 @@ class _StatsPageState extends State<StatsPage> {
       Duration.zero,
       (total, session) => total + session.duration,
     );
+    final pageTurns = sessions.fold<int>(
+      0,
+      (total, session) => total + session.pageTurns,
+    );
+    final charactersRead = sessions.fold<int>(
+      0,
+      (total, session) => total + session.charactersRead,
+    );
     final rows = <_BookReadingStat>[];
     var started = 0;
     var finished = 0;
@@ -177,6 +185,8 @@ class _StatsPageState extends State<StatsPage> {
       todayReading: readingByDay[today] ?? Duration.zero,
       totalReading: totalReading,
       readingDays: readingByDay.length,
+      pageTurns: pageTurns,
+      charactersRead: charactersRead,
       hasReadingSessions: sessions.isNotEmpty,
     );
     if (mounted && token == _reloadToken) {
@@ -236,10 +246,30 @@ class _StatsPageState extends State<StatsPage> {
                       const SizedBox(width: 8),
                       _MetricTile(
                         icon: Icons.text_fields,
-                        label: '累计字数',
+                        label: '书库字数',
                         value: _formatCharacters(stats.totalCharacters),
                         valueKey: const ValueKey<String>(
                           'stats-total-characters',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _MetricTile(
+                        icon: Icons.swipe_left_alt,
+                        label: '翻页次数',
+                        value: '${stats.pageTurns}',
+                        valueKey: const ValueKey<String>('stats-page-turns'),
+                      ),
+                      const SizedBox(width: 8),
+                      _MetricTile(
+                        icon: Icons.auto_stories_outlined,
+                        label: '阅读字数',
+                        value: _formatMetricCharacters(stats.charactersRead),
+                        valueKey: const ValueKey<String>(
+                          'stats-characters-read',
                         ),
                       ),
                     ],
@@ -289,6 +319,8 @@ class _LibraryStats {
     required this.todayReading,
     required this.totalReading,
     required this.readingDays,
+    required this.pageTurns,
+    required this.charactersRead,
     required this.hasReadingSessions,
   });
 
@@ -303,6 +335,8 @@ class _LibraryStats {
   final Duration todayReading;
   final Duration totalReading;
   final int readingDays;
+  final int pageTurns;
+  final int charactersRead;
   final bool hasReadingSessions;
 
   int get weekReadingDays => hasReadingSessions
@@ -1158,3 +1192,6 @@ String _formatCharacters(int count) {
   }
   return '$count';
 }
+
+String _formatMetricCharacters(int count) =>
+    count <= 0 ? '0' : _formatCharacters(count);

@@ -31,6 +31,8 @@ void main() {
       bookId: 'book-a',
       startedAt: start,
       endedAt: start.add(const Duration(minutes: 12)),
+      pageTurns: 9,
+      charactersRead: 1680,
     );
 
     final items = await store.list();
@@ -38,6 +40,8 @@ void main() {
     expect(items.single.bookId, 'book-a');
     expect(items.single.startedAt, start);
     expect(items.single.duration, const Duration(minutes: 12));
+    expect(items.single.pageTurns, 9);
+    expect(items.single.charactersRead, 1680);
   });
 
   test('未知书籍或非正时长不写入噪声记录', () async {

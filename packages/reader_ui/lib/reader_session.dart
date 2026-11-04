@@ -242,6 +242,8 @@ class ReaderSession extends ChangeNotifier {
   VirtualPager? _pager;
   ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
+  int _pageTurns = 0;
+  int _charactersRead = 0;
 
   /// 异步任务代号：取消或开始新任务后，旧任务不再回写状态（P2-27）。
   int _generation = 0;
@@ -282,6 +284,7 @@ class ReaderSession extends ChangeNotifier {
         !(_pager?.commitPrepared(turn.origin, turn.target) ?? false)) {
       return false;
     }
+    _recordPageTurn(turn.origin);
     _clearScrollPosition();
     _notify();
     _persist();
@@ -319,6 +322,7 @@ class ReaderSession extends ChangeNotifier {
     final generation = _generation;
     final pageChanged =
         previous?.spineIndex != spineIndex || previous?.pageIndex != pageIndex;
+    final origin = page;
     if (pageChanged) {
       final changed = await pager.goTo(spineIndex, pageIndex);
       if (!changed || _disposed || generation != _generation) return false;
@@ -326,7 +330,10 @@ class ReaderSession extends ChangeNotifier {
     _scrollSpineIndex = spineIndex;
     _scrollPageIndex = pageIndex;
     _scrollOffset = offset;
-    if (pageChanged) _notify();
+    if (pageChanged) {
+      _recordPageTurn(origin);
+      _notify();
+    }
     _persist();
     return true;
   }
@@ -361,6 +368,14 @@ class ReaderSession extends ChangeNotifier {
 
   /// 已写库次数（节流验收用：连续翻 100 页应 ≤5 次）。
   int get persistWriteCount => _persistWrites;
+
+  /// 本次会话已完成的翻页次数。
+  int get pageTurns => _pageTurns;
+
+  /// 本次会话已翻过页面的非空白字符数。
+  ///
+  /// 按离开页面时的可见文本估算；回翻会重复计入。
+  int get charactersRead => _charactersRead;
 
   /// 是否加载中。
   bool get loading => _loading;
@@ -638,8 +653,9 @@ class ReaderSession extends ChangeNotifier {
       _pager?.spinePages[spineIndex]?.length ?? 0;
 
   /// 当前页文本（用于测试/无障碍）。
-  String get currentText {
-    final value = page;
+  String get currentText => _textOf(page);
+
+  static String _textOf(PageContent? value) {
     if (value == null) {
       return '';
     }
@@ -652,6 +668,14 @@ class ReaderSession extends ChangeNotifier {
       }
     }
     return buffer.toString();
+  }
+
+  void _recordPageTurn(PageContent? origin) {
+    _pageTurns += 1;
+    _charactersRead += _textOf(origin)
+        .replaceAll(RegExp(r'\s+'), '')
+        .runes
+        .length;
   }
 
   /// 打开并恢复进度。
@@ -745,8 +769,10 @@ class ReaderSession extends ChangeNotifier {
       return false;
     }
     final generation = _generation;
+    final origin = page;
     final changed = await pager.next();
     if (changed && generation == _generation) {
+      _recordPageTurn(origin);
       _notify();
       _persist();
     }
@@ -760,8 +786,10 @@ class ReaderSession extends ChangeNotifier {
       return false;
     }
     final generation = _generation;
+    final origin = page;
     final changed = await pager.previous();
     if (changed && generation == _generation) {
+      _recordPageTurn(origin);
       _notify();
       _persist();
     }

@@ -32,6 +32,8 @@ class _FakeSessionStore implements ReadingSessionStore {
     required String bookId,
     required DateTime startedAt,
     required DateTime endedAt,
+    int pageTurns = 0,
+    int charactersRead = 0,
   }) async {}
 
   @override

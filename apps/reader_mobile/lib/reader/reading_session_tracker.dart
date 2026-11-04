@@ -25,6 +25,8 @@ class ReadingSessionTracker {
   DateTime? _startedAt;
   Future<void> _pending = Future<void>.value();
   bool _finished = false;
+  int _pageTurns = 0;
+  int _charactersRead = 0;
 
   /// 开始或继续计时；重复调用不会重置起点。
   void start() {
@@ -32,6 +34,17 @@ class ReadingSessionTracker {
       return;
     }
     _startedAt = _now();
+  }
+
+  /// 记录翻页；[characters] 为离开页面时的非空白字符数。
+  void recordPageTurn({int count = 1, int characters = 0}) {
+    if (_finished || _startedAt == null || count <= 0) {
+      return;
+    }
+    _pageTurns += count;
+    if (characters > 0) {
+      _charactersRead += characters;
+    }
   }
 
   /// 暂停并提交当前片段。
@@ -42,11 +55,21 @@ class ReadingSessionTracker {
     }
     _startedAt = null;
     final endedAt = _now();
+    final pageTurns = _pageTurns;
+    final charactersRead = _charactersRead;
+    _pageTurns = 0;
+    _charactersRead = 0;
     if (endedAt.difference(startedAt) < minimumDuration) {
       return _pending;
     }
     _pending = _pending.then<void>(
-      (_) => store.add(bookId: bookId, startedAt: startedAt, endedAt: endedAt),
+      (_) => store.add(
+        bookId: bookId,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        pageTurns: pageTurns,
+        charactersRead: charactersRead,
+      ),
       onError: (Object error, StackTrace stack) {
         debugPrint('阅读时长记录失败：$error');
       },
