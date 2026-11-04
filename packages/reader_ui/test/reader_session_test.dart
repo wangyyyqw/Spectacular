@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/paging/continuous_scroll_view.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -61,6 +62,42 @@ class FakeSource implements ReaderChapterSource {
       for (var i = 0; i < pagesPerChapter; i++) _makePage(spineIndex, i),
     ];
   }
+}
+
+class _MultiLineSource implements ReaderChapterSource {
+  _MultiLineSource() {
+    final style = ComputedStyle(const <String, String>{
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': 'Ahem',
+      'white-space': 'pre-wrap',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: '第一行\n第二行\n第三行\n第四行\n第五行\n第六行\n第七行\n第八行',
+      style: style,
+      maxWidth: 400,
+    );
+    pages = Paginator(pageHeight: 48)
+        .measureChapter(
+          blocks: [
+            PageBlock(
+              layout: layout,
+              style: style,
+              startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+            ),
+          ],
+          spineIndex: 0,
+        )
+        .pages;
+  }
+
+  late final List<PageContent> pages;
+
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async => pages;
 }
 
 void main() {
@@ -215,6 +252,69 @@ void main() {
       await session.store.load('scroll-sync'),
       const ReaderProgress(spineIndex: 1, pageIndex: 1, scrollOffset: 42.5),
     );
+  });
+
+  test('连续滚动跳转 CFI 定位到目标页内行', () async {
+    final source = _MultiLineSource();
+    final store = MemoryReaderProgressStore();
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll-cfi',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+
+    expect(source.pages.length, greaterThan(1));
+    final targetPage = source.pages[1];
+    final slice = targetPage.slices.first;
+    final targetLine = slice.block.layout.lines[slice.startLine + 1];
+    final targetCfi = cfiWithCharOffset(
+      'epubcfi(/6/2!/4/2/1:0)',
+      targetLine.start,
+    );
+
+    expect(await session.jumpToCfi(targetCfi, continuous: true), isTrue);
+    expect(session.progress!.pageIndex, 1);
+    expect(session.progress!.scrollOffset, closeTo(targetLine.height, 0.01));
+
+    await session.jumpToCfi(cfiWithCharOffset(targetCfi, 0));
+    expect(session.progress!.scrollOffset, isNull);
+  });
+
+  test('连续滚动当前 CFI 跟随视口顶部可见行', () async {
+    final source = _MultiLineSource();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'scroll-current-cfi',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+
+    await session.commitScrollPosition(0, 0, 0);
+    final firstLineCfi = session.currentCfi;
+    expect(session.currentLineText, '第一行');
+
+    final secondLineHeight =
+        source.pages[0].slices.first.block.layout.lines[0].height;
+    await session.commitScrollPosition(0, 0, secondLineHeight);
+    final secondLineCfi = session.currentCfi;
+    expect(session.currentLineText, '第二行');
+    expect(secondLineCfi, isNotNull);
+    expect(secondLineCfi, isNot(firstLineCfi));
+
+    await session.commitScrollPosition(0, 0, 0);
+    await session.jumpToCfi(secondLineCfi!, continuous: true);
+    expect(
+      session.progress!.scrollOffset,
+      closeTo(secondLineHeight, 0.01),
+    );
+    expect(session.currentLineText, '第二行');
+
+    // 真实滚动容器会把行首坐标量化到略小于理论值，仍应命中该行。
+    await session.commitScrollPosition(0, 0, secondLineHeight - 1e-9);
+    expect(session.currentLineText, '第二行');
   });
 
   test('翻页准备不修改进度，收尾只提交一次', () async {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 
@@ -39,14 +40,19 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   final ScrollController _controller = ScrollController();
   final List<ScrollChapterLayout> _chapters = <ScrollChapterLayout>[];
   final List<_ScrollEntry> _entries = <_ScrollEntry>[];
+  final Map<(int, int), GlobalKey> _pageKeys = <(int, int), GlobalKey>{};
   Timer? _syncTimer;
   PageContent? _visibleContent;
+  double _visiblePageOffset = 0;
   bool _loading = true;
   bool _extendingBefore = false;
   bool _extendingAfter = false;
   int _loadToken = 0;
+  int _restoreToken = 0;
   late int _layoutGeneration = widget.session.generation;
   Object? _error;
+  bool _restoring = false;
+  bool _programmaticJump = false;
 
   @override
   void initState() {
@@ -153,31 +159,144 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         .toDouble();
     final offset =
         widget.padding.top + _chapterTop(spine) + pageStart + pageOffset;
-    _controller.jumpTo(offset.clamp(0.0, _controller.position.maxScrollExtent));
-    _captureVisiblePage();
+    _restoring = true;
+    final token = ++_restoreToken;
+    _jumpProgrammatically(
+      offset.clamp(0.0, _controller.position.maxScrollExtent),
+    );
+    unawaited(_settleAtReadingPosition(progress, token));
+  }
+
+  /// 等目标页真正布局后，用它的实际位置校正滚动偏移。
+  ///
+  /// ListView 对可变高度子项的估算会在前方插入章节后产生误差，预先按
+  /// extent 算出的像素偏移因此可能偏几行；这里以渲染盒位置为准。
+  Future<void> _settleAtReadingPosition(
+    ReaderProgress? progress,
+    int token,
+  ) async {
+    try {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || !_controller.hasClients || token != _restoreToken) {
+          return;
+        }
+        final spine =
+            progress?.spineIndex ?? _chapters.firstOrNull?.spineIndex ?? 0;
+        final page = progress?.pageIndex ?? 0;
+        if (!_revealAtPage(spine, page, progress?.scrollOffset ?? 0)) {
+          continue;
+        }
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || token != _restoreToken) return;
+        _captureVisiblePage(commit: false);
+        return;
+      }
+    } finally {
+      if (mounted && token == _restoreToken) {
+        _restoring = false;
+        _captureVisiblePage();
+        _maybeExtendWindow();
+      }
+    }
+  }
+
+  _ScrollEntry? _entryForPage(int spine, int page) {
+    for (final entry in _entries) {
+      if (entry.chapter.spineIndex == spine &&
+          entry.segment.pageIndex == page) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  RenderBox? _boxOf(_ScrollEntry entry) {
+    final key = _pageKeys[(entry.chapter.spineIndex, entry.segment.pageIndex)];
+    final box = key?.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) {
+      return null;
+    }
+    return box;
+  }
+
+  double? _revealOffset(RenderBox box) {
+    try {
+      return RenderAbstractViewport.of(box).getOffsetToReveal(box, 0).offset;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 按页号与页内偏移定位；页必须已经构建，否则返回 false 等下一帧。
+  bool _revealAtPage(int spine, int page, double pageOffset) {
+    if (!_controller.hasClients) {
+      return false;
+    }
+    final entry = _entryForPage(spine, page);
+    final box = entry == null ? null : _boxOf(entry);
+    if (entry == null || box == null) {
+      return false;
+    }
+    final top = _revealOffset(box);
+    if (top == null) {
+      return false;
+    }
+    final target = top + pageOffset.clamp(0.0, entry.segment.extent);
+    final corrected = target.clamp(0.0, _controller.position.maxScrollExtent);
+    if ((_controller.offset - corrected).abs() <= 0.5) {
+      return true;
+    }
+    _jumpProgrammatically(corrected);
+    return true;
+  }
+
+  void _jumpProgrammatically(double offset) {
+    _programmaticJump = true;
+    try {
+      _controller.jumpTo(offset);
+    } finally {
+      _programmaticJump = false;
+    }
   }
 
   void _handleScroll() {
     if (!_controller.hasClients) return;
     _captureVisiblePage();
-    _maybeExtendWindow();
+    if (!_restoring) {
+      _maybeExtendWindow();
+    }
   }
 
-  void _captureVisiblePage() {
+  void _captureVisiblePage({bool commit = true}) {
     if (_entries.isEmpty || !_controller.hasClients) return;
-    final relative = (_controller.offset - widget.padding.top).clamp(
-      0.0,
-      _contentExtent,
-    );
-    final page = _pageAtOffset(relative);
-    if (page == null) return;
+    final actual = _entryAtActualOffset();
+    final _ScrollEntry page;
+    final double pageOffset;
+    if (actual != null) {
+      page = actual.entry;
+      pageOffset = actual.offset;
+    } else {
+      final relative = (_controller.offset - widget.padding.top).clamp(
+        0.0,
+        _contentExtent,
+      );
+      final estimated = _pageAtOffset(relative);
+      if (estimated == null) return;
+      page = estimated;
+      pageOffset = (relative - estimated.top)
+          .clamp(0.0, estimated.segment.extent)
+          .toDouble();
+    }
     final content = page.segment.content;
-    final pageOffset = (relative - page.top)
-        .clamp(0.0, page.segment.extent)
-        .toDouble();
+    _visiblePageOffset = pageOffset;
     if (!identical(content, _visibleContent)) {
       _visibleContent = content;
       widget.onPageVisible?.call(content);
+    }
+    if (!commit || _restoring || _programmaticJump) {
+      _syncTimer?.cancel();
+      return;
     }
     _syncTimer?.cancel();
     final generation = _layoutGeneration;
@@ -195,6 +314,28 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         ),
       );
     });
+  }
+
+  /// 用已构建页的实际顶部位置反推当前可见页与页内偏移。
+  ///
+  /// ListView 只对已构建子项有精确几何；用估算的 `entry.top` 记录页内
+  /// 偏移，会在前方插入章节或跳转后被放大成整页误差。
+  ({_ScrollEntry entry, double offset})? _entryAtActualOffset() {
+    final top = _controller.offset;
+    for (final entry in _entries) {
+      final box = _boxOf(entry);
+      if (box == null) continue;
+      final reveal = _revealOffset(box);
+      if (reveal == null) continue;
+      final extent = entry.segment.extent;
+      if (top >= reveal - 0.5 && top < reveal + extent - 0.5) {
+        return (
+          entry: entry,
+          offset: (top - reveal).clamp(0.0, extent).toDouble(),
+        );
+      }
+    }
+    return null;
   }
 
   _ScrollEntry? _pageAtOffset(double offset) {
@@ -217,12 +358,14 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   }
 
   void _maybeExtendWindow() {
-    if (!_controller.hasClients || _chapters.isEmpty) return;
+    if (_restoring || !_controller.hasClients || _chapters.isEmpty) return;
     final height = _controller.position.viewportDimension;
-    if (_controller.offset < height) {
+    if (_controller.offset - widget.padding.top < height * 0.25) {
       unawaited(_extendBefore());
     }
-    if (_controller.offset > _controller.position.maxScrollExtent - height) {
+    final remaining =
+        _controller.position.maxScrollExtent - _controller.offset;
+    if (remaining < height * 0.5) {
       unawaited(_extendAfter());
     }
   }
@@ -238,6 +381,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       _extendingBefore = false;
       return;
     }
+    _captureVisiblePage(commit: false);
+    final visibleContent = _visibleContent;
+    final visibleOffset = _visiblePageOffset;
     final oldOffset = _controller.hasClients ? _controller.offset : 0.0;
     setState(() {
       _chapters.insert(0, layout);
@@ -245,12 +391,61 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     });
     await WidgetsBinding.instance.endOfFrame;
     if (mounted && _controller.hasClients) {
-      _controller.jumpTo(
-        (oldOffset + layout.extent).clamp(
+      var restored = false;
+      if (visibleContent != null) {
+        restored = _revealAtPage(
+          visibleContent.spineIndex,
+          visibleContent.pageIndex,
+          visibleOffset,
+        );
+      }
+      for (var attempt = 0; attempt < 2 && !restored; attempt++) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || !_controller.hasClients) break;
+        if (visibleContent != null) {
+          restored = _revealAtPage(
+            visibleContent.spineIndex,
+            visibleContent.pageIndex,
+            visibleOffset,
+          );
+        }
+      }
+      if (restored) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (mounted && _controller.hasClients) {
+          _captureVisiblePage();
+        }
+      } else {
+        final fallback = (oldOffset + layout.extent).clamp(
           0.0,
           _controller.position.maxScrollExtent,
-        ),
-      );
+        );
+        _jumpProgrammatically(fallback);
+        await WidgetsBinding.instance.endOfFrame;
+        for (var attempt = 0;
+            attempt < 2 && !restored && visibleContent != null;
+            attempt++) {
+          if (!mounted ||
+              !_controller.hasClients ||
+              token != _loadToken) {
+            break;
+          }
+          restored = _revealAtPage(
+            visibleContent.spineIndex,
+            visibleContent.pageIndex,
+            visibleOffset,
+          );
+          if (!restored) {
+            await WidgetsBinding.instance.endOfFrame;
+          }
+        }
+        if (restored) {
+          await WidgetsBinding.instance.endOfFrame;
+        }
+        if (mounted && _controller.hasClients) {
+          _captureVisiblePage();
+        }
+      }
     }
     _extendingBefore = false;
   }
@@ -323,25 +518,14 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
             controller: _controller,
             padding: widget.padding,
             itemCount: _entries.length,
-            findChildIndexCallback: (key) {
-              final value = key;
-              if (value is! ValueKey<(int, int)>) return null;
-              for (var index = 0; index < _entries.length; index++) {
-                final entry = _entries[index];
-                if (entry.chapter.spineIndex == value.value.$1 &&
-                    entry.segment.pageIndex == value.value.$2) {
-                  return index;
-                }
-              }
-              return null;
-            },
             itemBuilder: (context, index) {
               final entry = _entries[index];
+              final pageKey = _pageKeys.putIfAbsent((
+                entry.chapter.spineIndex,
+                entry.segment.pageIndex,
+              ), () => GlobalKey());
               return SizedBox(
-                key: ValueKey<(int, int)>((
-                  entry.chapter.spineIndex,
-                  entry.segment.pageIndex,
-                )),
+                key: pageKey,
                 height: entry.segment.extent,
                 child: RepaintBoundary(
                   child: widget.paperBuilder(
