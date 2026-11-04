@@ -199,10 +199,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final _pageTurnKey = GlobalKey<PageTurnViewState>();
   final _scrollKey = GlobalKey<ContinuousScrollViewState>();
 
-  PageTurnMode get _effectiveTurnMode =>
-      _inkMode || MediaQuery.disableAnimationsOf(context)
-      ? PageTurnMode.none
-      : _pageTurnMode;
+  PageTurnMode get _effectiveTurnMode {
+    // 连续滚动是阅读布局，不是翻页动画。墨水屏/减少动画只应关闭动画型
+    // 翻页，不能把连续滚动一并降级成无动画分页。
+    if (_pageTurnMode == PageTurnMode.scroll) {
+      return PageTurnMode.scroll;
+    }
+    return _inkMode || MediaQuery.disableAnimationsOf(context)
+        ? PageTurnMode.none
+        : _pageTurnMode;
+  }
 
   bool get _readingRtl {
     final style = _session.page?.slices.firstOrNull?.block.style;

@@ -8,6 +8,7 @@ import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -184,6 +185,31 @@ Future<void> _pushSearchReader(
 }
 
 void main() {
+  testWidgets('墨水屏模式仍可使用连续滚动', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: _Source(),
+            store: MemoryReaderProgressStore(),
+            bookId: 'ink-continuous-scroll',
+            padding: _padding,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            inkMode: true,
+            pageTurnMode: PageTurnMode.scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('scroll-page-0-0')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('第二页长按、选句和全选保留当前页码', (tester) async {
     final session = await _showReader(tester);
     await session.next();
