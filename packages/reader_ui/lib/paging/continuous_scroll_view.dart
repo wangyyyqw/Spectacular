@@ -23,6 +23,7 @@ class ContinuousScrollView extends StatefulWidget {
     required this.padding,
     required this.revision,
     this.onPageVisible,
+    this.onTapAtPage,
   });
 
   final ReaderSession session;
@@ -30,6 +31,7 @@ class ContinuousScrollView extends StatefulWidget {
   final EdgeInsets padding;
   final Object revision;
   final ValueChanged<PageContent>? onPageVisible;
+  final bool Function(PageContent page, Offset localPosition)? onTapAtPage;
 
   @override
   State<ContinuousScrollView> createState() => ContinuousScrollViewState();
@@ -480,6 +482,43 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       curve: Curves.easeOutCubic,
     );
     _captureVisiblePage();
+  }
+
+  /// 把视口点击坐标映射到可见页切片，再交给正文处理。
+  bool handleTapAt(Offset position) {
+    final hit = pageAt(position);
+    if (hit == null) {
+      return false;
+    }
+    return widget.onTapAtPage?.call(hit.page, hit.localPosition) ?? false;
+  }
+
+  /// 把阅读视口坐标映射到所在页切片及其页内坐标。
+  ({PageContent page, Offset localPosition})? pageAt(Offset position) {
+    if (!_controller.hasClients || _entries.isEmpty) {
+      return null;
+    }
+    final size = context.size;
+    if (size == null ||
+        position.dx < widget.padding.left ||
+        position.dx > size.width - widget.padding.right) {
+      return null;
+    }
+    final relative = _controller.offset + position.dy - widget.padding.top;
+    if (relative < 0) {
+      return null;
+    }
+    final page = _pageAtOffset(relative);
+    if (page == null) {
+      return null;
+    }
+    return (
+      page: page.segment.content,
+      localPosition: Offset(
+        position.dx - widget.padding.left,
+        relative - page.top,
+      ),
+    );
   }
 
   @override
