@@ -261,4 +261,22 @@ void main() {
       }
     }
   });
+
+  test('页脚角部翻出屏幕时侧边阴影随纸背淡出', () async {
+    final data = await _render(
+      touchX: -195,
+      bottomColor: const Color(0xFF0000FF),
+    );
+
+    for (final point in const [
+      Offset(0, 150),
+      Offset(1, 150),
+      Offset(1, 299),
+    ]) {
+      final pixel = _rgba(data, point.dx.toInt(), point.dy.toInt());
+      expect(pixel[0], 0, reason: '侧边不应残留灰色纸背');
+      expect(pixel[1], 0, reason: '侧边不应残留灰色纸背');
+      expect(pixel[2], greaterThan(245), reason: '阴影应随纸背淡出，不压暗目标页');
+    }
+  });
 }
