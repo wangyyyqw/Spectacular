@@ -6,6 +6,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/annotations/annotation_editor_sheet.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
 import 'package:reader_ui/annotations/note_composer_sheet.dart';
@@ -514,6 +515,63 @@ void main() {
       findsNothing,
     );
     expect(find.text('已添加笔记'), findsOneWidget);
+  });
+
+  testWidgets('墨水屏编辑高亮时不显示无效的颜色选项', (tester) async {
+    final annotation = ReaderAnnotation(
+      id: 'ink-editor',
+      type: ReaderAnnotationType.highlight,
+      startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+      endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+      quote: 'word',
+      color: defaultHighlightColor,
+      createdAt: DateTime(2026, 11, 4),
+      updatedAt: DateTime(2026, 11, 4),
+    );
+    Widget sheet({required bool inkMode}) => MaterialApp(
+      home: Scaffold(
+        body: ReaderAnnotationEditorSheet(
+          annotation: annotation,
+          inkMode: inkMode,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(sheet(inkMode: true));
+    expect(
+      find.byKey(const ValueKey<String>('annotation-ink-color-hint')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-color-0xFFFFEB3B')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-wavyUnderline')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-background')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-underline')),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(sheet(inkMode: false));
+    expect(
+      find.byKey(const ValueKey<String>('annotation-ink-color-hint')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-color-0xFFFFEB3B')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-background')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('点击已有笔记可修改正文并保存', (tester) async {

@@ -1287,6 +1287,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       backgroundColor: Colors.transparent,
       builder: (context) => ReaderAnnotationEditorSheet(
         annotation: annotation,
+        inkMode: _inkMode,
       ),
     );
     if (!mounted || action == null) {
