@@ -148,6 +148,7 @@ Future<void> _openEditor(WidgetTester tester) async {
     80,
     scrollable: find.byType(Scrollable).last,
   );
+  await tester.pumpAndSettle();
   await tester.tap(entry);
   await tester.pumpAndSettle();
 }

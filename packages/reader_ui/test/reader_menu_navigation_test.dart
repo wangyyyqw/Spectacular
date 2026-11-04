@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/api.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -7,11 +8,14 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/tap_zones.dart';
 
-class _Source implements ReaderChapterSource {
-  _Source(this.chapterCount);
+class _Source implements TocChapterSource {
+  _Source(this.chapterCount, {this.toc = const <TocEntry>[]});
 
   @override
   final int chapterCount;
+
+  @override
+  final List<TocEntry> toc;
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async => [
@@ -32,12 +36,13 @@ Future<ReaderSession> _open(
   int chapters, {
   ReaderTapZones tapZones = ReaderTapZones.defaults,
   bool inkMode = false,
+  List<TocEntry> toc = const <TocEntry>[],
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
       home: ReaderPage(
-        source: _Source(chapters),
+        source: _Source(chapters, toc: toc),
         store: MemoryReaderProgressStore(),
         bookId: 'menu',
         tapZones: tapZones,
@@ -173,5 +178,24 @@ void main() {
     );
     expect(button.onPressed, isNull);
     expect(button.tooltip, '墨水屏模式固定纯黑白');
+  });
+
+  testWidgets('目录跳转后关闭整个阅读菜单，直接回到正文', (tester) async {
+    final session = await _open(
+      tester,
+      3,
+      toc: const <TocEntry>[TocEntry(title: '第一章', spineIndex: 1)],
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('toc-row-1-第一章')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('toc-row-1-第一章')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+      isFalse,
+    );
+    expect(session.progress, const ReaderProgress(spineIndex: 1, pageIndex: 0));
   });
 }

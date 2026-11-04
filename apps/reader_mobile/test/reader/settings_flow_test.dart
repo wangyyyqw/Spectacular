@@ -309,6 +309,7 @@ void main() {
       80,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-margin-editor')),
     );
@@ -355,6 +356,7 @@ void main() {
       80,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-margin-editor')),
     );

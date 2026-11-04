@@ -11,6 +11,7 @@ import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/theme/reader_theme.dart';
 
 class _Source implements ReaderChapterSource {
   _Source() {
@@ -94,6 +95,7 @@ void main() {
             source: source,
             store: store,
             bookId: 'footnote',
+            theme: ReaderTheme.dark,
             padding: EdgeInsets.zero,
             overrides: const ReaderOverrides(),
             showPageFooter: false,
@@ -113,6 +115,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ReaderFootnoteDialog), findsOneWidget);
+    expect(
+      tester
+          .widget<Material>(
+            find.byKey(const ValueKey<String>('reader-footnote-dialog')),
+          )
+          .color,
+      ReaderTheme.dark.background,
+      reason: '深色阅读主题下脚注弹层不能保持白色',
+    );
     expect(
       tester.getSize(find.byType(ReaderFootnoteDialog)).height,
       lessThan(400),

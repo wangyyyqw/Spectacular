@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -35,6 +36,7 @@ import 'panels/search_panel.dart';
 import 'panels/settings_panel.dart';
 import 'theme/reader_background.dart';
 import 'theme/reader_environment.dart';
+import 'theme/reader_panel_theme.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_layer.dart';
@@ -272,8 +274,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _marginsFromPadding(_fallbackPadding());
 
   /// 首次进入阅读页时的默认边距，恢复默认后仍保持原排版。
-  ReaderMargins get _defaultMargins =>
-      _marginsFromPadding(_fallbackPadding());
+  ReaderMargins get _defaultMargins => _marginsFromPadding(_fallbackPadding());
 
   ReaderMargins? get _layoutMargins => _previewMargins ?? _savedMargins;
 
@@ -299,8 +300,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Timer? _tempHighlightTimer;
 
   /// 当前阅读环境（P4-23）。
-  ReaderEnvironment get _environment =>
-      ReaderEnvironment(isEink: _inkMode);
+  ReaderEnvironment get _environment => ReaderEnvironment(isEink: _inkMode);
 
   /// 生效主题（墨水屏强制纯黑白，P4-23）。
   ReaderTheme? get _effectiveTheme {
@@ -387,10 +387,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (!widget.showPageFooter) {
       return base;
     }
-    return base + const EdgeInsets.only(
-      top: PageFurniture.headerHeight + PageFurniture.headerGap,
-      bottom: PageFurniture.footerHeight + PageFurniture.footerGap,
-    );
+    return base +
+        const EdgeInsets.only(
+          top: PageFurniture.headerHeight + PageFurniture.headerGap,
+          bottom: PageFurniture.footerHeight + PageFurniture.footerGap,
+        );
   }
 
   /// 整页背景图页（封面/扉页）：整页只有一块背景图，四角信息都不画。
@@ -433,12 +434,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return 0;
     }
     final pagesInChapter = _session.chapterPageCount;
-    final within = pagesInChapter <= 0 ? 0.0 : (page.pageIndex + 1) / pagesInChapter;
+    final within = pagesInChapter <= 0
+        ? 0.0
+        : (page.pageIndex + 1) / pagesInChapter;
     return ((page.spineIndex + within) / chapters).clamp(0.0, 1.0);
   }
 
-  /// 已预取过的页键（spine*100000 + pageIndex），避免重复预取。
-  int _prefetchedPageKey = -1;
+  /// 已预取过的页键（spine*100000 + pageIndex）。
+  ///
+  /// 连续滚动会同时构建多页，不能只记当前页，否则下一屏的插图在进入
+  /// 可视区时仍未解码，只能看到空框。保留最近若干页，页离开缓存后再次
+  /// 构建时仍可补取。
+  final Set<int> _prefetchedPageKeys = <int>{};
+  static const int _prefetchedPageLimit = 32;
 
   /// 图片缓存版本号，解码完成后触发重绘。
   int _imageRevision = 0;
@@ -604,10 +612,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   void _schedulePrefetch(PageContent page, double displayWidth) {
     final key = page.spineIndex * 100000 + page.pageIndex;
-    if (_prefetchedPageKey == key) {
+    if (!_prefetchedPageKeys.add(key)) {
       return;
     }
-    _prefetchedPageKey = key;
+    if (_prefetchedPageKeys.length > _prefetchedPageLimit) {
+      _prefetchedPageKeys.remove(_prefetchedPageKeys.first);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _prefetchPageImages(page, displayWidth, includeAdjacent: true);
@@ -618,7 +628,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
 
-  /// 连续滚动长按命中的页切片；分页模式保持为空。
+  /// 连续滚动长按命中的页片段；分页模式保持为空。
   PageContent? _selectionPage;
 
   /// 笔记编辑层打开时隐藏选区菜单，避免菜单悬在遮罩后方。
@@ -652,9 +662,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
     // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
     unawaited(
-      SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.immersiveSticky,
-      ),
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
     );
     _session = ReaderSession(
       source: widget.source,
@@ -687,8 +695,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (oldWidget.backgroundId != widget.backgroundId) {
       unawaited(_loadBackground(widget.backgroundId));
     }
-    if (oldWidget.overrides != widget.overrides &&
-        widget.overrides != null) {
+    if (oldWidget.overrides != widget.overrides && widget.overrides != null) {
       _overrides = widget.overrides!;
     }
     if (oldWidget.theme != widget.theme ||
@@ -757,6 +764,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 关闭抽屉（保留菜单）。
   void _closeDrawer() {
     setState(() {
+      _drawer = null;
+      _drawerTab = _DrawerTab.content;
+    });
+  }
+
+  /// 关闭整个阅读菜单；目录/搜索跳转后应直接回到正文。
+  void _dismissReaderMenu() {
+    if (!_menuOpen && _drawer == null && _drawerTab == _DrawerTab.content) {
+      return;
+    }
+    setState(() {
+      _menuOpen = false;
       _drawer = null;
       _drawerTab = _DrawerTab.content;
     });
@@ -852,7 +871,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _handleSelectionEdgeDrag(bool forward) {
     _selectionEdgeTimer?.cancel();
     _selectionEdgeTimer = Timer(const Duration(milliseconds: 300), () {
-      unawaited(forward ? _extendSelectionForward() : _extendSelectionBackward());
+      unawaited(
+        forward ? _extendSelectionForward() : _extendSelectionBackward(),
+      );
     });
   }
 
@@ -1240,7 +1261,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 单击注释引用：命中时打开弹窗并消费本次点击，避免同时翻页。
   bool _openFootnoteInPage(PageContent page, Offset pagePosition) {
     final footnote = TextHitTester.footnoteAt(page, pagePosition);
     if (footnote == null) {
@@ -1253,9 +1273,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         isScrollControlled: true,
         useSafeArea: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => ReaderFootnoteDialog(
-          footnote: footnote,
-          imageCache: widget.imageCache,
+        builder: (context) => ReaderPanelTheme(
+          theme: _effectiveTheme ?? ReaderTheme.white,
+          child: ReaderFootnoteDialog(
+            footnote: footnote,
+            imageCache: widget.imageCache,
+          ),
         ),
       ),
     );
@@ -1303,9 +1326,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       useSafeArea: true,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => ReaderAnnotationEditorSheet(
-        annotation: annotation,
-        inkMode: _inkMode,
+      builder: (context) => ReaderPanelTheme(
+        theme: _effectiveTheme ?? ReaderTheme.white,
+        child: ReaderAnnotationEditorSheet(
+          annotation: annotation,
+          inkMode: _inkMode,
+        ),
       ),
     );
     if (!mounted || action == null) {
@@ -1337,7 +1363,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       case AnnotationEditActionType.save:
         await store.update(
           annotation.id,
-          type: note != null && annotation.type == ReaderAnnotationType.highlight
+          type:
+              note != null && annotation.type == ReaderAnnotationType.highlight
               ? ReaderAnnotationType.note
               : null,
           color: action.color,
@@ -1455,29 +1482,35 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   List<SelectionAction> _selectionActions(
     PageContent page,
     ReaderSelection selection,
-  ) => <SelectionAction>[
-    if (widget.annotations != null)
-      SelectionAction(
-        id: 'highlight',
-        label: '高亮',
-        onTap: () => unawaited(
-          _saveAnnotation(page, selection, ReaderAnnotationType.highlight),
+  ) {
+    return <SelectionAction>[
+      if (widget.annotations != null)
+        SelectionAction(
+          id: 'highlight',
+          label: '高亮',
+          onTap: () => unawaited(
+            _saveAnnotation(page, selection, ReaderAnnotationType.highlight),
+          ),
         ),
-      ),
-    if (widget.annotations != null)
+      if (widget.annotations != null)
+        SelectionAction(
+          id: 'note',
+          label: '笔记',
+          onTap: () => unawaited(_addNote(page, selection)),
+        ),
       SelectionAction(
-        id: 'note',
-        label: '笔记',
-        onTap: () => unawaited(_addNote(page, selection)),
+        id: 'copy',
+        label: '复制',
+        onTap: () => unawaited(_copySelection(page, selection)),
       ),
-    SelectionAction(
-      id: 'copy',
-      label: '复制',
-      onTap: () => unawaited(_copySelection(page, selection)),
-    ),
-    SelectionAction(id: 'select-all', label: '全选', onTap: () => _selectAll(page)),
-    SelectionAction(id: 'dismiss', label: '取消', onTap: _clearSelection),
-  ];
+      SelectionAction(
+        id: 'select-all',
+        label: '全选',
+        onTap: () => _selectAll(page),
+      ),
+      SelectionAction(id: 'dismiss', label: '取消', onTap: _clearSelection),
+    ];
+  }
 
   /// 保存高亮/笔记（P4-17）：CFI 区间 + 原文 + 前后文。
   Future<void> _saveAnnotation(
@@ -1554,10 +1587,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 输入笔记正文后保存（P4-17）。
   Future<void> _addNote(PageContent page, ReaderSelection selection) async {
     final quote = selection.isMultiPage
-        ? SelectionOps.textAcrossPages(
-            await _session.chapterPages(),
-            selection,
-          )
+        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
         : SelectionOps.textOf(page, selection);
     if (!mounted) {
       return;
@@ -1569,9 +1599,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         useSafeArea: true,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => ReaderNoteComposerSheet(
-          quote: quote,
-          inkMode: _inkMode,
+        builder: (context) => ReaderPanelTheme(
+          theme: _effectiveTheme ?? ReaderTheme.white,
+          child: ReaderNoteComposerSheet(quote: quote, inkMode: _inkMode),
         ),
       );
       if (!mounted || note == null || note.trim().isEmpty) {
@@ -1590,12 +1620,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _copySelection(PageContent page, ReaderSelection selection) async {
+  Future<void> _copySelection(
+    PageContent page,
+    ReaderSelection selection,
+  ) async {
     final text = selection.isMultiPage
-        ? SelectionOps.textAcrossPages(
-            await _session.chapterPages(),
-            selection,
-          )
+        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
         : SelectionOps.textOf(page, selection);
     if (text.isEmpty) {
       return;
@@ -1653,7 +1683,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _showToast(
     String message, {
     SnackBarAction? action,
-    Duration duration = const Duration(seconds: 1),
+    Duration duration = const Duration(seconds: 2),
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     // 新反馈应替换旧提示，避免撤销条把后续操作结果排队遮挡。
@@ -1705,7 +1735,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         // 背景色打底，避免 padding 外区域透出窗口黑底。
         return LayoutBuilder(
           builder: (context, constraints) {
-            _scheduleContentSize(Size(constraints.maxWidth, constraints.maxHeight));
+            _scheduleContentSize(
+              Size(constraints.maxWidth, constraints.maxHeight),
+            );
             return ColoredBox(
               color: _effectiveTheme?.background ?? widget.background,
               child: Stack(
@@ -1735,7 +1767,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Widget _buildBody(BuildContext context) {
     final page = _session.page;
     // 翻页后焦点落到新页首块（P4-28）；面板/弹层打开时不抢焦点。
-    final pageKey = page == null ? null : '${page.spineIndex}/${page.pageIndex}';
+    final pageKey = page == null
+        ? null
+        : '${page.spineIndex}/${page.pageIndex}';
     if (pageKey != null && _lastFocusedPageKey != pageKey) {
       _lastFocusedPageKey = pageKey;
       final focusedPage = page;
@@ -1933,19 +1967,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 Navigator.of(context).maybePop();
               },
               onToggleDayNight: _toggleDayNight,
-              nightMode: (_theme ?? ReaderTheme.white).background.computeLuminance() <
+              nightMode:
+                  (_theme ?? ReaderTheme.white).background.computeLuminance() <
                   0.35,
               inkMode: _inkMode,
-              onPreviousChapter: page.spineIndex <= 0 || _session.jumpLoadingTitle != null
-                  ? null : () {
-                _closeDrawer();
-                unawaited(_session.jumpToChapter(page.spineIndex - 1));
-              },
-              onNextChapter: page.spineIndex >= widget.source.chapterCount - 1 ||
-                  _session.jumpLoadingTitle != null ? null : () {
-                _closeDrawer();
-                unawaited(_session.jumpToChapter(page.spineIndex + 1));
-              },
+              onPreviousChapter:
+                  page.spineIndex <= 0 || _session.jumpLoadingTitle != null
+                  ? null
+                  : () {
+                      _closeDrawer();
+                      unawaited(_session.jumpToChapter(page.spineIndex - 1));
+                    },
+              onNextChapter:
+                  page.spineIndex >= widget.source.chapterCount - 1 ||
+                      _session.jumpLoadingTitle != null
+                  ? null
+                  : () {
+                      _closeDrawer();
+                      unawaited(_session.jumpToChapter(page.spineIndex + 1));
+                    },
               onSeek: (value) {
                 _closeDrawer();
                 unawaited(_seekToProgress(value));
@@ -1959,8 +1999,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       tab: _drawerTab,
                       onTabChanged: (tab) => setState(() => _drawerTab = tab),
                       entries: _session.toc,
-                      currentSpineIndex:
-                          _session.progress?.spineIndex ?? 0,
+                      currentSpineIndex: _session.progress?.spineIndex ?? 0,
                       currentCfi: _session.currentCfi,
                       bookmarks: widget.bookmarks,
                       annotations: widget.annotations,
@@ -1982,11 +2021,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onSearch: widget.onSearch,
                       onSearchStream: widget.onSearchStream,
                       onSearchSelect: (result) {
-                        _closeDrawer();
+                        _dismissReaderMenu();
                         unawaited(_applySearchResult(result));
                       },
                       onTocSelect: (entry) {
-                        _closeDrawer();
+                        _dismissReaderMenu();
                         unawaited(
                           _session.jumpToChapter(
                             entry.spineIndex,
@@ -1995,7 +2034,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                         );
                       },
                       onBookmarkSelect: (bookmark) {
-                        _closeDrawer();
+                        _dismissReaderMenu();
                         unawaited(
                           _session.jumpToCfi(
                             bookmark.cfi,
@@ -2009,7 +2048,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                         unawaited(_addBookmark());
                       },
                       onAnnotationSelect: (annotation) {
-                        _closeDrawer();
+                        _dismissReaderMenu();
                         unawaited(
                           _session.jumpToCfi(
                             annotation.startCfi,
@@ -2025,8 +2064,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onAnnotationDelete: _deleteAnnotations,
                       onAnnotationRecolor: _recolorAnnotations,
                       onOpenMarginEditor: () {
-                        _closeDrawer();
-                        _toggleReaderMenu();
+                        _dismissReaderMenu();
                         setState(() {
                           _editingMargins = true;
                           _previewMargins = null;
@@ -2213,29 +2251,32 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     ),
   );
 
-  Widget _buildScrollPaper(PageContent page, Size size) => ClipRect(
-    key: ValueKey('scroll-page-${page.spineIndex}-${page.pageIndex}'),
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        CustomPaint(
-          painter: _ReaderPageCustomPainter(
-            page: page,
-            painter: _painter,
-            imageRevision: _imageRevision,
-          ),
-        ),
-        if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
-          Positioned.fill(
-            child: AnnotationLayer(
+  Widget _buildScrollPaper(PageContent page, Size size) {
+    _schedulePrefetch(page, size.width);
+    return ClipRect(
+      key: ValueKey('scroll-page-${page.spineIndex}-${page.pageIndex}'),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CustomPaint(
+            painter: _ReaderPageCustomPainter(
               page: page,
-              annotations: [..._resolvedAnnotations, ?_tempHighlight],
-              inkMode: _inkMode,
+              painter: _painter,
+              imageRevision: _imageRevision,
             ),
           ),
-      ],
-    ),
-  );
+          if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
+            Positioned.fill(
+              child: AnnotationLayer(
+                page: page,
+                annotations: [..._resolvedAnnotations, ?_tempHighlight],
+                inkMode: _inkMode,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   List<Widget> _paperFurniture(PageContent page) {
     final padding = _furniturePadding();
@@ -2575,13 +2616,14 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               onDelete: widget.onAnnotationDelete,
               onRecolor: widget.onAnnotationRecolor,
             ),
-            _DrawerTab.search => widget.onSearch == null
-                ? const SizedBox.shrink()
-                : SearchPanel(
-                    onSearch: widget.onSearch!,
-                    onSearchStream: widget.onSearchStream,
-                    onSelect: widget.onSearchSelect,
-                  ),
+            _DrawerTab.search =>
+              widget.onSearch == null
+                  ? const SizedBox.shrink()
+                  : SearchPanel(
+                      onSearch: widget.onSearch!,
+                      onSearchStream: widget.onSearchStream,
+                      onSelect: widget.onSearchSelect,
+                    ),
           },
         ),
         if (widget.tab == _DrawerTab.search &&
@@ -2629,9 +2671,7 @@ class _DrawerTabButton extends StatelessWidget {
           fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
         ),
       ),
-      child: label == label
-          ? Text(label)
-          : Text(label),
+      child: label == label ? Text(label) : Text(label),
     );
   }
 }

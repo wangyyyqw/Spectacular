@@ -222,10 +222,7 @@ void main() {
       find.byKey(const ValueKey<String>('note-composer-sheet')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const ValueKey<String>('selection-menu')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
 
     await tester.tap(_composerClose);
     await tester.pumpAndSettle();
@@ -244,10 +241,7 @@ void main() {
     await tester.pump();
     await tester.tap(_composerSave);
     await _finishExit(tester);
-    expect(
-      find.byKey(const ValueKey<String>('selection-menu')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
 
     await tester.longPressAt(
       tester.getTopLeft(find.byType(ReaderView)) +
@@ -411,17 +405,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(
-        const ValueKey<String>('annotation-batch-color-0xFF90CAF9'),
-      ),
+      find.byKey(const ValueKey<String>('annotation-batch-color-0xFF90CAF9')),
     );
     await tester.pumpAndSettle();
 
     expect(notes.items, hasLength(2));
-    expect(
-      notes.items.every((item) => item.color == 0xFF90CAF9),
-      isTrue,
-    );
+    expect(notes.items.every((item) => item.color == 0xFF90CAF9), isTrue);
     expect(find.text('已更换 2 条标注颜色'), findsOneWidget);
   });
 
@@ -486,13 +475,9 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-add-note')),
-    );
+    await tester.tap(find.byKey(const ValueKey<String>('annotation-add-note')));
     await tester.pumpAndSettle();
-    final input = find.byKey(
-      const ValueKey<String>('annotation-note-input'),
-    );
+    final input = find.byKey(const ValueKey<String>('annotation-note-input'));
     expect(
       tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
       isTrue,
@@ -500,9 +485,7 @@ void main() {
     );
     await tester.enterText(input, '  补写的高亮笔记  ');
     await tester.pump();
-    final save = find.byKey(
-      const ValueKey<String>('annotation-save-note'),
-    );
+    final save = find.byKey(const ValueKey<String>('annotation-save-note'));
     expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
     await tester.ensureVisible(save);
     await tester.tap(save);
@@ -598,6 +581,59 @@ void main() {
     );
   });
 
+  testWidgets('点击笔记圆点打开笔记编辑层', (tester) async {
+    final source = _Source();
+    final notes = _Notes();
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'note-marker',
+        type: ReaderAnnotationType.note,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '点击圆点打开',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'note-marker',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final rect = SelectionOps.lineRectsFor(line, 0, 4).first;
+    final markerCenter = Offset(
+      rect.right + AnnotationDecorations.noteMarkerOffset,
+      rect.center.dy,
+    );
+
+    await tester.tapAt(
+      tester.getTopLeft(find.byType(AnnotationLayer)) + markerCenter,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-note-input')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('点击已有笔记可修改正文并保存', (tester) async {
     final source = _Source();
     final notes = _Notes();
@@ -637,9 +673,7 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsOneWidget,
     );
-    final input = find.byKey(
-      const ValueKey<String>('annotation-note-input'),
-    );
+    final input = find.byKey(const ValueKey<String>('annotation-note-input'));
     expect(tester.widget<TextField>(input).controller?.text, '第一版笔记');
 
     await tester.enterText(input, '  更新后的笔记  ');
@@ -682,6 +716,271 @@ void main() {
       findsNothing,
     );
     expect(notes.items.single.note, '更新后的笔记');
+  });
+
+  testWidgets('连续滚动模式下滚动后点击笔记圆点可打开编辑层', (tester) async {
+    final source = _Source(text: 'word ' * 160);
+    final notes = _Notes();
+    const start = 700;
+    const end = 704;
+    PageContent? targetPage;
+    PageLineBox? targetLine;
+    for (final page in source.pages) {
+      for (final line in TextHitTester.lineBoxes(page)) {
+        if (line.blockTextOffset <= start &&
+            line.blockTextOffset + line.text.length >= end) {
+          targetPage = page;
+          targetLine = line;
+          break;
+        }
+      }
+      if (targetLine != null) break;
+    }
+    expect(targetPage, isNotNull);
+    expect(targetLine, isNotNull);
+    final page = targetPage!;
+    final annotationStartCfi = 'epubcfi(/6/2!/4/2/1:$start)';
+    final annotationEndCfi = 'epubcfi(/6/2!/4/2/1:$end)';
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'note-marker-scroll',
+        type: ReaderAnnotationType.note,
+        startCfi: annotationStartCfi,
+        endCfi: annotationEndCfi,
+        quote: 'word',
+        note: '连续滚动圆点',
+        color: defaultHighlightColor,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'note-marker-scroll',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            pageTurnMode: PageTurnMode.scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final pageFinder = find.byKey(
+      ValueKey<String>('scroll-page-${page.spineIndex}-${page.pageIndex}'),
+    );
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable).last)
+        .position;
+    final offsetBeforeScroll = position.pixels;
+    await tester.scrollUntilVisible(
+      pageFinder,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(offsetBeforeScroll));
+    final annotationLine = AnnotationDecorations.linesFor(
+      page,
+      notes.items,
+    ).single;
+    final rect = SelectionOps.lineRectsFor(
+      annotationLine.line,
+      annotationLine.startOffset,
+      annotationLine.endOffset,
+    ).last;
+    final markerCenter = Offset(
+      rect.right + AnnotationDecorations.noteMarkerOffset,
+      rect.center.dy,
+    );
+    final layer = find.descendant(
+      of: pageFinder,
+      matching: find.byType(AnnotationLayer),
+    );
+
+    await tester.tapAt(tester.getTopLeft(layer) + markerCenter);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('连续滚动长按下方页面时选区与笔记引用命中该页', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final text = List.generate(240, (index) => 'word$index').join(' ');
+    final source = _Source(text: text);
+    final notes = _Notes();
+    expect(source.pages, hasLength(greaterThan(1)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'scroll-selection-below-fold',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            pageTurnMode: PageTurnMode.scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const firstPageKey = ValueKey<String>('scroll-page-0-0');
+    const secondPageKey = ValueKey<String>('scroll-page-0-1');
+    final firstPage = find.byKey(firstPageKey);
+    final secondPage = find.byKey(secondPageKey);
+    expect(firstPage, findsOneWidget);
+    expect(secondPage, findsOneWidget);
+
+    final firstPageTop = tester.getTopLeft(firstPage).dy;
+    final secondPageTop = tester.getTopLeft(secondPage).dy;
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).last);
+    scroll.position.jumpTo(
+      scroll.position.pixels + (secondPageTop - firstPageTop) * 0.6,
+    );
+    await tester.pumpAndSettle();
+
+    final viewport = tester.getRect(find.byType(ReaderView));
+    final scrolledFirstTop = tester.getTopLeft(firstPage).dy;
+    final scrolledSecondTop = tester.getTopLeft(secondPage).dy;
+    expect(scrolledFirstTop, lessThan(viewport.top));
+    expect(scrolledSecondTop, greaterThan(viewport.top));
+    expect(scrolledSecondTop, lessThan(viewport.bottom));
+
+    final line = TextHitTester.lineBoxes(source.pages[1]).first;
+    final pageTop = tester.getTopLeft(secondPage);
+    final localWordPosition = Offset(line.rect.left + 6, line.rect.center.dy);
+    await tester.longPressAt(pageTop + localWordPosition);
+    await tester.pumpAndSettle();
+
+    final layer = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
+    expect(layer.pageIndex, 1);
+
+    final hit = TextHitTester.hitTest(source.pages[1], localWordPosition);
+    expect(hit, isNotNull);
+    final expectedQuote = SelectionOps.textOf(
+      source.pages[1],
+      SelectionOps.wordAt(source.pages[1], hit!),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-note')),
+    );
+    await tester.pumpAndSettle();
+    final composer = tester.widget<ReaderNoteComposerSheet>(
+      find.byType(ReaderNoteComposerSheet),
+    );
+    expect(composer.quote, expectedQuote);
+  });
+
+  testWidgets('连续滚动用户滚动时取消选区', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final source = _Source(text: 'word ' * 160);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: _Notes(),
+            bookId: 'scroll-hide-selection-menu',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            pageTurnMode: PageTurnMode.scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final firstPage = find.byKey(const ValueKey<String>('scroll-page-0-0'));
+    final line = TextHitTester.lineBoxes(source.pages.first)[2];
+    await tester.longPressAt(
+      tester.getTopLeft(firstPage) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsOneWidget,
+    );
+
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
+  });
+
+  testWidgets('连续滚动拖到页底不切换内部页码', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final source = _Source(text: 'word ' * 160);
+    late ReaderSession session;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: _Notes(),
+            bookId: 'scroll-edge-drag',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            pageTurnMode: PageTurnMode.scroll,
+            onSessionReady: (value) => session = value,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final firstPage = find.byKey(const ValueKey<String>('scroll-page-0-0'));
+    final line = TextHitTester.lineBoxes(source.pages.first)[2];
+    await tester.longPressAt(
+      tester.getTopLeft(firstPage) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 0);
+
+    final viewport = tester.getRect(find.byType(ReaderView));
+    final gesture = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey<String>('selection-handle-end')),
+      ),
+    );
+    await gesture.moveTo(Offset(viewport.center.dx, viewport.bottom - 4));
+    await tester.pump(const Duration(milliseconds: 350));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(session.page?.pageIndex, 0);
+    expect(
+      tester.widget<SelectionLayer>(find.byType(SelectionLayer)).pageIndex,
+      0,
+    );
   });
 
   testWidgets('键盘弹出时标注操作栏固定在键盘上方', (tester) async {
@@ -742,11 +1041,7 @@ void main() {
     ]) {
       final rect = tester.getRect(find.byKey(ValueKey<String>(key)));
       expect(rect.top, greaterThanOrEqualTo(0), reason: '$key 顶部不可见');
-      expect(
-        rect.bottom,
-        lessThanOrEqualTo(keyboardTop),
-        reason: '$key 被键盘遮挡',
-      );
+      expect(rect.bottom, lessThanOrEqualTo(keyboardTop), reason: '$key 被键盘遮挡');
     }
   });
 
@@ -819,14 +1114,9 @@ void main() {
     await tester.tap(wavyStyle);
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller?.text, '尚未保存的修改');
-    expect(
-      notes.items.single.style,
-      ReaderAnnotationStyle.background,
-    );
+    expect(notes.items.single.style, ReaderAnnotationStyle.background);
 
-    final save = find.byKey(
-      const ValueKey<String>('annotation-save-note'),
-    );
+    final save = find.byKey(const ValueKey<String>('annotation-save-note'));
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();
@@ -1154,7 +1444,6 @@ void main() {
     expect(find.text('已删除笔记'), findsNothing);
     expect(find.text('撤销'), findsNothing);
   });
-
   testWidgets('连续滚动长按下方页面时选区与笔记引用命中该页', (tester) async {
     tester.view.physicalSize = const Size(800, 400);
     tester.view.devicePixelRatio = 1;
@@ -1271,61 +1560,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing);
     expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
-  });
-
-  testWidgets('点击笔记圆点打开笔记编辑层', (tester) async {
-    final source = _Source();
-    final notes = _Notes();
-    notes.items.add(
-      ReaderAnnotation(
-        id: 'note-marker',
-        type: ReaderAnnotationType.note,
-        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
-        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
-        quote: 'word',
-        note: '点击圆点打开',
-        color: defaultHighlightColor,
-        createdAt: DateTime(2026, 11, 3),
-        updatedAt: DateTime(2026, 11, 3),
-      ),
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ReaderPage(
-            source: source,
-            store: MemoryReaderProgressStore(),
-            annotations: notes,
-            bookId: 'note-marker',
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            overrides: const ReaderOverrides(),
-            showPageFooter: false,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final line = TextHitTester.lineBoxes(source.pages.first).first;
-    final rect = SelectionOps.lineRectsFor(line, 0, 4).first;
-    final markerCenter = Offset(
-      rect.right + AnnotationDecorations.noteMarkerOffset,
-      rect.center.dy,
-    );
-
-    await tester.tapAt(
-      tester.getTopLeft(find.byType(AnnotationLayer)) +
-          markerCenter +
-          const Offset(20, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey<String>('annotation-editor-sheet')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('annotation-note-input')),
-      findsOneWidget,
-    );
   });
 
   testWidgets('连续滚动模式下滚动后点击笔记圆点可打开编辑层', (tester) async {

@@ -107,7 +107,9 @@ void main() {
       ]);
       expect(lines, hasLength(2));
       final firstLine = lines.firstWhere((l) => l.line.slice == page.slices[0]);
-      final secondLine = lines.firstWhere((l) => l.line.slice == page.slices[1]);
+      final secondLine = lines.firstWhere(
+        (l) => l.line.slice == page.slices[1],
+      );
       expect(firstLine.startOffset, 6);
       expect(firstLine.endOffset, 10);
       expect(secondLine.startOffset, 0);
@@ -196,6 +198,47 @@ void main() {
         AnnotationDecorations.annotationAt(
           page,
           Offset(rect.right + 20, rect.center.dy),
+          <ReaderAnnotation>[annotation],
+        ),
+        isNull,
+      );
+    });
+
+    test('点击笔记圆点命中笔记，远离圆点不误触', () {
+      final block = _block('0123456789abcdefghij', cfi: 'epubcfi(/6/4!/4/2/1)');
+      final page = _page(<PageBlock>[block]);
+      final annotation = _annotation(
+        id: 'note-hit',
+        type: ReaderAnnotationType.note,
+        start: 'epubcfi(/6/4!/4/2/1:3)',
+        end: 'epubcfi(/6/4!/4/2/1:8)',
+        quote: '34567',
+      );
+      final line = AnnotationDecorations.linesFor(page, <ReaderAnnotation>[
+        annotation,
+      ]).single;
+      final rect = SelectionOps.lineRectsFor(
+        line.line,
+        line.startOffset,
+        line.endOffset,
+      ).first;
+      final markerCenter = Offset(
+        rect.right + AnnotationDecorations.noteMarkerOffset,
+        rect.center.dy,
+      );
+
+      expect(
+        AnnotationDecorations.annotationAt(
+          page,
+          markerCenter,
+          <ReaderAnnotation>[annotation],
+        )?.id,
+        'note-hit',
+      );
+      expect(
+        AnnotationDecorations.annotationAt(
+          page,
+          markerCenter + const Offset(0, 40),
           <ReaderAnnotation>[annotation],
         ),
         isNull,

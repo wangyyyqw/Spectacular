@@ -9,6 +9,7 @@ import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -287,6 +288,10 @@ void main() {
     expect(observer.pops, 0);
     expect(find.byType(ReaderPage), findsOneWidget);
     expect(find.byType(SearchPanel), findsNothing);
+    expect(
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+      isFalse,
+    );
     final annotationFinder = find.byType(AnnotationLayer);
     expect(annotationFinder, findsOneWidget);
     final origin = tester.getTopLeft(find.byType(ReaderView));
@@ -315,6 +320,10 @@ void main() {
     expect(observer.pops, 0);
     expect(find.byType(ReaderPage), findsOneWidget);
     expect(find.byType(SearchPanel), findsNothing);
+    expect(
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+      isFalse,
+    );
     expect(find.byType(AnnotationLayer), findsNothing);
   });
 

@@ -128,11 +128,7 @@ PageContent _tableImagePage() {
     maxWidth: 60,
   );
   final block = PageBlock(
-    layout: TextLayoutEngine.layout(
-      text: '',
-      style: pageStyle,
-      maxWidth: 100,
-    ),
+    layout: TextLayoutEngine.layout(text: '', style: pageStyle, maxWidth: 100),
     style: pageStyle,
     table: TableRenderSpec(
       cells: <TableCellRender>[
@@ -153,12 +149,7 @@ PageContent _tableImagePage() {
     spineIndex: 0,
     pageIndex: 0,
     slices: <PageBlockSlice>[
-      PageBlockSlice(
-        block: block,
-        startLine: 0,
-        endLine: 1,
-        height: 60,
-      ),
+      PageBlockSlice(block: block, startLine: 0, endLine: 1, height: 60),
     ],
     usedHeight: 60,
     pageHeight: 200,
@@ -322,7 +313,7 @@ void main() {
     );
   });
 
-  testWidgets('连续滚动提前预取刚进入视野的邻页图片', (tester) async {
+  testWidgets('连续滚动预取已构建的下一屏图片', (tester) async {
     final requested = <String>[];
     final cache = DecodedImageCache(
       loadBytes: (url) async {
@@ -334,7 +325,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ReaderPage(
-          source: _PagesSource([_page(), _imagePage(1, 'bg://next')]),
+          source: _PagesSource([_page(), _imagePage(1, 'bg://scroll-next')]),
           store: MemoryReaderProgressStore(),
           bookId: 'scroll-image-book',
           imageCache: cache,
@@ -348,8 +339,8 @@ void main() {
 
     expect(
       requested,
-      contains('bg://next'),
-      reason: '下一页图片在页首进入视野前预取，避免连续滚动时出现空白框',
+      contains('bg://scroll-next'),
+      reason: '下一屏已进入构建区时就应预取，而不是等它成为当前页',
     );
   });
 }
