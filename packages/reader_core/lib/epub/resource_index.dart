@@ -123,9 +123,11 @@ class ResourceIndex {
           .where((path) => p.posix.dirname(path) == base || base.isEmpty)
           .toList(growable: false);
       if (sameDir.length == 1) {
+        fallbackHits += 1;
         return sameDir.first;
       }
       if (sameDir.isEmpty && byName.length == 1) {
+        fallbackHits += 1;
         return byName.first;
       }
     }
