@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reader_core 边界检查：禁止 import 平台插件/宿主包，也禁止在 pubspec 声明它们。
+# reader_core 边界检查：禁止 import/export 平台插件/宿主包，也禁止在 pubspec 声明它们。
 # 依据《技术方案》§59.2；可在 CI 与本地执行。
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,13 +10,13 @@ core_pubspec="${CORE_PUBSPEC:-packages/reader_core/pubspec.yaml}"
 [ -d "$core_lib" ] || { echo "缺少目录：$core_lib" >&2; exit 1; }
 [ -f "$core_pubspec" ] || { echo "缺少文件：$core_pubspec" >&2; exit 1; }
 
-forbidden='path_provider|drift|sqlite3_flutter_libs|file_picker|flutter_tts|share_plus|url_launcher|webview_flutter|flutter_inappwebview|flutter_html|shared_preferences|sqflite|device_info_plus|package_info_plus|image_picker|permission_handler|flutter_secure_storage|open_filex'
+forbidden='reader_mobile|reader_ui|path_provider|drift|sqlite3_flutter_libs|file_picker|flutter_tts|share_plus|url_launcher|webview_flutter|flutter_inappwebview|flutter_html|shared_preferences|sqflite|device_info_plus|package_info_plus|image_picker|permission_handler|flutter_secure_storage|open_filex'
 
 failed=0
 
-# 1) 源码 import 检查
-if hits=$(grep -rEn "^import ['\"]package:($forbidden)(/|['\"])" "$core_lib" 2>/dev/null); then
-  echo "reader_core 不得 import 平台插件/宿主包：" >&2
+# 1) 源码依赖与重导出都必须遵守边界。
+if hits=$(rg -n "^[[:space:]]*(import|export)[[:space:]]+['\"]package:($forbidden)(/|['\"])" "$core_lib"); then
+  echo "reader_core 不得 import/export 平台插件/宿主包：" >&2
   echo "$hits" >&2
   failed=1
 fi
