@@ -24,6 +24,7 @@ class ContinuousScrollView extends StatefulWidget {
     required this.revision,
     this.onPageVisible,
     this.onTapAtPage,
+    this.onUserScroll,
   });
 
   final ReaderSession session;
@@ -32,6 +33,7 @@ class ContinuousScrollView extends StatefulWidget {
   final Object revision;
   final ValueChanged<PageContent>? onPageVisible;
   final bool Function(PageContent page, Offset localPosition)? onTapAtPage;
+  final VoidCallback? onUserScroll;
 
   @override
   State<ContinuousScrollView> createState() => ContinuousScrollViewState();
@@ -521,6 +523,19 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     );
   }
 
+  /// 页切片当前在视口中的顶部坐标；页不在已加载切片中时返回 null。
+  double? pageTopOnScreen(PageContent page) {
+    if (!_controller.hasClients) {
+      return null;
+    }
+    for (final entry in _entries) {
+      if (identical(entry.segment.content, page)) {
+        return widget.padding.top + entry.top - _controller.offset;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -547,6 +562,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         );
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
+            if (notification is ScrollStartNotification &&
+                notification.dragDetails != null) {
+              widget.onUserScroll?.call();
+            }
             if (notification is ScrollEndNotification) {
               _captureVisiblePage();
             }

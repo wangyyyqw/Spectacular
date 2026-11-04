@@ -600,6 +600,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
 
+  /// 连续滚动长按命中的页切片；分页模式保持为空。
+  PageContent? _selectionPage;
+
   /// 笔记编辑层打开时隐藏选区菜单，避免菜单悬在遮罩后方。
   bool _hideSelectionMenu = false;
 
@@ -813,7 +816,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 拖拽产生的页内局部选区 → 全局跨页选区（P4-19）。
   void _applyLocalSelection(ReaderSelection local) {
-    final page = _session.page;
+    final page = _selectionPage ?? _session.page;
     if (page == null || _selection == null) {
       return;
     }
@@ -1164,20 +1167,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 长按 → 选词（P4-15，§63.2：长按先试词，失败退到连续同类字符段）。
   void _selectWordAt(Offset localPosition) {
-    final page = _session.page;
-    if (page == null) {
+    final target = _pageHitAt(localPosition);
+    if (target == null) {
       return;
     }
-    final padding = _bodyPadding();
-    final hit = TextHitTester.hitTest(
-      page,
-      localPosition - Offset(padding.left, padding.top),
-    );
+    final page = target.page;
+    final hit = TextHitTester.hitTest(page, target.localPosition);
     if (hit == null || hit.lineBox.text.trim().isEmpty) {
       _clearSelection();
       return;
     }
     setState(() {
+      _selectionPage = _effectiveTurnMode == PageTurnMode.scroll ? page : null;
       _selection = SelectionOps.wordAt(page, hit);
       _selectionSpineIndex = page.spineIndex;
     });
@@ -1185,23 +1186,40 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 三击 → 选句（P4-16）。
   void _selectSentenceAt(Offset localPosition) {
-    final page = _session.page;
-    if (page == null) {
+    final target = _pageHitAt(localPosition);
+    if (target == null) {
       return;
     }
-    final padding = _bodyPadding();
-    final hit = TextHitTester.hitTest(
-      page,
-      localPosition - Offset(padding.left, padding.top),
-    );
+    final page = target.page;
+    final hit = TextHitTester.hitTest(page, target.localPosition);
     if (hit == null || hit.lineBox.text.trim().isEmpty) {
       _clearSelection();
       return;
     }
     setState(() {
+      _selectionPage = _effectiveTurnMode == PageTurnMode.scroll ? page : null;
       _selection = SelectionOps.sentenceAt(page, hit);
       _selectionSpineIndex = page.spineIndex;
     });
+  }
+
+  ({PageContent page, Offset localPosition})? _pageHitAt(Offset localPosition) {
+    if (_effectiveTurnMode == PageTurnMode.scroll) {
+      final hit = _scrollKey.currentState?.pageAt(localPosition);
+      if (hit == null) {
+        return null;
+      }
+      return (page: hit.page, localPosition: hit.localPosition);
+    }
+    final page = _session.page;
+    if (page == null) {
+      return null;
+    }
+    final padding = _bodyPadding();
+    return (
+      page: page,
+      localPosition: localPosition - Offset(padding.left, padding.top),
+    );
   }
 
   /// 单击注释引用：命中时打开弹窗并消费本次点击，避免同时翻页。
@@ -1605,6 +1623,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (_selection != null) {
       setState(() {
         _selection = null;
+        _selectionPage = null;
         _selectionSpineIndex = null;
         _hideSelectionMenu = false;
       });
@@ -1738,6 +1757,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         if (current == null || currentPage == null) {
           return;
         }
+        if (_effectiveTurnMode == PageTurnMode.scroll) {
+          final selectedPage = _selectionPage;
+          if (selectedPage == null ||
+              _scrollKey.currentState?.pageTopOnScreen(selectedPage) == null) {
+            _clearSelection();
+          }
+          return;
+        }
         final sameSpine =
             _selectionSpineIndex == null ||
             _selectionSpineIndex == currentPage.spineIndex;
@@ -1798,23 +1825,61 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             ),
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
             if (_selection != null) ...[
-              Positioned.fill(
-                child: SelectionLayer(
-                  page: page,
-                  pageIndex: page.pageIndex,
-                  selection: _selection!,
-                  contentPadding: bodyPadding,
-                  onChanged: _applyLocalSelection,
-                  onEdgeDrag: _handleSelectionEdgeDrag,
-                ),
+              Builder(
+                builder: (context) {
+                  final selectionPage =
+                      _effectiveTurnMode == PageTurnMode.scroll
+                      ? _selectionPage ?? page
+                      : page;
+                  final selectionTop = _effectiveTurnMode == PageTurnMode.scroll
+                      ? _scrollKey.currentState?.pageTopOnScreen(
+                              selectionPage,
+                            ) ??
+                            bodyPadding.top
+                      : bodyPadding.top;
+                  final selectionPadding = bodyPadding.copyWith(
+                    top: selectionTop,
+                  );
+                  return Positioned.fill(
+                    child: SelectionLayer(
+                      page: selectionPage,
+                      pageIndex: selectionPage.pageIndex,
+                      selection: _selection!,
+                      contentPadding: selectionPadding,
+                      onChanged: _applyLocalSelection,
+                      onEdgeDrag: _effectiveTurnMode == PageTurnMode.scroll
+                          ? null
+                          : _handleSelectionEdgeDrag,
+                    ),
+                  );
+                },
               ),
               // 选区菜单（P4-16）：贴在选区上方，不遮挡选区。
               if (!_hideSelectionMenu)
                 SelectionMenu(
-                  actions: _selectionActions(page, _selection!),
-                  anchor: SelectionOps.boundsOf(page, _selection!).shift(
-                    Offset(bodyPadding.left, bodyPadding.top),
+                  actions: _selectionActions(
+                    _effectiveTurnMode == PageTurnMode.scroll
+                        ? _selectionPage ?? page
+                        : page,
+                    _selection!,
                   ),
+                  anchor:
+                      SelectionOps.boundsOf(
+                        _effectiveTurnMode == PageTurnMode.scroll
+                            ? _selectionPage ?? page
+                            : page,
+                        _selection!,
+                      ).shift(
+                        Offset(
+                          bodyPadding.left,
+                          _effectiveTurnMode == PageTurnMode.scroll
+                              ? _scrollKey.currentState?.pageTopOnScreen(
+                                      _selectionPage ?? page,
+                                    ) ??
+                                    bodyPadding.top
+                              : bodyPadding.top,
+                        ),
+                      ),
                   bounds: size,
                 ),
             ],
@@ -2050,6 +2115,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           padding: padding,
           paperBuilder: _buildScrollPaper,
           onTapAtPage: _handleTapInPage,
+          onUserScroll: _clearSelection,
           onPageVisible: (page) =>
               _schedulePrefetch(page, size.width - padding.horizontal),
         ),
