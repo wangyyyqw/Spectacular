@@ -797,10 +797,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final spine = progress?.spineIndex ?? 0;
     final page = progress?.pageIndex ?? 0;
     final chapterTitle = _chapterTitleOf(spine);
+    final line = _session.currentLineText;
     final created = await store.add(
       cfi: cfi,
       spineIndex: spine,
-      label: '$chapterTitle · 第 ${page + 1} 页',
+      label:
+          '$chapterTitle · 第 ${page + 1} 页'
+          '${line.isEmpty ? '' : ' · $line'}',
     );
     if (!mounted) {
       return;
@@ -935,7 +938,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     final resolvedCfi = cfi;
     final offset = cfiCharOffset(resolvedCfi);
-    await _session.jumpToCfi(resolvedCfi, title: result.chapterTitle);
+    await _session.jumpToCfi(
+      resolvedCfi,
+      title: result.chapterTitle,
+      continuous: _effectiveTurnMode == PageTurnMode.scroll,
+    );
     // 表格只能提供精确元素页锚点时，不伪造文本节点的字符高亮区间。
     if (!mounted || offset == null) {
       return;
@@ -1857,7 +1864,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onBookmarkSelect: (bookmark) {
                         _closeDrawer();
                         unawaited(
-                          _session.jumpToCfi(bookmark.cfi, title: bookmark.label),
+                          _session.jumpToCfi(
+                            bookmark.cfi,
+                            title: bookmark.label,
+                            continuous:
+                                _effectiveTurnMode == PageTurnMode.scroll,
+                          ),
                         );
                       },
                       onAddBookmark: () {
@@ -1869,6 +1881,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           _session.jumpToCfi(
                             annotation.startCfi,
                             title: annotation.quote,
+                            continuous:
+                                _effectiveTurnMode == PageTurnMode.scroll,
                           ),
                         );
                       },

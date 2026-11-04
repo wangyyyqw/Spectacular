@@ -87,7 +87,8 @@ void main() {
     expect(saved, hasLength(1));
     expect(saved.single.spineIndex, session.progress!.spineIndex);
     expect(saved.single.label, contains('第一章 旧纸'));
-    expect(saved.single.label, endsWith('第 1 页'));
+    expect(saved.single.label, contains('第 1 页'));
+    expect(saved.single.label, contains(session.currentLineText));
 
     // 翻到下一章后再从书签列表跳回。
     await session.jumpToChapter(2);
@@ -98,7 +99,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('drawer-tab-bookmarks')));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('drawer-tab-bookmarks')),
+    );
     await tester.pumpAndSettle();
     expect(find.textContaining('共 1 条'), findsOneWidget);
     await tester.tap(find.text(saved.single.label));

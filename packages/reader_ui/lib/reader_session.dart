@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show Offset;
 
 import 'package:flutter/foundation.dart';
 import 'package:reader_core/api.dart';
@@ -405,13 +406,51 @@ class ReaderSession extends ChangeNotifier {
     return source is TocChapterSource ? source.toc : const <TocEntry>[];
   }
 
-  /// 当前页首个块的 CFI（书签/标注锚点用；无 CFI 时返回 null）。
-  String? get currentCfi => _anchorOf(page).cfi;
+  /// 当前视口首个可见行的 CFI（书签/标注锚点用；无 CFI 时返回 null）。
+  String? get currentCfi {
+    final value = page;
+    if (value == null) {
+      return null;
+    }
+    final hit = _hitAtScrollOffset(value);
+    final blockCfi = hit?.slice.block.startCfi;
+    if (hit != null && blockCfi != null) {
+      return cfiWithCharOffset(blockCfi, hit.line.start);
+    }
+    final anchor = _anchorOf(value);
+    final anchorCfi = anchor.cfi;
+    if (anchorCfi == null) {
+      return null;
+    }
+    return anchor.charOffset == 0
+        ? anchorCfi
+        : cfiWithCharOffset(anchorCfi, anchor.charOffset);
+  }
+
+  /// 当前视口首个可见行的文本；没有可定位行时为空。
+  String get currentLineText {
+    final value = page;
+    if (value == null) {
+      return '';
+    }
+    final hit = _hitAtScrollOffset(value) ?? _firstHit(value);
+    if (hit == null) {
+      return '';
+    }
+    final text = hit.slice.block.layout.text;
+    final start = hit.line.start.clamp(0, text.length);
+    final end = hit.line.end.clamp(start, text.length);
+    return text.substring(start, end).trim();
+  }
 
   /// 跳到指定 CFI（书签跳转用，P4-13）：解析 spine 后在目标章内定位页。
   ///
   /// 与 [jumpToChapter] 共用 jumpToken 防竞态与跳转浮层。
-  Future<bool> jumpToCfi(String cfi, {String? title}) async {
+  Future<bool> jumpToCfi(
+    String cfi, {
+    String? title,
+    bool continuous = false,
+  }) async {
     final pager = _pager;
     if (pager == null) {
       return false;
@@ -442,12 +481,29 @@ class ReaderSession extends ChangeNotifier {
       if (token != _jumpToken) {
         return false;
       }
-      final pageIndex = _locatePage(pages, ReaderAnchor(cfi: cfi));
+      final anchor = ReaderAnchor(cfi: cfi);
+      final pageIndex = _locatePage(pages, anchor);
       if (pageIndex != 0) {
         await pager.goTo(spine, pageIndex);
         if (token != _jumpToken) {
           return false;
         }
+      }
+      if (continuous) {
+        final layout = ScrollChapterLayout.fromPages(spine, pages);
+        for (final segment in layout.segments) {
+          if (segment.pageIndex != pageIndex) continue;
+          final offset = _scrollOffsetForAnchor(segment.content, anchor);
+          if (offset != null) {
+            _scrollSpineIndex = spine;
+            _scrollPageIndex = pageIndex;
+            _scrollOffset = offset;
+          }
+          break;
+        }
+        // 连续滚动可能在跳转早期按旧进度完成一次恢复；目标页和页内偏移
+        // 确定后再递增一次，确保视图重新读取最终进度。
+        _generation += 1;
       }
       _notify();
       _persist();
@@ -1006,6 +1062,10 @@ class ReaderSession extends ChangeNotifier {
   }
 
   static bool _sliceContainsOffset(PageBlockSlice slice, int offset) {
+    return _lineIndexForOffset(slice, offset) != null;
+  }
+
+  static int? _lineIndexForOffset(PageBlockSlice slice, int offset) {
     final layout = slice.block.layout;
     final last = math.min(slice.endLine, layout.lines.length);
     for (var i = slice.startLine; i < last; i++) {
@@ -1014,10 +1074,81 @@ class ReaderSession extends ChangeNotifier {
           (offset < line.end ||
               line.start == line.end && offset == line.start ||
               offset == layout.text.length && offset == line.end)) {
-        return true;
+        return i;
       }
     }
-    return false;
+    return null;
+  }
+
+  PageHit? _hitAtScrollOffset(PageContent page) {
+    final offset = _scrollOffset;
+    if (offset == null) {
+      return null;
+    }
+    final top = page.topPadding;
+    final bottom = math.max(top, page.topPadding + page.usedHeight - 0.5);
+    // 滚动位置会把行首坐标量化到略小于理论值；不加容差时正好落在
+    // 上一行的半开区间末尾，书签/标注会锚到上一行。
+    final y = (offset + 0.01).clamp(top, bottom).toDouble();
+    return page.hitTest(Offset(0, y));
+  }
+
+  static PageHit? _firstHit(PageContent page) {
+    for (var sliceIndex = 0; sliceIndex < page.slices.length; sliceIndex++) {
+      final slice = page.slices[sliceIndex];
+      if (slice.overlay || slice.startLine >= slice.endLine) {
+        continue;
+      }
+      final lineIndex = slice.startLine.clamp(
+        0,
+        slice.block.layout.lines.length - 1,
+      );
+      if (lineIndex < 0 || lineIndex >= slice.block.layout.lines.length) {
+        continue;
+      }
+      return PageHit(
+        sliceIndex: sliceIndex,
+        slice: slice,
+        lineIndex: lineIndex,
+        line: slice.block.layout.lines[lineIndex],
+      );
+    }
+    return null;
+  }
+
+  /// 目标行相对连续滚动页切片顶部的偏移；无法精确定位时回退页首。
+  static double? _scrollOffsetForAnchor(PageContent page, ReaderAnchor anchor) {
+    final cfi = anchor.cfi;
+    final parsedTarget = cfi == null ? null : EpubCfi.parse(cfi);
+    if (parsedTarget == null) {
+      return null;
+    }
+    final target = parsedTarget.rangeStart ?? parsedTarget;
+    final targetPath = _cfiPath(target);
+    final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
+    var flowY = page.topPadding;
+    for (final slice in page.slices) {
+      final sliceTop = slice.overlay ? (slice.absoluteTop ?? flowY) : flowY;
+      final baseCfi = slice.block.startCfi;
+      final parsedBase = baseCfi == null ? null : EpubCfi.parse(baseCfi);
+      if (parsedBase != null &&
+          _cfiPath(parsedBase).compareTo(targetPath) == 0) {
+        final localOffset =
+            targetOffset - (parsedBase.segments.last.offset ?? 0);
+        final lineIndex = _lineIndexForOffset(slice, localOffset);
+        if (lineIndex != null) {
+          var lineY = sliceTop + slice.leadingExtent;
+          for (var i = slice.startLine; i < lineIndex; i++) {
+            lineY += slice.block.layout.lines[i].height;
+          }
+          return math.max(0.0, lineY);
+        }
+      }
+      if (!slice.overlay) {
+        flowY += slice.height;
+      }
+    }
+    return null;
   }
 
   /// 调度进度写入（P4-10）：值变化才写，2 秒内的多次翻页合并成一次。
