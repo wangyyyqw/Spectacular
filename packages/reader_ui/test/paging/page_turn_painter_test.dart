@@ -211,4 +211,66 @@ void main() {
       });
     }
   }
+
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      testWidgets('${rtl ? 'RTL' : 'LTR'} ${next ? '下一页' : '上一页'}'
+          '堆叠覆盖保持页面大小并从侧边慢速跟随', (tester) async {
+        final controller = _controller(tester)
+          ..mode = PageTurnMode.coverStack
+          ..rtl = rtl
+          ..next = next
+          ..progress = 0.5;
+        final data = await tester.runAsync(() => _render(controller));
+        final exit = (next ? -1.0 : 1.0) * (rtl ? -1.0 : 1.0);
+        final targetDx = -exit * 0.08 * (1 - controller.progress) * _size.width;
+        final boundary = _size.width / 2 + targetDx;
+        final red = _pixel(data!, (boundary - 2).round(), 10);
+        final blue = _pixel(data, (boundary + 2).round(), 10);
+
+        expect(red[0], greaterThan(red[2] + 80), reason: '目标页应整体平移，不能缩放');
+        expect(blue[2], greaterThan(blue[0] + 80), reason: '目标页应整体平移，不能缩放');
+
+        final masked = _pixel(data, exit < 0 ? 170 : 30, 10);
+        expect(masked[1], greaterThan(0), reason: '下一页应叠加半透明灰色遮罩');
+        expect(masked[3], 255, reason: '遮罩不能改变页面透明度');
+
+        final originX = exit < 0 ? 50 : 150;
+        expect(
+          _pixel(data, originX, 10),
+          exit < 0 ? const [0, 255, 0, 255] : const [255, 255, 0, 255],
+          reason: '当前页应覆盖在目标页上方并先滑出',
+        );
+      });
+    }
+  }
+
+  testWidgets('堆叠覆盖灰色遮罩随当前页滑出逐渐变淡', (tester) async {
+    final controller = _controller(tester)
+      ..mode = PageTurnMode.coverStack
+      ..rtl = false
+      ..next = true
+      ..progress = 0.1;
+    final start = _pixel(
+      (await tester.runAsync(() => _render(controller)))!,
+      170,
+      10,
+    );
+    controller.progress = 0.8;
+    final middle = _pixel(
+      (await tester.runAsync(() => _render(controller)))!,
+      170,
+      10,
+    );
+    controller.progress = 1;
+    final done = _pixel(
+      (await tester.runAsync(() => _render(controller)))!,
+      170,
+      10,
+    );
+
+    expect(start[1], greaterThan(middle[1]), reason: '遮罩应随翻页进度变浅');
+    expect(middle[1], greaterThan(0), reason: '滑出前仍应保留灰色遮罩');
+    expect(done, const [0, 0, 255, 255], reason: '完全滑出后应取消遮罩');
+  });
 }
