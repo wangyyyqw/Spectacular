@@ -39,22 +39,27 @@ void main() {
     }
   });
 
-  testWidgets('排序菜单与视图切换生效并持久化', (tester) async {
+  testWidgets('视图切换生效并持久化，排序入口不再显示在书架顶部', (tester) async {
     final library = LibraryStore.memory();
     await tester.pumpWidget(
       MaterialApp(
         home: BookshelfPage(
           library: library,
           progressStore: FileReaderProgressStore.memory(),
-          pickEpubFiles: () async => <String>[for (final file in files) file.path],
+          pickEpubFiles: () async => <String>[
+            for (final file in files) file.path,
+          ],
           readFile: (path) async => File(path).readAsBytesSync(),
         ),
       ),
     );
     await _settle(tester);
-    await tester.tap(find.text('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB'));
     await _settle(tester, frames: 12);
-    expect(find.byKey(const ValueKey<String>('bookshelf-grid')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('bookshelf-grid')),
+      findsOneWidget,
+    );
     final entries = await library.list();
     expect(
       find.byWidgetPredicate(
@@ -68,7 +73,10 @@ void main() {
     // 切到列表视图。
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    expect(find.byKey(const ValueKey<String>('bookshelf-list')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('bookshelf-list')),
+      findsOneWidget,
+    );
     expect(find.text('测试作者 · 未开始'), findsNWidgets(entries.length));
     expect(
       find.byWidgetPredicate(
@@ -83,19 +91,12 @@ void main() {
     );
     expect(rowCover.width / rowCover.height, closeTo(3 / 4, 0.001));
     expect(await library.getSetting('bookshelf.grid'), 'false');
+    expect(find.byTooltip('排序'), findsNothing);
 
     // 默认最近阅读优先：都没读过 → 导入时间倒序（C, A, B 的导入顺序是 B,A,C）。
     expect(_listTitles(tester), <String>['C书', 'A书', 'B书']);
 
-    // 切到书名排序。
-    await tester.tap(find.byTooltip('排序'));
-    await _settle(tester, frames: 4);
-    await tester.tap(find.text('书名'));
-    await _settle(tester);
-    expect(_listTitles(tester), <String>['A书', 'B书', 'C书']);
-    expect(await library.getSetting('bookshelf.sort'), 'title');
-
-    // 重新构建页面（≈ 重启）应恢复列表视图与书名排序。
+    // 重新构建页面（≈ 重启）应恢复列表视图。
     await tester.pumpWidget(
       MaterialApp(
         home: BookshelfPage(
@@ -105,7 +106,10 @@ void main() {
       ),
     );
     await _settle(tester);
-    expect(find.byKey(const ValueKey<String>('bookshelf-list')), findsOneWidget);
-    expect(_listTitles(tester), <String>['A书', 'B书', 'C书']);
+    expect(
+      find.byKey(const ValueKey<String>('bookshelf-list')),
+      findsOneWidget,
+    );
+    expect(_listTitles(tester), <String>['C书', 'A书', 'B书']);
   });
 }

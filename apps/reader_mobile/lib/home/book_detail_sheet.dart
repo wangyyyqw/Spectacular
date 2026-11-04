@@ -6,7 +6,8 @@ import '../library/library_store.dart';
 
 /// 书籍详情（P4-06）：元信息 + 导入报告（修复项与告警）。
 ///
-/// 长按书架卡片打开；返回 `'delete'` 表示用户点了删除。
+/// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
+/// `'create-group'` 新建分组，`'multi-select'` 进入多选。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
@@ -21,13 +22,7 @@ class BookDetailSheet extends StatelessWidget {
   /// 书库（读导入报告）。
   final LibraryStore library;
 
-  static const _levelLabels = <String>[
-    '完整',
-    '已修复',
-    '部分降级',
-    '结构异常',
-    '无法阅读',
-  ];
+  static const _levelLabels = <String>['完整', '已修复', '部分降级', '结构异常', '无法阅读'];
 
   @override
   Widget build(BuildContext context) {
@@ -115,13 +110,43 @@ class BookDetailSheet extends StatelessWidget {
                 }
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final item in items) _ReportRow(item: item),
-                  ],
+                  children: [for (final item in items) _ReportRow(item: item)],
                 );
               },
             ),
             const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                key: const ValueKey<String>('book-detail-open-page'),
+                onPressed: () => Navigator.of(context).pop('detail'),
+                icon: const Icon(Icons.menu_book_outlined),
+                label: const Text('图书详情'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const ValueKey<String>('book-detail-create-group'),
+                    onPressed: () => Navigator.of(context).pop('create-group'),
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    label: const Text('新建分组'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const ValueKey<String>('book-detail-multi-select'),
+                    onPressed: () => Navigator.of(context).pop('multi-select'),
+                    icon: const Icon(Icons.checklist),
+                    label: const Text('多选'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -176,9 +201,8 @@ class _Cover extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: Theme.of(
-          context,
-        ).textTheme.titleLarge?.copyWith(color: Colors.white),
+        style: Theme.of(context).textTheme.titleLarge
+            ?.copyWith(color: Colors.white),
       ),
     );
     final path = entry.coverPath;

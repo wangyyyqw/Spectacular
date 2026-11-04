@@ -13,7 +13,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
 }
 
 void main() {
-  testWidgets('书架支持按书名、作者搜索和阅读状态筛选', (tester) async {
+  testWidgets('书架支持按书名、作者搜索，不再显示阅读状态标签', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry reading;
     await tester.runAsync(() async {
@@ -39,9 +39,10 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('全部 3'), findsOneWidget);
-    expect(find.text('未读 2'), findsOneWidget);
-    expect(find.text('在读 1'), findsOneWidget);
+    expect(find.text('全部 3'), findsNothing);
+    expect(find.text('未读 2'), findsNothing);
+    expect(find.text('在读 1'), findsNothing);
+    expect(find.text('已读完 0'), findsNothing);
 
     await tester.tap(find.byTooltip('搜索书架'));
     await _settle(tester, frames: 3);
@@ -64,22 +65,6 @@ void main() {
 
     await tester.tap(find.byTooltip('关闭搜索'));
     await _settle(tester, frames: 3);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-filter-reading')),
-    );
-    await _settle(tester, frames: 3);
-    expect(find.text('海边的卡夫卡'), findsWidgets);
-    expect(find.text('山茶文具店'), findsNothing);
-    expect(find.text('长安的荔枝'), findsNothing);
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-filter-unread')),
-    );
-    await _settle(tester, frames: 3);
-    expect(find.text('海边的卡夫卡'), findsNothing);
-    expect(find.text('山茶文具店'), findsWidgets);
-    expect(find.text('长安的荔枝'), findsWidgets);
-
     await tester.tap(find.byTooltip('搜索书架'));
     await _settle(tester, frames: 3);
     await tester.enterText(

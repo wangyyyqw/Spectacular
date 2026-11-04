@@ -49,6 +49,17 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _languageMeta = const VerificationMeta(
     'language',
   );
@@ -189,6 +200,7 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     uuid,
     title,
     author,
+    description,
     language,
     contentDir,
     sourcePath,
@@ -237,6 +249,15 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
       context.handle(
         _authorMeta,
         author.isAcceptableOrUnknown(data['author']!, _authorMeta),
+      );
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
       );
     }
     if (data.containsKey('language')) {
@@ -346,6 +367,10 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
         DriftSqlType.string,
         data['${effectivePrefix}author'],
       ),
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
       language: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}language'],
@@ -416,6 +441,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
   /// 作者。
   final String? author;
 
+  /// 用户可编辑的简介。
+  final String? description;
+
   /// 语言。
   final String? language;
 
@@ -456,6 +484,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     required this.uuid,
     required this.title,
     this.author,
+    this.description,
     this.language,
     required this.contentDir,
     this.sourcePath,
@@ -477,6 +506,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     map['title'] = Variable<String>(title);
     if (!nullToAbsent || author != null) {
       map['author'] = Variable<String>(author);
+    }
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
     }
     if (!nullToAbsent || language != null) {
       map['language'] = Variable<String>(language);
@@ -513,6 +545,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       author: author == null && nullToAbsent
           ? const Value.absent()
           : Value(author),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
       language: language == null && nullToAbsent
           ? const Value.absent()
           : Value(language),
@@ -550,6 +585,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       uuid: serializer.fromJson<String>(json['uuid']),
       title: serializer.fromJson<String>(json['title']),
       author: serializer.fromJson<String?>(json['author']),
+      description: serializer.fromJson<String?>(json['description']),
       language: serializer.fromJson<String?>(json['language']),
       contentDir: serializer.fromJson<String>(json['contentDir']),
       sourcePath: serializer.fromJson<String?>(json['sourcePath']),
@@ -572,6 +608,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       'uuid': serializer.toJson<String>(uuid),
       'title': serializer.toJson<String>(title),
       'author': serializer.toJson<String?>(author),
+      'description': serializer.toJson<String?>(description),
       'language': serializer.toJson<String?>(language),
       'contentDir': serializer.toJson<String>(contentDir),
       'sourcePath': serializer.toJson<String?>(sourcePath),
@@ -592,6 +629,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     String? uuid,
     String? title,
     Value<String?> author = const Value.absent(),
+    Value<String?> description = const Value.absent(),
     Value<String?> language = const Value.absent(),
     String? contentDir,
     Value<String?> sourcePath = const Value.absent(),
@@ -609,6 +647,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     uuid: uuid ?? this.uuid,
     title: title ?? this.title,
     author: author.present ? author.value : this.author,
+    description: description.present ? description.value : this.description,
     language: language.present ? language.value : this.language,
     contentDir: contentDir ?? this.contentDir,
     sourcePath: sourcePath.present ? sourcePath.value : this.sourcePath,
@@ -628,6 +667,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       uuid: data.uuid.present ? data.uuid.value : this.uuid,
       title: data.title.present ? data.title.value : this.title,
       author: data.author.present ? data.author.value : this.author,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
       language: data.language.present ? data.language.value : this.language,
       contentDir: data.contentDir.present
           ? data.contentDir.value
@@ -660,6 +702,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           ..write('uuid: $uuid, ')
           ..write('title: $title, ')
           ..write('author: $author, ')
+          ..write('description: $description, ')
           ..write('language: $language, ')
           ..write('contentDir: $contentDir, ')
           ..write('sourcePath: $sourcePath, ')
@@ -682,6 +725,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     uuid,
     title,
     author,
+    description,
     language,
     contentDir,
     sourcePath,
@@ -703,6 +747,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           other.uuid == this.uuid &&
           other.title == this.title &&
           other.author == this.author &&
+          other.description == this.description &&
           other.language == this.language &&
           other.contentDir == this.contentDir &&
           other.sourcePath == this.sourcePath &&
@@ -722,6 +767,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
   final Value<String> uuid;
   final Value<String> title;
   final Value<String?> author;
+  final Value<String?> description;
   final Value<String?> language;
   final Value<String> contentDir;
   final Value<String?> sourcePath;
@@ -739,6 +785,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.uuid = const Value.absent(),
     this.title = const Value.absent(),
     this.author = const Value.absent(),
+    this.description = const Value.absent(),
     this.language = const Value.absent(),
     this.contentDir = const Value.absent(),
     this.sourcePath = const Value.absent(),
@@ -757,6 +804,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     required String uuid,
     required String title,
     this.author = const Value.absent(),
+    this.description = const Value.absent(),
     this.language = const Value.absent(),
     required String contentDir,
     this.sourcePath = const Value.absent(),
@@ -778,6 +826,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Expression<String>? uuid,
     Expression<String>? title,
     Expression<String>? author,
+    Expression<String>? description,
     Expression<String>? language,
     Expression<String>? contentDir,
     Expression<String>? sourcePath,
@@ -796,6 +845,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       if (uuid != null) 'uuid': uuid,
       if (title != null) 'title': title,
       if (author != null) 'author': author,
+      if (description != null) 'description': description,
       if (language != null) 'language': language,
       if (contentDir != null) 'content_dir': contentDir,
       if (sourcePath != null) 'source_path': sourcePath,
@@ -816,6 +866,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Value<String>? uuid,
     Value<String>? title,
     Value<String?>? author,
+    Value<String?>? description,
     Value<String?>? language,
     Value<String>? contentDir,
     Value<String?>? sourcePath,
@@ -834,6 +885,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       uuid: uuid ?? this.uuid,
       title: title ?? this.title,
       author: author ?? this.author,
+      description: description ?? this.description,
       language: language ?? this.language,
       contentDir: contentDir ?? this.contentDir,
       sourcePath: sourcePath ?? this.sourcePath,
@@ -863,6 +915,9 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     }
     if (author.present) {
       map['author'] = Variable<String>(author.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
     }
     if (language.present) {
       map['language'] = Variable<String>(language.value);
@@ -910,6 +965,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
           ..write('uuid: $uuid, ')
           ..write('title: $title, ')
           ..write('author: $author, ')
+          ..write('description: $description, ')
           ..write('language: $language, ')
           ..write('contentDir: $contentDir, ')
           ..write('sourcePath: $sourcePath, ')
@@ -4906,6 +4962,1084 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
   }
 }
 
+class $ShelfGroupsTable extends ShelfGroups
+    with TableInfo<$ShelfGroupsTable, ShelfGroupRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ShelfGroupsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, name, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'shelf_groups';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ShelfGroupRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ShelfGroupRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ShelfGroupRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ShelfGroupsTable createAlias(String alias) {
+    return $ShelfGroupsTable(attachedDatabase, alias);
+  }
+}
+
+class ShelfGroupRow extends DataClass implements Insertable<ShelfGroupRow> {
+  /// 分组标识。
+  final String id;
+
+  /// 分组名称。
+  final String name;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+  const ShelfGroupRow({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  ShelfGroupsCompanion toCompanion(bool nullToAbsent) {
+    return ShelfGroupsCompanion(
+      id: Value(id),
+      name: Value(name),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory ShelfGroupRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ShelfGroupRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  ShelfGroupRow copyWith({String? id, String? name, int? createdAt}) =>
+      ShelfGroupRow(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  ShelfGroupRow copyWithCompanion(ShelfGroupsCompanion data) {
+    return ShelfGroupRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShelfGroupRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ShelfGroupRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.createdAt == this.createdAt);
+}
+
+class ShelfGroupsCompanion extends UpdateCompanion<ShelfGroupRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const ShelfGroupsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ShelfGroupsCompanion.insert({
+    required String id,
+    required String name,
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       createdAt = Value(createdAt);
+  static Insertable<ShelfGroupRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ShelfGroupsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return ShelfGroupsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShelfGroupsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ShelfGroupBooksTable extends ShelfGroupBooks
+    with TableInfo<$ShelfGroupBooksTable, ShelfGroupBookRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ShelfGroupBooksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _bookUuidMeta = const VerificationMeta(
+    'bookUuid',
+  );
+  @override
+  late final GeneratedColumn<String> bookUuid = GeneratedColumn<String>(
+    'book_uuid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _groupIdMeta = const VerificationMeta(
+    'groupId',
+  );
+  @override
+  late final GeneratedColumn<String> groupId = GeneratedColumn<String>(
+    'group_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES shelf_groups (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [bookUuid, groupId, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'shelf_group_books';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ShelfGroupBookRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('book_uuid')) {
+      context.handle(
+        _bookUuidMeta,
+        bookUuid.isAcceptableOrUnknown(data['book_uuid']!, _bookUuidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bookUuidMeta);
+    }
+    if (data.containsKey('group_id')) {
+      context.handle(
+        _groupIdMeta,
+        groupId.isAcceptableOrUnknown(data['group_id']!, _groupIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_groupIdMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {bookUuid};
+  @override
+  ShelfGroupBookRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ShelfGroupBookRow(
+      bookUuid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}book_uuid'],
+      )!,
+      groupId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_id'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ShelfGroupBooksTable createAlias(String alias) {
+    return $ShelfGroupBooksTable(attachedDatabase, alias);
+  }
+}
+
+class ShelfGroupBookRow extends DataClass
+    implements Insertable<ShelfGroupBookRow> {
+  /// 书籍 uuid（`books.uuid`）；删书走软删除，归属保留供重新导入恢复。
+  final String bookUuid;
+
+  /// 所属分组。
+  final String groupId;
+
+  /// 加入分组时间（毫秒）。
+  final int createdAt;
+  const ShelfGroupBookRow({
+    required this.bookUuid,
+    required this.groupId,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['book_uuid'] = Variable<String>(bookUuid);
+    map['group_id'] = Variable<String>(groupId);
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  ShelfGroupBooksCompanion toCompanion(bool nullToAbsent) {
+    return ShelfGroupBooksCompanion(
+      bookUuid: Value(bookUuid),
+      groupId: Value(groupId),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory ShelfGroupBookRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ShelfGroupBookRow(
+      bookUuid: serializer.fromJson<String>(json['bookUuid']),
+      groupId: serializer.fromJson<String>(json['groupId']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'bookUuid': serializer.toJson<String>(bookUuid),
+      'groupId': serializer.toJson<String>(groupId),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  ShelfGroupBookRow copyWith({
+    String? bookUuid,
+    String? groupId,
+    int? createdAt,
+  }) => ShelfGroupBookRow(
+    bookUuid: bookUuid ?? this.bookUuid,
+    groupId: groupId ?? this.groupId,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  ShelfGroupBookRow copyWithCompanion(ShelfGroupBooksCompanion data) {
+    return ShelfGroupBookRow(
+      bookUuid: data.bookUuid.present ? data.bookUuid.value : this.bookUuid,
+      groupId: data.groupId.present ? data.groupId.value : this.groupId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShelfGroupBookRow(')
+          ..write('bookUuid: $bookUuid, ')
+          ..write('groupId: $groupId, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(bookUuid, groupId, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ShelfGroupBookRow &&
+          other.bookUuid == this.bookUuid &&
+          other.groupId == this.groupId &&
+          other.createdAt == this.createdAt);
+}
+
+class ShelfGroupBooksCompanion extends UpdateCompanion<ShelfGroupBookRow> {
+  final Value<String> bookUuid;
+  final Value<String> groupId;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const ShelfGroupBooksCompanion({
+    this.bookUuid = const Value.absent(),
+    this.groupId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ShelfGroupBooksCompanion.insert({
+    required String bookUuid,
+    required String groupId,
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : bookUuid = Value(bookUuid),
+       groupId = Value(groupId),
+       createdAt = Value(createdAt);
+  static Insertable<ShelfGroupBookRow> custom({
+    Expression<String>? bookUuid,
+    Expression<String>? groupId,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (bookUuid != null) 'book_uuid': bookUuid,
+      if (groupId != null) 'group_id': groupId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ShelfGroupBooksCompanion copyWith({
+    Value<String>? bookUuid,
+    Value<String>? groupId,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return ShelfGroupBooksCompanion(
+      bookUuid: bookUuid ?? this.bookUuid,
+      groupId: groupId ?? this.groupId,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (bookUuid.present) {
+      map['book_uuid'] = Variable<String>(bookUuid.value);
+    }
+    if (groupId.present) {
+      map['group_id'] = Variable<String>(groupId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShelfGroupBooksCompanion(')
+          ..write('bookUuid: $bookUuid, ')
+          ..write('groupId: $groupId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $BookTagsTable extends BookTags
+    with TableInfo<$BookTagsTable, BookTagRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BookTagsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, name, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'book_tags';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BookTagRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  BookTagRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BookTagRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $BookTagsTable createAlias(String alias) {
+    return $BookTagsTable(attachedDatabase, alias);
+  }
+}
+
+class BookTagRow extends DataClass implements Insertable<BookTagRow> {
+  /// 标签标识。
+  final String id;
+
+  /// 标签名称（全局唯一）。
+  final String name;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+  const BookTagRow({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  BookTagsCompanion toCompanion(bool nullToAbsent) {
+    return BookTagsCompanion(
+      id: Value(id),
+      name: Value(name),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory BookTagRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BookTagRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  BookTagRow copyWith({String? id, String? name, int? createdAt}) => BookTagRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  BookTagRow copyWithCompanion(BookTagsCompanion data) {
+    return BookTagRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookTagRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BookTagRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.createdAt == this.createdAt);
+}
+
+class BookTagsCompanion extends UpdateCompanion<BookTagRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const BookTagsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BookTagsCompanion.insert({
+    required String id,
+    required String name,
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       createdAt = Value(createdAt);
+  static Insertable<BookTagRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BookTagsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return BookTagsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookTagsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $BookTagLinksTable extends BookTagLinks
+    with TableInfo<$BookTagLinksTable, BookTagLinkRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BookTagLinksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _bookUuidMeta = const VerificationMeta(
+    'bookUuid',
+  );
+  @override
+  late final GeneratedColumn<String> bookUuid = GeneratedColumn<String>(
+    'book_uuid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _tagIdMeta = const VerificationMeta('tagId');
+  @override
+  late final GeneratedColumn<String> tagId = GeneratedColumn<String>(
+    'tag_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES book_tags (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [bookUuid, tagId, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'book_tag_links';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BookTagLinkRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('book_uuid')) {
+      context.handle(
+        _bookUuidMeta,
+        bookUuid.isAcceptableOrUnknown(data['book_uuid']!, _bookUuidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bookUuidMeta);
+    }
+    if (data.containsKey('tag_id')) {
+      context.handle(
+        _tagIdMeta,
+        tagId.isAcceptableOrUnknown(data['tag_id']!, _tagIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tagIdMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {bookUuid, tagId};
+  @override
+  BookTagLinkRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BookTagLinkRow(
+      bookUuid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}book_uuid'],
+      )!,
+      tagId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tag_id'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $BookTagLinksTable createAlias(String alias) {
+    return $BookTagLinksTable(attachedDatabase, alias);
+  }
+}
+
+class BookTagLinkRow extends DataClass implements Insertable<BookTagLinkRow> {
+  /// 书籍 uuid（`books.uuid`）；删书走软删除，关联保留供重新导入恢复。
+  final String bookUuid;
+
+  /// 标签。
+  final String tagId;
+
+  /// 打标签时间（毫秒）。
+  final int createdAt;
+  const BookTagLinkRow({
+    required this.bookUuid,
+    required this.tagId,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['book_uuid'] = Variable<String>(bookUuid);
+    map['tag_id'] = Variable<String>(tagId);
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  BookTagLinksCompanion toCompanion(bool nullToAbsent) {
+    return BookTagLinksCompanion(
+      bookUuid: Value(bookUuid),
+      tagId: Value(tagId),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory BookTagLinkRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BookTagLinkRow(
+      bookUuid: serializer.fromJson<String>(json['bookUuid']),
+      tagId: serializer.fromJson<String>(json['tagId']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'bookUuid': serializer.toJson<String>(bookUuid),
+      'tagId': serializer.toJson<String>(tagId),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  BookTagLinkRow copyWith({String? bookUuid, String? tagId, int? createdAt}) =>
+      BookTagLinkRow(
+        bookUuid: bookUuid ?? this.bookUuid,
+        tagId: tagId ?? this.tagId,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  BookTagLinkRow copyWithCompanion(BookTagLinksCompanion data) {
+    return BookTagLinkRow(
+      bookUuid: data.bookUuid.present ? data.bookUuid.value : this.bookUuid,
+      tagId: data.tagId.present ? data.tagId.value : this.tagId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookTagLinkRow(')
+          ..write('bookUuid: $bookUuid, ')
+          ..write('tagId: $tagId, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(bookUuid, tagId, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BookTagLinkRow &&
+          other.bookUuid == this.bookUuid &&
+          other.tagId == this.tagId &&
+          other.createdAt == this.createdAt);
+}
+
+class BookTagLinksCompanion extends UpdateCompanion<BookTagLinkRow> {
+  final Value<String> bookUuid;
+  final Value<String> tagId;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const BookTagLinksCompanion({
+    this.bookUuid = const Value.absent(),
+    this.tagId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BookTagLinksCompanion.insert({
+    required String bookUuid,
+    required String tagId,
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : bookUuid = Value(bookUuid),
+       tagId = Value(tagId),
+       createdAt = Value(createdAt);
+  static Insertable<BookTagLinkRow> custom({
+    Expression<String>? bookUuid,
+    Expression<String>? tagId,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (bookUuid != null) 'book_uuid': bookUuid,
+      if (tagId != null) 'tag_id': tagId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BookTagLinksCompanion copyWith({
+    Value<String>? bookUuid,
+    Value<String>? tagId,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return BookTagLinksCompanion(
+      bookUuid: bookUuid ?? this.bookUuid,
+      tagId: tagId ?? this.tagId,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (bookUuid.present) {
+      map['book_uuid'] = Variable<String>(bookUuid.value);
+    }
+    if (tagId.present) {
+      map['tag_id'] = Variable<String>(tagId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookTagLinksCompanion(')
+          ..write('bookUuid: $bookUuid, ')
+          ..write('tagId: $tagId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4923,6 +6057,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ReadingSessionsTable readingSessions = $ReadingSessionsTable(
     this,
   );
+  late final $ShelfGroupsTable shelfGroups = $ShelfGroupsTable(this);
+  late final $ShelfGroupBooksTable shelfGroupBooks = $ShelfGroupBooksTable(
+    this,
+  );
+  late final $BookTagsTable bookTags = $BookTagsTable(this);
+  late final $BookTagLinksTable bookTagLinks = $BookTagLinksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4938,6 +6078,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     importReports,
     bookReviews,
     readingSessions,
+    shelfGroups,
+    shelfGroupBooks,
+    bookTags,
+    bookTagLinks,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -4990,6 +6134,20 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       ),
       result: [TableUpdate('reading_sessions', kind: UpdateKind.delete)],
     ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'shelf_groups',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('shelf_group_books', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'book_tags',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('book_tag_links', kind: UpdateKind.delete)],
+    ),
   ]);
 }
 
@@ -4998,6 +6156,7 @@ typedef $$BooksTableCreateCompanionBuilder = BooksCompanion Function({
   required String uuid,
   required String title,
   Value<String?> author,
+  Value<String?> description,
   Value<String?> language,
   required String contentDir,
   Value<String?> sourcePath,
@@ -5016,6 +6175,7 @@ typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<String> uuid,
   Value<String> title,
   Value<String?> author,
+  Value<String?> description,
   Value<String?> language,
   Value<String> contentDir,
   Value<String?> sourcePath,
@@ -5190,6 +6350,11 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
 
   ColumnFilters<String> get author => $composableBuilder(
     column: $table.author,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5458,6 +6623,11 @@ class $$BooksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get language => $composableBuilder(
     column: $table.language,
     builder: (column) => ColumnOrderings(column),
@@ -5539,6 +6709,11 @@ class $$BooksTableAnnotationComposer
 
   GeneratedColumn<String> get author =>
       $composableBuilder(column: $table.author, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get language =>
       $composableBuilder(column: $table.language, builder: (column) => column);
@@ -5802,6 +6977,7 @@ class $$BooksTableTableManager
                 Value<String> uuid = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String?> author = const Value.absent(),
+                Value<String?> description = const Value.absent(),
                 Value<String?> language = const Value.absent(),
                 Value<String> contentDir = const Value.absent(),
                 Value<String?> sourcePath = const Value.absent(),
@@ -5819,6 +6995,7 @@ class $$BooksTableTableManager
                 uuid: uuid,
                 title: title,
                 author: author,
+                description: description,
                 language: language,
                 contentDir: contentDir,
                 sourcePath: sourcePath,
@@ -5838,6 +7015,7 @@ class $$BooksTableTableManager
                 required String uuid,
                 required String title,
                 Value<String?> author = const Value.absent(),
+                Value<String?> description = const Value.absent(),
                 Value<String?> language = const Value.absent(),
                 required String contentDir,
                 Value<String?> sourcePath = const Value.absent(),
@@ -5855,6 +7033,7 @@ class $$BooksTableTableManager
                 uuid: uuid,
                 title: title,
                 author: author,
+                description: description,
                 language: language,
                 contentDir: contentDir,
                 sourcePath: sourcePath,
@@ -8952,6 +10131,1098 @@ typedef $$ReadingSessionsTableProcessedTableManager =
       ReadingSessionRow,
       PrefetchHooks Function({bool bookId})
     >;
+typedef $$ShelfGroupsTableCreateCompanionBuilder =
+    ShelfGroupsCompanion Function({
+      required String id,
+      required String name,
+      required int createdAt,
+      Value<int> rowid,
+    });
+typedef $$ShelfGroupsTableUpdateCompanionBuilder =
+    ShelfGroupsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<int> createdAt,
+      Value<int> rowid,
+    });
+
+final class $$ShelfGroupsTableReferences
+    extends BaseReferences<_$AppDatabase, $ShelfGroupsTable, ShelfGroupRow> {
+  $$ShelfGroupsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$ShelfGroupBooksTable, List<ShelfGroupBookRow>>
+  _shelfGroupBooksRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.shelfGroupBooks,
+    aliasName: 'shelf_groups__id__shelf_group_books__group_id',
+  );
+
+  $$ShelfGroupBooksTableProcessedTableManager get shelfGroupBooksRefs {
+    final manager = $$ShelfGroupBooksTableTableManager(
+      $_db,
+      $_db.shelfGroupBooks,
+    ).filter((f) => f.groupId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _shelfGroupBooksRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$ShelfGroupsTableFilterComposer
+    extends Composer<_$AppDatabase, $ShelfGroupsTable> {
+  $$ShelfGroupsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> shelfGroupBooksRefs(
+    Expression<bool> Function($$ShelfGroupBooksTableFilterComposer f) f,
+  ) {
+    final $$ShelfGroupBooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.shelfGroupBooks,
+      getReferencedColumn: (t) => t.groupId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShelfGroupBooksTableFilterComposer(
+            $db: $db,
+            $table: $db.shelfGroupBooks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$ShelfGroupsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ShelfGroupsTable> {
+  $$ShelfGroupsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ShelfGroupsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ShelfGroupsTable> {
+  $$ShelfGroupsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  Expression<T> shelfGroupBooksRefs<T extends Object>(
+    Expression<T> Function($$ShelfGroupBooksTableAnnotationComposer a) f,
+  ) {
+    final $$ShelfGroupBooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.shelfGroupBooks,
+      getReferencedColumn: (t) => t.groupId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShelfGroupBooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shelfGroupBooks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$ShelfGroupsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ShelfGroupsTable,
+          ShelfGroupRow,
+          $$ShelfGroupsTableFilterComposer,
+          $$ShelfGroupsTableOrderingComposer,
+          $$ShelfGroupsTableAnnotationComposer,
+          $$ShelfGroupsTableCreateCompanionBuilder,
+          $$ShelfGroupsTableUpdateCompanionBuilder,
+          (ShelfGroupRow, $$ShelfGroupsTableReferences),
+          ShelfGroupRow,
+          PrefetchHooks Function({bool shelfGroupBooksRefs})
+        > {
+  $$ShelfGroupsTableTableManager(_$AppDatabase db, $ShelfGroupsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ShelfGroupsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ShelfGroupsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ShelfGroupsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ShelfGroupsCompanion(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ShelfGroupsCompanion.insert(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$ShelfGroupsTable, ShelfGroupRow>(table),
+                  $$ShelfGroupsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({shelfGroupBooksRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (shelfGroupBooksRefs) db.shelfGroupBooks,
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (shelfGroupBooksRefs)
+                    await $_getPrefetchedData<
+                      ShelfGroupRow,
+                      $ShelfGroupsTable,
+                      ShelfGroupBookRow
+                    >(
+                      currentTable: table,
+                      referencedTable: $$ShelfGroupsTableReferences
+                          ._shelfGroupBooksRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$ShelfGroupsTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).shelfGroupBooksRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.groupId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ShelfGroupsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ShelfGroupsTable,
+      ShelfGroupRow,
+      $$ShelfGroupsTableFilterComposer,
+      $$ShelfGroupsTableOrderingComposer,
+      $$ShelfGroupsTableAnnotationComposer,
+      $$ShelfGroupsTableCreateCompanionBuilder,
+      $$ShelfGroupsTableUpdateCompanionBuilder,
+      (ShelfGroupRow, $$ShelfGroupsTableReferences),
+      ShelfGroupRow,
+      PrefetchHooks Function({bool shelfGroupBooksRefs})
+    >;
+typedef $$ShelfGroupBooksTableCreateCompanionBuilder =
+    ShelfGroupBooksCompanion Function({
+      required String bookUuid,
+      required String groupId,
+      required int createdAt,
+      Value<int> rowid,
+    });
+typedef $$ShelfGroupBooksTableUpdateCompanionBuilder =
+    ShelfGroupBooksCompanion Function({
+      Value<String> bookUuid,
+      Value<String> groupId,
+      Value<int> createdAt,
+      Value<int> rowid,
+    });
+
+final class $$ShelfGroupBooksTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $ShelfGroupBooksTable,
+          ShelfGroupBookRow
+        > {
+  $$ShelfGroupBooksTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $ShelfGroupsTable _groupIdTable(_$AppDatabase db) => db.shelfGroups
+      .createAlias('shelf_group_books__group_id__shelf_groups__id');
+
+  $$ShelfGroupsTableProcessedTableManager get groupId {
+    final $_column = $_itemColumn<String>('group_id')!;
+
+    final manager = $$ShelfGroupsTableTableManager(
+      $_db,
+      $_db.shelfGroups,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_groupIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ShelfGroupBooksTableFilterComposer
+    extends Composer<_$AppDatabase, $ShelfGroupBooksTable> {
+  $$ShelfGroupBooksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get bookUuid => $composableBuilder(
+    column: $table.bookUuid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ShelfGroupsTableFilterComposer get groupId {
+    final $$ShelfGroupsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.groupId,
+      referencedTable: $db.shelfGroups,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShelfGroupsTableFilterComposer(
+            $db: $db,
+            $table: $db.shelfGroups,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ShelfGroupBooksTableOrderingComposer
+    extends Composer<_$AppDatabase, $ShelfGroupBooksTable> {
+  $$ShelfGroupBooksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get bookUuid => $composableBuilder(
+    column: $table.bookUuid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ShelfGroupsTableOrderingComposer get groupId {
+    final $$ShelfGroupsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.groupId,
+      referencedTable: $db.shelfGroups,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShelfGroupsTableOrderingComposer(
+            $db: $db,
+            $table: $db.shelfGroups,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ShelfGroupBooksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ShelfGroupBooksTable> {
+  $$ShelfGroupBooksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get bookUuid =>
+      $composableBuilder(column: $table.bookUuid, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$ShelfGroupsTableAnnotationComposer get groupId {
+    final $$ShelfGroupsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.groupId,
+      referencedTable: $db.shelfGroups,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShelfGroupsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shelfGroups,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ShelfGroupBooksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ShelfGroupBooksTable,
+          ShelfGroupBookRow,
+          $$ShelfGroupBooksTableFilterComposer,
+          $$ShelfGroupBooksTableOrderingComposer,
+          $$ShelfGroupBooksTableAnnotationComposer,
+          $$ShelfGroupBooksTableCreateCompanionBuilder,
+          $$ShelfGroupBooksTableUpdateCompanionBuilder,
+          (ShelfGroupBookRow, $$ShelfGroupBooksTableReferences),
+          ShelfGroupBookRow,
+          PrefetchHooks Function({bool groupId})
+        > {
+  $$ShelfGroupBooksTableTableManager(
+    _$AppDatabase db,
+    $ShelfGroupBooksTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ShelfGroupBooksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ShelfGroupBooksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ShelfGroupBooksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> bookUuid = const Value.absent(),
+                Value<String> groupId = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ShelfGroupBooksCompanion(
+                bookUuid: bookUuid,
+                groupId: groupId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String bookUuid,
+                required String groupId,
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ShelfGroupBooksCompanion.insert(
+                bookUuid: bookUuid,
+                groupId: groupId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$ShelfGroupBooksTable, ShelfGroupBookRow>(table),
+                  $$ShelfGroupBooksTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({groupId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (groupId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.groupId,
+                        referencedTable: $$ShelfGroupBooksTableReferences
+                            ._groupIdTable(db),
+                        referencedColumn: $$ShelfGroupBooksTableReferences
+                            ._groupIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ShelfGroupBooksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ShelfGroupBooksTable,
+      ShelfGroupBookRow,
+      $$ShelfGroupBooksTableFilterComposer,
+      $$ShelfGroupBooksTableOrderingComposer,
+      $$ShelfGroupBooksTableAnnotationComposer,
+      $$ShelfGroupBooksTableCreateCompanionBuilder,
+      $$ShelfGroupBooksTableUpdateCompanionBuilder,
+      (ShelfGroupBookRow, $$ShelfGroupBooksTableReferences),
+      ShelfGroupBookRow,
+      PrefetchHooks Function({bool groupId})
+    >;
+typedef $$BookTagsTableCreateCompanionBuilder = BookTagsCompanion Function({
+  required String id,
+  required String name,
+  required int createdAt,
+  Value<int> rowid,
+});
+typedef $$BookTagsTableUpdateCompanionBuilder = BookTagsCompanion Function({
+  Value<String> id,
+  Value<String> name,
+  Value<int> createdAt,
+  Value<int> rowid,
+});
+
+final class $$BookTagsTableReferences
+    extends BaseReferences<_$AppDatabase, $BookTagsTable, BookTagRow> {
+  $$BookTagsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$BookTagLinksTable, List<BookTagLinkRow>>
+  _bookTagLinksRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.bookTagLinks,
+    aliasName: 'book_tags__id__book_tag_links__tag_id',
+  );
+
+  $$BookTagLinksTableProcessedTableManager get bookTagLinksRefs {
+    final manager = $$BookTagLinksTableTableManager(
+      $_db,
+      $_db.bookTagLinks,
+    ).filter((f) => f.tagId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_bookTagLinksRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$BookTagsTableFilterComposer
+    extends Composer<_$AppDatabase, $BookTagsTable> {
+  $$BookTagsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> bookTagLinksRefs(
+    Expression<bool> Function($$BookTagLinksTableFilterComposer f) f,
+  ) {
+    final $$BookTagLinksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.bookTagLinks,
+      getReferencedColumn: (t) => t.tagId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookTagLinksTableFilterComposer(
+            $db: $db,
+            $table: $db.bookTagLinks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$BookTagsTableOrderingComposer
+    extends Composer<_$AppDatabase, $BookTagsTable> {
+  $$BookTagsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$BookTagsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $BookTagsTable> {
+  $$BookTagsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  Expression<T> bookTagLinksRefs<T extends Object>(
+    Expression<T> Function($$BookTagLinksTableAnnotationComposer a) f,
+  ) {
+    final $$BookTagLinksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.bookTagLinks,
+      getReferencedColumn: (t) => t.tagId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookTagLinksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.bookTagLinks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$BookTagsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $BookTagsTable,
+          BookTagRow,
+          $$BookTagsTableFilterComposer,
+          $$BookTagsTableOrderingComposer,
+          $$BookTagsTableAnnotationComposer,
+          $$BookTagsTableCreateCompanionBuilder,
+          $$BookTagsTableUpdateCompanionBuilder,
+          (BookTagRow, $$BookTagsTableReferences),
+          BookTagRow,
+          PrefetchHooks Function({bool bookTagLinksRefs})
+        > {
+  $$BookTagsTableTableManager(_$AppDatabase db, $BookTagsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BookTagsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BookTagsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BookTagsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BookTagsCompanion(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => BookTagsCompanion.insert(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$BookTagsTable, BookTagRow>(table),
+                  $$BookTagsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({bookTagLinksRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (bookTagLinksRefs) db.bookTagLinks],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (bookTagLinksRefs)
+                    await $_getPrefetchedData<
+                      BookTagRow,
+                      $BookTagsTable,
+                      BookTagLinkRow
+                    >(
+                      currentTable: table,
+                      referencedTable: $$BookTagsTableReferences
+                          ._bookTagLinksRefsTable(db),
+                      managerFromTypedResult: (p0) => $$BookTagsTableReferences(
+                        db,
+                        table,
+                        p0,
+                      ).bookTagLinksRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.tagId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$BookTagsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $BookTagsTable,
+      BookTagRow,
+      $$BookTagsTableFilterComposer,
+      $$BookTagsTableOrderingComposer,
+      $$BookTagsTableAnnotationComposer,
+      $$BookTagsTableCreateCompanionBuilder,
+      $$BookTagsTableUpdateCompanionBuilder,
+      (BookTagRow, $$BookTagsTableReferences),
+      BookTagRow,
+      PrefetchHooks Function({bool bookTagLinksRefs})
+    >;
+typedef $$BookTagLinksTableCreateCompanionBuilder =
+    BookTagLinksCompanion Function({
+      required String bookUuid,
+      required String tagId,
+      required int createdAt,
+      Value<int> rowid,
+    });
+typedef $$BookTagLinksTableUpdateCompanionBuilder =
+    BookTagLinksCompanion Function({
+      Value<String> bookUuid,
+      Value<String> tagId,
+      Value<int> createdAt,
+      Value<int> rowid,
+    });
+
+final class $$BookTagLinksTableReferences
+    extends BaseReferences<_$AppDatabase, $BookTagLinksTable, BookTagLinkRow> {
+  $$BookTagLinksTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $BookTagsTable _tagIdTable(_$AppDatabase db) =>
+      db.bookTags.createAlias('book_tag_links__tag_id__book_tags__id');
+
+  $$BookTagsTableProcessedTableManager get tagId {
+    final $_column = $_itemColumn<String>('tag_id')!;
+
+    final manager = $$BookTagsTableTableManager(
+      $_db,
+      $_db.bookTags,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_tagIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$BookTagLinksTableFilterComposer
+    extends Composer<_$AppDatabase, $BookTagLinksTable> {
+  $$BookTagLinksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get bookUuid => $composableBuilder(
+    column: $table.bookUuid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BookTagsTableFilterComposer get tagId {
+    final $$BookTagsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.tagId,
+      referencedTable: $db.bookTags,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookTagsTableFilterComposer(
+            $db: $db,
+            $table: $db.bookTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookTagLinksTableOrderingComposer
+    extends Composer<_$AppDatabase, $BookTagLinksTable> {
+  $$BookTagLinksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get bookUuid => $composableBuilder(
+    column: $table.bookUuid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BookTagsTableOrderingComposer get tagId {
+    final $$BookTagsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.tagId,
+      referencedTable: $db.bookTags,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookTagsTableOrderingComposer(
+            $db: $db,
+            $table: $db.bookTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookTagLinksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $BookTagLinksTable> {
+  $$BookTagLinksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get bookUuid =>
+      $composableBuilder(column: $table.bookUuid, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$BookTagsTableAnnotationComposer get tagId {
+    final $$BookTagsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.tagId,
+      referencedTable: $db.bookTags,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookTagsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.bookTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookTagLinksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $BookTagLinksTable,
+          BookTagLinkRow,
+          $$BookTagLinksTableFilterComposer,
+          $$BookTagLinksTableOrderingComposer,
+          $$BookTagLinksTableAnnotationComposer,
+          $$BookTagLinksTableCreateCompanionBuilder,
+          $$BookTagLinksTableUpdateCompanionBuilder,
+          (BookTagLinkRow, $$BookTagLinksTableReferences),
+          BookTagLinkRow,
+          PrefetchHooks Function({bool tagId})
+        > {
+  $$BookTagLinksTableTableManager(_$AppDatabase db, $BookTagLinksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BookTagLinksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BookTagLinksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BookTagLinksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> bookUuid = const Value.absent(),
+                Value<String> tagId = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BookTagLinksCompanion(
+                bookUuid: bookUuid,
+                tagId: tagId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String bookUuid,
+                required String tagId,
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => BookTagLinksCompanion.insert(
+                bookUuid: bookUuid,
+                tagId: tagId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$BookTagLinksTable, BookTagLinkRow>(table),
+                  $$BookTagLinksTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({tagId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (tagId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.tagId,
+                        referencedTable: $$BookTagLinksTableReferences
+                            ._tagIdTable(db),
+                        referencedColumn: $$BookTagLinksTableReferences
+                            ._tagIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$BookTagLinksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $BookTagLinksTable,
+      BookTagLinkRow,
+      $$BookTagLinksTableFilterComposer,
+      $$BookTagLinksTableOrderingComposer,
+      $$BookTagLinksTableAnnotationComposer,
+      $$BookTagLinksTableCreateCompanionBuilder,
+      $$BookTagLinksTableUpdateCompanionBuilder,
+      (BookTagLinkRow, $$BookTagLinksTableReferences),
+      BookTagLinkRow,
+      PrefetchHooks Function({bool tagId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8976,4 +11247,12 @@ class $AppDatabaseManager {
       $$BookReviewsTableTableManager(_db, _db.bookReviews);
   $$ReadingSessionsTableTableManager get readingSessions =>
       $$ReadingSessionsTableTableManager(_db, _db.readingSessions);
+  $$ShelfGroupsTableTableManager get shelfGroups =>
+      $$ShelfGroupsTableTableManager(_db, _db.shelfGroups);
+  $$ShelfGroupBooksTableTableManager get shelfGroupBooks =>
+      $$ShelfGroupBooksTableTableManager(_db, _db.shelfGroupBooks);
+  $$BookTagsTableTableManager get bookTags =>
+      $$BookTagsTableTableManager(_db, _db.bookTags);
+  $$BookTagLinksTableTableManager get bookTagLinks =>
+      $$BookTagLinksTableTableManager(_db, _db.bookTagLinks);
 }

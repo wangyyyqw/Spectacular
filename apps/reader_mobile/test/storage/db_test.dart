@@ -16,30 +16,31 @@ Future<AppDatabase> _openFresh() async {
 Future<int> _insertBook(
   AppDatabase database, {
   String uuid = 'urn:uuid:test-book',
-}) async => database.into(database.books).insert(
-  BooksCompanion.insert(
-    uuid: uuid,
-    title: '测试书',
-    contentDir: 'books/$uuid/content',
-    createdAt: DateTime.now().millisecondsSinceEpoch,
-    spineCount: const Value(2),
-    charCount: const Value(1000),
-  ),
-);
+}) async => database
+    .into(database.books)
+    .insert(
+      BooksCompanion.insert(
+        uuid: uuid,
+        title: '测试书',
+        contentDir: 'books/$uuid/content',
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        spineCount: const Value(2),
+        charCount: const Value(1000),
+      ),
+    );
 
 /// 从当前 schema 还原 v1 建表语句：去掉后续版本新增的列。
 String _stripPostV1Columns(String statement) {
   var result = statement;
   if (result.contains('"books"')) {
-    result = result.replaceAll(
-      RegExp(r',\s*"?deleted_at"?\s+INTEGER(\s+NULL)?'),
-      '',
-    );
+    result = result
+        .replaceAll(RegExp(r',\s*"?deleted_at"?\s+INTEGER(\s+NULL)?'), '')
+        .replaceAll(RegExp(r',\s*"?description"?\s+TEXT(\s+NULL)?'), '');
   }
   if (result.contains('reading_progress')) {
     result = result
-      .replaceAll(RegExp(r',\s*"?spine_index"?\s+INTEGER(\s+NULL)?'), '')
-      .replaceAll(RegExp(r',\s*"?page_index"?\s+INTEGER(\s+NULL)?'), '');
+        .replaceAll(RegExp(r',\s*"?spine_index"?\s+INTEGER(\s+NULL)?'), '')
+        .replaceAll(RegExp(r',\s*"?page_index"?\s+INTEGER(\s+NULL)?'), '');
   }
   return result;
 }
@@ -48,15 +49,18 @@ String _stripPostV1Columns(String statement) {
 Future<List<String>> _v1Schema() async {
   final database = AppDatabase(NativeDatabase.memory());
   await database.warmUp();
-  final rows = await database.customSelect(
-    'SELECT sql FROM sqlite_master WHERE sql IS NOT NULL '
-    "AND name NOT IN ('import_reports', 'idx_report_book', 'book_reviews', "
-    "'reading_sessions', 'idx_session_time') "
-    "AND name NOT LIKE 'sqlite_%'",
-  ).get();
+  final rows = await database
+      .customSelect(
+        'SELECT sql FROM sqlite_master WHERE sql IS NOT NULL '
+        "AND name NOT IN ('import_reports', 'idx_report_book', 'book_reviews', "
+        "'reading_sessions', 'idx_session_time', 'shelf_groups', "
+        "'shelf_group_books', 'idx_shelf_group_book_group', 'book_tags', "
+        "'book_tag_links', 'idx_book_tag_link_tag') "
+        "AND name NOT LIKE 'sqlite_%'",
+      )
+      .get();
   final sql = <String>[
-    for (final row in rows)
-      _stripPostV1Columns(row.read<String>('sql')),
+    for (final row in rows) _stripPostV1Columns(row.read<String>('sql')),
   ];
   await database.close();
   return sql;
@@ -84,6 +88,10 @@ void main() {
         'import_reports',
         'book_reviews',
         'reading_sessions',
+        'shelf_groups',
+        'shelf_group_books',
+        'book_tags',
+        'book_tag_links',
       ]),
     );
     final indexes = await database
@@ -101,15 +109,20 @@ void main() {
         'idx_anno_quote',
         'idx_report_book',
         'idx_session_time',
+        'idx_shelf_group_book_group',
+        'idx_book_tag_link_tag',
       ]),
     );
-    final foreignKeys = await database.customSelect('PRAGMA foreign_keys').get();
+    final foreignKeys = await database
+        .customSelect('PRAGMA foreign_keys')
+        .get();
     expect(foreignKeys.first.data['foreign_keys'], 1);
     expect(
-      await database.customSelect('PRAGMA user_version').getSingle().then(
-        (row) => row.read<int>('user_version'),
-      ),
-      8,
+      await database
+          .customSelect('PRAGMA user_version')
+          .getSingle()
+          .then((row) => row.read<int>('user_version')),
+      10,
     );
   });
 
@@ -126,57 +139,73 @@ void main() {
   test('删书级联清理：spine/目录/标注/进度/索引/报告一并删除', () async {
     final database = await _openFresh();
     final bookId = await _insertBook(database);
-    await database.into(database.spineItems).insert(
-      SpineItemsCompanion.insert(bookId: bookId, spineIndex: 0, href: 'c1.xhtml'),
-    );
-    await database.into(database.chapters).insert(
-      ChaptersCompanion.insert(
-        bookId: bookId,
-        title: '第一章',
-        href: 'c1.xhtml',
-        orderIndex: 0,
-      ),
-    );
-    await database.into(database.annotations).insert(
-      AnnotationsCompanion.insert(
-        id: 'anno-1',
-        bookId: bookId,
-        type: 0,
-        startCfi: 'cfi:1',
-        endCfi: 'cfi:2',
-        quote: '引用',
-        createdAt: 1,
-        updatedAt: 1,
-      ),
-    );
-    await database.into(database.readingProgress).insert(
-      ReadingProgressCompanion(
-        bookId: Value<int>(bookId),
-        locatorCfi: const Value<String>('cfi:1'),
-        updatedAt: const Value<int>(1),
-      ),
-    );
-    await database.into(database.bookReviews).insert(
-      BookReviewsCompanion.insert(
-        bookId: Value<int>(bookId),
-        rating: const Value<int?>(4),
-        content: const Value<String>('一段书评'),
-        createdAt: 1,
-        updatedAt: 1,
-      ),
-    );
-    await database.into(database.readingSessions).insert(
-      ReadingSessionsCompanion.insert(
-        bookId: bookId,
-        startedAt: 1,
-        endedAt: 61,
-        durationMs: 60,
-      ),
-    );
+    await database
+        .into(database.spineItems)
+        .insert(
+          SpineItemsCompanion.insert(
+            bookId: bookId,
+            spineIndex: 0,
+            href: 'c1.xhtml',
+          ),
+        );
+    await database
+        .into(database.chapters)
+        .insert(
+          ChaptersCompanion.insert(
+            bookId: bookId,
+            title: '第一章',
+            href: 'c1.xhtml',
+            orderIndex: 0,
+          ),
+        );
+    await database
+        .into(database.annotations)
+        .insert(
+          AnnotationsCompanion.insert(
+            id: 'anno-1',
+            bookId: bookId,
+            type: 0,
+            startCfi: 'cfi:1',
+            endCfi: 'cfi:2',
+            quote: '引用',
+            createdAt: 1,
+            updatedAt: 1,
+          ),
+        );
+    await database
+        .into(database.readingProgress)
+        .insert(
+          ReadingProgressCompanion(
+            bookId: Value<int>(bookId),
+            locatorCfi: const Value<String>('cfi:1'),
+            updatedAt: const Value<int>(1),
+          ),
+        );
+    await database
+        .into(database.bookReviews)
+        .insert(
+          BookReviewsCompanion.insert(
+            bookId: Value<int>(bookId),
+            rating: const Value<int?>(4),
+            content: const Value<String>('一段书评'),
+            createdAt: 1,
+            updatedAt: 1,
+          ),
+        );
+    await database
+        .into(database.readingSessions)
+        .insert(
+          ReadingSessionsCompanion.insert(
+            bookId: bookId,
+            startedAt: 1,
+            endedAt: 61,
+            durationMs: 60,
+          ),
+        );
 
-    await (database.delete(database.books)
-          ..where((table) => table.id.equals(bookId)))
-        .go();
+    await (database.delete(
+      database.books,
+    )..where((table) => table.id.equals(bookId))).go();
 
     expect(await database.select(database.books).get(), isEmpty);
     expect(await database.select(database.spineItems).get(), isEmpty);
@@ -188,7 +217,7 @@ void main() {
     expect(await database.select(database.readingSessions).get(), isEmpty);
   });
 
-  test('v1→v8 迁移：数据保留并新增报告、进度列、书评、会话与软删除列', () async {
+  test('v1→v10 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组与标签', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -207,7 +236,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 8, reason: 'schema 已升到 v8');
+    expect(version.read<int>('user_version'), 10, reason: 'schema 已升到 v10');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
@@ -216,39 +245,47 @@ void main() {
     final bookColumns = await database
         .customSelect('PRAGMA table_info(books)')
         .get();
-    expect(
-      <String>{for (final row in bookColumns) row.read<String>('name')},
-      contains('deleted_at'),
-    );
+    expect(<String>{
+      for (final row in bookColumns) row.read<String>('name'),
+    }, contains('deleted_at'));
+    expect(<String>{
+      for (final row in bookColumns) row.read<String>('name'),
+    }, contains('description'));
     final books = await database.select(database.books).get();
     expect(books.single.title, '旧书', reason: '迁移不丢数据');
-    await database.into(database.importReports).insert(
-      ImportReportsCompanion.insert(
-        bookId: books.single.id,
-        code: 'W001',
-        message: '迁移后可写报告',
-        createdAt: 1,
-      ),
-    );
+    await database
+        .into(database.importReports)
+        .insert(
+          ImportReportsCompanion.insert(
+            bookId: books.single.id,
+            code: 'W001',
+            message: '迁移后可写报告',
+            createdAt: 1,
+          ),
+        );
     expect((await database.select(database.importReports).get()).length, 1);
-    await database.into(database.bookReviews).insert(
-      BookReviewsCompanion.insert(
-        bookId: Value<int>(books.single.id),
-        rating: const Value<int?>(5),
-        content: const Value<String>('迁移后可写书评'),
-        createdAt: 1,
-        updatedAt: 1,
-      ),
-    );
+    await database
+        .into(database.bookReviews)
+        .insert(
+          BookReviewsCompanion.insert(
+            bookId: Value<int>(books.single.id),
+            rating: const Value<int?>(5),
+            content: const Value<String>('迁移后可写书评'),
+            createdAt: 1,
+            updatedAt: 1,
+          ),
+        );
     expect((await database.select(database.bookReviews).get()).length, 1);
-    await database.into(database.readingSessions).insert(
-      ReadingSessionsCompanion.insert(
-        bookId: books.single.id,
-        startedAt: 1,
-        endedAt: 61,
-        durationMs: 60,
-      ),
-    );
+    await database
+        .into(database.readingSessions)
+        .insert(
+          ReadingSessionsCompanion.insert(
+            bookId: books.single.id,
+            startedAt: 1,
+            endedAt: 61,
+            durationMs: 60,
+          ),
+        );
     expect((await database.select(database.readingSessions).get()).length, 1);
 
     // 搜索改为扫描式后，旧的倒排索引两张表不再创建。
@@ -258,6 +295,11 @@ void main() {
     final tableNames = <String>{
       for (final row in tables) row.read<String>('name'),
     };
+    expect(
+      tableNames,
+      containsAll(<String>['shelf_groups', 'shelf_group_books']),
+    );
+    expect(tableNames, containsAll(<String>['book_tags', 'book_tag_links']));
     expect(tableNames, isNot(contains('chapter_text')));
     expect(tableNames, isNot(contains('search_grams')));
   });

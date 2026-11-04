@@ -6,11 +6,16 @@ import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
 
 import '../diagnostics/reader_log.dart';
+import '../library/library_store.dart';
+import 'bookshelf_sort.dart';
 
-/// 我的页：应用/引擎信息、诊断日志导出。
+/// 我的页：书架设置、应用/引擎信息、诊断日志导出。
 class ProfilePage extends StatefulWidget {
   /// 创建页面。
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, required this.library});
+
+  /// 书架存储。
+  final LibraryStore library;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -19,15 +24,57 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   PackageInfo? _packageInfo;
   bool _exporting = false;
+  BookSortOrder _shelfSort = BookSortOrder.recent;
 
   @override
   void initState() {
     super.initState();
-    PackageInfo.fromPlatform().then((info) {
-      if (mounted) {
-        setState(() => _packageInfo = info);
-      }
-    }).catchError((_) {});
+    PackageInfo.fromPlatform()
+        .then((info) {
+          if (mounted) {
+            setState(() => _packageInfo = info);
+          }
+        })
+        .catchError((_) {});
+    _loadShelfSort();
+  }
+
+  Future<void> _loadShelfSort() async {
+    final value = await widget.library.getSetting(bookshelfSortKey);
+    if (mounted) {
+      setState(() => _shelfSort = BookSortOrder.fromValue(value));
+    }
+  }
+
+  Future<void> _chooseShelfSort() async {
+    final selected = await showDialog<BookSortOrder>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('书架排序'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            for (final order in BookSortOrder.values)
+              ListTile(
+                key: ValueKey<String>('bookshelf-sort-${order.value}'),
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  order == _shelfSort
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
+                title: Text(order.label),
+                onTap: () => Navigator.of(context).pop(order),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+    setState(() => _shelfSort = selected);
+    await widget.library.setSetting(bookshelfSortKey, selected.value);
   }
 
   Future<void> _clearLogs() async {
@@ -55,15 +102,13 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       await ReaderLog.instance.clear();
       if (mounted) {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(const SnackBar(content: Text('日志已清理')));
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(const SnackBar(content: Text('日志已清理')));
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text('清理失败：$error')));
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text('清理失败：$error')));
       }
     }
   }
@@ -79,15 +124,14 @@ class _ProfilePageState extends State<ProfilePage> {
       final path = await log.exportFile();
       await log.share();
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('日志已导出：${path ?? '分享面板已打开'}')),
-        );
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text('日志已导出：${path ?? '分享面板已打开'}')));
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text('日志导出失败：$error')));
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text('日志导出失败：$error')));
       }
     } finally {
       if (mounted) {
@@ -111,7 +155,9 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   CircleAvatar(
                     radius: 28,
-                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    backgroundColor: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer,
                     child: Icon(
                       Icons.menu_book,
                       color: Theme.of(context).colorScheme.onPrimaryContainer,
@@ -135,6 +181,17 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              key: const ValueKey<String>('bookshelf-sort-setting'),
+              leading: const Icon(Icons.sort),
+              title: const Text('书架排序'),
+              subtitle: Text(_shelfSort.label),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _chooseShelfSort,
             ),
           ),
           const SizedBox(height: 8),

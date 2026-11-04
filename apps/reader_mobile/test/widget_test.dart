@@ -32,7 +32,7 @@ void main() {
       expect(find.text(label), findsWidgets);
     }
     expect(find.text('书架还是空的'), findsOneWidget);
-    expect(find.text('导入 EPUB'), findsOneWidget);
+    expect(find.byTooltip('导入 EPUB'), findsOneWidget);
 
     await tester.tap(find.text('统计'));
     await _settle(tester);
@@ -82,6 +82,6 @@ void main() {
     // 阅读页无 AppBar 返回键：直接 pop 根导航（等价系统返回）。
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _settle(tester);
-    expect(find.text('导入 EPUB'), findsOneWidget);
+    expect(find.byTooltip('导入 EPUB'), findsOneWidget);
   });
 }

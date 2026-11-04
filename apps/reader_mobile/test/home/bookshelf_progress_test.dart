@@ -62,7 +62,7 @@ void main() {
     );
   });
 
-  testWidgets('到达全书末页后书架显示已读完并支持筛选', (tester) async {
+  testWidgets('到达全书末页后书架显示已读完状态', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-finished');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -90,17 +90,12 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(find.text('已读完 1'), findsOneWidget);
-    expect(find.text('在读 0'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('book-reading-badge')),
       findsOneWidget,
     );
     expect(find.text('已读完'), findsWidgets);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-filter-finished')),
-    );
     await tester.pump();
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
