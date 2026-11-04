@@ -528,4 +528,202 @@ void main() {
 
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
   });
+
+  testWidgets('阅读图表支持日周月年切换并展示时段书目', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = DateTime(
+      today.year,
+      today.month,
+      today.day - (today.weekday - 1),
+    );
+    final fiveWeeksAgo = DateTime(
+      monday.year,
+      monday.month,
+      monday.day - 33,
+      9,
+    );
+    final previousMonth = DateTime(now.year, now.month - 1, 15, 9);
+    final previousYear = DateTime(now.year - 1, now.month, 15, 9);
+    final sessions = <ReadingSession>[
+      ReadingSession(
+        bookId: 'a',
+        startedAt: today.add(const Duration(hours: 9)),
+        endedAt: today.add(const Duration(hours: 9, minutes: 30)),
+        duration: const Duration(minutes: 30),
+      ),
+      ReadingSession(
+        bookId: 'b',
+        startedAt: today.add(const Duration(hours: 10)),
+        endedAt: today.add(const Duration(hours: 10, minutes: 15)),
+        duration: const Duration(minutes: 15),
+      ),
+      ReadingSession(
+        bookId: 'a',
+        startedAt: DateTime(today.year, today.month, today.day - 1, 9),
+        endedAt: DateTime(today.year, today.month, today.day - 1, 9, 10),
+        duration: const Duration(minutes: 10),
+      ),
+      ReadingSession(
+        bookId: 'b',
+        startedAt: fiveWeeksAgo,
+        endedAt: fiveWeeksAgo.add(const Duration(minutes: 20)),
+        duration: const Duration(minutes: 20),
+      ),
+      ReadingSession(
+        bookId: 'c',
+        startedAt: previousMonth,
+        endedAt: previousMonth.add(const Duration(minutes: 25)),
+        duration: const Duration(minutes: 25),
+      ),
+      ReadingSession(
+        bookId: 'c',
+        startedAt: previousYear,
+        endedAt: previousYear.add(const Duration(minutes: 30)),
+        duration: const Duration(minutes: 30),
+      ),
+    ];
+    final library = _FakeLibrary([
+      _book('a', '第一本'),
+      _book('b', '第二本'),
+      _book('c', '第三本'),
+    ], const {});
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: library,
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore(sessions),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('stats-chart-period')),
+      300,
+    );
+
+    String valueOf(String key) =>
+        tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
+
+    expect(valueOf('stats-activity-summary'), '55 分钟 · 2 天');
+    expect(valueOf('stats-chart-bucket-duration'), '45 分钟');
+    expect(valueOf('stats-chart-book-duration-a'), '30 分钟');
+    expect(valueOf('stats-chart-book-duration-b'), '15 分钟');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-period-week')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-bar-week-2')),
+    );
+    await tester.pumpAndSettle();
+    expect(valueOf('stats-chart-bucket-duration'), '20 分钟');
+    expect(valueOf('stats-chart-book-duration-b'), '20 分钟');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-period-month')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-bar-month-10')),
+    );
+    await tester.pumpAndSettle();
+    expect(valueOf('stats-chart-bucket-duration'), '25 分钟');
+    expect(valueOf('stats-chart-book-duration-c'), '25 分钟');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-period-year')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-bar-year-3')),
+    );
+    await tester.pumpAndSettle();
+    expect(valueOf('stats-chart-bucket-duration'), '30 分钟');
+    expect(valueOf('stats-chart-book-duration-c'), '30 分钟');
+  });
+
+  testWidgets('点击阅读热力图查看当日详细数据', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final sessions = <ReadingSession>[
+      ReadingSession(
+        bookId: 'a',
+        startedAt: today.add(const Duration(hours: 9)),
+        endedAt: today.add(const Duration(hours: 9, minutes: 30)),
+        duration: const Duration(minutes: 30),
+        pageTurns: 12,
+        charactersRead: 400,
+      ),
+      ReadingSession(
+        bookId: 'b',
+        startedAt: today.add(const Duration(hours: 14)),
+        endedAt: today.add(const Duration(hours: 14, minutes: 15)),
+        duration: const Duration(minutes: 15),
+        pageTurns: 3,
+        charactersRead: 100,
+      ),
+    ];
+    final library = _FakeLibrary([
+      _book('a', '第一本'),
+      _book('b', '第二本'),
+    ], const {});
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: library,
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore(sessions),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dayKey = ValueKey<String>('stats-heatmap-day-${_dateKey(today)}');
+    await tester.scrollUntilVisible(find.byKey(dayKey), 300);
+    await tester.tap(find.byKey(dayKey));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-day-detail-duration')),
+          )
+          .data,
+      '45 分钟',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-day-detail-sessions')),
+          )
+          .data,
+      '2',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-day-detail-page-turns')),
+          )
+          .data,
+      '15',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-day-detail-characters')),
+          )
+          .data,
+      '500',
+    );
+    expect(find.text('第一本'), findsWidgets);
+  });
+}
+
+String _dateKey(DateTime date) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${date.year}-${two(date.month)}-${two(date.day)}';
 }
