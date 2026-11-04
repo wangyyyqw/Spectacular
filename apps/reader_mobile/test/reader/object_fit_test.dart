@@ -112,4 +112,12 @@ void main() {
     expect(cssPx(byHeight.$1['width']), 80, reason: '4:2 原图按高度推宽');
     expect(byHeight.$2, 40);
   });
+
+  test('max-width 收窄图片盒，高度按原图比例随之收缩', () async {
+    final box = await imageBoxOf(
+      'img { max-width: 60%; height: auto; display: block; }',
+    );
+    expect(cssPx(box.$1['width']), closeTo(192, 0.01));
+    expect(box.$2, closeTo(96, 0.01), reason: '宽度 60% 后高度仍保持 4:2');
+  });
 }
