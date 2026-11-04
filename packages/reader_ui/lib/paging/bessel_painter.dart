@@ -9,12 +9,10 @@ import 'bessel_geometry.dart';
 /// 690 §3～5、700 §2 的页面合成；只消费准备好的位图。
 class BesselPainter {
   BesselPainter({required this.paperColor})
-    : _cornerBackPaint = Paint()..color = paperColor,
-      _edgeBackPaint = Paint()..color = paperColor.withAlpha(145);
+    : _backPaperPaint = Paint()..color = paperColor;
 
   final Color paperColor;
-  final Paint _cornerBackPaint;
-  final Paint _edgeBackPaint;
+  final Paint _backPaperPaint;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
 
   void paint(
@@ -159,8 +157,9 @@ class BesselPainter {
     }
     canvas.save();
     canvas.clipPath(back);
-    // 角部纸背是不透光纸张，不能透出镜像正文或目标页。
-    canvas.drawRect(Offset.zero & g.size, _cornerBackPaint);
+    // 先在纸背铺一层不透明纸色，网格抗锯齿缝隙也不会透出底页。
+    canvas.drawRect(Offset.zero & g.size, _backPaperPaint);
+    _cornerBackContent(canvas, g, back, image, rtl);
     final width = (g.a - g.f).distance / 8;
     final length = _length(g);
     // 曲面宽度对应贝塞尔中点到 CJ 的距离，纸背在折痕处最暗。
@@ -207,19 +206,10 @@ class BesselPainter {
     bool rtl,
   ) {
     final mesh = _edgeMesh(geometry, image, rtl);
-    final shader = ui.ImageShader(
-      image,
-      TileMode.clamp,
-      TileMode.clamp,
-      Float64List(16)
-        ..[0] = 1
-        ..[5] = 1
-        ..[10] = 1
-        ..[15] = 1,
-      filterQuality: FilterQuality.low,
-    );
+    final shader = _imageShader(image);
     canvas.save();
     canvas.clipPath(back);
+    canvas.drawRect(Offset.zero & geometry.size, _backPaperPaint);
     canvas.drawVertices(mesh, BlendMode.src, Paint()..shader = shader);
     _edgeBackShading(canvas, back);
     canvas.restore();
@@ -228,7 +218,7 @@ class BesselPainter {
   }
 
   void _edgeBackShading(Canvas canvas, Path back) {
-    canvas.drawPath(back, _edgeBackPaint);
+    // 只叠加黑色折痕阴影，不能再用半透明纸色覆盖镜像内容。
     canvas.drawPath(
       back,
       Paint()
@@ -243,6 +233,94 @@ class BesselPainter {
         ).createShader(back.getBounds()),
     );
   }
+
+  void _cornerBackContent(
+    Canvas canvas,
+    BesselGeometry geometry,
+    Path back,
+    ui.Image image,
+    bool rtl,
+  ) {
+    final bounds = back.getBounds().intersect(Offset.zero & geometry.size);
+    if (bounds.isEmpty) return;
+    final mesh = _cornerMesh(geometry, image, bounds, rtl);
+    final shader = _imageShader(image);
+    canvas.drawVertices(mesh, BlendMode.src, Paint()..shader = shader);
+    shader.dispose();
+    mesh.dispose();
+  }
+
+  /// 角部纸背显示镜像页面，并沿折痕法线做非线性压缩模拟纸张弯曲。
+  ui.Vertices _cornerMesh(
+    BesselGeometry geometry,
+    ui.Image image,
+    Rect bounds,
+    bool rtl,
+  ) {
+    const segments = 16;
+    final axis = geometry.a - geometry.f;
+    final length = axis.distance;
+    final normal = length < 1e-6 ? const Offset(1, 0) : axis / length;
+    final middle = (geometry.a + geometry.f) / 2;
+    final reach = (geometry.a - middle).distance;
+    final positions = <Offset>[];
+    final texture = <Offset>[];
+    for (var row = 0; row <= segments; row++) {
+      final y = bounds.top + bounds.height * row / segments;
+      for (var column = 0; column <= segments; column++) {
+        final point = Offset(bounds.left + bounds.width * column / segments, y);
+        final delta = point - middle;
+        final distance = delta.dx * normal.dx + delta.dy * normal.dy;
+        var source = point - normal * (2 * distance);
+        if (distance > 0 && reach > 0) {
+          final t = (distance / reach).clamp(0.0, 1.0);
+          // 折痕处压缩最强，纸角处回到镜像原位，避免采样越出页面。
+          source -= normal * (reach * math.pow(t, 0.7) - distance).toDouble();
+        }
+        positions.add(point);
+        texture.add(
+          Offset(
+            (rtl ? geometry.size.width - source.dx : source.dx) *
+                image.width /
+                geometry.size.width,
+            source.dy * image.height / geometry.size.height,
+          ),
+        );
+      }
+    }
+    final indices = <int>[];
+    for (var row = 0; row < segments; row++) {
+      for (var column = 0; column < segments; column++) {
+        final index = row * (segments + 1) + column;
+        indices.addAll(<int>[
+          index,
+          index + 1,
+          index + segments + 1,
+          index + 1,
+          index + segments + 2,
+          index + segments + 1,
+        ]);
+      }
+    }
+    return ui.Vertices(
+      ui.VertexMode.triangles,
+      positions,
+      textureCoordinates: texture,
+      indices: indices,
+    );
+  }
+
+  ui.ImageShader _imageShader(ui.Image image) => ui.ImageShader(
+    image,
+    TileMode.clamp,
+    TileMode.clamp,
+    Float64List(16)
+      ..[0] = 1
+      ..[5] = 1
+      ..[10] = 1
+      ..[15] = 1,
+    filterQuality: FilterQuality.low,
+  );
 
   ui.Vertices _edgeMesh(BesselGeometry geometry, ui.Image image, bool rtl) {
     const segments = 32;
