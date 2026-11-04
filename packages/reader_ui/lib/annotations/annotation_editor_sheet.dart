@@ -90,7 +90,11 @@ class AnnotationStyleOption {
 /// 点击已有高亮后打开的编辑弹层。
 class ReaderAnnotationEditorSheet extends StatefulWidget {
   /// 创建标注编辑弹层。
-  const ReaderAnnotationEditorSheet({super.key, required this.annotation});
+  const ReaderAnnotationEditorSheet({
+    super.key,
+    required this.annotation,
+    this.inkMode = false,
+  });
 
   /// 可选高亮颜色。
   static const colors = <AnnotationColorOption>[
@@ -111,6 +115,9 @@ class ReaderAnnotationEditorSheet extends StatefulWidget {
 
   /// 当前标注。
   final ReaderAnnotation annotation;
+
+  /// 墨水屏模式：高亮统一按黑色绘制，不再提供无效的颜色选择。
+  final bool inkMode;
 
   @override
   State<ReaderAnnotationEditorSheet> createState() =>
@@ -387,6 +394,7 @@ class _ReaderAnnotationEditorSheetState
                           annotation: widget.annotation,
                           currentColor: currentColor,
                           currentStyle: currentStyle,
+                          inkMode: widget.inkMode,
                         ),
                         if (!_isNote && !_showNoteEditor) ...[
                           const SizedBox(height: 14),
@@ -411,18 +419,25 @@ class _ReaderAnnotationEditorSheetState
                           ),
                         ],
                         const SizedBox(height: 18),
-                        Text('高亮颜色', style: theme.textTheme.labelLarge),
-                        const SizedBox(height: 10),
-                        _ColorChoices(
-                          currentColor: currentColor,
-                          onSelected: _selectColor,
-                        ),
+                        if (widget.inkMode)
+                          const _InkModeColorHint()
+                        else ...[
+                          Text('高亮颜色', style: theme.textTheme.labelLarge),
+                          const SizedBox(height: 10),
+                          _ColorChoices(
+                            currentColor: currentColor,
+                            onSelected: _selectColor,
+                          ),
+                        ],
                         const SizedBox(height: 18),
                         Text('高亮样式', style: theme.textTheme.labelLarge),
                         const SizedBox(height: 10),
                         _StyleChoices(
-                          currentColor: currentColor,
+                          currentColor: widget.inkMode
+                              ? 0xFF000000
+                              : currentColor,
                           currentStyle: currentStyle,
+                          inkMode: widget.inkMode,
                           onSelected: _selectStyle,
                         ),
                       ],
@@ -632,31 +647,38 @@ class _AnnotationPreview extends StatelessWidget {
     required this.annotation,
     required this.currentColor,
     required this.currentStyle,
+    required this.inkMode,
   });
 
   final ReaderAnnotation annotation;
   final int currentColor;
   final ReaderAnnotationStyle currentStyle;
+  final bool inkMode;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final previewColor = inkMode ? 0xFF000000 : currentColor;
+    final previewStyle =
+        inkMode && currentStyle == ReaderAnnotationStyle.background
+        ? ReaderAnnotationStyle.underline
+        : currentStyle;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
           decoration: BoxDecoration(
-            color: currentStyle == ReaderAnnotationStyle.background
-                ? Color(currentColor).withValues(alpha: 0.22)
+            color: previewStyle == ReaderAnnotationStyle.background
+                ? Color(previewColor).withValues(alpha: 0.22)
                 : theme.colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(12),
           ),
           child: CustomPaint(
-            painter: currentStyle == ReaderAnnotationStyle.background
+            painter: previewStyle == ReaderAnnotationStyle.background
                 ? null
                 : _AnnotationPreviewPainter(
-                    color: Color(currentColor),
-                    style: currentStyle,
+                    color: Color(previewColor),
+                    style: previewStyle,
                   ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
@@ -670,6 +692,24 @@ class _AnnotationPreview extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _InkModeColorHint extends StatelessWidget {
+  const _InkModeColorHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: const ValueKey<String>('annotation-ink-color-hint'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const Text('墨水屏模式：高亮统一为黑色'),
     );
   }
 }
@@ -700,33 +740,41 @@ class _StyleChoices extends StatelessWidget {
   const _StyleChoices({
     required this.currentColor,
     required this.currentStyle,
+    required this.inkMode,
     required this.onSelected,
   });
 
   final int currentColor;
   final ReaderAnnotationStyle currentStyle;
+  final bool inkMode;
   final ValueChanged<ReaderAnnotationStyle> onSelected;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // 墨水屏没有底色形态：底色本身会绘制为实线，因此只显示三种线型，
+    // 并把原有的底色标注视为已选中实线。
+    final options = inkMode
+        ? ReaderAnnotationEditorSheet.styles
+              .where(
+                (option) => option.value != ReaderAnnotationStyle.background,
+              )
+              .toList(growable: false)
+        : ReaderAnnotationEditorSheet.styles;
+    final effectiveStyle =
+        inkMode && currentStyle == ReaderAnnotationStyle.background
+        ? ReaderAnnotationStyle.underline
+        : currentStyle;
     return Row(
       children: [
-        for (
-          var index = 0;
-          index < ReaderAnnotationEditorSheet.styles.length;
-          index += 1
-        ) ...[
+        for (var index = 0; index < options.length; index += 1) ...[
           if (index > 0) const SizedBox(width: 8),
           Expanded(
             child: _StyleChoice(
-              option: ReaderAnnotationEditorSheet.styles[index],
+              option: options[index],
               color: Color(currentColor),
-              selected:
-                  ReaderAnnotationEditorSheet.styles[index].value ==
-                  currentStyle,
-              onTap: () =>
-                  onSelected(ReaderAnnotationEditorSheet.styles[index].value),
+              selected: options[index].value == effectiveStyle,
+              onTap: () => onSelected(options[index].value),
               background: theme.colorScheme.surfaceContainerLow,
               selectedBackground: theme.colorScheme.primaryContainer,
               borderColor: theme.colorScheme.outlineVariant,
