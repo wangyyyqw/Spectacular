@@ -6,13 +6,16 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/annotations/note_composer_sheet.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
 class _Source implements ReaderChapterSource {
-  _Source() {
+  _Source({String? text}) {
     final style = ComputedStyle(const {
       'font-size': '16px',
       'line-height': '1.5',
@@ -23,7 +26,7 @@ class _Source implements ReaderChapterSource {
           blocks: [
             PageBlock.styled(
               layout: TextLayoutEngine.layout(
-                text: 'word ' * 20,
+                text: text ?? 'word ' * 20,
                 style: style,
                 maxWidth: 240,
               ),
@@ -1066,5 +1069,123 @@ void main() {
 
     expect(find.text('已删除笔记'), findsNothing);
     expect(find.text('撤销'), findsNothing);
+  });
+
+  testWidgets('连续滚动长按下方页面时选区与笔记引用命中该页', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final text = List.generate(240, (index) => 'word$index').join(' ');
+    final source = _Source(text: text);
+    final notes = _Notes();
+    expect(source.pages, hasLength(greaterThan(1)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'scroll-selection-below-fold',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            pageTurnMode: PageTurnMode.scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const firstPageKey = ValueKey<String>('scroll-page-0-0');
+    const secondPageKey = ValueKey<String>('scroll-page-0-1');
+    final firstPage = find.byKey(firstPageKey);
+    final secondPage = find.byKey(secondPageKey);
+    expect(firstPage, findsOneWidget);
+    expect(secondPage, findsOneWidget);
+
+    final firstPageTop = tester.getTopLeft(firstPage).dy;
+    final secondPageTop = tester.getTopLeft(secondPage).dy;
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).last);
+    scroll.position.jumpTo(
+      scroll.position.pixels + (secondPageTop - firstPageTop) * 0.6,
+    );
+    await tester.pumpAndSettle();
+
+    final viewport = tester.getRect(find.byType(ReaderView));
+    final scrolledFirstTop = tester.getTopLeft(firstPage).dy;
+    final scrolledSecondTop = tester.getTopLeft(secondPage).dy;
+    expect(scrolledFirstTop, lessThan(viewport.top));
+    expect(scrolledSecondTop, greaterThan(viewport.top));
+    expect(scrolledSecondTop, lessThan(viewport.bottom));
+
+    final line = TextHitTester.lineBoxes(source.pages[1]).first;
+    final pageTop = tester.getTopLeft(secondPage);
+    final localWordPosition = Offset(line.rect.left + 6, line.rect.center.dy);
+    await tester.longPressAt(pageTop + localWordPosition);
+    await tester.pumpAndSettle();
+
+    final layer = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
+    expect(layer.pageIndex, 1);
+
+    final hit = TextHitTester.hitTest(source.pages[1], localWordPosition);
+    expect(hit, isNotNull);
+    final expectedQuote = SelectionOps.textOf(
+      source.pages[1],
+      SelectionOps.wordAt(source.pages[1], hit!),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-note')),
+    );
+    await tester.pumpAndSettle();
+    final composer = tester.widget<ReaderNoteComposerSheet>(
+      find.byType(ReaderNoteComposerSheet),
+    );
+    expect(composer.quote, expectedQuote);
+  });
+
+  testWidgets('连续滚动用户滚动时取消选区', (tester) async {
+    tester.view.physicalSize = const Size(800, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final source = _Source(text: 'word ' * 160);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: _Notes(),
+            bookId: 'scroll-hide-selection-menu',
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+            pageTurnMode: PageTurnMode.scroll,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final firstPage = find.byKey(const ValueKey<String>('scroll-page-0-0'));
+    final line = TextHitTester.lineBoxes(source.pages.first)[2];
+    await tester.longPressAt(
+      tester.getTopLeft(firstPage) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsOneWidget,
+    );
+
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
   });
 }
