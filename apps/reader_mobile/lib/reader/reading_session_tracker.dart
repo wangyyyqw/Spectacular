@@ -62,18 +62,20 @@ class ReadingSessionTracker {
     if (endedAt.difference(startedAt) < minimumDuration) {
       return _pending;
     }
-    _pending = _pending.then<void>(
-      (_) => store.add(
-        bookId: bookId,
-        startedAt: startedAt,
-        endedAt: endedAt,
-        pageTurns: pageTurns,
-        charactersRead: charactersRead,
-      ),
-      onError: (Object error, StackTrace stack) {
+    _pending = _pending.then<void>((_) async {
+      try {
+        await store.add(
+          bookId: bookId,
+          startedAt: startedAt,
+          endedAt: endedAt,
+          pageTurns: pageTurns,
+          charactersRead: charactersRead,
+        );
+      } catch (error) {
+        // 就地处理本段写失败，避免错误链跳过下一段或逸出生命周期回调。
         debugPrint('阅读时长记录失败：$error');
-      },
-    );
+      }
+    });
     return _pending;
   }
 
