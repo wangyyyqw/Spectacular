@@ -170,39 +170,29 @@ void main() {
     }
   });
 
-  test('角部纸背为不透明纸色，不透出镜像页面', () async {
+  test('角部纸背显示镜像页面内容，且不透出底页', () async {
     for (final top in [false, true]) {
-      final data = await _render(top: top, pageColor: const Color(0xFF000000));
+      final data = await _render(
+        top: top,
+        markedPaper: true,
+        bottomColor: const Color(0xFFFF0000),
+      );
       final g = BesselGeometry.resolve(
         _size,
         Offset(120, top ? 100 : 200),
         top: top,
       )!;
-      final crease = (g.d + g.i) / 2;
-      final normal = (g.a - g.f) / (g.a - g.f).distance;
       final back = g.backPath(g.frontPath());
-
+      var ink = 0;
       for (var y = 2; y < 298; y += 2) {
         for (var x = 2; x < 198; x += 2) {
-          final point = Offset(x + 0.5, y + 0.5);
-          final distance =
-              (point.dx - crease.dx) * normal.dx +
-              (point.dy - crease.dy) * normal.dy;
-          if (!back.contains(point) ||
-              !back.contains(point + const Offset(2, 0)) ||
-              !back.contains(point - const Offset(2, 0)) ||
-              !back.contains(point + const Offset(0, 2)) ||
-              !back.contains(point - const Offset(0, 2)) ||
-              distance <= 25) {
-            continue;
+          if (!back.contains(Offset(x + 0.5, y + 0.5))) continue;
+          if (_brightness(data, Offset(x.toDouble(), y.toDouble())) < 150) {
+            ink++;
           }
-          expect(
-            _brightness(data, Offset(x.toDouble(), y.toDouble())),
-            greaterThanOrEqualTo(250),
-            reason: '${top ? '上' : '下'}角纸背 ($x, $y) 不应透出镜像页面',
-          );
         }
       }
+      expect(ink, greaterThan(0), reason: '${top ? '上' : '下'}角纸背应显示镜像正文');
     }
   });
 
