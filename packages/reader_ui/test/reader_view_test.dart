@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/tap_zones.dart';
@@ -97,6 +98,7 @@ void main() {
       ReaderTapZones tapZones = ReaderTapZones.defaults,
       bool Function(Offset position)? onTapAt,
       ValueChanged<DragStartDetails>? onDragStart,
+      ValueChanged<Offset>? onDoubleTapAt,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -114,6 +116,7 @@ void main() {
                 onToggleToolbar: () => toolbar.value += 1,
                 onTapAt: onTapAt,
                 onDragStart: onDragStart,
+                onDoubleTapAt: onDoubleTapAt,
               ),
             ),
           ),
@@ -162,6 +165,54 @@ void main() {
       await tester.tapAt(origin + const Offset(299, 100));
       await tester.pump();
       expect(next.value, 1);
+    });
+
+    testWidgets('快速双击翻页区域按两次点击逐页翻页', (tester) async {
+      final previous = ValueNotifier<int>(0);
+      final next = ValueNotifier<int>(0);
+      final toolbar = ValueNotifier<int>(0);
+      var selected = 0;
+      await pumpView(
+        tester,
+        pageIndex: 1,
+        previous: previous,
+        next: next,
+        toolbar: toolbar,
+        onDoubleTapAt: (_) => selected++,
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      await tester.tapAt(origin + const Offset(270, 100));
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(origin + const Offset(270, 100));
+      await tester.pumpAndSettle();
+
+      expect(next.value, 2);
+      expect(selected, 0);
+    });
+
+    testWidgets('快速三击翻页区域按三次点击逐页翻页', (tester) async {
+      final previous = ValueNotifier<int>(0);
+      final next = ValueNotifier<int>(0);
+      final toolbar = ValueNotifier<int>(0);
+      var selected = 0;
+      await pumpView(
+        tester,
+        pageIndex: 1,
+        previous: previous,
+        next: next,
+        toolbar: toolbar,
+        onDoubleTapAt: (_) => selected++,
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      await tester.tapAt(origin + const Offset(270, 100));
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(origin + const Offset(270, 100));
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(origin + const Offset(270, 100));
+      await tester.pumpAndSettle();
+
+      expect(next.value, 3);
+      expect(selected, 0);
     });
 
     testWidgets('单击回调消费手势后不再翻页或打开工具栏', (tester) async {

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'tap_zones.dart';
@@ -242,6 +245,10 @@ class _ReaderViewState extends State<ReaderView> {
   double _dragDy = 0;
   Offset? _lastTapPosition;
   DateTime? _doubleTapTime;
+  int? _rawPointer;
+  Offset? _rawDown;
+  double _rawDistance = 0;
+  bool _longPressTap = false;
 
   bool get _atFirst => widget.pageIndex != null && widget.pageIndex! <= 0;
 
@@ -270,6 +277,23 @@ class _ReaderViewState extends State<ReaderView> {
     }
   }
 
+  bool _handleRawTap(Offset position, Size size) {
+    final action = _interpreter.tapActionAt(position, size: size);
+    if (action != ReaderTapAction.previousPage &&
+        action != ReaderTapAction.nextPage) {
+      return false;
+    }
+    final consumed = widget.onTapAt?.call(position) ?? false;
+    if (consumed) return true;
+    _notify(_interpreter.tapAt(position, width: size.width));
+    _turn(
+      action == ReaderTapAction.nextPage
+          ? PageTurnIntent.next
+          : PageTurnIntent.previous,
+    );
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -277,33 +301,84 @@ class _ReaderViewState extends State<ReaderView> {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
         return Listener(
-          onPointerDown: widget.onPointerDown == null
-              ? null
-              : (event) => widget.onPointerDown!(event.localPosition),
+          onPointerDown: (event) {
+            _rawPointer = event.pointer;
+            _rawDown = event.localPosition;
+            _rawDistance = 0;
+            _longPressTap = false;
+            widget.onPointerDown?.call(event.localPosition);
+          },
+          onPointerMove: (event) {
+            if (event.pointer != _rawPointer || _rawDown == null) return;
+            final distance = (event.localPosition - _rawDown!).distance;
+            if (distance > _rawDistance) _rawDistance = distance;
+          },
+          onPointerUp: (event) {
+            if (event.pointer != _rawPointer) return;
+            final down = _rawDown;
+            final moved = _rawDistance > kTouchSlop;
+            final longPressed = _longPressTap;
+            _rawPointer = null;
+            _rawDown = null;
+            _rawDistance = 0;
+            _longPressTap = false;
+            if (down == null || moved || longPressed) return;
+            scheduleMicrotask(() {
+              if (mounted) _handleRawTap(down, Size(width, height));
+            });
+          },
+          onPointerCancel: (event) {
+            if (event.pointer != _rawPointer) return;
+            _rawPointer = null;
+            _rawDown = null;
+            _rawDistance = 0;
+            _longPressTap = false;
+          },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: (details) {
               _lastTapPosition = details.localPosition;
             },
+            onDoubleTapDown: widget.onDoubleTapAt == null
+                ? null
+                : (details) {
+                    _lastTapPosition = details.localPosition;
+                  },
             onDoubleTap: widget.onDoubleTapAt == null
                 ? null
                 : () {
                     _doubleTapTime = DateTime.now();
                     final position = _lastTapPosition;
-                    if (position != null) {
-                      widget.onDoubleTapAt!(position);
+                    if (position == null) return;
+                    final action = _interpreter.tapActionAt(
+                      position,
+                      size: Size(width, height),
+                    );
+                    if (action == ReaderTapAction.previousPage ||
+                        action == ReaderTapAction.nextPage) {
+                      return;
                     }
+                    widget.onDoubleTapAt!(position);
                   },
             onTapUp: (details) {
+              final action = _interpreter.tapActionAt(
+                details.localPosition,
+                size: Size(width, height),
+              );
+              if (action == ReaderTapAction.previousPage ||
+                  action == ReaderTapAction.nextPage) {
+                return;
+              }
               // 三击：双击后 350ms 内再落一次 → 选句（P4-16，§63.2）。
               final doubleTap = _doubleTapTime;
-              if (widget.onTripleTapAt != null &&
-                  doubleTap != null &&
+              if (doubleTap != null &&
                   DateTime.now().difference(doubleTap) <
                       const Duration(milliseconds: 350)) {
                 _doubleTapTime = null;
-                widget.onTripleTapAt!(details.localPosition);
-                return;
+                if (widget.onTripleTapAt != null) {
+                  widget.onTripleTapAt!(details.localPosition);
+                  return;
+                }
               }
               if (widget.onTapAt?.call(details.localPosition) ?? false) {
                 return;
@@ -313,10 +388,6 @@ class _ReaderViewState extends State<ReaderView> {
                 width: width,
               );
               _notify(gesture);
-              final action = _interpreter.tapActionAt(
-                details.localPosition,
-                size: Size(width, height),
-              );
               switch (action) {
                 case ReaderTapAction.previousPage:
                   _turn(PageTurnIntent.previous);
@@ -329,6 +400,7 @@ class _ReaderViewState extends State<ReaderView> {
               }
             },
             onLongPressStart: (details) {
+              _longPressTap = true;
               widget.onLongPressAt?.call(details.localPosition);
             },
             onHorizontalDragStart: (details) {

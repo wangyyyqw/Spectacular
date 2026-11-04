@@ -9,12 +9,16 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_session.dart';
 
 class _Source implements ReaderChapterSource {
+  _Source(this.pageCount);
+
+  final int pageCount;
+
   @override
   int get chapterCount => 1;
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async => [
-    for (var page = 0; page < 3; page++)
+    for (var page = 0; page < pageCount; page++)
       PageContent(
         spineIndex: spineIndex,
         pageIndex: page,
@@ -30,11 +34,12 @@ Future<PageTurnController> _controller(
   WidgetTester tester, {
   bool rtl = false,
   Future<void>? imageGate,
+  int pageCount = 3,
 }) async {
   final store = MemoryReaderProgressStore();
   await store.save('curl', const ReaderProgress(spineIndex: 0, pageIndex: 1));
   final session = ReaderSession(
-    source: _Source(),
+    source: _Source(pageCount),
     store: store,
     bookId: 'curl',
   );
@@ -271,6 +276,50 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.phase, PageTurnPhase.idle);
     expect(controller.session.progress!.pageIndex, 2);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('动画期间快速连续点击逐页排队翻页', (tester) async {
+    final controller = await _controller(tester, pageCount: 5);
+    controller.request(true);
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.settling);
+
+    controller
+      ..request(true)
+      ..request(true);
+    await tester.pumpAndSettle();
+
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 4);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('轻点翻页期间拖动手势取消不会清空翻页动画', (tester) async {
+    final controller = await _controller(tester);
+    controller.request(true);
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.settling);
+
+    controller.cancelDrag();
+    expect(controller.active, isTrue);
+
+    await tester.pumpAndSettle();
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 2);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('真实拖动取消仍会中止翻页', (tester) async {
+    final controller = await _controller(tester);
+    await _startDrag(tester, controller);
+    _move(controller, const ui.Offset(220, 240));
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.dragging);
+
+    controller.cancelDrag();
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 1);
     await controller.session.flushProgress();
   });
 
