@@ -117,6 +117,14 @@ void main() {
       find.byKey(const ValueKey<String>('settings-ink-theme-hint')),
       findsOneWidget,
     );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('settings-title')),
+          )
+          .data,
+      '主题',
+    );
     for (final key in <String>[
       'settings-theme-dark',
       'settings-bg-wood',
@@ -217,6 +225,14 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
     expect(opened, isTrue);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('settings-title')),
+          )
+          .data,
+      '设置',
+    );
   });
 
   testWidgets('设置段可切换翻页方式', (tester) async {
