@@ -4661,6 +4661,30 @@ class $ReadingSessionsTable extends ReadingSessions
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _pageTurnsMeta = const VerificationMeta(
+    'pageTurns',
+  );
+  @override
+  late final GeneratedColumn<int> pageTurns = GeneratedColumn<int>(
+    'page_turns',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _charactersReadMeta = const VerificationMeta(
+    'charactersRead',
+  );
+  @override
+  late final GeneratedColumn<int> charactersRead = GeneratedColumn<int>(
+    'characters_read',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -4668,6 +4692,8 @@ class $ReadingSessionsTable extends ReadingSessions
     startedAt,
     endedAt,
     durationMs,
+    pageTurns,
+    charactersRead,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4716,6 +4742,21 @@ class $ReadingSessionsTable extends ReadingSessions
     } else if (isInserting) {
       context.missing(_durationMsMeta);
     }
+    if (data.containsKey('page_turns')) {
+      context.handle(
+        _pageTurnsMeta,
+        pageTurns.isAcceptableOrUnknown(data['page_turns']!, _pageTurnsMeta),
+      );
+    }
+    if (data.containsKey('characters_read')) {
+      context.handle(
+        _charactersReadMeta,
+        charactersRead.isAcceptableOrUnknown(
+          data['characters_read']!,
+          _charactersReadMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -4745,6 +4786,14 @@ class $ReadingSessionsTable extends ReadingSessions
         DriftSqlType.int,
         data['${effectivePrefix}duration_ms'],
       )!,
+      pageTurns: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}page_turns'],
+      )!,
+      charactersRead: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}characters_read'],
+      )!,
     );
   }
 
@@ -4770,12 +4819,20 @@ class ReadingSessionRow extends DataClass
 
   /// 有效阅读时长（毫秒）。
   final int durationMs;
+
+  /// 本段阅读的翻页次数。
+  final int pageTurns;
+
+  /// 本段阅读翻过页面的非空白字符数。
+  final int charactersRead;
   const ReadingSessionRow({
     required this.id,
     required this.bookId,
     required this.startedAt,
     required this.endedAt,
     required this.durationMs,
+    required this.pageTurns,
+    required this.charactersRead,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4785,6 +4842,8 @@ class ReadingSessionRow extends DataClass
     map['started_at'] = Variable<int>(startedAt);
     map['ended_at'] = Variable<int>(endedAt);
     map['duration_ms'] = Variable<int>(durationMs);
+    map['page_turns'] = Variable<int>(pageTurns);
+    map['characters_read'] = Variable<int>(charactersRead);
     return map;
   }
 
@@ -4795,6 +4854,8 @@ class ReadingSessionRow extends DataClass
       startedAt: Value(startedAt),
       endedAt: Value(endedAt),
       durationMs: Value(durationMs),
+      pageTurns: Value(pageTurns),
+      charactersRead: Value(charactersRead),
     );
   }
 
@@ -4809,6 +4870,8 @@ class ReadingSessionRow extends DataClass
       startedAt: serializer.fromJson<int>(json['startedAt']),
       endedAt: serializer.fromJson<int>(json['endedAt']),
       durationMs: serializer.fromJson<int>(json['durationMs']),
+      pageTurns: serializer.fromJson<int>(json['pageTurns']),
+      charactersRead: serializer.fromJson<int>(json['charactersRead']),
     );
   }
   @override
@@ -4820,6 +4883,8 @@ class ReadingSessionRow extends DataClass
       'startedAt': serializer.toJson<int>(startedAt),
       'endedAt': serializer.toJson<int>(endedAt),
       'durationMs': serializer.toJson<int>(durationMs),
+      'pageTurns': serializer.toJson<int>(pageTurns),
+      'charactersRead': serializer.toJson<int>(charactersRead),
     };
   }
 
@@ -4829,12 +4894,16 @@ class ReadingSessionRow extends DataClass
     int? startedAt,
     int? endedAt,
     int? durationMs,
+    int? pageTurns,
+    int? charactersRead,
   }) => ReadingSessionRow(
     id: id ?? this.id,
     bookId: bookId ?? this.bookId,
     startedAt: startedAt ?? this.startedAt,
     endedAt: endedAt ?? this.endedAt,
     durationMs: durationMs ?? this.durationMs,
+    pageTurns: pageTurns ?? this.pageTurns,
+    charactersRead: charactersRead ?? this.charactersRead,
   );
   ReadingSessionRow copyWithCompanion(ReadingSessionsCompanion data) {
     return ReadingSessionRow(
@@ -4845,6 +4914,10 @@ class ReadingSessionRow extends DataClass
       durationMs: data.durationMs.present
           ? data.durationMs.value
           : this.durationMs,
+      pageTurns: data.pageTurns.present ? data.pageTurns.value : this.pageTurns,
+      charactersRead: data.charactersRead.present
+          ? data.charactersRead.value
+          : this.charactersRead,
     );
   }
 
@@ -4855,13 +4928,23 @@ class ReadingSessionRow extends DataClass
           ..write('bookId: $bookId, ')
           ..write('startedAt: $startedAt, ')
           ..write('endedAt: $endedAt, ')
-          ..write('durationMs: $durationMs')
+          ..write('durationMs: $durationMs, ')
+          ..write('pageTurns: $pageTurns, ')
+          ..write('charactersRead: $charactersRead')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, bookId, startedAt, endedAt, durationMs);
+  int get hashCode => Object.hash(
+    id,
+    bookId,
+    startedAt,
+    endedAt,
+    durationMs,
+    pageTurns,
+    charactersRead,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -4870,7 +4953,9 @@ class ReadingSessionRow extends DataClass
           other.bookId == this.bookId &&
           other.startedAt == this.startedAt &&
           other.endedAt == this.endedAt &&
-          other.durationMs == this.durationMs);
+          other.durationMs == this.durationMs &&
+          other.pageTurns == this.pageTurns &&
+          other.charactersRead == this.charactersRead);
 }
 
 class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
@@ -4879,12 +4964,16 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
   final Value<int> startedAt;
   final Value<int> endedAt;
   final Value<int> durationMs;
+  final Value<int> pageTurns;
+  final Value<int> charactersRead;
   const ReadingSessionsCompanion({
     this.id = const Value.absent(),
     this.bookId = const Value.absent(),
     this.startedAt = const Value.absent(),
     this.endedAt = const Value.absent(),
     this.durationMs = const Value.absent(),
+    this.pageTurns = const Value.absent(),
+    this.charactersRead = const Value.absent(),
   });
   ReadingSessionsCompanion.insert({
     this.id = const Value.absent(),
@@ -4892,6 +4981,8 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
     required int startedAt,
     required int endedAt,
     required int durationMs,
+    this.pageTurns = const Value.absent(),
+    this.charactersRead = const Value.absent(),
   }) : bookId = Value(bookId),
        startedAt = Value(startedAt),
        endedAt = Value(endedAt),
@@ -4902,6 +4993,8 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
     Expression<int>? startedAt,
     Expression<int>? endedAt,
     Expression<int>? durationMs,
+    Expression<int>? pageTurns,
+    Expression<int>? charactersRead,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -4909,6 +5002,8 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
       if (startedAt != null) 'started_at': startedAt,
       if (endedAt != null) 'ended_at': endedAt,
       if (durationMs != null) 'duration_ms': durationMs,
+      if (pageTurns != null) 'page_turns': pageTurns,
+      if (charactersRead != null) 'characters_read': charactersRead,
     });
   }
 
@@ -4918,6 +5013,8 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
     Value<int>? startedAt,
     Value<int>? endedAt,
     Value<int>? durationMs,
+    Value<int>? pageTurns,
+    Value<int>? charactersRead,
   }) {
     return ReadingSessionsCompanion(
       id: id ?? this.id,
@@ -4925,6 +5022,8 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
       startedAt: startedAt ?? this.startedAt,
       endedAt: endedAt ?? this.endedAt,
       durationMs: durationMs ?? this.durationMs,
+      pageTurns: pageTurns ?? this.pageTurns,
+      charactersRead: charactersRead ?? this.charactersRead,
     );
   }
 
@@ -4946,6 +5045,12 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
     if (durationMs.present) {
       map['duration_ms'] = Variable<int>(durationMs.value);
     }
+    if (pageTurns.present) {
+      map['page_turns'] = Variable<int>(pageTurns.value);
+    }
+    if (charactersRead.present) {
+      map['characters_read'] = Variable<int>(charactersRead.value);
+    }
     return map;
   }
 
@@ -4956,7 +5061,9 @@ class ReadingSessionsCompanion extends UpdateCompanion<ReadingSessionRow> {
           ..write('bookId: $bookId, ')
           ..write('startedAt: $startedAt, ')
           ..write('endedAt: $endedAt, ')
-          ..write('durationMs: $durationMs')
+          ..write('durationMs: $durationMs, ')
+          ..write('pageTurns: $pageTurns, ')
+          ..write('charactersRead: $charactersRead')
           ..write(')'))
         .toString();
   }
@@ -9816,6 +9923,8 @@ typedef $$ReadingSessionsTableCreateCompanionBuilder =
       required int startedAt,
       required int endedAt,
       required int durationMs,
+      Value<int> pageTurns,
+      Value<int> charactersRead,
     });
 typedef $$ReadingSessionsTableUpdateCompanionBuilder =
     ReadingSessionsCompanion Function({
@@ -9824,6 +9933,8 @@ typedef $$ReadingSessionsTableUpdateCompanionBuilder =
       Value<int> startedAt,
       Value<int> endedAt,
       Value<int> durationMs,
+      Value<int> pageTurns,
+      Value<int> charactersRead,
     });
 
 final class $$ReadingSessionsTableReferences
@@ -9886,6 +9997,16 @@ class $$ReadingSessionsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get pageTurns => $composableBuilder(
+    column: $table.pageTurns,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get charactersRead => $composableBuilder(
+    column: $table.charactersRead,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$BooksTableFilterComposer get bookId {
     final $$BooksTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -9939,6 +10060,16 @@ class $$ReadingSessionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get pageTurns => $composableBuilder(
+    column: $table.pageTurns,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get charactersRead => $composableBuilder(
+    column: $table.charactersRead,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$BooksTableOrderingComposer get bookId {
     final $$BooksTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -9983,6 +10114,14 @@ class $$ReadingSessionsTableAnnotationComposer
 
   GeneratedColumn<int> get durationMs => $composableBuilder(
     column: $table.durationMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get pageTurns =>
+      $composableBuilder(column: $table.pageTurns, builder: (column) => column);
+
+  GeneratedColumn<int> get charactersRead => $composableBuilder(
+    column: $table.charactersRead,
     builder: (column) => column,
   );
 
@@ -10045,12 +10184,16 @@ class $$ReadingSessionsTableTableManager
                 Value<int> startedAt = const Value.absent(),
                 Value<int> endedAt = const Value.absent(),
                 Value<int> durationMs = const Value.absent(),
+                Value<int> pageTurns = const Value.absent(),
+                Value<int> charactersRead = const Value.absent(),
               }) => ReadingSessionsCompanion(
                 id: id,
                 bookId: bookId,
                 startedAt: startedAt,
                 endedAt: endedAt,
                 durationMs: durationMs,
+                pageTurns: pageTurns,
+                charactersRead: charactersRead,
               ),
           createCompanionCallback:
               ({
@@ -10059,12 +10202,16 @@ class $$ReadingSessionsTableTableManager
                 required int startedAt,
                 required int endedAt,
                 required int durationMs,
+                Value<int> pageTurns = const Value.absent(),
+                Value<int> charactersRead = const Value.absent(),
               }) => ReadingSessionsCompanion.insert(
                 id: id,
                 bookId: bookId,
                 startedAt: startedAt,
                 endedAt: endedAt,
                 durationMs: durationMs,
+                pageTurns: pageTurns,
+                charactersRead: charactersRead,
               ),
           withReferenceMapper: (p0) => p0
               .map(

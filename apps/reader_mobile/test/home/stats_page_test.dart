@@ -56,6 +56,8 @@ class _FakeSessionStore implements ReadingSessionStore {
     required String bookId,
     required DateTime startedAt,
     required DateTime endedAt,
+    int pageTurns = 0,
+    int charactersRead = 0,
   }) async {}
 
   @override
@@ -282,18 +284,24 @@ void main() {
         startedAt: today.add(const Duration(hours: 9)),
         endedAt: today.add(const Duration(hours: 9, minutes: 12)),
         duration: const Duration(minutes: 12),
+        pageTurns: 12,
+        charactersRead: 400,
       ),
       ReadingSession(
         bookId: 'a',
         startedAt: DateTime(today.year, today.month, today.day - 1, 9),
         endedAt: DateTime(today.year, today.month, today.day - 1, 9, 30),
         duration: const Duration(minutes: 30),
+        pageTurns: 8,
+        charactersRead: 300,
       ),
       ReadingSession(
         bookId: 'b',
         startedAt: DateTime(today.year, today.month, today.day - 10, 9),
         endedAt: DateTime(today.year, today.month, today.day - 10, 9, 45),
         duration: const Duration(minutes: 45),
+        pageTurns: 5,
+        charactersRead: 200,
       ),
     ];
     final library = _FakeLibrary([
@@ -334,6 +342,20 @@ void main() {
           )
           .data,
       '累计 1 小时 27 分',
+    );
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey<String>('stats-page-turns')))
+          .data,
+      '25',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-characters-read')),
+          )
+          .data,
+      '900',
     );
     expect(find.text('近7天阅读'), findsOneWidget);
     expect(

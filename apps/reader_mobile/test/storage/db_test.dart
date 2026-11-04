@@ -66,6 +66,32 @@ Future<List<String>> _v1Schema() async {
   return sql;
 }
 
+/// 从当前 schema 还原 v10 建表语句：去掉阅读会话的翻页与字数列。
+Future<List<String>> _v10Schema() async {
+  final database = AppDatabase(NativeDatabase.memory());
+  await database.warmUp();
+  final rows = await database
+      .customSelect(
+        'SELECT sql FROM sqlite_master WHERE sql IS NOT NULL '
+        "AND type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
+      )
+      .get();
+  final sql = <String>[
+    for (final row in rows)
+      row
+          .read<String>('sql')
+          .replaceAll(
+            RegExp(
+              r',\s*"?(page_turns|characters_read)"?\s+INTEGER'
+              r'(\s+NOT NULL)?(\s+DEFAULT\s+0)?',
+            ),
+            '',
+          ),
+  ];
+  await database.close();
+  return sql;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -122,7 +148,7 @@ void main() {
           .customSelect('PRAGMA user_version')
           .getSingle()
           .then((row) => row.read<int>('user_version')),
-      10,
+      11,
     );
   });
 
@@ -217,7 +243,7 @@ void main() {
     expect(await database.select(database.readingSessions).get(), isEmpty);
   });
 
-  test('v1→v10 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组与标签', () async {
+  test('v1→v11 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组、标签与阅读统计', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -236,7 +262,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 10, reason: 'schema 已升到 v10');
+    expect(version.read<int>('user_version'), 11, reason: 'schema 已升到 v11');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
@@ -286,7 +312,16 @@ void main() {
             durationMs: 60,
           ),
         );
-    expect((await database.select(database.readingSessions).get()).length, 1);
+    final sessions = await database.select(database.readingSessions).get();
+    expect(sessions, hasLength(1));
+    expect(sessions.single.pageTurns, 0);
+    expect(sessions.single.charactersRead, 0);
+    final sessionColumns = await database
+        .customSelect('PRAGMA table_info(reading_sessions)')
+        .get();
+    expect(<String>{
+      for (final row in sessionColumns) row.read<String>('name'),
+    }, containsAll(<String>['page_turns', 'characters_read']));
 
     // 搜索改为扫描式后，旧的倒排索引两张表不再创建。
     final tables = await database
@@ -302,6 +337,36 @@ void main() {
     expect(tableNames, containsAll(<String>['book_tags', 'book_tag_links']));
     expect(tableNames, isNot(contains('chapter_text')));
     expect(tableNames, isNot(contains('search_grams')));
+  });
+
+  test('v10→v11 迁移：旧阅读会话保留数据并补默认统计列', () async {
+    final raw = sqlite.sqlite3.openInMemory();
+    for (final statement in await _v10Schema()) {
+      raw.execute(statement);
+    }
+    raw.execute('PRAGMA user_version = 10');
+    raw.execute(
+      'INSERT INTO books (uuid, title, content_dir, created_at, '
+      'spine_count, char_count, layout_version, level) '
+      "VALUES ('urn:uuid:v10', 'v10 书', 'books/v10/content', 1, 1, 100, 0, 0)",
+    );
+    final bookId = raw.lastInsertRowId;
+    raw.execute(
+      'INSERT INTO reading_sessions '
+      '(book_id, started_at, ended_at, duration_ms) VALUES (?, ?, ?, ?)',
+      <Object?>[bookId, 1, 60001, 60000],
+    );
+
+    final database = AppDatabase(NativeDatabase.opened(raw));
+    await database.warmUp();
+    addTearDown(database.close);
+
+    final session =
+        (await database.select(database.readingSessions).get()).single;
+    expect(session.bookId, bookId);
+    expect(session.durationMs, 60000);
+    expect(session.pageTurns, 0);
+    expect(session.charactersRead, 0);
   });
 
   test('并发写入不锁超时', () async {

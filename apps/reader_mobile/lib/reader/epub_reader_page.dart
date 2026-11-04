@@ -84,6 +84,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   ScanSearchService? _search;
   DecodedImageCache? _imageCache;
   ReadingSessionTracker? _readingTracker;
+  ReaderSession? _readerSession;
+  int _trackedPageTurns = 0;
+  int _trackedCharactersRead = 0;
   Object? _error;
   bool _loading = true;
 
@@ -182,6 +185,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   @override
   void dispose() {
+    _readerSession?.removeListener(_syncReadingStats);
+    _readerSession = null;
     if (_readingTracker != null) {
       WidgetsBinding.instance.removeObserver(this);
       unawaited(_readingTracker!.finish());
@@ -253,12 +258,36 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       pageTurnMode: settings.pageTurnMode,
       onPageTurnModeChanged: (mode) =>
           widget.onSettingsChanged?.call(settings.copyWithPageTurnMode(mode)),
+      onSessionReady: _bindReaderSession,
       onLog: (event, fields) => unawaited(
         ReaderLog.instance.log(event, fields: fields),
       ),
       onResolveSearchCfi: _resolveSearchCfi,
       onSearchStream: _searchStream,
     );
+  }
+
+  void _bindReaderSession(ReaderSession session) {
+    _readerSession?.removeListener(_syncReadingStats);
+    _readerSession = session;
+    _trackedPageTurns = session.pageTurns;
+    _trackedCharactersRead = session.charactersRead;
+    session.addListener(_syncReadingStats);
+  }
+
+  void _syncReadingStats() {
+    final session = _readerSession;
+    if (session == null) {
+      return;
+    }
+    final pageTurns = session.pageTurns - _trackedPageTurns;
+    final characters = session.charactersRead - _trackedCharactersRead;
+    if (pageTurns <= 0 && characters <= 0) {
+      return;
+    }
+    _trackedPageTurns = session.pageTurns;
+    _trackedCharactersRead = session.charactersRead;
+    _readingTracker?.recordPageTurn(count: pageTurns, characters: characters);
   }
 
   Future<List<SearchPanelResult>> _searchResults(String query) async => [

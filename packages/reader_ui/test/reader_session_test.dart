@@ -246,7 +246,11 @@ void main() {
     );
     await session.open();
 
+    expect(session.pageTurns, 0);
+    expect(session.charactersRead, 0);
     expect(await session.commitScrollPosition(1, 1, 42.5), isTrue);
+    expect(session.pageTurns, 1);
+    expect(session.charactersRead, 6);
     await session.flushProgress();
     expect(
       await session.store.load('scroll-sync'),
@@ -325,6 +329,8 @@ void main() {
     );
     await session.open();
     final origin = session.page;
+    expect(session.pageTurns, 0);
+    expect(session.charactersRead, 0);
     final prepared = await session.preparePageTurn(true);
 
     expect(prepared, isNotNull);
@@ -333,8 +339,34 @@ void main() {
 
     expect(session.commitPageTurn(prepared!), isTrue);
     expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 1));
+    expect(session.pageTurns, 1);
+    expect(session.charactersRead, 6);
     expect(session.commitPageTurn(prepared), isFalse);
+    expect(session.pageTurns, 1);
+    expect(session.charactersRead, 6);
     session.dispose();
+  });
+
+  test('目录跳转不计翻页，连续滚动跨页计一次', () async {
+    final session = ReaderSession(
+      source: FakeSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'count-turns',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+
+    expect(await session.next(), isTrue);
+    expect(session.pageTurns, 1);
+    expect(await session.jumpToChapter(5), isTrue);
+    expect(session.pageTurns, 1);
+
+    expect(await session.commitScrollPosition(5, 1, 0), isTrue);
+    expect(session.pageTurns, 2);
+    expect(await session.commitScrollPosition(5, 1, 24), isTrue);
+    expect(session.pageTurns, 2, reason: '同一页内滚动不算翻页');
+    expect(await session.commitScrollPosition(5, 0, 0), isTrue);
+    expect(session.pageTurns, 3);
   });
 
   test('外部跳转后丢弃旧翻页准备结果', () async {

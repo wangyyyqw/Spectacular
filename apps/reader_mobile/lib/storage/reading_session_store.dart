@@ -9,6 +9,8 @@ class ReadingSession {
     required this.startedAt,
     required this.endedAt,
     required this.duration,
+    this.pageTurns = 0,
+    this.charactersRead = 0,
   });
 
   /// 书籍 uuid。
@@ -22,6 +24,12 @@ class ReadingSession {
 
   /// 有效阅读时长。
   final Duration duration;
+
+  /// 本段阅读完成的翻页次数。
+  final int pageTurns;
+
+  /// 本段阅读翻过页面的非空白字符数。
+  final int charactersRead;
 }
 
 /// 阅读会话存储接口，便于统计页与测试替换实现。
@@ -31,6 +39,8 @@ abstract interface class ReadingSessionStore {
     required String bookId,
     required DateTime startedAt,
     required DateTime endedAt,
+    int pageTurns = 0,
+    int charactersRead = 0,
   });
 
   /// 全部会话，按开始时间升序。
@@ -49,6 +59,8 @@ class DriftReadingSessionStore implements ReadingSessionStore {
     required String bookId,
     required DateTime startedAt,
     required DateTime endedAt,
+    int pageTurns = 0,
+    int charactersRead = 0,
   }) async {
     final duration = endedAt.difference(startedAt);
     if (duration <= Duration.zero) {
@@ -66,6 +78,8 @@ class DriftReadingSessionStore implements ReadingSessionStore {
             startedAt: startedAt.millisecondsSinceEpoch,
             endedAt: endedAt.millisecondsSinceEpoch,
             durationMs: duration.inMilliseconds,
+            pageTurns: Value<int>(pageTurns < 0 ? 0 : pageTurns),
+            charactersRead: Value<int>(charactersRead < 0 ? 0 : charactersRead),
           ),
         );
   }
@@ -94,6 +108,8 @@ class DriftReadingSessionStore implements ReadingSessionStore {
             startedAt: DateTime.fromMillisecondsSinceEpoch(row.startedAt),
             endedAt: DateTime.fromMillisecondsSinceEpoch(row.endedAt),
             duration: Duration(milliseconds: row.durationMs),
+            pageTurns: row.pageTurns,
+            charactersRead: row.charactersRead,
           ),
     ];
   }
