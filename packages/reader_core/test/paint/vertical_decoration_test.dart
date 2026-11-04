@@ -30,36 +30,13 @@ ComputedStyle _style(Map<String, String> overrides) =>
       ...overrides,
     });
 
-Future<({ByteData bytes, TextLayoutResult layout})> _render(
-  ComputedStyle style,
-  String text, {
-  double maxWidth = 200,
-  bool alignVerticalRight = false,
-}) async {
-  var layout = TextLayoutEngine.layout(
+Future<({ByteData bytes, TextLayoutResult layout, double columnOffset})>
+_render(ComputedStyle style, String text, {double maxWidth = 200}) async {
+  final layout = TextLayoutEngine.layout(
     text: text,
     style: style,
     maxWidth: maxWidth,
   );
-  if (alignVerticalRight && layout.isVertical) {
-    final shift = maxWidth - layout.width;
-    layout = TextLayoutResult(
-      text: layout.text,
-      lines: [
-        for (final line in layout.lines)
-          line.copyWith(
-            columnX: (line.columnX ?? 0) + shift,
-            offsetX: line.offsetX + shift,
-          ),
-      ],
-      width: layout.width,
-      height: layout.height,
-      maxWidth: layout.maxWidth,
-      runs: layout.runs,
-      isRtl: layout.isRtl,
-      writingMode: layout.writingMode,
-    );
-  }
   final page = Paginator(pageHeight: _height.toDouble())
       .measureChapter(
         blocks: [
@@ -72,6 +49,7 @@ Future<({ByteData bytes, TextLayoutResult layout})> _render(
       )
       .pages
       .single;
+  final columnOffset = page.slices.single.block.verticalColumnOffset;
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   PagePainter(
@@ -80,7 +58,7 @@ Future<({ByteData bytes, TextLayoutResult layout})> _render(
   final image = await recorder.endRecording().toImage(_width, _height);
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
-  return (bytes: data!, layout: layout);
+  return (bytes: data!, layout: layout, columnOffset: columnOffset);
 }
 
 int _ch(ByteData b, int x, int y, int c) =>
@@ -123,7 +101,7 @@ void main() {
     });
     final result = await _render(style, '一二');
     final column = result.layout.lines.first;
-    final columnLeft = column.columnX ?? 0;
+    final columnLeft = result.columnOffset + (column.columnX ?? 0);
     final columnWidth = column.width;
     final dots = _pixels(result.bytes, _isRed);
     expect(dots, isNotEmpty, reason: '应画出着重号');
@@ -170,7 +148,8 @@ void main() {
       'text-emphasis-color': '#ff0000',
     });
     final result = await _render(style, '一二');
-    final columnLeft = result.layout.lines.first.columnX ?? 0;
+    final columnLeft =
+        result.columnOffset + (result.layout.lines.first.columnX ?? 0);
     final columnWidth = result.layout.lines.first.width;
     final dots = _pixels(result.bytes, _isRed);
     expect(dots, isNotEmpty, reason: '应画出着重号');
@@ -189,7 +168,8 @@ void main() {
       'text-decoration-color': '#0000ff',
     });
     final result = await _render(style, '甲乙丙');
-    final columnLeft = result.layout.lines.first.columnX ?? 0;
+    final columnLeft =
+        result.columnOffset + (result.layout.lines.first.columnX ?? 0);
     final columnWidth = result.layout.lines.first.width;
     final blue = _pixels(result.bytes, _isBlue);
     expect(blue, isNotEmpty, reason: '应画出下划线');
@@ -215,7 +195,8 @@ void main() {
       'text-decoration-color': '#00aa00',
     });
     final result = await _render(style, '丁戊');
-    final columnLeft = result.layout.lines.first.columnX ?? 0;
+    final columnLeft =
+        result.columnOffset + (result.layout.lines.first.columnX ?? 0);
     final columnWidth = result.layout.lines.first.width;
     final green = _pixels(
       result.bytes,
@@ -235,15 +216,11 @@ void main() {
       'overflow': 'hidden',
       'text-overflow': 'ellipsis',
     });
-    final result = await _render(
-      style,
-      '甲乙丙丁',
-      maxWidth: 54,
-      alignVerticalRight: true,
-    );
+    final result = await _render(style, '甲乙丙丁', maxWidth: 54);
 
     expect(result.layout.width, lessThan(54), reason: '实际列带窄于声明宽');
-    final columnLeft = result.layout.lines.first.columnX ?? 0;
+    final columnLeft =
+        result.columnOffset + (result.layout.lines.first.columnX ?? 0);
     expect(
       columnLeft,
       greaterThan(result.layout.width),
@@ -321,20 +298,24 @@ void main() {
       return data;
     }
 
+    final style = _style(const {});
     final layout = TextLayoutEngine.layout(
       text: '漢文',
-      style: _style(const {}),
+      style: style,
       maxWidth: _width.toDouble(),
     );
-    final columnLeft = layout.lines.first.columnX ?? 0;
+    final columnLeft =
+        _width - layout.width + (layout.lines.first.columnX ?? 0);
     final columnWidth = layout.lines.first.width;
     final withRuby = await render(withRuby: true);
     final plain = await render(withRuby: false);
-    // 列左侧之外（含列右缘附近）多出来的墨迹只可能来自注音。
+    // vertical-rl 最后一列贴右缘时，右侧仍有半列注音可见；与无注音渲染
+    // 比较该条带内的额外墨迹即可确认注音画在列右侧。
     int inkRight(ByteData b) {
       var count = 0;
+      final rubyStart = columnLeft + columnWidth - style.fontSize * 0.25;
       for (var y = 0; y < 120; y++) {
-        for (var x = (columnLeft + columnWidth + 1).toInt(); x < _width; x++) {
+        for (var x = rubyStart.toInt(); x < _width; x++) {
           // 任意通道明显偏离白底即算墨迹（注音/文字可能是彩色）。
           if (_ch(b, x, y, 0) < 220 ||
               _ch(b, x, y, 1) < 220 ||
@@ -351,7 +332,7 @@ void main() {
     expect(
       rubyInk,
       greaterThan(plainInk + 3),
-      reason: '注音应越出列右缘（注音 $rubyInk vs 无注音 $plainInk）',
+      reason: '注音应画在列右侧（注音 $rubyInk vs 无注音 $plainInk）',
     );
   });
 }

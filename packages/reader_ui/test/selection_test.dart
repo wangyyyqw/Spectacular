@@ -38,6 +38,39 @@ PageContent _page(String text, {double maxWidth = 160}) {
   );
 }
 
+PageContent _verticalPage(String text, {double contentWidth = 300}) {
+  final style = ComputedStyle(const <String, String>{
+    'font-size': '16px',
+    'line-height': '1.5',
+    'font-family': 'Ahem',
+    'writing-mode': 'vertical-rl',
+  });
+  final layout = TextLayoutEngine.layout(
+    text: text,
+    style: style,
+    maxWidth: contentWidth,
+  );
+  final block = PageBlock.styled(
+    layout: layout,
+    style: style,
+    containingWidth: contentWidth,
+  );
+  final slice = PageBlockSlice(
+    block: block,
+    startLine: 0,
+    endLine: layout.lineCount,
+    height: layout.height,
+  );
+  return PageContent(
+    spineIndex: 0,
+    pageIndex: 0,
+    slices: <PageBlockSlice>[slice],
+    usedHeight: layout.height,
+    pageHeight: 400,
+    topPadding: 8,
+  );
+}
+
 void main() {
   group('选区归一与几何（P4-15）', () {
     test('normalized 保证起点在前', () {
@@ -53,7 +86,10 @@ void main() {
       )!;
       final forward = ReaderSelection.normalized(hitA, hitB);
       final backward = ReaderSelection.normalized(hitB, hitA);
-      expect(forward.start.charOffset, lessThanOrEqualTo(forward.end.charOffset));
+      expect(
+        forward.start.charOffset,
+        lessThanOrEqualTo(forward.end.charOffset),
+      );
       expect(backward.start.charOffset, forward.start.charOffset);
       expect(backward.end.charOffset, forward.end.charOffset);
     });
@@ -63,8 +99,10 @@ void main() {
       final boxes = TextHitTester.lineBoxes(page);
       final hit = TextHitTester.hitTest(
         page,
-        Offset(boxes.first.rect.left + boxes.first.rect.width * 0.45,
-            boxes.first.rect.center.dy),
+        Offset(
+          boxes.first.rect.left + boxes.first.rect.width * 0.45,
+          boxes.first.rect.center.dy,
+        ),
       )!;
       final selection = SelectionOps.wordAt(page, hit);
       expect(selection.start.charOffset, lessThan(selection.end.charOffset));
@@ -109,7 +147,10 @@ void main() {
       expect(geometry.lineRects.length, greaterThanOrEqualTo(2));
       expect(geometry.startHandle.dy, boxes.first.rect.top);
       expect(geometry.endHandle.dy, boxes[1].rect.bottom);
-      expect(geometry.startHandle.dx, lessThanOrEqualTo(geometry.endHandle.dx + 200));
+      expect(
+        geometry.startHandle.dx,
+        lessThanOrEqualTo(geometry.endHandle.dx + 200),
+      );
     });
 
     test('charAt 越界坐标钳制到页内', () {
@@ -117,6 +158,29 @@ void main() {
       final hit = SelectionOps.charAt(page, const Offset(-500, -500));
       expect(hit.charOffset, 0);
       expect(hit.lineIndex, 0);
+    });
+
+    test('竖排选区沿列纵向展开，手柄落在列首尾', () {
+      final page = _verticalPage('天地玄黄');
+      final box = TextHitTester.lineBoxes(page).single;
+      final start = TextHitTester.hitTest(
+        page,
+        Offset(box.rect.center.dx, box.rect.top + 1),
+      )!;
+      final end = TextHitTester.hitTest(
+        page,
+        Offset(box.rect.center.dx, box.rect.bottom - 1),
+      )!;
+      final selection = ReaderSelection.normalized(start, end);
+      final geometry = SelectionOps.geometryOf(page, selection);
+
+      expect(geometry.lineRects, hasLength(1));
+      final rect = geometry.lineRects.single;
+      expect(rect.width, closeTo(box.rect.width, 0.01));
+      expect(rect.top, box.rect.top);
+      expect(rect.bottom, greaterThan(box.rect.top + box.rect.height * 0.5));
+      expect(geometry.startHandle.dy, box.rect.top);
+      expect(geometry.endHandle.dy, box.rect.bottom);
     });
   });
 
@@ -138,10 +202,14 @@ void main() {
       final boxes = TextHitTester.lineBoxes(page);
       expect(boxes.length, greaterThanOrEqualTo(2));
       final selection = ReaderSelection.normalized(
-        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 1,
-            boxes.first.rect.center.dy))!,
-        TextHitTester.hitTest(page, Offset(boxes[1].rect.left + 40,
-            boxes[1].rect.center.dy))!,
+        TextHitTester.hitTest(
+          page,
+          Offset(boxes.first.rect.left + 1, boxes.first.rect.center.dy),
+        )!,
+        TextHitTester.hitTest(
+          page,
+          Offset(boxes[1].rect.left + 40, boxes[1].rect.center.dy),
+        )!,
       );
       final text = SelectionOps.textOf(page, selection);
       expect(text.length, greaterThan(boxes.first.text.length));
@@ -152,10 +220,14 @@ void main() {
       final page = _page('abcdefghij');
       final boxes = TextHitTester.lineBoxes(page);
       final selection = ReaderSelection.normalized(
-        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 10,
-            boxes.first.rect.center.dy))!,
-        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 60,
-            boxes.first.rect.center.dy))!,
+        TextHitTester.hitTest(
+          page,
+          Offset(boxes.first.rect.left + 10, boxes.first.rect.center.dy),
+        )!,
+        TextHitTester.hitTest(
+          page,
+          Offset(boxes.first.rect.left + 60, boxes.first.rect.center.dy),
+        )!,
       );
       final anchor = SelectionOps.boundsOf(page, selection);
       var copied = false;
@@ -181,18 +253,44 @@ void main() {
           ),
         ),
       );
-      expect(find.byKey(const ValueKey<String>('selection-menu')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey<String>('selection-action-copy')));
+      expect(
+        find.byKey(const ValueKey<String>('selection-menu')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('selection-action-copy')),
+      );
       expect(copied, isTrue);
 
       // 菜单不遮挡选区（上方空间不足时翻到下方）。
       final menuRect = tester.getRect(
         find.byKey(const ValueKey<String>('selection-menu')),
       );
+      expect(menuRect.overlaps(anchor), isFalse, reason: '菜单不得覆盖选区');
+    });
+
+    testWidgets('选区完全离开视口时不显示浮动菜单', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                SelectionMenu(
+                  actions: <SelectionAction>[
+                    SelectionAction(id: 'copy', label: '复制', onTap: () {}),
+                  ],
+                  anchor: const Rect.fromLTWH(20, -40, 100, 20),
+                  bounds: const Size(300, 400),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
       expect(
-        menuRect.overlaps(anchor),
-        isFalse,
-        reason: '菜单不得覆盖选区',
+        find.byKey(const ValueKey<String>('selection-menu')),
+        findsNothing,
       );
     });
   });
@@ -317,10 +415,14 @@ void main() {
       final page = _page('0123456789abcdefghij');
       final boxes = TextHitTester.lineBoxes(page);
       var selection = ReaderSelection.normalized(
-        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 2,
-            boxes.first.rect.center.dy))!,
-        TextHitTester.hitTest(page, Offset(boxes.first.rect.left + 40,
-            boxes.first.rect.center.dy))!,
+        TextHitTester.hitTest(
+          page,
+          Offset(boxes.first.rect.left + 2, boxes.first.rect.center.dy),
+        )!,
+        TextHitTester.hitTest(
+          page,
+          Offset(boxes.first.rect.left + 40, boxes.first.rect.center.dy),
+        )!,
       );
       await tester.pumpWidget(
         MaterialApp(

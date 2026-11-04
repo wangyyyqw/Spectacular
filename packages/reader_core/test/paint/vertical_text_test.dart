@@ -56,11 +56,9 @@ Future<({ByteData bytes, TextLayoutResult layout})> _render(
       .single;
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  PagePainter(background: const Color(0xFFFFFFFF)).paint(
-    canvas,
-    page,
-    pageSize: Size(_width.toDouble(), _height.toDouble()),
-  );
+  PagePainter(
+    background: const Color(0xFFFFFFFF),
+  ).paint(canvas, page, pageSize: Size(_width.toDouble(), _height.toDouble()));
   final image = await recorder.endRecording().toImage(_width, _height);
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
@@ -92,9 +90,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    final bytes = await File(
-      '../../test_fonts/SourceHanSerifSC-Regular.otf',
-    ).readAsBytes();
+    final bytes = await File('../../test_fonts/SourceHanSerifSC-Regular.otf')
+        .readAsBytes();
     await (FontLoader(
       _font,
     )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
@@ -108,11 +105,12 @@ void main() {
     expect(layout.lineCount, 1, reason: '内容放得下一列');
     final columnLength = layout.lines.first.height;
     expect(columnLength, closeTo(5 * 32, 1.5), reason: '列长 = 5 字 × 1em');
+    final columnLeft = (_width - layout.width).round();
     // 每字占 1em 的纵向窗口：窗口内应有墨迹。
     for (var i = 0; i < 5; i++) {
       var ink = 0;
       for (var y = i * 32; y < (i + 1) * 32; y++) {
-        for (var x = 0; x < 40; x++) {
+        for (var x = columnLeft; x < _width; x++) {
           if (_ink(result.bytes, x, y)) ink++;
         }
       }
@@ -129,6 +127,13 @@ void main() {
     final box = _inkBox(result.bytes);
     expect(box.top, lessThan(32), reason: '第一字应落在首字窗口内');
     expect(box.right - box.left, lessThan(40), reason: '单列墨迹宽度 ≈ 列宽');
+  });
+
+  test('vertical-rl 短段落绘制在内容盒右侧，不再贴左缘', () async {
+    final result = await _render(_style(), '一二');
+    final box = _inkBox(result.bytes);
+    expect(box.right, greaterThan(_width - 24), reason: '列带右缘应贴近正文区右侧');
+    expect(box.left, greaterThan(_width - 48), reason: '左侧应留出列带外的空白');
   });
 
   test('vertical-rl 两列：两列都画出来，且第二列 x 更小', () async {
@@ -182,8 +187,11 @@ void main() {
     );
     expect(rl.isVertical, isTrue);
     expect(rl.lineCount, 2, reason: '应排成 2 列');
-    expect(rl.lines[0].columnX, greaterThan(rl.lines[1].columnX ?? 0),
-        reason: 'rl 首列在最右');
+    expect(
+      rl.lines[0].columnX,
+      greaterThan(rl.lines[1].columnX ?? 0),
+      reason: 'rl 首列在最右',
+    );
     expect(rl.lines[0].width, closeTo(32, 0.5), reason: '列宽 = 行高');
     expect(rl.width, closeTo(64, 1), reason: '块宽 = 列数 × 列宽');
 
@@ -192,8 +200,11 @@ void main() {
       style: _style(writingMode: 'vertical-lr'),
       maxWidth: 100,
     );
-    expect(lr.lines[1].columnX, greaterThan(lr.lines[0].columnX ?? 0),
-        reason: 'lr 列从左往右推进');
+    expect(
+      lr.lines[1].columnX,
+      greaterThan(lr.lines[0].columnX ?? 0),
+      reason: 'lr 列从左往右推进',
+    );
   });
 
   test('拉丁 mixed：旋转 90° 后墨迹 bbox 宽高互换', () async {

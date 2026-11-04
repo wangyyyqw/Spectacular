@@ -213,9 +213,16 @@ abstract final class SelectionOps {
     if (end <= start) {
       return const <Rect>[];
     }
+    if (box.isVertical) {
+      return <Rect>[
+        for (final rect in TextHitTester.selectionRects(box, start, end))
+          rect.shift(box.rect.topLeft),
+      ];
+    }
     final textBoxes = TextHitTester.selectionRects(box, start, end);
     final top =
-        box.rect.top + (box.rect.height - box.rect.height * lineHighlightScale) / 2;
+        box.rect.top +
+        (box.rect.height - box.rect.height * lineHighlightScale) / 2;
     return <Rect>[
       for (final textBox in textBoxes)
         Rect.fromLTWH(
@@ -278,9 +285,11 @@ abstract final class SelectionOps {
     ReaderSelection selection,
   ) {
     final buffer = StringBuffer();
-    for (var pageIndex = selection.startPageIndex;
-        pageIndex <= selection.endPageIndex;
-        pageIndex++) {
+    for (
+      var pageIndex = selection.startPageIndex;
+      pageIndex <= selection.endPageIndex;
+      pageIndex++
+    ) {
       if (pageIndex < 0 || pageIndex >= pages.length) {
         continue;
       }
@@ -308,12 +317,20 @@ abstract final class SelectionOps {
     final startBox = _boxFor(boxes, selection.start);
     final endBox = _boxFor(boxes, selection.end);
     final startRect = _caretRect(startBox, selection.start.charOffset);
-    final endRect = _caretRect(endBox, selection.end.charOffset,
-      affinity: TextAffinity.upstream);
+    final endRect = _caretRect(
+      endBox,
+      selection.end.charOffset,
+      affinity: TextAffinity.upstream,
+    );
+    final vertical = startBox.isVertical || endBox.isVertical;
     return SelectionGeometry(
       lineRects: rects,
-      startHandle: Offset(startRect.left, startBox.rect.top),
-      endHandle: Offset(endRect.right, endBox.rect.bottom),
+      startHandle: vertical
+          ? Offset(startRect.center.dx, startRect.top)
+          : Offset(startRect.left, startBox.rect.top),
+      endHandle: vertical
+          ? Offset(endRect.center.dx, endRect.bottom)
+          : Offset(endRect.right, endBox.rect.bottom),
     );
   }
 
@@ -338,9 +355,7 @@ abstract final class SelectionOps {
   }
 
   /// 选区起止 CFI（标注存储用，§30.2）：块级 CFI + 块内字符偏移。
-  static ({String start, String end})? cfiOf(
-    ReaderSelection selection,
-  ) {
+  static ({String start, String end})? cfiOf(ReaderSelection selection) {
     final startCfi = selection.start.lineBox.slice.block.startCfi;
     final endCfi = selection.end.lineBox.slice.block.startCfi;
     if (startCfi == null || startCfi.isEmpty) {
@@ -371,18 +386,16 @@ abstract final class SelectionOps {
     final startBox = _boxFor(boxes, selection.start);
     final endBox = _boxFor(boxes, selection.end);
     final text = startBox.slice.block.layout.text;
-    final startOffset =
-        (startBox.blockTextOffset + selection.start.charOffset).clamp(
-      0,
-      text.length,
-    );
-    final endOffset =
-        (endBox.blockTextOffset + selection.end.charOffset).clamp(
+    final startOffset = (startBox.blockTextOffset + selection.start.charOffset)
+        .clamp(0, text.length);
+    final endOffset = (endBox.blockTextOffset + selection.end.charOffset).clamp(
       0,
       text.length,
     );
     final beforeStart = startOffset - 20 < 0 ? 0 : startOffset - 20;
-    final afterEnd = endOffset + 20 > text.length ? text.length : endOffset + 20;
+    final afterEnd = endOffset + 20 > text.length
+        ? text.length
+        : endOffset + 20;
     return (
       before: startOffset > beforeStart
           ? text.substring(beforeStart, startOffset)
@@ -419,9 +432,11 @@ abstract final class SelectionOps {
       if (!afterStart || !beforeEnd) {
         continue;
       }
-      final startIsHere = box.sliceIndex == selection.start.sliceIndex &&
+      final startIsHere =
+          box.sliceIndex == selection.start.sliceIndex &&
           box.lineIndex == selection.start.lineIndex;
-      final endIsHere = box.sliceIndex == selection.end.sliceIndex &&
+      final endIsHere =
+          box.sliceIndex == selection.end.sliceIndex &&
           box.lineIndex == selection.end.lineIndex;
       final start = startIsHere
           ? selection.start.charOffset.clamp(0, box.text.length)
@@ -457,11 +472,23 @@ abstract final class SelectionOps {
   }
 
   /// 行内某字符位置的光标矩形（页内坐标）。
-  static Rect _caretRect(PageLineBox box, int charOffset, {
+  static Rect _caretRect(
+    PageLineBox box,
+    int charOffset, {
     TextAffinity affinity = TextAffinity.downstream,
   }) {
-    final caret = TextHitTester.caretOffset(box,
-      TextPosition(offset: charOffset, affinity: affinity));
+    final caret = TextHitTester.caretOffset(
+      box,
+      TextPosition(offset: charOffset, affinity: affinity),
+    );
+    if (box.isVertical) {
+      return Rect.fromLTWH(
+        box.rect.left,
+        box.rect.top + caret.dy,
+        box.rect.width,
+        0,
+      );
+    }
     return Rect.fromLTWH(
       box.rect.left + caret.dx,
       box.rect.top,
@@ -477,6 +504,4 @@ abstract final class SelectionOps {
     atLineStart: charOffset == 0,
     atLineEnd: charOffset == box.text.length,
   );
-
-
 }
