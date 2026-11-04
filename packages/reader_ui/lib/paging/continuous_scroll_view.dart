@@ -367,8 +367,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     if (_controller.offset - widget.padding.top < height * 0.25) {
       unawaited(_extendBefore());
     }
-    final remaining =
-        _controller.position.maxScrollExtent - _controller.offset;
+    final remaining = _controller.position.maxScrollExtent - _controller.offset;
     if (remaining < height * 0.5) {
       unawaited(_extendAfter());
     }
@@ -426,12 +425,12 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         );
         _jumpProgrammatically(fallback);
         await WidgetsBinding.instance.endOfFrame;
-        for (var attempt = 0;
-            attempt < 2 && !restored && visibleContent != null;
-            attempt++) {
-          if (!mounted ||
-              !_controller.hasClients ||
-              token != _loadToken) {
+        for (
+          var attempt = 0;
+          attempt < 2 && !restored && visibleContent != null;
+          attempt++
+        ) {
+          if (!mounted || !_controller.hasClients || token != _loadToken) {
             break;
           }
           restored = _revealAtPage(
@@ -496,7 +495,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   }
 
   /// 把阅读视口坐标映射到所在页切片及其页内坐标。
-  ({PageContent page, Offset localPosition})? pageAt(Offset position) {
+  ({PageContent page, Offset localPosition, double pageTop})? pageAt(
+    Offset position,
+  ) {
     if (!_controller.hasClients || _entries.isEmpty) {
       return null;
     }
@@ -520,6 +521,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         position.dx - widget.padding.left,
         relative - page.top,
       ),
+      pageTop: widget.padding.top + page.top - _controller.offset,
     );
   }
 

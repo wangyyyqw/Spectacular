@@ -46,6 +46,9 @@ class SelectionMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (anchor.bottom <= 0 || anchor.top >= bounds.height) {
+      return const Positioned(left: 0, top: 0, child: SizedBox.shrink());
+    }
     final theme = Theme.of(context);
     final aboveTop = anchor.top - _menuHeight - _gap;
     final placeAbove = aboveTop >= 0;

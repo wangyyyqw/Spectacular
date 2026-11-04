@@ -172,6 +172,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
+      key: const ValueKey<String>('settings-panel-surface'),
       color: theme.colorScheme.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -352,9 +353,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
                             selected:
                                 !widget.inkMode &&
                                 item.id == widget.backgroundId,
-                          onTap: widget.inkMode
-                              ? null
-                              : () => widget.onBackgroundChanged!(item.id),
+                            onTap: widget.inkMode
+                                ? null
+                                : () => widget.onBackgroundChanged!(item.id),
                           ),
                       ],
                     ),
@@ -365,15 +366,20 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   if (widget.onPageTurnModeChanged != null) ...[
                     const Text('翻页方式'),
                     const SizedBox(height: 8),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      for (final mode in PageTurnMode.values)
-                        ChoiceChip(
-                          key: ValueKey('settings-page-turn-${mode.id}'),
-                          label: Text(mode.label),
-                          selected: mode == widget.pageTurnMode,
-                          onSelected: (_) => widget.onPageTurnModeChanged!(mode),
-                        ),
-                    ]),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final mode in PageTurnMode.values)
+                          ChoiceChip(
+                            key: ValueKey('settings-page-turn-${mode.id}'),
+                            label: Text(mode.label),
+                            selected: mode == widget.pageTurnMode,
+                            onSelected: (_) =>
+                                widget.onPageTurnModeChanged!(mode),
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: 16),
                   ],
                   if (widget.onOpenTapZoneEditor != null) ...[

@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
+
+const _fallbackTheme = ReaderTheme(
+  id: 'fallback',
+  name: '默认',
+  background: Color(0xFFF5EFE0),
+  text: Color(0xFF3B3228),
+);
 
 /// 抽屉面板类型（设计稿底部四个入口）。
 enum ReaderMenuEntry {
@@ -106,8 +114,9 @@ class ReaderMenuOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = theme?.background ?? const Color(0xFFF5EFE0);
-    final fg = theme?.text ?? const Color(0xFF3B3228);
+    final panelTheme = theme ?? _fallbackTheme;
+    final bg = panelTheme.background;
+    final fg = panelTheme.text;
     final line = theme?.line ?? fg.withValues(alpha: 0.12);
     final fill = theme?.fill ?? fg.withValues(alpha: 0.08);
     final topInset = safeTop;
@@ -118,75 +127,129 @@ class ReaderMenuOverlay extends StatelessWidget {
       type: MaterialType.transparency,
       child: Stack(
         children: <Widget>[
-        // 顶部栏
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: AnimatedSlide(
-            offset: open ? Offset.zero : const Offset(0, -1.01),
-            duration: _slide,
-            curve: _ease,
-            child: AnimatedOpacity(
-              opacity: open ? 1 : 0,
+          // 顶部栏
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: AnimatedSlide(
+              offset: open ? Offset.zero : const Offset(0, -1.01),
               duration: _slide,
-              child: IgnorePointer(
-                ignoring: !open,
-                child: Container(
-                  padding: EdgeInsets.only(top: topInset),
-                  decoration: BoxDecoration(
-                    color: bg,
-                    border: Border(bottom: BorderSide(color: line)),
-                  ),
-                  child: SizedBox(
-                    height: 56,
-                    child: Row(
-                      children: <Widget>[
-                        _IconButton(
-                          icon: Icons.arrow_back_ios_new,
-                          iconSize: 18,
-                          color: fg,
-                          onTap: onBack,
-                          tooltip: '返回书架',
-                          buttonKey: const ValueKey<String>('menu-back'),
-                        ),
-                        const SizedBox(width: 2),
-                        Flexible(
-                          child: Text(
-                            bookTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+              curve: _ease,
+              child: AnimatedOpacity(
+                opacity: open ? 1 : 0,
+                duration: _slide,
+                child: IgnorePointer(
+                  ignoring: !open,
+                  child: Container(
+                    padding: EdgeInsets.only(top: topInset),
+                    decoration: BoxDecoration(
+                      color: bg,
+                      border: Border(bottom: BorderSide(color: line)),
+                    ),
+                    child: SizedBox(
+                      height: 56,
+                      child: Row(
+                        children: <Widget>[
+                          _IconButton(
+                            icon: Icons.arrow_back_ios_new,
+                            iconSize: 18,
+                            color: fg,
+                            onTap: onBack,
+                            tooltip: '返回书架',
+                            buttonKey: const ValueKey<String>('menu-back'),
+                          ),
+                          const SizedBox(width: 2),
+                          Flexible(
+                            child: Text(
+                              bookTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: fg,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          _IconButton(
+                            icon: nightMode
+                                ? Icons.light_mode_outlined
+                                : Icons.dark_mode_outlined,
+                            iconSize: 19,
+                            color: fg,
+                            onTap: inkMode ? null : onToggleDayNight,
+                            tooltip: inkMode
+                                ? '墨水屏模式固定纯黑白'
+                                : nightMode
+                                ? '日间'
+                                : '夜间',
+                            buttonKey: const ValueKey<String>('menu-daynight'),
+                          ),
+                          if (onTts != null)
+                            _IconButton(
+                              icon: Icons.headphones_outlined,
+                              iconSize: 19,
                               color: fg,
+                              onTap: onTts!,
+                              tooltip: '听书',
+                              buttonKey: const ValueKey<String>('menu-tts'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // 底部栏
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedSlide(
+              offset: open ? Offset.zero : const Offset(0, 1.01),
+              duration: _slide,
+              curve: _ease,
+              child: AnimatedOpacity(
+                opacity: open ? 1 : 0,
+                duration: _slide,
+                child: IgnorePointer(
+                  ignoring: !open,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: bg,
+                      border: Border(top: BorderSide(color: line)),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        _ProgressRow(
+                          fg: fg,
+                          fill: fill,
+                          progress: progress,
+                          label: chapterLabel,
+                          onPrevious: onPreviousChapter,
+                          onNext: onNextChapter,
+                          onSeek: onSeek,
+                        ),
+                        _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
+                        SizedBox(
+                          height: 22 + bottomInset,
+                          child: Center(
+                            child: Container(
+                              width: 118,
+                              height: 4.5,
+                              decoration: BoxDecoration(
+                                color: fg.withValues(alpha: 0.22),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
                             ),
                           ),
                         ),
-                        const Spacer(),
-                        _IconButton(
-                          icon: nightMode
-                              ? Icons.light_mode_outlined
-                              : Icons.dark_mode_outlined,
-                          iconSize: 19,
-                          color: fg,
-                          onTap: inkMode ? null : onToggleDayNight,
-                          tooltip: inkMode
-                              ? '墨水屏模式固定纯黑白'
-                              : nightMode
-                              ? '日间'
-                              : '夜间',
-                          buttonKey: const ValueKey<String>('menu-daynight'),
-                        ),
-                        if (onTts != null)
-                          _IconButton(
-                            icon: Icons.headphones_outlined,
-                            iconSize: 19,
-                            color: fg,
-                            onTap: onTts!,
-                            tooltip: '听书',
-                            buttonKey: const ValueKey<String>('menu-tts'),
-                          ),
                       ],
                     ),
                   ),
@@ -194,70 +257,16 @@ class ReaderMenuOverlay extends StatelessWidget {
               ),
             ),
           ),
-        ),
-        // 底部栏
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: AnimatedSlide(
-            offset: open ? Offset.zero : const Offset(0, 1.01),
-            duration: _slide,
-            curve: _ease,
-            child: AnimatedOpacity(
-              opacity: open ? 1 : 0,
-              duration: _slide,
-              child: IgnorePointer(
-                ignoring: !open,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: bg,
-                    border: Border(top: BorderSide(color: line)),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      _ProgressRow(
-                        fg: fg,
-                        fill: fill,
-                        progress: progress,
-                        label: chapterLabel,
-                        onPrevious: onPreviousChapter,
-                        onNext: onNextChapter,
-                        onSeek: onSeek,
-                      ),
-                      _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
-                      SizedBox(
-                        height: 22 + bottomInset,
-                        child: Center(
-                          child: Container(
-                            width: 118,
-                            height: 4.5,
-                            decoration: BoxDecoration(
-                              color: fg.withValues(alpha: 0.22),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+          // 抽屉
+          if (drawerChild != null)
+            Positioned.fill(
+              child: _DrawerLayer(
+                title: drawerTitle,
+                theme: theme,
+                onClose: onCloseDrawer,
+                child: drawerChild!,
               ),
             ),
-          ),
-        ),
-        // 抽屉
-        if (drawerChild != null)
-          Positioned.fill(
-            child: _DrawerLayer(
-              title: drawerTitle,
-              theme: theme,
-              onClose: onCloseDrawer,
-              child: drawerChild!,
-            ),
-          ),
         ],
       ),
     );
@@ -353,14 +362,18 @@ class _ProgressRowState extends State<_ProgressRow> {
                   onHorizontalDragStart: (details) {
                     setState(() {
                       _dragging = true;
-                      _dragValue = (details.localPosition.dx / width)
-                          .clamp(0.0, 1.0);
+                      _dragValue = (details.localPosition.dx / width).clamp(
+                        0.0,
+                        1.0,
+                      );
                     });
                   },
                   onHorizontalDragUpdate: (details) {
                     setState(() {
-                      _dragValue = (details.localPosition.dx / width)
-                          .clamp(0.0, 1.0);
+                      _dragValue = (details.localPosition.dx / width).clamp(
+                        0.0,
+                        1.0,
+                      );
                     });
                   },
                   onHorizontalDragEnd: (_) {
@@ -581,8 +594,9 @@ class _DrawerLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = theme?.background ?? const Color(0xFFF5EFE0);
-    final fg = theme?.text ?? const Color(0xFF3B3228);
+    final panelTheme = theme ?? _fallbackTheme;
+    final bg = panelTheme.background;
+    final fg = panelTheme.text;
     return Stack(
       children: <Widget>[
         // 遮罩：点一下关闭抽屉
@@ -663,7 +677,9 @@ class _DrawerLayer extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Flexible(child: child),
+                  Flexible(
+                    child: ReaderPanelTheme(theme: panelTheme, child: child),
+                  ),
                   const SizedBox(height: 12),
                 ],
               ),
