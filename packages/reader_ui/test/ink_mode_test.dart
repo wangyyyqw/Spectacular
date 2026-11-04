@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_environment.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
@@ -21,6 +22,18 @@ void main() {
       const normal = ReaderEnvironment();
       expect(normal.resolveTheme(ReaderTheme.dark).id, 'dark');
       expect(normal.allowsBackgroundImage, isTrue);
+    });
+
+    test('墨水屏笔记圆点改为黑色，普通模式保留标记色', () {
+      const marker = Color(0xFFFFC107);
+      expect(
+        AnnotationLayer.markerColor(inkMode: true, color: marker),
+        const Color(0xFF000000),
+      );
+      expect(
+        AnnotationLayer.markerColor(inkMode: false, color: marker),
+        marker,
+      );
     });
 
     testWidgets('设置面板墨水屏开关触发回调', (tester) async {
