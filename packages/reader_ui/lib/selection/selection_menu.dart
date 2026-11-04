@@ -61,8 +61,8 @@ class SelectionMenu extends StatelessWidget {
       child: Center(
         child: Material(
           key: const ValueKey<String>('selection-menu'),
-          elevation: 4,
-          borderRadius: BorderRadius.circular(22),
+          elevation: 0,
+          borderRadius: BorderRadius.circular(4),
           color: theme.colorScheme.inverseSurface,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),

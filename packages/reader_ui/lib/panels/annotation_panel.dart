@@ -428,7 +428,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                 filled: true,
                 fillColor: theme.colorScheme.surfaceContainerLow,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(4),
                   borderSide: BorderSide.none,
                 ),
               ),
@@ -649,15 +649,17 @@ class _AnnotationCard extends StatelessWidget {
     final hasNote = note != null && note.isNotEmpty;
     final noteNeedsExpansion =
         hasNote && (note.length > 66 || '\n'.allMatches(note).length >= 2);
-    final borderRadius = BorderRadius.circular(14);
+    final borderRadius = BorderRadius.circular(4);
     return Material(
       color: selected
-          ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.45)
-          : theme.colorScheme.surfaceContainerLow,
+          ? theme.colorScheme.onSurface.withValues(alpha: 0.06)
+          : theme.colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: borderRadius,
         side: BorderSide(
-          color: selected ? theme.colorScheme.primary : Colors.transparent,
+          color: selected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.outlineVariant,
         ),
       ),
       clipBehavior: Clip.antiAlias,
@@ -740,7 +742,7 @@ class _AnnotationCard extends StatelessWidget {
                               ),
                               decoration: BoxDecoration(
                                 color: theme.colorScheme.surface,
-                                borderRadius: BorderRadius.circular(9),
+                                borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 note,

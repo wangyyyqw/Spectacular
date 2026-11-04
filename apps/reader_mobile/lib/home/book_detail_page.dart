@@ -431,7 +431,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   busy: _changingCover,
                   onChange: _changeCover,
                 ),
-                const SizedBox(height: 24),
+                const Divider(height: 40),
                 Text('图书资料', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 12),
                 TextField(
@@ -473,7 +473,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 Text(
                   '点击标签可添加或移除；输入新名称创建标签。',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -481,7 +481,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   Text(
                     '暂无标签',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   )
                 else
@@ -539,9 +539,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     ),
                     _MetaItem(
                       label: '可读性',
-                      value:
-                          'L${_entry.readabilityLevel} '
-                          '${_levelLabels[_entry.readabilityLevel.clamp(0, 4)]}',
+                      value: _levelLabels[_entry.readabilityLevel.clamp(0, 4)],
                     ),
                   ],
                 ),
@@ -655,17 +653,19 @@ class _CoverEditor extends StatelessWidget {
                 entry.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 entry.author.isEmpty ? '未知作者' : entry.author,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 16),
-              OutlinedButton.icon(
+              TextButton.icon(
                 key: const ValueKey<String>('book-detail-change-cover'),
                 onPressed: busy ? null : onChange,
                 icon: busy
@@ -692,21 +692,19 @@ class _BookCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final placeholder = Container(
       decoration: BoxDecoration(
-        color: HSLColor.fromAHSL(
-          1,
-          entry.coverHue.toDouble(),
-          0.42,
-          0.38,
-        ).toColor(),
-        borderRadius: BorderRadius.circular(8),
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(4),
       ),
       alignment: Alignment.center,
       child: Text(
         entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: Theme.of(context).textTheme.headlineMedium
-            ?.copyWith(color: Colors.white),
+        style: theme.textTheme.headlineMedium?.copyWith(
+          color: theme.colorScheme.onSurface,
+        ),
       ),
     );
     final path = entry.coverPath;
@@ -715,7 +713,7 @@ class _BookCover extends StatelessWidget {
       width: 120,
       height: 160,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(4),
         child: path == null
             ? placeholder
             : Image.file(
@@ -747,7 +745,7 @@ class _MetaItem extends StatelessWidget {
         Text(
           label,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
         Text(value, style: theme.textTheme.bodySmall),
@@ -875,7 +873,7 @@ class _ReadingStatsSection extends StatelessWidget {
       return Text(
         '暂无阅读记录，开始阅读后会在这里汇总。',
         style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.outline,
+          color: theme.colorScheme.onSurfaceVariant,
         ),
       );
     }
@@ -942,7 +940,7 @@ class _ReadingMetric extends StatelessWidget {
         Text(
           label,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
         Text(
@@ -986,7 +984,7 @@ class _DailyReadingRow extends StatelessWidget {
               style: theme.textTheme.bodySmall?.copyWith(
                 color: hasActivity
                     ? theme.colorScheme.onSurface
-                    : theme.colorScheme.outline,
+                    : theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -1000,7 +998,7 @@ class _DailyReadingRow extends StatelessWidget {
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: hasActivity
                         ? theme.colorScheme.onSurface
-                        : theme.colorScheme.outline,
+                        : theme.colorScheme.onSurfaceVariant,
                     fontWeight: hasActivity ? FontWeight.w600 : null,
                   ),
                 ),
@@ -1009,7 +1007,7 @@ class _DailyReadingRow extends StatelessWidget {
                   '${_formatReadingCharacters(day.charactersRead)} 字',
                   key: ValueKey<String>('book-detail-daily-detail-$dateKey'),
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.outline,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -1046,8 +1044,9 @@ class _ReadingStatusSection extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
+        color: theme.colorScheme.surface,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1119,7 +1118,7 @@ class _ReadingStatusSection extends StatelessWidget {
             Text(
               '从书架打开详情后可标记读完',
               style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -1188,7 +1187,7 @@ class _FinishBookSheetState extends State<_FinishBookSheet> {
     return Material(
       key: const ValueKey<String>('book-detail-finish-sheet'),
       color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
@@ -1323,7 +1322,7 @@ class _ImportReports extends StatelessWidget {
           return Text(
             '无修复或告警',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           );
         }
@@ -1347,7 +1346,7 @@ class _ReportRow extends StatelessWidget {
     final (label, color) = switch (item.severity) {
       >= 2 => ('错误', theme.colorScheme.error),
       1 => ('警告', theme.colorScheme.tertiary),
-      _ => ('提示', theme.colorScheme.outline),
+      _ => ('提示', theme.colorScheme.onSurfaceVariant),
     };
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -1373,7 +1372,7 @@ class _ReportRow extends StatelessWidget {
                 Text(
                   item.code,
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.outline,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 Text(item.message, style: theme.textTheme.bodySmall),

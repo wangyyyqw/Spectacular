@@ -46,20 +46,23 @@ class BookDetailSheet extends StatelessWidget {
                         entry.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         entry.author.isEmpty ? '未知作者' : entry.author,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.outline,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '可读性：L${entry.readabilityLevel} '
-                        '${_levelLabels[entry.readabilityLevel.clamp(0, 4)]}',
-                        style: theme.textTheme.bodySmall,
+                        '内容${_levelLabels[entry.readabilityLevel.clamp(0, 4)]}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -104,7 +107,7 @@ class BookDetailSheet extends StatelessWidget {
                   return Text(
                     '无修复或告警',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   );
                 }
@@ -114,59 +117,38 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 16),
+            const Divider(height: 32),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-open-page'),
+              icon: Icons.menu_book_outlined,
+              label: '图书详情',
+              onTap: () => Navigator.of(context).pop('detail'),
+            ),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-create-group'),
+              icon: Icons.create_new_folder_outlined,
+              label: '新建分组',
+              onTap: () => Navigator.of(context).pop('create-group'),
+            ),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-multi-select'),
+              icon: Icons.checklist,
+              label: '多选',
+              onTap: () => Navigator.of(context).pop('multi-select'),
+            ),
+            _DetailAction(
+              icon: Icons.delete_outline,
+              label: '删除本书',
+              destructive: true,
+              onTap: () => Navigator.of(context).pop('delete'),
+            ),
+            const Divider(height: 16),
             SizedBox(
               width: double.infinity,
-              child: FilledButton.tonalIcon(
-                key: const ValueKey<String>('book-detail-open-page'),
-                onPressed: () => Navigator.of(context).pop('detail'),
-                icon: const Icon(Icons.menu_book_outlined),
-                label: const Text('图书详情'),
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const ValueKey<String>('book-detail-create-group'),
-                    onPressed: () => Navigator.of(context).pop('create-group'),
-                    icon: const Icon(Icons.create_new_folder_outlined),
-                    label: const Text('新建分组'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const ValueKey<String>('book-detail-multi-select'),
-                    onPressed: () => Navigator.of(context).pop('multi-select'),
-                    icon: const Icon(Icons.checklist),
-                    label: const Text('多选'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context).pop('delete'),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('删除本书'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: theme.colorScheme.error,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('关闭'),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
@@ -188,30 +170,28 @@ class _Cover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final placeholder = Container(
       decoration: BoxDecoration(
-        color: HSLColor.fromAHSL(
-          1,
-          entry.coverHue.toDouble(),
-          0.42,
-          0.38,
-        ).toColor(),
-        borderRadius: BorderRadius.circular(6),
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(4),
       ),
       alignment: Alignment.center,
       child: Text(
         entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: Theme.of(context).textTheme.titleLarge
-            ?.copyWith(color: Colors.white),
+        style: theme.textTheme.titleLarge?.copyWith(
+          color: theme.colorScheme.onSurface,
+        ),
       ),
     );
     final path = entry.coverPath;
     return SizedBox(
       key: const ValueKey<String>('book-detail-cover'),
-      width: 120,
-      height: 90,
+      width: 80,
+      height: 108,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
         child: path == null
             ? placeholder
             : Image.file(
@@ -223,6 +203,46 @@ class _Cover extends StatelessWidget {
                 errorBuilder: (_, _, _) => placeholder,
               ),
       ),
+    );
+  }
+}
+
+class _DetailAction extends StatelessWidget {
+  const _DetailAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = destructive
+        ? theme.colorScheme.error
+        : theme.colorScheme.onSurface;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      minLeadingWidth: 24,
+      leading: Icon(icon, size: 22, color: color),
+      title: Text(
+        label,
+        style: theme.textTheme.bodyMedium?.copyWith(color: color),
+      ),
+      trailing: destructive
+          ? null
+          : Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+      onTap: onTap,
     );
   }
 }
@@ -242,7 +262,7 @@ class _MetaItem extends StatelessWidget {
         Text(
           label,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
         Text(value, style: theme.textTheme.bodySmall),
@@ -263,7 +283,7 @@ class _ReportRow extends StatelessWidget {
     final (label, color) = switch (item.severity) {
       >= 2 => ('错误', theme.colorScheme.error),
       1 => ('警告', theme.colorScheme.tertiary),
-      _ => ('提示', theme.colorScheme.outline),
+      _ => ('提示', theme.colorScheme.onSurfaceVariant),
     };
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -292,7 +312,7 @@ class _ReportRow extends StatelessWidget {
                     fontFeatures: const <FontFeature>[
                       FontFeature.tabularFigures(),
                     ],
-                    color: theme.colorScheme.outline,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 Text(item.message, style: theme.textTheme.bodySmall),

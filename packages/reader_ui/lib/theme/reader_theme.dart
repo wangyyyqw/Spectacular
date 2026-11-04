@@ -37,11 +37,8 @@ class ReaderTheme {
   /// 填充色（设计稿 `--fill`：正文色 8%，用于按钮/控件底）。
   Color get fill => text.withValues(alpha: 0.08);
 
-  /// 强调色（设计稿 `--accent` #2B5B84；深色主题用浅蓝保证对比度）。
-  Color get accent =>
-      background.computeLuminance() < 0.35
-      ? const Color(0xFF7FB3E0)
-      : const Color(0xFF2B5B84);
+  /// 控件强调色使用正文墨色，日夜主题都保持清晰对比。
+  Color get accent => text;
 
   /// 相对亮度（WCAG）。
   double get luminance {

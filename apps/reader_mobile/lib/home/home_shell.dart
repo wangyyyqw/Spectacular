@@ -49,40 +49,47 @@ class _HomeShellState extends State<HomeShell> {
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) {
-          setState(() {
-            _index = value;
-            if (value == 0) {
-              _bookshelfRefreshToken += 1;
-            } else if (value == 1) {
-              _statsRefreshToken += 1;
-            }
-          });
-        },
-        destinations: const <Widget>[
-          NavigationDestination(
-            icon: Icon(Icons.library_books_outlined),
-            selectedIcon: Icon(Icons.library_books),
-            label: '书架',
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart),
-            label: '统计',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.rate_review_outlined),
-            selectedIcon: Icon(Icons.rate_review),
-            label: '书评',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: '我的',
-          ),
-        ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _index,
+          onTap: (value) {
+            setState(() {
+              _index = value;
+              if (value == 0) {
+                _bookshelfRefreshToken += 1;
+              } else if (value == 1) {
+                _statsRefreshToken += 1;
+              }
+            });
+          },
+          items: const <BottomNavigationBarItem>[
+            BottomNavigationBarItem(
+              icon: Icon(Icons.library_books_outlined),
+              activeIcon: Icon(Icons.library_books),
+              label: '书架',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart_outlined),
+              activeIcon: Icon(Icons.bar_chart),
+              label: '统计',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.rate_review_outlined),
+              activeIcon: Icon(Icons.rate_review),
+              label: '书评',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline),
+              activeIcon: Icon(Icons.person),
+              label: '我的',
+            ),
+          ],
+        ),
       ),
     );
   }

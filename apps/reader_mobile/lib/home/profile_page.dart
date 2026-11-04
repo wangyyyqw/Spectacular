@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:reader_core/reader_core.dart';
-import 'package:reader_ui/reader_ui.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
@@ -142,50 +140,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final info = _packageInfo;
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: Theme.of(context)
-                        .colorScheme
-                        .primaryContainer,
-                    child: Icon(
-                      Icons.menu_book,
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Spectacular Reader',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        info == null
-                            ? '正在读取版本…'
-                            : '${info.version} (${info.buildNumber})',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
+          _identity(context),
+          const SizedBox(height: 28),
+          _section(context, '阅读', [
+            ListTile(
               key: const ValueKey<String>('bookshelf-sort-setting'),
               leading: const Icon(Icons.sort),
               title: const Text('书架排序'),
@@ -193,62 +156,87 @@ class _ProfilePageState extends State<ProfilePage> {
               trailing: const Icon(Icons.chevron_right),
               onTap: _chooseShelfSort,
             ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.memory),
-                  title: const Text('排版引擎'),
-                  subtitle: Text(
-                    'reader_core（$readerCorePackageName）· reader_ui'
-                    '（$readerUiPackageName）\n'
-                    '自研排版引擎，正文渲染不使用 WebView',
-                  ),
-                ),
-                ListTile(
-                  leading: _exporting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.ios_share),
-                  title: const Text('导出诊断日志'),
-                  subtitle: const Text('包含历史会话；排查真机问题时随反馈附上'),
-                  onTap: _exporting ? null : _exportLogs,
-                ),
-                ListTile(
-                  key: const ValueKey<String>('logs-clear'),
-                  leading: const Icon(Icons.delete_sweep_outlined),
-                  title: const Text('清理日志'),
-                  subtitle: const Text('删除本机保存的全部诊断日志'),
-                  onTap: _exporting ? null : _clearLogs,
-                ),
-              ],
+          ]),
+          const SizedBox(height: 24),
+          _section(context, '帮助与诊断', [
+            ListTile(
+              leading: _exporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.ios_share),
+              title: const Text('导出诊断日志'),
+              subtitle: const Text('遇到阅读问题时，可随反馈附上'),
+              onTap: _exporting ? null : _exportLogs,
             ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('开放中的能力', style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 8),
-                  Text(
-                    '字体与图片（P3）、书库云同步、划线笔记（P4）、'
-                    '竖排与注音（P5）、朗读（P6）将随里程碑开放。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
+            ListTile(
+              key: const ValueKey<String>('logs-clear'),
+              leading: const Icon(Icons.delete_sweep_outlined),
+              title: const Text('清理日志'),
+              subtitle: const Text('删除本机保存的全部诊断日志'),
+              onTap: _exporting ? null : _clearLogs,
             ),
+          ]),
+          const SizedBox(height: 24),
+          Text('关于', style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 10),
+          Text(
+            '本地 EPUB 阅读。书籍、阅读进度与笔记保存在设备上。',
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
       ),
+    );
+  }
+
+  Widget _identity(BuildContext context) {
+    final info = _packageInfo;
+    return Row(
+      children: [
+        const Icon(Icons.menu_book_outlined, size: 36),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Spectacular Reader',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                info == null
+                    ? '正在读取版本…'
+                    : '版本 ${info.version} · ${info.buildNumber}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _section(BuildContext context, String title, List<Widget> rows) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.labelMedium),
+        const SizedBox(height: 10),
+        Card(
+          child: Column(
+            children: [
+              for (var index = 0; index < rows.length; index++) ...[
+                if (index > 0)
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                rows[index],
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

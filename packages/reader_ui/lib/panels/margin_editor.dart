@@ -316,8 +316,9 @@ class _PillState extends State<_Pill> {
     final horizontal = widget.axis == Axis.horizontal;
     return Material(
       color: _dragging ? scheme.primaryContainer : scheme.surface,
-      elevation: _dragging ? 6 : 2,
-      shape: StadiumBorder(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4),
         side: BorderSide(
           color: _dragging ? scheme.primary : scheme.outlineVariant,
         ),
@@ -423,10 +424,13 @@ class _ActionCapsule extends StatelessWidget {
     final foreground = primary ? scheme.onPrimary : scheme.onSurfaceVariant;
     return Material(
       color: primary ? scheme.primary : scheme.surface,
-      elevation: primary ? 2 : 1,
-      shape: const StadiumBorder(),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
       child: InkWell(
-        customBorder: const StadiumBorder(),
+        borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

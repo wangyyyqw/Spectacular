@@ -207,6 +207,8 @@ class _StatsPageState extends State<StatsPage> {
     final stats = _stats;
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
+        scrolledUnderElevation: 0,
         title: const Text('统计'),
         actions: [
           IconButton(
@@ -223,30 +225,27 @@ class _StatsPageState extends State<StatsPage> {
               onRefresh: _reload,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                 children: [
-                  _OverviewCard(stats: stats),
-                  const SizedBox(height: 12),
                   _ReadingTimeCard(stats: stats),
+                  const SizedBox(height: 12),
+                  _OverviewCard(stats: stats),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       _MetricTile(
-                        icon: Icons.library_books_outlined,
                         label: '总书数',
                         value: '${stats.rows.length}',
                         valueKey: const ValueKey<String>('stats-total-books'),
                       ),
                       const SizedBox(width: 8),
                       _MetricTile(
-                        icon: Icons.local_fire_department_outlined,
                         label: stats.hasReadingSessions ? '近7天阅读' : '近7天活跃',
                         value: '${stats.weekReadingDays}',
                         valueKey: const ValueKey<String>('stats-recent-7-days'),
                       ),
                       const SizedBox(width: 8),
                       _MetricTile(
-                        icon: Icons.text_fields,
                         label: '书库字数',
                         value: _formatCharacters(stats.totalCharacters),
                         valueKey: const ValueKey<String>(
@@ -259,14 +258,12 @@ class _StatsPageState extends State<StatsPage> {
                   Row(
                     children: [
                       _MetricTile(
-                        icon: Icons.swipe_left_alt,
                         label: '翻页次数',
                         value: '${stats.pageTurns}',
                         valueKey: const ValueKey<String>('stats-page-turns'),
                       ),
                       const SizedBox(width: 8),
                       _MetricTile(
-                        icon: Icons.auto_stories_outlined,
                         label: '阅读字数',
                         value: _formatMetricCharacters(stats.charactersRead),
                         valueKey: const ValueKey<String>(
@@ -400,94 +397,33 @@ class _OverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final average = stats.averageProgress;
-    final progress = average == null ? 0.0 : average / 100;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.primaryContainer,
-            theme.colorScheme.tertiaryContainer.withValues(alpha: 0.78),
+    return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Expanded(
+              child: _StatValue(
+                label: '平均进度',
+                value: stats.averageProgress == null
+                    ? '--'
+                    : '${stats.averageProgress}%',
+                valueKey: const ValueKey<String>('stats-average-progress'),
+              ),
+            ),
+            Expanded(
+              child: _StatValue(label: '已开始', value: '${stats.started} 本'),
+            ),
+            Expanded(
+              child: _StatValue(label: '已读完', value: '${stats.finished} 本'),
+            ),
           ],
         ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '阅读进度',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  average == null
-                      ? '还没有开始阅读'
-                      : stats.finished == 0
-                      ? '已开始 ${stats.started} 本书'
-                      : '已开始 ${stats.started} 本 · 已读完 ${stats.finished} 本',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer.withValues(
-                      alpha: 0.76,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  average == null
-                      ? '从书架打开一本书，进度会同步到这里。'
-                      : stats.finished > 0
-                      ? '完成一本书也值得记录。'
-                      : '保持节奏，继续下一章。',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer.withValues(
-                      alpha: 0.68,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 88,
-            height: 88,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox.expand(
-                  child: CircularProgressIndicator(
-                    value: progress,
-                    strokeWidth: 8,
-                    strokeCap: StrokeCap.round,
-                    backgroundColor: theme.colorScheme.onPrimaryContainer
-                        .withValues(alpha: 0.12),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.colorScheme.primary,
-                    ),
-                  ),
-                ),
-                Text(
-                  average == null ? '--' : '$average%',
-                  key: const ValueKey<String>('stats-average-progress'),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -500,74 +436,52 @@ class _ReadingTimeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasSessions = stats.hasReadingSessions;
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       key: const ValueKey<String>('stats-reading-time'),
       margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+        padding: const EdgeInsets.all(20),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                Icons.timer_outlined,
-                color: theme.colorScheme.onSecondaryContainer,
+            Expanded(
+              child: _StatValue(
+                label: '今天已读',
+                value: stats.hasReadingSessions
+                    ? _formatReadingDuration(stats.todayReading)
+                    : '--',
+                valueKey: const ValueKey<String>('stats-today-reading'),
+                prominent: true,
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '今天已读',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    hasSessions
-                        ? _formatReadingDuration(stats.todayReading)
+                  _StatValue(
+                    label: '累计时长',
+                    value: stats.hasReadingSessions
+                        ? _formatReadingDuration(stats.totalReading)
                         : '--',
-                    key: const ValueKey<String>('stats-today-reading'),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
+                    valueKey: const ValueKey<String>('stats-total-reading'),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    stats.hasReadingSessions
+                        ? '共 ${stats.readingDays} 天'
+                        : '只记录前台阅读',
+                    key: const ValueKey<String>('stats-reading-days'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  hasSessions ? '共 ${stats.readingDays} 天' : '等待开始阅读',
-                  key: const ValueKey<String>('stats-reading-days'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  hasSessions
-                      ? '累计 ${_formatReadingDuration(stats.totalReading)}'
-                      : '只记录前台阅读',
-                  key: const ValueKey<String>('stats-total-reading'),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
             ),
           ],
         ),
@@ -578,52 +492,64 @@ class _ReadingTimeCard extends StatelessWidget {
 
 class _MetricTile extends StatelessWidget {
   const _MetricTile({
-    required this.icon,
     required this.label,
     required this.value,
     required this.valueKey,
   });
 
-  final IconData icon;
   final String label;
   final String value;
   final Key valueKey;
 
   @override
+  Widget build(BuildContext context) => Expanded(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: _StatValue(label: label, value: value, valueKey: valueKey),
+    ),
+  );
+}
+
+class _StatValue extends StatelessWidget {
+  const _StatValue({
+    required this.label,
+    required this.value,
+    this.valueKey,
+    this.prominent = false,
+  });
+
+  final String label;
+  final String value;
+  final Key? valueKey;
+  final bool prominent;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Expanded(
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 14, 10, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 20, color: theme.colorScheme.primary),
-              const SizedBox(height: 10),
-              Text(
-                value,
-                key: valueKey,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-      ),
+        const SizedBox(height: 6),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            key: valueKey,
+            maxLines: 1,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontSize: prominent ? 32 : 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -698,6 +624,10 @@ class _ReadingChartCardState extends State<_ReadingChartCard> {
         ? '${widget.stats.activeDays} 天活跃 · ${widget.stats.recent} 本书'
         : '${_formatReadingDuration(total)} · $readingDays ${_period == _ChartPeriod.day ? '天' : '段'}';
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       key: const ValueKey<String>('stats-week-activity'),
       margin: EdgeInsets.zero,
       child: Padding(
@@ -725,29 +655,47 @@ class _ReadingChartCardState extends State<_ReadingChartCard> {
               ],
             ),
             const SizedBox(height: 10),
-            SegmentedButton<_ChartPeriod>(
+            Row(
               key: const ValueKey<String>('stats-chart-period'),
-              segments: <ButtonSegment<_ChartPeriod>>[
+              children: [
                 for (final period in _ChartPeriod.values)
-                  ButtonSegment<_ChartPeriod>(
-                    value: period,
-                    label: Text(
-                      period.label,
-                      key: ValueKey<String>(
-                        'stats-chart-period-${period.name}',
+                  Expanded(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: period == _period
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outlineVariant,
+                            width: period == _period ? 2 : 1,
+                          ),
+                        ),
+                      ),
+                      child: TextButton(
+                        onPressed: () => setState(() {
+                          _period = period;
+                          _selectedIndex = _bucketCount(period) - 1;
+                        }),
+                        style: TextButton.styleFrom(
+                          foregroundColor: period == _period
+                              ? theme.colorScheme.onSurface
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                        child: Text(
+                          period.label,
+                          key: ValueKey<String>(
+                            'stats-chart-period-${period.name}',
+                          ),
+                          style: TextStyle(
+                            fontWeight: period == _period
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                          ),
+                        ),
                       ),
                     ),
                   ),
               ],
-              selected: <_ChartPeriod>{_period},
-              showSelectedIcon: false,
-              onSelectionChanged: (selection) {
-                final period = selection.single;
-                setState(() {
-                  _period = period;
-                  _selectedIndex = _bucketCount(period) - 1;
-                });
-              },
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -875,7 +823,7 @@ class _PeriodBar extends StatelessWidget {
       child: InkWell(
         key: ValueKey<String>('stats-chart-bar-${period.name}-$index'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(4),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 1),
           child: Column(
@@ -905,7 +853,7 @@ class _PeriodBar extends StatelessWidget {
                       : hasActivity
                       ? theme.colorScheme.primary.withValues(alpha: 0.55)
                       : theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
               const SizedBox(height: 7),
@@ -951,8 +899,8 @@ class _ReadingBucketDetail extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -990,7 +938,7 @@ class _ReadingBucketDetail extends StatelessWidget {
                 onTap: byId[entry.key] == null
                     ? null
                     : () => onOpenBook(byId[entry.key]!),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(4),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 5),
                   child: Row(
@@ -1172,6 +1120,10 @@ class _ReadingHeatmap extends StatelessWidget {
     ];
     const weekdays = <String>['一', '', '三', '', '五', '', '日'];
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       key: const ValueKey<String>('stats-heatmap'),
       margin: EdgeInsets.zero,
       child: Padding(
@@ -1296,6 +1248,9 @@ class _ReadingHeatmap extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      ),
       builder: (_) => _DayReadingSheet(
         day: day,
         books: titles,
@@ -1641,17 +1596,17 @@ class _DistributionCard extends StatelessWidget {
       ),
       (
         _ProgressBand.finished,
-        theme.colorScheme.secondary,
+        theme.colorScheme.primary.withValues(alpha: 0.7),
         count(_ProgressBand.finished),
       ),
       (
         _ProgressBand.early,
-        theme.colorScheme.tertiaryContainer,
+        theme.colorScheme.primary.withValues(alpha: 0.2),
         count(_ProgressBand.early),
       ),
       (
         _ProgressBand.middle,
-        theme.colorScheme.tertiary,
+        theme.colorScheme.primary.withValues(alpha: 0.4),
         count(_ProgressBand.middle),
       ),
       (
@@ -1666,6 +1621,10 @@ class _DistributionCard extends StatelessWidget {
       ),
     ];
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1673,7 +1632,7 @@ class _DistributionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(4),
               child: SizedBox(
                 height: 10,
                 child: total == 0
@@ -1753,6 +1712,10 @@ class _RecentBookCard extends StatelessWidget {
     final book = stat.book;
     final percent = stat.percent;
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -1774,6 +1737,17 @@ class _RecentBookCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleSmall,
                     ),
+                    if (book.author.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        book.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 4),
                     Text(
                       _positionLabel(book, stat.progress),
@@ -1785,7 +1759,7 @@ class _RecentBookCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 9),
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
                         minHeight: 5,
                         value: percent == null ? 0 : percent / 100,
@@ -1853,7 +1827,7 @@ class _BookCover extends StatelessWidget {
           0.42,
           0.38,
         ).toColor(),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
       ),
       alignment: Alignment.center,
       child: Text(
@@ -1871,7 +1845,7 @@ class _BookCover extends StatelessWidget {
       child: coverPath == null
           ? placeholder
           : ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(4),
               child: Image.file(
                 File(coverPath),
                 width: 42,
@@ -1892,6 +1866,10 @@ class _NoReadingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(20),

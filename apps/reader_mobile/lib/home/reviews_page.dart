@@ -161,6 +161,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
     final books = _books;
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
+        scrolledUnderElevation: 0,
         title: _searching
             ? TextField(
                 key: const ValueKey<String>('reviews-search-field'),
@@ -326,7 +328,7 @@ class _ReviewList extends StatelessWidget {
     final visiblePending = showPending ? pending : const <BookEntry>[];
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
         _ReviewSummary(
           reviewed: allReviewed.length,
@@ -401,23 +403,45 @@ class _ReviewFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: <Widget>[
-          for (final filter in _ReviewFilter.values)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                key: ValueKey<String>('reviews-filter-${filter.name}'),
-                label: Text('${filter.label} ${_count(filter)}'),
-                selected: filter == selected,
-                showCheckmark: false,
-                onSelected: (_) => onSelected(filter),
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        for (final filter in _ReviewFilter.values)
+          Expanded(
+            child: Semantics(
+              selected: filter == selected,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: filter == selected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.outlineVariant,
+                      width: filter == selected ? 2 : 1,
+                    ),
+                  ),
+                ),
+                child: TextButton(
+                  key: ValueKey<String>('reviews-filter-${filter.name}'),
+                  onPressed: () => onSelected(filter),
+                  style: TextButton.styleFrom(
+                    foregroundColor: filter == selected
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  child: Text(
+                    '${filter.label} ${_count(filter)}',
+                    style: TextStyle(
+                      fontWeight: filter == selected
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                  ),
+                ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -444,6 +468,10 @@ class _NoReviewMatches extends StatelessWidget {
             _ReviewFilter.pending => '没有待写书评',
           };
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       key: const ValueKey<String>('reviews-no-results'),
       margin: EdgeInsets.zero,
       child: Padding(
@@ -493,7 +521,6 @@ class _ReviewSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final ratings = reviews.values
         .map((review) => review.rating)
         .whereType<int>()
@@ -501,67 +528,75 @@ class _ReviewSummary extends StatelessWidget {
     final average = ratings.isEmpty
         ? null
         : ratings.reduce((left, right) => left + right) / ratings.length;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.primaryContainer,
-            theme.colorScheme.secondaryContainer.withValues(alpha: 0.82),
-          ],
-        ),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface.withValues(alpha: 0.56),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              Icons.auto_stories_outlined,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '已写 $reviewed / $total 本',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  average == null
-                      ? '给读过的书留下一点想法。'
-                      : '平均评分 ${average.toStringAsFixed(1)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer.withValues(
-                      alpha: 0.72,
-                    ),
-                  ),
-                ),
-              ],
+            child: _SummaryValue(label: '已写书评', value: '$reviewed 篇'),
+          ),
+          Expanded(
+            child: _SummaryValue(label: '待写书评', value: '${total - reviewed} 本'),
+          ),
+          Expanded(
+            child: _SummaryValue(
+              label: '平均评分',
+              value: average?.toStringAsFixed(1) ?? '--',
+              rated: average != null,
             ),
           ),
-          if (average != null)
-            Icon(
-              Icons.star_rounded,
-              key: const ValueKey<String>('reviews-average-star'),
-              color: const Color(0xFFE0A327),
-              size: 30,
-            ),
         ],
       ),
+    );
+  }
+}
+
+class _SummaryValue extends StatelessWidget {
+  const _SummaryValue({
+    required this.label,
+    required this.value,
+    this.rated = false,
+  });
+
+  final String label;
+  final String value;
+  final bool rated;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text(
+              value,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (rated) ...[
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.star_rounded,
+                key: ValueKey<String>('reviews-average-star'),
+                color: Color(0xFFE0A327),
+                size: 18,
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 }
@@ -605,6 +640,10 @@ class _ReviewCard extends StatelessWidget {
     final theme = Theme.of(context);
     final content = review.content.isEmpty ? '仅评分，未写正文。' : review.content;
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       key: ValueKey<String>('review-card-${book.id}'),
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -630,8 +669,19 @@ class _ReviewCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleSmall,
                         ),
+                        if (book.author.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            book.author,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 6),
-                        _StarRow(rating: review.rating, size: 18),
+                        _StarRow(rating: review.rating, size: 16),
                       ],
                     ),
                   ),
@@ -690,7 +740,7 @@ class _ReviewDetailSheet extends StatelessWidget {
     return Material(
       key: const ValueKey<String>('review-detail'),
       color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
@@ -813,6 +863,10 @@ class _PendingBookTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       key: ValueKey<String>('review-pending-${book.id}'),
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -861,7 +915,7 @@ class _ReviewCover extends StatelessWidget {
           0.42,
           0.38,
         ).toColor(),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
       ),
       alignment: Alignment.center,
       child: Text(
@@ -877,7 +931,7 @@ class _ReviewCover extends StatelessWidget {
       return placeholder;
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(4),
       child: Image.file(
         File(coverPath),
         width: width,
@@ -931,6 +985,10 @@ class _NoReviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -1122,7 +1180,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       child: Material(
         key: const ValueKey<String>('review-editor'),
         color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,

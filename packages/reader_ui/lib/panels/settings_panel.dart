@@ -484,12 +484,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
         key: ValueKey<String>(key),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(4),
             border: Border.all(
               color: selected
                   ? theme.colorScheme.primary
@@ -513,14 +513,14 @@ class _SettingsPanelState extends State<SettingsPanel> {
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
         key: ValueKey<String>(key),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Container(
           width: 64,
           height: 44,
           decoration: BoxDecoration(
             color: theme.background,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(4),
             border: Border.all(
               color: selected
                   ? Theme.of(context).colorScheme.primary
@@ -557,10 +557,10 @@ class _EntryButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.onSurface.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(4),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(4),
         child: SizedBox(
           height: 36,
           child: Row(

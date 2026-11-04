@@ -56,7 +56,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
     return Material(
       key: const ValueKey('reader-footnote-dialog'),
       color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
@@ -88,7 +88,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                           height: 40,
                           decoration: BoxDecoration(
                             color: theme.colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(13),
+                            borderRadius: BorderRadius.circular(4),
                           ),
                           child: Icon(
                             _icon,
@@ -122,9 +122,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                                       decoration: BoxDecoration(
                                         color:
                                             theme.colorScheme.surfaceContainer,
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
+                                        borderRadius: BorderRadius.circular(4),
                                         border: Border.all(
                                           color:
                                               theme.colorScheme.outlineVariant,
@@ -219,7 +217,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                                 if (paragraphs.isNotEmpty || index > 0)
                                   const SizedBox(height: 18),
                                 ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(4),
                                   child: _FootnoteImage(
                                     url: images[index],
                                     imageCache: imageCache,
@@ -322,7 +320,7 @@ class _EmptyFootnote extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Column(
         children: [
