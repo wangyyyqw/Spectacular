@@ -1922,6 +1922,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onToggleDayNight: _toggleDayNight,
               nightMode: (_theme ?? ReaderTheme.white).background.computeLuminance() <
                   0.35,
+              inkMode: _inkMode,
               onPreviousChapter: page.spineIndex <= 0 || _session.jumpLoadingTitle != null
                   ? null : () {
                 _closeDrawer();

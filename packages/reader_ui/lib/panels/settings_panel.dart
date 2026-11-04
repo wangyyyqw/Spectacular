@@ -300,6 +300,16 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.theme) ...[
                   Text('主题', style: theme.textTheme.titleSmall),
+                  if (widget.inkMode) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '墨水屏模式固定为纯黑白，关闭后可调整主题与背景',
+                      key: const ValueKey<String>('settings-ink-theme-hint'),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 12,
@@ -309,8 +319,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
                         _themeSwatch(
                           key: 'settings-theme-${item.id}',
                           theme: item,
-                          selected: item.id == widget.themeId,
-                          onTap: () => widget.onThemeChanged(item.id),
+                          selected:
+                              !widget.inkMode && item.id == widget.themeId,
+                          onTap: widget.inkMode
+                              ? null
+                              : () => widget.onThemeChanged(item.id),
                         ),
                     ],
                   ),
@@ -329,7 +342,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
                             selected:
                                 !widget.inkMode &&
                                 item.id == widget.backgroundId,
-                            onTap: () => widget.onBackgroundChanged!(item.id),
+                          onTap: widget.inkMode
+                              ? null
+                              : () => widget.onBackgroundChanged!(item.id),
                           ),
                       ],
                     ),
@@ -446,25 +461,28 @@ class _SettingsPanelState extends State<SettingsPanel> {
     required String key,
     required ReaderBackground background,
     required bool selected,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
-    return InkWell(
-      key: ValueKey<String>(key),
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.outlineVariant,
-            width: selected ? 2 : 1,
+    return Opacity(
+      opacity: onTap == null ? 0.42 : 1,
+      child: InkWell(
+        key: ValueKey<String>(key),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
           ),
+          child: Text(background.name, style: theme.textTheme.bodySmall),
         ),
-        child: Text(background.name, style: theme.textTheme.bodySmall),
       ),
     );
   }
@@ -473,29 +491,32 @@ class _SettingsPanelState extends State<SettingsPanel> {
     required String key,
     required ReaderTheme theme,
     required bool selected,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
-    return InkWell(
-      key: ValueKey<String>(key),
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        width: 64,
-        height: 44,
-        decoration: BoxDecoration(
-          color: theme.background,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.outlineVariant,
-            width: selected ? 2 : 1,
+    return Opacity(
+      opacity: onTap == null ? 0.42 : 1,
+      child: InkWell(
+        key: ValueKey<String>(key),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          width: 64,
+          height: 44,
+          decoration: BoxDecoration(
+            color: theme.background,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
           ),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          theme.name,
-          style: TextStyle(color: theme.text, fontSize: 12),
+          alignment: Alignment.center,
+          child: Text(
+            theme.name,
+            style: TextStyle(color: theme.text, fontSize: 12),
+          ),
         ),
       ),
     );

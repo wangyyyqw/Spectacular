@@ -40,6 +40,7 @@ class ReaderMenuOverlay extends StatelessWidget {
     required this.drawerTitle,
     required this.drawerChild,
     required this.onCloseDrawer,
+    this.inkMode = false,
     this.safeTop = 0,
     this.safeBottom = 0,
     this.onTts,
@@ -87,6 +88,9 @@ class ReaderMenuOverlay extends StatelessWidget {
 
   /// 关闭抽屉。
   final VoidCallback onCloseDrawer;
+
+  /// 墨水屏模式：主题固定为纯黑白，禁用日夜切换。
+  final bool inkMode;
 
   /// 顶部安全区（由阅读页缓存后注入，保证菜单与正文用同一份值）。
   final double safeTop;
@@ -166,8 +170,12 @@ class ReaderMenuOverlay extends StatelessWidget {
                               : Icons.dark_mode_outlined,
                           iconSize: 19,
                           color: fg,
-                          onTap: onToggleDayNight,
-                          tooltip: nightMode ? '日间' : '夜间',
+                          onTap: inkMode ? null : onToggleDayNight,
+                          tooltip: inkMode
+                              ? '墨水屏模式固定纯黑白'
+                              : nightMode
+                              ? '日间'
+                              : '夜间',
                           buttonKey: const ValueKey<String>('menu-daynight'),
                         ),
                         if (onTts != null)
@@ -268,7 +276,7 @@ class _IconButton extends StatelessWidget {
 
   final IconData icon;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String tooltip;
   final double iconSize;
   final Key? buttonKey;
@@ -277,7 +285,11 @@ class _IconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       key: buttonKey,
-      icon: Icon(icon, size: iconSize, color: color.withValues(alpha: 0.9)),
+      icon: Icon(
+        icon,
+        size: iconSize,
+        color: color.withValues(alpha: onTap == null ? 0.3 : 0.9),
+      ),
       tooltip: tooltip,
       onPressed: onTap,
       visualDensity: VisualDensity.compact,

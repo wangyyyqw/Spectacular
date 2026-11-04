@@ -93,6 +93,41 @@ void main() {
     expect(backgrounds.single, 'wood');
   });
 
+  testWidgets('墨水屏模式禁用主题与背景选择', (tester) async {
+    final themes = <String>[];
+    final backgrounds = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.theme,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            backgroundId: 'none',
+            inkMode: true,
+            onOverridesChanged: (_) {},
+            onThemeChanged: themes.add,
+            onBackgroundChanged: backgrounds.add,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-ink-theme-hint')),
+      findsOneWidget,
+    );
+    for (final key in <String>[
+      'settings-theme-dark',
+      'settings-bg-wood',
+    ]) {
+      expect(tester.widget<InkWell>(find.byKey(ValueKey<String>(key))).onTap,
+          isNull);
+    }
+    expect(themes, isEmpty);
+    expect(backgrounds, isEmpty);
+  });
+
   testWidgets('设置面板可切换正文字体', (tester) async {
     expect(
       FontFamilyAliases.resolve(ReaderSettingsDefaults.fontSans),

@@ -31,6 +31,7 @@ Future<ReaderSession> _open(
   WidgetTester tester,
   int chapters, {
   ReaderTapZones tapZones = ReaderTapZones.defaults,
+  bool inkMode = false,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -40,6 +41,7 @@ Future<ReaderSession> _open(
         store: MemoryReaderProgressStore(),
         bookId: 'menu',
         tapZones: tapZones,
+        inkMode: inkMode,
         onSessionReady: (value) => session = value,
       ),
     ),
@@ -162,5 +164,14 @@ void main() {
     expect(tester.widget<InkResponse>(_button('prev')).onTap, isNull);
     expect(tester.widget<InkResponse>(_button('next')).onTap, isNull);
     expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 0));
+  });
+
+  testWidgets('墨水屏模式禁用日夜切换', (tester) async {
+    await _open(tester, 3, inkMode: true);
+    final button = tester.widget<IconButton>(
+      find.byKey(const ValueKey<String>('menu-daynight')),
+    );
+    expect(button.onPressed, isNull);
+    expect(button.tooltip, '墨水屏模式固定纯黑白');
   });
 }
