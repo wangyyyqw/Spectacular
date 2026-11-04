@@ -36,6 +36,10 @@ class AnnotationLayer extends StatelessWidget {
   /// 墨水屏模式（P4-23，§42.2）：高亮改为下划线，不画半透明色块。
   final bool inkMode;
 
+  /// 笔记标记颜色：墨水屏统一为黑色，普通模式沿用传入颜色。
+  static Color markerColor({required bool inkMode, required Color color}) =>
+      inkMode ? const Color(0xFF000000) : color;
+
   @override
   Widget build(BuildContext context) {
     if (annotations.isEmpty) {
@@ -114,7 +118,11 @@ class _AnnotationPainter extends CustomPainter {
       }
     }
     // 笔记标记：行尾右侧的小圆点（P4-18）。
-    final marker = Paint()..color = noteMarkerColor;
+    final marker = Paint()
+      ..color = AnnotationLayer.markerColor(
+        inkMode: inkMode,
+        color: noteMarkerColor,
+      );
     for (final center in noteMarks) {
       canvas.drawCircle(center, AnnotationDecorations.noteMarkerRadius, marker);
     }
