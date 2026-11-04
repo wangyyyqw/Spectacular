@@ -128,12 +128,14 @@ enum CssHangingPunctuation { none, allowEnd }
 /// 所以默认必须开启才对得上浏览器。
 /// [normal]：不挤压，对应显式 `space-all`（成员名沿用旧枚举，改名会波及
 /// layout 层调用点，语义以本注释为准）。
+/// [trimAll]：阅读器统一压缩模式，所有有半宽留白特性的标点逐字压缩。
 enum CssTextSpacingTrim {
   normal,
   trimAdjacent,
   trimStart,
   trimBoth,
-  spaceFirst;
+  spaceFirst,
+  trimAll;
 
   bool get enabled => this != normal;
   bool get trimsStart =>
@@ -145,6 +147,7 @@ enum CssTextSpacingTrim {
     trimStart => 'trim-start',
     trimBoth => 'trim-both',
     spaceFirst => 'space-first',
+    trimAll => 'trim-all',
   };
 }
 
@@ -6996,8 +6999,8 @@ class ComputedStyle {
       switch (raw.trim().toLowerCase()) {
         'trim-adjacent' ||
         'normal' ||
-        'auto' ||
-        'trim-all' => CssTextSpacingTrim.trimAdjacent,
+        'auto' => CssTextSpacingTrim.trimAdjacent,
+        'trim-all' => CssTextSpacingTrim.trimAll,
         'space-first' => CssTextSpacingTrim.spaceFirst,
         'trim-start' => CssTextSpacingTrim.trimStart,
         'trim-both' => CssTextSpacingTrim.trimBoth,

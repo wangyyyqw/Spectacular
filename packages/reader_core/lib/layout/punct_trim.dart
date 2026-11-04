@@ -48,6 +48,23 @@ const Set<String> punctCompressionSet = <String>{
   ...punctOpeningSet,
 };
 
+/// 统一压缩模式的标点；只使用字体实际提供的半宽留白，不缩放墨迹。
+const Set<String> punctUniformCompressionSet = <String>{
+  ...punctCompressionSet,
+  '！',
+  '？',
+  '“',
+  '”',
+  '‘',
+  '’',
+  '〔',
+  '〕',
+  '［',
+  '］',
+  '｛',
+  '｝',
+};
+
 /// 全角标点的判定比例阈值：advance ≥ 0.9em 视为整格字形。
 const double fullWidthRatioThreshold = 0.9;
 

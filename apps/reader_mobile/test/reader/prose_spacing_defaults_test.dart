@@ -27,7 +27,7 @@ void main() {
         .load();
   });
 
-  test('普通 p 和叶子 div 默认两端对齐及双边挤压，默认不伪造作者来源', () async {
+  test('普通 p 和叶子 div 默认两端对齐及统一压缩，默认不伪造作者来源', () async {
     final source = await openCssChapter(
       body:
           '<p>普通正文，<b>加粗文字</b>不会关闭段落排版。</p>'
@@ -37,10 +37,10 @@ void main() {
     expect(blocks, hasLength(2));
     for (final block in blocks) {
       expect(block.style!.textAlign, CssTextAlign.justify);
-      expect(block.style!.textSpacingTrim, CssTextSpacingTrim.trimBoth);
+      expect(block.style!.textSpacingTrim, CssTextSpacingTrim.trimAll);
       expect(block.style!.declaredTextProperties, isEmpty);
       for (final run in block.layout.runs) {
-        expect(run.style.textSpacingTrim, CssTextSpacingTrim.trimBoth);
+        expect(run.style.textSpacingTrim, CssTextSpacingTrim.trimAll);
       }
     }
   });
@@ -63,6 +63,23 @@ void main() {
       body: '<div style="text-align:right"><p>容器作者对齐。</p></div>',
     );
     expect((await _blocks(source)).single.style!.textAlign, CssTextAlign.right);
+  });
+
+  test('正文默认逐字压缩孤立和连续标点，行内样式不改变规则', () async {
+    final source = await openCssChapter(
+      body: '<p>（甲）<span style="color:red">，</span>乙！丙“丁”戊？</p>',
+      css: 'body { font-family:prose_flow_song; font-size:20px; }',
+    );
+    final block = (await _blocks(source)).single;
+    final line = block.layout.lines.single;
+    expect(line.spacing!.glyphs.keys, [0, 2, 3, 5, 7, 9, 11]);
+    for (final glyph in line.spacing!.glyphs.values) {
+      expect(glyph.halfWidth, isTrue);
+      expect(glyph.reduction, closeTo(10, .05));
+    }
+    _expectFlowGeometry(
+      TextHitTester.lineBoxes((await source.loadChapter(0)).single).single,
+    );
   });
 
   test('作者 inherit、unset、initial 及显式关闭挤压保留来源', () async {
@@ -131,7 +148,7 @@ void main() {
         );
         expect(
           block.style!.textSpacingTrim,
-          isNot(CssTextSpacingTrim.trimBoth),
+          isNot(CssTextSpacingTrim.trimAll),
           reason: body,
         );
       }
@@ -160,7 +177,7 @@ void main() {
         );
         expect(
           block.style!.textSpacingTrim,
-          isNot(CssTextSpacingTrim.trimBoth),
+          isNot(CssTextSpacingTrim.trimAll),
           reason: css,
         );
       }
