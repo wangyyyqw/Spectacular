@@ -27,6 +27,7 @@ class DriftProgressStore implements ReaderProgressStore {
     return ReaderProgress(
       spineIndex: row.spineIndex ?? 0,
       pageIndex: row.pageIndex ?? 0,
+      finished: row.finished,
       scrollOffset: _scrollOffsetOf(row.locatorCfi),
     );
   }
@@ -48,6 +49,7 @@ class DriftProgressStore implements ReaderProgressStore {
             percent: const Value<double>(0),
             spineIndex: Value<int>(progress.spineIndex),
             pageIndex: Value<int>(progress.pageIndex),
+            finished: Value<bool>(progress.finished),
             updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
           ),
         );
@@ -84,6 +86,7 @@ class DriftProgressStore implements ReaderProgressStore {
           uuidById[row.bookId]!: ReaderProgress(
             spineIndex: row.spineIndex ?? 0,
             pageIndex: row.pageIndex ?? 0,
+            finished: row.finished,
             scrollOffset: _scrollOffsetOf(row.locatorCfi),
           ),
     };
@@ -134,6 +137,7 @@ class DriftProgressStore implements ReaderProgressStore {
               percent: const Value<double>(0),
               spineIndex: Value<int>(spine),
               pageIndex: Value<int>(page),
+              finished: Value<bool>(value['finished'] == true),
               updatedAt: Value<int>(now),
             ),
           );

@@ -78,6 +78,25 @@ void main() {
     expect(row.locatorCfi, 'spine:1/page:3/scroll:87.5');
   });
 
+  test('读完状态保存后可读回并进入快照', () async {
+    final entry = await library.importBytes(buildTestEpub(title: '读完书'));
+    await store.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+    );
+
+    expect(
+      await store.load(entry.id),
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+    );
+    expect(
+      (await store.snapshot())[entry.id],
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+    );
+    final row = (await db.select(db.readingProgress).get()).single;
+    expect(row.finished, isTrue);
+  });
+
   test('clear 删进度；snapshot 返回 uuid → 进度', () async {
     final first = await library.importBytes(buildTestEpub(title: '甲书'));
     final second = await library.importBytes(buildTestEpub(title: '乙书'));

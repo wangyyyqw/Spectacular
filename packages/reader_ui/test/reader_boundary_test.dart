@@ -130,4 +130,19 @@ void main() {
     );
     session.dispose();
   });
+
+  test('恢复为已读完后回翻仍保持读完标记', () async {
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'boundary',
+      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+    );
+    final session = _session(_BoundarySource(), store);
+    await session.open();
+    expect(session.progress?.finished, isTrue);
+
+    await session.previous();
+    expect(session.progress?.finished, isTrue, reason: '手动读完标记不应因回翻而丢失');
+    session.dispose();
+  });
 }

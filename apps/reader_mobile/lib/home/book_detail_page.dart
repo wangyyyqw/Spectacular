@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../storage/book_review_store.dart';
 import '../storage/reading_session_store.dart';
 
 /// 用户选择的封面图片。
@@ -23,6 +25,8 @@ class BookDetailPage extends StatefulWidget {
     required this.library,
     this.pickCover = _pickCoverImage,
     this.sessionStore,
+    this.progressStore,
+    this.reviewStore,
   });
 
   /// 打开页面时的书籍条目。
@@ -36,6 +40,12 @@ class BookDetailPage extends StatefulWidget {
 
   /// 可注入的阅读会话存储；为空时使用书库数据库实现。
   final ReadingSessionStore? sessionStore;
+
+  /// 阅读进度存储；传入后才能标记读完。
+  final ReaderProgressStore? progressStore;
+
+  /// 可注入的书评存储；为空时使用书库数据库实现。
+  final BookReviewStore? reviewStore;
 
   static Future<CoverSelection?> _pickCoverImage() async {
     final file = await FilePicker.pickFile(
@@ -77,10 +87,15 @@ class _BookDetailPageState extends State<BookDetailPage> {
   List<BookTag> _tags = const <BookTag>[];
   Set<String> _selectedTagIds = <String>{};
   _BookReadingStats _readingStats = const _BookReadingStats.empty();
+  ReaderProgress? _progress;
+  BookReview? _review;
   bool _loading = true;
   bool _saving = false;
   bool _changingCover = false;
   String? _loadError;
+
+  BookReviewStore? get _reviewStore =>
+      widget.reviewStore ?? widget.library.reviewStore();
 
   @override
   void initState() {
@@ -124,6 +139,13 @@ class _BookDetailPageState extends State<BookDetailPage> {
     final sessions =
         await (sessionStore?.list() ??
             Future<List<ReadingSession>>.value(const <ReadingSession>[]));
+    final progress = await widget.progressStore?.load(_entry.id);
+    final reviewStore = _reviewStore;
+    final reviews =
+        await (reviewStore?.snapshot() ??
+            Future<Map<String, BookReview>>.value(
+              const <String, BookReview>{},
+            ));
     if (!mounted) {
       return;
     }
@@ -145,6 +167,8 @@ class _BookDetailPageState extends State<BookDetailPage> {
         sessions.where((session) => session.bookId == entry.id).toList(),
         DateTime.now(),
       );
+      _progress = progress;
+      _review = reviews[entry.id];
       _loading = false;
       _loadError = null;
     });
@@ -265,6 +289,103 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _tags = tags;
       _selectedTagIds = <String>{for (final tag in selected) tag.id};
     });
+  }
+
+  Future<void> _editFinished() async {
+    final progressStore = widget.progressStore;
+    if (progressStore == null) {
+      _showMessage('当前无法保存读完标记');
+      return;
+    }
+    final draft = await showModalBottomSheet<_FinishDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _FinishBookSheet(book: _entry, review: _review),
+    );
+    if (draft == null || !mounted) {
+      return;
+    }
+    final existing = _progress;
+    final lastSpine = ((_entry.spineCount ?? 1) - 1).clamp(0, 1000000);
+    final progress = ReaderProgress(
+      spineIndex: existing?.spineIndex ?? lastSpine,
+      pageIndex: existing?.pageIndex ?? 0,
+      finished: true,
+      scrollOffset: existing?.scrollOffset,
+    );
+    try {
+      await progressStore.save(_entry.id, progress);
+      final reviewStore = _reviewStore;
+      if (reviewStore != null) {
+        await reviewStore.save(
+          _entry.id,
+          rating: draft.rating,
+          content: draft.content,
+        );
+      }
+      final reviews =
+          await (reviewStore?.snapshot() ??
+              Future<Map<String, BookReview>>.value(
+                const <String, BookReview>{},
+              ));
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _progress = progress;
+        _review = reviews[_entry.id];
+      });
+      _showMessage(reviewStore == null ? '已标记读完' : '已标记读完并保存书评');
+    } catch (_) {
+      _showMessage('保存失败，请重试');
+    }
+  }
+
+  Future<void> _unmarkFinished() async {
+    final progressStore = widget.progressStore;
+    if (progressStore == null) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('取消读完标记？'),
+        content: const Text('书评和评分会保留，阅读进度不会改变。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('保留'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('book-detail-unmark-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('取消标记'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    final existing = _progress;
+    final progress = ReaderProgress(
+      spineIndex: existing?.spineIndex ?? 0,
+      pageIndex: existing?.pageIndex ?? 0,
+      finished: false,
+      scrollOffset: existing?.scrollOffset,
+    );
+    try {
+      await progressStore.save(_entry.id, progress);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _progress = progress);
+      _showMessage('已取消读完标记');
+    } catch (_) {
+      _showMessage('保存失败，请重试');
+    }
   }
 
   void _showMessage(String message) {
@@ -432,6 +553,16 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 Text('导入报告', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _ImportReports(library: widget.library, bookId: _entry.id),
+                const Divider(height: 40),
+                Text('阅读状态', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 10),
+                _ReadingStatusSection(
+                  progress: _progress,
+                  review: _review,
+                  canEdit: widget.progressStore != null,
+                  onEdit: _editFinished,
+                  onUnmark: _unmarkFinished,
+                ),
               ],
             ),
     );
@@ -885,6 +1016,279 @@ class _DailyReadingRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ReadingStatusSection extends StatelessWidget {
+  const _ReadingStatusSection({
+    required this.progress,
+    required this.review,
+    required this.canEdit,
+    required this.onEdit,
+    required this.onUnmark,
+  });
+
+  final ReaderProgress? progress;
+  final BookReview? review;
+  final bool canEdit;
+  final VoidCallback onEdit;
+  final VoidCallback onUnmark;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final finished = progress?.finished ?? false;
+    final content = review?.content ?? '';
+    return Container(
+      key: const ValueKey<String>('book-detail-reading-status'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                finished
+                    ? Icons.check_circle_outline
+                    : Icons.auto_stories_outlined,
+                size: 20,
+                color: finished
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  finished ? '已读完' : '未标记读完',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: finished ? theme.colorScheme.primary : null,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (review?.rating != null)
+                _ReviewStars(rating: review!.rating!, size: 18),
+            ],
+          ),
+          if (content.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              content,
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (finished)
+            Row(
+              children: <Widget>[
+                OutlinedButton.icon(
+                  key: const ValueKey<String>('book-detail-edit-finished'),
+                  onPressed: canEdit ? onEdit : null,
+                  icon: const Icon(Icons.rate_review_outlined, size: 18),
+                  label: const Text('编辑读完信息'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  key: const ValueKey<String>('book-detail-unmark-finished'),
+                  onPressed: canEdit ? onUnmark : null,
+                  child: const Text('取消读完'),
+                ),
+              ],
+            )
+          else
+            FilledButton.tonalIcon(
+              key: const ValueKey<String>('book-detail-mark-finished'),
+              onPressed: canEdit ? onEdit : null,
+              icon: const Icon(Icons.task_alt),
+              label: const Text('标记读完并写书评'),
+            ),
+          if (!canEdit) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              '从书架打开详情后可标记读完',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewStars extends StatelessWidget {
+  const _ReviewStars({required this.rating, required this.size});
+
+  final int rating;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        for (var star = 1; star <= 5; star++)
+          Icon(
+            star <= rating ? Icons.star_rounded : Icons.star_outline_rounded,
+            size: size,
+            color: star <= rating
+                ? const Color(0xFFE0A327)
+                : Theme.of(context).colorScheme.outlineVariant,
+          ),
+      ],
+    );
+  }
+}
+
+class _FinishDraft {
+  const _FinishDraft({required this.rating, required this.content});
+
+  final int? rating;
+  final String content;
+}
+
+class _FinishBookSheet extends StatefulWidget {
+  const _FinishBookSheet({required this.book, required this.review});
+
+  final BookEntry book;
+  final BookReview? review;
+
+  @override
+  State<_FinishBookSheet> createState() => _FinishBookSheetState();
+}
+
+class _FinishBookSheetState extends State<_FinishBookSheet> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.review?.content ?? '',
+  );
+  late int? _rating = widget.review?.rating;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      key: const ValueKey<String>('book-detail-finish-sheet'),
+      color: theme.colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.outlineVariant,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text('读完信息', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 3),
+                Text(
+                  widget.book.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text('评分（可选）', style: theme.textTheme.labelLarge),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    for (var star = 1; star <= 5; star++)
+                      IconButton(
+                        key: ValueKey<String>(
+                          'book-detail-finish-rating-$star',
+                        ),
+                        tooltip: '$star 星',
+                        onPressed: () => setState(
+                          () => _rating = _rating == star ? null : star,
+                        ),
+                        iconSize: 34,
+                        color: const Color(0xFFE0A327),
+                        icon: Icon(
+                          star <= (_rating ?? 0)
+                              ? Icons.star_rounded
+                              : Icons.star_outline_rounded,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text('书评（可选）', style: theme.textTheme.labelLarge),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const ValueKey<String>('book-detail-finish-review'),
+                  controller: _controller,
+                  minLines: 4,
+                  maxLines: 7,
+                  maxLength: 1000,
+                  textInputAction: TextInputAction.newline,
+                  decoration: const InputDecoration(
+                    hintText: '写下这本书带给你的感受…',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: <Widget>[
+                    TextButton(
+                      key: const ValueKey<String>('book-detail-finish-cancel'),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      key: const ValueKey<String>('book-detail-finish-save'),
+                      onPressed: () => Navigator.of(context).pop(
+                        _FinishDraft(
+                          rating: _rating,
+                          content: _controller.text.trim(),
+                        ),
+                      ),
+                      child: const Text('保存并标记读完'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

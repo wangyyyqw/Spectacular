@@ -561,7 +561,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (action == 'detail') {
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => BookDetailPage(entry: entry, library: widget.library),
+          builder: (_) => BookDetailPage(
+            entry: entry,
+            library: widget.library,
+            progressStore: widget.progressStore,
+          ),
         ),
       );
       if (mounted) {

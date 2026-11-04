@@ -356,6 +356,7 @@ class ReaderSession extends ChangeNotifier {
   /// 当前正文区高度（分页依据；测试与诊断用）。
   double? get contentHeight => _contentHeight;
   Object? _error;
+  bool _restoredFinished = false;
   bool _disposed = false;
   Timer? _persistTimer;
   ReaderProgress? _lastPersisted;
@@ -602,10 +603,11 @@ class ReaderSession extends ChangeNotifier {
         ? null
         : _pager?.spinePages[lastSpineIndex]?.length;
     final finished =
-        lastChapterPages != null &&
-        lastChapterPages > 0 &&
-        current.spineIndex == lastSpineIndex &&
-        current.pageIndex >= lastChapterPages - 1;
+        _restoredFinished ||
+        (lastChapterPages != null &&
+            lastChapterPages > 0 &&
+            current.spineIndex == lastSpineIndex &&
+            current.pageIndex >= lastChapterPages - 1);
     return ReaderProgress(
       spineIndex: current.spineIndex,
       pageIndex: current.pageIndex,
@@ -705,6 +707,7 @@ class ReaderSession extends ChangeNotifier {
       if (generation != _generation) return;
       final saved = await store.load(bookId);
       if (generation != _generation) return;
+      _restoredFinished = saved?.finished ?? false;
       final pager = VirtualPager(
         spineCount: source.chapterCount,
         loader: source.loadChapter,
