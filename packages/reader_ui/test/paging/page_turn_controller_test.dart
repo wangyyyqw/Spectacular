@@ -280,32 +280,33 @@ void main() {
 
   for (final rtl in [false, true]) {
     for (final next in [false, true]) {
-      testWidgets('${rtl ? 'RTL' : 'LTR'} ${next ? '下一页' : '上一页'}中心区恰为屏高五分之一', (
-        tester,
-      ) async {
-        final controller = await _controller(tester, rtl: rtl);
-        for (final y in <double>[191.9, 192, 240, 288, 288.1]) {
-          final down = ui.Offset((next != rtl) ? 310 : 10, y);
-          controller.pointerDown(down);
-          controller.beginDrag(DragStartDetails(localPosition: down));
-          _move(controller, ui.Offset(next ? 220 : 100, y));
-          await tester.pump();
+      testWidgets(
+        '${rtl ? 'RTL' : 'LTR'} ${next ? '下一页' : '上一页'}中心区恰为屏高二十分之一',
+        (tester) async {
+          final controller = await _controller(tester, rtl: rtl);
+          for (final y in <double>[227.9, 228, 240, 252, 252.1]) {
+            final down = ui.Offset((next != rtl) ? 310 : 10, y);
+            controller.pointerDown(down);
+            controller.beginDrag(DragStartDetails(localPosition: down));
+            _move(controller, ui.Offset(next ? 220 : 100, y));
+            await tester.pump();
 
-          expect(controller.next, next);
-          expect(controller.top, y < 240);
-          expect(controller.horizontal, y >= 192 && y <= 288);
-          final geometry = controller.besselGeometry!;
-          expect(geometry.horizontal, controller.horizontal);
-          expect(geometry.a.dx, 220);
-          if (controller.horizontal) {
-            expect(geometry.a.dy, y);
-          } else {
-            expect(geometry.c.dx, greaterThanOrEqualTo(-0.001));
-            expect(geometry.a.dy, inInclusiveRange(0.1, 479.9));
+            expect(controller.next, next);
+            expect(controller.top, y < 240);
+            expect(controller.horizontal, y >= 228 && y <= 252);
+            final geometry = controller.besselGeometry!;
+            expect(geometry.horizontal, controller.horizontal);
+            expect(geometry.a.dx, 220);
+            if (controller.horizontal) {
+              expect(geometry.a.dy, y);
+            } else {
+              expect(geometry.c.dx, greaterThanOrEqualTo(-0.001));
+              expect(geometry.a.dy, inInclusiveRange(0.1, 479.9));
+            }
+            controller.cancel();
           }
-          controller.cancel();
-        }
-      });
+        },
+      );
     }
   }
 
