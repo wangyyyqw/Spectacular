@@ -187,13 +187,25 @@ void main() {
       for (var y = 2; y < 298; y += 2) {
         for (var x = 2; x < 198; x += 2) {
           if (!back.contains(Offset(x + 0.5, y + 0.5))) continue;
-          if (_brightness(data, Offset(x.toDouble(), y.toDouble())) < 150) {
+          if (_brightness(data, Offset(x.toDouble(), y.toDouble())) < 210) {
             ink++;
           }
         }
       }
       expect(ink, greaterThan(0), reason: '${top ? '上' : '下'}角纸背应显示镜像正文');
     }
+  });
+
+  test('纸背内容变浅发白，正面颜色不受影响', () async {
+    final data = await _render(
+      pageColor: const Color(0xFF000000),
+      paperColor: const Color(0xFFFFFFFF),
+    );
+    final back = crease + normal * 30;
+    final backBrightness = _brightness(data, back);
+
+    expect(backBrightness, inInclusiveRange(130, 200));
+    expect(_brightness(data, const Offset(20, 150)), lessThan(60));
   });
 
   test('中心起卷上下对称且整条侧边都有纸背', () async {
@@ -241,7 +253,7 @@ void main() {
     final flatInk = <int>[];
     final curvedInk = <int>[];
     for (var sampleX = 80; sampleX < 125; sampleX++) {
-      if (_brightness(data, Offset(sampleX.toDouble(), 150)) >= 150) continue;
+      if (_brightness(data, Offset(sampleX.toDouble(), 150)) >= 190) continue;
       (sampleX < 100 ? flatInk : curvedInk).add(sampleX);
     }
 
