@@ -170,6 +170,42 @@ void main() {
     }
   });
 
+  test('角部纸背为不透明纸色，不透出镜像页面', () async {
+    for (final top in [false, true]) {
+      final data = await _render(top: top, pageColor: const Color(0xFF000000));
+      final g = BesselGeometry.resolve(
+        _size,
+        Offset(120, top ? 100 : 200),
+        top: top,
+      )!;
+      final crease = (g.d + g.i) / 2;
+      final normal = (g.a - g.f) / (g.a - g.f).distance;
+      final back = g.backPath(g.frontPath());
+
+      for (var y = 2; y < 298; y += 2) {
+        for (var x = 2; x < 198; x += 2) {
+          final point = Offset(x + 0.5, y + 0.5);
+          final distance =
+              (point.dx - crease.dx) * normal.dx +
+              (point.dy - crease.dy) * normal.dy;
+          if (!back.contains(point) ||
+              !back.contains(point + const Offset(2, 0)) ||
+              !back.contains(point - const Offset(2, 0)) ||
+              !back.contains(point + const Offset(0, 2)) ||
+              !back.contains(point - const Offset(0, 2)) ||
+              distance <= 25) {
+            continue;
+          }
+          expect(
+            _brightness(data, Offset(x.toDouble(), y.toDouble())),
+            greaterThanOrEqualTo(250),
+            reason: '${top ? '上' : '下'}角纸背 ($x, $y) 不应透出镜像页面',
+          );
+        }
+      }
+    }
+  });
+
   test('中心起卷上下对称且整条侧边都有纸背', () async {
     final data = await _render(
       horizontal: true,
@@ -225,7 +261,7 @@ void main() {
     expect(curvedInk.first, greaterThan(flatInk.last));
   });
 
-  test('深色图片页的折痕不露出固定纸色亮边', () async {
+  test('深色图片页正面折痕不露出固定纸色亮边', () async {
     for (final mode in [
       (top: false, horizontal: false),
       (top: true, horizontal: false),
@@ -243,15 +279,11 @@ void main() {
         top: mode.top,
         horizontal: mode.horizontal,
       )!;
-      final union = Path.combine(
-        PathOperation.union,
-        g.frontPath(),
-        g.backPath(g.frontPath()),
-      );
+      final front = g.frontPath();
 
       for (var y = 1; y < 299; y++) {
         for (var x = 1; x < 199; x++) {
-          if (!union.contains(Offset(x + 0.5, y + 0.5))) continue;
+          if (!front.contains(Offset(x + 0.5, y + 0.5))) continue;
           expect(
             _brightness(data, Offset(x.toDouble(), y.toDouble())),
             lessThan(200),

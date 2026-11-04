@@ -8,9 +8,13 @@ import 'bessel_geometry.dart';
 
 /// 690 §3～5、700 §2 的页面合成；只消费准备好的位图。
 class BesselPainter {
-  BesselPainter({required this.paperColor});
+  BesselPainter({required this.paperColor})
+    : _cornerBackPaint = Paint()..color = paperColor,
+      _edgeBackPaint = Paint()..color = paperColor.withAlpha(145);
 
   final Color paperColor;
+  final Paint _cornerBackPaint;
+  final Paint _edgeBackPaint;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
 
   void paint(
@@ -155,14 +159,8 @@ class BesselPainter {
     }
     canvas.save();
     canvas.clipPath(back);
-    canvas.save();
-    canvas.transform(g.reflection());
-    _drawImage(canvas, image, g.size, rtl);
-    canvas.restore();
-    canvas.drawRect(
-      Offset.zero & g.size,
-      Paint()..color = paperColor.withAlpha(128),
-    );
+    // 角部纸背是不透光纸张，不能透出镜像正文或目标页。
+    canvas.drawRect(Offset.zero & g.size, _cornerBackPaint);
     final width = (g.a - g.f).distance / 8;
     final length = _length(g);
     // 曲面宽度对应贝塞尔中点到 CJ 的距离，纸背在折痕处最暗。
@@ -230,7 +228,7 @@ class BesselPainter {
   }
 
   void _edgeBackShading(Canvas canvas, Path back) {
-    canvas.drawPath(back, Paint()..color = paperColor.withAlpha(145));
+    canvas.drawPath(back, _edgeBackPaint);
     canvas.drawPath(
       back,
       Paint()
