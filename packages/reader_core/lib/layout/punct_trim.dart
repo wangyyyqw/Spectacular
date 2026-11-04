@@ -24,6 +24,16 @@ const Set<String> punctClosingSet = <String>{
   '，', '。', '、', '；', '：', '」', '』', '）', '》', '】', '〉',
 };
 
+/// 行首禁则标点：收尾类加上不成对的叹号、问号与省略号。
+///
+/// 挤压集合刻意不含 `！？…`，但换行避头仍须包含它们。
+const Set<String> punctLineStartProhibitedSet = <String>{
+  ...punctClosingSet,
+  '！',
+  '？',
+  '…',
+};
+
 /// 起首类全角标点（开括号与开引号）：只作为挤压对的**右侧**参与。
 const Set<String> punctOpeningSet = <String>{
   '「', '『', '（', '《', '【', '〈',

@@ -156,6 +156,33 @@ void main() {
     }
   });
 
+  for (final punct in <String>['，', '。', '？']) {
+    test('行内盒之后的 $punct 不落行首', () {
+      final text = '一二三四五六七八九十$punct后续内容';
+      final style = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': 'P202Kinsoku',
+      });
+      final layout = TextLayoutEngine.layout(
+        text: text,
+        style: style,
+        maxWidth: 160,
+        inlineBoxes: const <InlineBoxSpec>[
+          InlineBoxSpec(offset: 10, width: 12, height: 12),
+        ],
+      );
+      for (final line in layout.lines) {
+        final lineText = text.substring(line.start, line.end);
+        expect(
+          lineText.startsWith(punct),
+          isFalse,
+          reason: '标点落行首: $lineText',
+        );
+      }
+    });
+  }
+
   _p202BoundaryTests();
   _p205BoundaryTests();
 }
