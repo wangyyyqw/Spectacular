@@ -15,6 +15,12 @@ class PageTurnPainter extends CustomPainter {
   final Color paperColor;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
 
+  /// 堆叠覆盖中下一页只跟随当前页移动的一小段，形成搓纸视差。
+  static const _coverStackShift = 0.08;
+  static const _coverStackMask = Color(0xFF808080);
+  static const _coverStackMaskAlpha = 0.22;
+  final Paint _coverStackMaskPaint = Paint();
+
   @override
   void paint(Canvas canvas, Size size) {
     final origin = controller.originImage;
@@ -70,21 +76,30 @@ class PageTurnPainter extends CustomPainter {
 
   void _cover(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final p = controller.progress;
-    final exposure = controller.next ? p : 1 - p;
-    final bottom = controller.next ? target : origin;
     if (controller.mode == PageTurnMode.coverStack) {
+      final exit =
+          (controller.next ? -1.0 : 1.0) * (controller.rtl ? -1.0 : 1.0);
+      final originDx = exit * p * size.width;
+      final targetDx = -exit * _coverStackShift * (1 - p) * size.width;
       canvas.save();
-      final scale = 0.97 + exposure * 0.03;
-      canvas.translate(
-        size.width * (1 - scale) / 2,
-        size.height * (1 - scale) / 2,
+      canvas.translate(targetDx, 0);
+      _image(canvas, target, size);
+      _coverStackMaskPaint.color = _coverStackMask.withValues(
+        alpha: _coverStackMaskAlpha * (1 - p),
       );
-      canvas.scale(scale);
-      _image(canvas, bottom, size);
+      canvas.drawRect(Offset.zero & size, _coverStackMaskPaint);
       canvas.restore();
-    } else {
-      _image(canvas, bottom, size);
+      _translated(canvas, origin, size, originDx);
+      _edgeShadow(
+        canvas,
+        size,
+        originDx,
+        fromRight: controller.next != controller.rtl,
+      );
+      return;
     }
+    final bottom = controller.next ? target : origin;
+    _image(canvas, bottom, size);
     final dx = -(controller.next ? p : 1 - p) * size.width;
     final physicalDx = controller.rtl ? -dx : dx;
     _translated(canvas, controller.next ? origin : target, size, physicalDx);
