@@ -68,6 +68,10 @@ class BesselPainter {
   double _foldAngle(BesselGeometry g) =>
       math.atan2(g.a.dy - g.f.dy, g.a.dx - g.f.dx);
 
+  double _shadowOpacity(BesselGeometry g) => g.horizontal
+      ? 1
+      : ((g.a.dx + g.size.width) / g.size.width).clamp(0.0, 1.0);
+
   void _bottomShadow(Canvas canvas, BesselGeometry g) {
     if (g.horizontal) {
       _edgeBottomShadow(canvas, g);
@@ -81,7 +85,7 @@ class BesselPainter {
       Rect.fromLTRB(-width, -length, width / 2, length),
       g.d,
       _foldAngle(g),
-      _gradient(0, 0.42),
+      _gradient(g, 0, 0.42),
     );
   }
 
@@ -106,7 +110,7 @@ class BesselPainter {
           : Rect.fromLTRB(-5, -length, 1, 0),
       g.e,
       math.atan2(g.a.dx - g.e.dx, g.e.dy - g.a.dy),
-      _gradient(g.top ? 0.1 : 0, g.top ? 0 : 0.1),
+      _gradient(g, g.top ? 0.1 : 0, g.top ? 0 : 0.1),
     );
     canvas.restore();
     _frontHShadow(canvas, g, front);
@@ -132,7 +136,7 @@ class BesselPainter {
           : Rect.fromLTRB(left, -5, right, 1),
       g.h,
       math.atan2(g.h.dy - g.a.dy, g.h.dx - g.a.dx),
-      _gradient(g.top ? 0.1 : 0, g.top ? 0 : 0.1, vertical: true),
+      _gradient(g, g.top ? 0.1 : 0, g.top ? 0 : 0.1, vertical: true),
     );
     canvas.restore();
   }
@@ -167,7 +171,7 @@ class BesselPainter {
       Rect.fromLTRB(0, -length, width, length),
       g.d,
       _foldAngle(g),
-      _gradient(0.18, 0),
+      _gradient(g, 0.18, 0),
     );
     canvas.restore();
   }
@@ -193,7 +197,7 @@ class BesselPainter {
       Rect.fromLTRB(-width, 0, 0, geometry.size.height),
       Offset(geometry.a.dx, 0),
       0,
-      _gradient(0, 0.09),
+      _gradient(geometry, 0, 0.09),
     );
   }
 
@@ -289,15 +293,19 @@ class BesselPainter {
   }
 
   LinearGradient _gradient(
+    BesselGeometry g,
     double startAlpha,
     double endAlpha, {
     bool vertical = false,
-  }) => LinearGradient(
-    begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
-    end: vertical ? Alignment.bottomCenter : Alignment.centerRight,
-    colors: [
-      Color.from(alpha: startAlpha, red: 0, green: 0, blue: 0),
-      Color.from(alpha: endAlpha, red: 0, green: 0, blue: 0),
-    ],
-  );
+  }) {
+    final opacity = _shadowOpacity(g);
+    return LinearGradient(
+      begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
+      end: vertical ? Alignment.bottomCenter : Alignment.centerRight,
+      colors: [
+        Color.from(alpha: startAlpha * opacity, red: 0, green: 0, blue: 0),
+        Color.from(alpha: endAlpha * opacity, red: 0, green: 0, blue: 0),
+      ],
+    );
+  }
 }
