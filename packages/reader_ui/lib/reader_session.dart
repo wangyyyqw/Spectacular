@@ -349,6 +349,7 @@ class ReaderSession extends ChangeNotifier {
   double _contentTopInset = 0;
   _ContentSizeRequest? _pendingContentSize;
   Future<void>? _contentSizeTask;
+  Future<void>? _reloadTask;
   ReaderAnchor? _contentSizePreviewAnchor;
   ReaderProgress? _contentSizePreviewProgress;
   (double?, double?, double)? _contentSizeBeforePreview;
@@ -359,6 +360,7 @@ class ReaderSession extends ChangeNotifier {
   bool _restoredFinished = false;
   bool _disposed = false;
   Timer? _persistTimer;
+  Future<void>? _persistTask;
   ReaderProgress? _lastPersisted;
   int _persistWrites = 0;
   int _jumpToken = 0;
@@ -467,8 +469,7 @@ class ReaderSession extends ChangeNotifier {
     String? title,
     bool continuous = false,
   }) async {
-    final pager = _pager;
-    if (pager == null) {
+    if (_pager == null) {
       return false;
     }
     final parsed = EpubCfi.parse(cfi);
@@ -476,9 +477,7 @@ class ReaderSession extends ChangeNotifier {
     if (spine == null || spine >= source.chapterCount) {
       return false;
     }
-    _clearScrollPosition();
     final token = ++_jumpToken;
-    _generation += 1;
     _jumpLoadingTitle = title ?? '书签位置';
     _notify();
     final trace = readerTraceEnabled
@@ -488,6 +487,11 @@ class ReaderSession extends ChangeNotifier {
           )
         : null;
     try {
+      if (_loading || _contentSizeTask != null) await _waitForReload();
+      if (_disposed || token != _jumpToken) return false;
+      _generation += 1;
+      _clearScrollPosition();
+      final pager = _pager!;
       final changed = await pager.goTo(spine, 0);
       if (token != _jumpToken) {
         return false;
@@ -553,14 +557,10 @@ class ReaderSession extends ChangeNotifier {
   /// token 不符直接丢弃结果——连续点多个目录项不会出现「后到的旧结果覆盖
   /// 新位置」。跳转期间 [jumpLoadingTitle] 生效，由阅读页显示全屏浮层。
   Future<bool> jumpToChapter(int spineIndex, {String? title}) async {
-    final pager = _pager;
-    if (pager == null) {
+    if (_pager == null) {
       return false;
     }
-    _clearScrollPosition();
     final token = ++_jumpToken;
-    // 跳转优先：让进行中的翻页/重排结果作废，避免旧结果回写。
-    _generation += 1;
     _jumpLoadingTitle = title ?? '第 ${spineIndex + 1} 章';
     _notify();
     final trace = readerTraceEnabled
@@ -570,6 +570,11 @@ class ReaderSession extends ChangeNotifier {
           )
         : null;
     try {
+      if (_loading || _contentSizeTask != null) await _waitForReload();
+      if (_disposed || token != _jumpToken) return false;
+      _generation += 1;
+      _clearScrollPosition();
+      final pager = _pager!;
       final changed = await pager.goTo(
         spineIndex,
         0,
@@ -590,6 +595,17 @@ class ReaderSession extends ChangeNotifier {
         _notify();
       }
     }
+  }
+
+  /// 重排完成后再导航，避免复用旧分页或让加载状态失去清理者。
+  Future<void> _waitForReload() async {
+    Future<void>? task;
+    do {
+      task = _contentSizeTask ?? _reloadTask;
+      if (task == null) return;
+      await task;
+    } while (!_disposed && task != (_contentSizeTask ?? _reloadTask));
+    if (!_disposed) _loading = false;
   }
 
   /// 当前进度。
@@ -858,12 +874,12 @@ class ReaderSession extends ChangeNotifier {
       return;
     }
     final generation = ++_generation;
-    await _reloadChapter(
+    await (_reloadTask = _reloadChapter(
       generation: generation,
       spine: spine,
       anchor: anchor,
       prepare: () => src.applyOverrides(next),
-    );
+    ));
   }
 
   /// 应用新的正文区尺寸（旋转/窗口变化，P2-31）。
@@ -950,14 +966,14 @@ class ReaderSession extends ChangeNotifier {
       // 原尺寸直接恢复原页号，避免锚点恰在页边界时退到前一页。
       final restoresOriginalSize =
           (next.width, next.height, next.topInset) == _contentSizeBeforePreview;
-      await _reloadChapter(
+      await (_reloadTask = _reloadChapter(
         generation: generation,
         spine: spine,
         anchor: anchor,
         pageIndex: restoresOriginalSize && original?.spineIndex == spine
             ? original?.pageIndex
             : null,
-      );
+      ));
     }
     if (generation != _generation || _error != null) return;
     if (!next.preview) _finishContentSizePreview();
@@ -1192,11 +1208,11 @@ class ReaderSession extends ChangeNotifier {
       return;
     }
     if (_lastPersisted == null) {
-      unawaited(_flushProgress());
+      _flushProgress().ignore();
       return;
     }
     _persistTimer?.cancel();
-    _persistTimer = Timer(persistInterval, () => unawaited(_flushProgress()));
+    _persistTimer = Timer(persistInterval, () => _flushProgress().ignore());
   }
 
   /// 立即落盘（生命周期切后台/退出阅读页/强杀前调用）。
@@ -1208,13 +1224,26 @@ class ReaderSession extends ChangeNotifier {
   Future<void> _flushProgress() async {
     _persistTimer?.cancel();
     _persistTimer = null;
+    while (_persistTask != null) {
+      try {
+        await _persistTask;
+      } catch (_) {
+        // 上一轮失败仍保留待保存位置，本次落盘继续重试。
+      }
+    }
     final value = _progressToPersist;
     if (value == null || value == _lastPersisted) {
       return;
     }
-    _lastPersisted = value;
-    _persistWrites += 1;
-    await store.save(bookId, value);
+    final task = store.save(bookId, value);
+    _persistTask = task;
+    try {
+      await task;
+      _lastPersisted = value;
+      _persistWrites += 1;
+    } finally {
+      _persistTask = null;
+    }
   }
 
   void _notify() {
@@ -1230,12 +1259,7 @@ class ReaderSession extends ChangeNotifier {
     _jumpToken += 1;
     _pager?.cancelPendingNavigation();
     // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
-    final value = _progressToPersist;
-    if (value != null && value != _lastPersisted) {
-      _lastPersisted = value;
-      _persistWrites += 1;
-      unawaited(store.save(bookId, value));
-    }
+    _flushProgress().ignore();
     _persistTimer?.cancel();
     _persistTimer = null;
     _disposed = true;
