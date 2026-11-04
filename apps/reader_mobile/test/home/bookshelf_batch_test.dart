@@ -13,6 +13,13 @@ Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
   }
 }
 
+Future<void> _enterMultiSelect(WidgetTester tester, String bookId) async {
+  await tester.longPress(find.byKey(ValueKey<String>('book-card-$bookId')));
+  await _settle(tester, frames: 4);
+  await tester.tap(find.text('多选'));
+  await _settle(tester, frames: 4);
+}
+
 void main() {
   testWidgets('书架支持全选、取消全选和确认后批量删除', (tester) async {
     final library = LibraryStore.memory();
@@ -43,13 +50,7 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.byTooltip('批量管理'));
-    await _settle(tester);
-    expect(find.text('批量管理'), findsOneWidget);
-    expect(find.text('请选择要删除的书籍'), findsOneWidget);
-
-    await tester.tap(find.byKey(ValueKey<String>('book-card-${first.id}')));
-    await _settle(tester, frames: 3);
+    await _enterMultiSelect(tester, first.id);
     expect(find.text('已选 1 本'), findsOneWidget);
 
     await tester.tap(
@@ -63,7 +64,8 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-select-all')),
     );
     await _settle(tester, frames: 3);
-    expect(find.text('请选择要删除的书籍'), findsOneWidget);
+    expect(find.text('多选'), findsOneWidget);
+    expect(find.text('请选择书籍'), findsOneWidget);
 
     await tester.tap(find.byKey(ValueKey<String>('book-card-${first.id}')));
     await tester.tap(find.byKey(ValueKey<String>('book-card-${second.id}')));
@@ -100,11 +102,15 @@ void main() {
     await _settle(tester, frames: 16);
 
     expect((await library.list()).map((entry) => entry.id), <String>[third.id]);
-    expect(await progressStore.load(first.id), isNull);
+    expect(
+      await progressStore.load(first.id),
+      isNotNull,
+      reason: '删书保留阅读进度，重新导入后可恢复',
+    );
     expect(find.text('批量甲'), findsNothing);
     expect(find.text('批量乙'), findsNothing);
     expect(find.text('批量丙'), findsWidgets);
-    expect(find.byTooltip('批量管理'), findsOneWidget);
+    expect(find.byTooltip('批量管理'), findsNothing);
     expect(find.text('已删除 2 本书'), findsOneWidget);
   });
 
@@ -131,10 +137,12 @@ void main() {
 
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    await tester.tap(find.byTooltip('批量管理'));
+    await tester.longPress(
+      find.byKey(ValueKey<String>('book-row-${first.id}')),
+    );
+    await _settle(tester, frames: 4);
+    await tester.tap(find.text('多选'));
     await _settle(tester);
-    await tester.tap(find.byKey(ValueKey<String>('book-row-${first.id}')));
-    await _settle(tester, frames: 3);
 
     expect(find.text('已选 1 本'), findsOneWidget);
     final checkbox = tester.widget<Checkbox>(

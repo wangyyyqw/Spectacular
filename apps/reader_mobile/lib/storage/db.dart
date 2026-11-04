@@ -23,6 +23,9 @@ class Books extends Table {
   /// 作者。
   TextColumn get author => text().nullable()();
 
+  /// 用户可编辑的简介。
+  TextColumn get description => text().nullable()();
+
   /// 语言。
   TextColumn get language => text().nullable()();
 
@@ -295,6 +298,72 @@ class ReadingSessions extends Table {
   IntColumn get durationMs => integer()();
 }
 
+/// 书架分组表：用户自定义的书籍分组。
+@DataClassName('ShelfGroupRow')
+class ShelfGroups extends Table {
+  /// 分组标识。
+  TextColumn get id => text()();
+
+  /// 分组名称。
+  TextColumn get name => text()();
+
+  /// 创建时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// 书籍分组归属：一本书最多属于一个分组，重新分组时覆盖旧值。
+@DataClassName('ShelfGroupBookRow')
+class ShelfGroupBooks extends Table {
+  /// 书籍 uuid（`books.uuid`）；删书走软删除，归属保留供重新导入恢复。
+  TextColumn get bookUuid => text()();
+
+  /// 所属分组。
+  TextColumn get groupId =>
+      text().references(ShelfGroups, #id, onDelete: KeyAction.cascade)();
+
+  /// 加入分组时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{bookUuid};
+}
+
+/// 标签表：跨书籍复用的自定义标签。
+@DataClassName('BookTagRow')
+class BookTags extends Table {
+  /// 标签标识。
+  TextColumn get id => text()();
+
+  /// 标签名称（全局唯一）。
+  TextColumn get name => text().unique()();
+
+  /// 创建时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// 书籍与标签的多对多关联；标签删除时级联清理关联。
+@DataClassName('BookTagLinkRow')
+class BookTagLinks extends Table {
+  /// 书籍 uuid（`books.uuid`）；删书走软删除，关联保留供重新导入恢复。
+  TextColumn get bookUuid => text()();
+
+  /// 标签。
+  TextColumn get tagId =>
+      text().references(BookTags, #id, onDelete: KeyAction.cascade)();
+
+  /// 打标签时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{bookUuid, tagId};
+}
+
 /// 应用数据库：书库、进度、标注、搜索索引（技术方案 §36）。
 @DriftDatabase(
   tables: [
@@ -308,6 +377,10 @@ class ReadingSessions extends Table {
     ImportReports,
     BookReviews,
     ReadingSessions,
+    ShelfGroups,
+    ShelfGroupBooks,
+    BookTags,
+    BookTagLinks,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -319,7 +392,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -336,10 +409,7 @@ class AppDatabase extends _$AppDatabase {
       }
       if (version < 3) {
         // P4-10：进度迁入 reading_progress，补 spine/page 两列。
-        await migrator.addColumn(
-          readingProgress,
-          readingProgress.spineIndex,
-        );
+        await migrator.addColumn(readingProgress, readingProgress.spineIndex);
         await migrator.addColumn(readingProgress, readingProgress.pageIndex);
         version = 3;
       }
@@ -365,6 +435,17 @@ class AppDatabase extends _$AppDatabase {
         // 删书改为软删除：保留进度、标注、书评和阅读会话，重新导入可恢复。
         await migrator.addColumn(books, books.deletedAt);
         version = 8;
+      }
+      if (version < 9) {
+        await migrator.createTable(shelfGroups);
+        await migrator.createTable(shelfGroupBooks);
+        version = 9;
+      }
+      if (version < 10) {
+        await migrator.addColumn(books, books.description);
+        await migrator.createTable(bookTags);
+        await migrator.createTable(bookTagLinks);
+        version = 10;
       }
       await _createIndexes();
     },
@@ -398,6 +479,14 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_session_time '
       'ON reading_sessions(started_at)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_shelf_group_book_group '
+      'ON shelf_group_books(group_id)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_book_tag_link_tag '
+      'ON book_tag_links(tag_id)',
     );
   }
 

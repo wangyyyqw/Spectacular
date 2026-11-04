@@ -39,6 +39,7 @@ class BookEntry {
     required this.author,
     required this.filePath,
     required this.addedAt,
+    this.description = '',
     this.lastReadAt,
     this.spineCount,
     this.readabilityLevel = 0,
@@ -53,6 +54,9 @@ class BookEntry {
 
   /// 作者（OPF dc:creator；缺失为空串）。
   final String author;
+
+  /// 用户可编辑的简介。
+  final String description;
 
   /// EPUB 文件绝对路径（`books/<id>/source.epub`）。
   final String filePath;
@@ -91,6 +95,7 @@ class BookEntry {
     'id': id,
     'title': title,
     'author': author,
+    'description': description,
     'filePath': filePath,
     'addedAt': addedAt.millisecondsSinceEpoch,
     'lastReadAt': lastReadAt?.millisecondsSinceEpoch,
@@ -116,6 +121,9 @@ class BookEntry {
       id: id,
       title: title,
       author: json['author'] is String ? json['author'] as String : '',
+      description: json['description'] is String
+          ? json['description'] as String
+          : '',
       filePath: filePath,
       addedAt: DateTime.fromMillisecondsSinceEpoch(addedAt),
       lastReadAt: lastReadAt is int
@@ -131,10 +139,16 @@ class BookEntry {
     );
   }
 
-  BookEntry copyWith({DateTime? lastReadAt}) => BookEntry(
+  BookEntry copyWith({
+    DateTime? lastReadAt,
+    String? title,
+    String? author,
+    String? description,
+  }) => BookEntry(
     id: id,
-    title: title,
-    author: author,
+    title: title ?? this.title,
+    author: author ?? this.author,
+    description: description ?? this.description,
     filePath: filePath,
     addedAt: addedAt,
     lastReadAt: lastReadAt ?? this.lastReadAt,
@@ -142,6 +156,46 @@ class BookEntry {
     readabilityLevel: readabilityLevel,
     coverPath: coverPath,
   );
+}
+
+/// 书架分组。
+@immutable
+class ShelfGroup {
+  /// 创建分组。
+  const ShelfGroup({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+
+  /// 分组标识。
+  final String id;
+
+  /// 分组名称。
+  final String name;
+
+  /// 创建时间。
+  final DateTime createdAt;
+}
+
+/// 可跨书籍复用的自定义标签。
+@immutable
+class BookTag {
+  /// 创建标签。
+  const BookTag({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+
+  /// 标签标识。
+  final String id;
+
+  /// 标签名称。
+  final String name;
+
+  /// 创建时间。
+  final DateTime createdAt;
 }
 
 /// 书架封面到开场页封面的 Hero 标识。
@@ -199,15 +253,17 @@ class LibraryStore {
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
 
   /// 纯内存模式：不触文件系统与数据库（测试专用）。
-  LibraryStore.memory()
-    : _db = null,
-      _directoryProvider = null;
+  LibraryStore.memory() : _db = null, _directoryProvider = null;
 
   final AppDatabase? _db;
   final Future<Directory> Function()? _directoryProvider;
   final Map<String, Uint8List> _memoryBytes = <String, Uint8List>{};
   final Map<String, BookEntry> _memoryEntries = <String, BookEntry>{};
   final Map<String, String> _memorySettings = <String, String>{};
+  final Map<String, ShelfGroup> _memoryGroups = <String, ShelfGroup>{};
+  final Map<String, String> _memoryBookGroups = <String, String>{};
+  final Map<String, BookTag> _memoryTags = <String, BookTag>{};
+  final Map<String, Set<String>> _memoryBookTags = <String, Set<String>>{};
   final List<void Function()> _listeners = <void Function()>[];
 
   bool get _isMemory => _db == null;
@@ -241,7 +297,9 @@ class LibraryStore {
   }
 
   Directory? _safeBookDirectory(Directory root, String id) {
-    if (id == '.' || id == '..' || !RegExp(r'^[A-Za-z0-9._~-]+$').hasMatch(id)) {
+    if (id == '.' ||
+        id == '..' ||
+        !RegExp(r'^[A-Za-z0-9._~-]+$').hasMatch(id)) {
       return null;
     }
     final booksPath = p.normalize(p.join(root.path, 'books'));
@@ -268,9 +326,309 @@ class LibraryStore {
       return;
     }
     final db = _db!;
-    await db.into(db.settingsTable).insertOnConflictUpdate(
-      SettingsTableCompanion.insert(key: key, value: value),
+    await db
+        .into(db.settingsTable)
+        .insertOnConflictUpdate(
+          SettingsTableCompanion.insert(key: key, value: value),
+        );
+  }
+
+  /// 全部分组，按创建时间升序。
+  Future<List<ShelfGroup>> listGroups() async {
+    if (_isMemory) {
+      final groups = _memoryGroups.values.toList()
+        ..sort((a, b) {
+          final compared = a.createdAt.compareTo(b.createdAt);
+          return compared == 0 ? a.id.compareTo(b.id) : compared;
+        });
+      return groups;
+    }
+    final db = _db!;
+    final rows =
+        await (db.select(db.shelfGroups)..orderBy([
+              (table) => OrderingTerm(expression: table.createdAt),
+              (table) => OrderingTerm(expression: table.id),
+            ]))
+            .get();
+    return <ShelfGroup>[
+      for (final row in rows)
+        ShelfGroup(
+          id: row.id,
+          name: row.name,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
+        ),
+    ];
+  }
+
+  /// 书籍 uuid → 分组 id；没有分组的书不出现在结果中。
+  Future<Map<String, String>> groupAssignments() async {
+    if (_isMemory) {
+      return Map<String, String>.of(_memoryBookGroups);
+    }
+    final db = _db!;
+    final rows = await db.select(db.shelfGroupBooks).get();
+    return <String, String>{for (final row in rows) row.bookUuid: row.groupId};
+  }
+
+  /// 新建分组；名称去首尾空白，空名或重名会被拒绝。
+  Future<ShelfGroup> createGroup(String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty) {
+      throw const LibraryImportException('分组名称不能为空');
+    }
+    final groups = await listGroups();
+    if (groups.any((group) => group.name == normalized)) {
+      throw const LibraryImportException('分组名称已存在');
+    }
+    final now = DateTime.now();
+    final group = ShelfGroup(
+      id:
+          'group-${now.microsecondsSinceEpoch}-'
+          '${math.Random().nextInt(0x7fffffff)}',
+      name: normalized,
+      createdAt: now,
     );
+    if (_isMemory) {
+      _memoryGroups[group.id] = group;
+    } else {
+      final db = _db!;
+      await db
+          .into(db.shelfGroups)
+          .insert(
+            ShelfGroupsCompanion.insert(
+              id: group.id,
+              name: group.name,
+              createdAt: now.millisecondsSinceEpoch,
+            ),
+          );
+    }
+    _notify();
+    return group;
+  }
+
+  /// 重命名分组。
+  Future<void> renameGroup(String id, String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty) {
+      throw const LibraryImportException('分组名称不能为空');
+    }
+    final groups = await listGroups();
+    if (groups.any((group) => group.id != id && group.name == normalized)) {
+      throw const LibraryImportException('分组名称已存在');
+    }
+    ShelfGroup? existing;
+    for (final group in groups) {
+      if (group.id == id) {
+        existing = group;
+        break;
+      }
+    }
+    if (existing == null) {
+      throw const LibraryImportException('分组不存在');
+    }
+    if (_isMemory) {
+      _memoryGroups[id] = ShelfGroup(
+        id: id,
+        name: normalized,
+        createdAt: existing.createdAt,
+      );
+    } else {
+      final db = _db!;
+      await (db.update(db.shelfGroups)..where((table) => table.id.equals(id)))
+          .write(ShelfGroupsCompanion(name: Value<String>(normalized)));
+    }
+    _notify();
+  }
+
+  /// 删除分组；书籍本身保留，归属关系一并移除。
+  Future<void> deleteGroup(String id) async {
+    if (_isMemory) {
+      _memoryGroups.remove(id);
+      _memoryBookGroups.removeWhere((_, groupId) => groupId == id);
+    } else {
+      final db = _db!;
+      await (db.delete(
+        db.shelfGroups,
+      )..where((table) => table.id.equals(id))).go();
+    }
+    _notify();
+  }
+
+  /// 将书籍移入分组；[groupId] 为 null 时移出分组。
+  Future<void> setBooksGroup(
+    Iterable<String> bookIds, {
+    String? groupId,
+  }) async {
+    final ids = bookIds.toSet();
+    if (ids.isEmpty) {
+      return;
+    }
+    if (groupId != null) {
+      final exists = (await listGroups()).any((group) => group.id == groupId);
+      if (!exists) {
+        throw const LibraryImportException('分组不存在');
+      }
+    }
+    if (_isMemory) {
+      if (groupId == null) {
+        for (final id in ids) {
+          _memoryBookGroups.remove(id);
+        }
+      } else {
+        for (final id in ids) {
+          _memoryBookGroups[id] = groupId;
+        }
+      }
+    } else {
+      final db = _db!;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await db.transaction(() async {
+        if (groupId == null) {
+          await (db.delete(
+            db.shelfGroupBooks,
+          )..where((table) => table.bookUuid.isIn(ids))).go();
+        } else {
+          await db.batch((batch) {
+            batch.insertAllOnConflictUpdate(
+              db.shelfGroupBooks,
+              <ShelfGroupBooksCompanion>[
+                for (final id in ids)
+                  ShelfGroupBooksCompanion.insert(
+                    bookUuid: id,
+                    groupId: groupId,
+                    createdAt: now,
+                  ),
+              ],
+            );
+          });
+        }
+      });
+    }
+    _notify();
+  }
+
+  /// 全部标签，按创建时间升序。
+  Future<List<BookTag>> listTags() async {
+    if (_isMemory) {
+      final tags = _memoryTags.values.toList()
+        ..sort((a, b) {
+          final compared = a.createdAt.compareTo(b.createdAt);
+          return compared == 0 ? a.id.compareTo(b.id) : compared;
+        });
+      return tags;
+    }
+    final db = _db!;
+    final rows =
+        await (db.select(db.bookTags)..orderBy([
+              (table) => OrderingTerm(expression: table.createdAt),
+              (table) => OrderingTerm(expression: table.id),
+            ]))
+            .get();
+    return <BookTag>[
+      for (final row in rows)
+        BookTag(
+          id: row.id,
+          name: row.name,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
+        ),
+    ];
+  }
+
+  /// 某本书已打的标签。
+  Future<List<BookTag>> bookTags(String bookId) async {
+    if (_isMemory) {
+      final ids = _memoryBookTags[bookId] ?? const <String>{};
+      return <BookTag>[
+        for (final tag in await listTags())
+          if (ids.contains(tag.id)) tag,
+      ];
+    }
+    final db = _db!;
+    final links = await (db.select(
+      db.bookTagLinks,
+    )..where((table) => table.bookUuid.equals(bookId))).get();
+    final ids = <String>{for (final link in links) link.tagId};
+    return <BookTag>[
+      for (final tag in await listTags())
+        if (ids.contains(tag.id)) tag,
+    ];
+  }
+
+  /// 新建标签；名称去首尾空白，同名标签直接复用。
+  Future<BookTag> createTag(String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty) {
+      throw const LibraryImportException('标签名称不能为空');
+    }
+    for (final tag in await listTags()) {
+      if (tag.name == normalized) {
+        return tag;
+      }
+    }
+    final now = DateTime.now();
+    final tag = BookTag(
+      id:
+          'tag-${now.microsecondsSinceEpoch}-'
+          '${math.Random().nextInt(0x7fffffff)}',
+      name: normalized,
+      createdAt: now,
+    );
+    if (_isMemory) {
+      _memoryTags[tag.id] = tag;
+    } else {
+      final db = _db!;
+      await db
+          .into(db.bookTags)
+          .insert(
+            BookTagsCompanion.insert(
+              id: tag.id,
+              name: tag.name,
+              createdAt: now.millisecondsSinceEpoch,
+            ),
+          );
+    }
+    _notify();
+    return tag;
+  }
+
+  /// 给书籍添加标签；重复添加保持幂等。
+  Future<void> addBookTag(String bookId, String tagId) async {
+    if (!(await listTags()).any((tag) => tag.id == tagId)) {
+      throw const LibraryImportException('标签不存在');
+    }
+    if (!await _bookExists(bookId)) {
+      throw const LibraryImportException('书籍不存在');
+    }
+    if (_isMemory) {
+      _memoryBookTags.putIfAbsent(bookId, () => <String>{}).add(tagId);
+    } else {
+      final db = _db!;
+      await db
+          .into(db.bookTagLinks)
+          .insertOnConflictUpdate(
+            BookTagLinksCompanion.insert(
+              bookUuid: bookId,
+              tagId: tagId,
+              createdAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+          );
+    }
+    _notify();
+  }
+
+  /// 移除书籍标签；不存在时保持幂等。
+  Future<void> removeBookTag(String bookId, String tagId) async {
+    if (_isMemory) {
+      _memoryBookTags[bookId]?.remove(tagId);
+    } else {
+      final db = _db!;
+      await (db.delete(db.bookTagLinks)..where(
+            (table) =>
+                table.bookUuid.equals(bookId) & table.tagId.equals(tagId),
+          ))
+          .go();
+    }
+    _notify();
   }
 
   /// 某本书的书签存储（P4-13）；内存模式下没有书签能力时返回 null。
@@ -339,32 +697,131 @@ class LibraryStore {
         await (db.select(db.books)
               ..where((table) => table.deletedAt.isNull())
               ..orderBy([
-              (table) => OrderingTerm(
-                expression: table.lastReadAt,
-                mode: OrderingMode.desc,
-              ),
-              (table) => OrderingTerm(
-                expression: table.createdAt,
-                mode: OrderingMode.desc,
-              ),
+                (table) => OrderingTerm(
+                  expression: table.lastReadAt,
+                  mode: OrderingMode.desc,
+                ),
+                (table) => OrderingTerm(
+                  expression: table.createdAt,
+                  mode: OrderingMode.desc,
+                ),
               ]))
             .get();
-    return <BookEntry>[
-      for (final row in rows)
-        BookEntry(
-          id: row.uuid,
-          title: row.title,
-          author: row.author ?? '',
-          filePath: row.sourcePath ?? '',
-          addedAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
-          lastReadAt: row.lastReadAt == null
-              ? null
-              : DateTime.fromMillisecondsSinceEpoch(row.lastReadAt!),
-          spineCount: row.spineCount,
-          readabilityLevel: row.level,
-          coverPath: row.coverPath,
+    return <BookEntry>[for (final row in rows) _entryFromRow(row)];
+  }
+
+  /// 按 uuid 读取当前书籍；不存在或已从书架移除时返回 null。
+  Future<BookEntry?> bookById(String id) async {
+    if (_isMemory) {
+      return _memoryEntries[id];
+    }
+    final row = await _bookRowOfUuid(id);
+    return row == null || row.deletedAt != null ? null : _entryFromRow(row);
+  }
+
+  /// 保存用户编辑的书名、作者和简介。
+  Future<BookEntry> updateBookMetadata(
+    String id, {
+    required String title,
+    required String author,
+    required String description,
+  }) async {
+    final normalizedTitle = title.trim();
+    if (normalizedTitle.isEmpty) {
+      throw const LibraryImportException('书名不能为空');
+    }
+    final normalizedAuthor = author.trim();
+    final normalizedDescription = description.trim();
+    if (_isMemory) {
+      final entry = _memoryEntries[id];
+      if (entry == null) {
+        throw const LibraryImportException('书籍不存在');
+      }
+      final updated = entry.copyWith(
+        title: normalizedTitle,
+        author: normalizedAuthor,
+        description: normalizedDescription,
+      );
+      _memoryEntries[id] = updated;
+      _notify();
+      return updated;
+    }
+    final row = await _bookRowOfUuid(id);
+    if (row == null || row.deletedAt != null) {
+      throw const LibraryImportException('书籍不存在');
+    }
+    final db = _db!;
+    await (db.update(
+      db.books,
+    )..where((table) => table.id.equals(row.id))).write(
+      BooksCompanion(
+        title: Value<String>(normalizedTitle),
+        author: Value<String?>(
+          normalizedAuthor.isEmpty ? null : normalizedAuthor,
         ),
-    ];
+        description: Value<String?>(
+          normalizedDescription.isEmpty ? null : normalizedDescription,
+        ),
+      ),
+    );
+    _notify();
+    return _entryFromRow((await _bookRowOfUuid(id))!);
+  }
+
+  /// 替换封面：写入书目录并删除旧封面文件。
+  Future<BookEntry> replaceCover(
+    String id,
+    Uint8List bytes, {
+    required String extension,
+  }) async {
+    if (bytes.isEmpty) {
+      throw const LibraryImportException('封面图片为空');
+    }
+    if (_isMemory) {
+      throw const LibraryImportException('当前模式无法保存封面');
+    }
+    final row = await _bookRowOfUuid(id);
+    if (row == null || row.deletedAt != null) {
+      throw const LibraryImportException('书籍不存在');
+    }
+    final normalized = extension.toLowerCase().replaceFirst('.', '');
+    if (!const <String>{'jpg', 'jpeg', 'png', 'webp'}.contains(normalized)) {
+      throw const LibraryImportException('仅支持 JPG、PNG 或 WebP 图片');
+    }
+    final suffix = normalized == 'jpeg' ? 'jpg' : normalized;
+    final directory = await _bookDirectory(id);
+    final coverFile = File(
+      '${directory.path}/cover-${DateTime.now().microsecondsSinceEpoch}.$suffix',
+    );
+    await coverFile.writeAsBytes(bytes, flush: true);
+    final db = _db!;
+    try {
+      await (db.update(db.books)..where((table) => table.id.equals(row.id)))
+          .write(BooksCompanion(coverPath: Value<String>(coverFile.path)));
+    } catch (_) {
+      try {
+        await coverFile.delete();
+      } catch (_) {
+        // 数据库写入失败时尽量回滚新文件，失败则留给启动扫描清理。
+      }
+      rethrow;
+    }
+    final oldPath = row.coverPath;
+    if (oldPath != null && oldPath != coverFile.path) {
+      final normalizedOld = p.normalize(oldPath);
+      if (p.isWithin(directory.path, normalizedOld)) {
+        final oldFile = File(oldPath);
+        if (await oldFile.exists()) {
+          try {
+            await oldFile.delete();
+          } catch (_) {
+            // 旧封面占用或权限失败时保留，不影响新封面生效。
+          }
+        }
+      }
+    }
+    _notify();
+    return _entryFromRow((await _bookRowOfUuid(id))!);
   }
 
   /// 导入 EPUB 字节：解析校验 → 落盘原书 → 提取并缓存封面 → 入库。
@@ -379,8 +836,7 @@ class LibraryStore {
     final result = await openEpub(bytes);
     final document = result.document;
     if (document == null) {
-      final detail =
-          result.report.message ?? result.report.errorCode ?? '未知错误';
+      final detail = result.report.message ?? result.report.errorCode ?? '未知错误';
       throw LibraryImportException(
         '无法导入：$detail',
         errorCode: result.report.errorCode,
@@ -393,10 +849,7 @@ class LibraryStore {
     if (_isMemory
         ? _memoryEntries.containsKey(id)
         : existing != null && existing.deletedAt == null) {
-      throw const LibraryImportException(
-        '这本书已在书架中',
-        errorCode: 'E_DUPLICATE',
-      );
+      throw const LibraryImportException('这本书已在书架中', errorCode: 'E_DUPLICATE');
     }
     final title = document.meta.title.trim().isEmpty
         ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
@@ -423,9 +876,8 @@ class LibraryStore {
     // §22.3/§76.1：导入期顺序统计各章正文字符数，进度量化与后续搜索索引
     // 共用同一次扫描。
     final charCounts = await document.countChapterCharacters(
-      onProgress: (done, total) => onProgress?.call(
-        0.85 + 0.1 * (total == 0 ? 1 : done / total),
-      ),
+      onProgress: (done, total) =>
+          onProgress?.call(0.85 + 0.1 * (total == 0 ? 1 : done / total)),
     );
     final weights = ProgressWeights.fromCharCounts(
       charCounts,
@@ -439,6 +891,7 @@ class LibraryStore {
       id: id,
       title: title,
       author: document.meta.author.trim(),
+      description: existing?.description ?? '',
       filePath: filePath,
       addedAt: addedAt,
       spineCount: document.spine.length,
@@ -457,6 +910,7 @@ class LibraryStore {
               ? null
               : document.meta.author.trim(),
         ),
+        description: Value(existing?.description),
         language: Value(
           document.meta.language.trim().isEmpty
               ? null
@@ -484,9 +938,9 @@ class LibraryStore {
         } else {
           // 软删除记录的原主键不变；用户数据通过外键继续挂在同一本书上。
           bookId = existing.id;
-          await (db.update(db.books)
-                ..where((table) => table.id.equals(bookId)))
-              .write(companion);
+          await (db.update(
+            db.books,
+          )..where((table) => table.id.equals(bookId))).write(companion);
           await (db.delete(
             db.spineItems,
           )..where((table) => table.bookId.equals(bookId))).go();
@@ -531,9 +985,7 @@ class LibraryStore {
     } else {
       final db = _db!;
       await (db.update(db.books)..where((table) => table.uuid.equals(id)))
-          .write(
-            BooksCompanion(lastReadAt: Value(now.millisecondsSinceEpoch)),
-          );
+          .write(BooksCompanion(lastReadAt: Value(now.millisecondsSinceEpoch)));
     }
     _notify();
   }
@@ -572,7 +1024,8 @@ class LibraryStore {
       final normalized = p.normalize(path);
       final legacyDirectory = p.normalize(p.join(root.path, 'books'));
       final owned = directory != null && p.isWithin(directory.path, normalized);
-      final legacy = p.dirname(normalized) == legacyDirectory &&
+      final legacy =
+          p.dirname(normalized) == legacyDirectory &&
           p.extension(normalized).toLowerCase() == '.epub';
       if (directory == null || (!owned && !legacy)) {
         continue;
@@ -884,20 +1337,25 @@ class LibraryStore {
       if (entry == null || !await File(entry.filePath).exists()) {
         continue;
       }
-      await db.into(db.books).insert(
-        BooksCompanion.insert(
-          uuid: entry.id,
-          title: entry.title,
-          author: Value(entry.author.isEmpty ? null : entry.author),
-          contentDir: 'books/${entry.id}',
-          sourcePath: Value(entry.filePath),
-          coverPath: Value(entry.coverPath),
-          spineCount: Value(entry.spineCount ?? 0),
-          createdAt: entry.addedAt.millisecondsSinceEpoch,
-          lastReadAt: Value(entry.lastReadAt?.millisecondsSinceEpoch),
-          level: Value(entry.readabilityLevel),
-        ),
-      );
+      await db
+          .into(db.books)
+          .insert(
+            BooksCompanion.insert(
+              uuid: entry.id,
+              title: entry.title,
+              author: Value(entry.author.isEmpty ? null : entry.author),
+              description: Value(
+                entry.description.isEmpty ? null : entry.description,
+              ),
+              contentDir: 'books/${entry.id}',
+              sourcePath: Value(entry.filePath),
+              coverPath: Value(entry.coverPath),
+              spineCount: Value(entry.spineCount ?? 0),
+              createdAt: entry.addedAt.millisecondsSinceEpoch,
+              lastReadAt: Value(entry.lastReadAt?.millisecondsSinceEpoch),
+              level: Value(entry.readabilityLevel),
+            ),
+          );
       migrated += 1;
     }
     _notify();
@@ -941,6 +1399,29 @@ class LibraryStore {
       db.books,
     )..where((table) => table.uuid.equals(id))).get();
     return rows.isEmpty ? null : rows.single;
+  }
+
+  BookEntry _entryFromRow(BookRow row) => BookEntry(
+    id: row.uuid,
+    title: row.title,
+    author: row.author ?? '',
+    description: row.description ?? '',
+    filePath: row.sourcePath ?? '',
+    addedAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
+    lastReadAt: row.lastReadAt == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(row.lastReadAt!),
+    spineCount: row.spineCount,
+    readabilityLevel: row.level,
+    coverPath: row.coverPath,
+  );
+
+  Future<bool> _bookExists(String id) async {
+    if (_isMemory) {
+      return _memoryEntries.containsKey(id);
+    }
+    final row = await _bookRowOfUuid(id);
+    return row != null && row.deletedAt == null;
   }
 
   String _newId() {

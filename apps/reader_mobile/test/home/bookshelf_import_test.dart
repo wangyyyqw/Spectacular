@@ -65,7 +65,7 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.text('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB'));
     await _settle(tester, frames: 2);
 
     expect(find.textContaining('正在导入'), findsOneWidget);
@@ -91,7 +91,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.text('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB'));
     await _settle(tester, frames: 10);
     expect(find.text('山海小记'), findsWidgets);
 
@@ -107,6 +107,36 @@ void main() {
     await _settle(tester, frames: 10);
     expect(await library.list(), isEmpty);
     expect(find.text('书架还是空的'), findsOneWidget);
+  });
+
+  testWidgets('长按卡片可从详情面板进入完整图书详情页', (tester) async {
+    final library = LibraryStore.memory();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: FileReaderProgressStore.memory(),
+          pickEpubFiles: () async => <String>[epubFile.path],
+          readFile: (path) async => File(path).readAsBytesSync(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.byTooltip('导入 EPUB'));
+    await _settle(tester, frames: 10);
+
+    await tester.longPress(find.text('山海小记').first);
+    await _settle(tester);
+    final detailButton = find.text('图书详情');
+    await tester.ensureVisible(detailButton);
+    await tester.tap(detailButton);
+    await _settle(tester, frames: 8);
+
+    expect(find.text('图书资料'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('book-detail-title-field')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('多选两本：队列依次导入并刷新书架', (tester) async {
@@ -125,12 +155,11 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.text('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB'));
     await _settle(tester, frames: 10);
 
     expect(find.text('山海小记'), findsWidgets);
     expect(find.text('第二本'), findsWidgets);
     expect((await library.list()).length, 2);
   });
-
 }

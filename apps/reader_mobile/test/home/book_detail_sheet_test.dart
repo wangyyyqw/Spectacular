@@ -108,4 +108,113 @@ void main() {
     await tester.pumpAndSettle();
     expect(popped, 'delete');
   });
+
+  testWidgets('点图书详情返回 detail，由书架打开完整详情页', (tester) async {
+    final entry = BookEntry(
+      id: 'clean-book',
+      title: '干净书',
+      author: '作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    String? popped;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () async {
+                popped = await Navigator.of(context).push<String>(
+                  MaterialPageRoute<String>(
+                    builder: (_) =>
+                        BookDetailSheet(entry: entry, library: store),
+                  ),
+                );
+              },
+              child: const Text('打开详情'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开详情'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('图书详情'));
+    await tester.pumpAndSettle();
+    expect(popped, 'detail');
+  });
+
+  testWidgets('点新建分组返回 create-group', (tester) async {
+    final entry = BookEntry(
+      id: 'clean-book',
+      title: '干净书',
+      author: '作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    String? popped;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () async {
+                popped = await Navigator.of(context).push<String>(
+                  MaterialPageRoute<String>(
+                    builder: (_) =>
+                        BookDetailSheet(entry: entry, library: store),
+                  ),
+                );
+              },
+              child: const Text('打开详情'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开详情'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('book-detail-create-group')),
+    );
+    await tester.pumpAndSettle();
+    expect(popped, 'create-group');
+  });
+
+  testWidgets('点多选返回 multi-select', (tester) async {
+    final entry = BookEntry(
+      id: 'clean-book',
+      title: '干净书',
+      author: '作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    String? popped;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () async {
+                popped = await Navigator.of(context).push<String>(
+                  MaterialPageRoute<String>(
+                    builder: (_) =>
+                        BookDetailSheet(entry: entry, library: store),
+                  ),
+                );
+              },
+              child: const Text('打开详情'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开详情'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('book-detail-multi-select')),
+    );
+    await tester.pumpAndSettle();
+    expect(popped, 'multi-select');
+  });
 }

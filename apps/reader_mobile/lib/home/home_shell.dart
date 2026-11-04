@@ -28,6 +28,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
 
   @override
@@ -36,6 +37,7 @@ class _HomeShellState extends State<HomeShell> {
       BookshelfPage(
         library: widget.library,
         progressStore: widget.progressStore,
+        refreshToken: _bookshelfRefreshToken,
       ),
       StatsPage(
         library: widget.library,
@@ -43,7 +45,7 @@ class _HomeShellState extends State<HomeShell> {
         refreshToken: _statsRefreshToken,
       ),
       ReviewsPage(library: widget.library),
-      const ProfilePage(),
+      ProfilePage(library: widget.library),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
@@ -52,7 +54,9 @@ class _HomeShellState extends State<HomeShell> {
         onDestinationSelected: (value) {
           setState(() {
             _index = value;
-            if (value == 1) {
+            if (value == 0) {
+              _bookshelfRefreshToken += 1;
+            } else if (value == 1) {
               _statsRefreshToken += 1;
             }
           });

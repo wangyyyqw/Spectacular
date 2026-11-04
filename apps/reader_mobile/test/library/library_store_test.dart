@@ -15,10 +15,7 @@ import '../support/test_epub.dart';
   final db = AppDatabase(NativeDatabase.memory());
   addTearDown(db.close);
   return (
-    store: LibraryStore(
-      database: db,
-      directoryProvider: () async => dir,
-    ),
+    store: LibraryStore(database: db, directoryProvider: () async => dir),
     db: db,
   );
 }
@@ -239,6 +236,197 @@ void main() {
     expect(books.first.title, '先导入', reason: '最近阅读优先');
     expect(books.first.status, BookReadingStatus.reading);
     expect(second.id, isNot(books.first.id));
+  });
+
+  test('分组：创建、移动、重命名、删除且跨实例持久化', () async {
+    final dir = Directory.systemTemp.createTempSync('library_groups');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final first = await opened.store.importBytes(
+      buildTestEpub(title: '分组甲', identifier: 'group-a'),
+    );
+    final second = await opened.store.importBytes(
+      buildTestEpub(title: '分组乙', identifier: 'group-b'),
+    );
+
+    final group = await opened.store.createGroup(' 小说 ');
+    expect(group.name, '小说');
+    await opened.store.setBooksGroup([first.id], groupId: group.id);
+    expect(await opened.store.groupAssignments(), <String, String>{
+      first.id: group.id,
+    });
+
+    final secondStore = LibraryStore(
+      database: opened.db,
+      directoryProvider: () async => dir,
+    );
+    expect((await secondStore.listGroups()).single.name, '小说');
+    expect(await secondStore.groupAssignments(), <String, String>{
+      first.id: group.id,
+    });
+
+    await secondStore.setBooksGroup([second.id], groupId: group.id);
+    expect(await secondStore.groupAssignments(), <String, String>{
+      first.id: group.id,
+      second.id: group.id,
+    });
+    await secondStore.renameGroup(group.id, '文学');
+    expect((await secondStore.listGroups()).single.name, '文学');
+    await secondStore.deleteGroup(group.id);
+    expect(await secondStore.listGroups(), isEmpty);
+    expect(await secondStore.groupAssignments(), isEmpty);
+    expect(await secondStore.list(), hasLength(2), reason: '删分组不删书');
+  });
+
+  test('分组：拒绝空名和重名，移出分组不删书', () async {
+    final store = LibraryStore.memory();
+    final book = await store.importBytes(
+      buildTestEpub(title: '内存分组书', identifier: 'group-memory'),
+    );
+    await expectLater(
+      store.createGroup('  '),
+      throwsA(isA<LibraryImportException>()),
+    );
+    final group = await store.createGroup('待读');
+    await expectLater(
+      store.createGroup('待读'),
+      throwsA(isA<LibraryImportException>()),
+    );
+    await store.setBooksGroup([book.id], groupId: group.id);
+    expect(await store.groupAssignments(), <String, String>{book.id: group.id});
+    await store.setBooksGroup([book.id]);
+    expect(await store.groupAssignments(), isEmpty);
+    expect(await store.list(), hasLength(1));
+  });
+
+  test('图书资料编辑：保存书名、作者、简介并跨实例持久化', () async {
+    final dir = Directory.systemTemp.createTempSync('library_metadata');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final entry = await opened.store.importBytes(
+      buildTestEpub(title: '原书名', identifier: 'metadata-book'),
+    );
+
+    final updated = await opened.store.updateBookMetadata(
+      entry.id,
+      title: ' 新书名 ',
+      author: ' 新作者 ',
+      description: ' 一段新的简介 ',
+    );
+    expect(updated.title, '新书名');
+    expect(updated.author, '新作者');
+    expect(updated.description, '一段新的简介');
+
+    final second = LibraryStore(
+      database: opened.db,
+      directoryProvider: () async => dir,
+    );
+    final reloaded = await second.bookById(entry.id);
+    expect(reloaded?.title, '新书名');
+    expect(reloaded?.author, '新作者');
+    expect(reloaded?.description, '一段新的简介');
+    await expectLater(
+      second.updateBookMetadata(
+        entry.id,
+        title: '  ',
+        author: '',
+        description: '',
+      ),
+      throwsA(isA<LibraryImportException>()),
+    );
+  });
+
+  test('标签：创建复用、关联取消且跨实例持久化', () async {
+    final dir = Directory.systemTemp.createTempSync('library_tags');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final first = await opened.store.importBytes(
+      buildTestEpub(title: '标签书甲', identifier: 'tag-a'),
+    );
+    final secondBook = await opened.store.importBytes(
+      buildTestEpub(title: '标签书乙', identifier: 'tag-b'),
+    );
+
+    final tag = await opened.store.createTag(' 科幻 ');
+    expect(tag.name, '科幻');
+    expect((await opened.store.createTag('科幻')).id, tag.id);
+    await opened.store.addBookTag(first.id, tag.id);
+    await opened.store.addBookTag(first.id, tag.id);
+    await opened.store.addBookTag(secondBook.id, tag.id);
+    expect(
+      (await opened.store.bookTags(first.id)).single.name,
+      '科幻',
+      reason: '重复添加保持幂等',
+    );
+
+    final second = LibraryStore(
+      database: opened.db,
+      directoryProvider: () async => dir,
+    );
+    expect((await second.listTags()).single.name, '科幻');
+    expect(await second.bookTags(secondBook.id), hasLength(1));
+
+    await second.removeBookTag(first.id, tag.id);
+    expect(await second.bookTags(first.id), isEmpty);
+    expect(await second.bookTags(secondBook.id), hasLength(1));
+  });
+
+  test('内存模式支持资料编辑与标签', () async {
+    final store = LibraryStore.memory();
+    final book = await store.importBytes(
+      buildTestEpub(title: '内存书', identifier: 'memory-meta'),
+    );
+    await store.updateBookMetadata(
+      book.id,
+      title: '内存新书名',
+      author: '作者',
+      description: '简介',
+    );
+    final tag = await store.createTag('待读');
+    await store.addBookTag(book.id, tag.id);
+
+    expect((await store.bookById(book.id))?.description, '简介');
+    expect((await store.bookTags(book.id)).single.name, '待读');
+    await store.removeBookTag(book.id, tag.id);
+    expect(await store.bookTags(book.id), isEmpty);
+  });
+
+  test('替换封面：新文件落盘并清理书目录内的旧封面', () async {
+    final dir = Directory.systemTemp.createTempSync('library_cover_replace');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final entry = await store.importBytes(
+      buildTestEpub(title: '换封面', identifier: 'cover-book', cover: true),
+    );
+    final oldCover = entry.coverPath!;
+    expect(File(oldCover).existsSync(), isTrue);
+
+    final first = await store.replaceCover(
+      entry.id,
+      Uint8List.fromList(<int>[1, 2, 3, 4]),
+      extension: 'png',
+    );
+    expect(first.coverPath, isNot(oldCover));
+    expect(first.coverPath, endsWith('.png'));
+    expect(File(first.coverPath!).readAsBytesSync(), <int>[1, 2, 3, 4]);
+    expect(File(oldCover).existsSync(), isFalse, reason: '旧封面已清理');
+
+    final second = await store.replaceCover(
+      entry.id,
+      Uint8List.fromList(<int>[5, 6]),
+      extension: 'jpeg',
+    );
+    expect(second.coverPath, endsWith('.jpg'));
+    expect(File(first.coverPath!).existsSync(), isFalse);
+    expect((await store.bookById(entry.id))?.coverPath, second.coverPath);
+    await expectLater(
+      store.replaceCover(
+        entry.id,
+        Uint8List.fromList(<int>[1]),
+        extension: 'gif',
+      ),
+      throwsA(isA<LibraryImportException>()),
+    );
   });
 
   test('删除旧格式迁移书：原书文件一并删除', () async {
