@@ -39,11 +39,13 @@ class DecodedImageCache {
   final LinkedHashMap<String, _CacheEntry> _entries =
       LinkedHashMap<String, _CacheEntry>();
   final Map<String, Future<ui.Image?>> _pending = <String, Future<ui.Image?>>{};
+
   /// 原始尺寸缓存（P3-07）：键 url；读过头后不再重复解析。
   final Map<String, ImageIntrinsicSize?> _intrinsic =
       <String, ImageIntrinsicSize?>{};
   int _bytes = 0;
   int _revision = 0;
+  int _generation = 0;
 
   /// 当前缓存条数。
   int get length => _entries.length;
@@ -72,7 +74,7 @@ class DecodedImageCache {
   /// [displayWidth] 是布局宽（逻辑像素），[devicePixelRatio] 用于换算物理像素，
   /// 封顶原图宽（P3-08）；[fullResolution] 为 true 时跳过降采样按原图宽解码
   /// （P3-11 原图预览专用，调用方应使用独立缓存实例避免挤占阅读缓存）；
-  /// 字节缺失或解码失败返回 null，不抛异常（容错：§12）。
+  /// 字节缺失、解码失败或单图超出缓存预算返回 null，不抛异常（容错：§12）。
   Future<ui.Image?> load(
     String url, {
     required double displayWidth,
@@ -90,9 +92,12 @@ class DecodedImageCache {
     final future = _decodeAndStore(
       url,
       fullResolution ? double.infinity : displayWidth * devicePixelRatio,
+      _generation,
     );
     _pending[url] = future;
-    return future.whenComplete(() => _pending.remove(url));
+    return future.whenComplete(() {
+      if (identical(_pending[url], future)) _pending.remove(url);
+    });
   }
 
   /// 批量预取；返回本次新解码成功的张数。
@@ -118,6 +123,9 @@ class DecodedImageCache {
 
   /// 清空并释放全部解码图片。
   void clear() {
+    _generation++;
+    _pending.clear();
+    _intrinsic.clear();
     for (final entry in _entries.values) {
       entry.image.dispose();
     }
@@ -125,10 +133,14 @@ class DecodedImageCache {
     _bytes = 0;
   }
 
-  Future<ui.Image?> _decodeAndStore(String url, double target) async {
+  Future<ui.Image?> _decodeAndStore(
+    String url,
+    double target,
+    int generation,
+  ) async {
     try {
       final bytes = await loadBytes(url);
-      if (bytes == null || bytes.isEmpty) {
+      if (generation != _generation || bytes == null || bytes.isEmpty) {
         return null;
       }
       // 封顶原图宽（P3-08，§50.2）：显示宽×DPR 超过原图时不放大解码；
@@ -139,17 +151,15 @@ class DecodedImageCache {
         _intrinsic[url] = intrinsic;
       }
       var targetWidth = target.isFinite ? math.max(1, target.ceil()) : 0;
-      if (intrinsic != null && (targetWidth == 0 || targetWidth > intrinsic.width)) {
+      if (intrinsic != null &&
+          (targetWidth == 0 || targetWidth > intrinsic.width)) {
         targetWidth = intrinsic.width;
       }
-      final codec = await ui.instantiateImageCodec(
-        bytes,
-        targetWidth: targetWidth > 0 ? targetWidth : null,
-      );
-      final frame = await codec.getNextFrame();
-      codec.dispose();
-      final image = frame.image;
-      _store(url, image);
+      final image = await _decodeImage(bytes, targetWidth);
+      if (generation != _generation || !_store(url, image)) {
+        image.dispose();
+        return null;
+      }
       _revision += 1;
       return image;
     } catch (_) {
@@ -158,16 +168,30 @@ class DecodedImageCache {
     }
   }
 
-  void _store(String url, ui.Image image) {
+  static Future<ui.Image> _decodeImage(Uint8List bytes, int targetWidth) async {
+    final codec = await ui.instantiateImageCodec(
+      bytes,
+      targetWidth: targetWidth > 0 ? targetWidth : null,
+    );
+    try {
+      return (await codec.getNextFrame()).image;
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  bool _store(String url, ui.Image image) {
+    final byteSize = image.width * image.height * 4;
+    if (maxEntries < 1 || byteSize > maxBytes) return false;
     final old = _entries.remove(url);
     if (old != null) {
       _bytes -= old.byteSize;
       old.image.dispose();
     }
-    final byteSize = image.width * image.height * 4;
     _entries[url] = _CacheEntry(image, byteSize);
     _bytes += byteSize;
     _evictIfNeeded();
+    return true;
   }
 
   void _evictIfNeeded() {
