@@ -457,6 +457,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     PageContent page,
     double displayWidth, {
     bool notify = true,
+    bool includeAdjacent = false,
   }) async {
     final cache = widget.imageCache;
     if (cache == null) {
@@ -464,6 +465,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     final urls = <String>{};
     final visited = <PageBlock>{};
+    final pages = <PageContent>[
+      page,
+      if (includeAdjacent) ..._session.adjacentPages,
+    ];
+    final visitedPages = <(int, int)>{};
 
     void addStyle(ComputedStyle? style) {
       final image = style?.backgroundImage;
@@ -508,12 +514,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       }
     }
 
-    for (final slice in page.slices) {
-      addBlock(slice.block);
-    }
-    // 整页背景（P9-04）：body 的 background-image 也要预解码。
-    if (page.background != null) {
-      urls.add(page.background!.imageUrl);
+    for (final candidate in pages) {
+      if (!visitedPages.add((candidate.spineIndex, candidate.pageIndex))) {
+        continue;
+      }
+      for (final slice in candidate.slices) {
+        addBlock(slice.block);
+      }
+      // 整页背景（P9-04）：body 的 background-image 也要预解码。
+      if (candidate.background != null) {
+        urls.add(candidate.background!.imageUrl);
+      }
     }
     if (urls.isEmpty) {
       return;
@@ -599,7 +610,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _prefetchedPageKey = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _prefetchPageImages(page, displayWidth);
+        _prefetchPageImages(page, displayWidth, includeAdjacent: true);
       }
     });
   }

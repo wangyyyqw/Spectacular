@@ -321,4 +321,35 @@ void main() {
       reason: '邻页图片在翻页前完成预取，避免目标页先白屏再补图',
     );
   });
+
+  testWidgets('连续滚动提前预取刚进入视野的邻页图片', (tester) async {
+    final requested = <String>[];
+    final cache = DecodedImageCache(
+      loadBytes: (url) async {
+        requested.add(url);
+        return null;
+      },
+    );
+    addTearDown(cache.clear);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          source: _PagesSource([_page(), _imagePage(1, 'bg://next')]),
+          store: MemoryReaderProgressStore(),
+          bookId: 'scroll-image-book',
+          imageCache: cache,
+          pageTurnMode: PageTurnMode.scroll,
+        ),
+      ),
+    );
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(
+      requested,
+      contains('bg://next'),
+      reason: '下一页图片在页首进入视野前预取，避免连续滚动时出现空白框',
+    );
+  });
 }
