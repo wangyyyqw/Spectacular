@@ -2784,6 +2784,21 @@ class $ReadingProgressTable extends ReadingProgress
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _finishedMeta = const VerificationMeta(
+    'finished',
+  );
+  @override
+  late final GeneratedColumn<bool> finished = GeneratedColumn<bool>(
+    'finished',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("finished" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _percentMeta = const VerificationMeta(
     'percent',
   );
@@ -2813,6 +2828,7 @@ class $ReadingProgressTable extends ReadingProgress
     locatorCfi,
     spineIndex,
     pageIndex,
+    finished,
     percent,
     updatedAt,
   ];
@@ -2854,6 +2870,12 @@ class $ReadingProgressTable extends ReadingProgress
         pageIndex.isAcceptableOrUnknown(data['page_index']!, _pageIndexMeta),
       );
     }
+    if (data.containsKey('finished')) {
+      context.handle(
+        _finishedMeta,
+        finished.isAcceptableOrUnknown(data['finished']!, _finishedMeta),
+      );
+    }
     if (data.containsKey('percent')) {
       context.handle(
         _percentMeta,
@@ -2893,6 +2915,10 @@ class $ReadingProgressTable extends ReadingProgress
         DriftSqlType.int,
         data['${effectivePrefix}page_index'],
       ),
+      finished: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}finished'],
+      )!,
       percent: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}percent'],
@@ -2923,6 +2949,9 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   /// 章内页序号。
   final int? pageIndex;
 
+  /// 用户手动标记的读完状态。
+  final bool finished;
+
   /// 全书百分比（0～1）。
   final double percent;
 
@@ -2933,6 +2962,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     required this.locatorCfi,
     this.spineIndex,
     this.pageIndex,
+    required this.finished,
     required this.percent,
     required this.updatedAt,
   });
@@ -2947,6 +2977,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     if (!nullToAbsent || pageIndex != null) {
       map['page_index'] = Variable<int>(pageIndex);
     }
+    map['finished'] = Variable<bool>(finished);
     map['percent'] = Variable<double>(percent);
     map['updated_at'] = Variable<int>(updatedAt);
     return map;
@@ -2962,6 +2993,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
       pageIndex: pageIndex == null && nullToAbsent
           ? const Value.absent()
           : Value(pageIndex),
+      finished: Value(finished),
       percent: Value(percent),
       updatedAt: Value(updatedAt),
     );
@@ -2977,6 +3009,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
       locatorCfi: serializer.fromJson<String>(json['locatorCfi']),
       spineIndex: serializer.fromJson<int?>(json['spineIndex']),
       pageIndex: serializer.fromJson<int?>(json['pageIndex']),
+      finished: serializer.fromJson<bool>(json['finished']),
       percent: serializer.fromJson<double>(json['percent']),
       updatedAt: serializer.fromJson<int>(json['updatedAt']),
     );
@@ -2989,6 +3022,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
       'locatorCfi': serializer.toJson<String>(locatorCfi),
       'spineIndex': serializer.toJson<int?>(spineIndex),
       'pageIndex': serializer.toJson<int?>(pageIndex),
+      'finished': serializer.toJson<bool>(finished),
       'percent': serializer.toJson<double>(percent),
       'updatedAt': serializer.toJson<int>(updatedAt),
     };
@@ -2999,6 +3033,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     String? locatorCfi,
     Value<int?> spineIndex = const Value.absent(),
     Value<int?> pageIndex = const Value.absent(),
+    bool? finished,
     double? percent,
     int? updatedAt,
   }) => ProgressRow(
@@ -3006,6 +3041,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     locatorCfi: locatorCfi ?? this.locatorCfi,
     spineIndex: spineIndex.present ? spineIndex.value : this.spineIndex,
     pageIndex: pageIndex.present ? pageIndex.value : this.pageIndex,
+    finished: finished ?? this.finished,
     percent: percent ?? this.percent,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -3019,6 +3055,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
           ? data.spineIndex.value
           : this.spineIndex,
       pageIndex: data.pageIndex.present ? data.pageIndex.value : this.pageIndex,
+      finished: data.finished.present ? data.finished.value : this.finished,
       percent: data.percent.present ? data.percent.value : this.percent,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -3031,6 +3068,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
           ..write('locatorCfi: $locatorCfi, ')
           ..write('spineIndex: $spineIndex, ')
           ..write('pageIndex: $pageIndex, ')
+          ..write('finished: $finished, ')
           ..write('percent: $percent, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -3043,6 +3081,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     locatorCfi,
     spineIndex,
     pageIndex,
+    finished,
     percent,
     updatedAt,
   );
@@ -3054,6 +3093,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
           other.locatorCfi == this.locatorCfi &&
           other.spineIndex == this.spineIndex &&
           other.pageIndex == this.pageIndex &&
+          other.finished == this.finished &&
           other.percent == this.percent &&
           other.updatedAt == this.updatedAt);
 }
@@ -3063,6 +3103,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   final Value<String> locatorCfi;
   final Value<int?> spineIndex;
   final Value<int?> pageIndex;
+  final Value<bool> finished;
   final Value<double> percent;
   final Value<int> updatedAt;
   const ReadingProgressCompanion({
@@ -3070,6 +3111,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     this.locatorCfi = const Value.absent(),
     this.spineIndex = const Value.absent(),
     this.pageIndex = const Value.absent(),
+    this.finished = const Value.absent(),
     this.percent = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -3078,6 +3120,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     required String locatorCfi,
     this.spineIndex = const Value.absent(),
     this.pageIndex = const Value.absent(),
+    this.finished = const Value.absent(),
     this.percent = const Value.absent(),
     required int updatedAt,
   }) : locatorCfi = Value(locatorCfi),
@@ -3087,6 +3130,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     Expression<String>? locatorCfi,
     Expression<int>? spineIndex,
     Expression<int>? pageIndex,
+    Expression<bool>? finished,
     Expression<double>? percent,
     Expression<int>? updatedAt,
   }) {
@@ -3095,6 +3139,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
       if (locatorCfi != null) 'locator_cfi': locatorCfi,
       if (spineIndex != null) 'spine_index': spineIndex,
       if (pageIndex != null) 'page_index': pageIndex,
+      if (finished != null) 'finished': finished,
       if (percent != null) 'percent': percent,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -3105,6 +3150,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     Value<String>? locatorCfi,
     Value<int?>? spineIndex,
     Value<int?>? pageIndex,
+    Value<bool>? finished,
     Value<double>? percent,
     Value<int>? updatedAt,
   }) {
@@ -3113,6 +3159,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
       locatorCfi: locatorCfi ?? this.locatorCfi,
       spineIndex: spineIndex ?? this.spineIndex,
       pageIndex: pageIndex ?? this.pageIndex,
+      finished: finished ?? this.finished,
       percent: percent ?? this.percent,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -3133,6 +3180,9 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     if (pageIndex.present) {
       map['page_index'] = Variable<int>(pageIndex.value);
     }
+    if (finished.present) {
+      map['finished'] = Variable<bool>(finished.value);
+    }
     if (percent.present) {
       map['percent'] = Variable<double>(percent.value);
     }
@@ -3149,6 +3199,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
           ..write('locatorCfi: $locatorCfi, ')
           ..write('spineIndex: $spineIndex, ')
           ..write('pageIndex: $pageIndex, ')
+          ..write('finished: $finished, ')
           ..write('percent: $percent, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -8554,6 +8605,7 @@ typedef $$ReadingProgressTableCreateCompanionBuilder =
       required String locatorCfi,
       Value<int?> spineIndex,
       Value<int?> pageIndex,
+      Value<bool> finished,
       Value<double> percent,
       required int updatedAt,
     });
@@ -8563,6 +8615,7 @@ typedef $$ReadingProgressTableUpdateCompanionBuilder =
       Value<String> locatorCfi,
       Value<int?> spineIndex,
       Value<int?> pageIndex,
+      Value<bool> finished,
       Value<double> percent,
       Value<int> updatedAt,
     });
@@ -8614,6 +8667,11 @@ class $$ReadingProgressTableFilterComposer
 
   ColumnFilters<int> get pageIndex => $composableBuilder(
     column: $table.pageIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get finished => $composableBuilder(
+    column: $table.finished,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8675,6 +8733,11 @@ class $$ReadingProgressTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get finished => $composableBuilder(
+    column: $table.finished,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get percent => $composableBuilder(
     column: $table.percent,
     builder: (column) => ColumnOrderings(column),
@@ -8730,6 +8793,9 @@ class $$ReadingProgressTableAnnotationComposer
 
   GeneratedColumn<int> get pageIndex =>
       $composableBuilder(column: $table.pageIndex, builder: (column) => column);
+
+  GeneratedColumn<bool> get finished =>
+      $composableBuilder(column: $table.finished, builder: (column) => column);
 
   GeneratedColumn<double> get percent =>
       $composableBuilder(column: $table.percent, builder: (column) => column);
@@ -8795,6 +8861,7 @@ class $$ReadingProgressTableTableManager
                 Value<String> locatorCfi = const Value.absent(),
                 Value<int?> spineIndex = const Value.absent(),
                 Value<int?> pageIndex = const Value.absent(),
+                Value<bool> finished = const Value.absent(),
                 Value<double> percent = const Value.absent(),
                 Value<int> updatedAt = const Value.absent(),
               }) => ReadingProgressCompanion(
@@ -8802,6 +8869,7 @@ class $$ReadingProgressTableTableManager
                 locatorCfi: locatorCfi,
                 spineIndex: spineIndex,
                 pageIndex: pageIndex,
+                finished: finished,
                 percent: percent,
                 updatedAt: updatedAt,
               ),
@@ -8811,6 +8879,7 @@ class $$ReadingProgressTableTableManager
                 required String locatorCfi,
                 Value<int?> spineIndex = const Value.absent(),
                 Value<int?> pageIndex = const Value.absent(),
+                Value<bool> finished = const Value.absent(),
                 Value<double> percent = const Value.absent(),
                 required int updatedAt,
               }) => ReadingProgressCompanion.insert(
@@ -8818,6 +8887,7 @@ class $$ReadingProgressTableTableManager
                 locatorCfi: locatorCfi,
                 spineIndex: spineIndex,
                 pageIndex: pageIndex,
+                finished: finished,
                 percent: percent,
                 updatedAt: updatedAt,
               ),

@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_detail_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/storage/file_progress_store.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 
@@ -108,6 +111,8 @@ void main() {
       ValueKey<String>('book-detail-tag-${tags.single.id}'),
     );
     expect(chip, findsOneWidget);
+    await tester.ensureVisible(chip);
+    await tester.pumpAndSettle();
     await tester.tap(chip);
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
@@ -228,6 +233,81 @@ void main() {
     expect(
       valueOf('book-detail-daily-detail-$yesterdayKey'),
       '2 次 · 翻页 8 · 180 字',
+    );
+  });
+
+  testWidgets('详情页可标记读完并保存评分与书评', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(
+        buildTestEpub(title: '读完标记', identifier: 'detail-finished'),
+      );
+    });
+    final progress = FileReaderProgressStore.memory();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(
+          entry: entry,
+          library: store,
+          progressStore: progress,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final markButton = find.byKey(
+      const ValueKey<String>('book-detail-mark-finished'),
+    );
+    await tester.scrollUntilVisible(
+      markButton,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(markButton);
+    await tester.pumpAndSettle();
+    await tester.tap(markButton);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('book-detail-finish-rating-5')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('book-detail-finish-review')),
+      '值得反复阅读。',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('book-detail-finish-save')),
+    );
+    await tester.pumpAndSettle();
+
+    late ReaderProgress? savedProgress;
+    late Map<String, BookReview> reviews;
+    await tester.runAsync(() async {
+      savedProgress = await progress.load(entry.id);
+      reviews = await store.reviewStore()!.snapshot();
+    });
+    expect(savedProgress?.finished, isTrue);
+    expect(reviews[entry.id]?.rating, 5);
+    expect(reviews[entry.id]?.content, '值得反复阅读。');
+    expect(find.text('已读完'), findsOneWidget);
+    expect(find.text('值得反复阅读。'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('book-detail-edit-finished')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('book-detail-edit-finished')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey<String>('book-detail-finish-review')),
+          )
+          .controller
+          ?.text,
+      '值得反复阅读。',
     );
   });
 }

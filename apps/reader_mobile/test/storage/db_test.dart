@@ -40,7 +40,11 @@ String _stripPostV1Columns(String statement) {
   if (result.contains('reading_progress')) {
     result = result
         .replaceAll(RegExp(r',\s*"?spine_index"?\s+INTEGER(\s+NULL)?'), '')
-        .replaceAll(RegExp(r',\s*"?page_index"?\s+INTEGER(\s+NULL)?'), '');
+        .replaceAll(RegExp(r',\s*"?page_index"?\s+INTEGER(\s+NULL)?'), '')
+        .replaceAll(
+          RegExp(r',\s*"?finished"?\s+BOOLEAN\s+NOT\s+NULL\s+DEFAULT\s+0'),
+          '',
+        );
   }
   return result;
 }
@@ -148,7 +152,7 @@ void main() {
           .customSelect('PRAGMA user_version')
           .getSingle()
           .then((row) => row.read<int>('user_version')),
-      11,
+      12,
     );
   });
 
@@ -243,7 +247,7 @@ void main() {
     expect(await database.select(database.readingSessions).get(), isEmpty);
   });
 
-  test('v1→v11 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组、标签与阅读统计', () async {
+  test('v1→v12 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组、标签与阅读统计', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -262,12 +266,15 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 11, reason: 'schema 已升到 v11');
+    expect(version.read<int>('user_version'), 12, reason: 'schema 已升到 v12');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();
     final names = <String>{for (final row in columns) row.read<String>('name')};
-    expect(names, containsAll(<String>['spine_index', 'page_index']));
+    expect(
+      names,
+      containsAll(<String>['spine_index', 'page_index', 'finished']),
+    );
     final bookColumns = await database
         .customSelect('PRAGMA table_info(books)')
         .get();

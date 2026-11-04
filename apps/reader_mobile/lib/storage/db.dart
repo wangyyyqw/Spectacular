@@ -181,6 +181,9 @@ class ReadingProgress extends Table {
   /// 章内页序号。
   IntColumn get pageIndex => integer().nullable()();
 
+  /// 用户手动标记的读完状态。
+  BoolColumn get finished => boolean().withDefault(const Constant(false))();
+
   /// 全书百分比（0～1）。
   RealColumn get percent => real().withDefault(const Constant(0))();
 
@@ -398,7 +401,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -471,6 +474,18 @@ class AppDatabase extends _$AppDatabase {
           );
         }
         version = 11;
+      }
+      if (version < 12) {
+        final columns = await customSelect(
+          'PRAGMA table_info(reading_progress)',
+        ).get();
+        final names = <String>{
+          for (final row in columns) row.read<String>('name'),
+        };
+        if (!names.contains('finished')) {
+          await migrator.addColumn(readingProgress, readingProgress.finished);
+        }
+        version = 12;
       }
       await _createIndexes();
     },
