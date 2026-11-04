@@ -15,7 +15,7 @@ typedef SpacingStyle = ({
 });
 
 final _punctuationUnits = {
-  for (final char in punctCompressionSet) char.codeUnitAt(0),
+  for (final char in punctUniformCompressionSet) char.codeUnitAt(0),
 };
 
 /// 段落内只测一次字形；每行据真实相邻关系选择调整，不跨行借用半格空白。
@@ -27,6 +27,7 @@ class PunctuationSpacing {
     this.barriers = const {},
   }) {
     _collectBoundaries();
+    _collectUniform();
     _collectPairs();
     if (autospace) {
       for (final offset in autospaceOffsets(text)) {
@@ -43,6 +44,7 @@ class PunctuationSpacing {
   final bool autospace;
   final Set<int> barriers;
   final _pairs = <({int left, int right, GlyphSpacing glyph})>[];
+  final _uniform = <int, GlyphSpacing>{};
   final _autospace = <int, GlyphSpacing>{};
   final _metrics = <int, ({double advance, double reduction})>{};
   final _punctuation = <int>{};
@@ -71,7 +73,24 @@ class PunctuationSpacing {
     () => CharacterRange.at(text, offset, offset + 1).current.length == 1,
   );
 
-  bool get hasAdjustments => _pairs.isNotEmpty || _autospace.isNotEmpty;
+  bool get hasAdjustments =>
+      _uniform.isNotEmpty || _pairs.isNotEmpty || _autospace.isNotEmpty;
+
+  void _collectUniform() {
+    for (final offset in _punctuation) {
+      final css = styleAt(offset).css;
+      if (css.textSpacingTrim != CssTextSpacingTrim.trimAll ||
+          css.isRtl ||
+          css.writingMode != CssWritingMode.horizontalTb ||
+          !_singleCluster(offset) ||
+          barriers.contains(offset) ||
+          barriers.contains(offset + 1)) {
+        continue;
+      }
+      final glyph = _adjustment(offset, fallback: false);
+      if (glyph != null) _uniform[offset] = glyph;
+    }
+  }
 
   /// 没有字体支持的行边调整时沿用整段一次测量的快路径。
   bool get hasEdgeAdjustments {
@@ -113,6 +132,7 @@ class PunctuationSpacing {
   }) {
     final contentEnd = _contentEnd(start, end);
     if (edges == null &&
+        _uniform.isEmpty &&
         _pairs.isEmpty &&
         _autospace.isEmpty &&
         _blockedGaps.isEmpty &&
@@ -145,6 +165,7 @@ class PunctuationSpacing {
       for (final gap in _blockedGaps)
         if (gap >= start && gap < end) gap - start,
     };
+    _uniformAdjustments(start, end, glyphs, locked);
     for (final pair in _pairs) {
       if (pair.left < start || pair.right >= end) continue;
       final local = pair.glyph.offset - start;
@@ -159,6 +180,22 @@ class PunctuationSpacing {
       }
     }
     return (glyphs, locked);
+  }
+
+  void _uniformAdjustments(
+    int start,
+    int end,
+    Map<int, GlyphSpacing> glyphs,
+    Set<int> locked,
+  ) {
+    for (final entry in _uniform.entries) {
+      if (entry.key < start || entry.key >= end) continue;
+      final local = entry.key - start;
+      glyphs[local] = entry.value.atOffset(local);
+      // 压缩后的标点两侧不再分配对齐字距，避免在非末行重新拉宽。
+      if (local > 0) locked.add(local - 1);
+      if (entry.key + 1 < end) locked.add(local);
+    }
   }
 
   int _contentEnd(int start, int end) {
@@ -223,7 +260,9 @@ class PunctuationSpacing {
   }
 
   int? _pairTarget(int offset) {
-    if (!_canJoin(offset, offset + 1)) return null;
+    if (!_pairModeEnabled(offset) || !_canJoin(offset, offset + 1)) {
+      return null;
+    }
     final closing = punctClosingSet.contains(text[offset]);
     final opening = punctOpeningSet.contains(text[offset + 1]);
     final advanced =
@@ -237,6 +276,12 @@ class PunctuationSpacing {
         ? offset + 1
         : offset;
   }
+
+  bool _pairModeEnabled(int offset) =>
+      punctCompressionSet.contains(text[offset]) &&
+      punctCompressionSet.contains(text[offset + 1]) &&
+      styleAt(offset).css.textSpacingTrim != CssTextSpacingTrim.trimAll &&
+      styleAt(offset + 1).css.textSpacingTrim != CssTextSpacingTrim.trimAll;
 
   bool _canJoin(int left, int right) {
     if (barriers.contains(right)) return false;

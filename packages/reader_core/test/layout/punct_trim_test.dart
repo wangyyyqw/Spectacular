@@ -149,6 +149,7 @@ void main() {
       expect(_parse('trim-start'), CssTextSpacingTrim.trimStart);
       expect(_parse('trim-both'), CssTextSpacingTrim.trimBoth);
       expect(_parse('space-first'), CssTextSpacingTrim.spaceFirst);
+      expect(_parse('trim-all'), CssTextSpacingTrim.trimAll);
       final child = ComputedStyle(
         const <String, String>{'color': 'red'},
         parent: trimmed,

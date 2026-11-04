@@ -71,6 +71,86 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFonts);
 
+  test('统一压缩使行首、行中、相邻和行尾的同一标点均为半宽', () {
+    final style = _style({'text-spacing-trim': 'trim-all'});
+    for (final text in ['，甲，乙，', '甲，，乙', '甲！乙？丙“丁”戊‘己’']) {
+      final layout = TextLayoutEngine.layout(
+        text: text,
+        style: style,
+        maxWidth: 400,
+      );
+      final spacing = layout.lines.single.spacing!;
+      for (var i = 0; i < text.length; i++) {
+        if (!'，！？“”‘’'.contains(text[i])) continue;
+        expect(spacing.glyphs[i]?.halfWidth, isTrue, reason: text[i]);
+        expect(spacing.glyphs[i]!.reduction, closeTo(10, .05));
+      }
+      expect((spacing.startTrim, spacing.endTrim), (0.0, 0.0));
+      expect(layout.text, text);
+      _expectWidths(layout, style);
+    }
+  });
+
+  test('统一压缩参与断行，非末行不重新拉宽标点，绘制和命中同步', () {
+    final style = _style({'text-spacing-trim': 'trim-all'});
+    final layout = TextLayoutEngine.layout(
+      text: '甲乙，丙丁，戊己。庚辛，壬癸。',
+      style: style,
+      maxWidth: 107,
+    );
+    expect(layout.lines.first.end, 6);
+    expect(layout.lines.first.width, closeTo(100, .05));
+    expect(layout.lines.first.justifyExtra, greaterThan(0));
+    _expectWidths(layout, style);
+    final pages = Paginator(pageHeight: 64)
+        .measureChapter(
+          blocks: [PageBlock(layout: layout, style: style)],
+        )
+        .pages;
+    for (final page in pages) {
+      _expectPunctuationHits(page, style);
+    }
+  });
+
+  test('统一压缩逐 run 尊重字体特性、字号及注音边界', () {
+    final style = _style({'text-spacing-trim': 'trim-all'});
+    final large = ComputedStyle({'font-size': '30px'}, parent: style);
+    final disabled = ComputedStyle({
+      'font-feature-settings': '"halt" 0',
+    }, parent: style);
+    final layout = TextLayoutEngine.layout(
+      text: '甲，乙，丙，丁，戊。',
+      style: style,
+      maxWidth: 400,
+      runs: [
+        StyledRun(start: 1, end: 2, style: large),
+        StyledRun(start: 3, end: 4, style: disabled),
+      ],
+      rubies: const [RubyAnnotation(start: 5, end: 6, text: '注')],
+    );
+    final glyphs = layout.lines.single.spacing!.glyphs;
+    expect(glyphs[1]!.reduction, closeTo(15, .05));
+    expect(glyphs.containsKey(3), isFalse);
+    expect(glyphs.containsKey(5), isFalse);
+    expect(glyphs[7]!.reduction, closeTo(10, .05));
+    _expectWidths(layout, style);
+  });
+
+  test('统一压缩在不支持 halt 的字体下保留原宽，不用负字距碰撞字形', () {
+    final style = _style({
+      'font-family': 'Ahem',
+      'text-spacing-trim': 'trim-all',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: '甲，，乙！',
+      style: style,
+      maxWidth: 400,
+    );
+    expect(layout.lines.single.spacing!.glyphs, isEmpty);
+    expect(layout.lines.single.width, closeTo(100, .05));
+    _expectWidths(layout, style);
+  });
+
   test('真实思源宋体使用 halt，行边和相邻组合不改变原文', () {
     const text = '（《中文》）。';
     final style = _style();
@@ -673,13 +753,48 @@ void main() {
   });
 
   test('思源宋体 halt 只改变留白，真实标点墨迹尺寸不变', () async {
-    for (final char in ['（', '）', '。', '，', '「', '」']) {
+    for (final char in ['（', '）', '。', '，', '「', '」', '！', '？', '“', '”']) {
       final normal = await _inkBounds(char, false);
       final trimmed = await _inkBounds(char, true);
       expect(trimmed.width, normal.width, reason: char);
       expect(trimmed.height, normal.height, reason: char);
     }
   });
+}
+
+void _expectPunctuationHits(PageContent page, ComputedStyle style) {
+  for (final box in TextHitTester.lineBoxes(page)) {
+    final layout = box.slice.block.layout;
+    final line = layout.lines[box.lineIndex];
+    final painter = _paintLine(layout, line, style);
+    for (final glyph in line.spacing!.glyphs.values) {
+      final rect = painter
+          .getBoxesForSelection(
+            TextSelection(
+              baseOffset: glyph.offset,
+              extentOffset: glyph.offset + 1,
+            ),
+          )
+          .single;
+      final hit = TextHitTester.hitTest(
+        page,
+        Offset(box.rect.left + rect.left + .1, box.rect.center.dy),
+      );
+      expect(hit?.charOffset, glyph.offset);
+      final selected = TextHitTester.selectionRects(
+        box,
+        glyph.offset,
+        glyph.offset + 1,
+      ).single;
+      expect(selected.width, closeTo(rect.right - rect.left, .01));
+      expect(selected.width, closeTo(style.fontSize / 2, .05));
+    }
+    expect(
+      line.spacing!.justifyGaps.toSet().intersection(line.spacing!.lockedGaps),
+      isEmpty,
+    );
+    painter.dispose();
+  }
 }
 
 Future<Rect> _inkBounds(String char, bool halt) async {

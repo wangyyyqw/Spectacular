@@ -15,7 +15,7 @@ ComputedStyle proseSpacingDefaults(
         : CssTextAlign.justify,
     textSpacingTrim: style.declaredTextProperties.contains('text-spacing-trim')
         ? null
-        : CssTextSpacingTrim.trimBoth,
+        : CssTextSpacingTrim.trimAll,
   );
 }
 
