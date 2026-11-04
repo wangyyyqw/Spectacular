@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../library/library_store.dart';
+import '../storage/reading_session_store.dart';
 
 /// 用户选择的封面图片。
 typedef CoverSelection = ({Uint8List bytes, String extension});
@@ -21,6 +22,7 @@ class BookDetailPage extends StatefulWidget {
     required this.entry,
     required this.library,
     this.pickCover = _pickCoverImage,
+    this.sessionStore,
   });
 
   /// 打开页面时的书籍条目。
@@ -31,6 +33,9 @@ class BookDetailPage extends StatefulWidget {
 
   /// 封面选择入口。
   final CoverPicker pickCover;
+
+  /// 可注入的阅读会话存储；为空时使用书库数据库实现。
+  final ReadingSessionStore? sessionStore;
 
   static Future<CoverSelection?> _pickCoverImage() async {
     final file = await FilePicker.pickFile(
@@ -71,6 +76,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   List<BookTag> _tags = const <BookTag>[];
   Set<String> _selectedTagIds = <String>{};
+  _BookReadingStats _readingStats = const _BookReadingStats.empty();
   bool _loading = true;
   bool _saving = false;
   bool _changingCover = false;
@@ -113,6 +119,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
     final entry = await widget.library.bookById(_entry.id);
     final tags = await widget.library.listTags();
     final selected = await widget.library.bookTags(_entry.id);
+    final sessionStore =
+        widget.sessionStore ?? widget.library.readingSessionStore();
+    final sessions =
+        await (sessionStore?.list() ??
+            Future<List<ReadingSession>>.value(const <ReadingSession>[]));
     if (!mounted) {
       return;
     }
@@ -130,6 +141,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _entry = entry;
       _tags = tags;
       _selectedTagIds = <String>{for (final tag in selected) tag.id};
+      _readingStats = _BookReadingStats.fromSessions(
+        sessions.where((session) => session.bookId == entry.id).toList(),
+        DateTime.now(),
+      );
       _loading = false;
       _loadError = null;
     });
@@ -410,6 +425,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   ],
                 ),
                 const Divider(height: 40),
+                Text('阅读记录', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 10),
+                _ReadingStatsSection(stats: _readingStats),
+                const Divider(height: 40),
                 Text('导入报告', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _ImportReports(library: widget.library, bookId: _entry.id),
@@ -425,6 +444,57 @@ class _BookDetailPageState extends State<BookDetailPage> {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
+}
+
+String _formatReadingDuration(Duration duration) {
+  if (duration <= Duration.zero) {
+    return '0 分钟';
+  }
+  final minutes = (duration.inSeconds / 60).ceil();
+  if (minutes < 1) {
+    return '<1 分钟';
+  }
+  if (minutes < 60) {
+    return '$minutes 分钟';
+  }
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+  return rest == 0 ? '$hours 小时' : '$hours 小时 $rest 分';
+}
+
+String _formatReadingCharacters(int count) {
+  if (count <= 0) {
+    return '0';
+  }
+  if (count >= 100000000) {
+    return '${(count / 100000000).toStringAsFixed(1)} 亿';
+  }
+  if (count >= 10000) {
+    final value = count / 10000;
+    final text = value >= 10
+        ? value.round().toString()
+        : value.toStringAsFixed(1);
+    return '$text 万';
+  }
+  return '$count';
+}
+
+String _formatDateKey(DateTime date) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${date.year}-${two(date.month)}-${two(date.day)}';
+}
+
+String _formatDayLabel(DateTime date) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final yesterday = DateTime(today.year, today.month, today.day - 1);
+  if (date.isAtSameMomentAs(today)) {
+    return '今天';
+  }
+  if (date.isAtSameMomentAs(yesterday)) {
+    return '昨天';
+  }
+  return '${date.month}月${date.day}日';
 }
 
 class _CoverEditor extends StatelessWidget {
@@ -551,6 +621,271 @@ class _MetaItem extends StatelessWidget {
         ),
         Text(value, style: theme.textTheme.bodySmall),
       ],
+    );
+  }
+}
+
+class _BookReadingStats {
+  const _BookReadingStats({
+    required this.totalDuration,
+    required this.sessionCount,
+    required this.pageTurns,
+    required this.charactersRead,
+    required this.readingDays,
+    required this.recentDays,
+  });
+
+  const _BookReadingStats.empty()
+    : totalDuration = Duration.zero,
+      sessionCount = 0,
+      pageTurns = 0,
+      charactersRead = 0,
+      readingDays = 0,
+      recentDays = const <_BookDailyReading>[];
+
+  factory _BookReadingStats.fromSessions(
+    List<ReadingSession> sessions,
+    DateTime now,
+  ) {
+    final byDay = <DateTime, _BookDailyReading>{};
+    var totalDuration = Duration.zero;
+    var sessionCount = 0;
+    var pageTurns = 0;
+    var charactersRead = 0;
+
+    for (final session in sessions) {
+      if (session.duration <= Duration.zero ||
+          !session.endedAt.isAfter(session.startedAt)) {
+        continue;
+      }
+      sessionCount += 1;
+      totalDuration += session.duration;
+      pageTurns += session.pageTurns;
+      charactersRead += session.charactersRead;
+
+      final startedDay = DateTime(
+        session.startedAt.year,
+        session.startedAt.month,
+        session.startedAt.day,
+      );
+      final started = byDay.putIfAbsent(
+        startedDay,
+        () => _BookDailyReading(date: startedDay),
+      );
+      started.sessionCount += 1;
+      started.pageTurns += session.pageTurns;
+      started.charactersRead += session.charactersRead;
+
+      var cursor = session.startedAt;
+      while (cursor.isBefore(session.endedAt)) {
+        final dayStart = DateTime(cursor.year, cursor.month, cursor.day);
+        final nextDay = DateTime(cursor.year, cursor.month, cursor.day + 1);
+        final segmentEnd = session.endedAt.isBefore(nextDay)
+            ? session.endedAt
+            : nextDay;
+        final overlap = segmentEnd.difference(cursor);
+        if (overlap > Duration.zero) {
+          final day = byDay.putIfAbsent(
+            dayStart,
+            () => _BookDailyReading(date: dayStart),
+          );
+          day.duration += overlap;
+        }
+        cursor = segmentEnd;
+      }
+    }
+
+    final today = DateTime(now.year, now.month, now.day);
+    return _BookReadingStats(
+      totalDuration: totalDuration,
+      sessionCount: sessionCount,
+      pageTurns: pageTurns,
+      charactersRead: charactersRead,
+      readingDays: byDay.values
+          .where((day) => day.duration > Duration.zero)
+          .length,
+      recentDays: <_BookDailyReading>[
+        for (var offset = 0; offset < 7; offset++)
+          byDay[DateTime(today.year, today.month, today.day - offset)] ??
+              _BookDailyReading(
+                date: DateTime(today.year, today.month, today.day - offset),
+              ),
+      ],
+    );
+  }
+
+  final Duration totalDuration;
+  final int sessionCount;
+  final int pageTurns;
+  final int charactersRead;
+  final int readingDays;
+  final List<_BookDailyReading> recentDays;
+}
+
+class _BookDailyReading {
+  _BookDailyReading({required this.date});
+
+  final DateTime date;
+  Duration duration = Duration.zero;
+  int sessionCount = 0;
+  int pageTurns = 0;
+  int charactersRead = 0;
+}
+
+class _ReadingStatsSection extends StatelessWidget {
+  const _ReadingStatsSection({required this.stats});
+
+  final _BookReadingStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (stats.sessionCount == 0) {
+      return Text(
+        '暂无阅读记录，开始阅读后会在这里汇总。',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.outline,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Wrap(
+          spacing: 24,
+          runSpacing: 12,
+          children: <Widget>[
+            _ReadingMetric(
+              label: '累计时长',
+              value: _formatReadingDuration(stats.totalDuration),
+              valueKey: const ValueKey<String>('book-detail-total-duration'),
+            ),
+            _ReadingMetric(
+              label: '阅读次数',
+              value: '${stats.sessionCount}',
+              valueKey: const ValueKey<String>('book-detail-session-count'),
+            ),
+            _ReadingMetric(
+              label: '阅读天数',
+              value: '${stats.readingDays}',
+              valueKey: const ValueKey<String>('book-detail-reading-days'),
+            ),
+            _ReadingMetric(
+              label: '翻页次数',
+              value: '${stats.pageTurns}',
+              valueKey: const ValueKey<String>('book-detail-page-turns'),
+            ),
+            _ReadingMetric(
+              label: '阅读字数',
+              value: _formatReadingCharacters(stats.charactersRead),
+              valueKey: const ValueKey<String>('book-detail-characters-read'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Text('最近 7 天', style: theme.textTheme.labelLarge),
+        const SizedBox(height: 4),
+        for (final day in stats.recentDays) _DailyReadingRow(day: day),
+      ],
+    );
+  }
+}
+
+class _ReadingMetric extends StatelessWidget {
+  const _ReadingMetric({
+    required this.label,
+    required this.value,
+    required this.valueKey,
+  });
+
+  final String label;
+  final String value;
+  final Key valueKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+        Text(
+          value,
+          key: valueKey,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyReadingRow extends StatelessWidget {
+  const _DailyReadingRow({required this.day});
+
+  final _BookDailyReading day;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasActivity = day.duration > Duration.zero;
+    final dateKey = _formatDateKey(day.date);
+    return Container(
+      key: ValueKey<String>('book-detail-daily-$dateKey'),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+        ),
+      ),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 64,
+            child: Text(
+              _formatDayLabel(day.date),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: hasActivity
+                    ? theme.colorScheme.onSurface
+                    : theme.colorScheme.outline,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  _formatReadingDuration(day.duration),
+                  key: ValueKey<String>('book-detail-daily-duration-$dateKey'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: hasActivity
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.outline,
+                    fontWeight: hasActivity ? FontWeight.w600 : null,
+                  ),
+                ),
+                Text(
+                  '${day.sessionCount} 次 · 翻页 ${day.pageTurns} · '
+                  '${_formatReadingCharacters(day.charactersRead)} 字',
+                  key: ValueKey<String>('book-detail-daily-detail-$dateKey'),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -144,4 +144,95 @@ void main() {
     expect(coverStore.replaced, isTrue);
     expect(find.text('封面已更新'), findsOneWidget);
   });
+
+  testWidgets('详情页按书汇总阅读时长、次数和翻页', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = DateTime(today.year, today.month, today.day - 1);
+    late BookEntry entry;
+    late BookEntry other;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(
+        buildTestEpub(title: '记录书', identifier: 'detail-stats'),
+      );
+      other = await store.importBytes(
+        buildTestEpub(title: '另一本', identifier: 'detail-stats-other'),
+      );
+      final sessions = store.readingSessionStore()!;
+      await sessions.add(
+        bookId: entry.id,
+        startedAt: yesterday.add(const Duration(hours: 20)),
+        endedAt: yesterday.add(const Duration(hours: 21)),
+        pageTurns: 5,
+        charactersRead: 100,
+      );
+      await sessions.add(
+        bookId: entry.id,
+        startedAt: yesterday.add(const Duration(hours: 23, minutes: 30)),
+        endedAt: today.add(const Duration(minutes: 30)),
+        pageTurns: 3,
+        charactersRead: 80,
+      );
+      await sessions.add(
+        bookId: entry.id,
+        startedAt: today.add(const Duration(hours: 9)),
+        endedAt: today.add(const Duration(hours: 9, minutes: 10)),
+        pageTurns: 2,
+        charactersRead: 40,
+      );
+      await sessions.add(
+        bookId: other.id,
+        startedAt: today.add(const Duration(hours: 10)),
+        endedAt: today.add(const Duration(hours: 11)),
+        pageTurns: 99,
+        charactersRead: 999,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('book-detail-total-duration')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    String valueOf(String key) =>
+        tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
+
+    expect(valueOf('book-detail-total-duration'), '2 小时 10 分');
+    expect(valueOf('book-detail-session-count'), '3');
+    expect(valueOf('book-detail-reading-days'), '2');
+    expect(valueOf('book-detail-page-turns'), '10');
+    expect(valueOf('book-detail-characters-read'), '220');
+
+    final todayKey = _dateKey(today);
+    final yesterdayKey = _dateKey(yesterday);
+    await tester.scrollUntilVisible(
+      find.byKey(ValueKey<String>('book-detail-daily-$yesterdayKey')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      valueOf('book-detail-daily-duration-$todayKey'),
+      '40 分钟',
+      reason: '跨午夜会话的今日部分应计入今日时长',
+    );
+    expect(valueOf('book-detail-daily-detail-$todayKey'), '1 次 · 翻页 2 · 40 字');
+    expect(valueOf('book-detail-daily-duration-$yesterdayKey'), '1 小时 30 分');
+    expect(
+      valueOf('book-detail-daily-detail-$yesterdayKey'),
+      '2 次 · 翻页 8 · 180 字',
+    );
+  });
+}
+
+String _dateKey(DateTime date) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${date.year}-${two(date.month)}-${two(date.day)}';
 }
