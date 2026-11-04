@@ -46,8 +46,8 @@ abstract final class AnnotationDecorations {
   /// 笔记圆点绘制半径（逻辑像素）。
   static const double noteMarkerRadius = 3;
 
-  /// 笔记圆点的可点击半径（逻辑像素）。
-  static const double noteMarkerTapRadius = 16;
+  /// 笔记圆点的可点击半径（逻辑像素），对应 48dp 触控目标。
+  static const double noteMarkerTapRadius = 24;
 
   /// 计算当前页的标注片段，按创建时间排序（先创建的在下层叠加）。
   static List<AnnotationLine> linesFor(

@@ -1233,7 +1233,7 @@ void main() {
     await tester.tapAt(
       tester.getTopLeft(find.byType(AnnotationLayer)) +
           markerCenter +
-          const Offset(10, 0),
+          const Offset(20, 0),
     );
     await tester.pumpAndSettle();
     expect(
@@ -1332,7 +1332,7 @@ void main() {
     );
 
     await tester.tapAt(
-      tester.getTopLeft(layer) + markerCenter + const Offset(10, 0),
+      tester.getTopLeft(layer) + markerCenter + const Offset(20, 0),
     );
     await tester.pumpAndSettle();
     expect(
