@@ -183,6 +183,7 @@ class PageBlock {
     this.containerSides = false,
     this.containers = const <PageContainerFragment>[],
     this.declaredContentHeight,
+    this.verticalContentWidth,
     this.effectiveOpacity = 1,
     this.multicol,
   });
@@ -219,6 +220,10 @@ class PageBlock {
     double? declaredContentHeight,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
+    final vertical =
+        layout.isVertical ||
+        style.writingMode != CssWritingMode.horizontalTb ||
+        layout.lines.any((line) => line.vertical);
     return PageBlock(
       layout: layout,
       style: style,
@@ -254,10 +259,13 @@ class PageBlock {
       // 未声明时等于测量高（行高之和）。
       declaredContentHeight:
           declaredContentHeight ??
-          model.resolveContentHeight(
-            layout.height,
-            containingHeight: 0,
-          ),
+          model.resolveContentHeight(layout.height, containingHeight: 0),
+      // 竖排的 inline/block 轴互换：layout.width 只是实际列带总宽，
+      // 内容盒宽仍由包含块和作者 width 决定。vertical-rl 需要靠这个
+      // 宽度把整条列带贴到右缘，绘制与命中共用同一份几何。
+      verticalContentWidth: vertical
+          ? model.resolveContentWidth(containingWidth)
+          : null,
     );
   }
 
@@ -370,6 +378,39 @@ class PageBlock {
   /// 只由 [PageBlock.styled] 赋值：直接构造的块（垫片、覆盖切片等）沿用
   /// 测量高，行为与之前一致。
   final double? declaredContentHeight;
+
+  /// 竖排块的内容盒宽（CSS inline 轴为纵向，列沿 block 轴横向推进）。
+  ///
+  /// [layout.width] 只是实际列带总宽；作者 width:auto 时块仍占满包含块宽。
+  /// null 表示非竖排块或直接构造的旧路径。
+  final double? verticalContentWidth;
+
+  /// 是否竖排块。重建布局时可能遗漏 writingMode，以列标记和样式兜底。
+  bool get isVertical =>
+      layout.isVertical ||
+      layout.lines.any((line) => line.vertical) ||
+      (style?.writingMode ?? CssWritingMode.horizontalTb) !=
+          CssWritingMode.horizontalTb;
+
+  /// 是否从右向左推进的竖排（vertical-rl）。
+  bool get isVerticalRl =>
+      layout.writingMode == CssWritingMode.verticalRl ||
+      style?.writingMode == CssWritingMode.verticalRl;
+
+  /// `vertical-rl` 列带相对内容盒左缘的右对齐偏移。
+  ///
+  /// 列布局只给出紧贴列带的 `columnX`；auto 宽块必须整体右移，否则短段落
+  /// 会贴在正文左缘。`vertical-lr` 保持 0。
+  double get verticalColumnOffset {
+    if (!isVertical || !isVerticalRl) {
+      return 0;
+    }
+    final bandWidth = verticalContentWidth;
+    if (bandWidth == null || !bandWidth.isFinite || bandWidth <= 0) {
+      return 0;
+    }
+    return math.max(0.0, bandWidth - layout.width);
+  }
 
   /// 块内容区高度：声明高度优先（CSS 盒高约束），否则为行高之和。
   ///
@@ -527,6 +568,7 @@ class PageBlock {
     containerSides: containerSides,
     containers: containers ?? this.containers,
     declaredContentHeight: declaredContentHeight,
+    verticalContentWidth: verticalContentWidth,
     effectiveOpacity: effectiveOpacity,
     multicol: multicol,
   );
@@ -1360,6 +1402,7 @@ class Paginator {
     containerSides: source.containerSides,
     containers: source.containers,
     declaredContentHeight: source.declaredContentHeight,
+    verticalContentWidth: source.verticalContentWidth,
     effectiveOpacity: source.effectiveOpacity,
     multicol: source.multicol,
   );
@@ -1656,6 +1699,7 @@ class Paginator {
       bleedBottom: source.bleedBottom,
       containerSides: source.containerSides,
       containers: source.containers,
+      verticalContentWidth: source.verticalContentWidth,
       effectiveOpacity: source.effectiveOpacity,
       footnotes: source.footnotes,
     );

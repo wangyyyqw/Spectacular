@@ -135,7 +135,8 @@ class EpubChapterSource
   final Map<
     int,
     ({String key, BlockDocument document, _ParsedSelectorIndex selectors})
-  > _displayDocumentCache = {};
+  >
+  _displayDocumentCache = {};
   final List<int> _displayDocumentCacheOrder = <int>[];
 
   /// 当前书的注释正文缓存：引用节点键 → 已解析注释。
@@ -203,7 +204,8 @@ class EpubChapterSource
   final Map<
     String,
     ({List<PageBlock> flow, List<PageBlock> fixed, PageBackground? background})
-  > _blockCache = {};
+  >
+  _blockCache = {};
   final List<String> _blockCacheOrder = <String>[];
   int _blockCacheHits = 0;
 
@@ -329,9 +331,7 @@ class EpubChapterSource
       if ((id != null && hiddenIds.contains(id)) || isBacklinkContainer) {
         var owner = element;
         for (var index = ancestors.length - 1; index >= 0; index--) {
-          if (_footnoteDefinitionContainerTags.contains(
-            ancestors[index].tag,
-          )) {
+          if (_footnoteDefinitionContainerTags.contains(ancestors[index].tag)) {
             owner = ancestors[index];
             break;
           }
@@ -345,10 +345,7 @@ class EpubChapterSource
     return hidden;
   }
 
-  BlockDocument _buildDisplayDocument(
-    ParsedDocument parsed,
-    int spineIndex,
-  ) {
+  BlockDocument _buildDisplayDocument(ParsedDocument parsed, int spineIndex) {
     final references = _footnoteReferences(spineIndex);
     final hiddenIds = _hiddenFootnoteIds(spineIndex, references);
     final hiddenElements = _hiddenFootnoteElements(parsed.root, hiddenIds);
@@ -544,40 +541,6 @@ class EpubChapterSource
     plainTextLayout: source.plainTextLayout,
   );
 
-  /// 竖排声明宽大于实际列带时，`vertical-rl` 从内容盒右缘起排。
-  ///
-  /// 排版层不知道传入宽是“整页可用宽”还是作者声明宽，因此对齐放在章节
-  /// 源拿到盒模型后处理；`vertical-lr` 保持左对齐。
-  static TextLayoutResult _alignVerticalBand(
-    TextLayoutResult source, {
-    required double contentWidth,
-  }) {
-    if (!source.isVertical || source.lines.isEmpty) {
-      return source;
-    }
-    final gap = math.max(0.0, contentWidth - source.width);
-    final rl = source.writingMode == CssWritingMode.verticalRl;
-    return TextLayoutResult(
-      text: source.text,
-      lines: [
-        for (final line in source.lines)
-          line.copyWith(
-            offsetX: line.offsetX + (rl ? gap : 0),
-            columnX: line.columnX == null
-                ? null
-                : line.columnX! + (rl ? gap : 0),
-          ),
-      ],
-      width: source.width,
-      height: source.height,
-      maxWidth: contentWidth,
-      runs: source.runs,
-      isRtl: source.isRtl,
-      writingMode: source.writingMode,
-      plainTextLayout: source.plainTextLayout,
-    );
-  }
-
   /// 浮动文本块：`PageBlock.styled` 不透传 floatSide，这里按同一口径
   /// 直接构造（内缩 = 边框 + 内边距；声明高度走 [BoxModel] 解算）。
   PageBlock _floatedTextBlock({
@@ -614,6 +577,9 @@ class EpubChapterSource
         layout.height,
         containingHeight: contentHeight,
       ),
+      verticalContentWidth: layout.isVertical
+          ? model.resolveContentWidth(contentWidth)
+          : null,
       startCfi: startCfi,
       groupId: groupId,
       containerSides: containerSides,
@@ -864,9 +830,10 @@ class EpubChapterSource
   ComputedStyle? _resolvedBaseStyle;
 
   /// 文本块样式：同一环境复用书籍样式叠加阅读器覆盖的结果。
-  ComputedStyle get style =>
-      _resolvedBaseStyle ??=
-          _overrides.apply(baseStyle, containingWidth: contentWidth);
+  ComputedStyle get style => _resolvedBaseStyle ??= _overrides.apply(
+    baseStyle,
+    containingWidth: contentWidth,
+  );
 
   @override
   Future<void> applyOverrides(ReaderOverrides overrides) async {
@@ -1048,18 +1015,15 @@ class EpubChapterSource
     if (pending.isEmpty) {
       return;
     }
-    final registration = loader
-        .load(
-          pending,
-          resolveBytes: _readBookFont,
-        )
-        .then((_) {
-          if (_closed) {
-            loader.clear();
-          } else {
-            _syncBookFontEngines(loader, faces);
-          }
-        });
+    final registration = loader.load(pending, resolveBytes: _readBookFont).then(
+      (_) {
+        if (_closed) {
+          loader.clear();
+        } else {
+          _syncBookFontEngines(loader, faces);
+        }
+      },
+    );
     _fontRegistration = registration;
     try {
       await registration;
@@ -1880,8 +1844,9 @@ class EpubChapterSource
       .map(
         (view) => viewKeys.putIfAbsent(view, () {
           final attrKeys = view.attributes.keys.toList()..sort();
-          final attrs = [for (final key in attrKeys) '$key=${view.attributes[key]}']
-              .join(';');
+          final attrs = [
+            for (final key in attrKeys) '$key=${view.attributes[key]}',
+          ].join(';');
           final identity =
               view is _NodeView && rules.candidatesFor(view).usesTreePosition
               ? view.cacheIdentity
@@ -2102,8 +2067,9 @@ class EpubChapterSource
       var row = <int>[];
       var rowWidth = 0.0;
       for (var i = 0; i < items.length; i++) {
-        final nextWidth =
-            row.isEmpty ? itemWidths[i] : rowWidth + gap + itemWidths[i];
+        final nextWidth = row.isEmpty
+            ? itemWidths[i]
+            : rowWidth + gap + itemWidths[i];
         if (row.isNotEmpty && nextWidth > containerWidth + 0.5) {
           rows.add(row);
           row = <int>[];
@@ -2242,8 +2208,7 @@ class EpubChapterSource
       final distributedGap = switch (containerStyle.justifyContent) {
         CssJustifyContent.spaceBetween when row.length > 1 =>
           free / (row.length - 1),
-        CssJustifyContent.spaceAround when row.isNotEmpty =>
-          free / row.length,
+        CssJustifyContent.spaceAround when row.isNotEmpty => free / row.length,
         CssJustifyContent.spaceEvenly => free / (row.length + 1),
         _ => 0.0,
       };
@@ -2296,7 +2261,8 @@ class EpubChapterSource
                   ).borderBoxWidth(declaredWidth),
                 )
               : itemWidth;
-          final cellLeft = cursor +
+          final cellLeft =
+              cursor +
               switch (style.resolvedTextAlign) {
                 CssTextAlign.center => (itemWidth - ownWidth) / 2,
                 CssTextAlign.end || CssTextAlign.right => itemWidth - ownWidth,
@@ -2536,10 +2502,7 @@ class EpubChapterSource
             runs: const <StyledRun>[],
           ),
           containers: <PageContainerFragment>[
-            PageContainerFragment(
-              container: container,
-              startsHere: true,
-            ),
+            PageContainerFragment(container: container, startsHere: true),
           ],
         ),
       );
@@ -2586,9 +2549,7 @@ class EpubChapterSource
             block.topInset +
             (i == topTarget
                 ? (hasTopSpacer ? 0 : top) +
-                      (collapseTop
-                          ? 0
-                          : (paragraphSpacing ?? style.margin.top))
+                      (collapseTop ? 0 : (paragraphSpacing ?? style.margin.top))
                 : 0),
         bottomInset:
             block.bottomInset +
@@ -2603,9 +2564,7 @@ class EpubChapterSource
             container: container,
             startsHere: first && !hasTopSpacer,
             endsHere: last,
-            topInset: first && !hasTopSpacer
-                ? block.leadingExtent + top
-                : 0,
+            topInset: first && !hasTopSpacer ? block.leadingExtent + top : 0,
             bottomInset: last ? block.trailingExtent + bottom : 0,
           ),
           ...block.containers,
@@ -2699,10 +2658,7 @@ class EpubChapterSource
     }
 
     for (final rune in text.runes) {
-      if (rune == 0x09 ||
-          rune == 0x0A ||
-          rune == 0x0D ||
-          rune == 0x20) {
+      if (rune == 0x09 || rune == 0x0A || rune == 0x0D || rune == 0x20) {
         flush();
         continue;
       }
@@ -2732,10 +2688,12 @@ class EpubChapterSource
     double? cssMaxHeight,
     double? aspectRatio,
   }) {
-    final widthLimit =
-        cssMaxWidth == null ? maxWidth : math.min(maxWidth, cssMaxWidth);
-    final heightLimit =
-        cssMaxHeight == null ? maxHeight : math.min(maxHeight, cssMaxHeight);
+    final widthLimit = cssMaxWidth == null
+        ? maxWidth
+        : math.min(maxWidth, cssMaxWidth);
+    final heightLimit = cssMaxHeight == null
+        ? maxHeight
+        : math.min(maxHeight, cssMaxHeight);
     double? parseLength(String? raw, double percentBase) {
       if (raw == null) {
         return null;
@@ -3467,7 +3425,11 @@ class EpubChapterSource
               maxWidth: width,
               runs: const <StyledRun>[],
             ),
-            containers: _containerFragmentsFor(block, starts: false, ends: false),
+            containers: _containerFragmentsFor(
+              block,
+              starts: false,
+              ends: false,
+            ),
           );
           slices.add(
             PageBlockSlice(
@@ -4377,11 +4339,16 @@ class EpubChapterSource
         final (tag, attributes, children) = switch (node) {
           BlockNode() => (node.tag, node.attributes, node.children),
           InlineNode() => (node.tag, node.attributes, node.children),
-          _ => ('reader-anonymous', const <String, String>{}, const <EpubNode>[]),
+          _ => (
+            'reader-anonymous',
+            const <String, String>{},
+            const <EpubNode>[],
+          ),
         };
         return _NodeView(tag, attributes, [
           for (final child in children)
-            if (child is BlockNode || child is InlineNode) selectorViewOf(child),
+            if (child is BlockNode || child is InlineNode)
+              selectorViewOf(child),
         ], cacheIdentity: 'generated:${fallbackViewId++}');
       });
     }
@@ -5489,6 +5456,18 @@ class EpubChapterSource
         cssMaxHeight: imageStyle.maxHeight?.resolve(contentHeight),
         aspectRatio: imageStyle.aspectRatio,
       );
+      // max-width 会在绘制期把边框盒收窄；图片高度必须同步按比例收窄，
+      // 否则 `<img style="max-width:60%; height:auto">` 会得到一个过高的
+      // 盒子，contain 绘制后上下出现大块空白。
+      if (imageStyle.maxWidth != null) {
+        final constrainedWidth = BoxModel.fromStyle(
+          imageStyle,
+          containingWidth: imageContainingWidth,
+        ).resolveContentWidth(imageContainingWidth);
+        if (constrainedWidth < size.$1) {
+          size = (constrainedWidth, size.$2 * constrainedWidth / size.$1);
+        }
+      }
       // 容器级浮动（W12）：`.avatar` 这类浮动挂在图片外面的容器/行内
       // 元素上，图片自身没有 float 属性，这里用容器浮动兜底。纯图块被
       // 聚合器折叠时容器不在祖先链上（只留 containerChain 提示），
@@ -5572,21 +5551,20 @@ class EpubChapterSource
             imageModel.horizontalInset +
             ownImageStyle.margin.horizontal;
         final slack = math.max(0.0, imageContainingWidth - marginBoxWidth);
-        usedMarginLeft +=
-            autoMargins
-                ? switch ((
-                    ownImageStyle.marginLeftIsAuto,
-                    ownImageStyle.marginRightIsAuto,
-                  )) {
-                    (true, true) => slack / 2,
-                    (true, false) => slack,
-                    _ => 0.0,
-                  }
-                : switch (ownImageStyle.resolvedTextAlign) {
-                    CssTextAlign.center => slack / 2,
-                    CssTextAlign.end || CssTextAlign.right => slack,
-                    _ => 0.0,
-                  };
+        usedMarginLeft += autoMargins
+            ? switch ((
+                ownImageStyle.marginLeftIsAuto,
+                ownImageStyle.marginRightIsAuto,
+              )) {
+                (true, true) => slack / 2,
+                (true, false) => slack,
+                _ => 0.0,
+              }
+            : switch (ownImageStyle.resolvedTextAlign) {
+                CssTextAlign.center => slack / 2,
+                CssTextAlign.end || CssTextAlign.right => slack,
+                _ => 0.0,
+              };
       }
       final blockStyle = ComputedStyle(<String, String>{
         // 图片块替换了原 img 盒，必须沿用 img 的盒模型与边距；否则图片
@@ -5809,7 +5787,8 @@ class EpubChapterSource
               return;
             }
             final leading = hasEmptyBox
-                ? 0 : raw.length - raw.trimLeft().length;
+                ? 0
+                : raw.length - raw.trimLeft().length;
             if (buffer.isNotEmpty) {
               buffer.write('\n');
             }
@@ -6032,11 +6011,18 @@ class EpubChapterSource
           final hasContent = text.isNotEmpty || content.marks.isNotEmpty;
           TextLayoutResult measureCell(double width) => hasContent
               ? layoutCellContent(
-                  text, content.marks, cellChain, cellStyle,
+                  text,
+                  content.marks,
+                  cellChain,
+                  cellStyle,
                   math.max(8.0, width - horizontalInset(cellStyle)),
                 )
               : TextLayoutResult(
-                  text: '', lines: const [], width: 0, height: 0, maxWidth: width,
+                  text: '',
+                  lines: const [],
+                  width: 0,
+                  height: 0,
+                  maxWidth: width,
                 );
           double measureHeight(double width) {
             final inset = verticalInset(cellStyle);
@@ -6072,6 +6058,7 @@ class EpubChapterSource
             }
             return widest + horizontalInset(cs);
           }
+
           double minContentWidth(ComputedStyle cs) {
             if (!hasContent) {
               return 0;
@@ -6371,7 +6358,10 @@ class EpubChapterSource
         TablePageSlice(
           firstRow: 0,
           lastRow: rowHeights.length,
-          drawnHeight: paddedRowHeights.fold(0.0, (sum, height) => sum + height),
+          drawnHeight: paddedRowHeights.fold(
+            0.0,
+            (sum, height) => sum + height,
+          ),
           clippedRowHeight: 0,
         ),
       ];
@@ -6638,8 +6628,7 @@ class EpubChapterSource
         // 非语义标题（如带左边色条的 div.xbt2、居中扉页文字）也保留
         // 作者字号、行高与段距，阅读器排版只接管普通正文。
         final structuredTitle =
-            !isHeading &&
-            _hasStructuredTitleText(text, blockStyle);
+            !isHeading && _hasStructuredTitleText(text, blockStyle);
         final specialComponent =
             compactAuthoredComponent ||
             containerFloat != null ||
@@ -7348,11 +7337,6 @@ class EpubChapterSource
             layout.width != layout.maxWidth) {
           layout = withLayoutWidth(layout, maxWidth: layout.width);
         }
-        if (measureStyle.writingMode != CssWritingMode.horizontalTb &&
-            hasDeclaredWidth &&
-            layout.maxWidth.isFinite) {
-          layout = _alignVerticalBand(layout, contentWidth: layout.maxWidth);
-        }
         if (inlineFloats.isNotEmpty) {
           // 浮动块排在段落之前：分页时它们先占位，段落行按剩余宽度收窄。
           blocks.addAll(inlineFloats);
@@ -7493,6 +7477,7 @@ class EpubChapterSource
               containerSides: textBlock.containerSides,
               effectiveOpacity: textBlock.effectiveOpacity,
               declaredContentHeight: textBlock.declaredContentHeight,
+              verticalContentWidth: textBlock.verticalContentWidth,
             );
             if (relativeTop != 0) {
               pendingRelativeTop += relativeTop;
@@ -7525,10 +7510,8 @@ class EpubChapterSource
         // display:none 容器子树剔除（P8-07，WHATWG 15.3.1 语义）：容器
         // 自身样式为 none 时整棵子树不产出（含 [hidden]/input[type=
         // hidden]/dialog:not([open]) 等经级联命中的形态）。
-        if (chainStyle(<SelectorElement>[
-              ...ancestors,
-              selectorViewOf(node),
-            ]).display ==
+        if (chainStyle(<SelectorElement>[...ancestors, selectorViewOf(node)])
+                .display ==
             CssDisplay.none) {
           return;
         }
@@ -7591,10 +7574,7 @@ class EpubChapterSource
         // 丢弃会让后续内容整体上移一个盒高（69-border-radius-percent 暴露）。
         if (node.children.isEmpty) {
           final emptyBox = _emptyBoxBlock(
-            chainStyle(<SelectorElement>[
-              ...ancestors,
-              selectorViewOf(node),
-            ]),
+            chainStyle(<SelectorElement>[...ancestors, selectorViewOf(node)]),
             contentWidth,
             containingHeight: baseContentHeight,
           );

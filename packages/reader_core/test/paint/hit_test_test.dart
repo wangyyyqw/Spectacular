@@ -38,21 +38,43 @@ PageBlockSlice _slice(PageBlock block, {double leading = 0}) => PageBlockSlice(
   leadingExtent: leading,
 );
 
+ComputedStyle _verticalStyle() => ComputedStyle(const <String, String>{
+  'font-size': '16px',
+  'line-height': '1.5',
+  'font-family': 'Ahem',
+  'writing-mode': 'vertical-rl',
+});
+
+PageContent _verticalPage(String text, {double contentWidth = 300}) {
+  final style = _verticalStyle();
+  final layout = TextLayoutEngine.layout(
+    text: text,
+    style: style,
+    maxWidth: contentWidth,
+  );
+  final block = PageBlock.styled(
+    layout: layout,
+    style: style,
+    containingWidth: contentWidth,
+  );
+  return _page(<PageBlockSlice>[_slice(block)]);
+}
+
 void main() {
   test('行盒文本偏移按页累计（P9-28）', () {
     final first = _block('第一段文字');
     final second = _block('第二段更长的文字内容');
-    final page = _page(<PageBlockSlice>[
-      _slice(first),
-      _slice(second),
-    ]);
+    final page = _page(<PageBlockSlice>[_slice(first), _slice(second)]);
     final boxes = TextHitTester.lineBoxes(page);
     expect(boxes.length, greaterThanOrEqualTo(2));
     // 第二块的行偏移应接在第一块文本之后，不能回退到 0。
-    final secondBlockBoxes =
-        boxes.where((box) => box.slice.block == second).toList();
-    expect(secondBlockBoxes.first.textOffset,
-        greaterThanOrEqualTo(first.layout.text.length));
+    final secondBlockBoxes = boxes
+        .where((box) => box.slice.block == second)
+        .toList();
+    expect(
+      secondBlockBoxes.first.textOffset,
+      greaterThanOrEqualTo(first.layout.text.length),
+    );
     final last = boxes.last;
     expect(
       last.textOffset + last.text.length,
@@ -94,7 +116,10 @@ void main() {
       final second = boxes[1];
       final hit = TextHitTester.hitTest(
         page,
-        Offset(second.rect.left + second.rect.width * 0.5, second.rect.center.dy),
+        Offset(
+          second.rect.left + second.rect.width * 0.5,
+          second.rect.center.dy,
+        ),
       )!;
       expect(hit.lineIndex, 1);
       expect(hit.lineBox.rect.top, greaterThan(boxes[0].rect.top));
@@ -145,7 +170,11 @@ void main() {
       final block = _block('0123456789abcdefghij');
       final page = _page(<PageBlockSlice>[_slice(block, leading: 6)]);
       final boxes = TextHitTester.lineBoxes(page);
-      expect(boxes.first.rect.top, 8 + 6, reason: '首行 y = topPadding + leading');
+      expect(
+        boxes.first.rect.top,
+        8 + 6,
+        reason: '首行 y = topPadding + leading',
+      );
       for (var i = 1; i < boxes.length; i++) {
         expect(boxes[i].rect.top, greaterThan(boxes[i - 1].rect.top));
       }
@@ -159,6 +188,50 @@ void main() {
       final page = _page(const <PageBlockSlice>[]);
       expect(TextHitTester.hitTest(page, const Offset(10, 10)), isNull);
       expect(TextHitTester.lineBoxes(page), isEmpty);
+    });
+  });
+
+  group('竖排命中与选区（W22）', () {
+    test('vertical-rl 短列带贴内容盒右缘，列内字符按 y 命中', () {
+      final page = _verticalPage('天地玄');
+      final box = TextHitTester.lineBoxes(page).single;
+      expect(box.rect.right, closeTo(300, 0.01), reason: '列带应从右缘起排');
+
+      final characterHeight = box.rect.height / box.text.length;
+      for (var i = 0; i < box.text.length; i++) {
+        final hit = TextHitTester.hitTest(
+          page,
+          Offset(
+            box.rect.center.dx,
+            box.rect.top + characterHeight * (i + 0.5),
+          ),
+        )!;
+        expect(hit.lineIndex, 0);
+        expect(
+          hit.charOffset,
+          inInclusiveRange(i, i + 1),
+          reason: '第 $i 个字应从列顶向下映射到对应字符',
+        );
+      }
+    });
+
+    test('竖排选区矩形覆盖列内对应的纵向字符区间', () {
+      final page = _verticalPage('天地玄');
+      final box = TextHitTester.lineBoxes(page).single;
+      final rects = TextHitTester.selectionRects(box, 1, 3);
+      expect(rects, hasLength(1));
+      expect(rects.single.left, closeTo(0, 0.01));
+      expect(rects.single.width, closeTo(box.rect.width, 0.01));
+      expect(
+        rects.single.top,
+        closeTo(box.rect.height / 3, 0.5),
+        reason: '第 1 字之后的选区从列顶 1/3 处开始',
+      );
+      expect(
+        rects.single.bottom,
+        closeTo(box.rect.height, 0.5),
+        reason: '选区到列末结束',
+      );
     });
   });
 }

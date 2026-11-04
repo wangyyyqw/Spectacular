@@ -571,11 +571,7 @@ class PagePainter {
             geometry.style,
             textColorOverride: geometry.textColorOverride,
             contentLeft:
-                geometry.borderBox.left +
-                geometry.style.padding.left +
-                (geometry.style.borders.left.isVisible
-                    ? geometry.style.borders.left.width
-                    : 0),
+                geometry.leftInset + geometry.slice.block.verticalColumnOffset,
             contentTop: geometry.y + geometry.leading,
             startLine: geometry.slice.startLine,
             endLine: geometry.slice.endLine,
@@ -766,11 +762,7 @@ class PagePainter {
           geometry.style,
           rubies,
           contentLeft:
-              geometry.borderBox.left +
-              geometry.style.padding.left +
-              (geometry.style.borders.left.isVisible
-                  ? geometry.style.borders.left.width
-                  : 0),
+              geometry.leftInset + geometry.slice.block.verticalColumnOffset,
           contentTop: geometry.y + geometry.leading,
           startLine: geometry.slice.startLine,
           endLine: geometry.slice.endLine,
@@ -2008,27 +2000,28 @@ class PagePainter {
           // 单元格里的行内 span（P9-26）：按 run 组装 span，颜色/字号/边框
           // 才和书籍一致（RANK 金框、标签 chip）。
           final cellRuns = _lineRuns(cell.layout, line);
-          final painter = TextPainter(
-            text:
-                line.spacing == null &&
-                    cellRuns.isEmpty &&
-                    line.inlineBoxes.isEmpty
-                ? TextSpan(text: text, style: textStyle)
-                : buildLineSpan(
-                    layout: cell.layout,
-                    line: line,
-                    baseStyle: textStyle,
-                    styleOf: _paintTextStyleFor,
-                  ),
-            textDirection: cell.layout.isRtl
-                ? TextDirection.rtl
-                : TextDirection.ltr,
-          )..layout(
-            // 行已在测量阶段完成换行；单元格绘制的是单行切片，再次按内宽
-            // 约束会把行尾字距重新拆成下一行，造成文字重叠或错位。
-            // 越界仍由下方 clipRect 兜底。
-            maxWidth: double.infinity,
-          );
+          final painter =
+              TextPainter(
+                text:
+                    line.spacing == null &&
+                        cellRuns.isEmpty &&
+                        line.inlineBoxes.isEmpty
+                    ? TextSpan(text: text, style: textStyle)
+                    : buildLineSpan(
+                        layout: cell.layout,
+                        line: line,
+                        baseStyle: textStyle,
+                        styleOf: _paintTextStyleFor,
+                      ),
+                textDirection: cell.layout.isRtl
+                    ? TextDirection.rtl
+                    : TextDirection.ltr,
+              )..layout(
+                // 行已在测量阶段完成换行；单元格绘制的是单行切片，再次按内宽
+                // 约束会把行尾字距重新拆成下一行，造成文字重叠或错位。
+                // 越界仍由下方 clipRect 兜底。
+                maxWidth: double.infinity,
+              );
           final textY =
               lineY + textLineBaselineOffset(cell.layout, line, painter);
           final contentLeft = left + cell.rect.left + leftInset;
@@ -2319,10 +2312,7 @@ class PagePainter {
           _paintInlineBoxContent(canvas, payload, rect);
         } else if (payload is String && payload.isNotEmpty) {
           final painter = TextPainter(
-            text: TextSpan(
-              text: payload,
-              style: _paintTextStyleFor(style),
-            ),
+            text: TextSpan(text: payload, style: _paintTextStyleFor(style)),
             textDirection: style.isRtl ? TextDirection.rtl : TextDirection.ltr,
             maxLines: 1,
             ellipsis: '…',
