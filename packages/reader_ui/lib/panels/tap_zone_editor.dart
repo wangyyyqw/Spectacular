@@ -153,11 +153,11 @@ class _TapZoneCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: fill,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(4),
       child: InkWell(
         key: ValueKey<String>('tap-zone-${zone.name}'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(4),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,

@@ -124,7 +124,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
         child: Material(
           key: const ValueKey<String>('note-composer-sheet'),
           color: theme.colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
@@ -162,13 +162,13 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
                             filled: true,
                             fillColor: theme.colorScheme.surfaceContainerLow,
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(4),
                               borderSide: BorderSide(
                                 color: theme.colorScheme.outlineVariant,
                               ),
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(4),
                               borderSide: BorderSide(
                                 color: theme.colorScheme.outlineVariant,
                               ),
@@ -210,7 +210,7 @@ class _ComposerQuotePreview extends StatelessWidget {
         color: inkMode
             ? theme.colorScheme.surfaceContainerLow
             : Color(defaultHighlightColor).withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Container(
         padding: EdgeInsets.only(bottom: inkMode ? 6 : 0),

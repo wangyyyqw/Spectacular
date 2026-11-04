@@ -19,10 +19,11 @@ typedef _ShelfItem = ({BookEntry entry, int? percentInt, bool finished});
 
 const _shelfColumns = 3;
 const _shelfGridPadding = 16.0;
-const _shelfGridSpacing = 12.0;
+const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
+const _shelfMetaHeight = 18.0;
 
 /// 书架页：书籍网格/列表、EPUB 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
@@ -797,7 +798,30 @@ class _BookshelfPageState extends State<BookshelfPage> {
               ),
               onChanged: (value) => setState(() => _query = value),
             )
-          : Text(_activeGroup?.name ?? '书架'),
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Flexible(
+                  child: Text(
+                    _activeGroup?.name ?? '书架',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (items != null) ...[
+                  const SizedBox(width: 10),
+                  Text(
+                    '${_activeGroup == null ? items.length : _groupBookCount(_activeGroup!)} 本',
+                    key: const ValueKey<String>('bookshelf-count'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
       actions: _searching
           ? <Widget>[
               IconButton(
@@ -884,6 +908,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             assignments: _bookGroups,
             activeGroupId: _activeGroupId,
             onToggle: _toggleGroup,
+            onShowAll: () => setState(() => _activeGroupId = null),
             onManage: _manageGroup,
           ),
         Expanded(child: _buildLibraryBody(items, visible)),
@@ -925,6 +950,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
             _shelfColumns;
         final titleHeight = MediaQuery.textScalerOf(context)
             .scale(_shelfTitleHeight);
+        final metaHeight = MediaQuery.textScalerOf(context)
+            .scale(_shelfMetaHeight);
         return GridView.builder(
           key: const ValueKey<String>('bookshelf-grid'),
           padding: EdgeInsets.fromLTRB(
@@ -938,8 +965,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
             mainAxisExtent:
                 cardWidth / _shelfCoverAspectRatio +
                 _shelfTitleGap +
-                titleHeight,
-            mainAxisSpacing: _shelfGridSpacing,
+                titleHeight +
+                metaHeight,
+            mainAxisSpacing: 20,
             crossAxisSpacing: _shelfGridSpacing,
           ),
           itemCount: books.length,
@@ -962,10 +990,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildBookList(List<_ShelfItem> books) {
-    return ListView.builder(
+    return ListView.separated(
       key: const ValueKey<String>('bookshelf-list'),
-      padding: EdgeInsets.fromLTRB(12, 8, 12, _selectionMode ? 160 : 96),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, _selectionMode ? 160 : 96),
       itemCount: books.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final item = books[index];
         return _BookRow(
@@ -986,8 +1015,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final theme = Theme.of(context);
     final count = _selectedIds.length;
     return Material(
-      color: theme.colorScheme.surfaceContainer,
-      elevation: 8,
+      color: theme.colorScheme.surface,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 10, 16, 10),
         child: Column(
@@ -1279,6 +1307,7 @@ class _ShelfGroupBar extends StatelessWidget {
     required this.assignments,
     required this.activeGroupId,
     required this.onToggle,
+    required this.onShowAll,
     required this.onManage,
   });
 
@@ -1287,6 +1316,7 @@ class _ShelfGroupBar extends StatelessWidget {
   final Map<String, String> assignments;
   final String? activeGroupId;
   final ValueChanged<String> onToggle;
+  final VoidCallback onShowAll;
   final ValueChanged<ShelfGroup> onManage;
 
   @override
@@ -1300,24 +1330,76 @@ class _ShelfGroupBar extends StatelessWidget {
     }
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Row(
         children: <Widget>[
+          _ShelfGroupTab(
+            key: const ValueKey<String>('bookshelf-group-all'),
+            label: '全部 ${items.length}',
+            selected: activeGroupId == null,
+            onTap: onShowAll,
+          ),
           for (final group in groups)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onLongPress: () => onManage(group),
-                child: ChoiceChip(
-                  key: ValueKey<String>('bookshelf-group-${group.id}'),
-                  label: Text('${group.name} ${counts[group.id] ?? 0}'),
-                  selected: group.id == activeGroupId,
-                  showCheckmark: false,
-                  onSelected: (_) => onToggle(group.id),
-                ),
-              ),
+            _ShelfGroupTab(
+              key: ValueKey<String>('bookshelf-group-${group.id}'),
+              label: '${group.name} ${counts[group.id] ?? 0}',
+              selected: group.id == activeGroupId,
+              onTap: () => onToggle(group.id),
+              onLongPress: () => onManage(group),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// 分组采用文字页签，让书封面成为书架的视觉重点。
+class _ShelfGroupTab extends StatelessWidget {
+  const _ShelfGroupTab({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          margin: const EdgeInsets.only(right: 20),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                width: 2,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : Colors.transparent,
+              ),
+            ),
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: selected
+                  ? theme.colorScheme.onSurface
+                  : theme.colorScheme.onSurfaceVariant,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1339,7 +1421,7 @@ class _ImportBanner extends StatelessWidget {
         : '正在导入：${job.fallbackTitle ?? '书籍'}'
               '${queue.pendingCount > 0 ? '（排队 ${queue.pendingCount} 本）' : ''}';
     return Material(
-      color: theme.colorScheme.surfaceContainerHighest,
+      color: theme.colorScheme.surfaceContainerLow,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
         child: Row(
@@ -1394,18 +1476,14 @@ class _BookRow extends StatelessWidget {
     final theme = Theme.of(context);
     final placeholder = Container(
       decoration: BoxDecoration(
-        color: HSLColor.fromAHSL(
-          1,
-          entry.coverHue.toDouble(),
-          0.42,
-          0.38,
-        ).toColor(),
+        color: theme.colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       alignment: Alignment.center,
       child: Text(
         entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: theme.textTheme.titleMedium?.copyWith(color: Colors.white),
+        style: theme.textTheme.titleMedium,
       ),
     );
     final cover = Hero(
@@ -1413,8 +1491,8 @@ class _BookRow extends StatelessWidget {
       transitionOnUserGestures: true,
       child: SizedBox(
         key: const ValueKey<String>('book-row-cover'),
-        width: 42,
-        height: 56,
+        width: 48,
+        height: 64,
         child: entry.coverPath == null
             ? placeholder
             : ClipRRect(
@@ -1445,56 +1523,78 @@ class _BookRow extends StatelessWidget {
           visualDensity: VisualDensity.compact,
         ),
     ];
-    return ListTile(
-      key: ValueKey<String>('book-row-${entry.id}'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      leading: cover,
-      title: Text(
-        entry.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium,
-      ),
-      subtitle: Text(
-        _shelfMetaLabel(entry, percentInt, finished),
-        key: ValueKey<String>('book-row-meta-${entry.id}'),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
+    return Semantics(
+      selected: selectionMode && selected,
+      child: InkWell(
+        key: ValueKey<String>('book-row-${entry.id}'),
+        onTap: () {
+          if (selectionMode) {
+            onSelect();
+          } else {
+            onOpen(entry);
+          }
+        },
+        onLongPress: () {
+          if (selectionMode) {
+            onSelect();
+          } else {
+            onLongPress(entry);
+          }
+        },
+        child: Ink(
+          color: selectionMode && selected
+              ? theme.colorScheme.surfaceContainerLow
+              : Colors.transparent,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: <Widget>[
+              cover,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      entry.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _shelfMetaLabel(entry, percentInt, finished),
+                      key: ValueKey<String>('book-row-meta-${entry.id}'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing.isNotEmpty) ...<Widget>[
+                const SizedBox(width: 8),
+                ...trailing,
+              ],
+            ],
+          ),
         ),
       ),
-      trailing: trailing.isEmpty
-          ? null
-          : Row(mainAxisSize: MainAxisSize.min, children: trailing),
-      selected: selectionMode && selected,
-      selectedTileColor: theme.colorScheme.primary.withAlpha(18),
-      onTap: () {
-        if (selectionMode) {
-          onSelect();
-        } else {
-          onOpen(entry);
-        }
-      },
-      onLongPress: () {
-        if (selectionMode) {
-          onSelect();
-        } else {
-          onLongPress(entry);
-        }
-      },
     );
   }
 }
 
 String _shelfMetaLabel(BookEntry entry, int? percentInt, bool finished) {
   final author = entry.author.trim().isEmpty ? '未知作者' : entry.author.trim();
-  final status = switch (entry.statusWith(finished: finished)) {
+  final status = switch (finished ? BookReadingStatus.finished : entry.status) {
     BookReadingStatus.unread => '未开始',
     BookReadingStatus.reading => percentInt == null ? '在读' : '在读 $percentInt%',
     BookReadingStatus.finished => '已读完',
   };
-  return '$author · $status';
+  return '$status · $author';
 }
 
 class _EmptyPane extends StatelessWidget {
@@ -1635,38 +1735,21 @@ class _BookCard extends StatelessWidget {
     final theme = Theme.of(context);
     final placeholder = Container(
       decoration: BoxDecoration(
-        color: HSLColor.fromAHSL(
-          1,
-          entry.coverHue.toDouble(),
-          0.42,
-          0.38,
-        ).toColor(),
-        borderRadius: BorderRadius.circular(8),
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       alignment: Alignment.center,
       padding: const EdgeInsets.all(8),
       child: Stack(
         children: [
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                _coverGlyph(entry.title),
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  color: Colors.white,
-                ),
+          Center(
+            child: Text(
+              _coverGlyph(entry.title),
+              style: theme.textTheme.headlineMedium?.copyWith(
+                color: theme.colorScheme.onSurface,
               ),
-              const SizedBox(height: 6),
-              Text(
-                entry.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white70,
-                ),
-              ),
-            ],
+            ),
           ),
           // L2/L3 结构异常角标（P3-27，§55.2：必须让用户知道书被修复过）。
           if (entry.readabilityLevel >= 2)
@@ -1685,7 +1768,7 @@ class _BookCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     entry.readabilityLevel >= 3 ? '结构异常' : '部分降级',
@@ -1704,7 +1787,7 @@ class _BookCard extends StatelessWidget {
       tag: bookCoverHeroTag(entry.id),
       transitionOnUserGestures: true,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(4),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -1716,15 +1799,6 @@ class _BookCard extends StatelessWidget {
                 fit: BoxFit.cover,
                 cacheWidth: 320,
                 errorBuilder: (_, _, _) => placeholder,
-              ),
-            if (entry.statusWith(finished: finished) !=
-                BookReadingStatus.unread)
-              Align(
-                alignment: Alignment.bottomLeft,
-                child: _ReadingBadge(
-                  percentInt: percentInt,
-                  finished: finished,
-                ),
               ),
             if (selectionMode)
               Positioned.fill(
@@ -1752,7 +1826,7 @@ class _BookCard extends StatelessWidget {
     );
     return InkWell(
       key: ValueKey<String>('book-card-${entry.id}'),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(4),
       onTap: () {
         if (selectionMode) {
           onSelect();
@@ -1785,9 +1859,25 @@ class _BookCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
                   color: selectionMode && selected
                       ? theme.colorScheme.primary
                       : null,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(
+            height: MediaQuery.textScalerOf(context).scale(_shelfMetaHeight),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _shelfMetaLabel(entry, percentInt, finished),
+                key: ValueKey<String>('book-card-meta-${entry.id}'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -1827,39 +1917,6 @@ class _BookSelectionMark extends StatelessWidget {
         child: selected
             ? Icon(Icons.check, size: 18, color: theme.colorScheme.onPrimary)
             : null,
-      ),
-    );
-  }
-}
-
-/// 「在读 / 已读完」角标（P4-04：状态随进度自动更新）。
-class _ReadingBadge extends StatelessWidget {
-  const _ReadingBadge({this.percentInt, this.finished = false});
-
-  final int? percentInt;
-  final bool finished;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final label = finished
-        ? '已读完'
-        : percentInt == null
-        ? '在读'
-        : '在读 $percentInt%';
-    return Container(
-      key: const ValueKey<String>('book-reading-badge'),
-      margin: const EdgeInsets.all(6),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.onPrimary,
-        ),
       ),
     );
   }

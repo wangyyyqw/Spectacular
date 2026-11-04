@@ -413,13 +413,6 @@ class _ProgressRowState extends State<_ProgressRow> {
                           decoration: BoxDecoration(
                             color: widget.fg,
                             shape: BoxShape.circle,
-                            boxShadow: <BoxShadow>[
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 4,
-                                offset: const Offset(0, 1),
-                              ),
-                            ],
                           ),
                         ),
                       ),
@@ -436,7 +429,7 @@ class _ProgressRowState extends State<_ProgressRow> {
                             ),
                             decoration: BoxDecoration(
                               color: widget.fg,
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               widget.label,
@@ -546,7 +539,7 @@ class _EntriesRow extends StatelessWidget {
             Expanded(
               child: InkWell(
                 key: ValueKey<String>('menu-entry-${entry.key.name}'),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(4),
                 onTap: () => onEntry(entry.key),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -627,15 +620,9 @@ class _DrawerLayer extends StatelessWidget {
               decoration: BoxDecoration(
                 color: bg,
                 borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
+                  top: Radius.circular(8),
                 ),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    blurRadius: 40,
-                    offset: const Offset(0, -8),
-                  ),
-                ],
+                border: Border.all(color: fg.withValues(alpha: 0.12)),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,

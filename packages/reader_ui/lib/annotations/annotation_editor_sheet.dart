@@ -373,7 +373,7 @@ class _ReaderAnnotationEditorSheetState
         child: Material(
           key: const ValueKey<String>('annotation-editor-sheet'),
           color: theme.colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
@@ -581,11 +581,11 @@ class _AnnotationNoteEditor extends StatelessWidget {
             filled: true,
             fillColor: theme.colorScheme.surfaceContainerLow,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(4),
               borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(4),
               borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
           ),
@@ -671,7 +671,7 @@ class _AnnotationPreview extends StatelessWidget {
             color: previewStyle == ReaderAnnotationStyle.background
                 ? Color(previewColor).withValues(alpha: 0.22)
                 : theme.colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: CustomPaint(
             painter: previewStyle == ReaderAnnotationStyle.background
@@ -707,7 +707,7 @@ class _InkModeColorHint extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: const Text('墨水屏模式：高亮统一为黑色'),
     );
@@ -822,14 +822,14 @@ class _StyleChoice extends StatelessWidget {
         child: InkWell(
           key: ValueKey<String>('annotation-style-${option.value.name}'),
           onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(4),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             height: 58,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
             decoration: BoxDecoration(
               color: selected ? selectedBackground : background,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(4),
               border: Border.all(
                 color: selected ? selectedBorderColor : borderColor,
                 width: selected ? 1.5 : 1,

@@ -13,6 +13,7 @@ import 'storage/db.dart';
 import 'storage/drift_progress_store.dart';
 import 'storage/file_progress_store.dart';
 import 'storage/startup_storage.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -121,9 +122,8 @@ class ReaderApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Spectacular Reader',
-      theme: ThemeData.from(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3F51B5)),
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(),
       home: HomeShell(library: library, progressStore: progressStore),
     );
   }
