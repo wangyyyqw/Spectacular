@@ -10,17 +10,17 @@ import 'bessel_geometry.dart';
 class BesselPainter {
   BesselPainter({required this.paperColor})
     : _backPaperPaint = Paint()..color = paperColor,
-      _backContentPaint = Paint()
-        ..filterQuality = FilterQuality.low
-        ..colorFilter = ColorFilter.matrix(_fadeMatrix(paperColor));
+      _backFadePaint = Paint()
+        ..color = paperColor.withValues(alpha: 1 - _backInkContrast);
 
   final Color paperColor;
   final Paint _backPaperPaint;
-  final Paint _backContentPaint;
+  final Paint _backContentPaint = Paint()..filterQuality = FilterQuality.low;
+  final Paint _backFadePaint;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
 
-  /// 纸背油墨只保留约三成反差，并整体向纸色靠拢。
-  static const double _backInkFade = 0.36;
+  /// 纸背只保留少量透印反差，纸色覆盖独立于位图/网格的绘制路径。
+  static const double _backInkContrast = 0.22;
 
   void paint(
     Canvas canvas,
@@ -166,7 +166,8 @@ class BesselPainter {
     canvas.clipPath(back);
     // 先在纸背铺一层不透明纸色，网格抗锯齿缝隙也不会透出底页。
     canvas.drawRect(Offset.zero & g.size, _backPaperPaint);
-    _cornerBackContent(canvas, g, back, image, rtl);
+    _cornerBackContent(canvas, g, image, rtl);
+    canvas.drawPath(back, _backFadePaint);
     final width = (g.a - g.f).distance / 8;
     final length = _length(g);
     // 曲面宽度对应贝塞尔中点到 CJ 的距离，纸背在折痕处最暗。
@@ -217,13 +218,14 @@ class BesselPainter {
     canvas.clipPath(back);
     canvas.drawRect(Offset.zero & geometry.size, _backPaperPaint);
     _drawBackContent(canvas, mesh, image);
+    canvas.drawPath(back, _backFadePaint);
     _edgeBackShading(canvas, back);
     canvas.restore();
     mesh.dispose();
   }
 
   void _edgeBackShading(Canvas canvas, Path back) {
-    // 只叠加黑色折痕阴影，不能再用半透明纸色覆盖镜像内容。
+    // 透印淡化后再叠加折痕阴影，保留纸张弯曲的明暗层次。
     canvas.drawPath(
       back,
       Paint()
@@ -242,113 +244,23 @@ class BesselPainter {
   void _cornerBackContent(
     Canvas canvas,
     BesselGeometry geometry,
-    Path back,
     ui.Image image,
     bool rtl,
   ) {
-    final bounds = back.getBounds().intersect(Offset.zero & geometry.size);
-    if (bounds.isEmpty) return;
-    final mesh = _cornerMesh(geometry, image, bounds, rtl);
-    _drawBackContent(canvas, mesh, image);
-    mesh.dispose();
+    // 等比例反射保留文字尺寸，避免曲面采样在纸角附近放大字形。
+    canvas.save();
+    canvas.transform(geometry.reflection());
+    _drawImage(canvas, image, geometry.size, rtl);
+    canvas.restore();
   }
 
-  /// 只压缩纸背油墨反差，alpha 保持为 1，纸背始终不透明。
+  /// 网格先绘制原始不透明内容，再统一覆盖纸色淡化。
   void _drawBackContent(Canvas canvas, ui.Vertices mesh, ui.Image image) {
     final shader = _imageShader(image);
     _backContentPaint.shader = shader;
     canvas.drawVertices(mesh, BlendMode.src, _backContentPaint);
     _backContentPaint.shader = null;
     shader.dispose();
-  }
-
-  static List<double> _fadeMatrix(Color paper) {
-    const fade = _backInkFade;
-    final red = paper.r * 255;
-    final green = paper.g * 255;
-    final blue = paper.b * 255;
-    return <double>[
-      fade,
-      0,
-      0,
-      0,
-      (1 - fade) * red,
-      0,
-      fade,
-      0,
-      0,
-      (1 - fade) * green,
-      0,
-      0,
-      fade,
-      0,
-      (1 - fade) * blue,
-      0,
-      0,
-      0,
-      1,
-      0,
-    ];
-  }
-
-  /// 角部纸背显示镜像页面，并沿折痕法线做非线性压缩模拟纸张弯曲。
-  ui.Vertices _cornerMesh(
-    BesselGeometry geometry,
-    ui.Image image,
-    Rect bounds,
-    bool rtl,
-  ) {
-    const segments = 16;
-    final axis = geometry.a - geometry.f;
-    final length = axis.distance;
-    final normal = length < 1e-6 ? const Offset(1, 0) : axis / length;
-    final middle = (geometry.a + geometry.f) / 2;
-    final reach = (geometry.a - middle).distance;
-    final positions = <Offset>[];
-    final texture = <Offset>[];
-    for (var row = 0; row <= segments; row++) {
-      final y = bounds.top + bounds.height * row / segments;
-      for (var column = 0; column <= segments; column++) {
-        final point = Offset(bounds.left + bounds.width * column / segments, y);
-        final delta = point - middle;
-        final distance = delta.dx * normal.dx + delta.dy * normal.dy;
-        var source = point - normal * (2 * distance);
-        if (distance > 0 && reach > 0) {
-          final t = (distance / reach).clamp(0.0, 1.0);
-          // 折痕处压缩最强，纸角处回到镜像原位，避免采样越出页面。
-          source -= normal * (reach * math.pow(t, 0.7) - distance).toDouble();
-        }
-        positions.add(point);
-        texture.add(
-          Offset(
-            (rtl ? geometry.size.width - source.dx : source.dx) *
-                image.width /
-                geometry.size.width,
-            source.dy * image.height / geometry.size.height,
-          ),
-        );
-      }
-    }
-    final indices = <int>[];
-    for (var row = 0; row < segments; row++) {
-      for (var column = 0; column < segments; column++) {
-        final index = row * (segments + 1) + column;
-        indices.addAll(<int>[
-          index,
-          index + 1,
-          index + segments + 1,
-          index + 1,
-          index + segments + 2,
-          index + segments + 1,
-        ]);
-      }
-    }
-    return ui.Vertices(
-      ui.VertexMode.triangles,
-      positions,
-      textureCoordinates: texture,
-      indices: indices,
-    );
   }
 
   ui.ImageShader _imageShader(ui.Image image) => ui.ImageShader(

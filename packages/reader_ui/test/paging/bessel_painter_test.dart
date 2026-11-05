@@ -197,15 +197,16 @@ void main() {
   });
 
   test('纸背内容变浅发白，正面颜色不受影响', () async {
-    final data = await _render(
-      pageColor: const Color(0xFF000000),
-      paperColor: const Color(0xFFFFFFFF),
-    );
-    final back = crease + normal * 30;
-    final backBrightness = _brightness(data, back);
-
-    expect(backBrightness, inInclusiveRange(130, 200));
-    expect(_brightness(data, const Offset(20, 150)), lessThan(60));
+    for (final horizontal in [false, true]) {
+      final data = await _render(
+        horizontal: horizontal,
+        pageColor: const Color(0xFF000000),
+        paperColor: const Color(0xFFFFFFFF),
+      );
+      final back = horizontal ? const Offset(124, 150) : crease + normal * 30;
+      expect(_brightness(data, back), inInclusiveRange(190, 210));
+      expect(_brightness(data, const Offset(20, 150)), lessThan(60));
+    }
   });
 
   test('中心起卷上下对称且整条侧边都有纸背', () async {
@@ -250,10 +251,12 @@ void main() {
 
   test('中心纸背保留镜像图案且靠近圆柱折痕逐渐压缩', () async {
     final data = await _render(horizontal: true, touchX: 80, markedPaper: true);
+    final blank = await _render(horizontal: true, touchX: 80);
     final flatInk = <int>[];
     final curvedInk = <int>[];
     for (var sampleX = 80; sampleX < 125; sampleX++) {
-      if (_brightness(data, Offset(sampleX.toDouble(), 150)) >= 190) continue;
+      final point = Offset(sampleX.toDouble(), 150);
+      if (_brightness(blank, point) - _brightness(data, point) < 25) continue;
       (sampleX < 100 ? flatInk : curvedInk).add(sampleX);
     }
 
