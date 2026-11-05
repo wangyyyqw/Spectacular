@@ -50,6 +50,10 @@ import 'paging/page_turn_view.dart';
 import 'theme/reader_theme.dart';
 import 'loading_skeleton.dart';
 
+const MethodChannel _readerPlatformChannel = MethodChannel(
+  'com.spectacular.reader_mobile/reader',
+);
+
 /// 最小可运行的阅读页：打开、分页、绘制、翻页与进度恢复。
 class ReaderPage extends StatefulWidget {
   /// 创建阅读页。
@@ -92,6 +96,10 @@ class ReaderPage extends StatefulWidget {
     this.onSearchStream,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
+    this.keepScreenOn = false,
+    this.onKeepScreenOnChanged,
+    this.volumeKeyPaging = false,
+    this.onVolumeKeyPagingChanged,
   });
 
   /// 章节页来源。
@@ -187,6 +195,18 @@ class ReaderPage extends StatefulWidget {
   /// 翻页方式；独立于排版覆盖，不参与正文布局指纹。
   final PageTurnMode pageTurnMode;
   final ValueChanged<PageTurnMode>? onPageTurnModeChanged;
+
+  /// 阅读时保持屏幕常亮。
+  final bool keepScreenOn;
+
+  /// 屏幕常亮开关变化（调用方持久化）。
+  final ValueChanged<bool>? onKeepScreenOnChanged;
+
+  /// 用音量键翻页。
+  final bool volumeKeyPaging;
+
+  /// 音量键翻页开关变化（调用方持久化）。
+  final ValueChanged<bool>? onVolumeKeyPagingChanged;
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
@@ -354,6 +374,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       pageBackgroundImage: _environment.allowsBackgroundImage
           ? _backgroundImage
           : null,
+      pageBackgroundImageTint: ReaderBackground.byId(_backgroundId).tint,
       pageBackgroundImageCover: ReaderBackground.byId(_backgroundId).isImage,
       pageBackgroundImageOpacity: ReaderBackground.byId(_backgroundId).isImage
           ? 0.18
@@ -712,6 +733,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _theme = widget.theme;
     _backgroundId = widget.backgroundId;
     _inkMode = widget.inkMode;
+    _readerPlatformChannel.setMethodCallHandler(_handlePlatformCall);
+    _syncPlatformSettings();
     unawaited(_loadBackground(_backgroundId));
     // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
     // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
@@ -737,6 +760,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }.values.toList();
     if (oldWidget.pageTurnMode != widget.pageTurnMode) {
       _pageTurnMode = widget.pageTurnMode;
+    }
+    if (oldWidget.keepScreenOn != widget.keepScreenOn ||
+        oldWidget.volumeKeyPaging != widget.volumeKeyPaging) {
+      _syncPlatformSettings();
     }
     if (oldWidget.margins != widget.margins && widget.margins != null) {
       _savedMargins = widget.margins;
@@ -1216,6 +1243,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _applyBackground(ReaderBackground.none.id);
     _applyPageTurnMode(PageTurnMode.cover);
     _applyInkMode(false);
+    if (widget.keepScreenOn) {
+      widget.onKeepScreenOnChanged?.call(false);
+    }
+    if (widget.volumeKeyPaging) {
+      widget.onVolumeKeyPagingChanged?.call(false);
+    }
     if (_tapZones != ReaderTapZones.defaults) {
       _applyTapZones(ReaderTapZones.defaults);
     }
@@ -2077,6 +2110,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     _marginPreviewTimer?.cancel();
+    _readerPlatformChannel.setMethodCallHandler(null);
+    unawaited(_invokePlatformFlag('setKeepScreenOn', false));
+    unawaited(_invokePlatformFlag('setVolumeKeyPaging', false));
     WidgetsBinding.instance.removeObserver(this);
     // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
@@ -2390,11 +2426,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           widget.onPickBackgroundImage == null
                           ? null
                           : _pickBackgroundImage,
+                      backgroundImageLoader: widget.backgroundImageLoader,
                       pickingBackgroundImage: _pickingBackgroundImage,
                       backgroundId: _backgroundId,
                       inkMode: _inkMode,
                       pageTurnMode: _pageTurnMode,
+                      tapZones: _tapZones,
+                      keepScreenOn: widget.keepScreenOn,
+                      volumeKeyPaging: widget.volumeKeyPaging,
                       onPageTurnModeChanged: _applyPageTurnMode,
+                      onTapZonesChanged: _applyTapZones,
+                      onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
+                      onVolumeKeyPagingChanged: widget.onVolumeKeyPagingChanged,
                       onOverridesChanged: _applyOverrides,
                       onThemeChanged: _applyTheme,
                       onBackgroundChanged: widget.onBackgroundChanged == null
@@ -2547,6 +2590,35 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     _pageTurnKey.currentState?.controller.request(next);
+  }
+
+  Future<void> _handlePlatformCall(MethodCall call) async {
+    if (call.method != 'volumeKeyPage' || !widget.volumeKeyPaging) {
+      return;
+    }
+    switch (call.arguments) {
+      case 'next':
+        _requestPageTurn(true);
+      case 'previous':
+        _requestPageTurn(false);
+    }
+  }
+
+  void _syncPlatformSettings() {
+    unawaited(_invokePlatformFlag('setKeepScreenOn', widget.keepScreenOn));
+    unawaited(
+      _invokePlatformFlag('setVolumeKeyPaging', widget.volumeKeyPaging),
+    );
+  }
+
+  Future<void> _invokePlatformFlag(String method, bool enabled) async {
+    try {
+      await _readerPlatformChannel.invokeMethod<void>(method, enabled);
+    } on MissingPluginException {
+      // 桌面/测试环境没有 Android 通道，设置仍保留在 Flutter 状态中。
+    } on PlatformException {
+      // 平台侧不可用时不影响阅读。
+    }
   }
 
   Widget _buildReadingView(Size size) {
@@ -2819,11 +2891,18 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onPickFont,
     required this.onLoadFont,
     required this.onPickBackgroundImage,
+    required this.backgroundImageLoader,
     required this.pickingBackgroundImage,
     required this.backgroundId,
     required this.inkMode,
     required this.pageTurnMode,
+    required this.tapZones,
+    required this.keepScreenOn,
+    required this.volumeKeyPaging,
     required this.onPageTurnModeChanged,
+    required this.onTapZonesChanged,
+    required this.onKeepScreenOnChanged,
+    required this.onVolumeKeyPagingChanged,
     required this.onOverridesChanged,
     required this.onThemeChanged,
     required this.onBackgroundChanged,
@@ -2860,11 +2939,18 @@ class _ReaderDrawerContent extends StatefulWidget {
   final Future<ReaderFontOption?> Function()? onPickFont;
   final Future<void> Function(String family)? onLoadFont;
   final VoidCallback? onPickBackgroundImage;
+  final Future<Uint8List> Function(String id)? backgroundImageLoader;
   final bool pickingBackgroundImage;
   final String backgroundId;
   final bool inkMode;
   final PageTurnMode pageTurnMode;
+  final ReaderTapZones tapZones;
+  final bool keepScreenOn;
+  final bool volumeKeyPaging;
   final ValueChanged<PageTurnMode> onPageTurnModeChanged;
+  final ValueChanged<ReaderTapZones> onTapZonesChanged;
+  final ValueChanged<bool>? onKeepScreenOnChanged;
+  final ValueChanged<bool>? onVolumeKeyPagingChanged;
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
   final ValueChanged<String>? onBackgroundChanged;
@@ -2923,6 +3009,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           themeId: widget.themeId,
           customTheme: widget.customTheme,
           onPickBackgroundImage: widget.onPickBackgroundImage,
+          backgroundImageLoader: widget.backgroundImageLoader,
           pickingBackgroundImage: widget.pickingBackgroundImage,
           backgroundId: widget.backgroundId,
           inkMode: widget.inkMode,
@@ -2951,7 +3038,13 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           themeId: widget.themeId,
           inkMode: widget.inkMode,
           pageTurnMode: widget.pageTurnMode,
+          tapZones: widget.tapZones,
+          keepScreenOn: widget.keepScreenOn,
+          volumeKeyPaging: widget.volumeKeyPaging,
           onPageTurnModeChanged: widget.onPageTurnModeChanged,
+          onTapZonesChanged: widget.onTapZonesChanged,
+          onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
+          onVolumeKeyPagingChanged: widget.onVolumeKeyPagingChanged,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
           onInkModeChanged: widget.onInkModeChanged,

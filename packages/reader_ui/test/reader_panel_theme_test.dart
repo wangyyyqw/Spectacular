@@ -73,6 +73,6 @@ void main() {
     );
 
     expect(find.text('排版'), findsNothing);
-    expect(find.text('翻页方式'), findsOneWidget);
+    expect(find.text('选择翻页方式'), findsOneWidget);
   });
 }

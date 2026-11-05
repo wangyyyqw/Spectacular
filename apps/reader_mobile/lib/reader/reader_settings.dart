@@ -27,6 +27,8 @@ class ReaderSettings {
     this.margins,
     this.tapZones = ReaderTapZones.defaults,
     this.pageTurnMode = PageTurnMode.cover,
+    this.keepScreenOn = false,
+    this.volumeKeyPaging = false,
   });
 
   /// 字号。
@@ -71,6 +73,12 @@ class ReaderSettings {
   /// 翻页方式；只影响交互与动画，不参与正文排版。
   final PageTurnMode pageTurnMode;
 
+  /// 阅读时保持屏幕常亮。
+  final bool keepScreenOn;
+
+  /// 用音量键翻页。
+  final bool volumeKeyPaging;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -100,6 +108,8 @@ class ReaderSettings {
     String? customThemeId,
     bool inkMode = false,
     PageTurnMode pageTurnMode = PageTurnMode.cover,
+    bool keepScreenOn = false,
+    bool volumeKeyPaging = false,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -114,6 +124,8 @@ class ReaderSettings {
     backgroundId: backgroundId,
     inkMode: inkMode,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -133,6 +145,8 @@ class ReaderSettings {
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -150,6 +164,8 @@ class ReaderSettings {
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换主题。
@@ -167,6 +183,8 @@ class ReaderSettings {
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换背景。
@@ -184,6 +202,8 @@ class ReaderSettings {
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换墨水屏开关。
@@ -201,6 +221,8 @@ class ReaderSettings {
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换页边距。
@@ -218,6 +240,8 @@ class ReaderSettings {
     margins: value,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -235,6 +259,8 @@ class ReaderSettings {
     margins: margins,
     tapZones: value,
     pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
   );
 
   /// 复制并替换翻页方式。
@@ -252,6 +278,46 @@ class ReaderSettings {
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: value,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+  );
+
+  /// 复制并替换屏幕常亮开关。
+  ReaderSettings copyWithKeepScreenOn(bool enabled) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: enabled,
+    volumeKeyPaging: volumeKeyPaging,
+  );
+
+  /// 复制并替换音量键翻页开关。
+  ReaderSettings copyWithVolumeKeyPaging(bool enabled) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: enabled,
   );
 
   @override
@@ -269,7 +335,9 @@ class ReaderSettings {
       other.inkMode == inkMode &&
       other.margins == margins &&
       other.tapZones == tapZones &&
-      other.pageTurnMode == pageTurnMode;
+      other.pageTurnMode == pageTurnMode &&
+      other.keepScreenOn == keepScreenOn &&
+      other.volumeKeyPaging == volumeKeyPaging;
 
   @override
   int get hashCode => Object.hash(
@@ -286,6 +354,8 @@ class ReaderSettings {
     margins,
     tapZones,
     pageTurnMode,
+    keepScreenOn,
+    volumeKeyPaging,
   );
 }
 
@@ -311,6 +381,8 @@ class ReaderSettingsStore {
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyInkMode = 'reader.inkMode';
   static const String keyPageTurnMode = 'reader.pageTurnMode';
+  static const String keyKeepScreenOn = 'reader.keepScreenOn';
+  static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
 
   /// 九宫格点击区域（JSON）。
   static const String keyTapZones = 'reader.tapZones';
@@ -346,6 +418,9 @@ class ReaderSettingsStore {
       pageTurnMode: PageTurnMode.fromId(
         await _library.getSetting(keyPageTurnMode),
       ),
+      keepScreenOn: (await _library.getSetting(keyKeepScreenOn)) == 'true',
+      volumeKeyPaging:
+          (await _library.getSetting(keyVolumeKeyPaging)) == 'true',
     );
   }
 
@@ -417,6 +492,14 @@ class ReaderSettingsStore {
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
     await _library.setSetting(keyInkMode, settings.inkMode.toString());
     await _library.setSetting(keyPageTurnMode, settings.pageTurnMode.id);
+    await _library.setSetting(
+      keyKeepScreenOn,
+      settings.keepScreenOn.toString(),
+    );
+    await _library.setSetting(
+      keyVolumeKeyPaging,
+      settings.volumeKeyPaging.toString(),
+    );
     final margins = settings.margins;
     await _library.setSetting(
       keyMargins,

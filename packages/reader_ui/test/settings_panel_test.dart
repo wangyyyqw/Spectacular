@@ -4,6 +4,7 @@ import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
@@ -73,6 +74,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: SettingsPanel(
+            section: SettingsSection.theme,
             overrides: ReaderSettingsDefaults.overrides,
             themeId: 'white',
             backgroundId: 'none',
@@ -82,11 +84,6 @@ void main() {
           ),
         ),
       ),
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey<String>('settings-bg-wood')),
-      120,
-      scrollable: find.byType(Scrollable).last,
     );
     await tester.tap(find.byKey(const ValueKey<String>('settings-bg-wood')));
     await tester.pump();
@@ -154,29 +151,21 @@ void main() {
       ),
     );
 
-    expect(
-      tester
-          .widget<ChoiceChip>(
-            find.byKey(const ValueKey<String>('settings-font-book')),
-          )
-          .selected,
-      isTrue,
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-font-picker')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('settings-font-song')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(changes.single.fontFamily, FontFamilyAliases.song);
-    expect(
-      tester
-          .widget<ChoiceChip>(
-            find.byKey(const ValueKey<String>('settings-font-song')),
-          )
-          .selected,
-      isTrue,
-    );
 
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-font-picker')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('settings-font-hei')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(changes.last.fontFamily, ReaderSettingsDefaults.fontSans);
   });
 
@@ -257,5 +246,40 @@ void main() {
       find.byKey(const ValueKey<String>('settings-page-turn-scroll')),
     );
     expect(changes, [PageTurnMode.scroll]);
+  });
+
+  testWidgets('设置段可切换全屏点击、屏幕常亮和音量键翻页', (tester) async {
+    ReaderTapZones? zones;
+    bool? keepScreenOn;
+    bool? volumeKeyPaging;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.settings,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            onOverridesChanged: (_) {},
+            onThemeChanged: (_) {},
+            onTapZonesChanged: (value) => zones = value,
+            onKeepScreenOnChanged: (value) => keepScreenOn = value,
+            onVolumeKeyPagingChanged: (value) => volumeKeyPaging = value,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-fullscreen-next')),
+    );
+    expect(zones, ReaderTapZones.fullScreenNext);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-keep-screen-on')),
+    );
+    expect(keepScreenOn, isTrue);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-volume-key-paging')),
+    );
+    expect(volumeKeyPaging, isTrue);
   });
 }

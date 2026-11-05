@@ -9,8 +9,8 @@ import 'package:reader_ui/theme/reader_theme.dart';
 
 const _font = ReaderFontOption(family: 'user_test', label: '测试字体');
 const _otherFont = ReaderFontOption(family: 'user_other', label: '另一字体');
+const _pickerKey = ValueKey<String>('settings-font-picker');
 const _importKey = ValueKey<String>('settings-import-font');
-const _dropdownKey = ValueKey<String>('settings-custom-font');
 const _switchKey = ValueKey<String>('settings-override-embedded-fonts');
 
 Widget _panel({
@@ -34,8 +34,17 @@ Widget _panel({
   ),
 );
 
+Future<void> _openPicker(WidgetTester tester) async {
+  await tester.tap(find.byKey(_pickerKey));
+  await tester.pumpAndSettle();
+}
+
+TextButton _button(WidgetTester tester, Key key) => tester.widget<TextButton>(
+  find.descendant(of: find.byKey(key), matching: find.byType(TextButton)),
+);
+
 void main() {
-  testWidgets('五套主题中的自定义字体提示、开关和字体名称保持可读', (tester) async {
+  testWidgets('五套主题中的字体入口和开关文字保持可读', (tester) async {
     for (final theme in ReaderTheme.themes) {
       await tester.pumpWidget(
         MaterialApp(
@@ -56,7 +65,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      for (final text in ['自定义字体', '全书使用自定义字体', '选择自定义字体后可开启']) {
+      for (final text in ['字体设置', '选择自定义字体', '全书使用自定义字体']) {
         final label = find.text(text).first;
         final widget = tester.widget<Text>(label);
         final color = DefaultTextStyle.of(tester.element(label)).style
@@ -76,17 +85,19 @@ void main() {
           reason: '${theme.id}:$text',
         );
       }
-      await tester.tap(find.byKey(_dropdownKey));
-      await tester.pumpAndSettle();
-      expect(find.text(_font.label).last, findsOneWidget);
+      await _openPicker(tester);
+      final option = find.text(_font.label).last;
+      expect(option, findsOneWidget);
       expect(
-        tester.widget<Text>(find.text(_font.label).last).style!.color,
+        tester.widget<Text>(option).style!.color,
         theme.text,
+        reason: '${theme.id}:自定义字体名称',
       );
-      await tester.tap(find.text(_font.label).last);
+      await tester.tap(option);
       await tester.pumpAndSettle();
     }
   });
+
   testWidgets('已保存字体加载成功后才应用，加载失败保留旧选择', (tester) async {
     final changes = <ReaderOverrides>[];
     final pending = Completer<void>();
@@ -102,38 +113,26 @@ void main() {
         onChanged: changes.add,
       ),
     );
-    await tester.tap(find.byKey(_dropdownKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(_font.label).last);
+    await _openPicker(tester);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-custom-font-user_test')),
+    );
     await tester.pump();
     expect(requested.single, _font.family);
     expect(changes, isEmpty);
-    expect(
-      tester.widget<DropdownButton<String>>(find.byKey(_dropdownKey)).onChanged,
-      isNull,
-    );
-    expect(
-      tester
-          .widget<ChoiceChip>(
-            find.byKey(const ValueKey<String>('settings-font-song')),
-          )
-          .onSelected,
-      isNull,
-    );
+    expect(_button(tester, _pickerKey).onPressed, isNull);
+
     pending.complete();
     await tester.pumpAndSettle();
     expect(changes.single.fontFamily, _font.family);
 
-    await tester.tap(find.byKey(_dropdownKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(_otherFont.label).last);
+    await _openPicker(tester);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-custom-font-user_other')),
+    );
     await tester.pumpAndSettle();
     expect(requested, [_font.family, _otherFont.family]);
     expect(changes.length, 1);
-    expect(
-      tester.widget<DropdownButton<String>>(find.byKey(_dropdownKey)).value,
-      _font.family,
-    );
     expect(find.text('字体加载失败：字体文件无法读取'), findsOneWidget);
   });
 
@@ -142,18 +141,14 @@ void main() {
     await tester.pumpWidget(
       _panel(pick: () async => _font, onChanged: changes.add),
     );
-    expect(
-      tester.widget<SwitchListTile>(find.byKey(_switchKey)).onChanged,
-      isNull,
-    );
+    await tester.tap(find.byKey(_switchKey));
+    await tester.pump();
+    expect(changes, isEmpty, reason: '未选择自定义字体前开关不可用');
+
     await tester.tap(find.byKey(_importKey));
     await tester.pumpAndSettle();
     expect(changes.single.fontFamily, _font.family);
     expect(changes.single.overrideEmbeddedFonts, isFalse);
-    expect(
-      tester.widget<DropdownButton<String>>(find.byKey(_dropdownKey)).value,
-      _font.family,
-    );
 
     await tester.tap(find.byKey(_switchKey));
     await tester.pumpAndSettle();
@@ -175,20 +170,22 @@ void main() {
         onChanged: changes.add,
       ),
     );
-    await tester.tap(find.byKey(_dropdownKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(_otherFont.label).last);
+    await _openPicker(tester);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-custom-font-user_other')),
+    );
     await tester.pumpAndSettle();
     expect(changes.single.fontFamily, _otherFont.family);
     expect(changes.single.overrideEmbeddedFonts, isTrue);
 
+    await _openPicker(tester);
     await tester.tap(find.byKey(const ValueKey<String>('settings-font-song')));
     await tester.pumpAndSettle();
     expect(changes.last.overrideEmbeddedFonts, isFalse);
-    expect(
-      tester.widget<SwitchListTile>(find.byKey(_switchKey)).onChanged,
-      isNull,
-    );
+    final before = changes.length;
+    await tester.tap(find.byKey(_switchKey));
+    await tester.pump();
+    expect(changes.length, before, reason: '书籍字体不能开启自定义字体覆盖');
   });
 
   testWidgets('导入等待期间禁用重复操作，取消保持原设置', (tester) async {
@@ -206,15 +203,12 @@ void main() {
     );
     await tester.tap(find.byKey(_importKey));
     await tester.pump();
-    expect(tester.widget<TextButton>(find.byKey(_importKey)).onPressed, isNull);
+    expect(_button(tester, _importKey).onPressed, isNull);
     expect(calls, 1);
     pending.complete(null);
     await tester.pumpAndSettle();
     expect(changes, isEmpty);
-    expect(
-      tester.widget<TextButton>(find.byKey(_importKey)).onPressed,
-      isNotNull,
-    );
+    expect(_button(tester, _importKey).onPressed, isNotNull);
   });
 
   testWidgets('无效文件显示中文提示且可重新导入', (tester) async {
@@ -254,24 +248,21 @@ void main() {
     );
     await tester.tap(find.byKey(_importKey));
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<DropdownButton<String>>(find.byKey(_dropdownKey))
-          .items!
-          .length,
-      1,
-    );
     expect(changes, isEmpty);
+    await _openPicker(tester);
+    expect(
+      find.byKey(const ValueKey<String>('settings-custom-font-user_test')),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
     await tester.pumpWidget(
       _panel(fonts: const [_font], onChanged: changes.add),
     );
-    expect(
-      tester.widget<DropdownButton<String>>(find.byKey(_dropdownKey)).value,
-      isNull,
-    );
-    expect(
-      tester.widget<SwitchListTile>(find.byKey(_switchKey)).value,
-      isFalse,
-    );
+    await _openPicker(tester);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byKey(_switchKey), findsOneWidget);
   });
 }
