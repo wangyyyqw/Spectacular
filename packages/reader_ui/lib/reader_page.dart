@@ -35,6 +35,7 @@ import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
 import 'panels/settings_panel.dart';
 import 'theme/reader_background.dart';
+import 'theme/reader_drawer_style.dart';
 import 'theme/reader_environment.dart';
 import 'theme/reader_panel_theme.dart';
 import 'selection/selection.dart';
@@ -786,6 +787,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           _DrawerTab.content => '目录',
           _DrawerTab.bookmarks => '书签',
           _DrawerTab.annotations => '笔记',
+          _DrawerTab.highlights => '高亮',
           _DrawerTab.search => '搜索',
         },
         ReaderMenuEntry.theme => '主题',
@@ -884,7 +886,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _toggleDayNight() {
     final dark =
         (_theme ?? ReaderTheme.white).background.computeLuminance() < 0.35;
-    _applyTheme(dark ? 'white' : 'dark');
+    _applyTheme(dark ? 'white' : 'black');
   }
 
   /// 添加当前页书签（P4-13）。
@@ -2788,6 +2790,9 @@ enum _DrawerTab {
   /// 笔记与高亮列表。
   annotations,
 
+  /// 仅高亮列表。
+  highlights,
+
   /// 搜索。
   search,
 }
@@ -2960,9 +2965,12 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
     final theme = Theme.of(context);
     return Column(
       children: <Widget>[
-        // 目录抽屉内的二级页签：目录 / 书签 / 笔记 / 搜索。
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+        Container(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: ReaderDrawerStyle.dividerOf(theme)),
+            ),
+          ),
           child: Row(
             children: <Widget>[
               _DrawerTabButton(
@@ -2981,13 +2989,20 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                     widget.onTabChanged(_DrawerTab.bookmarks);
                   },
                 ),
-              if (widget.annotations != null)
+              if (widget.annotations != null) ...<Widget>[
                 _DrawerTabButton(
                   buttonKey: const ValueKey<String>('drawer-tab-annotations'),
                   label: '笔记',
                   selected: widget.tab == _DrawerTab.annotations,
                   onTap: () => widget.onTabChanged(_DrawerTab.annotations),
                 ),
+                _DrawerTabButton(
+                  buttonKey: const ValueKey<String>('drawer-tab-highlights'),
+                  label: '高亮',
+                  selected: widget.tab == _DrawerTab.highlights,
+                  onTap: () => widget.onTabChanged(_DrawerTab.highlights),
+                ),
+              ],
               if (widget.onSearch != null)
                 _DrawerTabButton(
                   buttonKey: const ValueKey<String>('drawer-tab-search'),
@@ -2995,18 +3010,9 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                   selected: widget.tab == _DrawerTab.search,
                   onTap: () => widget.onTabChanged(_DrawerTab.search),
                 ),
-              const Spacer(),
-              if (widget.tab == _DrawerTab.content && widget.hasCfi)
-                TextButton.icon(
-                  key: const ValueKey<String>('drawer-add-bookmark'),
-                  onPressed: widget.onAddBookmark,
-                  icon: const Icon(Icons.bookmark_add_outlined, size: 18),
-                  label: const Text('加书签'),
-                ),
             ],
           ),
         ),
-        const Divider(height: 1),
         Expanded(
           child: switch (widget.tab) {
             _DrawerTab.content => TocPanel(
@@ -3021,6 +3027,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                 final items = snapshot.data ?? const <ReaderBookmark>[];
                 return BookmarkPanel(
                   bookmarks: items,
+                  onAdd: widget.hasCfi ? widget.onAddBookmark : null,
                   onSelect: widget.onBookmarkSelect,
                   onDelete: (bookmark) async {
                     await widget.bookmarks?.remove(bookmark.id);
@@ -3035,6 +3042,16 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               annotations: widget.annotationItems,
               chapterTitleOf: _annotationChapterTitle,
               inkMode: widget.inkMode,
+              onSelect: widget.onAnnotationSelect,
+              onEdit: widget.onAnnotationEdit,
+              onDelete: widget.onAnnotationDelete,
+              onRecolor: widget.onAnnotationRecolor,
+            ),
+            _DrawerTab.highlights => AnnotationPanel(
+              annotations: widget.annotationItems,
+              chapterTitleOf: _annotationChapterTitle,
+              inkMode: widget.inkMode,
+              highlightsOnly: true,
               onSelect: widget.onAnnotationSelect,
               onEdit: widget.onAnnotationEdit,
               onDelete: widget.onAnnotationDelete,
@@ -3056,9 +3073,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
               '输入关键词后点结果跳转',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF999999)),
             ),
           ),
       ],
@@ -3082,20 +3097,51 @@ class _DrawerTabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return TextButton(
-      key: buttonKey,
-      onPressed: onTap,
-      style: TextButton.styleFrom(
-        minimumSize: const Size(0, 36),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        foregroundColor: selected ? scheme.onSurface : scheme.outline,
-        textStyle: TextStyle(
-          fontSize: 13,
-          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final activeColor = dark
+        ? theme.colorScheme.onSurface
+        : const Color(0xFF333333);
+    final inactiveColor = dark
+        ? theme.colorScheme.outline
+        : const Color(0xFF999999);
+    return Expanded(
+      child: InkWell(
+        key: buttonKey,
+        onTap: onTap,
+        child: SizedBox(
+          height: 40,
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? activeColor : inactiveColor,
+                ),
+              ),
+              if (selected)
+                Positioned(
+                  bottom: 0,
+                  child: SizedBox(
+                    width: 16,
+                    height: 2,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: activeColor,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-      child: label == label ? Text(label) : Text(label),
     );
   }
 }

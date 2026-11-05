@@ -100,7 +100,7 @@ void main() {
   testWidgets('日夜阅读面板的按钮文字与表面跟随正文主题', (tester) async {
     for (final theme in [
       ReaderTheme.white,
-      ReaderTheme.dark,
+      ReaderTheme.black,
       ReaderTheme.black,
     ]) {
       ThemeData? panel;

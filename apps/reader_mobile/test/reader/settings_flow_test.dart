@@ -99,7 +99,8 @@ void main() {
     expect(reloaded.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
     // 切主题：关掉排版抽屉 → 主题入口 → 选米黄（设计稿四入口把主题独立成面板）。
-    await tester.tap(find.byKey(const ValueKey<String>('menu-drawer-close')));
+    final mask = find.byKey(const ValueKey<String>('menu-drawer-mask'));
+    await tester.tapAt(tester.getTopLeft(mask) + const Offset(10, 10));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPanel), findsNothing, reason: '关闭排版抽屉');
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-theme')));
@@ -428,19 +429,14 @@ void main() {
 
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('menu-entry-settings')),
-    );
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('settings-reset')));
     await tester.pumpAndSettle();
 
     expect(inkValues, <bool>[false]);
     expect(marginsValues, hasLength(1));
-    expect(
-      marginsValues.single.left,
-      ReaderSettingsDefaults.horizontalPadding,
-    );
+    expect(marginsValues.single.left, ReaderSettingsDefaults.horizontalPadding);
     expect(tapZonesValues.single, ReaderTapZones.defaults);
     expect(pageTurnValues.single, PageTurnMode.cover);
   });

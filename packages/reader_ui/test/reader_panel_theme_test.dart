@@ -11,7 +11,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ReaderPanelTheme(
-          theme: ReaderTheme.dark,
+          theme: ReaderTheme.black,
           child: Builder(
             builder: (context) {
               captured = Theme.of(context);
@@ -23,20 +23,20 @@ void main() {
     );
 
     expect(captured.brightness, Brightness.dark);
-    expect(captured.colorScheme.surface, ReaderTheme.dark.background);
-    expect(captured.colorScheme.onSurface, ReaderTheme.dark.text);
-    expect(captured.iconTheme.color, ReaderTheme.dark.text);
+    expect(captured.colorScheme.surface, ReaderTheme.black.background);
+    expect(captured.colorScheme.onSurface, ReaderTheme.black.text);
+    expect(captured.iconTheme.color, ReaderTheme.black.text);
   });
 
   testWidgets('设置面板在深色主题下使用深色背景', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: ReaderPanelTheme(
-          theme: ReaderTheme.dark,
+          theme: ReaderTheme.black,
           child: SettingsPanel(
             section: SettingsSection.theme,
             overrides: ReaderSettingsDefaults.overrides,
-            themeId: ReaderTheme.dark.id,
+            themeId: ReaderTheme.black.id,
             onOverridesChanged: (_) {},
             onThemeChanged: (_) {},
           ),
@@ -47,7 +47,7 @@ void main() {
     final surface = tester.widget<Material>(
       find.byKey(const ValueKey<String>('settings-panel-surface')),
     );
-    expect(surface.color, ReaderTheme.dark.background);
+    expect(surface.color, ReaderTheme.black.background);
     expect(find.text('排版'), findsNothing);
     expect(
       tester

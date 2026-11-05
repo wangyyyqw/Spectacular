@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_drawer_style.dart';
 import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
 
@@ -524,7 +525,7 @@ class _EntriesRow extends StatelessWidget {
   static const Map<ReaderMenuEntry, ({IconData icon, String label})> items =
       <ReaderMenuEntry, ({IconData icon, String label})>{
         ReaderMenuEntry.toc: (icon: Icons.menu_book_outlined, label: '目录'),
-        ReaderMenuEntry.theme: (icon: Icons.palette_outlined, label: '主题'),
+        ReaderMenuEntry.theme: (icon: Icons.star_border_outlined, label: '主题'),
         ReaderMenuEntry.type: (icon: Icons.format_size, label: '排版'),
         ReaderMenuEntry.settings: (icon: Icons.settings_outlined, label: '设置'),
       };
@@ -588,8 +589,12 @@ class _DrawerLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final panelTheme = theme ?? _fallbackTheme;
-    final bg = panelTheme.background;
-    final fg = panelTheme.text;
+    final dark = panelTheme.background.computeLuminance() < 0.35;
+    final bg = dark ? panelTheme.background : ReaderDrawerStyle.surface;
+    final fg = dark ? panelTheme.text : ReaderDrawerStyle.text;
+    final handle = dark
+        ? panelTheme.text.withValues(alpha: 0.22)
+        : ReaderDrawerStyle.handle;
     return Stack(
       children: <Widget>[
         // 遮罩：点一下关闭抽屉
@@ -598,7 +603,7 @@ class _DrawerLayer extends StatelessWidget {
             key: const ValueKey<String>('menu-drawer-mask'),
             behavior: HitTestBehavior.opaque,
             onTap: onClose,
-            child: ColoredBox(color: Colors.black.withValues(alpha: 0.22)),
+            child: ColoredBox(color: Colors.black.withValues(alpha: 0.4)),
           ),
         ),
         Positioned(
@@ -607,67 +612,56 @@ class _DrawerLayer extends StatelessWidget {
           bottom: 0,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 240),
-            curve: const Cubic(0.32, 0.72, 0, 1),
+            duration: const Duration(milliseconds: 300),
+            curve: const Cubic(0.2, 0.8, 0.2, 1),
             builder: (context, value, child) => FractionalTranslation(
               translation: Offset(0, 1 - value),
               child: child,
             ),
             child: Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.7,
-              ),
+              key: const ValueKey<String>('reader-drawer-surface'),
+              height: MediaQuery.of(context).size.height * 0.75,
               decoration: BoxDecoration(
                 color: bg,
                 borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(8),
+                  top: Radius.circular(16),
                 ),
-                border: Border.all(color: fg.withValues(alpha: 0.12)),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 20,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Container(
-                    width: 38,
+                    width: 36,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: fg.withValues(alpha: 0.22),
+                      color: handle,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 6, 8, 0),
-                    child: Row(
-                      children: <Widget>[
-                        Text(
-                          key: const ValueKey<String>('reader-drawer-title'),
-                          title,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: fg,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          key: const ValueKey<String>('menu-drawer-close'),
-                          icon: Icon(
-                            Icons.close,
-                            size: 18,
-                            color: fg.withValues(alpha: 0.7),
-                          ),
-                          onPressed: onClose,
-                          visualDensity: VisualDensity.compact,
-                          tooltip: '关闭',
-                        ),
-                      ],
+                  const SizedBox(height: 10),
+                  // 参考稿没有可见标题栏；保留零高度标题节点供读屏与旧流程定位。
+                  SizedBox(
+                    height: 0,
+                    child: Opacity(
+                      opacity: 0,
+                      child: Text(
+                        key: const ValueKey<String>('reader-drawer-title'),
+                        title,
+                        style: TextStyle(fontSize: 14, color: fg),
+                      ),
                     ),
                   ),
                   Flexible(
                     child: ReaderPanelTheme(theme: panelTheme, child: child),
                   ),
-                  const SizedBox(height: 12),
                 ],
               ),
             ),

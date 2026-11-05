@@ -53,30 +53,30 @@ class ReaderTheme {
   ReaderOverrides toOverrides() =>
       ReaderOverrides(textColor: text, backgroundColor: background);
 
-  /// 五套主题：白 / 米黄 / 灰 / 深色 / 纯黑。
+  /// 五套主题：白 / 米黄 / 粉 / 浅绿 / 纯黑。
   static const white = ReaderTheme(
     id: 'white',
     name: '白',
-    background: Color(0xFFFAF9F6),
-    text: Color(0xFF282622),
+    background: Color(0xFFFFFFFF),
+    text: Color(0xFF333333),
   );
   static const sepia = ReaderTheme(
     id: 'sepia',
     name: '米黄',
-    background: Color(0xFFEEE4D0),
-    text: Color(0xFF41382B),
+    background: Color(0xFFFDF2E3),
+    text: Color(0xFF333333),
   );
-  static const gray = ReaderTheme(
-    id: 'gray',
-    name: '灰',
-    background: Color(0xFFE2E3DF),
-    text: Color(0xFF333631),
+  static const pink = ReaderTheme(
+    id: 'pink',
+    name: '粉',
+    background: Color(0xFFFCE8EA),
+    text: Color(0xFF333333),
   );
-  static const dark = ReaderTheme(
-    id: 'dark',
-    name: '深色',
-    background: Color(0xFF202320),
-    text: Color(0xFFC4C6BD),
+  static const green = ReaderTheme(
+    id: 'green',
+    name: '浅绿',
+    background: Color(0xFFDCEBE1),
+    text: Color(0xFF333333),
   );
   static const black = ReaderTheme(
     id: 'black',
@@ -86,12 +86,21 @@ class ReaderTheme {
   );
 
   /// 全部主题。
-  static const themes = <ReaderTheme>[white, sepia, gray, dark, black];
+  static const themes = <ReaderTheme>[white, sepia, pink, green, black];
 
   /// 按 id 取主题，未知 id 回退白色。
-  static ReaderTheme byId(String id) =>
-      customById(id) ??
-      themes.firstWhere((theme) => theme.id == id, orElse: () => white);
+  ///
+  /// 旧版本的 gray / dark 标识继续兼容：gray 落到白色，dark 落到纯黑。
+  static ReaderTheme byId(String id) {
+    if (id == 'gray') {
+      return white;
+    }
+    if (id == 'dark') {
+      return black;
+    }
+    return customById(id) ??
+        themes.firstWhere((theme) => theme.id == id, orElse: () => white);
+  }
 
   /// 自定义配色以不透明 RGB 存入标识，沿用现有主题设置持久化。
   static ReaderTheme custom({required Color background, required Color text}) {

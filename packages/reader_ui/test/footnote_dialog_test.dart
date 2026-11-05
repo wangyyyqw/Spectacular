@@ -95,7 +95,7 @@ void main() {
             source: source,
             store: store,
             bookId: 'footnote',
-            theme: ReaderTheme.dark,
+            theme: ReaderTheme.black,
             padding: EdgeInsets.zero,
             overrides: const ReaderOverrides(),
             showPageFooter: false,
@@ -121,7 +121,7 @@ void main() {
             find.byKey(const ValueKey<String>('reader-footnote-dialog')),
           )
           .color,
-      ReaderTheme.dark.background,
+      ReaderTheme.black.background,
       reason: '深色阅读主题下脚注弹层不能保持白色',
     );
     expect(

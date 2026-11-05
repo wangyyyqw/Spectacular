@@ -8,7 +8,7 @@ void main() {
     expect(ReaderTheme.themes, hasLength(5));
     expect(
       ReaderTheme.themes.map((theme) => theme.id),
-      containsAll(<String>['white', 'sepia', 'gray', 'dark', 'black']),
+      containsAll(<String>['white', 'sepia', 'pink', 'green', 'black']),
     );
     for (final theme in ReaderTheme.themes) {
       expect(
@@ -32,9 +32,9 @@ void main() {
   });
 
   test('主题转成覆盖：正文色与背景色成对', () {
-    final overrides = ReaderTheme.dark.toOverrides();
-    expect(overrides.textColor, ReaderTheme.dark.text);
-    expect(overrides.backgroundColor, ReaderTheme.dark.background);
+    final overrides = ReaderTheme.black.toOverrides();
+    expect(overrides.textColor, ReaderTheme.black.text);
+    expect(overrides.backgroundColor, ReaderTheme.black.background);
     expect(overrides.fontSize, isNull, reason: '主题不改变排版');
   });
 

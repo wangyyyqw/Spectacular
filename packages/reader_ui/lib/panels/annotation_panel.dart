@@ -21,6 +21,7 @@ class AnnotationPanel extends StatefulWidget {
     this.onBack,
     this.emptyHint = '还没有笔记或高亮',
     this.inkMode = false,
+    this.highlightsOnly = false,
   });
 
   /// 全书标注。
@@ -50,6 +51,9 @@ class AnnotationPanel extends StatefulWidget {
   /// 墨水屏模式：标记色统一显示为黑色，并隐藏无效的换色入口。
   final bool inkMode;
 
+  /// 只展示高亮，用于目录抽屉的「高亮」页签。
+  final bool highlightsOnly;
+
   @override
   State<AnnotationPanel> createState() => _AnnotationPanelState();
 }
@@ -69,12 +73,20 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   final Set<String> _expandedIds = <String>{};
-  _AnnotationFilter _filter = _AnnotationFilter.all;
+  late _AnnotationFilter _filter;
   _AnnotationSort _sort = _AnnotationSort.updated;
   String _query = '';
   bool _selecting = false;
   bool _deleting = false;
   bool _recoloring = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _filter = widget.highlightsOnly
+        ? _AnnotationFilter.highlight
+        : _AnnotationFilter.all;
+  }
 
   @override
   void dispose() {
@@ -319,7 +331,11 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   ),
                 Expanded(
                   child: Text(
-                    _selecting ? '已选 ${_selectedIds.length} 条' : '笔记与高亮',
+                    _selecting
+                        ? '已选 ${_selectedIds.length} 条'
+                        : widget.highlightsOnly
+                        ? '高亮'
+                        : '笔记与高亮',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium,
@@ -396,70 +412,74 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: TextField(
-              key: const ValueKey<String>('annotation-search-input'),
-              controller: _searchController,
-              onChanged: _setQuery,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: '搜索原文、笔记或章节',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        key: const ValueKey<String>('annotation-search-clear'),
-                        onPressed: () {
-                          _searchController.clear();
-                          _setQuery('');
-                        },
-                        tooltip: '清除搜索',
-                        icon: const Icon(Icons.close, size: 18),
-                      ),
-                isDense: true,
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerLow,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: BorderSide.none,
+          if (!widget.highlightsOnly) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: TextField(
+                key: const ValueKey<String>('annotation-search-input'),
+                controller: _searchController,
+                onChanged: _setQuery,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: '搜索原文、笔记或章节',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          key: const ValueKey<String>(
+                            'annotation-search-clear',
+                          ),
+                          onPressed: () {
+                            _searchController.clear();
+                            _setQuery('');
+                          },
+                          tooltip: '清除搜索',
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceContainerLow,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(4),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
             ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                _FilterChip(
-                  chipKey: const ValueKey<String>('annotation-filter-all'),
-                  label: '全部',
-                  count: searched.length,
-                  selected: _filter == _AnnotationFilter.all,
-                  onSelected: () => _setFilter(_AnnotationFilter.all),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  chipKey: const ValueKey<String>('annotation-filter-notes'),
-                  label: '笔记',
-                  count: noteCount,
-                  selected: _filter == _AnnotationFilter.note,
-                  onSelected: () => _setFilter(_AnnotationFilter.note),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  chipKey: const ValueKey<String>(
-                    'annotation-filter-highlights',
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  _FilterChip(
+                    chipKey: const ValueKey<String>('annotation-filter-all'),
+                    label: '全部',
+                    count: searched.length,
+                    selected: _filter == _AnnotationFilter.all,
+                    onSelected: () => _setFilter(_AnnotationFilter.all),
                   ),
-                  label: '高亮',
-                  count: highlightCount,
-                  selected: _filter == _AnnotationFilter.highlight,
-                  onSelected: () => _setFilter(_AnnotationFilter.highlight),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  _FilterChip(
+                    chipKey: const ValueKey<String>('annotation-filter-notes'),
+                    label: '笔记',
+                    count: noteCount,
+                    selected: _filter == _AnnotationFilter.note,
+                    onSelected: () => _setFilter(_AnnotationFilter.note),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterChip(
+                    chipKey: const ValueKey<String>(
+                      'annotation-filter-highlights',
+                    ),
+                    label: '高亮',
+                    count: highlightCount,
+                    selected: _filter == _AnnotationFilter.highlight,
+                    onSelected: () => _setFilter(_AnnotationFilter.highlight),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
           const Divider(height: 1),
           Expanded(
             child: items.isEmpty

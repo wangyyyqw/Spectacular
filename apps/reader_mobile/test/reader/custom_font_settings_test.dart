@@ -11,7 +11,7 @@ void main() {
     final family = 'user_${List.filled(64, 'a').join()}';
     final settings =
         ReaderSettings(fontFamily: family, overrideEmbeddedFonts: true)
-            .copyWithTheme('dark')
+            .copyWithTheme('black')
             .copyWithBackground('paper')
             .copyWithInkMode(true)
             .copyWithMargins(

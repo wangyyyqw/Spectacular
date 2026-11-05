@@ -65,7 +65,7 @@ void main() {
     ReaderMenuEntry? selected;
     Widget menu({Widget? drawer}) => ReaderMenuOverlay(
       open: true,
-      theme: ReaderTheme.dark,
+      theme: ReaderTheme.black,
       bookTitle: '一本书',
       progress: 0.4,
       chapterLabel: '第二章',
@@ -102,10 +102,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     final context = tester.element(find.text('章节内容'));
-    expect(Theme.of(context).colorScheme.surface, ReaderTheme.dark.background);
+    expect(Theme.of(context).colorScheme.surface, ReaderTheme.black.background);
     final buttonColor = Theme.of(context).textButtonTheme.style?.foregroundColor
         ?.resolve({});
-    expect(buttonColor, ReaderTheme.dark.text);
+    expect(buttonColor, ReaderTheme.black.text);
     final contrast = ReaderTheme(
       id: 'controls',
       name: '控件',
@@ -159,8 +159,8 @@ void main() {
         onThemeChanged: (value) => theme = value,
       ),
     );
-    await tester.tap(_key('settings-theme-dark'));
-    expect(theme, 'dark');
+    await tester.tap(_key('settings-theme-black'));
+    expect(theme, 'black');
     await tester.tap(_key('settings-theme-white'));
     expect(theme, 'white');
     expect(tester.takeException(), isNull);
