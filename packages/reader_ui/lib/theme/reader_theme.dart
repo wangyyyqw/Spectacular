@@ -28,8 +28,8 @@ class ReaderTheme {
   /// 正文颜色。
   final Color text;
 
-  /// 次要文字色（设计稿 `--sub`：正文色 45%）。
-  Color get sub => text.withValues(alpha: 0.45);
+  /// 次要文字仍保持足够反差，页眉页脚在日夜主题下均可辨认。
+  Color get sub => text.withValues(alpha: 0.76);
 
   /// 分隔线色（设计稿 `--line`：正文色 12%）。
   Color get line => text.withValues(alpha: 0.12);
@@ -57,32 +57,32 @@ class ReaderTheme {
   static const white = ReaderTheme(
     id: 'white',
     name: '白',
-    background: Color(0xFFFFFFFF),
-    text: Color(0xFF1A1A1A),
+    background: Color(0xFFFAF9F6),
+    text: Color(0xFF282622),
   );
   static const sepia = ReaderTheme(
     id: 'sepia',
     name: '米黄',
-    background: Color(0xFFF5ECD9),
-    text: Color(0xFF3A2E1E),
+    background: Color(0xFFEEE4D0),
+    text: Color(0xFF41382B),
   );
   static const gray = ReaderTheme(
     id: 'gray',
     name: '灰',
-    background: Color(0xFFD8D8D8),
-    text: Color(0xFF2B2B2B),
+    background: Color(0xFFE2E3DF),
+    text: Color(0xFF333631),
   );
   static const dark = ReaderTheme(
     id: 'dark',
     name: '深色',
-    background: Color(0xFF2B2B2B),
-    text: Color(0xFFE6E6E6),
+    background: Color(0xFF202320),
+    text: Color(0xFFC4C6BD),
   );
   static const black = ReaderTheme(
     id: 'black',
     name: '纯黑',
     background: Color(0xFF000000),
-    text: Color(0xFFDDDDDD),
+    text: Color(0xFFBABDB7),
   );
 
   /// 全部主题。
@@ -90,7 +90,33 @@ class ReaderTheme {
 
   /// 按 id 取主题，未知 id 回退白色。
   static ReaderTheme byId(String id) =>
+      customById(id) ??
       themes.firstWhere((theme) => theme.id == id, orElse: () => white);
+
+  /// 自定义配色以不透明 RGB 存入标识，沿用现有主题设置持久化。
+  static ReaderTheme custom({required Color background, required Color text}) {
+    String rgb(Color color) =>
+        (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
+    return ReaderTheme(
+      id: 'custom:${rgb(background)}:${rgb(text)}',
+      name: '自定义',
+      background: background.withValues(alpha: 1),
+      text: text.withValues(alpha: 1),
+    );
+  }
+
+  /// 损坏的自定义标识不参与主题恢复。
+  static ReaderTheme? customById(String? id) {
+    if (id == null ||
+        !RegExp(r'^custom:[0-9a-fA-F]{6}:[0-9a-fA-F]{6}$').hasMatch(id)) {
+      return null;
+    }
+    final parts = id.split(':');
+    return custom(
+      background: Color(0xFF000000 | int.parse(parts[1], radix: 16)),
+      text: Color(0xFF000000 | int.parse(parts[2], radix: 16)),
+    );
+  }
 }
 
 double _relativeLuminance(Color color) {

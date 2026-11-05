@@ -18,6 +18,7 @@ import '../storage/reading_session_store.dart';
 import 'epub_chapter_source.dart';
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
+import 'reader_background_store.dart';
 
 /// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
 ///
@@ -80,6 +81,22 @@ class EpubReaderPage extends StatefulWidget {
 
 class _EpubReaderPageState extends State<EpubReaderPage>
     with WidgetsBindingObserver {
+  late ReaderSettings _settings = widget.settings ?? ReaderSettings.defaults;
+  final _backgroundStore = ReaderBackgroundStore();
+
+  void _changeSettings(ReaderSettings next) {
+    setState(() => _settings = next);
+    widget.onSettingsChanged?.call(next);
+  }
+
+  @override
+  void didUpdateWidget(covariant EpubReaderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.settings != oldWidget.settings) {
+      _settings = widget.settings ?? ReaderSettings.defaults;
+    }
+  }
+
   EpubChapterSource? _source;
   ScanSearchService? _search;
   DecodedImageCache? _imageCache;
@@ -92,7 +109,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   /// 打开书埋点（P4-31）：从 initState 到首帧渲染完成。
   late final ReaderTraceHandle? _openTrace = readerTraceEnabled
-      ? ReaderTrace.instance.start(ReaderTraceName.bookOpen, bookId: widget.bookId)
+      ? ReaderTrace.instance.start(
+          ReaderTraceName.bookOpen,
+          bookId: widget.bookId,
+        )
       : null;
 
   @override
@@ -222,7 +242,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         child: Text('打开失败：$error'),
       );
     }
-    final settings = widget.settings ?? ReaderSettings.defaults;
+    final settings = _settings;
     return ReaderPage(
       key: const ValueKey<String>('reader-page'),
       source: _source!,
@@ -233,35 +253,35 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       annotations: widget.annotations,
       overrides: settings.overrides,
       theme: settings.theme,
+      customTheme: settings.customTheme,
+      backgroundImageLoader: _backgroundStore.load,
+      onPickBackgroundImage: _backgroundStore.pick,
       backgroundId: settings.backgroundId,
       inkMode: settings.inkMode,
-      onOverridesChanged: (overrides) => widget.onSettingsChanged?.call(
-        settings.copyWithOverrides(overrides),
-      ),
-      onThemeChanged: (themeId) => widget.onSettingsChanged?.call(
-        settings.copyWithTheme(themeId),
-      ),
-      onBackgroundChanged: (backgroundId) => widget.onSettingsChanged?.call(
-        settings.copyWithBackground(backgroundId),
-      ),
-      onInkModeChanged: (enabled) => widget.onSettingsChanged?.call(
-        settings.copyWithInkMode(enabled),
-      ),
+      onOverridesChanged: (overrides) =>
+          _changeSettings(_settings.copyWithOverrides(overrides)),
+      onThemeChanged: (themeId) =>
+          _changeSettings(_settings.copyWithTheme(themeId)),
+      onBackgroundChanged: (backgroundId) =>
+          _changeSettings(_settings.copyWithBackground(backgroundId)),
+      onInkModeChanged: (enabled) =>
+          _changeSettings(_settings.copyWithInkMode(enabled)),
       onSearch: _searchResults,
       bookTitle: widget.bookTitle,
       margins: settings.margins,
-      onMarginsChanged: widget.onMarginsChanged,
+      onMarginsChanged: (margins) {
+        _changeSettings(_settings.copyWithMargins(margins));
+        widget.onMarginsChanged?.call(margins);
+      },
       tapZones: settings.tapZones,
-      onTapZonesChanged: (zones) => widget.onSettingsChanged?.call(
-        settings.copyWithTapZones(zones),
-      ),
+      onTapZonesChanged: (zones) =>
+          _changeSettings(_settings.copyWithTapZones(zones)),
       pageTurnMode: settings.pageTurnMode,
       onPageTurnModeChanged: (mode) =>
-          widget.onSettingsChanged?.call(settings.copyWithPageTurnMode(mode)),
+          _changeSettings(_settings.copyWithPageTurnMode(mode)),
       onSessionReady: _bindReaderSession,
-      onLog: (event, fields) => unawaited(
-        ReaderLog.instance.log(event, fields: fields),
-      ),
+      onLog: (event, fields) =>
+          unawaited(ReaderLog.instance.log(event, fields: fields)),
       onResolveSearchCfi: _resolveSearchCfi,
       onSearchStream: _searchStream,
     );

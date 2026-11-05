@@ -67,12 +67,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('settings-bg-paper')));
     await tester.pumpAndSettle();
 
-    expect(changes, contains('paper'), reason: '背景变化回调');
-    expect(
-      session.layoutFingerprint,
-      fingerprint,
-      reason: '换背景不进入排版指纹，不重排',
+    // 背景验证成功才持久化；等待原生解码离开测试虚拟时钟。
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
     );
+    await tester.pumpAndSettle();
+    expect(changes, contains('paper'), reason: '背景变化回调');
+    expect(session.layoutFingerprint, fingerprint, reason: '换背景不进入排版指纹，不重排');
     expect(session.progress, progress, reason: '位置不变');
   });
 

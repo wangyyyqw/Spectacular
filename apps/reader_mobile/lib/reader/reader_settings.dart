@@ -21,6 +21,7 @@ class ReaderSettings {
     this.horizontalPadding = ReaderSettingsDefaults.horizontalPadding,
     this.themeId = ReaderSettingsDefaults.themeId,
     this.backgroundId = 'none',
+    this.customThemeId,
     this.inkMode = false,
     this.margins,
     this.tapZones = ReaderTapZones.defaults,
@@ -44,6 +45,12 @@ class ReaderSettings {
 
   /// 主题 id。
   final String themeId;
+
+  /// 上次保存的自定义配色，切换内置主题后仍可复用。
+  final String? customThemeId;
+
+  /// 自定义主题对象。
+  ReaderTheme? get customTheme => ReaderTheme.customById(customThemeId);
 
   /// 背景 id（P4-22：none/paper/wood/gray）。
   final String backgroundId;
@@ -85,6 +92,7 @@ class ReaderSettings {
     ReaderOverrides overrides, {
     required String themeId,
     String backgroundId = 'none',
+    String? customThemeId,
     bool inkMode = false,
     PageTurnMode pageTurnMode = PageTurnMode.cover,
   }) => ReaderSettings(
@@ -96,6 +104,7 @@ class ReaderSettings {
     horizontalPadding:
         overrides.padding?.left ?? ReaderSettingsDefaults.horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
     pageTurnMode: pageTurnMode,
@@ -111,6 +120,7 @@ class ReaderSettings {
     horizontalPadding:
         value.padding?.left ?? ReaderSettingsDefaults.horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: margins,
@@ -126,6 +136,7 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: id,
+    customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: margins,
@@ -141,6 +152,7 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: id,
     inkMode: inkMode,
     margins: margins,
@@ -156,6 +168,7 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: enabled,
     margins: margins,
@@ -171,6 +184,7 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: value,
@@ -186,6 +200,7 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: margins,
@@ -201,6 +216,7 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
     margins: margins,
@@ -217,6 +233,7 @@ class ReaderSettings {
       other.paragraphSpacing == paragraphSpacing &&
       other.horizontalPadding == horizontalPadding &&
       other.themeId == themeId &&
+      other.customThemeId == customThemeId &&
       other.backgroundId == backgroundId &&
       other.inkMode == inkMode &&
       other.margins == margins &&
@@ -231,6 +248,7 @@ class ReaderSettings {
     paragraphSpacing,
     horizontalPadding,
     themeId,
+    customThemeId,
     backgroundId,
     inkMode,
     margins,
@@ -256,6 +274,7 @@ class ReaderSettingsStore {
   /// 页边距（JSON）。
   static const String keyMargins = 'reader.margins';
   static const String keyThemeId = 'reader.themeId';
+  static const String keyCustomThemeId = 'reader.customThemeId';
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyInkMode = 'reader.inkMode';
   static const String keyPageTurnMode = 'reader.pageTurnMode';
@@ -282,6 +301,9 @@ class ReaderSettingsStore {
       themeId:
           await _library.getSetting(keyThemeId) ??
           ReaderSettingsDefaults.themeId,
+      customThemeId: ReaderTheme.customById(
+        await _library.getSetting(keyCustomThemeId),
+      )?.id,
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
       margins: _readMargins(await _library.getSetting(keyMargins)),
@@ -349,6 +371,7 @@ class ReaderSettingsStore {
       settings.horizontalPadding.toStringAsFixed(1),
     );
     await _library.setSetting(keyThemeId, settings.themeId);
+    await _library.setSetting(keyCustomThemeId, settings.customThemeId ?? '');
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
     await _library.setSetting(keyInkMode, settings.inkMode.toString());
     await _library.setSetting(keyPageTurnMode, settings.pageTurnMode.id);

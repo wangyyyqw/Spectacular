@@ -75,6 +75,8 @@ class PagePainter {
   const PagePainter({
     this.background = const Color(0xFFFFFFFF),
     this.pageBackgroundImage,
+    this.pageBackgroundImageCover = false,
+    this.pageBackgroundImageOpacity = 1,
     this.imageLookup,
     this.listMarkerImageOf,
     this.textColor,
@@ -92,6 +94,12 @@ class PagePainter {
   ///
   /// 只影响绘制层，不进入排版指纹——换背景图不触发重排（§31.4）。
   final ui.Image? pageBackgroundImage;
+
+  /// 用户照片居中裁切铺满页面；内置纹理使用平铺。
+  final bool pageBackgroundImageCover;
+
+  /// 背景图可见强度，弱化后仍由主题底色保证正文可读。
+  final double pageBackgroundImageOpacity;
 
   /// 背景图按 URL 取图的回调；返回 null 表示当前没有可用图片（跳过绘制）。
   ///
@@ -170,19 +178,7 @@ class PagePainter {
     _notifyPhase(PagePaintPhase.background);
     canvas.drawRect(pageRect, Paint()..color = background);
     // 背景纹理平铺在背景色之上、正文之下（P4-22，只影响绘制层）。
-    final pageBackground = pageBackgroundImage;
-    if (pageBackground != null) {
-      canvas.drawRect(
-        pageRect,
-        Paint()
-          ..shader = ImageShader(
-            pageBackground,
-            TileMode.repeated,
-            TileMode.repeated,
-            _identityMatrix4(),
-          ),
-      );
-    }
+    _paintReaderBackground(canvas, pageRect);
 
     // 书籍整页背景图（P9-04）：平铺在背景色/纹理之上、正文之下。
     _paintBookPageBackground(canvas, page, pageRect);
@@ -1513,24 +1509,50 @@ class PagePainter {
       layers += 1;
     }
     canvas.drawRect(pageRect, Paint()..color = background);
-    final pageImage = pageBackgroundImage;
-    if (pageImage != null) {
-      canvas.drawRect(
-        pageRect,
-        Paint()
-          ..shader = ImageShader(
-            pageImage,
-            TileMode.repeated,
-            TileMode.repeated,
-            _identityMatrix4(),
-          ),
-      );
-    }
+    _paintReaderBackground(canvas, pageRect);
     _paintBookPageBackground(canvas, page, pageRect);
     for (var i = 0; i < layers; i++) {
       canvas.restore();
     }
     canvas.restore();
+  }
+
+  void _paintReaderBackground(Canvas canvas, Rect pageRect) {
+    final image = pageBackgroundImage;
+    if (image == null || pageRect.isEmpty) return;
+    if (pageBackgroundImageCover) {
+      final fitted = applyBoxFit(
+        BoxFit.cover,
+        Size(image.width.toDouble(), image.height.toDouble()),
+        pageRect.size,
+      );
+      final source = Alignment.center.inscribe(
+        fitted.source,
+        Offset.zero & Size(image.width.toDouble(), image.height.toDouble()),
+      );
+      canvas.drawImageRect(
+        image,
+        source,
+        pageRect,
+        Paint()..filterQuality = FilterQuality.low,
+      );
+    } else {
+      final shader = ImageShader(
+        image,
+        TileMode.repeated,
+        TileMode.repeated,
+        _identityMatrix4(),
+      );
+      canvas.drawRect(pageRect, Paint()..shader = shader);
+      shader.dispose();
+    }
+    canvas.drawRect(
+      pageRect,
+      Paint()
+        ..color = background.withValues(
+          alpha: 1 - pageBackgroundImageOpacity.clamp(0.0, 1.0),
+        ),
+    );
   }
 
   /// 单个滤镜对应的图层 Paint；返回 null 表示该滤镜由别的路径实现

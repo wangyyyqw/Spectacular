@@ -9,6 +9,7 @@ import '../library/library_store.dart';
 import 'book_opening_view.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
+import 'reader_background_store.dart';
 
 /// 统一处理打开图书的读盘、转场、设置持久化与最近阅读更新时间。
 class BookOpener {
@@ -22,6 +23,7 @@ class BookOpener {
   final ReaderProgressStore progressStore;
 
   ReaderSettings? _settings;
+  Future<void> _settingsSave = Future<void>.value();
   bool _opening = false;
 
   /// 打开图书；重复点击期间忽略后续请求。
@@ -32,7 +34,8 @@ class BookOpener {
     _opening = true;
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final minimumReveal = MediaQuery.maybeOf(context)?.disableAnimations ?? false
+    final minimumReveal =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false
         ? Duration.zero
         : BookOpeningView.revealDuration;
     var openingVisible = false;
@@ -109,7 +112,20 @@ class BookOpener {
         },
       ),
     );
-    unawaited(ReaderSettingsStore(library).save(settings));
+    _settingsSave = _settingsSave
+        .then((_) async {
+          await ReaderSettingsStore(library).save(settings);
+          await ReaderBackgroundStore().cleanUnused(
+            settings.backgroundId,
+            pendingId: _settings!.backgroundId,
+          );
+        })
+        .catchError((Object error) async {
+          await ReaderLog.instance.log(
+            'settings_save_error',
+            fields: {'error': '$error'},
+          );
+        });
   }
 
   /// 开场页入场：从书架柔和淡入，随后由封面动画接管。
@@ -144,10 +160,6 @@ class BookOpener {
         settings: _settings ?? ReaderSettings.defaults,
         onSettingsChanged: _saveSettings,
         bookTitle: entry.title,
-        onMarginsChanged: (margins) {
-          final current = _settings ?? ReaderSettings.defaults;
-          _saveSettings(current.copyWithMargins(margins));
-        },
       ),
       transitionsBuilder: (_, animation, _, child) {
         final curved = CurvedAnimation(

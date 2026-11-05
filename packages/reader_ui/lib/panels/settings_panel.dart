@@ -4,6 +4,7 @@ import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
 import '../paging/page_turn_mode.dart';
+import 'custom_theme_dialog.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_theme.dart';
 
@@ -70,6 +71,9 @@ class SettingsPanel extends StatefulWidget {
     required this.themeId,
     required this.onOverridesChanged,
     required this.onThemeChanged,
+    this.customTheme,
+    this.onPickBackgroundImage,
+    this.pickingBackgroundImage = false,
     this.backgroundId = 'none',
     this.onBackgroundChanged,
     this.inkMode = false,
@@ -95,6 +99,15 @@ class SettingsPanel extends StatefulWidget {
 
   /// 主题变化。
   final ValueChanged<String> onThemeChanged;
+
+  /// 上次保存的自定义配色，切换内置主题后仍可复用。
+  final ReaderTheme? customTheme;
+
+  /// 由宿主选择并保存图片。
+  final VoidCallback? onPickBackgroundImage;
+
+  /// 选择、解码图片期间禁止重复操作。
+  final bool pickingBackgroundImage;
 
   /// 当前背景 id（P4-22）。
   final String backgroundId;
@@ -161,6 +174,16 @@ class _SettingsPanelState extends State<SettingsPanel> {
   );
 
   void _emit() => widget.onOverridesChanged(_build());
+
+  Future<void> _editTheme() async {
+    final result = await showDialog<ReaderTheme>(
+      context: context,
+      builder: (_) => CustomThemeDialog(
+        theme: widget.customTheme ?? ReaderTheme.byId(widget.themeId),
+      ),
+    );
+    if (mounted && result != null) widget.onThemeChanged(result.id);
+  }
 
   String get _sectionTitle => switch (widget.section) {
     SettingsSection.all || SettingsSection.type => '排版',
@@ -336,7 +359,28 @@ class _SettingsPanelState extends State<SettingsPanel> {
                               ? null
                               : () => widget.onThemeChanged(item.id),
                         ),
+                      if (widget.customTheme case final custom?)
+                        _themeSwatch(
+                          key: 'settings-theme-custom',
+                          theme: custom,
+                          selected:
+                              !widget.inkMode && custom.id == widget.themeId,
+                          onTap: widget.inkMode
+                              ? null
+                              : () => widget.onThemeChanged(custom.id),
+                        ),
                     ],
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const ValueKey('settings-custom-theme-edit'),
+                      onPressed: widget.inkMode ? null : _editTheme,
+                      icon: const Icon(Icons.palette_outlined, size: 18),
+                      label: Text(
+                        widget.customTheme == null ? '自定义配色' : '编辑自定义配色',
+                      ),
+                    ),
                   ),
                   if (widget.onBackgroundChanged != null) ...[
                     const SizedBox(height: 16),
@@ -359,6 +403,28 @@ class _SettingsPanelState extends State<SettingsPanel> {
                           ),
                       ],
                     ),
+                    if (widget.onPickBackgroundImage != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: const ValueKey('settings-background-image'),
+                          onPressed:
+                              widget.inkMode || widget.pickingBackgroundImage
+                              ? null
+                              : widget.onPickBackgroundImage,
+                          icon: const Icon(Icons.image_outlined, size: 18),
+                          label: Text(
+                            widget.pickingBackgroundImage
+                                ? '正在载入图片…'
+                                : ReaderBackground.byId(widget.backgroundId)
+                                      .isImage
+                                ? '更换背景图片'
+                                : '选择背景图片',
+                          ),
+                        ),
+                      ),
+                    if (ReaderBackground.byId(widget.backgroundId).isImage)
+                      const Text('图片背景已启用'),
                   ],
                 ],
                 if (widget.section == SettingsSection.all ||

@@ -63,6 +63,9 @@ class ReaderPage extends StatefulWidget {
     this.annotations,
     this.onOverridesChanged,
     this.onThemeChanged,
+    this.customTheme,
+    this.backgroundImageLoader,
+    this.onPickBackgroundImage,
     this.backgroundId = 'none',
     this.inkMode = false,
     this.onBackgroundChanged,
@@ -100,6 +103,15 @@ class ReaderPage extends StatefulWidget {
 
   /// 主题变化（P4-21）：调用方负责持久化。
   final ValueChanged<String>? onThemeChanged;
+
+  /// 上次保存的自定义主题。
+  final ReaderTheme? customTheme;
+
+  /// 宿主提供图片数据，UI 不访问文件系统。
+  final Future<Uint8List> Function(String id)? backgroundImageLoader;
+
+  /// 宿主选择并复制图片，取消返回 null。
+  final Future<String?> Function()? onPickBackgroundImage;
 
   /// 初始背景 id（P4-22）。
   final String backgroundId;
@@ -194,6 +206,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前背景（P4-22）：纹理解码结果缓存在这里，换背景不重排。
   late String _backgroundId;
   ui.Image? _backgroundImage;
+  int _backgroundRequest = 0;
+  bool _pickingBackgroundImage = false;
+  late ReaderTheme? _customTheme = widget.customTheme;
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
@@ -321,6 +336,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       pageBackgroundImage: _environment.allowsBackgroundImage
           ? _backgroundImage
           : null,
+      pageBackgroundImageCover: ReaderBackground.byId(_backgroundId).isImage,
+      pageBackgroundImageOpacity: ReaderBackground.byId(_backgroundId).isImage
+          ? 0.18
+          : 0.10,
       imageLookup: widget.imageCache?.lookup,
       listMarkerImageOf: (block) => block.style?.listStyleImage,
       textColor: theme?.text,
@@ -691,11 +710,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (oldWidget.theme != widget.theme) {
       _theme = widget.theme;
     }
+    if (oldWidget.customTheme != widget.customTheme) {
+      _customTheme = widget.customTheme;
+    }
     if (oldWidget.inkMode != widget.inkMode) {
       _inkMode = widget.inkMode;
       _painter = _buildPainter();
     }
-    if (oldWidget.backgroundId != widget.backgroundId) {
+    if (oldWidget.backgroundId != widget.backgroundId &&
+        widget.backgroundId != _backgroundId) {
       unawaited(_loadBackground(widget.backgroundId));
     }
     if (oldWidget.overrides != widget.overrides && widget.overrides != null) {
@@ -823,8 +846,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 日/夜快速切换（设计稿顶部栏的日间夜间按钮）。
   void _toggleDayNight() {
-    final current = (_theme ?? ReaderTheme.white).id;
-    final dark = current == 'dark' || current == 'black';
+    final dark =
+        (_theme ?? ReaderTheme.white).background.computeLuminance() < 0.35;
     _applyTheme(dark ? 'white' : 'dark');
   }
 
@@ -1040,38 +1063,82 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final theme = ReaderTheme.byId(themeId);
     setState(() {
       _theme = theme;
+      _customTheme = ReaderTheme.customById(themeId) ?? _customTheme;
       _painter = _buildPainter();
     });
     unawaited(_session.applyOverrides(_effectiveOverrides()));
     widget.onThemeChanged?.call(themeId);
   }
 
-  /// 加载并应用背景（P4-22）：只解码一次并缓存，换背景不重排。
-  Future<void> _loadBackground(String id) async {
+  /// 仅最新加载请求可应用，解码失败保留当前背景。
+  Future<bool> _loadBackground(String id) async {
+    final request = ++_backgroundRequest;
     final background = ReaderBackground.byId(id);
-    final asset = background.asset;
-    if (asset == null) {
+    ui.Image? image;
+    try {
+      image = await _decodeBackground(background);
+      if (!mounted || request != _backgroundRequest) {
+        image?.dispose();
+        return false;
+      }
       setState(() {
         _backgroundId = background.id;
         _backgroundImage?.dispose();
-        _backgroundImage = null;
+        _backgroundImage = image;
         _painter = _buildPainter();
       });
-      return;
+      return true;
+    } catch (_) {
+      image?.dispose();
+      if (mounted && request == _backgroundRequest) {
+        if (_backgroundImage == null) {
+          setState(() {
+            _backgroundId = 'none';
+            _painter = _buildPainter();
+          });
+        }
+        _showToast('背景图片无法读取，请重新选择');
+      }
+      return false;
     }
-    final data = await rootBundle.load(asset);
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
-    final frame = await codec.getNextFrame();
-    if (!mounted) {
-      frame.image.dispose();
-      return;
+  }
+
+  Future<ui.Image?> _decodeBackground(ReaderBackground background) async {
+    Uint8List bytes;
+    if (background.isImage) {
+      final loader = widget.backgroundImageLoader;
+      if (loader == null) throw const FormatException('缺少图片加载器');
+      bytes = await loader(background.id);
+    } else {
+      final asset = background.asset;
+      if (asset == null) return null;
+      final data = await rootBundle.load(asset);
+      bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
     }
-    setState(() {
-      _backgroundId = background.id;
-      _backgroundImage?.dispose();
-      _backgroundImage = frame.image;
-      _painter = _buildPainter();
-    });
+    final codec = await ui.instantiateImageCodec(bytes);
+    try {
+      return (await codec.getNextFrame()).image;
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  Future<void> _pickBackgroundImage() async {
+    if (_pickingBackgroundImage || _inkMode) return;
+    final pick = widget.onPickBackgroundImage;
+    if (pick == null) return;
+    setState(() => _pickingBackgroundImage = true);
+    final request = _backgroundRequest;
+    try {
+      final id = await pick();
+      if (mounted && id != null && request == _backgroundRequest && !_inkMode) {
+        await _applyBackground(id);
+      }
+    } catch (_) {
+      if (mounted) _showToast('无法使用这张图片，请选择有效图片（小于 20MB）');
+    } finally {
+      if (mounted) setState(() => _pickingBackgroundImage = false);
+    }
   }
 
   /// 切换墨水屏模式（P4-23）：纯黑白 + 禁用纹理，只重绘不重排。
@@ -1087,9 +1154,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 切换背景（P4-22）：纹理只影响绘制层，不触发重排。
-  void _applyBackground(String id) {
-    unawaited(_loadBackground(id));
-    widget.onBackgroundChanged?.call(id);
+  Future<void> _applyBackground(String id) async {
+    if (await _loadBackground(id)) widget.onBackgroundChanged?.call(id);
   }
 
   /// 恢复默认设置（P4-21）。
@@ -1726,6 +1792,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _selectionEdgeTimer?.cancel();
     _tempHighlightTimer?.cancel();
     _semanticsFirstFocus.dispose();
+    _backgroundRequest++;
     _backgroundImage?.dispose();
     super.dispose();
   }
@@ -2011,6 +2078,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       hasCfi: _session.currentCfi != null,
                       overrides: _overrides,
                       themeId: (_theme ?? ReaderTheme.white).id,
+                      customTheme: _customTheme,
+                      onPickBackgroundImage:
+                          widget.onPickBackgroundImage == null
+                          ? null
+                          : _pickBackgroundImage,
+                      pickingBackgroundImage: _pickingBackgroundImage,
                       backgroundId: _backgroundId,
                       inkMode: _inkMode,
                       pageTurnMode: _pageTurnMode,
@@ -2445,6 +2518,9 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.hasCfi,
     required this.overrides,
     required this.themeId,
+    required this.customTheme,
+    required this.onPickBackgroundImage,
+    required this.pickingBackgroundImage,
     required this.backgroundId,
     required this.inkMode,
     required this.pageTurnMode,
@@ -2480,6 +2556,9 @@ class _ReaderDrawerContent extends StatefulWidget {
   final bool hasCfi;
   final ReaderOverrides overrides;
   final String themeId;
+  final ReaderTheme? customTheme;
+  final VoidCallback? onPickBackgroundImage;
+  final bool pickingBackgroundImage;
   final String backgroundId;
   final bool inkMode;
   final PageTurnMode pageTurnMode;
@@ -2540,6 +2619,9 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           section: SettingsSection.theme,
           overrides: widget.overrides,
           themeId: widget.themeId,
+          customTheme: widget.customTheme,
+          onPickBackgroundImage: widget.onPickBackgroundImage,
+          pickingBackgroundImage: widget.pickingBackgroundImage,
           backgroundId: widget.backgroundId,
           inkMode: widget.inkMode,
           onOverridesChanged: widget.onOverridesChanged,

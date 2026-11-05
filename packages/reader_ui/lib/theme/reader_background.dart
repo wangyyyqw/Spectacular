@@ -14,6 +14,13 @@ class ReaderBackground {
   /// 纹理资源路径；null 表示纯色（跟随主题背景色）。
   final String? asset;
 
+  /// 用户图片标识由宿主保存并读取，UI 包不访问文件系统。
+  bool get isImage => id.startsWith('image:') && id.length > 6;
+
+  /// 用户选择的图片；路径由宿主管理。
+  static ReaderBackground image(String path) =>
+      ReaderBackground(id: 'image:$path', name: '图片');
+
   /// 无纹理（纯色）。
   static const none = ReaderBackground(id: 'none', name: '纯色');
 
@@ -48,6 +55,9 @@ class ReaderBackground {
 
   /// 按 id 查找；未知 id 回落纯色。
   static ReaderBackground byId(String id) {
+    if (id.startsWith('image:') && id.length > 6) {
+      return ReaderBackground(id: id, name: '图片');
+    }
     for (final background in all) {
       if (background.id == id) {
         return background;
