@@ -294,6 +294,37 @@ void main() {
       ('right', const Offset(-1, 0), 48, (value) => value.right),
     ];
     for (final (key, direction, max, read) in controls) {
+      testWidgets('$key 从零小幅拖动即可起步，随后每移动 1 数值与按钮都增加 1', (tester) async {
+        final previews = <ReaderMargins>[];
+        final zero = _defaults().copyWith(
+          topOuter: 0,
+          topInner: 0,
+          bottomInner: 0,
+          bottomOuter: 0,
+          left: 0,
+          right: 0,
+        );
+        await _showEditor(tester, margins: zero, onPreview: previews.add);
+        final pill = find.byKey(ValueKey<String>('margin-$key'));
+        final origin = tester.getCenter(pill);
+        final gesture = await tester.startGesture(origin);
+        for (var value = 1; value <= 7; value++) {
+          await gesture.moveBy(direction);
+          await tester.pump();
+          if (value <= 2) {
+            expect(previews, isEmpty, reason: '保留 2px 的轻微触摸容差');
+          } else {
+            expect(read(previews.last), value);
+            expect(
+              tester.getCenter(pill) - origin,
+              direction * value.toDouble(),
+            );
+          }
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+      });
+
       testWidgets('$key 达到上下限不越界，反向移动 3 时数值与按钮同步移动 3', (tester) async {
         final previews = <ReaderMargins>[];
         await _showEditor(tester, onPreview: previews.add);
@@ -365,6 +396,11 @@ void main() {
       await tester.tap(arrow);
       await tester.pumpAndSettle();
       expect(previews.last.topInner, 17);
+      final tap = await tester.startGesture(tester.getCenter(arrow));
+      await tap.moveBy(const Offset(0, 1));
+      await tap.up();
+      await tester.pumpAndSettle();
+      expect(previews.last.topInner, 18, reason: '轻微抖动仍按点击步进一次');
     });
 
     testWidgets('页眉与正文间距非 0 时在间隙绘制阴影', (tester) async {
@@ -568,16 +604,21 @@ void main() {
 Future<void> _showEditor(
   WidgetTester tester, {
   required ValueChanged<ReaderMargins> onPreview,
+  ReaderMargins? margins,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: MarginEditor(
-          margins: _defaults(),
-          defaults: _defaults(),
-          onCancel: () {},
-          onApply: (_) {},
-          onPreview: onPreview,
+        // 模拟阅读页上点击与拖动竞争，防止单一识别器提前获胜掩盖阈值问题。
+        body: GestureDetector(
+          onTap: () {},
+          child: MarginEditor(
+            margins: margins ?? _defaults(),
+            defaults: _defaults(),
+            onCancel: () {},
+            onApply: (_) {},
+            onPreview: onPreview,
+          ),
         ),
       ),
     ),

@@ -18,6 +18,7 @@ class MarginEditor extends StatefulWidget {
     required this.onCancel,
     required this.onApply,
     this.onPreview,
+    this.onDragChanged,
     this.showPageFurniture = true,
     this.maxOuter = 96,
     this.maxInner = 60,
@@ -36,8 +37,11 @@ class MarginEditor extends StatefulWidget {
   /// 保存（应用改动）。
   final ValueChanged<ReaderMargins> onApply;
 
-  /// 草稿变化（拖动/步进时实时回调，供上层立即预览排版）。
+  /// 草稿变化（拖动/步进时实时回调，供上层预览排版）。
   final ValueChanged<ReaderMargins>? onPreview;
+
+  /// 拖动开始/结束时通知上层，供正文预览合并重排；草稿仍逐次更新。
+  final ValueChanged<bool>? onDragChanged;
 
   /// 是否按页眉页脚槽计算正文位置；关闭时内段直接连接屏幕外侧。
   final bool showPageFurniture;
@@ -57,6 +61,12 @@ class MarginEditor extends StatefulWidget {
 
 class _MarginEditorState extends State<MarginEditor> {
   late ReaderMargins _draft = widget.margins;
+  int _activeDrags = 0;
+
+  void _dragChanged(bool dragging) {
+    _activeDrags += dragging ? 1 : -1;
+    widget.onDragChanged?.call(_activeDrags > 0);
+  }
 
   /// 更新草稿并立即通知上层预览（拖动/步进都走这里）。
   void _apply(ReaderMargins next) {
@@ -155,6 +165,7 @@ class _MarginEditorState extends State<MarginEditor> {
         value: value,
         max: max,
         onDelta: (delta) => _changeVertical(delta, top: top, outer: outer),
+        onDragChanged: _dragChanged,
       ),
     );
   }
@@ -218,6 +229,7 @@ class _MarginEditorState extends State<MarginEditor> {
           value: value,
           max: widget.maxSide,
           onDelta: (delta) => _changeSide(delta, left: left),
+          onDragChanged: _dragChanged,
         ),
       ),
     );
@@ -270,6 +282,7 @@ class _Pill extends StatefulWidget {
     required this.value,
     required this.max,
     required this.onDelta,
+    required this.onDragChanged,
     this.axis = Axis.horizontal,
     this.dragSign = 1,
   });
@@ -278,6 +291,7 @@ class _Pill extends StatefulWidget {
   final double value;
   final double max;
   final ValueChanged<double> onDelta;
+  final ValueChanged<bool> onDragChanged;
 
   /// 拖动方向：上/下两组胶囊用垂直拖动，左右用水平拖动。
   final Axis axis;
@@ -299,6 +313,7 @@ class _PillState extends State<_Pill> {
   void _dragStart(DragStartDetails details) {
     _lastPosition = details.globalPosition;
     setState(() => _dragging = true);
+    widget.onDragChanged(true);
   }
 
   void _dragUpdate(DragUpdateDetails details) {
@@ -308,7 +323,25 @@ class _PillState extends State<_Pill> {
     widget.onDelta(_axisDelta(delta));
   }
 
-  void _dragEnd() => setState(() => _dragging = false);
+  void _dragEnd() {
+    if (!_dragging) return;
+    setState(() => _dragging = false);
+    widget.onDragChanged(false);
+  }
+
+  GestureRecognizerFactoryWithHandlers<T>
+  _dragFactory<T extends DragGestureRecognizer>(T Function() create) =>
+      GestureRecognizerFactoryWithHandlers<T>(
+        create,
+        (recognizer) => recognizer
+          ..onStart = _dragStart
+          ..onUpdate = _dragUpdate
+          ..onCancel = _dragEnd
+          ..dragStartBehavior = DragStartBehavior.down
+          // 仅降低拖动阈值，不改变箭头点击的容差；小幅移动即可开始调节。
+          ..gestureSettings = const DeviceGestureSettings(touchSlop: 2)
+          ..onEnd = (_) => _dragEnd(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -323,17 +356,20 @@ class _PillState extends State<_Pill> {
           color: _dragging ? scheme.primary : scheme.outlineVariant,
         ),
       ),
-      child: GestureDetector(
+      child: RawGestureDetector(
         behavior: HitTestBehavior.opaque,
-        dragStartBehavior: DragStartBehavior.down,
-        onHorizontalDragStart: horizontal ? _dragStart : null,
-        onHorizontalDragUpdate: horizontal ? _dragUpdate : null,
-        onHorizontalDragEnd: horizontal ? (_) => _dragEnd() : null,
-        onHorizontalDragCancel: horizontal ? _dragEnd : null,
-        onVerticalDragStart: horizontal ? null : _dragStart,
-        onVerticalDragUpdate: horizontal ? null : _dragUpdate,
-        onVerticalDragEnd: horizontal ? null : (_) => _dragEnd(),
-        onVerticalDragCancel: horizontal ? null : _dragEnd,
+        gestures: <Type, GestureRecognizerFactory>{
+          if (horizontal)
+            HorizontalDragGestureRecognizer:
+                _dragFactory<HorizontalDragGestureRecognizer>(
+                  () => HorizontalDragGestureRecognizer(debugOwner: this),
+                )
+          else
+            VerticalDragGestureRecognizer:
+                _dragFactory<VerticalDragGestureRecognizer>(
+                  () => VerticalDragGestureRecognizer(debugOwner: this),
+                ),
+        },
         child: _buildContent(scheme),
       ),
     );

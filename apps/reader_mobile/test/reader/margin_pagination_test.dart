@@ -15,6 +15,89 @@ import 'package:reader_ui/theme/reader_margins.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  testWidgets('快速拖动即时移动按钮，正文合并预览且松手立即应用最后值', (tester) async {
+    final harness = await _mountReader(tester);
+    await _openEditor(tester);
+    final height = harness.session.contentHeight!;
+    final pill = _control('top-outer');
+    final origin = tester.getCenter(pill);
+    harness.source.loads.clear();
+    final gesture = await tester.startGesture(origin);
+    await gesture.moveBy(const Offset(0, 3));
+    await tester.pump();
+    for (var index = 0; index < 5; index++) {
+      await gesture.moveBy(const Offset(0, 1));
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(tester.getCenter(pill) - origin, const Offset(0, 8));
+    expect(harness.session.contentHeight, height);
+    expect(harness.source.loads, isEmpty, reason: '连续六次更新不逐次重排');
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.pumpAndSettle();
+    expect(harness.session.contentHeight, height - 8);
+    expect(harness.source.loads, [0], reason: '拖动中仍能预览最新正文');
+    await gesture.moveBy(const Offset(0, 1));
+    await tester.pump();
+    expect(harness.session.contentHeight, height - 8);
+    await gesture.up();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(harness.session.contentHeight, height - 9);
+    expect(harness.source.loads, [0, 0]);
+    expect(harness.applied, isEmpty);
+  });
+
+  for (final action in ['cancel', 'apply']) {
+    testWidgets('拖动预览尚未执行时 $action 丢弃定时器并使用正确的最终边距', (tester) async {
+      final harness = await _mountReader(tester);
+      await _openEditor(tester);
+      final height = harness.session.contentHeight!;
+      final before = tester
+          .widget<MarginEditor>(find.byType(MarginEditor))
+          .margins;
+      final gesture = await tester.startGesture(
+        tester.getCenter(_control('top-outer')),
+      );
+      await gesture.moveBy(const Offset(0, 3));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 1));
+      await tester.pump();
+      expect(harness.session.contentHeight, height);
+      await tester.tap(_control(action));
+      await tester.pumpAndSettle();
+      await gesture.cancel();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(MarginEditor), findsNothing);
+      expect(
+        harness.session.contentHeight,
+        height - (action == 'apply' ? 4 : 0),
+      );
+      expect(
+        harness.applied,
+        action == 'apply'
+            ? [before.copyWith(topOuter: before.topOuter + 4)]
+            : isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('拖动预览待执行时退出阅读页，不再执行旧预览', (tester) async {
+    final harness = await _mountReader(tester);
+    await _openEditor(tester);
+    harness.source.loads.clear();
+    final gesture = await tester.startGesture(
+      tester.getCenter(_control('top-outer')),
+    );
+    await gesture.moveBy(const Offset(0, 3));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    await gesture.cancel();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(harness.source.loads, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('拖动只重排当前章，保存后已访问和未访问章节均按需更新', (tester) async {
     final harness = await _mountReader(tester);
     final session = harness.session;
