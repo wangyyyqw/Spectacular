@@ -16,6 +16,7 @@ class ReaderSettings {
   const ReaderSettings({
     this.fontSize = ReaderSettingsDefaults.fontSize,
     this.fontFamily,
+    this.overrideEmbeddedFonts = false,
     this.lineHeight = ReaderSettingsDefaults.lineHeight,
     this.paragraphSpacing = ReaderSettingsDefaults.paragraphSpacing,
     this.horizontalPadding = ReaderSettingsDefaults.horizontalPadding,
@@ -33,6 +34,9 @@ class ReaderSettings {
 
   /// 正文字体族；null 表示跟随书籍样式。
   final String? fontFamily;
+
+  /// 自定义字体是否覆盖书内实际嵌入的字体。
+  final bool overrideEmbeddedFonts;
 
   /// 行高倍数。
   final double lineHeight;
@@ -74,6 +78,7 @@ class ReaderSettings {
   ReaderOverrides get overrides => ReaderOverrides(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     padding: CssEdges(
@@ -98,6 +103,7 @@ class ReaderSettings {
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
+    overrideEmbeddedFonts: overrides.overrideEmbeddedFonts,
     lineHeight: overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight,
     paragraphSpacing:
         overrides.paragraphSpacing ?? ReaderSettingsDefaults.paragraphSpacing,
@@ -114,6 +120,7 @@ class ReaderSettings {
   ReaderSettings copyWithOverrides(ReaderOverrides value) => ReaderSettings(
     fontSize: value.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: value.fontFamily,
+    overrideEmbeddedFonts: value.overrideEmbeddedFonts,
     lineHeight: value.lineHeight ?? ReaderSettingsDefaults.lineHeight,
     paragraphSpacing:
         value.paragraphSpacing ?? ReaderSettingsDefaults.paragraphSpacing,
@@ -128,10 +135,28 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
   );
 
+  /// 复制并替换字体，保留其它阅读设置。
+  ReaderSettings copyWithFont(String? family) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: family,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+  );
+
   /// 复制并替换主题。
   ReaderSettings copyWithTheme(String id) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -148,6 +173,7 @@ class ReaderSettings {
   ReaderSettings copyWithBackground(String id) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -164,6 +190,7 @@ class ReaderSettings {
   ReaderSettings copyWithInkMode(bool enabled) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -180,6 +207,7 @@ class ReaderSettings {
   ReaderSettings copyWithMargins(ReaderMargins value) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -196,6 +224,7 @@ class ReaderSettings {
   ReaderSettings copyWithTapZones(ReaderTapZones value) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -212,6 +241,7 @@ class ReaderSettings {
   ReaderSettings copyWithPageTurnMode(PageTurnMode value) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -229,6 +259,7 @@ class ReaderSettings {
       other is ReaderSettings &&
       other.fontSize == fontSize &&
       other.fontFamily == fontFamily &&
+      other.overrideEmbeddedFonts == overrideEmbeddedFonts &&
       other.lineHeight == lineHeight &&
       other.paragraphSpacing == paragraphSpacing &&
       other.horizontalPadding == horizontalPadding &&
@@ -244,6 +275,7 @@ class ReaderSettings {
   int get hashCode => Object.hash(
     fontSize,
     fontFamily,
+    overrideEmbeddedFonts,
     lineHeight,
     paragraphSpacing,
     horizontalPadding,
@@ -267,6 +299,7 @@ class ReaderSettingsStore {
   /// 设置键。
   static const String keyFontSize = 'reader.fontSize';
   static const String keyFontFamily = 'reader.fontFamily';
+  static const String keyOverrideEmbeddedFonts = 'reader.overrideEmbeddedFonts';
   static const String keyLineHeight = 'reader.lineHeight';
   static const String keyParagraphSpacing = 'reader.paragraphSpacing';
   static const String keyPadding = 'reader.padding';
@@ -289,6 +322,8 @@ class ReaderSettingsStore {
           _readDouble(await _library.getSetting(keyFontSize)) ??
           ReaderSettingsDefaults.fontSize,
       fontFamily: _readFontFamily(await _library.getSetting(keyFontFamily)),
+      overrideEmbeddedFonts:
+          await _library.getSetting(keyOverrideEmbeddedFonts) == 'true',
       lineHeight:
           _readDouble(await _library.getSetting(keyLineHeight)) ??
           ReaderSettingsDefaults.lineHeight,
@@ -339,7 +374,7 @@ class ReaderSettingsStore {
     }
   }
 
-  /// 读取正文字体；只接受当前内置字体，损坏或过期的值回落书籍字体。
+  /// 读取正文字体；自定义字体的文件可用性由打开阅读页时校验。
   static String? _readFontFamily(String? raw) {
     if (raw == null || raw.isEmpty) {
       return null;
@@ -348,7 +383,10 @@ class ReaderSettingsStore {
       ReaderSettingsDefaults.fontSong,
       ReaderSettingsDefaults.fontSans,
     };
-    return supported.contains(raw) ? raw : null;
+    return supported.contains(raw) ||
+            RegExp(r'^user_[0-9a-f]{64}$').hasMatch(raw)
+        ? raw
+        : null;
   }
 
   /// 保存设置（逐项 upsert）。
@@ -358,6 +396,10 @@ class ReaderSettingsStore {
       settings.fontSize.toStringAsFixed(1),
     );
     await _library.setSetting(keyFontFamily, settings.fontFamily ?? '');
+    await _library.setSetting(
+      keyOverrideEmbeddedFonts,
+      settings.overrideEmbeddedFonts.toString(),
+    );
     await _library.setSetting(
       keyLineHeight,
       settings.lineHeight.toStringAsFixed(1),

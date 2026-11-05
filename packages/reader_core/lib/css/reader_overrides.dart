@@ -12,6 +12,7 @@ class ReaderOverrides {
   const ReaderOverrides({
     this.fontSize,
     this.fontFamily,
+    this.overrideEmbeddedFonts = false,
     this.lineHeight,
     this.paragraphSpacing,
     this.textAlign,
@@ -24,7 +25,14 @@ class ReaderOverrides {
   final double? fontSize;
 
   /// 正文字体族；null 表示跟随书籍样式。
+  /// 自定义字体由章节源在字体注册及作者级联完成后应用，避免覆盖内嵌字体。
   final String? fontFamily;
+
+  /// 自定义字体是否覆盖 EPUB 实际内嵌的字体。
+  final bool overrideEmbeddedFonts;
+
+  /// 用户导入的字体具有稳定的内容标识。
+  bool get isCustomFont => fontFamily?.startsWith('user_') ?? false;
 
   /// 行高倍数（相对字号）。
   final double? lineHeight;
@@ -62,6 +70,7 @@ class ReaderOverrides {
   String get fingerprint => [
     'fs=${fontSize ?? '-'}',
     'ff=${fontFamily ?? '-'}',
+    'ef=$overrideEmbeddedFonts',
     'lh=${lineHeight ?? '-'}',
     'ps=${paragraphSpacing ?? '-'}',
     'align=${textAlign?.name ?? '-'}',
@@ -77,7 +86,7 @@ class ReaderOverrides {
       values['font-size'] = _px(size);
     }
     final family = fontFamily;
-    if (family != null) {
+    if (family != null && !isCustomFont) {
       values['font-family'] = family;
     }
     final height = lineHeight;
@@ -107,7 +116,7 @@ class ReaderOverrides {
     // 非继承属性归零，书籍面板会整块消失（P9-01）。
     return base.withTypography(
       fontSize: fontSize,
-      fontFamily: fontFamily,
+      fontFamily: isCustomFont ? null : fontFamily,
       lineHeightFactor: lineHeight,
       textAlign: textAlign,
     );
@@ -121,7 +130,7 @@ class ReaderOverrides {
       values['font-size'] = _px(size);
     }
     final family = fontFamily;
-    if (family != null) {
+    if (family != null && !isCustomFont) {
       values['font-family'] = family;
     }
     final height = lineHeight;
@@ -171,6 +180,7 @@ class ReaderOverrides {
   ReaderOverrides copyWith({
     double? fontSize,
     String? fontFamily,
+    bool? overrideEmbeddedFonts,
     double? lineHeight,
     double? paragraphSpacing,
     CssTextAlign? textAlign,
@@ -180,6 +190,7 @@ class ReaderOverrides {
   }) => ReaderOverrides(
     fontSize: fontSize ?? this.fontSize,
     fontFamily: fontFamily ?? this.fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts ?? this.overrideEmbeddedFonts,
     lineHeight: lineHeight ?? this.lineHeight,
     paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     textAlign: textAlign ?? this.textAlign,

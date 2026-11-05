@@ -1,5 +1,17 @@
 import 'dart:typed_data';
 
+/// 已注册用户字体的字形覆盖，缺字继续走阅读器已有的逐字回退链。
+abstract final class FontCoverageRegistry {
+  static final Map<String, FontCoverage> _fonts = {};
+
+  static void register(String family, FontCoverage coverage) {
+    _fonts[family] = coverage;
+  }
+
+  static bool? covers(String family, int codePoint) =>
+      _fonts[family]?.covers(codePoint);
+}
+
 /// 字体字形覆盖检测（P3-04）。
 ///
 /// 从字体字节解析 OpenType `cmap` 表（format 4 覆盖 BMP、format 12

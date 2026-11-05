@@ -240,6 +240,19 @@ class LibraryImportException implements Exception {
   String toString() => message;
 }
 
+/// 应用保存的用户字体，不暴露数据库生成类型给阅读界面。
+class ReaderFontEntry {
+  const ReaderFontEntry({
+    required this.family,
+    required this.filePath,
+    required this.displayName,
+  });
+
+  final String family;
+  final String filePath;
+  final String displayName;
+}
+
 /// 书库存储（P4-04）：drift `books` 表 + `books/<uuid>/` 目录
 /// （`source.epub` 原书 + `cover.jpg` 封面缓存）。
 ///
@@ -260,6 +273,7 @@ class LibraryStore {
   final Map<String, Uint8List> _memoryBytes = <String, Uint8List>{};
   final Map<String, BookEntry> _memoryEntries = <String, BookEntry>{};
   final Map<String, String> _memorySettings = <String, String>{};
+  final Map<String, ReaderFontEntry> _memoryFonts = <String, ReaderFontEntry>{};
   final Map<String, ShelfGroup> _memoryGroups = <String, ShelfGroup>{};
   final Map<String, String> _memoryBookGroups = <String, String>{};
   final Map<String, BookTag> _memoryTags = <String, BookTag>{};
@@ -331,6 +345,53 @@ class LibraryStore {
         .insertOnConflictUpdate(
           SettingsTableCompanion.insert(key: key, value: value),
         );
+  }
+
+  /// 读取自定义字体清单；字体字节按实际选择延迟加载。
+  Future<List<ReaderFontEntry>> listUserFonts() async {
+    if (_isMemory) return List.unmodifiable(_memoryFonts.values);
+    final db = _db!;
+    final rows = await (db.select(
+      db.userFonts,
+    )..orderBy([(table) => OrderingTerm.asc(table.id)])).get();
+    return rows
+        .map(
+          (row) => ReaderFontEntry(
+            family: row.family,
+            filePath: row.filePath,
+            displayName: row.displayName ?? row.family,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  /// 同一内容标识只保存一条，重复导入不会增加字体条目。
+  Future<void> saveUserFont(ReaderFontEntry font) async {
+    if (_isMemory) {
+      _memoryFonts[font.family] = font;
+      return;
+    }
+    final db = _db!;
+    await db.transaction(() async {
+      final existing = await (db.select(
+        db.userFonts,
+      )..where((table) => table.family.equals(font.family))).get();
+      if (existing.isNotEmpty) {
+        await (db.update(db.userFonts)
+              ..where((table) => table.family.equals(font.family)))
+            .write(UserFontsCompanion(filePath: Value(font.filePath)));
+        return;
+      }
+      await db
+          .into(db.userFonts)
+          .insert(
+            UserFontsCompanion.insert(
+              family: font.family,
+              filePath: font.filePath,
+              displayName: Value(font.displayName),
+            ),
+          );
+    });
   }
 
   /// 全部分组，按创建时间升序。
