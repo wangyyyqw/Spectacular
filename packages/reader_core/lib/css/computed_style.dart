@@ -128,7 +128,7 @@ enum CssHangingPunctuation { none, allowEnd }
 /// 所以默认必须开启才对得上浏览器。
 /// [normal]：不挤压，对应显式 `space-all`（成员名沿用旧枚举，改名会波及
 /// layout 层调用点，语义以本注释为准）。
-/// [trimAll]：阅读器统一压缩模式，所有有半宽留白特性的标点逐字压缩。
+/// [trimAll]：阅读器逐字压缩模式；按原宽压缩行内 20%、相邻及行边 40%。
 enum CssTextSpacingTrim {
   normal,
   trimAdjacent,

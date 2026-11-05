@@ -1,7 +1,6 @@
 import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show StringCharacters;
 
-import 'punct_trim.dart';
 import 'punctuation_spacing.dart';
 import 'text_spacing.dart';
 
@@ -226,7 +225,7 @@ class SpacedParagraph {
     }
     final widerEnd = _firstEnd(probe, width + extra) + start;
     for (var candidate = widerEnd; candidate > end; candidate--) {
-      if (!punctClosingSet.contains(text[candidate - 1])) continue;
+      if (!spacing.canTrimEnd(candidate - 1)) continue;
       final line = measure(start, candidate);
       if (line.metrics.width <= width + 0.01 &&
           _legalBoundary(probe, start, candidate)) {
