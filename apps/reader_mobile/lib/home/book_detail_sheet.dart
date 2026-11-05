@@ -85,6 +85,30 @@ class BookDetailSheet extends StatelessWidget {
               ],
             ),
             const Divider(height: 24),
+            FutureBuilder<List<String>>(
+              future: library.pendingLocationReasons(entry.id),
+              builder: (context, snapshot) {
+                final reasons = snapshot.data ?? const <String>[];
+                if (reasons.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '待确认 ${reasons.length} 条',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      for (final reason in reasons)
+                        Text(reason, style: theme.textTheme.bodySmall),
+                      const SizedBox(height: 6),
+                      Text('在阅读数据列表选择重新定位', style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                );
+              },
+            ),
             Text('导入报告', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             FutureBuilder<List<ImportReportEntry>>(
@@ -123,6 +147,12 @@ class BookDetailSheet extends StatelessWidget {
               icon: Icons.menu_book_outlined,
               label: '图书详情',
               onTap: () => Navigator.of(context).pop('detail'),
+            ),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-update'),
+              icon: Icons.update,
+              label: '更新',
+              onTap: () => Navigator.of(context).pop('update'),
             ),
             _DetailAction(
               key: const ValueKey<String>('book-detail-create-group'),

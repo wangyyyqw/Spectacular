@@ -12,7 +12,10 @@ ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-family': 'Ahem',
 });
 
-PageContent _pageFor(List<({String text, String cfi})> blocks, {int pageIndex = 0}) {
+PageContent _pageFor(
+  List<({String text, String cfi})> blocks, {
+  int pageIndex = 0,
+}) {
   final slices = <PageBlockSlice>[
     for (final block in blocks)
       PageBlockSlice(
@@ -97,7 +100,7 @@ void main() {
       expect(results.single.endCfi, 'epubcfi(/6/4!/4/2/9:9)');
     });
 
-    test('引文多处无上下文 → 取第一个候选（§30.4 取最靠近原位置）', () {
+    test('引文多处无上下文 → 待确认，不自动取第一条', () {
       final pages = <PageContent>[
         _pageFor(<({String text, String cfi})>[
           (text: '重复的文字xx重复的文字', cfi: 'epubcfi(/6/4!/4/2/9)'),
@@ -113,11 +116,14 @@ void main() {
         ],
         pages: pages,
       );
-      expect(results.single.status, AnnotationRelocationStatus.relocated);
-      expect(results.single.startCfi, 'epubcfi(/6/4!/4/2/9:0)');
+      expect(results.single.status, AnnotationRelocationStatus.failed);
+      expect(
+        results.single.failure,
+        AnnotationRelocationFailure.ambiguousQuote,
+      );
     });
 
-    test('引文多处且上下文都对不上 → ambiguousQuote 失败但保留数据', () {
+    test('引文多处且上下文都对不上 → 失败但保留数据', () {
       final pages = <PageContent>[
         _pageFor(<({String text, String cfi})>[
           (text: '重复的文字xx重复的文字', cfi: 'epubcfi(/6/4!/4/2/9)'),
@@ -135,10 +141,6 @@ void main() {
         pages: pages,
       );
       expect(results.single.status, AnnotationRelocationStatus.failed);
-      expect(
-        results.single.failure,
-        AnnotationRelocationFailure.ambiguousQuote,
-      );
       expect(results.single.isResolved, isFalse);
       expect(results.single.annotation.quote, '重复的文字', reason: '数据保留');
     });
@@ -181,10 +183,7 @@ void main() {
         pages: pages,
       );
       expect(results.single.status, AnnotationRelocationStatus.failed);
-      expect(
-        results.single.failure,
-        AnnotationRelocationFailure.quoteNotFound,
-      );
+      expect(results.single.failure, AnnotationRelocationFailure.quoteNotFound);
     });
 
     test('空页/空标注返回空列表', () {

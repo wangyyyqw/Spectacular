@@ -54,6 +54,11 @@ class FileReaderProgressStore implements ReaderProgressStore {
             spineIndex: spine,
             pageIndex: page,
             finished: value['finished'] == true,
+            cfi: value['cfi'] is String ? value['cfi'] as String : null,
+            contentRevision: value['revision'] is String
+                ? value['revision'] as String
+                : null,
+            approximate: value['approximate'] == true,
             scrollOffset: scroll is num ? scroll.toDouble() : null,
           );
         }
@@ -108,6 +113,10 @@ class FileReaderProgressStore implements ReaderProgressStore {
             'spine': entry.value.spineIndex,
             'page': entry.value.pageIndex,
             'finished': entry.value.finished,
+            if (entry.value.cfi != null) 'cfi': entry.value.cfi,
+            if (entry.value.contentRevision != null)
+              'revision': entry.value.contentRevision,
+            if (entry.value.approximate) 'approximate': true,
             if (entry.value.scrollOffset != null)
               'scroll': entry.value.scrollOffset,
           },

@@ -5,6 +5,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_editor_sheet.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
@@ -52,10 +53,48 @@ class _Source implements ReaderChapterSource {
 }
 
 class _Notes implements ReaderAnnotationStore {
+  _Notes(this.source);
+
+  final _Source source;
   final items = <ReaderAnnotation>[];
 
   @override
-  Future<List<ReaderAnnotation>> list() async => List.of(items);
+  Future<List<ReaderAnnotation>> list() async => [
+    for (final item in items) _withContentEvidence(item),
+  ];
+
+  ReaderAnnotation _withContentEvidence(ReaderAnnotation item) {
+    final block = source.pages.first.slices.first.block;
+    final book = AnchorBook(
+      revision: 'reader-layout',
+      chapters: [
+        AnchorChapter(
+          spineIndex: 0,
+          href: '',
+          blocks: [AnchorBlock(cfi: block.startCfi!, text: block.layout.text)],
+        ),
+      ],
+    );
+    final anchor = book.capture(item.startCfi, endCfi: item.endCfi);
+    // 编辑回归的记录来自当前文件；只有原引用确实相同时才补有效证据。
+    if (anchor == null || anchor.quote != item.quote) return item;
+    return ReaderAnnotation(
+      id: item.id,
+      type: item.type,
+      startCfi: item.startCfi,
+      endCfi: item.endCfi,
+      quote: item.quote,
+      contextBefore: item.contextBefore,
+      contextAfter: item.contextAfter,
+      color: item.color,
+      style: item.style,
+      note: item.note,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      anchorData: AnchorRecord(original: anchor).encode(),
+      relocationStatus: 'verified',
+    );
+  }
 
   @override
   Future<ReaderAnnotation?> add({
@@ -143,7 +182,7 @@ final Finder _composerClose = find.byKey(
 
 Future<_Notes> _showEditor(WidgetTester tester) async {
   final source = _Source();
-  final notes = _Notes();
+  final notes = _Notes(source);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -188,7 +227,7 @@ Future<void> _finishExit(WidgetTester tester) async {
 void main() {
   testWidgets('打开笔记编辑层时隐藏选区菜单，关闭后恢复', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -273,7 +312,7 @@ void main() {
 
   testWidgets('目录抽屉可打开笔记页签并展示标注', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'drawer-note',
@@ -343,7 +382,7 @@ void main() {
 
   testWidgets('目录抽屉可批量更换高亮和笔记颜色', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.addAll([
       ReaderAnnotation(
         id: 'drawer-highlight',
@@ -430,7 +469,7 @@ void main() {
 
   testWidgets('已有高亮可补写笔记并转为笔记', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'highlight-to-note',
@@ -583,7 +622,7 @@ void main() {
 
   testWidgets('点击笔记圆点打开笔记编辑层', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'note-marker',
@@ -636,7 +675,7 @@ void main() {
 
   testWidgets('点击已有笔记可修改正文并保存', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -720,7 +759,7 @@ void main() {
 
   testWidgets('连续滚动模式下滚动后点击笔记圆点可打开编辑层', (tester) async {
     final source = _Source(text: 'word ' * 160);
-    final notes = _Notes();
+    final notes = _Notes(source);
     const start = 700;
     const end = 704;
     PageContent? targetPage;
@@ -819,7 +858,7 @@ void main() {
 
     final text = List.generate(240, (index) => 'word$index').join(' ');
     final source = _Source(text: text);
-    final notes = _Notes();
+    final notes = _Notes(source);
     expect(source.pages, hasLength(greaterThan(1)));
     await tester.pumpWidget(
       MaterialApp(
@@ -899,7 +938,7 @@ void main() {
           body: ReaderPage(
             source: source,
             store: MemoryReaderProgressStore(),
-            annotations: _Notes(),
+            annotations: _Notes(source),
             bookId: 'scroll-hide-selection-menu',
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             overrides: const ReaderOverrides(),
@@ -943,7 +982,7 @@ void main() {
           body: ReaderPage(
             source: source,
             store: MemoryReaderProgressStore(),
-            annotations: _Notes(),
+            annotations: _Notes(source),
             bookId: 'scroll-edge-drag',
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             overrides: const ReaderOverrides(),
@@ -991,7 +1030,7 @@ void main() {
     addTearDown(tester.view.resetViewInsets);
 
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'keyboard-actions',
@@ -1047,7 +1086,7 @@ void main() {
 
   testWidgets('修改笔记后换色或样式不会丢失草稿，可一次保存', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'draft-color',
@@ -1131,7 +1170,7 @@ void main() {
 
   testWidgets('删除笔记前确认，取消后保留弹层和正文', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'confirm-remove',
@@ -1202,7 +1241,7 @@ void main() {
 
   testWidgets('仅删除笔记正文时保留高亮并可撤销', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'remove-note-only',
@@ -1330,7 +1369,7 @@ void main() {
 
   testWidgets('新的操作提示替换旧的撤销提示', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'replace-toast',
@@ -1391,7 +1430,7 @@ void main() {
 
   testWidgets('撤销提示会按设定时长自动消失', (tester) async {
     final source = _Source();
-    final notes = _Notes();
+    final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'auto-hide-toast',
@@ -1452,7 +1491,7 @@ void main() {
 
     final text = List.generate(240, (index) => 'word$index').join(' ');
     final source = _Source(text: text);
-    final notes = _Notes();
+    final notes = _Notes(source);
     expect(source.pages, hasLength(greaterThan(1)));
     await tester.pumpWidget(
       MaterialApp(
@@ -1532,7 +1571,7 @@ void main() {
           body: ReaderPage(
             source: source,
             store: MemoryReaderProgressStore(),
-            annotations: _Notes(),
+            annotations: _Notes(source),
             bookId: 'scroll-hide-selection-menu',
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             overrides: const ReaderOverrides(),
@@ -1564,7 +1603,7 @@ void main() {
 
   testWidgets('连续滚动模式下滚动后点击笔记圆点可打开编辑层', (tester) async {
     final source = _Source(text: 'word ' * 160);
-    final notes = _Notes();
+    final notes = _Notes(source);
     const start = 700;
     const end = 704;
     PageContent? targetPage;

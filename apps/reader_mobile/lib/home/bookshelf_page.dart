@@ -430,7 +430,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
         .length;
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (succeeded > 0) {
-      messenger?.showSnackBar(SnackBar(content: Text('已导入 $succeeded 本书')));
+      final outcomes = _batch
+          .where((job) => job.status == ImportStatus.succeeded)
+          .map((job) => job.entry!.importOutcome)
+          .toList();
+      final added = outcomes
+          .where((value) => value == BookImportOutcome.added)
+          .length;
+      final updated = outcomes
+          .where((value) => value == BookImportOutcome.updated)
+          .length;
+      final unchanged = outcomes
+          .where((value) => value == BookImportOutcome.unchanged)
+          .length;
+      final message = succeeded == 1
+          ? switch (outcomes.single) {
+              BookImportOutcome.added => '已导入 1 本书',
+              BookImportOutcome.updated => '书籍已更新',
+              BookImportOutcome.unchanged => '书籍内容未变化',
+            }
+          : [
+              if (added > 0) '新增 $added 本',
+              if (updated > 0) '更新 $updated 本',
+              if (unchanged > 0) '$unchanged 本内容未变化',
+            ].join('，');
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
     }
     if (failed != null) {
       _showImportFailure(failed, messenger);
@@ -445,7 +469,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
       failed.error ?? '',
     );
     final message = '${friendly.title}。${friendly.suggestion}';
-    if (failed.errorCode == 'E_DUPLICATE') {
+    if (failed.errorCode == 'E_DUPLICATE' ||
+        failed.updateBookId != null ||
+        failed.errorCode == 'E_REVISION_CONFLICT' ||
+        failed.errorCode == 'E_STALE_REVISION') {
       // 重复导入不影响现有书架，用户可以直接打开原书。
       messenger?.showSnackBar(SnackBar(content: Text(message)));
     } else {
@@ -583,10 +610,38 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     } else if (action == 'delete') {
       await _confirmRemove(entry);
+    } else if (action == 'update') {
+      await _pickBookUpdate(entry);
     } else if (action == 'create-group') {
       await _createGroup(initialBookIds: <String>{entry.id});
     } else if (action == 'multi-select') {
       _startSelection(entry);
+    }
+  }
+
+  Future<void> _pickBookUpdate(BookEntry entry) async {
+    try {
+      final paths = await widget.pickEpubFiles();
+      if (!mounted || paths.isEmpty) return;
+      if (paths.length != 1) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('更新时请选择一本 EPUB')));
+        return;
+      }
+      final bytes = await widget.readFile(paths.single);
+      if (!mounted) return;
+      setState(() {
+        _batch.clear();
+        _reportedJobs = 0;
+        _error = null;
+      });
+      _batch.add(_queue.enqueue(bytes, updateBookId: entry.id));
+      setState(() {});
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('无法更新：$error')));
+      }
     }
   }
 

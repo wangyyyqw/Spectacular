@@ -87,7 +87,13 @@ class BookmarkPanel extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          _formatTime(bookmark.createdAt),
+                          [
+                            _formatTime(bookmark.createdAt),
+                            if (bookmark.needsRelocation) '待确认 · 点击重新定位',
+                            if (bookmark.needsRelocation &&
+                                bookmark.relocationReason != null)
+                              bookmark.relocationReason!,
+                          ].join('\n'),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.outline,
                           ),

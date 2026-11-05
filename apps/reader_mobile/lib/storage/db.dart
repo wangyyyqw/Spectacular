@@ -26,6 +26,9 @@ class Books extends Table {
   /// 迁移前标识，供旧进度文件解析及旧目录保护。
   TextColumn get legacyUuid => text().nullable()();
 
+  /// 当前 EPUB 字节摘要，与书籍身份分开。
+  TextColumn get contentRevision => text().nullable()();
+
   /// 书名。
   TextColumn get title => text()();
 
@@ -146,6 +149,9 @@ class Annotations extends Table {
   /// 结束 CFI。
   TextColumn get endCfi => text()();
 
+  /// 原始与当前内容锚点，以及迁移状态。
+  TextColumn get anchorJson => text().nullable()();
+
   /// 原文引用（兜底重定位）。
   TextColumn get quote => text()();
 
@@ -184,6 +190,9 @@ class ReadingProgress extends Table {
   /// 位置 CFI（P5 接入 CFI 后使用；当前存 `spine:i/page:j` 占位串）。
   TextColumn get locatorCfi => text()();
 
+  /// 版本化内容锚点，旧位置串保留兼容。
+  TextColumn get anchorJson => text().nullable()();
+
   /// spine 序号（P4-10：进度迁移到表内，书架/续读用）。
   IntColumn get spineIndex => integer().nullable()();
 
@@ -201,6 +210,17 @@ class ReadingProgress extends Table {
 
   @override
   Set<Column<Object>> get primaryKey => <Column<Object>>{bookId};
+}
+
+/// 强制更新前的历史书籍标识，仅供旧数据定位，不参与自动覆盖。
+@DataClassName('BookIdAliasRow')
+class BookIdAliases extends Table {
+  TextColumn get aliasId => text()();
+  IntColumn get bookId =>
+      integer().references(Books, #id, onDelete: KeyAction.cascade)();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{aliasId, bookId};
 }
 
 /// 用户导入字体表（§36.1）。
@@ -399,6 +419,7 @@ class BookTagLinks extends Table {
     ShelfGroupBooks,
     BookTags,
     BookTagLinks,
+    BookIdAliases,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -410,7 +431,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -501,6 +522,13 @@ class AppDatabase extends _$AppDatabase {
         await migrator.addColumn(books, books.identityVersion);
         await migrator.addColumn(books, books.legacyUuid);
         version = 13;
+      }
+      if (version < 14) {
+        await migrator.addColumn(books, books.contentRevision);
+        await migrator.addColumn(annotations, annotations.anchorJson);
+        await migrator.addColumn(readingProgress, readingProgress.anchorJson);
+        await migrator.createTable(bookIdAliases);
+        version = 14;
       }
       await _createIndexes();
     },

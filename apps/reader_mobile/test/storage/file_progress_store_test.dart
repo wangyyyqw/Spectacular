@@ -15,6 +15,9 @@ void main() {
         pageIndex: 3,
         finished: true,
         scrollOffset: 37.25,
+        cfi: 'epubcfi(/6/2!/4/2:3)',
+        contentRevision: 'test-revision',
+        approximate: true,
       ),
     );
     expect(File('${dir.path}/reader_progress.json').existsSync(), isTrue);
@@ -27,6 +30,9 @@ void main() {
         pageIndex: 3,
         finished: true,
         scrollOffset: 37.25,
+        cfi: 'epubcfi(/6/2!/4/2:3)',
+        contentRevision: 'test-revision',
+        approximate: true,
       ),
     );
     expect(await second.load('missing'), isNull);

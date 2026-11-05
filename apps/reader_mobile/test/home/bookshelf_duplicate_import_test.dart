@@ -7,7 +7,7 @@ import 'package:reader_mobile/storage/file_progress_store.dart';
 import '../support/test_epub.dart';
 
 void main() {
-  testWidgets('固定ID拒绝重复导入后，提示准确且原书仍可见', (tester) async {
+  testWidgets('相同文件导入提示内容未变化且原书仍可见', (tester) async {
     final library = LibraryStore.memory();
     final bytes = buildTestEpub(title: '重复验收书', author: '作者');
     final book = await library.importBytes(bytes);
@@ -24,12 +24,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('导入 EPUB'));
     await tester.pumpAndSettle();
-    // 文件选择提示结束后，显示排队的重复导入通知。
+    // 文件选择提示结束后，显示排队的内容未变化通知。
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
 
     expect(await library.list(), hasLength(1));
-    expect(find.textContaining('这本书已在书架中'), findsOneWidget);
+    expect(find.text('书籍内容未变化'), findsOneWidget);
     expect(
       find.byKey(ValueKey<String>('book-card-${book.id}')),
       findsOneWidget,

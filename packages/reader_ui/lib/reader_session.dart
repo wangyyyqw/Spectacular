@@ -27,6 +27,9 @@ class ReaderProgress {
     required this.pageIndex,
     this.finished = false,
     this.scrollOffset,
+    this.cfi,
+    this.contentRevision,
+    this.approximate = false,
   });
 
   /// 章节序号。
@@ -41,17 +44,36 @@ class ReaderProgress {
   /// 连续滚动模式在当前页切片内的垂直偏移；分页模式为 null。
   final double? scrollOffset;
 
+  /// 当前内容的文字锚点；页号仅作为同版本的快速恢复提示。
+  final String? cfi;
+
+  /// 锚点所属原 EPUB 的内容摘要。
+  final String? contentRevision;
+
+  /// 此次位置来自旧版页号或比例兜底。
+  final bool approximate;
+
   @override
   bool operator ==(Object other) =>
       other is ReaderProgress &&
       other.spineIndex == spineIndex &&
       other.pageIndex == pageIndex &&
       other.finished == finished &&
-      other.scrollOffset == scrollOffset;
+      other.scrollOffset == scrollOffset &&
+      other.cfi == cfi &&
+      other.contentRevision == contentRevision &&
+      other.approximate == approximate;
 
   @override
-  int get hashCode =>
-      Object.hash(spineIndex, pageIndex, finished, scrollOffset);
+  int get hashCode => Object.hash(
+    spineIndex,
+    pageIndex,
+    finished,
+    scrollOffset,
+    cfi,
+    contentRevision,
+    approximate,
+  );
 
   @override
   String toString() =>
@@ -113,6 +135,9 @@ class ReaderBookmark {
     required this.spineIndex,
     required this.label,
     required this.createdAt,
+    this.relocationStatus,
+    this.relocationReason,
+    this.currentQuote,
   });
 
   /// 唯一标识。
@@ -129,6 +154,21 @@ class ReaderBookmark {
 
   /// 创建时间。
   final DateTime createdAt;
+
+  /// 跨版本位置的验证状态；待确认记录不得按旧 CFI 直接跳转。
+  final String? relocationStatus;
+  final String? relocationReason;
+  final String? currentQuote;
+
+  bool get needsRelocation =>
+      relocationStatus != null &&
+      relocationStatus != 'verified' &&
+      relocationStatus != 'relocated';
+}
+
+/// 支持将历史书签关联到用户指定的新版位置。
+abstract interface class RelocatableBookmarkStore {
+  Future<void> relocate(String id, {required String cfi});
 }
 
 /// 书签存储（P4-13）：阅读页通过它读写书签，app 层用数据库实现。
@@ -222,6 +262,7 @@ class ReaderSession extends ChangeNotifier {
     required this.store,
     required this.bookId,
     this.persistInterval = defaultPersistInterval,
+    this.contentRevision,
   });
 
   /// 进度写入节流间隔（P4-10，§76.6）。
@@ -235,6 +276,9 @@ class ReaderSession extends ChangeNotifier {
 
   /// 书籍标识。
   final String bookId;
+
+  /// 原 EPUB 文件的内容摘要，用于拒绝旧会话覆盖新版位置。
+  final String? contentRevision;
 
   /// 进度写入节流间隔：间隔内的连续翻页合并成一次写库。
   final Duration persistInterval;
@@ -330,6 +374,7 @@ class ReaderSession extends ChangeNotifier {
     _scrollSpineIndex = spineIndex;
     _scrollPageIndex = pageIndex;
     _scrollOffset = offset;
+    _restoredApproximate = false;
     if (pageChanged) {
       _recordPageTurn(origin);
       _notify();
@@ -342,6 +387,7 @@ class ReaderSession extends ChangeNotifier {
     _scrollSpineIndex = null;
     _scrollPageIndex = null;
     _scrollOffset = null;
+    _restoredApproximate = false;
   }
 
   double? _contentWidth;
@@ -358,6 +404,11 @@ class ReaderSession extends ChangeNotifier {
   double? get contentHeight => _contentHeight;
   Object? _error;
   bool _restoredFinished = false;
+  // 更新后的未读完进度可能仍落在末页；恢复和重排不能代替真实导航。
+  bool _suppressRestoredFinished = false;
+  bool _restoredApproximate = false;
+
+  bool get approximateRestoration => _restoredApproximate;
   bool _disposed = false;
   Timer? _persistTimer;
   Future<void>? _persistTask;
@@ -433,7 +484,10 @@ class ReaderSession extends ChangeNotifier {
     final hit = _hitAtScrollOffset(value);
     final blockCfi = hit?.slice.block.startCfi;
     if (hit != null && blockCfi != null) {
-      return cfiWithCharOffset(blockCfi, hit.line.start);
+      return cfiWithCharOffset(
+        blockCfi,
+        (cfiCharOffset(blockCfi) ?? 0) + hit.line.start,
+      );
     }
     final anchor = _anchorOf(value);
     final anchorCfi = anchor.cfi;
@@ -442,7 +496,10 @@ class ReaderSession extends ChangeNotifier {
     }
     return anchor.charOffset == 0
         ? anchorCfi
-        : cfiWithCharOffset(anchorCfi, anchor.charOffset);
+        : cfiWithCharOffset(
+            anchorCfi,
+            (cfiCharOffset(anchorCfi) ?? 0) + anchor.charOffset,
+          );
   }
 
   /// 当前视口首个可见行的文本；没有可定位行时为空。
@@ -492,6 +549,7 @@ class ReaderSession extends ChangeNotifier {
       _generation += 1;
       _clearScrollPosition();
       final pager = _pager!;
+      final origin = pager.current;
       final changed = await pager.goTo(spine, 0);
       if (token != _jumpToken) {
         return false;
@@ -524,6 +582,11 @@ class ReaderSession extends ChangeNotifier {
         // 连续滚动可能在跳转早期按旧进度完成一次恢复；目标页和页内偏移
         // 确定后再递增一次，确保视图重新读取最终进度。
         _generation += 1;
+      }
+      final target = pager.current;
+      if (origin?.spineIndex != target?.spineIndex ||
+          origin?.pageIndex != target?.pageIndex) {
+        _suppressRestoredFinished = false;
       }
       _notify();
       _persist();
@@ -584,6 +647,7 @@ class ReaderSession extends ChangeNotifier {
         return false;
       }
       if (changed) {
+        _suppressRestoredFinished = false;
         _notify();
         _persist();
       }
@@ -620,7 +684,8 @@ class ReaderSession extends ChangeNotifier {
         : _pager?.spinePages[lastSpineIndex]?.length;
     final finished =
         _restoredFinished ||
-        (lastChapterPages != null &&
+        (!_suppressRestoredFinished &&
+            lastChapterPages != null &&
             lastChapterPages > 0 &&
             current.spineIndex == lastSpineIndex &&
             current.pageIndex >= lastChapterPages - 1);
@@ -628,6 +693,9 @@ class ReaderSession extends ChangeNotifier {
       spineIndex: current.spineIndex,
       pageIndex: current.pageIndex,
       finished: finished,
+      cfi: contentRevision == null ? null : currentCfi,
+      contentRevision: contentRevision,
+      approximate: _restoredApproximate,
       scrollOffset:
           current.spineIndex == _scrollSpineIndex &&
               current.pageIndex == _scrollPageIndex
@@ -689,6 +757,8 @@ class ReaderSession extends ChangeNotifier {
   }
 
   void _recordPageTurn(PageContent? origin) {
+    _suppressRestoredFinished = false;
+    _restoredApproximate = false;
     _pageTurns += 1;
     _charactersRead += _textOf(origin)
         .replaceAll(RegExp(r'\s+'), '')
@@ -723,24 +793,38 @@ class ReaderSession extends ChangeNotifier {
       if (generation != _generation) return;
       final saved = await store.load(bookId);
       if (generation != _generation) return;
-      _restoredFinished = saved?.finished ?? false;
+      final sameRevision = saved?.contentRevision == contentRevision;
+      final legacyProgress = saved?.contentRevision == null;
+      final usableCache = sameRevision || legacyProgress;
+      _restoredFinished = usableCache && (saved?.finished ?? false);
+      _suppressRestoredFinished = saved != null && !saved.finished;
       final pager = VirtualPager(
         spineCount: source.chapterCount,
         loader: source.loadChapter,
       );
       await pager.initialize(
-        startSpine: saved?.spineIndex ?? 0,
-        startPage: saved?.pageIndex ?? 0,
+        startSpine: usableCache ? saved?.spineIndex ?? 0 : 0,
+        startPage: usableCache ? saved?.pageIndex ?? 0 : 0,
       );
       if (generation != _generation) return;
       _pager = pager;
-      if (saved?.scrollOffset != null) {
+      _clearScrollPosition();
+      final savedCfi = sameRevision ? saved?.cfi : null;
+      if (savedCfi != null) {
+        await _restoreCfi(
+          pager,
+          savedCfi,
+          generation,
+          continuous: saved?.scrollOffset != null,
+        );
+        if (generation != _generation) return;
+      } else if (saved?.scrollOffset != null && usableCache) {
         _scrollSpineIndex = saved!.spineIndex;
         _scrollPageIndex = saved.pageIndex;
         _scrollOffset = saved.scrollOffset;
-      } else {
-        _clearScrollPosition();
       }
+      _restoredApproximate =
+          (saved?.approximate ?? false) || (saved != null && !usableCache);
       _loading = false;
       // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
       _lastPersisted = progress;
@@ -752,6 +836,31 @@ class ReaderSession extends ChangeNotifier {
       _error = error;
       _loading = false;
       _notify();
+    }
+  }
+
+  Future<void> _restoreCfi(
+    VirtualPager pager,
+    String cfi,
+    int generation, {
+    bool continuous = false,
+  }) async {
+    final parsed = EpubCfi.parse(cfi);
+    final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+    if (spine == null || spine < 0 || spine >= source.chapterCount) return;
+    final pages = await source.loadChapter(spine);
+    if (_disposed || generation != _generation) return;
+    final anchor = ReaderAnchor(cfi: cfi);
+    final index = _locatePage(pages, anchor);
+    await pager.goTo(spine, index);
+    if (_disposed || generation != _generation || !continuous) return;
+    final layout = ScrollChapterLayout.fromPages(spine, pages);
+    for (final segment in layout.segments) {
+      if (segment.pageIndex != index) continue;
+      _scrollSpineIndex = spine;
+      _scrollPageIndex = index;
+      _scrollOffset = _scrollOffsetForAnchor(segment.content, anchor);
+      break;
     }
   }
 

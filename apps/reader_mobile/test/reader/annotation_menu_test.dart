@@ -12,7 +12,9 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/db.dart';
 
@@ -31,6 +33,106 @@ Uint8List _corpusBook(String name) {
     }
     directory = parent;
   }
+}
+
+String _normalized(String value) =>
+    value.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+/// 菜单使用确定性内存存储；完整原 EPUB 锚点核验仍按实际选中文字执行。
+class _Annotations implements ReaderAnnotationStore {
+  _Annotations(this.book);
+  final AnchorBook book;
+  final items = <ReaderAnnotation>[];
+  int sequence = 0;
+  LocationAnchor _capture(String start, String end, String quote) {
+    final anchor = book.capture(start, endCfi: end);
+    expect(anchor, isNotNull, reason: '选区必须对应原 EPUB 的实际位置');
+    expect(
+      _normalized(anchor!.quote),
+      _normalized(quote),
+      reason: '不能以合法 CFI 替代选中文字的内容核验',
+    );
+    return anchor;
+  }
+
+  @override
+  Future<List<ReaderAnnotation>> list() async => List.of(items);
+  @override
+  Future<ReaderAnnotation?> add({
+    required ReaderAnnotationType type,
+    required String startCfi,
+    required String endCfi,
+    required String quote,
+    String? contextBefore,
+    String? contextAfter,
+    int? color,
+    ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    String? note,
+  }) async {
+    if (items.any(
+      (item) =>
+          item.type == type &&
+          item.startCfi == startCfi &&
+          item.endCfi == endCfi,
+    )) {
+      return null;
+    }
+    final anchor = _capture(startCfi, endCfi, quote);
+    final item = ReaderAnnotation(
+      id: '${++sequence}',
+      type: type,
+      startCfi: startCfi,
+      endCfi: endCfi,
+      quote: quote,
+      contextBefore: contextBefore,
+      contextAfter: contextAfter,
+      color: color,
+      style: style,
+      note: note,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      relocationStatus: 'verified',
+      currentQuote: anchor.quote,
+      anchorData: AnchorRecord(original: anchor).encode(),
+    );
+    items.add(item);
+    return item;
+  }
+
+  @override
+  Future<void> update(
+    String id, {
+    ReaderAnnotationType? type,
+    int? color,
+    ReaderAnnotationStyle? style,
+    String? note,
+    bool clearNote = false,
+  }) async {
+    final index = items.indexWhere((item) => item.id == id);
+    if (index < 0) return;
+    final item = items[index];
+    items[index] = ReaderAnnotation(
+      id: item.id,
+      type: type ?? item.type,
+      startCfi: item.startCfi,
+      endCfi: item.endCfi,
+      quote: item.quote,
+      contextBefore: item.contextBefore,
+      contextAfter: item.contextAfter,
+      color: color ?? item.color,
+      style: style ?? item.style,
+      note: clearNote ? null : note ?? item.note,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      relocationStatus: item.relocationStatus,
+      currentQuote: item.currentQuote,
+      anchorData: item.anchorData,
+    );
+  }
+
+  @override
+  Future<void> remove(String id) async =>
+      items.removeWhere((item) => item.id == id);
 }
 
 void main() {
@@ -63,7 +165,10 @@ void main() {
     await tester.runAsync(() async {
       book = await library.importBytes(bytes, fallbackTitle: 'basic');
     });
-    final annotations = library.annotationStore(book.id)!;
+    late _Annotations annotations;
+    await tester.runAsync(() async {
+      annotations = _Annotations(await buildRevisionAnchorBook(bytes));
+    });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -140,7 +245,10 @@ void main() {
       book = await library.importBytes(bytes, fallbackTitle: 'basic');
     });
     final source = await openTestChapterSource(bytes);
-    final annotations = library.annotationStore(book.id)!;
+    late _Annotations annotations;
+    await tester.runAsync(() async {
+      annotations = _Annotations(await buildRevisionAnchorBook(bytes));
+    });
 
     Future<void> pumpReader() async {
       await tester.pumpWidget(
@@ -208,7 +316,10 @@ void main() {
       book = await library.importBytes(bytes, fallbackTitle: 'basic');
     });
     final source = await openTestChapterSource(bytes);
-    final annotations = library.annotationStore(book.id)!;
+    late _Annotations annotations;
+    await tester.runAsync(() async {
+      annotations = _Annotations(await buildRevisionAnchorBook(bytes));
+    });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -278,9 +389,7 @@ void main() {
 
     await tester.tapAt(center);
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-add-note')),
-    );
+    await tester.tap(find.byKey(const ValueKey<String>('annotation-add-note')));
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-color-0xFFA5D6A7')),
