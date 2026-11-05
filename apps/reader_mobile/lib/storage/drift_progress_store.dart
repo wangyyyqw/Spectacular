@@ -6,19 +6,27 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
 import '../library/revision_anchor_store.dart';
+import '../reader/epub_chapter_source.dart';
 
 import 'db.dart';
 
 /// 阅读进度的 drift 实现（P4-10）：写 `reading_progress` 表。
 ///
-/// 位置串包含章、页及连续滚动的页内偏移；百分比由 `ProgressWeights`
-/// 按字符权重实时计算（P4-09）。
+/// 位置串包含章、页及连续滚动的页内偏移；百分比复用导入字数权重，
+/// 结合当前章锚点比例计算，不为保存进度扫描全书。
 class DriftProgressStore implements ReaderProgressStore {
   /// 创建存储。
   DriftProgressStore(this._db);
 
   final AppDatabase _db;
   static final RegExp _scrollOffsetPattern = RegExp(r'(?:^|/)scroll:([^/]+)$');
+
+  /// 阅读期间借用现有章节源，避免保存进度和笔记时重新打开整本 EPUB。
+  Future<void Function()> bindSource(
+    String bookId,
+    EpubChapterSource source,
+    String revision,
+  ) => bindReadingAnchorSource(_db, bookId, source, revision);
 
   /// 读取某书进度。
   @override
@@ -45,7 +53,9 @@ class DriftProgressStore implements ReaderProgressStore {
             approximate: progress.approximate,
             existing: AnchorRecord.decode(prior?.anchorJson),
           );
-    if (progress.cfi != null && record == null) return;
+    if (progress.cfi != null && record == null) {
+      throw StateError('无法保存阅读位置的内容锚点，请重试');
+    }
     final percent = await _percentOf(book, record);
     await _db.transaction(
       () => _writeProgress(book, progress, record, percent),
@@ -107,19 +117,35 @@ class DriftProgressStore implements ReaderProgressStore {
 
   Future<double> _percentOf(BookRow book, AnchorRecord? record) async {
     if (record == null) return 0;
-    final index = await loadBookAnchorIndex(_db, book);
-    if (index == null) return 0;
     final point = record.effective.start;
-    var total = 0;
-    var before = 0;
-    for (final chapter in index.chapters) {
-      if (!chapter.readable) continue;
-      total += chapter.text.length;
-      if (chapter.spineIndex < point.spineIndex) before += chapter.text.length;
+    final chapter =
+        await (_db.select(_db.spineItems)..where(
+              (table) =>
+                  table.bookId.equals(book.id) &
+                  table.spineIndex.equals(point.spineIndex),
+            ))
+            .getSingleOrNull();
+    final ratio = point.chapterLength == 0
+        ? 0.0
+        : point.charOffset / point.chapterLength;
+    if (chapter == null || book.charCount <= 0) {
+      // 兼容尚无导入字数统计的旧书，按章等权；单章仍保留精确比例。
+      final count = book.spineCount > 0 ? book.spineCount : 1;
+      return ((point.spineIndex + ratio) / count * 100).clamp(0, 100);
     }
-    return total == 0
-        ? 0
-        : ((before + point.charOffset) / total * 100).clamp(0, 100).toDouble();
+    final sum = _db.spineItems.charCount.sum();
+    final totals = await (_db.selectOnly(_db.spineItems)
+          ..addColumns([sum])
+          ..where(
+            _db.spineItems.bookId.equals(book.id) &
+                _db.spineItems.linear.equals(1),
+          ))
+        .getSingle();
+    final total = totals.read(sum) ?? 0;
+    if (total <= 0) return 0;
+    final before = chapter.charStart ?? 0;
+    final within = chapter.linear == 0 ? 0 : (chapter.charCount ?? 0) * ratio;
+    return ((before + within) / total * 100).clamp(0, 100);
   }
 
   String? _encodeAnchor(
@@ -146,7 +172,9 @@ class DriftProgressStore implements ReaderProgressStore {
       return progress.cfi == null || book.contentRevision == null;
     }
     if (book.contentRevision != null) return revision == book.contentRevision;
-    final index = await loadBookAnchorIndex(_db, book);
+    final cfi = progress.cfi;
+    if (cfi == null) return false;
+    final index = await loadBookAnchorIndex(_db, book, startCfi: cfi);
     return index?.revision == revision;
   }
 

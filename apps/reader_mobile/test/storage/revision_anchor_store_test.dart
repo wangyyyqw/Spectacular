@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
+import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_annotation_store.dart';
 import 'package:reader_mobile/storage/drift_bookmark_store.dart';
@@ -51,6 +52,114 @@ void main() {
   });
 
   String cfi(int offset) => index.anchorAt(0, offset)!.start.cfi;
+
+  Future<void> bindMultiChapterSource() async {
+    final bytes = buildMultiChapterEpub(
+      chapters: ['第一章用于连续保存进度和笔记。', '中间章节的内容必须完整保留。', '最后一章用于恢复最新位置。'],
+    );
+    index = await buildRevisionAnchorBook(bytes);
+    await File(book.sourcePath!).writeAsBytes(bytes);
+    await (db.update(
+      db.books,
+    )..where((table) => table.id.equals(book.id))).write(
+      BooksCompanion(
+        contentRevision: Value(index.revision),
+        spineCount: Value(index.chapters.length),
+        charCount: Value(
+          index.chapters.fold(0, (sum, chapter) => sum + chapter.text.length),
+        ),
+      ),
+    );
+    var before = 0;
+    for (final chapter in index.chapters) {
+      await db
+          .into(db.spineItems)
+          .insert(
+            SpineItemsCompanion.insert(
+              bookId: book.id,
+              spineIndex: chapter.spineIndex,
+              href: chapter.href,
+              charCount: Value(chapter.text.length),
+              charStart: Value(before),
+            ),
+          );
+      before += chapter.text.length;
+    }
+    final source = await EpubChapterSource.open(bytes, verifyCrc: false);
+    final release = await bindReadingAnchorSource(
+      db,
+      'current',
+      source,
+      index.revision,
+    );
+    addTearDown(() {
+      release();
+      source.close();
+    });
+    await File(book.sourcePath!).rename('${book.sourcePath!}.moved');
+  }
+
+  test('借用阅读源保存多章进度与笔记无需重读原文件，恢复最新位置和准确百分比', () async {
+    await bindMultiChapterSource();
+    final progress = DriftProgressStore(db);
+    final annotations = DriftAnnotationStore(db, 'current');
+    ReaderProgress? latest;
+    for (var spine = 0; spine < index.chapters.length; spine++) {
+      latest = ReaderProgress(
+        spineIndex: spine,
+        pageIndex: spine + 1,
+        cfi: index.anchorAt(spine, 8)!.start.cfi,
+        contentRevision: index.revision,
+      );
+      await progress.save('current', latest);
+      final selection = index.capture(
+        index.anchorAt(spine, 9)!.start.cfi,
+        endCfi: index.anchorAt(spine, 15)!.start.cfi,
+      )!;
+      final added = await annotations.add(
+        type: ReaderAnnotationType.note,
+        startCfi: selection.start.cfi,
+        endCfi: selection.end!.cfi,
+        quote: selection.quote,
+        note: '第${spine + 1}章笔记',
+      );
+      expect(added?.relocationStatus, 'verified');
+    }
+    expect(await DriftProgressStore(db).load('current'), latest);
+    expect(await annotations.list(), hasLength(3));
+    final row = (await db.select(db.readingProgress).get()).single;
+    final before = index.chapters
+        .take(2)
+        .fold(0, (sum, ch) => sum + ch.text.length);
+    final total = index.chapters.fold(0, (sum, ch) => sum + ch.text.length);
+    expect(row.percent, closeTo((before + 8) / total * 100, 0.001));
+  });
+
+  test('借用阅读源保存跨章笔记保留中间章节和完整引用', () async {
+    await bindMultiChapterSource();
+    final start = index.anchorAt(0, 8)!.start.cfi;
+    final end = index.anchorAt(2, 12)!.start.cfi;
+    final quote =
+        index.chapters[0].text.substring(8) +
+        index.chapters[1].text +
+        index.chapters[2].text.substring(0, 12);
+    final annotations = DriftAnnotationStore(db, 'current');
+    final added = await annotations.add(
+      type: ReaderAnnotationType.note,
+      startCfi: start,
+      endCfi: end,
+      quote: quote,
+      note: '跨章笔记',
+    );
+    expect(added?.relocationStatus, 'verified');
+    final stored = (await annotations.list()).single;
+    final anchor = AnchorRecord.decode(stored.anchorData)!.effective;
+    expect(anchor.start.cfi, start);
+    expect(anchor.end!.cfi, end);
+    expect(anchor.quote, quote);
+    expect(anchor.quote, contains('中间章节的内容必须完整保留。'));
+    expect(stored.note, '跨章笔记');
+  });
 
   test('当前身份优先，历史别名仅唯一时认领，兼容legacyUuid', () async {
     final otherId = await db
@@ -353,14 +462,17 @@ void main() {
       ),
     );
     final saved = (await db.select(db.readingProgress).get()).single;
-    await progress.save(
-      'current',
-      ReaderProgress(
-        spineIndex: 0,
-        pageIndex: 9,
-        cfi: 'epubcfi(/6/99999!/4/2:10000)',
-        contentRevision: index.revision,
+    await expectLater(
+      progress.save(
+        'current',
+        ReaderProgress(
+          spineIndex: 0,
+          pageIndex: 9,
+          cfi: 'epubcfi(/6/99999!/4/2:10000)',
+          contentRevision: index.revision,
+        ),
       ),
+      throwsA(isA<StateError>()),
     );
     expect(
       (await db.select(db.readingProgress).get()).single.toJson(),

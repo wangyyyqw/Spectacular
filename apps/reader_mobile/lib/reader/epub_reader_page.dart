@@ -17,6 +17,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../diagnostics/reader_log.dart';
 import '../search/scan_search_service.dart';
 import '../storage/reading_session_store.dart';
+import '../storage/drift_progress_store.dart';
 import 'epub_chapter_source.dart';
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
@@ -137,6 +138,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   DecodedImageCache? _imageCache;
   ReadingSessionTracker? _readingTracker;
   ReaderSession? _readerSession;
+  void Function()? _releaseAnchorSource;
   int _trackedPageTurns = 0;
   int _trackedCharactersRead = 0;
   Object? _error;
@@ -196,8 +198,20 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         return;
       }
       source.bookIdForTrace = widget.bookId;
+      _source = source;
+      if (widget.store case DriftProgressStore store) {
+        _releaseAnchorSource = await store.bindSource(
+          widget.bookId,
+          source,
+          _contentRevision,
+        );
+        if (!mounted) {
+          _releaseAnchorSource?.call();
+          source.close();
+          return;
+        }
+      }
       setState(() {
-        _source = source;
         _search = ScanSearchService(
           source: source,
           onLog: (event, fields) =>
@@ -213,6 +227,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _openTrace?.stop());
     } catch (error) {
+      _releaseAnchorSource?.call();
+      _releaseAnchorSource = null;
+      _source?.close();
+      _source = null;
       if (mounted) {
         setState(() {
           _error = error;
@@ -242,7 +260,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   @override
   void dispose() {
-    _readerSession?.removeListener(_syncReadingStats);
+    final session = _readerSession;
+    session?.removeListener(_syncReadingStats);
     _readerSession = null;
     if (_readingTracker != null) {
       WidgetsBinding.instance.removeObserver(this);
@@ -250,8 +269,22 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     }
     _search?.dispose();
     _imageCache?.clear();
-    _source?.close();
+    unawaited(_closeSource(session));
     super.dispose();
+  }
+
+  Future<void> _closeSource(ReaderSession? session) async {
+    try {
+      await session?.flushProgress();
+    } catch (error) {
+      await ReaderLog.instance.log(
+        'progress_save_error',
+        fields: {'bookId': widget.bookId, 'error': '$error'},
+      );
+    } finally {
+      _releaseAnchorSource?.call();
+      _source?.close();
+    }
   }
 
   @override
