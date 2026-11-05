@@ -11,6 +11,10 @@ Future<bool> prepareLibraryStorage(LibraryStore library, ReaderLog log) async {
     if (migrated > 0) {
       await log.log('library_migrated', fields: {'books': migrated});
     }
+    final rekeyed = await library.migrateBookIds();
+    if (rekeyed > 0) {
+      await log.log('book_ids_migrated', fields: {'books': rekeyed});
+    }
     final swept = await library.sweepOrphans();
     if (swept.removed > 0) {
       await log.log(

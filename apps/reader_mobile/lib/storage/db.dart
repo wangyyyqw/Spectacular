@@ -14,8 +14,17 @@ class Books extends Table {
   /// 主键。
   IntColumn get id => integer().autoIncrement()();
 
-  /// OPF unique-identifier：同一本书重复导入落到同一目录。
+  /// 固定算法生成的 32 位书籍标识；保留列名以兼容已有存储接口。
   TextColumn get uuid => text().unique()();
+
+  /// EPUB 原始 unique-identifier，不使用书籍标识替换字体解混淆密钥。
+  TextColumn get epubIdentifier => text().nullable()();
+
+  /// 标识算法版本；0 表示等待从原书迁移，1 表示固定摘要算法。
+  IntColumn get identityVersion => integer().withDefault(const Constant(0))();
+
+  /// 迁移前标识，供旧进度文件解析及旧目录保护。
+  TextColumn get legacyUuid => text().nullable()();
 
   /// 书名。
   TextColumn get title => text()();
@@ -401,7 +410,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -486,6 +495,12 @@ class AppDatabase extends _$AppDatabase {
           await migrator.addColumn(readingProgress, readingProgress.finished);
         }
         version = 12;
+      }
+      if (version < 13) {
+        await migrator.addColumn(books, books.epubIdentifier);
+        await migrator.addColumn(books, books.identityVersion);
+        await migrator.addColumn(books, books.legacyUuid);
+        version = 13;
       }
       await _createIndexes();
     },

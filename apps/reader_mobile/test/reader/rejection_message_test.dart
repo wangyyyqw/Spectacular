@@ -77,6 +77,20 @@ void main() {
       final message = EpubRejectionMessages.forCode('E_NEVER_SEEN', null);
       expect(message.title, contains('无法解析'));
     });
+
+    test('重复与身份冲突不误报书籍格式错误', () {
+      final duplicate = EpubRejectionMessages.forCode('E_DUPLICATE', null);
+      expect(duplicate.title, '这本书已在书架中');
+      expect(duplicate.suggestion, '请直接从书架打开阅读');
+
+      final conflict = EpubRejectionMessages.forCode(
+        'E_IDENTITY_CONFLICT',
+        'Exception: 不应展示的内部详情',
+      );
+      expect(conflict.title, contains('原数据已保留'));
+      expect(conflict.suggestion, contains('原 EPUB 文件'));
+      expect(conflict.title, isNot(contains('Exception')));
+    });
   });
 
   group('分级落库与角标（P3-27，§55.2）', () {

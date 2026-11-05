@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/api.dart';
+import 'package:reader_core/epub/book_identity.dart';
 import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -16,6 +17,7 @@ import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
 import '../storage/reading_session_store.dart';
+import 'book_identity_migration.dart';
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
 enum BookReadingStatus {
@@ -46,7 +48,7 @@ class BookEntry {
     this.coverPath,
   });
 
-  /// 唯一标识（= `books.uuid`，导入时间 + 随机数）。
+  /// 固定三元组摘要标识（= `books.uuid`，32 位小写十六进制）。
   final String id;
 
   /// 书名（OPF dc:title；缺失时用文件名）。
@@ -58,7 +60,7 @@ class BookEntry {
   /// 用户可编辑的简介。
   final String description;
 
-  /// EPUB 文件绝对路径（`books/<id>/source.epub`）。
+  /// EPUB 文件绝对路径（新书为 `books-v1/<id>/source.epub`）。
   final String filePath;
 
   /// 导入时间。
@@ -253,7 +255,7 @@ class ReaderFontEntry {
   final String displayName;
 }
 
-/// 书库存储（P4-04）：drift `books` 表 + `books/<uuid>/` 目录
+/// 书库存储（P4-04）：drift `books` 表 + `books-v1/<id>/` 目录
 /// （`source.epub` 原书 + `cover.jpg` 封面缓存）。
 ///
 /// [LibraryStore.memory] 为纯内存模式（无数据库、无 IO，widget 测试用）。
@@ -279,8 +281,25 @@ class LibraryStore {
   final Map<String, BookTag> _memoryTags = <String, BookTag>{};
   final Map<String, Set<String>> _memoryBookTags = <String, Set<String>>{};
   final List<void Function()> _listeners = <void Function()>[];
+  Future<int>? _identityMigration;
+  Future<void>? _importQueue;
+  static final _databaseImportQueues = Expando<Future<void>>();
 
   bool get _isMemory => _db == null;
+
+  /// 启动和导入共用迁移入口；失败可重试，不改变原书路径与整数外键。
+  Future<int> migrateBookIds() async {
+    if (_isMemory) return 0;
+    final pending = _identityMigration;
+    if (pending != null) return pending;
+    final migration = migrateBookIdentities(_db!);
+    _identityMigration = migration;
+    try {
+      return await migration;
+    } finally {
+      _identityMigration = null;
+    }
+  }
 
   /// 条目变化通知（书架刷新用）。
   void addListener(void Function() listener) => _listeners.add(listener);
@@ -302,7 +321,7 @@ class LibraryStore {
 
   Future<Directory> _bookDirectory(String id) async {
     final root = await _root();
-    final directory = _safeBookDirectory(root, id);
+    final directory = _safeBookDirectory(root, id, canonical: true);
     if (directory == null) {
       throw const LibraryImportException('书籍标识无效，无法创建存储目录');
     }
@@ -310,13 +329,19 @@ class LibraryStore {
     return directory;
   }
 
-  Directory? _safeBookDirectory(Directory root, String id) {
+  Directory? _safeBookDirectory(
+    Directory root,
+    String id, {
+    bool canonical = false,
+  }) {
     if (id == '.' ||
         id == '..' ||
         !RegExp(r'^[A-Za-z0-9._~-]+$').hasMatch(id)) {
       return null;
     }
-    final booksPath = p.normalize(p.join(root.path, 'books'));
+    final booksPath = p.normalize(
+      p.join(root.path, canonical ? 'books-v1' : 'books'),
+    );
     final path = p.normalize(p.join(booksPath, id));
     return p.isWithin(booksPath, path) ? Directory(path) : null;
   }
@@ -892,7 +917,30 @@ class LibraryStore {
     Uint8List bytes, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
+  }) {
+    final db = _db;
+    final queue = db == null ? _importQueue : _databaseImportQueues[db];
+    Future<BookEntry> import() => _importBytes(
+      bytes,
+      fallbackTitle: fallbackTitle,
+      onProgress: onProgress,
+    );
+    final result = queue == null ? import() : queue.then((_) => import());
+    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
+    if (db != null) _databaseImportQueues[db] = _importQueue;
+    return result;
+  }
+
+  Future<BookEntry> _importBytes(
+    Uint8List bytes, {
+    String? fallbackTitle,
+    void Function(double progress)? onProgress,
   }) async {
+    try {
+      await migrateBookIds();
+    } on FormatException {
+      // 单本旧书损坏或冲突保留待恢复，不阻止无关新书导入。
+    }
     onProgress?.call(0.1);
     final result = await openEpub(bytes);
     final document = result.document;
@@ -904,9 +952,20 @@ class LibraryStore {
       );
     }
     onProgress?.call(0.45);
-    // §36.2：同一本书（OPF unique-identifier）只允许一份。
-    final id = _bookKey(document.meta.identifier);
+    final meta = document.meta;
+    final identifier = originalEpubIdentifier(document);
+    final id = generateBookId(
+      title: meta.title,
+      author: meta.author,
+      identifier: identifier,
+    );
     final existing = _isMemory ? null : await _bookRowOfUuid(id);
+    if (existing != null && existing.identityVersion != 1) {
+      throw const LibraryImportException(
+        '书籍标识与待迁移旧记录冲突，已保留原数据',
+        errorCode: 'E_IDENTITY_CONFLICT',
+      );
+    }
     if (_isMemory
         ? _memoryEntries.containsKey(id)
         : existing != null && existing.deletedAt == null) {
@@ -965,6 +1024,9 @@ class LibraryStore {
       final db = _db!;
       final companion = BooksCompanion.insert(
         uuid: id,
+        epubIdentifier: Value(identifier),
+        identityVersion: const Value(1),
+        legacyUuid: Value(existing?.legacyUuid ?? existing?.uuid),
         title: title,
         author: Value(
           document.meta.author.trim().isEmpty
@@ -977,8 +1039,8 @@ class LibraryStore {
               ? null
               : document.meta.language.trim(),
         ),
-        // 尚未解包：书目录即资源目录；P4-04 之后解包到 books/<id>/content。
-        contentDir: 'books/$id',
+        // 尚未解包：书目录即资源目录。
+        contentDir: 'books-v1/$id',
         sourcePath: Value(filePath),
         coverPath: Value(coverPath),
         spineCount: Value(document.spine.length),
@@ -1065,10 +1127,30 @@ class LibraryStore {
     // 软删除保留子表；文件删除失败留孤儿，启动扫描可清理。
     final db = _db!;
     final root = await _root();
-    final directory = _safeBookDirectory(root, id);
+    final directory = _safeBookDirectory(root, id, canonical: true);
     final rows = await (db.select(
       db.books,
     )..where((table) => table.uuid.equals(id))).get();
+    final directories = <Directory>[
+      ?directory,
+      for (final row in rows)
+        if (row.identityVersion == 0) ?_safeBookDirectory(root, row.uuid),
+      for (final row in rows)
+        if (row.legacyUuid != null) ?_safeBookDirectory(root, row.legacyUuid!),
+    ];
+    final otherBooks =
+        await (db.select(db.books)..where(
+              (table) => table.uuid.isNotValue(id) & table.deletedAt.isNull(),
+            ))
+            .get();
+    directories.removeWhere(
+      (item) => otherBooks.any(
+        (book) => [
+          book.sourcePath,
+          book.coverPath,
+        ].nonNulls.any((path) => p.isWithin(item.path, p.normalize(path))),
+      ),
+    );
     final sourcePaths = <String>[
       for (final row in rows)
         if (row.sourcePath != null) row.sourcePath!,
@@ -1081,10 +1163,13 @@ class LibraryStore {
       ),
     );
     for (final path in sourcePaths) {
+      if (otherBooks.any((book) => book.sourcePath == path)) continue;
       // 旧库异常路径只能清理记录，不能扩大文件删除范围。
       final normalized = p.normalize(path);
       final legacyDirectory = p.normalize(p.join(root.path, 'books'));
-      final owned = directory != null && p.isWithin(directory.path, normalized);
+      final owned = directories.any(
+        (item) => p.isWithin(item.path, normalized),
+      );
       final legacy =
           p.dirname(normalized) == legacyDirectory &&
           p.extension(normalized).toLowerCase() == '.epub';
@@ -1101,11 +1186,13 @@ class LibraryStore {
       }
     }
     _notify();
-    if (directory != null && await directory.exists()) {
-      try {
-        await directory.delete(recursive: true);
-      } catch (_) {
-        // 权限/占用失败：下次启动扫描清理。
+    for (final item in directories) {
+      if (await item.exists()) {
+        try {
+          await item.delete(recursive: true);
+        } catch (_) {
+          // 权限/占用失败：下次启动扫描清理。
+        }
       }
     }
   }
@@ -1248,18 +1335,40 @@ class LibraryStore {
     }
     final db = _db!;
     final root = await _root();
-    final booksDirectory = Directory('${root.path}/books');
-    if (!await booksDirectory.exists()) {
-      return (removed: 0, bytes: 0);
-    }
     final rows = await (db.select(
       db.books,
     )..where((table) => table.deletedAt.isNull())).get();
-    final knownIds = <String>{for (final row in rows) row.uuid};
+    final knownIds = <String>{
+      for (final row in rows) row.uuid,
+      for (final row in rows)
+        if (row.legacyUuid != null) row.legacyUuid!,
+    };
     final knownFiles = <String>{
       for (final row in rows)
         if (row.sourcePath != null) row.sourcePath!,
     };
+    final legacy = await _sweepBookDirectory(
+      Directory('${root.path}/books'),
+      knownIds,
+      knownFiles,
+    );
+    final canonical = await _sweepBookDirectory(
+      Directory('${root.path}/books-v1'),
+      {for (final row in rows) row.uuid},
+      knownFiles,
+    );
+    return (
+      removed: legacy.removed + canonical.removed,
+      bytes: legacy.bytes + canonical.bytes,
+    );
+  }
+
+  Future<({int removed, int bytes})> _sweepBookDirectory(
+    Directory booksDirectory,
+    Set<String> knownIds,
+    Set<String> knownFiles,
+  ) async {
+    if (!await booksDirectory.exists()) return (removed: 0, bytes: 0);
     var removed = 0;
     var bytes = 0;
     await for (final entity in booksDirectory.list(followLinks: false)) {
@@ -1439,21 +1548,6 @@ class LibraryStore {
     return 'jpg';
   }
 
-  /// 书库主键：OPF unique-identifier 清洗成文件安全字符串；
-  /// identifier 缺失时退回时间戳随机串。
-  String _bookKey(String identifier) {
-    final trimmed = identifier.trim();
-    if (trimmed.isEmpty) {
-      return _newId();
-    }
-    final sanitized = trimmed.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    // 点段不是目录名；保留确定性以便查重，~ 不会与既有清洗结果冲突。
-    if (sanitized == '.' || sanitized == '..') {
-      return '~${base64Url.encode(utf8.encode(sanitized)).replaceAll('=', '')}';
-    }
-    return sanitized.isEmpty ? _newId() : sanitized;
-  }
-
   Future<BookRow?> _bookRowOfUuid(String id) async {
     final db = _db!;
     final rows = await (db.select(
@@ -1483,11 +1577,5 @@ class LibraryStore {
     }
     final row = await _bookRowOfUuid(id);
     return row != null && row.deletedAt == null;
-  }
-
-  String _newId() {
-    final random = math.Random();
-    return '${DateTime.now().millisecondsSinceEpoch}'
-        '-${random.nextInt(0x7FFFFFFF).toRadixString(36)}';
   }
 }

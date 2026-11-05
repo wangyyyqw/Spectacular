@@ -157,10 +157,14 @@ class DriftProgressStore implements ReaderProgressStore {
   }
 
   Future<int?> _bookIdOf(String bookUuid) async {
+    final exact = await (_db.select(
+      _db.books,
+    )..where((table) => table.uuid.equals(bookUuid))).getSingleOrNull();
+    if (exact != null) return exact.id;
     final rows = await (_db.select(
       _db.books,
-    )..where((table) => table.uuid.equals(bookUuid))).get();
-    return rows.isEmpty ? null : rows.single.id;
+    )..where((table) => table.legacyUuid.equals(bookUuid))).get();
+    return rows.length == 1 ? rows.single.id : null;
   }
 
   Future<ProgressRow?> _progressRow(String bookUuid) async {
