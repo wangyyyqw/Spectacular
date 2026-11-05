@@ -61,21 +61,13 @@ void main() {
     expect(bookDir.existsSync(), isFalse, reason: '删书清理整个书目录');
   });
 
-  test('同一本书（OPF identifier）重复导入被拒', () async {
+  test('相同文件重复导入不迁移，提示内容未变化', () async {
     final dir = Directory.systemTemp.createTempSync('library_dup');
     addTearDown(() => dir.deleteSync(recursive: true));
     final store = _open(dir).store;
     await store.importBytes(buildTestEpub(title: '唯一书'));
-    await expectLater(
-      store.importBytes(buildTestEpub(title: '唯一书')),
-      throwsA(
-        isA<LibraryImportException>().having(
-          (error) => error.errorCode,
-          'errorCode',
-          'E_DUPLICATE',
-        ),
-      ),
-    );
+    final again = await store.importBytes(buildTestEpub(title: '唯一书'));
+    expect(again.importOutcome, BookImportOutcome.unchanged);
     expect(await store.list(), hasLength(1));
   });
 
@@ -95,9 +87,10 @@ void main() {
         p.isWithin(p.join(dir.path, 'books-v1'), p.normalize(book.filePath)),
         isTrue,
       );
-      await expectLater(
-        store.importBytes(buildTestEpub(identifier: identifier)),
-        throwsA(isA<LibraryImportException>()),
+      expect(
+        (await store.importBytes(buildTestEpub(identifier: identifier)))
+            .importOutcome,
+        BookImportOutcome.unchanged,
       );
       await store.remove(book.id);
       expect(File(book.filePath).existsSync(), isFalse);

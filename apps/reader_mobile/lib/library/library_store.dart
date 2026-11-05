@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -11,13 +12,25 @@ import 'package:reader_core/epub/book_identity.dart';
 import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/revision_relocator.dart';
+import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/page_furniture/page_furniture.dart';
 
+import '../reader/epub_chapter_source.dart';
+import '../reader/reader_settings.dart';
 import '../storage/book_review_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
 import '../storage/reading_session_store.dart';
 import 'book_identity_migration.dart';
+import 'revision_anchor_index.dart';
+
+part 'library_revision.dart';
+
+/// 导入成功的实际结果，覆盖更新不会新建用户数据。
+enum BookImportOutcome { added, updated, unchanged }
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
 enum BookReadingStatus {
@@ -46,6 +59,7 @@ class BookEntry {
     this.spineCount,
     this.readabilityLevel = 0,
     this.coverPath,
+    this.importOutcome = BookImportOutcome.added,
   });
 
   /// 固定三元组摘要标识（= `books.uuid`，32 位小写十六进制）。
@@ -77,6 +91,9 @@ class BookEntry {
 
   /// 封面缓存文件路径（§37.3 三级提取成功后落盘）；null 用占位。
   final String? coverPath;
+
+  /// 仅用于此次导入提示，不持久化到书架。
+  final BookImportOutcome importOutcome;
 
   /// 阅读状态（由 lastReadAt 推导）。
   BookReadingStatus get status =>
@@ -157,6 +174,7 @@ class BookEntry {
     spineCount: spineCount,
     readabilityLevel: readabilityLevel,
     coverPath: coverPath,
+    importOutcome: importOutcome,
   );
 }
 
@@ -917,6 +935,7 @@ class LibraryStore {
     Uint8List bytes, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
   }) {
     final db = _db;
     final queue = db == null ? _importQueue : _databaseImportQueues[db];
@@ -924,6 +943,7 @@ class LibraryStore {
       bytes,
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
+      isCancelled: isCancelled,
     );
     final result = queue == null ? import() : queue.then((_) => import());
     _importQueue = result.then<void>((_) {}, onError: (Object _) {});
@@ -931,11 +951,15 @@ class LibraryStore {
     return result;
   }
 
+  // 新书导入沿用既有串行主流程，文件和数据库提交共用完成标记。
+  // 此协调方法保留较长结构，避免拆散软删除恢复的外键与失败清理边界。
   Future<BookEntry> _importBytes(
     Uint8List bytes, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
   }) async {
+    _checkImportCancelled(isCancelled);
     try {
       await migrateBookIds();
     } on FormatException {
@@ -966,123 +990,167 @@ class LibraryStore {
         errorCode: 'E_IDENTITY_CONFLICT',
       );
     }
-    if (_isMemory
-        ? _memoryEntries.containsKey(id)
-        : existing != null && existing.deletedAt == null) {
-      throw const LibraryImportException('这本书已在书架中', errorCode: 'E_DUPLICATE');
+    if (!_isMemory && existing != null && existing.deletedAt == null) {
+      return _replaceRevision(
+        existing,
+        bytes,
+        result,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    }
+    if (_isMemory && _memoryEntries.containsKey(id)) {
+      final same = listEquals(_memoryBytes[id], bytes);
+      _checkImportCancelled(isCancelled);
+      _memoryBytes[id] = bytes;
+      final current = _memoryEntries[id]!;
+      final entry = _withImportOutcome(
+        current,
+        same ? BookImportOutcome.unchanged : BookImportOutcome.updated,
+      );
+      _memoryEntries[id] = entry;
+      _notify();
+      return entry;
     }
     final title = document.meta.title.trim().isEmpty
         ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
         : document.meta.title.trim();
+    _checkImportCancelled(isCancelled);
     String filePath = '';
     String? coverPath;
-    if (_isMemory) {
-      _memoryBytes[id] = bytes;
-    } else {
-      final directory = await _bookDirectory(id);
-      final file = File('${directory.path}/source.epub');
-      await file.writeAsBytes(bytes, flush: true);
-      filePath = file.path;
-      onProgress?.call(0.7);
-      final coverBytes = document.readCoverBytes();
-      if (coverBytes != null && coverBytes.isNotEmpty) {
-        final extension = _coverExtension(document.coverResourcePath);
-        final coverFile = File('${directory.path}/cover.$extension');
-        await coverFile.writeAsBytes(coverBytes, flush: true);
-        coverPath = coverFile.path;
+    Directory? stagedDirectory;
+    var committed = false;
+    try {
+      if (!_isMemory) {
+        final directory = await _bookDirectory(id);
+        final revisionDirectory = Directory(
+          p.join(
+            directory.path,
+            'versions',
+            '${sha256.convert(bytes)}-${DateTime.now().microsecondsSinceEpoch}',
+          ),
+        );
+        stagedDirectory = revisionDirectory;
+        await revisionDirectory.create(recursive: true);
+        final file = File(p.join(revisionDirectory.path, 'source.epub'));
+        await file.writeAsBytes(bytes, flush: true);
+        filePath = file.path;
+        onProgress?.call(0.7);
+        final coverBytes = document.readCoverBytes();
+        if (coverBytes != null && coverBytes.isNotEmpty) {
+          final extension = _coverExtension(document.coverResourcePath);
+          final coverFile = File('${revisionDirectory.path}/cover.$extension');
+          await coverFile.writeAsBytes(coverBytes, flush: true);
+          coverPath = coverFile.path;
+        }
+      }
+      onProgress?.call(0.85);
+      // §22.3/§76.1：导入期顺序统计各章正文字符数，进度量化与后续搜索索引
+      // 共用同一次扫描。
+      final charCounts = await document.countChapterCharacters(
+        onProgress: (done, total) =>
+            onProgress?.call(0.85 + 0.1 * (total == 0 ? 1 : done / total)),
+      );
+      final weights = ProgressWeights.fromCharCounts(
+        charCounts,
+        excluded: document.progressExcludedSpineIndexes,
+      );
+      if (isCancelled?.call() == true) {
+        if (!_isMemory && filePath.isNotEmpty) await File(filePath).delete();
+        _checkImportCancelled(isCancelled);
+      }
+      final now = DateTime.now();
+      final addedAt = existing == null
+          ? now
+          : DateTime.fromMillisecondsSinceEpoch(existing.createdAt);
+      final entry = BookEntry(
+        id: id,
+        title: title,
+        author: document.meta.author.trim(),
+        description: existing?.description ?? '',
+        filePath: filePath,
+        addedAt: addedAt,
+        spineCount: document.spine.length,
+        readabilityLevel: result.report.readabilityLevel,
+        coverPath: coverPath,
+      );
+      if (_isMemory) {
+        _memoryBytes[id] = bytes;
+        _memoryEntries[id] = entry;
+      } else {
+        final db = _db!;
+        final companion = BooksCompanion.insert(
+          uuid: id,
+          epubIdentifier: Value(identifier),
+          identityVersion: const Value(1),
+          contentRevision: Value(sha256.convert(bytes).toString()),
+          legacyUuid: Value(existing?.legacyUuid ?? existing?.uuid),
+          title: title,
+          author: Value(
+            document.meta.author.trim().isEmpty
+                ? null
+                : document.meta.author.trim(),
+          ),
+          description: Value(existing?.description),
+          language: Value(
+            document.meta.language.trim().isEmpty
+                ? null
+                : document.meta.language.trim(),
+          ),
+          // 尚未解包：书目录即资源目录。
+          contentDir: 'books-v1/$id',
+          sourcePath: Value(filePath),
+          coverPath: Value(coverPath),
+          spineCount: Value(document.spine.length),
+          charCount: Value(weights.totalCharacters),
+          createdAt: addedAt.millisecondsSinceEpoch,
+          level: Value(result.report.readabilityLevel),
+          warnings: Value(
+            result.report.warnings.isEmpty
+                ? null
+                : jsonEncode(result.report.warnings),
+          ),
+          deletedAt: const Value<int?>(null),
+        );
+        await db.transaction(() async {
+          _checkImportCancelled(isCancelled);
+          final int bookId;
+          if (existing == null) {
+            bookId = await db.into(db.books).insert(companion);
+          } else {
+            // 软删除记录的原主键不变；用户数据通过外键继续挂在同一本书上。
+            bookId = existing.id;
+            await (db.update(
+              db.books,
+            )..where((table) => table.id.equals(bookId))).write(companion);
+            await (db.delete(
+              db.spineItems,
+            )..where((table) => table.bookId.equals(bookId))).go();
+            await (db.delete(
+              db.chapters,
+            )..where((table) => table.bookId.equals(bookId))).go();
+            await (db.delete(
+              db.importReports,
+            )..where((table) => table.bookId.equals(bookId))).go();
+          }
+          // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
+          await _writeImportReports(bookId, result.report);
+          // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
+          await _writeSpineItems(bookId, document, charCounts, weights);
+          _checkImportCancelled(isCancelled);
+        });
+      }
+      committed = true;
+      onProgress?.call(1);
+      _notify();
+      return entry;
+    } finally {
+      if (!committed &&
+          stagedDirectory != null &&
+          await stagedDirectory.exists()) {
+        await stagedDirectory.delete(recursive: true);
       }
     }
-    onProgress?.call(0.85);
-    // §22.3/§76.1：导入期顺序统计各章正文字符数，进度量化与后续搜索索引
-    // 共用同一次扫描。
-    final charCounts = await document.countChapterCharacters(
-      onProgress: (done, total) =>
-          onProgress?.call(0.85 + 0.1 * (total == 0 ? 1 : done / total)),
-    );
-    final weights = ProgressWeights.fromCharCounts(
-      charCounts,
-      excluded: document.progressExcludedSpineIndexes,
-    );
-    final now = DateTime.now();
-    final addedAt = existing == null
-        ? now
-        : DateTime.fromMillisecondsSinceEpoch(existing.createdAt);
-    final entry = BookEntry(
-      id: id,
-      title: title,
-      author: document.meta.author.trim(),
-      description: existing?.description ?? '',
-      filePath: filePath,
-      addedAt: addedAt,
-      spineCount: document.spine.length,
-      readabilityLevel: result.report.readabilityLevel,
-      coverPath: coverPath,
-    );
-    if (_isMemory) {
-      _memoryEntries[id] = entry;
-    } else {
-      final db = _db!;
-      final companion = BooksCompanion.insert(
-        uuid: id,
-        epubIdentifier: Value(identifier),
-        identityVersion: const Value(1),
-        legacyUuid: Value(existing?.legacyUuid ?? existing?.uuid),
-        title: title,
-        author: Value(
-          document.meta.author.trim().isEmpty
-              ? null
-              : document.meta.author.trim(),
-        ),
-        description: Value(existing?.description),
-        language: Value(
-          document.meta.language.trim().isEmpty
-              ? null
-              : document.meta.language.trim(),
-        ),
-        // 尚未解包：书目录即资源目录。
-        contentDir: 'books-v1/$id',
-        sourcePath: Value(filePath),
-        coverPath: Value(coverPath),
-        spineCount: Value(document.spine.length),
-        charCount: Value(weights.totalCharacters),
-        createdAt: addedAt.millisecondsSinceEpoch,
-        level: Value(result.report.readabilityLevel),
-        warnings: Value(
-          result.report.warnings.isEmpty
-              ? null
-              : jsonEncode(result.report.warnings),
-        ),
-        deletedAt: const Value<int?>(null),
-      );
-      await db.transaction(() async {
-        final int bookId;
-        if (existing == null) {
-          bookId = await db.into(db.books).insert(companion);
-        } else {
-          // 软删除记录的原主键不变；用户数据通过外键继续挂在同一本书上。
-          bookId = existing.id;
-          await (db.update(
-            db.books,
-          )..where((table) => table.id.equals(bookId))).write(companion);
-          await (db.delete(
-            db.spineItems,
-          )..where((table) => table.bookId.equals(bookId))).go();
-          await (db.delete(
-            db.chapters,
-          )..where((table) => table.bookId.equals(bookId))).go();
-          await (db.delete(
-            db.importReports,
-          )..where((table) => table.bookId.equals(bookId))).go();
-        }
-        // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
-        await _writeImportReports(bookId, result.report);
-        // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
-        await _writeSpineItems(bookId, document, charCounts, weights);
-      });
-    }
-    onProgress?.call(1);
-    _notify();
-    return entry;
   }
 
   /// 读书籍字节（打开阅读用）。
@@ -1329,7 +1397,18 @@ class LibraryStore {
   /// 启动扫描：清理数据库中不存在的书目录与旧格式孤儿文件（§37.4）。
   ///
   /// 返回清理的条目数与释放的字节数；失败项跳过（下次启动再试）。
-  Future<({int removed, int bytes})> sweepOrphans() async {
+  Future<({int removed, int bytes})> sweepOrphans() {
+    final db = _db;
+    final previous = db == null ? _importQueue : _databaseImportQueues[db];
+    final result = previous == null
+        ? _sweepOrphans()
+        : previous.then((_) => _sweepOrphans());
+    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
+    if (db != null) _databaseImportQueues[db] = _importQueue;
+    return result;
+  }
+
+  Future<({int removed, int bytes})> _sweepOrphans() async {
     if (_isMemory) {
       return (removed: 0, bytes: 0);
     }
@@ -1345,7 +1424,9 @@ class LibraryStore {
     };
     final knownFiles = <String>{
       for (final row in rows)
-        if (row.sourcePath != null) row.sourcePath!,
+        if (row.sourcePath != null) p.normalize(row.sourcePath!),
+      for (final row in rows)
+        if (row.coverPath != null) p.normalize(row.coverPath!),
     };
     final legacy = await _sweepBookDirectory(
       Directory('${root.path}/books'),
@@ -1374,7 +1455,11 @@ class LibraryStore {
     await for (final entity in booksDirectory.list(followLinks: false)) {
       if (entity is Directory) {
         // 新格式：books/<uuid>/；未知 uuid 即孤儿目录。
-        if (knownIds.contains(p.basename(entity.path))) {
+        if (knownIds.contains(p.basename(entity.path)) ||
+            knownFiles.any((path) => p.isWithin(entity.path, path))) {
+          final retired = await _sweepRetiredVersions(entity, knownFiles);
+          removed += retired.removed;
+          bytes += retired.bytes;
           continue;
         }
         bytes += await _sizeOf(entity);
@@ -1386,7 +1471,7 @@ class LibraryStore {
         }
       } else if (entity is File) {
         // 旧格式：books/<id>.epub；只留数据库引用中的文件。
-        if (knownFiles.contains(entity.path)) {
+        if (knownFiles.contains(p.normalize(entity.path))) {
           continue;
         }
         try {
@@ -1396,6 +1481,43 @@ class LibraryStore {
         } catch (_) {
           // 同上。
         }
+      }
+    }
+    return (removed: removed, bytes: bytes);
+  }
+
+  Future<({int removed, int bytes})> _sweepRetiredVersions(
+    Directory book,
+    Set<String> active,
+  ) async {
+    var removed = 0;
+    var bytes = 0;
+    final versions = Directory(p.join(book.path, 'versions'));
+    if (await versions.exists()) {
+      await for (final child in versions.list(followLinks: false)) {
+        if (child is! Directory ||
+            active.any((path) => p.isWithin(child.path, path))) {
+          continue;
+        }
+        final size = await _sizeOf(child);
+        try {
+          await child.delete(recursive: true);
+          removed++;
+          bytes += size;
+        } on FileSystemException {
+          // 未提交版本或已退休版本留待下次启动处理。
+        }
+      }
+    }
+    final source = File(p.join(book.path, 'source.epub'));
+    if (!active.contains(p.normalize(source.path)) && await source.exists()) {
+      try {
+        final size = await source.length();
+        await source.delete();
+        removed++;
+        bytes += size;
+      } on FileSystemException {
+        // 不影响数据库引用的当前有效版本。
       }
     }
     return (removed: removed, bytes: bytes);

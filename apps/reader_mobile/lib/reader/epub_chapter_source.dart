@@ -37,6 +37,7 @@ import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
 import 'package:reader_core/position/cfi.dart' show cfiWithCharOffset;
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/text/font_coverage.dart';
 import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -356,6 +357,135 @@ class EpubChapterSource
           hiddenElements.contains(element) ||
           FootnoteParser.isDefinitionElement(element.tag, element.attributes),
     );
+  }
+
+  /// 覆盖迁移复用正文聚合与作者空白规则，不生成整章分页或解码图片。
+  AnchorChapter anchorChapter(int spineIndex) {
+    final parsed = document.parseDocument(spineIndex);
+    final selectors = _ParsedSelectorIndex(parsed.root);
+    final rules = CascadeRuleSet([
+      ...uaRules(),
+      for (final (index, sheet) in _chapterStylesheets(spineIndex).indexed)
+        ...CascadeRule.fromStylesheet(
+          sheet,
+          origin: CascadeOrigin.author,
+          startOrder: 1000 + index * 10000,
+        ),
+    ]);
+    ComputedStyle styleOf(EpubNode node) =>
+        _anchorNodeStyle(node, selectors, rules);
+    CssDisplay displayOf(InlineNode node, List<MarkSubject> ancestors) =>
+        switch (styleOf(node).values['display']?.trim().toLowerCase()) {
+          'block' => CssDisplay.block,
+          'none' => CssDisplay.none,
+          'inline-block' => CssDisplay.inlineBlock,
+          _ => CssDisplay.inline,
+        };
+    final tree = TextAggregator.aggregate(
+      _buildDisplayDocument(parsed, spineIndex),
+      inlineDisplay: displayOf,
+    );
+    return AnchorChapter(
+      spineIndex: spineIndex,
+      href: document.spine[spineIndex].href,
+      title: _anchorChapterTitle(spineIndex),
+      readable: !document.progressExcludedSpineIndexes.contains(spineIndex),
+      blocks: _anchorBlocks(tree.root, spineIndex, styleOf, displayOf),
+    );
+  }
+
+  ComputedStyle _anchorNodeStyle(
+    EpubNode node,
+    _ParsedSelectorIndex selectors,
+    CascadeRuleSet rules,
+  ) {
+    final chain = selectors.chainOf(node) ?? const <SelectorElement>[];
+    var style = baseStyle;
+    for (var i = 0; i < chain.length; i++) {
+      style = Cascade.compute(
+        element: chain[i],
+        ancestors: chain.sublist(0, i),
+        rules: rules.candidatesFor(chain[i]),
+        inlineDeclarations: _inlineDeclarationsOf(chain[i].attributes['style']),
+        parent: style,
+        rootFontSize: baseStyle.fontSize,
+        containingWidth: contentWidth,
+        viewportWidth: contentWidth,
+      );
+    }
+    return style;
+  }
+
+  String _anchorChapterTitle(int spineIndex) {
+    for (final row in flattenToc(toc)) {
+      if (row.entry.spineIndex == spineIndex) return row.entry.title;
+    }
+    return '';
+  }
+
+  List<AnchorBlock> _anchorBlocks(
+    EpubNode root,
+    int spineIndex,
+    ComputedStyle Function(EpubNode) styleOf,
+    InlineDisplayResolver displayOf,
+  ) {
+    final result = <AnchorBlock>[];
+    void walk(EpubNode node, ComputedStyle parentStyle) {
+      // 聚合文本没有元素选择器身份，正文同样继承所在块的完整级联链。
+      final style = node is TextContentNode ? parentStyle : styleOf(node);
+      if (style.display == CssDisplay.none ||
+          style.visibility != CssVisibility.visible) {
+        return;
+      }
+      if (node is TextContentNode) {
+        final text = _textNodeFor(
+          spineIndex,
+          node,
+          style.whiteSpace,
+          displayOf,
+        );
+        if (text.text.trim().isNotEmpty) {
+          result.add(AnchorBlock(cfi: node.cfi.serialize(), text: text.text));
+        }
+      } else if (node is BlockNode) {
+        if (const {'td', 'th', 'caption'}.contains(node.tag)) {
+          final text = _anchorCellText(node);
+          if (text.isNotEmpty) {
+            result.add(AnchorBlock(cfi: node.cfi.serialize(), text: text));
+          }
+        } else {
+          for (final child in node.children) {
+            walk(child, style);
+          }
+        }
+      } else if (node is InlineNode) {
+        for (final child in node.children) {
+          walk(child, style);
+        }
+      }
+    }
+
+    walk(root, baseStyle);
+    return result;
+  }
+
+  String _anchorCellText(EpubNode root) {
+    final parts = <String>[];
+    void walk(EpubNode node) {
+      if (node is TextBlockNode && node.text.trim().isNotEmpty) {
+        final hasEmptyBox =
+            node is TextContentNode &&
+            node.inlineMarks.any((mark) => mark.start == mark.end);
+        parts.add(hasEmptyBox ? node.text : node.text.trim());
+      } else if (node is BlockNode) {
+        node.children.forEach(walk);
+      } else if (node is InlineNode) {
+        node.children.forEach(walk);
+      }
+    }
+
+    walk(root);
+    return parts.join('\n');
   }
 
   /// 缓存报告（P4-32）：页缓存章数与容量。

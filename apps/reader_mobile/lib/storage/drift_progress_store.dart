@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/position/location_anchor.dart';
+
+import '../library/revision_anchor_store.dart';
 
 import 'db.dart';
 
@@ -20,45 +23,147 @@ class DriftProgressStore implements ReaderProgressStore {
   /// 读取某书进度。
   @override
   Future<ReaderProgress?> load(String bookId) async {
-    final row = await _progressRow(bookId);
-    if (row == null) {
-      return null;
-    }
-    return ReaderProgress(
-      spineIndex: row.spineIndex ?? 0,
-      pageIndex: row.pageIndex ?? 0,
-      finished: row.finished,
-      scrollOffset: _scrollOffsetOf(row.locatorCfi),
+    final book = await resolveBookRow(_db, bookId);
+    if (book == null) return null;
+    final row = await _rowFor(book.id);
+    return row == null ? null : _toProgress(row);
+  }
+
+  /// 真实 CFI 与内容版本一起保存；旧阅读会话不得回写新版。
+  @override
+  Future<void> save(String bookId, ReaderProgress progress) async {
+    final book = await resolveBookRow(_db, bookId, allowAliases: false);
+    if (book == null || book.deletedAt != null) return;
+    if (!await _matchesRevision(book, progress)) return;
+    final prior = await _rowFor(book.id);
+    final record = progress.cfi == null
+        ? null
+        : await captureBookAnchor(
+            _db,
+            book,
+            progress.cfi!,
+            approximate: progress.approximate,
+            existing: AnchorRecord.decode(prior?.anchorJson),
+          );
+    if (progress.cfi != null && record == null) return;
+    final percent = await _percentOf(book, record);
+    await _db.transaction(
+      () => _writeProgress(book, progress, record, percent),
     );
   }
 
-  /// 写入某书进度（upsert）。
-  @override
-  Future<void> save(String bookId, ReaderProgress progress) async {
-    final bookIdValue = await _bookIdOf(bookId);
-    if (bookIdValue == null) {
+  Future<void> _writeProgress(
+    BookRow book,
+    ReaderProgress progress,
+    AnchorRecord? record,
+    double percent,
+  ) async {
+    final current = await resolveBookRow(_db, book.uuid, allowAliases: false);
+    if (current == null ||
+        current.deletedAt != null ||
+        !_sameContent(book, current)) {
       return;
     }
+    final saved = await _rowFor(book.id);
     await _db
         .into(_db.readingProgress)
         .insertOnConflictUpdate(
-          ReadingProgressCompanion(
-            bookId: Value<int>(bookIdValue),
-            // P5 接入 CFI 前先用可读的位置串占位（§36.2：位置一律存字符串）。
-            locatorCfi: Value<String>(_locatorOf(progress)),
-            percent: const Value<double>(0),
-            spineIndex: Value<int>(progress.spineIndex),
-            pageIndex: Value<int>(progress.pageIndex),
-            finished: Value<bool>(progress.finished),
-            updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
-          ),
+          _progressValues(book.id, progress, record, saved, percent),
         );
   }
+
+  ReadingProgressCompanion _progressValues(
+    int bookId,
+    ReaderProgress progress,
+    AnchorRecord? record,
+    ProgressRow? saved,
+    double percent,
+  ) {
+    // 无真实位置的调用用于书架读完标记，不能清掉已有内容锚点。
+    final preserveLocation = progress.cfi == null && saved?.anchorJson != null;
+    return ReadingProgressCompanion(
+      bookId: Value(bookId),
+      locatorCfi: Value(
+        preserveLocation
+            ? saved!.locatorCfi
+            : progress.cfi ?? _locatorOf(progress),
+      ),
+      anchorJson: Value(
+        preserveLocation
+            ? saved!.anchorJson
+            : _encodeAnchor(record, saved, progress),
+      ),
+      percent: Value(preserveLocation ? saved!.percent : percent),
+      spineIndex: Value(
+        preserveLocation ? saved!.spineIndex : progress.spineIndex,
+      ),
+      pageIndex: Value(
+        preserveLocation ? saved!.pageIndex : progress.pageIndex,
+      ),
+      finished: Value(progress.finished),
+      updatedAt: Value(DateTime.now().millisecondsSinceEpoch),
+    );
+  }
+
+  Future<double> _percentOf(BookRow book, AnchorRecord? record) async {
+    if (record == null) return 0;
+    final index = await loadBookAnchorIndex(_db, book);
+    if (index == null) return 0;
+    final point = record.effective.start;
+    var total = 0;
+    var before = 0;
+    for (final chapter in index.chapters) {
+      if (!chapter.readable) continue;
+      total += chapter.text.length;
+      if (chapter.spineIndex < point.spineIndex) before += chapter.text.length;
+    }
+    return total == 0
+        ? 0
+        : ((before + point.charOffset) / total * 100).clamp(0, 100).toDouble();
+  }
+
+  String? _encodeAnchor(
+    AnchorRecord? record,
+    ProgressRow? saved,
+    ReaderProgress progress,
+  ) {
+    if (record == null) return null;
+    final original = AnchorRecord.decode(saved?.anchorJson)?.original;
+    return jsonEncode({
+      ...AnchorRecord(
+        original: original ?? record.original,
+        current: original == null ? record.current : record.effective,
+        status: record.status,
+        reason: record.reason,
+      ).toJson(),
+      if (progress.scrollOffset != null) 'scrollOffset': progress.scrollOffset,
+    });
+  }
+
+  Future<bool> _matchesRevision(BookRow book, ReaderProgress progress) async {
+    final revision = progress.contentRevision;
+    if (revision == null) {
+      return progress.cfi == null || book.contentRevision == null;
+    }
+    if (book.contentRevision != null) return revision == book.contentRevision;
+    final index = await loadBookAnchorIndex(_db, book);
+    return index?.revision == revision;
+  }
+
+  bool _sameContent(BookRow first, BookRow second) =>
+      first.uuid == second.uuid &&
+      first.sourcePath == second.sourcePath &&
+      first.contentRevision == second.contentRevision &&
+      first.layoutVersion == second.layoutVersion;
 
   /// 清除某书进度（删书时调用）。
   @override
   Future<void> clear(String bookId) async {
-    final bookIdValue = await _bookIdOf(bookId);
+    final bookIdValue = (await resolveBookRow(
+      _db,
+      bookId,
+      allowAliases: false,
+    ))?.id;
     if (bookIdValue == null) {
       return;
     }
@@ -77,19 +182,47 @@ class DriftProgressStore implements ReaderProgressStore {
     final books = await (_db.select(
       _db.books,
     )..where((table) => table.deletedAt.isNull())).get();
-    final uuidById = <int, String>{
-      for (final book in books) book.id: book.uuid,
-    };
+    final booksById = {for (final book in books) book.id: book};
     return <String, ReaderProgress>{
       for (final row in rows)
-        if (uuidById[row.bookId] != null)
-          uuidById[row.bookId]!: ReaderProgress(
-            spineIndex: row.spineIndex ?? 0,
-            pageIndex: row.pageIndex ?? 0,
-            finished: row.finished,
-            scrollOffset: _scrollOffsetOf(row.locatorCfi),
-          ),
+        if (booksById[row.bookId] != null)
+          booksById[row.bookId]!.uuid: _toProgress(row),
     };
+  }
+
+  ReaderProgress _toProgress(ProgressRow row) {
+    final record = AnchorRecord.decode(row.anchorJson);
+    final usable = record != null && record.status != 'pending';
+    final anchor = usable ? record.effective : null;
+    return ReaderProgress(
+      spineIndex: anchor?.start.spineIndex ?? row.spineIndex ?? 0,
+      pageIndex: row.pageIndex ?? 0,
+      finished: row.finished,
+      scrollOffset:
+          _anchorScrollOffset(row.anchorJson) ??
+          _scrollOffsetOf(row.locatorCfi),
+      cfi: record?.status == 'pending'
+          ? null
+          : anchor?.start.cfi ??
+                (row.locatorCfi.startsWith('epubcfi(') ? row.locatorCfi : null),
+      contentRevision: anchor?.revision,
+      approximate:
+          record?.status == 'approximate' || anchor?.approximate == true,
+    );
+  }
+
+  double? _anchorScrollOffset(String? source) {
+    if (source == null) return null;
+    try {
+      final value =
+          (jsonDecode(source) as Map<String, dynamic>)['scrollOffset'];
+      final offset = value is num ? value.toDouble() : null;
+      return offset != null && offset.isFinite && offset >= 0 ? offset : null;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
   }
 
   /// 把旧版 `reader_progress.json` 一次性迁入表（幂等：有进度就跳过）。
@@ -121,7 +254,7 @@ class DriftProgressStore implements ReaderProgressStore {
       }
       final scroll = value['scroll'];
       final scrollOffset = scroll is num ? scroll.toDouble() : null;
-      final bookIdValue = await _bookIdOf(entry.key);
+      final bookIdValue = (await resolveBookRow(_db, entry.key))?.id;
       if (bookIdValue == null) {
         continue;
       }
@@ -156,25 +289,7 @@ class DriftProgressStore implements ReaderProgressStore {
     return offset != null && offset.isFinite && offset >= 0 ? offset : null;
   }
 
-  Future<int?> _bookIdOf(String bookUuid) async {
-    final exact = await (_db.select(
-      _db.books,
-    )..where((table) => table.uuid.equals(bookUuid))).getSingleOrNull();
-    if (exact != null) return exact.id;
-    final rows = await (_db.select(
-      _db.books,
-    )..where((table) => table.legacyUuid.equals(bookUuid))).get();
-    return rows.length == 1 ? rows.single.id : null;
-  }
-
-  Future<ProgressRow?> _progressRow(String bookUuid) async {
-    final bookIdValue = await _bookIdOf(bookUuid);
-    if (bookIdValue == null) {
-      return null;
-    }
-    final rows = await (_db.select(
-      _db.readingProgress,
-    )..where((table) => table.bookId.equals(bookIdValue))).get();
-    return rows.isEmpty ? null : rows.single;
-  }
+  Future<ProgressRow?> _rowFor(int bookId) => (_db.select(
+    _db.readingProgress,
+  )..where((table) => table.bookId.equals(bookId))).getSingleOrNull();
 }

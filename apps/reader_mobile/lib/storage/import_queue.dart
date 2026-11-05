@@ -27,7 +27,15 @@ enum ImportStatus {
 /// 任务持有原始字节：失败/取消后可原样重试；成功后释放字节，避免长
 /// 队列把整本书留在内存里。
 class ImportJob {
-  ImportJob({required this.id, required this.bytes, this.fallbackTitle});
+  ImportJob({
+    required this.id,
+    required this.bytes,
+    this.fallbackTitle,
+    this.updateBookId,
+  });
+
+  /// 强制覆盖的当前书籍标识；普通导入为空。
+  final String? updateBookId;
 
   /// 任务标识。
   final String id;
@@ -71,7 +79,7 @@ class ImportJob {
 /// 串行导入队列（P4-03）。
 ///
 /// 导入是重任务（解包 + 解析 + 统计 + 索引），必须排队执行：一次只跑
-/// 一个任务，UI 不阻塞；任务可取消（已落盘的书会被删除，不留半成品）、
+/// 一个任务，UI 不阻塞；提交前取消只清理暂存文件，提交后视为成功，
 /// 失败可重试。
 class ImportQueue extends ChangeNotifier {
   /// 创建队列。
@@ -109,12 +117,17 @@ class ImportQueue extends ChangeNotifier {
   bool get isIdle => !isBusy;
 
   /// 入队一本 EPUB；立即返回任务，实际导入在后台串行执行。
-  ImportJob enqueue(Uint8List bytes, {String? fallbackTitle}) {
+  ImportJob enqueue(
+    Uint8List bytes, {
+    String? fallbackTitle,
+    String? updateBookId,
+  }) {
     if (_disposed) throw StateError('导入队列已释放');
     final job = ImportJob(
       id: 'job-${_sequence++}',
       bytes: bytes,
       fallbackTitle: fallbackTitle,
+      updateBookId: updateBookId,
     );
     _jobs.add(job);
     _notify();
@@ -122,7 +135,7 @@ class ImportQueue extends ChangeNotifier {
     return job;
   }
 
-  /// 取消任务：排队中的直接取消；执行中的等落盘后清理，不留半成品。
+  /// 取消任务：提交前停止；已提交的结果不会调用删书逻辑。
   void cancel(String jobId) {
     if (_disposed) return;
     final job = _jobOf(jobId);
@@ -165,7 +178,8 @@ class ImportQueue extends ChangeNotifier {
     _disposed = true;
     _retryAfterRun.clear();
     for (final job in _jobs) {
-      if (job.status == ImportStatus.queued) {
+      if (job.status == ImportStatus.queued ||
+          job.status == ImportStatus.running) {
         job.status = ImportStatus.cancelled;
         job.error = '已取消';
       }
@@ -240,24 +254,27 @@ class ImportQueue extends ChangeNotifier {
       ..progress = 0.02;
     _notify();
     try {
-      final entry = await _library.importBytes(
-        bytes,
-        fallbackTitle: job.fallbackTitle,
-        onProgress: (value) {
-          // 取消后不再改写进度，但底层不能中断，等落盘后统一清理。
-          if (job.status != ImportStatus.running) {
-            return;
-          }
-          job.progress = 0.05 + value * 0.9;
-          _notify();
-        },
-      );
-      if (job.status == ImportStatus.cancelled) {
-        // 取消发生在落盘之后：删掉刚写入的书与文件，避免半成品。
-        await _library.remove(entry.id);
-        job.progress = 0;
-        return;
+      void progress(double value) {
+        if (job.status != ImportStatus.running) {
+          return;
+        }
+        job.progress = 0.05 + value * 0.9;
+        _notify();
       }
+
+      final entry = job.updateBookId == null
+          ? await _library.importBytes(
+              bytes,
+              fallbackTitle: job.fallbackTitle,
+              onProgress: progress,
+              isCancelled: () => job.status == ImportStatus.cancelled,
+            )
+          : await _library.updateBytes(
+              job.updateBookId!,
+              bytes,
+              onProgress: progress,
+              isCancelled: () => job.status == ImportStatus.cancelled,
+            );
       job
         ..entry = entry
         ..progress = 1

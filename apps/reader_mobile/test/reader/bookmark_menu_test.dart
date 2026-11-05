@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -27,6 +29,40 @@ Uint8List _corpusBook(String name) {
   }
 }
 
+/// 菜单测试使用确定性存储，定位证据仍来自完整原 EPUB。
+class _Bookmarks implements ReaderBookmarkStore {
+  _Bookmarks(this.book);
+  final AnchorBook book;
+  final items = <ReaderBookmark>[];
+  @override
+  Future<List<ReaderBookmark>> list() async => List.of(items);
+  @override
+  Future<ReaderBookmark?> add({
+    required String cfi,
+    required int spineIndex,
+    required String label,
+  }) async {
+    if (items.any((item) => item.cfi == cfi)) return null;
+    final anchor = book.capture(cfi);
+    expect(anchor, isNotNull, reason: '书签必须对应原 EPUB 的实际位置');
+    final item = ReaderBookmark(
+      id: '${items.length + 1}',
+      cfi: cfi,
+      spineIndex: spineIndex,
+      label: label,
+      createdAt: DateTime(2026),
+      relocationStatus: 'verified',
+      currentQuote: anchor!.start.quote,
+    );
+    items.add(item);
+    return item;
+  }
+
+  @override
+  Future<void> remove(String id) async =>
+      items.removeWhere((item) => item.id == id);
+}
+
 void main() {
   testWidgets('菜单里添加书签、打开书签列表并跳转（P4-13）', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookmark-menu');
@@ -38,14 +74,17 @@ void main() {
       directoryProvider: () async => dir,
     );
 
-    // 样书走内存字节打开（不落盘），书签存储挂真实数据库。
+    // 导入真实样书，菜单使用原 EPUB 的定位索引作为存储 fixture。
     final bytes = _corpusBook('toc-ncx.epub');
     late BookEntry book;
     await tester.runAsync(() async {
       book = await library.importBytes(bytes, fallbackTitle: 'toc-ncx');
     });
     final source = await openTestChapterSource(bytes);
-    final bookmarks = library.bookmarkStore(book.id)!;
+    late _Bookmarks bookmarks;
+    await tester.runAsync(() async {
+      bookmarks = _Bookmarks(await buildRevisionAnchorBook(bytes));
+    });
     late ReaderSession session;
 
     await tester.pumpWidget(
@@ -80,7 +119,6 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey<String>('drawer-add-bookmark')));
     await tester.pumpAndSettle();
-    await tester.pumpAndSettle();
     expect(find.text('已添加书签'), findsOneWidget);
 
     final saved = await bookmarks.list();
@@ -95,10 +133,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(session.progress!.spineIndex, 2);
 
-    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
-    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('drawer-tab-bookmarks')),
     );

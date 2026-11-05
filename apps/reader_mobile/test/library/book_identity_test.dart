@@ -123,16 +123,9 @@ void main() {
       author: '编辑作者',
       description: '简介',
     );
-    await expectLater(
-      library.importBytes(bytes),
-      throwsA(
-        isA<LibraryImportException>().having(
-          (e) => e.errorCode,
-          '重复',
-          'E_DUPLICATE',
-        ),
-      ),
-    );
+    final again = await library.importBytes(bytes);
+    expect(again.importOutcome, BookImportOutcome.unchanged);
+    expect(again.title, '编辑名');
     expect(
       (await db.select(db.books).get()).single.epubIdentifier,
       _identifier,
@@ -167,9 +160,9 @@ void main() {
     );
     expect(first.id, second.id);
     expect(first.id, generateBookId(title: '', author: '', identifier: ''));
-    await expectLater(
-      library.importBytes(bytes),
-      throwsA(isA<LibraryImportException>()),
+    expect(
+      (await library.importBytes(bytes)).importOutcome,
+      BookImportOutcome.unchanged,
     );
   });
 
@@ -185,15 +178,15 @@ void main() {
     expect(book.id, generateBookId(title: '', author: '', identifier: ''));
   });
 
-  test('并发重复导入只保留一本，失败后导入队列可继续使用', () async {
+  test('并发重复导入只保留一本，队列可继续使用', () async {
     final bytes = buildTestEpub(identifier: _identifier);
     final first = library.importBytes(bytes);
     final second = LibraryStore(
       database: db,
       directoryProvider: () async => root,
     ).importBytes(bytes);
-    await expectLater(second, throwsA(isA<LibraryImportException>()));
     await first;
+    expect((await second).importOutcome, BookImportOutcome.unchanged);
     expect(await library.list(), hasLength(1));
     await library.importBytes(buildTestEpub(title: '下一本'));
     expect(await library.list(), hasLength(2));
@@ -388,8 +381,19 @@ void main() {
             deletedAt: const Value(2),
           ),
         );
-    await DriftProgressStore(db)
-        .save(id, const ReaderProgress(spineIndex: 0, pageIndex: 4));
+    final oldId = (await db.select(db.books).get()).single.id;
+    await db
+        .into(db.readingProgress)
+        .insert(
+          ReadingProgressCompanion.insert(
+            bookId: Value(oldId),
+            locatorCfi: 'spine:0/page:4',
+            percent: const Value(0.0),
+            spineIndex: const Value(0),
+            pageIndex: const Value(4),
+            updatedAt: 1,
+          ),
+        );
     await expectLater(
       library.importBytes(bytes),
       throwsA(

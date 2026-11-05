@@ -108,8 +108,12 @@ void main() {
     expect(session.page, isNotNull, reason: '不应停在空白页');
     expect(
       session.progress,
-      const ReaderProgress(spineIndex: 2, pageIndex: 0, finished: true),
+      const ReaderProgress(spineIndex: 2, pageIndex: 0),
+      reason: '恢复时跳过空章不算真实导航，保留原在读状态',
     );
+    await session.previous();
+    await session.next();
+    expect(session.progress!.finished, isTrue, reason: '真实导航返回末页后可标为读完');
     session.dispose();
   });
 

@@ -51,7 +51,7 @@ enum ReaderAnnotationStyle {
 
 /// 标注（P4-17）：CFI 区间 + 颜色 + 备注 + 前后文上下文。
 ///
-/// CFI 是重排后仍能定位的唯一坐标；quote 与前后文用于兜底重定位（P4-20）。
+/// CFI 提供位置候选；版本化锚点、原引用和前后文用于核验实际内容。
 class ReaderAnnotation {
   /// 创建标注。
   const ReaderAnnotation({
@@ -67,6 +67,10 @@ class ReaderAnnotation {
     this.color,
     this.style = ReaderAnnotationStyle.background,
     this.note,
+    this.relocationStatus,
+    this.relocationReason,
+    this.currentQuote,
+    this.anchorData,
   });
 
   /// 唯一标识。
@@ -99,11 +103,33 @@ class ReaderAnnotation {
   /// 笔记正文。
   final String? note;
 
+  /// 跨版本位置的验证状态，原引用和笔记正文保持不变。
+  final String? relocationStatus;
+  final String? relocationReason;
+  final String? currentQuote;
+
+  /// 原始与当前内容证据，用于阅读页复核实际选中文字。
+  final String? anchorData;
+
+  bool get needsRelocation =>
+      relocationStatus != null &&
+      relocationStatus != 'verified' &&
+      relocationStatus != 'relocated';
+
   /// 创建时间。
   final DateTime createdAt;
 
   /// 更新时间。
   final DateTime updatedAt;
+}
+
+/// 仅更新当前定位，保留原引用、笔记、样式及创建时间。
+abstract interface class RelocatableAnnotationStore {
+  Future<void> relocate(
+    String id, {
+    required String startCfi,
+    required String endCfi,
+  });
 }
 
 /// 标注存储（P4-17）：阅读页通过它读写标注，app 层用数据库实现。

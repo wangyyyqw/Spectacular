@@ -18,6 +18,7 @@ class _SlowLibrary extends LibraryStore {
     Uint8List bytes, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     onProgress?.call(0.2);
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -25,6 +26,7 @@ class _SlowLibrary extends LibraryStore {
       bytes,
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
+      isCancelled: isCancelled,
     );
   }
 }

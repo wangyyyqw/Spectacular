@@ -20,6 +20,7 @@ class _GatedLibrary extends LibraryStore {
     Uint8List bytes, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     calls++;
     if (calls == 1) {
@@ -30,6 +31,7 @@ class _GatedLibrary extends LibraryStore {
       bytes,
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
+      isCancelled: isCancelled,
     );
   }
 }
@@ -54,7 +56,7 @@ void main() {
     expect((await library.list()).single.title, '立即重试');
   });
 
-  test('释放队列后在途导入可收尾，排队任务不再执行或通知', () async {
+  test('释放队列在提交前取消在途及排队任务，不再通知', () async {
     final library = _GatedLibrary();
     final queue = ImportQueue(library);
     final first = queue.enqueue(buildTestEpub(title: '在途'));
@@ -63,8 +65,9 @@ void main() {
     library.gate.complete();
     await queue.drain();
 
-    expect(first.status, ImportStatus.succeeded);
+    expect(first.status, ImportStatus.cancelled);
     expect(second.status, ImportStatus.cancelled);
+    expect(await library.list(), isEmpty);
     expect(library.calls, 1);
   });
 

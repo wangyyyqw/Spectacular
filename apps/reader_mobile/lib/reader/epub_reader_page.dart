@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:crypto/crypto.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/perf/trace.dart';
@@ -89,6 +90,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     with WidgetsBindingObserver {
   late ReaderSettings _settings = widget.settings ?? ReaderSettings.defaults;
   final _backgroundStore = ReaderBackgroundStore();
+  late final String _contentRevision = sha256.convert(widget.bytes).toString();
   List<ReaderFontOption> _customFonts = const [];
 
   Future<void> _prepareFonts() async {
@@ -283,6 +285,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       source: _source!,
       store: widget.store,
       bookId: widget.bookId,
+      contentRevision: _contentRevision,
       imageCache: _imageCache,
       bookmarks: widget.bookmarks,
       annotations: widget.annotations,

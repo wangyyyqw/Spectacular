@@ -1,5 +1,7 @@
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/revision_relocator.dart';
 
 import 'annotation.dart';
 
@@ -76,175 +78,134 @@ class AnnotationRelocation {
     note: annotation.note,
     createdAt: annotation.createdAt,
     updatedAt: annotation.updatedAt,
+    relocationStatus: annotation.relocationStatus,
+    relocationReason: annotation.relocationReason,
+    currentQuote: annotation.currentQuote,
+    anchorData: annotation.anchorData,
   );
 }
 
-/// 标注重定位（§30.4）：CFI 优先，失效时按引文与上下文兜底。
-///
-/// 只消费当前章的分页结果；跨章标注按 spine 过滤后各自定位。三级解析与
-/// 指纹消歧由 P7-14 增强，这里先覆盖「直查 → 引文唯一/消歧」。
+/// 阅读页安全适配器：使用核心统一验证规则，分页仅提供当前章节的文本。
 abstract final class AnnotationRelocator {
-  /// 对给定章的页重建所有标注的位置。
   static List<AnnotationRelocation> relocate({
     required List<ReaderAnnotation> annotations,
     required List<PageContent> pages,
+    String? contentRevision,
   }) {
-    if (annotations.isEmpty || pages.isEmpty) {
-      return const <AnnotationRelocation>[];
-    }
-    final blocks = <_BlockRef>[];
+    if (annotations.isEmpty || pages.isEmpty) return const [];
+    final chapters = <int, List<AnchorBlock>>{};
+    final seen = <String>{};
     for (final page in pages) {
       for (final slice in page.slices) {
-        final cfi = slice.block.startCfi;
-        if (cfi == null || cfi.isEmpty) {
-          continue;
-        }
-        blocks.add(
-          _BlockRef(
-            page: page,
-            base: cfiBase(cfi),
-            cfi: cfi,
-            text: slice.block.layout.text,
-          ),
-        );
-      }
-    }
-    if (blocks.isEmpty) {
-      return const <AnnotationRelocation>[];
-    }
-    return <AnnotationRelocation>[
-      for (final annotation in annotations)
-        _relocateOne(annotation, blocks),
-    ];
-  }
-
-  static AnnotationRelocation _relocateOne(
-    ReaderAnnotation annotation,
-    List<_BlockRef> blocks,
-  ) {
-    final startBase = cfiBase(annotation.startCfi);
-    final startOffset = cfiCharOffset(annotation.startCfi) ?? 0;
-
-    // 一档：CFI 直接命中（重排不影响块级 CFI）。
-    for (final block in blocks) {
-      if (block.base == startBase) {
-        final valid = startOffset >= 0 && startOffset <= block.text.length;
-        if (valid) {
-          return AnnotationRelocation(
-            annotation: annotation,
-            status: AnnotationRelocationStatus.verified,
-            startCfi: annotation.startCfi,
-            endCfi: annotation.endCfi,
-            page: block.page,
+        final table = slice.block.table;
+        if (table != null) {
+          for (final cell in table.cells) {
+            _addBlock(chapters, seen, cell.startCfi, cell.layout.text);
+          }
+        } else {
+          _addBlock(
+            chapters,
+            seen,
+            slice.block.startCfi,
+            slice.block.layout.text,
           );
         }
       }
     }
-
-    // 二档：按引文找回（§30.4）。
-    final quote = annotation.quote;
-    if (quote.isEmpty) {
-      return AnnotationRelocation(
-        annotation: annotation,
-        status: AnnotationRelocationStatus.failed,
-        startCfi: annotation.startCfi,
-        endCfi: annotation.endCfi,
-        failure: AnnotationRelocationFailure.quoteNotFound,
-      );
-    }
-    final candidates = <_Candidate>[];
-    for (final block in blocks) {
-      var index = block.text.indexOf(quote);
-      while (index >= 0) {
-        candidates.add(
-          _Candidate(block: block, offset: index, quoteLength: quote.length),
-        );
-        index = block.text.indexOf(quote, index + 1);
-      }
-    }
-    if (candidates.isEmpty) {
-      return AnnotationRelocation(
-        annotation: annotation,
-        status: AnnotationRelocationStatus.failed,
-        startCfi: annotation.startCfi,
-        endCfi: annotation.endCfi,
-        failure: AnnotationRelocationFailure.quoteNotFound,
-      );
-    }
-    // 上下文消歧：优先前后文都对得上的候选。
-    final before = annotation.contextBefore;
-    final after = annotation.contextAfter;
-    final contextMatched = candidates.where((candidate) {
-      return candidate.matchesContext(before: before, after: after);
-    }).toList();
-    if (contextMatched.isEmpty && candidates.length > 1) {
-      // 多处命中且上下文都对不上：无法安全消歧（P7-14 用指纹进一步收窄）。
-      return AnnotationRelocation(
-        annotation: annotation,
-        status: AnnotationRelocationStatus.failed,
-        startCfi: annotation.startCfi,
-        endCfi: annotation.endCfi,
-        failure: AnnotationRelocationFailure.ambiguousQuote,
-      );
-    }
-    final chosen = contextMatched.isNotEmpty
-        ? contextMatched.first
-        : candidates.first;
-    final newStart = cfiWithCharOffset(chosen.block.cfi, chosen.offset);
-    final newEnd = cfiWithCharOffset(
-      chosen.block.cfi,
-      chosen.offset + quote.length,
+    if (chapters.isEmpty) return const [];
+    final book = AnchorBook(
+      revision: contentRevision ?? 'reader-layout',
+      chapters: [
+        for (final entry in chapters.entries)
+          AnchorChapter(spineIndex: entry.key, href: '', blocks: entry.value),
+      ],
     );
-    return AnnotationRelocation(
-      annotation: annotation,
-      status: AnnotationRelocationStatus.relocated,
-      startCfi: newStart,
-      endCfi: newEnd,
-      page: chosen.block.page,
+    return [for (final item in annotations) _relocateOne(item, book, pages)];
+  }
+
+  static void _addBlock(
+    Map<int, List<AnchorBlock>> chapters,
+    Set<String> seen,
+    String? cfi,
+    String text,
+  ) {
+    if (cfi == null || cfi.isEmpty || !seen.add(cfi)) return;
+    final parsed = EpubCfi.parse(cfi);
+    final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+    if (spine == null) return;
+    (chapters[spine] ??= []).add(AnchorBlock(cfi: cfi, text: text));
+  }
+
+  static AnnotationRelocation _relocateOne(
+    ReaderAnnotation annotation,
+    AnchorBook book,
+    List<PageContent> pages,
+  ) {
+    if (annotation.needsRelocation) return _failed(annotation);
+    final record = _anchorRecord(annotation, book);
+    if (record == null) return _failed(annotation);
+    final anchor = record.effective;
+    // 跨章区间由覆盖时的全书索引核验。仅消费与当前文件版本一致的结果，
+    // 避免在当前一章的局部文本中把完整跨章引用误判为删除。
+    if (record.isResolved &&
+        anchor.revision == book.revision &&
+        anchor.end != null &&
+        anchor.start.spineIndex != anchor.end!.spineIndex) {
+      return _resolved(annotation, anchor.start.cfi, anchor.end!.cfi, pages);
+    }
+    final result = RevisionRelocator.relocate(
+      oldBook: book,
+      newBook: book,
+      record: record,
     );
-  }
-}
-
-class _BlockRef {
-  const _BlockRef({
-    required this.page,
-    required this.base,
-    required this.cfi,
-    required this.text,
-  });
-
-  final PageContent page;
-  final String base;
-  final String cfi;
-  final String text;
-}
-
-class _Candidate {
-  const _Candidate({
-    required this.block,
-    required this.offset,
-    required this.quoteLength,
-  });
-
-  final _BlockRef block;
-  final int offset;
-  final int quoteLength;
-
-  bool matchesContext({String? before, String? after}) {
-    if (before != null && before.isNotEmpty) {
-      final start = offset - before.length;
-      if (start < 0 || block.text.substring(start, offset) != before) {
-        return false;
-      }
+    if (!result.isResolved || result.effective.end == null) {
+      return _failed(annotation, result.reason);
     }
-    if (after != null && after.isNotEmpty) {
-      final afterStart = offset + quoteLength;
-      final afterEnd = afterStart + after.length;
-      if (afterEnd > block.text.length ||
-          block.text.substring(afterStart, afterEnd) != after) {
-        return false;
-      }
-    }
-    return true;
+    final current = result.effective;
+    return _resolved(annotation, current.start.cfi, current.end!.cfi, pages);
   }
+
+  static AnchorRecord? _anchorRecord(
+    ReaderAnnotation annotation,
+    AnchorBook book,
+  ) {
+    final stored = AnchorRecord.decode(annotation.anchorData);
+    if (stored != null) return stored.isResolved ? stored : null;
+    final legacy = book.legacyRange(
+      startCfi: annotation.startCfi,
+      endCfi: annotation.endCfi,
+      quote: annotation.currentQuote ?? annotation.quote,
+      contextBefore: annotation.contextBefore ?? '',
+      contextAfter: annotation.contextAfter ?? '',
+    );
+    return legacy == null ? null : AnchorRecord(original: legacy);
+  }
+
+  static AnnotationRelocation _resolved(
+    ReaderAnnotation annotation,
+    String start,
+    String end,
+    List<PageContent> pages,
+  ) => AnnotationRelocation(
+    annotation: annotation,
+    status: start == annotation.startCfi && end == annotation.endCfi
+        ? AnnotationRelocationStatus.verified
+        : AnnotationRelocationStatus.relocated,
+    startCfi: start,
+    endCfi: end,
+    page: pages.first,
+  );
+
+  static AnnotationRelocation _failed(
+    ReaderAnnotation annotation, [
+    String? reason,
+  ]) => AnnotationRelocation(
+    annotation: annotation,
+    status: AnnotationRelocationStatus.failed,
+    startCfi: annotation.startCfi,
+    endCfi: annotation.endCfi,
+    failure: reason?.contains('消歧') == true
+        ? AnnotationRelocationFailure.ambiguousQuote
+        : AnnotationRelocationFailure.quoteNotFound,
+  );
 }

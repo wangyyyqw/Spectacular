@@ -15,12 +15,14 @@ class _SlowLibrary extends LibraryStore {
     Uint8List bytes, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 30));
     return super.importBytes(
       bytes,
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
+      isCancelled: isCancelled,
     );
   }
 }
@@ -60,10 +62,7 @@ void main() {
     expect(jobs.map((job) => job.progress), everyElement(1.0));
     final books = await library.list();
     expect(books.length, 3);
-    expect(
-      books.map((book) => book.title).toSet(),
-      {'书0', '书1', '书2'},
-    );
+    expect(books.map((book) => book.title).toSet(), {'书0', '书1', '书2'});
     for (final series in progressByJob.values) {
       for (var i = 1; i < series.length; i++) {
         expect(

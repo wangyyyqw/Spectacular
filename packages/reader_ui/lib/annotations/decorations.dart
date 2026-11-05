@@ -34,8 +34,7 @@ class AnnotationLine {
 
 /// 标注装饰计算（P4-18）：把 CFI 区间映射到当前页的逐行字符区间。
 ///
-/// 支持同块与跨块区间：起点块从起点字符画到块末，终点块从块首画到终点
-/// 字符；跨页部分由翻页后的同一计算覆盖（§64.3）。
+/// 支持同块、跨块与跨章区间，中间块完整绘制；待确认记录不参与绘制。
 abstract final class AnnotationDecorations {
   /// 高亮触摸容差（逻辑像素）。
   static const double tapSlop = 4;
@@ -65,6 +64,10 @@ abstract final class AnnotationDecorations {
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     final result = <AnnotationLine>[];
     for (final annotation in sorted) {
+      if (annotation.needsRelocation) continue;
+      final start = EpubCfi.parse(annotation.startCfi)?.withCharOffset(0);
+      final end = EpubCfi.parse(annotation.endCfi)?.withCharOffset(0);
+      if (start == null || end == null || start.compareTo(end) > 0) continue;
       final startBase = cfiBase(annotation.startCfi);
       final endBase = cfiBase(annotation.endCfi);
       final startOffset = cfiCharOffset(annotation.startCfi) ?? 0;
@@ -75,7 +78,10 @@ abstract final class AnnotationDecorations {
           continue;
         }
         final blockBase = cfiBase(base);
-        if (blockBase != startBase && blockBase != endBase) {
+        final blockCfi = EpubCfi.parse(base)?.withCharOffset(0);
+        if (blockCfi == null ||
+            blockCfi.compareTo(start) < 0 ||
+            blockCfi.compareTo(end) > 0) {
           continue;
         }
         final blockLength = box.slice.block.layout.text.length;
@@ -83,10 +89,10 @@ abstract final class AnnotationDecorations {
         var from = 0;
         var to = blockLength;
         if (blockBase == startBase) {
-          from = startOffset;
+          from = startOffset - (cfiCharOffset(base) ?? 0);
         }
         if (blockBase == endBase) {
-          to = endOffset;
+          to = endOffset - (cfiCharOffset(base) ?? 0);
         }
         // 标注偏移是块内坐标；行盒的 textOffset 是整页坐标，
         // 块内基址要用 blockTextOffset（P9-28）。

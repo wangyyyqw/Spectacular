@@ -65,6 +65,17 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _contentRevisionMeta = const VerificationMeta(
+    'contentRevision',
+  );
+  @override
+  late final GeneratedColumn<String> contentRevision = GeneratedColumn<String>(
+    'content_revision',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _titleMeta = const VerificationMeta('title');
   @override
   late final GeneratedColumn<String> title = GeneratedColumn<String>(
@@ -235,6 +246,7 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     epubIdentifier,
     identityVersion,
     legacyUuid,
+    contentRevision,
     title,
     author,
     description,
@@ -296,6 +308,15 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
       context.handle(
         _legacyUuidMeta,
         legacyUuid.isAcceptableOrUnknown(data['legacy_uuid']!, _legacyUuidMeta),
+      );
+    }
+    if (data.containsKey('content_revision')) {
+      context.handle(
+        _contentRevisionMeta,
+        contentRevision.isAcceptableOrUnknown(
+          data['content_revision']!,
+          _contentRevisionMeta,
+        ),
       );
     }
     if (data.containsKey('title')) {
@@ -432,6 +453,10 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
         DriftSqlType.string,
         data['${effectivePrefix}legacy_uuid'],
       ),
+      contentRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_revision'],
+      ),
       title: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}title'],
@@ -517,6 +542,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
   /// 迁移前标识，供旧进度文件解析及旧目录保护。
   final String? legacyUuid;
 
+  /// 当前 EPUB 字节摘要，与书籍身份分开。
+  final String? contentRevision;
+
   /// 书名。
   final String title;
 
@@ -567,6 +595,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     this.epubIdentifier,
     required this.identityVersion,
     this.legacyUuid,
+    this.contentRevision,
     required this.title,
     this.author,
     this.description,
@@ -594,6 +623,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     map['identity_version'] = Variable<int>(identityVersion);
     if (!nullToAbsent || legacyUuid != null) {
       map['legacy_uuid'] = Variable<String>(legacyUuid);
+    }
+    if (!nullToAbsent || contentRevision != null) {
+      map['content_revision'] = Variable<String>(contentRevision);
     }
     map['title'] = Variable<String>(title);
     if (!nullToAbsent || author != null) {
@@ -640,6 +672,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       legacyUuid: legacyUuid == null && nullToAbsent
           ? const Value.absent()
           : Value(legacyUuid),
+      contentRevision: contentRevision == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contentRevision),
       title: Value(title),
       author: author == null && nullToAbsent
           ? const Value.absent()
@@ -685,6 +720,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       epubIdentifier: serializer.fromJson<String?>(json['epubIdentifier']),
       identityVersion: serializer.fromJson<int>(json['identityVersion']),
       legacyUuid: serializer.fromJson<String?>(json['legacyUuid']),
+      contentRevision: serializer.fromJson<String?>(json['contentRevision']),
       title: serializer.fromJson<String>(json['title']),
       author: serializer.fromJson<String?>(json['author']),
       description: serializer.fromJson<String?>(json['description']),
@@ -711,6 +747,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       'epubIdentifier': serializer.toJson<String?>(epubIdentifier),
       'identityVersion': serializer.toJson<int>(identityVersion),
       'legacyUuid': serializer.toJson<String?>(legacyUuid),
+      'contentRevision': serializer.toJson<String?>(contentRevision),
       'title': serializer.toJson<String>(title),
       'author': serializer.toJson<String?>(author),
       'description': serializer.toJson<String?>(description),
@@ -735,6 +772,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     Value<String?> epubIdentifier = const Value.absent(),
     int? identityVersion,
     Value<String?> legacyUuid = const Value.absent(),
+    Value<String?> contentRevision = const Value.absent(),
     String? title,
     Value<String?> author = const Value.absent(),
     Value<String?> description = const Value.absent(),
@@ -758,6 +796,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
         : this.epubIdentifier,
     identityVersion: identityVersion ?? this.identityVersion,
     legacyUuid: legacyUuid.present ? legacyUuid.value : this.legacyUuid,
+    contentRevision: contentRevision.present
+        ? contentRevision.value
+        : this.contentRevision,
     title: title ?? this.title,
     author: author.present ? author.value : this.author,
     description: description.present ? description.value : this.description,
@@ -787,6 +828,9 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       legacyUuid: data.legacyUuid.present
           ? data.legacyUuid.value
           : this.legacyUuid,
+      contentRevision: data.contentRevision.present
+          ? data.contentRevision.value
+          : this.contentRevision,
       title: data.title.present ? data.title.value : this.title,
       author: data.author.present ? data.author.value : this.author,
       description: data.description.present
@@ -825,6 +869,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           ..write('epubIdentifier: $epubIdentifier, ')
           ..write('identityVersion: $identityVersion, ')
           ..write('legacyUuid: $legacyUuid, ')
+          ..write('contentRevision: $contentRevision, ')
           ..write('title: $title, ')
           ..write('author: $author, ')
           ..write('description: $description, ')
@@ -845,12 +890,13 @@ class BookRow extends DataClass implements Insertable<BookRow> {
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     uuid,
     epubIdentifier,
     identityVersion,
     legacyUuid,
+    contentRevision,
     title,
     author,
     description,
@@ -866,7 +912,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     level,
     warnings,
     deletedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -876,6 +922,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           other.epubIdentifier == this.epubIdentifier &&
           other.identityVersion == this.identityVersion &&
           other.legacyUuid == this.legacyUuid &&
+          other.contentRevision == this.contentRevision &&
           other.title == this.title &&
           other.author == this.author &&
           other.description == this.description &&
@@ -899,6 +946,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
   final Value<String?> epubIdentifier;
   final Value<int> identityVersion;
   final Value<String?> legacyUuid;
+  final Value<String?> contentRevision;
   final Value<String> title;
   final Value<String?> author;
   final Value<String?> description;
@@ -920,6 +968,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.epubIdentifier = const Value.absent(),
     this.identityVersion = const Value.absent(),
     this.legacyUuid = const Value.absent(),
+    this.contentRevision = const Value.absent(),
     this.title = const Value.absent(),
     this.author = const Value.absent(),
     this.description = const Value.absent(),
@@ -942,6 +991,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.epubIdentifier = const Value.absent(),
     this.identityVersion = const Value.absent(),
     this.legacyUuid = const Value.absent(),
+    this.contentRevision = const Value.absent(),
     required String title,
     this.author = const Value.absent(),
     this.description = const Value.absent(),
@@ -967,6 +1017,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Expression<String>? epubIdentifier,
     Expression<int>? identityVersion,
     Expression<String>? legacyUuid,
+    Expression<String>? contentRevision,
     Expression<String>? title,
     Expression<String>? author,
     Expression<String>? description,
@@ -989,6 +1040,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       if (epubIdentifier != null) 'epub_identifier': epubIdentifier,
       if (identityVersion != null) 'identity_version': identityVersion,
       if (legacyUuid != null) 'legacy_uuid': legacyUuid,
+      if (contentRevision != null) 'content_revision': contentRevision,
       if (title != null) 'title': title,
       if (author != null) 'author': author,
       if (description != null) 'description': description,
@@ -1013,6 +1065,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Value<String?>? epubIdentifier,
     Value<int>? identityVersion,
     Value<String?>? legacyUuid,
+    Value<String?>? contentRevision,
     Value<String>? title,
     Value<String?>? author,
     Value<String?>? description,
@@ -1035,6 +1088,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       epubIdentifier: epubIdentifier ?? this.epubIdentifier,
       identityVersion: identityVersion ?? this.identityVersion,
       legacyUuid: legacyUuid ?? this.legacyUuid,
+      contentRevision: contentRevision ?? this.contentRevision,
       title: title ?? this.title,
       author: author ?? this.author,
       description: description ?? this.description,
@@ -1070,6 +1124,9 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     }
     if (legacyUuid.present) {
       map['legacy_uuid'] = Variable<String>(legacyUuid.value);
+    }
+    if (contentRevision.present) {
+      map['content_revision'] = Variable<String>(contentRevision.value);
     }
     if (title.present) {
       map['title'] = Variable<String>(title.value);
@@ -1127,6 +1184,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
           ..write('epubIdentifier: $epubIdentifier, ')
           ..write('identityVersion: $identityVersion, ')
           ..write('legacyUuid: $legacyUuid, ')
+          ..write('contentRevision: $contentRevision, ')
           ..write('title: $title, ')
           ..write('author: $author, ')
           ..write('description: $description, ')
@@ -2172,6 +2230,17 @@ class $AnnotationsTable extends Annotations
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _anchorJsonMeta = const VerificationMeta(
+    'anchorJson',
+  );
+  @override
+  late final GeneratedColumn<String> anchorJson = GeneratedColumn<String>(
+    'anchor_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _quoteMeta = const VerificationMeta('quote');
   @override
   late final GeneratedColumn<String> quote = GeneratedColumn<String>(
@@ -2259,6 +2328,7 @@ class $AnnotationsTable extends Annotations
     type,
     startCfi,
     endCfi,
+    anchorJson,
     quote,
     contextBefore,
     contextAfter,
@@ -2316,6 +2386,12 @@ class $AnnotationsTable extends Annotations
       );
     } else if (isInserting) {
       context.missing(_endCfiMeta);
+    }
+    if (data.containsKey('anchor_json')) {
+      context.handle(
+        _anchorJsonMeta,
+        anchorJson.isAcceptableOrUnknown(data['anchor_json']!, _anchorJsonMeta),
+      );
     }
     if (data.containsKey('quote')) {
       context.handle(
@@ -2406,6 +2482,10 @@ class $AnnotationsTable extends Annotations
         DriftSqlType.string,
         data['${effectivePrefix}end_cfi'],
       )!,
+      anchorJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}anchor_json'],
+      ),
       quote: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}quote'],
@@ -2463,6 +2543,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
   /// 结束 CFI。
   final String endCfi;
 
+  /// 原始与当前内容锚点，以及迁移状态。
+  final String? anchorJson;
+
   /// 原文引用（兜底重定位）。
   final String quote;
 
@@ -2492,6 +2575,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     required this.type,
     required this.startCfi,
     required this.endCfi,
+    this.anchorJson,
     required this.quote,
     this.contextBefore,
     this.contextAfter,
@@ -2509,6 +2593,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     map['type'] = Variable<int>(type);
     map['start_cfi'] = Variable<String>(startCfi);
     map['end_cfi'] = Variable<String>(endCfi);
+    if (!nullToAbsent || anchorJson != null) {
+      map['anchor_json'] = Variable<String>(anchorJson);
+    }
     map['quote'] = Variable<String>(quote);
     if (!nullToAbsent || contextBefore != null) {
       map['context_before'] = Variable<String>(contextBefore);
@@ -2537,6 +2624,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       type: Value(type),
       startCfi: Value(startCfi),
       endCfi: Value(endCfi),
+      anchorJson: anchorJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(anchorJson),
       quote: Value(quote),
       contextBefore: contextBefore == null && nullToAbsent
           ? const Value.absent()
@@ -2567,6 +2657,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       type: serializer.fromJson<int>(json['type']),
       startCfi: serializer.fromJson<String>(json['startCfi']),
       endCfi: serializer.fromJson<String>(json['endCfi']),
+      anchorJson: serializer.fromJson<String?>(json['anchorJson']),
       quote: serializer.fromJson<String>(json['quote']),
       contextBefore: serializer.fromJson<String?>(json['contextBefore']),
       contextAfter: serializer.fromJson<String?>(json['contextAfter']),
@@ -2586,6 +2677,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       'type': serializer.toJson<int>(type),
       'startCfi': serializer.toJson<String>(startCfi),
       'endCfi': serializer.toJson<String>(endCfi),
+      'anchorJson': serializer.toJson<String?>(anchorJson),
       'quote': serializer.toJson<String>(quote),
       'contextBefore': serializer.toJson<String?>(contextBefore),
       'contextAfter': serializer.toJson<String?>(contextAfter),
@@ -2603,6 +2695,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     int? type,
     String? startCfi,
     String? endCfi,
+    Value<String?> anchorJson = const Value.absent(),
     String? quote,
     Value<String?> contextBefore = const Value.absent(),
     Value<String?> contextAfter = const Value.absent(),
@@ -2617,6 +2710,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     type: type ?? this.type,
     startCfi: startCfi ?? this.startCfi,
     endCfi: endCfi ?? this.endCfi,
+    anchorJson: anchorJson.present ? anchorJson.value : this.anchorJson,
     quote: quote ?? this.quote,
     contextBefore: contextBefore.present
         ? contextBefore.value
@@ -2635,6 +2729,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       type: data.type.present ? data.type.value : this.type,
       startCfi: data.startCfi.present ? data.startCfi.value : this.startCfi,
       endCfi: data.endCfi.present ? data.endCfi.value : this.endCfi,
+      anchorJson: data.anchorJson.present
+          ? data.anchorJson.value
+          : this.anchorJson,
       quote: data.quote.present ? data.quote.value : this.quote,
       contextBefore: data.contextBefore.present
           ? data.contextBefore.value
@@ -2658,6 +2755,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
           ..write('type: $type, ')
           ..write('startCfi: $startCfi, ')
           ..write('endCfi: $endCfi, ')
+          ..write('anchorJson: $anchorJson, ')
           ..write('quote: $quote, ')
           ..write('contextBefore: $contextBefore, ')
           ..write('contextAfter: $contextAfter, ')
@@ -2677,6 +2775,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     type,
     startCfi,
     endCfi,
+    anchorJson,
     quote,
     contextBefore,
     contextAfter,
@@ -2695,6 +2794,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
           other.type == this.type &&
           other.startCfi == this.startCfi &&
           other.endCfi == this.endCfi &&
+          other.anchorJson == this.anchorJson &&
           other.quote == this.quote &&
           other.contextBefore == this.contextBefore &&
           other.contextAfter == this.contextAfter &&
@@ -2711,6 +2811,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
   final Value<int> type;
   final Value<String> startCfi;
   final Value<String> endCfi;
+  final Value<String?> anchorJson;
   final Value<String> quote;
   final Value<String?> contextBefore;
   final Value<String?> contextAfter;
@@ -2726,6 +2827,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     this.type = const Value.absent(),
     this.startCfi = const Value.absent(),
     this.endCfi = const Value.absent(),
+    this.anchorJson = const Value.absent(),
     this.quote = const Value.absent(),
     this.contextBefore = const Value.absent(),
     this.contextAfter = const Value.absent(),
@@ -2742,6 +2844,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     required int type,
     required String startCfi,
     required String endCfi,
+    this.anchorJson = const Value.absent(),
     required String quote,
     this.contextBefore = const Value.absent(),
     this.contextAfter = const Value.absent(),
@@ -2765,6 +2868,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     Expression<int>? type,
     Expression<String>? startCfi,
     Expression<String>? endCfi,
+    Expression<String>? anchorJson,
     Expression<String>? quote,
     Expression<String>? contextBefore,
     Expression<String>? contextAfter,
@@ -2781,6 +2885,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
       if (type != null) 'type': type,
       if (startCfi != null) 'start_cfi': startCfi,
       if (endCfi != null) 'end_cfi': endCfi,
+      if (anchorJson != null) 'anchor_json': anchorJson,
       if (quote != null) 'quote': quote,
       if (contextBefore != null) 'context_before': contextBefore,
       if (contextAfter != null) 'context_after': contextAfter,
@@ -2799,6 +2904,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     Value<int>? type,
     Value<String>? startCfi,
     Value<String>? endCfi,
+    Value<String?>? anchorJson,
     Value<String>? quote,
     Value<String?>? contextBefore,
     Value<String?>? contextAfter,
@@ -2815,6 +2921,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
       type: type ?? this.type,
       startCfi: startCfi ?? this.startCfi,
       endCfi: endCfi ?? this.endCfi,
+      anchorJson: anchorJson ?? this.anchorJson,
       quote: quote ?? this.quote,
       contextBefore: contextBefore ?? this.contextBefore,
       contextAfter: contextAfter ?? this.contextAfter,
@@ -2844,6 +2951,9 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     }
     if (endCfi.present) {
       map['end_cfi'] = Variable<String>(endCfi.value);
+    }
+    if (anchorJson.present) {
+      map['anchor_json'] = Variable<String>(anchorJson.value);
     }
     if (quote.present) {
       map['quote'] = Variable<String>(quote.value);
@@ -2883,6 +2993,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
           ..write('type: $type, ')
           ..write('startCfi: $startCfi, ')
           ..write('endCfi: $endCfi, ')
+          ..write('anchorJson: $anchorJson, ')
           ..write('quote: $quote, ')
           ..write('contextBefore: $contextBefore, ')
           ..write('contextAfter: $contextAfter, ')
@@ -2925,6 +3036,17 @@ class $ReadingProgressTable extends ReadingProgress
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
+  );
+  static const VerificationMeta _anchorJsonMeta = const VerificationMeta(
+    'anchorJson',
+  );
+  @override
+  late final GeneratedColumn<String> anchorJson = GeneratedColumn<String>(
+    'anchor_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _spineIndexMeta = const VerificationMeta(
     'spineIndex',
@@ -2990,6 +3112,7 @@ class $ReadingProgressTable extends ReadingProgress
   List<GeneratedColumn> get $columns => [
     bookId,
     locatorCfi,
+    anchorJson,
     spineIndex,
     pageIndex,
     finished,
@@ -3021,6 +3144,12 @@ class $ReadingProgressTable extends ReadingProgress
       );
     } else if (isInserting) {
       context.missing(_locatorCfiMeta);
+    }
+    if (data.containsKey('anchor_json')) {
+      context.handle(
+        _anchorJsonMeta,
+        anchorJson.isAcceptableOrUnknown(data['anchor_json']!, _anchorJsonMeta),
+      );
     }
     if (data.containsKey('spine_index')) {
       context.handle(
@@ -3071,6 +3200,10 @@ class $ReadingProgressTable extends ReadingProgress
         DriftSqlType.string,
         data['${effectivePrefix}locator_cfi'],
       )!,
+      anchorJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}anchor_json'],
+      ),
       spineIndex: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}spine_index'],
@@ -3107,6 +3240,9 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   /// 位置 CFI（P5 接入 CFI 后使用；当前存 `spine:i/page:j` 占位串）。
   final String locatorCfi;
 
+  /// 版本化内容锚点，旧位置串保留兼容。
+  final String? anchorJson;
+
   /// spine 序号（P4-10：进度迁移到表内，书架/续读用）。
   final int? spineIndex;
 
@@ -3124,6 +3260,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   const ProgressRow({
     required this.bookId,
     required this.locatorCfi,
+    this.anchorJson,
     this.spineIndex,
     this.pageIndex,
     required this.finished,
@@ -3135,6 +3272,9 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     final map = <String, Expression>{};
     map['book_id'] = Variable<int>(bookId);
     map['locator_cfi'] = Variable<String>(locatorCfi);
+    if (!nullToAbsent || anchorJson != null) {
+      map['anchor_json'] = Variable<String>(anchorJson);
+    }
     if (!nullToAbsent || spineIndex != null) {
       map['spine_index'] = Variable<int>(spineIndex);
     }
@@ -3151,6 +3291,9 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return ReadingProgressCompanion(
       bookId: Value(bookId),
       locatorCfi: Value(locatorCfi),
+      anchorJson: anchorJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(anchorJson),
       spineIndex: spineIndex == null && nullToAbsent
           ? const Value.absent()
           : Value(spineIndex),
@@ -3171,6 +3314,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return ProgressRow(
       bookId: serializer.fromJson<int>(json['bookId']),
       locatorCfi: serializer.fromJson<String>(json['locatorCfi']),
+      anchorJson: serializer.fromJson<String?>(json['anchorJson']),
       spineIndex: serializer.fromJson<int?>(json['spineIndex']),
       pageIndex: serializer.fromJson<int?>(json['pageIndex']),
       finished: serializer.fromJson<bool>(json['finished']),
@@ -3184,6 +3328,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return <String, dynamic>{
       'bookId': serializer.toJson<int>(bookId),
       'locatorCfi': serializer.toJson<String>(locatorCfi),
+      'anchorJson': serializer.toJson<String?>(anchorJson),
       'spineIndex': serializer.toJson<int?>(spineIndex),
       'pageIndex': serializer.toJson<int?>(pageIndex),
       'finished': serializer.toJson<bool>(finished),
@@ -3195,6 +3340,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   ProgressRow copyWith({
     int? bookId,
     String? locatorCfi,
+    Value<String?> anchorJson = const Value.absent(),
     Value<int?> spineIndex = const Value.absent(),
     Value<int?> pageIndex = const Value.absent(),
     bool? finished,
@@ -3203,6 +3349,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   }) => ProgressRow(
     bookId: bookId ?? this.bookId,
     locatorCfi: locatorCfi ?? this.locatorCfi,
+    anchorJson: anchorJson.present ? anchorJson.value : this.anchorJson,
     spineIndex: spineIndex.present ? spineIndex.value : this.spineIndex,
     pageIndex: pageIndex.present ? pageIndex.value : this.pageIndex,
     finished: finished ?? this.finished,
@@ -3215,6 +3362,9 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
       locatorCfi: data.locatorCfi.present
           ? data.locatorCfi.value
           : this.locatorCfi,
+      anchorJson: data.anchorJson.present
+          ? data.anchorJson.value
+          : this.anchorJson,
       spineIndex: data.spineIndex.present
           ? data.spineIndex.value
           : this.spineIndex,
@@ -3230,6 +3380,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
     return (StringBuffer('ProgressRow(')
           ..write('bookId: $bookId, ')
           ..write('locatorCfi: $locatorCfi, ')
+          ..write('anchorJson: $anchorJson, ')
           ..write('spineIndex: $spineIndex, ')
           ..write('pageIndex: $pageIndex, ')
           ..write('finished: $finished, ')
@@ -3243,6 +3394,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   int get hashCode => Object.hash(
     bookId,
     locatorCfi,
+    anchorJson,
     spineIndex,
     pageIndex,
     finished,
@@ -3255,6 +3407,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
       (other is ProgressRow &&
           other.bookId == this.bookId &&
           other.locatorCfi == this.locatorCfi &&
+          other.anchorJson == this.anchorJson &&
           other.spineIndex == this.spineIndex &&
           other.pageIndex == this.pageIndex &&
           other.finished == this.finished &&
@@ -3265,6 +3418,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
 class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   final Value<int> bookId;
   final Value<String> locatorCfi;
+  final Value<String?> anchorJson;
   final Value<int?> spineIndex;
   final Value<int?> pageIndex;
   final Value<bool> finished;
@@ -3273,6 +3427,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   const ReadingProgressCompanion({
     this.bookId = const Value.absent(),
     this.locatorCfi = const Value.absent(),
+    this.anchorJson = const Value.absent(),
     this.spineIndex = const Value.absent(),
     this.pageIndex = const Value.absent(),
     this.finished = const Value.absent(),
@@ -3282,6 +3437,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   ReadingProgressCompanion.insert({
     this.bookId = const Value.absent(),
     required String locatorCfi,
+    this.anchorJson = const Value.absent(),
     this.spineIndex = const Value.absent(),
     this.pageIndex = const Value.absent(),
     this.finished = const Value.absent(),
@@ -3292,6 +3448,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   static Insertable<ProgressRow> custom({
     Expression<int>? bookId,
     Expression<String>? locatorCfi,
+    Expression<String>? anchorJson,
     Expression<int>? spineIndex,
     Expression<int>? pageIndex,
     Expression<bool>? finished,
@@ -3301,6 +3458,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     return RawValuesInsertable({
       if (bookId != null) 'book_id': bookId,
       if (locatorCfi != null) 'locator_cfi': locatorCfi,
+      if (anchorJson != null) 'anchor_json': anchorJson,
       if (spineIndex != null) 'spine_index': spineIndex,
       if (pageIndex != null) 'page_index': pageIndex,
       if (finished != null) 'finished': finished,
@@ -3312,6 +3470,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
   ReadingProgressCompanion copyWith({
     Value<int>? bookId,
     Value<String>? locatorCfi,
+    Value<String?>? anchorJson,
     Value<int?>? spineIndex,
     Value<int?>? pageIndex,
     Value<bool>? finished,
@@ -3321,6 +3480,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     return ReadingProgressCompanion(
       bookId: bookId ?? this.bookId,
       locatorCfi: locatorCfi ?? this.locatorCfi,
+      anchorJson: anchorJson ?? this.anchorJson,
       spineIndex: spineIndex ?? this.spineIndex,
       pageIndex: pageIndex ?? this.pageIndex,
       finished: finished ?? this.finished,
@@ -3337,6 +3497,9 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     }
     if (locatorCfi.present) {
       map['locator_cfi'] = Variable<String>(locatorCfi.value);
+    }
+    if (anchorJson.present) {
+      map['anchor_json'] = Variable<String>(anchorJson.value);
     }
     if (spineIndex.present) {
       map['spine_index'] = Variable<int>(spineIndex.value);
@@ -3361,6 +3524,7 @@ class ReadingProgressCompanion extends UpdateCompanion<ProgressRow> {
     return (StringBuffer('ReadingProgressCompanion(')
           ..write('bookId: $bookId, ')
           ..write('locatorCfi: $locatorCfi, ')
+          ..write('anchorJson: $anchorJson, ')
           ..write('spineIndex: $spineIndex, ')
           ..write('pageIndex: $pageIndex, ')
           ..write('finished: $finished, ')
@@ -6362,6 +6526,224 @@ class BookTagLinksCompanion extends UpdateCompanion<BookTagLinkRow> {
   }
 }
 
+class $BookIdAliasesTable extends BookIdAliases
+    with TableInfo<$BookIdAliasesTable, BookIdAliasRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BookIdAliasesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _aliasIdMeta = const VerificationMeta(
+    'aliasId',
+  );
+  @override
+  late final GeneratedColumn<String> aliasId = GeneratedColumn<String>(
+    'alias_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<int> bookId = GeneratedColumn<int>(
+    'book_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES books (id) ON DELETE CASCADE',
+    ),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [aliasId, bookId];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'book_id_aliases';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BookIdAliasRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('alias_id')) {
+      context.handle(
+        _aliasIdMeta,
+        aliasId.isAcceptableOrUnknown(data['alias_id']!, _aliasIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_aliasIdMeta);
+    }
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bookIdMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {aliasId, bookId};
+  @override
+  BookIdAliasRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BookIdAliasRow(
+      aliasId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}alias_id'],
+      )!,
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}book_id'],
+      )!,
+    );
+  }
+
+  @override
+  $BookIdAliasesTable createAlias(String alias) {
+    return $BookIdAliasesTable(attachedDatabase, alias);
+  }
+}
+
+class BookIdAliasRow extends DataClass implements Insertable<BookIdAliasRow> {
+  final String aliasId;
+  final int bookId;
+  const BookIdAliasRow({required this.aliasId, required this.bookId});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['alias_id'] = Variable<String>(aliasId);
+    map['book_id'] = Variable<int>(bookId);
+    return map;
+  }
+
+  BookIdAliasesCompanion toCompanion(bool nullToAbsent) {
+    return BookIdAliasesCompanion(
+      aliasId: Value(aliasId),
+      bookId: Value(bookId),
+    );
+  }
+
+  factory BookIdAliasRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BookIdAliasRow(
+      aliasId: serializer.fromJson<String>(json['aliasId']),
+      bookId: serializer.fromJson<int>(json['bookId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'aliasId': serializer.toJson<String>(aliasId),
+      'bookId': serializer.toJson<int>(bookId),
+    };
+  }
+
+  BookIdAliasRow copyWith({String? aliasId, int? bookId}) => BookIdAliasRow(
+    aliasId: aliasId ?? this.aliasId,
+    bookId: bookId ?? this.bookId,
+  );
+  BookIdAliasRow copyWithCompanion(BookIdAliasesCompanion data) {
+    return BookIdAliasRow(
+      aliasId: data.aliasId.present ? data.aliasId.value : this.aliasId,
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookIdAliasRow(')
+          ..write('aliasId: $aliasId, ')
+          ..write('bookId: $bookId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(aliasId, bookId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BookIdAliasRow &&
+          other.aliasId == this.aliasId &&
+          other.bookId == this.bookId);
+}
+
+class BookIdAliasesCompanion extends UpdateCompanion<BookIdAliasRow> {
+  final Value<String> aliasId;
+  final Value<int> bookId;
+  final Value<int> rowid;
+  const BookIdAliasesCompanion({
+    this.aliasId = const Value.absent(),
+    this.bookId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BookIdAliasesCompanion.insert({
+    required String aliasId,
+    required int bookId,
+    this.rowid = const Value.absent(),
+  }) : aliasId = Value(aliasId),
+       bookId = Value(bookId);
+  static Insertable<BookIdAliasRow> custom({
+    Expression<String>? aliasId,
+    Expression<int>? bookId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (aliasId != null) 'alias_id': aliasId,
+      if (bookId != null) 'book_id': bookId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BookIdAliasesCompanion copyWith({
+    Value<String>? aliasId,
+    Value<int>? bookId,
+    Value<int>? rowid,
+  }) {
+    return BookIdAliasesCompanion(
+      aliasId: aliasId ?? this.aliasId,
+      bookId: bookId ?? this.bookId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (aliasId.present) {
+      map['alias_id'] = Variable<String>(aliasId.value);
+    }
+    if (bookId.present) {
+      map['book_id'] = Variable<int>(bookId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BookIdAliasesCompanion(')
+          ..write('aliasId: $aliasId, ')
+          ..write('bookId: $bookId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -6385,6 +6767,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $BookTagsTable bookTags = $BookTagsTable(this);
   late final $BookTagLinksTable bookTagLinks = $BookTagLinksTable(this);
+  late final $BookIdAliasesTable bookIdAliases = $BookIdAliasesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6404,6 +6787,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     shelfGroupBooks,
     bookTags,
     bookTagLinks,
+    bookIdAliases,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -6470,6 +6854,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       ),
       result: [TableUpdate('book_tag_links', kind: UpdateKind.delete)],
     ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'books',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('book_id_aliases', kind: UpdateKind.delete)],
+    ),
   ]);
 }
 
@@ -6479,6 +6870,7 @@ typedef $$BooksTableCreateCompanionBuilder = BooksCompanion Function({
   Value<String?> epubIdentifier,
   Value<int> identityVersion,
   Value<String?> legacyUuid,
+  Value<String?> contentRevision,
   required String title,
   Value<String?> author,
   Value<String?> description,
@@ -6501,6 +6893,7 @@ typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<String?> epubIdentifier,
   Value<int> identityVersion,
   Value<String?> legacyUuid,
+  Value<String?> contentRevision,
   Value<String> title,
   Value<String?> author,
   Value<String?> description,
@@ -6651,6 +7044,24 @@ final class $$BooksTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$BookIdAliasesTable, List<BookIdAliasRow>>
+  _bookIdAliasesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.bookIdAliases,
+    aliasName: 'books__id__book_id_aliases__book_id',
+  );
+
+  $$BookIdAliasesTableProcessedTableManager get bookIdAliasesRefs {
+    final manager = $$BookIdAliasesTableTableManager(
+      $_db,
+      $_db.bookIdAliases,
+    ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_bookIdAliasesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
@@ -6683,6 +7094,11 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
 
   ColumnFilters<String> get legacyUuid => $composableBuilder(
     column: $table.legacyUuid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentRevision => $composableBuilder(
+    column: $table.contentRevision,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6935,6 +7351,31 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
     );
     return f(composer);
   }
+
+  Expression<bool> bookIdAliasesRefs(
+    Expression<bool> Function($$BookIdAliasesTableFilterComposer f) f,
+  ) {
+    final $$BookIdAliasesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.bookIdAliases,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookIdAliasesTableFilterComposer(
+            $db: $db,
+            $table: $db.bookIdAliases,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$BooksTableOrderingComposer
@@ -6968,6 +7409,11 @@ class $$BooksTableOrderingComposer
 
   ColumnOrderings<String> get legacyUuid => $composableBuilder(
     column: $table.legacyUuid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentRevision => $composableBuilder(
+    column: $table.contentRevision,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -7074,6 +7520,11 @@ class $$BooksTableAnnotationComposer
 
   GeneratedColumn<String> get legacyUuid => $composableBuilder(
     column: $table.legacyUuid,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get contentRevision => $composableBuilder(
+    column: $table.contentRevision,
     builder: (column) => column,
   );
 
@@ -7308,6 +7759,31 @@ class $$BooksTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> bookIdAliasesRefs<T extends Object>(
+    Expression<T> Function($$BookIdAliasesTableAnnotationComposer a) f,
+  ) {
+    final $$BookIdAliasesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.bookIdAliases,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BookIdAliasesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.bookIdAliases,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$BooksTableTableManager
@@ -7331,6 +7807,7 @@ class $$BooksTableTableManager
             bool importReportsRefs,
             bool bookReviewsRefs,
             bool readingSessionsRefs,
+            bool bookIdAliasesRefs,
           })
         > {
   $$BooksTableTableManager(_$AppDatabase db, $BooksTable table)
@@ -7351,6 +7828,7 @@ class $$BooksTableTableManager
                 Value<String?> epubIdentifier = const Value.absent(),
                 Value<int> identityVersion = const Value.absent(),
                 Value<String?> legacyUuid = const Value.absent(),
+                Value<String?> contentRevision = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String?> author = const Value.absent(),
                 Value<String?> description = const Value.absent(),
@@ -7372,6 +7850,7 @@ class $$BooksTableTableManager
                 epubIdentifier: epubIdentifier,
                 identityVersion: identityVersion,
                 legacyUuid: legacyUuid,
+                contentRevision: contentRevision,
                 title: title,
                 author: author,
                 description: description,
@@ -7395,6 +7874,7 @@ class $$BooksTableTableManager
                 Value<String?> epubIdentifier = const Value.absent(),
                 Value<int> identityVersion = const Value.absent(),
                 Value<String?> legacyUuid = const Value.absent(),
+                Value<String?> contentRevision = const Value.absent(),
                 required String title,
                 Value<String?> author = const Value.absent(),
                 Value<String?> description = const Value.absent(),
@@ -7416,6 +7896,7 @@ class $$BooksTableTableManager
                 epubIdentifier: epubIdentifier,
                 identityVersion: identityVersion,
                 legacyUuid: legacyUuid,
+                contentRevision: contentRevision,
                 title: title,
                 author: author,
                 description: description,
@@ -7449,6 +7930,7 @@ class $$BooksTableTableManager
                 importReportsRefs = false,
                 bookReviewsRefs = false,
                 readingSessionsRefs = false,
+                bookIdAliasesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -7460,6 +7942,7 @@ class $$BooksTableTableManager
                     if (importReportsRefs) db.importReports,
                     if (bookReviewsRefs) db.bookReviews,
                     if (readingSessionsRefs) db.readingSessions,
+                    if (bookIdAliasesRefs) db.bookIdAliases,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -7611,6 +8094,27 @@ class $$BooksTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (bookIdAliasesRefs)
+                        await $_getPrefetchedData<
+                          BookRow,
+                          $BooksTable,
+                          BookIdAliasRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BooksTableReferences
+                              ._bookIdAliasesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BooksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).bookIdAliasesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.bookId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -7639,6 +8143,7 @@ typedef $$BooksTableProcessedTableManager =
         bool importReportsRefs,
         bool bookReviewsRefs,
         bool readingSessionsRefs,
+        bool bookIdAliasesRefs,
       })
     >;
 typedef $$SpineItemsTableCreateCompanionBuilder = SpineItemsCompanion Function({
@@ -8362,6 +8867,7 @@ typedef $$AnnotationsTableCreateCompanionBuilder =
       required int type,
       required String startCfi,
       required String endCfi,
+      Value<String?> anchorJson,
       required String quote,
       Value<String?> contextBefore,
       Value<String?> contextAfter,
@@ -8379,6 +8885,7 @@ typedef $$AnnotationsTableUpdateCompanionBuilder =
       Value<int> type,
       Value<String> startCfi,
       Value<String> endCfi,
+      Value<String?> anchorJson,
       Value<String> quote,
       Value<String?> contextBefore,
       Value<String?> contextAfter,
@@ -8438,6 +8945,11 @@ class $$AnnotationsTableFilterComposer
 
   ColumnFilters<String> get endCfi => $composableBuilder(
     column: $table.endCfi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8534,6 +9046,11 @@ class $$AnnotationsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get quote => $composableBuilder(
     column: $table.quote,
     builder: (column) => ColumnOrderings(column),
@@ -8618,6 +9135,11 @@ class $$AnnotationsTableAnnotationComposer
 
   GeneratedColumn<String> get endCfi =>
       $composableBuilder(column: $table.endCfi, builder: (column) => column);
+
+  GeneratedColumn<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get quote =>
       $composableBuilder(column: $table.quote, builder: (column) => column);
@@ -8704,6 +9226,7 @@ class $$AnnotationsTableTableManager
                 Value<int> type = const Value.absent(),
                 Value<String> startCfi = const Value.absent(),
                 Value<String> endCfi = const Value.absent(),
+                Value<String?> anchorJson = const Value.absent(),
                 Value<String> quote = const Value.absent(),
                 Value<String?> contextBefore = const Value.absent(),
                 Value<String?> contextAfter = const Value.absent(),
@@ -8719,6 +9242,7 @@ class $$AnnotationsTableTableManager
                 type: type,
                 startCfi: startCfi,
                 endCfi: endCfi,
+                anchorJson: anchorJson,
                 quote: quote,
                 contextBefore: contextBefore,
                 contextAfter: contextAfter,
@@ -8736,6 +9260,7 @@ class $$AnnotationsTableTableManager
                 required int type,
                 required String startCfi,
                 required String endCfi,
+                Value<String?> anchorJson = const Value.absent(),
                 required String quote,
                 Value<String?> contextBefore = const Value.absent(),
                 Value<String?> contextAfter = const Value.absent(),
@@ -8751,6 +9276,7 @@ class $$AnnotationsTableTableManager
                 type: type,
                 startCfi: startCfi,
                 endCfi: endCfi,
+                anchorJson: anchorJson,
                 quote: quote,
                 contextBefore: contextBefore,
                 contextAfter: contextAfter,
@@ -8830,6 +9356,7 @@ typedef $$ReadingProgressTableCreateCompanionBuilder =
     ReadingProgressCompanion Function({
       Value<int> bookId,
       required String locatorCfi,
+      Value<String?> anchorJson,
       Value<int?> spineIndex,
       Value<int?> pageIndex,
       Value<bool> finished,
@@ -8840,6 +9367,7 @@ typedef $$ReadingProgressTableUpdateCompanionBuilder =
     ReadingProgressCompanion Function({
       Value<int> bookId,
       Value<String> locatorCfi,
+      Value<String?> anchorJson,
       Value<int?> spineIndex,
       Value<int?> pageIndex,
       Value<bool> finished,
@@ -8884,6 +9412,11 @@ class $$ReadingProgressTableFilterComposer
   });
   ColumnFilters<String> get locatorCfi => $composableBuilder(
     column: $table.locatorCfi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8950,6 +9483,11 @@ class $$ReadingProgressTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get spineIndex => $composableBuilder(
     column: $table.spineIndex,
     builder: (column) => ColumnOrderings(column),
@@ -9010,6 +9548,11 @@ class $$ReadingProgressTableAnnotationComposer
   });
   GeneratedColumn<String> get locatorCfi => $composableBuilder(
     column: $table.locatorCfi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
     builder: (column) => column,
   );
 
@@ -9086,6 +9629,7 @@ class $$ReadingProgressTableTableManager
               ({
                 Value<int> bookId = const Value.absent(),
                 Value<String> locatorCfi = const Value.absent(),
+                Value<String?> anchorJson = const Value.absent(),
                 Value<int?> spineIndex = const Value.absent(),
                 Value<int?> pageIndex = const Value.absent(),
                 Value<bool> finished = const Value.absent(),
@@ -9094,6 +9638,7 @@ class $$ReadingProgressTableTableManager
               }) => ReadingProgressCompanion(
                 bookId: bookId,
                 locatorCfi: locatorCfi,
+                anchorJson: anchorJson,
                 spineIndex: spineIndex,
                 pageIndex: pageIndex,
                 finished: finished,
@@ -9104,6 +9649,7 @@ class $$ReadingProgressTableTableManager
               ({
                 Value<int> bookId = const Value.absent(),
                 required String locatorCfi,
+                Value<String?> anchorJson = const Value.absent(),
                 Value<int?> spineIndex = const Value.absent(),
                 Value<int?> pageIndex = const Value.absent(),
                 Value<bool> finished = const Value.absent(),
@@ -9112,6 +9658,7 @@ class $$ReadingProgressTableTableManager
               }) => ReadingProgressCompanion.insert(
                 bookId: bookId,
                 locatorCfi: locatorCfi,
+                anchorJson: anchorJson,
                 spineIndex: spineIndex,
                 pageIndex: pageIndex,
                 finished: finished,
@@ -11667,6 +12214,268 @@ typedef $$BookTagLinksTableProcessedTableManager =
       BookTagLinkRow,
       PrefetchHooks Function({bool tagId})
     >;
+typedef $$BookIdAliasesTableCreateCompanionBuilder =
+    BookIdAliasesCompanion Function({
+      required String aliasId,
+      required int bookId,
+      Value<int> rowid,
+    });
+typedef $$BookIdAliasesTableUpdateCompanionBuilder =
+    BookIdAliasesCompanion Function({
+      Value<String> aliasId,
+      Value<int> bookId,
+      Value<int> rowid,
+    });
+
+final class $$BookIdAliasesTableReferences
+    extends BaseReferences<_$AppDatabase, $BookIdAliasesTable, BookIdAliasRow> {
+  $$BookIdAliasesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $BooksTable _bookIdTable(_$AppDatabase db) =>
+      db.books.createAlias('book_id_aliases__book_id__books__id');
+
+  $$BooksTableProcessedTableManager get bookId {
+    final $_column = $_itemColumn<int>('book_id')!;
+
+    final manager = $$BooksTableTableManager(
+      $_db,
+      $_db.books,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_bookIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$BookIdAliasesTableFilterComposer
+    extends Composer<_$AppDatabase, $BookIdAliasesTable> {
+  $$BookIdAliasesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get aliasId => $composableBuilder(
+    column: $table.aliasId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BooksTableFilterComposer get bookId {
+    final $$BooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableFilterComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookIdAliasesTableOrderingComposer
+    extends Composer<_$AppDatabase, $BookIdAliasesTable> {
+  $$BookIdAliasesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get aliasId => $composableBuilder(
+    column: $table.aliasId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BooksTableOrderingComposer get bookId {
+    final $$BooksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableOrderingComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookIdAliasesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $BookIdAliasesTable> {
+  $$BookIdAliasesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get aliasId =>
+      $composableBuilder(column: $table.aliasId, builder: (column) => column);
+
+  $$BooksTableAnnotationComposer get bookId {
+    final $$BooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$BookIdAliasesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $BookIdAliasesTable,
+          BookIdAliasRow,
+          $$BookIdAliasesTableFilterComposer,
+          $$BookIdAliasesTableOrderingComposer,
+          $$BookIdAliasesTableAnnotationComposer,
+          $$BookIdAliasesTableCreateCompanionBuilder,
+          $$BookIdAliasesTableUpdateCompanionBuilder,
+          (BookIdAliasRow, $$BookIdAliasesTableReferences),
+          BookIdAliasRow,
+          PrefetchHooks Function({bool bookId})
+        > {
+  $$BookIdAliasesTableTableManager(_$AppDatabase db, $BookIdAliasesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BookIdAliasesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BookIdAliasesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BookIdAliasesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> aliasId = const Value.absent(),
+                Value<int> bookId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BookIdAliasesCompanion(
+                aliasId: aliasId,
+                bookId: bookId,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String aliasId,
+                required int bookId,
+                Value<int> rowid = const Value.absent(),
+              }) => BookIdAliasesCompanion.insert(
+                aliasId: aliasId,
+                bookId: bookId,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$BookIdAliasesTable, BookIdAliasRow>(table),
+                  $$BookIdAliasesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({bookId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (bookId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.bookId,
+                        referencedTable: $$BookIdAliasesTableReferences
+                            ._bookIdTable(db),
+                        referencedColumn: $$BookIdAliasesTableReferences
+                            ._bookIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$BookIdAliasesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $BookIdAliasesTable,
+      BookIdAliasRow,
+      $$BookIdAliasesTableFilterComposer,
+      $$BookIdAliasesTableOrderingComposer,
+      $$BookIdAliasesTableAnnotationComposer,
+      $$BookIdAliasesTableCreateCompanionBuilder,
+      $$BookIdAliasesTableUpdateCompanionBuilder,
+      (BookIdAliasRow, $$BookIdAliasesTableReferences),
+      BookIdAliasRow,
+      PrefetchHooks Function({bool bookId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -11699,4 +12508,6 @@ class $AppDatabaseManager {
       $$BookTagsTableTableManager(_db, _db.bookTags);
   $$BookTagLinksTableTableManager get bookTagLinks =>
       $$BookTagLinksTableTableManager(_db, _db.bookTagLinks);
+  $$BookIdAliasesTableTableManager get bookIdAliases =>
+      $$BookIdAliasesTableTableManager(_db, _db.bookIdAliases);
 }

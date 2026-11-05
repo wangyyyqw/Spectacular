@@ -57,6 +57,7 @@ class ReaderPage extends StatefulWidget {
     required this.source,
     required this.store,
     required this.bookId,
+    this.contentRevision,
     this.background = const Color(0xFFFFFFFF),
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     this.bookmarks,
@@ -145,6 +146,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 书籍标识。
   final String bookId;
+
+  /// 原 EPUB 文件摘要；当前内容锚点的解释版本。
+  final String? contentRevision;
 
   /// 页面背景。
   final Color background;
@@ -491,6 +495,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   double? _lastContentTopInset;
   bool? _lastContentSizePreview;
   Future<void>? _initialOpen;
+  bool _approximateNoticeShown = false;
 
   /// 预取页内图片；解码完成后 setState，占位替换为真图。
   ///
@@ -621,12 +626,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _applyContentSize(Size content, double topInset, bool preview) {
     final opening = _initialOpen;
     if (opening == null) {
-      _initialOpen = _session.open(
-        overrides: _effectiveOverrides(),
-        contentWidth: content.width,
-        contentHeight: content.height,
-        contentTopInset: topInset,
-      );
+      _initialOpen = _session
+          .open(
+            overrides: _effectiveOverrides(),
+            contentWidth: content.width,
+            contentHeight: content.height,
+            contentTopInset: topInset,
+          )
+          .then((_) {
+            if (mounted &&
+                !_approximateNoticeShown &&
+                _session.approximateRestoration) {
+              _approximateNoticeShown = true;
+              _showToast('阅读位置已近似恢复');
+            }
+          });
       return;
     }
     unawaited(
@@ -672,6 +686,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 全书标注（P4-18）：打开时加载，标注变更后刷新。
   List<ReaderAnnotation> _annotations = const <ReaderAnnotation>[];
 
+  ReaderAnnotation? _relocatingAnnotation;
+  ReaderBookmark? _relocatingBookmark;
+  bool _relocationBusy = false;
+
   /// 可绘制的标注（P4-20：重定位后；失效标注保留数据但不绘制）。
   List<ReaderAnnotation> _resolvedAnnotations = const <ReaderAnnotation>[];
 
@@ -703,6 +721,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       source: widget.source,
       store: widget.store,
       bookId: widget.bookId,
+      contentRevision: widget.contentRevision,
     );
     widget.onSessionReady?.call(_session);
     unawaited(_reloadAnnotations());
@@ -1292,6 +1311,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final relocations = AnnotationRelocator.relocate(
       annotations: items,
       pages: pages,
+      contentRevision: widget.contentRevision,
     );
     setState(() {
       _resolvedAnnotations = <ReaderAnnotation>[
@@ -1300,6 +1320,241 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       ];
       _relocatedSpineIndex = spine;
     });
+  }
+
+  Future<void> _selectBookmark(ReaderBookmark bookmark) async {
+    if (!bookmark.needsRelocation) {
+      await _session.jumpToCfi(
+        bookmark.cfi,
+        title: bookmark.label,
+        continuous: _effectiveTurnMode == PageTurnMode.scroll,
+      );
+      return;
+    }
+    if (widget.bookmarks is! RelocatableBookmarkStore) {
+      _showToast('该书签待确认，当前存储不支持重新定位');
+      return;
+    }
+    final accepted = await _showRelocationDialog(
+      '重新定位书签',
+      bookmark.label,
+      bookmark.relocationReason,
+    );
+    if (!mounted || !accepted) return;
+    _clearSelection();
+    setState(() {
+      _relocatingAnnotation = null;
+      _relocatingBookmark = bookmark;
+    });
+  }
+
+  Future<void> _selectAnnotation(ReaderAnnotation annotation) async {
+    if (!annotation.needsRelocation) {
+      final parsed = EpubCfi.parse(annotation.startCfi);
+      final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+      if (spine != null && spine >= 0 && spine < widget.source.chapterCount) {
+        final pages = await widget.source.loadChapter(spine);
+        if (!mounted) return;
+        final result = AnnotationRelocator.relocate(
+          annotations: [annotation],
+          pages: pages,
+          contentRevision: widget.contentRevision,
+        );
+        if (result.isNotEmpty && result.single.isResolved) {
+          await _session.jumpToCfi(
+            result.single.startCfi,
+            title: annotation.quote,
+            continuous: _effectiveTurnMode == PageTurnMode.scroll,
+          );
+          return;
+        }
+      }
+    }
+    await _beginAnnotationRelocation(annotation);
+  }
+
+  Future<void> _beginAnnotationRelocation(ReaderAnnotation annotation) async {
+    if (widget.annotations is! RelocatableAnnotationStore) {
+      _showToast('该标注待确认，当前存储不支持重新定位');
+      return;
+    }
+    final original = [
+      annotation.quote,
+      if (annotation.note != null) annotation.note!,
+    ].join('\n\n');
+    final accepted = await _showRelocationDialog(
+      '重新定位标注',
+      original,
+      annotation.relocationReason,
+    );
+    if (!mounted || !accepted) return;
+    _clearSelection();
+    setState(() {
+      _relocatingBookmark = null;
+      _relocatingAnnotation = annotation;
+    });
+  }
+
+  Future<bool> _showRelocationDialog(
+    String title,
+    String original,
+    String? reason, {
+    String? replacement,
+  }) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(original),
+                if (reason != null) ...[
+                  const SizedBox(height: 12),
+                  Text(reason),
+                ],
+                if (replacement != null) ...[
+                  const SizedBox(height: 16),
+                  const Text('新版位置'),
+                  Text(replacement),
+                  const SizedBox(height: 12),
+                  const Text('原引用、笔记及样式将保留。'),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(replacement == null ? '重新定位' : '确认关联'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  Widget _buildRelocationBar() => SafeArea(
+    bottom: false,
+    child: Material(
+      color: _effectiveTheme?.background ?? widget.background,
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _relocatingAnnotation != null
+                    ? '长按选择新版文字，点击“关联此处”'
+                    : '翻到新版位置后，点击“使用当前位置”',
+              ),
+            ),
+            if (_relocatingBookmark != null)
+              TextButton(
+                onPressed: _relocationBusy
+                    ? null
+                    : () => unawaited(_relocateSelectedBookmark()),
+                child: const Text('使用当前位置'),
+              ),
+            TextButton(
+              onPressed: _relocationBusy ? null : _cancelRelocation,
+              child: const Text('取消定位'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  void _cancelRelocation() {
+    _clearSelection();
+    setState(() {
+      _relocatingAnnotation = null;
+      _relocatingBookmark = null;
+    });
+  }
+
+  Future<void> _relocateSelectedBookmark() async {
+    final bookmark = _relocatingBookmark;
+    final store = widget.bookmarks;
+    final cfi = _session.currentCfi;
+    if (_relocationBusy ||
+        bookmark == null ||
+        cfi == null ||
+        store is! RelocatableBookmarkStore) {
+      return;
+    }
+    final accepted = await _showRelocationDialog(
+      '确认关联书签',
+      bookmark.label,
+      null,
+      replacement: _session.currentLineText,
+    );
+    if (!mounted || !accepted || _relocatingBookmark != bookmark) return;
+    await _saveRelocation(
+      () => (store as RelocatableBookmarkStore).relocate(bookmark.id, cfi: cfi),
+      '书签已重新定位',
+    );
+  }
+
+  Future<void> _relocateSelectedAnnotation(
+    PageContent page,
+    ReaderSelection selection,
+  ) async {
+    final annotation = _relocatingAnnotation;
+    final store = widget.annotations;
+    final cfi = SelectionOps.cfiOf(selection);
+    if (_relocationBusy ||
+        annotation == null ||
+        cfi == null ||
+        store is! RelocatableAnnotationStore) {
+      return;
+    }
+    final quote = selection.isMultiPage
+        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
+        : SelectionOps.textOf(page, selection);
+    if (!mounted || quote.isEmpty) return;
+    final accepted = await _showRelocationDialog(
+      '确认关联标注',
+      annotation.quote,
+      null,
+      replacement: quote,
+    );
+    if (!mounted || !accepted || _relocatingAnnotation != annotation) return;
+    await _saveRelocation(
+      () => (store as RelocatableAnnotationStore).relocate(
+        annotation.id,
+        startCfi: cfi.start,
+        endCfi: cfi.end,
+      ),
+      '标注已重新定位',
+      annotations: true,
+    );
+  }
+
+  Future<void> _saveRelocation(
+    Future<void> Function() save,
+    String success, {
+    bool annotations = false,
+  }) async {
+    setState(() => _relocationBusy = true);
+    try {
+      await save();
+      if (mounted && annotations) await _reloadAnnotations();
+      if (mounted) {
+        _cancelRelocation();
+        _showToast(success);
+      }
+    } catch (_) {
+      if (mounted) _showToast('重新定位失败，请重试');
+    } finally {
+      if (mounted) setState(() => _relocationBusy = false);
+    }
   }
 
   /// 长按 → 选词（P4-15，§63.2：长按先试词，失败退到连续同类字符段）。
@@ -1581,6 +1836,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     PageContent page,
     ReaderSelection selection,
   ) {
+    if (_relocatingAnnotation != null) {
+      return [
+        SelectionAction(
+          id: 'relocate',
+          label: '关联此处',
+          onTap: () => unawaited(_relocateSelectedAnnotation(page, selection)),
+        ),
+        SelectionAction(id: 'dismiss', label: '取消选区', onTap: _clearSelection),
+      ];
+    }
     return <SelectionAction>[
       if (widget.annotations != null)
         SelectionAction(
@@ -1855,6 +2120,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     ),
                   if (_editingMargins)
                     Positioned.fill(child: _buildMarginEditor()),
+                  if (_relocatingAnnotation != null ||
+                      _relocatingBookmark != null)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: _buildRelocationBar(),
+                    ),
                 ],
               ),
             );
@@ -2144,28 +2417,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                       onBookmarkSelect: (bookmark) {
                         _dismissReaderMenu();
-                        unawaited(
-                          _session.jumpToCfi(
-                            bookmark.cfi,
-                            title: bookmark.label,
-                            continuous:
-                                _effectiveTurnMode == PageTurnMode.scroll,
-                          ),
-                        );
+                        unawaited(_selectBookmark(bookmark));
                       },
                       onAddBookmark: () {
                         unawaited(_addBookmark());
                       },
                       onAnnotationSelect: (annotation) {
                         _dismissReaderMenu();
-                        unawaited(
-                          _session.jumpToCfi(
-                            annotation.startCfi,
-                            title: annotation.quote,
-                            continuous:
-                                _effectiveTurnMode == PageTurnMode.scroll,
-                          ),
-                        );
+                        unawaited(_selectAnnotation(annotation));
                       },
                       onAnnotationEdit: (annotation) {
                         unawaited(_editAnnotation(annotation));

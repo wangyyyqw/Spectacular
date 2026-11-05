@@ -97,9 +97,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   List<ReaderAnnotation> get _sorted {
     final items = List<ReaderAnnotation>.of(widget.annotations);
     if (_sort == _AnnotationSort.updated) {
-      items.sort(
-        (left, right) => right.updatedAt.compareTo(left.updatedAt),
-      );
+      items.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
       return items;
     }
     items.sort((left, right) {
@@ -126,14 +124,12 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       return _sorted;
     }
     return _sorted
-        .where(
-          (item) {
-            final chapterTitle = _chapterTitleOf(item)?.toLowerCase() ?? '';
-            return item.quote.toLowerCase().contains(query) ||
-                (item.note?.toLowerCase().contains(query) ?? false) ||
-                chapterTitle.contains(query);
-          },
-        )
+        .where((item) {
+          final chapterTitle = _chapterTitleOf(item)?.toLowerCase() ?? '';
+          return item.quote.toLowerCase().contains(query) ||
+              (item.note?.toLowerCase().contains(query) ?? false) ||
+              chapterTitle.contains(query);
+        })
         .toList(growable: false);
   }
 
@@ -274,9 +270,8 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       await recolor(selected, color);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('更换标注颜色失败，请重试')),
-        );
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(const SnackBar(content: Text('更换标注颜色失败，请重试')));
       }
     } finally {
       if (mounted) {
@@ -383,9 +378,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                     itemBuilder: (_) => <PopupMenuEntry<_AnnotationSort>>[
                       for (final sort in _AnnotationSort.values)
                         CheckedPopupMenuItem<_AnnotationSort>(
-                          key: ValueKey<String>(
-                            'annotation-sort-${sort.name}',
-                          ),
+                          key: ValueKey<String>('annotation-sort-${sort.name}'),
                           value: sort,
                           checked: sort == _sort,
                           child: Text(sort.label),
@@ -556,9 +549,7 @@ class _BatchColorDialog extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Color(option.value),
                     shape: BoxShape.circle,
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant,
-                    ),
+                    border: Border.all(color: theme.colorScheme.outlineVariant),
                   ),
                 ),
               ),
@@ -723,6 +714,20 @@ class _AnnotationCard extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 8),
+                          if (annotation.needsRelocation) ...[
+                            Text(
+                              '待确认 · 点击重新定位',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                            if (annotation.relocationReason != null)
+                              Text(
+                                annotation.relocationReason!,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            const SizedBox(height: 8),
+                          ],
                           Text(
                             annotation.quote,
                             maxLines: 2,
@@ -821,9 +826,7 @@ class _AnnotationCard extends StatelessWidget {
               bottom: 0,
               width: 4,
               child: ColoredBox(
-                key: ValueKey<String>(
-                  'annotation-color-bar-${annotation.id}',
-                ),
+                key: ValueKey<String>('annotation-color-bar-${annotation.id}'),
                 color: color,
               ),
             ),
