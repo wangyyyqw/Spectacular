@@ -17,6 +17,17 @@ void main() {
         reason: '${theme.name} 主题对比度 ${theme.luminance}',
       );
       expect(theme.background, isNot(theme.text));
+      final secondary = ReaderTheme(
+        id: 'secondary',
+        name: '页眉页脚',
+        background: theme.background,
+        text: Color.alphaBlend(theme.sub, theme.background),
+      );
+      expect(
+        secondary.luminance,
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.name} 页眉页脚对比度',
+      );
     }
   });
 

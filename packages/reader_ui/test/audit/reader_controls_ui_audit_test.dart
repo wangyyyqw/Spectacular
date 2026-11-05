@@ -105,7 +105,14 @@ void main() {
     expect(Theme.of(context).colorScheme.surface, ReaderTheme.dark.background);
     final buttonColor = Theme.of(context).textButtonTheme.style?.foregroundColor
         ?.resolve({});
-    expect(buttonColor?.computeLuminance(), greaterThan(0.6));
+    expect(buttonColor, ReaderTheme.dark.text);
+    final contrast = ReaderTheme(
+      id: 'controls',
+      name: '控件',
+      background: Theme.of(context).colorScheme.surface,
+      text: buttonColor!,
+    );
+    expect(contrast.luminance, greaterThanOrEqualTo(4.5));
     expect(tester.takeException(), isNull);
   });
 
