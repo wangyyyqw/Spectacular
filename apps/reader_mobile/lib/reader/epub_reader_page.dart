@@ -48,6 +48,7 @@ class EpubReaderPage extends StatefulWidget {
     this.bookTitle = '阅读',
     this.onMarginsChanged,
     this.fontStore,
+    this.contentRevision,
   });
 
   /// EPUB 字节。
@@ -83,6 +84,9 @@ class EpubReaderPage extends StatefulWidget {
   /// 自定义字体存储；宿主负责导入、注册和恢复。
   final ReaderFontStore? fontStore;
 
+  /// 书库已存的原书 SHA-256；为 null 时才现算。
+  final String? contentRevision;
+
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
 }
@@ -91,7 +95,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     with WidgetsBindingObserver {
   late ReaderSettings _settings = widget.settings ?? ReaderSettings.defaults;
   final _backgroundStore = ReaderBackgroundStore();
-  late final String _contentRevision = sha256.convert(widget.bytes).toString();
+  // 优先用书库已存版本号，避免每次打开都在 UI isolate 上哈希整本书。
+  late final String _contentRevision = switch (widget.contentRevision) {
+    final String saved when saved.isNotEmpty => saved,
+    _ => sha256.convert(widget.bytes).toString(),
+  };
   List<ReaderFontOption> _customFonts = const [];
 
   Future<void> _prepareFonts() async {
