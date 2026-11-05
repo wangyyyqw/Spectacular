@@ -162,6 +162,7 @@ class BookOpener {
         fontStore: ReaderFontStore(library),
         onSettingsChanged: _saveSettings,
         bookTitle: entry.title,
+        contentRevision: entry.contentRevision,
       ),
       transitionsBuilder: (_, animation, _, child) {
         final curved = CurvedAnimation(
