@@ -249,8 +249,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前九宫格点击区域配置。
   late ReaderTapZones _tapZones = widget.tapZones;
 
-  /// 调节器草稿：实时参与当前章分页，保存前不写入设置和阅读进度。
+  /// 调节器正文预览：拖动时合并重排，保存前不写入设置和阅读进度。
   ReaderMargins? _previewMargins;
+  ReaderMargins? _pendingMarginPreview;
+  Timer? _marginPreviewTimer;
+  bool _draggingMargins = false;
 
   /// 已保存的页边距：取消预览时恢复。
   ReaderMargins? _savedMargins;
@@ -1711,6 +1714,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _marginPreviewTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
@@ -2099,17 +2103,55 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
   }
 
+  void _previewMarginChange(ReaderMargins margins) {
+    if (!_editingMargins) return;
+    _pendingMarginPreview = margins;
+    if (!_draggingMargins) {
+      _flushMarginPreview();
+      return;
+    }
+    // 按钮与留白由编辑器即时绘制，正文重排按短间隔取最新草稿。
+    _marginPreviewTimer ??= Timer(
+      const Duration(milliseconds: 80),
+      _flushMarginPreview,
+    );
+  }
+
+  void _flushMarginPreview() {
+    _marginPreviewTimer?.cancel();
+    _marginPreviewTimer = null;
+    final margins = _pendingMarginPreview;
+    _pendingMarginPreview = null;
+    if (!mounted || !_editingMargins || margins == null) return;
+    setState(() => _previewMargins = margins);
+  }
+
+  void _marginDragChanged(bool dragging) {
+    _draggingMargins = dragging;
+    if (!dragging) _flushMarginPreview();
+  }
+
+  void _clearMarginPreview() {
+    _marginPreviewTimer?.cancel();
+    _marginPreviewTimer = null;
+    _pendingMarginPreview = null;
+    _draggingMargins = false;
+  }
+
   Widget _buildMarginEditor() => MarginEditor(
     margins: _activeMargins,
     defaults: _defaultMargins,
-    onPreview: (margins) => setState(() => _previewMargins = margins),
+    onPreview: _previewMarginChange,
+    onDragChanged: _marginDragChanged,
     showPageFurniture: widget.showPageFooter,
     onCancel: () => setState(() {
+      _clearMarginPreview();
       _editingMargins = false;
       _finishingMarginEdit = true;
       _previewMargins = null;
     }),
     onApply: (margins) {
+      _clearMarginPreview();
       _log('user_margins', <String, Object?>{
         'left': margins.left,
         'right': margins.right,
