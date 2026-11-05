@@ -75,7 +75,8 @@ void main() {
     expect(line.spacing!.glyphs.keys, [0, 2, 3, 5, 7, 9, 11]);
     for (final glyph in line.spacing!.glyphs.values) {
       expect(glyph.halfWidth, isTrue);
-      expect(glyph.reduction, closeTo(10, .05));
+      final reduction = [0, 2, 3, 11].contains(glyph.offset) ? 8 : 4;
+      expect(glyph.reduction, closeTo(reduction, .05));
     }
     _expectFlowGeometry(
       TextHitTester.lineBoxes((await source.loadChapter(0)).single).single,

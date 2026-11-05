@@ -18,6 +18,10 @@ final _punctuationUnits = {
   for (final char in punctUniformCompressionSet) char.codeUnitAt(0),
 };
 
+// 按原始未压缩的 advance 计算：行内保留 80%，相邻或行边保留 60%。
+const _innerCompressionRatio = 0.2;
+const _edgeCompressionRatio = 0.4;
+
 /// 段落内只测一次字形；每行据真实相邻关系选择调整，不跨行借用半格空白。
 class PunctuationSpacing {
   PunctuationSpacing({
@@ -87,13 +91,14 @@ class PunctuationSpacing {
           barriers.contains(offset + 1)) {
         continue;
       }
-      final glyph = _adjustment(offset, fallback: false);
+      final glyph = _proportionalGlyph(offset, _innerCompressionRatio);
       if (glyph != null) _uniform[offset] = glyph;
     }
   }
 
   /// 没有字体支持的行边调整时沿用整段一次测量的快路径。
   bool get hasEdgeAdjustments {
+    if (_uniform.isNotEmpty) return true;
     for (final offset in _punctuation) {
       final trim = styleAt(offset).css.textSpacingTrim;
       if ((trim.trimsStart && punctOpeningSet.contains(text[offset]) ||
@@ -108,6 +113,10 @@ class PunctuationSpacing {
 
   double get maxEndReduction {
     var reduction = 0.0;
+    for (final entry in _uniform.entries) {
+      final edge = _proportionalGlyph(entry.key, _edgeCompressionRatio)!;
+      reduction = math.max(reduction, edge.reduction - entry.value.reduction);
+    }
     for (final offset in _punctuation) {
       if (styleAt(offset).css.textSpacingTrim.trimsEnd &&
           punctClosingSet.contains(text[offset]) &&
@@ -117,6 +126,12 @@ class PunctuationSpacing {
     }
     return reduction;
   }
+
+  /// 断行探测的行尾候选；正文模式包含问叹号及中文引号。
+  bool canTrimEnd(int offset) =>
+      _uniform.containsKey(offset) ||
+      styleAt(offset).css.textSpacingTrim.trimsEnd &&
+          punctClosingSet.contains(text[offset]);
 
   ({double advance, double reduction}) metricsAt(int offset) =>
       _metrics.putIfAbsent(
@@ -191,11 +206,46 @@ class PunctuationSpacing {
     for (final entry in _uniform.entries) {
       if (entry.key < start || entry.key >= end) continue;
       final local = entry.key - start;
-      glyphs[local] = entry.value.atOffset(local);
+      final glyph = _uniformAdjacent(entry.key, start, end)
+          ? _proportionalGlyph(entry.key, _edgeCompressionRatio)!
+          : entry.value;
+      glyphs[local] = glyph.atOffset(local);
       // 压缩后的标点两侧不再分配对齐字距，避免在非末行重新拉宽。
       if (local > 0) locked.add(local - 1);
       if (entry.key + 1 < end) locked.add(local);
     }
+  }
+
+  bool _uniformAdjacent(int offset, int start, int end) =>
+      offset > start &&
+          _uniform.containsKey(offset - 1) &&
+          _canJoin(offset - 1, offset) ||
+      offset + 1 < end &&
+          _uniform.containsKey(offset + 1) &&
+          _canJoin(offset, offset + 1);
+
+  GlyphSpacing? _proportionalGlyph(int offset, double ratio) {
+    if (_explicitHalt(offset)) return null;
+    final metric = metricsAt(offset);
+    if (metric.reduction <= 0) return null;
+    final reduction = math.min(metric.advance * ratio, metric.reduction);
+    return GlyphSpacing(
+      offset: offset,
+      halfWidth: true,
+      // halt 先回收字体留白，再补回所需占宽；不对字形做水平缩放。
+      letterSpacing: metric.reduction - reduction,
+      reduction: reduction,
+    );
+  }
+
+  double _uniformEdge(Map<int, GlyphSpacing> glyphs, int start, int offset) {
+    if (!_uniform.containsKey(offset)) return 0;
+    final local = offset - start;
+    final previous = glyphs[local]?.reduction ?? 0;
+    final glyph = _proportionalGlyph(offset, _edgeCompressionRatio)!;
+    glyphs[local] = glyph.atOffset(local);
+    // 行边与相邻规则取最大压缩量，不叠加；这里只记录行边新增的收缩。
+    return math.max(0, glyph.reduction - previous);
   }
 
   int _contentEnd(int start, int end) {
@@ -213,6 +263,9 @@ class PunctuationSpacing {
     bool firstLine = false,
   }) {
     final trim = styleAt(offset).css.textSpacingTrim;
+    if (trim == CssTextSpacingTrim.trimAll) {
+      return _uniformEdge(glyphs, start, offset);
+    }
     final eligible = atEnd
         ? trim.trimsEnd && punctClosingSet.contains(text[offset])
         : trim.trimsStart &&

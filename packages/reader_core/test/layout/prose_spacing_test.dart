@@ -71,24 +71,50 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFonts);
 
-  test('统一压缩使行首、行中、相邻和行尾的同一标点均为半宽', () {
+  test('按原始宽度压缩：行内 20%，相邻及行首行尾 40%，不叠加', () {
     final style = _style({'text-spacing-trim': 'trim-all'});
-    for (final text in ['，甲，乙，', '甲，，乙', '甲！乙？丙“丁”戊‘己’']) {
+    for (final (text, reductions, width) in [
+      ('，甲，乙，', {0: 8, 2: 4, 4: 8}, 80),
+      ('甲，，乙', {1: 8, 2: 8}, 64),
+      ('甲，，，乙', {1: 8, 2: 8, 3: 8}, 76),
+      ('，，甲', {0: 8, 1: 8}, 44),
+      ('甲！乙？丙“丁”戊‘己’', {1: 4, 3: 4, 5: 4, 7: 4, 9: 4, 11: 8}, 212),
+      ('，', {0: 8}, 12),
+    ]) {
       final layout = TextLayoutEngine.layout(
         text: text,
         style: style,
         maxWidth: 400,
       );
       final spacing = layout.lines.single.spacing!;
-      for (var i = 0; i < text.length; i++) {
-        if (!'，！？“”‘’'.contains(text[i])) continue;
-        expect(spacing.glyphs[i]?.halfWidth, isTrue, reason: text[i]);
-        expect(spacing.glyphs[i]!.reduction, closeTo(10, .05));
+      expect(spacing.glyphs.keys, reductions.keys);
+      for (final entry in reductions.entries) {
+        expect(spacing.glyphs[entry.key]!.halfWidth, isTrue);
+        expect(spacing.glyphs[entry.key]!.reduction, closeTo(entry.value, .05));
       }
-      expect((spacing.startTrim, spacing.endTrim), (0.0, 0.0));
+      expect(layout.lines.single.width, closeTo(width, .05));
       expect(layout.text, text);
       _expectWidths(layout, style);
     }
+  });
+
+  test('软换行按实际行尾压缩 40%，问叹号的新增收缩参与断行', () {
+    final style = _style({
+      'text-spacing-trim': 'trim-all',
+      'text-align': 'left',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: '甲乙丙！丁戊己？庚辛壬。',
+      style: style,
+      maxWidth: 72,
+    );
+    expect(layout.lines.map((line) => line.end), [4, 8, 12]);
+    for (final line in layout.lines) {
+      expect(line.spacing!.glyphs[3]!.reduction, closeTo(8, .05));
+      expect(line.width, closeTo(72, .05));
+      expect(line.spacing!.endTrim, closeTo(4, .05));
+    }
+    _expectWidths(layout, style);
   });
 
   test('统一压缩参与断行，非末行不重新拉宽标点，绘制和命中同步', () {
@@ -96,10 +122,10 @@ void main() {
     final layout = TextLayoutEngine.layout(
       text: '甲乙，丙丁，戊己。庚辛，壬癸。',
       style: style,
-      maxWidth: 107,
+      maxWidth: 115,
     );
     expect(layout.lines.first.end, 6);
-    expect(layout.lines.first.width, closeTo(100, .05));
+    expect(layout.lines.first.width, closeTo(108, .05));
     expect(layout.lines.first.justifyExtra, greaterThan(0));
     _expectWidths(layout, style);
     final pages = Paginator(pageHeight: 64)
@@ -129,10 +155,10 @@ void main() {
       rubies: const [RubyAnnotation(start: 5, end: 6, text: '注')],
     );
     final glyphs = layout.lines.single.spacing!.glyphs;
-    expect(glyphs[1]!.reduction, closeTo(15, .05));
+    expect(glyphs[1]!.reduction, closeTo(6, .05));
     expect(glyphs.containsKey(3), isFalse);
     expect(glyphs.containsKey(5), isFalse);
-    expect(glyphs[7]!.reduction, closeTo(10, .05));
+    expect(glyphs[7]!.reduction, closeTo(4, .05));
     _expectWidths(layout, style);
   });
 
@@ -760,6 +786,17 @@ void main() {
       expect(trimmed.height, normal.height, reason: char);
     }
   });
+
+  test('20% 与 40% 压缩只补回留白，不缩放标点墨迹', () async {
+    for (final char in ['，', '（', '）', '！', '？', '“', '”']) {
+      final normal = await _inkBounds(char, false);
+      for (final letterSpacing in [3.2, 9.6]) {
+        final compressed = await _inkBounds(char, true, letterSpacing);
+        expect(compressed.width, closeTo(normal.width, 1), reason: char);
+        expect(compressed.height, closeTo(normal.height, 1), reason: char);
+      }
+    }
+  });
 }
 
 void _expectPunctuationHits(PageContent page, ComputedStyle style) {
@@ -787,7 +824,7 @@ void _expectPunctuationHits(PageContent page, ComputedStyle style) {
         glyph.offset + 1,
       ).single;
       expect(selected.width, closeTo(rect.right - rect.left, .01));
-      expect(selected.width, closeTo(style.fontSize / 2, .05));
+      expect(selected.width, closeTo(style.fontSize - glyph.reduction, .05));
     }
     expect(
       line.spacing!.justifyGaps.toSet().intersection(line.spacing!.lockedGaps),
@@ -797,7 +834,7 @@ void _expectPunctuationHits(PageContent page, ComputedStyle style) {
   }
 }
 
-Future<Rect> _inkBounds(String char, bool halt) async {
+Future<Rect> _inkBounds(String char, bool halt, [double letterSpacing = 0]) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)..scale(2);
   final painter = TextPainter(
@@ -807,6 +844,7 @@ Future<Rect> _inkBounds(String char, bool halt) async {
         fontFamily: _family,
         fontSize: 32,
         color: const Color(0xFF000000),
+        letterSpacing: letterSpacing,
         fontFeatures: [if (halt) const FontFeature.enable('halt')],
       ),
     ),
