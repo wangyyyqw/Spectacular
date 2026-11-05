@@ -433,14 +433,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
       messenger?.showSnackBar(SnackBar(content: Text('已导入 $succeeded 本书')));
     }
     if (failed != null) {
-      // P3-27：拒绝文案由码表驱动，给原因与建议，不暴露堆栈。
-      final friendly = EpubRejectionMessages.forCode(
-        failed.errorCode,
-        failed.error ?? '',
-      );
-      setState(() => _error = '${friendly.title}。${friendly.suggestion}');
+      _showImportFailure(failed, messenger);
     } else if (succeeded == 0 && cancelled > 0) {
       messenger?.showSnackBar(const SnackBar(content: Text('已取消导入')));
+    }
+  }
+
+  void _showImportFailure(ImportJob failed, ScaffoldMessengerState? messenger) {
+    final friendly = EpubRejectionMessages.forCode(
+      failed.errorCode,
+      failed.error ?? '',
+    );
+    final message = '${friendly.title}。${friendly.suggestion}';
+    if (failed.errorCode == 'E_DUPLICATE') {
+      // 重复导入不影响现有书架，用户可以直接打开原书。
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    } else {
+      setState(() => _error = message);
     }
   }
 

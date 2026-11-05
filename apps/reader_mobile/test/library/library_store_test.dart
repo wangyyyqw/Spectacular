@@ -92,7 +92,7 @@ void main() {
       );
       expect(book.id, isNot(anyOf('.', '..')));
       expect(
-        p.isWithin(p.join(dir.path, 'books'), p.normalize(book.filePath)),
+        p.isWithin(p.join(dir.path, 'books-v1'), p.normalize(book.filePath)),
         isTrue,
       );
       await expectLater(

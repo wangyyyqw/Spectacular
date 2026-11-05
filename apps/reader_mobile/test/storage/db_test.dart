@@ -31,7 +31,7 @@ Future<int> _insertBook(
 
 /// 从当前 schema 还原 v1 建表语句：去掉后续版本新增的列。
 String _stripPostV1Columns(String statement) {
-  var result = statement;
+  var result = _stripIdentityColumns(statement);
   if (result.contains('"books"')) {
     result = result
         .replaceAll(RegExp(r',\s*"?deleted_at"?\s+INTEGER(\s+NULL)?'), '')
@@ -48,6 +48,16 @@ String _stripPostV1Columns(String statement) {
   }
   return result;
 }
+
+String _stripIdentityColumns(String statement) => statement
+    .replaceAll(
+      RegExp(r',\s*"?(epub_identifier|legacy_uuid)"?\s+TEXT(\s+NULL)?'),
+      '',
+    )
+    .replaceAll(
+      RegExp(r',\s*"?identity_version"?\s+INTEGER\s+NOT NULL\s+DEFAULT 0'),
+      '',
+    );
 
 /// 从当前 schema 导出 v1 建表语句（排除后续版本新增的表）。
 Future<List<String>> _v1Schema() async {
@@ -82,15 +92,13 @@ Future<List<String>> _v10Schema() async {
       .get();
   final sql = <String>[
     for (final row in rows)
-      row
-          .read<String>('sql')
-          .replaceAll(
-            RegExp(
-              r',\s*"?(page_turns|characters_read)"?\s+INTEGER'
-              r'(\s+NOT NULL)?(\s+DEFAULT\s+0)?',
-            ),
-            '',
-          ),
+      _stripIdentityColumns(row.read<String>('sql')).replaceAll(
+        RegExp(
+          r',\s*"?(page_turns|characters_read)"?\s+INTEGER'
+          r'(\s+NOT NULL)?(\s+DEFAULT\s+0)?',
+        ),
+        '',
+      ),
   ];
   await database.close();
   return sql;
@@ -152,7 +160,7 @@ void main() {
           .customSelect('PRAGMA user_version')
           .getSingle()
           .then((row) => row.read<int>('user_version')),
-      12,
+      13,
     );
   });
 
@@ -164,6 +172,39 @@ void main() {
       throwsA(isA<sqlite.SqliteException>()),
     );
     expect((await database.select(database.books).get()).length, 1);
+  });
+
+  test('v12→v13只增加身份列，原主键和元数据保持不变', () async {
+    final template = await _openFresh();
+    final schema = await template
+        .customSelect(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
+        )
+        .get();
+    final raw = sqlite.sqlite3.openInMemory();
+    for (final row in schema) {
+      raw.execute(_stripIdentityColumns(row.read<String>('sql')));
+    }
+    raw.execute('PRAGMA user_version = 12');
+    raw.execute(
+      "INSERT INTO books (id,uuid,title,content_dir,created_at) VALUES (7,'legacy','旧书','books/legacy',1)",
+    );
+    final db = AppDatabase(NativeDatabase.opened(raw));
+    addTearDown(db.close);
+    await db.warmUp();
+    final book = (await db.select(db.books).get()).single;
+    expect(book.id, 7);
+    expect(book.uuid, 'legacy');
+    expect(book.title, '旧书');
+    expect(book.identityVersion, 0);
+    expect(book.epubIdentifier, isNull);
+    expect(book.legacyUuid, isNull);
+    expect(
+      (await db.customSelect('PRAGMA user_version').getSingle()).read<int>(
+        'user_version',
+      ),
+      13,
+    );
   });
 
   test('删书级联清理：spine/目录/标注/进度/索引/报告一并删除', () async {
@@ -247,7 +288,7 @@ void main() {
     expect(await database.select(database.readingSessions).get(), isEmpty);
   });
 
-  test('v1→v12 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组、标签与阅读统计', () async {
+  test('v1→v13 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组、标签、阅读统计与身份列', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -266,7 +307,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 12, reason: 'schema 已升到 v12');
+    expect(version.read<int>('user_version'), 13, reason: 'schema 已升到 v13');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();

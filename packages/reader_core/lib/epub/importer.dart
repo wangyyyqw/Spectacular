@@ -201,6 +201,16 @@ abstract final class EpubRejectionMessages {
   /// 按错误码映射文案；未知码回退通用文案（不泄漏内部信息）。
   static RejectionMessage forCode(String? code, String? detail) {
     switch (code) {
+      case 'E_DUPLICATE':
+        return const RejectionMessage(
+          title: '这本书已在书架中',
+          suggestion: '请直接从书架打开阅读',
+        );
+      case 'E_IDENTITY_CONFLICT':
+        return const RejectionMessage(
+          title: '书籍标识与旧记录冲突，原数据已保留',
+          suggestion: '请恢复旧记录的原 EPUB 文件后重试',
+        );
       case 'E_ARCHIVE':
         return const RejectionMessage(
           title: '这不是 EPUB 文件（无法解压）',
