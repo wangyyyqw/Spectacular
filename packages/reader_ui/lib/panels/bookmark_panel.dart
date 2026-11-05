@@ -10,6 +10,7 @@ class BookmarkPanel extends StatelessWidget {
     required this.bookmarks,
     required this.onSelect,
     required this.onDelete,
+    this.onAdd,
     this.onBack,
     this.emptyHint = '还没有书签',
   });
@@ -22,6 +23,9 @@ class BookmarkPanel extends StatelessWidget {
 
   /// 删除书签。
   final ValueChanged<ReaderBookmark> onDelete;
+
+  /// 新增书签；null 时不显示入口。
+  final VoidCallback? onAdd;
 
   /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
   final VoidCallback? onBack;
@@ -55,6 +59,14 @@ class BookmarkPanel extends StatelessWidget {
                     color: theme.colorScheme.outline,
                   ),
                 ),
+                if (onAdd != null)
+                  IconButton(
+                    key: const ValueKey<String>('drawer-add-bookmark'),
+                    onPressed: onAdd,
+                    tooltip: '加书签',
+                    icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                    visualDensity: VisualDensity.compact,
+                  ),
               ],
             ),
           ),

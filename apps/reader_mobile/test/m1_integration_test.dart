@@ -220,7 +220,7 @@ void main() {
         source,
         store,
         overrides: const ReaderOverrides(fontSize: 22),
-        theme: ReaderTheme.dark,
+        theme: ReaderTheme.black,
         onReady: (value) => session = value,
       ),
     );

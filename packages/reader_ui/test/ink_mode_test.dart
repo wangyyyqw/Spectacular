@@ -12,16 +12,20 @@ void main() {
       final ink = ReaderEnvironment.inkTheme;
       expect(ink.background, const Color(0xFFFFFFFF));
       expect(ink.text, const Color(0xFF000000));
-      expect(ink.luminance, greaterThanOrEqualTo(7.0), reason: 'WCAG AAA ≥ 7:1');
+      expect(
+        ink.luminance,
+        greaterThanOrEqualTo(7.0),
+        reason: 'WCAG AAA ≥ 7:1',
+      );
       expect(ink.luminance, greaterThanOrEqualTo(20.0), reason: '纯黑白约 21:1');
     });
 
     test('墨水屏强制覆盖用户主题，且禁用背景纹理', () {
       const env = ReaderEnvironment(isEink: true);
-      expect(env.resolveTheme(ReaderTheme.dark).id, 'ink');
+      expect(env.resolveTheme(ReaderTheme.black).id, 'ink');
       expect(env.allowsBackgroundImage, isFalse);
       const normal = ReaderEnvironment();
-      expect(normal.resolveTheme(ReaderTheme.dark).id, 'dark');
+      expect(normal.resolveTheme(ReaderTheme.black).id, 'black');
       expect(normal.allowsBackgroundImage, isTrue);
     });
 
@@ -43,10 +47,7 @@ void main() {
         SelectionLayer.resolveColor(inkMode: true, color: color),
         const Color(0xFF000000),
       );
-      expect(
-        SelectionLayer.resolveColor(inkMode: false, color: color),
-        color,
-      );
+      expect(SelectionLayer.resolveColor(inkMode: false, color: color), color);
     });
 
     testWidgets('设置面板墨水屏开关触发回调', (tester) async {

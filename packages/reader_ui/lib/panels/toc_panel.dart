@@ -3,6 +3,7 @@ import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../reader_session.dart';
+import '../theme/reader_drawer_style.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
 ///
@@ -46,8 +47,8 @@ class TocPanel extends StatefulWidget {
 }
 
 class _TocPanelState extends State<TocPanel> {
-  static const double _rowExtent = 48;
-  static const double _listPadding = 4;
+  static const double _rowExtent = 44;
+  static const double _listBottomPadding = 16;
 
   final ScrollController _fallbackController = ScrollController();
   final Set<TocEntry> _expanded = Set<TocEntry>.identity();
@@ -193,10 +194,7 @@ class _TocPanelState extends State<TocPanel> {
     }
     final position = controller.position;
     final target =
-        _listPadding +
-        index * _rowExtent +
-        _rowExtent / 2 -
-        position.viewportDimension / 2;
+        index * _rowExtent + _rowExtent / 2 - position.viewportDimension / 2;
     final offset = target
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
@@ -245,84 +243,59 @@ class _TocPanelState extends State<TocPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final surface = ReaderDrawerStyle.surfaceOf(theme);
+    final text = ReaderDrawerStyle.textOf(theme);
+    final muted = ReaderDrawerStyle.mutedOf(theme);
+    final faint = ReaderDrawerStyle.faintOf(theme);
+    final selectedRow = ReaderDrawerStyle.selectedRowOf(theme);
     final allRows = flattenToc(widget.entries);
     final rows = _visibleRows();
     final active = _activeEntry(allRows);
-    final hasCollapsibleRows = allRows.any(
-      (row) => row.entry.children.isNotEmpty,
-    );
-    final actionStyle = IconButton.styleFrom(
-      minimumSize: const Size(36, 36),
-      padding: EdgeInsets.zero,
-      visualDensity: VisualDensity.compact,
-    );
     return Material(
-      color: theme.colorScheme.surface,
+      color: surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
             child: Row(
               children: [
-                if (widget.onBack != null)
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, size: 20),
-                    onPressed: widget.onBack,
-                    tooltip: '返回',
-                  ),
-                Text('目录', style: theme.textTheme.titleMedium),
+                Text(
+                  '目录',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 18 / 13,
+                  ).copyWith(color: text),
+                ),
                 const Spacer(),
                 Text(
                   '共 ${allRows.length} 章',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
+                  style: TextStyle(fontSize: 12, color: muted),
                 ),
-                if (hasCollapsibleRows) ...<Widget>[
-                  IconButton(
-                    key: const ValueKey<String>('toc-expand-all'),
-                    onPressed: _expandAll,
-                    style: actionStyle,
-                    tooltip: '展开全部',
-                    iconSize: 20,
-                    icon: const Icon(Icons.unfold_more),
-                  ),
-                  IconButton(
-                    key: const ValueKey<String>('toc-collapse-all'),
-                    onPressed: _collapseAll,
-                    style: actionStyle,
-                    tooltip: '收起全部',
-                    iconSize: 20,
-                    icon: const Icon(Icons.unfold_less),
-                  ),
-                ],
-                if (active != null)
-                  IconButton(
-                    key: const ValueKey<String>('toc-locate-current'),
-                    onPressed: _locateCurrent,
-                    style: actionStyle,
-                    tooltip: '回到当前章',
-                    iconSize: 20,
-                    icon: const Icon(Icons.my_location_outlined),
-                  ),
+                const SizedBox(width: 12),
+                _TocArrows(onExpand: _expandAll, onCollapse: _collapseAll),
+                const SizedBox(width: 12),
+                _TocToolButton(
+                  buttonKey: const ValueKey<String>('toc-locate-current'),
+                  tooltip: '回到当前章',
+                  icon: Icons.format_list_bulleted,
+                  onTap: active == null ? null : _locateCurrent,
+                ),
               ],
             ),
           ),
-          const Divider(height: 1),
           Expanded(
             child: rows.isEmpty
                 ? Center(
                     child: Text(
                       widget.emptyHint,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.outline,
-                      ),
+                      style: TextStyle(fontSize: 14, color: muted),
                     ),
                   )
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(vertical: _listPadding),
+                    padding: const EdgeInsets.only(bottom: _listBottomPadding),
                     itemExtent: _rowExtent,
                     itemCount: rows.length,
                     itemBuilder: (context, index) {
@@ -336,53 +309,45 @@ class _TocPanelState extends State<TocPanel> {
                         ),
                         dense: true,
                         selected: current,
-                        selectedColor: theme.colorScheme.primary,
+                        selectedColor: text,
+                        tileColor: current ? selectedRow : Colors.transparent,
+                        selectedTileColor: selectedRow,
                         contentPadding: EdgeInsets.only(
-                          left: 20 + (row.depth - 1) * 16,
-                          right: 20,
+                          left: 16 + (row.depth - 1) * 16,
+                          right: 16,
                         ),
                         title: Text(
                           row.entry.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: current
-                              ? const TextStyle(fontWeight: FontWeight.w600)
-                              : null,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: text,
+                            fontWeight: current
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                          ),
                         ),
-                        trailing: current || hasChildren
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  if (current)
-                                    Icon(
-                                      Icons.play_arrow,
-                                      size: 16,
-                                      color: theme.colorScheme.primary,
-                                    ),
-                                  if (hasChildren)
-                                    IconButton(
-                                      key: ValueKey<String>(
-                                        'toc-toggle-${row.entry.spineIndex}-'
-                                        '${row.entry.title}',
-                                      ),
-                                      constraints: const BoxConstraints.tightFor(
-                                        width: 32,
-                                        height: 32,
-                                      ),
-                                      padding: EdgeInsets.zero,
-                                      visualDensity: VisualDensity.compact,
-                                      tooltip: expanded ? '收起子目录' : '展开子目录',
-                                      icon: Icon(
-                                        expanded
-                                            ? Icons.expand_less
-                                            : Icons.expand_more,
-                                        size: 20,
-                                      ),
-                                      onPressed: () => _toggleEntry(row.entry),
-                                    ),
-                                ],
-                              )
-                            : null,
+                        trailing: SizedBox.square(
+                          dimension: 16,
+                          child: hasChildren
+                              ? InkWell(
+                                  key: ValueKey<String>(
+                                    'toc-toggle-${row.entry.spineIndex}-'
+                                    '${row.entry.title}',
+                                  ),
+                                  customBorder: const CircleBorder(),
+                                  onTap: () => _toggleEntry(row.entry),
+                                  child: Icon(
+                                    expanded
+                                        ? Icons.expand_less
+                                        : Icons.expand_more,
+                                    size: 16,
+                                    color: faint,
+                                  ),
+                                )
+                              : Icon(Icons.expand_more, size: 16, color: faint),
+                        ),
                         onTap: () => widget.onSelect(row.entry),
                       );
                     },
@@ -392,4 +357,130 @@ class _TocPanelState extends State<TocPanel> {
       ),
     );
   }
+}
+
+class _TocToolButton extends StatelessWidget {
+  const _TocToolButton({
+    required this.buttonKey,
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final Key buttonKey;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        key: buttonKey,
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: SizedBox.square(
+          dimension: 16,
+          child: Icon(
+            icon,
+            size: 16,
+            color: onTap == null
+                ? ReaderDrawerStyle.faintOf(theme)
+                : ReaderDrawerStyle.mutedOf(theme),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 参考稿的上下箭头组合：上半展开，下半收起。
+class _TocArrows extends StatelessWidget {
+  const _TocArrows({required this.onExpand, required this.onCollapse});
+
+  final VoidCallback onExpand;
+  final VoidCallback onCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ReaderDrawerStyle.mutedOf(Theme.of(context));
+    return SizedBox(
+      width: 16,
+      height: 16,
+      child: Stack(
+        children: <Widget>[
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 8,
+            child: Semantics(
+              button: true,
+              label: '展开全部',
+              child: InkWell(
+                key: const ValueKey<String>('toc-expand-all'),
+                onTap: onExpand,
+                child: CustomPaint(
+                  painter: _TocArrowPainter(upper: true, color: color),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 8,
+            child: Semantics(
+              button: true,
+              label: '收起全部',
+              child: InkWell(
+                key: const ValueKey<String>('toc-collapse-all'),
+                onTap: onCollapse,
+                child: CustomPaint(
+                  painter: _TocArrowPainter(upper: false, color: color),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TocArrowPainter extends CustomPainter {
+  const _TocArrowPainter({required this.upper, required this.color});
+
+  final bool upper;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path();
+    if (upper) {
+      path
+        ..moveTo(4.7, 6.4)
+        ..lineTo(8, 3.1)
+        ..lineTo(11.3, 6.4);
+    } else {
+      path
+        ..moveTo(4.7, 1.6)
+        ..lineTo(8, 4.9)
+        ..lineTo(11.3, 1.6);
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TocArrowPainter oldDelegate) =>
+      oldDelegate.upper != upper || oldDelegate.color != color;
 }

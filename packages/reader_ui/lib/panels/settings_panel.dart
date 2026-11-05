@@ -6,6 +6,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import '../paging/page_turn_mode.dart';
 import 'custom_theme_dialog.dart';
 import '../theme/reader_background.dart';
+import '../theme/reader_drawer_style.dart';
 import '../theme/reader_theme.dart';
 
 /// 阅读设置默认值（P4-21，与 Reeden/阅微的默认一致）。
@@ -294,56 +295,77 @@ class _SettingsPanelState extends State<SettingsPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final themeOnly = widget.section == SettingsSection.theme;
+    final drawerText = ReaderDrawerStyle.textOf(theme);
+    final drawerSecondary = ReaderDrawerStyle.secondaryOf(theme);
+    final drawerMuted = ReaderDrawerStyle.mutedOf(theme);
     return Material(
       key: const ValueKey<String>('settings-panel-surface'),
-      color: theme.colorScheme.surface,
+      color: themeOnly
+          ? ReaderDrawerStyle.surfaceOf(theme)
+          : theme.colorScheme.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 20, 4),
-            child: Row(
-              children: [
-                if (widget.onBack != null)
-                  IconButton(
-                    key: const ValueKey<String>('settings-back'),
-                    icon: const Icon(Icons.arrow_back, size: 20),
-                    onPressed: widget.onBack,
-                    tooltip: '返回',
-                  ),
-                Text(
+          if (themeOnly)
+            SizedBox(
+              height: 0,
+              child: Opacity(
+                opacity: 0,
+                child: Text(
                   _sectionTitle,
                   key: const ValueKey<String>('settings-title'),
-                  style: theme.textTheme.titleMedium,
                 ),
-                const Spacer(),
-                if (widget.onReset != null)
-                  TextButton(
-                    key: const ValueKey<String>('settings-reset'),
-                    onPressed: _busyFont
-                        ? null
-                        : () {
-                            setState(() {
-                              _fontSize = ReaderSettingsDefaults.fontSize;
-                              _fontFamily = null;
-                              _overrideEmbeddedFonts = false;
-                              _lineHeight = ReaderSettingsDefaults.lineHeight;
-                              _paragraphSpacing =
-                                  ReaderSettingsDefaults.paragraphSpacing;
-                              _horizontalPadding =
-                                  ReaderSettingsDefaults.horizontalPadding;
-                            });
-                            widget.onReset!();
-                          },
-                    child: const Text('恢复默认'),
+              ),
+            )
+          else ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 20, 4),
+              child: Row(
+                children: [
+                  if (widget.onBack != null)
+                    IconButton(
+                      key: const ValueKey<String>('settings-back'),
+                      icon: const Icon(Icons.arrow_back, size: 20),
+                      onPressed: widget.onBack,
+                      tooltip: '返回',
+                    ),
+                  Text(
+                    _sectionTitle,
+                    key: const ValueKey<String>('settings-title'),
+                    style: theme.textTheme.titleMedium,
                   ),
-              ],
+                  const Spacer(),
+                  if (widget.onReset != null)
+                    TextButton(
+                      key: const ValueKey<String>('settings-reset'),
+                      onPressed: _busyFont
+                          ? null
+                          : () {
+                              setState(() {
+                                _fontSize = ReaderSettingsDefaults.fontSize;
+                                _fontFamily = null;
+                                _overrideEmbeddedFonts = false;
+                                _lineHeight = ReaderSettingsDefaults.lineHeight;
+                                _paragraphSpacing =
+                                    ReaderSettingsDefaults.paragraphSpacing;
+                                _horizontalPadding =
+                                    ReaderSettingsDefaults.horizontalPadding;
+                              });
+                              widget.onReset!();
+                            },
+                      child: const Text('恢复默认'),
+                    ),
+                ],
+              ),
             ),
-          ),
-          const Divider(height: 1),
+            const Divider(height: 1),
+          ],
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              padding: themeOnly
+                  ? const EdgeInsets.fromLTRB(16, 12, 16, 20)
+                  : const EdgeInsets.fromLTRB(20, 8, 20, 16),
               children: [
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.type) ...[
@@ -438,98 +460,181 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 ],
                 if (widget.section == SettingsSection.all ||
                     widget.section == SettingsSection.theme) ...[
-                  Text('主题', style: theme.textTheme.titleSmall),
+                  Text(
+                    '纯色',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      height: 18 / 13,
+                      color: drawerText,
+                    ),
+                  ),
                   if (widget.inkMode) ...[
                     const SizedBox(height: 6),
                     Text(
                       '墨水屏模式固定为纯黑白，关闭后可调整主题与背景',
                       key: const ValueKey<String>('settings-ink-theme-hint'),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline,
-                      ),
+                      style: TextStyle(fontSize: 12, color: drawerMuted),
                     ),
                   ],
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      for (final item in ReaderTheme.themes)
-                        _themeSwatch(
-                          key: 'settings-theme-${item.id}',
-                          theme: item,
-                          selected:
-                              !widget.inkMode && item.id == widget.themeId,
-                          onTap: widget.inkMode
-                              ? null
-                              : () => widget.onThemeChanged(item.id),
-                        ),
-                      if (widget.customTheme case final custom?)
-                        _themeSwatch(
-                          key: 'settings-theme-custom',
-                          theme: custom,
-                          selected:
-                              !widget.inkMode && custom.id == widget.themeId,
-                          onTap: widget.inkMode
-                              ? null
-                              : () => widget.onThemeChanged(custom.id),
-                        ),
-                    ],
+                  const SizedBox(height: 10),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final colors = Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          for (final item in ReaderTheme.themes)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: _themeCircle(
+                                key: 'settings-theme-${item.id}',
+                                color: item.background,
+                                selected:
+                                    !widget.inkMode &&
+                                    item.id == widget.themeId,
+                                onTap: widget.inkMode
+                                    ? null
+                                    : () => widget.onThemeChanged(item.id),
+                              ),
+                            ),
+                          _customColorCircle(),
+                        ],
+                      );
+                      if (constraints.maxWidth >= 324) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 12),
+                          child: colors,
+                        );
+                      }
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.only(top: 4, bottom: 12),
+                        child: colors,
+                      );
+                    },
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
+                    child: InkWell(
                       key: const ValueKey('settings-custom-theme-edit'),
-                      onPressed: widget.inkMode ? null : _editTheme,
-                      icon: const Icon(Icons.palette_outlined, size: 18),
-                      label: Text(
-                        widget.customTheme == null ? '自定义配色' : '编辑自定义配色',
+                      onTap: widget.inkMode ? null : _editTheme,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 9.5),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Icon(
+                              Icons.add_circle_outline,
+                              size: 14,
+                              color: drawerSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '编辑自定义配色',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: drawerSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                   if (widget.onBackgroundChanged != null) ...[
-                    const SizedBox(height: 16),
-                    Text('背景', style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        for (final item in ReaderBackground.all)
-                          _backgroundChip(
-                            key: 'settings-bg-${item.id}',
-                            background: item,
+                    const SizedBox(height: 24),
+                    Text(
+                      '背景',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 18 / 13,
+                        color: drawerText,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: <Widget>[
+                        for (
+                          var index = 0;
+                          index < ReaderBackground.all.length;
+                          index += 1
+                        ) ...[
+                          if (index > 0) const SizedBox(width: 8),
+                          _backgroundOption(
+                            key:
+                                'settings-bg-'
+                                '${ReaderBackground.all[index].id}',
+                            label: ReaderBackground.all[index].name,
                             selected:
                                 !widget.inkMode &&
-                                item.id == widget.backgroundId,
+                                ReaderBackground.all[index].id ==
+                                    widget.backgroundId,
                             onTap: widget.inkMode
                                 ? null
-                                : () => widget.onBackgroundChanged!(item.id),
+                                : () => widget.onBackgroundChanged!(
+                                    ReaderBackground.all[index].id,
+                                  ),
                           ),
+                        ],
                       ],
                     ),
                     if (widget.onPickBackgroundImage != null)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          key: const ValueKey('settings-background-image'),
-                          onPressed:
-                              widget.inkMode || widget.pickingBackgroundImage
-                              ? null
-                              : widget.onPickBackgroundImage,
-                          icon: const Icon(Icons.image_outlined, size: 18),
-                          label: Text(
-                            widget.pickingBackgroundImage
-                                ? '正在载入图片…'
-                                : ReaderBackground.byId(widget.backgroundId)
-                                      .isImage
-                                ? '更换背景图片'
-                                : '选择背景图片',
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: InkWell(
+                            key: const ValueKey('settings-background-image'),
+                            onTap:
+                                widget.inkMode || widget.pickingBackgroundImage
+                                ? null
+                                : widget.onPickBackgroundImage,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: ReaderDrawerStyle.optionFill,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.image_outlined,
+                                    size: 16,
+                                    color: drawerText,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    widget.pickingBackgroundImage
+                                        ? '正在载入图片…'
+                                        : ReaderBackground.byId(
+                                            widget.backgroundId,
+                                          ).isImage
+                                        ? '更换背景图片'
+                                        : '选择背景图片',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      height: 18 / 13,
+                                      color: drawerText,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     if (ReaderBackground.byId(widget.backgroundId).isImage)
-                      const Text('图片背景已启用'),
+                      Text(
+                        '图片背景已启用',
+                        style: TextStyle(fontSize: 12, color: drawerMuted),
+                      ),
                   ],
                 ],
                 if (widget.section == SettingsSection.all ||
@@ -710,9 +815,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
     );
   }
 
-  Widget _backgroundChip({
+  Widget _backgroundOption({
     required String key,
-    required ReaderBackground background,
+    required String label,
     required bool selected,
     required VoidCallback? onTap,
   }) {
@@ -724,56 +829,163 @@ class _SettingsPanelState extends State<SettingsPanel> {
         borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          width: 56,
+          height: 32,
           decoration: BoxDecoration(
+            color: ReaderDrawerStyle.surfaceOf(theme),
             borderRadius: BorderRadius.circular(4),
             border: Border.all(
               color: selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant,
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: Text(background.name, style: theme.textTheme.bodySmall),
-        ),
-      ),
-    );
-  }
-
-  Widget _themeSwatch({
-    required String key,
-    required ReaderTheme theme,
-    required bool selected,
-    required VoidCallback? onTap,
-  }) {
-    return Opacity(
-      opacity: onTap == null ? 0.42 : 1,
-      child: InkWell(
-        key: ValueKey<String>(key),
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: Container(
-          width: 64,
-          height: 44,
-          decoration: BoxDecoration(
-            color: theme.background,
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.outlineVariant,
+                  ? ReaderDrawerStyle.textOf(theme)
+                  : ReaderDrawerStyle.optionBorderOf(theme),
               width: selected ? 2 : 1,
             ),
           ),
           alignment: Alignment.center,
           child: Text(
-            theme.name,
-            style: TextStyle(color: theme.text, fontSize: 12),
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+              color: ReaderDrawerStyle.textOf(theme),
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _customColorCircle() {
+    final custom = widget.customTheme;
+    if (custom == null) {
+      return _themeCircle(
+        key: 'settings-custom-theme-picker',
+        color: Colors.transparent,
+        dashed: true,
+        showPlus: true,
+        selected: false,
+        onTap: widget.inkMode ? null : _editTheme,
+      );
+    }
+    return _themeCircle(
+      key: 'settings-theme-custom',
+      color: custom.background,
+      showPlus: true,
+      plusColor: custom.text,
+      selected: !widget.inkMode && custom.id == widget.themeId,
+      onTap: widget.inkMode ? null : () => widget.onThemeChanged(custom.id),
+    );
+  }
+
+  Widget _themeCircle({
+    required String key,
+    required Color color,
+    required bool selected,
+    required VoidCallback? onTap,
+    bool dashed = false,
+    bool showPlus = false,
+    Color plusColor = ReaderDrawerStyle.textSecondary,
+  }) {
+    final theme = Theme.of(context);
+    final dark = color.computeLuminance() < 0.35;
+    final border = selected
+        ? Border.all(
+            color: dark
+                ? ReaderDrawerStyle.surface
+                : ReaderDrawerStyle.selectedRing,
+            width: 2.5,
+          )
+        : Border.all(
+            color: dashed
+                ? Colors.transparent
+                : theme.brightness == Brightness.dark
+                ? theme.colorScheme.outlineVariant
+                : Colors.black.withValues(alpha: 0.08),
+          );
+    return Opacity(
+      opacity: onTap == null ? 0.42 : 1,
+      child: InkWell(
+        key: ValueKey<String>(key),
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox.square(
+          dimension: 44,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: dashed ? ReaderDrawerStyle.optionFillOf(theme) : color,
+              shape: BoxShape.circle,
+              border: dashed ? null : border,
+              boxShadow: selected
+                  ? <BoxShadow>[
+                      BoxShadow(
+                        color: ReaderDrawerStyle.selectedRing.withValues(
+                          alpha: dark ? 1 : 0.2,
+                        ),
+                        blurRadius: dark ? 0 : 6,
+                        spreadRadius: dark ? 1.5 : 0,
+                        offset: dark ? Offset.zero : const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: CustomPaint(
+              painter: dashed
+                  ? _DashedCirclePainter(
+                      color: ReaderDrawerStyle.faintOf(theme),
+                    )
+                  : null,
+              child: showPlus
+                  ? Icon(
+                      Icons.add,
+                      size: 20,
+                      color: dark
+                          ? ReaderDrawerStyle.surface
+                          : dashed
+                          ? ReaderDrawerStyle.secondaryOf(theme)
+                          : plusColor,
+                    )
+                  : null,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashedCirclePainter extends CustomPainter {
+  const _DashedCirclePainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final path = Path()
+      ..addOval(
+        Rect.fromCircle(
+          center: size.center(Offset.zero),
+          radius: size.shortestSide / 2 - 0.75,
+        ),
+      );
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + 4).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(distance, end), paint);
+        distance += 7;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedCirclePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 /// 列表入口按钮（设计稿 `.type-btn`：填充底、圆角 18、右侧箭头）。

@@ -119,18 +119,15 @@ void main() {
     );
     expect(
       tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('settings-title')),
-          )
+          .widget<Text>(find.byKey(const ValueKey<String>('settings-title')))
           .data,
       '主题',
     );
-    for (final key in <String>[
-      'settings-theme-dark',
-      'settings-bg-wood',
-    ]) {
-      expect(tester.widget<InkWell>(find.byKey(ValueKey<String>(key))).onTap,
-          isNull);
+    for (final key in <String>['settings-theme-black', 'settings-bg-wood']) {
+      expect(
+        tester.widget<InkWell>(find.byKey(ValueKey<String>(key))).onTap,
+        isNull,
+      );
     }
     expect(themes, isEmpty);
     expect(backgrounds, isEmpty);
@@ -190,7 +187,7 @@ void main() {
         home: Scaffold(
           body: SettingsPanel(
             overrides: ReaderSettingsDefaults.overrides,
-            themeId: ReaderTheme.gray.id,
+            themeId: ReaderTheme.pink.id,
             onOverridesChanged: (_) {},
             onThemeChanged: (_) {},
             onBack: () => back = true,
@@ -200,9 +197,9 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey<String>('settings-back')));
     expect(back, isTrue);
-    // 当前主题高亮（gray 选中）。
+    // 当前主题高亮（pink 选中）。
     expect(
-      find.byKey(const ValueKey<String>('settings-theme-gray')),
+      find.byKey(const ValueKey<String>('settings-theme-pink')),
       findsOneWidget,
     );
   });
@@ -227,9 +224,7 @@ void main() {
     expect(opened, isTrue);
     expect(
       tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('settings-title')),
-          )
+          .widget<Text>(find.byKey(const ValueKey<String>('settings-title')))
           .data,
       '设置',
     );
