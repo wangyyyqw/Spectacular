@@ -1,10 +1,11 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
+import '../reader/epub_chapter_source.dart';
 import '../storage/db.dart';
-import 'revision_anchor_index.dart';
 
 /// 当前身份优先；历史别名必须唯一，不能把歧义旧数据挂到其他书。
 Future<BookRow?> resolveBookRow(
@@ -33,13 +34,48 @@ Future<BookRow?> resolveBookRow(
 }
 
 final _bookIndexes = Expando<Map<String, Future<AnchorBook?>>>();
+final _readingSources = Expando<Map<String, _ReadingAnchorSource>>();
 
-/// 索引最多缓存两本当前原书，持续保存进度不重复解析全书。
-Future<AnchorBook?> loadBookAnchorIndex(AppDatabase db, BookRow row) {
+/// 借用阅读会话已打开的原书，解除绑定不关闭仍由阅读页持有的来源。
+Future<void Function()> bindReadingAnchorSource(
+  AppDatabase db,
+  String bookId,
+  EpubChapterSource source,
+  String revision,
+) async {
+  final row = await resolveBookRow(db, bookId, allowAliases: false);
+  if (row == null ||
+      (row.contentRevision != null && row.contentRevision != revision)) {
+    return () {};
+  }
+  final sources = _readingSources[db] ??= {};
+  final binding = _ReadingAnchorSource(row, source, revision);
+  sources[bookId] = binding;
+  return () {
+    if (identical(sources[bookId], binding)) sources.remove(bookId);
+  };
+}
+
+/// 日常保存只索引起止 CFI 之间的章节；完整索引仅供覆盖更新迁移使用。
+Future<AnchorBook?> loadBookAnchorIndex(
+  AppDatabase db,
+  BookRow row, {
+  required String startCfi,
+  String? endCfi,
+}) {
+  final first = _spineOf(startCfi);
+  final last = endCfi == null ? first : _spineOf(endCfi);
+  if (first == null || last == null || first < 0 || last < first) {
+    return Future.value(null);
+  }
+  final binding = _readingSources[db]?[row.uuid];
+  if (binding != null && binding.matches(row)) {
+    return Future.value(binding.index(first, last));
+  }
   final path = row.sourcePath;
   if (path == null) return Future.value(null);
   final cache = _bookIndexes[db] ??= {};
-  final key = '$path:${row.contentRevision}:${row.layoutVersion}';
+  final key = '$path:${row.contentRevision}:${row.layoutVersion}:$first:$last';
   final existing = cache.remove(key);
   if (existing != null) {
     cache[key] = existing;
@@ -48,7 +84,7 @@ Future<AnchorBook?> loadBookAnchorIndex(AppDatabase db, BookRow row) {
   while (cache.length >= 2) {
     cache.remove(cache.keys.first);
   }
-  final loading = _readIndex(row);
+  final loading = _readIndex(row, first, last);
   cache[key] = loading;
   return loading.then((book) {
     // 文件恢复后允许重新建立索引，不能永久缓存缺失结果。
@@ -57,11 +93,26 @@ Future<AnchorBook?> loadBookAnchorIndex(AppDatabase db, BookRow row) {
   });
 }
 
-Future<AnchorBook?> _readIndex(BookRow row) async {
+int? _spineOf(String cfi) {
+  final parsed = EpubCfi.parse(cfi);
+  return parsed == null ? null : spineIndexOfCfi(parsed);
+}
+
+Future<AnchorBook?> _readIndex(BookRow row, int first, int last) async {
   try {
     final file = File(row.sourcePath!);
     if (!await file.exists()) return null;
-    return await buildRevisionAnchorBook(await file.readAsBytes());
+    final bytes = await file.readAsBytes();
+    final source = await EpubChapterSource.open(bytes, verifyCrc: false);
+    try {
+      return _ReadingAnchorSource(
+        row,
+        source,
+        row.contentRevision ?? sha256.convert(bytes).toString(),
+      ).index(first, last);
+    } finally {
+      source.close();
+    }
   } on FileSystemException {
     return null;
   } on FormatException {
@@ -69,6 +120,35 @@ Future<AnchorBook?> _readIndex(BookRow row) async {
   } on StateError {
     // 旧 EPUB 损坏时保留原记录，不把新内容伪装成旧锚点。
     return null;
+  }
+}
+
+class _ReadingAnchorSource {
+  _ReadingAnchorSource(this.row, this.source, this.revision);
+
+  final BookRow row;
+  final EpubChapterSource source;
+  final String revision;
+  final _chapters = <int, AnchorChapter>{};
+
+  bool matches(BookRow current) =>
+      row.uuid == current.uuid &&
+      row.sourcePath == current.sourcePath &&
+      row.contentRevision == current.contentRevision &&
+      row.layoutVersion == current.layoutVersion;
+
+  AnchorBook? index(int first, int last) {
+    if (last >= source.chapterCount) return null;
+    final chapters = <AnchorChapter>[];
+    for (var spine = first; spine <= last; spine++) {
+      final chapter = _chapters.remove(spine) ?? source.anchorChapter(spine);
+      _chapters[spine] = chapter;
+      while (_chapters.length > EpubChapterSource.documentCacheChapterLimit) {
+        _chapters.remove(_chapters.keys.first);
+      }
+      chapters.add(chapter);
+    }
+    return AnchorBook(revision: revision, chapters: chapters);
   }
 }
 
@@ -81,7 +161,12 @@ Future<AnchorRecord?> captureBookAnchor(
   bool approximate = false,
   AnchorRecord? existing,
 }) async {
-  final book = await loadBookAnchorIndex(db, row);
+  final book = await loadBookAnchorIndex(
+    db,
+    row,
+    startCfi: startCfi,
+    endCfi: endCfi,
+  );
   final anchor = book?.capture(
     startCfi,
     endCfi: endCfi,
@@ -103,7 +188,12 @@ Future<AnchorRecord> originalAnnotationAnchor(
 ) async {
   final existing = AnchorRecord.decode(row.anchorJson);
   if (existing != null) return existing;
-  final index = await loadBookAnchorIndex(db, book);
+  final index = await loadBookAnchorIndex(
+    db,
+    book,
+    startCfi: row.startCfi,
+    endCfi: row.endCfi,
+  );
   final range = row.type == 2
       ? null
       : index?.legacyRange(

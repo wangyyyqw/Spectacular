@@ -215,7 +215,12 @@ class DriftAnnotationStore
             _matchingText(evidence.quote)) {
       return anchor;
     }
-    final index = await loadBookAnchorIndex(_db, book);
+    final index = await loadBookAnchorIndex(
+      _db,
+      book,
+      startCfi: startCfi,
+      endCfi: endCfi,
+    );
     final original = index?.legacyRange(
       startCfi: startCfi,
       endCfi: endCfi,
