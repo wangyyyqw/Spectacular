@@ -1,13 +1,16 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
 import '../paging/page_turn_mode.dart';
-import 'custom_theme_dialog.dart';
+import '../tap_zones.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_drawer_style.dart';
 import '../theme/reader_theme.dart';
+import 'custom_theme_dialog.dart';
 
 /// 阅读设置默认值（P4-21，与 Reeden/阅微的默认一致）。
 abstract final class ReaderSettingsDefaults {
@@ -57,7 +60,7 @@ enum SettingsSection {
   /// 主题与背景。
   theme,
 
-  /// 其它开关（墨水屏 / 恢复默认）。
+  /// 其它开关（翻页方式、边角信息与阅读开关）。
   settings,
 }
 
@@ -81,6 +84,7 @@ class SettingsPanel extends StatefulWidget {
     required this.onOverridesChanged,
     required this.onThemeChanged,
     this.customTheme,
+    this.backgroundImageLoader,
     this.onPickBackgroundImage,
     this.customFonts = const [],
     this.onPickFont,
@@ -98,6 +102,12 @@ class SettingsPanel extends StatefulWidget {
     this.marginsActive = false,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
+    this.tapZones = ReaderTapZones.defaults,
+    this.onTapZonesChanged,
+    this.keepScreenOn = false,
+    this.onKeepScreenOnChanged,
+    this.volumeKeyPaging = false,
+    this.onVolumeKeyPagingChanged,
   });
 
   /// 初始排版覆盖。
@@ -114,6 +124,9 @@ class SettingsPanel extends StatefulWidget {
 
   /// 上次保存的自定义配色，切换内置主题后仍可复用。
   final ReaderTheme? customTheme;
+
+  /// 宿主提供图片数据，UI 不访问文件系统。
+  final Future<Uint8List> Function(String id)? backgroundImageLoader;
 
   /// 已导入的字体。
   final List<ReaderFontOption> customFonts;
@@ -164,11 +177,40 @@ class SettingsPanel extends StatefulWidget {
   final PageTurnMode pageTurnMode;
   final ValueChanged<PageTurnMode>? onPageTurnModeChanged;
 
+  /// 九宫格点击区域配置。
+  final ReaderTapZones tapZones;
+
+  /// 九宫格点击区域变化。
+  final ValueChanged<ReaderTapZones>? onTapZonesChanged;
+
+  /// 阅读时保持屏幕常亮。
+  final bool keepScreenOn;
+
+  /// 屏幕常亮开关变化。
+  final ValueChanged<bool>? onKeepScreenOnChanged;
+
+  /// 用音量键翻页。
+  final bool volumeKeyPaging;
+
+  /// 音量键翻页开关变化。
+  final ValueChanged<bool>? onVolumeKeyPagingChanged;
+
   @override
   State<SettingsPanel> createState() => _SettingsPanelState();
 }
 
 class _SettingsPanelState extends State<SettingsPanel> {
+  static const Color _accent = Color(0xFF5EC27D);
+
+  static const List<PageTurnMode> _pageTurnOrder = <PageTurnMode>[
+    PageTurnMode.coverStack,
+    PageTurnMode.cover,
+    PageTurnMode.simulationBessel,
+    PageTurnMode.scroll,
+    PageTurnMode.slideHorizontal,
+    PageTurnMode.none,
+  ];
+
   late double _fontSize =
       widget.overrides.fontSize ?? ReaderSettingsDefaults.fontSize;
   late String? _fontFamily = widget.overrides.fontFamily;
@@ -205,8 +247,17 @@ class _SettingsPanelState extends State<SettingsPanel> {
   void didUpdateWidget(covariant SettingsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.overrides.fingerprint != widget.overrides.fingerprint) {
+      _fontSize = widget.overrides.fontSize ?? ReaderSettingsDefaults.fontSize;
       _fontFamily = widget.overrides.fontFamily;
       _overrideEmbeddedFonts = widget.overrides.overrideEmbeddedFonts;
+      _lineHeight =
+          widget.overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight;
+      _paragraphSpacing =
+          widget.overrides.paragraphSpacing ??
+          ReaderSettingsDefaults.paragraphSpacing;
+      _horizontalPadding =
+          widget.overrides.padding?.left ??
+          ReaderSettingsDefaults.horizontalPadding;
     }
     _customFonts = {
       for (final font in _customFonts) font.family: font,
@@ -286,6 +337,131 @@ class _SettingsPanelState extends State<SettingsPanel> {
     if (mounted && result != null) widget.onThemeChanged(result.id);
   }
 
+  Future<void> _showFontPicker() async {
+    if (_busyFont) return;
+    final panelTheme = Theme.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: ReaderDrawerStyle.surfaceOf(panelTheme),
+      showDragHandle: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Theme(
+        data: panelTheme,
+        child: SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.62,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 8, bottom: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0E0E0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _SheetTitle(),
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: <Widget>[
+                      _fontOptionTile(
+                        context,
+                        key: 'settings-font-book',
+                        label: '书籍字体',
+                        value: null,
+                      ),
+                      _fontOptionTile(
+                        context,
+                        key: 'settings-font-song',
+                        label: '宋体',
+                        value: ReaderSettingsDefaults.fontSong,
+                      ),
+                      _fontOptionTile(
+                        context,
+                        key: 'settings-font-hei',
+                        label: '黑体',
+                        value: ReaderSettingsDefaults.fontSans,
+                      ),
+                      for (final font in _customFonts)
+                        _fontOptionTile(
+                          context,
+                          key: 'settings-custom-font-${font.family}',
+                          label: font.label,
+                          value: font.family,
+                          saved: true,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _fontOptionTile(
+    BuildContext sheetContext, {
+    required String key,
+    required String label,
+    required String? value,
+    bool saved = false,
+  }) {
+    final selected = _fontFamily == value;
+    final text = ReaderDrawerStyle.textOf(Theme.of(sheetContext));
+    return InkWell(
+      key: ValueKey<String>(key),
+      onTap: _busyFont
+          ? null
+          : () {
+              Navigator.of(sheetContext).pop();
+              if (saved) {
+                _selectSavedFont(value);
+              } else {
+                _selectFont(value);
+              }
+            },
+      child: SizedBox(
+        height: 48,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: selected ? _accent : text,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ),
+              if (selected) const Icon(Icons.check, size: 18, color: _accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   String get _sectionTitle => switch (widget.section) {
     SettingsSection.all || SettingsSection.type => '排版',
     SettingsSection.theme => '主题',
@@ -295,19 +471,16 @@ class _SettingsPanelState extends State<SettingsPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final themeOnly = widget.section == SettingsSection.theme;
-    final drawerText = ReaderDrawerStyle.textOf(theme);
-    final drawerSecondary = ReaderDrawerStyle.secondaryOf(theme);
-    final drawerMuted = ReaderDrawerStyle.mutedOf(theme);
+    final full = widget.section == SettingsSection.all;
     return Material(
       key: const ValueKey<String>('settings-panel-surface'),
-      color: themeOnly
-          ? ReaderDrawerStyle.surfaceOf(theme)
-          : theme.colorScheme.surface,
+      color: ReaderDrawerStyle.surfaceOf(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (themeOnly)
+        children: <Widget>[
+          if (full)
+            _buildHeader(theme)
+          else
             SizedBox(
               height: 0,
               child: Opacity(
@@ -317,369 +490,42 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   key: const ValueKey<String>('settings-title'),
                 ),
               ),
-            )
-          else ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 20, 4),
-              child: Row(
-                children: [
-                  if (widget.onBack != null)
-                    IconButton(
-                      key: const ValueKey<String>('settings-back'),
-                      icon: const Icon(Icons.arrow_back, size: 20),
-                      onPressed: widget.onBack,
-                      tooltip: '返回',
-                    ),
-                  Text(
-                    _sectionTitle,
-                    key: const ValueKey<String>('settings-title'),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const Spacer(),
-                  if (widget.onReset != null)
-                    TextButton(
-                      key: const ValueKey<String>('settings-reset'),
-                      onPressed: _busyFont
-                          ? null
-                          : () {
-                              setState(() {
-                                _fontSize = ReaderSettingsDefaults.fontSize;
-                                _fontFamily = null;
-                                _overrideEmbeddedFonts = false;
-                                _lineHeight = ReaderSettingsDefaults.lineHeight;
-                                _paragraphSpacing =
-                                    ReaderSettingsDefaults.paragraphSpacing;
-                                _horizontalPadding =
-                                    ReaderSettingsDefaults.horizontalPadding;
-                              });
-                              widget.onReset!();
-                            },
-                      child: const Text('恢复默认'),
-                    ),
-                ],
-              ),
             ),
-            const Divider(height: 1),
-          ],
           Expanded(
             child: ListView(
-              padding: themeOnly
-                  ? const EdgeInsets.fromLTRB(16, 12, 16, 20)
-                  : const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              children: [
-                if (widget.section == SettingsSection.all ||
-                    widget.section == SettingsSection.type) ...[
-                  Text('字体', style: theme.textTheme.titleSmall),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _fontChoice(
-                        key: 'settings-font-book',
-                        label: '书籍字体',
-                        value: null,
-                      ),
-                      _fontChoice(
-                        key: 'settings-font-song',
-                        label: '宋体',
-                        value: ReaderSettingsDefaults.fontSong,
-                      ),
-                      _fontChoice(
-                        key: 'settings-font-hei',
-                        label: '黑体',
-                        value: ReaderSettingsDefaults.fontSans,
-                      ),
-                    ],
-                  ),
-                  if (widget.onPickFont != null || _customFonts.isNotEmpty)
-                    _customFontControls(),
-                  const SizedBox(height: 12),
-                  _slider(
-                    key: 'settings-font-size',
-                    label: '字号',
-                    value: _fontSize,
-                    min: 12,
-                    max: 28,
-                    divisions: 16,
-                    display: _fontSize.toStringAsFixed(0),
-                    onChanged: (value) {
-                      setState(() => _fontSize = value);
-                      _emit();
-                    },
-                  ),
-                  _slider(
-                    key: 'settings-line-height',
-                    label: '行高',
-                    value: _lineHeight,
-                    min: 1.2,
-                    max: 2.4,
-                    divisions: 12,
-                    display: _lineHeight.toStringAsFixed(1),
-                    onChanged: (value) {
-                      setState(() => _lineHeight = value);
-                      _emit();
-                    },
-                  ),
-                  _slider(
-                    key: 'settings-paragraph-spacing',
-                    label: '段间距',
-                    value: _paragraphSpacing,
-                    min: 0,
-                    max: 24,
-                    divisions: 24,
-                    display: _paragraphSpacing.toStringAsFixed(0),
-                    onChanged: (value) {
-                      setState(() => _paragraphSpacing = value);
-                      _emit();
-                    },
-                  ),
-                  if (!widget.marginsActive)
-                    _slider(
-                      key: 'settings-padding',
-                      label: '页边距',
-                      value: _horizontalPadding,
-                      min: 8,
-                      max: 40,
-                      divisions: 16,
-                      display: _horizontalPadding.toStringAsFixed(0),
-                      onChanged: (value) {
-                        setState(() => _horizontalPadding = value);
-                        _emit();
-                      },
-                    ),
-                  if (widget.onOpenMarginEditor != null) ...[
-                    const SizedBox(height: 8),
-                    _EntryButton(
-                      key: const ValueKey<String>('settings-margin-editor'),
-                      icon: Icons.aspect_ratio,
-                      label: '边距调节器',
-                      onTap: widget.onOpenMarginEditor!,
-                    ),
-                  ],
+              padding: switch (widget.section) {
+                SettingsSection.all => const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                SettingsSection.type => const EdgeInsets.fromLTRB(
+                  20,
+                  16,
+                  20,
+                  20,
+                ),
+                SettingsSection.theme => const EdgeInsets.fromLTRB(
+                  16,
+                  12,
+                  16,
+                  20,
+                ),
+                SettingsSection.settings => const EdgeInsets.fromLTRB(
+                  16,
+                  10,
+                  16,
+                  16,
+                ),
+              },
+              children: switch (widget.section) {
+                SettingsSection.all => <Widget>[
+                  ..._typeChildren(theme, legacyPadding: true),
+                  const SizedBox(height: 24),
+                  ..._themeChildren(theme),
+                  const SizedBox(height: 24),
+                  ..._settingsChildren(theme, includeReset: false),
                 ],
-                if (widget.section == SettingsSection.all ||
-                    widget.section == SettingsSection.theme) ...[
-                  Text(
-                    '纯色',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      height: 18 / 13,
-                      color: drawerText,
-                    ),
-                  ),
-                  if (widget.inkMode) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      '墨水屏模式固定为纯黑白，关闭后可调整主题与背景',
-                      key: const ValueKey<String>('settings-ink-theme-hint'),
-                      style: TextStyle(fontSize: 12, color: drawerMuted),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final colors = Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          for (final item in ReaderTheme.themes)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 12),
-                              child: _themeCircle(
-                                key: 'settings-theme-${item.id}',
-                                color: item.background,
-                                selected:
-                                    !widget.inkMode &&
-                                    item.id == widget.themeId,
-                                onTap: widget.inkMode
-                                    ? null
-                                    : () => widget.onThemeChanged(item.id),
-                              ),
-                            ),
-                          _customColorCircle(),
-                        ],
-                      );
-                      if (constraints.maxWidth >= 324) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 4, bottom: 12),
-                          child: colors,
-                        );
-                      }
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.only(top: 4, bottom: 12),
-                        child: colors,
-                      );
-                    },
-                  ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: InkWell(
-                      key: const ValueKey('settings-custom-theme-edit'),
-                      onTap: widget.inkMode ? null : _editTheme,
-                      borderRadius: BorderRadius.circular(4),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 9.5),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Icon(
-                              Icons.add_circle_outline,
-                              size: 14,
-                              color: drawerSecondary,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '编辑自定义配色',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: drawerSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (widget.onBackgroundChanged != null) ...[
-                    const SizedBox(height: 24),
-                    Text(
-                      '背景',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        height: 18 / 13,
-                        color: drawerText,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: <Widget>[
-                        for (
-                          var index = 0;
-                          index < ReaderBackground.all.length;
-                          index += 1
-                        ) ...[
-                          if (index > 0) const SizedBox(width: 8),
-                          _backgroundOption(
-                            key:
-                                'settings-bg-'
-                                '${ReaderBackground.all[index].id}',
-                            label: ReaderBackground.all[index].name,
-                            selected:
-                                !widget.inkMode &&
-                                ReaderBackground.all[index].id ==
-                                    widget.backgroundId,
-                            onTap: widget.inkMode
-                                ? null
-                                : () => widget.onBackgroundChanged!(
-                                    ReaderBackground.all[index].id,
-                                  ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (widget.onPickBackgroundImage != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: InkWell(
-                            key: const ValueKey('settings-background-image'),
-                            onTap:
-                                widget.inkMode || widget.pickingBackgroundImage
-                                ? null
-                                : widget.onPickBackgroundImage,
-                            borderRadius: BorderRadius.circular(4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: ReaderDrawerStyle.optionFill,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.image_outlined,
-                                    size: 16,
-                                    color: drawerText,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    widget.pickingBackgroundImage
-                                        ? '正在载入图片…'
-                                        : ReaderBackground.byId(
-                                            widget.backgroundId,
-                                          ).isImage
-                                        ? '更换背景图片'
-                                        : '选择背景图片',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      height: 18 / 13,
-                                      color: drawerText,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (ReaderBackground.byId(widget.backgroundId).isImage)
-                      Text(
-                        '图片背景已启用',
-                        style: TextStyle(fontSize: 12, color: drawerMuted),
-                      ),
-                  ],
-                ],
-                if (widget.section == SettingsSection.all ||
-                    widget.section == SettingsSection.settings) ...[
-                  if (widget.onPageTurnModeChanged != null) ...[
-                    const Text('翻页方式'),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final mode in PageTurnMode.values)
-                          ChoiceChip(
-                            key: ValueKey('settings-page-turn-${mode.id}'),
-                            label: Text(mode.label),
-                            selected: mode == widget.pageTurnMode,
-                            onSelected: (_) =>
-                                widget.onPageTurnModeChanged!(mode),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  if (widget.onOpenTapZoneEditor != null) ...[
-                    _EntryButton(
-                      key: const ValueKey<String>('settings-tap-zones'),
-                      icon: Icons.grid_on,
-                      label: '点击区域设置',
-                      onTap: widget.onOpenTapZoneEditor!,
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  if (widget.onInkModeChanged != null) ...[
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      key: const ValueKey<String>('settings-ink-mode'),
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('墨水屏模式'),
-                      subtitle: const Text('纯黑白、禁用背景纹理、高亮改为下划线'),
-                      value: widget.inkMode,
-                      onChanged: widget.onInkModeChanged,
-                    ),
-                  ],
-                ],
-              ],
+                SettingsSection.type => _typeChildren(theme),
+                SettingsSection.theme => _themeChildren(theme),
+                SettingsSection.settings => _settingsChildren(theme),
+              },
             ),
           ),
         ],
@@ -687,195 +533,577 @@ class _SettingsPanelState extends State<SettingsPanel> {
     );
   }
 
-  Widget _fontChoice({
-    required String key,
-    required String label,
-    required String? value,
-  }) {
-    return ChoiceChip(
-      key: ValueKey<String>(key),
-      label: Text(label),
-      selected: _fontFamily == value,
-      showCheckmark: false,
-      onSelected: _busyFont ? null : (_) => _selectFont(value),
-    );
-  }
-
-  Widget _customFontControls() {
-    final textTheme = Theme.of(context).textTheme;
+  Widget _buildHeader(ThemeData theme) {
     return Column(
-      children: [
-        const SizedBox(height: 8),
-        Row(children: [_customFontDropdown(), _fontImportButton()]),
-        SwitchListTile(
-          key: const ValueKey<String>('settings-override-embedded-fonts'),
-          contentPadding: EdgeInsets.zero,
-          title: Text('全书使用自定义字体', style: textTheme.bodyLarge),
-          subtitle: Text(
-            _isCustomFont
-                ? (_overrideEmbeddedFonts ? '屏蔽 EPUB 内嵌字体' : '保留 EPUB 内嵌字体')
-                : '选择自定义字体后可开启',
-            style: textTheme.bodySmall,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 20, 4),
+          child: Row(
+            children: <Widget>[
+              if (widget.onBack != null)
+                IconButton(
+                  key: const ValueKey<String>('settings-back'),
+                  icon: const Icon(Icons.arrow_back, size: 20),
+                  onPressed: widget.onBack,
+                  tooltip: '返回',
+                ),
+              Text(
+                _sectionTitle,
+                key: const ValueKey<String>('settings-title'),
+                style: theme.textTheme.titleMedium,
+              ),
+              const Spacer(),
+              if (widget.onReset != null)
+                TextButton(
+                  key: const ValueKey<String>('settings-reset'),
+                  onPressed: _busyFont ? null : _reset,
+                  child: const Text('恢复默认'),
+                ),
+            ],
           ),
-          value: _isCustomFont && _overrideEmbeddedFonts,
-          onChanged: !_isCustomFont || _busyFont
-              ? null
-              : (value) {
-                  setState(() => _overrideEmbeddedFonts = value);
-                  _emit();
-                },
         ),
+        Divider(height: 1, color: ReaderDrawerStyle.dividerOf(theme)),
       ],
     );
   }
 
-  Widget _customFontDropdown() {
-    final textStyle = Theme.of(context).textTheme.bodyMedium;
-    final selected = _customFonts.any((font) => font.family == _fontFamily)
-        ? _fontFamily
-        : null;
-    return Expanded(
-      child: DropdownButton<String>(
-        key: const ValueKey<String>('settings-custom-font'),
-        isExpanded: true,
-        value: selected,
-        style: textStyle,
-        hint: Text('自定义字体', style: textStyle),
-        items: [
-          for (final font in _customFonts)
-            DropdownMenuItem(
-              value: font.family,
-              child: Text(
-                font.label,
-                style: textStyle,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-        ],
-        onChanged: _busyFont ? null : _selectSavedFont,
-      ),
-    );
+  void _reset() {
+    setState(() {
+      _fontSize = ReaderSettingsDefaults.fontSize;
+      _fontFamily = null;
+      _overrideEmbeddedFonts = false;
+      _lineHeight = ReaderSettingsDefaults.lineHeight;
+      _paragraphSpacing = ReaderSettingsDefaults.paragraphSpacing;
+      _horizontalPadding = ReaderSettingsDefaults.horizontalPadding;
+    });
+    widget.onReset?.call();
   }
 
-  Widget _fontImportButton() => Padding(
-    padding: const EdgeInsets.only(left: 8),
-    child: TextButton.icon(
-      key: const ValueKey<String>('settings-import-font'),
-      onPressed: widget.onPickFont == null || _busyFont ? null : _pickFont,
-      icon: _busyFont
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.add, size: 18),
-      label: Text(_loadingFont ? '加载中' : (_pickingFont ? '导入中' : '导入字体')),
-    ),
-  );
+  List<Widget> _typeChildren(ThemeData theme, {bool legacyPadding = false}) {
+    return <Widget>[
+      _typographyRow(
+        theme: theme,
+        label: '字号',
+        value: _fontSize,
+        min: 12,
+        max: 32,
+        step: 1,
+        divisions: 20,
+        display: _fontSize.toStringAsFixed(0),
+        sliderKey: 'settings-font-size',
+        onChanged: (value) {
+          setState(() => _fontSize = value);
+          _emit();
+        },
+      ),
+      _typographyRow(
+        theme: theme,
+        label: '行高',
+        value: _lineHeight,
+        min: 1.2,
+        max: 3.0,
+        step: 0.1,
+        divisions: 18,
+        display: _lineHeight.toStringAsFixed(1),
+        sliderKey: 'settings-line-height',
+        onChanged: (value) {
+          setState(() => _lineHeight = value);
+          _emit();
+        },
+      ),
+      _typographyRow(
+        theme: theme,
+        label: '段距',
+        value: _paragraphSpacing,
+        min: 0,
+        max: 40,
+        step: 1,
+        divisions: 40,
+        display: _paragraphSpacing.toStringAsFixed(0),
+        sliderKey: 'settings-paragraph-spacing',
+        onChanged: (value) {
+          setState(() => _paragraphSpacing = value);
+          _emit();
+        },
+      ),
+      if (legacyPadding && !widget.marginsActive)
+        _legacyPaddingSlider(theme, key: 'settings-padding'),
+      if (widget.onOpenMarginEditor != null) ...<Widget>[
+        _WideActionButton(
+          key: const ValueKey<String>('settings-margin-editor'),
+          icon: Icons.aspect_ratio,
+          label: '边距调节',
+          onTap: widget.onOpenMarginEditor!,
+        ),
+        const SizedBox(height: 24),
+      ],
+      Container(
+        padding: const EdgeInsets.only(top: 20),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: ReaderDrawerStyle.dividerOf(theme)),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text(
+              '字体设置',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ReaderDrawerStyle.textOf(theme),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: _FontButton(
+                    key: const ValueKey<String>('settings-font-picker'),
+                    icon: Icons.text_fields,
+                    label: '选择自定义字体',
+                    onPressed: _busyFont ? null : _showFontPicker,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _FontButton(
+                    key: const ValueKey<String>('settings-import-font'),
+                    icon: Icons.file_upload_outlined,
+                    label: _loadingFont
+                        ? '加载中'
+                        : _pickingFont
+                        ? '导入中'
+                        : '导入自定义字体',
+                    onPressed: widget.onPickFont == null || _busyFont
+                        ? null
+                        : _pickFont,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _compactSwitchRow(
+              key: const ValueKey<String>('settings-override-embedded-fonts'),
+              label: '全书使用自定义字体',
+              value: _isCustomFont && _overrideEmbeddedFonts,
+              onChanged: !_isCustomFont || _busyFont
+                  ? null
+                  : (value) {
+                      setState(() => _overrideEmbeddedFonts = value);
+                      _emit();
+                    },
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
 
-  Widget _slider({
-    required String key,
+  Widget _typographyRow({
+    required ThemeData theme,
     required String label,
     required double value,
     required double min,
     required double max,
+    required double step,
     required int divisions,
     required String display,
+    required String sliderKey,
     required ValueChanged<double> onChanged,
   }) {
-    final theme = Theme.of(context);
+    final clamped = value.clamp(min, max).toDouble();
+    void setValue(double next) {
+      final rounded = (next.clamp(min, max) / step).round() * step;
+      onChanged(double.parse(rounded.toStringAsFixed(2)));
+    }
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 60,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: ReaderDrawerStyle.textOf(theme),
+              ),
+            ),
+          ),
+          _StepButton(
+            key: ValueKey<String>('$sliderKey-decrement'),
+            icon: Icons.remove,
+            onTap: clamped <= min ? null : () => setValue(clamped - step),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 4,
+                  activeTrackColor: ReaderDrawerStyle.textOf(theme),
+                  inactiveTrackColor: ReaderDrawerStyle.optionBorderOf(theme),
+                  thumbColor: ReaderDrawerStyle.surfaceOf(theme),
+                  thumbShape: _OutlinedThumbShape(
+                    color: ReaderDrawerStyle.textOf(theme),
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 16,
+                  ),
+                  overlayColor: ReaderDrawerStyle.textOf(theme)
+                      .withValues(alpha: 0.08),
+                  trackShape: const RoundedRectSliderTrackShape(),
+                  tickMarkShape: SliderTickMarkShape.noTickMark,
+                ),
+                child: Slider(
+                  key: ValueKey<String>(sliderKey),
+                  value: clamped,
+                  min: min,
+                  max: max,
+                  divisions: divisions,
+                  onChanged: setValue,
+                ),
+              ),
+            ),
+          ),
+          _StepButton(
+            key: ValueKey<String>('$sliderKey-increment'),
+            icon: Icons.add,
+            onTap: clamped >= max ? null : () => setValue(clamped + step),
+          ),
+          SizedBox(
+            width: 36,
+            child: Text(
+              display,
+              key: ValueKey<String>('$sliderKey-value'),
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 14,
+                color: ReaderDrawerStyle.secondaryOf(theme),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legacyPaddingSlider(ThemeData theme, {required String key}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           Row(
-            children: [
-              Text(label, style: theme.textTheme.bodyMedium),
+            children: <Widget>[
+              Text(
+                '页边距',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: ReaderDrawerStyle.textOf(theme),
+                ),
+              ),
               const Spacer(),
               Text(
-                display,
-                key: ValueKey<String>('$key-value'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                _horizontalPadding.toStringAsFixed(0),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: ReaderDrawerStyle.mutedOf(theme),
                 ),
               ),
             ],
           ),
           Slider(
             key: ValueKey<String>(key),
-            value: value.clamp(min, max),
-            min: min,
-            max: max,
-            divisions: divisions,
-            onChanged: onChanged,
+            value: _horizontalPadding.clamp(8, 40),
+            min: 8,
+            max: 40,
+            divisions: 16,
+            onChanged: (value) {
+              setState(() => _horizontalPadding = value);
+              _emit();
+            },
           ),
         ],
       ),
     );
   }
 
-  Widget _backgroundOption({
-    required String key,
-    required String label,
-    required bool selected,
-    required VoidCallback? onTap,
-  }) {
-    final theme = Theme.of(context);
-    return Opacity(
-      opacity: onTap == null ? 0.42 : 1,
-      child: InkWell(
-        key: ValueKey<String>(key),
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: Container(
-          width: 56,
-          height: 32,
-          decoration: BoxDecoration(
-            color: ReaderDrawerStyle.surfaceOf(theme),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-              color: selected
-                  ? ReaderDrawerStyle.textOf(theme)
-                  : ReaderDrawerStyle.optionBorderOf(theme),
-              width: selected ? 2 : 1,
-            ),
-          ),
-          alignment: Alignment.center,
+  List<Widget> _themeChildren(ThemeData theme) {
+    final text = ReaderDrawerStyle.textOf(theme);
+    final muted = ReaderDrawerStyle.mutedOf(theme);
+    return <Widget>[
+      Text(
+        '纯色',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          height: 18 / 13,
+          color: text,
+        ),
+      ),
+      if (widget.inkMode) ...<Widget>[
+        const SizedBox(height: 6),
+        Text(
+          '墨水屏模式固定为纯黑白，关闭后可调整主题与背景',
+          key: const ValueKey<String>('settings-ink-theme-hint'),
+          style: TextStyle(fontSize: 12, color: muted),
+        ),
+      ],
+      const SizedBox(height: 4),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: <Widget>[
+            for (final item in ReaderTheme.themes) ...<Widget>[
+              _themeCircle(
+                key: 'settings-theme-${item.id}',
+                color: item.background,
+                selected: !widget.inkMode && item.id == widget.themeId,
+                onTap: widget.inkMode
+                    ? null
+                    : () => widget.onThemeChanged(item.id),
+              ),
+              const SizedBox(width: 12),
+            ],
+            _customColorCircle(),
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+      Text(
+        '纹理',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          height: 18 / 13,
+          color: text,
+        ),
+      ),
+      const SizedBox(height: 10),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: <Widget>[
+            for (
+              var index = 0;
+              index < ReaderBackground.all.length;
+              index++
+            ) ...<Widget>[
+              if (index > 0) const SizedBox(width: 8),
+              _backgroundOption(
+                key: 'settings-bg-${ReaderBackground.all[index].id}',
+                label: ReaderBackground.all[index].name,
+                selected:
+                    !widget.inkMode &&
+                    ReaderBackground.all[index].id == widget.backgroundId,
+                onTap: widget.inkMode || widget.onBackgroundChanged == null
+                    ? null
+                    : () => widget.onBackgroundChanged!(
+                        ReaderBackground.all[index].id,
+                      ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      if (widget.onBackgroundChanged != null) ...<Widget>[
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
           child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            '图片',
             style: TextStyle(
               fontSize: 13,
-              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-              color: ReaderDrawerStyle.textOf(theme),
+              fontWeight: FontWeight.w600,
+              height: 18 / 13,
+              color: text,
             ),
           ),
         ),
-      ),
-    );
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: <Widget>[
+              for (final background in <ReaderBackground>[
+                ReaderBackground.paper,
+                ReaderBackground.wood,
+                ReaderBackground.gray,
+                ReaderBackground.parchment,
+              ]) ...<Widget>[
+                _builtInImageTile(
+                  key: 'settings-image-${background.id}',
+                  background: background,
+                  selected: background.id == widget.backgroundId,
+                  onTap: widget.inkMode
+                      ? null
+                      : () => widget.onBackgroundChanged!(background.id),
+                ),
+                const SizedBox(width: 12),
+              ],
+              if (ReaderBackground.byId(widget.backgroundId).isImage &&
+                  widget.backgroundImageLoader != null) ...<Widget>[
+                _UserBackgroundThumbnail(
+                  key: const ValueKey<String>('settings-image-current'),
+                  id: widget.backgroundId,
+                  loader: widget.backgroundImageLoader!,
+                  selected: true,
+                ),
+                const SizedBox(width: 12),
+              ],
+              if (widget.onPickBackgroundImage != null)
+                _AddImageTile(
+                  key: const ValueKey<String>('settings-background-image'),
+                  busy: widget.pickingBackgroundImage,
+                  onTap: widget.inkMode || widget.pickingBackgroundImage
+                      ? null
+                      : widget.onPickBackgroundImage,
+                ),
+            ],
+          ),
+        ),
+      ],
+    ];
   }
 
-  Widget _customColorCircle() {
-    final custom = widget.customTheme;
-    if (custom == null) {
-      return _themeCircle(
-        key: 'settings-custom-theme-picker',
-        color: Colors.transparent,
-        dashed: true,
-        showPlus: true,
-        selected: false,
-        onTap: widget.inkMode ? null : _editTheme,
-      );
-    }
-    return _themeCircle(
-      key: 'settings-theme-custom',
-      color: custom.background,
-      showPlus: true,
-      plusColor: custom.text,
-      selected: !widget.inkMode && custom.id == widget.themeId,
-      onTap: widget.inkMode ? null : () => widget.onThemeChanged(custom.id),
+  List<Widget> _settingsChildren(ThemeData theme, {bool includeReset = true}) {
+    return <Widget>[
+      Text(
+        '选择翻页方式',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: ReaderDrawerStyle.textOf(theme),
+        ),
+      ),
+      const SizedBox(height: 8),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Row(
+          children: <Widget>[
+            for (
+              var index = 0;
+              index < _pageTurnOrder.length;
+              index++
+            ) ...<Widget>[
+              if (index > 0) const SizedBox(width: 6),
+              _PageTurnOption(
+                key: ValueKey<String>(
+                  'settings-page-turn-${_pageTurnOrder[index].id}',
+                ),
+                label: _shortPageTurnLabel(_pageTurnOrder[index]),
+                selected: widget.pageTurnMode == _pageTurnOrder[index],
+                onTap: widget.onPageTurnModeChanged == null
+                    ? null
+                    : () =>
+                          widget.onPageTurnModeChanged!(_pageTurnOrder[index]),
+              ),
+            ],
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+      const SizedBox(height: 10),
+      Text(
+        '边角信息设置',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: ReaderDrawerStyle.textOf(theme),
+        ),
+      ),
+      const SizedBox(height: 6),
+      const _CornerPreview(),
+      const SizedBox(height: 10),
+      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+      _compactSwitchRow(
+        key: const ValueKey<String>('settings-fullscreen-next'),
+        label: '全屏点击下一页',
+        value: widget.tapZones.isFullScreenNext,
+        onChanged: widget.onTapZonesChanged == null
+            ? null
+            : (value) => widget.onTapZonesChanged!(
+                value ? ReaderTapZones.fullScreenNext : ReaderTapZones.defaults,
+              ),
+      ),
+      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+      _compactSwitchRow(
+        key: const ValueKey<String>('settings-keep-screen-on'),
+        label: '屏幕常亮',
+        value: widget.keepScreenOn,
+        onChanged: widget.onKeepScreenOnChanged,
+      ),
+      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+      _compactSwitchRow(
+        key: const ValueKey<String>('settings-volume-key-paging'),
+        label: '音量键翻页',
+        value: widget.volumeKeyPaging,
+        onChanged: widget.onVolumeKeyPagingChanged,
+      ),
+      if (widget.onOpenTapZoneEditor != null ||
+          widget.onInkModeChanged != null ||
+          (includeReset && widget.onReset != null)) ...<Widget>[
+        const SizedBox(height: 12),
+        _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+        const SizedBox(height: 8),
+        if (widget.onOpenTapZoneEditor != null)
+          _SettingsEntryRow(
+            key: const ValueKey<String>('settings-tap-zones'),
+            icon: Icons.grid_on,
+            label: '点击区域设置',
+            onTap: widget.onOpenTapZoneEditor!,
+          ),
+        if (widget.onInkModeChanged != null)
+          _compactSwitchRow(
+            key: const ValueKey<String>('settings-ink-mode'),
+            label: '墨水屏模式',
+            value: widget.inkMode,
+            onChanged: widget.onInkModeChanged,
+          ),
+        if (includeReset && widget.onReset != null)
+          Align(
+            alignment: Alignment.center,
+            child: TextButton(
+              key: const ValueKey<String>('settings-reset'),
+              onPressed: _busyFont ? null : _reset,
+              child: Text(
+                '恢复默认',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: ReaderDrawerStyle.mutedOf(theme),
+                ),
+              ),
+            ),
+          ),
+      ],
+    ];
+  }
+
+  Widget _compactSwitchRow({
+    required Key key,
+    required String label,
+    required bool value,
+    required ValueChanged<bool>? onChanged,
+  }) {
+    final text = ReaderDrawerStyle.textOf(Theme.of(context));
+    return SizedBox(
+      height: 44,
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(label, style: TextStyle(fontSize: 14, color: text)),
+          ),
+          _CompactSwitch(key: key, value: value, onChanged: onChanged),
+        ],
+      ),
     );
   }
 
@@ -890,20 +1118,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }) {
     final theme = Theme.of(context);
     final dark = color.computeLuminance() < 0.35;
-    final border = selected
-        ? Border.all(
-            color: dark
-                ? ReaderDrawerStyle.surface
-                : ReaderDrawerStyle.selectedRing,
-            width: 2.5,
-          )
-        : Border.all(
-            color: dashed
-                ? Colors.transparent
-                : theme.brightness == Brightness.dark
-                ? theme.colorScheme.outlineVariant
-                : Colors.black.withValues(alpha: 0.08),
-          );
     return Opacity(
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
@@ -916,7 +1130,20 @@ class _SettingsPanelState extends State<SettingsPanel> {
             decoration: BoxDecoration(
               color: dashed ? ReaderDrawerStyle.optionFillOf(theme) : color,
               shape: BoxShape.circle,
-              border: dashed ? null : border,
+              border: dashed
+                  ? null
+                  : selected
+                  ? Border.all(
+                      color: dark
+                          ? ReaderDrawerStyle.surface
+                          : ReaderDrawerStyle.selectedRing,
+                      width: 2.5,
+                    )
+                  : Border.all(
+                      color: theme.brightness == Brightness.dark
+                          ? theme.colorScheme.outlineVariant
+                          : Colors.black.withValues(alpha: 0.08),
+                    ),
               boxShadow: selected
                   ? <BoxShadow>[
                       BoxShadow(
@@ -950,6 +1177,693 @@ class _SettingsPanelState extends State<SettingsPanel> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _customColorCircle() {
+    final custom = widget.customTheme;
+    final circle = custom == null
+        ? _themeCircle(
+            key: 'settings-custom-theme-picker',
+            color: Colors.transparent,
+            dashed: true,
+            showPlus: true,
+            selected: false,
+            onTap: widget.inkMode ? null : _editTheme,
+          )
+        : _themeCircle(
+            key: 'settings-theme-custom',
+            color: custom.background,
+            showPlus: true,
+            plusColor: custom.text,
+            selected: !widget.inkMode && custom.id == widget.themeId,
+            onTap: widget.inkMode
+                ? null
+                : () => widget.onThemeChanged(custom.id),
+          );
+    return KeyedSubtree(
+      key: const ValueKey<String>('settings-custom-theme-edit'),
+      child: circle,
+    );
+  }
+
+  Widget _backgroundOption({
+    required String key,
+    required String label,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    final theme = Theme.of(context);
+    final surface = ReaderDrawerStyle.surfaceOf(theme);
+    return Opacity(
+      opacity: onTap == null ? 0.42 : 1,
+      child: InkWell(
+        key: ValueKey<String>(key),
+        borderRadius: BorderRadius.circular(4),
+        onTap: onTap,
+        child: Container(
+          padding: selected
+              ? const EdgeInsets.symmetric(horizontal: 13, vertical: 5)
+              : const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: selected
+                  ? ReaderDrawerStyle.textOf(theme)
+                  : ReaderDrawerStyle.optionBorderOf(theme),
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 13,
+              height: 18 / 13,
+              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+              color: ReaderDrawerStyle.textOf(theme),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _builtInImageTile({
+    required String key,
+    required ReaderBackground background,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    final colors = switch (background.id) {
+      'wood' => const <Color>[Color(0xFF8A5A38), Color(0xFF4A2E1C)],
+      'gray' => const <Color>[Color(0xFFF5F7FA), Color(0xFFC3CFE2)],
+      'parchment' => const <Color>[Color(0xFFF3D9A4), Color(0xFFD8AE68)],
+      _ => const <Color>[Color(0xFFFDFBFB), Color(0xFFEBEDEE)],
+    };
+    return Opacity(
+      opacity: onTap == null ? 0.42 : 1,
+      child: InkWell(
+        key: ValueKey<String>(key),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: _ImageTileFrame(
+          selected: selected,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: colors,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _shortPageTurnLabel(PageTurnMode mode) => switch (mode) {
+    PageTurnMode.coverStack => '堆叠',
+    PageTurnMode.cover => '覆盖',
+    PageTurnMode.simulationBessel => '仿真',
+    PageTurnMode.scroll => '滚动',
+    PageTurnMode.slideHorizontal => '滑动',
+    PageTurnMode.none => '无',
+  };
+}
+
+class _SheetTitle extends StatelessWidget {
+  const _SheetTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '选择字体',
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: ReaderDrawerStyle.textOf(Theme.of(context)),
+      ),
+    );
+  }
+}
+
+class _FontButton extends StatelessWidget {
+  const _FontButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: ReaderDrawerStyle.textOf(theme),
+        disabledForegroundColor: ReaderDrawerStyle.faintOf(theme),
+        minimumSize: const Size(0, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        backgroundColor: ReaderDrawerStyle.surfaceOf(theme),
+        side: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WideActionButton extends StatelessWidget {
+  const _WideActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = ReaderDrawerStyle.textOf(theme);
+    return Material(
+      color: ReaderDrawerStyle.optionFillOf(theme),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: ReaderDrawerStyle.dividerOf(theme)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          height: 44,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(icon, size: 18, color: text),
+              const SizedBox(width: 8),
+              Text(label, style: TextStyle(fontSize: 14, color: text)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StepButton extends StatelessWidget {
+  const _StepButton({super.key, required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: ReaderDrawerStyle.optionFillOf(theme),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: SizedBox.square(
+          dimension: 32,
+          child: Icon(
+            icon,
+            size: 18,
+            color: onTap == null
+                ? ReaderDrawerStyle.faintOf(theme)
+                : ReaderDrawerStyle.textOf(theme),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OutlinedThumbShape extends SliderComponentShape {
+  const _OutlinedThumbShape({required this.color});
+
+  final Color color;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) =>
+      const Size.square(16);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final canvas = context.canvas;
+    final fill = Paint()..color = sliderTheme.thumbColor ?? Colors.white;
+    final outline = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawCircle(center, 8, fill);
+    canvas.drawCircle(center, 7, outline);
+  }
+}
+
+class _CompactSwitch extends StatelessWidget {
+  const _CompactSwitch({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onChanged != null;
+    return Semantics(
+      button: true,
+      toggled: value,
+      enabled: enabled,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.42,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? () => onChanged!(!value) : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 42,
+            height: 22,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: value ? const Color(0xFF5EC27D) : const Color(0xFFE5E5E5),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: AnimatedAlign(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 3,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PageTurnOption extends StatelessWidget {
+  const _PageTurnOption({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Opacity(
+      opacity: onTap == null ? 0.42 : 1,
+      child: Material(
+        color: selected
+            ? const Color(0xFFE8F5E9)
+            : ReaderDrawerStyle.optionFillOf(theme),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+          side: BorderSide(
+            color: selected ? const Color(0xFFA5D6A7) : Colors.transparent,
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                color: selected
+                    ? const Color(0xFF2E7D32)
+                    : ReaderDrawerStyle.textOf(theme),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsDivider extends StatelessWidget {
+  const _SettingsDivider({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(height: 1, color: color);
+}
+
+class _SettingsEntryRow extends StatelessWidget {
+  const _SettingsEntryRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = ReaderDrawerStyle.textOf(theme);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        height: 44,
+        child: Row(
+          children: <Widget>[
+            Icon(icon, size: 18, color: ReaderDrawerStyle.secondaryOf(theme)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(label, style: TextStyle(fontSize: 14, color: text)),
+            ),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: ReaderDrawerStyle.mutedOf(theme),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerPreview extends StatelessWidget {
+  const _CornerPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 86,
+      child: CustomPaint(
+        painter: const _DashedRoundedRectPainter(
+          color: Color(0xFFDDDDDD),
+          radius: 8,
+        ),
+        child: Stack(
+          children: const <Widget>[
+            Positioned(
+              top: 8,
+              left: 8,
+              child: _CornerChip(
+                key: ValueKey<String>('settings-corner-top-left'),
+                label: '时间',
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: _CornerChip(
+                key: ValueKey<String>('settings-corner-top-right'),
+                label: '书名',
+              ),
+            ),
+            Positioned(
+              bottom: 8,
+              left: 8,
+              child: _CornerChip(
+                key: ValueKey<String>('settings-corner-bottom-left'),
+                label: '进度',
+              ),
+            ),
+            Positioned(
+              bottom: 8,
+              right: 8,
+              child: _CornerChip(
+                key: ValueKey<String>('settings-corner-bottom-right'),
+                label: '电量',
+              ),
+            ),
+            Center(
+              child: Opacity(
+                opacity: 0.5,
+                child: Text(
+                  '点击四角按钮修改信息',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF999999)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerChip extends StatelessWidget {
+  const _CornerChip({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x0D000000),
+            blurRadius: 2,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 11, color: Color(0xFF333333)),
+      ),
+    );
+  }
+}
+
+class _ImageTileFrame extends StatelessWidget {
+  const _ImageTileFrame({required this.selected, required this.child});
+
+  final bool selected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 72,
+      height: 160,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: selected ? const Color(0xFF5EC27D) : Colors.transparent,
+          width: 2,
+        ),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x0D000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(6), child: child),
+    );
+  }
+}
+
+class _AddImageTile extends StatelessWidget {
+  const _AddImageTile({super.key, required this.busy, required this.onTap});
+
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: onTap == null ? 0.6 : 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 72,
+          height: 160,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFF0F0F0)),
+            boxShadow: const <BoxShadow>[
+              BoxShadow(
+                color: Color(0x08000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: SizedBox.square(
+            dimension: 45,
+            child: busy
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : CustomPaint(
+                    painter: const _DashedCirclePainter(
+                      color: Color(0xFFCCCCCC),
+                    ),
+                    child: const Icon(
+                      Icons.add,
+                      size: 22,
+                      color: Color(0xFF666666),
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserBackgroundThumbnail extends StatefulWidget {
+  const _UserBackgroundThumbnail({
+    super.key,
+    required this.id,
+    required this.loader,
+    required this.selected,
+  });
+
+  final String id;
+  final Future<Uint8List> Function(String id) loader;
+  final bool selected;
+
+  @override
+  State<_UserBackgroundThumbnail> createState() =>
+      _UserBackgroundThumbnailState();
+}
+
+class _UserBackgroundThumbnailState extends State<_UserBackgroundThumbnail> {
+  late Future<Uint8List> _bytes = widget.loader(widget.id);
+
+  @override
+  void didUpdateWidget(covariant _UserBackgroundThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.id != widget.id || oldWidget.loader != widget.loader) {
+      _bytes = widget.loader(widget.id);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ImageTileFrame(
+      selected: widget.selected,
+      child: FutureBuilder<Uint8List>(
+        future: _bytes,
+        builder: (context, snapshot) {
+          final bytes = snapshot.data;
+          if (bytes == null) {
+            return const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[Color(0xFFE7E7E7), Color(0xFFBDBDBD)],
+                ),
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.image_outlined,
+                  size: 24,
+                  color: Color(0xFF777777),
+                ),
+              ),
+            );
+          }
+          return Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => const ColoredBox(
+              color: Color(0xFFEEEEEE),
+              child: Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  size: 24,
+                  color: Color(0xFF999999),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -988,53 +1902,35 @@ class _DashedCirclePainter extends CustomPainter {
       oldDelegate.color != color;
 }
 
-/// 列表入口按钮（设计稿 `.type-btn`：填充底、圆角 18、右侧箭头）。
-class _EntryButton extends StatelessWidget {
-  const _EntryButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+class _DashedRoundedRectPainter extends CustomPainter {
+  const _DashedRoundedRectPainter({required this.color, required this.radius});
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  final Color color;
+  final double radius;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.onSurface.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(4),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
-        child: SizedBox(
-          height: 36,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Icon(
-                icon,
-                size: 16,
-                color: scheme.onSurface.withValues(alpha: 0.8),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(fontSize: 12, color: scheme.onSurface),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                size: 16,
-                color: scheme.onSurface.withValues(alpha: 0.5),
-              ),
-            ],
-          ),
-        ),
-      ),
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0.5, 0.5, size.width - 1, size.height - 1),
+      Radius.circular(radius),
     );
+    canvas.drawRRect(rect, Paint()..color = const Color(0xFFF9F9F9));
+    final path = Path()..addRRect(rect);
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + 5).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(distance, end), paint);
+        distance += 9;
+      }
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant _DashedRoundedRectPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }

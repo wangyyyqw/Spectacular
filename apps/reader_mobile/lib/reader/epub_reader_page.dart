@@ -324,6 +324,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       pageTurnMode: settings.pageTurnMode,
       onPageTurnModeChanged: (mode) =>
           _changeSettings(_settings.copyWithPageTurnMode(mode)),
+      keepScreenOn: settings.keepScreenOn,
+      onKeepScreenOnChanged: (enabled) =>
+          _changeSettings(_settings.copyWithKeepScreenOn(enabled)),
+      volumeKeyPaging: settings.volumeKeyPaging,
+      onVolumeKeyPagingChanged: (enabled) =>
+          _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
       onLog: (event, fields) =>
           unawaited(ReaderLog.instance.log(event, fields: fields)),

@@ -206,6 +206,24 @@ void main() {
     expect((await store.load()).pageTurnMode, PageTurnMode.cover);
   });
 
+  test('屏幕常亮和音量键翻页持久化往返', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+
+    final loaded = await store.load();
+    expect(loaded.keepScreenOn, isFalse);
+    expect(loaded.volumeKeyPaging, isFalse);
+
+    await store.save(
+      ReaderSettings.defaults
+          .copyWithKeepScreenOn(true)
+          .copyWithVolumeKeyPaging(true),
+    );
+    final restored = await store.load();
+    expect(restored.keepScreenOn, isTrue);
+    expect(restored.volumeKeyPaging, isTrue);
+  });
+
   test('修改排版不会重置九宫格点击区域', () {
     final zones = ReaderTapZones.defaults.withAction(
       ReaderTapZone.center,
@@ -378,7 +396,7 @@ void main() {
     );
   });
 
-  testWidgets('恢复默认同时重置墨水屏、边距、点击区域和翻页方式', (tester) async {
+  testWidgets('恢复默认同时重置墨水屏、边距、点击区域、翻页方式和阅读开关', (tester) async {
     final source = await openTestChapterSource(
       buildTestEpub(
         title: '恢复默认',
@@ -389,6 +407,8 @@ void main() {
     final marginsValues = <ReaderMargins>[];
     final tapZonesValues = <ReaderTapZones>[];
     final pageTurnValues = <PageTurnMode>[];
+    final keepScreenOnValues = <bool>[];
+    final volumeKeyPagingValues = <bool>[];
     final customMargins = ReaderMargins.defaults(
       safeTop: 20,
       safeBottom: 20,
@@ -415,10 +435,14 @@ void main() {
                 margins: customMargins,
                 tapZones: customZones,
                 pageTurnMode: PageTurnMode.scroll,
+                keepScreenOn: true,
+                volumeKeyPaging: true,
                 onInkModeChanged: inkValues.add,
                 onMarginsChanged: marginsValues.add,
                 onTapZonesChanged: tapZonesValues.add,
                 onPageTurnModeChanged: pageTurnValues.add,
+                onKeepScreenOnChanged: keepScreenOnValues.add,
+                onVolumeKeyPagingChanged: volumeKeyPagingValues.add,
               ),
             ),
           ),
@@ -431,6 +455,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
     await tester.pumpAndSettle();
+    await tester.drag(
+      find.descendant(
+        of: find.byType(SettingsPanel),
+        matching: find.byType(ListView),
+      ),
+      const Offset(0, -420),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('settings-reset')));
     await tester.pumpAndSettle();
 
@@ -439,5 +471,7 @@ void main() {
     expect(marginsValues.single.left, ReaderSettingsDefaults.horizontalPadding);
     expect(tapZonesValues.single, ReaderTapZones.defaults);
     expect(pageTurnValues.single, PageTurnMode.cover);
+    expect(keepScreenOnValues, <bool>[false]);
+    expect(volumeKeyPagingValues, <bool>[false]);
   });
 }

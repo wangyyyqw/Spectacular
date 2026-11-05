@@ -75,6 +75,7 @@ class PagePainter {
   const PagePainter({
     this.background = const Color(0xFFFFFFFF),
     this.pageBackgroundImage,
+    this.pageBackgroundImageTint,
     this.pageBackgroundImageCover = false,
     this.pageBackgroundImageOpacity = 1,
     this.imageLookup,
@@ -94,6 +95,9 @@ class PagePainter {
   ///
   /// 只影响绘制层，不进入排版指纹——换背景图不触发重排（§31.4）。
   final ui.Image? pageBackgroundImage;
+
+  /// 背景纹理混色；null 表示保留纹理原色。
+  final Color? pageBackgroundImageTint;
 
   /// 用户照片居中裁切铺满页面；内置纹理使用平铺。
   final bool pageBackgroundImageCover;
@@ -1520,6 +1524,12 @@ class PagePainter {
   void _paintReaderBackground(Canvas canvas, Rect pageRect) {
     final image = pageBackgroundImage;
     if (image == null || pageRect.isEmpty) return;
+    final tint = pageBackgroundImageTint;
+    final paint = Paint()
+      ..filterQuality = FilterQuality.low
+      ..colorFilter = tint == null
+          ? null
+          : ColorFilter.mode(tint, BlendMode.multiply);
     if (pageBackgroundImageCover) {
       final fitted = applyBoxFit(
         BoxFit.cover,
@@ -1530,12 +1540,7 @@ class PagePainter {
         fitted.source,
         Offset.zero & Size(image.width.toDouble(), image.height.toDouble()),
       );
-      canvas.drawImageRect(
-        image,
-        source,
-        pageRect,
-        Paint()..filterQuality = FilterQuality.low,
-      );
+      canvas.drawImageRect(image, source, pageRect, paint);
     } else {
       final shader = ImageShader(
         image,
@@ -1543,7 +1548,7 @@ class PagePainter {
         TileMode.repeated,
         _identityMatrix4(),
       );
-      canvas.drawRect(pageRect, Paint()..shader = shader);
+      canvas.drawRect(pageRect, paint..shader = shader);
       shader.dispose();
     }
     canvas.drawRect(

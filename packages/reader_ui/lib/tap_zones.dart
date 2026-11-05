@@ -32,8 +32,34 @@ class ReaderTapZones {
     ReaderTapAction.nextPage,
   ]);
 
+  /// 除中央菜单外，点击屏幕任意区域翻到下一页。
+  static const ReaderTapZones fullScreenNext = ReaderTapZones(<ReaderTapAction>[
+    ReaderTapAction.nextPage,
+    ReaderTapAction.nextPage,
+    ReaderTapAction.nextPage,
+    ReaderTapAction.nextPage,
+    ReaderTapAction.openMenu,
+    ReaderTapAction.nextPage,
+    ReaderTapAction.nextPage,
+    ReaderTapAction.nextPage,
+    ReaderTapAction.nextPage,
+  ]);
+
   /// 九个区域的动作。
   final List<ReaderTapAction> actions;
+
+  /// 是否处于「全屏点击下一页」布局。
+  bool get isFullScreenNext {
+    for (final zone in ReaderTapZone.values) {
+      final expected = zone == ReaderTapZone.center
+          ? ReaderTapAction.openMenu
+          : ReaderTapAction.nextPage;
+      if (actionAt(zone) != expected) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   /// 读取指定区域。
   ReaderTapAction actionAt(ReaderTapZone zone) => actions[zone.index];

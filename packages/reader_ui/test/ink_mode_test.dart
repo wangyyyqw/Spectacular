@@ -56,6 +56,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: SettingsPanel(
+              section: SettingsSection.settings,
               overrides: ReaderSettingsDefaults.overrides,
               themeId: 'white',
               backgroundId: 'paper',
