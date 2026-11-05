@@ -59,6 +59,7 @@ class BookEntry {
     this.spineCount,
     this.readabilityLevel = 0,
     this.coverPath,
+    this.contentRevision,
     this.importOutcome = BookImportOutcome.added,
   });
 
@@ -91,6 +92,9 @@ class BookEntry {
 
   /// 封面缓存文件路径（§37.3 三级提取成功后落盘）；null 用占位。
   final String? coverPath;
+
+  /// 原书 SHA-256（导入时计算并落库）；旧数据或内存模式为 null。
+  final String? contentRevision;
 
   /// 仅用于此次导入提示，不持久化到书架。
   final BookImportOutcome importOutcome;
@@ -173,6 +177,7 @@ class BookEntry {
     lastReadAt: lastReadAt ?? this.lastReadAt,
     spineCount: spineCount,
     readabilityLevel: readabilityLevel,
+    contentRevision: contentRevision,
     coverPath: coverPath,
     importOutcome: importOutcome,
   );
@@ -1016,6 +1021,8 @@ class LibraryStore {
         ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
         : document.meta.title.trim();
     _checkImportCancelled(isCancelled);
+    // 整本哈希只算一次，暂存目录名与 contentRevision 共用。
+    final sourceRevision = _isMemory ? '' : sha256.convert(bytes).toString();
     String filePath = '';
     String? coverPath;
     Directory? stagedDirectory;
@@ -1027,7 +1034,7 @@ class LibraryStore {
           p.join(
             directory.path,
             'versions',
-            '${sha256.convert(bytes)}-${DateTime.now().microsecondsSinceEpoch}',
+            '$sourceRevision-${DateTime.now().microsecondsSinceEpoch}',
           ),
         );
         stagedDirectory = revisionDirectory;
@@ -1083,7 +1090,7 @@ class LibraryStore {
           uuid: id,
           epubIdentifier: Value(identifier),
           identityVersion: const Value(1),
-          contentRevision: Value(sha256.convert(bytes).toString()),
+          contentRevision: Value(sourceRevision),
           legacyUuid: Value(existing?.legacyUuid ?? existing?.uuid),
           title: title,
           author: Value(
@@ -1691,6 +1698,7 @@ class LibraryStore {
     spineCount: row.spineCount,
     readabilityLevel: row.level,
     coverPath: row.coverPath,
+    contentRevision: row.contentRevision,
   );
 
   Future<bool> _bookExists(String id) async {

@@ -18,6 +18,7 @@ BookEntry _withImportOutcome(BookEntry book, BookImportOutcome outcome) =>
       spineCount: book.spineCount,
       readabilityLevel: book.readabilityLevel,
       coverPath: book.coverPath,
+      contentRevision: book.contentRevision,
       importOutcome: outcome,
     );
 
@@ -95,9 +96,15 @@ extension LibraryRevisionOperations on LibraryStore {
     await _checkRevisionConflict(old.id, id);
     final revision = sha256.convert(bytes).toString();
     final oldFile = old.sourcePath == null ? null : File(old.sourcePath!);
-    final oldBytes = oldFile != null && await oldFile.exists()
-        ? await oldFile.readAsBytes()
-        : null;
+    final oldExists = oldFile != null && await oldFile.exists();
+    // 已存版本号与新文件一致时，无需再读入并哈希整本旧书。
+    if (oldExists && old.contentRevision == revision) {
+      return _withImportOutcome(
+        _entryFromRow(old),
+        BookImportOutcome.unchanged,
+      );
+    }
+    final oldBytes = oldExists ? await oldFile.readAsBytes() : null;
     _checkImportCancelled(isCancelled);
     if (oldBytes != null && sha256.convert(oldBytes).toString() == revision) {
       return _withImportOutcome(
