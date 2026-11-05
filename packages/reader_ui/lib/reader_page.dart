@@ -66,6 +66,9 @@ class ReaderPage extends StatefulWidget {
     this.customTheme,
     this.backgroundImageLoader,
     this.onPickBackgroundImage,
+    this.customFonts = const [],
+    this.onPickFont,
+    this.onLoadFont,
     this.backgroundId = 'none',
     this.inkMode = false,
     this.onBackgroundChanged,
@@ -112,6 +115,15 @@ class ReaderPage extends StatefulWidget {
 
   /// 宿主选择并复制图片，取消返回 null。
   final Future<String?> Function()? onPickBackgroundImage;
+
+  /// 宿主已保存的字体。
+  final List<ReaderFontOption> customFonts;
+
+  /// 宿主导入并注册字体，取消返回 null。
+  final Future<ReaderFontOption?> Function()? onPickFont;
+
+  /// 使用已保存字体前，宿主负责注册字体。
+  final Future<void> Function(String family)? onLoadFont;
 
   /// 初始背景 id（P4-22）。
   final String backgroundId;
@@ -209,6 +221,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int _backgroundRequest = 0;
   bool _pickingBackgroundImage = false;
   late ReaderTheme? _customTheme = widget.customTheme;
+  late List<ReaderFontOption> _customFonts = List.of(widget.customFonts);
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
@@ -698,6 +711,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _customFonts = {
+      for (final font in _customFonts) font.family: font,
+      for (final font in widget.customFonts) font.family: font,
+    }.values.toList();
     if (oldWidget.pageTurnMode != widget.pageTurnMode) {
       _pageTurnMode = widget.pageTurnMode;
     }
@@ -1139,6 +1156,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _pickingBackgroundImage = false);
     }
+  }
+
+  Future<ReaderFontOption?> _pickFont() async {
+    final font = await widget.onPickFont?.call();
+    if (!mounted || font == null) return null;
+    setState(() {
+      _customFonts = {
+        for (final saved in _customFonts) saved.family: saved,
+        font.family: font,
+      }.values.toList();
+    });
+    return font;
   }
 
   /// 切换墨水屏模式（P4-23）：纯黑白 + 禁用纹理，只重绘不重排。
@@ -2079,6 +2108,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       overrides: _overrides,
                       themeId: (_theme ?? ReaderTheme.white).id,
                       customTheme: _customTheme,
+                      customFonts: _customFonts,
+                      onPickFont: widget.onPickFont == null ? null : _pickFont,
+                      onLoadFont: widget.onLoadFont,
                       onPickBackgroundImage:
                           widget.onPickBackgroundImage == null
                           ? null
@@ -2519,6 +2551,9 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.overrides,
     required this.themeId,
     required this.customTheme,
+    required this.customFonts,
+    required this.onPickFont,
+    required this.onLoadFont,
     required this.onPickBackgroundImage,
     required this.pickingBackgroundImage,
     required this.backgroundId,
@@ -2557,6 +2592,9 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ReaderOverrides overrides;
   final String themeId;
   final ReaderTheme? customTheme;
+  final List<ReaderFontOption> customFonts;
+  final Future<ReaderFontOption?> Function()? onPickFont;
+  final Future<void> Function(String family)? onLoadFont;
   final VoidCallback? onPickBackgroundImage;
   final bool pickingBackgroundImage;
   final String backgroundId;
@@ -2634,6 +2672,9 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
         return SettingsPanel(
           section: SettingsSection.type,
           overrides: widget.overrides,
+          customFonts: widget.customFonts,
+          onPickFont: widget.onPickFont,
+          onLoadFont: widget.onLoadFont,
           themeId: widget.themeId,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,

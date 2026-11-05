@@ -8,6 +8,7 @@ import 'package:reader_core/perf/trace.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/panels/search_panel.dart';
+import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -19,6 +20,7 @@ import 'epub_chapter_source.dart';
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
+import 'reader_font_store.dart';
 
 /// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
 ///
@@ -43,6 +45,7 @@ class EpubReaderPage extends StatefulWidget {
     this.onSettingsChanged,
     this.bookTitle = '阅读',
     this.onMarginsChanged,
+    this.fontStore,
   });
 
   /// EPUB 字节。
@@ -75,6 +78,9 @@ class EpubReaderPage extends StatefulWidget {
   /// 页边距变化（边距调节器「保留」）。
   final ValueChanged<ReaderMargins>? onMarginsChanged;
 
+  /// 自定义字体存储；宿主负责导入、注册和恢复。
+  final ReaderFontStore? fontStore;
+
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
 }
@@ -83,6 +89,33 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     with WidgetsBindingObserver {
   late ReaderSettings _settings = widget.settings ?? ReaderSettings.defaults;
   final _backgroundStore = ReaderBackgroundStore();
+  List<ReaderFontOption> _customFonts = const [];
+
+  Future<void> _prepareFonts() async {
+    final store = widget.fontStore;
+    if (store == null) return;
+    final fonts = await store.list();
+    _customFonts = [
+      for (final font in fonts)
+        ReaderFontOption(family: font.family, label: font.displayName),
+    ];
+    if (!_settings.overrides.isCustomFont) return;
+    try {
+      await store.load(_settings.fontFamily!);
+    } catch (_) {
+      if (!mounted) return;
+      _changeSettings(_settings.copyWithFont(null));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('自定义字体不可用，已恢复书籍字体，请重新导入')));
+    }
+  }
+
+  Future<ReaderFontOption?> _pickFont() async {
+    final font = await widget.fontStore!.pick();
+    if (font == null) return null;
+    return ReaderFontOption(family: font.family, label: font.displayName);
+  }
 
   void _changeSettings(ReaderSettings next) {
     setState(() => _settings = next);
@@ -138,6 +171,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   Future<void> _open() async {
     final watch = Stopwatch()..start();
     try {
+      await _prepareFonts();
+      if (!mounted) return;
       // 阅读时跳过 CRC 校验：这本书导入时已完整校验过一次，150MB+ 的大书
       // 光校验就要多花近一倍时间。
       final source = await EpubChapterSource.open(
@@ -256,6 +291,13 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       customTheme: settings.customTheme,
       backgroundImageLoader: _backgroundStore.load,
       onPickBackgroundImage: _backgroundStore.pick,
+      customFonts: _customFonts,
+      onPickFont: widget.fontStore == null ? null : _pickFont,
+      onLoadFont: widget.fontStore == null
+          ? null
+          : (family) async {
+              await widget.fontStore!.load(family);
+            },
       backgroundId: settings.backgroundId,
       inkMode: settings.inkMode,
       onOverridesChanged: (overrides) =>

@@ -52,6 +52,23 @@ void main() {
   });
 
   group('CSS 声明与指纹', () {
+    test('自定义字体策略参与缓存指纹并交由章节源处理', () {
+      const selected = ReaderOverrides(fontFamily: 'user_test');
+      final forced = selected.copyWith(overrideEmbeddedFonts: true);
+      expect(selected.isCustomFont, isTrue);
+      expect(forced.fingerprint, isNot(selected.fingerprint));
+      expect(selected.toCssDeclarations().containsKey('font-family'), isFalse);
+      expect(
+        selected.applyTypography(_bookStyle()).fontFamilies,
+        _bookStyle().fontFamilies,
+      );
+      final style = _bookStyle().withTypography(
+        fontFamilyList: ['内嵌字体', 'serif'],
+      );
+      expect(style.fontFamilies, ['内嵌字体', 'serif']);
+      expect(style.fontSize, _bookStyle().fontSize);
+      expect(style.color, _bookStyle().color);
+    });
     test('声明映射', () {
       final values = const ReaderOverrides(
         fontSize: 18,

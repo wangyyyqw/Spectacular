@@ -60,6 +60,14 @@ enum SettingsSection {
   settings,
 }
 
+/// 宿主已保存的自定义字体，界面只使用族名与显示名称。
+class ReaderFontOption {
+  const ReaderFontOption({required this.family, required this.label});
+
+  final String family;
+  final String label;
+}
+
 /// 设置面板（P4-21）：字号/行高/段距/页边距/主题，改动即时生效。
 ///
 /// 翻页动画等「不触发重排」的项按 §42.3 与排版参数分开，这里只放排版与主题。
@@ -73,6 +81,9 @@ class SettingsPanel extends StatefulWidget {
     required this.onThemeChanged,
     this.customTheme,
     this.onPickBackgroundImage,
+    this.customFonts = const [],
+    this.onPickFont,
+    this.onLoadFont,
     this.pickingBackgroundImage = false,
     this.backgroundId = 'none',
     this.onBackgroundChanged,
@@ -102,6 +113,15 @@ class SettingsPanel extends StatefulWidget {
 
   /// 上次保存的自定义配色，切换内置主题后仍可复用。
   final ReaderTheme? customTheme;
+
+  /// 已导入的字体。
+  final List<ReaderFontOption> customFonts;
+
+  /// 宿主选择、校验并注册字体，取消返回 null。
+  final Future<ReaderFontOption?> Function()? onPickFont;
+
+  /// 使用已保存字体前，由宿主注册到排版引擎。
+  final Future<void> Function(String family)? onLoadFont;
 
   /// 由宿主选择并保存图片。
   final VoidCallback? onPickBackgroundImage;
@@ -151,6 +171,10 @@ class _SettingsPanelState extends State<SettingsPanel> {
   late double _fontSize =
       widget.overrides.fontSize ?? ReaderSettingsDefaults.fontSize;
   late String? _fontFamily = widget.overrides.fontFamily;
+  late bool _overrideEmbeddedFonts = widget.overrides.overrideEmbeddedFonts;
+  late List<ReaderFontOption> _customFonts = List.of(widget.customFonts);
+  bool _pickingFont = false;
+  bool _loadingFont = false;
   late double _lineHeight =
       widget.overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight;
   late double _paragraphSpacing =
@@ -163,6 +187,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   ReaderOverrides _build() => ReaderOverrides(
     fontSize: _fontSize,
     fontFamily: _fontFamily,
+    overrideEmbeddedFonts: _overrideEmbeddedFonts,
     lineHeight: _lineHeight,
     paragraphSpacing: _paragraphSpacing,
     padding: CssEdges(
@@ -174,6 +199,81 @@ class _SettingsPanelState extends State<SettingsPanel> {
   );
 
   void _emit() => widget.onOverridesChanged(_build());
+
+  @override
+  void didUpdateWidget(covariant SettingsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.overrides.fingerprint != widget.overrides.fingerprint) {
+      _fontFamily = widget.overrides.fontFamily;
+      _overrideEmbeddedFonts = widget.overrides.overrideEmbeddedFonts;
+    }
+    _customFonts = {
+      for (final font in _customFonts) font.family: font,
+      for (final font in widget.customFonts) font.family: font,
+    }.values.toList();
+  }
+
+  bool get _isCustomFont => _fontFamily?.startsWith('user_') ?? false;
+  bool get _busyFont => _pickingFont || _loadingFont;
+
+  void _selectFont(String? family) {
+    if (_fontFamily == family) return;
+    setState(() {
+      if (!_isCustomFont || !(family?.startsWith('user_') ?? false)) {
+        _overrideEmbeddedFonts = false;
+      }
+      _fontFamily = family;
+    });
+    _emit();
+  }
+
+  Future<void> _pickFont() async {
+    final pick = widget.onPickFont;
+    if (pick == null || _busyFont) return;
+    setState(() => _pickingFont = true);
+    try {
+      final font = await pick();
+      if (!mounted || font == null) return;
+      setState(() {
+        _customFonts = {
+          for (final saved in _customFonts) saved.family: saved,
+          font.family: font,
+        }.values.toList();
+      });
+      _selectFont(font.family);
+    } catch (error) {
+      if (!mounted) return;
+      _showFontError('字体导入失败', error);
+    } finally {
+      if (mounted) setState(() => _pickingFont = false);
+    }
+  }
+
+  Future<void> _selectSavedFont(String? family) async {
+    if (family == null || family == _fontFamily || _busyFont) return;
+    final load = widget.onLoadFont;
+    if (load == null) {
+      _selectFont(family);
+      return;
+    }
+    setState(() => _loadingFont = true);
+    try {
+      await load(family);
+      if (mounted) _selectFont(family);
+    } catch (error) {
+      if (mounted) _showFontError('字体加载失败', error);
+    } finally {
+      if (mounted) setState(() => _loadingFont = false);
+    }
+  }
+
+  void _showFontError(String action, Object error) {
+    final message = error is FormatException
+        ? error.message
+        : '请重新导入有效的 TTF 或 OTF 字体文件';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$action：$message')));
+  }
 
   Future<void> _editTheme() async {
     final result = await showDialog<ReaderTheme>(
@@ -220,18 +320,21 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 if (widget.onReset != null)
                   TextButton(
                     key: const ValueKey<String>('settings-reset'),
-                    onPressed: () {
-                      setState(() {
-                        _fontSize = ReaderSettingsDefaults.fontSize;
-                        _fontFamily = null;
-                        _lineHeight = ReaderSettingsDefaults.lineHeight;
-                        _paragraphSpacing =
-                            ReaderSettingsDefaults.paragraphSpacing;
-                        _horizontalPadding =
-                            ReaderSettingsDefaults.horizontalPadding;
-                      });
-                      widget.onReset!();
-                    },
+                    onPressed: _busyFont
+                        ? null
+                        : () {
+                            setState(() {
+                              _fontSize = ReaderSettingsDefaults.fontSize;
+                              _fontFamily = null;
+                              _overrideEmbeddedFonts = false;
+                              _lineHeight = ReaderSettingsDefaults.lineHeight;
+                              _paragraphSpacing =
+                                  ReaderSettingsDefaults.paragraphSpacing;
+                              _horizontalPadding =
+                                  ReaderSettingsDefaults.horizontalPadding;
+                            });
+                            widget.onReset!();
+                          },
                     child: const Text('恢复默认'),
                   ),
               ],
@@ -267,6 +370,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
                       ),
                     ],
                   ),
+                  if (widget.onPickFont != null || _customFonts.isNotEmpty)
+                    _customFontControls(),
                   const SizedBox(height: 12),
                   _slider(
                     key: 'settings-font-size',
@@ -487,15 +592,81 @@ class _SettingsPanelState extends State<SettingsPanel> {
       label: Text(label),
       selected: _fontFamily == value,
       showCheckmark: false,
-      onSelected: (_) {
-        if (_fontFamily == value) {
-          return;
-        }
-        setState(() => _fontFamily = value);
-        _emit();
-      },
+      onSelected: _busyFont ? null : (_) => _selectFont(value),
     );
   }
+
+  Widget _customFontControls() {
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      children: [
+        const SizedBox(height: 8),
+        Row(children: [_customFontDropdown(), _fontImportButton()]),
+        SwitchListTile(
+          key: const ValueKey<String>('settings-override-embedded-fonts'),
+          contentPadding: EdgeInsets.zero,
+          title: Text('全书使用自定义字体', style: textTheme.bodyLarge),
+          subtitle: Text(
+            _isCustomFont
+                ? (_overrideEmbeddedFonts ? '屏蔽 EPUB 内嵌字体' : '保留 EPUB 内嵌字体')
+                : '选择自定义字体后可开启',
+            style: textTheme.bodySmall,
+          ),
+          value: _isCustomFont && _overrideEmbeddedFonts,
+          onChanged: !_isCustomFont || _busyFont
+              ? null
+              : (value) {
+                  setState(() => _overrideEmbeddedFonts = value);
+                  _emit();
+                },
+        ),
+      ],
+    );
+  }
+
+  Widget _customFontDropdown() {
+    final textStyle = Theme.of(context).textTheme.bodyMedium;
+    final selected = _customFonts.any((font) => font.family == _fontFamily)
+        ? _fontFamily
+        : null;
+    return Expanded(
+      child: DropdownButton<String>(
+        key: const ValueKey<String>('settings-custom-font'),
+        isExpanded: true,
+        value: selected,
+        style: textStyle,
+        hint: Text('自定义字体', style: textStyle),
+        items: [
+          for (final font in _customFonts)
+            DropdownMenuItem(
+              value: font.family,
+              child: Text(
+                font.label,
+                style: textStyle,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: _busyFont ? null : _selectSavedFont,
+      ),
+    );
+  }
+
+  Widget _fontImportButton() => Padding(
+    padding: const EdgeInsets.only(left: 8),
+    child: TextButton.icon(
+      key: const ValueKey<String>('settings-import-font'),
+      onPressed: widget.onPickFont == null || _busyFont ? null : _pickFont,
+      icon: _busyFont
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.add, size: 18),
+      label: Text(_loadingFont ? '加载中' : (_pickingFont ? '导入中' : '导入字体')),
+    ),
+  );
 
   Widget _slider({
     required String key,

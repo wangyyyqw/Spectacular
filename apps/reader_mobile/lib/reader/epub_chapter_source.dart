@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Color, Rect;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path/path.dart' as p;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
@@ -830,10 +831,26 @@ class EpubChapterSource
   ComputedStyle? _resolvedBaseStyle;
 
   /// 文本块样式：同一环境复用书籍样式叠加阅读器覆盖的结果。
-  ComputedStyle get style => _resolvedBaseStyle ??= _overrides.apply(
-    baseStyle,
-    containingWidth: contentWidth,
+  ComputedStyle get style => _resolvedBaseStyle ??= _applyCustomFont(
+    _overrides.apply(baseStyle, containingWidth: contentWidth),
   );
+
+  /// 字体策略只改字族，标题、表格与行内元素继续保留作者的字号与盒样式。
+  ComputedStyle _applyCustomFont(ComputedStyle computed) {
+    if (!_overrides.isCustomFont) return computed;
+    // CSS 变量在级联后才展开，此时补齐族名映射并保留完整回退链。
+    final families = [
+      for (final family in computed.fontFamilies)
+        _bookFontEngines[family.toLowerCase()] ?? family,
+    ];
+    if (!_overrides.overrideEmbeddedFonts &&
+        families.any(_embeddedFontEngines.contains)) {
+      return listEquals(families, computed.fontFamilies)
+          ? computed
+          : computed.withTypography(fontFamilyList: families);
+    }
+    return computed.withTypography(fontFamily: _overrides.fontFamily);
+  }
 
   @override
   Future<void> applyOverrides(ReaderOverrides overrides) async {
@@ -938,6 +955,8 @@ class EpubChapterSource
   /// 只认这个引擎族名；书名 CSS 里的 `font-family: "mm"` 不改写就等于整条
   /// font-face 链路白建（真书：章号被画成缺字方块）。
   final Map<String, String> _bookFontEngines = <String, String>{};
+  // local() 别名没有包内字节，不能作为保留内嵌字体的依据。
+  final Set<String> _embeddedFontEngines = <String>{};
   final Map<String, FontCoverage> _bookFontCoverages = <String, FontCoverage>{};
 
   bool _closed = false;
@@ -975,6 +994,7 @@ class EpubChapterSource
     _fontFacesSeen.clear();
     _bookFontDirectories = null;
     _bookFontEngines.clear();
+    _embeddedFontEngines.clear();
     _bookFontCoverages.clear();
     _resolvedBaseStyle = null;
     _plainTextCache.clear();
@@ -1068,6 +1088,7 @@ class EpubChapterSource
         }
         final coverage = loader.coverage(face.family);
         if (coverage != null) {
+          _embeddedFontEngines.add(engine);
           _bookFontCoverages[engine] = coverage;
         }
         continue;
@@ -1100,6 +1121,8 @@ class EpubChapterSource
   }
 
   bool _hasBookFontGlyph(String family, int codeUnit) {
+    final customCoverage = FontCoverageRegistry.covers(family, codeUnit);
+    if (customCoverage != null) return customCoverage;
     final engine = FontFamilyAliases.resolve(family) ?? family;
     final coverage = _bookFontCoverages[family] ?? _bookFontCoverages[engine];
     // 楷体目前没有内置字节，未知的 `builtin_*` 主族不会触发 TextStyle
@@ -1161,27 +1184,33 @@ class EpubChapterSource
     if (_bookFontEngines.isEmpty) {
       return declarations;
     }
-    List<CssDeclaration>? rewritten;
-    for (var i = 0; i < declarations.length; i++) {
-      final declaration = declarations[i];
-      final fontFamily = declaration.property == 'font-family';
-      if (!fontFamily && declaration.property != 'font') {
+    var changed = false;
+    final rewritten = <CssDeclaration>[];
+    for (final declaration in declarations) {
+      final shorthand = declaration.property == 'font'
+          ? ComputedStyle.parseFontShorthand(declaration.value)
+          : null;
+      final family =
+          shorthand?['font-family'] ??
+          (declaration.property == 'font-family' ? declaration.value : null);
+      final value = family == null ? null : _rewriteFontFamilyList(family);
+      if (family == null || value == family) {
+        rewritten.add(declaration);
         continue;
       }
-      final value = fontFamily
-          ? _rewriteFontFamilyList(declaration.value)
-          : _rewriteFontShorthand(declaration.value);
-      if (value == declaration.value) {
-        continue;
+      changed = true;
+      // 使用引擎现有简写解析器，保留字重、字号、行高及重置属性。
+      for (final entry in (shorthand ?? {'font-family': family}).entries) {
+        rewritten.add(
+          CssDeclaration(
+            property: entry.key,
+            value: entry.key == 'font-family' ? value! : entry.value,
+            important: declaration.important,
+          ),
+        );
       }
-      rewritten ??= List<CssDeclaration>.of(declarations);
-      rewritten[i] = CssDeclaration(
-        property: declaration.property,
-        value: value,
-        important: declaration.important,
-      );
     }
-    return rewritten ?? declarations;
+    return changed ? rewritten : declarations;
   }
 
   /// `font-family: "mm", "楷体", serif` → 逐个族名替换为引擎族名。
@@ -1200,45 +1229,6 @@ class EpubChapterSource
     }
     return changed ? parts.join(',') : value;
   }
-
-  /// `font: italic bold 16px/1.5 "mm", serif` → 只替换族列表部分。
-  ///
-  /// 简写前缀（样式/字重/字号/行高）不含族名，按「最后一组引号串或尾随
-  /// 裸族名」定位，命中注册表才替换。
-  String _rewriteFontShorthand(String value) {
-    var result = value;
-    var changed = false;
-    // 引号族名：简写里唯一可能出现引号的位置。
-    result = result.replaceAllMapped(_quotedFontFamily, (match) {
-      final name = _unquoteFontFamily(match.group(1) ?? '');
-      final engine = _bookFontEngines[name.toLowerCase()];
-      if (engine == null) {
-        return match.group(0) ?? '';
-      }
-      changed = true;
-      return '"$engine"';
-    });
-    if (changed) {
-      return result;
-    }
-    // 裸族名：`font: 12pt mm` 这类尾声。
-    final bare = RegExp(r'(?:^|[\s/])([A-Za-z_][\w-]*)$').firstMatch(result);
-    if (bare == null) {
-      return value;
-    }
-    final name = bare.group(1)!;
-    final engine = _bookFontEngines[name.toLowerCase()];
-    if (engine == null) {
-      return value;
-    }
-    return result.replaceRange(
-      bare.end - name.length,
-      result.length,
-      '"$engine"',
-    );
-  }
-
-  static final RegExp _quotedFontFamily = RegExp(r'''["']([^"']*)["']''');
 
   static String _unquoteFontFamily(String raw) {
     if (raw.length >= 2 &&
@@ -4384,17 +4374,19 @@ class EpubChapterSource
         final parent = chain.length > 1
             ? chainStyle(chain.sublist(0, chain.length - 1))
             : style;
-        return Cascade.compute(
-          element: chain.last,
-          ancestors: chain.sublist(0, chain.length - 1),
-          rules: cascadeRules.candidatesFor(chain.last),
-          inlineDeclarations: _rewriteBookFontDeclarations(
-            _inlineDeclarationsOf(chain.last.attributes['style']),
+        return _applyCustomFont(
+          Cascade.compute(
+            element: chain.last,
+            ancestors: chain.sublist(0, chain.length - 1),
+            rules: cascadeRules.candidatesFor(chain.last),
+            inlineDeclarations: _rewriteBookFontDeclarations(
+              _inlineDeclarationsOf(chain.last.attributes['style']),
+            ),
+            parent: parent,
+            rootFontSize: style.fontSize,
+            containingWidth: containing,
+            viewportWidth: contentWidth,
           ),
-          parent: parent,
-          rootFontSize: style.fontSize,
-          containingWidth: containing,
-          viewportWidth: contentWidth,
         );
       });
     }
@@ -4443,14 +4435,16 @@ class EpubChapterSource
             ),
         ]),
       );
-      return Cascade.compute(
-        element: ancestors.last,
-        ancestors: ancestors.sublist(0, ancestors.length - 1),
-        rules: rules.candidatesFor(ancestors.last),
-        parent: parent,
-        rootFontSize: style.fontSize,
-        containingWidth: _textWidthFor(parent),
-        viewportWidth: contentWidth,
+      return _applyCustomFont(
+        Cascade.compute(
+          element: ancestors.last,
+          ancestors: ancestors.sublist(0, ancestors.length - 1),
+          rules: rules.candidatesFor(ancestors.last),
+          parent: parent,
+          rootFontSize: style.fontSize,
+          containingWidth: _textWidthFor(parent),
+          viewportWidth: contentWidth,
+        ),
       );
     }
 
@@ -4598,10 +4592,14 @@ class EpubChapterSource
           viewportWidth: contentWidth,
         );
       }
-      final readerFontFamily = context.readerFontFamily;
-      return readerFontFamily == null
-          ? parent
-          : parent.withTypography(fontFamily: readerFontFamily);
+      final readerFontFamily = _overrides.isCustomFont
+          ? null
+          : context.readerFontFamily;
+      return _applyCustomFont(
+        readerFontFamily == null
+            ? parent
+            : parent.withTypography(fontFamily: readerFontFamily),
+      );
     }
 
     List<StyledRun> resolveInlineRuns(

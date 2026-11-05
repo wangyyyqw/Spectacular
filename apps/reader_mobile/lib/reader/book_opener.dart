@@ -10,6 +10,7 @@ import 'book_opening_view.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
+import 'reader_font_store.dart';
 
 /// 统一处理打开图书的读盘、转场、设置持久化与最近阅读更新时间。
 class BookOpener {
@@ -158,6 +159,7 @@ class BookOpener {
         annotations: library.annotationStore(entry.id),
         readingSessions: library.readingSessionStore(),
         settings: _settings ?? ReaderSettings.defaults,
+        fontStore: ReaderFontStore(library),
         onSettingsChanged: _saveSettings,
         bookTitle: entry.title,
       ),

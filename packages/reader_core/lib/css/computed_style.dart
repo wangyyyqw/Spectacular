@@ -2881,6 +2881,7 @@ class ComputedStyle {
     double? lineHeightFactor,
     CssTextAlign? textAlign,
     String? fontFamily,
+    List<String>? fontFamilyList,
     CssTextSpacingTrim? textSpacingTrim,
     double? textIndent,
   }) {
@@ -2888,14 +2889,17 @@ class ComputedStyle {
         lineHeightFactor == null &&
         textAlign == null &&
         fontFamily == null &&
+        fontFamilyList == null &&
         textSpacingTrim == null &&
         textIndent == null) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
-    final nextFontFamilies = fontFamily == null
-        ? fontFamilies
-        : <String>[fontFamily];
+    final nextFontFamilies = fontFamilyList ??
+        (fontFamily == null ? fontFamilies : <String>[fontFamily]);
+    final familyDeclaration = fontFamilyList == null
+        ? fontFamily
+        : fontFamilyList.map((family) => '"$family"').join(',');
     final nextUnitless = lineHeightFactor ?? unitlessLineHeightFactor;
     final nextLineHeightFactor = lineHeightFactor ?? this.lineHeightFactor;
     // 阅读器覆盖（lineHeightFactor 非空）→ 显式倍数；书籍自身的无单位因子
@@ -2916,7 +2920,7 @@ class ComputedStyle {
       if (textSpacingTrim != null)
         'text-spacing-trim': textSpacingTrim.cssValue,
       if (textIndent != null) 'text-indent': '${textIndent}px',
-      'font-family': ?fontFamily,
+      'font-family': ?familyDeclaration,
     };
     final nextExplicit = <String>{
       ...explicitProperties,
@@ -2925,7 +2929,7 @@ class ComputedStyle {
       if (textAlign != null) 'text-align',
       if (textSpacingTrim != null) 'text-spacing-trim',
       if (textIndent != null) 'text-indent',
-      if (fontFamily != null) 'font-family',
+      if (familyDeclaration != null) 'font-family',
     };
     return ComputedStyle._(
       values: nextValues,
