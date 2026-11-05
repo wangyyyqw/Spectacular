@@ -2487,8 +2487,8 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.page != page ||
       oldDelegate.imageRevision != imageRevision ||
       oldDelegate.pageInsets != pageInsets ||
-      oldDelegate.painter.background != painter.background ||
-      oldDelegate.painter.textColor != painter.textColor;
+      // 绘制配置包含纹理、图片及墨水屏模式，更新时必须重绘当前纸面。
+      oldDelegate.painter != painter;
 }
 
 /// 目录中与指定 spine 对应的标题；无精确项时沿用最近的前置章节。
