@@ -101,7 +101,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       library: widget.library,
       progressStore: widget.progressStore,
     );
-    _queue = ImportQueue(widget.library)..addListener(_onQueueChanged);
+    _queue = ImportQueue(widget.library, readFile: widget.readFile)
+      ..addListener(_onQueueChanged);
     _reload();
     _loadPreferences();
   }
@@ -578,19 +579,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
     for (final path in paths) {
       try {
-        final bytes = await widget.readFile(path);
-        // 大文件（>20MB）导入要十几秒：先给出预期，避免以为卡死。
-        final megabytes = bytes.length / (1024 * 1024);
-        if (megabytes >= 20 && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('正在导入大文件（${megabytes.toStringAsFixed(0)}MB），请稍候…'),
-            ),
-          );
-        }
         _batch.add(
-          _queue.enqueue(
-            bytes,
+          _queue.enqueuePath(
+            path,
             fallbackTitle: path.split(Platform.pathSeparator).last,
           ),
         );
@@ -651,14 +642,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
             .showSnackBar(const SnackBar(content: Text('更新时请选择一本 EPUB')));
         return;
       }
-      final bytes = await widget.readFile(paths.single);
-      if (!mounted) return;
       setState(() {
         _batch.clear();
         _reportedJobs = 0;
         _error = null;
       });
-      _batch.add(_queue.enqueue(bytes, updateBookId: entry.id));
+      _batch.add(_queue.enqueuePath(paths.single, updateBookId: entry.id));
       setState(() {});
     } catch (error) {
       if (mounted) {

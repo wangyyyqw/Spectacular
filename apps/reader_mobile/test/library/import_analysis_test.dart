@@ -24,6 +24,52 @@ void main() {
     expect(analysis.charCounts, isNull);
   });
 
+  test('已知摘要时阈值内文件不再解析 ZIP', () async {
+    final bytes = Uint8List(importAnalysisIsolateThreshold - 1);
+    String? checkedRevision;
+    final analysis = await analyzeImportUnlessKnown(
+      bytes,
+      shouldSkip: (revision) async {
+        checkedRevision = revision;
+        return true;
+      },
+    );
+
+    expect(analysis, isNull);
+    expect(checkedRevision, hasLength(64));
+  });
+
+  test('大文件可通过单次后台握手跳过后续解析', () async {
+    final bytes = Uint8List(importAnalysisIsolateThreshold);
+    String? checkedRevision;
+    final analysis = await analyzeImportUnlessKnown(
+      bytes,
+      shouldSkip: (revision) async {
+        checkedRevision = revision;
+        return true;
+      },
+    );
+
+    expect(analysis, isNull);
+    expect(checkedRevision, hasLength(64));
+  });
+
+  test('大文件摘要未命中时同一后台 isolate 继续分析', () async {
+    final bytes = Uint8List(importAnalysisIsolateThreshold);
+    String? checkedRevision;
+    final analysis = await analyzeImportUnlessKnown(
+      bytes,
+      shouldSkip: (revision) async {
+        checkedRevision = revision;
+        return false;
+      },
+    );
+
+    expect(analysis, isNotNull);
+    expect(checkedRevision, analysis!.revision);
+    expect(analysis.checked.ok, isFalse);
+  });
+
   test('成功分析携带新书写库所需的轻量摘要', () async {
     final analysis = await analyzeImport(
       buildTestEpub(

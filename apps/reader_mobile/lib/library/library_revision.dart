@@ -72,14 +72,18 @@ extension LibraryRevisionOperations on LibraryStore {
           errorCode: parsed.report.errorCode,
         );
       }
-      return _replaceRevision(
-        old,
-        bytes,
-        parsed,
-        analysis: analysis,
-        onProgress: onProgress,
-        isCancelled: isCancelled,
-      );
+      try {
+        return await _replaceRevision(
+          old,
+          bytes,
+          parsed,
+          analysis: analysis,
+          onProgress: onProgress,
+          isCancelled: isCancelled,
+        );
+      } finally {
+        parsed.document!.archive.close();
+      }
     }
 
     final previous = LibraryStore._databaseImportQueues[db];
@@ -138,7 +142,12 @@ extension LibraryRevisionOperations on LibraryStore {
       final file = File(p.join(stage.path, 'source.epub'));
       await file.writeAsBytes(bytes, flush: true);
       onProgress?.call(0.5);
-      final migration = await _prepareRevision(old, oldBytes, bytes);
+      final migration = await _prepareRevision(
+        old,
+        oldBytes,
+        bytes,
+        revision: revision,
+      );
       _checkImportCancelled(isCancelled);
       final counts = analysis.charCounts!;
       final weights = ProgressWeights.fromCharCounts(
@@ -184,8 +193,9 @@ extension LibraryRevisionOperations on LibraryStore {
   Future<_RevisionMigration> _prepareRevision(
     BookRow old,
     Uint8List? oldBytes,
-    Uint8List bytes,
-  ) async {
+    Uint8List bytes, {
+    required String revision,
+  }) async {
     final db = _db!;
     final annotations = await (db.select(
       db.annotations,
@@ -193,6 +203,19 @@ extension LibraryRevisionOperations on LibraryStore {
     final progress = await (db.select(
       db.readingProgress,
     )..where((table) => table.bookId.equals(old.id))).getSingleOrNull();
+    if (annotations.isEmpty && progress == null) {
+      return _RevisionMigration(
+        _RevisionBooks(
+          old,
+          null,
+          AnchorBook(revision: revision, chapters: const []),
+        ),
+        annotations,
+        progress,
+        const <String, AnchorRecord>{},
+        null,
+      );
+    }
     // 有旧文件却无法解析时拒绝更新，不能把异常当作正常的待确认结果。
     final oldBook = oldBytes == null
         ? null

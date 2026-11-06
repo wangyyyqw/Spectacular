@@ -977,9 +977,34 @@ class LibraryStore {
     final analysisTrace = readerTraceEnabled
         ? ReaderTrace.instance.start(ReaderTraceName.import)
         : null;
-    final analysis = await analyzeImport(bytes);
+    BookEntry? unchangedEntry;
+    final analysis = await analyzeImportUnlessKnown(
+      bytes,
+      shouldSkip: (revision) async {
+        final db = _db;
+        if (db == null) return false;
+        final rows =
+            await (db.select(db.books)..where(
+                  (table) =>
+                      table.contentRevision.equals(revision) &
+                      table.deletedAt.isNull(),
+                ))
+                .get();
+        final row = rows.firstOrNull;
+        if (row == null) return false;
+        unchangedEntry = _withImportOutcome(
+          _entryFromRow(row),
+          BookImportOutcome.unchanged,
+        );
+        return true;
+      },
+    );
     analysisTrace?.stop();
     _checkImportCancelled(isCancelled);
+    if (analysis == null) {
+      onProgress?.call(1);
+      return unchangedEntry!;
+    }
     final summary = analysis.summary;
     if (summary == null) {
       final report = analysis.report;
@@ -1017,14 +1042,18 @@ class LibraryStore {
           errorCode: result.report.errorCode,
         );
       }
-      return _replaceRevision(
-        existing,
-        analysis: analysis,
-        bytes,
-        result,
-        onProgress: onProgress,
-        isCancelled: isCancelled,
-      );
+      try {
+        return await _replaceRevision(
+          existing,
+          analysis: analysis,
+          bytes,
+          result,
+          onProgress: onProgress,
+          isCancelled: isCancelled,
+        );
+      } finally {
+        document.archive.close();
+      }
     }
     if (_isMemory && _memoryEntries.containsKey(id)) {
       final same = listEquals(_memoryBytes[id], bytes);
