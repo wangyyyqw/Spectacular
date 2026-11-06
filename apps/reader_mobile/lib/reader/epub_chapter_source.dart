@@ -144,6 +144,9 @@ class EpubChapterSource
   >
   _displayDocumentCache = {};
   final List<int> _displayDocumentCacheOrder = <int>[];
+  final BoundedCache<String, AnchorChapter> _anchorChapterCache = BoundedCache(
+    2,
+  );
 
   /// 当前书的注释正文缓存：引用节点键 → 已解析注释。
   final BoundedCache<int, Map<String, FootnoteAnchor>> _footnoteReferenceCache =
@@ -240,6 +243,10 @@ class EpubChapterSource
 
   /// styles 层块缓存命中次数（测试/诊断用）。
   int get blockCacheHits => _blockCacheHits;
+  int _displayDocumentCacheHits = 0;
+
+  /// 章节结构缓存命中次数（测试/诊断用）。
+  int get displayDocumentCacheHits => _displayDocumentCacheHits;
 
   void _touchDisplayDocumentCache(int spineIndex) {
     _displayDocumentCacheOrder.remove(spineIndex);
@@ -266,6 +273,7 @@ class EpubChapterSource
   void _clearDisplayDocumentCache() {
     _displayDocumentCache.clear();
     _displayDocumentCacheOrder.clear();
+    _anchorChapterCache.clear();
   }
 
   Map<String, FootnoteAnchor> _footnoteReferences(int spineIndex) =>
@@ -370,8 +378,15 @@ class EpubChapterSource
 
   /// 覆盖迁移复用正文聚合与作者空白规则，不生成整章分页或解码图片。
   AnchorChapter anchorChapter(int spineIndex) {
-    final parsed = document.parseDocument(spineIndex);
-    final selectors = _ParsedSelectorIndex(parsed.root);
+    final cacheKey = _structureKey(spineIndex);
+    final cached = _anchorChapterCache[cacheKey];
+    if (cached != null) return cached;
+    final display = _displayDocumentCache[spineIndex];
+    final reusableDisplay = display != null && display.key == cacheKey;
+    final parsed = reusableDisplay ? null : document.parseDocument(spineIndex);
+    final selectors = reusableDisplay
+        ? display.selectors
+        : _ParsedSelectorIndex(parsed!.root);
     final rules = CascadeRuleSet([
       ...uaRules(),
       for (final (index, sheet) in _chapterStylesheets(spineIndex).indexed)
@@ -390,17 +405,21 @@ class EpubChapterSource
           'inline-block' => CssDisplay.inlineBlock,
           _ => CssDisplay.inline,
         };
-    final tree = TextAggregator.aggregate(
-      _buildDisplayDocument(parsed, spineIndex),
-      inlineDisplay: displayOf,
-    );
-    return AnchorChapter(
+    final tree = reusableDisplay
+        ? display.document
+        : TextAggregator.aggregate(
+            _buildDisplayDocument(parsed!, spineIndex),
+            inlineDisplay: displayOf,
+          );
+    final chapter = AnchorChapter(
       spineIndex: spineIndex,
       href: document.spine[spineIndex].href,
       title: _anchorChapterTitle(spineIndex),
       readable: !document.progressExcludedSpineIndexes.contains(spineIndex),
       blocks: _anchorBlocks(tree.root, spineIndex, styleOf, displayOf),
     );
+    _anchorChapterCache[cacheKey] = chapter;
+    return chapter;
   }
 
   ComputedStyle _anchorNodeStyle(
@@ -504,6 +523,7 @@ class EpubChapterSource
       '文档缓存 ${_displayDocumentCache.length}/$documentCacheChapterLimit 章；'
       '样式章索引 ${_chapterSheetCache.length}/$chapterIndexCacheLimit 章；'
       '级联准备 ${_chapterCascadeCache.length}/$chapterIndexCacheLimit 组；'
+      '基础级联 ${_baseChapterCascadeCache.length}/$chapterIndexCacheLimit 组；'
       '满屏索引 ${_fullBleedCache.length}/$chapterIndexCacheLimit 章；'
       '脚注索引 ${_footnoteReferenceCache.length}/$chapterIndexCacheLimit 章；'
       '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
@@ -520,6 +540,10 @@ class EpubChapterSource
       '|top=${_contentTopInset.toString()}'
       '|spacing=$textSpacingRevision'
       '|${_overrides.fingerprint}';
+
+  /// 原文解析与 display 聚合只依赖章节和视口宽度；阅读设置变化时可复用。
+  String _structureKey(int spineIndex) =>
+      '$spineIndex@width=${contentWidth.toString()}';
 
   /// 失效与续排日志（P7-27；对照 Reeden 失效诊断带 old/new——
   /// 「批量排版缓存失效. 因为屏幕尺寸变更. old: 」）。
@@ -1003,6 +1027,7 @@ class EpubChapterSource
     // 失效矩阵（P7-23）：只有排版字段（字号/行高/对齐/边距）变化才
     // 失效 pagination 层与段落缓存；颜色变化零重排（绘制层即时生效）。
     if (previous.fingerprint != overrides.fingerprint) {
+      _layoutGeneration += 1;
       _logInvalidation(
         'configChanged',
         previous.fingerprint,
@@ -1016,9 +1041,6 @@ class EpubChapterSource
       _pageIndexCache.clear();
       _blockCache.clear();
       _blockCacheOrder.clear();
-      _clearDisplayDocumentCache();
-      _chapterCascadeCache.clear();
-      _fullBleedCache.clear();
     }
   }
 
@@ -1041,6 +1063,7 @@ class EpubChapterSource
         previousTopInset == _contentTopInset) {
       return false;
     }
+    _layoutGeneration += 1;
     _resolvedBaseStyle = null;
     // 尺寸变化等同重排：几何进排版键（P7-23 矩阵「几何全失效」）。
     _logInvalidation(
@@ -1057,8 +1080,6 @@ class EpubChapterSource
     _blockCache.clear();
     _blockCacheOrder.clear();
     _clearDisplayDocumentCache();
-    _chapterCascadeCache.clear();
-    _footnoteReferenceCache.clear();
     _fullBleedCache.clear();
     return true;
   }
@@ -1114,6 +1135,7 @@ class EpubChapterSource
   final Map<String, FontCoverage> _bookFontCoverages = <String, FontCoverage>{};
 
   bool _closed = false;
+  int _layoutGeneration = 0;
 
   /// 是否已关闭。
   bool get isClosed => _closed;
@@ -1127,6 +1149,7 @@ class EpubChapterSource
       return;
     }
     _closed = true;
+    _layoutGeneration += 1;
     _layoutCache.clear();
     _textWidthCache.clear();
     _pageCache.clear();
@@ -4172,20 +4195,21 @@ class EpubChapterSource
     if (_closed) {
       throw StateError('章节来源已关闭');
     }
-    return _loadChapterPages(spineIndex);
+    return _loadChapterPages(spineIndex, _layoutGeneration);
   }
 
+  bool _isCurrentLayout(int generation) =>
+      !_closed && generation == _layoutGeneration;
+
   /// 聚合树与选择器视图必须来自同一次解析，重排时也成对复用。
-  (BlockDocument, _ParsedSelectorIndex) _takeChapterStructure(
-    int spineIndex,
-    String paginationKey,
-  ) {
+  (BlockDocument, _ParsedSelectorIndex) _takeChapterStructure(int spineIndex) {
     final pending = _pendingBlockDocument;
     final selectors = _pendingSelectorIndex;
     _pendingBlockDocument = null;
     _pendingSelectorIndex = null;
     final cached = _displayDocumentCache[spineIndex];
-    if (cached?.key == paginationKey) {
+    if (cached?.key == _structureKey(spineIndex)) {
+      _displayDocumentCacheHits += 1;
       _touchDisplayDocumentCache(spineIndex);
       return (cached!.document, cached.selectors);
     }
@@ -4200,7 +4224,10 @@ class EpubChapterSource
   }
 
   /// 分页主体：产物不带整页背景，由 [loadChapter] 统一贴上。
-  Future<List<PageContent>> _loadChapterPages(int spineIndex) async {
+  Future<List<PageContent>> _loadChapterPages(
+    int spineIndex,
+    int layoutGeneration,
+  ) async {
     final trace = readerTraceEnabled ? ReaderTrace.instance : null;
     final traceBook = bookIdForTrace;
     final watch = trace == null ? null : (Stopwatch()..start());
@@ -4235,6 +4262,7 @@ class EpubChapterSource
         cachedBlocks.flow,
         cachedBlocks.fixed,
         cachedBlocks.background,
+        layoutGeneration,
       );
       if (trace != null) {
         trace.record(
@@ -4267,7 +4295,9 @@ class EpubChapterSource
           bleed: true,
           resolvedImageUrl: imageUrl,
         );
-        _putPageCache(paginationKey, pages);
+        if (_isCurrentLayout(layoutGeneration)) {
+          _putPageCache(paginationKey, pages);
+        }
         if (trace != null) {
           trace.record(
             ReaderTraceName.chapterLayout,
@@ -4286,7 +4316,9 @@ class EpubChapterSource
         fullBleed.singleImageSrc!,
         paginationKey,
       );
-      _putPageCache(paginationKey, pages);
+      if (_isCurrentLayout(layoutGeneration)) {
+        _putPageCache(paginationKey, pages);
+      }
       if (trace != null) {
         trace.record(
           ReaderTraceName.chapterLayout,
@@ -4298,10 +4330,7 @@ class EpubChapterSource
     }
     // 满屏扫描后的原树直接交给作者 display 聚合；已有结果不重复解析。
     final displayCached = _displayDocumentCache[spineIndex];
-    var (document, selectorIndex) = _takeChapterStructure(
-      spineIndex,
-      paginationKey,
-    );
+    var (document, selectorIndex) = _takeChapterStructure(spineIndex);
     if (trace != null) {
       trace.record(
         ReaderTraceName.chapterStructure,
@@ -4401,6 +4430,9 @@ class EpubChapterSource
     };
     await _ensureBookFonts(usedBookFonts);
     if (_closed) throw StateError('章节来源已关闭');
+    if (!_isCurrentLayout(layoutGeneration)) {
+      return const <PageContent>[];
+    }
     // 字体改写、辅助规则和级联索引随样式表组合复用；书籍的数百章通常
     // 共享同一份全局 CSS。
     final preparedStyles = _prepareChapterCascade(sheets);
@@ -4823,7 +4855,7 @@ class EpubChapterSource
       };
     }
 
-    if (displayCached?.key == paginationKey) {
+    if (displayCached?.key == _structureKey(spineIndex)) {
       document = displayCached!.document;
     } else {
       document = TextAggregator.aggregate(
@@ -4833,7 +4865,7 @@ class EpubChapterSource
       );
       _putDisplayDocumentCache(
         spineIndex,
-        key: paginationKey,
+        key: _structureKey(spineIndex),
         document: document,
         selectors: selectorIndex,
       );
@@ -8208,18 +8240,21 @@ class EpubChapterSource
     blocks = _configureContainerDecoration(blocks);
     blocks = _collapseMarginsIgnoringFloats(blocks);
 
-    _putBlockCache(
-      paginationKey,
-      flow: blocks,
-      fixed: fixedBlocks,
-      background: bodyBackground,
-    );
+    if (_isCurrentLayout(layoutGeneration)) {
+      _putBlockCache(
+        paginationKey,
+        flow: blocks,
+        fixed: fixedBlocks,
+        background: bodyBackground,
+      );
+    }
     final pages = _paginateBlocks(
       spineIndex,
       paginationKey,
       blocks,
       fixedBlocks,
       bodyBackground,
+      layoutGeneration,
     );
     if (trace != null) {
       trace.record(
@@ -8276,6 +8311,7 @@ class EpubChapterSource
     List<PageBlock> blocks,
     List<PageBlock> fixedBlocks,
     PageBackground? background,
+    int layoutGeneration,
   ) {
     // 浮动章（flat 管线接入）：含浮动块的章节走浮动感知手动分页
     //（引擎 FloatOccupancy 区间模型），不进 Paginator 与页索引重放。
@@ -8285,7 +8321,9 @@ class EpubChapterSource
         fixedBlocks,
       );
       final pages = _finishChapterPages(spineIndex, floated, background);
-      _putPageCache(paginationKey, pages);
+      if (_isCurrentLayout(layoutGeneration)) {
+        _putPageCache(paginationKey, pages);
+      }
       return pages;
     }
 
@@ -8315,7 +8353,9 @@ class EpubChapterSource
         );
         if (replayed != null) {
           final pages = _finishChapterPages(spineIndex, replayed, background);
-          _putPageCache(paginationKey, pages);
+          if (_isCurrentLayout(layoutGeneration)) {
+            _putPageCache(paginationKey, pages);
+          }
           return pages;
         }
         _logInvalidation('indexSchemaMismatch', paginationKey, paginationKey);
@@ -8334,6 +8374,9 @@ class EpubChapterSource
       fixedBlocks,
     );
     final finished = _finishChapterPages(spineIndex, pages, background);
+    if (!_isCurrentLayout(layoutGeneration)) {
+      return finished;
+    }
     _putPageCache(paginationKey, finished);
     if (!skipPageIndex) {
       _pageIndexCache[paginationKey] = PageIndex.from(

@@ -1339,12 +1339,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     final spine = _session.page?.spineIndex;
+    final currentChapterItems = <ReaderAnnotation>[
+      for (final annotation in items)
+        if (EpubCfi.parse(annotation.startCfi) case final parsed?)
+          if (spineIndexOfCfi(parsed) == spine) annotation,
+    ];
+    if (currentChapterItems.isEmpty) {
+      setState(() {
+        _resolvedAnnotations = const <ReaderAnnotation>[];
+        _relocatedSpineIndex = spine;
+      });
+      return;
+    }
     final pages = await _session.chapterPages();
     if (!mounted) {
       return;
     }
     final relocations = AnnotationRelocator.relocate(
-      annotations: items,
+      annotations: currentChapterItems,
       pages: pages,
       contentRevision: widget.contentRevision,
     );
@@ -2099,12 +2111,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _pageTurnKey.currentState?.resumeWarmup();
+      return;
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      _pageTurnKey.currentState?.controller.cancel();
-      unawaited(_session.flushProgress());
+      _pageTurnKey.currentState?.releaseCachedBitmaps();
+      unawaited(_flushReadingProgress());
     }
+  }
+
+  Future<void> _flushReadingProgress() async {
+    if (_effectiveTurnMode == PageTurnMode.scroll) {
+      await _scrollKey.currentState?.flushVisiblePosition();
+    }
+    await _session.flushProgress();
   }
 
   @override

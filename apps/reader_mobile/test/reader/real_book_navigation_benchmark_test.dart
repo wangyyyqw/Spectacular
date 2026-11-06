@@ -39,6 +39,18 @@ void main() {
         }
         report[phase] = samples;
       }
+      await source.applyOverrides(
+        ReaderSettingsDefaults.overrides.copyWith(fontSize: 20),
+      );
+      watch.reset();
+      final reflowed = await source.loadChapter(29);
+      report['reflow'] = <String, Object>{
+        '29': <String, Object>{
+          'ms': watch.elapsedMicroseconds / 1000,
+          'pages': reflowed.length,
+          'structureCacheHits': source.displayDocumentCacheHits,
+        },
+      };
       report['cacheReport'] = source.cacheReport;
       final trace = ReaderTrace.instance.summary();
       report['trace'] = {
