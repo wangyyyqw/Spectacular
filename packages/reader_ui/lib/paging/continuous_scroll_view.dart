@@ -52,6 +52,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   bool _loading = true;
   bool _extendingBefore = false;
   bool _extendingAfter = false;
+  bool _trimmingWindow = false;
   int _loadToken = 0;
   int _restoreToken = 0;
   late int _layoutGeneration = widget.session.generation;
@@ -270,6 +271,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     _captureVisiblePage();
     if (!_restoring) {
       _maybeExtendWindow();
+      _trimWindow();
     }
   }
 
@@ -319,6 +321,20 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         ),
       );
     });
+  }
+
+  /// 在切后台前立即提交当前可见页，避免连续滚动的防抖窗口丢失位置。
+  Future<void> flushVisiblePosition() async {
+    if (!_controller.hasClients) return;
+    _syncTimer?.cancel();
+    _captureVisiblePage(commit: false);
+    final page = _visibleContent;
+    if (page == null) return;
+    await widget.session.commitScrollPosition(
+      page.spineIndex,
+      page.pageIndex,
+      _visiblePageOffset,
+    );
   }
 
   /// 用已构建页的实际顶部位置反推当前可见页与页内偏移。
@@ -372,6 +388,77 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     if (remaining < height * 0.5) {
       unawaited(_extendAfter());
     }
+  }
+
+  /// 只保留当前章前后各一章，避免长时间连续阅读后布局和页面键持续增长。
+  void _trimWindow() {
+    if (_restoring ||
+        _trimmingWindow ||
+        _extendingBefore ||
+        _extendingAfter ||
+        !_controller.hasClients ||
+        _chapters.isEmpty) {
+      return;
+    }
+    final relative = (_controller.offset - widget.padding.top).clamp(
+      0.0,
+      _contentExtent,
+    );
+    final current = _pageAtOffset(relative)?.chapter.spineIndex;
+    if (current == null) return;
+    final retained = _chapters.where(
+      (chapter) =>
+          chapter.spineIndex >= current - 1 &&
+          chapter.spineIndex <= current + 1,
+    );
+    if (retained.length == _chapters.length) return;
+    unawaited(_replaceChapterWindow(retained.toList(growable: false)));
+  }
+
+  Future<void> _replaceChapterWindow(List<ScrollChapterLayout> retained) async {
+    if (_trimmingWindow || retained.isEmpty) return;
+    _trimmingWindow = true;
+    final token = _loadToken;
+    final generation = _layoutGeneration;
+    _captureVisiblePage(commit: false);
+    final visibleContent = _visibleContent;
+    final visibleOffset = _visiblePageOffset;
+    final retainedSpines = <int>{
+      for (final chapter in retained) chapter.spineIndex,
+    };
+    setState(() {
+      _chapters
+        ..clear()
+        ..addAll(retained);
+      _pageKeys.removeWhere((key, _) => !retainedSpines.contains(key.$1));
+      _rebuildEntries();
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted ||
+        token != _loadToken ||
+        generation != _layoutGeneration ||
+        !_controller.hasClients) {
+      _trimmingWindow = false;
+      return;
+    }
+    if (visibleContent != null) {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        if (_revealAtPage(
+          visibleContent.spineIndex,
+          visibleContent.pageIndex,
+          visibleOffset,
+        )) {
+          break;
+        }
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || token != _loadToken) {
+          _trimmingWindow = false;
+          return;
+        }
+      }
+    }
+    _trimmingWindow = false;
+    _captureVisiblePage();
   }
 
   Future<void> _extendBefore() async {
@@ -470,6 +557,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       _rebuildEntries();
     });
     _extendingAfter = false;
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted && token == _loadToken) {
+      _trimWindow();
+    }
   }
 
   /// 点击区按当前可视高度移动一屏。
@@ -538,6 +629,16 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
     return null;
   }
+
+  /// 当前保留的章节序号；测试用于确认连续滚动窗口不会无界增长。
+  @visibleForTesting
+  List<int> get debugLoadedSpineIndices => <int>[
+    for (final chapter in _chapters) chapter.spineIndex,
+  ];
+
+  /// 当前页面键数量；测试用于确认离窗页面的 key 已释放。
+  @visibleForTesting
+  int get debugPageKeyCount => _pageKeys.length;
 
   @override
   Widget build(BuildContext context) {
