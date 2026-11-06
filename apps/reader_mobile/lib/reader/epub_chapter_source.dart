@@ -142,7 +142,8 @@ class EpubChapterSource
   final List<int> _displayDocumentCacheOrder = <int>[];
 
   /// 当前书的注释正文缓存：引用节点键 → 已解析注释。
-  final Map<int, Map<String, FootnoteAnchor>> _footnoteReferenceCache = {};
+  final BoundedCache<int, Map<String, FootnoteAnchor>> _footnoteReferenceCache =
+      BoundedCache(chapterIndexCacheLimit);
   // 满屏判定与紧随的正文聚合共用一次解析；不长期保留第二棵原始树。
   BlockDocument? _pendingBlockDocument;
   // 原始元素树提供结构伪类/兄弟组合器所需的真实 childElements。
@@ -495,6 +496,7 @@ class EpubChapterSource
       '文档缓存 ${_displayDocumentCache.length}/$documentCacheChapterLimit 章；'
       '样式章索引 ${_chapterSheetCache.length}/$chapterIndexCacheLimit 章；'
       '满屏索引 ${_fullBleedCache.length}/$chapterIndexCacheLimit 章；'
+      '脚注索引 ${_footnoteReferenceCache.length}/$chapterIndexCacheLimit 章；'
       '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
       '图片索引 ${_imageIntrinsicCache.length}/$imageIntrinsicCacheLimit 个；'
       '纯文本缓存 ${_plainTextCache.length}/$chapterIndexCacheLimit 章';
@@ -1120,6 +1122,7 @@ class EpubChapterSource
     _imageIntrinsicMiss.clear();
     _cssSheetCache.clear();
     _chapterSheetCache.clear();
+    _footnoteReferenceCache.clear();
     _fontLoader?.clear();
     _fontFacesSeen.clear();
     _bookFontDirectories = null;
