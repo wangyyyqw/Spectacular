@@ -821,6 +821,7 @@ class ReaderSession extends ChangeNotifier {
           savedCfi,
           generation,
           continuous: saved?.scrollOffset != null,
+          preferredPageIndex: sameRevision ? saved?.pageIndex : null,
         );
         if (generation != _generation) return;
       } else if (saved?.scrollOffset != null && usableCache) {
@@ -849,6 +850,7 @@ class ReaderSession extends ChangeNotifier {
     String cfi,
     int generation, {
     bool continuous = false,
+    int? preferredPageIndex,
   }) async {
     final parsed = EpubCfi.parse(cfi);
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
@@ -856,7 +858,13 @@ class ReaderSession extends ChangeNotifier {
     final pages = await source.loadChapter(spine);
     if (_disposed || generation != _generation) return;
     final anchor = ReaderAnchor(cfi: cfi);
-    final index = _locatePage(pages, anchor);
+    final index =
+        preferredPageIndex != null &&
+            preferredPageIndex >= 0 &&
+            preferredPageIndex < pages.length &&
+            _pageContainsAnchor(pages[preferredPageIndex], anchor)
+        ? preferredPageIndex
+        : _locatePage(pages, anchor);
     await pager.goTo(spine, index);
     if (_disposed || generation != _generation || !continuous) return;
     final layout = ScrollChapterLayout.fromPages(spine, pages);
@@ -1203,13 +1211,14 @@ class ReaderSession extends ChangeNotifier {
     }
     final target = parsedTarget.rangeStart ?? parsedTarget;
     final targetPath = _cfiPath(target);
-    final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
+    for (final page in pages) {
+      if (_pageContainsAnchor(page, anchor)) {
+        return page.pageIndex;
+      }
+    }
     var fallback = -1;
     for (final page in pages) {
       for (final slice in page.slices) {
-        if (_tableContainsCfi(slice.block, targetPath, targetOffset)) {
-          return page.pageIndex;
-        }
         final value = slice.block.startCfi;
         if (value == null) {
           continue;
@@ -1220,10 +1229,6 @@ class ReaderSession extends ChangeNotifier {
         }
         final comparison = _cfiPath(parsed).compareTo(targetPath);
         if (comparison == 0) {
-          final offset = targetOffset - (parsed.segments.last.offset ?? 0);
-          if (_sliceContainsOffset(slice, offset)) {
-            return page.pageIndex;
-          }
           if (fallback < 0) {
             fallback = page.pageIndex;
           }
@@ -1233,6 +1238,30 @@ class ReaderSession extends ChangeNotifier {
       }
     }
     return fallback >= 0 ? fallback : pages.last.pageIndex;
+  }
+
+  static bool _pageContainsAnchor(PageContent page, ReaderAnchor anchor) {
+    final cfi = anchor.cfi;
+    final parsedTarget = cfi == null ? null : EpubCfi.parse(cfi);
+    if (parsedTarget == null) return false;
+    final target = parsedTarget.rangeStart ?? parsedTarget;
+    final targetPath = _cfiPath(target);
+    final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
+    for (final slice in page.slices) {
+      if (_tableContainsCfi(slice.block, targetPath, targetOffset)) {
+        return true;
+      }
+      final value = slice.block.startCfi;
+      final parsed = value == null ? null : EpubCfi.parse(value);
+      if (parsed == null || _cfiPath(parsed).compareTo(targetPath) != 0) {
+        continue;
+      }
+      final offset = targetOffset - (parsed.segments.last.offset ?? 0);
+      if (_sliceContainsOffset(slice, offset)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static EpubCfi _cfiPath(EpubCfi cfi) =>

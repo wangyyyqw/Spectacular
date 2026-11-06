@@ -173,8 +173,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         store: sessionStore,
         bookId: widget.bookId,
       )..start();
-      WidgetsBinding.instance.addObserver(this);
     }
+    WidgetsBinding.instance.addObserver(this);
     // 先让加载骨架绘制一帧，再做同步解析：openEpub 对 156MB 的书要 1.5 秒，
     // 直接同步跑会让页面转场期间黑屏（用户看不到任何东西）。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -255,18 +255,34 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final tracker = _readingTracker;
-    if (tracker == null) {
-      return;
-    }
     switch (state) {
       case AppLifecycleState.resumed:
-        tracker.start();
+        tracker?.start();
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
-        unawaited(tracker.pause());
+        unawaited(tracker?.pause() ?? Future<void>.value());
+        _flushProgressInBackground();
       case AppLifecycleState.detached:
-        unawaited(tracker.finish());
+        unawaited(tracker?.finish() ?? Future<void>.value());
+        _flushProgressInBackground();
+    }
+  }
+
+  void _flushProgressInBackground() {
+    final session = _readerSession;
+    if (session == null) return;
+    unawaited(_flushProgress(session));
+  }
+
+  Future<void> _flushProgress(ReaderSession session) async {
+    try {
+      await session.flushProgress();
+    } catch (error) {
+      await ReaderLog.instance.log(
+        'progress_save_error',
+        fields: {'bookId': widget.bookId, 'error': '$error'},
+      );
     }
   }
 
@@ -276,10 +292,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final onClosed = widget.onClosed;
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
-    if (_readingTracker != null) {
-      WidgetsBinding.instance.removeObserver(this);
-      unawaited(_readingTracker!.finish());
-    }
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_readingTracker?.finish() ?? Future<void>.value());
     _search?.dispose();
     _imageCache?.clear();
     unawaited(_closeSource(session).whenComplete(() => onClosed?.call()));

@@ -1,0 +1,90 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/reader/epub_reader_page.dart';
+import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_view.dart';
+
+Uint8List _corpusBook(String name) {
+  var directory = Directory.current;
+  while (true) {
+    final candidate = Directory('${directory.path}/test_corpus');
+    if (candidate.existsSync()) {
+      return File('${candidate.path}/$name').readAsBytesSync();
+    }
+    final parent = directory.parent;
+    if (parent.path == directory.path) {
+      throw StateError('缺少 test_corpus/$name');
+    }
+    directory = parent;
+  }
+}
+
+class _CountingStore implements ReaderProgressStore {
+  final Map<String, ReaderProgress> items = <String, ReaderProgress>{};
+  int writes = 0;
+
+  @override
+  Future<ReaderProgress?> load(String bookId) async => items[bookId];
+
+  @override
+  Future<void> save(String bookId, ReaderProgress progress) async {
+    writes += 1;
+    items[bookId] = progress;
+  }
+
+  @override
+  Future<void> clear(String bookId) async {
+    items.remove(bookId);
+  }
+
+  @override
+  Future<Map<String, ReaderProgress>> snapshot() async => Map.of(items);
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('切换后台立即保存最后阅读位置', (tester) async {
+    final store = _CountingStore();
+    store.items['lifecycle-progress'] = const ReaderProgress(
+      spineIndex: 0,
+      pageIndex: 0,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EpubReaderPage(
+          bytes: _corpusBook('basic.epub'),
+          bookId: 'lifecycle-progress',
+          bookTitle: '生命周期进度',
+          store: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = store.items['lifecycle-progress'];
+    expect(before, isNotNull);
+
+    final view = tester.getRect(find.byType(ReaderView));
+    await tester.tapAt(view.topRight + Offset(-4, view.height * 0.4));
+    await tester.pumpAndSettle();
+    expect(
+      store.items['lifecycle-progress'],
+      before,
+      reason: '2 秒节流窗口内，普通翻页只保留待写入位置',
+    );
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+
+    final saved = store.items['lifecycle-progress'];
+    expect(saved, isNotNull);
+    expect(
+      (saved!.spineIndex, saved.pageIndex),
+      isNot((before!.spineIndex, before.pageIndex)),
+      reason: '后台保存应更新到暂停前的页面',
+    );
+  });
+}
