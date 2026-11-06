@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
@@ -135,6 +137,47 @@ class _VariablePageSource implements ReaderChapterSource {
           _ => 300.0,
         }),
     ];
+  }
+}
+
+/// 章尾只有一页的短章，用于复现窗口边缘无法继续向下翻页。
+class _ShortTailSource implements ReaderChapterSource {
+  final loads = <int>[];
+
+  @override
+  int get chapterCount => 3;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    loads.add(spineIndex);
+    final count = switch (spineIndex) {
+      0 => 3,
+      1 => 1,
+      _ => 5,
+    };
+    final height = spineIndex == 1 ? 100.0 : 200.0;
+    return [
+      for (var page = 0; page < count; page++)
+        _pageWithHeight(spineIndex, page, height),
+    ];
+  }
+}
+
+/// 延迟指定章节加载，模拟真机补章期间的点击。
+class _GatedSource implements ReaderChapterSource {
+  _GatedSource(this.inner);
+
+  final _ShortTailSource inner;
+  final Completer<void> gate = Completer<void>();
+  final int gatedSpine = 2;
+
+  @override
+  int get chapterCount => inner.chapterCount;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (spineIndex == gatedSpine) await gate.future;
+    return inner.loadChapter(spineIndex);
   }
 }
 
@@ -362,7 +405,7 @@ void main() {
     session.dispose();
   });
 
-  testWidgets('连续滚动只保留当前章前后各一章', (tester) async {
+  testWidgets('连续滚动只保留视口附近的章节', (tester) async {
     final source = _Source();
     final session = ReaderSession(
       source: source,
@@ -533,6 +576,113 @@ void main() {
     scrollable.position.jumpTo(0);
     await tester.pump(const Duration(milliseconds: 200));
     expect(key.currentState?.handleTapAt(const Offset(100, 10)), isFalse);
+    session.dispose();
+  });
+
+  testWidgets('窗口末尾点击下一页会补齐下一章并继续推进', (tester) async {
+    final source = _ShortTailSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'scroll-tail',
+      const ReaderProgress(spineIndex: 0, pageIndex: 0),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll-tail',
+    );
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 320,
+            height: 480,
+            child: ContinuousScrollView(
+              key: key,
+              session: session,
+              revision: 1,
+              padding: const EdgeInsets.all(20),
+              paperBuilder: (page, size) =>
+                  const ColoredBox(color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(key.currentState?.debugLoadedSpineIndices, <int>[0, 1]);
+
+    for (var step = 0; step < 4; step++) {
+      unawaited(key.currentState!.scrollPage(true));
+      await tester.pumpAndSettle();
+    }
+
+    expect(source.loads, contains(2));
+    expect(session.progress?.spineIndex, 2);
+    session.dispose();
+  });
+
+  testWidgets('邻章加载中点击下一页会等加载完成再推进', (tester) async {
+    final source = _GatedSource(_ShortTailSource());
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'scroll-gated',
+      const ReaderProgress(spineIndex: 0, pageIndex: 0),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll-gated',
+    );
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 320,
+            height: 480,
+            child: ContinuousScrollView(
+              key: key,
+              session: session,
+              revision: 1,
+              padding: const EdgeInsets.all(20),
+              paperBuilder: (page, size) =>
+                  const ColoredBox(color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntil(
+      tester,
+      () => key.currentState?.debugLoadedSpineIndices.length == 2,
+    );
+
+    await tester.pumpAndSettle();
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    final room = scrollable.position.maxScrollExtent;
+    unawaited(key.currentState!.scrollPage(true));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(scrollable.position.pixels, closeTo(room, 0.01), reason: '补章未完成前不动');
+
+    source.gate.complete();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(scrollable.position.pixels, greaterThan(room + 300));
+    expect(session.progress?.spineIndex, 1);
     session.dispose();
   });
 }
