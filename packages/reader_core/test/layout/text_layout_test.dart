@@ -5,11 +5,13 @@ import 'package:reader_core/layout/text_layout.dart';
 
 const _text = 'The quick brown fox jumps over the lazy dog. 中文混排测试，用于验证断行。';
 
-ComputedStyle _style({double fontSize = 16}) => ComputedStyle(<String, String>{
-  'font-size': '${fontSize}px',
-  'line-height': '1.5',
-  'font-family': 'Ahem',
-});
+ComputedStyle _style({double fontSize = 16, String? textTransform}) =>
+    ComputedStyle(<String, String>{
+      'font-size': '${fontSize}px',
+      'line-height': '1.5',
+      'font-family': 'Ahem',
+      'text-transform': ?textTransform,
+    });
 
 TextPainter _referencePainter(
   String text,
@@ -122,5 +124,60 @@ void main() {
       maxWidth: double.infinity,
     );
     expect(layout.lineCount, 1);
+  });
+
+  test('批量宽度与逐段无界排版一致', () {
+    final style = _style();
+    final texts = <String>['中', '文', 'hello', 'world', '，', '。', 'A1'];
+    final measured = TextLayoutEngine.measureTextWidths(
+      texts: texts,
+      style: style,
+    );
+
+    for (final text in texts) {
+      final expected = TextLayoutEngine.layout(
+        text: text,
+        style: style,
+        maxWidth: double.infinity,
+      ).width;
+      expect(measured[text], closeTo(expected, 0.01), reason: text);
+    }
+  });
+
+  test('批量宽度应用文字变换和缩放', () {
+    final style = _style(textTransform: 'uppercase');
+    const textScaleFactor = 1.25;
+    final texts = <String>['reader', 'Table 2', '中文'];
+    final measured = TextLayoutEngine.measureTextWidths(
+      texts: texts,
+      style: style,
+      textScaleFactor: textScaleFactor,
+    );
+
+    for (final text in texts) {
+      final expected = TextLayoutEngine.layout(
+        text: text,
+        style: style,
+        maxWidth: double.infinity,
+        textScaleFactor: textScaleFactor,
+      ).width;
+      expect(measured[text], closeTo(expected, 0.01), reason: text);
+    }
+  });
+
+  test('批量宽度去重并忽略空文本，保留硬换行', () {
+    final measured = TextLayoutEngine.measureTextWidths(
+      texts: const <String>['same', '', 'same', 'first\nsecond'],
+      style: _style(),
+    );
+
+    expect(measured.keys, unorderedEquals(<String>['same', 'first\nsecond']));
+    expect(measured['same'], greaterThan(0));
+    final multiline = TextLayoutEngine.layout(
+      text: 'first\nsecond',
+      style: _style(),
+      maxWidth: double.infinity,
+    );
+    expect(measured['first\nsecond'], closeTo(multiline.width, 0.01));
   });
 }

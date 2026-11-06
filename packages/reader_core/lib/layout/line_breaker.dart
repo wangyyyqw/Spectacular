@@ -1002,6 +1002,89 @@ abstract final class TextLayoutEngine {
     );
   }
 
+  /// 批量测量纯文本片段的无界宽度。
+  ///
+  /// 表格最小内容宽会把中文逐字、拉丁词逐段测量；每个片段单独创建
+  /// `TextPainter` 会让大表格产生数百次排版。这里把片段按硬换行合并为一次
+  /// 排版，再用选区盒读取每行宽度。字体回退、文字变换和 textScaleFactor
+  /// 与普通布局路径保持一致。
+  static Map<String, double> measureTextWidths({
+    required Iterable<String> texts,
+    required ComputedStyle style,
+    double textScaleFactor = 1,
+    bool Function(String family, int codeUnit)? hasGlyph,
+  }) {
+    final originals = <String>[];
+    final seen = <String>{};
+    for (final text in texts) {
+      if (text.isEmpty || !seen.add(text)) {
+        continue;
+      }
+      originals.add(text);
+    }
+    if (originals.isEmpty) {
+      return const <String, double>{};
+    }
+    if (style.writingMode != CssWritingMode.horizontalTb) {
+      return <String, double>{
+        for (final text in originals)
+          text: layout(
+            text: text,
+            style: style,
+            maxWidth: double.infinity,
+            textScaleFactor: textScaleFactor,
+            hasGlyph: hasGlyph,
+          ).width,
+      };
+    }
+
+    final measured = <String, String>{
+      for (final text in originals)
+        text: applyTextTransform(text, style.textTransform),
+    };
+    final joined = originals.map((text) => measured[text]!).join('\n');
+    final baseStyle = textStyleFor(style);
+    final styled = hasGlyph == null
+        ? const <StyledRun>[]
+        : _applyScriptFallback(
+            text: joined,
+            runs: const <StyledRun>[],
+            baseStyle: style,
+            hasGlyph: hasGlyph,
+          );
+    final painter = TextPainter(
+      text: _measurementSpan(
+        joined,
+        styled,
+        baseStyle,
+        const <_InlineBoxMark>[],
+        (
+          css: style,
+          scale: textScaleFactor,
+          leading: TextLeadingDistribution.even,
+        ),
+      ),
+      textDirection: _textDirectionOf(style),
+      textScaler: TextScaler.linear(textScaleFactor),
+    )..layout();
+
+    final result = <String, double>{};
+    var offset = 0;
+    for (final original in originals) {
+      final end = offset + measured[original]!.length;
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(baseOffset: offset, extentOffset: end),
+      );
+      result[original] = boxes.isEmpty
+          ? 0
+          : boxes.map((box) => box.right).reduce(math.max) -
+                boxes.map((box) => box.left).reduce(math.min);
+      offset = end + 1;
+    }
+    painter.dispose();
+    return result;
+  }
+
   static TextLayoutResult _layoutRaw({
     required String text,
     required ComputedStyle style,
@@ -2116,7 +2199,10 @@ abstract final class TextLayoutEngine {
       final end =
           line.start +
           (line.spacing?.trailingSpaceStart ?? line.end - line.start);
-      if (!hanging || end <= line.start || line.isLastLine || line.isHardBreak) {
+      if (!hanging ||
+          end <= line.start ||
+          line.isLastLine ||
+          line.isHardBreak) {
         return 0;
       }
       final char = text[end - 1];
@@ -2524,19 +2610,13 @@ abstract final class TextLayoutEngine {
       leading: leadingDistribution,
     ));
     final spacingPlan = horizontal
-        ? _punctuationPlan(
-            text,
-            style,
-            runs,
-            (
-              base: baseStyle,
-              leading: leadingDistribution,
-              autospace:
-                  plainTextLayout &&
-                  style.textAutospace == CssTextAutospace.normal,
-            ),
-            spacingBarriers,
-          )
+        ? _punctuationPlan(text, style, runs, (
+            base: baseStyle,
+            leading: leadingDistribution,
+            autospace:
+                plainTextLayout &&
+                style.textAutospace == CssTextAutospace.normal,
+          ), spacingBarriers)
         : null;
     final paragraph = spacingPlan == null
         ? null
@@ -3198,7 +3278,8 @@ abstract final class TextLayoutEngine {
         includeTextStrut |=
             placement.spec.verticalAlign == InlineBoxVerticalAlign.middle ||
             (placement.spec.contentBaseline != null &&
-                placement.spec.verticalAlign == InlineBoxVerticalAlign.baseline);
+                placement.spec.verticalAlign ==
+                    InlineBoxVerticalAlign.baseline);
       }
       final baseAscent = lines[i].baseline - lines[i].top;
       heights[i] = includeTextStrut

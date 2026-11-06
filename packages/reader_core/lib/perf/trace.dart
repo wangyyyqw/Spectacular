@@ -8,6 +8,24 @@ enum ReaderTraceName {
   /// 分页一章。
   chapterLayout,
 
+  /// 解析章节树与构建选择器索引。
+  chapterStructure,
+
+  /// 加载并准备章节样式与内嵌字体。
+  chapterStyles,
+
+  /// 聚合章节 DOM 文本与行内标记。
+  chapterAggregate,
+
+  /// 聚合章节内容并生成排版块。
+  chapterCollect,
+
+  /// 测量并生成章节表格。
+  chapterTables,
+
+  /// 对章节块执行分页。
+  chapterPagination,
+
   /// 构建页渲染缓存。
   pageRenderBuild,
 
@@ -99,8 +117,7 @@ class ReaderTraceSummary {
   }
 
   /// 某类别的最大耗时（毫秒）。
-  double maxMs(ReaderTraceName name) =>
-      (maxMicroseconds[name] ?? 0) / 1000;
+  double maxMs(ReaderTraceName name) => (maxMicroseconds[name] ?? 0) / 1000;
 
   /// 某类别的 P95（毫秒），无采样返回 0。
   double p95Ms(ReaderTraceName name) {
@@ -148,11 +165,7 @@ class ReaderTrace {
       ReaderTraceHandle._(this, name, bookId, Stopwatch()..start());
 
   /// 记录一次已测量的耗时（微秒）。
-  void record(
-    ReaderTraceName name,
-    int microseconds, {
-    String? bookId,
-  }) {
+  void record(ReaderTraceName name, int microseconds, {String? bookId}) {
     final samples = _samples.putIfAbsent(
       bookId,
       () => <ReaderTraceName, List<int>>{},
@@ -189,8 +202,10 @@ class ReaderTrace {
       final values = entry.value;
       counts[entry.key] = values.length;
       totals[entry.key] = values.fold<int>(0, (sum, value) => sum + value);
-      maxes[entry.key] = values.fold<int>(0, (max, value) =>
-          value > max ? value : max);
+      maxes[entry.key] = values.fold<int>(
+        0,
+        (max, value) => value > max ? value : max,
+      );
     }
     // §44.3：缓存命中按 pageRenderReuse 计，未命中按分页次数计。
     final counters = _counters[bookId];
