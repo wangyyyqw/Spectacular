@@ -153,6 +153,10 @@ abstract final class OpfParser {
             href: item.href,
             mediaType: item.mediaType,
             linear: (element.getAttribute('linear') ?? 'yes') != 'no',
+            properties: (element.getAttribute('properties') ?? '')
+                .split(RegExp(r'\s+'))
+                .where((value) => value.isNotEmpty)
+                .toList(growable: false),
           ),
         );
       }

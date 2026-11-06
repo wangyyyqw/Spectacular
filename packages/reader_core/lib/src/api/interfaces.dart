@@ -25,6 +25,9 @@ abstract interface class EpubDocument {
   /// 导入报告（含修复与分级）。
   ImportReport get report;
 
+  /// 多看扩展显示配置；扩展缺失时为普通重排。
+  EpubExtensionConfig get extensionConfig;
+
   /// 读取并解析指定 spine 的内容。
   Future<SpineDocument> readSpine(int spineIndex);
 }

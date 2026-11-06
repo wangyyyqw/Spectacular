@@ -87,6 +87,39 @@ void main() {
     expect(package.meta.identifier, 'urn:uuid:test');
   });
 
+  test('itemref properties 保留多值、引号与属性顺序', () {
+    const xml = '''
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>页属性</dc:title>
+    <dc:language>zh</dc:language>
+    <dc:identifier>x</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c3" href="c3.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref
+      properties='page-spread-left duokan-page-fullscreen'
+      linear='yes'
+      idref='c1'/>
+    <itemref linear="no" idref="c2" properties="duokan-page-fitwindow page-spread-right"/>
+    <itemref idref="c3" properties="  nav  "/>
+  </spine>
+</package>
+''';
+    final package = OpfParser.parse(xml);
+    expect(package.spine.map((item) => item.properties), [
+      <String>['page-spread-left', 'duokan-page-fullscreen'],
+      <String>['duokan-page-fitwindow', 'page-spread-right'],
+      <String>['nav'],
+    ]);
+    expect(package.spine[0].linear, isTrue);
+    expect(package.spine[1].linear, isFalse);
+  });
+
   test('spine 引用缺失的 manifest id 时记录 warning 并跳过', () {
     const xml = '''
 <package version="3.0">

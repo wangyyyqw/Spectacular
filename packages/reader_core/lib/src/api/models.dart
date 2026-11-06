@@ -36,6 +36,7 @@ class SpineItem {
     required this.href,
     required this.mediaType,
     this.linear = true,
+    this.properties = const <String>[],
   });
 
   /// 在 spine 中的序号，从 0 开始。
@@ -49,6 +50,79 @@ class SpineItem {
 
   /// 是否属于线性阅读顺序。
   final bool linear;
+
+  /// OPF `itemref` 的 `properties`（按空格拆分）。
+  final List<String> properties;
+}
+
+/// 多看扩展声明的书籍布局。
+enum EpubLayoutType {
+  /// 普通重排。
+  reflow('reflow'),
+
+  /// 固定版页面。
+  fixedPage('fixed-page'),
+
+  /// 分帧漫画。
+  comicsFrame('comics-frame'),
+
+  /// 横向整页漫画。
+  transverseComic('transverse-comic'),
+
+  /// 纵向连续漫画；本轮只识别，不实现连续滚动。
+  verticalComic('vertical-comic');
+
+  const EpubLayoutType(this.token);
+
+  /// `duokan-extension.xml` 中的布局值。
+  final String token;
+}
+
+/// `META-INF/duokan-extension.xml` 中当前消费的显示配置。
+class EpubExtensionConfig {
+  /// 创建扩展配置。
+  const EpubExtensionConfig({
+    this.layout = EpubLayoutType.reflow,
+    this.pageWidth,
+    this.pageHeight,
+    this.sourceFound = false,
+    this.warnings = const <String>[],
+  });
+
+  /// 未发现扩展文件时的默认值。
+  static const EpubExtensionConfig none = EpubExtensionConfig();
+
+  /// 书籍布局。
+  final EpubLayoutType layout;
+
+  /// 固定版设计页宽；缺失或非法时为 null。
+  final double? pageWidth;
+
+  /// 固定版设计页高；缺失或非法时为 null。
+  final double? pageHeight;
+
+  /// 是否发现扩展文件（即使内容损坏也为 true）。
+  final bool sourceFound;
+
+  /// 解析期的可恢复问题。
+  final List<String> warnings;
+
+  /// 设计页宽高比；宽高必须同时为正数。
+  double? get aspectRatio {
+    final width = pageWidth;
+    final height = pageHeight;
+    if (width == null || height == null || width <= 0 || height <= 0) {
+      return null;
+    }
+    return width / height;
+  }
+
+  /// 是否属于本轮需要显式分流的固定版/漫画布局。
+  bool get isFixedLike =>
+      layout == EpubLayoutType.fixedPage ||
+      layout == EpubLayoutType.comicsFrame ||
+      layout == EpubLayoutType.transverseComic ||
+      layout == EpubLayoutType.verticalComic;
 }
 
 /// 目录项。
