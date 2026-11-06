@@ -1115,7 +1115,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 应用排版设置（P4-21）：立即重排 + 通知外部持久化。
   void _applyOverrides(ReaderOverrides next) {
-    if (next.fingerprint == _overrides.fingerprint) {
+    if (!mounted || next.fingerprint == _overrides.fingerprint) {
       return;
     }
     setState(() => _overrides = next);

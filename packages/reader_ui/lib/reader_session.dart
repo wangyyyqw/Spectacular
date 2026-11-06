@@ -18,6 +18,7 @@ typedef _ContentSizeRequest = ({
   double topInset,
   bool preview,
 });
+typedef _OverrideRequest = ({ReaderOverrides overrides, int generation});
 
 /// 阅读进度：章序号 + 章内页序号。
 class ReaderProgress {
@@ -395,6 +396,8 @@ class ReaderSession extends ChangeNotifier {
   double _contentTopInset = 0;
   _ContentSizeRequest? _pendingContentSize;
   Future<void>? _contentSizeTask;
+  _OverrideRequest? _pendingOverride;
+  Future<void>? _overridesTask;
   Future<void>? _reloadTask;
   ReaderAnchor? _contentSizePreviewAnchor;
   ReaderProgress? _contentSizePreviewProgress;
@@ -456,6 +459,7 @@ class ReaderSession extends ChangeNotifier {
   void cancelPendingLoads() {
     _generation += 1;
     _pendingContentSize = null;
+    _pendingOverride = null;
     _jumpToken += 1;
     _jumpLoadingTitle = null;
     _pager?.cancelPendingNavigation();
@@ -665,10 +669,11 @@ class ReaderSession extends ChangeNotifier {
   Future<void> _waitForReload() async {
     Future<void>? task;
     do {
-      task = _contentSizeTask ?? _reloadTask;
+      task = _overridesTask ?? _contentSizeTask ?? _reloadTask;
       if (task == null) return;
       await task;
-    } while (!_disposed && task != (_contentSizeTask ?? _reloadTask));
+    } while (!_disposed &&
+        task != (_overridesTask ?? _contentSizeTask ?? _reloadTask));
     if (!_disposed) _loading = false;
   }
 
@@ -968,27 +973,59 @@ class ReaderSession extends ChangeNotifier {
   }
 
   /// 应用阅读器设置：指纹变化时重排章节并按锚点恢复位置（§21、§17.4）。
-  Future<void> applyOverrides(ReaderOverrides next) async {
-    if (next.fingerprint == _overrides.fingerprint) {
-      _overrides = next;
-      return;
-    }
-    final currentPage = _pager?.current?.content;
-    final spine = currentPage?.spineIndex ?? 0;
-    final anchor = _anchorOf(currentPage);
-    _overrides = next;
+  ///
+  /// 连续滑动期间只保留最新设置；在途旧排版由 generation 丢弃，避免每个
+  /// 滑块步进都完整测量一次当前章。
+  Future<void> applyOverrides(ReaderOverrides next) {
+    if (_disposed) return Future.value();
     final src = source;
     if (src is! RestylableChapterSource) {
-      _notify();
-      return;
+      if (next.fingerprint != _overrides.fingerprint) {
+        _overrides = next;
+        _notify();
+      }
+      return Future.value();
     }
-    final generation = ++_generation;
-    await (_reloadTask = _reloadChapter(
-      generation: generation,
-      spine: spine,
-      anchor: anchor,
-      prepare: () => src.applyOverrides(next),
-    ));
+    final pending = _pendingOverride;
+    if ((_overridesTask != null &&
+            next.fingerprint == _overrides.fingerprint) ||
+        (pending != null &&
+            next.fingerprint == pending.overrides.fingerprint)) {
+      return _overridesTask ?? Future.value();
+    }
+    if (_overridesTask == null && next.fingerprint == _overrides.fingerprint) {
+      _overrides = next;
+      return Future.value();
+    }
+    _pendingOverride = (overrides: next, generation: ++_generation);
+    _pager?.cancelPendingNavigation();
+    return _overridesTask ??= _drainOverrides();
+  }
+
+  Future<void> _drainOverrides() async {
+    try {
+      while (!_disposed && _pendingOverride != null) {
+        final request = _pendingOverride!;
+        _pendingOverride = null;
+        final currentPage = _pager?.current?.content;
+        final spine = currentPage?.spineIndex ?? 0;
+        final anchor = _anchorOf(currentPage);
+        _overrides = request.overrides;
+        final src = source;
+        if (src is! RestylableChapterSource) {
+          _notify();
+          continue;
+        }
+        await (_reloadTask = _reloadChapter(
+          generation: request.generation,
+          spine: spine,
+          anchor: anchor,
+          prepare: () => src.applyOverrides(request.overrides),
+        ));
+      }
+    } finally {
+      _overridesTask = null;
+    }
   }
 
   /// 应用新的正文区尺寸（旋转/窗口变化，P2-31）。
@@ -1365,6 +1402,7 @@ class ReaderSession extends ChangeNotifier {
   void dispose() {
     _generation += 1; // 丢弃未完成任务
     _pendingContentSize = null;
+    _pendingOverride = null;
     _jumpToken += 1;
     _pager?.cancelPendingNavigation();
     // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
