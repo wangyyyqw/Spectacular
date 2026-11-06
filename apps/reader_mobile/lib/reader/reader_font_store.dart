@@ -26,6 +26,12 @@ class ReaderFontStore {
   static const int maxBytes = 50 * 1024 * 1024;
   static final Map<String, Future<void>> _registrations = {};
 
+  /// 已在本会话校验过的字体文件身份（`路径|字节数|修改时间`）。
+  ///
+  /// 中文字库动辄十几 MB，重复选中同一字体时读盘 + 摘要一次要上百毫秒；
+  /// 文件身份未变说明内容摘要不变，可以跳过重算。
+  static final Map<String, String> _validated = {};
+
   final LibraryStore _library;
   final Future<Directory> Function() _directoryProvider;
   final Future<PlatformFile?> Function() _picker;
@@ -98,12 +104,20 @@ class ReaderFontStore {
     }
     final file = File(font.filePath);
     if (!await file.exists()) throw const FormatException('自定义字体文件已丢失');
-    _checkSize(await file.length());
+    final stat = await file.stat();
+    _checkSize(stat.size);
+    final identity =
+        '${font.filePath}|${stat.size}|${stat.modified.microsecondsSinceEpoch}';
+    final known = _validated[family] == identity;
+    if (known && _registrations.containsKey(family)) {
+      return font;
+    }
     final bytes = await file.readAsBytes();
     _validate(bytes);
-    if ('user_${await compute(fontDigest, bytes)}' != family) {
+    if (!known && 'user_${await compute(fontDigest, bytes)}' != family) {
       throw const FormatException('自定义字体文件已改变，请重新导入');
     }
+    _validated[family] = identity;
     await _register(family, bytes);
     return font;
   }
