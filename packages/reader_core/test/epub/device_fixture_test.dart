@@ -22,6 +22,7 @@ void main() {
   final mixedBytes = read('generated/verify-mixed.epub');
   final toleranceBytes = read('generated/verify-tolerance.epub');
   final smallBytes = read('generated/verify-small.epub');
+  final brokenSpineBytes = read('generated/verify-broken-spine.epub');
   final skip = corpus == null || mixedBytes == null
       ? '本地 fixtures 缺失：先运行 tests/corpus/build_device_fixtures.py'
       : null;
@@ -126,4 +127,20 @@ void main() {
       isTrue,
     );
   });
+
+  test('断链 spine 样本：按 manifest 章节恢复且目录可用', () async {
+    final result = await openEpub(brokenSpineBytes!);
+    expect(result.ok, isTrue, reason: '${result.report.warnings}');
+    final document = result.document!;
+    expect(
+      document.spine.map((item) => item.href).toList(),
+      <String>['ch01.xhtml', 'ch02.xhtml', 'ch03.xhtml'],
+      reason: 'nav 文档不应进入恢复后的阅读顺序',
+    );
+    expect(
+      result.report.warnings.any((w) => w.startsWith('E_SPINE_FALLBACK')),
+      isTrue,
+    );
+    expect(document.toc.length, 3);
+  }, skip: skip);
 }
