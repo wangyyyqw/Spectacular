@@ -15,6 +15,7 @@ void main() {
     ];
     final bytes = buildMultiChapterEpub(chapters: paragraphs);
     final source = await openTestChapterSource(bytes);
+    addTearDown(source.close);
     expect(source.chapterCount, greaterThanOrEqualTo(10));
 
     // 依次加载前 8 章。
@@ -46,6 +47,11 @@ void main() {
       contains('满屏索引 ${EpubChapterSource.chapterIndexCacheLimit}/'),
       reason: '满屏分析结果不随长书无界增长',
     );
+    expect(
+      source.cacheReport,
+      contains('脚注索引 ${EpubChapterSource.chapterIndexCacheLimit}/'),
+      reason: '脚注引用索引只保留最近章节',
+    );
     final whiteSpaceCached = int.parse(
       RegExp(r'空白索引 (\d+)/').firstMatch(source.cacheReport)!.group(1)!,
     );
@@ -63,6 +69,13 @@ void main() {
     expect(
       cachedChapters,
       lessThanOrEqualTo(EpubChapterSource.pageCacheChapterLimit),
+    );
+
+    source.close();
+    expect(
+      source.cacheReport,
+      contains('脚注索引 0/${EpubChapterSource.chapterIndexCacheLimit}'),
+      reason: '关闭章节源时释放脚注索引',
     );
   });
 
