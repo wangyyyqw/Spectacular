@@ -495,6 +495,7 @@ class EpubChapterSource
       '块缓存 ${_blockCache.length}/$blockCacheChapterLimit 章；'
       '文档缓存 ${_displayDocumentCache.length}/$documentCacheChapterLimit 章；'
       '样式章索引 ${_chapterSheetCache.length}/$chapterIndexCacheLimit 章；'
+      '级联准备 ${_chapterCascadeCache.length}/$chapterIndexCacheLimit 组；'
       '满屏索引 ${_fullBleedCache.length}/$chapterIndexCacheLimit 章；'
       '脚注索引 ${_footnoteReferenceCache.length}/$chapterIndexCacheLimit 章；'
       '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
@@ -1004,6 +1005,7 @@ class EpubChapterSource
       _blockCache.clear();
       _blockCacheOrder.clear();
       _clearDisplayDocumentCache();
+      _chapterCascadeCache.clear();
       _fullBleedCache.clear();
     }
   }
@@ -1041,6 +1043,7 @@ class EpubChapterSource
     _blockCache.clear();
     _blockCacheOrder.clear();
     _clearDisplayDocumentCache();
+    _chapterCascadeCache.clear();
     _footnoteReferenceCache.clear();
     _fullBleedCache.clear();
     return true;
@@ -1073,6 +1076,8 @@ class EpubChapterSource
   );
   final BoundedCache<int, List<CssStylesheet>> _chapterSheetCache =
       BoundedCache(chapterIndexCacheLimit);
+  final BoundedCache<_CssSheetSetKey, _ChapterCascadePreparation>
+      _chapterCascadeCache = BoundedCache(chapterIndexCacheLimit);
 
   /// 书内字体（P3-01/02 接入 flat 管线）：@font-face 注册器与引擎族名
   /// 映射；族名同时包含实际字形摘要，隔离同 OPF 路径、同标识的不同书。
@@ -1087,6 +1092,7 @@ class EpubChapterSource
   /// 只认这个引擎族名；书名 CSS 里的 `font-family: "mm"` 不改写就等于整条
   /// font-face 链路白建（真书：章号被画成缺字方块）。
   final Map<String, String> _bookFontEngines = <String, String>{};
+  int _bookFontRevision = 0;
   // local() 别名没有包内字节，不能作为保留内嵌字体的依据。
   final Set<String> _embeddedFontEngines = <String>{};
   final Map<String, FontCoverage> _bookFontCoverages = <String, FontCoverage>{};
@@ -1122,11 +1128,13 @@ class EpubChapterSource
     _imageIntrinsicMiss.clear();
     _cssSheetCache.clear();
     _chapterSheetCache.clear();
+    _chapterCascadeCache.clear();
     _footnoteReferenceCache.clear();
     _fontLoader?.clear();
     _fontFacesSeen.clear();
     _bookFontDirectories = null;
     _bookFontEngines.clear();
+    _bookFontRevision = 0;
     _embeddedFontEngines.clear();
     _bookFontCoverages.clear();
     _resolvedBaseStyle = null;
@@ -1210,15 +1218,24 @@ class EpubChapterSource
   /// 保持原样，让 `font-family` 回退链继续生效。
   void _syncBookFontEngines(BookFontLoader loader, List<CssFontFace> faces) {
     var changed = false;
+    void putEngine(String family, String engine) {
+      final key = family.toLowerCase();
+      final previous = _bookFontEngines[key];
+      if (previous == engine) {
+        return;
+      }
+      changed = true;
+      _bookFontEngines[key] = engine;
+      if (previous != null) {
+        _bookFontCoverages.remove(previous);
+        _embeddedFontEngines.remove(previous);
+      }
+    }
+
     for (final face in faces) {
       final engine = loader.engineFamily(face.family);
       if (engine != null) {
-        final previous = _bookFontEngines[face.family.toLowerCase()];
-        _bookFontEngines[face.family.toLowerCase()] = engine;
-        if (previous != null && previous != engine) {
-          changed = true;
-          _bookFontCoverages.remove(previous);
-        }
+        putEngine(face.family, engine);
         final coverage = loader.coverage(face.family);
         if (coverage != null) {
           _embeddedFontEngines.add(engine);
@@ -1234,7 +1251,7 @@ class EpubChapterSource
             ? FontFamilyAliases.resolve(source.ref)
             : null;
         if (alias != null) {
-          _bookFontEngines[face.family.toLowerCase()] = alias;
+          putEngine(face.family, alias);
           break;
         }
       }
@@ -1245,12 +1262,14 @@ class EpubChapterSource
   void _invalidateBookFontLayouts() {
     // 增量 face 会产生新引擎族名，旧块样式不可继续指向缺字重的旧族。
     _logInvalidation('fontFacesChanged', 'cached', 'updated');
+    _bookFontRevision += 1;
     _layoutCache.clear();
     _pageCache.clear();
     _pageCacheOrder.clear();
     _pageIndexCache.clear();
     _blockCache.clear();
     _blockCacheOrder.clear();
+    _chapterCascadeCache.clear();
   }
 
   bool _hasBookFontGlyph(String family, int codeUnit) {
@@ -1344,6 +1363,44 @@ class EpubChapterSource
       }
     }
     return changed ? rewritten : declarations;
+  }
+
+  /// 同一组作者样式表只准备一次；书籍普遍让数百章共享同一份全局 CSS。
+  _ChapterCascadePreparation _prepareChapterCascade(
+    List<CssStylesheet> sheets,
+  ) {
+    final key = _CssSheetSetKey(sheets, _bookFontRevision);
+    return _chapterCascadeCache.putIfAbsent(key, () {
+      final styledSheets = List<CssStylesheet>.unmodifiable(
+        _rewriteBookFontSheets(sheets),
+      );
+      final auxiliaryRules = List<_AuxiliaryCssRule>.unmodifiable(
+        _prepareAuxiliaryRules(styledSheets),
+      );
+      final pseudoRules = Map<String, List<_AuxiliaryCssRule>>.unmodifiable({
+        for (final pseudo in ['::before', '::after'])
+          pseudo: List<_AuxiliaryCssRule>.unmodifiable(
+            _prepareAuxiliaryRules(styledSheets, pseudo: pseudo),
+          ),
+      });
+      final cascadeRules = CascadeRuleSet([
+        // 列表缩进改由列表容器的级联盒计算；UA 的近似 li 缩进会重复叠加。
+        for (final rule in uaRules())
+          if (!_isUaListIndentRule(rule.rule)) rule,
+        for (var i = 0; i < styledSheets.length; i++)
+          ...CascadeRule.fromStylesheet(
+            styledSheets[i],
+            origin: CascadeOrigin.author,
+            startOrder: 1000 + i * 10000,
+          ),
+      ]);
+      return _ChapterCascadePreparation(
+        styledSheets: styledSheets,
+        auxiliaryRules: auxiliaryRules,
+        pseudoRules: pseudoRules,
+        cascadeRules: cascadeRules,
+      );
+    });
   }
 
   /// `font-family: "mm", "楷体", serif` → 逐个族名替换为引擎族名。
@@ -4171,15 +4228,12 @@ class EpubChapterSource
     final sheets = _chapterStylesheets(spineIndex);
     await _ensureBookFonts(sheets);
     if (_closed) throw StateError('章节来源已关闭');
-    // 书内 @font-face 的族名改写（P0）：注册后把作者声明里的书内字族换成
-    // 引擎族名 `bi_<bookId>_<族>`，改写在级联之前，块样式与行内 run 样式
-    // 都自然拿到引擎族名。
-    final styledSheets = _rewriteBookFontSheets(sheets);
-    final auxiliaryRules = _prepareAuxiliaryRules(styledSheets);
-    final pseudoRules = {
-      for (final pseudo in ['::before', '::after'])
-        pseudo: _prepareAuxiliaryRules(styledSheets, pseudo: pseudo),
-    };
+    // 字体改写、辅助规则和级联索引随样式表组合复用；书籍的数百章通常
+    // 共享同一份全局 CSS。
+    final preparedStyles = _prepareChapterCascade(sheets);
+    final styledSheets = preparedStyles.styledSheets;
+    final auxiliaryRules = preparedStyles.auxiliaryRules;
+    final pseudoRules = preparedStyles.pseudoRules;
     // ---------- 内容生成（W20）：计数器 / 引号 / object-fit ----------
     /// CSS 计数器状态（§12.4）：扁平管线按文档序遍历，用单层映射近似
     /// 树作用域（真书里章节编号几乎都是 `h1 { counter-increment: chapter }`
@@ -4434,19 +4488,7 @@ class EpubChapterSource
       );
     }
 
-    final cascadeRules = CascadeRuleSet([
-      // 列表缩进改由列表容器的级联盒计算（g）：UA 里的近似
-      // `li { margin-left: 40px }` 会盖掉作者 `ul { padding-left: 28px }`，
-      // 且重复叠加，这里整条跳过（其他 UA 规则照旧）。
-      for (final rule in uaRules())
-        if (!_isUaListIndentRule(rule.rule)) rule,
-      for (var i = 0; i < styledSheets.length; i++)
-        ...CascadeRule.fromStylesheet(
-          styledSheets[i],
-          origin: CascadeOrigin.author,
-          startOrder: 1000 + i * 10000,
-        ),
-    ]);
+    final cascadeRules = preparedStyles.cascadeRules;
 
     final chainStyleCache = <String, ComputedStyle>{};
     // 只给候选规则依赖结构位置的节点加身份；普通同形段落仍可共享样式。
@@ -8343,6 +8385,63 @@ typedef _InlineStyleContext = ({
   double width,
   String? readerFontFamily,
 });
+
+/// 作者样式表组合的身份键。
+///
+/// 加载器会给每章包装新的 [CssStylesheet] 外壳，但外链 CSS 的规则与字体
+/// 列表仍复用同一解析结果；按键内数据身份比较可跨章命中共用缓存。
+class _CssSheetSetKey {
+  _CssSheetSetKey(List<CssStylesheet> sheets, this.fontRevision)
+    : rules = List<List<CssRule>>.unmodifiable(
+        sheets.map((sheet) => sheet.rules),
+      ),
+      fontFaces = List<List<CssFontFace>>.unmodifiable(
+        sheets.map((sheet) => sheet.fontFaces),
+      );
+
+  final List<List<CssRule>> rules;
+  final List<List<CssFontFace>> fontFaces;
+  final int fontRevision;
+
+  @override
+  int get hashCode => Object.hash(
+    fontRevision,
+    Object.hashAll(rules.map(identityHashCode)),
+    Object.hashAll(fontFaces.map(identityHashCode)),
+  );
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! _CssSheetSetKey ||
+        fontRevision != other.fontRevision ||
+        rules.length != other.rules.length ||
+        fontFaces.length != other.fontFaces.length) {
+      return false;
+    }
+    for (var i = 0; i < rules.length; i++) {
+      if (!identical(rules[i], other.rules[i]) ||
+          !identical(fontFaces[i], other.fontFaces[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+/// 一组作者样式表在章节排版前的派生结果。
+class _ChapterCascadePreparation {
+  const _ChapterCascadePreparation({
+    required this.styledSheets,
+    required this.auxiliaryRules,
+    required this.pseudoRules,
+    required this.cascadeRules,
+  });
+
+  final List<CssStylesheet> styledSheets;
+  final List<_AuxiliaryCssRule> auxiliaryRules;
+  final Map<String, List<_AuxiliaryCssRule>> pseudoRules;
+  final CascadeRuleSet cascadeRules;
+}
 
 typedef _AuxiliaryCssRule = ({
   SelectorList selectors,
