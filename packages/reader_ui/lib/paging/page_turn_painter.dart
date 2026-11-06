@@ -9,11 +9,13 @@ import 'page_turn_mode.dart';
 /// 每帧只绘制缓存位图和变换，正文不会重新布局。
 class PageTurnPainter extends CustomPainter {
   PageTurnPainter(this.controller, {required this.paperColor})
-    : super(repaint: controller);
+    : _besselPainter = BesselPainter(paperColor: paperColor),
+      super(repaint: controller);
 
   final PageTurnController controller;
   final Color paperColor;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
+  final BesselPainter _besselPainter;
 
   /// 堆叠覆盖中下一页只跟随当前页移动的一小段，形成搓纸视差。
   static const _coverStackShift = 0.08;
@@ -53,8 +55,13 @@ class PageTurnPainter extends CustomPainter {
     }
     final saveCount = canvas.getSaveCount();
     try {
-      BesselPainter(paperColor: paperColor)
-          .paint(canvas, geometry, target, origin, rtl: !controller.fromRight);
+      _besselPainter.paint(
+        canvas,
+        geometry,
+        target,
+        origin,
+        rtl: !controller.fromRight,
+      );
     } on StateError {
       canvas.restoreToCount(saveCount);
       _besselFallback(canvas, size, origin, target);

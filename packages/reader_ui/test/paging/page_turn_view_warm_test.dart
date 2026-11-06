@@ -146,4 +146,57 @@ void main() {
     expect(key.currentState!.snapshotCount, 3);
     session.dispose();
   });
+
+  testWidgets('切后台释放翻页位图，回前台后再预热', (tester) async {
+    final source = _Source();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'warm-lifecycle',
+      const ReaderProgress(spineIndex: 1, pageIndex: 0),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'warm-lifecycle',
+    );
+    await session.open();
+    final key = GlobalKey<PageTurnViewState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 320,
+          height: 480,
+          child: PageTurnView(
+            key: key,
+            session: session,
+            mode: PageTurnMode.cover,
+            revision: 1,
+            paperBuilder: (page, size) => ColoredBox(
+              color: const Color(0xFFFFFFFF),
+              child: Text('${page.spineIndex}'),
+            ),
+            paperColor: const Color(0xFFFFFFFF),
+          ),
+        ),
+      ),
+    );
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(key.currentState!.snapshotCount, 3);
+
+    key.currentState!.releaseCachedBitmaps();
+    await tester.pump();
+    expect(key.currentState!.snapshotCount, 0);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(key.currentState!.snapshotCount, 0);
+
+    key.currentState!.resumeWarmup();
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(key.currentState!.snapshotCount, 3);
+    session.dispose();
+  });
 }
