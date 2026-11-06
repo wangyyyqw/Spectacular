@@ -343,6 +343,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 目录抽屉里的二级页签（内容/书签/笔记/搜索）。
   _DrawerTab _drawerTab = _DrawerTab.content;
 
+  /// 是否有浮层压在正文之上：此时系统返回键只关闭浮层，不退出阅读页。
+  bool get _hasOverlayOpen =>
+      _editingMargins ||
+      _editingTapZones ||
+      _menuOpen ||
+      _drawer != null ||
+      _selection != null;
+
   /// 已聚焦过的页（P4-28：每页只自动聚焦一次）。
   String? _lastFocusedPageKey;
 
@@ -870,6 +878,36 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
     });
+  }
+
+  /// 系统返回键：逐层关闭正文之上的浮层，全部关闭后下一次返回退出阅读页。
+  void _handleBackPressed() {
+    if (_editingMargins) {
+      setState(() {
+        _clearMarginPreview();
+        _editingMargins = false;
+        _finishingMarginEdit = true;
+        _previewMargins = null;
+      });
+      return;
+    }
+    if (_editingTapZones) {
+      setState(() => _editingTapZones = false);
+      return;
+    }
+    if (_selection != null) {
+      _clearSelection();
+      return;
+    }
+    _dismissReaderMenu();
+  }
+
+  /// 菜单里的“返回书架”：这是主动退出，直接出栈，不被返回键拦截逻辑挡住。
+  void _exitReader() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   /// 打开九宫格点击区域编辑页。
@@ -1713,7 +1751,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       unawaited(_editAnnotation(annotation));
       return true;
     }
-    return _openFootnoteInPage(page, pagePosition);
+    if (_openFootnoteInPage(page, pagePosition)) {
+      return true;
+    }
+    // 有选区时点击正文只取消选中：既不翻页，也不打开阅读菜单。
+    if (_selection != null) {
+      _clearSelection();
+      return true;
+    }
+    return false;
   }
 
   /// 打开高亮编辑弹层：组合调整颜色、样式、笔记或删除标注。
@@ -2155,47 +2201,53 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _session,
-      builder: (context, _) {
-        // 背景铺满窗口（P8-10 收尾）：加载骨架/错误态/正文页统一以主题
-        // 背景色打底，避免 padding 外区域透出窗口黑底。
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            _scheduleContentSize(
-              Size(constraints.maxWidth, constraints.maxHeight),
-            );
-            return ColoredBox(
-              color: _effectiveTheme?.background ?? widget.background,
-              child: Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: _buildBody(context),
-                  ),
-                  // 编辑器不随章内页码切换重建，重排期间同一次拖动可以继续。
-                  if (_editingMargins || _finishingMarginEdit)
-                    const ModalBarrier(
-                      key: ValueKey<String>('margin-pagination-barrier'),
-                      dismissible: false,
-                    ),
-                  if (_editingMargins)
-                    Positioned.fill(child: _buildMarginEditor()),
-                  if (_relocatingAnnotation != null ||
-                      _relocatingBookmark != null)
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: _buildRelocationBar(),
-                    ),
-                ],
-              ),
-            );
-          },
-        );
+    return PopScope(
+      canPop: !_hasOverlayOpen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBackPressed();
       },
+      child: AnimatedBuilder(
+        animation: _session,
+        builder: (context, _) {
+          // 背景铺满窗口（P8-10 收尾）：加载骨架/错误态/正文页统一以主题
+          // 背景色打底，避免 padding 外区域透出窗口黑底。
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              _scheduleContentSize(
+                Size(constraints.maxWidth, constraints.maxHeight),
+              );
+              return ColoredBox(
+                color: _effectiveTheme?.background ?? widget.background,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      child: _buildBody(context),
+                    ),
+                    // 编辑器不随章内页码切换重建，重排期间同一次拖动可以继续。
+                    if (_editingMargins || _finishingMarginEdit)
+                      const ModalBarrier(
+                        key: ValueKey<String>('margin-pagination-barrier'),
+                        dismissible: false,
+                      ),
+                    if (_editingMargins)
+                      Positioned.fill(child: _buildMarginEditor()),
+                    if (_relocatingAnnotation != null ||
+                        _relocatingBookmark != null)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: _buildRelocationBar(),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -2398,9 +2450,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               bookTitle: widget.bookTitle,
               progress: _bookProgressOf(page),
               chapterLabel: _chapterLabelOf(page),
-              onBack: () {
-                Navigator.of(context).maybePop();
-              },
+              onBack: _exitReader,
               onToggleDayNight: _toggleDayNight,
               nightMode:
                   (_theme ?? ReaderTheme.white).background.computeLuminance() <
