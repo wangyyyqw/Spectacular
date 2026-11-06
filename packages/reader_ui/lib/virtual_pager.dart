@@ -35,20 +35,30 @@ class VirtualPager {
 
   /// 从已加载章节中提供的前后邻页数，不触发额外整章排版。
   final int prefetchRadius;
+
+  /// 导航会话保留的章节页窗口；与章节源分页缓存保持同一上限。
+  static const int loadedSpineLimit = 5;
+
   final Map<int, List<PageContent>> _spinePages = {};
+  final List<int> _spineOrder = <int>[];
+  final Map<int, int> _spinePageCounts = <int, int>{};
+  final Map<int, int> _pageOffsets = <int, int>{};
   final Map<int, Future<void>> _pendingLoads = {};
-  final Map<(int, int), int> _realToVirtual = {};
   (int, int)? _currentReal;
   bool _initialized = false;
   int _navigationToken = 0;
+  int _mappedPageCount = 0;
+  int? _maxMappedSpine;
 
   bool get isInitialized => _initialized;
   Set<int> get loadedSpines => Set<int>.unmodifiable(_spinePages.keys);
   Map<int, List<PageContent>> get spinePages => Map.unmodifiable(_spinePages);
-  int get currentVirtualPage => _realToVirtual[_currentReal] ?? 0;
+  int get currentVirtualPage => _currentReal == null
+      ? 0
+      : (_pageOffsets[_currentReal!.$1] ?? 0) + _currentReal!.$2;
   VirtualPage? get current =>
       _currentReal == null ? null : _pageAt(_currentReal!);
-  int get mappedPageCount => _realToVirtual.length;
+  int get mappedPageCount => _mappedPageCount;
 
   /// 未加载邻章可能有内容；导航时才确认并跳过空章。
   bool get hasPrevious => _hasPageInDirection(-1);
@@ -114,7 +124,7 @@ class VirtualPager {
       return false;
     }
     _navigationToken++;
-    _currentReal = (target.spineIndex, target.pageIndex);
+    _commitCurrent((target.spineIndex, target.pageIndex));
     return true;
   }
 
@@ -161,18 +171,23 @@ class VirtualPager {
       final index = page < 0
           ? pages.length - 1
           : page.clamp(0, pages.length - 1);
-      _currentReal = (spine, index);
+      _commitCurrent((spine, index));
       return true;
     }
     return false;
   }
 
   Future<void> _loadSpine(int spine) async {
-    if (_spinePages.containsKey(spine)) return;
+    if (_spinePages.containsKey(spine)) {
+      _touchSpine(spine);
+      return;
+    }
     final pending = _pendingLoads.putIfAbsent(spine, () async {
       final pages = await loader(spine);
       _spinePages[spine] = List<PageContent>.unmodifiable(pages);
-      _rebuildMapping();
+      _recordPageCount(spine, pages.length);
+      _touchSpine(spine);
+      _trimSpinePages();
     });
     try {
       await pending;
@@ -183,19 +198,55 @@ class VirtualPager {
     }
   }
 
-  /// 映射扩展时当前位置仍以真实章页保存，不随前方新增章节漂移。
-  void _rebuildMapping() {
-    _realToVirtual.clear();
-    final spines = _spinePages.keys.toList()..sort();
-    for (final spine in spines) {
-      for (var page = 0; page < _spinePages[spine]!.length; page++) {
-        _realToVirtual[(spine, page)] = _realToVirtual.length;
-      }
+  void _commitCurrent((int, int) position) {
+    _currentReal = position;
+    _touchSpine(position.$1);
+    _trimSpinePages();
+  }
+
+  void _touchSpine(int spine) {
+    _spineOrder.remove(spine);
+    _spineOrder.add(spine);
+  }
+
+  void _trimSpinePages() {
+    final currentSpine = _currentReal?.$1;
+    while (_spinePages.length > loadedSpineLimit) {
+      final removeAt = _spineOrder.indexWhere((spine) => spine != currentSpine);
+      if (removeAt < 0) break;
+      _spinePages.remove(_spineOrder.removeAt(removeAt));
     }
   }
 
+  void _recordPageCount(int spine, int count) {
+    final previous = _spinePageCounts[spine];
+    if (previous == count && _pageOffsets.containsKey(spine)) return;
+    final maxMapped = _maxMappedSpine;
+    if (previous == null && (maxMapped == null || spine > maxMapped)) {
+      _spinePageCounts[spine] = count;
+      _pageOffsets[spine] = _mappedPageCount;
+      _mappedPageCount += count;
+      _maxMappedSpine = spine;
+      return;
+    }
+    _spinePageCounts[spine] = count;
+    _rebuildMapping();
+  }
+
+  /// 映射扩展时当前位置仍以真实章页保存，不随前方新增章节漂移。
+  void _rebuildMapping() {
+    _pageOffsets.clear();
+    _mappedPageCount = 0;
+    final spines = _spinePageCounts.keys.toList()..sort();
+    for (final spine in spines) {
+      _pageOffsets[spine] = _mappedPageCount;
+      _mappedPageCount += _spinePageCounts[spine]!;
+    }
+    _maxMappedSpine = spines.isEmpty ? null : spines.last;
+  }
+
   VirtualPage _pageAt((int, int) position) => VirtualPage(
-    virtualIndex: _realToVirtual[position]!,
+    virtualIndex: (_pageOffsets[position.$1] ?? 0) + position.$2,
     spineIndex: position.$1,
     pageIndex: position.$2,
     content: _spinePages[position.$1]![position.$2],
