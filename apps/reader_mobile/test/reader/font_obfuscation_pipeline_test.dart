@@ -79,6 +79,45 @@ p {font-family: incremental;}</style></head><body><p>中文书内字体测试</p
   return ZipEncoder().encodeBytes(archive);
 }
 
+Uint8List _independentFontBook(Uint8List regular, Uint8List bold) {
+  final archive = Archive();
+  void add(String path, List<int> bytes) =>
+      archive.addFile(ArchiveFile(path, bytes.length, bytes));
+  void text(String path, String content) => add(path, utf8.encode(content));
+  text('mimetype', 'application/epub+zip');
+  text('META-INF/container.xml', '''
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+<rootfiles><rootfile full-path="OEBPS/content.opf"
+ media-type="application/oebps-package+xml"/></rootfiles></container>''');
+  text(
+    'OEBPS/content.opf',
+    '''
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="id">font-independent</dc:identifier><dc:title>独立字体</dc:title>
+<dc:language>zh</dc:language></metadata><manifest>
+<item id="a" href="Text/a.xhtml" media-type="application/xhtml+xml"/>
+<item id="b" href="Text/b.xhtml" media-type="application/xhtml+xml"/>
+</manifest><spine><itemref idref="a"/><itemref idref="b"/></spine></package>''',
+  );
+  for (final entry in {
+    'a': (name: 'first', weight: 400),
+    'b': (name: 'second', weight: 700),
+  }.entries) {
+    text(
+      'OEBPS/Text/${entry.key}.xhtml',
+      '''
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>独立字体</title><style>
+@font-face {font-family: ${entry.value.name}; src: url("../Fonts/${entry.value.name}.otf");
+font-weight: ${entry.value.weight};}
+p {font-family: ${entry.value.name};}</style></head><body><p>中文书内字体测试</p></body></html>''',
+    );
+  }
+  add('OEBPS/Fonts/first.otf', regular);
+  add('OEBPS/Fonts/second.otf', bold);
+  return ZipEncoder().encodeBytes(archive);
+}
+
 Uint8List _encryptedBook(
   Uint8List font,
   FontObfuscationAlgorithm algorithm,
@@ -238,6 +277,31 @@ void main() {
         (entry) => entry.startsWith('fontFacesChanged'),
       ),
       isTrue,
+    );
+  });
+
+  test('后续章节新增无关字族时保留已读章节分页缓存', () async {
+    final source = await EpubChapterSource.open(
+      _independentFontBook(
+        font,
+        File('assets/test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
+      ),
+    );
+    addTearDown(source.close);
+    final first = await source.loadChapter(0);
+    final second = await source.loadChapter(1);
+    expect(
+      second.first.slices.first.block.style!.fontFamily,
+      isNot(first.first.slices.first.block.style!.fontFamily),
+    );
+
+    final reloaded = await source.loadChapter(0);
+    expect(reloaded, same(first), reason: '新增无关字族不应让旧章重新排版');
+    expect(
+      source.invalidationLog.where(
+        (entry) => entry.startsWith('fontFacesChanged'),
+      ),
+      hasLength(2),
     );
   });
 

@@ -11,6 +11,31 @@ class CascadeRule {
   CascadeRule({required this.rule, required this.origin, this.order = 0})
     : selectors = SelectorParser.parse(rule.selector);
 
+  CascadeRule._({
+    required this.rule,
+    required this.selectors,
+    required this.origin,
+    required this.order,
+  });
+
+  /// 复用已解析选择器，只替换声明。
+  ///
+  /// 字体注册完成前后需要以同一组作者 CSS 重新生成规则；重新解析数千个
+  /// 选择器会拖慢首章排版，声明替换不应改变选择器 AST。
+  CascadeRule withDeclarations(List<CssDeclaration> declarations) {
+    if (identical(declarations, rule.declarations)) return this;
+    return CascadeRule._(
+      rule: CssRule(
+        selector: rule.selector,
+        declarations: declarations,
+        media: rule.media,
+      ),
+      selectors: selectors,
+      origin: origin,
+      order: order,
+    );
+  }
+
   /// 从多规则样式表批量创建。
   ///
   /// 作者 origin（P7-17）：私有钩子过滤——`-reader-*` 属性剥除、
