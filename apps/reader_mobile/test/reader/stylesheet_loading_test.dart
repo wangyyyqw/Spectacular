@@ -7,7 +7,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
-Uint8List _book(String head, Map<String, String> styles) {
+Uint8List _book(
+  String head,
+  Map<String, String> styles, {
+  int chapterCount = 1,
+}) {
+  assert(chapterCount > 0);
+  final chapterNames = [
+    for (var i = 0; i < chapterCount; i++) i == 0 ? 'c.xhtml' : 'c$i.xhtml',
+  ];
   final files = <String, String>{
     'mimetype': 'application/epub+zip',
     'META-INF/container.xml':
@@ -20,11 +28,15 @@ Uint8List _book(String head, Map<String, String> styles) {
         'xmlns:dc="http://purl.org/dc/elements/1.1/">'
         '<dc:identifier id="b">audit</dc:identifier><dc:title>审计</dc:title>'
         '<dc:language>zh</dc:language></metadata><manifest>'
-        '<item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>'
+        '${chapterNames.indexed.map((e) => '<item id="c${e.$1}" href="${e.$2}" media-type="application/xhtml+xml"/>').join()}'
         '${styles.keys.indexed.map((e) => '<item id="s${e.$1}" href="${e.$2}" media-type="text/css"/>').join()}'
-        '</manifest><spine><itemref idref="c"/></spine></package>',
-    'OEBPS/c.xhtml':
-        '<html xmlns="http://www.w3.org/1999/xhtml"><head>$head</head><body><p>审计样式</p></body></html>',
+        '</manifest><spine>'
+        '${chapterNames.indexed.map((e) => '<itemref idref="c${e.$1}"/>').join()}'
+        '</spine></package>',
+    for (final chapterName in chapterNames)
+      'OEBPS/$chapterName':
+          '<html xmlns="http://www.w3.org/1999/xhtml"><head>$head</head>'
+          '<body><p>审计样式 $chapterName</p></body></html>',
     for (final e in styles.entries) 'OEBPS/${e.key}': e.value,
   };
   final archive = Archive();
@@ -156,5 +168,32 @@ void main() {
     expect(await _colorOf(source), const Color(0xffff0000));
     await source.applyContentSize(width: 700, height: 500);
     expect(await _colorOf(source), const Color(0xff0000ff));
+  });
+
+  test('共享作者样式跨章节复用准备结果且每章样式正确', () async {
+    final source = await EpubChapterSource.open(
+      _book(
+        '<link rel="stylesheet" href="s.css"/>',
+        {'s.css': 'p { color: red; }'},
+        chapterCount: 3,
+      ),
+      contentWidth: 300,
+      contentHeight: 500,
+    );
+    await source.applyOverrides(const ReaderOverrides());
+
+    for (var spine = 0; spine < 3; spine++) {
+      final pages = await source.loadChapter(spine);
+      final color = pages
+          .expand((page) => page.slices)
+          .firstWhere(
+            (slice) => slice.block.layout.text.contains('审计样式'),
+          )
+          .block
+          .style!
+          .color;
+      expect(color, const Color(0xffff0000));
+    }
+    expect(source.cacheReport, contains('级联准备 1/'));
   });
 }
