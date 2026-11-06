@@ -28,13 +28,21 @@ enum _ReviewSort {
 /// 书评页：按书架展示已写书评与待写书目，支持评分、正文编辑和删除。
 class ReviewsPage extends StatefulWidget {
   /// 创建页面。
-  const ReviewsPage({super.key, required this.library, this.reviewStore});
+  const ReviewsPage({
+    super.key,
+    required this.library,
+    this.reviewStore,
+    this.active = true,
+  });
 
   /// 书架存储。
   final LibraryStore library;
 
   /// 可注入的书评存储；为空时使用书架数据库实现。
   final BookReviewStore? reviewStore;
+
+  /// 当前 Tab 是否可见；隐藏时只标记待刷新。
+  final bool active;
 
   @override
   State<ReviewsPage> createState() => _ReviewsPageState();
@@ -49,6 +57,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   bool _searching = false;
   String _query = '';
   int _reloadToken = 0;
+  bool _dirty = true;
 
   BookReviewStore? get _store =>
       widget.reviewStore ?? widget.library.reviewStore();
@@ -56,15 +65,29 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void initState() {
     super.initState();
-    widget.library.addListener(_reload);
-    _reload();
+    widget.library.addListener(_onLibraryChanged);
+    if (widget.active) _reload();
   }
 
   @override
   void dispose() {
-    widget.library.removeListener(_reload);
+    widget.library.removeListener(_onLibraryChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(ReviewsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active && _dirty) _reload();
+  }
+
+  void _onLibraryChanged() {
+    if (!widget.active) {
+      _dirty = true;
+      return;
+    }
+    _reload();
   }
 
   void _toggleSearch() {
@@ -96,6 +119,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _reload() async {
+    _dirty = false;
     final token = ++_reloadToken;
     final books = await widget.library.list();
     final store = _store;

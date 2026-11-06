@@ -43,8 +43,9 @@ class _HomeShellState extends State<HomeShell> {
         library: widget.library,
         progressStore: widget.progressStore,
         refreshToken: _statsRefreshToken,
+        active: _index == 1,
       ),
-      ReviewsPage(library: widget.library),
+      ReviewsPage(library: widget.library, active: _index == 2),
       ProfilePage(library: widget.library),
     ];
     return Scaffold(

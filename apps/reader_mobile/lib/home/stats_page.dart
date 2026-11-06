@@ -31,6 +31,7 @@ class StatsPage extends StatefulWidget {
     required this.progressStore,
     this.sessionStore,
     this.refreshToken = 0,
+    this.active = true,
   });
 
   /// 书架存储。
@@ -45,6 +46,9 @@ class StatsPage extends StatefulWidget {
   /// 外部切换页面时递增，用于重新读取阅读进度和会话数据。
   final int refreshToken;
 
+  /// 当前 Tab 是否可见；隐藏时只标记待刷新，避免后台页面重复查询。
+  final bool active;
+
   @override
   State<StatsPage> createState() => _StatsPageState();
 }
@@ -53,6 +57,7 @@ class _StatsPageState extends State<StatsPage> {
   late final BookOpener _bookOpener;
   _LibraryStats? _stats;
   int _reloadToken = 0;
+  bool _dirty = true;
 
   ReadingSessionStore? get _sessionStore =>
       widget.sessionStore ?? widget.library.readingSessionStore();
@@ -60,33 +65,47 @@ class _StatsPageState extends State<StatsPage> {
   @override
   void initState() {
     super.initState();
-    widget.library.addListener(_reload);
+    widget.library.addListener(_onLibraryChanged);
     _bookOpener = BookOpener(
       library: widget.library,
       progressStore: widget.progressStore,
     );
-    _reload();
+    if (widget.active) _reload();
   }
 
   @override
   void dispose() {
-    widget.library.removeListener(_reload);
+    widget.library.removeListener(_onLibraryChanged);
     super.dispose();
   }
 
   @override
   void didUpdateWidget(StatsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.refreshToken != widget.refreshToken ||
+    final becameActive = !oldWidget.active && widget.active;
+    if ((becameActive && _dirty) ||
+        oldWidget.refreshToken != widget.refreshToken ||
         oldWidget.sessionStore != widget.sessionStore) {
       _reload();
     }
   }
 
+  void _onLibraryChanged() {
+    if (!widget.active) {
+      _dirty = true;
+      return;
+    }
+    _reload();
+  }
+
   Future<void> _reload() async {
+    _dirty = false;
     final token = ++_reloadToken;
     final books = await widget.library.list();
     final progress = await widget.progressStore.snapshot();
+    final weightsByBook = await widget.library.progressWeightsForBooks(
+      books.map((book) => book.id),
+    );
     final sessions =
         await (_sessionStore?.list() ??
             Future<List<ReadingSession>>.value(const <ReadingSession>[]));
@@ -112,11 +131,11 @@ class _StatsPageState extends State<StatsPage> {
     var percentSum = 0;
     var percentCount = 0;
     for (final book in books) {
-      final weights = await widget.library.progressWeights(book.id);
+      final bookWeights = weightsByBook[book.id];
       final current = progress[book.id];
       int? percent;
-      if (current != null && weights.total > 0) {
-        percent = weights.percentInt(current.spineIndex);
+      if (current != null && bookWeights != null && bookWeights.total > 0) {
+        percent = bookWeights.percentInt(current.spineIndex);
         percentSum += percent;
         percentCount += 1;
       }
@@ -126,7 +145,7 @@ class _StatsPageState extends State<StatsPage> {
           finished += 1;
         }
       }
-      totalCharacters += weights.totalCharacters;
+      totalCharacters += bookWeights?.totalCharacters ?? 0;
       rows.add(
         _BookReadingStat(book: book, progress: current, percent: percent),
       );
