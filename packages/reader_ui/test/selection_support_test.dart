@@ -120,6 +120,14 @@ void main() {
     );
   });
 
+  test('仅包含空白的选区不生成记录', () {
+    final page = _page([_block('abc def')]);
+    expect(
+      ReaderSelectionSupport.capture([page], _select(page, start: 3, end: 4)),
+      isNull,
+    );
+  });
+
   test('跨块选区中间存在无法映射的文字时不创建半成品', () {
     final page = _page([
       _block('abc'),

@@ -47,7 +47,7 @@ abstract final class ReaderSelectionSupport {
       return null;
     }
     final quote = _quoteOf(blocks, start, end);
-    if (quote == null || quote.isEmpty) return null;
+    if (quote == null || quote.trim().isEmpty) return null;
     return _withContext(selection, cfi, quote);
   }
 
