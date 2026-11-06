@@ -19,6 +19,30 @@ List<FootnoteAnchor> _resolve(
 }
 
 void main() {
+  test('普通章节快速跳过注释解析，已知入口不被漏判', () {
+    expect(
+      FootnoteParser.mayContainReferences(
+        '<html><body><p>没有任何注释入口的普通正文。</p></body></html>',
+      ),
+      isFalse,
+    );
+    for (final xhtml in <String>[
+      '<p><a href="notes.xhtml#n1">1</a></p>',
+      '<p><a title="注释正文">1</a></p>',
+      '<p><a data-wr-footernote="Images/n1.png">1</a></p>',
+      '<p><a reader_footer_note="注释正文">1</a></p>',
+      '<p><a js_readerFooterNote="注释正文">1</a></p>',
+      '<p><a data-reeden-footnote-body="注释正文">1</a></p>',
+      '<p><span zy-footnote="注释正文">1</span></p>',
+      '<p><img class="duokan-footnote" alt="注释正文"/></p>',
+      '<p><img class="qqreader-footnote" alt="注释正文"/></p>',
+      '<p><img class="zhangyue-footnote" alt="注释正文"/></p>',
+      '<p><img class="epub-footnote" alt="注释正文"/></p>',
+    ]) {
+      expect(FootnoteParser.mayContainReferences(xhtml), isTrue, reason: xhtml);
+    }
+  });
+
   test('EPUB3 noteref + aside：直接命中注释容器', () {
     final source = _doc('''
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
