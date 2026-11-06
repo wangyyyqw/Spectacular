@@ -6,7 +6,7 @@ import 'annotation.dart';
 
 /// 标注样式的统一绘制入口。
 abstract final class AnnotationStylePainter {
-  /// 按样式绘制底色或下划线。
+  /// 按样式绘制阅读标记；文字染色由正文绘制管线处理。
   static void paint(
     Canvas canvas,
     Rect rect, {
@@ -15,38 +15,101 @@ abstract final class AnnotationStylePainter {
     double fillAlpha = 0.32,
     double strokeAlpha = 0.9,
     double strokeWidth = 1.8,
+    double? baseline,
+    bool vertical = false,
   }) {
-    if (rect.isEmpty) {
+    if (rect.isEmpty || style == ReaderAnnotationStyle.tint) return;
+    if (vertical) {
+      canvas.save();
+      canvas.translate(rect.right, rect.top);
+      canvas.rotate(math.pi / 2);
+      paint(
+        canvas,
+        Rect.fromLTWH(0, 0, rect.height, rect.width),
+        color: color,
+        style: style,
+        fillAlpha: fillAlpha,
+        strokeAlpha: strokeAlpha,
+        strokeWidth: strokeWidth,
+      );
+      canvas.restore();
       return;
     }
-    if (style == ReaderAnnotationStyle.background) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(2)),
+    if (style == ReaderAnnotationStyle.background ||
+        style == ReaderAnnotationStyle.halfBackground) {
+      final fill = style == ReaderAnnotationStyle.halfBackground
+          ? Rect.fromLTRB(rect.left, rect.center.dy, rect.right, rect.bottom)
+          : rect;
+      canvas.drawRect(
+        fill,
         Paint()..color = color.withValues(alpha: fillAlpha),
       );
       return;
     }
+    _paintLines(
+      canvas,
+      rect,
+      color: color,
+      style: style,
+      opacity: strokeAlpha,
+      strokeWidth: strokeWidth,
+      baseline: baseline,
+    );
+  }
+
+  static void _paintLines(
+    Canvas canvas,
+    Rect rect, {
+    required Color color,
+    required ReaderAnnotationStyle style,
+    required double opacity,
+    required double strokeWidth,
+    double? baseline,
+  }) {
     final paint = Paint()
-      ..color = color.withValues(alpha: strokeAlpha)
+      ..color = color.withValues(alpha: opacity)
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
-    final baseline = rect.bottom - strokeWidth / 2;
+    final lineY = baseline ?? rect.bottom - strokeWidth / 2;
     switch (style) {
       case ReaderAnnotationStyle.background:
+      case ReaderAnnotationStyle.halfBackground:
+      case ReaderAnnotationStyle.tint:
         return;
       case ReaderAnnotationStyle.underline:
-        canvas.drawLine(
-          Offset(rect.left, baseline),
-          Offset(rect.right, baseline),
-          paint,
-        );
+        _line(canvas, rect, lineY, paint);
       case ReaderAnnotationStyle.wavyUnderline:
-        canvas.drawPath(_wavyPath(rect, baseline, strokeWidth), paint);
+        canvas.drawPath(_wavyPath(rect, lineY, strokeWidth), paint);
       case ReaderAnnotationStyle.dashedUnderline:
-        canvas.drawPath(_dashedPath(rect, baseline), paint);
+        canvas.drawPath(_dashedPath(rect, lineY), paint);
+      case ReaderAnnotationStyle.doubleUnderline:
+        final gap = math.max(2.0, strokeWidth * 1.6);
+        _line(canvas, rect, lineY - gap, paint);
+        _line(canvas, rect, lineY, paint);
+      case ReaderAnnotationStyle.dottedUnderline:
+        for (
+          var position = rect.left;
+          position <= rect.right;
+          position += strokeWidth * 2.5
+        ) {
+          canvas.drawCircle(
+            Offset(position, lineY),
+            strokeWidth / 2,
+            Paint()..color = paint.color,
+          );
+        }
+      case ReaderAnnotationStyle.lineThrough:
+        _line(canvas, rect, rect.center.dy, paint);
     }
   }
+
+  static void _line(Canvas canvas, Rect rect, double height, Paint paint) =>
+      canvas.drawLine(
+        Offset(rect.left, height),
+        Offset(rect.right, height),
+        paint,
+      );
 
   static Path _wavyPath(Rect rect, double baseline, double strokeWidth) {
     final amplitude = math.max(1.1, strokeWidth * 0.65);

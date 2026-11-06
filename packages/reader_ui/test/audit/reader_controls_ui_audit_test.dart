@@ -196,7 +196,7 @@ void main() {
     await tester.pump();
     await tester.tap(_key('note-composer-save'));
     await tester.pumpAndSettle();
-    expect(result, '我的读书笔记');
+    expect((result! as AnnotationEditAction).note, '我的读书笔记');
     expect(tester.takeException(), isNull);
   });
 
@@ -208,7 +208,7 @@ void main() {
       ReaderAnnotationEditorSheet(
         annotation: ReaderAnnotation(
           id: '审计标注',
-          type: ReaderAnnotationType.highlight,
+          type: ReaderAnnotationType.mark,
           startCfi: 'epubcfi(/6/2!/4/2/1:0)',
           endCfi: 'epubcfi(/6/2!/4/2/1:10)',
           quote: '标注原文',

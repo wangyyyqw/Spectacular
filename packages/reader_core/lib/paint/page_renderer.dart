@@ -11,6 +11,7 @@ import '../layout/paginator.dart';
 import '../layout/table_layout.dart';
 import '../layout/text_layout.dart';
 import '../layout/text_spacing.dart';
+import '../text/reader_text_overlay.dart';
 import 'background_image.dart';
 import 'line_spans.dart';
 import 'paragraph_cache.dart';
@@ -86,6 +87,8 @@ class PagePainter {
     this.selectionColor = const Color(0x330066FF),
     this.onPhase,
     this.paragraphCache,
+    this.textOverlays = const [],
+    this.beforeBlockText,
   });
 
   /// 页面背景色。
@@ -139,6 +142,14 @@ class PagePainter {
 
   /// 行排版缓存（可选）：按页/行缓存 TextPainter，重排时由调用方清空（P2-30）。
   final ParagraphCache? paragraphCache;
+
+  /// 原文文字色覆盖；顺序决定优先级，不改变行宽、行高或分页。
+  final List<ReaderTextOverlay> textOverlays;
+
+  /// 作者块背景与边框之后、正文之前的绘制钩子，沿用页内坐标。
+  ///
+  /// 可用于阅读器装饰底层；调用前后独立保存画布状态，不影响后续绘制。
+  final void Function(Canvas, PageContent, PageBlockSlice)? beforeBlockText;
 
   /// 绘制一页。
   ///
@@ -389,6 +400,11 @@ class PagePainter {
           _clipBlock(canvas, geometry, clip: true, () {
             _paintBlockBorder(canvas, geometry);
           });
+          if (beforeBlockText != null) {
+            canvas.save();
+            beforeBlockText!(canvas, page, geometry.slice);
+            canvas.restore();
+          }
           _notifyPhase(PagePaintPhase.text);
           _paintBlockText(canvas, page, geometry, sliceIndex);
           _notifyPhase(PagePaintPhase.decoration);
@@ -563,11 +579,12 @@ class PagePainter {
       contentClip: !verticalRuby,
       () {
         final layout = geometry.slice.block.layout;
+        final paintingLayout = _textOverlayLayout(geometry.slice.block);
         if (geometry.isVerticalBlock) {
           // 竖排：每行 = 一列，逐字符自上而下绘制（W22）。
           _paintVerticalColumns(
             canvas,
-            layout,
+            paintingLayout,
             geometry.style,
             textColorOverride: geometry.textColorOverride,
             contentLeft:
@@ -608,6 +625,7 @@ class PagePainter {
               geometry.textStyle,
               punctCompression: geometry.punctCompression,
               textColorOverride: geometry.textColorOverride,
+              paintingLayout: paintingLayout,
             );
             final lineRuns = _lineRuns(layout, line);
             final textY = lineY + textLineBaselineOffset(layout, line, painter);
@@ -810,6 +828,30 @@ class PagePainter {
     final textStyle = TextLayoutEngine.textStyleFor(style);
     final color = _textColorFor(style);
     return color == null ? textStyle : textStyle.copyWith(color: color);
+  }
+
+  TextLayoutResult _textOverlayLayout(PageBlock block) {
+    final layout = block.layout;
+    if (textOverlays.isEmpty || block.startCfi == null) return layout;
+    final runs = ReaderTextOverlayResolver(textOverlays, typography: false)
+        .resolve(
+          blockCfi: block.startCfi,
+          text: layout.text,
+          style: block.style ?? ComputedStyle(const {}),
+          runs: layout.runs,
+        );
+    if (identical(runs, layout.runs)) return layout;
+    return TextLayoutResult(
+      text: layout.text,
+      lines: layout.lines,
+      width: layout.width,
+      height: layout.height,
+      maxWidth: layout.maxWidth,
+      runs: runs,
+      isRtl: layout.isRtl,
+      writingMode: layout.writingMode,
+      plainTextLayout: layout.plainTextLayout,
+    );
   }
 
   /// 主题文字色是否覆盖某个块（P9-02）。
@@ -3742,10 +3784,11 @@ class PagePainter {
     bool punctCompression = false,
     bool textAutospace = false,
     Color? textColorOverride,
+    TextLayoutResult? paintingLayout,
   }) {
     TextPainter build() => TextPainter(
       text: _lineSpan(
-        layout,
+        paintingLayout ?? layout,
         line,
         baseStyle,
         punctCompression: punctCompression,
@@ -3769,8 +3812,15 @@ class PagePainter {
         '${textColorOverride?.toARGB32()}:'
         '${line.justifyExtra}:'
         '${identityHashCode(layout)}:${baseStyle.hashCode}:'
-        '${line.start}:${line.end}:${line.spacing?.fingerprint}';
+        '${line.start}:${line.end}:${line.spacing?.fingerprint}'
+        '${_textOverlayPaintKey(paintingLayout, line)}';
     return cache.obtain(key, build: build);
+  }
+
+  String _textOverlayPaintKey(TextLayoutResult? layout, LineBox line) {
+    if (layout == null) return '';
+    return '|overlay=${[for (final run in layout.runs)
+      if (run.start < line.end && run.end > line.start) '${run.start}:${run.end}:${run.style.color.toARGB32()}'].join(';')}';
   }
 
   /// 竖排文本：按列逐字符绘制（W22，CSS Writing Modes）。
@@ -3795,7 +3845,7 @@ class PagePainter {
     required int startLine,
     required int endLine,
   }) {
-    final metrics = TextLayoutEngine.verticalGlyphMetrics(layout.text, style);
+    final metrics = _verticalMetricsFor(layout, style);
     if (metrics.isEmpty) {
       return;
     }
@@ -3883,6 +3933,43 @@ class PagePainter {
     }
 
     // 注音由独立注音趟绘制（可越出块盒，见 paint 主循环）。
+  }
+
+  List<VerticalGlyphMetric> _verticalMetricsFor(
+    TextLayoutResult layout,
+    ComputedStyle style,
+  ) {
+    final metrics = TextLayoutEngine.verticalGlyphMetrics(layout.text, style);
+    if (!layout.runs.any(
+      (run) => run.style.layoutFingerprint != style.layoutFingerprint,
+    )) {
+      return metrics;
+    }
+    return [
+      for (final metric in metrics)
+        _verticalMetricForRun(layout, style, metric),
+    ];
+  }
+
+  VerticalGlyphMetric _verticalMetricForRun(
+    TextLayoutResult layout,
+    ComputedStyle style,
+    VerticalGlyphMetric metric,
+  ) {
+    final runStyle = _runStyleAtOffset(layout.runs, metric.start) ?? style;
+    if (runStyle.layoutFingerprint == style.layoutFingerprint) return metric;
+    final text = layout.text.substring(metric.start, metric.end);
+    final measured = TextLayoutEngine.verticalGlyphMetrics(text, runStyle);
+    final advance = metric.combine
+        ? runStyle.fontSize
+        : measured.fold(0.0, (sum, item) => sum + item.advance);
+    return VerticalGlyphMetric(
+      start: metric.start,
+      end: metric.end,
+      advance: math.max(0, advance + runStyle.letterSpacing),
+      upright: metric.upright,
+      combine: metric.combine,
+    );
   }
 
   /// 竖排画一个字形（正立居中 / 顺时针旋转 90°）。

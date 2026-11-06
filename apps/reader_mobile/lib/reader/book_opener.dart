@@ -10,6 +10,7 @@ import 'book_opening_view.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
+import 'reader_decoration_image_store.dart';
 import 'reader_font_store.dart';
 
 /// 统一处理打开图书的读盘、转场、设置持久化与最近阅读更新时间。
@@ -156,6 +157,7 @@ class BookOpener {
     Uint8List bytes,
     Completer<void> closed,
   ) {
+    final decorationImages = ReaderDecorationImages();
     return PageRouteBuilder<void>(
       transitionDuration: const Duration(milliseconds: 360),
       reverseTransitionDuration: const Duration(milliseconds: 220),
@@ -165,6 +167,12 @@ class BookOpener {
         store: progressStore,
         bookmarks: library.bookmarkStore(entry.id),
         annotations: library.annotationStore(entry.id),
+        decorations: library.decorationStore(
+          entry.id,
+          images: decorationImages,
+        ),
+        decorationRules: library.decorationRuleStore(entry.id),
+        decorationImages: decorationImages,
         readingSessions: library.readingSessionStore(),
         settings: _settings ?? ReaderSettings.defaults,
         fontStore: ReaderFontStore(library),

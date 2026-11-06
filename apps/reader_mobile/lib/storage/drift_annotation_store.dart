@@ -7,7 +7,7 @@ import 'package:reader_core/position/location_anchor.dart';
 import '../library/revision_anchor_store.dart';
 import 'db.dart';
 
-/// 标注存储的 drift 实现（P4-17）：写 `annotations` 表（type 0 高亮 / 1 笔记）。
+/// 标注存储的 drift 实现：同一区间保留一条划线或想法。
 class DriftAnnotationStore
     implements ReaderAnnotationStore, RelocatableAnnotationStore {
   /// 创建存储。
@@ -45,11 +45,15 @@ class DriftAnnotationStore
     String? contextAfter,
     int? color,
     ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    double? opacity,
     String? note,
   }) async {
     final book = await _binding.writable();
-    if (book == null) {
-      return null;
+    if (book == null) return null;
+    final thought = note?.trim();
+    if (type == ReaderAnnotationType.thought &&
+        (thought == null || thought.isEmpty)) {
+      throw const FormatException('想法内容不能为空');
     }
     final bookId = book.id;
     final anchor = await _captureSelection(book, startCfi, endCfi, (
@@ -61,19 +65,32 @@ class DriftAnnotationStore
     final id =
         'an-${now.millisecondsSinceEpoch}-'
         '${math.Random().nextInt(0x7FFFFFFF).toRadixString(36)}';
-    final inserted = await _db.transaction(() async {
-      if (await _binding.writable() == null) return false;
-      // 同一区间不重复（同类型 + 同起止 CFI）。
+    final row = await _db.transaction(() async {
+      if (await _binding.writable() == null) return null;
       final existing =
-          await (_db.select(_db.annotations)..where(
-                (table) =>
-                    table.bookId.equals(bookId) &
-                    table.type.equals(type.storageValue) &
-                    table.startCfi.equals(startCfi) &
-                    table.endCfi.equals(endCfi),
-              ))
+          await (_db.select(_db.annotations)
+                ..where(
+                  (table) =>
+                      table.bookId.equals(bookId) &
+                      table.type.isSmallerThanValue(2) &
+                      table.startCfi.equals(startCfi) &
+                      table.endCfi.equals(endCfi),
+                )
+                ..orderBy([
+                  (table) => OrderingTerm.desc(table.type),
+                  (table) => OrderingTerm.desc(table.updatedAt),
+                ]))
               .get();
-      if (existing.isNotEmpty) return false;
+      if (existing.isNotEmpty) {
+        return _updateRange(
+          existing,
+          type: type,
+          color: color,
+          style: style,
+          opacity: opacity,
+          note: thought,
+        );
+      }
       await _db
           .into(_db.annotations)
           .insert(
@@ -89,32 +106,69 @@ class DriftAnnotationStore
               contextAfter: Value<String?>(contextAfter),
               style: Value<int?>(style.storageValue),
               color: Value<int?>(color),
-              note: Value<String?>(note),
+              opacity: Value<double?>(_validOpacity(opacity)),
+              note: Value<String?>(thought),
               createdAt: now.millisecondsSinceEpoch,
               updatedAt: now.millisecondsSinceEpoch,
             ),
           );
-      return true;
+      return (_db.select(
+        _db.annotations,
+      )..where((table) => table.id.equals(id))).getSingle();
     });
-    if (!inserted) return null;
-    return ReaderAnnotation(
-      id: id,
-      type: type,
-      startCfi: startCfi,
-      endCfi: endCfi,
-      quote: quote,
-      contextBefore: contextBefore,
-      contextAfter: contextAfter,
-      color: color,
-      style: style,
-      note: note,
-      createdAt: now,
-      updatedAt: now,
-      relocationStatus: anchor?.status,
-      relocationReason: anchor?.reason,
-      currentQuote: anchor?.effective.quote,
-      anchorData: anchor?.encode(),
+    return row == null ? null : _toAnnotation(row);
+  }
+
+  Future<AnnotationRow> _updateRange(
+    List<AnnotationRow> existing, {
+    required ReaderAnnotationType type,
+    required ReaderAnnotationStyle style,
+    int? color,
+    double? opacity,
+    String? note,
+  }) async {
+    final original = existing.first;
+    final hasThought =
+        original.type == ReaderAnnotationType.thought.storageValue;
+    await (_db.update(
+      _db.annotations,
+    )..where((table) => table.id.equals(original.id))).write(
+      AnnotationsCompanion(
+        type: Value(hasThought ? original.type : type.storageValue),
+        color: Value(color),
+        style: Value(style.storageValue),
+        opacity: Value(_validOpacity(opacity)),
+        note: type == ReaderAnnotationType.thought
+            ? Value(note)
+            : const Value.absent(),
+        updatedAt: Value(DateTime.now().millisecondsSinceEpoch),
+      ),
     );
+    final duplicates = existing.skip(1).map((row) => row.id).toList();
+    if (duplicates.isNotEmpty) {
+      await (_db.delete(
+        _db.annotations,
+      )..where((table) => table.id.isIn(duplicates))).go();
+    }
+    return (_db.select(
+      _db.annotations,
+    )..where((table) => table.id.equals(original.id))).getSingle();
+  }
+
+  double? _validOpacity(double? value) =>
+      value == null || !value.isFinite ? null : value.clamp(0.0, 1.0);
+
+  void _validateThoughtUpdate(
+    AnnotationRow row,
+    ReaderAnnotationType? type,
+    String? note,
+    bool clearNote,
+  ) {
+    final nextType = type ?? ReaderAnnotationType.fromStorage(row.type);
+    if (nextType != ReaderAnnotationType.thought) return;
+    if (clearNote || (note ?? row.note ?? '').trim().isEmpty) {
+      throw const FormatException('想法内容不能为空');
+    }
   }
 
   @override
@@ -123,14 +177,28 @@ class DriftAnnotationStore
     ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
+    double? opacity,
     String? note,
     bool clearNote = false,
   }) async {
     await _db.transaction(() async {
       final book = await _binding.writable();
       if (book == null) return;
+      final row =
+          await (_db.select(_db.annotations)..where(
+                (table) =>
+                    table.id.equals(id) &
+                    table.bookId.equals(book.id) &
+                    table.type.isSmallerThanValue(2),
+              ))
+              .getSingleOrNull();
+      if (row == null) return;
+      _validateThoughtUpdate(row, type, note, clearNote);
       await (_db.update(_db.annotations)..where(
-            (table) => table.id.equals(id) & table.bookId.equals(book.id),
+            (table) =>
+                table.id.equals(id) &
+                table.bookId.equals(book.id) &
+                table.type.isSmallerThanValue(2),
           ))
           .write(
             AnnotationsCompanion(
@@ -143,11 +211,14 @@ class DriftAnnotationStore
               style: style == null
                   ? const Value<int?>.absent()
                   : Value<int?>(style.storageValue),
+              opacity: opacity == null
+                  ? const Value<double?>.absent()
+                  : Value<double?>(_validOpacity(opacity)),
               note: clearNote
                   ? const Value<String?>(null)
                   : note == null
                   ? const Value<String?>.absent()
-                  : Value<String?>(note),
+                  : Value<String?>(note.trim()),
               updatedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
             ),
           );
@@ -158,9 +229,12 @@ class DriftAnnotationStore
   Future<void> remove(String id) => _db.transaction(() async {
     final book = await _binding.writable();
     if (book == null) return;
-    await (_db.delete(
-          _db.annotations,
-        )..where((table) => table.id.equals(id) & table.bookId.equals(book.id)))
+    await (_db.delete(_db.annotations)..where(
+          (table) =>
+              table.id.equals(id) &
+              table.bookId.equals(book.id) &
+              table.type.isSmallerThanValue(2),
+        ))
         .go();
   });
 
@@ -174,7 +248,10 @@ class DriftAnnotationStore
     if (book == null) throw const FormatException('书籍内容已更新，请重新打开阅读');
     final row =
         await (_db.select(_db.annotations)..where(
-              (table) => table.id.equals(id) & table.bookId.equals(book.id),
+              (table) =>
+                  table.id.equals(id) &
+                  table.bookId.equals(book.id) &
+                  table.type.isSmallerThanValue(2),
             ))
             .getSingleOrNull();
     if (row == null) throw const FormatException('原标注不存在');
@@ -252,6 +329,7 @@ class DriftAnnotationStore
       contextAfter: row.contextAfter,
       color: row.color,
       style: ReaderAnnotationStyle.fromStorage(row.style),
+      opacity: row.opacity,
       note: row.note,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAt),

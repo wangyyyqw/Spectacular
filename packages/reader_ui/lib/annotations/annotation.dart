@@ -3,11 +3,11 @@ const int defaultHighlightColor = 0xFFFFEB3B;
 
 /// 标注类型（P4-17，§30.2 / §36.1）。
 enum ReaderAnnotationType {
-  /// 高亮。
-  highlight(0),
+  /// 阅读划线。
+  mark(0),
 
-  /// 笔记（高亮 + 备注）。
-  note(1);
+  /// 原文标记与想法正文。
+  thought(1);
 
   const ReaderAnnotationType(this.storageValue);
 
@@ -16,7 +16,7 @@ enum ReaderAnnotationType {
 
   /// 由存储值解析；未知值按高亮处理。
   static ReaderAnnotationType fromStorage(int value) =>
-      value == note.storageValue ? note : highlight;
+      value == thought.storageValue ? thought : mark;
 }
 
 /// 高亮装饰样式。
@@ -31,12 +31,54 @@ enum ReaderAnnotationStyle {
   wavyUnderline(2),
 
   /// 虚线下划线。
-  dashedUnderline(3);
+  dashedUnderline(3),
+
+  /// 下半行底色。
+  halfBackground(4),
+
+  /// 文字染色。
+  tint(5),
+
+  /// 双线下划线。
+  doubleUnderline(6),
+
+  /// 点线下划线。
+  dottedUnderline(7),
+
+  /// 删除线。
+  lineThrough(8);
 
   const ReaderAnnotationStyle(this.storageValue);
 
   /// 数据库存储值（annotations.style）。
   final int storageValue;
+
+  /// 阅读页与编辑面板共用的样式名称。
+  String get label => switch (this) {
+    background => '底色',
+    halfBackground => '半高底色',
+    tint => '文字染色',
+    underline => '实线',
+    wavyUnderline => '波浪线',
+    doubleUnderline => '双线',
+    dashedUnderline => '虚线',
+    dottedUnderline => '点线',
+    lineThrough => '删除线',
+  };
+
+  /// 未指定透明度时的默认可见强度。
+  double get defaultOpacity => switch (this) {
+    background => 0.32,
+    halfBackground => 0.34,
+    tint => 0.85,
+    _ => 0.9,
+  };
+
+  /// 墨水屏下的可辨认样式。
+  ReaderAnnotationStyle get inkStyle => switch (this) {
+    background || halfBackground || tint => underline,
+    _ => this,
+  };
 
   /// 由存储值解析；空值或未知值按底色处理。
   static ReaderAnnotationStyle fromStorage(int? value) {
@@ -66,6 +108,7 @@ class ReaderAnnotation {
     this.contextAfter,
     this.color,
     this.style = ReaderAnnotationStyle.background,
+    this.opacity,
     this.note,
     this.relocationStatus,
     this.relocationReason,
@@ -99,6 +142,13 @@ class ReaderAnnotation {
 
   /// 高亮装饰样式。
   final ReaderAnnotationStyle style;
+
+  /// 标记透明度；空值使用样式默认值。
+  final double? opacity;
+
+  /// 实际绘制透明度。
+  double get effectiveOpacity =>
+      (opacity ?? style.defaultOpacity).clamp(0.0, 1.0);
 
   /// 笔记正文。
   final String? note;
@@ -137,7 +187,7 @@ abstract interface class ReaderAnnotationStore {
   /// 全部标注（按创建时间排序）。
   Future<List<ReaderAnnotation>> list();
 
-  /// 新增标注；同一区间（同类型 + 同起止 CFI）已存在时不重复写入，返回 null。
+  /// 新增或更新同一区间；添加想法会升级划线，添加划线保留已有想法。
   Future<ReaderAnnotation?> add({
     required ReaderAnnotationType type,
     required String startCfi,
@@ -147,6 +197,7 @@ abstract interface class ReaderAnnotationStore {
     String? contextAfter,
     int? color,
     ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    double? opacity,
     String? note,
   });
 
@@ -156,6 +207,7 @@ abstract interface class ReaderAnnotationStore {
     ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
+    double? opacity,
     String? note,
     bool clearNote = false,
   });

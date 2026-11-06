@@ -130,7 +130,7 @@ class Chapters extends Table {
   IntColumn get orderIndex => integer()();
 }
 
-/// 标注表（§36.1）：高亮 / 笔记 / 书签共用，`type` 区分。
+/// 标注表（§36.1）：划线 / 想法 / 书签共用，`type` 区分。
 @DataClassName('AnnotationRow')
 class Annotations extends Table {
   /// 主键（uuid 字符串，可迁移）。
@@ -140,7 +140,7 @@ class Annotations extends Table {
   IntColumn get bookId =>
       integer().references(Books, #id, onDelete: KeyAction.cascade)();
 
-  /// 类型：0 高亮、1 笔记、2 书签。
+  /// 类型：0 划线、1 想法、2 书签。
   IntColumn get type => integer()();
 
   /// 起始 CFI。
@@ -167,8 +167,132 @@ class Annotations extends Table {
   /// 颜色（ARGB）。
   IntColumn get color => integer().nullable()();
 
+  /// 标记透明度；空值跟随样式默认值。
+  RealColumn get opacity => real().nullable()();
+
   /// 笔记正文。
   TextColumn get note => text().nullable()();
+
+  /// 创建时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  /// 更新时间（毫秒）。
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// 手工装饰表：内容锚点与排版样式分开保存。
+@DataClassName('DecorationRow')
+class Decorations extends Table {
+  /// 唯一标识。
+  TextColumn get id => text()();
+
+  /// 所属书籍，彻底删除时级联清理。
+  IntColumn get bookId =>
+      integer().references(Books, #id, onDelete: KeyAction.cascade)();
+
+  /// 原文起点。
+  TextColumn get startCfi => text()();
+
+  /// 原文终点。
+  TextColumn get endCfi => text()();
+
+  /// 原始引用。
+  TextColumn get quote => text()();
+
+  /// 前文证据。
+  TextColumn get contextBefore => text().nullable()();
+
+  /// 后文证据。
+  TextColumn get contextAfter => text().nullable()();
+
+  /// 版本化内容锚点。
+  TextColumn get anchorJson => text().nullable()();
+
+  /// 带版本号的装饰样式。
+  TextColumn get styleJson => text()();
+
+  /// 创建时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  /// 更新时间（毫秒）。
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// 自动装饰分组；空书籍外键表示全局作用域。
+@DataClassName('DecorationRuleGroupRow')
+class DecorationRuleGroups extends Table {
+  /// 唯一标识。
+  TextColumn get id => text()();
+
+  /// 所属书籍；全局组为空。
+  IntColumn get bookId => integer().nullable().references(
+    Books,
+    #id,
+    onDelete: KeyAction.cascade,
+  )();
+
+  /// 分组名称。
+  TextColumn get name => text()();
+
+  /// 启用状态。
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 默认组固定在同作用域最后。
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+
+  /// 组间排序。
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  /// 创建时间（毫秒）。
+  IntColumn get createdAt => integer()();
+
+  /// 更新时间（毫秒）。
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// 自动装饰规则；仅保存规格，不保存章节匹配结果。
+@DataClassName('DecorationRuleRow')
+class DecorationRules extends Table {
+  /// 唯一标识。
+  TextColumn get id => text()();
+
+  /// 所属分组。
+  TextColumn get groupId => text().references(
+    DecorationRuleGroups,
+    #id,
+    onDelete: KeyAction.cascade,
+  )();
+
+  /// 可选名称。
+  TextColumn get name => text().nullable()();
+
+  /// 字面内容或 Unicode 正则。
+  TextColumn get pattern => text()();
+
+  /// 是否使用正则。
+  BoolColumn get isRegex => boolean().withDefault(const Constant(false))();
+
+  /// 是否区分大小写。
+  BoolColumn get caseSensitive =>
+      boolean().withDefault(const Constant(false))();
+
+  /// 单条启用状态。
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 不影响度量的绘制样式。
+  TextColumn get styleJson => text()();
+
+  /// 组内排序。
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 
   /// 创建时间（毫秒）。
   IntColumn get createdAt => integer()();
@@ -409,6 +533,9 @@ class BookTagLinks extends Table {
     SpineItems,
     Chapters,
     Annotations,
+    Decorations,
+    DecorationRuleGroups,
+    DecorationRules,
     ReadingProgress,
     UserFonts,
     SettingsTable,
@@ -431,7 +558,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -530,6 +657,14 @@ class AppDatabase extends _$AppDatabase {
         await migrator.createTable(bookIdAliases);
         version = 14;
       }
+      if (version < 15) {
+        await migrator.addColumn(annotations, annotations.opacity);
+        await migrator.createTable(decorations);
+        await migrator.createTable(decorationRuleGroups);
+        await migrator.createTable(decorationRules);
+        await _migrateEmptyThoughts();
+        version = 15;
+      }
       await _createIndexes();
     },
     beforeOpen: (details) async {
@@ -537,6 +672,17 @@ class AppDatabase extends _$AppDatabase {
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
+
+  Future<void> _migrateEmptyThoughts() async {
+    final rows = await (select(
+      annotations,
+    )..where((table) => table.type.equals(1))).get();
+    for (final row in rows) {
+      if ((row.note ?? '').trim().isNotEmpty) continue;
+      await (update(annotations)..where((table) => table.id.equals(row.id)))
+          .write(const AnnotationsCompanion(type: Value(0)));
+    }
+  }
 
   /// 索引单独建（§70.2 纪律 3）：幂等，升级/新建共用。
   Future<void> _createIndexes() async {
@@ -554,6 +700,22 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_anno_quote '
       'ON annotations(book_id, quote)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_decoration_book '
+      'ON decorations(book_id, start_cfi)',
+    );
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoration_range '
+      'ON decorations(book_id, start_cfi, end_cfi)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_decoration_group_book '
+      'ON decoration_rule_groups(book_id, sort_order)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_decoration_rule_group '
+      'ON decoration_rules(group_id, sort_order)',
     );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_report_book '

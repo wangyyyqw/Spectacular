@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/annotations/mark_settings.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
@@ -29,6 +31,7 @@ class ReaderSettings {
     this.pageTurnMode = PageTurnMode.cover,
     this.keepScreenOn = false,
     this.volumeKeyPaging = false,
+    this.markSettings = const ReaderMarkSettings(),
   });
 
   /// 字号。
@@ -79,6 +82,9 @@ class ReaderSettings {
   /// 用音量键翻页。
   final bool volumeKeyPaging;
 
+  /// 划线的默认外观和自定义颜色。
+  final ReaderMarkSettings markSettings;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -110,6 +116,7 @@ class ReaderSettings {
     PageTurnMode pageTurnMode = PageTurnMode.cover,
     bool keepScreenOn = false,
     bool volumeKeyPaging = false,
+    ReaderMarkSettings markSettings = const ReaderMarkSettings(),
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -126,6 +133,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -147,6 +155,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -166,6 +175,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换主题。
@@ -185,6 +195,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换背景。
@@ -204,6 +215,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换墨水屏开关。
@@ -223,6 +235,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换页边距。
@@ -242,6 +255,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -261,6 +275,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换翻页方式。
@@ -280,6 +295,7 @@ class ReaderSettings {
     pageTurnMode: value,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -299,6 +315,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: enabled,
     volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -318,7 +335,29 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: enabled,
+    markSettings: markSettings,
   );
+
+  /// 修改划线偏好，保留全部正文排版与阅读交互设置。
+  ReaderSettings copyWithMarkSettings(ReaderMarkSettings value) =>
+      ReaderSettings(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        overrideEmbeddedFonts: overrideEmbeddedFonts,
+        lineHeight: lineHeight,
+        paragraphSpacing: paragraphSpacing,
+        horizontalPadding: horizontalPadding,
+        themeId: themeId,
+        customThemeId: customThemeId,
+        backgroundId: backgroundId,
+        inkMode: inkMode,
+        margins: margins,
+        tapZones: tapZones,
+        pageTurnMode: pageTurnMode,
+        keepScreenOn: keepScreenOn,
+        volumeKeyPaging: volumeKeyPaging,
+        markSettings: value,
+      );
 
   @override
   bool operator ==(Object other) =>
@@ -337,7 +376,8 @@ class ReaderSettings {
       other.tapZones == tapZones &&
       other.pageTurnMode == pageTurnMode &&
       other.keepScreenOn == keepScreenOn &&
-      other.volumeKeyPaging == volumeKeyPaging;
+      other.volumeKeyPaging == volumeKeyPaging &&
+      other.markSettings == markSettings;
 
   @override
   int get hashCode => Object.hash(
@@ -356,6 +396,7 @@ class ReaderSettings {
     pageTurnMode,
     keepScreenOn,
     volumeKeyPaging,
+    markSettings,
   );
 }
 
@@ -383,6 +424,12 @@ class ReaderSettingsStore {
   static const String keyPageTurnMode = 'reader.pageTurnMode';
   static const String keyKeepScreenOn = 'reader.keepScreenOn';
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
+  static const String keyMarkLastColor = 'reader.mark.lastColor';
+  static const String keyMarkLastStyle = 'reader.mark.lastStyle';
+  static const String keyMarkStrokeWidth = 'reader.mark.strokeWidth';
+  static const String keyMarkJoinBackgroundLines =
+      'reader.mark.joinBackgroundLines';
+  static const String keyMarkCustomColors = 'reader.mark.customColors';
 
   /// 九宫格点击区域（JSON）。
   static const String keyTapZones = 'reader.tapZones';
@@ -421,6 +468,7 @@ class ReaderSettingsStore {
       keepScreenOn: (await _library.getSetting(keyKeepScreenOn)) == 'true',
       volumeKeyPaging:
           (await _library.getSetting(keyVolumeKeyPaging)) == 'true',
+      markSettings: await _loadMarkSettings(),
     );
   }
 
@@ -462,6 +510,47 @@ class ReaderSettingsStore {
             RegExp(r'^user_[0-9a-f]{64}$').hasMatch(raw)
         ? raw
         : null;
+  }
+
+  Future<ReaderMarkSettings> _loadMarkSettings() async {
+    final color = int.tryParse(
+      await _library.getSetting(keyMarkLastColor) ?? '',
+    );
+    final style = int.tryParse(
+      await _library.getSetting(keyMarkLastStyle) ?? '',
+    );
+    final width = _readDouble(await _library.getSetting(keyMarkStrokeWidth));
+    List<int> colors = const [];
+    try {
+      final raw = jsonDecode(
+        await _library.getSetting(keyMarkCustomColors) ?? '[]',
+      );
+      if (raw is List<Object?>) {
+        colors = raw
+            .whereType<int>()
+            .where((value) => value >= 0 && value <= 0xffffffff)
+            .toSet()
+            .take(8)
+            .toList(growable: false);
+      }
+    } on FormatException {
+      colors = const [];
+    }
+    return ReaderMarkSettings(
+      lastColor: color != null && color >= 0 && color <= 0xffffffff
+          ? color
+          : defaultHighlightColor,
+      lastStyle:
+          ReaderAnnotationStyle.values.any(
+            (value) => value.storageValue == style,
+          )
+          ? ReaderAnnotationStyle.fromStorage(style)
+          : ReaderAnnotationStyle.underline,
+      strokeWidth: const [1.0, 1.8, 2.6].contains(width) ? width! : 1.8,
+      joinBackgroundLines:
+          await _library.getSetting(keyMarkJoinBackgroundLines) == 'true',
+      customColors: colors,
+    );
   }
 
   /// 保存设置（逐项 upsert）。
@@ -508,6 +597,33 @@ class ReaderSettingsStore {
     await _library.setSetting(
       keyTapZones,
       jsonEncode(settings.tapZones.toJson()),
+    );
+    final mark = settings.markSettings;
+    final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff
+        ? mark.lastColor
+        : defaultHighlightColor;
+    final width = const [1.0, 1.8, 2.6].contains(mark.strokeWidth)
+        ? mark.strokeWidth
+        : 1.8;
+    await _library.setSetting(keyMarkLastColor, color.toString());
+    await _library.setSetting(
+      keyMarkLastStyle,
+      mark.lastStyle.storageValue.toString(),
+    );
+    await _library.setSetting(keyMarkStrokeWidth, width.toString());
+    await _library.setSetting(
+      keyMarkJoinBackgroundLines,
+      mark.joinBackgroundLines.toString(),
+    );
+    await _library.setSetting(
+      keyMarkCustomColors,
+      jsonEncode(
+        mark.customColors
+            .where((value) => value >= 0 && value <= 0xffffffff)
+            .toSet()
+            .take(8)
+            .toList(),
+      ),
     );
   }
 

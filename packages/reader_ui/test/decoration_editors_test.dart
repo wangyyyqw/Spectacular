@@ -1,0 +1,459 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/api.dart';
+import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/decorations/decoration_editor_sheet.dart';
+import 'package:reader_ui/decorations/decoration_rule_editor.dart';
+import 'package:reader_ui/decorations/decoration_rule_page.dart';
+import 'package:reader_ui/decorations/decoration_rule_preview.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_style_preview.dart';
+import 'package:reader_ui/panels/decoration_panel.dart';
+import 'package:reader_ui/panels/settings_panel.dart' show ReaderFontOption;
+
+const _testFonts = [
+  ReaderFontOption(family: 'reader-test-font', label: '本地测试字体'),
+];
+
+class _RuleStore implements ReaderDecorationRuleStore {
+  List<String>? reordered;
+  final groups = [
+    const ReaderDecorationRuleGroup(id: 'first', bookId: 'book', name: '第一组'),
+    const ReaderDecorationRuleGroup(
+      id: 'second',
+      bookId: 'book',
+      name: '第二组',
+      sortOrder: 1,
+    ),
+    const ReaderDecorationRuleGroup(
+      id: 'default',
+      bookId: 'book',
+      name: '本书默认组',
+      isDefault: true,
+    ),
+    const ReaderDecorationRuleGroup(
+      id: 'global',
+      name: '全局默认组',
+      isDefault: true,
+    ),
+  ];
+  final rules = <ReaderDecorationRule>[];
+  @override
+  Future<List<ReaderDecorationRuleGroup>> listGroups() async => groups;
+  @override
+  Future<List<ReaderDecorationRule>> listRules() async => rules;
+  @override
+  Future<void> saveGroup(ReaderDecorationRuleGroup group) async {
+    final index = groups.indexWhere((item) => item.id == group.id);
+    if (index < 0) {
+      groups.add(group);
+    } else {
+      groups[index] = group;
+    }
+  }
+
+  @override
+  Future<void> removeGroup(String id) async =>
+      groups.removeWhere((item) => item.id == id);
+  @override
+  Future<void> saveRule(ReaderDecorationRule rule) async => rules.add(rule);
+  @override
+  Future<void> removeRule(String id) async =>
+      rules.removeWhere((item) => item.id == id);
+  @override
+  Future<void> reorderGroups(List<String> ids) async => reordered = ids;
+  @override
+  Future<void> reorderRules(String groupId, List<String> ids) async {}
+}
+
+Future<void> _openSheet<T>(
+  WidgetTester tester,
+  Widget sheet,
+  ValueChanged<T?> capture,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async => capture(
+              await showModalBottomSheet<T>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => sheet,
+              ),
+            ),
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('打开'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openTypography(WidgetTester tester) async {
+  final typography = find.byKey(
+    const ValueKey<String>('decoration-typography'),
+  );
+  await tester.ensureVisible(typography);
+  await tester.tap(typography);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _selectFont(WidgetTester tester, String label) async {
+  final font = find.byKey(const ValueKey<String>('decoration-font'));
+  await tester.ensureVisible(font);
+  await tester.tap(font);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pump();
+}
+
+FilledButton _saveButton(WidgetTester tester) => tester.widget<FilledButton>(
+  find.byKey(const ValueKey<String>('decoration-save')),
+);
+
+void main() {
+  testWidgets('320dp 装饰预设可保存，字体、背景、边框高级入口无溢出', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ReaderDecorationStyle? style;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      const ReaderDecorationEditorSheet(quote: '装饰改变文字排版，而不是记录阅读想法。'),
+      (result) => style = result,
+    );
+    expect(find.text('强调'), findsOneWidget);
+    expect(find.text('引用'), findsOneWidget);
+    expect(find.text('标签'), findsOneWidget);
+    expect(find.text('便签'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('decoration-preset-tag')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(style?.fontSizeScale, 0.85);
+    expect(style?.fontWeight, 600);
+    expect(style?.backgroundOpacity, 0.6);
+    expect(style?.borderRadius, 4);
+    expect(style?.paddingLeft, 6);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('字体注册完成前禁用保存，完成后保存所选字体', (tester) async {
+    final pending = Completer<void>();
+    final loaded = <String>[];
+    ReaderDecorationStyle? saved;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      ReaderDecorationEditorSheet(
+        quote: '所选字体注册成功后，预览和保存使用同一字体。',
+        fonts: _testFonts,
+        onLoadFont: (family) {
+          loaded.add(family);
+          return pending.future;
+        },
+      ),
+      (result) => saved = result,
+    );
+    await _openTypography(tester);
+    await _selectFont(tester, '本地测试字体');
+    expect(loaded, ['reader-test-font']);
+    expect(_saveButton(tester).onPressed, isNull);
+    expect(find.text('正在加载字体，完成后可保存'), findsOneWidget);
+    expect(
+      tester
+          .widget<ReaderDecorationStylePreview>(
+            find.byType(ReaderDecorationStylePreview),
+          )
+          .style
+          .fontFamily,
+      isNull,
+    );
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(_saveButton(tester).onPressed, isNotNull);
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(saved?.fontFamily, 'reader-test-font');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('字体加载失败显示错误且禁用保存，跟随正文可恢复', (tester) async {
+    ReaderDecorationStyle? saved;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      ReaderDecorationEditorSheet(
+        quote: '加载失败不能保存不存在的字体。',
+        fonts: _testFonts,
+        onLoadFont: (_) async => throw StateError('字体文件不存在'),
+      ),
+      (result) => saved = result,
+    );
+    await _openTypography(tester);
+    await _selectFont(tester, '本地测试字体');
+    await tester.pumpAndSettle();
+    expect(find.text('字体加载失败，请选择其他字体或跟随正文'), findsOneWidget);
+    expect(_saveButton(tester).onPressed, isNull);
+    final weight = tester.widget<DropdownButtonFormField<int>>(
+      find.byKey(const ValueKey<String>('decoration-weight')),
+    );
+    weight.onChanged!(700);
+    await tester.pump();
+    expect(_saveButton(tester).onPressed, isNull);
+    await _selectFont(tester, '跟随正文');
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('decoration-font-error')),
+      findsNothing,
+    );
+    expect(_saveButton(tester).onPressed, isNotNull);
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(saved?.fontFamily, isNull);
+    expect(saved?.fontWeight, 700);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('编辑记录的原字体未安装时禁止保存，重置后恢复', (tester) async {
+    ReaderDecorationStyle? saved;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      const ReaderDecorationEditorSheet(
+        quote: '原字体已删除。',
+        initialStyle: ReaderDecorationStyle(fontFamily: 'missing-font'),
+      ),
+      (result) => saved = result,
+    );
+    expect(find.text('原字体不可用，请选择已安装字体或跟随正文'), findsOneWidget);
+    expect(_saveButton(tester).onPressed, isNull);
+    await tester.tap(find.text('重置'));
+    await tester.pumpAndSettle();
+    expect(_saveButton(tester).onPressed, isNotNull);
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(saved?.fontFamily, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切回正文后忽略过期字体加载失败', (tester) async {
+    final pending = Completer<void>();
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      ReaderDecorationEditorSheet(
+        quote: '异步字体结果不能覆盖最新选择。',
+        fonts: _testFonts,
+        onLoadFont: (_) => pending.future,
+      ),
+      (_) {},
+    );
+    await _openTypography(tester);
+    await _selectFont(tester, '本地测试字体');
+    final font = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const ValueKey<String>('decoration-font')),
+    );
+    font.onChanged!('');
+    await tester.pump();
+    pending.completeError(StateError('过期字体加载失败'));
+    await tester.pumpAndSettle();
+    expect(_saveButton(tester).onPressed, isNotNull);
+    expect(
+      find.byKey(const ValueKey<String>('decoration-font-error')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('规则正则保存拦截无效格式，不调用预览', (tester) async {
+    var previewCalls = 0;
+    ReaderDecorationRule? saved;
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'rule',
+          groupId: 'group',
+          pattern: '',
+          style: ReaderDecorationRuleStyle(),
+        ),
+        onPreview: (_) async {
+          previewCalls++;
+          return [];
+        },
+      ),
+      (result) => saved = result,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('rule-pattern')),
+      '(',
+    );
+    final regex = find.byKey(const ValueKey<String>('rule-regex'));
+    await tester.ensureVisible(regex);
+    await tester.tap(regex);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('rule-save')));
+    await tester.pump();
+    expect(find.text('正则格式无效，请修改规则后重新生成预览'), findsOneWidget);
+    expect(saved, isNull);
+    expect(previewCalls, 0);
+    expect(find.text('字体'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('规则管理区分作用域，默认组不删除且排序固定最后', (tester) async {
+    final store = _RuleStore();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderDecorationRulePage(
+          store: store,
+          bookId: 'book',
+          onPreview: (_) async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('本书默认组'), findsOneWidget);
+    expect(find.text('全局默认组'), findsNothing);
+    final reorderable = tester.widget<ReorderableListView>(
+      find.byType(ReorderableListView).first,
+    );
+    reorderable.onReorderItem!(0, 2);
+    await tester.pumpAndSettle();
+    expect(store.reordered, ['second', 'first', 'default']);
+    final defaultCard = find.byKey(
+      const ValueKey<String>('rule-group-default'),
+    );
+    final menu = find.descendant(
+      of: defaultCard,
+      matching: find.byType(PopupMenuButton<String>),
+    );
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    expect(find.text('重命名'), findsOneWidget);
+    expect(find.text('删除分组'), findsNothing);
+    await tester.tapAt(const Offset(8, 100));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全局'));
+    await tester.pumpAndSettle();
+    expect(find.text('全局默认组'), findsOneWidget);
+    expect(find.text('本书默认组'), findsNothing);
+  });
+
+  testWidgets('规则预览最多50条，生成预览不会保存规则', (tester) async {
+    ReaderDecorationRule? saved;
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'rule',
+          groupId: 'group',
+          pattern: '原文',
+          style: ReaderDecorationRuleStyle(color: 0xFF374151),
+        ),
+        onPreview: (rule) async => List.generate(
+          55,
+          (index) => ReaderDecorationRulePreview(
+            startCfi: 'start-$index',
+            endCfi: 'end-$index',
+            text: '命中 $index',
+            style: rule.style,
+          ),
+        ),
+      ),
+      (result) => saved = result,
+    );
+    final preview = find.byKey(const ValueKey<String>('rule-preview'));
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationStylePreview), findsNWidgets(51));
+    expect(saved, isNull);
+  });
+
+  testWidgets('装饰列表独立展示手工记录、待修复和规则入口', (tester) async {
+    var rulesOpened = false;
+    final selected = <ReaderDecoration>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderDecorationPanel(
+            decorations: [
+              ReaderDecoration(
+                id: 'manual',
+                startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+                endCfi: 'epubcfi(/6/2!/4/2/1:2)',
+                quote: '手工装饰原文',
+                style: const ReaderDecorationStyle(fontWeight: 700),
+                createdAt: DateTime(2026),
+                updatedAt: DateTime(2026),
+                relocationStatus: 'pending',
+              ),
+            ],
+            toc: const [TocEntry(title: '第一章', spineIndex: 0)],
+            onSelect: selected.add,
+            onEdit: (_) {},
+            onRemove: (_) {},
+            onRules: () => rulesOpened = true,
+            ruleCount: 3,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('待修复 · 点击关联原文'), findsOneWidget);
+    expect(find.text('字重 700'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('decoration-rules-entry')),
+    );
+    expect(rulesOpened, isTrue);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('decoration-search')),
+      '第一章',
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('decoration-row-manual')),
+    );
+    expect(selected.single.id, 'manual');
+  });
+
+  testWidgets('预览计算期间修改匹配内容，不回填过期结果', (tester) async {
+    final pending = Completer<List<ReaderDecorationRulePreview>>();
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'rule',
+          groupId: 'group',
+          pattern: '原文',
+          style: ReaderDecorationRuleStyle(),
+        ),
+        onPreview: (_) => pending.future,
+      ),
+      (_) {},
+    );
+    final preview = find.byKey(const ValueKey<String>('rule-preview'));
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.pump();
+    final pattern = find.byKey(const ValueKey<String>('rule-pattern'));
+    await tester.ensureVisible(pattern);
+    await tester.enterText(pattern, '新版原文');
+    pending.complete([
+      const ReaderDecorationRulePreview(
+        startCfi: 'start',
+        endCfi: 'end',
+        text: '过期命中',
+        style: ReaderDecorationRuleStyle(),
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationStylePreview), findsOneWidget);
+  });
+}

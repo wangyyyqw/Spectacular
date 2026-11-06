@@ -121,6 +121,9 @@ abstract final class TextHitTester {
       }
       target = box;
     }
+    if (boxes.any((box) => box.slice.block.multicol != null)) {
+      target = _multicolLineAt(position, boxes);
+    }
     final lineText = target.text;
     if (lineText.isEmpty) {
       return TextHit(
@@ -152,6 +155,32 @@ abstract final class TextHitTester {
       atLineStart: atLineStart,
       atLineEnd: atLineEnd,
     );
+  }
+
+  static PageLineBox _multicolLineAt(Offset position, List<PageLineBox> boxes) {
+    var target = boxes.first;
+    var nearestRow = double.infinity;
+    var nearestColumn = double.infinity;
+    for (final box in boxes) {
+      final rowDistance = position.dy < box.rect.top
+          ? box.rect.top - position.dy
+          : position.dy > box.rect.bottom
+          ? position.dy - box.rect.bottom
+          : 0.0;
+      final columnDistance = position.dx < box.rect.left
+          ? box.rect.left - position.dx
+          : position.dx > box.rect.right
+          ? position.dx - box.rect.right
+          : 0.0;
+      if (rowDistance < nearestRow - 0.5 ||
+          ((rowDistance - nearestRow).abs() <= 0.5 &&
+              columnDistance < nearestColumn)) {
+        target = box;
+        nearestRow = rowDistance;
+        nearestColumn = columnDistance;
+      }
+    }
+    return target;
   }
 
   /// 竖排命中：先按所属切片的纵向范围选块，再按 x 选列、按 y 选字符。

@@ -16,7 +16,10 @@ import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_mobile/storage/import_queue.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
+import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'fixtures/revision_epub.dart';
@@ -27,6 +30,9 @@ List<Map<String, dynamic>> _jsonRows(Iterable<DataClass> rows) =>
 Future<Map<String, Object?>> _snapshot(AppDatabase db) async => {
   'books': _jsonRows(await db.select(db.books).get()),
   'annotations': _jsonRows(await db.select(db.annotations).get()),
+  'decorations': _jsonRows(await db.select(db.decorations).get()),
+  'decorationGroups': _jsonRows(await db.select(db.decorationRuleGroups).get()),
+  'decorationRules': _jsonRows(await db.select(db.decorationRules).get()),
   'progress': _jsonRows(await db.select(db.readingProgress).get()),
   'reviews': _jsonRows(await db.select(db.bookReviews).get()),
   'sessions': _jsonRows(await db.select(db.readingSessions).get()),
@@ -54,21 +60,28 @@ Future<void> _seedAnnotations(
 ) async {
   final anchor = _quoteAnchor(index);
   for (final type in [
-    ReaderAnnotationType.highlight,
-    ReaderAnnotationType.note,
+    ReaderAnnotationType.mark,
+    ReaderAnnotationType.thought,
   ]) {
+    final chapter = index.chapter(0)!;
+    final markEnd = chapter.cfiAt(
+      chapter.text.indexOf(revisionQuote) + 4,
+      end: true,
+    )!;
     final annotation = await library
         .annotationStore(entry.id)!
         .add(
           type: type,
           startCfi: anchor.start.cfi,
-          endCfi: anchor.end!.cfi,
-          quote: revisionQuote,
+          endCfi: type == ReaderAnnotationType.mark ? markEnd : anchor.end!.cfi,
+          quote: type == ReaderAnnotationType.mark
+              ? revisionQuote.substring(0, 4)
+              : revisionQuote,
           contextBefore: revisionBefore,
           contextAfter: revisionAfter,
           color: 0xff123456,
           style: ReaderAnnotationStyle.wavyUnderline,
-          note: type == ReaderAnnotationType.note
+          note: type == ReaderAnnotationType.thought
               ? '旧版笔记正文、标点与换行\n全部保留。'
               : null,
         );
@@ -185,7 +198,7 @@ void _verifyRestructuredAnnotation(
   )!;
   expect(
     actual.quote,
-    row.type == 2 ? startsWith(revisionBookmarkQuote) : revisionQuote,
+    row.type == 2 ? startsWith(revisionBookmarkQuote) : row.quote,
   );
 }
 
@@ -252,7 +265,7 @@ void main() {
       expect(actual.start.spineIndex, row.type == 2 ? 4 : 1);
       expect(
         actual.quote,
-        row.type == 2 ? startsWith(revisionBookmarkQuote) : revisionQuote,
+        row.type == 2 ? startsWith(revisionBookmarkQuote) : row.quote,
       );
     }
     final progress = (await DriftProgressStore(db).load(result.id))!;
@@ -306,7 +319,7 @@ void main() {
     final saved = await library
         .annotationStore(entry.id)!
         .add(
-          type: ReaderAnnotationType.highlight,
+          type: ReaderAnnotationType.mark,
           startCfi: anchor.start.cfi,
           endCfi: anchor.end!.cfi,
           quote: anchor.quote,
@@ -539,12 +552,14 @@ void main() {
     expect((await DriftProgressStore(db).load(result.id))!.finished, isTrue);
     final notes = await library.annotationStore(result.id)!.list();
     expect(
-      notes.singleWhere((item) => item.type == ReaderAnnotationType.note).quote,
+      notes
+          .singleWhere((item) => item.type == ReaderAnnotationType.thought)
+          .quote,
       revisionQuote,
     );
     expect(
       notes
-          .singleWhere((item) => item.type == ReaderAnnotationType.note)
+          .singleWhere((item) => item.type == ReaderAnnotationType.thought)
           .currentQuote,
       '作者修改了原来的这一个段落。',
     );
@@ -662,7 +677,7 @@ void main() {
     final annotations = library.annotationStore(old.id)!;
     final bookmarks = library.bookmarkStore(old.id)!;
     final note = (await annotations.list()).singleWhere(
-      (row) => row.type == ReaderAnnotationType.note,
+      (row) => row.type == ReaderAnnotationType.thought,
     );
     final bookmark = (await bookmarks.list()).single;
     await library.importBytes(updated);
@@ -681,7 +696,7 @@ void main() {
     await bookmarks.remove(bookmark.id);
     expect(
       await annotations.add(
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: _quoteAnchor(oldIndex).start.cfi,
         endCfi: _quoteAnchor(oldIndex).end!.cfi,
         quote: revisionQuote,
@@ -705,6 +720,119 @@ void main() {
     );
     expect(await _snapshot(db), before);
     expect(await File(old.filePath).readAsBytes(), orderedEquals(original));
+  });
+
+  test('装饰随版本迁移，样式与原引用不变，本书规则保持稳定外键', () async {
+    final old = await library.importBytes(original);
+    final anchor = _quoteAnchor(await buildRevisionAnchorBook(original));
+    final images = ReaderDecorationImages(
+      directoryProvider: () async => directory,
+    );
+    final oldStore = library.decorationStore(old.id, images: images)!;
+    final decoration = (await oldStore.add(
+      startCfi: anchor.start.cfi,
+      endCfi: anchor.end!.cfi,
+      quote: revisionQuote,
+      style: ReaderDecorationPreset.tag.style,
+    ))!;
+    final rules = library.decorationRuleStore(old.id)!;
+    final group = (await rules.listGroups()).singleWhere(
+      (group) => group.bookId != null,
+    );
+    await rules.saveRule(
+      ReaderDecorationRule(
+        id: 'stable-rule',
+        groupId: group.id,
+        pattern: revisionQuote,
+        style: const ReaderDecorationRuleStyle(color: 0xff123456),
+      ),
+    );
+    final result = await library.updateBytes(
+      old.id,
+      buildRevisionTestEpub(
+        identifier: 'urn:uuid:decoration-update',
+        chapters: revisionUpdatedChapters,
+      ),
+    );
+    final store = library.decorationStore(result.id, images: images)!;
+    final restored = (await store.list()).single;
+    expect(restored.id, decoration.id);
+    expect(restored.quote, revisionQuote);
+    expect(restored.createdAt, decoration.createdAt);
+    expect(restored.style.toJson(), decoration.style.toJson());
+    expect(restored.needsRelocation, isFalse);
+    final index = await buildRevisionAnchorBook(
+      await library.readBytes(result),
+    );
+    expect(
+      index.capture(restored.startCfi, endCfi: restored.endCfi)!.quote,
+      revisionQuote,
+    );
+    expect(
+      AnchorRecord.decode(restored.anchorData)!.original.revision,
+      AnchorRecord.decode(decoration.anchorData)!.original.revision,
+    );
+    final updatedGroups = await library
+        .decorationRuleStore(result.id)!
+        .listGroups();
+    expect(
+      updatedGroups.singleWhere((value) => value.id == group.id).bookId,
+      result.id,
+    );
+    expect(
+      (await library.decorationRuleStore(result.id)!.listRules()).single.id,
+      'stable-rule',
+    );
+    final snapshot = await _snapshot(db);
+    await oldStore.update(decoration.id, style: const ReaderDecorationStyle());
+    await oldStore.remove(decoration.id);
+    expect(await _snapshot(db), snapshot);
+  });
+
+  test('失效装饰保留原区间与样式，显示待修复并允许关联新位置', () async {
+    final old = await library.importBytes(original);
+    final anchor = _quoteAnchor(await buildRevisionAnchorBook(original));
+    final images = ReaderDecorationImages(
+      directoryProvider: () async => directory,
+    );
+    final created = (await library
+        .decorationStore(old.id, images: images)!
+        .add(
+          startCfi: anchor.start.cfi,
+          endCfi: anchor.end!.cfi,
+          quote: revisionQuote,
+          style: ReaderDecorationPreset.emphasis.style,
+        ))!;
+    final bytes = buildRevisionTestEpub(
+      chapters: [
+        const RevisionTestChapter('removed.xhtml', '删除版', ['这段完全不同的内容作为修复位置。']),
+        ...revisionOriginalChapters.skip(1),
+      ],
+    );
+    final current = await library.updateBytes(old.id, bytes);
+    final store = library.decorationStore(current.id, images: images)!;
+    final pending = (await store.list()).single;
+    expect(pending.needsRelocation, isTrue);
+    expect(pending.startCfi, created.startCfi);
+    expect(pending.endCfi, created.endCfi);
+    expect(pending.quote, created.quote);
+    expect(
+      await library.pendingLocationReasons(current.id),
+      contains(startsWith('装饰：')),
+    );
+    final chapter = (await buildRevisionAnchorBook(bytes)).chapter(0)!;
+    const text = '这段完全不同的内容作为修复位置。';
+    final offset = chapter.text.indexOf(text);
+    await store.relocate(
+      created.id,
+      startCfi: chapter.cfiAt(offset)!,
+      endCfi: chapter.cfiAt(offset + text.length, end: true)!,
+    );
+    final repaired = (await store.list()).single;
+    expect(repaired.needsRelocation, isFalse);
+    expect(repaired.quote, created.quote);
+    expect(repaired.currentQuote, text);
+    expect(repaired.style.toJson(), created.style.toJson());
   });
 
   test('从仍存在旧 EPUB 补历史锚点，书签标签保留且页号进度标为近似来源', () async {
@@ -739,7 +867,7 @@ void main() {
       } else {
         expect(
           index.capture(row.startCfi, endCfi: row.endCfi)!.quote,
-          revisionQuote,
+          row.quote,
         );
       }
     }

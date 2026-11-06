@@ -21,6 +21,16 @@ import 'annotations/annotation_editor_sheet.dart';
 import 'annotations/annotation_layer.dart';
 import 'annotations/decorations.dart';
 import 'annotations/note_composer_sheet.dart';
+import 'annotations/mark_settings.dart';
+import 'decorations/decoration.dart';
+import 'decorations/decoration_editor_sheet.dart';
+import 'decorations/decoration_geometry.dart';
+import 'decorations/decoration_image_store.dart';
+import 'decorations/decoration_painter.dart';
+import 'decorations/decoration_relocator.dart';
+import 'decorations/decoration_rule_engine.dart';
+import 'decorations/decoration_rule_page.dart';
+import 'decorations/decoration_rules.dart';
 import 'a11y/semantics_layer.dart';
 import 'footnote_dialog.dart';
 import 'menu/reader_menu_overlay.dart';
@@ -34,12 +44,16 @@ import 'panels/annotation_panel.dart';
 import 'panels/bookmark_panel.dart';
 import 'panels/search_panel.dart';
 import 'panels/settings_panel.dart';
+import 'panels/decoration_panel.dart';
+import 'panels/mark_settings_sheet.dart';
 import 'theme/reader_background.dart';
 import 'theme/reader_drawer_style.dart';
 import 'theme/reader_environment.dart';
 import 'theme/reader_panel_theme.dart';
 import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
+import 'selection/selection_support.dart';
+import 'selection/text_range_geometry.dart';
 import 'selection/selection_layer.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
@@ -49,6 +63,10 @@ import 'paging/page_turn_mode.dart';
 import 'paging/page_turn_view.dart';
 import 'theme/reader_theme.dart';
 import 'loading_skeleton.dart';
+
+part 'reader_annotation_controller.dart';
+part 'reader_decoration_controller.dart';
+part 'reader_decoration_actions.dart';
 
 const MethodChannel _readerPlatformChannel = MethodChannel(
   'com.spectacular.reader_mobile/reader',
@@ -67,6 +85,11 @@ class ReaderPage extends StatefulWidget {
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     this.bookmarks,
     this.annotations,
+    this.decorations,
+    this.decorationRules,
+    this.decorationImages,
+    this.markSettings = const ReaderMarkSettings(),
+    this.onMarkSettingsChanged,
     this.onOverridesChanged,
     this.onThemeChanged,
     this.customTheme,
@@ -108,8 +131,21 @@ class ReaderPage extends StatefulWidget {
   /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
   final ReaderBookmarkStore? bookmarks;
 
-  /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
+  /// 阅读划线与想法存储。
   final ReaderAnnotationStore? annotations;
+
+  /// 手工装饰存储，不混入标注列表。
+  final ReaderDecorationStore? decorations;
+
+  /// 本书和全局自动装饰规则。
+  final ReaderDecorationRuleStore? decorationRules;
+
+  /// 宿主装饰图片存储。
+  final ReaderDecorationImageStore? decorationImages;
+
+  /// 划线快捷设置及其持久化回调。
+  final ReaderMarkSettings markSettings;
+  final ValueChanged<ReaderMarkSettings>? onMarkSettingsChanged;
 
   /// 排版设置变化（P4-21）：调用方负责持久化。
   final ValueChanged<ReaderOverrides>? onOverridesChanged;
@@ -340,7 +376,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 当前打开的抽屉。
   ReaderMenuEntry? _drawer;
 
-  /// 目录抽屉里的二级页签（内容/书签/笔记/搜索）。
+  /// 目录抽屉里的二级页签（目录/书签/标注/装饰/搜索）。
   _DrawerTab _drawerTab = _DrawerTab.content;
 
   /// 是否有浮层压在正文之上：此时系统返回键只关闭浮层，不退出阅读页。
@@ -392,6 +428,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       textColor: theme?.text,
       inkMode: _inkMode,
       paragraphCache: _paragraphCache,
+      textOverlays: _textOverlays,
+      beforeBlockText: _paintDecorationsBeforeText,
     );
   }
 
@@ -716,15 +754,34 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 全书标注（P4-18）：打开时加载，标注变更后刷新。
   List<ReaderAnnotation> _annotations = const <ReaderAnnotation>[];
 
+  late ReaderMarkSettings _markSettings = widget.markSettings;
+  List<ReaderDecoration> _decorations = const [];
+  List<ReaderDecoration> _resolvedDecorations = const [];
+  List<ReaderDecorationRuleGroup> _decorationGroups = const [];
+  List<ReaderDecorationRule> _decorationRules = const [];
+  final _ruleEngine = ReaderDecorationRuleEngine();
+  final Map<int, List<ReaderDecorationRuleMatch>> _chapterRuleMatches = {};
+  final Map<String, ui.Image> _decorationImages = {};
+  final Set<String> _missingDecorationImages = {};
+  final Set<String> _unavailableDecorationFonts = {};
+  int _decorationGeneration = 0;
+  final Map<int, int> _decorationScheduledChapters = {};
+  bool _decorationLoading = false;
+  ReaderDecoration? _relocatingDecoration;
+  bool _selectionMore = false;
+  double _paperContentWidth = 0;
+
+  void _changeReaderState(VoidCallback change) => setState(change);
+
   ReaderAnnotation? _relocatingAnnotation;
   ReaderBookmark? _relocatingBookmark;
   bool _relocationBusy = false;
 
   /// 可绘制的标注（P4-20：重定位后；失效标注保留数据但不绘制）。
   List<ReaderAnnotation> _resolvedAnnotations = const <ReaderAnnotation>[];
-
-  /// 已重定位的章（换章或重排后重算）。
-  int? _relocatedSpineIndex;
+  final Map<int, List<ReaderAnnotation>> _annotationsByChapter = {};
+  final Map<int, int> _annotationScheduledChapters = {};
+  int _annotationGeneration = 0;
 
   /// 选区所属章（跨页选区跨翻页时不清，翻章才清）。
   int? _selectionSpineIndex;
@@ -757,6 +814,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
     widget.onSessionReady?.call(_session);
     unawaited(_reloadAnnotations());
+    unawaited(_reloadDecorations());
   }
 
   @override
@@ -768,6 +826,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }.values.toList();
     if (oldWidget.pageTurnMode != widget.pageTurnMode) {
       _pageTurnMode = widget.pageTurnMode;
+    }
+    if (oldWidget.markSettings != widget.markSettings) {
+      _markSettings = widget.markSettings;
+      _painter = _buildPainter();
+    }
+    if (oldWidget.decorations != widget.decorations ||
+        oldWidget.decorationRules != widget.decorationRules) {
+      unawaited(_reloadDecorations());
     }
     if (oldWidget.keepScreenOn != widget.keepScreenOn ||
         oldWidget.volumeKeyPaging != widget.volumeKeyPaging) {
@@ -821,8 +887,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         ReaderMenuEntry.toc => switch (tab) {
           _DrawerTab.content => '目录',
           _DrawerTab.bookmarks => '书签',
-          _DrawerTab.annotations => '笔记',
-          _DrawerTab.highlights => '高亮',
+          _DrawerTab.annotations => '标注',
+          _DrawerTab.decorations => '装饰',
           _DrawerTab.search => '搜索',
         },
         ReaderMenuEntry.theme => '主题',
@@ -1123,7 +1189,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _tempHighlight = ReaderAnnotation(
         id: 'search-hit',
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: resolvedCfi,
         endCfi: endCfi,
         quote: result.context,
@@ -1131,7 +1197,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-      _relocatedSpineIndex = _session.page?.spineIndex;
       _resolvedAnnotations = <ReaderAnnotation>[
         ..._resolvedAnnotations,
         _tempHighlight!,
@@ -1281,6 +1346,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _applyBackground(ReaderBackground.none.id);
     _applyPageTurnMode(PageTurnMode.cover);
     _applyInkMode(false);
+    _applyMarkSettings(const ReaderMarkSettings());
     if (widget.keepScreenOn) {
       widget.onKeepScreenOnChanged?.call(false);
     }
@@ -1311,16 +1377,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 重新加载全书标注（P4-18）并重定位到当前章（P4-20）。
   Future<void> _reloadAnnotations() async {
+    final generation = ++_annotationGeneration;
     final store = widget.annotations;
     if (store == null) {
       return;
     }
     final items = await store.list();
-    if (!mounted) {
+    if (!mounted || generation != _annotationGeneration) {
       return;
     }
-    setState(() => _annotations = items);
+    setState(() {
+      _annotations = items;
+      _annotationsByChapter.clear();
+      _annotationScheduledChapters.clear();
+      _resolvedAnnotations = const [];
+    });
     await _relocateAnnotations();
+    if (mounted) setState(() => _painter = _buildPainter());
   }
 
   /// 批量删除标注，完成后只刷新一次阅读页。
@@ -1368,43 +1441,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 按当前章的分页重算标注位置（§30.4）：CFI 优先，失效按引文兜底。
   Future<void> _relocateAnnotations() async {
-    final items = _annotations;
-    if (items.isEmpty) {
-      setState(() {
-        _resolvedAnnotations = const <ReaderAnnotation>[];
-        _relocatedSpineIndex = _session.page?.spineIndex;
-      });
-      return;
-    }
     final spine = _session.page?.spineIndex;
-    final currentChapterItems = <ReaderAnnotation>[
-      for (final annotation in items)
-        if (EpubCfi.parse(annotation.startCfi) case final parsed?)
-          if (spineIndexOfCfi(parsed) == spine) annotation,
-    ];
-    if (currentChapterItems.isEmpty) {
-      setState(() {
-        _resolvedAnnotations = const <ReaderAnnotation>[];
-        _relocatedSpineIndex = spine;
-      });
-      return;
-    }
-    final pages = await _session.chapterPages();
-    if (!mounted) {
-      return;
-    }
-    final relocations = AnnotationRelocator.relocate(
-      annotations: currentChapterItems,
-      pages: pages,
-      contentRevision: widget.contentRevision,
-    );
-    setState(() {
-      _resolvedAnnotations = <ReaderAnnotation>[
-        for (final relocation in relocations)
-          if (relocation.isResolved) relocation.resolved,
-      ];
-      _relocatedSpineIndex = spine;
-    });
+    if (spine == null) return;
+    await _resolveAnnotationChapter(spine, _annotationGeneration);
   }
 
   Future<void> _selectBookmark(ReaderBookmark bookmark) async {
@@ -1429,6 +1468,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _clearSelection();
     setState(() {
       _relocatingAnnotation = null;
+      _relocatingDecoration = null;
       _relocatingBookmark = bookmark;
     });
   }
@@ -1476,6 +1516,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _clearSelection();
     setState(() {
       _relocatingBookmark = null;
+      _relocatingDecoration = null;
       _relocatingAnnotation = annotation;
     });
   }
@@ -1504,7 +1545,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   const Text('新版位置'),
                   Text(replacement),
                   const SizedBox(height: 12),
-                  const Text('原引用、笔记及样式将保留。'),
+                  const Text('原引用、想法及样式将保留。'),
                 ],
               ],
             ),
@@ -1534,7 +1575,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           children: [
             Expanded(
               child: Text(
-                _relocatingAnnotation != null
+                _relocatingAnnotation != null || _relocatingDecoration != null
                     ? '长按选择新版文字，点击“关联此处”'
                     : '翻到新版位置后，点击“使用当前位置”',
               ),
@@ -1561,6 +1602,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _relocatingAnnotation = null;
       _relocatingBookmark = null;
+      _relocatingDecoration = null;
     });
   }
 
@@ -1593,29 +1635,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ) async {
     final annotation = _relocatingAnnotation;
     final store = widget.annotations;
-    final cfi = SelectionOps.cfiOf(selection);
     if (_relocationBusy ||
         annotation == null ||
-        cfi == null ||
         store is! RelocatableAnnotationStore) {
       return;
     }
-    final quote = selection.isMultiPage
-        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
-        : SelectionOps.textOf(page, selection);
-    if (!mounted || quote.isEmpty) return;
+    final supported = await _supportedSelection(page, selection);
+    if (!mounted || supported == null) return;
     final accepted = await _showRelocationDialog(
       '确认关联标注',
       annotation.quote,
       null,
-      replacement: quote,
+      replacement: supported.quote,
     );
     if (!mounted || !accepted || _relocatingAnnotation != annotation) return;
     await _saveRelocation(
       () => (store as RelocatableAnnotationStore).relocate(
         annotation.id,
-        startCfi: cfi.start,
-        endCfi: cfi.end,
+        startCfi: supported.startCfi,
+        endCfi: supported.endCfi,
       ),
       '标注已重新定位',
       annotations: true,
@@ -1658,6 +1696,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selectionPage = _effectiveTurnMode == PageTurnMode.scroll ? page : null;
       _selection = SelectionOps.wordAt(page, hit);
       _selectionSpineIndex = page.spineIndex;
+      _selectionMore = false;
     });
   }
 
@@ -1677,6 +1716,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selectionPage = _effectiveTurnMode == PageTurnMode.scroll ? page : null;
       _selection = SelectionOps.sentenceAt(page, hit);
       _selectionSpineIndex = page.spineIndex;
+      _selectionMore = false;
     });
   }
 
@@ -1745,13 +1785,26 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       page,
       pagePosition,
       persistent,
+      contentWidth: _paperContentWidth,
     );
     if (annotation != null) {
       _clearSelection();
       unawaited(_editAnnotation(annotation));
       return true;
     }
-    if (_openFootnoteInPage(page, pagePosition)) {
+    final decoration = ReaderDecorationGeometry.decorationAt(
+      page,
+      pagePosition,
+      _resolvedDecorations,
+    );
+    if (decoration != null) {
+      _clearSelection();
+      unawaited(_editDecoration(decoration));
+      return true;
+    }
+    if (pagePosition.dx >= 0 &&
+        pagePosition.dx <= _paperContentWidth &&
+        _openFootnoteInPage(page, pagePosition)) {
       return true;
     }
     // 有选区时点击正文只取消选中：既不翻页，也不打开阅读菜单。
@@ -1777,6 +1830,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         child: ReaderAnnotationEditorSheet(
           annotation: annotation,
           inkMode: _inkMode,
+          markSettings: _markSettings,
         ),
       ),
     );
@@ -1784,296 +1838,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     await _applyAnnotationEdit(annotation, action);
-  }
-
-  Future<void> _applyAnnotationEdit(
-    ReaderAnnotation annotation,
-    AnnotationEditAction action,
-  ) async {
-    final store = widget.annotations;
-    if (store == null) {
-      return;
-    }
-    final note = action.note?.trim();
-    if (note != null && note.isEmpty) {
-      return;
-    }
-    var message = note == null
-        ? '已更新高亮'
-        : annotation.type == ReaderAnnotationType.highlight
-        ? '已添加笔记'
-        : '笔记已更新';
-    var removed = false;
-    var removedNote = false;
-    switch (action.type) {
-      case AnnotationEditActionType.save:
-        await store.update(
-          annotation.id,
-          type:
-              note != null && annotation.type == ReaderAnnotationType.highlight
-              ? ReaderAnnotationType.note
-              : null,
-          color: action.color,
-          style: action.style,
-          note: note,
-        );
-      case AnnotationEditActionType.removeNote:
-        await store.update(
-          annotation.id,
-          type: ReaderAnnotationType.highlight,
-          color: action.color,
-          style: action.style,
-          clearNote: true,
-        );
-        removedNote = true;
-        message = '已删除笔记正文，保留高亮';
-      case AnnotationEditActionType.remove:
-        await store.remove(annotation.id);
-        removed = true;
-        message = annotation.type == ReaderAnnotationType.note
-            ? '已删除笔记'
-            : '已取消高亮';
-    }
-    if (!mounted) {
-      return;
-    }
-    await _reloadAnnotations();
-    if (mounted) {
-      if (removed) {
-        _showToast(
-          message,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '撤销',
-            onPressed: () => unawaited(_restoreAnnotation(annotation)),
-          ),
-        );
-      } else if (removedNote) {
-        _showToast(
-          message,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '撤销',
-            onPressed: () => unawaited(_restoreRemovedNote(annotation)),
-          ),
-        );
-      } else {
-        _showToast(message);
-      }
-    }
-  }
-
-  Future<void> _restoreRemovedNote(ReaderAnnotation annotation) async {
-    final store = widget.annotations;
-    if (store == null) {
-      return;
-    }
-    try {
-      await store.update(
-        annotation.id,
-        type: ReaderAnnotationType.note,
-        color: annotation.color,
-        style: annotation.style,
-        note: annotation.note,
-      );
-      await _reloadAnnotations();
-      if (mounted) {
-        _showToast('已恢复笔记');
-      }
-    } catch (_) {
-      if (mounted) {
-        _showToast('恢复失败，请重试');
-      }
-    }
-  }
-
-  Future<void> _restoreAnnotation(ReaderAnnotation annotation) async {
-    final store = widget.annotations;
-    if (store == null) {
-      return;
-    }
-    try {
-      final restored = await store.add(
-        type: annotation.type,
-        startCfi: annotation.startCfi,
-        endCfi: annotation.endCfi,
-        quote: annotation.quote,
-        contextBefore: annotation.contextBefore,
-        contextAfter: annotation.contextAfter,
-        color: annotation.color,
-        style: annotation.style,
-        note: annotation.note,
-      );
-      if (!mounted) {
-        return;
-      }
-      if (restored == null) {
-        _showToast('无法撤销：该位置已有标注');
-        return;
-      }
-      await _reloadAnnotations();
-      if (mounted) {
-        _showToast(
-          annotation.type == ReaderAnnotationType.note ? '已恢复笔记' : '已恢复高亮',
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        _showToast('恢复失败，请重试');
-      }
-    }
-  }
-
-  /// 选区菜单动作（P4-16）：复制 / 全选 / 取消。
-  List<SelectionAction> _selectionActions(
-    PageContent page,
-    ReaderSelection selection,
-  ) {
-    if (_relocatingAnnotation != null) {
-      return [
-        SelectionAction(
-          id: 'relocate',
-          label: '关联此处',
-          onTap: () => unawaited(_relocateSelectedAnnotation(page, selection)),
-        ),
-        SelectionAction(id: 'dismiss', label: '取消选区', onTap: _clearSelection),
-      ];
-    }
-    return <SelectionAction>[
-      if (widget.annotations != null)
-        SelectionAction(
-          id: 'highlight',
-          label: '高亮',
-          onTap: () => unawaited(
-            _saveAnnotation(page, selection, ReaderAnnotationType.highlight),
-          ),
-        ),
-      if (widget.annotations != null)
-        SelectionAction(
-          id: 'note',
-          label: '笔记',
-          onTap: () => unawaited(_addNote(page, selection)),
-        ),
-      SelectionAction(
-        id: 'copy',
-        label: '复制',
-        onTap: () => unawaited(_copySelection(page, selection)),
-      ),
-      SelectionAction(
-        id: 'select-all',
-        label: '全选',
-        onTap: () => _selectAll(page),
-      ),
-      SelectionAction(id: 'dismiss', label: '取消', onTap: _clearSelection),
-    ];
-  }
-
-  /// 保存高亮/笔记（P4-17）：CFI 区间 + 原文 + 前后文。
-  Future<void> _saveAnnotation(
-    PageContent page,
-    ReaderSelection selection,
-    ReaderAnnotationType type, {
-    String? note,
-  }) async {
-    final store = widget.annotations;
-    if (store == null) {
-      return;
-    }
-    final cfi = SelectionOps.cfiOf(selection);
-    final quote = selection.isMultiPage
-        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
-        : SelectionOps.textOf(page, selection);
-    if (cfi == null || quote.isEmpty) {
-      _showToast('当前位置不支持标注');
-      return;
-    }
-    final context = SelectionOps.contextOf(page, selection);
-    final created = await store.add(
-      type: type,
-      startCfi: cfi.start,
-      endCfi: cfi.end,
-      quote: quote,
-      contextBefore: context.before,
-      contextAfter: context.after,
-      color: type == ReaderAnnotationType.highlight
-          ? defaultHighlightColor
-          : null,
-      note: note,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (created != null) {
-      unawaited(_reloadAnnotations());
-    }
-    _clearSelection();
-    if (created != null) {
-      _showToast(
-        type == ReaderAnnotationType.note ? '已添加笔记' : '已高亮',
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: '撤销',
-          onPressed: () => unawaited(_removeCreatedAnnotation(created)),
-        ),
-      );
-      return;
-    }
-    _showToast('该位置已有标注');
-  }
-
-  /// 撤销刚创建的标注，避免误触后还要去批注列表删除。
-  Future<void> _removeCreatedAnnotation(ReaderAnnotation annotation) async {
-    final store = widget.annotations;
-    if (store == null) {
-      return;
-    }
-    try {
-      await store.remove(annotation.id);
-      await _reloadAnnotations();
-      if (mounted) {
-        _showToast('已撤销');
-      }
-    } catch (_) {
-      if (mounted) {
-        _showToast('撤销失败，请重试');
-      }
-    }
-  }
-
-  /// 输入笔记正文后保存（P4-17）。
-  Future<void> _addNote(PageContent page, ReaderSelection selection) async {
-    final quote = selection.isMultiPage
-        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
-        : SelectionOps.textOf(page, selection);
-    if (!mounted) {
-      return;
-    }
-    setState(() => _hideSelectionMenu = true);
-    try {
-      final note = await showModalBottomSheet<String>(
-        context: context,
-        useSafeArea: true,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => ReaderPanelTheme(
-          theme: _effectiveTheme ?? ReaderTheme.white,
-          child: ReaderNoteComposerSheet(quote: quote, inkMode: _inkMode),
-        ),
-      );
-      if (!mounted || note == null || note.trim().isEmpty) {
-        return;
-      }
-      await _saveAnnotation(
-        page,
-        selection,
-        ReaderAnnotationType.note,
-        note: note.trim(),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _hideSelectionMenu = false);
-      }
-    }
   }
 
   Future<void> _copySelection(
@@ -2132,6 +1896,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         _selectionPage = null;
         _selectionSpineIndex = null;
         _hideSelectionMenu = false;
+        _selectionMore = false;
       });
     }
   }
@@ -2142,7 +1907,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     Duration duration = const Duration(seconds: 2),
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    // 新反馈应替换旧提示，避免撤销条把后续操作结果排队遮挡。
     messenger?.clearSnackBars();
     messenger?.showSnackBar(
       SnackBar(
@@ -2196,6 +1960,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _semanticsFirstFocus.dispose();
     _backgroundRequest++;
     _backgroundImage?.dispose();
+    _decorationGeneration++;
+    _annotationGeneration++;
+    _ruleEngine.dispose();
+    for (final image in _decorationImages.values) {
+      image.dispose();
+    }
+    _decorationImages.clear();
     super.dispose();
   }
 
@@ -2234,6 +2005,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     if (_editingMargins)
                       Positioned.fill(child: _buildMarginEditor()),
                     if (_relocatingAnnotation != null ||
+                        _relocatingDecoration != null ||
                         _relocatingBookmark != null)
                       Positioned(
                         top: 0,
@@ -2253,6 +2025,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _buildBody(BuildContext context) {
     final page = _session.page;
+    if (page != null) _scheduleDecorationChapter(page);
+    if (page != null) _scheduleAnnotationChapter(page);
     // 翻页后焦点落到新页首块（P4-28）；面板/弹层打开时不抢焦点。
     final pageKey = page == null
         ? null
@@ -2272,17 +2046,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           _semanticsFirstFocus.requestFocus();
         }
         _announcePageChange(focusedPage, _session.chapterPageCount);
-      });
-    }
-
-    // 换章（拼页/跳转）后重算标注位置；重排后块 CFI 不变，仍会 verified。
-    if (page != null &&
-        _annotations.isNotEmpty &&
-        _relocatedSpineIndex != page.spineIndex) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          unawaited(_relocateAnnotations());
-        }
       });
     }
 
@@ -2341,6 +2104,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         final bodyPadding = _bodyPadding();
+        _paperContentWidth = size.width - bodyPadding.horizontal;
         _schedulePrefetch(page, size.width - bodyPadding.horizontal);
         // 出血页把整页让给图：绘制画布取满屏，正文由 pageInsets 内缩，
         // 出血块才能铺到屏幕边缘。页眉页脚按页类型让位：
@@ -2489,6 +2253,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       bookmarks: widget.bookmarks,
                       annotations: widget.annotations,
                       annotationItems: _annotations,
+                      decorations: widget.decorations,
+                      decorationItems: _decorations,
+                      decorationRuleCount: _decorationRules.length,
+                      decorationRulesEnabled: _hasEnabledDecorationRules,
+                      markSettings: _markSettings,
                       hasCfi: _session.currentCfi != null,
                       overrides: _overrides,
                       themeId: (_theme ?? ReaderTheme.white).id,
@@ -2550,6 +2319,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                       onAnnotationDelete: _deleteAnnotations,
                       onAnnotationRecolor: _recolorAnnotations,
+                      onDecorationSelect: (decoration) {
+                        _dismissReaderMenu();
+                        unawaited(_selectDecoration(decoration));
+                      },
+                      onDecorationEdit: (decoration) =>
+                          unawaited(_editDecoration(decoration)),
+                      onDecorationRemove: (decoration) =>
+                          unawaited(_removeDecoration(decoration)),
+                      onDecorationRules: () =>
+                          unawaited(_openDecorationRules()),
+                      onOpenMarkSettings: () => unawaited(_openMarkSettings()),
                       onOpenMarginEditor: () {
                         _dismissReaderMenu();
                         setState(() {
@@ -2797,6 +2577,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 page: page,
                 annotations: [..._resolvedAnnotations, ?_tempHighlight],
                 inkMode: _inkMode,
+                settings: _markSettings,
+                backgroundsBehindText: true,
               ),
             ),
           ),
@@ -2807,28 +2589,33 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _buildScrollPaper(PageContent page, Size size) {
     _schedulePrefetch(page, size.width);
-    return ClipRect(
+    _scheduleDecorationChapter(page);
+    _scheduleAnnotationChapter(page);
+    return Stack(
       key: ValueKey('scroll-page-${page.spineIndex}-${page.pageIndex}'),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          CustomPaint(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        ClipRect(
+          child: CustomPaint(
             painter: _ReaderPageCustomPainter(
               page: page,
               painter: _painter,
               imageRevision: _imageRevision,
             ),
           ),
-          if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
-            Positioned.fill(
-              child: AnnotationLayer(
-                page: page,
-                annotations: [..._resolvedAnnotations, ?_tempHighlight],
-                inkMode: _inkMode,
-              ),
+        ),
+        if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
+          Positioned.fill(
+            child: AnnotationLayer(
+              page: page,
+              annotations: [..._resolvedAnnotations, ?_tempHighlight],
+              inkMode: _inkMode,
+              settings: _markSettings,
+              backgroundsBehindText: true,
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 
@@ -2933,11 +2720,11 @@ enum _DrawerTab {
   /// 书签列表。
   bookmarks,
 
-  /// 笔记与高亮列表。
+  /// 划线与想法列表。
   annotations,
 
-  /// 仅高亮列表。
-  highlights,
+  /// 手工装饰与自动规则入口。
+  decorations,
 
   /// 搜索。
   search,
@@ -2957,6 +2744,11 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.bookmarks,
     required this.annotations,
     required this.annotationItems,
+    required this.decorations,
+    required this.decorationItems,
+    required this.decorationRuleCount,
+    required this.decorationRulesEnabled,
+    required this.markSettings,
     required this.hasCfi,
     required this.overrides,
     required this.themeId,
@@ -2992,6 +2784,11 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onAnnotationEdit,
     required this.onAnnotationDelete,
     required this.onAnnotationRecolor,
+    required this.onDecorationSelect,
+    required this.onDecorationEdit,
+    required this.onDecorationRemove,
+    required this.onDecorationRules,
+    required this.onOpenMarkSettings,
     required this.onOpenMarginEditor,
     required this.onOpenTapZoneEditor,
   });
@@ -3005,6 +2802,11 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ReaderBookmarkStore? bookmarks;
   final ReaderAnnotationStore? annotations;
   final List<ReaderAnnotation> annotationItems;
+  final ReaderDecorationStore? decorations;
+  final List<ReaderDecoration> decorationItems;
+  final int decorationRuleCount;
+  final bool decorationRulesEnabled;
+  final ReaderMarkSettings markSettings;
   final bool hasCfi;
   final ReaderOverrides overrides;
   final String themeId;
@@ -3040,6 +2842,11 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<ReaderAnnotation> onAnnotationEdit;
   final Future<void> Function(List<ReaderAnnotation>) onAnnotationDelete;
   final Future<void> Function(List<ReaderAnnotation>, int) onAnnotationRecolor;
+  final ValueChanged<ReaderDecoration> onDecorationSelect;
+  final ValueChanged<ReaderDecoration> onDecorationEdit;
+  final ValueChanged<ReaderDecoration> onDecorationRemove;
+  final VoidCallback onDecorationRules;
+  final VoidCallback onOpenMarkSettings;
   final VoidCallback onOpenMarginEditor;
   final VoidCallback onOpenTapZoneEditor;
 
@@ -3124,6 +2931,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           onInkModeChanged: widget.onInkModeChanged,
           onReset: widget.onResetSettings,
           onOpenTapZoneEditor: widget.onOpenTapZoneEditor,
+          onOpenMarkSettings: widget.onOpenMarkSettings,
+          markSettings: widget.markSettings,
         );
     }
   }
@@ -3156,20 +2965,20 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                     widget.onTabChanged(_DrawerTab.bookmarks);
                   },
                 ),
-              if (widget.annotations != null) ...<Widget>[
+              if (widget.annotations != null)
                 _DrawerTabButton(
                   buttonKey: const ValueKey<String>('drawer-tab-annotations'),
-                  label: '笔记',
+                  label: '标注',
                   selected: widget.tab == _DrawerTab.annotations,
                   onTap: () => widget.onTabChanged(_DrawerTab.annotations),
                 ),
+              if (widget.decorations != null)
                 _DrawerTabButton(
-                  buttonKey: const ValueKey<String>('drawer-tab-highlights'),
-                  label: '高亮',
-                  selected: widget.tab == _DrawerTab.highlights,
-                  onTap: () => widget.onTabChanged(_DrawerTab.highlights),
+                  buttonKey: const ValueKey<String>('drawer-tab-decorations'),
+                  label: '装饰',
+                  selected: widget.tab == _DrawerTab.decorations,
+                  onTap: () => widget.onTabChanged(_DrawerTab.decorations),
                 ),
-              ],
               if (widget.onSearch != null)
                 _DrawerTabButton(
                   buttonKey: const ValueKey<String>('drawer-tab-search'),
@@ -3214,15 +3023,15 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               onDelete: widget.onAnnotationDelete,
               onRecolor: widget.onAnnotationRecolor,
             ),
-            _DrawerTab.highlights => AnnotationPanel(
-              annotations: widget.annotationItems,
-              chapterTitleOf: _annotationChapterTitle,
-              inkMode: widget.inkMode,
-              highlightsOnly: true,
-              onSelect: widget.onAnnotationSelect,
-              onEdit: widget.onAnnotationEdit,
-              onDelete: widget.onAnnotationDelete,
-              onRecolor: widget.onAnnotationRecolor,
+            _DrawerTab.decorations => ReaderDecorationPanel(
+              decorations: widget.decorationItems,
+              toc: widget.entries,
+              onSelect: widget.onDecorationSelect,
+              onEdit: widget.onDecorationEdit,
+              onRemove: widget.onDecorationRemove,
+              onRules: widget.onDecorationRules,
+              ruleCount: widget.decorationRuleCount,
+              rulesEnabled: widget.decorationRulesEnabled,
             ),
             _DrawerTab.search =>
               widget.onSearch == null
@@ -3277,7 +3086,7 @@ class _DrawerTabButton extends StatelessWidget {
         key: buttonKey,
         onTap: onTap,
         child: SizedBox(
-          height: 40,
+          height: 44,
           child: Stack(
             alignment: Alignment.center,
             children: <Widget>[

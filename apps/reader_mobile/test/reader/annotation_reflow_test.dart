@@ -62,7 +62,7 @@ void main() {
 
     final annotation = ReaderAnnotation(
       id: 'reflow',
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: cfi.start,
       endCfi: cfi.end,
       quote: quote,
@@ -80,7 +80,9 @@ void main() {
     expect(before.status, AnnotationRelocationStatus.verified);
     expect(
       _textOfLines(
-        AnnotationDecorations.linesFor(page, <ReaderAnnotation>[before.resolved]),
+        AnnotationDecorations.linesFor(page, <ReaderAnnotation>[
+          before.resolved,
+        ]),
       ),
       quote,
     );
@@ -126,9 +128,15 @@ void main() {
       page,
       Offset(boxes.first.rect.left + 5, boxes.first.rect.center.dy),
     )!;
-    final selection = ReaderSelection.normalized(hit, hit.lineBox.text.isEmpty
-        ? hit
-        : SelectionOps.charAt(page, Offset(boxes.first.rect.left + 30, boxes.first.rect.center.dy)));
+    final selection = ReaderSelection.normalized(
+      hit,
+      hit.lineBox.text.isEmpty
+          ? hit
+          : SelectionOps.charAt(
+              page,
+              Offset(boxes.first.rect.left + 30, boxes.first.rect.center.dy),
+            ),
+    );
     final cfi = SelectionOps.cfiOf(selection);
     if (cfi == null) {
       session.dispose();
@@ -136,7 +144,7 @@ void main() {
     }
     final annotation = ReaderAnnotation(
       id: 'keep',
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: cfi.start,
       endCfi: cfi.end,
       quote: SelectionOps.textOf(page, selection),

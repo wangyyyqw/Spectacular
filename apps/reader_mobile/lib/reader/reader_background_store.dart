@@ -10,14 +10,22 @@ import 'package:reader_ui/theme/reader_background.dart';
 /// 图片复制到应用目录并限制解码尺寸，原文件移动后仍可使用。
 class ReaderBackgroundStore {
   /// 可注入目录以验证导入与恢复。
-  ReaderBackgroundStore({Future<Directory> Function()? directoryProvider})
-    : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
+  ReaderBackgroundStore({
+    Future<Directory> Function()? directoryProvider,
+    this.directoryName = 'reader_backgrounds',
+    this.filePrefix = 'background',
+  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
 
   final Future<Directory> Function() _directoryProvider;
 
-  Future<Directory> _directory() async => Directory(
-    p.join((await _directoryProvider()).path, 'reader_backgrounds'),
-  );
+  /// 图片目录名，用于隔离阅读背景与手工装饰。
+  final String directoryName;
+
+  /// 本存储负责的文件前缀。
+  final String filePrefix;
+
+  Future<Directory> _directory() async =>
+      Directory(p.join((await _directoryProvider()).path, directoryName));
 
   /// 使用已有文件选择器，无需访问整个相册。
   Future<String?> pick() async {
@@ -40,7 +48,7 @@ class ReaderBackgroundStore {
     final file = File(
       p.join(
         directory.path,
-        'background-${DateTime.now().microsecondsSinceEpoch}.png',
+        '$filePrefix-${DateTime.now().microsecondsSinceEpoch}.png',
       ),
     );
     await file.writeAsBytes(data, flush: true);
@@ -104,7 +112,7 @@ class ReaderBackgroundStore {
     final cutoff = DateTime.now().subtract(const Duration(days: 1));
     await for (final file in directory.list()) {
       if (file is! File ||
-          !p.basename(file.path).startsWith('background-') ||
+          !p.basename(file.path).startsWith('$filePrefix-') ||
           ReaderBackground.image(file.path).id == id ||
           ReaderBackground.image(file.path).id == pendingId) {
         continue;

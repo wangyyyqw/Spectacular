@@ -8,6 +8,9 @@ import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
@@ -42,6 +45,9 @@ class EpubReaderPage extends StatefulWidget {
     required this.store,
     this.bookmarks,
     this.annotations,
+    this.decorations,
+    this.decorationRules,
+    this.decorationImages,
     this.readingSessions,
     this.settings,
     this.onSettingsChanged,
@@ -66,6 +72,15 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 标注存储（P4-17）；为 null 时选区菜单不显示高亮/笔记。
   final ReaderAnnotationStore? annotations;
+
+  /// 本书手工装饰。
+  final ReaderDecorationStore? decorations;
+
+  /// 本书与全局自动装饰规则。
+  final ReaderDecorationRuleStore? decorationRules;
+
+  /// 独立装饰图片存储。
+  final ReaderDecorationImageStore? decorationImages;
 
   /// 阅读会话存储；用于统计前台阅读时长。
   final ReadingSessionStore? readingSessions;
@@ -349,6 +364,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       imageCache: _imageCache,
       bookmarks: widget.bookmarks,
       annotations: widget.annotations,
+      decorations: widget.decorations,
+      decorationRules: widget.decorationRules,
+      decorationImages: widget.decorationImages,
+      markSettings: settings.markSettings,
+      onMarkSettingsChanged: (mark) =>
+          _changeSettings(_settings.copyWithMarkSettings(mark)),
       overrides: settings.overrides,
       theme: settings.theme,
       customTheme: settings.customTheme,

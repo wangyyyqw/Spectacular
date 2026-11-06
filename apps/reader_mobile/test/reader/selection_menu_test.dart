@@ -26,10 +26,7 @@ Uint8List _corpusBook(String name) {
   }
 }
 
-Future<void> _pumpReader(
-  WidgetTester tester,
-  EpubChapterSource source,
-) async {
+Future<void> _pumpReader(WidgetTester tester, EpubChapterSource source) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -54,7 +51,10 @@ void main() {
   setUp(() {
     // 剪贴板走测试 mock，避免 platform channel 未实现。
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, (call) async => null);
+        .setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async => null,
+        );
   });
 
   tearDown(() {
@@ -69,7 +69,10 @@ void main() {
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('selection-menu')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('selection-menu')),
+      findsOneWidget,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('selection-action-copy')),
@@ -87,6 +90,10 @@ void main() {
     await tester.pumpAndSettle();
     final before = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
 
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-more')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('selection-action-select-all')),
     );

@@ -632,7 +632,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   /// 把视口点击坐标映射到可见页切片，再交给正文处理。
   bool handleTapAt(Offset position) {
-    final hit = pageAt(position);
+    final hit = pageAt(position, includeMargins: true);
     if (hit == null) {
       return false;
     }
@@ -641,15 +641,19 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   /// 把阅读视口坐标映射到所在页切片及其页内坐标。
   ({PageContent page, Offset localPosition, double pageTop})? pageAt(
-    Offset position,
-  ) {
+    Offset position, {
+    bool includeMargins = false,
+  }) {
     if (!_controller.hasClients || _entries.isEmpty) {
       return null;
     }
     final size = context.size;
     if (size == null ||
-        position.dx < widget.padding.left ||
-        position.dx > size.width - widget.padding.right) {
+        position.dx < 0 ||
+        position.dx > size.width ||
+        (!includeMargins &&
+            (position.dx < widget.padding.left ||
+                position.dx > size.width - widget.padding.right))) {
       return null;
     }
     final relative = _controller.offset + position.dy - widget.padding.top;
