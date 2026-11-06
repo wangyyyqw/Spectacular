@@ -185,6 +185,45 @@ Future<void> _pushSearchReader(
   await tester.pumpAndSettle();
 }
 
+/// 以路由方式打开阅读页，便于验证系统返回键的逐层关闭。
+Future<ReaderSession> _pushReader(
+  WidgetTester tester,
+  _NavigationObserver observer,
+) async {
+  late ReaderSession session;
+  await tester.pumpWidget(
+    MaterialApp(
+      navigatorObservers: [observer],
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ReaderPage(
+                  source: _Source(),
+                  store: MemoryReaderProgressStore(),
+                  bookId: 'back-regression',
+                  padding: _padding,
+                  overrides: const ReaderOverrides(),
+                  showPageFooter: false,
+                  onSessionReady: (value) => session = value,
+                ),
+              ),
+            ),
+            child: const Text('打开阅读'),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('打开阅读'));
+  await tester.pumpAndSettle();
+  return session;
+}
+
+bool _menuOpen(WidgetTester tester) =>
+    tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open;
+
 void main() {
   testWidgets('墨水屏模式仍可使用连续滚动', (tester) async {
     await tester.pumpWidget(
@@ -277,6 +316,97 @@ void main() {
     final selection = _selectionLayer(tester).selection;
     expect(selection.startPageIndex, 0);
     expect(selection.endPageIndex, 1);
+  });
+
+  testWidgets('选中文字后点击正文只取消选中，不翻页', (tester) async {
+    final session = await _showReader(tester);
+    await _selectWord(tester, session.page!);
+    expect(find.byType(SelectionLayer), findsOneWidget);
+    final bounds = tester.getRect(find.byType(ReaderView));
+    final right = bounds.centerRight - const Offset(20, 0);
+
+    await tester.tapAt(right);
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(session.page!.pageIndex, 0, reason: '第一次点击只取消选中');
+    expect(_menuOpen(tester), isFalse);
+    expect(session.progress, const ReaderProgress(spineIndex: 0, pageIndex: 0));
+
+    await tester.tapAt(right);
+    await tester.pumpAndSettle();
+    expect(session.page!.pageIndex, 1, reason: '再点一次恢复翻页');
+  });
+
+  testWidgets('选中文字后点击菜单区只取消选中，不打开阅读菜单', (tester) async {
+    final session = await _showReader(tester);
+    await _selectWord(tester, session.page!);
+    expect(find.byType(SelectionLayer), findsOneWidget);
+
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    // 选区存在时会注册双击识别器，单击要等双击窗口结束后才派发。
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(_menuOpen(tester), isFalse);
+
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isTrue, reason: '再点一次恢复打开菜单');
+  });
+
+  testWidgets('菜单与抽屉打开时系统返回键只关闭浮层', (tester) async {
+    final observer = _NavigationObserver();
+    await _pushReader(tester, observer);
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isTrue);
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(observer.pops, 0);
+    expect(find.byType(ReaderPage), findsOneWidget, reason: '不能退出阅读页');
+    expect(_menuOpen(tester), isFalse, reason: '返回键收起菜单与抽屉');
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(observer.pops, 1, reason: '浮层都关闭后返回键才退出阅读页');
+    expect(find.byType(ReaderPage), findsNothing);
+  });
+
+  testWidgets('点击区域编辑页打开时系统返回键只关闭编辑页', (tester) async {
+    final observer = _NavigationObserver();
+    await _pushReader(tester, observer);
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('tap-zone-apply')),
+      findsOneWidget,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(observer.pops, 0);
+    expect(find.byType(ReaderPage), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('tap-zone-apply')), findsNothing);
+  });
+
+  testWidgets('菜单里的返回书架按钮在浮层打开时仍能退出阅读页', (tester) async {
+    final observer = _NavigationObserver();
+    await _pushReader(tester, observer);
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isTrue);
+
+    await tester.tap(find.byKey(const ValueKey<String>('menu-back')));
+    await tester.pumpAndSettle();
+    expect(observer.pops, 1);
+    expect(find.byType(ReaderPage), findsNothing);
   });
 
   testWidgets('点击内嵌搜索命中保留阅读路由并按正文内缩高亮', (tester) async {
