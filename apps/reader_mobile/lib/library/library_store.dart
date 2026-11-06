@@ -973,29 +973,23 @@ class LibraryStore {
       // 单本旧书损坏或冲突保留待恢复，不阻止无关新书导入。
     }
     onProgress?.call(0.1);
-    // 哈希、CRC 校验与字数统计都在后台 isolate 完成，主线程只做免校验解析。
+    // 哈希、CRC 校验、字数统计与封面提取都在后台 isolate 完成。
     final analysisTrace = readerTraceEnabled
         ? ReaderTrace.instance.start(ReaderTraceName.import)
         : null;
     final analysis = await analyzeImport(bytes);
     analysisTrace?.stop();
     _checkImportCancelled(isCancelled);
-    final openTrace = readerTraceEnabled
-        ? ReaderTrace.instance.start(ReaderTraceName.import)
-        : null;
-    final result = await openAnalyzed(bytes, analysis);
-    openTrace?.stop();
-    final document = result.document;
-    if (document == null) {
-      final detail = result.report.message ?? result.report.errorCode ?? '未知错误';
-      throw LibraryImportException(
-        '无法导入：$detail',
-        errorCode: result.report.errorCode,
-      );
+    final summary = analysis.summary;
+    if (summary == null) {
+      final report = analysis.report;
+      final detail = report.message ?? report.errorCode ?? '未知错误';
+      throw LibraryImportException('无法导入：$detail', errorCode: report.errorCode);
     }
     onProgress?.call(0.45);
-    final meta = document.meta;
-    final identifier = originalEpubIdentifier(document);
+    final report = analysis.report;
+    final meta = summary.meta;
+    final identifier = summary.identifier;
     final id = generateBookId(
       title: meta.title,
       author: meta.author,
@@ -1009,6 +1003,20 @@ class LibraryStore {
       );
     }
     if (!_isMemory && existing != null && existing.deletedAt == null) {
+      final openTrace = readerTraceEnabled
+          ? ReaderTrace.instance.start(ReaderTraceName.import)
+          : null;
+      final result = await openAnalyzed(bytes, analysis);
+      openTrace?.stop();
+      final document = result.document;
+      if (document == null) {
+        final detail =
+            result.report.message ?? result.report.errorCode ?? '未知错误';
+        throw LibraryImportException(
+          '无法更新：$detail',
+          errorCode: result.report.errorCode,
+        );
+      }
       return _replaceRevision(
         existing,
         analysis: analysis,
@@ -1031,9 +1039,9 @@ class LibraryStore {
       _notify();
       return entry;
     }
-    final title = document.meta.title.trim().isEmpty
+    final title = meta.title.trim().isEmpty
         ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
-        : document.meta.title.trim();
+        : meta.title.trim();
     _checkImportCancelled(isCancelled);
     // 整本哈希已在后台算好，暂存目录名与 contentRevision 共用。
     final sourceRevision = _isMemory ? '' : analysis.revision;
@@ -1057,10 +1065,11 @@ class LibraryStore {
         await file.writeAsBytes(bytes, flush: true);
         filePath = file.path;
         onProgress?.call(0.7);
-        final coverBytes = document.readCoverBytes();
+        final coverBytes = summary.coverBytes;
         if (coverBytes != null && coverBytes.isNotEmpty) {
-          final extension = _coverExtension(document.coverResourcePath);
-          final coverFile = File('${revisionDirectory.path}/cover.$extension');
+          final coverFile = File(
+            '${revisionDirectory.path}/cover.${summary.coverExtension}',
+          );
           await coverFile.writeAsBytes(coverBytes, flush: true);
           coverPath = coverFile.path;
         }
@@ -1072,7 +1081,7 @@ class LibraryStore {
       onProgress?.call(0.95);
       final weights = ProgressWeights.fromCharCounts(
         charCounts,
-        excluded: document.progressExcludedSpineIndexes,
+        excluded: summary.excludedSpineIndexes,
       );
       if (isCancelled?.call() == true) {
         if (!_isMemory && filePath.isNotEmpty) await File(filePath).delete();
@@ -1085,12 +1094,12 @@ class LibraryStore {
       final entry = BookEntry(
         id: id,
         title: title,
-        author: document.meta.author.trim(),
+        author: meta.author.trim(),
         description: existing?.description ?? '',
         filePath: filePath,
         addedAt: addedAt,
-        spineCount: document.spine.length,
-        readabilityLevel: result.report.readabilityLevel,
+        spineCount: summary.spine.length,
+        readabilityLevel: report.readabilityLevel,
         coverPath: coverPath,
       );
       if (_isMemory) {
@@ -1105,29 +1114,21 @@ class LibraryStore {
           contentRevision: Value(sourceRevision),
           legacyUuid: Value(existing?.legacyUuid ?? existing?.uuid),
           title: title,
-          author: Value(
-            document.meta.author.trim().isEmpty
-                ? null
-                : document.meta.author.trim(),
-          ),
+          author: Value(meta.author.trim().isEmpty ? null : meta.author.trim()),
           description: Value(existing?.description),
           language: Value(
-            document.meta.language.trim().isEmpty
-                ? null
-                : document.meta.language.trim(),
+            meta.language.trim().isEmpty ? null : meta.language.trim(),
           ),
           // 尚未解包：书目录即资源目录。
           contentDir: 'books-v1/$id',
           sourcePath: Value(filePath),
           coverPath: Value(coverPath),
-          spineCount: Value(document.spine.length),
+          spineCount: Value(summary.spine.length),
           charCount: Value(weights.totalCharacters),
           createdAt: addedAt.millisecondsSinceEpoch,
-          level: Value(result.report.readabilityLevel),
+          level: Value(report.readabilityLevel),
           warnings: Value(
-            result.report.warnings.isEmpty
-                ? null
-                : jsonEncode(result.report.warnings),
+            report.warnings.isEmpty ? null : jsonEncode(report.warnings),
           ),
           deletedAt: const Value<int?>(null),
         );
@@ -1153,9 +1154,9 @@ class LibraryStore {
             )..where((table) => table.bookId.equals(bookId))).go();
           }
           // P4-06：把修复与告警按诊断码拆行落库，详情页可逐条展示。
-          await _writeImportReports(bookId, result.report);
+          await _writeImportReports(bookId, report);
           // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
-          await _writeSpineItems(bookId, document, charCounts, weights);
+          await _writeSpineItems(bookId, summary.spine, charCounts, weights);
           _checkImportCancelled(isCancelled);
         });
       }
@@ -1287,19 +1288,19 @@ class LibraryStore {
   /// 写入 spine 行（§36.1）：字符数与章前累计供进度量化（§76.1）。
   Future<void> _writeSpineItems(
     int bookId,
-    EpubDocumentImpl document,
+    List<SpineItem> spine,
     List<int> charCounts,
     ProgressWeights weights,
   ) async {
     final db = _db!;
     await db.batch((batch) {
       batch.insertAll(db.spineItems, <SpineItemsCompanion>[
-        for (var index = 0; index < document.spine.length; index++)
+        for (var index = 0; index < spine.length; index++)
           SpineItemsCompanion.insert(
             bookId: bookId,
             spineIndex: index,
-            href: document.spine[index].href,
-            linear: Value<int>(document.spine[index].linear ? 1 : 0),
+            href: spine[index].href,
+            linear: Value<int>(spine[index].linear ? 1 : 0),
             charCount: Value<int>(charCounts[index]),
             charStart: Value<int>(weights.charStarts[index]),
           ),
