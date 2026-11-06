@@ -105,4 +105,32 @@ void main() {
     expect(calls, 1);
     expect((pager.current!.spineIndex, pager.current!.pageIndex), (0, 0));
   });
+
+  test('远距离连续跳转只保留 5 章页窗口且当前章可继续导航', () async {
+    final loads = <int>[];
+    final pager = VirtualPager(
+      spineCount: 100,
+      loader: (spine) async {
+        loads.add(spine);
+        return _pages(spine);
+      },
+    );
+    await pager.initialize();
+    for (final spine in [10, 20, 30, 40, 50, 60]) {
+      expect(await pager.goTo(spine, 0), isTrue);
+    }
+
+    expect(
+      pager.loadedSpines.length,
+      lessThanOrEqualTo(VirtualPager.loadedSpineLimit),
+    );
+    expect(pager.loadedSpines, contains(60));
+    expect(
+      pager.mappedPageCount,
+      14,
+      reason: '只淘汰页面内容，保留每章页数元数据以稳定虚拟页码',
+    );
+    expect(await pager.previous(), isTrue);
+    expect((pager.current!.spineIndex, pager.current!.pageIndex), (59, 1));
+  });
 }
