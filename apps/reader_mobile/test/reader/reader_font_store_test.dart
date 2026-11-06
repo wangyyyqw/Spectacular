@@ -132,6 +132,21 @@ void main() {
     );
   });
 
+  test('文件改写后重新校验：内容不同报错，写回原字体恢复', () async {
+    final font = await store.import(bytes, displayName: '改写.otf');
+    // 首次恢复缓存校验结果，后续 load 只要文件身份不变就直接命中。
+    await store.load(font.family);
+    final file = File(font.filePath);
+
+    await file.writeAsBytes(bytes.sublist(0, bytes.length - 4));
+    await expectLater(store.load(font.family), throwsA(isA<FormatException>()));
+
+    await file.writeAsBytes(bytes);
+    expect((await store.load(font.family)).family, font.family);
+    // 身份恢复后再次命中，不因上一次失败长期拒绝。
+    expect((await store.load(font.family)).displayName, '改写');
+  });
+
   test('非法族名与应用目录外路径不能被恢复', () async {
     await expectLater(store.load('../字体'), throwsA(isA<FormatException>()));
     const family =

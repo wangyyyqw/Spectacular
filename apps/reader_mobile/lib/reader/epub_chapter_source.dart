@@ -1028,6 +1028,16 @@ class EpubChapterSource
     // 失效 pagination 层与段落缓存；颜色变化零重排（绘制层即时生效）。
     if (previous.fingerprint != overrides.fingerprint) {
       _layoutGeneration += 1;
+      // 只换字族/内嵌字体开关：分页键与段落缓存键都带设置指纹，旧字体的
+      // 结果留在缓存里互不干扰，切回同一字体时能直接命中，不再整章重排。
+      if (_isFontOnlyChange(previous, overrides)) {
+        _logInvalidation(
+          'fontFamilyChanged',
+          previous.fingerprint,
+          overrides.fingerprint,
+        );
+        return;
+      }
       _logInvalidation(
         'configChanged',
         previous.fingerprint,
@@ -1043,6 +1053,17 @@ class EpubChapterSource
       _blockCacheOrder.clear();
     }
   }
+
+  /// 除字体（字族、内嵌字体开关）外的排版字段是否完全一致。
+  static bool _isFontOnlyChange(
+    ReaderOverrides previous,
+    ReaderOverrides next,
+  ) =>
+      previous.fontSize == next.fontSize &&
+      previous.lineHeight == next.lineHeight &&
+      previous.paragraphSpacing == next.paragraphSpacing &&
+      previous.textAlign == next.textAlign &&
+      previous.padding == next.padding;
 
   @override
   Future<bool> applyContentSize({

@@ -179,6 +179,57 @@ void main() {
     expect(source.displayDocumentCacheHits, 1, reason: '重排复用已解析章节结构');
   });
 
+  test('只换字族：切回同一字族直接命中分页缓存', () async {
+    final source = await openSource();
+    addTearDown(source.close);
+    final builtin = await source.loadChapter(0);
+
+    await source.applyOverrides(
+      const ReaderOverrides(fontFamily: 'user_font_a'),
+    );
+    final custom = await source.loadChapter(0);
+    expect(identical(custom, builtin), isFalse);
+    expect(source.cacheReport, contains('页缓存 2/'), reason: '两套字体各留一份');
+
+    await source.applyOverrides(const ReaderOverrides());
+    expect(
+      identical(await source.loadChapter(0), builtin),
+      isTrue,
+      reason: '切回默认字体免重排',
+    );
+    await source.applyOverrides(
+      const ReaderOverrides(fontFamily: 'user_font_a'),
+    );
+    expect(
+      identical(await source.loadChapter(0), custom),
+      isTrue,
+      reason: '切回自定义字体免重排',
+    );
+    expect(
+      source.invalidationLog.where(
+        (line) => line.startsWith('fontFamilyChanged'),
+      ),
+      hasLength(3),
+      reason: '三次换字体都走字族专用失效，不整表清空',
+    );
+  });
+
+  test('字号与字族同时变化：字体维度的分页与块缓存全量失效', () async {
+    final source = await openSource();
+    addTearDown(source.close);
+    await source.loadChapter(0);
+    await source.applyOverrides(
+      const ReaderOverrides(fontFamily: 'user_font_a'),
+    );
+    await source.loadChapter(0);
+
+    await source.applyOverrides(
+      const ReaderOverrides(fontSize: 20, fontFamily: 'user_font_a'),
+    );
+    expect(source.cacheReport, contains('页缓存 0/'));
+    expect(source.cacheReport, contains('块缓存 0/'));
+  });
+
   test('几何变化：styles 层块缓存同步失效', () async {
     final source = await openSource();
     await source.loadChapter(0);
