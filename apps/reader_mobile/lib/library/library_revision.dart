@@ -402,7 +402,12 @@ extension LibraryRevisionOperations on LibraryStore {
       db.importReports,
     )..where((table) => table.bookId.equals(bookId))).go();
     final document = commit.parsed.document!;
-    await _writeSpineItems(bookId, document, commit.counts, commit.weights);
+    await _writeSpineItems(
+      bookId,
+      document.spine,
+      commit.counts,
+      commit.weights,
+    );
     await _writeRevisionToc(bookId, document);
     await _writeImportReports(bookId, commit.parsed.report);
   }
