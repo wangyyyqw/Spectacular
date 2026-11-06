@@ -14,13 +14,27 @@ class _FakeLibrary extends LibraryStore {
 
   final List<BookEntry> books;
   final Map<String, ProgressWeights> weights;
+  int progressWeightCalls = 0;
+  int batchProgressWeightCalls = 0;
 
   @override
   Future<List<BookEntry>> list() async => books;
 
   @override
-  Future<ProgressWeights> progressWeights(String bookId) async =>
-      weights[bookId] ?? ProgressWeights.fromCharCounts(const <int>[]);
+  Future<ProgressWeights> progressWeights(String bookId) async {
+    progressWeightCalls += 1;
+    return weights[bookId] ?? ProgressWeights.fromCharCounts(const <int>[]);
+  }
+
+  @override
+  Future<Map<String, ProgressWeights>> progressWeightsForBooks(
+    Iterable<String> bookIds,
+  ) async {
+    batchProgressWeightCalls += 1;
+    return <String, ProgressWeights>{
+      for (final id in bookIds) id: ?weights[id],
+    };
+  }
 }
 
 class _FakeProgressStore implements ReaderProgressStore {
@@ -170,6 +184,8 @@ void main() {
           .data,
       '30%',
     );
+    expect(library.progressWeightCalls, 0, reason: '统计页应批量读取进度权重');
+    expect(library.batchProgressWeightCalls, 1);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('stats-band-unread')),
       300,

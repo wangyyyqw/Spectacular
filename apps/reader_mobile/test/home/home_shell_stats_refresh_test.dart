@@ -10,6 +10,7 @@ class _FakeLibrary extends LibraryStore {
   _FakeLibrary() : super.memory();
 
   final List<ReadingSession> sessions = <ReadingSession>[];
+  late final _FakeSessionStore sessionStore = _FakeSessionStore(sessions);
 
   @override
   Future<List<BookEntry>> list() async => const <BookEntry>[];
@@ -19,13 +20,14 @@ class _FakeLibrary extends LibraryStore {
       ProgressWeights.fromCharCounts(const <int>[]);
 
   @override
-  ReadingSessionStore? readingSessionStore() => _FakeSessionStore(sessions);
+  ReadingSessionStore? readingSessionStore() => sessionStore;
 }
 
 class _FakeSessionStore implements ReadingSessionStore {
   _FakeSessionStore(this.items);
 
   final List<ReadingSession> items;
+  int listCalls = 0;
 
   @override
   Future<void> add({
@@ -37,7 +39,10 @@ class _FakeSessionStore implements ReadingSessionStore {
   }) async {}
 
   @override
-  Future<List<ReadingSession>> list() async => List<ReadingSession>.of(items);
+  Future<List<ReadingSession>> list() async {
+    listCalls += 1;
+    return List<ReadingSession>.of(items);
+  }
 }
 
 void main() {
@@ -51,7 +56,9 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(library.sessionStore.listCalls, 0, reason: '隐藏的统计页不应在启动时读取阅读会话');
 
     final now = DateTime.now();
     library.sessions.add(
@@ -64,8 +71,10 @@ void main() {
     );
 
     await tester.tap(find.text('统计'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
+    expect(library.sessionStore.listCalls, 1);
     expect(
       tester
           .widget<Text>(
