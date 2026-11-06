@@ -12,7 +12,8 @@ import tarfile
 import tempfile
 import threading
 
-from device_css_test import APP_ID, ROOT, TEST_ID, prepare_workspace, run
+from device_css_test import (
+    APP_ID, ROOT, TEST_ID, drop_plugin_dependency, prepare_workspace, run)
 
 
 class ReportHandler(SimpleHTTPRequestHandler):
@@ -58,17 +59,21 @@ def prepare(workspace, revision):
     manifest.write_text(source.replace(
         'android:label="CSS 真机测试"',
         'android:usesCleartextTraffic="true" android:label="阅读性能测试"'))
+    drop_plugin_dependency(workspace / "apps/reader_mobile/pubspec.yaml")
 
 
 def build(workspace, url, args):
     app = workspace / "apps/reader_mobile"
     run(["flutter", "pub", "get", "--offline"], cwd=app)
-    run(["flutter", "build", "apk", "--release",
-         "--target=integration_test/reader_perf_app.dart", "--target-platform=android-arm64",
-         "--dart-define=PERF_SERVER=" + url,
-         "--dart-define=PERF_IMPORT=" + ("true" if args.measure_import else "false"),
-         "--dart-define=PERF_LONG_SCAN=" + ("true" if args.long_scan else "false"),
-         "--dart-define=PERF_FAR_JUMP=" + ("true" if args.far_jump else "false")], cwd=app)
+    run([
+        # 不能加 --no-pub：release 需要 flutter 重新注入插件列表，
+        # 否则会沿用 pub get 生成（含已移除开发依赖）的注册文件。
+        "flutter", "build", "apk", "--release",
+        "--target=integration_test/reader_perf_app.dart", "--target-platform=android-arm64",
+        "--dart-define=PERF_SERVER=" + url,
+        "--dart-define=PERF_IMPORT=" + ("true" if args.measure_import else "false"),
+        "--dart-define=PERF_LONG_SCAN=" + ("true" if args.long_scan else "false"),
+        "--dart-define=PERF_FAR_JUMP=" + ("true" if args.far_jump else "false")], cwd=app)
     apk = app / "build/app/outputs/flutter-apk/app-release.apk"
     actual = run(["apkanalyzer", "manifest", "application-id", str(apk)], capture=True).strip()
     if actual != TEST_ID:

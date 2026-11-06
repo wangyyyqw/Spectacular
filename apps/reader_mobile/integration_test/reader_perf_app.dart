@@ -20,6 +20,7 @@ import 'package:reader_ui/reader_view.dart';
 
 /// 只由 device_reader_perf.py 在独立包运行；计时包含真实书架读盘和正文帧。
 const _server = String.fromEnvironment('PERF_SERVER');
+const _bookId = 'perf-book';
 final _navigator = GlobalKey<NavigatorState>();
 final _results = <String, Object?>{};
 
@@ -32,7 +33,11 @@ Future<void> main() async {
     if (const bool.fromEnvironment('PERF_IMPORT')) {
       await _measureImport(root, file);
     }
-    final db = AppDatabase(NativeDatabase(File('${root.path}/perf.sqlite')));
+    // 每次运行用全新库：覆盖安装会保留上一轮的书架、进度与内容锚点，
+    // 阅读器恢复到的位置就不再是本次写入的第 29 章，多轮测量会整体失效。
+    final db = AppDatabase(NativeDatabase(
+      File('${root.path}/perf-${DateTime.now().microsecondsSinceEpoch}.sqlite'),
+    ));
     await _seedBook(db, file);
     final progress = DriftProgressStore(db);
     final library = LibraryStore(
@@ -52,9 +57,10 @@ Future<void> main() async {
         await _scanLongBook();
       }
       _navigator.currentState!.pop();
-      await Future<void>.delayed(
-        Duration(milliseconds: round == 2 ? 1500 : 500),
-      );
+      // 阅读页退出后才异步落盘并释放章节源；等它真正卸载再进下一轮，
+      // 否则下一次打开会与仍在释放的会话竞争。
+      await _until(() => _find<ReaderPage>((_) => true) == null);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
     if (const bool.fromEnvironment('PERF_LONG_SCAN')) {
       _results['after_close_rss_bytes'] = ProcessInfo.currentRss;
@@ -122,7 +128,7 @@ Future<void> _seedBook(AppDatabase db, File file) async {
       .insertOnConflictUpdate(
         BooksCompanion.insert(
           id: const Value(1),
-          uuid: 'perf-book',
+          uuid: _bookId,
           title: '诸神愚戏',
           contentDir: file.parent.path,
           sourcePath: Value(file.path),
@@ -133,10 +139,15 @@ Future<void> _seedBook(AppDatabase db, File file) async {
 }
 
 Future<void> _openRound(DriftProgressStore progress, int round) async {
-  await progress.save(
-    'perf-book',
-    ReaderProgress(spineIndex: 29, pageIndex: 0),
-  );
+  // 每轮都从第 29 章开。存储层在 cfi 为空且已有内容锚点时会保留旧位置
+  // （书架标"读完"不得清掉锚点），所以先清进度再写入，并读回确认。
+  await progress.clear(_bookId);
+  const target = ReaderProgress(spineIndex: 29, pageIndex: 0);
+  await progress.save(_bookId, target);
+  final restored = await progress.load(_bookId);
+  if (restored?.spineIndex != 29) {
+    throw StateError('第 $round 轮写入第 29 章失败，当前 ${restored?.spineIndex}');
+  }
   await _until(() => _bookTile() != null);
   final watch = Stopwatch()..start();
   _bookTile()!.onTap!();
@@ -154,9 +165,11 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
   }
 }
 
-ListTile? _bookTile() => _find<ListTile>(
-  (widget) => widget.title is Text && (widget.title! as Text).data == '诸神愚戏',
-);
+// 书架条目的点击目标是 InkWell，按公开 key 定位：列表模式 'book-row-<uuid>'、
+// 网格模式 'book-card-<uuid>'；BookEntry.id 用 uuid，不是整数主键。
+InkWell? _bookTile() => _find<InkWell>((widget) =>
+    widget.key == const ValueKey<String>('book-row-$_bookId') ||
+    widget.key == const ValueKey<String>('book-card-$_bookId'));
 
 Future<void> _jump(int spine) async {
   if (_find<ReaderMenuOverlay>((w) => w.open) == null) {
@@ -248,13 +261,18 @@ bool _fullyVisible(int spine) {
 }
 
 Future<void> _readable(int spine) async {
-  await _until(
-    () =>
-        _find<ReaderSemanticsLayer>(
-          (w) => w.page.spineIndex == spine && w.page.slices.isNotEmpty,
-        ) !=
-        null,
-  );
+  try {
+    await _until(
+      () =>
+          _find<ReaderSemanticsLayer>(
+            (w) => w.page.spineIndex == spine && w.page.slices.isNotEmpty,
+          ) !=
+          null,
+    );
+  } on TimeoutException {
+    // 超时是引擎/排版回归的主要信号；附带现场状态，避免只能靠截图猜。
+    throw TimeoutException('等待第 $spine 章正文超时；现场 $_scene');
+  }
   // 确认目标正文已完成一帧，计时不止于 parse 或 session 状态变化。
   await WidgetsBinding.instance.endOfFrame;
 }
@@ -282,6 +300,26 @@ Future<void> _imagesReady() async {
 T? _find<T extends Widget>(bool Function(T) predicate) {
   return _findElement((widget) => widget is T && predicate(widget))?.widget
       as T?;
+}
+
+/// 失败现场：已挂载的语义页章节与切片数，区分"没打开"与"排版为空"。
+String get _scene {
+  final pages = <ReaderSemanticsLayer>[];
+  _visit((widget) {
+    if (widget is ReaderSemanticsLayer) pages.add(widget);
+  });
+  final mounted = pages.map((w) => '#${w.page.spineIndex}:${w.page.slices.length}').join(',');
+  final reader = _find<ReaderPage>((_) => true) != null;
+  return '阅读页=$reader 语义页=[$mounted]';
+}
+
+void _visit(void Function(Widget) onWidget) {
+  void visit(Element element) {
+    onWidget(element.widget);
+    element.visitChildren(visit);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(visit);
 }
 
 Element? _findElement(bool Function(Widget) predicate) {
