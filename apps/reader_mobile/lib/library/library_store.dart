@@ -1335,6 +1335,54 @@ class LibraryStore {
     );
   }
 
+  /// 一次读取多本书的进度权重，供书架批量刷新进度。
+  ///
+  /// 书架若逐本调用 [progressWeights]，每本都要重复查询书籍与全部章节行；
+  /// 这里改为两次固定查询后按书分组，数据库往返次数不再随藏书量增长。
+  Future<Map<String, ProgressWeights>> progressWeightsForBooks(
+    Iterable<String> bookIds,
+  ) async {
+    final ids = bookIds.toSet();
+    if (_isMemory || ids.isEmpty) {
+      return const <String, ProgressWeights>{};
+    }
+    final db = _db!;
+    final books = await (db.select(
+      db.books,
+    )..where((table) => table.uuid.isIn(ids) & table.deletedAt.isNull())).get();
+    if (books.isEmpty) {
+      return const <String, ProgressWeights>{};
+    }
+    final internalIds = <int>{for (final book in books) book.id};
+    final rows =
+        await (db.select(db.spineItems)
+              ..where((table) => table.bookId.isIn(internalIds))
+              ..orderBy([
+                (table) => OrderingTerm(expression: table.bookId),
+                (table) => OrderingTerm(expression: table.spineIndex),
+              ]))
+            .get();
+    final rowsByBook = <int, List<SpineItemRow>>{};
+    for (final row in rows) {
+      rowsByBook.putIfAbsent(row.bookId, () => <SpineItemRow>[]).add(row);
+    }
+    return <String, ProgressWeights>{
+      for (final book in books)
+        book.uuid: _weightsFromRows(
+          rowsByBook[book.id] ?? const <SpineItemRow>[],
+        ),
+    };
+  }
+
+  ProgressWeights _weightsFromRows(List<SpineItemRow> rows) =>
+      ProgressWeights.fromCharCounts(
+        <int>[for (final row in rows) row.charCount ?? 0],
+        excluded: <int>{
+          for (final row in rows)
+            if (row.linear == 0) row.spineIndex,
+        },
+      );
+
   /// `CODE: message` 形式的导入告警。
   static final RegExp _diagnosticPattern = RegExp(
     r'^([A-Z][A-Z0-9_]{2,}):\s*([\s\S]*)$',
