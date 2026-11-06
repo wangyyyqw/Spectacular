@@ -53,6 +53,8 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   bool _extendingBefore = false;
   bool _extendingAfter = false;
   bool _trimmingWindow = false;
+  Future<void>? _extendBeforeTask;
+  Future<void>? _extendAfterTask;
   int _loadToken = 0;
   int _restoreToken = 0;
   late int _layoutGeneration = widget.session.generation;
@@ -390,7 +392,11 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
   }
 
-  /// 只保留当前章前后各一章，避免长时间连续阅读后布局和页面键持续增长。
+  /// 只保留视口前后预加载区覆盖的章节各再扩一章，避免长时间连续阅读后
+  /// 布局和页面键持续增长。
+  ///
+  /// 保留范围必须覆盖前后预加载触发区：否则刚补进来的邻章会在同一帧被裁掉，
+  /// 视口停在旧的内容末尾，翻页看起来毫无反应。
   void _trimWindow() {
     if (_restoring ||
         _trimmingWindow ||
@@ -400,19 +406,23 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         _chapters.isEmpty) {
       return;
     }
-    final relative = (_controller.offset - widget.padding.top).clamp(
-      0.0,
-      _contentExtent,
-    );
-    final current = _pageAtOffset(relative)?.chapter.spineIndex;
-    if (current == null) return;
+    final height = _controller.position.viewportDimension;
+    final first = _chapterAtOffset(_controller.offset - height * 0.25);
+    final last = _chapterAtOffset(_controller.offset + height * 1.5);
+    if (first == null || last == null) return;
     final retained = _chapters.where(
       (chapter) =>
-          chapter.spineIndex >= current - 1 &&
-          chapter.spineIndex <= current + 1,
+          chapter.spineIndex >= first - 1 && chapter.spineIndex <= last + 1,
     );
     if (retained.length == _chapters.length) return;
     unawaited(_replaceChapterWindow(retained.toList(growable: false)));
+  }
+
+  /// 内容坐标处的章节序号；越界按内容范围钳制到首尾章。
+  int? _chapterAtOffset(double offset) {
+    if (_entries.isEmpty) return null;
+    final relative = (offset - widget.padding.top).clamp(0.0, _contentExtent);
+    return _pageAtOffset(relative)?.chapter.spineIndex;
   }
 
   Future<void> _replaceChapterWindow(List<ScrollChapterLayout> retained) async {
@@ -461,15 +471,25 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     _captureVisiblePage();
   }
 
-  Future<void> _extendBefore() async {
-    if (_extendingBefore || _chapters.isEmpty) return;
+  /// 向前补一章；并发调用共享同一次加载，便于翻页等待结果。
+  Future<void> _extendBefore() {
+    final running = _extendBeforeTask;
+    if (running != null) return running;
+    final task = _loadExtendBefore();
+    return _extendBeforeTask = task.whenComplete(() {
+      _extendBeforeTask = null;
+      _extendingBefore = false;
+    });
+  }
+
+  Future<void> _loadExtendBefore() async {
+    if (_chapters.isEmpty) return;
     final target = _chapters.first.spineIndex - 1;
     if (target < 0) return;
     final token = _loadToken;
     _extendingBefore = true;
     final layout = await _loadChapter(target);
     if (!mounted || token != _loadToken || layout == null) {
-      _extendingBefore = false;
       return;
     }
     _captureVisiblePage(commit: false);
@@ -538,18 +558,27 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         }
       }
     }
-    _extendingBefore = false;
   }
 
-  Future<void> _extendAfter() async {
-    if (_extendingAfter || _chapters.isEmpty) return;
+  /// 向后补一章；并发调用共享同一次加载，便于翻页等待结果。
+  Future<void> _extendAfter() {
+    final running = _extendAfterTask;
+    if (running != null) return running;
+    final task = _loadExtendAfter();
+    return _extendAfterTask = task.whenComplete(() {
+      _extendAfterTask = null;
+      _extendingAfter = false;
+    });
+  }
+
+  Future<void> _loadExtendAfter() async {
+    if (_chapters.isEmpty) return;
     final target = _chapters.last.spineIndex + 1;
     if (target >= widget.session.source.chapterCount) return;
     final token = _loadToken;
     _extendingAfter = true;
     final layout = await _loadChapter(target);
     if (!mounted || token != _loadToken || layout == null) {
-      _extendingAfter = false;
       return;
     }
     setState(() {
@@ -563,9 +592,33 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
   }
 
+  /// 翻一屏前保证目标方向有足够余量：窗口到边时先等邻章加载完成，
+  /// 否则滚动会被旧的最大范围钳制，点击看起来毫无反应。
+  Future<void> _ensureTurnRoom(bool next) async {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (!mounted || !_controller.hasClients || _chapters.isEmpty) return;
+      final height = _controller.position.viewportDimension;
+      final room = next
+          ? _controller.position.maxScrollExtent - _controller.offset
+          : _controller.offset;
+      if (room >= height * 0.88) return;
+      if (next) {
+        final before = _chapters.last.spineIndex;
+        await _extendAfter();
+        if (_chapters.isEmpty || _chapters.last.spineIndex <= before) return;
+      } else {
+        final before = _chapters.first.spineIndex;
+        await _extendBefore();
+        if (_chapters.isEmpty || _chapters.first.spineIndex >= before) return;
+      }
+    }
+  }
+
   /// 点击区按当前可视高度移动一屏。
   Future<void> scrollPage(bool next) async {
     if (!_controller.hasClients) return;
+    await _ensureTurnRoom(next);
+    if (!mounted || !_controller.hasClients) return;
     final height = _controller.position.viewportDimension;
     final target = (_controller.offset + (next ? height : -height) * 0.88)
         .clamp(0.0, _controller.position.maxScrollExtent);
