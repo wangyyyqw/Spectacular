@@ -75,8 +75,110 @@ Future<ImportAnalysis> analyzeImport(Uint8List bytes) {
   return Isolate.run(() => _analyze(bytes));
 }
 
-Future<ImportAnalysis> _analyze(Uint8List bytes) async {
-  final revision = sha256.convert(bytes).toString();
+/// 先计算摘要并在主 isolate 查询是否已存在；命中时不再打开 ZIP。
+///
+/// 大文件使用单次 isolate 握手：工作 isolate 先回报摘要，主 isolate 查询
+/// 数据库后决定继续解析或退出，避免“哈希 isolate + 解析 isolate”复制两份
+/// 整书字节。
+Future<ImportAnalysis?> analyzeImportUnlessKnown(
+  Uint8List bytes, {
+  required Future<bool> Function(String revision) shouldSkip,
+}) async {
+  if (bytes.length < importAnalysisIsolateThreshold) {
+    final revision = sha256.convert(bytes).toString();
+    if (await shouldSkip(revision)) return null;
+    return _analyze(bytes, revision: revision);
+  }
+
+  final revisionPort = ReceivePort();
+  final resultPort = ReceivePort();
+  final isolate = await Isolate.spawn<_ImportWorkerMessage>(
+    _importAnalysisWorker,
+    (
+      bytes: bytes,
+      revisionPort: revisionPort.sendPort,
+      resultPort: resultPort.sendPort,
+    ),
+  );
+  try {
+    final revisionMessage = await revisionPort.first as _ImportWorkerReply;
+    if (revisionMessage.error != null) {
+      throw StateError(revisionMessage.error!);
+    }
+    final revision = revisionMessage.revision!;
+    final skip = await shouldSkip(revision);
+    revisionMessage.commandPort!.send(!skip);
+    if (skip) return null;
+
+    final resultMessage = await resultPort.first as _ImportWorkerReply;
+    if (resultMessage.error != null) {
+      throw StateError(resultMessage.error!);
+    }
+    return resultMessage.analysis!;
+  } finally {
+    revisionPort.close();
+    resultPort.close();
+    isolate.kill(priority: Isolate.immediate);
+  }
+}
+
+typedef _ImportWorkerMessage = ({
+  Uint8List bytes,
+  SendPort revisionPort,
+  SendPort resultPort,
+});
+
+typedef _ImportWorkerReply = ({
+  String? revision,
+  ImportAnalysis? analysis,
+  String? error,
+  SendPort? commandPort,
+});
+
+Future<void> _importAnalysisWorker(_ImportWorkerMessage message) async {
+  final commandPort = ReceivePort();
+  late final String revision;
+  try {
+    revision = sha256.convert(message.bytes).toString();
+  } catch (error, stack) {
+    message.revisionPort.send((
+      revision: null,
+      analysis: null,
+      error: '$error\n$stack',
+      commandPort: null,
+    ));
+    commandPort.close();
+    return;
+  }
+  message.revisionPort.send((
+    revision: revision,
+    analysis: null,
+    error: null,
+    commandPort: commandPort.sendPort,
+  ));
+  final shouldContinue = await commandPort.first;
+  commandPort.close();
+  if (shouldContinue != true) return;
+  try {
+    final analysis = await _analyze(message.bytes, revision: revision);
+    message.resultPort.send((
+      revision: null,
+      analysis: analysis,
+      error: null,
+      commandPort: null,
+    ));
+  } catch (error, stack) {
+    message.resultPort.send((
+      revision: null,
+      analysis: null,
+      error: '$error\n$stack',
+      commandPort: null,
+    ));
+  }
+}
+
+Future<ImportAnalysis> _analyze(Uint8List bytes, {String? revision}) async {
+  revision ??= sha256.convert(bytes).toString();
   final parsed = await openEpub(bytes);
   final document = parsed.document;
   if (document == null) return ImportAnalysis(revision, parsed, null);

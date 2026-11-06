@@ -30,6 +30,7 @@ class ImportJob {
   ImportJob({
     required this.id,
     required this.bytes,
+    this.sourcePath,
     this.fallbackTitle,
     this.updateBookId,
   });
@@ -45,6 +46,9 @@ class ImportJob {
 
   /// 原始字节；成功后置空释放，失败/取消后保留用于重试。
   Uint8List? bytes;
+
+  /// 原始文件路径；路径任务按需读取，避免多选时同时持有全部大文件。
+  final String? sourcePath;
 
   /// 当前状态。
   ImportStatus status = ImportStatus.queued;
@@ -72,7 +76,7 @@ class ImportJob {
 
   /// 是否可重试（失败或取消且仍持有字节）。
   bool get canRetry =>
-      bytes != null &&
+      (bytes != null || sourcePath != null) &&
       (status == ImportStatus.failed || status == ImportStatus.cancelled);
 }
 
@@ -83,9 +87,12 @@ class ImportJob {
 /// 失败可重试。
 class ImportQueue extends ChangeNotifier {
   /// 创建队列。
-  ImportQueue(this._library);
+  ImportQueue(this._library, {this.readFile});
 
   final LibraryStore _library;
+
+  /// 按路径读取文件；测试可注入计数或失败行为。
+  final Future<Uint8List> Function(String path)? readFile;
   final List<ImportJob> _jobs = <ImportJob>[];
   bool _pumping = false;
   bool _disposed = false;
@@ -126,6 +133,30 @@ class ImportQueue extends ChangeNotifier {
     final job = ImportJob(
       id: 'job-${_sequence++}',
       bytes: bytes,
+      fallbackTitle: fallbackTitle,
+      updateBookId: updateBookId,
+    );
+    _jobs.add(job);
+    _notify();
+    unawaited(_pump());
+    return job;
+  }
+
+  /// 按路径入队；实际读取延迟到任务开始，避免多选时同时驻留全部字节。
+  ImportJob enqueuePath(
+    String path, {
+    String? fallbackTitle,
+    String? updateBookId,
+  }) {
+    if (_disposed) throw StateError('导入队列已释放');
+    final readFile = this.readFile;
+    if (readFile == null) {
+      throw StateError('路径导入未提供文件读取器');
+    }
+    final job = ImportJob(
+      id: 'job-${_sequence++}',
+      bytes: null,
+      sourcePath: path,
       fallbackTitle: fallbackTitle,
       updateBookId: updateBookId,
     );
@@ -242,18 +273,16 @@ class ImportQueue extends ChangeNotifier {
   }
 
   Future<void> _run(ImportJob job) async {
-    final bytes = job.bytes;
-    if (bytes == null) {
-      job.status = ImportStatus.failed;
-      job.error = '导入数据已释放';
-      return;
-    }
+    Uint8List? loadedBytes;
     job
       ..status = ImportStatus.running
       ..attempts += 1
       ..progress = 0.02;
     _notify();
     try {
+      final bytes =
+          job.bytes ?? (loadedBytes = await readFile!(job.sourcePath!));
+      if (job.status == ImportStatus.cancelled) return;
       void progress(double value) {
         if (job.status != ImportStatus.running) {
           return;
@@ -292,6 +321,9 @@ class ImportQueue extends ChangeNotifier {
         ..status = ImportStatus.failed
         ..error = '$error';
     } finally {
+      if (loadedBytes != null) {
+        job.bytes = null;
+      }
       _notify();
     }
   }

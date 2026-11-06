@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -72,6 +73,37 @@ void main() {
         );
       }
     }
+  });
+
+  test('路径导入按任务读取并立即释放完整字节', () async {
+    final library = LibraryStore.memory();
+    final releaseFirst = Completer<void>();
+    final reads = <String>[];
+    final queue = ImportQueue(
+      library,
+      readFile: (path) async {
+        reads.add(path);
+        if (path == '第一本.epub') await releaseFirst.future;
+        return buildTestEpub(title: path);
+      },
+    );
+    addTearDown(queue.dispose);
+
+    final first = queue.enqueuePath('第一本.epub');
+    final second = queue.enqueuePath('第二本.epub');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(first.bytes, isNull);
+    expect(second.bytes, isNull);
+    expect(reads, <String>['第一本.epub'], reason: '串行队列不应预读后续大文件');
+
+    releaseFirst.complete();
+    await queue.drain();
+
+    expect(reads, <String>['第一本.epub', '第二本.epub']);
+    expect(first.status, ImportStatus.succeeded);
+    expect(second.status, ImportStatus.succeeded);
+    expect((await library.list()).length, 2);
   });
 
   test('取消排队中的任务：不导入且无残留', () async {
