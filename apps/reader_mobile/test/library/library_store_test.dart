@@ -200,6 +200,35 @@ void main() {
     expect(weights.estimated, isFalse);
   });
 
+  test('批量读取进度权重：按书隔离且忽略不存在条目', () async {
+    final dir = Directory.systemTemp.createTempSync('library_chars_batch');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final store = opened.store;
+    final first = await store.importBytes(buildTestEpub(title: '权重书一'));
+    final second = await store.importBytes(
+      buildTestEpub(
+        title: '权重书二',
+        paragraphs: const <String>['第二章正文更长一些，用于验证批量权重隔离。'],
+      ),
+    );
+
+    final weights = await store.progressWeightsForBooks(<String>[
+      first.id,
+      second.id,
+      '不存在',
+    ]);
+    final firstSingle = await store.progressWeights(first.id);
+    final secondSingle = await store.progressWeights(second.id);
+
+    expect(weights.keys, unorderedEquals(<String>[first.id, second.id]));
+    expect(weights[first.id]!.charCounts, firstSingle.charCounts);
+    expect(weights[first.id]!.charStarts, firstSingle.charStarts);
+    expect(weights[second.id]!.charCounts, secondSingle.charCounts);
+    expect(weights[second.id]!.charStarts, secondSingle.charStarts);
+    expect(weights[second.id]!.total, secondSingle.total);
+  });
+
   test('封面提取并缓存到书目录；无封面时为 null 交给占位', () async {
     final dir = Directory.systemTemp.createTempSync('library_cover');
     addTearDown(() => dir.deleteSync(recursive: true));

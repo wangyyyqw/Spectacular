@@ -82,7 +82,11 @@ class BookOpener {
       if (!context.mounted || !openingVisible) {
         return;
       }
-      await navigator.pushReplacement<void, void>(_readerRoute(entry, bytes));
+      final closed = Completer<void>();
+      await navigator.pushReplacement<void, void>(
+        _readerRoute(entry, bytes, closed),
+      );
+      await closed.future;
       await library.touchLastRead(entry.id);
     } catch (error) {
       if (context.mounted) {
@@ -147,7 +151,11 @@ class BookOpener {
   }
 
   /// 阅读页入场：淡入、轻微放大和上浮，承接封面展开动画。
-  Route<void> _readerRoute(BookEntry entry, Uint8List bytes) {
+  Route<void> _readerRoute(
+    BookEntry entry,
+    Uint8List bytes,
+    Completer<void> closed,
+  ) {
     return PageRouteBuilder<void>(
       transitionDuration: const Duration(milliseconds: 360),
       reverseTransitionDuration: const Duration(milliseconds: 220),
@@ -163,6 +171,7 @@ class BookOpener {
         onSettingsChanged: _saveSettings,
         bookTitle: entry.title,
         contentRevision: entry.contentRevision,
+        onClosed: closed.complete,
       ),
       transitionsBuilder: (_, animation, _, child) {
         final curved = CurvedAnimation(

@@ -90,7 +90,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
   String _query = '';
   final Set<String> _selectedIds = <String>{};
   final TextEditingController _searchController = TextEditingController();
-  int _reloadToken = 0;
+  Future<void>? _reloadTask;
+  bool _reloadRequested = false;
 
   @override
   void initState() {
@@ -480,29 +481,48 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  Future<void> _reload() async {
-    // 递增 token：并发刷新时只让最后一次生效，避免旧结果覆盖新状态。
-    final token = ++_reloadToken;
+  Future<void> _reload() {
+    _reloadRequested = true;
+    return _reloadTask ??= _drainReloads();
+  }
+
+  Future<void> _drainReloads() async {
+    try {
+      while (mounted && _reloadRequested) {
+        _reloadRequested = false;
+        await _reloadOnce();
+      }
+    } finally {
+      _reloadTask = null;
+    }
+  }
+
+  Future<void> _reloadOnce() async {
     final books = await widget.library.list();
     final groups = await widget.library.listGroups();
     final bookGroups = await widget.library.groupAssignments();
+    final progress = await widget.progressStore.snapshot();
+    final weights = await widget.library.progressWeightsForBooks(<String>[
+      for (final book in books)
+        if (progress.containsKey(book.id)) book.id,
+    ]);
     final items = <_ShelfItem>[];
     for (final book in books) {
       int? percent;
-      final progress = await widget.progressStore.load(book.id);
-      if (progress != null) {
-        final weights = await widget.library.progressWeights(book.id);
-        if (weights.total > 0) {
-          percent = weights.percentInt(progress.spineIndex);
+      final current = progress[book.id];
+      if (current != null) {
+        final bookWeights = weights[book.id];
+        if (bookWeights != null && bookWeights.total > 0) {
+          percent = bookWeights.percentInt(current.spineIndex);
         }
       }
       items.add((
         entry: book,
         percentInt: percent,
-        finished: progress?.finished ?? false,
+        finished: current?.finished ?? false,
       ));
     }
-    if (mounted && token == _reloadToken) {
+    if (mounted) {
       final validIds = <String>{for (final item in items) item.entry.id};
       setState(() {
         _items = items;

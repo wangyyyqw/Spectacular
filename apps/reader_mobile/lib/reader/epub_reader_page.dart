@@ -49,6 +49,7 @@ class EpubReaderPage extends StatefulWidget {
     this.onMarginsChanged,
     this.fontStore,
     this.contentRevision,
+    this.onClosed,
   });
 
   /// EPUB 字节。
@@ -86,6 +87,9 @@ class EpubReaderPage extends StatefulWidget {
 
   /// 书库已存的原书 SHA-256；为 null 时才现算。
   final String? contentRevision;
+
+  /// 阅读页退出动画结束后，进度已落盘且章节源已释放。
+  final VoidCallback? onClosed;
 
   @override
   State<EpubReaderPage> createState() => _EpubReaderPageState();
@@ -269,6 +273,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   @override
   void dispose() {
     final session = _readerSession;
+    final onClosed = widget.onClosed;
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
     if (_readingTracker != null) {
@@ -277,7 +282,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     }
     _search?.dispose();
     _imageCache?.clear();
-    unawaited(_closeSource(session));
+    unawaited(_closeSource(session).whenComplete(() => onClosed?.call()));
     super.dispose();
   }
 
