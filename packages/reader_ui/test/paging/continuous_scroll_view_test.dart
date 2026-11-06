@@ -129,15 +129,11 @@ class _VariablePageSource implements ReaderChapterSource {
     final count = spineIndex == 0 ? 20 : 5;
     return [
       for (var page = 0; page < count; page++)
-        _pageWithHeight(
-          spineIndex,
-          page,
-          switch (spineIndex) {
-            0 => page < 10 ? 300.0 : 320.0,
-            1 => 300.0 + page * 20,
-            _ => 300.0,
-          },
-        ),
+        _pageWithHeight(spineIndex, page, switch (spineIndex) {
+          0 => page < 10 ? 300.0 : 320.0,
+          1 => 300.0 + page * 20,
+          _ => 300.0,
+        }),
     ];
   }
 }
@@ -264,6 +260,47 @@ void main() {
     session.dispose();
   });
 
+  testWidgets('切后台前立即提交连续滚动位置', (tester) async {
+    final source = _SingleChapterSource();
+    final store = MemoryReaderProgressStore();
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll-flush',
+      persistInterval: const Duration(minutes: 1),
+    );
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 320,
+          height: 480,
+          child: ContinuousScrollView(
+            key: key,
+            session: session,
+            revision: 1,
+            padding: const EdgeInsets.all(20),
+            paperBuilder: (page, size) => const ColoredBox(color: Colors.white),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    tester.state<ScrollableState>(find.byType(Scrollable)).position.jumpTo(350);
+
+    await key.currentState!.flushVisiblePosition();
+    await session.flushProgress();
+
+    final saved = await store.load('scroll-flush');
+    expect(saved?.pageIndex, 1);
+    expect(saved?.scrollOffset, 30);
+    session.dispose();
+  });
+
   testWidgets('前插章节后保持当前可见页位置', (tester) async {
     final source = _VariablePageSource();
     final store = MemoryReaderProgressStore();
@@ -302,32 +339,80 @@ void main() {
     );
     await _pumpUntil(
       tester,
-      () =>
-          find
-              .byKey(const ValueKey<String>('scroll-page-2-0'))
-              .evaluate()
-              .isNotEmpty,
+      () => find
+          .byKey(const ValueKey<String>('scroll-page-2-0'))
+          .evaluate()
+          .isNotEmpty,
     );
 
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
     scrollable.position.jumpTo(80);
     await tester.pump(const Duration(milliseconds: 200));
     await _pumpUntil(tester, () => source.loads.contains(0));
-    await _pumpUntil(
-      tester,
-      () => scrollable.position.pixels > 6000,
-    );
+    await _pumpUntil(tester, () => scrollable.position.pixels > 6000);
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(source.loads, contains(0));
     expect(
       tester
-          .getTopLeft(
-            find.byKey(const ValueKey<String>('scroll-page-1-0')),
-          )
+          .getTopLeft(find.byKey(const ValueKey<String>('scroll-page-1-0')))
           .dy,
       closeTo(-60, 1),
     );
+    session.dispose();
+  });
+
+  testWidgets('连续滚动只保留当前章前后各一章', (tester) async {
+    final source = _Source();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'scroll-window',
+    );
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 320,
+          height: 480,
+          child: ContinuousScrollView(
+            key: key,
+            session: session,
+            revision: 1,
+            padding: const EdgeInsets.all(20),
+            paperBuilder: (page, size) => ColoredBox(
+              key: ValueKey<String>(
+                'window-page-${page.spineIndex}-${page.pageIndex}',
+              ),
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntil(
+      tester,
+      () => key.currentState?.debugLoadedSpineIndices.length == 3,
+    );
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    for (var i = 0; i < 8 && !source.loads.contains(4); i++) {
+      scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _pumpUntil(
+      tester,
+      () => key.currentState?.debugLoadedSpineIndices.contains(1) == false,
+    );
+
+    final loaded = key.currentState?.debugLoadedSpineIndices ?? const <int>[];
+    expect(loaded, isNot(contains(0)));
+    expect(loaded.length, lessThanOrEqualTo(4));
+    expect(key.currentState?.debugPageKeyCount, lessThanOrEqualTo(120));
     session.dispose();
   });
 
