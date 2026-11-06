@@ -918,7 +918,11 @@ class EpubChapterSource
   ///
   /// 多看封面常同时提供 4:3 与 16:9 两个版本；若只取主图，竖屏设备会
   /// 出现上下白边，或被迫用 cover 大幅裁边。尺寸读不到时保持原图。
-  String _selectFullscreenImage(int spineIndex, String imageSrc) {
+  String _selectFullscreenImage(
+    int spineIndex,
+    String imageSrc, {
+    double? targetAspect,
+  }) {
     final originalUrl = _chapterImageUrl(spineIndex, imageSrc);
     final slimUrl = _slimVariantUrl(originalUrl);
     if (slimUrl == null) {
@@ -932,7 +936,8 @@ class EpubChapterSource
     if (originalSize == null) {
       return slimUrl;
     }
-    final pageRatio = contentWidth / math.max(1.0, contentHeight);
+    final pageRatio =
+        targetAspect ?? contentWidth / math.max(1.0, contentHeight);
     final originalRatio =
         originalSize.width / math.max(1.0, originalSize.height);
     final slimRatio = slimSize.width / math.max(1.0, slimSize.height);
@@ -1140,10 +1145,13 @@ class EpubChapterSource
   int get chapterCount => document.spine.length;
 
   /// 满屏判定缓存（P3-10）：spineIndex → 分析结果；聚合文本含 U+FFFC
-  /// 才做深度分析，普通文字章零开销。
-  final BoundedCache<int, FullBleedChapter> _fullBleedCache = BoundedCache(
-    chapterIndexCacheLimit,
-  );
+  /// 才做深度分析，普通文字章零开销。固定版强制检查作者样式可见性，
+  /// 因此同时记录该结果是否已完成隐藏元素过滤。
+  final BoundedCache<
+    int,
+    ({FullBleedChapter analysis, bool visibilityFiltered})
+  >
+  _fullBleedCache = BoundedCache(chapterIndexCacheLimit);
 
   /// 图片原始尺寸缓存（按解析后 URL，跨章复用）；读取失败记 miss 防
   /// 重复解压。
@@ -3289,65 +3297,27 @@ class EpubChapterSource
   /// OPF `itemref` 上的多看页属性（按 spine 序缓存）。
   Map<int, OpfPageFlags>? _opfPageFlagsCache;
 
-  /// 解析 OPF `itemref` 的多看页属性，按 spine 序返回。
-  ///
-  /// 引擎的 OPF 解析只保留 manifest 的 `properties`，spine `itemref` 上的
-  /// `duokan-page-fullscreen` / `duokan-page-fitwindow` / `page-spread-*`
-  /// 被丢弃（docs/duokan-private-css.md「OPF 页属性」），这里在章节源直接
-  /// 扫一遍 OPF 原文补回。spine 序与引擎一致：只统计 `idref` 非空且在
-  /// manifest 中存在的 `itemref`。
+  /// 章节级固定版/漫画布局诊断；每章只保留首个原因。
+  final Map<int, String> _layoutWarnings = <int, String>{};
+
+  /// 某章未走固定版/漫画专用路径的原因；未发生降级时为 null。
+  String? layoutWarningFor(int spineIndex) => _layoutWarnings[spineIndex];
+
+  void _recordLayoutWarning(int spineIndex, String code, String message) {
+    _layoutWarnings.putIfAbsent(spineIndex, () => '$code: $message');
+  }
+
+  /// 从引擎保留的 spine `properties` 解析多看页属性。
   Map<int, OpfPageFlags> _opfPageFlags() {
     final cached = _opfPageFlagsCache;
     if (cached != null) {
       return cached;
     }
-    final flags = <int, OpfPageFlags>{};
+    final flags = <int, OpfPageFlags>{
+      for (final item in document.spine)
+        item.index: _pageFlagsFromProperties(item.properties),
+    };
     _opfPageFlagsCache = flags;
-    try {
-      final bytes = document.archive.readBytes(document.opfPath);
-      if (bytes == null) {
-        return flags;
-      }
-      final text = utf8.decode(bytes, allowMalformed: true);
-      final manifestIds = <String>{
-        for (final match in RegExp(r'<item\b[^>]*>').allMatches(text))
-          if ((_tagAttr(match.group(0)!, 'id') ?? '').isNotEmpty)
-            _tagAttr(match.group(0)!, 'id')!,
-      };
-      var spineIndex = 0;
-      for (final match in RegExp(r'<itemref\b[^>]*>').allMatches(text)) {
-        final tag = match.group(0)!;
-        final idref = _tagAttr(tag, 'idref') ?? '';
-        if (idref.isEmpty || !manifestIds.contains(idref)) {
-          continue;
-        }
-        // 属性既可能写在 `properties="a b"` 里（EPUB 3 标准写法，多看
-        // 同样如此），也可能直接写成独立属性，两种都收。
-        final tokens = <String>{
-          ...(_tagAttr(tag, 'properties') ?? '').split(RegExp(r'\s+')),
-          for (final attribute in RegExp(r'([\w:.-]+)\s*=').allMatches(tag))
-            attribute.group(1)!,
-        };
-        bool has(String name) => tokens.contains(name);
-        final spreadLeft =
-            has('page-spread-left') ||
-            has('duokan-page-fullscreen-spread-left');
-        final spreadRight =
-            has('page-spread-right') ||
-            has('duokan-page-fullscreen-spread-right');
-        flags[spineIndex] = OpfPageFlags(
-          // 全屏跨页的左右页也是全屏页。
-          fullScreen:
-              has('duokan-page-fullscreen') || spreadLeft || spreadRight,
-          fitWindow: has('duokan-page-fitwindow'),
-          spreadLeft: spreadLeft,
-          spreadRight: spreadRight,
-        );
-        spineIndex += 1;
-      }
-    } catch (_) {
-      // OPF 读不到/解码失败：按普通章节处理（不影响分页）。
-    }
     return flags;
   }
 
@@ -3355,65 +3325,217 @@ class EpubChapterSource
   OpfPageFlags chapterPageFlags(int spineIndex) =>
       _opfPageFlags()[spineIndex] ?? OpfPageFlags.none;
 
-  /// 从标签文本里取属性值（OPF 扫描用；属性值不含裸引号）。
-  static String? _tagAttr(String tag, String name) {
-    final escaped = RegExp.escape(name);
-    final doubleQuoted = RegExp('(?:^|\\s)$escaped\\s*=\\s*"([^"]*)"')
-        .firstMatch(tag);
-    if (doubleQuoted != null) {
-      return doubleQuoted.group(1);
+  static OpfPageFlags _pageFlagsFromProperties(Iterable<String> properties) {
+    final tokens = properties.toSet();
+    bool has(String name) => tokens.contains(name);
+    final spreadLeft =
+        has('page-spread-left') || has('duokan-page-fullscreen-spread-left');
+    final spreadRight =
+        has('page-spread-right') || has('duokan-page-fullscreen-spread-right');
+    return OpfPageFlags(
+      // 全屏跨页的左右页也是全屏页。
+      fullScreen: has('duokan-page-fullscreen') || spreadLeft || spreadRight,
+      fitWindow: has('duokan-page-fitwindow'),
+      spreadLeft: spreadLeft,
+      spreadRight: spreadRight,
+    );
+  }
+
+  /// 当前章节是否由多看扩展声明为固定版或需要诊断的漫画布局。
+  static bool _isFixedLikeLayout(EpubLayoutType layout) =>
+      layout == EpubLayoutType.fixedPage ||
+      layout == EpubLayoutType.comicsFrame ||
+      layout == EpubLayoutType.transverseComic ||
+      layout == EpubLayoutType.verticalComic;
+
+  /// 构建单图整页并写入页缓存/页索引；仅用于已确认可安全渲染的章节。
+  List<PageContent> _singleImagePages(
+    int spineIndex,
+    String paginationKey,
+    String imageSrc, {
+    required bool contain,
+    required bool fullscreen,
+    double? targetAspect,
+  }) {
+    final imageUrl = fullscreen && !contain
+        ? _selectFullscreenImage(
+            spineIndex,
+            imageSrc,
+            targetAspect: targetAspect,
+          )
+        : _chapterImageUrl(spineIndex, imageSrc);
+    final pages = _buildFullBleedPages(
+      spineIndex,
+      imageSrc,
+      paginationKey,
+      contain: contain,
+      bleed: true,
+      resolvedImageUrl: imageUrl,
+    );
+    return pages;
+  }
+
+  /// 解析图片 URL 是否真实存在于容器；远程 URL 视为不可离线渲染。
+  bool _imageExists(String url) => document.archive.contains(url);
+
+  /// 固定版/漫画必须按可见元素判定；普通全文快路只在结构已像满屏图时
+  /// 才做 CSS 可见性过滤，这里对带尺寸图片、正文或多图也强制过滤。
+  FullBleedChapter _fixedLayoutAnalysis(int spineIndex) {
+    final cached = _fullBleedCache[spineIndex];
+    if (cached != null && cached.visibilityFiltered) {
+      return cached.analysis;
     }
-    return RegExp("(?:^|\\s)$escaped\\s*=\\s*'([^']*)'")
-        .firstMatch(tag)
-        ?.group(1);
+    final result = _analyzeChapterFullBleed(
+      spineIndex,
+      forceVisibilityFilter: true,
+    );
+    _fullBleedCache[spineIndex] = result;
+    return result.analysis;
+  }
+
+  /// 单页固定版/漫画的诊断与分流。
+  ///
+  /// 返回 null 表示未走专用路径（调用方继续原有全屏/重排管线）；
+  /// `shouldSkipFullPageFastPaths` 为 true 时调用方跳过旧全屏图快路，
+  /// 避免图片缺失或含正文时被整页图覆盖。
+  ({List<PageContent>? pages, bool shouldSkipFullPageFastPaths})
+  _loadFixedLikePages(
+    int spineIndex,
+    String paginationKey,
+    int layoutGeneration,
+    EpubLayoutType layout,
+    OpfPageFlags pageFlags,
+    ReaderTrace? trace,
+    String? traceBook,
+    Stopwatch? watch,
+  ) {
+    if (layout == EpubLayoutType.verticalComic) {
+      _recordLayoutWarning(
+        spineIndex,
+        'E_DUOKAN_VERTICAL_COMIC_UNSUPPORTED',
+        'vertical-comic 暂不支持连续纵向画布，已回退到普通可读路径',
+      );
+      return (pages: null, shouldSkipFullPageFastPaths: false);
+    }
+    final analysis = _fixedLayoutAnalysis(spineIndex);
+    final singleImage = analysis.singleImageSrc;
+    // 单图资源问题优先于“多元素固定页不支持”，与调用方的回退策略一致。
+    if (analysis.imageCount == 1 &&
+        singleImage != null &&
+        singleImage.isNotEmpty) {
+      final imageUrl = _chapterImageUrl(spineIndex, singleImage);
+      if (!_imageExists(imageUrl)) {
+        _recordLayoutWarning(
+          spineIndex,
+          'E_DUOKAN_IMAGE_MISSING',
+          '${layout.token} 单图资源不可用：$imageUrl',
+        );
+        return (pages: null, shouldSkipFullPageFastPaths: true);
+      }
+    }
+    final supported =
+        analysis.imageCount == 1 &&
+        !analysis.hasVisibleText &&
+        singleImage != null &&
+        singleImage.isNotEmpty;
+    if (!supported) {
+      _recordLayoutWarning(
+        spineIndex,
+        'E_DUOKAN_FIXED_LAYOUT_UNSUPPORTED',
+        '${layout.token} 章节不是单图无正文页'
+            '（图片 ${analysis.imageCount}，正文 ${analysis.hasVisibleText}），'
+            '已回退',
+      );
+      // 含正文的章节不能再进入“有图就整页”的旧快路，否则正文会消失。
+      return (pages: null, shouldSkipFullPageFastPaths: true);
+    }
+
+    final contain = pageFlags.fitWindow || !pageFlags.fullScreen;
+    final pages = _singleImagePages(
+      spineIndex,
+      paginationKey,
+      singleImage,
+      contain: contain,
+      fullscreen: pageFlags.fullScreen && !pageFlags.fitWindow,
+      targetAspect: document.extensionConfig.aspectRatio,
+    );
+    if (_isCurrentLayout(layoutGeneration)) {
+      _putPageCache(paginationKey, pages);
+    }
+    if (trace != null) {
+      trace.record(
+        ReaderTraceName.chapterLayout,
+        watch!.elapsedMicroseconds,
+        bookId: traceBook,
+      );
+    }
+    return (pages: pages, shouldSkipFullPageFastPaths: true);
   }
 
   /// 章节是否走满屏路径（单图无正文无宽高属性，§8.6）。
   FullBleedChapter fullBleedAnalysis(int spineIndex) {
-    return _fullBleedCache.putIfAbsent(spineIndex, () {
-      final parsed = document.parseDocument(spineIndex);
-      final blocks = _buildDisplayDocument(parsed, spineIndex);
-      _pendingBlockDocument = blocks;
-      final selectorIndex = _ParsedSelectorIndex(parsed.root);
-      _pendingSelectorIndex = selectorIndex;
-      final structural = analyzeFullBleed(blocks);
-      if (!structural.isFullBleed) {
-        return structural;
-      }
-      // 快路只覆盖真会绘制的唯一图片；隐藏图交给普通路径按 CSS 剔除。
-      final rules = CascadeRuleSet([
-        ...uaRules(),
-        for (var i = 0; i < _chapterStylesheets(spineIndex).length; i++)
-          ...CascadeRule.fromStylesheet(
-            _chapterStylesheets(spineIndex)[i],
-            origin: CascadeOrigin.author,
-            startOrder: 1000 + i * 10000,
-          ),
-      ]);
-      bool isRendered(EpubNode node) {
-        final chain = selectorIndex.chainOf(node);
-        if (chain == null) return true;
-        ComputedStyle? style;
-        for (var i = 0; i < chain.length; i++) {
-          style = Cascade.compute(
-            element: chain[i],
-            ancestors: chain.sublist(0, i),
-            rules: rules.candidatesFor(chain[i]),
-            inlineDeclarations: _inlineDeclarationsOf(
-              chain[i].attributes['style'],
-            ),
-            parent: style,
-            rootFontSize: baseStyle.fontSize,
-            containingWidth: contentWidth,
-            viewportWidth: contentWidth,
-          );
-          if (style.display == CssDisplay.none) return false;
-        }
-        return style?.visibility != CssVisibility.hidden;
-      }
+    final cached = _fullBleedCache[spineIndex];
+    if (cached != null) {
+      return cached.analysis;
+    }
+    final result = _analyzeChapterFullBleed(
+      spineIndex,
+      forceVisibilityFilter: false,
+    );
+    _fullBleedCache[spineIndex] = result;
+    return result.analysis;
+  }
 
-      return analyzeFullBleed(blocks, isRendered: isRendered);
-    });
+  ({FullBleedChapter analysis, bool visibilityFiltered})
+  _analyzeChapterFullBleed(
+    int spineIndex, {
+    required bool forceVisibilityFilter,
+  }) {
+    final parsed = document.parseDocument(spineIndex);
+    final blocks = _buildDisplayDocument(parsed, spineIndex);
+    _pendingBlockDocument = blocks;
+    final selectorIndex = _ParsedSelectorIndex(parsed.root);
+    _pendingSelectorIndex = selectorIndex;
+    final structural = analyzeFullBleed(blocks);
+    if (!structural.isFullBleed && !forceVisibilityFilter) {
+      return (analysis: structural, visibilityFiltered: false);
+    }
+    // 快路只覆盖真会绘制的唯一图片；隐藏图交给普通路径按 CSS 剔除。
+    final rules = CascadeRuleSet([
+      ...uaRules(),
+      for (var i = 0; i < _chapterStylesheets(spineIndex).length; i++)
+        ...CascadeRule.fromStylesheet(
+          _chapterStylesheets(spineIndex)[i],
+          origin: CascadeOrigin.author,
+          startOrder: 1000 + i * 10000,
+        ),
+    ]);
+    bool isRendered(EpubNode node) {
+      final chain = selectorIndex.chainOf(node);
+      if (chain == null) return true;
+      ComputedStyle? style;
+      for (var i = 0; i < chain.length; i++) {
+        style = Cascade.compute(
+          element: chain[i],
+          ancestors: chain.sublist(0, i),
+          rules: rules.candidatesFor(chain[i]),
+          inlineDeclarations: _inlineDeclarationsOf(
+            chain[i].attributes['style'],
+          ),
+          parent: style,
+          rootFontSize: baseStyle.fontSize,
+          containingWidth: contentWidth,
+          viewportWidth: contentWidth,
+        );
+        if (style.display == CssDisplay.none) return false;
+      }
+      return style?.visibility != CssVisibility.hidden;
+    }
+
+    return (
+      analysis: analyzeFullBleed(blocks, isRendered: isRendered),
+      visibilityFiltered: true,
+    );
   }
 
   /// 浮动感知分页（flat 管线接入，引擎 FloatOccupancy 区间模型）：
@@ -4301,6 +4423,27 @@ class EpubChapterSource
     if (trace != null) {
       trace.count(ReaderTraceCounter.pageCacheMiss, bookId: traceBook);
     }
+    // 多看固定版/漫画单图快路：只接受唯一可见图片、无正文的章节。
+    // 其余情况记录章节级诊断后继续原有全屏/重排管线，避免误排版。
+    final pageFlags = chapterPageFlags(spineIndex);
+    var skipFullPageFastPaths = false;
+    final extensionLayout = this.document.extensionConfig.layout;
+    if (_isFixedLikeLayout(extensionLayout)) {
+      final fixedLike = _loadFixedLikePages(
+        spineIndex,
+        paginationKey,
+        layoutGeneration,
+        extensionLayout,
+        pageFlags,
+        trace,
+        traceBook,
+        watch,
+      );
+      if (fixedLike.pages != null) {
+        return fixedLike.pages!;
+      }
+      skipFullPageFastPaths = fixedLike.shouldSkipFullPageFastPaths;
+    }
     // styles 层命中：聚合树、级联样式与行测量都已完成，只需按页索引
     // 重放（或重新分页）。页缓存清空后的章节回访走这里。
     final cachedBlocks = _blockCache[paginationKey];
@@ -4328,8 +4471,7 @@ class EpubChapterSource
     // 多看全屏页（OPF `duokan-page-*`）：封面/插图整页铺满，正文样式
     // 不参与——body 的 padding/字号不会把封面裁小。`fitwindow` 用
     // contain 上下居中，其余全屏页 cover 铺满。
-    final pageFlags = chapterPageFlags(spineIndex);
-    if (pageFlags.isFullPage) {
+    if (pageFlags.isFullPage && !skipFullPageFastPaths) {
       final singleImage = fullBleedAnalysis(spineIndex).singleImageSrc;
       if (singleImage != null && singleImage.isNotEmpty) {
         // `fullscreen` 必须铺满查看区域；若书内有 `~slim` 变体，优先选
@@ -4361,7 +4503,7 @@ class EpubChapterSource
     }
     // 边距归零、背景图 cover。先于普通聚合判定。
     final fullBleed = fullBleedAnalysis(spineIndex);
-    if (fullBleed.isFullBleed) {
+    if (fullBleed.isFullBleed && !skipFullPageFastPaths) {
       final pages = _buildFullBleedPages(
         spineIndex,
         fullBleed.singleImageSrc!,

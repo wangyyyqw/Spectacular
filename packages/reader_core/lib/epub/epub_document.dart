@@ -10,6 +10,7 @@ import '../src/api/interfaces.dart';
 import 'archive_reader.dart';
 import 'container.dart';
 import 'epub_exception.dart';
+import 'extension.dart';
 import 'footnote.dart';
 import '../parser/cfi_binder.dart';
 import '../parser/cfi_resolver.dart';
@@ -184,6 +185,10 @@ Future<EpubOpenResult> _finishOpen({
     warnings.addAll(tocResult.warnings);
     // 字体混淆信息（P3-05）：encryption.xml + FairPlay 检测。
     final fontEncryption = _parseFontEncryption(archive, warnings);
+    final extensionConfig = DuokanExtensionParser.parse(
+      archive.readString(DuokanExtensionParser.path),
+    );
+    warnings.addAll(extensionConfig.warnings);
     // 导入期探测与分级（P3-26）：spine 缺失 + 图片/字体资源可解性。
     final probe = probeImport(
       archive: archive,
@@ -225,6 +230,7 @@ Future<EpubOpenResult> _finishOpen({
       toc: tocResult.entries,
       tocSource: tocResult.source,
       fontEncryption: fontEncryption,
+      extensionConfig: extensionConfig,
       report: ImportReport(
         ok: true,
         warnings: List<String>.unmodifiable(warnings),
@@ -284,10 +290,14 @@ class EpubDocumentImpl implements EpubDocument {
     required this.tocSource,
     required this.report,
     this.fontEncryption = const FontEncryptionMap.empty(),
+    this.extensionConfig = EpubExtensionConfig.none,
   }) : toc = List<TocEntry>.unmodifiable(toc);
 
   /// 字体混淆声明（P3-05）：ZIP 内路径 → 算法；无加密声明时为空表。
   final FontEncryptionMap fontEncryption;
+
+  @override
+  final EpubExtensionConfig extensionConfig;
 
   /// 读取字体资源字节；混淆资源按 encryption.xml 声明的算法解混淆
   /// （P3-05）。[cache] 提供时解混淆产物按（路径+长度）键落盘，缓存
