@@ -18,6 +18,18 @@ class BesselPainter {
   final Paint _backContentPaint = Paint()..filterQuality = FilterQuality.low;
   final Paint _backFadePaint;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
+  final Paint _shadowPaint = Paint();
+  final Paint _edgeBackPaint = Paint();
+  final Float64List _identityShaderMatrix = Float64List(16)
+    ..[0] = 1
+    ..[5] = 1
+    ..[10] = 1
+    ..[15] = 1;
+  static const int _edgeSegments = 32;
+  final Float32List _edgePositions = Float32List((_edgeSegments + 2) * 4);
+  final Float32List _edgeTextureCoordinates = Float32List(
+    (_edgeSegments + 2) * 4,
+  );
 
   /// 纸背只保留少量透印反差，纸色覆盖独立于位图/网格的绘制路径。
   static const double _backInkContrast = 0.22;
@@ -225,20 +237,18 @@ class BesselPainter {
   }
 
   void _edgeBackShading(Canvas canvas, Path back) {
+    _edgeBackPaint.shader = const LinearGradient(
+      colors: [
+        Color(0x00000000),
+        Color(0x00000000),
+        Color(0x12000000),
+        Color(0x45000000),
+      ],
+      stops: [0, 0.5, 0.78, 1],
+    ).createShader(back.getBounds());
     // 透印淡化后再叠加折痕阴影，保留纸张弯曲的明暗层次。
-    canvas.drawPath(
-      back,
-      Paint()
-        ..shader = const LinearGradient(
-          colors: [
-            Color(0x00000000),
-            Color(0x00000000),
-            Color(0x12000000),
-            Color(0x45000000),
-          ],
-          stops: [0, 0.5, 0.78, 1],
-        ).createShader(back.getBounds()),
-    );
+    canvas.drawPath(back, _edgeBackPaint);
+    _edgeBackPaint.shader = null;
   }
 
   void _cornerBackContent(
@@ -267,21 +277,15 @@ class BesselPainter {
     image,
     TileMode.clamp,
     TileMode.clamp,
-    Float64List(16)
-      ..[0] = 1
-      ..[5] = 1
-      ..[10] = 1
-      ..[15] = 1,
+    _identityShaderMatrix,
     filterQuality: FilterQuality.low,
   );
 
   ui.Vertices _edgeMesh(BesselGeometry geometry, ui.Image image, bool rtl) {
-    const segments = 32;
-    final positions = <Offset>[];
-    final texture = <Offset>[];
     final radius = geometry.d.dx - geometry.e.dx;
-    for (var index = -1; index <= segments; index++) {
-      final angle = math.pi * (1 - index / (2 * segments));
+    var cursor = 0;
+    for (var index = -1; index <= _edgeSegments; index++) {
+      final angle = math.pi * (1 - index / (2 * _edgeSegments));
       final screenX = index < 0
           ? geometry.a.dx
           : geometry.e.dx + radius * math.sin(angle);
@@ -292,17 +296,20 @@ class BesselPainter {
           (rtl ? geometry.size.width - source : source) *
           image.width /
           geometry.size.width;
-      positions
-        ..add(Offset(screenX, 0))
-        ..add(Offset(screenX, geometry.size.height));
-      texture
-        ..add(Offset(sourceX, 0))
-        ..add(Offset(sourceX, image.height.toDouble()));
+      _edgePositions[cursor] = screenX;
+      _edgePositions[cursor + 1] = 0;
+      _edgePositions[cursor + 2] = screenX;
+      _edgePositions[cursor + 3] = geometry.size.height;
+      _edgeTextureCoordinates[cursor] = sourceX;
+      _edgeTextureCoordinates[cursor + 1] = 0;
+      _edgeTextureCoordinates[cursor + 2] = sourceX;
+      _edgeTextureCoordinates[cursor + 3] = image.height.toDouble();
+      cursor += 4;
     }
-    return ui.Vertices(
+    return ui.Vertices.raw(
       ui.VertexMode.triangleStrip,
-      positions,
-      textureCoordinates: texture,
+      _edgePositions,
+      textureCoordinates: _edgeTextureCoordinates,
     );
   }
 
@@ -317,7 +324,9 @@ class BesselPainter {
     canvas.save();
     canvas.translate(origin.dx, origin.dy);
     canvas.rotate(angle);
-    canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
+    _shadowPaint.shader = gradient.createShader(rect);
+    canvas.drawRect(rect, _shadowPaint);
+    _shadowPaint.shader = null;
     canvas.restore();
   }
 

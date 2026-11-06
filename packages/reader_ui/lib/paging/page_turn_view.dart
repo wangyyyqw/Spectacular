@@ -60,6 +60,10 @@ class PageTurnViewState extends State<PageTurnView>
   int _captureToken = 0;
   Object? _lastWarm;
   bool _showAnimation = false;
+  bool _revisionDirty = false;
+  bool _pageDirty = false;
+  bool _warmSuspended = false;
+  PageContent? _renderedPage;
 
   int get snapshotBytes => _cache.bytes;
   int get snapshotCount => _cache.length;
@@ -70,11 +74,16 @@ class PageTurnViewState extends State<PageTurnView>
     if (oldWidget.revision != widget.revision ||
         oldWidget.mode != widget.mode ||
         oldWidget.rtl != widget.rtl) {
-      _invalidate();
+      if (controller.active) {
+        _revisionDirty = true;
+      } else {
+        _invalidate();
+      }
     }
   }
 
   void _invalidate() {
+    _revisionDirty = false;
     controller.cancel();
     _captureToken++;
     _capturePage = null;
@@ -93,7 +102,38 @@ class PageTurnViewState extends State<PageTurnView>
       if (controller.turn != null) controller.turn!.target.content,
     };
     if (show != _showAnimation) setState(() => _showAnimation = show);
-    if (!controller.active) _scheduleWarm();
+    if (!controller.active) {
+      if (_revisionDirty) {
+        _invalidate();
+        return;
+      }
+      if (_pageDirty) _cancelPendingCaptures();
+      _scheduleWarm();
+    }
+  }
+
+  /// 切后台时释放翻页位图；恢复后按当前页重新预热。
+  void releaseCachedBitmaps() {
+    _warmSuspended = true;
+    _invalidate();
+    _captureQueue = Future<void>.value();
+  }
+
+  /// 回到前台后重新允许预热当前页与相邻页。
+  void resumeWarmup() {
+    if (!_warmSuspended) return;
+    _warmSuspended = false;
+    _lastWarm = null;
+    _scheduleWarm();
+  }
+
+  /// 页面提交后丢弃仅供旧页使用的排队截图，避免快速翻页时任务累积。
+  void _cancelPendingCaptures() {
+    _pageDirty = false;
+    _captureToken++;
+    _captureQueue = Future<void>.value();
+    _capturePage = null;
+    _lastWarm = null;
   }
 
   Future<ui.Image?> _enqueueCapture(PageContent page) {
@@ -135,7 +175,10 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   void _scheduleWarm() {
-    if (!mounted || controller.active || widget.mode == PageTurnMode.none) {
+    if (_warmSuspended ||
+        !mounted ||
+        controller.active ||
+        widget.mode == PageTurnMode.none) {
       return;
     }
     final page = widget.session.page;
@@ -145,6 +188,7 @@ class PageTurnViewState extends State<PageTurnView>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !controller.active) unawaited(_warm(page));
     });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   Future<void> _warm(PageContent page) async {
@@ -157,11 +201,13 @@ class PageTurnViewState extends State<PageTurnView>
       }
       await _enqueueCapture(candidate);
     }
-    final prepared = await Future.wait([
-      _prepareWarmPage(false),
-      _prepareWarmPage(true),
-    ]);
-    for (final candidate in prepared.nonNulls) {
+    // 先准备用户最常继续的前进方向，再补后退方向；两侧同时排版会在
+    // 跨章时争用主 isolate，让下一手势反而更慢。
+    final prepared = <PageContent>[
+      ?await _prepareWarmPage(true),
+      ?await _prepareWarmPage(false),
+    ];
+    for (final candidate in prepared) {
       if (!mounted ||
           controller.active ||
           !identical(page, widget.session.page)) {
@@ -188,10 +234,7 @@ class PageTurnViewState extends State<PageTurnView>
       final cacheRatio =
           math.sqrt(_cache.maxBytes / (size.width * size.height * 4 * 3)) *
           0.98;
-      final ratio = math.min(
-        deviceRatio,
-        cacheRatio,
-      );
+      final ratio = math.min(deviceRatio, cacheRatio);
       if (_size != size || _ratio != ratio) {
         _invalidate();
         _size = size;
@@ -200,8 +243,13 @@ class PageTurnViewState extends State<PageTurnView>
       controller.size = size;
       controller.rtl = widget.rtl;
       controller.mode = widget.mode;
-      _scheduleWarm();
       final page = widget.session.page!;
+      if (!identical(page, _renderedPage)) {
+        _renderedPage = page;
+        _pageDirty = true;
+        if (!controller.active) _cancelPendingCaptures();
+      }
+      _scheduleWarm();
       return Stack(
         fit: StackFit.expand,
         children: [
