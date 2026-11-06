@@ -13,6 +13,7 @@ import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/revision_relocator.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
@@ -25,6 +26,7 @@ import '../storage/drift_annotation_store.dart';
 import '../storage/drift_bookmark_store.dart';
 import '../storage/reading_session_store.dart';
 import 'book_identity_migration.dart';
+import 'import_analysis.dart';
 import 'revision_anchor_index.dart';
 
 part 'library_revision.dart';
@@ -971,7 +973,18 @@ class LibraryStore {
       // 单本旧书损坏或冲突保留待恢复，不阻止无关新书导入。
     }
     onProgress?.call(0.1);
-    final result = await openEpub(bytes);
+    // 哈希、CRC 校验与字数统计都在后台 isolate 完成，主线程只做免校验解析。
+    final analysisTrace = readerTraceEnabled
+        ? ReaderTrace.instance.start(ReaderTraceName.import)
+        : null;
+    final analysis = await analyzeImport(bytes);
+    analysisTrace?.stop();
+    _checkImportCancelled(isCancelled);
+    final openTrace = readerTraceEnabled
+        ? ReaderTrace.instance.start(ReaderTraceName.import)
+        : null;
+    final result = await openAnalyzed(bytes, analysis);
+    openTrace?.stop();
     final document = result.document;
     if (document == null) {
       final detail = result.report.message ?? result.report.errorCode ?? '未知错误';
@@ -998,6 +1011,7 @@ class LibraryStore {
     if (!_isMemory && existing != null && existing.deletedAt == null) {
       return _replaceRevision(
         existing,
+        analysis: analysis,
         bytes,
         result,
         onProgress: onProgress,
@@ -1021,8 +1035,8 @@ class LibraryStore {
         ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
         : document.meta.title.trim();
     _checkImportCancelled(isCancelled);
-    // 整本哈希只算一次，暂存目录名与 contentRevision 共用。
-    final sourceRevision = _isMemory ? '' : sha256.convert(bytes).toString();
+    // 整本哈希已在后台算好，暂存目录名与 contentRevision 共用。
+    final sourceRevision = _isMemory ? '' : analysis.revision;
     String filePath = '';
     String? coverPath;
     Directory? stagedDirectory;
@@ -1052,12 +1066,10 @@ class LibraryStore {
         }
       }
       onProgress?.call(0.85);
-      // §22.3/§76.1：导入期顺序统计各章正文字符数，进度量化与后续搜索索引
-      // 共用同一次扫描。
-      final charCounts = await document.countChapterCharacters(
-        onProgress: (done, total) =>
-            onProgress?.call(0.85 + 0.1 * (total == 0 ? 1 : done / total)),
-      );
+      // §22.3/§76.1：各章正文字符数已在后台 isolate 统计，进度量化与后续
+      // 搜索索引共用同一次扫描。
+      final charCounts = analysis.charCounts!;
+      onProgress?.call(0.95);
       final weights = ProgressWeights.fromCharCounts(
         charCounts,
         excluded: document.progressExcludedSpineIndexes,

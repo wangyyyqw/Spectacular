@@ -55,7 +55,17 @@ extension LibraryRevisionOperations on LibraryStore {
       if (old == null || old.deletedAt != null) {
         throw const LibraryImportException('书籍不存在');
       }
-      final parsed = await openEpub(bytes);
+      final analysisTrace = readerTraceEnabled
+          ? ReaderTrace.instance.start(ReaderTraceName.import, bookId: old.uuid)
+          : null;
+      final analysis = await analyzeImport(bytes);
+      analysisTrace?.stop();
+      _checkImportCancelled(isCancelled);
+      final openTrace = readerTraceEnabled
+          ? ReaderTrace.instance.start(ReaderTraceName.import, bookId: old.uuid)
+          : null;
+      final parsed = await openAnalyzed(bytes, analysis);
+      openTrace?.stop();
       if (parsed.document == null) {
         throw LibraryImportException(
           '无法更新：${parsed.report.message ?? '文件损坏'}',
@@ -66,6 +76,7 @@ extension LibraryRevisionOperations on LibraryStore {
         old,
         bytes,
         parsed,
+        analysis: analysis,
         onProgress: onProgress,
         isCancelled: isCancelled,
       );
@@ -83,6 +94,7 @@ extension LibraryRevisionOperations on LibraryStore {
     BookRow old,
     Uint8List bytes,
     EpubOpenResult parsed, {
+    required ImportAnalysis analysis,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -94,7 +106,7 @@ extension LibraryRevisionOperations on LibraryStore {
       identifier: identifier,
     );
     await _checkRevisionConflict(old.id, id);
-    final revision = sha256.convert(bytes).toString();
+    final revision = analysis.revision;
     final oldFile = old.sourcePath == null ? null : File(old.sourcePath!);
     final oldExists = oldFile != null && await oldFile.exists();
     // 已存版本号与新文件一致时，无需再读入并哈希整本旧书。
@@ -128,7 +140,7 @@ extension LibraryRevisionOperations on LibraryStore {
       onProgress?.call(0.5);
       final migration = await _prepareRevision(old, oldBytes, bytes);
       _checkImportCancelled(isCancelled);
-      final counts = await document.countChapterCharacters();
+      final counts = analysis.charCounts!;
       final weights = ProgressWeights.fromCharCounts(
         counts,
         excluded: document.progressExcludedSpineIndexes,
