@@ -266,6 +266,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   @override
+  void dispose() {
+    _sliderCommitTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(covariant SettingsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.overrides.fingerprint != widget.overrides.fingerprint) {
