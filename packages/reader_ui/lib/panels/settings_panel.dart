@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -201,6 +202,7 @@ class SettingsPanel extends StatefulWidget {
 
 class _SettingsPanelState extends State<SettingsPanel> {
   static const Color _accent = Color(0xFF5EC27D);
+  static const Duration _sliderCommitDelay = Duration(milliseconds: 80);
 
   static const List<PageTurnMode> _pageTurnOrder = <PageTurnMode>[
     PageTurnMode.coverStack,
@@ -226,6 +228,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
   late double _horizontalPadding =
       widget.overrides.padding?.left ??
       ReaderSettingsDefaults.horizontalPadding;
+  Timer? _sliderCommitTimer;
+  ReaderOverrides? _pendingSliderOverrides;
 
   ReaderOverrides _build() => ReaderOverrides(
     fontSize: _fontSize,
@@ -241,7 +245,25 @@ class _SettingsPanelState extends State<SettingsPanel> {
     ),
   );
 
-  void _emit() => widget.onOverridesChanged(_build());
+  void _emit({bool immediate = false}) {
+    _pendingSliderOverrides = _build();
+    _sliderCommitTimer?.cancel();
+    if (immediate) {
+      _flushSliderOverrides();
+      return;
+    }
+    _sliderCommitTimer = Timer(_sliderCommitDelay, _flushSliderOverrides);
+  }
+
+  void _flushSliderOverrides() {
+    _sliderCommitTimer?.cancel();
+    _sliderCommitTimer = null;
+    final next = _pendingSliderOverrides;
+    _pendingSliderOverrides = null;
+    if (next != null) {
+      widget.onOverridesChanged(next);
+    }
+  }
 
   @override
   void didUpdateWidget(covariant SettingsPanel oldWidget) {
@@ -276,7 +298,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       }
       _fontFamily = family;
     });
-    _emit();
+    _emit(immediate: true);
   }
 
   Future<void> _pickFont() async {
@@ -568,6 +590,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   void _reset() {
+    _sliderCommitTimer?.cancel();
+    _sliderCommitTimer = null;
+    _pendingSliderOverrides = null;
     setState(() {
       _fontSize = ReaderSettingsDefaults.fontSize;
       _fontFamily = null;
@@ -692,7 +717,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   ? null
                   : (value) {
                       setState(() => _overrideEmbeddedFonts = value);
-                      _emit();
+                      _emit(immediate: true);
                     },
             ),
           ],
@@ -736,7 +761,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
           _StepButton(
             key: ValueKey<String>('$sliderKey-decrement'),
             icon: Icons.remove,
-            onTap: clamped <= min ? null : () => setValue(clamped - step),
+            onTap: clamped <= min
+                ? null
+                : () {
+                    setValue(clamped - step);
+                    _flushSliderOverrides();
+                  },
           ),
           Expanded(
             child: Padding(
@@ -765,6 +795,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   max: max,
                   divisions: divisions,
                   onChanged: setValue,
+                  onChangeEnd: (_) => _flushSliderOverrides(),
                 ),
               ),
             ),
@@ -772,7 +803,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
           _StepButton(
             key: ValueKey<String>('$sliderKey-increment'),
             icon: Icons.add,
-            onTap: clamped >= max ? null : () => setValue(clamped + step),
+            onTap: clamped >= max
+                ? null
+                : () {
+                    setValue(clamped + step);
+                    _flushSliderOverrides();
+                  },
           ),
           SizedBox(
             width: 36,
@@ -826,6 +862,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
               setState(() => _horizontalPadding = value);
               _emit();
             },
+            onChangeEnd: (_) => _flushSliderOverrides(),
           ),
         ],
       ),

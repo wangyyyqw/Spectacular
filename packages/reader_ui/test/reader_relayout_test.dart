@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -14,6 +16,7 @@ class _FakeRestylableSource implements RestylableChapterSource {
 
   double fontSize = 16;
   int loadCount = 0;
+  Completer<void>? gate;
 
   @override
   int get chapterCount => 1;
@@ -29,8 +32,10 @@ class _FakeRestylableSource implements RestylableChapterSource {
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
     loadCount += 1;
+    final sizeAtLoad = fontSize;
+    await gate?.future;
     final style = ComputedStyle(<String, String>{
-      'font-size': '${fontSize}px',
+      'font-size': '${sizeAtLoad}px',
       'line-height': '1.5',
       'font-family': 'Ahem',
     });
@@ -153,6 +158,35 @@ void main() {
         reason: '字号 $size 时位置漂移',
       );
     }
+    session.dispose();
+  });
+
+  test('在途重排合并：连续设置只完成一次旧排版和一次最新排版', () async {
+    final source = _FakeRestylableSource();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'coalesce',
+    );
+    await session.open();
+    final initialLoads = source.loadCount;
+    source.gate = Completer<void>();
+
+    final first = session.applyOverrides(const ReaderOverrides(fontSize: 18));
+    await Future<void>.delayed(Duration.zero);
+    final second = session.applyOverrides(const ReaderOverrides(fontSize: 20));
+    final third = session.applyOverrides(const ReaderOverrides(fontSize: 22));
+    expect(source.loadCount, initialLoads + 1, reason: '最多一个旧排版在途');
+
+    source.gate!.complete();
+    await Future.wait(<Future<void>>[first, second, third]);
+
+    expect(source.loadCount, initialLoads + 2, reason: '中间 20 号设置不再启动整章排版');
+    expect(
+      session.layoutFingerprint,
+      const ReaderOverrides(fontSize: 22).fingerprint,
+    );
+    expect(session.error, isNull);
     session.dispose();
   });
 

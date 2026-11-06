@@ -68,6 +68,43 @@ void main() {
     );
   });
 
+  testWidgets('连续排版滑块变化只提交最终值，松手立即生效', (tester) async {
+    final changes = <ReaderOverrides>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.type,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            onOverridesChanged: changes.add,
+            onThemeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    var slider = tester.widget<Slider>(
+      find.byKey(const ValueKey<String>('settings-font-size')),
+    );
+    slider.onChanged!(18);
+    slider.onChanged!(20);
+    slider.onChanged!(22);
+    expect(changes, isEmpty, reason: '合并窗口内不启动多次整章重排');
+
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes, hasLength(1));
+    expect(changes.single.fontSize, 22);
+
+    slider = tester.widget<Slider>(
+      find.byKey(const ValueKey<String>('settings-font-size')),
+    );
+    slider.onChanged!(23);
+    slider.onChangeEnd!(23);
+    expect(changes, hasLength(2));
+    expect(changes.last.fontSize, 23);
+  });
+
   testWidgets('背景选择：点纸纹回调背景 id（P4-22）', (tester) async {
     final backgrounds = <String>[];
     await tester.pumpWidget(
