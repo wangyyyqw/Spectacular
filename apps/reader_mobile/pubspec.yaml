@@ -67,6 +67,11 @@ dev_dependencies:
   drift_dev: ^2.35.1
   build_runner: ^2.16.2
 
+# path_provider_android 2.3.x 的 JNI 注册早于引擎初始化，release 启动会 SIGSEGV。
+# 2.2.23 是最后一个不使用 JNI 的稳定版本。
+dependency_overrides:
+  path_provider_android: 2.2.23
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
