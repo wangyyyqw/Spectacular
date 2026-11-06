@@ -15,10 +15,10 @@ Uint8List buildTestEpub({
   String? identifier,
   List<String>? paragraphs,
 }) {
-  final body = (paragraphs ?? const <String>[
-    '这是用于应用壳测试的段落，内容足够长以便分页。',
-    '第二章稍后展开。',
-  ]).map((text) => '<p>$text</p>').join();
+  final body =
+      (paragraphs ?? const <String>['这是用于应用壳测试的段落，内容足够长以便分页。', '第二章稍后展开。'])
+          .map((text) => '<p>$text</p>')
+          .join();
   final chapter =
       '<?xml version="1.0" encoding="UTF-8"?>'
       '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title>'
@@ -38,7 +38,7 @@ Uint8List buildTestEpub({
       '</metadata><manifest>'
       '<item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>'
       '${cover ? '<item id="cover-img" href="cover.jpg" '
-          'media-type="image/jpeg"/>' : ''}'
+                'media-type="image/jpeg"/>' : ''}'
       '</manifest><spine><itemref idref="c1"/></spine></package>';
   final container =
       '<?xml version="1.0" encoding="UTF-8"?>'
@@ -69,6 +69,7 @@ Uint8List buildMultiChapterEpub({
   required List<String> chapters,
   String title = '多章测试书',
   String? identifier,
+  bool rawBody = false,
 }) {
   final buffer = StringBuffer();
   final manifest = StringBuffer();
@@ -81,7 +82,8 @@ Uint8List buildMultiChapterEpub({
     spine.write('<itemref idref="$id"/>');
     buffer.write(
       '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title>'
-      '</head><body><h1>第 ${i + 1} 章</h1><p>${chapters[i]}</p></body></html>',
+      '</head><body><h1>第 ${i + 1} 章</h1>'
+      '${rawBody ? chapters[i] : '<p>${chapters[i]}</p>'}</body></html>',
     );
     buffer.write('\u0000');
   }
