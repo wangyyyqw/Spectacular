@@ -6,6 +6,7 @@ import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
+import '../support/test_epub.dart';
 
 void main() {
   test('注释定义不进入正文页面，注号映射为可点击数据', () async {
@@ -47,6 +48,39 @@ void main() {
     expect(footnotes[1].text, '尾注正文');
   });
 
+  test('300 章书集中末尾定义时，淘汰后回到引用章仍能弹出正确注释', () async {
+    const referenceCount = 300;
+    final chapters = <String>[
+      for (var i = 0; i < referenceCount; i++)
+        '<p>正文 $i<a href="c${referenceCount + 1}.xhtml#note$i" '
+            'role="doc-noteref">[$i]</a></p>',
+      '<section role="doc-endnotes">'
+          '${[for (var i = 0; i < referenceCount; i++) '<aside id="note$i" role="doc-endnote">末尾注释 $i</aside>'].join()}'
+          '</section>',
+    ];
+    final source = await openTestChapterSource(
+      buildMultiChapterEpub(chapters: chapters, rawBody: true),
+    );
+    addTearDown(source.close);
+
+    Future<String?> noteTextAt(int spine) async {
+      final pages = await source.loadChapter(spine);
+      return pages
+          .expand((page) => page.slices)
+          .expand((slice) => slice.block.footnotes)
+          .single
+          .text;
+    }
+
+    expect(await noteTextAt(0), '末尾注释 0');
+    for (var spine = referenceCount - 5; spine < chapters.length; spine++) {
+      await source.loadChapter(spine);
+    }
+    expect(source.cacheReport, contains('脚注索引 5/5'));
+
+    expect(await noteTextAt(0), '末尾注释 0');
+  });
+
   test('普通数字内链不生成注释点击区', () async {
     final source = await openCssChapter(
       body: '''
@@ -84,10 +118,7 @@ void main() {
       blocks.map((block) => block.layout.text),
       isNot(contains('无 id 容器注释')),
     );
-    expect(
-      blocks.expand((block) => block.footnotes).single.text,
-      '无 id 容器注释',
-    );
+    expect(blocks.expand((block) => block.footnotes).single.text, '无 id 容器注释');
   });
 
   test('独立图片注号仍生成可点击注释区域', () async {
