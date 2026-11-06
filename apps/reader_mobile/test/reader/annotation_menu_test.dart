@@ -67,15 +67,24 @@ class _Annotations implements ReaderAnnotationStore {
     String? contextAfter,
     int? color,
     ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    double? opacity,
     String? note,
   }) async {
-    if (items.any(
-      (item) =>
-          item.type == type &&
-          item.startCfi == startCfi &&
-          item.endCfi == endCfi,
-    )) {
-      return null;
+    final existing = items
+        .where((item) => item.startCfi == startCfi && item.endCfi == endCfi)
+        .firstOrNull;
+    if (existing != null) {
+      await update(
+        existing.id,
+        type: existing.type == ReaderAnnotationType.thought
+            ? existing.type
+            : type,
+        color: color,
+        style: style,
+        opacity: opacity,
+        note: note,
+      );
+      return items.firstWhere((item) => item.id == existing.id);
     }
     final anchor = _capture(startCfi, endCfi, quote);
     final item = ReaderAnnotation(
@@ -88,6 +97,7 @@ class _Annotations implements ReaderAnnotationStore {
       contextAfter: contextAfter,
       color: color,
       style: style,
+      opacity: opacity,
       note: note,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -105,6 +115,7 @@ class _Annotations implements ReaderAnnotationStore {
     ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
+    double? opacity,
     String? note,
     bool clearNote = false,
   }) async {
@@ -121,6 +132,7 @@ class _Annotations implements ReaderAnnotationStore {
       contextAfter: item.contextAfter,
       color: color ?? item.color,
       style: style ?? item.style,
+      opacity: opacity ?? item.opacity,
       note: clearNote ? null : note ?? item.note,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
@@ -151,7 +163,7 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  testWidgets('选区菜单高亮写入标注库（P4-17）', (tester) async {
+  testWidgets('选区快捷划线写入标注库并支持撤销', (tester) async {
     final dir = Directory.systemTemp.createTempSync('annotation-menu');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -197,21 +209,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsOneWidget);
     expect(
-      find.byKey(const ValueKey<String>('selection-action-highlight')),
+      find.byKey(const ValueKey<String>('selection-action-mark')),
       findsOneWidget,
     );
 
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-highlight')),
+      find.byKey(const ValueKey<String>('selection-action-mark')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已高亮'), findsOneWidget);
+    expect(find.text('已划线'), findsOneWidget);
     expect(find.byType(SelectionLayer), findsNothing, reason: '保存后清除选区');
 
     final saved = await annotations.list();
     expect(saved, hasLength(1));
     final item = saved.single;
-    expect(item.type, ReaderAnnotationType.highlight);
+    expect(item.type, ReaderAnnotationType.mark);
+    expect(item.style, ReaderAnnotationStyle.underline);
     expect(item.startCfi, contains('epubcfi('));
     expect(item.endCfi, contains('epubcfi('));
     expect(item.quote, isNotEmpty);
@@ -230,7 +243,7 @@ void main() {
     expect(find.text('已撤销'), findsOneWidget);
   });
 
-  testWidgets('同一区间重复高亮提示已存在（P4-17）', (tester) async {
+  testWidgets('同一区间重复划线更新原记录且不新增', (tester) async {
     final dir = Directory.systemTemp.createTempSync('annotation-dup');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -277,13 +290,13 @@ void main() {
     await tester.longPressAt(center);
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-highlight')),
+      find.byKey(const ValueKey<String>('selection-action-mark')),
     );
     await tester.pumpAndSettle();
     expect(await annotations.list(), hasLength(1));
     expect(
       (await annotations.list()).single.style,
-      ReaderAnnotationStyle.background,
+      ReaderAnnotationStyle.underline,
     );
     // 等第一条 SnackBar 消失，避免第二条排队看不到。
     await tester.pump(const Duration(seconds: 2));
@@ -293,12 +306,13 @@ void main() {
     await tester.longPressAt(center);
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-highlight')),
+      find.byKey(const ValueKey<String>('selection-action-mark')),
     );
     await tester.pumpAndSettle();
     final afterSecond = await annotations.list();
     expect(afterSecond, hasLength(1), reason: '重复区间不新增');
-    expect(find.text('该位置已有标注'), findsOneWidget);
+    expect(find.text('已划线'), findsOneWidget);
+    expect(afterSecond.single.id, '1');
   });
 
   testWidgets('点击高亮可更换颜色并取消', (tester) async {
@@ -345,7 +359,7 @@ void main() {
     await tester.longPressAt(center);
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-highlight')),
+      find.byKey(const ValueKey<String>('selection-action-mark')),
     );
     await tester.pumpAndSettle();
     expect(await annotations.list(), hasLength(1));
@@ -356,7 +370,7 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsOneWidget,
     );
-    expect(find.text('取消高亮'), findsOneWidget);
+    expect(find.text('删除划线'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
@@ -367,9 +381,11 @@ void main() {
       findsOneWidget,
     );
     expect((await annotations.list()).single.color, defaultHighlightColor);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-style-wavyUnderline')),
+    final wavyStyle = find.byKey(
+      const ValueKey<String>('annotation-style-wavyUnderline'),
     );
+    await tester.ensureVisible(wavyStyle);
+    await tester.tap(wavyStyle);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
@@ -389,21 +405,19 @@ void main() {
 
     await tester.tapAt(center);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('annotation-add-note')));
-    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-color-0xFFA5D6A7')),
     );
     await tester.pumpAndSettle();
     final appearanceSave = find.byKey(
-      const ValueKey<String>('annotation-save-note'),
+      const ValueKey<String>('annotation-save-changes'),
     );
     expect(tester.widget<FilledButton>(appearanceSave).onPressed, isNotNull);
     await tester.ensureVisible(appearanceSave);
     await tester.tap(appearanceSave);
     await tester.pumpAndSettle();
     final appearanceOnly = (await annotations.list()).single;
-    expect(appearanceOnly.type, ReaderAnnotationType.highlight);
+    expect(appearanceOnly.type, ReaderAnnotationType.mark);
     expect(appearanceOnly.color, 0xFFA5D6A7);
     expect(appearanceOnly.note, isNull);
 
@@ -418,7 +432,7 @@ void main() {
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
     final restored = (await annotations.list()).single;
-    expect(restored.type, ReaderAnnotationType.highlight);
+    expect(restored.type, ReaderAnnotationType.mark);
     expect(restored.color, 0xFFA5D6A7);
     expect(restored.style, ReaderAnnotationStyle.wavyUnderline);
     expect(restored.quote, isNotEmpty);

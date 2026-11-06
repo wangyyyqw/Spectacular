@@ -57,23 +57,24 @@ void main() {
     final startPage = session.progress!.pageIndex;
 
     // 触发边缘翻页（等价于拖终点手柄到页底）→ 300ms 后翻页并扩展选区。
-    tester.widget<SelectionLayer>(find.byType(SelectionLayer)).onEdgeDrag!(true);
+    tester.widget<SelectionLayer>(find.byType(SelectionLayer)).onEdgeDrag!(
+      true,
+    );
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
 
     final after = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
-    expect(
-      after.selection.isMultiPage,
-      isTrue,
-      reason: '拖到页边应翻页并扩展选区',
-    );
+    expect(after.selection.isMultiPage, isTrue, reason: '拖到页边应翻页并扩展选区');
     expect(after.selection.startPageIndex, startPage);
     expect(
       after.selection.endPageIndex,
       session.progress!.pageIndex,
       reason: '终点落在新页',
     );
-    expect(after.selection.endPageIndex, greaterThan(after.selection.startPageIndex));
+    expect(
+      after.selection.endPageIndex,
+      greaterThan(after.selection.startPageIndex),
+    );
   });
 
   testWidgets('跨页选区仍可复制（文本按页拼接）', (tester) async {
@@ -102,7 +103,9 @@ void main() {
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
 
-    tester.widget<SelectionLayer>(find.byType(SelectionLayer)).onEdgeDrag!(true);
+    tester.widget<SelectionLayer>(find.byType(SelectionLayer)).onEdgeDrag!(
+      true,
+    );
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
 
@@ -128,6 +131,7 @@ class _NoopAnnotationStore implements ReaderAnnotationStore {
     String? contextAfter,
     int? color,
     ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    double? opacity,
     String? note,
   }) async => null;
 
@@ -137,6 +141,7 @@ class _NoopAnnotationStore implements ReaderAnnotationStore {
     ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
+    double? opacity,
     String? note,
     bool clearNote = false,
   }) async {}

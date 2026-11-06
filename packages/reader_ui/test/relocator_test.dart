@@ -51,7 +51,7 @@ ReaderAnnotation _annotation({
   String? after,
 }) => ReaderAnnotation(
   id: 'a',
-  type: ReaderAnnotationType.highlight,
+  type: ReaderAnnotationType.mark,
   startCfi: start,
   endCfi: end,
   quote: quote,

@@ -34,10 +34,10 @@ void main() {
     }
   });
 
-  test('新增高亮：落库含 CFI 区间、原文、前后文、颜色与样式（P4-17）', () async {
+  test('新增划线：落库含 CFI 区间、原文、前后文、颜色与样式', () async {
     final store = library.annotationStore(book.id)!;
     final created = await store.add(
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: 'epubcfi(/6/4!/4/2/1:3)',
       endCfi: 'epubcfi(/6/4!/4/2/1:9)',
       quote: '找学习资源',
@@ -51,7 +51,7 @@ void main() {
     final list = await store.list();
     expect(list, hasLength(1));
     final item = list.single;
-    expect(item.type, ReaderAnnotationType.highlight);
+    expect(item.type, ReaderAnnotationType.mark);
     expect(item.startCfi, 'epubcfi(/6/4!/4/2/1:3)');
     expect(item.endCfi, 'epubcfi(/6/4!/4/2/1:9)');
     expect(item.quote, '找学习资源');
@@ -60,22 +60,21 @@ void main() {
     expect(item.style, ReaderAnnotationStyle.wavyUnderline);
   });
 
-  test('同一区间不重复：同类型同起止 CFI 返回 null', () async {
+  test('同一区间更新原记录，划线升级想法且再次划线不降级', () async {
     final store = library.annotationStore(book.id)!;
     Future<ReaderAnnotation?> add() => store.add(
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: 'epubcfi(/6/4!/4/2/1:3)',
       endCfi: 'epubcfi(/6/4!/4/2/1:9)',
       quote: '找学习资源',
     );
-    expect(await add(), isNotNull);
-    expect(await add(), isNull, reason: '同区间不重复写入');
+    final first = (await add())!;
+    expect((await add())!.id, first.id);
     expect(await store.list(), hasLength(1));
 
-    // 不同类型/不同区间各自独立。
     expect(
       await store.add(
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/4!/4/2/1:3)',
         endCfi: 'epubcfi(/6/4!/4/2/1:9)',
         quote: '找学习资源',
@@ -83,22 +82,38 @@ void main() {
       ),
       isNotNull,
     );
+    expect((await store.list()).single.type, ReaderAnnotationType.thought);
+    final updated = await store.add(
+      type: ReaderAnnotationType.mark,
+      startCfi: first.startCfi,
+      endCfi: first.endCfi,
+      quote: first.quote,
+      color: 0xff123456,
+      style: ReaderAnnotationStyle.dottedUnderline,
+      opacity: 0.6,
+    );
+    expect(updated!.id, first.id);
+    expect(updated.type, ReaderAnnotationType.thought);
+    expect(updated.note, '想法');
+    expect(updated.color, 0xff123456);
+    expect(updated.style, ReaderAnnotationStyle.dottedUnderline);
+    expect(updated.opacity, 0.6);
     expect(
       await store.add(
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: 'epubcfi(/6/4!/4/2/1:10)',
         endCfi: 'epubcfi(/6/4!/4/2/1:12)',
         quote: '另一段',
       ),
       isNotNull,
     );
-    expect(await store.list(), hasLength(3));
+    expect(await store.list(), hasLength(2));
   });
 
   test('更新类型、颜色、样式与备注，更新时间刷新', () async {
     final store = library.annotationStore(book.id)!;
     final created = (await store.add(
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: 'epubcfi(/6/4!/4/2/1:1)',
       endCfi: 'epubcfi(/6/4!/4/2/1:2)',
       quote: '文字',
@@ -106,16 +121,18 @@ void main() {
     ))!;
     await store.update(
       created.id,
-      type: ReaderAnnotationType.note,
+      type: ReaderAnnotationType.thought,
       color: 0xFF4CAF50,
       style: ReaderAnnotationStyle.dashedUnderline,
+      opacity: 0.42,
       note: '改了',
     );
     final item = (await store.list()).single;
-    expect(item.type, ReaderAnnotationType.note);
+    expect(item.type, ReaderAnnotationType.thought);
     expect(item.color, 0xFF4CAF50);
     expect(item.style, ReaderAnnotationStyle.dashedUnderline);
     expect(item.note, '改了');
+    expect(item.opacity, 0.42);
     expect(
       item.updatedAt.isAfter(created.updatedAt) ||
           item.updatedAt.isAtSameMomentAs(created.updatedAt),
@@ -124,24 +141,77 @@ void main() {
 
     await store.update(
       created.id,
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       clearNote: true,
     );
     final highlight = (await store.list()).single;
-    expect(highlight.type, ReaderAnnotationType.highlight);
+    expect(highlight.type, ReaderAnnotationType.mark);
     expect(highlight.note, isNull);
   });
 
   test('删除后列表为空', () async {
     final store = library.annotationStore(book.id)!;
     final created = (await store.add(
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: 'epubcfi(/6/4!/4/2/1:1)',
       endCfi: 'epubcfi(/6/4!/4/2/1:2)',
       quote: '文字',
     ))!;
     await store.remove(created.id);
     expect(await store.list(), isEmpty);
+  });
+
+  test('想法仅非空校验，不限制字数，标注接口不修改书签', () async {
+    final store = library.annotationStore(book.id)!;
+    await expectLater(
+      store.add(
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:1)',
+        quote: '文',
+        note: ' \n ',
+      ),
+      throwsFormatException,
+    );
+    final thought = (await store.add(
+      type: ReaderAnnotationType.thought,
+      startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+      endCfi: 'epubcfi(/6/2!/4/2/1:1)',
+      quote: '文',
+      note: List.filled(300, '想法').join(),
+    ))!;
+    expect(thought.note!.length, 600);
+    await expectLater(
+      store.update(thought.id, note: '   '),
+      throwsFormatException,
+    );
+    final bookmark = (await library
+        .bookmarkStore(book.id)!
+        .add(cfi: 'epubcfi(/6/2!/4/2/1:2)', spineIndex: 0, label: '保留书签'))!;
+    final before = (await db.select(db.annotations).get())
+        .singleWhere((row) => row.type == 2)
+        .toJson();
+    await store.update(
+      bookmark.id,
+      type: ReaderAnnotationType.thought,
+      color: 123,
+      note: '越界',
+    );
+    await store.remove(bookmark.id);
+    await expectLater(
+      store.relocate(
+        bookmark.id,
+        startCfi: thought.startCfi,
+        endCfi: thought.endCfi,
+      ),
+      throwsFormatException,
+    );
+    expect(
+      (await db.select(db.annotations).get())
+          .singleWhere((row) => row.type == 2)
+          .toJson(),
+      before,
+    );
   });
 
   test('重启后标注仍在（落库验证）', () async {
@@ -151,15 +221,15 @@ void main() {
       database: first,
       directoryProvider: () async => dir,
     );
-    final entry = await firstLibrary.importBytes(
-      buildTestEpub(title: '重启书'),
-    );
-    await firstLibrary.annotationStore(entry.id)!.add(
-      type: ReaderAnnotationType.highlight,
-      startCfi: 'epubcfi(/6/4!/4/2/1:5)',
-      endCfi: 'epubcfi(/6/4!/4/2/1:8)',
-      quote: '重启后仍可见',
-    );
+    final entry = await firstLibrary.importBytes(buildTestEpub(title: '重启书'));
+    await firstLibrary
+        .annotationStore(entry.id)!
+        .add(
+          type: ReaderAnnotationType.mark,
+          startCfi: 'epubcfi(/6/4!/4/2/1:5)',
+          endCfi: 'epubcfi(/6/4!/4/2/1:8)',
+          quote: '重启后仍可见',
+        );
     await first.close();
 
     // 重新打开同一文件：等效于应用重启。

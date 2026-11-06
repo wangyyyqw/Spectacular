@@ -1036,6 +1036,22 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
+  /// 字体装饰改变度量后重载分页，并按保存的原文 CFI 回位。
+  Future<bool> refreshLayout({String? anchorCfi}) async {
+    final current = page;
+    if (_disposed || current == null) return false;
+    final generation = ++_generation;
+    final anchor = anchorCfi == null
+        ? _anchorOf(current)
+        : ReaderAnchor(cfi: anchorCfi);
+    await (_reloadTask = _reloadChapter(
+      generation: generation,
+      spine: current.spineIndex,
+      anchor: anchor,
+    ));
+    return generation == _generation && _error == null;
+  }
+
   /// 应用新的正文区尺寸（旋转/窗口变化，P2-31）。
   ///
   /// 只重排当前章，其他章仍在导航到该章时加载；在途请求合并到最新尺寸。

@@ -3,6 +3,7 @@ import 'dart:ui' show Offset, Rect;
 
 import '../css/computed_style.dart';
 import '../epub/footnote.dart' show NoteKind;
+import '../position/cfi.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
@@ -173,6 +174,7 @@ class PageBlock {
     this.rubies,
     this.inlineImages = const <InlineImageSpec>[],
     this.footnotes = const <PageFootnote>[],
+    this.textRuleEligible = true,
     this.absolute = false,
     this.absoluteTop,
     this.absoluteLeft,
@@ -207,6 +209,7 @@ class PageBlock {
     List<RubyAnnotation>? rubies,
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
     List<PageFootnote> footnotes = const <PageFootnote>[],
+    bool textRuleEligible = true,
     TableRenderSpec? table,
     bool absolute = false,
     double? absoluteTop,
@@ -244,6 +247,7 @@ class PageBlock {
       rubies: rubies,
       inlineImages: inlineImages,
       footnotes: footnotes,
+      textRuleEligible: textRuleEligible,
       table: table,
       absolute: absolute,
       absoluteTop: absoluteTop,
@@ -343,6 +347,9 @@ class PageBlock {
 
   /// 正文注释引用（点击弹窗）。
   final List<PageFootnote> footnotes;
+
+  /// 是否允许自动文字规则匹配；脚注正文及页眉页脚应关闭。
+  final bool textRuleEligible;
 
   /// 绝对定位块（P9-19）：不占流高，绘制在页内绝对坐标处。
   final bool absolute;
@@ -558,6 +565,7 @@ class PageBlock {
     // 漏字段会让行内图片/绝对定位在真机里随机消失。
     inlineImages: inlineImages,
     footnotes: footnotes,
+    textRuleEligible: textRuleEligible,
     absolute: absolute,
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
@@ -1088,7 +1096,7 @@ class Paginator {
     double? boxWidth,
   }) {
     // 列片段：文本取该列行区间对应的子串，行下标按子串重排（绘制直接用
-    // 片段文本；CFI/选区跨列的映射由章节源按块首尾处理，见已知限制）。
+    // 片段文本；块 CFI 由 _columnBlock 同步到原文中的区间）。
     final textStart = range.$1 < range.$2 ? source.lines[range.$1].start : 0;
     final textEnd = range.$1 < range.$2 ? source.lines[range.$2 - 1].end : 0;
     final fragment = source.text.substring(
@@ -1176,8 +1184,11 @@ class Paginator {
     (int start, int end)? textRange,
   }) => PageBlock(
     layout: layout,
-    startCfi: source.startCfi,
-    endCfi: source.endCfi,
+    startCfi: _columnCfi(source.startCfi, textRange?.$1),
+    endCfi: textRange == null
+        ? source.endCfi
+        : _columnCfi(source.startCfi, textRange.$2) ?? source.endCfi,
+    textRuleEligible: source.textRuleEligible,
     style: source.style,
     topInset: source.topInset,
     bottomInset: source.bottomInset,
@@ -1236,6 +1247,15 @@ class Paginator {
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
   );
+
+  static String? _columnCfi(String? cfi, int? relativeOffset) {
+    if (cfi == null || relativeOffset == null) return cfi;
+    final parsed = EpubCfi.parse(cfi);
+    return parsed
+            ?.withCharOffset((parsed.charOffset ?? 0) + relativeOffset)
+            .serialize() ??
+        cfi;
+  }
 
   /// 列区间在原文里的起止偏移（用于切片注音/行内图片）。
   static (int, int) _columnTextRange(
@@ -1377,6 +1397,7 @@ class Paginator {
     pageBreakAfter: source.pageBreakAfter,
     startCfi: source.startCfi,
     endCfi: source.endCfi,
+    textRuleEligible: source.textRuleEligible,
     style: source.style,
     spaceBefore: source.spaceBefore,
     spaceAfter: source.spaceAfter,
@@ -1546,6 +1567,7 @@ class Paginator {
       pageBreakAfter: endRow == rowCount && source.pageBreakAfter,
       startCfi: source.startCfi,
       endCfi: source.endCfi,
+      textRuleEligible: source.textRuleEligible,
       style: source.style,
       spaceBefore: startRow == 0 ? source.spaceBefore : 0,
       spaceAfter: endRow == rowCount ? source.spaceAfter : 0,
@@ -1689,6 +1711,7 @@ class Paginator {
       ),
       startCfi: source.startCfi,
       endCfi: source.endCfi,
+      textRuleEligible: source.textRuleEligible,
       style: source.style,
       topInset: source.topInset,
       bottomInset: source.bottomInset,

@@ -62,7 +62,7 @@ ReaderAnnotation _annotation({
   String end = 'epubcfi(/6/2!/4/2/1:4)',
 }) => ReaderAnnotation(
   id: 'annotation',
-  type: ReaderAnnotationType.note,
+  type: ReaderAnnotationType.thought,
   startCfi: start,
   endCfi: end,
   quote: quote,
@@ -164,6 +164,7 @@ class _Annotations
     String? contextAfter,
     int? color,
     ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    double? opacity,
     String? note,
   }) async => null;
   @override
@@ -172,6 +173,7 @@ class _Annotations
     ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
+    double? opacity,
     String? note,
     bool clearNote = false,
   }) async {}
@@ -451,7 +453,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('待确认 · 点击重新定位'), findsOneWidget);
+    expect(find.text('待修复 · 点击关联原文'), findsOneWidget);
     expect(find.text('旧版引用'), findsOneWidget);
     expect(find.text('原笔记正文'), findsOneWidget);
     expect(find.text('引用已删除'), findsOneWidget);

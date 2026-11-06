@@ -1904,9 +1904,8 @@ class ComputedStyle {
         }.contains(value)) {
       return true;
     }
-    final viewportHeight = RegExp(
-      r'^(-?(?:\d+(?:\.\d+)?|\.\d+))vh$',
-    ).firstMatch(value);
+    final viewportHeight = RegExp(r'^(-?(?:\d+(?:\.\d+)?|\.\d+))vh$')
+        .firstMatch(value);
     if (viewportHeight != null) {
       if (!const {
         'width',
@@ -2884,6 +2883,47 @@ class ComputedStyle {
     List<String>? fontFamilyList,
     CssTextSpacingTrim? textSpacingTrim,
     double? textIndent,
+  }) => _withTextProperties(
+    fontSize: fontSize,
+    lineHeightFactor: lineHeightFactor,
+    textAlign: textAlign,
+    fontFamily: fontFamily,
+    fontFamilyList: fontFamilyList,
+    textSpacingTrim: textSpacingTrim,
+    textIndent: textIndent,
+  );
+
+  /// 覆盖选区的字体与文字色，保留作者背景、边框、盒尺寸及非继承属性。
+  ///
+  /// 字号和字距采用逻辑像素；颜色不参与排版指纹。未提供的属性原样继承。
+  ComputedStyle withInlineTypography({
+    String? fontFamily,
+    double? fontSize,
+    int? fontWeight,
+    bool? italic,
+    double? letterSpacing,
+    Color? color,
+  }) => _withTextProperties(
+    fontFamily: fontFamily,
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    italic: italic,
+    letterSpacing: letterSpacing,
+    color: color,
+  );
+
+  ComputedStyle _withTextProperties({
+    double? fontSize,
+    double? lineHeightFactor,
+    CssTextAlign? textAlign,
+    String? fontFamily,
+    List<String>? fontFamilyList,
+    CssTextSpacingTrim? textSpacingTrim,
+    double? textIndent,
+    int? fontWeight,
+    bool? italic,
+    double? letterSpacing,
+    Color? color,
   }) {
     if (fontSize == null &&
         lineHeightFactor == null &&
@@ -2891,11 +2931,16 @@ class ComputedStyle {
         fontFamily == null &&
         fontFamilyList == null &&
         textSpacingTrim == null &&
-        textIndent == null) {
+        textIndent == null &&
+        fontWeight == null &&
+        italic == null &&
+        letterSpacing == null &&
+        color == null) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
-    final nextFontFamilies = fontFamilyList ??
+    final nextFontFamilies =
+        fontFamilyList ??
         (fontFamily == null ? fontFamilies : <String>[fontFamily]);
     final familyDeclaration = fontFamilyList == null
         ? fontFamily
@@ -2920,6 +2965,12 @@ class ComputedStyle {
       if (textSpacingTrim != null)
         'text-spacing-trim': textSpacingTrim.cssValue,
       if (textIndent != null) 'text-indent': '${textIndent}px',
+      if (fontWeight != null) 'font-weight': '$fontWeight',
+      if (italic != null) 'font-style': italic ? 'italic' : 'normal',
+      if (letterSpacing != null) 'letter-spacing': '${letterSpacing}px',
+      if (color != null)
+        'color':
+            'rgba(${(color.r * 255).round()},${(color.g * 255).round()},${(color.b * 255).round()},${color.a})',
       'font-family': ?familyDeclaration,
     };
     final nextExplicit = <String>{
@@ -2930,23 +2981,27 @@ class ComputedStyle {
       if (textSpacingTrim != null) 'text-spacing-trim',
       if (textIndent != null) 'text-indent',
       if (familyDeclaration != null) 'font-family',
+      if (fontWeight != null) 'font-weight',
+      if (italic != null) 'font-style',
+      if (letterSpacing != null) 'letter-spacing',
+      if (color != null) 'color',
     };
     return ComputedStyle._(
       values: nextValues,
       declaredTextProperties: declaredTextProperties,
-      hasExplicitTextColor: hasExplicitTextColor,
+      hasExplicitTextColor: color != null || hasExplicitTextColor,
       fontSize: nextFontSize,
       parentFontSize: parentFontSize,
       lineHeight: nextLineHeight,
       lineHeightFactor: nextLineHeightFactor,
       unitlessLineHeightFactor: nextUnitless,
-      color: color,
-      fontWeight: fontWeight,
-      italic: italic,
+      color: color ?? this.color,
+      fontWeight: fontWeight ?? this.fontWeight,
+      italic: italic ?? this.italic,
       fontFamilies: nextFontFamilies,
       textAlign: textAlign ?? this.textAlign,
       textIndent: textIndent ?? this.textIndent,
-      letterSpacing: letterSpacing,
+      letterSpacing: letterSpacing ?? this.letterSpacing,
       margin: margin,
       position: position,
       cssFloat: cssFloat,
@@ -6999,19 +7054,18 @@ class ComputedStyle {
   /// 与 Chrome 对齐：`normal`（规范初始值）会折叠相邻全角标点，因此映射到
   /// [CssTextSpacingTrim.trimAdjacent]；只有显式 `space-all` 才不挤压。
   /// 行边挤压仅在字体的 halt 特性实际改变留白时启用；`auto` 沿用相邻规则。
-  static CssTextSpacingTrim? _parseTextSpacingTrim(String raw) =>
-      switch (raw.trim().toLowerCase()) {
-        'trim-adjacent' ||
-        'normal' ||
-        'auto' => CssTextSpacingTrim.trimAdjacent,
-        'trim-all' => CssTextSpacingTrim.trimAll,
-        'space-first' => CssTextSpacingTrim.spaceFirst,
-        'trim-start' => CssTextSpacingTrim.trimStart,
-        'trim-both' => CssTextSpacingTrim.trimBoth,
-        // `space-all`：全部全角标点保持全角，即不挤压。
-        'space-all' => CssTextSpacingTrim.normal,
-        _ => null,
-      };
+  static CssTextSpacingTrim? _parseTextSpacingTrim(String raw) => switch (raw
+      .trim()
+      .toLowerCase()) {
+    'trim-adjacent' || 'normal' || 'auto' => CssTextSpacingTrim.trimAdjacent,
+    'trim-all' => CssTextSpacingTrim.trimAll,
+    'space-first' => CssTextSpacingTrim.spaceFirst,
+    'trim-start' => CssTextSpacingTrim.trimStart,
+    'trim-both' => CssTextSpacingTrim.trimBoth,
+    // `space-all`：全部全角标点保持全角，即不挤压。
+    'space-all' => CssTextSpacingTrim.normal,
+    _ => null,
+  };
 
   static CssTextAutospace? _parseTextAutospace(String raw) =>
       switch (raw.trim().toLowerCase()) {

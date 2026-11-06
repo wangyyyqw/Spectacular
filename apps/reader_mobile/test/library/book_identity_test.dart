@@ -69,7 +69,7 @@ Future<void> _seedUserData(LibraryStore library, AppDatabase db) async {
   await library
       .annotationStore(_legacyId)!
       .add(
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:3)',
         quote: '原标注',

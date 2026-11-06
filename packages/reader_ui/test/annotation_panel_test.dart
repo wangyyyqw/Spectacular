@@ -18,7 +18,7 @@ ReaderAnnotation _annotation({
     startCfi: startCfi,
     endCfi: 'epubcfi(/6/2!/4/2/1:4)',
     quote: quote,
-    color: type == ReaderAnnotationType.highlight ? 0xFFFFEB3B : null,
+    color: type == ReaderAnnotationType.mark ? 0xFFFFEB3B : null,
     note: note,
     createdAt: time,
     updatedAt: time,
@@ -36,20 +36,20 @@ void main() {
             annotations: [
               _annotation(
                 id: 'note-old',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '较早的笔记原文',
                 note: '较早的笔记内容',
                 minute: 1,
               ),
               _annotation(
                 id: 'highlight',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '一段高亮原文',
                 minute: 2,
               ),
               _annotation(
                 id: 'note-new',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '最新的笔记原文',
                 note: '最新的笔记内容',
                 minute: 3,
@@ -62,7 +62,7 @@ void main() {
       ),
     );
 
-    expect(find.text('笔记与高亮'), findsOneWidget);
+    expect(find.text('标注'), findsOneWidget);
     expect(find.text('共 3 条'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('最新的笔记原文')).dy,
@@ -101,12 +101,12 @@ void main() {
       ),
     );
 
-    expect(find.text('还没有笔记或高亮'), findsOneWidget);
+    expect(find.text('还没有划线或想法'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-filter-notes')),
     );
     await tester.pump();
-    expect(find.text('还没有笔记'), findsOneWidget);
+    expect(find.text('还没有想法'), findsOneWidget);
   });
 
   testWidgets('标注面板：搜索原文和笔记正文并清除', (tester) async {
@@ -117,13 +117,13 @@ void main() {
             annotations: [
               _annotation(
                 id: 'highlight-search',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '落霞与孤鹜齐飞',
                 minute: 1,
               ),
               _annotation(
                 id: 'note-search',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '春风又绿江南岸',
                 note: '这里想到故乡',
                 minute: 2,
@@ -152,7 +152,7 @@ void main() {
 
     await tester.enterText(search, '不存在');
     await tester.pump();
-    expect(find.text('没有匹配的笔记或高亮'), findsOneWidget);
+    expect(find.text('没有匹配的划线或想法'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-search-clear')),
@@ -171,14 +171,14 @@ void main() {
             annotations: [
               _annotation(
                 id: 'position-first',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '书中靠前的内容',
                 minute: 1,
                 startCfi: 'epubcfi(/6/2!/4/2/1:0)',
               ),
               _annotation(
                 id: 'position-later',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '书中靠后的内容',
                 minute: 2,
                 startCfi: 'epubcfi(/6/4!/4/2/1:0)',
@@ -196,14 +196,10 @@ void main() {
       lessThan(tester.getTopLeft(find.text('书中靠前的内容')).dy),
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-sort')),
-    );
+    await tester.tap(find.byKey(const ValueKey<String>('annotation-sort')));
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(
-        const ValueKey<String>('annotation-sort-position'),
-      ),
+      find.byKey(const ValueKey<String>('annotation-sort-position')),
     );
     await tester.pumpAndSettle();
 
@@ -228,14 +224,14 @@ void main() {
             annotations: [
               _annotation(
                 id: 'chapter-note',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '江南岸的原文',
                 note: '这里的笔记',
                 minute: 1,
               ),
               _annotation(
                 id: 'chapter-highlight',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '孤鹜齐飞的原文',
                 minute: 2,
               ),
@@ -274,14 +270,14 @@ void main() {
             annotations: [
               _annotation(
                 id: 'note-batch',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '需要保留到筛选后的笔记',
                 note: '批量删除测试',
                 minute: 1,
               ),
               _annotation(
                 id: 'highlight-batch',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '需要批量选择的高亮',
                 minute: 2,
               ),
@@ -352,7 +348,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(deleted.single.single.id, 'note-batch');
-    expect(find.text('笔记与高亮'), findsOneWidget);
+    expect(find.text('标注'), findsOneWidget);
   });
 
   testWidgets('标注面板：窄屏批量更换标注颜色', (tester) async {
@@ -369,13 +365,13 @@ void main() {
             annotations: [
               _annotation(
                 id: 'highlight-recolor',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '需要更换颜色的高亮',
                 minute: 1,
               ),
               _annotation(
                 id: 'note-recolor',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '需要更换颜色的笔记',
                 note: '批量更改颜色',
                 minute: 2,
@@ -407,9 +403,7 @@ void main() {
     expect(find.text('更换 2 条标注的颜色'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.tap(
-      find.byKey(
-        const ValueKey<String>('annotation-batch-color-0xFF90CAF9'),
-      ),
+      find.byKey(const ValueKey<String>('annotation-batch-color-0xFF90CAF9')),
     );
     await tester.pumpAndSettle();
 
@@ -428,7 +422,7 @@ void main() {
             annotations: [
               _annotation(
                 id: 'highlight-ink',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '墨水屏下应显示黑色标记',
               ),
             ],
@@ -443,9 +437,7 @@ void main() {
     );
 
     final bar = tester.widget<ColoredBox>(
-      find.byKey(
-        const ValueKey<String>('annotation-color-bar-highlight-ink'),
-      ),
+      find.byKey(const ValueKey<String>('annotation-color-bar-highlight-ink')),
     );
     expect(bar.color, const Color(0xFF000000));
 
@@ -473,7 +465,7 @@ void main() {
             annotations: [
               _annotation(
                 id: 'long-note',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '需要解释的原文',
                 note: longNote,
               ),
@@ -489,11 +481,13 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-note-long-note')),
     );
 
-    final collapsedHeight = tester.getSize(
-      find.byKey(const ValueKey<String>('annotation-note-long-note')),
-    ).height;
+    final collapsedHeight = tester
+        .getSize(
+          find.byKey(const ValueKey<String>('annotation-note-long-note')),
+        )
+        .height;
     expect(noteText().maxLines, 3);
-    expect(find.text('展开笔记'), findsOneWidget);
+    expect(find.text('展开想法'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-expand-long-note')),
@@ -510,7 +504,7 @@ void main() {
           .height,
       greaterThan(collapsedHeight),
     );
-    expect(find.text('收起笔记'), findsOneWidget);
+    expect(find.text('收起想法'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-expand-long-note')),
@@ -518,7 +512,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(noteText().maxLines, 3);
-    expect(find.text('展开笔记'), findsOneWidget);
+    expect(find.text('展开想法'), findsOneWidget);
   });
 
   testWidgets('标注面板：筛选和搜索变化时清空已选', (tester) async {
@@ -529,13 +523,13 @@ void main() {
             annotations: [
               _annotation(
                 id: 'note-reset',
-                type: ReaderAnnotationType.note,
+                type: ReaderAnnotationType.thought,
                 quote: '筛选变化',
                 minute: 1,
               ),
               _annotation(
                 id: 'highlight-reset',
-                type: ReaderAnnotationType.highlight,
+                type: ReaderAnnotationType.mark,
                 quote: '搜索变化',
                 minute: 2,
               ),

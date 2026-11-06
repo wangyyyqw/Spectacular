@@ -32,10 +32,16 @@ extension LibraryRevisionOperations on LibraryStore {
     final rows = await (_db!.select(
       _db.annotations,
     )..where((table) => table.bookId.equals(book.id))).get();
+    final decorations = await (_db.select(
+      _db.decorations,
+    )..where((table) => table.bookId.equals(book.id))).get();
     return [
       for (final row in rows)
         if (AnchorRecord.decode(row.anchorJson)?.status == 'pending')
           '${row.type == 2 ? '书签' : '标注'}：${AnchorRecord.decode(row.anchorJson)?.reason ?? '需重新定位'}',
+      for (final row in decorations)
+        if (AnchorRecord.decode(row.anchorJson)?.status == 'pending')
+          '装饰：${AnchorRecord.decode(row.anchorJson)?.reason ?? '需重新定位'}',
     ];
   }
 
@@ -200,20 +206,23 @@ extension LibraryRevisionOperations on LibraryStore {
     final annotations = await (db.select(
       db.annotations,
     )..where((table) => table.bookId.equals(old.id))).get();
+    final decorations = await (db.select(
+      db.decorations,
+    )..where((table) => table.bookId.equals(old.id))).get();
     final progress = await (db.select(
       db.readingProgress,
     )..where((table) => table.bookId.equals(old.id))).getSingleOrNull();
-    if (annotations.isEmpty && progress == null) {
+    if (annotations.isEmpty && decorations.isEmpty && progress == null) {
       return _RevisionMigration(
         _RevisionBooks(
           old,
           null,
           AnchorBook(revision: revision, chapters: const []),
         ),
-        annotations,
-        progress,
+        _RevisionUserData(annotations, decorations, progress),
         const <String, AnchorRecord>{},
         null,
+        const <String, AnchorRecord>{},
       );
     }
     // 有旧文件却无法解析时拒绝更新，不能把异常当作正常的待确认结果。
@@ -230,10 +239,10 @@ extension LibraryRevisionOperations on LibraryStore {
     );
     return _RevisionMigration(
       _RevisionBooks(old, oldBook, newBook),
-      annotations,
-      progress,
+      _RevisionUserData(annotations, decorations, progress),
       migrated,
       position,
+      _migrateRevisionDecorations(decorations, oldBook, newBook),
     );
   }
 
@@ -252,6 +261,57 @@ extension LibraryRevisionOperations on LibraryStore {
       );
     }
     return migrated;
+  }
+
+  Map<String, AnchorRecord> _migrateRevisionDecorations(
+    List<DecorationRow> decorations,
+    AnchorBook? oldBook,
+    AnchorBook newBook,
+  ) {
+    final migrated = <String, AnchorRecord>{};
+    for (final row in decorations) {
+      migrated[row.id] = RevisionRelocator.relocate(
+        oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
+        newBook: newBook,
+        record: _historicalDecoration(row, oldBook),
+      );
+    }
+    _resolveDecorationCollisions(decorations, migrated);
+    return migrated;
+  }
+
+  void _resolveDecorationCollisions(
+    List<DecorationRow> rows,
+    Map<String, AnchorRecord> records,
+  ) {
+    while (true) {
+      final ranges = <String, String>{};
+      final collisions = <String>{};
+      for (final row in rows) {
+        final record = records[row.id]!;
+        final start = record.isResolved
+            ? record.effective.start.cfi
+            : row.startCfi;
+        final end = record.isResolved
+            ? record.effective.end?.cfi ?? start
+            : row.endCfi;
+        final previous = ranges['$start\n$end'];
+        if (previous != null) collisions.addAll([row.id, previous]);
+        ranges['$start\n$end'] = row.id;
+      }
+      var changed = false;
+      for (final id in collisions) {
+        final record = records[id]!;
+        if (!record.isResolved) continue;
+        records[id] = AnchorRecord(
+          original: record.original,
+          status: 'pending',
+          reason: '多个装饰定位到同一原文区间，需重新定位',
+        );
+        changed = true;
+      }
+      if (!changed) return;
+    }
   }
 
   Future<AnchorRecord?> _migrateRevisionProgress(
@@ -455,12 +515,19 @@ extension LibraryRevisionOperations on LibraryStore {
     final annotations = await (db.select(
       db.annotations,
     )..where((table) => table.bookId.equals(old.id))).get();
+    final decorations = await (db.select(
+      db.decorations,
+    )..where((table) => table.bookId.equals(old.id))).get();
     final progress = await (db.select(
       db.readingProgress,
     )..where((table) => table.bookId.equals(old.id))).getSingleOrNull();
     if (jsonEncode(annotations.map((row) => row.toJson()).toList()) !=
             jsonEncode(
               migration.annotations.map((row) => row.toJson()).toList(),
+            ) ||
+        jsonEncode(decorations.map((row) => row.toJson()).toList()) !=
+            jsonEncode(
+              migration.decorations.map((row) => row.toJson()).toList(),
             ) ||
         jsonEncode(progress?.toJson()) !=
             jsonEncode(migration.progress?.toJson())) {
@@ -513,7 +580,34 @@ extension LibraryRevisionOperations on LibraryStore {
         ),
       );
     }
+    await _writeRevisionDecorations(migration);
     await _writeRevisionProgress(migration);
+  }
+
+  Future<void> _writeRevisionDecorations(_RevisionMigration migration) async {
+    final db = _db!;
+    for (final row in migration.decorations) {
+      await (db.update(db.decorations)
+            ..where((table) => table.id.equals(row.id)))
+          .write(DecorationsCompanion(startCfi: Value('revision:${row.id}')));
+    }
+    for (final row in migration.decorations) {
+      final record = migration.migratedDecorations[row.id]!;
+      final anchor = record.effective;
+      await (db.update(
+        db.decorations,
+      )..where((table) => table.id.equals(row.id))).write(
+        DecorationsCompanion(
+          anchorJson: Value(record.encode()),
+          startCfi: Value(record.isResolved ? anchor.start.cfi : row.startCfi),
+          endCfi: Value(
+            record.isResolved
+                ? anchor.end?.cfi ?? anchor.start.cfi
+                : row.endCfi,
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _writeRevisionProgress(_RevisionMigration migration) async {
@@ -595,19 +689,52 @@ class _RevisionBooks {
 class _RevisionMigration {
   _RevisionMigration(
     this.books,
-    this.annotations,
-    this.progress,
+    this.userData,
     this.migrated,
     this.position,
+    this.migratedDecorations,
   );
   final _RevisionBooks books;
-  final List<AnnotationRow> annotations;
-  final ProgressRow? progress;
+  final _RevisionUserData userData;
   final Map<String, AnchorRecord> migrated;
   final AnchorRecord? position;
+  final Map<String, AnchorRecord> migratedDecorations;
+  List<AnnotationRow> get annotations => userData.annotations;
+  List<DecorationRow> get decorations => userData.decorations;
+  ProgressRow? get progress => userData.progress;
   BookRow get old => books.old;
   AnchorBook? get oldBook => books.oldBook;
   AnchorBook get newBook => books.newBook;
+}
+
+class _RevisionUserData {
+  _RevisionUserData(this.annotations, this.decorations, this.progress);
+  final List<AnnotationRow> annotations;
+  final List<DecorationRow> decorations;
+  final ProgressRow? progress;
+}
+
+AnchorRecord _historicalDecoration(DecorationRow row, AnchorBook? book) {
+  final saved = AnchorRecord.decode(row.anchorJson);
+  if (saved != null) return saved;
+  final anchor = book?.capture(row.startCfi, endCfi: row.endCfi);
+  if (anchor != null &&
+      normalizeAnchorText(anchor.quote) == normalizeAnchorText(row.quote)) {
+    return AnchorRecord(original: anchor);
+  }
+  final original = (book ?? AnchorBook(revision: 'missing', chapters: []))
+      .legacyRange(
+        startCfi: row.startCfi,
+        endCfi: row.endCfi,
+        quote: row.quote,
+        contextBefore: row.contextBefore ?? '',
+        contextAfter: row.contextAfter ?? '',
+      );
+  return AnchorRecord(
+    original: original ?? _missingLocation(row.startCfi, endCfi: row.endCfi),
+    status: 'pending',
+    reason: '旧文件或内容锚点缺失，需重新定位',
+  );
 }
 
 AnchorRecord _historicalAnnotation(AnnotationRow row, AnchorBook? book) {

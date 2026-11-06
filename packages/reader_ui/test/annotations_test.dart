@@ -7,6 +7,7 @@ import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
+import 'package:reader_ui/annotations/thought_marker.dart';
 import 'package:reader_ui/selection/selection.dart';
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
@@ -49,7 +50,7 @@ ReaderAnnotation _annotation({
   required String start,
   required String end,
   required String quote,
-  ReaderAnnotationType type = ReaderAnnotationType.highlight,
+  ReaderAnnotationType type = ReaderAnnotationType.mark,
   int color = 0xFFFFEB3B,
   int createdMs = 1000,
 }) => ReaderAnnotation(
@@ -204,12 +205,12 @@ void main() {
       );
     });
 
-    test('点击笔记圆点命中笔记，远离圆点不误触', () {
+    test('点击想法页边图标命中，远离44dp目标不误触', () {
       final block = _block('0123456789abcdefghij', cfi: 'epubcfi(/6/4!/4/2/1)');
       final page = _page(<PageBlock>[block]);
       final annotation = _annotation(
         id: 'note-hit',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         start: 'epubcfi(/6/4!/4/2/1:3)',
         end: 'epubcfi(/6/4!/4/2/1:8)',
         quote: '34567',
@@ -217,15 +218,9 @@ void main() {
       final line = AnnotationDecorations.linesFor(page, <ReaderAnnotation>[
         annotation,
       ]).single;
-      final rect = SelectionOps.lineRectsFor(
-        line.line,
-        line.startOffset,
-        line.endOffset,
-      ).first;
-      final markerCenter = Offset(
-        rect.right + AnnotationDecorations.noteMarkerOffset,
-        rect.center.dy,
-      );
+      final markerCenter = ThoughtMarkerGeometry.markersFor(page, [
+        line,
+      ]).single.center;
 
       expect(
         AnnotationDecorations.annotationAt(

@@ -13,6 +13,12 @@ export 'paging/page_turn_mode.dart';
 export 'loading_skeleton.dart';
 export 'image_preview_page.dart';
 export 'theme/reader_theme.dart';
+export 'annotations/annotation.dart';
+export 'annotations/mark_settings.dart';
+export 'decorations/decoration.dart';
+export 'decorations/decoration_image_store.dart';
+export 'decorations/decoration_rules.dart';
+export 'decorations/decoration_rule_preview.dart';
 
 /// 阅读器 UI 包标识，用于启动期确认依赖连通。
 const String readerUiPackageName = 'reader_ui';

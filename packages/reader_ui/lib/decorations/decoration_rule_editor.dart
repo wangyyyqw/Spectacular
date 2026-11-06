@@ -1,0 +1,358 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+
+import 'decoration_rule_preview.dart';
+import 'decoration_rules.dart';
+import 'decoration_style_preview.dart';
+import 'style_controls.dart';
+
+/// 规则表单，仅开放不会改变字体度量的样式。
+class ReaderDecorationRuleEditor extends StatefulWidget {
+  /// 创建规则编辑器。
+  const ReaderDecorationRuleEditor({
+    super.key,
+    required this.rule,
+    required this.onPreview,
+  });
+
+  /// 新规则初值或已有规则。
+  final ReaderDecorationRule rule;
+
+  /// 在当前章计算临时前五十条命中。
+  final Future<List<ReaderDecorationRulePreview>> Function(ReaderDecorationRule)
+  onPreview;
+  @override
+  State<ReaderDecorationRuleEditor> createState() =>
+      _ReaderDecorationRuleEditorState();
+}
+
+class _ReaderDecorationRuleEditorState
+    extends State<ReaderDecorationRuleEditor> {
+  late final _name = TextEditingController(text: widget.rule.name ?? '');
+  late final _pattern = TextEditingController(text: widget.rule.pattern);
+  late bool _regex = widget.rule.isRegex;
+  late bool _caseSensitive = widget.rule.caseSensitive;
+  late ReaderDecorationRuleStyle _style = widget.rule.style;
+  List<ReaderDecorationRulePreview> _previews = const [];
+  int _previewGeneration = 0;
+  bool _previewDone = false;
+  bool _previewing = false;
+  String? _error;
+  String? _previewError;
+  bool _allowPop = false;
+  bool _closing = false;
+  bool _confirming = false;
+  bool get _dirty =>
+      _name.text.trim() != (widget.rule.name ?? '') ||
+      _pattern.text != widget.rule.pattern ||
+      _regex != widget.rule.isRegex ||
+      _caseSensitive != widget.rule.caseSensitive ||
+      jsonEncode(_style.toJson()) != jsonEncode(widget.rule.style.toJson());
+  ReaderDecorationRule get _draft => ReaderDecorationRule(
+    id: widget.rule.id,
+    groupId: widget.rule.groupId,
+    name: _name.text.trim().isEmpty ? null : _name.text.trim(),
+    pattern: _pattern.text,
+    isRegex: _regex,
+    caseSensitive: _caseSensitive,
+    enabled: widget.rule.enabled,
+    style: _style,
+    sortOrder: widget.rule.sortOrder,
+  );
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _pattern.dispose();
+    super.dispose();
+  }
+
+  void _set(String name, Object? value) => setState(() {
+    _style = _style.withValues({name: value});
+    _resetPreview();
+  });
+
+  void _resetPreview() {
+    _previewGeneration++;
+    _previews = const [];
+    _previewDone = false;
+    _previewError = null;
+  }
+
+  bool _validate() {
+    String? error;
+    if (_pattern.text.isEmpty) {
+      error = '请输入匹配内容';
+    } else if (_regex) {
+      try {
+        RegExp(_pattern.text, unicode: true, caseSensitive: _caseSensitive);
+      } on FormatException {
+        error = '正则格式无效，请修改规则后重新生成预览';
+      }
+    }
+    setState(() => _error = error);
+    return error == null;
+  }
+
+  Future<void> _preview() async {
+    if (_previewing || !_validate()) return;
+    final generation = _previewGeneration;
+    setState(() {
+      _previewing = true;
+      _previewError = null;
+      _previews = const [];
+    });
+    try {
+      final previews = await widget.onPreview(_draft);
+      if (mounted && generation == _previewGeneration) {
+        setState(() {
+          _previews = previews.take(50).toList();
+          _previewDone = true;
+        });
+      }
+    } catch (error) {
+      if (mounted && generation == _previewGeneration) {
+        setState(
+          () => _previewError = error.toString().replaceFirst(
+            'FormatException: ',
+            '',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _previewing = false);
+    }
+  }
+
+  void _pop([ReaderDecorationRule? rule]) {
+    if (_closing) return;
+    _closing = true;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop(rule);
+    });
+  }
+
+  Future<void> _close() async {
+    if (_closing || _confirming) return;
+    if (!_dirty) {
+      _pop();
+      return;
+    }
+    _confirming = true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('放弃未保存的规则？'),
+        content: const Text('本次匹配内容和样式修改将丢失。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('放弃修改'),
+          ),
+        ],
+      ),
+    );
+    _confirming = false;
+    if (discard == true && mounted) _pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_dirty || _allowPop,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) unawaited(_close());
+    },
+    child: AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: _form(context),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: const ValueKey<String>('rule-save'),
+                    onPressed: _previewing
+                        ? null
+                        : () {
+                            if (_validate()) _pop(_draft);
+                          },
+                    child: const Text('保存规则'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _form(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Text('自动装饰规则', style: Theme.of(context).textTheme.titleLarge),
+          const Spacer(),
+          IconButton(
+            onPressed: _close,
+            tooltip: '关闭',
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+      TextField(
+        key: const ValueKey<String>('rule-name'),
+        controller: _name,
+        onChanged: (_) => setState(() {}),
+        decoration: const InputDecoration(labelText: '名称（可选）'),
+      ),
+      const SizedBox(height: 14),
+      TextField(
+        key: const ValueKey<String>('rule-pattern'),
+        controller: _pattern,
+        minLines: 2,
+        maxLines: 4,
+        onChanged: (_) => setState(() {
+          _error = null;
+          _resetPreview();
+        }),
+        decoration: InputDecoration(
+          labelText: '匹配内容',
+          errorText: _error,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+      SwitchListTile(
+        key: const ValueKey<String>('rule-regex'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('正则表达式'),
+        subtitle: Text(_regex ? '使用 Unicode 正则' : '按文本字面量匹配'),
+        value: _regex,
+        onChanged: (value) => setState(() {
+          _regex = value;
+          _error = null;
+          _resetPreview();
+        }),
+      ),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('区分大小写'),
+        value: _caseSensitive,
+        onChanged: (value) => setState(() {
+          _caseSensitive = value;
+          _resetPreview();
+        }),
+      ),
+      const Divider(),
+      const Text('规则不改变字体度量，不触发重排；后面的规则只覆盖已设置的同名属性。'),
+      const SizedBox(height: 12),
+      ReaderDecorationStylePreview(
+        text: _pattern.text.isEmpty ? '规则样式预览' : _pattern.text,
+        style: _style.decorationStyle,
+      ),
+      ReaderStyleColorField(
+        label: '文字色',
+        color: _style.color,
+        onChanged: (value) => _set('color', value),
+      ),
+      ReaderStyleColorField(
+        label: '背景色',
+        color: _style.backgroundColor,
+        clearLabel: '无背景',
+        onChanged: (value) => _set('backgroundColor', value),
+      ),
+      ReaderStyleSlider(
+        label: '背景透明度',
+        value: _style.backgroundOpacity,
+        min: 0,
+        max: 1,
+        divisions: 100,
+        digits: 2,
+        onChanged: (value) => _set('backgroundOpacity', value),
+      ),
+      ReaderStyleSlider(
+        label: '圆角',
+        value: _style.borderRadius,
+        min: 0,
+        max: 20,
+        divisions: 20,
+        digits: 0,
+        suffix: ' dp',
+        onChanged: (value) => _set('borderRadius', value),
+      ),
+      ReaderBorderStyleField(
+        value: _style.borderStyle,
+        onChanged: (value) => _set('borderStyle', value.name),
+      ),
+      const SizedBox(height: 12),
+      ReaderStyleSlider(
+        label: '统一边框宽度',
+        value: _style.borderWidth,
+        min: 0,
+        max: 6,
+        divisions: 12,
+        suffix: ' dp',
+        onChanged: (value) => _set('borderWidth', value),
+      ),
+      ReaderStyleColorField(
+        label: '统一边框颜色',
+        color: _style.borderColor,
+        clearLabel: '默认灰色',
+        onChanged: (value) => _set('borderColor', value),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey<String>('rule-preview'),
+        onPressed: _previewing ? null : _preview,
+        icon: _previewing
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.preview_outlined),
+        label: const Text('预览当前章（前 50 条）'),
+      ),
+      if (_previewError != null)
+        Text(
+          _previewError!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      if (!_previewing && _previews.isEmpty && _previewError == null)
+        Text(_previewDone ? '当前章没有命中结果' : '预览只在当前会话计算，不保存命中结果。'),
+      if (_previews.isNotEmpty)
+        Text(
+          '当前章命中 ${_previews.length} 条${_previews.length == 50 ? '（仅前 50 条）' : ''}',
+        ),
+      for (final preview in _previews)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: ReaderDecorationStylePreview(
+            text: preview.text,
+            style: preview.style.decorationStyle,
+          ),
+        ),
+    ],
+  );
+}

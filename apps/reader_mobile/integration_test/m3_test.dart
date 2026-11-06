@@ -23,12 +23,14 @@ void main() {
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final library = LibraryStore(database: db, directoryProvider: () async => dir);
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => dir,
+    );
 
     // 一段足够分多页的正文，含几个可搜的词。
     final chapters = <String>[
-      for (var i = 0; i < 4; i++)
-        '沈河昨天收到了一个包裹。' * 8 + '他拿着保险的补偿金离开了精神病院。' * 8,
+      for (var i = 0; i < 4; i++) '沈河昨天收到了一个包裹。' * 8 + '他拿着保险的补偿金离开了精神病院。' * 8,
     ];
     final bytes = buildMultiChapterEpub(chapters: chapters, title: 'M3 集成书');
 
@@ -67,7 +69,7 @@ void main() {
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
     final highlight = find.byKey(
-      const ValueKey<String>('selection-action-highlight'),
+      const ValueKey<String>('selection-action-mark'),
     );
     if (highlight.evaluate().isNotEmpty) {
       await tester.tap(highlight);
@@ -75,7 +77,7 @@ void main() {
       final rows = await tester.runAsync(() => db.select(db.annotations).get());
       expect(
         (rows ?? const <AnnotationRow>[])
-            .where((row) => row.type == ReaderAnnotationType.highlight.storageValue)
+            .where((row) => row.type == ReaderAnnotationType.mark.storageValue)
             .length,
         greaterThanOrEqualTo(1),
         reason: '高亮写入数据库',

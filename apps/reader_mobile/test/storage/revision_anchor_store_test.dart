@@ -117,7 +117,7 @@ void main() {
         endCfi: index.anchorAt(spine, 15)!.start.cfi,
       )!;
       final added = await annotations.add(
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: selection.start.cfi,
         endCfi: selection.end!.cfi,
         quote: selection.quote,
@@ -145,7 +145,7 @@ void main() {
         index.chapters[2].text.substring(0, 12);
     final annotations = DriftAnnotationStore(db, 'current');
     final added = await annotations.add(
-      type: ReaderAnnotationType.note,
+      type: ReaderAnnotationType.thought,
       startCfi: start,
       endCfi: end,
       quote: quote,
@@ -260,7 +260,7 @@ void main() {
   test('手动重新定位只改当前锚点及CFI，原引用笔记样式时间保持', () async {
     final store = DriftAnnotationStore(db, 'current');
     final annotation = await store.add(
-      type: ReaderAnnotationType.note,
+      type: ReaderAnnotationType.thought,
       startCfi: cfi(8),
       endCfi: cfi(18),
       quote: '原引用原样保留',
@@ -327,7 +327,7 @@ void main() {
     final annotations = DriftAnnotationStore(db, 'current');
     final bookmarks = DriftBookmarkStore(db, 'current');
     final annotation = await annotations.add(
-      type: ReaderAnnotationType.note,
+      type: ReaderAnnotationType.thought,
       startCfi: cfi(8),
       endCfi: cfi(18),
       quote: '引用',
@@ -345,7 +345,7 @@ void main() {
     await bookmarks.remove(bookmark!.id);
     expect(
       await annotations.add(
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: cfi(25),
         endCfi: cfi(35),
         quote: '新引用',
@@ -383,7 +383,7 @@ void main() {
     );
     expect(
       await annotations.add(
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: cfi(10),
         endCfi: cfi(20),
         quote: '旧引用',
@@ -405,7 +405,7 @@ void main() {
   test('合法偏移对应了其他文字也不能把原引用标为已验证', () async {
     final annotations = DriftAnnotationStore(db, 'current');
     final added = await annotations.add(
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: cfi(10),
       endCfi: cfi(20),
       quote: '这里并不是选区文字',

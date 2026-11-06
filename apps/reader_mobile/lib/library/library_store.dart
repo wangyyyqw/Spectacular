@@ -15,14 +15,18 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/revision_relocator.dart';
+import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 
 import '../reader/epub_chapter_source.dart';
+import '../reader/reader_decoration_image_store.dart';
 import '../reader/reader_settings.dart';
 import '../storage/book_review_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
+import '../storage/drift_decoration_store.dart';
+import '../storage/drift_decoration_rule_store.dart';
 import '../storage/drift_bookmark_store.dart';
 import '../storage/reading_session_store.dart';
 import 'book_identity_migration.dart';
@@ -766,6 +770,27 @@ class LibraryStore {
   DriftAnnotationStore? annotationStore(String bookId) {
     final db = _db;
     return db == null ? null : DriftAnnotationStore(db, bookId);
+  }
+
+  /// 当前书的手工装饰存储；彻底删除或更换图片时检查全库引用。
+  DriftDecorationStore? decorationStore(
+    String bookId, {
+    ReaderDecorationImageStore? images,
+  }) {
+    final db = _db;
+    return db == null
+        ? null
+        : DriftDecorationStore(
+            db,
+            bookId,
+            images: images ?? ReaderDecorationImages(),
+          );
+  }
+
+  /// 当前书与全局的自动装饰规则。
+  DriftDecorationRuleStore? decorationRuleStore(String bookId) {
+    final db = _db;
+    return db == null ? null : DriftDecorationRuleStore(db, bookId);
   }
 
   /// 全库书评存储；内存模式下没有持久化能力时返回 null。

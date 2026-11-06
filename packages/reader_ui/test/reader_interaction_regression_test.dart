@@ -11,6 +11,7 @@ import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/panels/search_panel.dart';
+import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -266,6 +267,8 @@ void main() {
     expect(sentence.startPageIndex, 1);
     expect(sentence.endPageIndex, 1);
 
+    await tester.tap(find.byKey(const ValueKey('selection-action-more')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('selection-action-select-all')));
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsOneWidget);
@@ -382,7 +385,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
+    final tapZones = find.byKey(const ValueKey<String>('settings-tap-zones'));
+    await tester.scrollUntilVisible(
+      tapZones,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsPanel),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(tapZones);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('tap-zone-apply')),
@@ -431,8 +445,7 @@ void main() {
     expect(
       layer.annotations.any(
         (item) =>
-            item.type == ReaderAnnotationType.highlight &&
-            item.id == 'search-hit',
+            item.type == ReaderAnnotationType.mark && item.id == 'search-hit',
       ),
       isTrue,
     );

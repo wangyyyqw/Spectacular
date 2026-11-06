@@ -267,6 +267,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-tap-zones')),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsPanel),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.tap(find.byKey(const ValueKey<String>('settings-tap-zones')));
     await tester.pumpAndSettle();
     expect(find.byType(TapZoneEditor), findsOneWidget);

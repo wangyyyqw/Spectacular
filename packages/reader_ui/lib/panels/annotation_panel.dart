@@ -5,7 +5,7 @@ import '../annotations/annotation.dart';
 import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 
-/// 阅读器内的笔记与高亮列表。
+/// 阅读器内的想法与划线列表，装饰不进入此面板。
 ///
 /// 列表按更新时间倒序展示，支持按类型筛选、跳转原文和打开编辑弹层。
 class AnnotationPanel extends StatefulWidget {
@@ -19,9 +19,8 @@ class AnnotationPanel extends StatefulWidget {
     this.onRecolor,
     this.chapterTitleOf,
     this.onBack,
-    this.emptyHint = '还没有笔记或高亮',
+    this.emptyHint = '还没有划线或想法',
     this.inkMode = false,
-    this.highlightsOnly = false,
   });
 
   /// 全书标注。
@@ -50,9 +49,6 @@ class AnnotationPanel extends StatefulWidget {
 
   /// 墨水屏模式：标记色统一显示为黑色，并隐藏无效的换色入口。
   final bool inkMode;
-
-  /// 只展示高亮，用于目录抽屉的「高亮」页签。
-  final bool highlightsOnly;
 
   @override
   State<AnnotationPanel> createState() => _AnnotationPanelState();
@@ -83,9 +79,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   @override
   void initState() {
     super.initState();
-    _filter = widget.highlightsOnly
-        ? _AnnotationFilter.highlight
-        : _AnnotationFilter.all;
+    _filter = _AnnotationFilter.all;
   }
 
   @override
@@ -155,11 +149,11 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       _AnnotationFilter.all => items,
       _AnnotationFilter.note =>
         items
-            .where((item) => item.type == ReaderAnnotationType.note)
+            .where((item) => item.type == ReaderAnnotationType.thought)
             .toList(growable: false),
       _AnnotationFilter.highlight =>
         items
-            .where((item) => item.type == ReaderAnnotationType.highlight)
+            .where((item) => item.type == ReaderAnnotationType.mark)
             .toList(growable: false),
     };
   }
@@ -223,7 +217,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('删除 ${selected.length} 条标注？'),
-        content: const Text('选中的笔记和高亮都会删除，且不可恢复。'),
+        content: const Text('选中的想法和划线都会删除，且不可恢复。'),
         actions: [
           TextButton(
             key: const ValueKey<String>('annotation-batch-confirm-cancel'),
@@ -299,7 +293,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     final searched = _searched;
     final items = _filtered(searched);
     final noteCount = searched
-        .where((item) => item.type == ReaderAnnotationType.note)
+        .where((item) => item.type == ReaderAnnotationType.thought)
         .length;
     final highlightCount = searched.length - noteCount;
     final filtering =
@@ -331,11 +325,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   ),
                 Expanded(
                   child: Text(
-                    _selecting
-                        ? '已选 ${_selectedIds.length} 条'
-                        : widget.highlightsOnly
-                        ? '高亮'
-                        : '笔记与高亮',
+                    _selecting ? '已选 ${_selectedIds.length} 条' : '标注',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium,
@@ -412,7 +402,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
               ],
             ),
           ),
-          if (!widget.highlightsOnly) ...<Widget>[
+          ...<Widget>[
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: TextField(
@@ -421,7 +411,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                 onChanged: _setQuery,
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(
-                  hintText: '搜索原文、笔记或章节',
+                  hintText: '搜索原文、想法或章节',
                   prefixIcon: const Icon(Icons.search, size: 20),
                   suffixIcon: _query.isEmpty
                       ? null
@@ -460,21 +450,21 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   ),
                   const SizedBox(width: 8),
                   _FilterChip(
-                    chipKey: const ValueKey<String>('annotation-filter-notes'),
-                    label: '笔记',
-                    count: noteCount,
-                    selected: _filter == _AnnotationFilter.note,
-                    onSelected: () => _setFilter(_AnnotationFilter.note),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
                     chipKey: const ValueKey<String>(
                       'annotation-filter-highlights',
                     ),
-                    label: '高亮',
+                    label: '划线',
                     count: highlightCount,
                     selected: _filter == _AnnotationFilter.highlight,
                     onSelected: () => _setFilter(_AnnotationFilter.highlight),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterChip(
+                    chipKey: const ValueKey<String>('annotation-filter-notes'),
+                    label: '想法',
+                    count: noteCount,
+                    selected: _filter == _AnnotationFilter.note,
+                    onSelected: () => _setFilter(_AnnotationFilter.note),
                   ),
                 ],
               ),
@@ -526,11 +516,11 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
 
   String get _emptyText {
     if (_query.trim().isNotEmpty) {
-      return '没有匹配的笔记或高亮';
+      return '没有匹配的划线或想法';
     }
     return switch (_filter) {
-      _AnnotationFilter.note => '还没有笔记',
-      _AnnotationFilter.highlight => '还没有高亮',
+      _AnnotationFilter.note => '还没有想法',
+      _AnnotationFilter.highlight => '还没有划线',
       _AnnotationFilter.all => widget.emptyHint,
     };
   }
@@ -564,8 +554,8 @@ class _BatchColorDialog extends StatelessWidget {
                 onTap: () => Navigator.of(context).pop(option.value),
                 radius: 24,
                 child: Container(
-                  width: 42,
-                  height: 42,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: Color(option.value),
                     shape: BoxShape.circle,
@@ -652,7 +642,7 @@ class _AnnotationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isNote = annotation.type == ReaderAnnotationType.note;
+    final isNote = annotation.type == ReaderAnnotationType.thought;
     final color = inkMode
         ? const Color(0xFF000000)
         : Color(annotation.color ?? defaultHighlightColor);
@@ -702,10 +692,16 @@ class _AnnotationCard extends StatelessWidget {
                                     : color,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                isNote ? '笔记' : '高亮',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
+                              Flexible(
+                                child: Text(
+                                  isNote
+                                      ? '想法'
+                                      : '划线 · ${annotation.style.label}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
                               ),
                               if (chapterTitle != null) ...[
@@ -736,7 +732,7 @@ class _AnnotationCard extends StatelessWidget {
                           const SizedBox(height: 8),
                           if (annotation.needsRelocation) ...[
                             Text(
-                              '待确认 · 点击重新定位',
+                              '待修复 · 点击关联原文',
                               style: theme.textTheme.labelMedium?.copyWith(
                                 color: theme.colorScheme.error,
                               ),
@@ -748,15 +744,16 @@ class _AnnotationCard extends StatelessWidget {
                               ),
                             const SizedBox(height: 8),
                           ],
-                          Text(
-                            annotation.quote,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              height: 1.45,
-                              fontWeight: FontWeight.w500,
+                          if (!hasNote)
+                            Text(
+                              annotation.quote,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                height: 1.45,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
                           if (hasNote) ...[
                             const SizedBox(height: 8),
                             Container(
@@ -793,7 +790,7 @@ class _AnnotationCard extends StatelessWidget {
                                   ),
                                   onPressed: onToggleExpanded,
                                   style: TextButton.styleFrom(
-                                    visualDensity: VisualDensity.compact,
+                                    minimumSize: const Size(44, 44),
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
                                     ),
@@ -804,9 +801,18 @@ class _AnnotationCard extends StatelessWidget {
                                         : Icons.expand_more,
                                     size: 18,
                                   ),
-                                  label: Text(expanded ? '收起笔记' : '展开笔记'),
+                                  label: Text(expanded ? '收起想法' : '展开想法'),
                                 ),
                               ),
+                            const SizedBox(height: 8),
+                            Text(
+                              annotation.quote,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                height: 1.45,
+                              ),
+                            ),
                           ],
                         ],
                       ),
@@ -821,7 +827,6 @@ class _AnnotationCard extends StatelessWidget {
                         ),
                         value: selected,
                         onChanged: (_) => onToggleSelection(),
-                        visualDensity: VisualDensity.compact,
                       ),
                     )
                   else
@@ -833,7 +838,10 @@ class _AnnotationCard extends StatelessWidget {
                         ),
                         onPressed: onEdit,
                         tooltip: '编辑标注',
-                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
+                        ),
                         icon: const Icon(Icons.more_horiz, size: 20),
                       ),
                     ),

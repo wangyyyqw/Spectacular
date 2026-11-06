@@ -2290,6 +2290,17 @@ class $AnnotationsTable extends Annotations
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _opacityMeta = const VerificationMeta(
+    'opacity',
+  );
+  @override
+  late final GeneratedColumn<double> opacity = GeneratedColumn<double>(
+    'opacity',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _noteMeta = const VerificationMeta('note');
   @override
   late final GeneratedColumn<String> note = GeneratedColumn<String>(
@@ -2334,6 +2345,7 @@ class $AnnotationsTable extends Annotations
     contextAfter,
     style,
     color,
+    opacity,
     note,
     createdAt,
     updatedAt,
@@ -2431,6 +2443,12 @@ class $AnnotationsTable extends Annotations
         color.isAcceptableOrUnknown(data['color']!, _colorMeta),
       );
     }
+    if (data.containsKey('opacity')) {
+      context.handle(
+        _opacityMeta,
+        opacity.isAcceptableOrUnknown(data['opacity']!, _opacityMeta),
+      );
+    }
     if (data.containsKey('note')) {
       context.handle(
         _noteMeta,
@@ -2506,6 +2524,10 @@ class $AnnotationsTable extends Annotations
         DriftSqlType.int,
         data['${effectivePrefix}color'],
       ),
+      opacity: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}opacity'],
+      ),
       note: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}note'],
@@ -2534,7 +2556,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
   /// 所属书籍。
   final int bookId;
 
-  /// 类型：0 高亮、1 笔记、2 书签。
+  /// 类型：0 划线、1 想法、2 书签。
   final int type;
 
   /// 起始 CFI。
@@ -2561,6 +2583,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
   /// 颜色（ARGB）。
   final int? color;
 
+  /// 标记透明度；空值跟随样式默认值。
+  final double? opacity;
+
   /// 笔记正文。
   final String? note;
 
@@ -2581,6 +2606,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     this.contextAfter,
     this.style,
     this.color,
+    this.opacity,
     this.note,
     required this.createdAt,
     required this.updatedAt,
@@ -2608,6 +2634,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     }
     if (!nullToAbsent || color != null) {
       map['color'] = Variable<int>(color);
+    }
+    if (!nullToAbsent || opacity != null) {
+      map['opacity'] = Variable<double>(opacity);
     }
     if (!nullToAbsent || note != null) {
       map['note'] = Variable<String>(note);
@@ -2640,6 +2669,9 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       color: color == null && nullToAbsent
           ? const Value.absent()
           : Value(color),
+      opacity: opacity == null && nullToAbsent
+          ? const Value.absent()
+          : Value(opacity),
       note: note == null && nullToAbsent ? const Value.absent() : Value(note),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -2663,6 +2695,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       contextAfter: serializer.fromJson<String?>(json['contextAfter']),
       style: serializer.fromJson<int?>(json['style']),
       color: serializer.fromJson<int?>(json['color']),
+      opacity: serializer.fromJson<double?>(json['opacity']),
       note: serializer.fromJson<String?>(json['note']),
       createdAt: serializer.fromJson<int>(json['createdAt']),
       updatedAt: serializer.fromJson<int>(json['updatedAt']),
@@ -2683,6 +2716,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
       'contextAfter': serializer.toJson<String?>(contextAfter),
       'style': serializer.toJson<int?>(style),
       'color': serializer.toJson<int?>(color),
+      'opacity': serializer.toJson<double?>(opacity),
       'note': serializer.toJson<String?>(note),
       'createdAt': serializer.toJson<int>(createdAt),
       'updatedAt': serializer.toJson<int>(updatedAt),
@@ -2701,6 +2735,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     Value<String?> contextAfter = const Value.absent(),
     Value<int?> style = const Value.absent(),
     Value<int?> color = const Value.absent(),
+    Value<double?> opacity = const Value.absent(),
     Value<String?> note = const Value.absent(),
     int? createdAt,
     int? updatedAt,
@@ -2718,6 +2753,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     contextAfter: contextAfter.present ? contextAfter.value : this.contextAfter,
     style: style.present ? style.value : this.style,
     color: color.present ? color.value : this.color,
+    opacity: opacity.present ? opacity.value : this.opacity,
     note: note.present ? note.value : this.note,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -2741,6 +2777,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
           : this.contextAfter,
       style: data.style.present ? data.style.value : this.style,
       color: data.color.present ? data.color.value : this.color,
+      opacity: data.opacity.present ? data.opacity.value : this.opacity,
       note: data.note.present ? data.note.value : this.note,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -2761,6 +2798,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
           ..write('contextAfter: $contextAfter, ')
           ..write('style: $style, ')
           ..write('color: $color, ')
+          ..write('opacity: $opacity, ')
           ..write('note: $note, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -2781,6 +2819,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
     contextAfter,
     style,
     color,
+    opacity,
     note,
     createdAt,
     updatedAt,
@@ -2800,6 +2839,7 @@ class AnnotationRow extends DataClass implements Insertable<AnnotationRow> {
           other.contextAfter == this.contextAfter &&
           other.style == this.style &&
           other.color == this.color &&
+          other.opacity == this.opacity &&
           other.note == this.note &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -2817,6 +2857,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
   final Value<String?> contextAfter;
   final Value<int?> style;
   final Value<int?> color;
+  final Value<double?> opacity;
   final Value<String?> note;
   final Value<int> createdAt;
   final Value<int> updatedAt;
@@ -2833,6 +2874,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     this.contextAfter = const Value.absent(),
     this.style = const Value.absent(),
     this.color = const Value.absent(),
+    this.opacity = const Value.absent(),
     this.note = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2850,6 +2892,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     this.contextAfter = const Value.absent(),
     this.style = const Value.absent(),
     this.color = const Value.absent(),
+    this.opacity = const Value.absent(),
     this.note = const Value.absent(),
     required int createdAt,
     required int updatedAt,
@@ -2874,6 +2917,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     Expression<String>? contextAfter,
     Expression<int>? style,
     Expression<int>? color,
+    Expression<double>? opacity,
     Expression<String>? note,
     Expression<int>? createdAt,
     Expression<int>? updatedAt,
@@ -2891,6 +2935,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
       if (contextAfter != null) 'context_after': contextAfter,
       if (style != null) 'style': style,
       if (color != null) 'color': color,
+      if (opacity != null) 'opacity': opacity,
       if (note != null) 'note': note,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -2910,6 +2955,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     Value<String?>? contextAfter,
     Value<int?>? style,
     Value<int?>? color,
+    Value<double?>? opacity,
     Value<String?>? note,
     Value<int>? createdAt,
     Value<int>? updatedAt,
@@ -2927,6 +2973,7 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
       contextAfter: contextAfter ?? this.contextAfter,
       style: style ?? this.style,
       color: color ?? this.color,
+      opacity: opacity ?? this.opacity,
       note: note ?? this.note,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -2970,6 +3017,9 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
     if (color.present) {
       map['color'] = Variable<int>(color.value);
     }
+    if (opacity.present) {
+      map['opacity'] = Variable<double>(opacity.value);
+    }
     if (note.present) {
       map['note'] = Variable<String>(note.value);
     }
@@ -2999,7 +3049,1912 @@ class AnnotationsCompanion extends UpdateCompanion<AnnotationRow> {
           ..write('contextAfter: $contextAfter, ')
           ..write('style: $style, ')
           ..write('color: $color, ')
+          ..write('opacity: $opacity, ')
           ..write('note: $note, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DecorationsTable extends Decorations
+    with TableInfo<$DecorationsTable, DecorationRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DecorationsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<int> bookId = GeneratedColumn<int>(
+    'book_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES books (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _startCfiMeta = const VerificationMeta(
+    'startCfi',
+  );
+  @override
+  late final GeneratedColumn<String> startCfi = GeneratedColumn<String>(
+    'start_cfi',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _endCfiMeta = const VerificationMeta('endCfi');
+  @override
+  late final GeneratedColumn<String> endCfi = GeneratedColumn<String>(
+    'end_cfi',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _quoteMeta = const VerificationMeta('quote');
+  @override
+  late final GeneratedColumn<String> quote = GeneratedColumn<String>(
+    'quote',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contextBeforeMeta = const VerificationMeta(
+    'contextBefore',
+  );
+  @override
+  late final GeneratedColumn<String> contextBefore = GeneratedColumn<String>(
+    'context_before',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _contextAfterMeta = const VerificationMeta(
+    'contextAfter',
+  );
+  @override
+  late final GeneratedColumn<String> contextAfter = GeneratedColumn<String>(
+    'context_after',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _anchorJsonMeta = const VerificationMeta(
+    'anchorJson',
+  );
+  @override
+  late final GeneratedColumn<String> anchorJson = GeneratedColumn<String>(
+    'anchor_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _styleJsonMeta = const VerificationMeta(
+    'styleJson',
+  );
+  @override
+  late final GeneratedColumn<String> styleJson = GeneratedColumn<String>(
+    'style_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    bookId,
+    startCfi,
+    endCfi,
+    quote,
+    contextBefore,
+    contextAfter,
+    anchorJson,
+    styleJson,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'decorations';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DecorationRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bookIdMeta);
+    }
+    if (data.containsKey('start_cfi')) {
+      context.handle(
+        _startCfiMeta,
+        startCfi.isAcceptableOrUnknown(data['start_cfi']!, _startCfiMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_startCfiMeta);
+    }
+    if (data.containsKey('end_cfi')) {
+      context.handle(
+        _endCfiMeta,
+        endCfi.isAcceptableOrUnknown(data['end_cfi']!, _endCfiMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_endCfiMeta);
+    }
+    if (data.containsKey('quote')) {
+      context.handle(
+        _quoteMeta,
+        quote.isAcceptableOrUnknown(data['quote']!, _quoteMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_quoteMeta);
+    }
+    if (data.containsKey('context_before')) {
+      context.handle(
+        _contextBeforeMeta,
+        contextBefore.isAcceptableOrUnknown(
+          data['context_before']!,
+          _contextBeforeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('context_after')) {
+      context.handle(
+        _contextAfterMeta,
+        contextAfter.isAcceptableOrUnknown(
+          data['context_after']!,
+          _contextAfterMeta,
+        ),
+      );
+    }
+    if (data.containsKey('anchor_json')) {
+      context.handle(
+        _anchorJsonMeta,
+        anchorJson.isAcceptableOrUnknown(data['anchor_json']!, _anchorJsonMeta),
+      );
+    }
+    if (data.containsKey('style_json')) {
+      context.handle(
+        _styleJsonMeta,
+        styleJson.isAcceptableOrUnknown(data['style_json']!, _styleJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_styleJsonMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DecorationRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DecorationRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}book_id'],
+      )!,
+      startCfi: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}start_cfi'],
+      )!,
+      endCfi: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}end_cfi'],
+      )!,
+      quote: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}quote'],
+      )!,
+      contextBefore: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}context_before'],
+      ),
+      contextAfter: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}context_after'],
+      ),
+      anchorJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}anchor_json'],
+      ),
+      styleJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}style_json'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $DecorationsTable createAlias(String alias) {
+    return $DecorationsTable(attachedDatabase, alias);
+  }
+}
+
+class DecorationRow extends DataClass implements Insertable<DecorationRow> {
+  /// 唯一标识。
+  final String id;
+
+  /// 所属书籍，彻底删除时级联清理。
+  final int bookId;
+
+  /// 原文起点。
+  final String startCfi;
+
+  /// 原文终点。
+  final String endCfi;
+
+  /// 原始引用。
+  final String quote;
+
+  /// 前文证据。
+  final String? contextBefore;
+
+  /// 后文证据。
+  final String? contextAfter;
+
+  /// 版本化内容锚点。
+  final String? anchorJson;
+
+  /// 带版本号的装饰样式。
+  final String styleJson;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+
+  /// 更新时间（毫秒）。
+  final int updatedAt;
+  const DecorationRow({
+    required this.id,
+    required this.bookId,
+    required this.startCfi,
+    required this.endCfi,
+    required this.quote,
+    this.contextBefore,
+    this.contextAfter,
+    this.anchorJson,
+    required this.styleJson,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['book_id'] = Variable<int>(bookId);
+    map['start_cfi'] = Variable<String>(startCfi);
+    map['end_cfi'] = Variable<String>(endCfi);
+    map['quote'] = Variable<String>(quote);
+    if (!nullToAbsent || contextBefore != null) {
+      map['context_before'] = Variable<String>(contextBefore);
+    }
+    if (!nullToAbsent || contextAfter != null) {
+      map['context_after'] = Variable<String>(contextAfter);
+    }
+    if (!nullToAbsent || anchorJson != null) {
+      map['anchor_json'] = Variable<String>(anchorJson);
+    }
+    map['style_json'] = Variable<String>(styleJson);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  DecorationsCompanion toCompanion(bool nullToAbsent) {
+    return DecorationsCompanion(
+      id: Value(id),
+      bookId: Value(bookId),
+      startCfi: Value(startCfi),
+      endCfi: Value(endCfi),
+      quote: Value(quote),
+      contextBefore: contextBefore == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contextBefore),
+      contextAfter: contextAfter == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contextAfter),
+      anchorJson: anchorJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(anchorJson),
+      styleJson: Value(styleJson),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory DecorationRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DecorationRow(
+      id: serializer.fromJson<String>(json['id']),
+      bookId: serializer.fromJson<int>(json['bookId']),
+      startCfi: serializer.fromJson<String>(json['startCfi']),
+      endCfi: serializer.fromJson<String>(json['endCfi']),
+      quote: serializer.fromJson<String>(json['quote']),
+      contextBefore: serializer.fromJson<String?>(json['contextBefore']),
+      contextAfter: serializer.fromJson<String?>(json['contextAfter']),
+      anchorJson: serializer.fromJson<String?>(json['anchorJson']),
+      styleJson: serializer.fromJson<String>(json['styleJson']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'bookId': serializer.toJson<int>(bookId),
+      'startCfi': serializer.toJson<String>(startCfi),
+      'endCfi': serializer.toJson<String>(endCfi),
+      'quote': serializer.toJson<String>(quote),
+      'contextBefore': serializer.toJson<String?>(contextBefore),
+      'contextAfter': serializer.toJson<String?>(contextAfter),
+      'anchorJson': serializer.toJson<String?>(anchorJson),
+      'styleJson': serializer.toJson<String>(styleJson),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  DecorationRow copyWith({
+    String? id,
+    int? bookId,
+    String? startCfi,
+    String? endCfi,
+    String? quote,
+    Value<String?> contextBefore = const Value.absent(),
+    Value<String?> contextAfter = const Value.absent(),
+    Value<String?> anchorJson = const Value.absent(),
+    String? styleJson,
+    int? createdAt,
+    int? updatedAt,
+  }) => DecorationRow(
+    id: id ?? this.id,
+    bookId: bookId ?? this.bookId,
+    startCfi: startCfi ?? this.startCfi,
+    endCfi: endCfi ?? this.endCfi,
+    quote: quote ?? this.quote,
+    contextBefore: contextBefore.present
+        ? contextBefore.value
+        : this.contextBefore,
+    contextAfter: contextAfter.present ? contextAfter.value : this.contextAfter,
+    anchorJson: anchorJson.present ? anchorJson.value : this.anchorJson,
+    styleJson: styleJson ?? this.styleJson,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  DecorationRow copyWithCompanion(DecorationsCompanion data) {
+    return DecorationRow(
+      id: data.id.present ? data.id.value : this.id,
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+      startCfi: data.startCfi.present ? data.startCfi.value : this.startCfi,
+      endCfi: data.endCfi.present ? data.endCfi.value : this.endCfi,
+      quote: data.quote.present ? data.quote.value : this.quote,
+      contextBefore: data.contextBefore.present
+          ? data.contextBefore.value
+          : this.contextBefore,
+      contextAfter: data.contextAfter.present
+          ? data.contextAfter.value
+          : this.contextAfter,
+      anchorJson: data.anchorJson.present
+          ? data.anchorJson.value
+          : this.anchorJson,
+      styleJson: data.styleJson.present ? data.styleJson.value : this.styleJson,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DecorationRow(')
+          ..write('id: $id, ')
+          ..write('bookId: $bookId, ')
+          ..write('startCfi: $startCfi, ')
+          ..write('endCfi: $endCfi, ')
+          ..write('quote: $quote, ')
+          ..write('contextBefore: $contextBefore, ')
+          ..write('contextAfter: $contextAfter, ')
+          ..write('anchorJson: $anchorJson, ')
+          ..write('styleJson: $styleJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    bookId,
+    startCfi,
+    endCfi,
+    quote,
+    contextBefore,
+    contextAfter,
+    anchorJson,
+    styleJson,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DecorationRow &&
+          other.id == this.id &&
+          other.bookId == this.bookId &&
+          other.startCfi == this.startCfi &&
+          other.endCfi == this.endCfi &&
+          other.quote == this.quote &&
+          other.contextBefore == this.contextBefore &&
+          other.contextAfter == this.contextAfter &&
+          other.anchorJson == this.anchorJson &&
+          other.styleJson == this.styleJson &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class DecorationsCompanion extends UpdateCompanion<DecorationRow> {
+  final Value<String> id;
+  final Value<int> bookId;
+  final Value<String> startCfi;
+  final Value<String> endCfi;
+  final Value<String> quote;
+  final Value<String?> contextBefore;
+  final Value<String?> contextAfter;
+  final Value<String?> anchorJson;
+  final Value<String> styleJson;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<int> rowid;
+  const DecorationsCompanion({
+    this.id = const Value.absent(),
+    this.bookId = const Value.absent(),
+    this.startCfi = const Value.absent(),
+    this.endCfi = const Value.absent(),
+    this.quote = const Value.absent(),
+    this.contextBefore = const Value.absent(),
+    this.contextAfter = const Value.absent(),
+    this.anchorJson = const Value.absent(),
+    this.styleJson = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DecorationsCompanion.insert({
+    required String id,
+    required int bookId,
+    required String startCfi,
+    required String endCfi,
+    required String quote,
+    this.contextBefore = const Value.absent(),
+    this.contextAfter = const Value.absent(),
+    this.anchorJson = const Value.absent(),
+    required String styleJson,
+    required int createdAt,
+    required int updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       bookId = Value(bookId),
+       startCfi = Value(startCfi),
+       endCfi = Value(endCfi),
+       quote = Value(quote),
+       styleJson = Value(styleJson),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<DecorationRow> custom({
+    Expression<String>? id,
+    Expression<int>? bookId,
+    Expression<String>? startCfi,
+    Expression<String>? endCfi,
+    Expression<String>? quote,
+    Expression<String>? contextBefore,
+    Expression<String>? contextAfter,
+    Expression<String>? anchorJson,
+    Expression<String>? styleJson,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (bookId != null) 'book_id': bookId,
+      if (startCfi != null) 'start_cfi': startCfi,
+      if (endCfi != null) 'end_cfi': endCfi,
+      if (quote != null) 'quote': quote,
+      if (contextBefore != null) 'context_before': contextBefore,
+      if (contextAfter != null) 'context_after': contextAfter,
+      if (anchorJson != null) 'anchor_json': anchorJson,
+      if (styleJson != null) 'style_json': styleJson,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DecorationsCompanion copyWith({
+    Value<String>? id,
+    Value<int>? bookId,
+    Value<String>? startCfi,
+    Value<String>? endCfi,
+    Value<String>? quote,
+    Value<String?>? contextBefore,
+    Value<String?>? contextAfter,
+    Value<String?>? anchorJson,
+    Value<String>? styleJson,
+    Value<int>? createdAt,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return DecorationsCompanion(
+      id: id ?? this.id,
+      bookId: bookId ?? this.bookId,
+      startCfi: startCfi ?? this.startCfi,
+      endCfi: endCfi ?? this.endCfi,
+      quote: quote ?? this.quote,
+      contextBefore: contextBefore ?? this.contextBefore,
+      contextAfter: contextAfter ?? this.contextAfter,
+      anchorJson: anchorJson ?? this.anchorJson,
+      styleJson: styleJson ?? this.styleJson,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (bookId.present) {
+      map['book_id'] = Variable<int>(bookId.value);
+    }
+    if (startCfi.present) {
+      map['start_cfi'] = Variable<String>(startCfi.value);
+    }
+    if (endCfi.present) {
+      map['end_cfi'] = Variable<String>(endCfi.value);
+    }
+    if (quote.present) {
+      map['quote'] = Variable<String>(quote.value);
+    }
+    if (contextBefore.present) {
+      map['context_before'] = Variable<String>(contextBefore.value);
+    }
+    if (contextAfter.present) {
+      map['context_after'] = Variable<String>(contextAfter.value);
+    }
+    if (anchorJson.present) {
+      map['anchor_json'] = Variable<String>(anchorJson.value);
+    }
+    if (styleJson.present) {
+      map['style_json'] = Variable<String>(styleJson.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DecorationsCompanion(')
+          ..write('id: $id, ')
+          ..write('bookId: $bookId, ')
+          ..write('startCfi: $startCfi, ')
+          ..write('endCfi: $endCfi, ')
+          ..write('quote: $quote, ')
+          ..write('contextBefore: $contextBefore, ')
+          ..write('contextAfter: $contextAfter, ')
+          ..write('anchorJson: $anchorJson, ')
+          ..write('styleJson: $styleJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DecorationRuleGroupsTable extends DecorationRuleGroups
+    with TableInfo<$DecorationRuleGroupsTable, DecorationRuleGroupRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DecorationRuleGroupsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<int> bookId = GeneratedColumn<int>(
+    'book_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES books (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    bookId,
+    name,
+    enabled,
+    isDefault,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'decoration_rule_groups';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DecorationRuleGroupRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DecorationRuleGroupRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DecorationRuleGroupRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}book_id'],
+      ),
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $DecorationRuleGroupsTable createAlias(String alias) {
+    return $DecorationRuleGroupsTable(attachedDatabase, alias);
+  }
+}
+
+class DecorationRuleGroupRow extends DataClass
+    implements Insertable<DecorationRuleGroupRow> {
+  /// 唯一标识。
+  final String id;
+
+  /// 所属书籍；全局组为空。
+  final int? bookId;
+
+  /// 分组名称。
+  final String name;
+
+  /// 启用状态。
+  final bool enabled;
+
+  /// 默认组固定在同作用域最后。
+  final bool isDefault;
+
+  /// 组间排序。
+  final int sortOrder;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+
+  /// 更新时间（毫秒）。
+  final int updatedAt;
+  const DecorationRuleGroupRow({
+    required this.id,
+    this.bookId,
+    required this.name,
+    required this.enabled,
+    required this.isDefault,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    if (!nullToAbsent || bookId != null) {
+      map['book_id'] = Variable<int>(bookId);
+    }
+    map['name'] = Variable<String>(name);
+    map['enabled'] = Variable<bool>(enabled);
+    map['is_default'] = Variable<bool>(isDefault);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  DecorationRuleGroupsCompanion toCompanion(bool nullToAbsent) {
+    return DecorationRuleGroupsCompanion(
+      id: Value(id),
+      bookId: bookId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(bookId),
+      name: Value(name),
+      enabled: Value(enabled),
+      isDefault: Value(isDefault),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory DecorationRuleGroupRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DecorationRuleGroupRow(
+      id: serializer.fromJson<String>(json['id']),
+      bookId: serializer.fromJson<int?>(json['bookId']),
+      name: serializer.fromJson<String>(json['name']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'bookId': serializer.toJson<int?>(bookId),
+      'name': serializer.toJson<String>(name),
+      'enabled': serializer.toJson<bool>(enabled),
+      'isDefault': serializer.toJson<bool>(isDefault),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  DecorationRuleGroupRow copyWith({
+    String? id,
+    Value<int?> bookId = const Value.absent(),
+    String? name,
+    bool? enabled,
+    bool? isDefault,
+    int? sortOrder,
+    int? createdAt,
+    int? updatedAt,
+  }) => DecorationRuleGroupRow(
+    id: id ?? this.id,
+    bookId: bookId.present ? bookId.value : this.bookId,
+    name: name ?? this.name,
+    enabled: enabled ?? this.enabled,
+    isDefault: isDefault ?? this.isDefault,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  DecorationRuleGroupRow copyWithCompanion(DecorationRuleGroupsCompanion data) {
+    return DecorationRuleGroupRow(
+      id: data.id.present ? data.id.value : this.id,
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+      name: data.name.present ? data.name.value : this.name,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DecorationRuleGroupRow(')
+          ..write('id: $id, ')
+          ..write('bookId: $bookId, ')
+          ..write('name: $name, ')
+          ..write('enabled: $enabled, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    bookId,
+    name,
+    enabled,
+    isDefault,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DecorationRuleGroupRow &&
+          other.id == this.id &&
+          other.bookId == this.bookId &&
+          other.name == this.name &&
+          other.enabled == this.enabled &&
+          other.isDefault == this.isDefault &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class DecorationRuleGroupsCompanion
+    extends UpdateCompanion<DecorationRuleGroupRow> {
+  final Value<String> id;
+  final Value<int?> bookId;
+  final Value<String> name;
+  final Value<bool> enabled;
+  final Value<bool> isDefault;
+  final Value<int> sortOrder;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<int> rowid;
+  const DecorationRuleGroupsCompanion({
+    this.id = const Value.absent(),
+    this.bookId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DecorationRuleGroupsCompanion.insert({
+    required String id,
+    this.bookId = const Value.absent(),
+    required String name,
+    this.enabled = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    required int createdAt,
+    required int updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<DecorationRuleGroupRow> custom({
+    Expression<String>? id,
+    Expression<int>? bookId,
+    Expression<String>? name,
+    Expression<bool>? enabled,
+    Expression<bool>? isDefault,
+    Expression<int>? sortOrder,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (bookId != null) 'book_id': bookId,
+      if (name != null) 'name': name,
+      if (enabled != null) 'enabled': enabled,
+      if (isDefault != null) 'is_default': isDefault,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DecorationRuleGroupsCompanion copyWith({
+    Value<String>? id,
+    Value<int?>? bookId,
+    Value<String>? name,
+    Value<bool>? enabled,
+    Value<bool>? isDefault,
+    Value<int>? sortOrder,
+    Value<int>? createdAt,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return DecorationRuleGroupsCompanion(
+      id: id ?? this.id,
+      bookId: bookId ?? this.bookId,
+      name: name ?? this.name,
+      enabled: enabled ?? this.enabled,
+      isDefault: isDefault ?? this.isDefault,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (bookId.present) {
+      map['book_id'] = Variable<int>(bookId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DecorationRuleGroupsCompanion(')
+          ..write('id: $id, ')
+          ..write('bookId: $bookId, ')
+          ..write('name: $name, ')
+          ..write('enabled: $enabled, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DecorationRulesTable extends DecorationRules
+    with TableInfo<$DecorationRulesTable, DecorationRuleRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DecorationRulesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _groupIdMeta = const VerificationMeta(
+    'groupId',
+  );
+  @override
+  late final GeneratedColumn<String> groupId = GeneratedColumn<String>(
+    'group_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES decoration_rule_groups (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _patternMeta = const VerificationMeta(
+    'pattern',
+  );
+  @override
+  late final GeneratedColumn<String> pattern = GeneratedColumn<String>(
+    'pattern',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isRegexMeta = const VerificationMeta(
+    'isRegex',
+  );
+  @override
+  late final GeneratedColumn<bool> isRegex = GeneratedColumn<bool>(
+    'is_regex',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_regex" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _caseSensitiveMeta = const VerificationMeta(
+    'caseSensitive',
+  );
+  @override
+  late final GeneratedColumn<bool> caseSensitive = GeneratedColumn<bool>(
+    'case_sensitive',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("case_sensitive" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _styleJsonMeta = const VerificationMeta(
+    'styleJson',
+  );
+  @override
+  late final GeneratedColumn<String> styleJson = GeneratedColumn<String>(
+    'style_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    groupId,
+    name,
+    pattern,
+    isRegex,
+    caseSensitive,
+    enabled,
+    styleJson,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'decoration_rules';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DecorationRuleRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('group_id')) {
+      context.handle(
+        _groupIdMeta,
+        groupId.isAcceptableOrUnknown(data['group_id']!, _groupIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_groupIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    }
+    if (data.containsKey('pattern')) {
+      context.handle(
+        _patternMeta,
+        pattern.isAcceptableOrUnknown(data['pattern']!, _patternMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_patternMeta);
+    }
+    if (data.containsKey('is_regex')) {
+      context.handle(
+        _isRegexMeta,
+        isRegex.isAcceptableOrUnknown(data['is_regex']!, _isRegexMeta),
+      );
+    }
+    if (data.containsKey('case_sensitive')) {
+      context.handle(
+        _caseSensitiveMeta,
+        caseSensitive.isAcceptableOrUnknown(
+          data['case_sensitive']!,
+          _caseSensitiveMeta,
+        ),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('style_json')) {
+      context.handle(
+        _styleJsonMeta,
+        styleJson.isAcceptableOrUnknown(data['style_json']!, _styleJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_styleJsonMeta);
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DecorationRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DecorationRuleRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      groupId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      ),
+      pattern: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pattern'],
+      )!,
+      isRegex: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_regex'],
+      )!,
+      caseSensitive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}case_sensitive'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      styleJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}style_json'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $DecorationRulesTable createAlias(String alias) {
+    return $DecorationRulesTable(attachedDatabase, alias);
+  }
+}
+
+class DecorationRuleRow extends DataClass
+    implements Insertable<DecorationRuleRow> {
+  /// 唯一标识。
+  final String id;
+
+  /// 所属分组。
+  final String groupId;
+
+  /// 可选名称。
+  final String? name;
+
+  /// 字面内容或 Unicode 正则。
+  final String pattern;
+
+  /// 是否使用正则。
+  final bool isRegex;
+
+  /// 是否区分大小写。
+  final bool caseSensitive;
+
+  /// 单条启用状态。
+  final bool enabled;
+
+  /// 不影响度量的绘制样式。
+  final String styleJson;
+
+  /// 组内排序。
+  final int sortOrder;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+
+  /// 更新时间（毫秒）。
+  final int updatedAt;
+  const DecorationRuleRow({
+    required this.id,
+    required this.groupId,
+    this.name,
+    required this.pattern,
+    required this.isRegex,
+    required this.caseSensitive,
+    required this.enabled,
+    required this.styleJson,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['group_id'] = Variable<String>(groupId);
+    if (!nullToAbsent || name != null) {
+      map['name'] = Variable<String>(name);
+    }
+    map['pattern'] = Variable<String>(pattern);
+    map['is_regex'] = Variable<bool>(isRegex);
+    map['case_sensitive'] = Variable<bool>(caseSensitive);
+    map['enabled'] = Variable<bool>(enabled);
+    map['style_json'] = Variable<String>(styleJson);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  DecorationRulesCompanion toCompanion(bool nullToAbsent) {
+    return DecorationRulesCompanion(
+      id: Value(id),
+      groupId: Value(groupId),
+      name: name == null && nullToAbsent ? const Value.absent() : Value(name),
+      pattern: Value(pattern),
+      isRegex: Value(isRegex),
+      caseSensitive: Value(caseSensitive),
+      enabled: Value(enabled),
+      styleJson: Value(styleJson),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory DecorationRuleRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DecorationRuleRow(
+      id: serializer.fromJson<String>(json['id']),
+      groupId: serializer.fromJson<String>(json['groupId']),
+      name: serializer.fromJson<String?>(json['name']),
+      pattern: serializer.fromJson<String>(json['pattern']),
+      isRegex: serializer.fromJson<bool>(json['isRegex']),
+      caseSensitive: serializer.fromJson<bool>(json['caseSensitive']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      styleJson: serializer.fromJson<String>(json['styleJson']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'groupId': serializer.toJson<String>(groupId),
+      'name': serializer.toJson<String?>(name),
+      'pattern': serializer.toJson<String>(pattern),
+      'isRegex': serializer.toJson<bool>(isRegex),
+      'caseSensitive': serializer.toJson<bool>(caseSensitive),
+      'enabled': serializer.toJson<bool>(enabled),
+      'styleJson': serializer.toJson<String>(styleJson),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  DecorationRuleRow copyWith({
+    String? id,
+    String? groupId,
+    Value<String?> name = const Value.absent(),
+    String? pattern,
+    bool? isRegex,
+    bool? caseSensitive,
+    bool? enabled,
+    String? styleJson,
+    int? sortOrder,
+    int? createdAt,
+    int? updatedAt,
+  }) => DecorationRuleRow(
+    id: id ?? this.id,
+    groupId: groupId ?? this.groupId,
+    name: name.present ? name.value : this.name,
+    pattern: pattern ?? this.pattern,
+    isRegex: isRegex ?? this.isRegex,
+    caseSensitive: caseSensitive ?? this.caseSensitive,
+    enabled: enabled ?? this.enabled,
+    styleJson: styleJson ?? this.styleJson,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  DecorationRuleRow copyWithCompanion(DecorationRulesCompanion data) {
+    return DecorationRuleRow(
+      id: data.id.present ? data.id.value : this.id,
+      groupId: data.groupId.present ? data.groupId.value : this.groupId,
+      name: data.name.present ? data.name.value : this.name,
+      pattern: data.pattern.present ? data.pattern.value : this.pattern,
+      isRegex: data.isRegex.present ? data.isRegex.value : this.isRegex,
+      caseSensitive: data.caseSensitive.present
+          ? data.caseSensitive.value
+          : this.caseSensitive,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      styleJson: data.styleJson.present ? data.styleJson.value : this.styleJson,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DecorationRuleRow(')
+          ..write('id: $id, ')
+          ..write('groupId: $groupId, ')
+          ..write('name: $name, ')
+          ..write('pattern: $pattern, ')
+          ..write('isRegex: $isRegex, ')
+          ..write('caseSensitive: $caseSensitive, ')
+          ..write('enabled: $enabled, ')
+          ..write('styleJson: $styleJson, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    groupId,
+    name,
+    pattern,
+    isRegex,
+    caseSensitive,
+    enabled,
+    styleJson,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DecorationRuleRow &&
+          other.id == this.id &&
+          other.groupId == this.groupId &&
+          other.name == this.name &&
+          other.pattern == this.pattern &&
+          other.isRegex == this.isRegex &&
+          other.caseSensitive == this.caseSensitive &&
+          other.enabled == this.enabled &&
+          other.styleJson == this.styleJson &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class DecorationRulesCompanion extends UpdateCompanion<DecorationRuleRow> {
+  final Value<String> id;
+  final Value<String> groupId;
+  final Value<String?> name;
+  final Value<String> pattern;
+  final Value<bool> isRegex;
+  final Value<bool> caseSensitive;
+  final Value<bool> enabled;
+  final Value<String> styleJson;
+  final Value<int> sortOrder;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<int> rowid;
+  const DecorationRulesCompanion({
+    this.id = const Value.absent(),
+    this.groupId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.pattern = const Value.absent(),
+    this.isRegex = const Value.absent(),
+    this.caseSensitive = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.styleJson = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DecorationRulesCompanion.insert({
+    required String id,
+    required String groupId,
+    this.name = const Value.absent(),
+    required String pattern,
+    this.isRegex = const Value.absent(),
+    this.caseSensitive = const Value.absent(),
+    this.enabled = const Value.absent(),
+    required String styleJson,
+    this.sortOrder = const Value.absent(),
+    required int createdAt,
+    required int updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       groupId = Value(groupId),
+       pattern = Value(pattern),
+       styleJson = Value(styleJson),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<DecorationRuleRow> custom({
+    Expression<String>? id,
+    Expression<String>? groupId,
+    Expression<String>? name,
+    Expression<String>? pattern,
+    Expression<bool>? isRegex,
+    Expression<bool>? caseSensitive,
+    Expression<bool>? enabled,
+    Expression<String>? styleJson,
+    Expression<int>? sortOrder,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (groupId != null) 'group_id': groupId,
+      if (name != null) 'name': name,
+      if (pattern != null) 'pattern': pattern,
+      if (isRegex != null) 'is_regex': isRegex,
+      if (caseSensitive != null) 'case_sensitive': caseSensitive,
+      if (enabled != null) 'enabled': enabled,
+      if (styleJson != null) 'style_json': styleJson,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DecorationRulesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? groupId,
+    Value<String?>? name,
+    Value<String>? pattern,
+    Value<bool>? isRegex,
+    Value<bool>? caseSensitive,
+    Value<bool>? enabled,
+    Value<String>? styleJson,
+    Value<int>? sortOrder,
+    Value<int>? createdAt,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return DecorationRulesCompanion(
+      id: id ?? this.id,
+      groupId: groupId ?? this.groupId,
+      name: name ?? this.name,
+      pattern: pattern ?? this.pattern,
+      isRegex: isRegex ?? this.isRegex,
+      caseSensitive: caseSensitive ?? this.caseSensitive,
+      enabled: enabled ?? this.enabled,
+      styleJson: styleJson ?? this.styleJson,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (groupId.present) {
+      map['group_id'] = Variable<String>(groupId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (pattern.present) {
+      map['pattern'] = Variable<String>(pattern.value);
+    }
+    if (isRegex.present) {
+      map['is_regex'] = Variable<bool>(isRegex.value);
+    }
+    if (caseSensitive.present) {
+      map['case_sensitive'] = Variable<bool>(caseSensitive.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (styleJson.present) {
+      map['style_json'] = Variable<String>(styleJson.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DecorationRulesCompanion(')
+          ..write('id: $id, ')
+          ..write('groupId: $groupId, ')
+          ..write('name: $name, ')
+          ..write('pattern: $pattern, ')
+          ..write('isRegex: $isRegex, ')
+          ..write('caseSensitive: $caseSensitive, ')
+          ..write('enabled: $enabled, ')
+          ..write('styleJson: $styleJson, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -6751,6 +8706,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SpineItemsTable spineItems = $SpineItemsTable(this);
   late final $ChaptersTable chapters = $ChaptersTable(this);
   late final $AnnotationsTable annotations = $AnnotationsTable(this);
+  late final $DecorationsTable decorations = $DecorationsTable(this);
+  late final $DecorationRuleGroupsTable decorationRuleGroups =
+      $DecorationRuleGroupsTable(this);
+  late final $DecorationRulesTable decorationRules = $DecorationRulesTable(
+    this,
+  );
   late final $ReadingProgressTable readingProgress = $ReadingProgressTable(
     this,
   );
@@ -6777,6 +8738,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     spineItems,
     chapters,
     annotations,
+    decorations,
+    decorationRuleGroups,
+    decorationRules,
     readingProgress,
     userFonts,
     settingsTable,
@@ -6811,6 +8775,27 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('annotations', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'books',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('decorations', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'books',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('decoration_rule_groups', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'decoration_rule_groups',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('decoration_rules', kind: UpdateKind.delete)],
     ),
     WritePropagation(
       on: TableUpdateQuery.onTableName(
@@ -6964,6 +8949,49 @@ final class $$BooksTableReferences
     ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_annotationsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$DecorationsTable, List<DecorationRow>>
+  _decorationsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.decorations,
+    aliasName: 'books__id__decorations__book_id',
+  );
+
+  $$DecorationsTableProcessedTableManager get decorationsRefs {
+    final manager = $$DecorationsTableTableManager(
+      $_db,
+      $_db.decorations,
+    ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_decorationsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $DecorationRuleGroupsTable,
+    List<DecorationRuleGroupRow>
+  >
+  _decorationRuleGroupsRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.decorationRuleGroups,
+        aliasName: 'books__id__decoration_rule_groups__book_id',
+      );
+
+  $$DecorationRuleGroupsTableProcessedTableManager
+  get decorationRuleGroupsRefs {
+    final manager = $$DecorationRuleGroupsTableTableManager(
+      $_db,
+      $_db.decorationRuleGroups,
+    ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _decorationRuleGroupsRefsTable($_db),
+    );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -7243,6 +9271,56 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
           }) => $$AnnotationsTableFilterComposer(
             $db: $db,
             $table: $db.annotations,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> decorationsRefs(
+    Expression<bool> Function($$DecorationsTableFilterComposer f) f,
+  ) {
+    final $$DecorationsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.decorations,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DecorationsTableFilterComposer(
+            $db: $db,
+            $table: $db.decorations,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> decorationRuleGroupsRefs(
+    Expression<bool> Function($$DecorationRuleGroupsTableFilterComposer f) f,
+  ) {
+    final $$DecorationRuleGroupsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.decorationRuleGroups,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DecorationRuleGroupsTableFilterComposer(
+            $db: $db,
+            $table: $db.decorationRuleGroups,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -7660,6 +9738,57 @@ class $$BooksTableAnnotationComposer
     return f(composer);
   }
 
+  Expression<T> decorationsRefs<T extends Object>(
+    Expression<T> Function($$DecorationsTableAnnotationComposer a) f,
+  ) {
+    final $$DecorationsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.decorations,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DecorationsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.decorations,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> decorationRuleGroupsRefs<T extends Object>(
+    Expression<T> Function($$DecorationRuleGroupsTableAnnotationComposer a) f,
+  ) {
+    final $$DecorationRuleGroupsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.decorationRuleGroups,
+          getReferencedColumn: (t) => t.bookId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$DecorationRuleGroupsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.decorationRuleGroups,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
   Expression<T> readingProgressRefs<T extends Object>(
     Expression<T> Function($$ReadingProgressTableAnnotationComposer a) f,
   ) {
@@ -7803,6 +9932,8 @@ class $$BooksTableTableManager
             bool spineItemsRefs,
             bool chaptersRefs,
             bool annotationsRefs,
+            bool decorationsRefs,
+            bool decorationRuleGroupsRefs,
             bool readingProgressRefs,
             bool importReportsRefs,
             bool bookReviewsRefs,
@@ -7926,6 +10057,8 @@ class $$BooksTableTableManager
                 spineItemsRefs = false,
                 chaptersRefs = false,
                 annotationsRefs = false,
+                decorationsRefs = false,
+                decorationRuleGroupsRefs = false,
                 readingProgressRefs = false,
                 importReportsRefs = false,
                 bookReviewsRefs = false,
@@ -7938,6 +10071,8 @@ class $$BooksTableTableManager
                     if (spineItemsRefs) db.spineItems,
                     if (chaptersRefs) db.chapters,
                     if (annotationsRefs) db.annotations,
+                    if (decorationsRefs) db.decorations,
+                    if (decorationRuleGroupsRefs) db.decorationRuleGroups,
                     if (readingProgressRefs) db.readingProgress,
                     if (importReportsRefs) db.importReports,
                     if (bookReviewsRefs) db.bookReviews,
@@ -8004,6 +10139,48 @@ class $$BooksTableTableManager
                                 table,
                                 p0,
                               ).annotationsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.bookId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (decorationsRefs)
+                        await $_getPrefetchedData<
+                          BookRow,
+                          $BooksTable,
+                          DecorationRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BooksTableReferences
+                              ._decorationsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BooksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).decorationsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.bookId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (decorationRuleGroupsRefs)
+                        await $_getPrefetchedData<
+                          BookRow,
+                          $BooksTable,
+                          DecorationRuleGroupRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BooksTableReferences
+                              ._decorationRuleGroupsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BooksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).decorationRuleGroupsRefs,
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.bookId == item.id,
@@ -8139,6 +10316,8 @@ typedef $$BooksTableProcessedTableManager =
         bool spineItemsRefs,
         bool chaptersRefs,
         bool annotationsRefs,
+        bool decorationsRefs,
+        bool decorationRuleGroupsRefs,
         bool readingProgressRefs,
         bool importReportsRefs,
         bool bookReviewsRefs,
@@ -8873,6 +11052,7 @@ typedef $$AnnotationsTableCreateCompanionBuilder =
       Value<String?> contextAfter,
       Value<int?> style,
       Value<int?> color,
+      Value<double?> opacity,
       Value<String?> note,
       required int createdAt,
       required int updatedAt,
@@ -8891,6 +11071,7 @@ typedef $$AnnotationsTableUpdateCompanionBuilder =
       Value<String?> contextAfter,
       Value<int?> style,
       Value<int?> color,
+      Value<double?> opacity,
       Value<String?> note,
       Value<int> createdAt,
       Value<int> updatedAt,
@@ -8975,6 +11156,11 @@ class $$AnnotationsTableFilterComposer
 
   ColumnFilters<int> get color => $composableBuilder(
     column: $table.color,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get opacity => $composableBuilder(
+    column: $table.opacity,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9076,6 +11262,11 @@ class $$AnnotationsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get opacity => $composableBuilder(
+    column: $table.opacity,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get note => $composableBuilder(
     column: $table.note,
     builder: (column) => ColumnOrderings(column),
@@ -9160,6 +11351,9 @@ class $$AnnotationsTableAnnotationComposer
   GeneratedColumn<int> get color =>
       $composableBuilder(column: $table.color, builder: (column) => column);
 
+  GeneratedColumn<double> get opacity =>
+      $composableBuilder(column: $table.opacity, builder: (column) => column);
+
   GeneratedColumn<String> get note =>
       $composableBuilder(column: $table.note, builder: (column) => column);
 
@@ -9232,6 +11426,7 @@ class $$AnnotationsTableTableManager
                 Value<String?> contextAfter = const Value.absent(),
                 Value<int?> style = const Value.absent(),
                 Value<int?> color = const Value.absent(),
+                Value<double?> opacity = const Value.absent(),
                 Value<String?> note = const Value.absent(),
                 Value<int> createdAt = const Value.absent(),
                 Value<int> updatedAt = const Value.absent(),
@@ -9248,6 +11443,7 @@ class $$AnnotationsTableTableManager
                 contextAfter: contextAfter,
                 style: style,
                 color: color,
+                opacity: opacity,
                 note: note,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -9266,6 +11462,7 @@ class $$AnnotationsTableTableManager
                 Value<String?> contextAfter = const Value.absent(),
                 Value<int?> style = const Value.absent(),
                 Value<int?> color = const Value.absent(),
+                Value<double?> opacity = const Value.absent(),
                 Value<String?> note = const Value.absent(),
                 required int createdAt,
                 required int updatedAt,
@@ -9282,6 +11479,7 @@ class $$AnnotationsTableTableManager
                 contextAfter: contextAfter,
                 style: style,
                 color: color,
+                opacity: opacity,
                 note: note,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -9351,6 +11549,1375 @@ typedef $$AnnotationsTableProcessedTableManager =
       (AnnotationRow, $$AnnotationsTableReferences),
       AnnotationRow,
       PrefetchHooks Function({bool bookId})
+    >;
+typedef $$DecorationsTableCreateCompanionBuilder =
+    DecorationsCompanion Function({
+      required String id,
+      required int bookId,
+      required String startCfi,
+      required String endCfi,
+      required String quote,
+      Value<String?> contextBefore,
+      Value<String?> contextAfter,
+      Value<String?> anchorJson,
+      required String styleJson,
+      required int createdAt,
+      required int updatedAt,
+      Value<int> rowid,
+    });
+typedef $$DecorationsTableUpdateCompanionBuilder =
+    DecorationsCompanion Function({
+      Value<String> id,
+      Value<int> bookId,
+      Value<String> startCfi,
+      Value<String> endCfi,
+      Value<String> quote,
+      Value<String?> contextBefore,
+      Value<String?> contextAfter,
+      Value<String?> anchorJson,
+      Value<String> styleJson,
+      Value<int> createdAt,
+      Value<int> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$DecorationsTableReferences
+    extends BaseReferences<_$AppDatabase, $DecorationsTable, DecorationRow> {
+  $$DecorationsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $BooksTable _bookIdTable(_$AppDatabase db) =>
+      db.books.createAlias('decorations__book_id__books__id');
+
+  $$BooksTableProcessedTableManager get bookId {
+    final $_column = $_itemColumn<int>('book_id')!;
+
+    final manager = $$BooksTableTableManager(
+      $_db,
+      $_db.books,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_bookIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$DecorationsTableFilterComposer
+    extends Composer<_$AppDatabase, $DecorationsTable> {
+  $$DecorationsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get startCfi => $composableBuilder(
+    column: $table.startCfi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get endCfi => $composableBuilder(
+    column: $table.endCfi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get quote => $composableBuilder(
+    column: $table.quote,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contextBefore => $composableBuilder(
+    column: $table.contextBefore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contextAfter => $composableBuilder(
+    column: $table.contextAfter,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get styleJson => $composableBuilder(
+    column: $table.styleJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BooksTableFilterComposer get bookId {
+    final $$BooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableFilterComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DecorationsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DecorationsTable> {
+  $$DecorationsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get startCfi => $composableBuilder(
+    column: $table.startCfi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get endCfi => $composableBuilder(
+    column: $table.endCfi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get quote => $composableBuilder(
+    column: $table.quote,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contextBefore => $composableBuilder(
+    column: $table.contextBefore,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contextAfter => $composableBuilder(
+    column: $table.contextAfter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get styleJson => $composableBuilder(
+    column: $table.styleJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BooksTableOrderingComposer get bookId {
+    final $$BooksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableOrderingComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DecorationsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DecorationsTable> {
+  $$DecorationsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get startCfi =>
+      $composableBuilder(column: $table.startCfi, builder: (column) => column);
+
+  GeneratedColumn<String> get endCfi =>
+      $composableBuilder(column: $table.endCfi, builder: (column) => column);
+
+  GeneratedColumn<String> get quote =>
+      $composableBuilder(column: $table.quote, builder: (column) => column);
+
+  GeneratedColumn<String> get contextBefore => $composableBuilder(
+    column: $table.contextBefore,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get contextAfter => $composableBuilder(
+    column: $table.contextAfter,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get anchorJson => $composableBuilder(
+    column: $table.anchorJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get styleJson =>
+      $composableBuilder(column: $table.styleJson, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$BooksTableAnnotationComposer get bookId {
+    final $$BooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DecorationsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DecorationsTable,
+          DecorationRow,
+          $$DecorationsTableFilterComposer,
+          $$DecorationsTableOrderingComposer,
+          $$DecorationsTableAnnotationComposer,
+          $$DecorationsTableCreateCompanionBuilder,
+          $$DecorationsTableUpdateCompanionBuilder,
+          (DecorationRow, $$DecorationsTableReferences),
+          DecorationRow,
+          PrefetchHooks Function({bool bookId})
+        > {
+  $$DecorationsTableTableManager(_$AppDatabase db, $DecorationsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DecorationsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DecorationsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DecorationsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<int> bookId = const Value.absent(),
+                Value<String> startCfi = const Value.absent(),
+                Value<String> endCfi = const Value.absent(),
+                Value<String> quote = const Value.absent(),
+                Value<String?> contextBefore = const Value.absent(),
+                Value<String?> contextAfter = const Value.absent(),
+                Value<String?> anchorJson = const Value.absent(),
+                Value<String> styleJson = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DecorationsCompanion(
+                id: id,
+                bookId: bookId,
+                startCfi: startCfi,
+                endCfi: endCfi,
+                quote: quote,
+                contextBefore: contextBefore,
+                contextAfter: contextAfter,
+                anchorJson: anchorJson,
+                styleJson: styleJson,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required int bookId,
+                required String startCfi,
+                required String endCfi,
+                required String quote,
+                Value<String?> contextBefore = const Value.absent(),
+                Value<String?> contextAfter = const Value.absent(),
+                Value<String?> anchorJson = const Value.absent(),
+                required String styleJson,
+                required int createdAt,
+                required int updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => DecorationsCompanion.insert(
+                id: id,
+                bookId: bookId,
+                startCfi: startCfi,
+                endCfi: endCfi,
+                quote: quote,
+                contextBefore: contextBefore,
+                contextAfter: contextAfter,
+                anchorJson: anchorJson,
+                styleJson: styleJson,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$DecorationsTable, DecorationRow>(table),
+                  $$DecorationsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({bookId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (bookId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.bookId,
+                        referencedTable: $$DecorationsTableReferences
+                            ._bookIdTable(db),
+                        referencedColumn: $$DecorationsTableReferences
+                            ._bookIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$DecorationsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DecorationsTable,
+      DecorationRow,
+      $$DecorationsTableFilterComposer,
+      $$DecorationsTableOrderingComposer,
+      $$DecorationsTableAnnotationComposer,
+      $$DecorationsTableCreateCompanionBuilder,
+      $$DecorationsTableUpdateCompanionBuilder,
+      (DecorationRow, $$DecorationsTableReferences),
+      DecorationRow,
+      PrefetchHooks Function({bool bookId})
+    >;
+typedef $$DecorationRuleGroupsTableCreateCompanionBuilder =
+    DecorationRuleGroupsCompanion Function({
+      required String id,
+      Value<int?> bookId,
+      required String name,
+      Value<bool> enabled,
+      Value<bool> isDefault,
+      Value<int> sortOrder,
+      required int createdAt,
+      required int updatedAt,
+      Value<int> rowid,
+    });
+typedef $$DecorationRuleGroupsTableUpdateCompanionBuilder =
+    DecorationRuleGroupsCompanion Function({
+      Value<String> id,
+      Value<int?> bookId,
+      Value<String> name,
+      Value<bool> enabled,
+      Value<bool> isDefault,
+      Value<int> sortOrder,
+      Value<int> createdAt,
+      Value<int> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$DecorationRuleGroupsTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $DecorationRuleGroupsTable,
+          DecorationRuleGroupRow
+        > {
+  $$DecorationRuleGroupsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $BooksTable _bookIdTable(_$AppDatabase db) =>
+      db.books.createAlias('decoration_rule_groups__book_id__books__id');
+
+  $$BooksTableProcessedTableManager? get bookId {
+    final $_column = $_itemColumn<int>('book_id');
+    if ($_column == null) return null;
+    final manager = $$BooksTableTableManager(
+      $_db,
+      $_db.books,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_bookIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$DecorationRulesTable, List<DecorationRuleRow>>
+  _decorationRulesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.decorationRules,
+    aliasName: 'decoration_rule_groups__id__decoration_rules__group_id',
+  );
+
+  $$DecorationRulesTableProcessedTableManager get decorationRulesRefs {
+    final manager = $$DecorationRulesTableTableManager(
+      $_db,
+      $_db.decorationRules,
+    ).filter((f) => f.groupId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _decorationRulesRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$DecorationRuleGroupsTableFilterComposer
+    extends Composer<_$AppDatabase, $DecorationRuleGroupsTable> {
+  $$DecorationRuleGroupsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BooksTableFilterComposer get bookId {
+    final $$BooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableFilterComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> decorationRulesRefs(
+    Expression<bool> Function($$DecorationRulesTableFilterComposer f) f,
+  ) {
+    final $$DecorationRulesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.decorationRules,
+      getReferencedColumn: (t) => t.groupId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DecorationRulesTableFilterComposer(
+            $db: $db,
+            $table: $db.decorationRules,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$DecorationRuleGroupsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DecorationRuleGroupsTable> {
+  $$DecorationRuleGroupsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BooksTableOrderingComposer get bookId {
+    final $$BooksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableOrderingComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DecorationRuleGroupsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DecorationRuleGroupsTable> {
+  $$DecorationRuleGroupsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$BooksTableAnnotationComposer get bookId {
+    final $$BooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> decorationRulesRefs<T extends Object>(
+    Expression<T> Function($$DecorationRulesTableAnnotationComposer a) f,
+  ) {
+    final $$DecorationRulesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.decorationRules,
+      getReferencedColumn: (t) => t.groupId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DecorationRulesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.decorationRules,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$DecorationRuleGroupsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DecorationRuleGroupsTable,
+          DecorationRuleGroupRow,
+          $$DecorationRuleGroupsTableFilterComposer,
+          $$DecorationRuleGroupsTableOrderingComposer,
+          $$DecorationRuleGroupsTableAnnotationComposer,
+          $$DecorationRuleGroupsTableCreateCompanionBuilder,
+          $$DecorationRuleGroupsTableUpdateCompanionBuilder,
+          (DecorationRuleGroupRow, $$DecorationRuleGroupsTableReferences),
+          DecorationRuleGroupRow,
+          PrefetchHooks Function({bool bookId, bool decorationRulesRefs})
+        > {
+  $$DecorationRuleGroupsTableTableManager(
+    _$AppDatabase db,
+    $DecorationRuleGroupsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DecorationRuleGroupsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DecorationRuleGroupsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$DecorationRuleGroupsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<int?> bookId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DecorationRuleGroupsCompanion(
+                id: id,
+                bookId: bookId,
+                name: name,
+                enabled: enabled,
+                isDefault: isDefault,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                Value<int?> bookId = const Value.absent(),
+                required String name,
+                Value<bool> enabled = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                required int createdAt,
+                required int updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => DecorationRuleGroupsCompanion.insert(
+                id: id,
+                bookId: bookId,
+                name: name,
+                enabled: enabled,
+                isDefault: isDefault,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $DecorationRuleGroupsTable,
+                    DecorationRuleGroupRow
+                  >(table),
+                  $$DecorationRuleGroupsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({bookId = false, decorationRulesRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (decorationRulesRefs) db.decorationRules,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (bookId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.bookId,
+                            referencedTable:
+                                $$DecorationRuleGroupsTableReferences
+                                    ._bookIdTable(db),
+                            referencedColumn:
+                                $$DecorationRuleGroupsTableReferences
+                                    ._bookIdTable(db)
+                                    .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (decorationRulesRefs)
+                        await $_getPrefetchedData<
+                          DecorationRuleGroupRow,
+                          $DecorationRuleGroupsTable,
+                          DecorationRuleRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$DecorationRuleGroupsTableReferences
+                              ._decorationRulesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$DecorationRuleGroupsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).decorationRulesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.groupId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$DecorationRuleGroupsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DecorationRuleGroupsTable,
+      DecorationRuleGroupRow,
+      $$DecorationRuleGroupsTableFilterComposer,
+      $$DecorationRuleGroupsTableOrderingComposer,
+      $$DecorationRuleGroupsTableAnnotationComposer,
+      $$DecorationRuleGroupsTableCreateCompanionBuilder,
+      $$DecorationRuleGroupsTableUpdateCompanionBuilder,
+      (DecorationRuleGroupRow, $$DecorationRuleGroupsTableReferences),
+      DecorationRuleGroupRow,
+      PrefetchHooks Function({bool bookId, bool decorationRulesRefs})
+    >;
+typedef $$DecorationRulesTableCreateCompanionBuilder =
+    DecorationRulesCompanion Function({
+      required String id,
+      required String groupId,
+      Value<String?> name,
+      required String pattern,
+      Value<bool> isRegex,
+      Value<bool> caseSensitive,
+      Value<bool> enabled,
+      required String styleJson,
+      Value<int> sortOrder,
+      required int createdAt,
+      required int updatedAt,
+      Value<int> rowid,
+    });
+typedef $$DecorationRulesTableUpdateCompanionBuilder =
+    DecorationRulesCompanion Function({
+      Value<String> id,
+      Value<String> groupId,
+      Value<String?> name,
+      Value<String> pattern,
+      Value<bool> isRegex,
+      Value<bool> caseSensitive,
+      Value<bool> enabled,
+      Value<String> styleJson,
+      Value<int> sortOrder,
+      Value<int> createdAt,
+      Value<int> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$DecorationRulesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $DecorationRulesTable,
+          DecorationRuleRow
+        > {
+  $$DecorationRulesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $DecorationRuleGroupsTable _groupIdTable(_$AppDatabase db) => db
+      .decorationRuleGroups
+      .createAlias('decoration_rules__group_id__decoration_rule_groups__id');
+
+  $$DecorationRuleGroupsTableProcessedTableManager get groupId {
+    final $_column = $_itemColumn<String>('group_id')!;
+
+    final manager = $$DecorationRuleGroupsTableTableManager(
+      $_db,
+      $_db.decorationRuleGroups,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_groupIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$DecorationRulesTableFilterComposer
+    extends Composer<_$AppDatabase, $DecorationRulesTable> {
+  $$DecorationRulesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pattern => $composableBuilder(
+    column: $table.pattern,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isRegex => $composableBuilder(
+    column: $table.isRegex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get caseSensitive => $composableBuilder(
+    column: $table.caseSensitive,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get styleJson => $composableBuilder(
+    column: $table.styleJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$DecorationRuleGroupsTableFilterComposer get groupId {
+    final $$DecorationRuleGroupsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.groupId,
+      referencedTable: $db.decorationRuleGroups,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DecorationRuleGroupsTableFilterComposer(
+            $db: $db,
+            $table: $db.decorationRuleGroups,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DecorationRulesTableOrderingComposer
+    extends Composer<_$AppDatabase, $DecorationRulesTable> {
+  $$DecorationRulesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pattern => $composableBuilder(
+    column: $table.pattern,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isRegex => $composableBuilder(
+    column: $table.isRegex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get caseSensitive => $composableBuilder(
+    column: $table.caseSensitive,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get styleJson => $composableBuilder(
+    column: $table.styleJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$DecorationRuleGroupsTableOrderingComposer get groupId {
+    final $$DecorationRuleGroupsTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.groupId,
+          referencedTable: $db.decorationRuleGroups,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$DecorationRuleGroupsTableOrderingComposer(
+                $db: $db,
+                $table: $db.decorationRuleGroups,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$DecorationRulesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DecorationRulesTable> {
+  $$DecorationRulesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get pattern =>
+      $composableBuilder(column: $table.pattern, builder: (column) => column);
+
+  GeneratedColumn<bool> get isRegex =>
+      $composableBuilder(column: $table.isRegex, builder: (column) => column);
+
+  GeneratedColumn<bool> get caseSensitive => $composableBuilder(
+    column: $table.caseSensitive,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<String> get styleJson =>
+      $composableBuilder(column: $table.styleJson, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$DecorationRuleGroupsTableAnnotationComposer get groupId {
+    final $$DecorationRuleGroupsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.groupId,
+          referencedTable: $db.decorationRuleGroups,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$DecorationRuleGroupsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.decorationRuleGroups,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$DecorationRulesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DecorationRulesTable,
+          DecorationRuleRow,
+          $$DecorationRulesTableFilterComposer,
+          $$DecorationRulesTableOrderingComposer,
+          $$DecorationRulesTableAnnotationComposer,
+          $$DecorationRulesTableCreateCompanionBuilder,
+          $$DecorationRulesTableUpdateCompanionBuilder,
+          (DecorationRuleRow, $$DecorationRulesTableReferences),
+          DecorationRuleRow,
+          PrefetchHooks Function({bool groupId})
+        > {
+  $$DecorationRulesTableTableManager(
+    _$AppDatabase db,
+    $DecorationRulesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DecorationRulesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DecorationRulesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DecorationRulesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> groupId = const Value.absent(),
+                Value<String?> name = const Value.absent(),
+                Value<String> pattern = const Value.absent(),
+                Value<bool> isRegex = const Value.absent(),
+                Value<bool> caseSensitive = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<String> styleJson = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DecorationRulesCompanion(
+                id: id,
+                groupId: groupId,
+                name: name,
+                pattern: pattern,
+                isRegex: isRegex,
+                caseSensitive: caseSensitive,
+                enabled: enabled,
+                styleJson: styleJson,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String groupId,
+                Value<String?> name = const Value.absent(),
+                required String pattern,
+                Value<bool> isRegex = const Value.absent(),
+                Value<bool> caseSensitive = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                required String styleJson,
+                Value<int> sortOrder = const Value.absent(),
+                required int createdAt,
+                required int updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => DecorationRulesCompanion.insert(
+                id: id,
+                groupId: groupId,
+                name: name,
+                pattern: pattern,
+                isRegex: isRegex,
+                caseSensitive: caseSensitive,
+                enabled: enabled,
+                styleJson: styleJson,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$DecorationRulesTable, DecorationRuleRow>(table),
+                  $$DecorationRulesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({groupId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (groupId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.groupId,
+                        referencedTable: $$DecorationRulesTableReferences
+                            ._groupIdTable(db),
+                        referencedColumn: $$DecorationRulesTableReferences
+                            ._groupIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$DecorationRulesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DecorationRulesTable,
+      DecorationRuleRow,
+      $$DecorationRulesTableFilterComposer,
+      $$DecorationRulesTableOrderingComposer,
+      $$DecorationRulesTableAnnotationComposer,
+      $$DecorationRulesTableCreateCompanionBuilder,
+      $$DecorationRulesTableUpdateCompanionBuilder,
+      (DecorationRuleRow, $$DecorationRulesTableReferences),
+      DecorationRuleRow,
+      PrefetchHooks Function({bool groupId})
     >;
 typedef $$ReadingProgressTableCreateCompanionBuilder =
     ReadingProgressCompanion Function({
@@ -12488,6 +16055,12 @@ class $AppDatabaseManager {
       $$ChaptersTableTableManager(_db, _db.chapters);
   $$AnnotationsTableTableManager get annotations =>
       $$AnnotationsTableTableManager(_db, _db.annotations);
+  $$DecorationsTableTableManager get decorations =>
+      $$DecorationsTableTableManager(_db, _db.decorations);
+  $$DecorationRuleGroupsTableTableManager get decorationRuleGroups =>
+      $$DecorationRuleGroupsTableTableManager(_db, _db.decorationRuleGroups);
+  $$DecorationRulesTableTableManager get decorationRules =>
+      $$DecorationRulesTableTableManager(_db, _db.decorationRules);
   $$ReadingProgressTableTableManager get readingProgress =>
       $$ReadingProgressTableTableManager(_db, _db.readingProgress);
   $$UserFontsTableTableManager get userFonts =>

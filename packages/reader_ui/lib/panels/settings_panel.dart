@@ -6,6 +6,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
+import '../annotations/mark_settings.dart';
 import '../paging/page_turn_mode.dart';
 import '../tap_zones.dart';
 import '../theme/reader_background.dart';
@@ -100,6 +101,8 @@ class SettingsPanel extends StatefulWidget {
     this.section = SettingsSection.all,
     this.onOpenMarginEditor,
     this.onOpenTapZoneEditor,
+    this.onOpenMarkSettings,
+    this.markSettings = const ReaderMarkSettings(),
     this.marginsActive = false,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
@@ -170,6 +173,12 @@ class SettingsPanel extends StatefulWidget {
 
   /// 打开九宫格点击区域编辑页（设置段入口）。
   final VoidCallback? onOpenTapZoneEditor;
+
+  /// 打开划线外观与自定义颜色设置。
+  final VoidCallback? onOpenMarkSettings;
+
+  /// 当前划线默认外观。
+  final ReaderMarkSettings markSettings;
 
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
@@ -1017,6 +1026,35 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   List<Widget> _settingsChildren(ThemeData theme, {bool includeReset = true}) {
     return <Widget>[
+      if (widget.onOpenMarkSettings != null) ...[
+        Text(
+          '划线',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: ReaderDrawerStyle.textOf(theme),
+          ),
+        ),
+        const SizedBox(height: 4),
+        _SettingsEntryRow(
+          key: const ValueKey<String>('settings-mark'),
+          icon: Icons.format_underlined,
+          label: '默认样式、颜色与线宽',
+          onTap: widget.onOpenMarkSettings!,
+        ),
+        Text(
+          '${widget.markSettings.lastStyle.label} · '
+          '${widget.markSettings.strokeWidth.toStringAsFixed(1)}dp · '
+          '自定义颜色 ${widget.markSettings.customColors.length}/8',
+          style: TextStyle(
+            fontSize: 12,
+            color: ReaderDrawerStyle.secondaryOf(theme),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+        const SizedBox(height: 12),
+      ],
       Text(
         '选择翻页方式',
         style: TextStyle(

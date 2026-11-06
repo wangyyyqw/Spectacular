@@ -50,14 +50,14 @@ void main() {
 
     final annotationStore = library.annotationStore(book.id)!;
     await annotationStore.add(
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: 'epubcfi(/6/4!/4/2/1:3)',
       endCfi: 'epubcfi(/6/4!/4/2/1:9)',
       quote: '保留的高亮',
       color: 0xFFFFEB3B,
     );
     await annotationStore.add(
-      type: ReaderAnnotationType.note,
+      type: ReaderAnnotationType.thought,
       startCfi: 'epubcfi(/6/4!/4/2/1:12)',
       endCfi: 'epubcfi(/6/4!/4/2/1:18)',
       quote: '保留的笔记',
@@ -114,7 +114,7 @@ void main() {
     );
     expect(
       annotations
-          .singleWhere((item) => item.type == ReaderAnnotationType.note)
+          .singleWhere((item) => item.type == ReaderAnnotationType.thought)
           .note,
       '重新导入后仍应存在',
     );

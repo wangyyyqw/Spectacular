@@ -60,10 +60,14 @@ String _stripIdentityColumns(String statement) =>
           '',
         );
 
-String _stripRevisionColumns(String statement) => statement.replaceAll(
-  RegExp(r',\s*"?(content_revision|anchor_json)"?\s+TEXT(\s+NULL)?'),
-  '',
-);
+String _stripV15Columns(String statement) =>
+    statement.replaceAll(RegExp(r',\s*"?opacity"?\s+REAL(\s+NULL)?'), '');
+
+String _stripRevisionColumns(String statement) => _stripV15Columns(statement)
+    .replaceAll(
+      RegExp(r',\s*"?(content_revision|anchor_json)"?\s+TEXT(\s+NULL)?'),
+      '',
+    );
 
 /// 从当前 schema 导出 v1 建表语句（排除后续版本新增的表）。
 Future<List<String>> _v1Schema() async {
@@ -76,6 +80,7 @@ Future<List<String>> _v1Schema() async {
         "'reading_sessions', 'idx_session_time', 'shelf_groups', "
         "'shelf_group_books', 'idx_shelf_group_book_group', 'book_tags', "
         "'book_tag_links', 'idx_book_tag_link_tag', 'book_id_aliases') "
+        "AND name NOT LIKE 'decoration%' AND name NOT LIKE 'idx_decoration%' "
         "AND name NOT LIKE 'sqlite_%'",
       )
       .get();
@@ -93,7 +98,7 @@ Future<List<String>> _v10Schema() async {
   final rows = await database
       .customSelect(
         'SELECT sql FROM sqlite_master WHERE sql IS NOT NULL '
-        "AND type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'book_id_aliases' ORDER BY rowid",
+        "AND type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'book_id_aliases' AND name NOT LIKE 'decoration%' ORDER BY rowid",
       )
       .get();
   final sql = <String>[
@@ -137,6 +142,9 @@ void main() {
         'book_tags',
         'book_tag_links',
         'book_id_aliases',
+        'decorations',
+        'decoration_rule_groups',
+        'decoration_rules',
       ]),
     );
     final indexes = await database
@@ -156,6 +164,10 @@ void main() {
         'idx_session_time',
         'idx_shelf_group_book_group',
         'idx_book_tag_link_tag',
+        'idx_decoration_book',
+        'idx_decoration_range',
+        'idx_decoration_group_book',
+        'idx_decoration_rule_group',
       ]),
     );
     final foreignKeys = await database
@@ -167,7 +179,7 @@ void main() {
           .customSelect('PRAGMA user_version')
           .getSingle()
           .then((row) => row.read<int>('user_version')),
-      14,
+      15,
     );
   });
 
@@ -181,11 +193,62 @@ void main() {
     expect((await database.select(database.books).get()).length, 1);
   });
 
-  test('v12→v14增加身份与锚点列，原主键和元数据保持不变', () async {
+  test('v14→v15保留波浪虚线与空颜色，空想法降划线，书签完全不动', () async {
     final template = await _openFresh();
     final schema = await template
         .customSelect(
-          "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'book_id_aliases' ORDER BY rowid",
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+          "AND name NOT LIKE 'decoration%' ORDER BY rowid",
+        )
+        .get();
+    final raw = sqlite.sqlite3.openInMemory();
+    for (final row in schema) {
+      raw.execute(_stripV15Columns(row.read<String>('sql')));
+    }
+    raw.execute('PRAGMA user_version = 14');
+    raw.execute(
+      "INSERT INTO books (id,uuid,title,content_dir,created_at) VALUES (7,'v14','旧书','books/v14',1)",
+    );
+    raw.execute(
+      'INSERT INTO annotations (id,book_id,type,start_cfi,end_cfi,quote,note,color,style,created_at,updated_at) VALUES '
+      "('mark',7,0,'a','b','划线',NULL,NULL,2,1,1),"
+      "('thought',7,1,'c','d','想法','保留正文',123,3,1,1),"
+      "('empty',7,1,'e','f','空想法',' \n\t ',NULL,NULL,1,1),"
+      "('bookmark',7,2,'g','g','书签',' ',NULL,3,1,1)",
+    );
+    final beforeBookmark = raw
+        .select("SELECT * FROM annotations WHERE id='bookmark'")
+        .single;
+    final before = Map<String, Object?>.from(beforeBookmark);
+    final database = AppDatabase(NativeDatabase.opened(raw));
+    addTearDown(database.close);
+    await database.warmUp();
+    final rows = {
+      for (final row in await database.select(database.annotations).get())
+        row.id: row,
+    };
+    expect(rows['mark']!.type, 0);
+    expect(rows['mark']!.style, 2);
+    expect(rows['mark']!.color, isNull);
+    expect(rows['thought']!.type, 1);
+    expect(rows['thought']!.note, '保留正文');
+    expect(rows['thought']!.style, 3);
+    expect(rows['empty']!.type, 0);
+    expect(rows['empty']!.style, isNull);
+    expect(rows.values.every((row) => row.opacity == null), isTrue);
+    final after =
+        (await database
+                .customSelect("SELECT * FROM annotations WHERE id='bookmark'")
+                .getSingle())
+            .data;
+    expect({...after}..remove('opacity'), before);
+  });
+
+  test('v12→v15增加身份、锚点和装饰，原主键和元数据保持不变', () async {
+    final template = await _openFresh();
+    final schema = await template
+        .customSelect(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'book_id_aliases' AND name NOT LIKE 'decoration%' ORDER BY rowid",
         )
         .get();
     final raw = sqlite.sqlite3.openInMemory();
@@ -210,15 +273,15 @@ void main() {
       (await db.customSelect('PRAGMA user_version').getSingle()).read<int>(
         'user_version',
       ),
-      14,
+      15,
     );
   });
 
-  test('v13→v14保留原CFI和用户数据，新锚点为空', () async {
+  test('v13→v15保留原CFI和用户数据，新锚点为空', () async {
     final template = await _openFresh();
     final schema = await template
         .customSelect(
-          "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'book_id_aliases' ORDER BY rowid",
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'book_id_aliases' AND name NOT LIKE 'decoration%' ORDER BY rowid",
         )
         .get();
     final raw = sqlite.sqlite3.openInMemory();
@@ -339,7 +402,7 @@ void main() {
     expect(await database.select(database.readingSessions).get(), isEmpty);
   });
 
-  test('v1→v14 迁移：数据保留并新增报告、进度列、书评、会话、软删除、分组、标签、阅读统计与身份列', () async {
+  test('v1→v15 迁移：原数据与历次新表、列均保留', () async {
     final raw = sqlite.sqlite3.openInMemory();
     for (final statement in await _v1Schema()) {
       raw.execute(statement);
@@ -358,7 +421,7 @@ void main() {
     final version = await database
         .customSelect('PRAGMA user_version')
         .getSingle();
-    expect(version.read<int>('user_version'), 14, reason: 'schema 已升到 v14');
+    expect(version.read<int>('user_version'), 15, reason: 'schema 已升到 v15');
     final columns = await database
         .customSelect('PRAGMA table_info(reading_progress)')
         .get();

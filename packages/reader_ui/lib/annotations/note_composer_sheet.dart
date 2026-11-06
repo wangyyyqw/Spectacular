@@ -1,36 +1,58 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'annotation.dart';
+import 'annotation_appearance_editor.dart';
+import 'annotation_editor_sheet.dart';
+import 'annotation_quote_preview.dart';
+import 'mark_settings.dart';
 
-/// 新建笔记时打开的底部编辑弹层。
+/// 新建纯文本想法，外观与正文一起保存。
 class ReaderNoteComposerSheet extends StatefulWidget {
-  /// 创建笔记编辑弹层。
+  /// 创建想法编辑器。
   const ReaderNoteComposerSheet({
     super.key,
     required this.quote,
+    this.markSettings = const ReaderMarkSettings(),
+    this.initialOpacity,
     this.inkMode = false,
   });
 
-  /// 当前选中的原文。
+  /// 选中的原文。
   final String quote;
 
-  /// 墨水屏模式：原文预览按黑色下划线呈现，不使用彩色底块。
-  final bool inkMode;
+  /// 上次使用的划线外观。
+  final ReaderMarkSettings markSettings;
 
+  /// 升级已有划线时保留其透明度。
+  final double? initialOpacity;
+
+  /// 墨水屏模式。
+  final bool inkMode;
   @override
   State<ReaderNoteComposerSheet> createState() =>
       _ReaderNoteComposerSheetState();
 }
 
 class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
-  final TextEditingController _controller = TextEditingController();
+  final _controller = TextEditingController();
+  late ReaderMarkSettings _settings = widget.markSettings;
+  late int _color = widget.markSettings.lastColor;
+  late ReaderAnnotationStyle _style = widget.markSettings.lastStyle;
+  late double _opacity = widget.initialOpacity ?? _style.defaultOpacity;
   bool _allowPop = false;
-  bool _discardDialogVisible = false;
+  bool _dialogVisible = false;
   bool _closing = false;
-
-  String get _trimmedNote => _controller.text.trim();
-
-  bool get _dirty => _trimmedNote.isNotEmpty;
+  String get _note => _controller.text.trim();
+  bool get _dirty =>
+      _note.isNotEmpty ||
+      _color != widget.markSettings.lastColor ||
+      _style != widget.markSettings.lastStyle ||
+      _opacity !=
+          (widget.initialOpacity ??
+              widget.markSettings.lastStyle.defaultOpacity) ||
+      _settings != widget.markSettings;
 
   @override
   void dispose() {
@@ -38,33 +60,27 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
     super.dispose();
   }
 
-  void _finish(String note) {
-    if (_closing) {
-      return;
-    }
+  void _pop([AnnotationEditAction? action]) {
+    if (_closing) return;
     _closing = true;
-    if (_allowPop) {
-      Navigator.of(context).pop(note);
-      return;
-    }
     setState(() => _allowPop = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        Navigator.of(context).pop(note);
-      }
+      if (mounted) Navigator.of(context).pop(action);
     });
   }
 
-  Future<bool> _confirmDiscard() async {
-    if (_discardDialogVisible) {
-      return false;
+  Future<void> _close() async {
+    if (_closing || _dialogVisible) return;
+    if (!_dirty) {
+      _pop();
+      return;
     }
-    _discardDialogVisible = true;
+    _dialogVisible = true;
     final discard = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('放弃未保存的笔记？'),
-        content: const Text('笔记内容还没有保存，离开后本次输入会丢失。'),
+        title: const Text('放弃未保存的想法？'),
+        content: const Text('想法内容或划线外观还没有保存，离开后本次输入会丢失。'),
         actions: [
           TextButton(
             key: const ValueKey<String>('note-discard-cancel'),
@@ -74,237 +90,141 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
           FilledButton(
             key: const ValueKey<String>('note-discard-confirm'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃笔记'),
+            child: const Text('放弃想法'),
           ),
         ],
       ),
     );
-    _discardDialogVisible = false;
-    return discard == true;
+    _dialogVisible = false;
+    if (discard == true && mounted) _pop();
   }
 
-  Future<void> _close() async {
-    if (_closing) {
-      return;
-    }
-    if (!_dirty) {
-      _closing = true;
-      Navigator.of(context).pop();
-      return;
-    }
-    final discard = await _confirmDiscard();
-    if (!discard || !mounted) {
-      return;
-    }
-    _closing = true;
-    setState(() => _allowPop = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-    });
-  }
+  void _save() => _pop(
+    AnnotationEditAction.save(
+      color: _color,
+      style: _style,
+      opacity: _opacity,
+      note: _note,
+      markSettings: _settings.copyWith(lastColor: _color, lastStyle: _style),
+    ),
+  );
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return PopScope(
-      canPop: !_dirty || _allowPop,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          _close();
-        }
-      },
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Material(
-          key: const ValueKey<String>('note-composer-sheet'),
-          color: theme.colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-          clipBehavior: Clip.antiAlias,
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const _ComposerHandle(),
-                        const SizedBox(height: 14),
-                        _ComposerHeader(onClose: _close),
-                        const SizedBox(height: 8),
-                        _ComposerQuotePreview(
-                          quote: widget.quote,
-                          inkMode: widget.inkMode,
-                        ),
-                        const SizedBox(height: 16),
-                        Text('笔记内容', style: theme.textTheme.labelLarge),
-                        const SizedBox(height: 8),
-                        TextField(
-                          key: const ValueKey<String>('note-composer-input'),
-                          controller: _controller,
-                          autofocus: true,
-                          minLines: 4,
-                          maxLines: 8,
-                          textInputAction: TextInputAction.newline,
-                          onChanged: (_) => setState(() {}),
-                          decoration: InputDecoration(
-                            hintText: '写下此刻的想法…',
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerLow,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(4),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(4),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_dirty || _allowPop,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) unawaited(_close());
+    },
+    child: AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Material(
+        key: const ValueKey<String>('note-composer-sheet'),
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                  child: _content(context),
+                ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
                     ),
                   ),
                 ),
-                _ComposerActions(
-                  canSave: _trimmedNote.isNotEmpty,
-                  onSave: () => _finish(_trimmedNote),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+                  child: FilledButton.icon(
+                    key: const ValueKey<String>('note-composer-save'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    onPressed: _note.isEmpty ? null : _save,
+                    icon: const Icon(Icons.check),
+                    label: const Text('保存想法'),
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
-    );
-  }
-}
+    ),
+  );
 
-class _ComposerQuotePreview extends StatelessWidget {
-  const _ComposerQuotePreview({required this.quote, required this.inkMode});
-
-  final String quote;
-  final bool inkMode;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      key: ValueKey<String>(
-        inkMode ? 'note-composer-ink-preview' : 'note-composer-quote-preview',
+  Widget _content(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          const Icon(Icons.sticky_note_2_outlined),
+          const SizedBox(width: 8),
+          Text('添加想法', style: Theme.of(context).textTheme.titleMedium),
+          const Spacer(),
+          IconButton(
+            key: const ValueKey<String>('note-composer-close'),
+            onPressed: _close,
+            tooltip: '关闭',
+            icon: const Icon(Icons.close),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: inkMode
-            ? theme.colorScheme.surfaceContainerLow
-            : Color(defaultHighlightColor).withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(4),
+      AnnotationQuotePreview(
+        key: ValueKey<String>(
+          widget.inkMode
+              ? 'note-composer-ink-preview'
+              : 'note-composer-quote-preview',
+        ),
+        quote: widget.quote,
+        color: _color,
+        style: _style,
+        opacity: _opacity,
+        strokeWidth: _settings.strokeWidth,
+        inkMode: widget.inkMode,
+        thought: true,
       ),
-      child: Container(
-        padding: EdgeInsets.only(bottom: inkMode ? 6 : 0),
-        decoration: inkMode
-            ? const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFF000000), width: 2),
-                ),
-              )
-            : null,
-        child: Text(
-          quote,
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+      const SizedBox(height: 16),
+      Text('想法内容', style: Theme.of(context).textTheme.labelLarge),
+      const SizedBox(height: 8),
+      TextField(
+        key: const ValueKey<String>('note-composer-input'),
+        controller: _controller,
+        autofocus: true,
+        minLines: 4,
+        maxLines: 8,
+        textInputAction: TextInputAction.newline,
+        onChanged: (_) => setState(() {}),
+        decoration: const InputDecoration(
+          hintText: '写下此刻的想法…',
+          border: OutlineInputBorder(),
         ),
       ),
-    );
-  }
-}
-
-class _ComposerActions extends StatelessWidget {
-  const _ComposerActions({required this.canSave, required this.onSave});
-
-  final bool canSave;
-  final VoidCallback onSave;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(
-          top: BorderSide(color: theme.colorScheme.outlineVariant),
-        ),
+      const SizedBox(height: 16),
+      ReaderAnnotationAppearanceEditor(
+        color: _color,
+        style: _style,
+        opacity: _opacity,
+        settings: _settings,
+        inkMode: widget.inkMode,
+        onColor: (value) => setState(() => _color = value),
+        onStyle: (value) => setState(() {
+          _style = value;
+          _opacity = value.defaultOpacity;
+        }),
+        onOpacity: (value) => setState(() => _opacity = value),
+        onSettings: (value) => setState(() => _settings = value),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
-        child: FilledButton.icon(
-          key: const ValueKey<String>('note-composer-save'),
-          onPressed: canSave ? onSave : null,
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
-          icon: const Icon(Icons.check, size: 20),
-          label: const Text('保存笔记'),
-        ),
-      ),
-    );
-  }
-}
-
-class _ComposerHandle extends StatelessWidget {
-  const _ComposerHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 36,
-        height: 4,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.outlineVariant,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    );
-  }
-}
-
-class _ComposerHeader extends StatelessWidget {
-  const _ComposerHeader({required this.onClose});
-
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        Icon(
-          Icons.edit_note_rounded,
-          size: 22,
-          color: theme.colorScheme.primary,
-        ),
-        const SizedBox(width: 8),
-        Text('添加笔记', style: theme.textTheme.titleMedium),
-        const Spacer(),
-        IconButton(
-          key: const ValueKey<String>('note-composer-close'),
-          onPressed: onClose,
-          tooltip: '关闭',
-          icon: const Icon(Icons.close, size: 20),
-        ),
-      ],
-    );
-  }
+    ],
+  );
 }

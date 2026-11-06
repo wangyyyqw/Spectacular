@@ -50,7 +50,8 @@ class EpubChapterSource
     implements
         RestylableChapterSource,
         ResizableChapterSource,
-        TocChapterSource {
+        TocChapterSource,
+        ReaderTextOverlaySource {
   EpubChapterSource._({
     required this.document,
     required this.baseContentWidth,
@@ -117,6 +118,11 @@ class EpubChapterSource
   final bool trimTextEdges;
 
   ReaderOverrides _overrides = const ReaderOverrides();
+
+  ReaderTextOverlayResolver _textOverlayResolver = ReaderTextOverlayResolver(
+    const [],
+    colors: false,
+  );
 
   /// 阅读页传入的正文区尺寸（旋转/窗口变化后由 ReaderSession 设置）。
   double? _viewportContentWidth;
@@ -539,7 +545,8 @@ class EpubChapterSource
       '$spineIndex@${contentWidth.toString()}x${contentHeight.toString()}'
       '|top=${_contentTopInset.toString()}'
       '|spacing=$textSpacingRevision'
-      '|${_overrides.fingerprint}';
+      '|${_overrides.fingerprint}'
+      '|text=${_textOverlayResolver.typographyFingerprint}';
 
   /// 原文解析与 display 聚合只依赖章节和视口宽度；阅读设置变化时可复用。
   String _structureKey(int spineIndex) =>
@@ -719,6 +726,7 @@ class EpubChapterSource
     required double spaceAfter,
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
     List<PageFootnote> footnotes = const <PageFootnote>[],
+    bool textRuleEligible = true,
     List<RubyAnnotation>? rubies,
     String? startCfi,
     int groupId = 0,
@@ -740,6 +748,7 @@ class EpubChapterSource
       leftInset: model.borders.left + model.padding.left,
       inlineImages: inlineImages,
       footnotes: footnotes,
+      textRuleEligible: textRuleEligible,
       rubies: rubies,
       declaredContentHeight: model.resolveContentHeight(
         layout.height,
@@ -1017,6 +1026,25 @@ class EpubChapterSource
           : computed.withTypography(fontFamilyList: families);
     }
     return computed.withTypography(fontFamily: _overrides.fontFamily);
+  }
+
+  /// 替换原文覆盖；字体度量变更重排，颜色变更保留全部测量缓存。
+  @override
+  Future<bool> applyTextOverlays(List<ReaderTextOverlay> overlays) async {
+    final next = ReaderTextOverlayResolver(overlays, colors: false);
+    final previous = _textOverlayResolver.typographyFingerprint;
+    final fingerprint = next.typographyFingerprint;
+    _textOverlayResolver = next;
+    if (previous == fingerprint) return false;
+    _layoutGeneration += 1;
+    _logInvalidation('textTypographyChanged', previous, fingerprint);
+    _pageCache.clear();
+    _pageCacheOrder.clear();
+    _paginationFontFamilies.clear();
+    _pageIndexCache.clear();
+    _blockCache.clear();
+    _blockCacheOrder.clear();
+    return true;
   }
 
   @override
@@ -3999,6 +4027,7 @@ class EpubChapterSource
                 pageBreakBefore: block.pageBreakBefore,
                 pageBreakAfter: block.pageBreakAfter,
                 startCfi: block.startCfi,
+                textRuleEligible: block.textRuleEligible,
                 breakInsideAvoid: block.breakInsideAvoid,
                 breakAfterAvoid: block.breakAfterAvoid,
                 leftInset: block.leftInset,
@@ -4165,6 +4194,7 @@ class EpubChapterSource
               pageBreakBefore: block.pageBreakBefore,
               pageBreakAfter: block.pageBreakAfter,
               startCfi: block.startCfi,
+              textRuleEligible: block.textRuleEligible,
               breakInsideAvoid: block.breakInsideAvoid,
               breakAfterAvoid: block.breakAfterAvoid,
               leftInset: block.leftInset,
@@ -6927,6 +6957,15 @@ class EpubChapterSource
     }) {
       if (node is TextBlockNode) {
         final cfi = node is TextContentNode ? node.cfi.serialize() : null;
+        final textRuleEligible = !ancestors.any(
+          (element) =>
+              element.tag == 'header' ||
+              element.tag == 'footer' ||
+              FootnoteParser.isDefinitionElement(
+                element.tag,
+                element.attributes,
+              ),
+        );
         // 链末位即当前块上下文（P8-02：链式级联含全部祖先）。
         final tag = ancestors.isEmpty ? 'body' : ancestors.last.tag;
         final isHeading = _headingTags.contains(tag);
@@ -7668,6 +7707,15 @@ class EpubChapterSource
         if (firstLetter != null) {
           runs = [...runs, firstLetter];
         }
+        final contentCfi = dropCapText == null || cfi == null
+            ? cfi
+            : cfiWithCharOffset(cfi, dropCapText.length);
+        runs = _textOverlayResolver.resolve(
+          blockCfi: contentCfi,
+          text: paragraphText,
+          style: measureStyle,
+          runs: runs,
+        );
         // 浮动块（f/W12）：`float` 走级联后的计算样式；容器上的 float
         //（如双列目录 `.dk-toc-item`）经传导带给子块，子块按容器内容宽
         // 排版并整体进同一个浮动盒。
@@ -7766,9 +7814,6 @@ class EpubChapterSource
         }
         // 首字拆出后，正文块内偏移 0 已对应原文偏移
         // dropCapText.length；锚点 CFI 也同步前移，标注区间才不会错一位。
-        final contentCfi = dropCapText == null || cfi == null
-            ? cfi
-            : cfiWithCharOffset(cfi, dropCapText.length);
         if (layout.lineCount > 0) {
           // 相对定位只抵扣下一个常规流块；绝对/固定定位和浮动不占流，
           // 不能在中途吞掉抵扣，否则其后的正文会整体多下移一次。
@@ -7806,6 +7851,7 @@ class EpubChapterSource
                       ]
                     : null,
                 startCfi: contentCfi,
+                textRuleEligible: textRuleEligible,
                 // 容器浮动组用专属组号（分页时整组当一个浮动盒）。
                 groupId: floatSide == containerFloat && containerFloat != null
                     ? containerFloatGroup
@@ -7821,6 +7867,7 @@ class EpubChapterSource
             style: blockStyle,
             containingWidth: contentWidth,
             startCfi: contentCfi,
+            textRuleEligible: textRuleEligible,
             groupId: groupId,
             listMarker: marker,
             // 块级上下边距进分页几何（含负值）：作者/UA margin 生效，
@@ -7872,6 +7919,7 @@ class EpubChapterSource
               leftInset: textBlock.leftInset + relativeLeft,
               startCfi: textBlock.startCfi,
               endCfi: textBlock.endCfi,
+              textRuleEligible: textBlock.textRuleEligible,
               groupId: textBlock.groupId,
               listMarker: textBlock.listMarker,
               rubies: textBlock.rubies,

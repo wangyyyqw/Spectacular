@@ -11,7 +11,9 @@ import 'package:reader_ui/annotations/annotation_editor_sheet.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
 import 'package:reader_ui/annotations/note_composer_sheet.dart';
+import 'package:reader_ui/annotations/thought_marker.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/panels/annotation_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -88,6 +90,7 @@ class _Notes implements ReaderAnnotationStore {
       contextAfter: item.contextAfter,
       color: item.color,
       style: item.style,
+      opacity: item.opacity,
       note: item.note,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
@@ -106,8 +109,26 @@ class _Notes implements ReaderAnnotationStore {
     String? contextAfter,
     int? color,
     ReaderAnnotationStyle style = ReaderAnnotationStyle.background,
+    double? opacity,
     String? note,
   }) async {
+    final existingIndex = items.indexWhere(
+      (item) => item.startCfi == startCfi && item.endCfi == endCfi,
+    );
+    if (existingIndex >= 0) {
+      final existing = items[existingIndex];
+      await update(
+        existing.id,
+        type: existing.type == ReaderAnnotationType.thought
+            ? ReaderAnnotationType.thought
+            : type,
+        color: color,
+        style: style,
+        opacity: opacity,
+        note: type == ReaderAnnotationType.thought ? note : null,
+      );
+      return items[existingIndex];
+    }
     final now = DateTime.now();
     final item = ReaderAnnotation(
       id: '${items.length}',
@@ -115,8 +136,11 @@ class _Notes implements ReaderAnnotationStore {
       startCfi: startCfi,
       endCfi: endCfi,
       quote: quote,
+      contextBefore: contextBefore,
+      contextAfter: contextAfter,
       color: color,
       style: style,
+      opacity: opacity,
       note: note,
       createdAt: now,
       updatedAt: now,
@@ -131,6 +155,7 @@ class _Notes implements ReaderAnnotationStore {
     ReaderAnnotationType? type,
     int? color,
     ReaderAnnotationStyle? style,
+    double? opacity,
     String? note,
     bool clearNote = false,
   }) async {
@@ -149,6 +174,7 @@ class _Notes implements ReaderAnnotationStore {
       contextAfter: old.contextAfter,
       color: color ?? old.color,
       style: style ?? old.style,
+      opacity: opacity ?? old.opacity,
       note: clearNote ? null : note ?? old.note,
       createdAt: old.createdAt,
       updatedAt: DateTime.now(),
@@ -161,7 +187,7 @@ class _Notes implements ReaderAnnotationStore {
 }
 
 Future<void> _openEditor(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('selection-action-note')));
+  await tester.tap(find.byKey(const ValueKey('selection-action-thought')));
   await tester.pumpAndSettle();
   expect(
     find.byKey(const ValueKey<String>('note-composer-sheet')),
@@ -225,7 +251,7 @@ Future<void> _finishExit(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('打开笔记编辑层时隐藏选区菜单，关闭后恢复', (tester) async {
+  testWidgets('打开想法编辑层时隐藏选区菜单，关闭后恢复', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     await tester.pumpWidget(
@@ -255,7 +281,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('selection-action-note')));
+    await tester.tap(find.byKey(const ValueKey('selection-action-thought')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('note-composer-sheet')),
@@ -274,7 +300,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('selection-action-note')));
+    await tester.tap(find.byKey(const ValueKey('selection-action-thought')));
     await tester.pumpAndSettle();
     await tester.enterText(_composerInput, '保存后仍可再次打开选区菜单');
     await tester.pump();
@@ -293,7 +319,7 @@ void main() {
     );
   });
 
-  testWidgets('键盘弹出时新建笔记操作栏固定在键盘上方', (tester) async {
+  testWidgets('键盘弹出时新建想法操作栏固定在键盘上方', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.resetPhysicalSize);
@@ -310,13 +336,13 @@ void main() {
     expect(rect.bottom, lessThanOrEqualTo(300), reason: '保存按钮被键盘遮挡');
   });
 
-  testWidgets('目录抽屉可打开笔记页签并展示标注', (tester) async {
+  testWidgets('目录抽屉可打开标注页签并展示划线', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'drawer-note',
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: '抽屉里的高亮原文',
@@ -365,9 +391,15 @@ void main() {
             find.byKey(const ValueKey<String>('reader-drawer-title')),
           )
           .data,
-      '笔记',
+      '标注',
     );
-    expect(find.text('笔记与高亮'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AnnotationPanel),
+        matching: find.text('标注'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('抽屉里的高亮原文'), findsOneWidget);
 
     await tester.tap(
@@ -380,13 +412,13 @@ void main() {
     );
   });
 
-  testWidgets('目录抽屉可批量更换高亮和笔记颜色', (tester) async {
+  testWidgets('目录抽屉可批量更换划线和想法颜色', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.addAll([
       ReaderAnnotation(
         id: 'drawer-highlight',
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: '第一条待换色标注',
@@ -396,7 +428,7 @@ void main() {
       ),
       ReaderAnnotation(
         id: 'drawer-note',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:5)',
         endCfi: 'epubcfi(/6/2!/4/2/1:9)',
         quote: '第二条待换色标注',
@@ -453,7 +485,7 @@ void main() {
     expect(find.text('已更换 2 条标注颜色'), findsOneWidget);
   });
 
-  testWidgets('保存笔记后退场无异常，保存最新输入并清除选区', (tester) async {
+  testWidgets('保存想法后退场无异常，保存最新输入并清除选区', (tester) async {
     final notes = await _showEditor(tester);
     await tester.enterText(find.byType(TextField), '第一版');
     await tester.enterText(find.byType(TextField), '  最终笔记  ');
@@ -461,19 +493,96 @@ void main() {
     await tester.tap(_composerSave);
     await _finishExit(tester);
     expect(notes.items, hasLength(1));
-    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.type, ReaderAnnotationType.thought);
     expect(notes.items.single.note, '最终笔记');
     expect(notes.items.single.quote, 'word');
     expect(find.byType(SelectionLayer), findsNothing);
   });
 
-  testWidgets('已有高亮可补写笔记并转为笔记', (tester) async {
+  testWidgets('同区间快捷划线保留原想法，撤销恢复样式与透明度', (tester) async {
+    final source = _Source();
+    final notes = _Notes(source);
+    notes.items.add(
+      ReaderAnnotation(
+        id: 'same-range-thought',
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+        quote: 'word',
+        note: '快捷划线不能删除这条想法',
+        color: 0xFF90CAF9,
+        style: ReaderAnnotationStyle.wavyUnderline,
+        opacity: 0.41,
+        createdAt: DateTime(2026, 11, 3),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            annotations: notes,
+            bookId: 'same-range-thought',
+            padding: EdgeInsets.zero,
+            overrides: const ReaderOverrides(),
+            showPageFooter: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final line = TextHitTester.lineBoxes(source.pages.first).first;
+    final wordPosition =
+        tester.getTopLeft(find.byType(ReaderView)) +
+        Offset(line.rect.left + 6, line.rect.center.dy);
+    await tester.longPressAt(wordPosition);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-mark')),
+    );
+    await tester.pumpAndSettle();
+    expect(notes.items, hasLength(1));
+    expect(notes.items.single.id, 'same-range-thought');
+    expect(notes.items.single.type, ReaderAnnotationType.thought);
+    expect(notes.items.single.note, '快捷划线不能删除这条想法');
+    expect(notes.items.single.style, ReaderAnnotationStyle.underline);
+    expect(notes.items.single.color, defaultHighlightColor);
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(notes.items, hasLength(1));
+    expect(notes.items.single.style, ReaderAnnotationStyle.wavyUnderline);
+    expect(notes.items.single.color, 0xFF90CAF9);
+    expect(notes.items.single.opacity, 0.41);
+    expect(notes.items.single.note, '快捷划线不能删除这条想法');
+    await tester.longPressAt(wordPosition);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('selection-action-thought')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderAnnotationEditorSheet), findsOneWidget);
+    expect(find.byType(ReaderNoteComposerSheet), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey<String>('annotation-note-input')),
+          )
+          .controller
+          ?.text,
+      '快捷划线不能删除这条想法',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('已有划线可补写想法并升级同一记录', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'highlight-to-note',
-        type: ReaderAnnotationType.highlight,
+        type: ReaderAnnotationType.mark,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -520,7 +629,7 @@ void main() {
     expect(
       tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
       isTrue,
-      reason: '点击添加笔记后应直接聚焦输入框',
+      reason: '点击添加想法后应直接聚焦输入框',
     );
     await tester.enterText(input, '  补写的高亮笔记  ');
     await tester.pump();
@@ -530,19 +639,19 @@ void main() {
     await tester.tap(save);
     await tester.pumpAndSettle();
 
-    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.type, ReaderAnnotationType.thought);
     expect(notes.items.single.note, '补写的高亮笔记');
     expect(
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsNothing,
     );
-    expect(find.text('已添加笔记'), findsOneWidget);
+    expect(find.text('已添加想法'), findsOneWidget);
   });
 
-  testWidgets('墨水屏编辑高亮时不显示无效的颜色选项', (tester) async {
+  testWidgets('墨水屏编辑划线时不显示无效的颜色选项', (tester) async {
     final annotation = ReaderAnnotation(
       id: 'ink-editor',
-      type: ReaderAnnotationType.highlight,
+      type: ReaderAnnotationType.mark,
       startCfi: 'epubcfi(/6/2!/4/2/1:0)',
       endCfi: 'epubcfi(/6/2!/4/2/1:4)',
       quote: 'word',
@@ -596,7 +705,7 @@ void main() {
     );
   });
 
-  testWidgets('墨水屏新建笔记预览使用黑色下划线', (tester) async {
+  testWidgets('墨水屏新建想法预览使用黑色下划线', (tester) async {
     Widget sheet({required bool inkMode}) => MaterialApp(
       home: Scaffold(
         body: ReaderNoteComposerSheet(quote: 'word', inkMode: inkMode),
@@ -620,13 +729,13 @@ void main() {
     );
   });
 
-  testWidgets('点击笔记圆点打开笔记编辑层', (tester) async {
+  testWidgets('点击页边想法图标打开编辑层', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'note-marker',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -652,12 +761,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final line = TextHitTester.lineBoxes(source.pages.first).first;
-    final rect = SelectionOps.lineRectsFor(line, 0, 4).first;
-    final markerCenter = Offset(
-      rect.right + AnnotationDecorations.noteMarkerOffset,
-      rect.center.dy,
-    );
+    final markerCenter = ThoughtMarkerGeometry.markersFor(
+      source.pages.first,
+      AnnotationDecorations.linesFor(source.pages.first, notes.items),
+      contentWidth: tester.getSize(find.byType(AnnotationLayer)).width,
+    ).single.center;
 
     await tester.tapAt(
       tester.getTopLeft(find.byType(AnnotationLayer)) + markerCenter,
@@ -673,7 +781,7 @@ void main() {
     );
   });
 
-  testWidgets('点击已有笔记可修改正文并保存', (tester) async {
+  testWidgets('点击已有想法可修改正文并保存', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     await tester.pumpWidget(
@@ -736,7 +844,7 @@ void main() {
     await tester.enterText(reopenedInput, '未保存的修改');
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
-    expect(find.text('放弃未保存的笔记修改？'), findsOneWidget);
+    expect(find.text('放弃未保存的想法修改？'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-discard-cancel')),
@@ -757,7 +865,7 @@ void main() {
     expect(notes.items.single.note, '更新后的笔记');
   });
 
-  testWidgets('连续滚动模式下滚动后点击笔记圆点可打开编辑层', (tester) async {
+  testWidgets('连续滚动模式下滚动后点击想法图标可打开编辑层', (tester) async {
     final source = _Source(text: 'word ' * 160);
     final notes = _Notes(source);
     const start = 700;
@@ -783,7 +891,7 @@ void main() {
     notes.items.add(
       ReaderAnnotation(
         id: 'note-marker-scroll',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: annotationStartCfi,
         endCfi: annotationEndCfi,
         quote: 'word',
@@ -824,23 +932,16 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(position.pixels, greaterThan(offsetBeforeScroll));
-    final annotationLine = AnnotationDecorations.linesFor(
-      page,
-      notes.items,
-    ).single;
-    final rect = SelectionOps.lineRectsFor(
-      annotationLine.line,
-      annotationLine.startOffset,
-      annotationLine.endOffset,
-    ).last;
-    final markerCenter = Offset(
-      rect.right + AnnotationDecorations.noteMarkerOffset,
-      rect.center.dy,
-    );
     final layer = find.descendant(
       of: pageFinder,
       matching: find.byType(AnnotationLayer),
     );
+    final rendered = tester.widget<AnnotationLayer>(layer);
+    final markerCenter = ThoughtMarkerGeometry.markersFor(
+      rendered.page,
+      AnnotationDecorations.linesFor(rendered.page, rendered.annotations),
+      contentWidth: tester.getSize(layer).width,
+    ).single.center;
 
     await tester.tapAt(tester.getTopLeft(layer) + markerCenter);
     await tester.pumpAndSettle();
@@ -850,7 +951,7 @@ void main() {
     );
   });
 
-  testWidgets('连续滚动长按下方页面时选区与笔记引用命中该页', (tester) async {
+  testWidgets('连续滚动长按下方页面时选区与想法引用命中该页', (tester) async {
     tester.view.physicalSize = const Size(800, 400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -916,7 +1017,7 @@ void main() {
       SelectionOps.wordAt(source.pages[1], hit!),
     );
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-note')),
+      find.byKey(const ValueKey<String>('selection-action-thought')),
     );
     await tester.pumpAndSettle();
     final composer = tester.widget<ReaderNoteComposerSheet>(
@@ -1034,7 +1135,7 @@ void main() {
     notes.items.add(
       ReaderAnnotation(
         id: 'keyboard-actions',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -1084,13 +1185,13 @@ void main() {
     }
   });
 
-  testWidgets('修改笔记后换色或样式不会丢失草稿，可一次保存', (tester) async {
+  testWidgets('修改想法后换色或样式不会丢失草稿，可一次保存', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'draft-color',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -1136,7 +1237,7 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsOneWidget,
     );
-    expect(find.text('放弃未保存的笔记修改？'), findsNothing);
+    expect(find.text('放弃未保存的想法修改？'), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-color-0xFF90CAF9')),
@@ -1168,13 +1269,13 @@ void main() {
     expect(notes.items.single.note, '尚未保存的修改');
   });
 
-  testWidgets('删除笔记前确认，取消后保留弹层和正文', (tester) async {
+  testWidgets('删除想法标注前确认，取消后保留弹层和正文', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'confirm-remove',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -1211,7 +1312,7 @@ void main() {
     await tester.ensureVisible(remove);
     await tester.tap(remove);
     await tester.pumpAndSettle();
-    expect(find.text('删除这条笔记？'), findsOneWidget);
+    expect(find.text('删除这条标注？'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-remove-cancel')),
     );
@@ -1235,17 +1336,17 @@ void main() {
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
     expect(notes.items, hasLength(1));
-    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.type, ReaderAnnotationType.thought);
     expect(notes.items.single.note, '待删除笔记');
   });
 
-  testWidgets('仅删除笔记正文时保留高亮并可撤销', (tester) async {
+  testWidgets('仅删除想法正文时保留划线并可撤销', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'remove-note-only',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -1284,25 +1385,25 @@ void main() {
     await tester.ensureVisible(removeNote);
     await tester.tap(removeNote);
     await tester.pumpAndSettle();
-    expect(find.text('删除笔记正文？'), findsOneWidget);
+    expect(find.text('只删除这条想法？'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-remove-note-confirm')),
     );
     await tester.pumpAndSettle();
 
     expect(notes.items, hasLength(1));
-    expect(notes.items.single.type, ReaderAnnotationType.highlight);
+    expect(notes.items.single.type, ReaderAnnotationType.mark);
     expect(notes.items.single.note, isNull);
-    expect(find.text('已删除笔记正文，保留高亮'), findsOneWidget);
+    expect(find.text('已删除想法，保留划线'), findsOneWidget);
 
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
-    expect(notes.items.single.type, ReaderAnnotationType.note);
+    expect(notes.items.single.type, ReaderAnnotationType.thought);
     expect(notes.items.single.note, '需要保留高亮的笔记');
   });
 
   for (final action in ['取消', '遮罩', '系统返回']) {
-    testWidgets('$action 关闭笔记时确认放弃，可继续编辑且再次打开为空', (tester) async {
+    testWidgets('$action 关闭想法时确认放弃，可继续编辑且再次打开为空', (tester) async {
       final notes = await _showEditor(tester);
       await tester.enterText(find.byType(TextField), '未保存的草稿');
       await tester.pump();
@@ -1315,7 +1416,7 @@ void main() {
           await tester.binding.handlePopRoute();
       }
       await tester.pumpAndSettle();
-      expect(find.text('放弃未保存的笔记？'), findsOneWidget);
+      expect(find.text('放弃未保存的想法？'), findsOneWidget);
       await tester.tap(
         find.byKey(const ValueKey<String>('note-discard-cancel')),
       );
@@ -1331,7 +1432,7 @@ void main() {
 
       await tester.tap(_composerClose);
       await tester.pumpAndSettle();
-      expect(find.text('放弃未保存的笔记？'), findsOneWidget);
+      expect(find.text('放弃未保存的想法？'), findsOneWidget);
       await tester.tap(
         find.byKey(const ValueKey<String>('note-discard-confirm')),
       );
@@ -1349,7 +1450,7 @@ void main() {
     });
   }
 
-  testWidgets('空白笔记不可保存且保留选区', (tester) async {
+  testWidgets('空白想法不可保存且保留选区', (tester) async {
     final notes = await _showEditor(tester);
     await tester.enterText(_composerInput, '   ');
     await tester.pump();
@@ -1373,7 +1474,7 @@ void main() {
     notes.items.add(
       ReaderAnnotation(
         id: 'replace-toast',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -1414,18 +1515,20 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-remove-confirm')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已删除笔记'), findsOneWidget);
+    expect(find.text('已删除想法及划线'), findsOneWidget);
 
     await tester.longPressAt(wordPosition);
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-highlight')),
+      find.byKey(const ValueKey<String>('selection-action-mark')),
     );
     await tester.pumpAndSettle();
 
-    expect(notes.items.single.type, ReaderAnnotationType.highlight);
-    expect(find.text('已高亮'), findsOneWidget);
-    expect(find.text('已删除笔记'), findsNothing);
+    expect(notes.items.single.type, ReaderAnnotationType.mark);
+    expect(find.text('已划线'), findsOneWidget);
+    expect(notes.items.single.style, ReaderAnnotationStyle.underline);
+    expect(notes.items.single.color, defaultHighlightColor);
+    expect(find.text('已删除想法及划线'), findsNothing);
   });
 
   testWidgets('撤销提示会按设定时长自动消失', (tester) async {
@@ -1434,7 +1537,7 @@ void main() {
     notes.items.add(
       ReaderAnnotation(
         id: 'auto-hide-toast',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
         endCfi: 'epubcfi(/6/2!/4/2/1:4)',
         quote: 'word',
@@ -1475,15 +1578,15 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-remove-confirm')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已删除笔记'), findsOneWidget);
+    expect(find.text('已删除想法及划线'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
 
-    expect(find.text('已删除笔记'), findsNothing);
+    expect(find.text('已删除想法及划线'), findsNothing);
     expect(find.text('撤销'), findsNothing);
   });
-  testWidgets('连续滚动长按下方页面时选区与笔记引用命中该页', (tester) async {
+  testWidgets('连续滚动长按下方页面时选区与想法引用命中该页', (tester) async {
     tester.view.physicalSize = const Size(800, 400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1549,7 +1652,7 @@ void main() {
       SelectionOps.wordAt(source.pages[1], hit!),
     );
     await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-note')),
+      find.byKey(const ValueKey<String>('selection-action-thought')),
     );
     await tester.pumpAndSettle();
     final composer = tester.widget<ReaderNoteComposerSheet>(
@@ -1601,7 +1704,7 @@ void main() {
     expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
   });
 
-  testWidgets('连续滚动模式下滚动后点击笔记圆点可打开编辑层', (tester) async {
+  testWidgets('连续滚动模式下滚动后点击页边图标可打开想法编辑层', (tester) async {
     final source = _Source(text: 'word ' * 160);
     final notes = _Notes(source);
     const start = 700;
@@ -1627,7 +1730,7 @@ void main() {
     notes.items.add(
       ReaderAnnotation(
         id: 'note-marker-scroll',
-        type: ReaderAnnotationType.note,
+        type: ReaderAnnotationType.thought,
         startCfi: annotationStartCfi,
         endCfi: annotationEndCfi,
         quote: 'word',
@@ -1668,27 +1771,18 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(position.pixels, greaterThan(offsetBeforeScroll));
-    final annotationLine = AnnotationDecorations.linesFor(
-      page,
-      notes.items,
-    ).single;
-    final rect = SelectionOps.lineRectsFor(
-      annotationLine.line,
-      annotationLine.startOffset,
-      annotationLine.endOffset,
-    ).last;
-    final markerCenter = Offset(
-      rect.right + AnnotationDecorations.noteMarkerOffset,
-      rect.center.dy,
-    );
     final layer = find.descendant(
       of: pageFinder,
       matching: find.byType(AnnotationLayer),
     );
+    final rendered = tester.widget<AnnotationLayer>(layer);
+    final markerCenter = ThoughtMarkerGeometry.markersFor(
+      rendered.page,
+      AnnotationDecorations.linesFor(rendered.page, rendered.annotations),
+      contentWidth: tester.getSize(layer).width,
+    ).single.center;
 
-    await tester.tapAt(
-      tester.getTopLeft(layer) + markerCenter + const Offset(20, 0),
-    );
+    await tester.tapAt(tester.getTopLeft(layer) + markerCenter);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
