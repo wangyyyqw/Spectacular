@@ -9,7 +9,13 @@ void main() {
   test('码表无重复且字段齐全', () {
     final codes = EpubCodeTable.specs.map((spec) => spec.code).toList();
     expect(codes.toSet().length, codes.length, reason: '码不允许重复');
-    expect(codes.length, 46, reason: '现有 32 + 预留 14（P3-05/06 增 E_FAIRPLAY_ENCRYPTION、E_FONT_LOAD_FAILED）');
+    expect(
+      codes.length,
+      49,
+      reason: '现有 35 + 预留 14（P3-05/06 增 E_FAIRPLAY_ENCRYPTION、'
+          'E_FONT_LOAD_FAILED；本轮增 E_SPINE_FALLBACK、E_DUPLICATE、'
+          'E_IDENTITY_CONFLICT）',
+    );
     for (final spec in EpubCodeTable.specs) {
       expect(spec.source, isNotEmpty, reason: '${spec.code} 缺出处');
       expect(

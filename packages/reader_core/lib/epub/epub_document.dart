@@ -160,26 +160,40 @@ Future<EpubOpenResult> _finishOpen({
   String? opfString,
 }) async {
   {
-    if (package.spine.isEmpty) {
-      return EpubOpenResult(
-        report: ImportReport(
-          ok: false,
-          errorCode: 'E_SPINE_EMPTY',
-          readabilityLevel: EpubReadability.l4,
-          message: 'spine 为空，无法分页',
-          warnings: warnings,
-        ),
+    var effectivePackage = package;
+    if (effectivePackage.spine.isEmpty) {
+      // L3 恢复（对照 Ferrous `epub_fallback_parser.dart`）：spine 声明缺失或
+      // 全部失效时按 manifest/文件扫描重建阅读顺序，比直接拒绝有价值。
+      final recovered = recoverSpine(
+        archive: archive,
+        package: effectivePackage,
+        opfPath: opfPath,
       );
+      if (recovered == null) {
+        return EpubOpenResult(
+          report: ImportReport(
+            ok: false,
+            errorCode: 'E_SPINE_EMPTY',
+            readabilityLevel: EpubReadability.l4,
+            message: 'spine 为空，无法分页',
+            warnings: warnings,
+          ),
+        );
+      }
+      warnings.add(
+        'E_SPINE_FALLBACK: spine 为空，按 manifest 恢复 '
+            '${recovered.spine.length} 个章节（阅读顺序不可靠）',
+      );
+      effectivePackage = recovered;
     }
-
     final resources = ResourceIndex.build(
       archive: archive,
-      manifest: package.manifest,
+      manifest: effectivePackage.manifest,
       opfPath: opfPath,
     );
     final tocResult = TocFallback.build(
       archive: archive,
-      package: package,
+      package: effectivePackage,
       opfPath: opfPath,
     );
     warnings.addAll(tocResult.warnings);
@@ -192,7 +206,7 @@ Future<EpubOpenResult> _finishOpen({
     // 导入期探测与分级（P3-26）：spine 缺失 + 图片/字体资源可解性。
     final probe = probeImport(
       archive: archive,
-      package: package,
+      package: effectivePackage,
       resources: resources,
       opfDir: opfPath.contains('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '',
     );
@@ -214,17 +228,17 @@ Future<EpubOpenResult> _finishOpen({
     final level = EpubReadability.grade(
       ok: true,
       warnings: warnings,
-      spineCount: package.spine.length,
+      spineCount: effectivePackage.spine.length,
       missingSpineItems: probe.missingSpineItems,
       missingResources: probe.missingResources,
       repairedRefs: probe.repairedRefs,
       // 目录退化（P3-28）：声明了目录源（tocId→ncx，nav 属性→nav）但
       // 实际未达成；书本身无目录声明不算退化。
-      tocFallbackUsed: _tocDegraded(package, tocResult.source),
+      tocFallbackUsed: _tocDegraded(effectivePackage, tocResult.source),
     );
     final document = EpubDocumentImpl(
       archive: archive,
-      package: package,
+      package: effectivePackage,
       resources: resources,
       opfPath: opfPath,
       toc: tocResult.entries,

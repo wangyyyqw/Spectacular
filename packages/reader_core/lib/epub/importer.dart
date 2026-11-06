@@ -1,5 +1,6 @@
 import 'archive_reader.dart';
 import 'opf.dart';
+import 'package:path/path.dart' as p;
 import '../src/api/models.dart' show BookMeta, SpineItem;
 import 'resource_index.dart';
 
@@ -47,6 +48,7 @@ abstract final class EpubReadability {
     final codes = codesIn(warnings);
     // L3：容器/OPF 结构回退拼装，或 spine 大面积失效。
     if (codes.contains('E_CONTAINER_FALLBACK') ||
+        codes.contains('E_SPINE_FALLBACK') ||
         (spineCount > 0 && missingSpineItems * 2 > spineCount)) {
       return l3;
     }
@@ -111,6 +113,112 @@ bool _isChapterName(String name) {
   }
   return lower.endsWith('.xhtml') || lower.endsWith('.html') ||
       lower.endsWith('.htm');
+}
+
+/// spine 为空时的 L3 恢复（对照 Ferrous `epub_fallback_parser.dart`）：
+/// 先按 manifest 的章节顺序恢复阅读顺序；manifest 也不可用时，再按文件名
+/// 扫描整库 XHTML。两级都失败返回 null，调用方保持 E_SPINE_EMPTY 拒绝。
+///
+/// [opfPath] 用于把 href 换算成 OPF 目录相对路径，与原管线保持一致。
+OpfPackage? recoverSpine({
+  required EpubArchive archive,
+  required OpfPackage package,
+  required String opfPath,
+}) {
+  final opfDir = _dirOf(opfPath);
+  final resources = ResourceIndex.build(
+    archive: archive,
+    manifest: package.manifest,
+    opfPath: opfPath,
+  );
+  final fromManifest = <SpineItem>[];
+  final seen = <String>{};
+  for (final item in package.manifest) {
+    // 目录文档（properties 含 nav）不算正文，避免恢复出多余章节。
+    if (!_isChapterName(item.href) || item.properties.contains('nav')) {
+      continue;
+    }
+    final resolved = resources.resolve(item.href, baseDir: opfDir);
+    if (resolved == null || !seen.add(resolved)) {
+      continue;
+    }
+    fromManifest.add(
+      SpineItem(
+        index: fromManifest.length,
+        href: item.href,
+        mediaType: item.mediaType,
+      ),
+    );
+  }
+  if (fromManifest.isEmpty) {
+    return _scannedSpinePackage(archive: archive, package: package, opfDir: opfDir);
+  }
+  return OpfPackage(
+    meta: package.meta,
+    manifest: package.manifest,
+    spine: fromManifest,
+    version: package.version,
+    warnings: package.warnings,
+    tocId: package.tocId,
+    coverItemId: package.coverItemId,
+  );
+}
+
+/// 二级兜底：manifest 里没有可读章节时，按文件名扫描整库 XHTML。
+OpfPackage? _scannedSpinePackage({
+  required EpubArchive archive,
+  required OpfPackage package,
+  required String opfDir,
+}) {
+  final names = <String>[
+    for (final name in archive.names)
+      if (_isChapterName(name)) name,
+  ]..sort();
+  if (names.isEmpty) {
+    return null;
+  }
+  final hrefs = <String>[
+    for (final name in names)
+      opfDir.isEmpty ? _relativeToRoot(name) : p.posix.relative(name, from: opfDir),
+  ];
+  // 保留原 manifest 中仍可解析的条目（NCX/nav/CSS/封面 id 供目录与样式使用）。
+  final resources = ResourceIndex.build(
+    archive: archive,
+    manifest: package.manifest,
+    opfPath: opfDir.isEmpty ? 'package.opf' : '$opfDir/package.opf',
+  );
+  final manifest = <OpfManifestItem>[
+    for (final item in package.manifest)
+      if (resources.resolve(item.href, baseDir: opfDir) != null) item,
+    for (var index = 0; index < hrefs.length; index++)
+      OpfManifestItem(
+        id: 'recovered$index',
+        href: hrefs[index],
+        mediaType: 'application/xhtml+xml',
+      ),
+  ];
+  return OpfPackage(
+    meta: package.meta,
+    manifest: manifest,
+    spine: <SpineItem>[
+      for (var index = 0; index < hrefs.length; index++)
+        SpineItem(
+          index: index,
+          href: hrefs[index],
+          mediaType: 'application/xhtml+xml',
+        ),
+    ],
+    version: package.version,
+    warnings: package.warnings,
+    tocId: package.tocId,
+    coverItemId: package.coverItemId,
+  );
+}
+
+/// 路径所在目录（无目录时返回空串）。
+String _dirOf(String path) {
+  final slash = path.lastIndexOf('/');
+  return slash <= 0 ? '' : path.substring(0, slash);
 }
 
 /// spine href 相对 OPF 目录（L3 包的 OPF 视作在根）。

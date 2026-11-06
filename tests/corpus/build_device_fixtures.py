@@ -13,6 +13,9 @@
   verify-tolerance.epub  EPUB2 + NCX：缺章、缺 CSS、错误 media-type、
                          重复 id、超长不可断 token、只给宽度的图片等。
   verify-small.epub      四章短书：字号/主题/翻页场景的快速样本。
+  verify-broken-spine.epub
+                         spine 全部指向不存在的 manifest id：验证按 manifest
+                         恢复阅读顺序的 L3 降级（对照 Ferrous fallback）。
 
 用法：
     python3 tests/corpus/build_device_fixtures.py [--out-dir test_corpus/generated]
@@ -641,6 +644,54 @@ def make_tolerance(paragraphs: list[str]) -> tuple[dict, dict[str, bytes]]:
     return book, files
 
 
+def make_broken_spine(paragraphs: list[str]) -> tuple[dict, dict[str, bytes]]:
+    """spine 全部指向不存在的 id：验证按 manifest 恢复阅读顺序的 L3 降级。"""
+    book = {
+        "id": "verify-broken-spine",
+        "file": "verify-broken-spine.epub",
+        "title": "真机验收·断链 spine 样本",
+        "language": "zh-CN",
+        "author": "Spectacular 验收组",
+        "license": "仅本地测试使用，不入库",
+        "description": "spine 的 itemref 全部指向不存在的 manifest id；"
+        "manifest 中三章正文应仍可读，目录由 nav 提供",
+        "uuid": corpus.book_uuid("verify-broken-spine"),
+    }
+    files: dict[str, bytes] = {}
+    files["META-INF/container.xml"] = corpus.container_xml()
+    files["OEBPS/styles/spine.css"] = (
+        "body { font-family: serif; line-height: 1.7; }\n"
+        "p { margin: 0 0 0.9em; text-indent: 2em; }\n"
+        "h1 { text-align: center; }\n"
+    ).encode("utf-8")
+    titles = ["第一章 恢复顺序甲", "第二章 恢复顺序乙", "第三章 恢复顺序丙"]
+    for index, title in enumerate(titles):
+        files[f"OEBPS/ch0{index + 1}.xhtml"] = wrap(
+            title,
+            f"  <h1>{title}</h1>\n"
+            + paragraphs_html(paragraphs[index * 3 : index * 3 + 3]),
+            ["styles/spine.css"],
+        )
+    files["OEBPS/nav.xhtml"] = corpus.nav_xhtml(
+        book["title"],
+        [(title, f"ch0{index + 1}.xhtml") for index, title in enumerate(titles)],
+    )
+    manifest = [
+        {"id": "nav", "href": "nav.xhtml", "media_type": "application/xhtml+xml",
+         "properties": "nav"},
+        {"id": "css", "href": "styles/spine.css", "media_type": "text/css"},
+        {"id": "ch01", "href": "ch01.xhtml", "media_type": "application/xhtml+xml"},
+        {"id": "ch02", "href": "ch02.xhtml", "media_type": "application/xhtml+xml"},
+        {"id": "ch03", "href": "ch03.xhtml", "media_type": "application/xhtml+xml"},
+    ]
+    opf = corpus.opf3(book, manifest, [])
+    files["OEBPS/content.opf"] = opf.replace(
+        "  <spine>\n",
+        '  <spine>\n    <itemref idref="ghost-1"/>\n    <itemref idref="ghost-2"/>\n',
+    )
+    return book, files
+
+
 def make_small(paragraphs: list[str]) -> tuple[dict, dict[str, bytes]]:
     book = {
         "id": "verify-small",
@@ -689,6 +740,7 @@ def build_all(out_dir: Path) -> list[dict]:
         lambda: make_mixed(images, paragraphs, fonts),
         lambda: make_tolerance(paragraphs),
         lambda: make_small(paragraphs),
+        lambda: make_broken_spine(paragraphs),
     ]
     out_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict] = []
