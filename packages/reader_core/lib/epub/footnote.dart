@@ -108,6 +108,39 @@ class FootnoteDocument {
 
 /// 注释锚点解析：不修改原书 DOM。
 abstract final class FootnoteParser {
+  static final RegExp _referenceAttributePattern = RegExp(
+    r'\b(?:href|title)\s*=',
+    caseSensitive: false,
+  );
+
+  /// 快速判断章节源码是否可能包含注释入口。
+  ///
+  /// 完整解析一章 XML 并遍历全部节点成本不低。普通章节通常没有链接、注号
+  /// 属性或阅读器图片注类名；先做保守的文本判定，可跳过这类章节的第二次
+  /// XML 解析。命中任一特征仍走完整解析，避免损失注释兼容性。
+  static bool mayContainReferences(String xhtml) {
+    final lower = xhtml.toLowerCase();
+    if (_referenceAttributePattern.hasMatch(xhtml)) {
+      return true;
+    }
+    for (final marker in const <String>[
+      'data-wr-footernote',
+      'reader_footer_note',
+      'js_readerfooternote',
+      'data-reeden-footnote-body',
+      'zy-footnote',
+      'duokan-footnote',
+      'qqreader-footnote',
+      'zhangyue-footnote',
+      'epub-footnote',
+    ]) {
+      if (lower.contains(marker)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// 生成正文引用节点的稳定匹配键。
   static String referenceKey(
     String tag,

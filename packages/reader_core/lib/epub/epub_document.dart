@@ -557,7 +557,23 @@ class EpubDocumentImpl implements EpubDocument {
 
   /// 解析当前章的全部注释，并按需加载 href 指向的跨章定义。
   List<FootnoteAnchor> resolveFootnotes(int spineIndex) {
-    final source = parseFootnotes(spineIndex);
+    final item = spine[spineIndex];
+    final baseDir = p.posix.dirname(opfPath);
+    final sourcePath =
+        resources.resolve(item.href, baseDir: baseDir) ??
+        p.posix.normalize(p.posix.join(baseDir, item.href));
+    final xhtml = archive.readString(sourcePath);
+    if (xhtml == null) {
+      throw EpubException('E_SPINE_MISSING', '章节文件不存在：');
+    }
+    if (!FootnoteParser.mayContainReferences(xhtml)) {
+      return const <FootnoteAnchor>[];
+    }
+    final source = FootnoteParser.parse(
+      spineIndex: spineIndex,
+      path: sourcePath,
+      xhtml: xhtml,
+    );
     final documents = <String, FootnoteDocument>{source.path: source};
     for (final anchor in source.anchors) {
       final targetPath = FootnoteParser.targetPathOf(anchor, source.path);
