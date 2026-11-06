@@ -60,6 +60,13 @@ class _FakeProgressStore implements ReaderProgressStore {
       Map<String, ReaderProgress>.unmodifiable(items);
 }
 
+class _FailingLibrary extends LibraryStore {
+  _FailingLibrary() : super.memory();
+
+  @override
+  Future<List<BookEntry>> list() async => throw StateError('boom');
+}
+
 class _FakeSessionStore implements ReadingSessionStore {
   _FakeSessionStore(this.items);
 
@@ -142,7 +149,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-recent-7-days')),
           )
           .data,
-      '1',
+      '1 天',
     );
     expect(
       tester
@@ -190,7 +197,7 @@ void main() {
       find.byKey(const ValueKey<String>('stats-band-unread')),
       300,
     );
-    expect(find.text('2 / 3 本已开始'), findsOneWidget);
+    expect(find.text('已开始 2 本 · 已读完 0 本'), findsOneWidget);
     expect(
       tester
           .widget<Text>(find.byKey(const ValueKey<String>('stats-band-unread')))
@@ -287,7 +294,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-recent-7-days')),
           )
           .data,
-      '3',
+      '3 天',
     );
   });
 
@@ -373,14 +380,14 @@ void main() {
           .data,
       '900',
     );
-    expect(find.text('近7天阅读'), findsOneWidget);
+    expect(find.text('近 7 天阅读'), findsOneWidget);
     expect(
       tester
           .widget<Text>(
             find.byKey(const ValueKey<String>('stats-recent-7-days')),
           )
           .data,
-      '2',
+      '2 天',
     );
     expect(find.text('近 7 天阅读时长'), findsOneWidget);
     expect(
@@ -488,12 +495,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已开始 2 本 · 已读完 1 本'), findsOneWidget);
-    expect(find.text('完成一本书也值得记录。'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('stats-band-finished')),
       300,
     );
+    expect(find.text('已开始 2 本 · 已读完 1 本'), findsOneWidget);
     expect(
       tester
           .widget<Text>(
@@ -619,6 +625,10 @@ void main() {
       find.byKey(const ValueKey<String>('stats-chart-period')),
       300,
     );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('stats-chart-period')),
+    );
+    await tester.pumpAndSettle();
 
     String valueOf(String key) =>
         tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
@@ -700,6 +710,8 @@ void main() {
     await tester.pumpAndSettle();
     final dayKey = ValueKey<String>('stats-heatmap-day-${_dateKey(today)}');
     await tester.scrollUntilVisible(find.byKey(dayKey), 300);
+    await tester.ensureVisible(find.byKey(dayKey));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(dayKey));
     await tester.pumpAndSettle();
 
@@ -736,6 +748,24 @@ void main() {
       '500',
     );
     expect(find.text('第一本'), findsWidgets);
+  });
+
+  testWidgets('首次加载失败时显示重试入口', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FailingLibrary(),
+          progressStore: _FakeProgressStore(const {}),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('统计加载失败'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('stats-retry')),
+      findsOneWidget,
+    );
   });
 }
 
