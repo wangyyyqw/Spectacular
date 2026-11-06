@@ -498,10 +498,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _reloadOnce() async {
-    final books = await widget.library.list();
-    final groups = await widget.library.listGroups();
-    final bookGroups = await widget.library.groupAssignments();
-    final progress = await widget.progressStore.snapshot();
+    // 四份数据互不依赖；并发读取后仍只对本轮完整快照调用一次 setState。
+    final (books, groups, bookGroups, progress) = await (
+      widget.library.list(),
+      widget.library.listGroups(),
+      widget.library.groupAssignments(),
+      widget.progressStore.snapshot(),
+    ).wait;
     final weights = await widget.library.progressWeightsForBooks(<String>[
       for (final book in books)
         if (progress.containsKey(book.id)) book.id,
