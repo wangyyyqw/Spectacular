@@ -72,8 +72,7 @@ void main() {
       ),
     );
     final after = await source.loadChapter(0);
-    expect(identical(before, after), isTrue,
-        reason: '颜色变化不失效 pagination 层');
+    expect(identical(before, after), isTrue, reason: '颜色变化不失效 pagination 层');
     expect(after.first.pageIndex, before.first.pageIndex);
   });
 
@@ -116,10 +115,7 @@ void main() {
     await source.loadChapter(0);
     // ② 颜色不产生日志（零失效）。
     await source.applyOverrides(
-      const ReaderOverrides(
-        fontSize: 20,
-        textColor: Color(0xFF333333),
-      ),
+      const ReaderOverrides(fontSize: 20, textColor: Color(0xFF333333)),
     );
     // ③ viewportSizeChanged。
     await source.applyContentSize(width: 300, height: 440);
@@ -135,11 +131,15 @@ void main() {
     expect(reasons, contains('configChanged'));
     expect(reasons, contains('viewportSizeChanged'));
     expect(reasons, contains('indexCorrupted'));
-    expect(reasons.where((r) => r == 'configChanged'), hasLength(1),
-        reason: '颜色变化不产生失效日志');
+    expect(
+      reasons.where((r) => r == 'configChanged'),
+      hasLength(1),
+      reason: '颜色变化不产生失效日志',
+    );
     // 日志带 old/new 上下文。
-    final configLine = source.invalidationLog
-        .firstWhere((line) => line.startsWith('configChanged'));
+    final configLine = source.invalidationLog.firstWhere(
+      (line) => line.startsWith('configChanged'),
+    );
     expect(configLine, contains(' -> '));
   });
 
@@ -162,20 +162,35 @@ void main() {
     final source = await openSource();
     await source.loadChapter(0);
     expect(source.cacheReport, contains('块缓存 1/'));
+    expect(source.cacheReport, contains('基础级联 1/'));
+    expect(source.displayDocumentCacheHits, 0);
 
     await source.applyOverrides(const ReaderOverrides(fontSize: 20));
     expect(source.cacheReport, contains('块缓存 0/'));
-    expect(source.cacheReport, contains('文档缓存 0/'));
+    expect(source.cacheReport, contains('基础级联 1/'));
+    expect(
+      source.cacheReport,
+      contains('文档缓存 1/'),
+      reason: '字号不改变章节结构与 display 聚合',
+    );
 
     await source.loadChapter(0);
     expect(source.blockCacheHits, 0, reason: '失效后重新构建，不复用旧块');
+    expect(source.displayDocumentCacheHits, 1, reason: '重排复用已解析章节结构');
   });
 
   test('几何变化：styles 层块缓存同步失效', () async {
     final source = await openSource();
     await source.loadChapter(0);
+    expect(source.cacheReport, contains('基础级联 1/'));
     await source.applyContentSize(width: 280, height: 420);
     expect(source.cacheReport, contains('块缓存 0/'));
+    expect(source.cacheReport, contains('文档缓存 0/'));
+    expect(
+      source.cacheReport,
+      contains('基础级联 1/'),
+      reason: '尺寸变化只影响媒体查询求值，不改变已解析选择器',
+    );
   });
 
   test('关闭章节源释放缓存并拒绝后续渲染', () async {
@@ -211,8 +226,11 @@ void main() {
     });
     final h1 = UaBlockDefaults.apply(base, 'h1')!;
     final p = UaBlockDefaults.apply(base, 'p');
-    expect(identical(h1, UaBlockDefaults.apply(base, 'h1')), isFalse,
-        reason: '工厂每次构造（上层负责按标签缓存）');
+    expect(
+      identical(h1, UaBlockDefaults.apply(base, 'h1')),
+      isFalse,
+      reason: '工厂每次构造（上层负责按标签缓存）',
+    );
     expect(p, isNull);
   });
 }
