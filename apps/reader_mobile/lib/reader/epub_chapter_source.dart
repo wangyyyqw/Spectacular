@@ -1377,6 +1377,9 @@ class EpubChapterSource
       final auxiliaryRules = List<_AuxiliaryCssRule>.unmodifiable(
         _prepareAuxiliaryRules(styledSheets),
       );
+      final firstLetterRules = List<_AuxiliaryCssRule>.unmodifiable(
+        _prepareFirstLetterRules(styledSheets),
+      );
       final pseudoRules = Map<String, List<_AuxiliaryCssRule>>.unmodifiable({
         for (final pseudo in ['::before', '::after'])
           pseudo: List<_AuxiliaryCssRule>.unmodifiable(
@@ -1395,8 +1398,8 @@ class EpubChapterSource
           ),
       ]);
       return _ChapterCascadePreparation(
-        styledSheets: styledSheets,
         auxiliaryRules: auxiliaryRules,
+        firstLetterRules: firstLetterRules,
         pseudoRules: pseudoRules,
         cascadeRules: cascadeRules,
       );
@@ -1538,6 +1541,38 @@ class EpubChapterSource
       walk(aggregated.root);
     }
     cache[spineIndex] = result;
+    return result;
+  }
+
+  /// 首字伪元素规则在章级解析一次，避免每个段落重复扫描整份 CSS。
+  static List<_AuxiliaryCssRule> _prepareFirstLetterRules(
+    List<CssStylesheet> sheets,
+  ) {
+    const pseudo = '::first-letter';
+    final result = <_AuxiliaryCssRule>[];
+    for (final sheet in sheets) {
+      for (final rule in sheet.rules) {
+        for (final raw in rule.selector.split(',')) {
+          final selector = raw.trim();
+          if (!selector.endsWith(pseudo)) {
+            continue;
+          }
+          final main = selector.substring(0, selector.length - pseudo.length);
+          if (main.isEmpty) {
+            continue;
+          }
+          final parsed = SelectorParser.parse(main);
+          if (parsed.selectors.isNotEmpty) {
+            result.add((
+              selectors: parsed,
+              declarations: rule.declarations,
+              selectorText: main,
+              media: rule.media,
+            ));
+          }
+        }
+      }
+    }
     return result;
   }
 
@@ -1922,7 +1957,7 @@ class EpubChapterSource
   /// 首字符 run：合并作者 `::first-letter` 声明与 `initial-letter` 的首字
   /// 下沉语义，借用行内 run 机制放大首字并撑高首行。
   StyledRun? _firstLetterRun(
-    List<CssStylesheet> sheets,
+    List<_AuxiliaryCssRule> rules,
     List<SelectorElement> ancestors,
     String text,
     ComputedStyle baseStyle, {
@@ -1932,39 +1967,22 @@ class EpubChapterSource
       return null;
     }
     final declarations = <String, String>{};
-    for (final sheet in sheets) {
-      for (final rule in sheet.rules) {
-        for (final raw in rule.selector.split(',')) {
-          final selector = raw.trim();
-          if (!selector.endsWith('::first-letter')) {
-            continue;
-          }
-          final main = selector.substring(
-            0,
-            selector.length - '::first-letter'.length,
-          );
-          if (main.isEmpty) {
-            continue;
-          }
-          final parsed = SelectorParser.parse(main);
-          if (parsed.selectors.isEmpty) {
-            continue;
-          }
-          var matched = false;
-          for (final complex in parsed.selectors) {
-            if (complex.matches(
-              ancestors.last,
-              ancestors.sublist(0, ancestors.length - 1),
-            )) {
-              matched = true;
-              break;
-            }
-          }
-          if (matched) {
-            for (final declaration in rule.declarations) {
-              declarations[declaration.property] = declaration.value;
-            }
-          }
+    final parents = ancestors.sublist(0, ancestors.length - 1);
+    for (final rule in rules) {
+      final media = rule.media;
+      if (media != null && !Cascade.mediaMatches(media, contentWidth)) {
+        continue;
+      }
+      var matched = false;
+      for (final selector in rule.selectors.selectors) {
+        if (selector.matches(ancestors.last, parents)) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) {
+        for (final declaration in rule.declarations) {
+          declarations[declaration.property] = declaration.value;
         }
       }
     }
@@ -4231,8 +4249,8 @@ class EpubChapterSource
     // 字体改写、辅助规则和级联索引随样式表组合复用；书籍的数百章通常
     // 共享同一份全局 CSS。
     final preparedStyles = _prepareChapterCascade(sheets);
-    final styledSheets = preparedStyles.styledSheets;
     final auxiliaryRules = preparedStyles.auxiliaryRules;
+    final firstLetterRules = preparedStyles.firstLetterRules;
     final pseudoRules = preparedStyles.pseudoRules;
     // ---------- 内容生成（W20）：计数器 / 引号 / object-fit ----------
     /// CSS 计数器状态（§12.4）：扁平管线按文档序遍历，用单层映射近似
@@ -7154,7 +7172,7 @@ class EpubChapterSource
             _floatSideOfStyle(blockStyle) == null &&
             containerFloat == null) {
           final firstLetter = _firstLetterRun(
-            styledSheets,
+            firstLetterRules,
             ancestors,
             paragraphText,
             blockStyle,
@@ -7422,7 +7440,7 @@ class EpubChapterSource
         ];
         final firstLetter = dropCapText == null
             ? _firstLetterRun(
-                styledSheets,
+                firstLetterRules,
                 ancestors,
                 paragraphText,
                 blockStyle,
@@ -8431,14 +8449,14 @@ class _CssSheetSetKey {
 /// 一组作者样式表在章节排版前的派生结果。
 class _ChapterCascadePreparation {
   const _ChapterCascadePreparation({
-    required this.styledSheets,
     required this.auxiliaryRules,
+    required this.firstLetterRules,
     required this.pseudoRules,
     required this.cascadeRules,
   });
 
-  final List<CssStylesheet> styledSheets;
   final List<_AuxiliaryCssRule> auxiliaryRules;
+  final List<_AuxiliaryCssRule> firstLetterRules;
   final Map<String, List<_AuxiliaryCssRule>> pseudoRules;
   final CascadeRuleSet cascadeRules;
 }
