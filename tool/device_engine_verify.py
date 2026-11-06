@@ -30,6 +30,8 @@ import time
 import zlib
 from pathlib import Path
 
+from device_css_test import drop_plugin_dependency
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_ID = "com.spectacular.reader_mobile"
 TEST_ID = APP_ID + ".engine_test"
@@ -262,33 +264,6 @@ def prepare_workspace(destination: Path) -> None:
         )
     )
     drop_plugin_dependency(destination / "apps/reader_mobile/pubspec.yaml")
-
-
-def drop_plugin_dependency(pubspec: Path) -> None:
-    """移除仅 flutter drive 需要的 integration_test 插件。
-
-    验收入口是自驱动的（同 reader_perf_app.dart），不使用该插件；而它的 Android
-    工程会解析 `androidx.test:*:1.2+` 这类动态版本，强制构建联网。移除后 release
-    构建可完全走本地 Gradle 缓存。
-    """
-    lines = pubspec.read_text().splitlines(keepends=True)
-    kept: list[str] = []
-    index = 0
-    removed = False
-    while index < len(lines):
-        if (
-            lines[index].strip() == "integration_test:"
-            and index + 1 < len(lines)
-            and lines[index + 1].strip() == "sdk: flutter"
-        ):
-            index += 2
-            removed = True
-            continue
-        kept.append(lines[index])
-        index += 1
-    if not removed:
-        raise RuntimeError("pubspec 未找到 integration_test 开发依赖，构建口径与预期不符")
-    pubspec.write_text("".join(kept))
 
 
 def build_apk(workspace: Path, url: str) -> Path:

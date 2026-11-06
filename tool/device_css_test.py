@@ -78,6 +78,31 @@ def prepare_workspace(destination):
         'android:label="reader_mobile"', 'android:label="CSS 真机测试"'))
 
 
+def drop_plugin_dependency(pubspec):
+    """移除仅 flutter drive 入口需要的 integration_test 插件。
+
+    自驱动入口（reader_perf_app.dart、engine_verify_app.dart）不导入该插件，
+    而它的 Android 工程会解析 `androidx.test:*:1.2+` 一类动态版本，要求构建时
+    联网访问 Google Maven；移除后 release 构建可完全走本地 Gradle 缓存。
+    """
+    lines = pubspec.read_text().splitlines(keepends=True)
+    kept = []
+    index = 0
+    removed = False
+    while index < len(lines):
+        if (lines[index].strip() == "integration_test:"
+                and index + 1 < len(lines)
+                and lines[index + 1].strip() == "sdk: flutter"):
+            index += 2
+            removed = True
+            continue
+        kept.append(lines[index])
+        index += 1
+    if not removed:
+        raise RuntimeError("pubspec 未找到 integration_test 开发依赖，构建口径与预期不符")
+    pubspec.write_text("".join(kept))
+
+
 def build_verified_apk(workspace, book_url):
     """从 APK 读取实际包名；不以 Gradle namespace 推断安装目标。"""
     app = workspace / "apps/reader_mobile"
