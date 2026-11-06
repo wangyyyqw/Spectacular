@@ -2,6 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -43,6 +46,50 @@ class _CountingStore implements ReaderProgressStore {
 
   @override
   Future<Map<String, ReaderProgress>> snapshot() async => Map.of(items);
+}
+
+/// 同一段文字跨两页，且两页重叠包含保存行；真机冷启动曾因此退一页。
+class _OverlappingBoundarySource implements ReaderChapterSource {
+  static const String _cfi = 'epubcfi(/6/2!/4/2/1)';
+
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final style = ComputedStyle(<String, String>{
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': 'Ahem',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: 'alpha\nbeta\ngamma',
+      style: style,
+      maxWidth: 120,
+    );
+    final block = PageBlock.styled(
+      layout: layout,
+      style: style,
+      containingWidth: 120,
+      startCfi: _cfi,
+    );
+    PageContent page(int index, int startLine) => PageContent(
+      spineIndex: 0,
+      pageIndex: index,
+      slices: <PageBlockSlice>[
+        PageBlockSlice(
+          block: block,
+          startLine: startLine,
+          endLine: layout.lineCount,
+          height: 48,
+        ),
+      ],
+      usedHeight: 48,
+      pageHeight: 200,
+      topPadding: 0,
+    );
+    return <PageContent>[page(0, 0), page(1, 1)];
+  }
 }
 
 void main() {
@@ -109,5 +156,58 @@ void main() {
     await session.flushProgress();
     expect(store.writes, writesAfterOpen, reason: '位置没变不重复写');
     session.dispose();
+  });
+
+  test('同版本保存后按页码恢复到最后阅读页', () async {
+    final source = await openTestChapterSource(_corpusBook('basic.epub'));
+    store = _CountingStore();
+    session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'restore-exact-page',
+      contentRevision: 'revision-1',
+    );
+    await session.open();
+    expect(await session.next(), isTrue);
+    final saved = session.progress!;
+    await session.flushProgress();
+    session.dispose();
+
+    final reopened = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'restore-exact-page',
+      contentRevision: 'revision-1',
+    );
+    await reopened.open();
+    expect(reopened.progress, saved, reason: '同版本且排版未变时应恢复到保存的精确页');
+    reopened.dispose();
+  });
+
+  test('同版本冷启动优先保留包含 CFI 的精确页', () async {
+    final source = _OverlappingBoundarySource();
+    store = _CountingStore();
+    session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'restore-overlapping-boundary',
+      contentRevision: 'revision-1',
+    );
+    await session.open();
+    expect(await session.next(), isTrue);
+    expect(session.progress?.pageIndex, 1);
+    final saved = session.progress!;
+    await session.flushProgress();
+    session.dispose();
+
+    final reopened = ReaderSession(
+      source: _OverlappingBoundarySource(),
+      store: store,
+      bookId: 'restore-overlapping-boundary',
+      contentRevision: 'revision-1',
+    );
+    await reopened.open();
+    expect(reopened.progress, saved, reason: '保存页包含 CFI 时不能因前一页也包含同一行而回退');
+    reopened.dispose();
   });
 }
