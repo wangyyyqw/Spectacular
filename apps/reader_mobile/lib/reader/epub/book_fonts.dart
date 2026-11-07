@@ -6,7 +6,10 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/text/font_coverage.dart';
 
+import '../bounded_cache.dart';
 import 'book_resources.dart';
+
+typedef _CoverageStrategy = ({FontCoverage? coverage, bool defaultCovered});
 
 /// 一本书的字体注册与字形覆盖；资源读取、归档关闭由 [BookResources] 负责。
 class BookFonts {
@@ -191,6 +194,8 @@ class BookFontView {
   final Map<String, FontCoverage> _coverages;
   final Map<String, FontCoverage> _userCoverages;
   final Map<String, bool> _userFontAvailability;
+  // 原始族名保留用户覆盖的精确匹配；策略只依赖当前冻结视图。
+  final _coverageStrategies = BoundedCache<String, _CoverageStrategy>(64);
 
   /// 用户字体环境只取已注册覆盖，不随书内字体逐章注册或加载结果通知改变。
   late final String userFontEnvironmentDependency =
@@ -206,14 +211,21 @@ class BookFontView {
   }
 
   bool hasGlyph(String family, int codePoint) {
+    final strategy = _coverageStrategies.putIfAbsent(
+      family,
+      () => _coverageStrategy(family),
+    );
+    return strategy.coverage?.covers(codePoint) ?? strategy.defaultCovered;
+  }
+
+  _CoverageStrategy _coverageStrategy(String family) {
     final custom = _userCoverages[family];
-    if (custom != null) return custom.covers(codePoint);
+    if (custom != null) return (coverage: custom, defaultCovered: false);
     final engine = FontFamilyAliases.resolve(family) ?? family;
-    final coverage = _coverages[family] ?? _coverages[engine];
-    if (engine == FontFamilyAliases.kai) {
-      return coverage?.covers(codePoint) ?? false;
-    }
-    return coverage == null || coverage.covers(codePoint);
+    return (
+      coverage: _coverages[family] ?? _coverages[engine],
+      defaultCovered: engine != FontFamilyAliases.kai,
+    );
   }
 
   /// 只替换字族，保留作者字号、盒样式和可用的内嵌字体回退链。
