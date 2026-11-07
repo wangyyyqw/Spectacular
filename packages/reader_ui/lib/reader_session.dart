@@ -199,6 +199,17 @@ abstract interface class AnchorChapterSource implements ReaderChapterSource {
   Future<AnchorChapter> loadAnchorChapter(int spineIndex);
 }
 
+/// 位置准备的独立等待者，取消不会影响同键的装饰核验或章节排版。
+abstract interface class ReaderPreparationHandle<T> {
+  Future<T> get result;
+  void cancel();
+}
+
+abstract interface class ScheduledAnchorChapterSource
+    implements AnchorChapterSource {
+  ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(int spineIndex);
+}
+
 /// 每章冻结排版输入前先核验该章装饰与字体。
 abstract interface class PreparedChapterSource implements AnchorChapterSource {
   /// 准备目标章原文装饰与字体；不得借此调用章节分页。
@@ -359,6 +370,11 @@ abstract interface class AsyncPositionedChapterSource
   Future<String?> prepareCfiForReadingPercent(double percent);
 }
 
+abstract interface class ScheduledPositionedChapterSource
+    implements AsyncPositionedChapterSource {
+  ReaderPreparationHandle<String?> scheduleCfiForReadingPercent(double percent);
+}
+
 /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
 class ReaderAnchor {
   /// 创建锚点；[cfi] 为空表示没有可恢复位置。
@@ -433,6 +449,7 @@ class ReaderSession extends ChangeNotifier {
 
   VirtualPager? _pager;
   final Set<ChapterLoadHandle> _chapterLoads = <ChapterLoadHandle>{};
+  ReaderPreparationHandle<Object?>? _positionPreparation;
   ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
   int _pageTurns = 0;
@@ -529,10 +546,23 @@ class ReaderSession extends ChangeNotifier {
       _loadChapter(spineIndex, priority: ChapterLayoutPriority.prefetch);
 
   void _cancelChapterWaiters() {
+    _positionPreparation?.cancel();
+    _positionPreparation = null;
     for (final handle in _chapterLoads.toList()) {
       handle.cancel();
     }
     _chapterLoads.clear();
+  }
+
+  Future<T> _awaitPositionPreparation<T>(
+    ReaderPreparationHandle<T> handle,
+  ) async {
+    _positionPreparation = handle;
+    try {
+      return await handle.result;
+    } finally {
+      if (identical(_positionPreparation, handle)) _positionPreparation = null;
+    }
   }
 
   /// 阅读页在首帧绘制后和生命周期变化时控制后台计页。
@@ -869,7 +899,11 @@ class ReaderSession extends ChangeNotifier {
     final safe = percent.clamp(0.0, 1.0);
     String? cfi;
     try {
-      cfi = source is AsyncPositionedChapterSource
+      cfi = source is ScheduledPositionedChapterSource
+          ? await _awaitPositionPreparation(
+              source.scheduleCfiForReadingPercent(safe),
+            )
+          : source is AsyncPositionedChapterSource
           ? await source.prepareCfiForReadingPercent(safe)
           : source.cfiForReadingPercent(safe);
     } on ChapterLoadCancelled {
@@ -901,7 +935,13 @@ class ReaderSession extends ChangeNotifier {
     _jumpLoadingTitle = entry.title;
     _notify();
     try {
-      await source.loadAnchorChapter(entry.spineIndex);
+      if (source is ScheduledAnchorChapterSource) {
+        await _awaitPositionPreparation(
+          source.scheduleAnchorChapter(entry.spineIndex),
+        );
+      } else {
+        await source.loadAnchorChapter(entry.spineIndex);
+      }
       if (_disposed || token != _jumpToken) return false;
       return await _jumpToPreparedTocEntry(entry, continuous);
     } on ChapterLoadCancelled {

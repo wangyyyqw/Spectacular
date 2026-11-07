@@ -154,6 +154,38 @@ class _ScheduledSource
   String? cfiForTocEntry(TocEntry entry) => _cfi(entry.spineIndex);
 }
 
+class _Preparation<T> implements ReaderPreparationHandle<T> {
+  _Preparation() {
+    result.ignore();
+  }
+  final completion = Completer<T>();
+  bool cancelled = false;
+  @override
+  Future<T> get result => completion.future;
+  @override
+  void cancel() {
+    if (completion.isCompleted) return;
+    cancelled = true;
+    completion.completeError(const ChapterLoadCancelled());
+  }
+}
+
+class _ScheduledPositionSource extends _AnchorTocSource
+    implements ScheduledAnchorChapterSource, ScheduledPositionedChapterSource {
+  final anchors = <int, _Preparation<AnchorChapter>>{};
+  final percents = <double, _Preparation<String?>>{};
+
+  @override
+  ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(
+    int spineIndex,
+  ) => anchors[spineIndex] = _Preparation<AnchorChapter>();
+
+  @override
+  ReaderPreparationHandle<String?> scheduleCfiForReadingPercent(
+    double percent,
+  ) => percents[percent] = _Preparation<String?>();
+}
+
 class _AnchorTocSource extends _ScheduledSource implements AnchorChapterSource {
   final anchorRequests = <int>[];
   final anchorGates = <int, Completer<void>>{};
@@ -334,6 +366,34 @@ void main() {
     expect(await old, isFalse);
     expect(session.progress?.spineIndex, 749);
     expect(source.percentRequests, [0.25, 0.75]);
+  });
+
+  test('新百分比跳转取消旧目录原文等待者，关闭取消新等待者', () async {
+    final source = _ScheduledPositionSource();
+    final session = await _open(source);
+    final old = session.jumpToTocEntry(
+      const TocEntry(title: '旧目录', spineIndex: 950),
+    );
+    final next = session.seekToReadingPercent(0.75);
+    expect(source.anchors[950]!.cancelled, isTrue);
+    expect(await old, isFalse);
+    session.dispose();
+    expect(source.percents[0.75]!.cancelled, isTrue);
+    expect(await next, isFalse);
+    expect(source.resolvedEntries, isEmpty);
+    expect(source.handles.map((handle) => handle.spine), [0]);
+  });
+
+  test('位置准备成功提交后不再被后续导航取消', () async {
+    final source = _ScheduledPositionSource();
+    final session = await _open(source);
+    addTearDown(session.dispose);
+    final pending = session.seekToReadingPercent(0.75);
+    final handle = source.percents[0.75]!;
+    handle.completion.complete(_cfi(749));
+    expect(await pending, isTrue);
+    expect(handle.cancelled, isFalse);
+    expect(session.progress?.spineIndex, 749);
   });
 
   test('目录项先异步准备目标章原文，再解析 fragment 并只排目标章', () async {
