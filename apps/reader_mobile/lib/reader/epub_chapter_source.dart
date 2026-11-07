@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Color, Rect;
@@ -74,6 +75,44 @@ class EpubChapterSource
     // 累积偏移（31-list-nested 14 项、12-table 残余都是它）。
     line_breaker.LineBreaker.preserveFractionalLineHeight = true;
     final result = await openEpub(bytes, verifyCrc: verifyCrc);
+    return _fromOpenResult(
+      result,
+      contentWidth: contentWidth,
+      contentHeight: contentHeight,
+      style: style,
+      trimTextEdges: trimTextEdges,
+    );
+  }
+
+  /// 从文件打开 EPUB：中央目录之外的内容按需读取。
+  ///
+  /// 阅读页使用这个入口，避免把整本书（100MB+）读进 Dart 堆。
+  static Future<EpubChapterSource> openFile(
+    File file, {
+    double contentWidth = 320,
+    double contentHeight = 480,
+    ComputedStyle? style,
+    bool verifyCrc = false,
+    bool trimTextEdges = true,
+  }) async {
+    line_breaker.LineBreaker.preserveFractionalLineHeight = true;
+    final result = await openEpubFile(file, verifyCrc: verifyCrc);
+    return _fromOpenResult(
+      result,
+      contentWidth: contentWidth,
+      contentHeight: contentHeight,
+      style: style,
+      trimTextEdges: trimTextEdges,
+    );
+  }
+
+  static EpubChapterSource _fromOpenResult(
+    EpubOpenResult result, {
+    required double contentWidth,
+    required double contentHeight,
+    required ComputedStyle? style,
+    required bool trimTextEdges,
+  }) {
     final document = result.document;
     if (document == null) {
       throw StateError(result.report.message ?? '打开 EPUB 失败');
@@ -130,11 +169,13 @@ class EpubChapterSource
   double? _viewportContentTopInset;
 
   /// 段落布局缓存（P2-26）：同一文本+样式的重复测量直接复用。
-  final TextLayoutCache _layoutCache = TextLayoutCache();
+  final TextLayoutCache _layoutCache = TextLayoutCache(
+    maxEntries: textLayoutCacheLimit,
+  );
 
   /// 表格最小内容宽只依赖样式与文本片段；缓存单字/词段宽度，避免同一
   /// 章节的多张表格反复创建 TextPainter。
-  final BoundedCache<String, double> _textWidthCache = BoundedCache(4096);
+  final BoundedCache<String, double> _textWidthCache = BoundedCache(2048);
 
   /// 排版缓存三层（P7-23；对照 Reeden document/styles/pagination，
   /// 550 号 §0）：
@@ -173,7 +214,7 @@ class EpubChapterSource
       BoundedCache(chapterIndexCacheLimit);
 
   /// 页缓存（key = paginationKey）：按章 LRU，上限 [pageCacheChapterLimit] 章
-  /// （§44.4：只留当前章 ±2）。
+  /// （只留当前章 ±1，兼顾回跳命中与中端机内存上限）。
   final Map<String, List<PageContent>> _pageCache =
       <String, List<PageContent>>{};
 
@@ -184,8 +225,11 @@ class EpubChapterSource
   final Map<String, Set<String>> _paginationFontFamilies =
       <String, Set<String>>{};
 
-  /// 页缓存保留的章数上限（当前章 ±2）。
-  static const int pageCacheChapterLimit = 5;
+  /// 页缓存保留的章数上限（当前章 ±1）。
+  static const int pageCacheChapterLimit = 3;
+
+  /// 段落测量结果上限；保留当前屏与相邻回跳所需的段落。
+  static const int textLayoutCacheLimit = 128;
 
   /// styles 层块缓存上限：与页缓存一致，只保留最近排版过的章。
   static const int blockCacheChapterLimit = pageCacheChapterLimit;
@@ -534,7 +578,8 @@ class EpubChapterSource
       '脚注索引 ${_footnoteReferenceCache.length}/$chapterIndexCacheLimit 章；'
       '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
       '字体 face ${_fontFacesSeen.length} 个/${_bookFontEngines.length} 族；'
-      '文本宽度 ${_textWidthCache.length}/4096 条；'
+      '段落布局 ${_layoutCache.length}/$textLayoutCacheLimit 条；'
+      '文本宽度 ${_textWidthCache.length}/2048 条；'
       '图片索引 ${_imageIntrinsicCache.length}/$imageIntrinsicCacheLimit 个；'
       '纯文本缓存 ${_plainTextCache.length}/$chapterIndexCacheLimit 章';
   final Map<String, Uint8List> _pageIndexCache = <String, Uint8List>{};

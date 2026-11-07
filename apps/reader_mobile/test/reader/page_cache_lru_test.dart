@@ -79,8 +79,8 @@ void main() {
     );
   });
 
-  test('页缓存上限常量与 §44.4 预算一致（当前章 ±2）', () {
-    expect(EpubChapterSource.pageCacheChapterLimit, 5);
+  test('页缓存上限常量与内存预算一致（当前章 ±1）', () {
+    expect(EpubChapterSource.pageCacheChapterLimit, 3);
   });
 
   test('整页背景与块缓存同生命周期，清页缓存后重放仍保留', () async {

@@ -41,25 +41,29 @@ Future<int> migrateBookIdentities(AppDatabase db) async {
 }
 
 Future<void> _migrateBook(AppDatabase db, BookRow row, File source) async {
-  final result = await openEpub(await source.readAsBytes(), verifyCrc: false);
+  final result = await openEpubFile(source);
   final document = result.document;
   if (document == null) throw const FormatException('原书无法解析');
-  final meta = document.meta;
-  final identifier = originalEpubIdentifier(document);
-  final id = generateBookId(
-    title: meta.title,
-    author: meta.author,
-    identifier: identifier,
-  );
-  await db.transaction(() async {
-    final conflict =
-        await (db.select(db.books)..where(
-              (table) => table.uuid.equals(id) & table.id.isNotValue(row.id),
-            ))
-            .getSingleOrNull();
-    if (conflict != null) throw const FormatException('书籍标识冲突');
-    await rekeyBook(db, row, id, identifier);
-  });
+  try {
+    final meta = document.meta;
+    final identifier = originalEpubIdentifier(document);
+    final id = generateBookId(
+      title: meta.title,
+      author: meta.author,
+      identifier: identifier,
+    );
+    await db.transaction(() async {
+      final conflict =
+          await (db.select(db.books)..where(
+                (table) => table.uuid.equals(id) & table.id.isNotValue(row.id),
+              ))
+              .getSingleOrNull();
+      if (conflict != null) throw const FormatException('书籍标识冲突');
+      await rekeyBook(db, row, id, identifier);
+    });
+  } finally {
+    document.archive.close();
+  }
 }
 
 /// 调用方必须放在事务中，整数主键保持不变。

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -280,9 +281,6 @@ class ImportQueue extends ChangeNotifier {
       ..progress = 0.02;
     _notify();
     try {
-      final bytes =
-          job.bytes ?? (loadedBytes = await readFile!(job.sourcePath!));
-      if (job.status == ImportStatus.cancelled) return;
       void progress(double value) {
         if (job.status != ImportStatus.running) {
           return;
@@ -291,19 +289,41 @@ class ImportQueue extends ChangeNotifier {
         _notify();
       }
 
-      final entry = job.updateBookId == null
-          ? await _library.importBytes(
-              bytes,
-              fallbackTitle: job.fallbackTitle,
-              onProgress: progress,
-              isCancelled: () => job.status == ImportStatus.cancelled,
-            )
-          : await _library.updateBytes(
-              job.updateBookId!,
-              bytes,
-              onProgress: progress,
-              isCancelled: () => job.status == ImportStatus.cancelled,
-            );
+      final BookEntry entry;
+      final sourcePath = job.sourcePath;
+      // 真实本地文件走流式导入；测试或内容提供方给出的是虚拟路径时仍走
+      // 注入的 readFile，保持既有可替换读取语义。
+      final canStreamFile =
+          job.updateBookId == null &&
+          job.bytes == null &&
+          sourcePath != null &&
+          File(sourcePath).existsSync();
+      if (canStreamFile) {
+        // 默认路径：文件直接流式导入，不整本读入内存。
+        entry = await _library.importFile(
+          sourcePath,
+          fallbackTitle: job.fallbackTitle,
+          onProgress: progress,
+          isCancelled: () => job.status == ImportStatus.cancelled,
+        );
+      } else {
+        final bytes =
+            job.bytes ?? (loadedBytes = await readFile!(job.sourcePath!));
+        if (job.status == ImportStatus.cancelled) return;
+        entry = job.updateBookId == null
+            ? await _library.importBytes(
+                bytes,
+                fallbackTitle: job.fallbackTitle,
+                onProgress: progress,
+                isCancelled: () => job.status == ImportStatus.cancelled,
+              )
+            : await _library.updateBytes(
+                job.updateBookId!,
+                bytes,
+                onProgress: progress,
+                isCancelled: () => job.status == ImportStatus.cancelled,
+              );
+      }
       job
         ..entry = entry
         ..progress = 1

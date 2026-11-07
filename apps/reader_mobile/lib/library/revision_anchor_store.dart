@@ -102,13 +102,13 @@ Future<AnchorBook?> _readIndex(BookRow row, int first, int last) async {
   try {
     final file = File(row.sourcePath!);
     if (!await file.exists()) return null;
-    final bytes = await file.readAsBytes();
-    final source = await EpubChapterSource.open(bytes, verifyCrc: false);
+    final source = await EpubChapterSource.openFile(file, verifyCrc: false);
     try {
       return _ReadingAnchorSource(
         row,
         source,
-        row.contentRevision ?? sha256.convert(bytes).toString(),
+        row.contentRevision ??
+            (await sha256.bind(file.openRead()).first).toString(),
       ).index(first, last);
     } finally {
       source.close();

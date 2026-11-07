@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -40,7 +41,8 @@ class EpubReaderPage extends StatefulWidget {
   /// 创建页面。
   const EpubReaderPage({
     super.key,
-    required this.bytes,
+    this.bytes,
+    this.sourcePath,
     required this.bookId,
     required this.store,
     this.bookmarks,
@@ -58,8 +60,11 @@ class EpubReaderPage extends StatefulWidget {
     this.onClosed,
   });
 
-  /// EPUB 字节。
-  final Uint8List bytes;
+  /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
+  final Uint8List? bytes;
+
+  /// EPUB 文件路径（阅读页默认入口，惰性读取，不常驻整本字节）。
+  final String? sourcePath;
 
   /// 书籍标识。
   final String bookId;
@@ -117,7 +122,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   // 优先用书库已存版本号，避免每次打开都在 UI isolate 上哈希整本书。
   late final String _contentRevision = switch (widget.contentRevision) {
     final String saved when saved.isNotEmpty => saved,
-    _ => sha256.convert(widget.bytes).toString(),
+    _ => widget.bytes == null ? '' : sha256.convert(widget.bytes!).toString(),
   };
   List<ReaderFontOption> _customFonts = const [];
 
@@ -206,15 +211,22 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       if (!mounted) return;
       // 阅读时跳过 CRC 校验：这本书导入时已完整校验过一次，150MB+ 的大书
       // 光校验就要多花近一倍时间。
-      final source = await EpubChapterSource.open(
-        widget.bytes,
-        verifyCrc: false,
-      );
+      final path = widget.sourcePath;
+      final bytes = widget.bytes;
+      if (path == null && bytes == null) {
+        throw StateError('阅读页缺少 EPUB 来源');
+      }
+      final source = path != null
+          ? await EpubChapterSource.openFile(File(path), verifyCrc: false)
+          : await EpubChapterSource.open(bytes!, verifyCrc: false);
       unawaited(
         ReaderLog.instance.log(
           'epub_parse',
           fields: <String, Object?>{
-            'kb': widget.bytes.length ~/ 1024,
+            'kb': bytes == null
+                ? await File(path!).length() ~/ 1024
+                : bytes.length ~/ 1024,
+            'source': path == null ? 'memory' : 'file',
             'chapters': source.chapterCount,
             'ms': watch.elapsedMilliseconds,
           },
@@ -245,9 +257,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               unawaited(ReaderLog.instance.log(event, fields: fields)),
         );
         _imageCache = DecodedImageCache(
-          // P4-32：条数与字节双上限（§44.4 的 512 张按解码字节折算成 32 张
-          // + 48MB，避免大图书一次性吃满内存）。
-          maxEntries: 32,
+          // P4-32：条数与字节双上限。中端机内存预算有限，12MB 约等于
+          // 2~4 屏图片；翻回上一屏仍命中，继续远跳时按 LRU 重解码。
+          maxEntries: 16,
+          maxBytes: 12 << 20,
           loadBytes: (url) => _loadImageBytes(source, url),
         );
         _loading = false;
@@ -311,11 +324,16 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     unawaited(_readingTracker?.finish() ?? Future<void>.value());
     _search?.dispose();
     _imageCache?.clear();
-    unawaited(_closeSource(session).whenComplete(() => onClosed?.call()));
+    // 章节缓存不参与进度持久化，先同步释放，避免下一次开书与旧书缓存重叠。
+    _releaseAnchorSource?.call();
+    _releaseAnchorSource = null;
+    _source?.close();
+    _source = null;
+    unawaited(_finishClose(session).whenComplete(() => onClosed?.call()));
     super.dispose();
   }
 
-  Future<void> _closeSource(ReaderSession? session) async {
+  Future<void> _finishClose(ReaderSession? session) async {
     try {
       await session?.flushProgress();
     } catch (error) {
@@ -323,9 +341,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         'progress_save_error',
         fields: {'bookId': widget.bookId, 'error': '$error'},
       );
-    } finally {
-      _releaseAnchorSource?.call();
-      _source?.close();
     }
   }
 

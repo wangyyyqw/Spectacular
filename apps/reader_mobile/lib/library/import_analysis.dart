@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -119,6 +120,145 @@ Future<ImportAnalysis?> analyzeImportUnlessKnown(
     revisionPort.close();
     resultPort.close();
     isolate.kill(priority: Isolate.immediate);
+  }
+}
+
+/// 文件版导入分析：整本不进入 Dart 堆，适合 100MB+ 的书。
+///
+/// 哈希按 64KB 分块流式计算；解析在后台 isolate 用惰性 ZIP 索引完成，
+/// 主 isolate 只收到几 KB 的摘要与封面字节。
+Future<ImportAnalysis?> analyzeImportFileUnlessKnown(
+  String path, {
+  required Future<bool> Function(String revision) shouldSkip,
+}) async {
+  final revisionPort = ReceivePort();
+  final resultPort = ReceivePort();
+  Isolate? isolate;
+  try {
+    isolate = await Isolate.spawn<_ImportFileWorkerMessage>(
+      _importAnalysisFileWorker,
+      (
+        path: path,
+        revisionPort: revisionPort.sendPort,
+        resultPort: resultPort.sendPort,
+      ),
+    );
+    final revisionMessage = await revisionPort.first as _ImportWorkerReply;
+    if (revisionMessage.error != null) {
+      throw StateError(revisionMessage.error!);
+    }
+    final revision = revisionMessage.revision!;
+    final skip = await shouldSkip(revision);
+    revisionMessage.commandPort!.send(!skip);
+    if (skip) return null;
+
+    final resultMessage = await resultPort.first as _ImportWorkerReply;
+    if (resultMessage.error != null) {
+      throw StateError(resultMessage.error!);
+    }
+    return resultMessage.analysis!;
+  } finally {
+    revisionPort.close();
+    resultPort.close();
+    isolate?.kill(priority: Isolate.immediate);
+  }
+}
+
+typedef _ImportFileWorkerMessage = ({
+  String path,
+  SendPort revisionPort,
+  SendPort resultPort,
+});
+
+Future<void> _importAnalysisFileWorker(_ImportFileWorkerMessage message) async {
+  final commandPort = ReceivePort();
+  late final String revision;
+  try {
+    revision = await _sha256File(message.path);
+  } catch (error, stack) {
+    message.revisionPort.send((
+      revision: null,
+      analysis: null,
+      error: '$error\n$stack',
+      commandPort: null,
+    ));
+    commandPort.close();
+    return;
+  }
+  message.revisionPort.send((
+    revision: revision,
+    analysis: null,
+    error: null,
+    commandPort: commandPort.sendPort,
+  ));
+  final shouldContinue = await commandPort.first;
+  commandPort.close();
+  if (shouldContinue != true) return;
+  try {
+    final analysis = await _analyzeFile(message.path, revision: revision);
+    message.resultPort.send((
+      revision: null,
+      analysis: analysis,
+      error: null,
+      commandPort: null,
+    ));
+  } catch (error, stack) {
+    message.resultPort.send((
+      revision: null,
+      analysis: null,
+      error: '$error\n$stack',
+      commandPort: null,
+    ));
+  }
+}
+
+/// 流式 SHA-256：峰值内存只与分块大小有关。
+Future<String> _sha256File(String path) async {
+  final sink = _DigestSink();
+  final input = sha256.startChunkedConversion(sink);
+  await for (final chunk in File(path).openRead()) {
+    input.add(chunk);
+  }
+  input.close();
+  return sink.value.toString();
+}
+
+class _DigestSink implements Sink<Digest> {
+  late Digest value;
+
+  @override
+  void add(Digest data) => value = data;
+
+  @override
+  void close() {}
+}
+
+Future<ImportAnalysis> _analyzeFile(String path, {String? revision}) async {
+  revision ??= await _sha256File(path);
+  // 导入做完整 CRC 校验；惰性 ZIP 逐条解压，内存有界。
+  final parsed = await openEpubFile(File(path), verifyCrc: true);
+  final document = parsed.document;
+  if (document == null) return ImportAnalysis(revision, parsed, null);
+  final counts = await document.countChapterCharacters();
+  final coverPath = document.coverResourcePath;
+  try {
+    return ImportAnalysis(
+      revision,
+      EpubOpenResult(report: parsed.report),
+      counts,
+      summary: ImportBookSummary(
+        meta: document.meta,
+        spine: List<SpineItem>.unmodifiable(document.spine),
+        excludedSpineIndexes: Set<int>.unmodifiable(
+          document.progressExcludedSpineIndexes,
+        ),
+        identifier: _originalIdentifier(document),
+        coverBytes: document.readCoverBytes(),
+        coverExtension: _coverExtension(coverPath),
+      ),
+    );
+  } finally {
+    document.archive.close();
   }
 }
 
@@ -246,6 +386,19 @@ Future<EpubOpenResult> openAnalyzed(
 ) async {
   if (analysis.charCounts == null) return analysis.checked;
   final fast = await openEpub(bytes, verifyCrc: false);
+  return EpubOpenResult(
+    document: fast.document,
+    report: analysis.checked.report,
+  );
+}
+
+/// 文件版：覆盖更新时重新打开新文件，同样走惰性读取。
+Future<EpubOpenResult> openAnalyzedFile(
+  String path,
+  ImportAnalysis analysis,
+) async {
+  if (analysis.charCounts == null) return analysis.checked;
+  final fast = await openEpubFile(File(path), verifyCrc: false);
   return EpubOpenResult(
     document: fast.document,
     report: analysis.checked.report,

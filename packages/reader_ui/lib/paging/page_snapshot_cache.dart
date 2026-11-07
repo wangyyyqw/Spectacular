@@ -4,7 +4,7 @@ import 'package:reader_core/layout/paginator.dart';
 
 /// 单个阅读视口拥有的位图缓存；绘制版本变化时整体失效。
 class PageSnapshotCache {
-  PageSnapshotCache({this.maxBytes = 48 * 1024 * 1024});
+  PageSnapshotCache({this.maxBytes = 16 * 1024 * 1024});
 
   final int maxBytes;
   final _images = <PageContent, ui.Image>{};

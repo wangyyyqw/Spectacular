@@ -266,7 +266,7 @@ class ReaderPage extends StatefulWidget {
 class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late final ReaderSession _session;
   late final ParagraphCache _paragraphCache =
-      widget.paragraphCache ?? ParagraphCache(maxEntries: 256);
+      widget.paragraphCache ?? ParagraphCache(maxEntries: 128);
   late final bool _ownsParagraphCache = widget.paragraphCache == null;
   late PagePainter _painter = _buildPainter();
 

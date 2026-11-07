@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -38,10 +39,25 @@ class EpubOpenResult {
 }
 
 /// 打开 EPUB；任何失败都转成 [ImportReport]，不抛未捕获异常。
-Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) async {
+Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) {
+  return _openWith(() async => EpubArchive.fromBytes(bytes, verify: verifyCrc));
+}
+
+/// 从文件打开 EPUB：只解析中央目录，章节与资源按需读取。
+///
+/// 阅读路径用这个入口——100MB+ 的书不再把整本字节读进 Dart 堆。
+/// [verifyCrc] 默认关闭：导入时已完整校验过一次，阅读时逐条重算 CRC
+/// 只会增加 CPU 与发热。
+Future<EpubOpenResult> openEpubFile(File file, {bool verifyCrc = false}) {
+  return _openWith(() => EpubArchive.fromFile(file, verify: verifyCrc));
+}
+
+Future<EpubOpenResult> _openWith(Future<EpubArchive> Function() create) async {
   final warnings = <String>[];
+  EpubArchive? archive;
+  var archiveOwnedByResult = false;
   try {
-    final archive = EpubArchive.fromBytes(bytes, verify: verifyCrc);
+    archive = await create();
     final ocf = archive.validateOcf();
     if (!ocf.ok) {
       return EpubOpenResult(
@@ -80,14 +96,16 @@ Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) async 
       }
       warnings.add(
         'E_CONTAINER_FALLBACK: 无 OPF，按文件名排序拼出 '
-            ' 个章节（结构异常，进度与目录不可靠）',
+        ' 个章节（结构异常，进度与目录不可靠）',
       );
-      return await _finishOpen(
+      final result = await _finishOpen(
         archive: archive,
         package: fallbackPackage,
         opfPath: 'fallback.opf',
         warnings: warnings,
       );
+      archiveOwnedByResult = result.document != null;
+      return result;
     }
     if (containerDiagnostic != null) {
       warnings.add(containerDiagnostic);
@@ -110,24 +128,28 @@ Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) async 
       }
       warnings.add(
         'E_CONTAINER_FALLBACK: 无 OPF，按文件名排序拼出 '
-            '${fallbackPackage.spine.length} 个章节（结构异常，进度与目录不可靠）',
+        '${fallbackPackage.spine.length} 个章节（结构异常，进度与目录不可靠）',
       );
-      return await _finishOpen(
+      final result = await _finishOpen(
         archive: archive,
         package: fallbackPackage,
         opfPath: container.rootfilePath,
         warnings: warnings,
       );
+      archiveOwnedByResult = result.document != null;
+      return result;
     }
     final package = OpfParser.parse(opfString);
     warnings.addAll(package.warnings);
-    return await _finishOpen(
+    final result = await _finishOpen(
       archive: archive,
       package: package,
       opfPath: container.rootfilePath,
       warnings: warnings,
       opfString: opfString,
     );
+    archiveOwnedByResult = result.document != null;
+    return result;
   } on EpubException catch (error) {
     return EpubOpenResult(
       report: ImportReport(
@@ -148,6 +170,10 @@ Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) async 
         warnings: warnings,
       ),
     );
+  } finally {
+    if (!archiveOwnedByResult) {
+      archive?.close();
+    }
   }
 }
 
@@ -182,7 +208,7 @@ Future<EpubOpenResult> _finishOpen({
       }
       warnings.add(
         'E_SPINE_FALLBACK: spine 为空，按 manifest 恢复 '
-            '${recovered.spine.length} 个章节（阅读顺序不可靠）',
+        '${recovered.spine.length} 个章节（阅读顺序不可靠）',
       );
       effectivePackage = recovered;
     }
@@ -208,22 +234,18 @@ Future<EpubOpenResult> _finishOpen({
       archive: archive,
       package: effectivePackage,
       resources: resources,
-      opfDir: opfPath.contains('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '',
+      opfDir: opfPath.contains('/')
+          ? opfPath.substring(0, opfPath.lastIndexOf('/'))
+          : '',
     );
     if (probe.missingSpineItems > 0) {
-      warnings.add(
-        'E_SPINE_MISSING: ${probe.missingSpineItems} 个章节文件不存在',
-      );
+      warnings.add('E_SPINE_MISSING: ${probe.missingSpineItems} 个章节文件不存在');
     }
     if (probe.missingResources > 0) {
-      warnings.add(
-        'E_RESOURCE_MISSING: ${probe.missingResources} 个图片/字体资源缺失',
-      );
+      warnings.add('E_RESOURCE_MISSING: ${probe.missingResources} 个图片/字体资源缺失');
     }
     if (probe.repairedRefs > 0) {
-      warnings.add(
-        'E_RESOURCE_REPAIRED: 已自动修复 ${probe.repairedRefs} 处引用',
-      );
+      warnings.add('E_RESOURCE_REPAIRED: 已自动修复 ${probe.repairedRefs} 处引用');
     }
     final level = EpubReadability.grade(
       ok: true,
@@ -259,6 +281,9 @@ Future<EpubOpenResult> _finishOpen({
 abstract final class EpubDocumentFactory {
   /// 打开 EPUB。
   static Future<EpubOpenResult> open(Uint8List bytes) => openEpub(bytes);
+
+  /// 从文件打开 EPUB（惰性读取，不常驻整本字节）。
+  static Future<EpubOpenResult> openFile(File file) => openEpubFile(file);
 }
 
 /// 解析 `META-INF/encryption.xml` 与 FairPlay 标记（P3-05）。
@@ -281,13 +306,17 @@ FontEncryptionMap _parseFontEncryption(
   }
   final map = FontEncryptionMap.parse(encryptionXml);
   if (map.isEmpty) {
-    warnings.add('E_FONT_OBFUSCATION_FAILED: encryption.xml 解析失败，'
-        '字体混淆信息不可用');
+    warnings.add(
+      'E_FONT_OBFUSCATION_FAILED: encryption.xml 解析失败，'
+      '字体混淆信息不可用',
+    );
     return map;
   }
   for (final uri in map.unknownAlgorithms) {
-    warnings.add('E_FONT_OBFUSCATION_FAILED: encryption.xml 含不支持'
-        '的加密算法 $uri，对应资源按原样读取');
+    warnings.add(
+      'E_FONT_OBFUSCATION_FAILED: encryption.xml 含不支持'
+      '的加密算法 $uri，对应资源按原样读取',
+    );
   }
   return map;
 }
@@ -333,10 +362,10 @@ class EpubDocumentImpl implements EpubDocument {
       return raw;
     }
     Future<Uint8List> decrypt() async => FontObfuscator.deobfuscate(
-          raw,
-          identifier: package.meta.identifier,
-          algorithm: algorithm,
-        );
+      raw,
+      identifier: package.meta.identifier,
+      algorithm: algorithm,
+    );
     if (cache != null) {
       return cache.getOrCompute('$path:${raw.length}', decrypt);
     }
@@ -649,7 +678,8 @@ bool _tocDegraded(OpfPackage package, String actualSource) {
   if (package.tocId != null) {
     return actualSource != 'ncx';
   }
-  final hasNav =
-      package.manifest.any((item) => item.properties.contains('nav'));
+  final hasNav = package.manifest.any(
+    (item) => item.properties.contains('nav'),
+  );
   return hasNav && actualSource != 'nav';
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -100,7 +101,9 @@ void main() {
   });
 
   test('压缩流解压失败只跳过坏条目，未引用资源不阻止 EPUB 打开', () async {
-    final files = ZipDecoder().decodeBytes(brokenSamples['A-refs-repair.epub']!);
+    final files = ZipDecoder().decodeBytes(
+      brokenSamples['A-refs-repair.epub']!,
+    );
     files.addFile(ArchiveFile.string('unused.bin', 'deflate content ' * 1000));
     final zip = _breakDeflate(Uint8List.fromList(ZipEncoder().encode(files)));
 
@@ -172,6 +175,26 @@ void main() {
     expect(archive.readString('missing'), isNull);
   });
 
+  test('非 UTF-8 文件名按中央目录原始字节定位局部头', () {
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string('a.txt', 'GBK 文件名内容')
+          ..compression = CompressionType.none,
+      );
+    final zip = Uint8List.fromList(ZipEncoder().encode(archive));
+    final localName = _localHeaderNameOffset(zip);
+    final centralName = _centralHeaderNameOffset(zip, 'a.txt');
+    expect(localName, isNotNull);
+    expect(centralName, isNotNull);
+    zip[localName!] = 0xB1;
+    zip[centralName!] = 0xB1;
+
+    final decoded = EpubArchive.fromBytes(zip, verify: false);
+    final name = decoded.names.single;
+    expect(name, isNot('a.txt'));
+    expect(decoded.readString(name), 'GBK 文件名内容');
+  });
+
   test('局部头偏移错位：扫描修补后恢复（P7-15）', () {
     final zip = _twoEntryZip();
     // 把中心目录里 bad.txt 的局部头偏移改错 3 字节。
@@ -203,10 +226,7 @@ void main() {
 
   test('非 ZIP 字节按档拒绝', () {
     final garbage = Uint8List.fromList(List<int>.generate(128, (i) => i));
-    expect(
-      () => EpubArchive.fromBytes(garbage),
-      throwsA(isA<EpubException>()),
-    );
+    expect(() => EpubArchive.fromBytes(garbage), throwsA(isA<EpubException>()));
   });
 
   test('mimetype 内容错误时校验失败', () {
@@ -235,6 +255,110 @@ void main() {
     expect(report.ok, isFalse);
     expect(report.errors.first, contains('不是第一个条目'));
   });
+
+  test('文件后端按需读取，关闭后释放句柄', () async {
+    final directory = await Directory.systemTemp.createTemp('epub-file-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file = File('${directory.path}/book.epub');
+    await file.writeAsBytes(_twoEntryZip());
+
+    final archive = await EpubArchive.fromFile(file);
+    expect(archive.length, 2);
+    expect(archive.readString('good.txt'), 'good content payload here');
+    final bytes = archive.readBytes('good.txt')!;
+    bytes.fillRange(0, bytes.length, 0);
+    expect(
+      archive.readString('good.txt'),
+      'good content payload here',
+      reason: '每次读取都返回独立副本',
+    );
+
+    archive.close();
+    expect(archive.length, 0);
+    expect(archive.readString('good.txt'), isNull);
+  });
+
+  test('文件后端读取 deflate 章节与目录', () async {
+    final corpus = findCorpusRoot();
+    if (corpus == null) {
+      return;
+    }
+    final source = readSampleBytes(corpus, 'basic.epub');
+    if (source == null) {
+      return;
+    }
+    final directory = await Directory.systemTemp.createTemp('epub-file-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file = File('${directory.path}/basic.epub');
+    await file.writeAsBytes(source);
+
+    final archive = await EpubArchive.fromFile(file);
+    expect(archive.validateOcf().ok, isTrue);
+    expect(archive.contains('META-INF/container.xml'), isTrue);
+    expect(archive.readString('META-INF/container.xml'), contains('rootfile'));
+    archive.close();
+  });
+
+  test('大 stored 条目导入时仍完整校验 CRC', () {
+    final content = Uint8List(2 * 1024 * 1024);
+    for (var i = 0; i < content.length; i++) {
+      content[i] = i & 0xFF;
+    }
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile('large.bin', content.length, content)
+          ..compression = CompressionType.none,
+      )
+      ..addFile(
+        ArchiveFile.string('good.txt', 'ok')
+          ..compression = CompressionType.none,
+      );
+    final zip = Uint8List.fromList(ZipEncoder().encode(archive));
+    final offset = _indexOf(zip, content);
+    expect(offset, greaterThan(0));
+    zip[offset + content.length ~/ 2] ^= 0xFF;
+
+    final decoded = EpubArchive.fromBytes(zip);
+    expect(decoded.contains('large.bin'), isFalse);
+    expect(decoded.contains('good.txt'), isTrue);
+    expect(
+      decoded.diagnostics,
+      contains(contains('large.bin')),
+      reason: '大条目不能因跳过解压而漏掉 CRC 校验',
+    );
+  });
+
+  test('大 deflate 条目导入时按流式解压校验 CRC', () {
+    final content = utf8.encode('流式解压校验。' * 180000);
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile('large.xhtml', content.length, content)
+          ..compression = CompressionType.deflate,
+      )
+      ..addFile(
+        ArchiveFile.string('good.txt', 'ok')
+          ..compression = CompressionType.none,
+      );
+    final zip = Uint8List.fromList(ZipEncoder().encode(archive));
+    final header = _centralHeaderOffset(zip, 'large.xhtml');
+    expect(header, isNotNull);
+    final data = ByteData.sublistView(zip);
+    final wrongCrc = data.getUint32(header! + 16, Endian.little) ^ 1;
+    data.setUint32(header + 16, wrongCrc, Endian.little);
+
+    final decoded = EpubArchive.fromBytes(zip);
+    expect(decoded.contains('large.xhtml'), isFalse);
+    expect(decoded.contains('good.txt'), isTrue);
+    expect(decoded.diagnostics, contains(contains('large.xhtml')));
+  });
 }
 
 int _indexOf(List<int> haystack, List<int> needle) {
@@ -258,7 +382,9 @@ Uint8List _breakDeflate(Uint8List zip) {
       continue;
     }
     final nameLength = data.getUint16(offset + 26, Endian.little);
-    final name = utf8.decode(zip.sublist(offset + 30, offset + 30 + nameLength));
+    final name = utf8.decode(
+      zip.sublist(offset + 30, offset + 30 + nameLength),
+    );
     if (name != 'unused.bin') {
       continue;
     }
@@ -317,6 +443,37 @@ Uint8List? _shiftCentralOffset(Uint8List zip, String name, int delta) {
       return out;
     }
     cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return null;
+}
+
+int? _localHeaderNameOffset(Uint8List zip) {
+  final data = ByteData.sublistView(zip);
+  for (var offset = 0; offset + 30 <= zip.length; offset++) {
+    if (data.getUint32(offset, Endian.little) == 0x04034b50) {
+      return offset + 30;
+    }
+  }
+  return null;
+}
+
+int? _centralHeaderNameOffset(Uint8List zip, String name) {
+  final offset = _centralHeaderOffset(zip, name);
+  return offset == null ? null : offset + 46;
+}
+
+int? _centralHeaderOffset(Uint8List zip, String name) {
+  final data = ByteData.sublistView(zip);
+  for (var offset = 0; offset + 46 <= zip.length; offset++) {
+    if (data.getUint32(offset, Endian.little) != 0x02014b50) {
+      continue;
+    }
+    final length = data.getUint16(offset + 28, Endian.little);
+    final start = offset + 46;
+    if (start + length > zip.length) return null;
+    if (utf8.decode(zip.sublist(start, start + length)) == name) {
+      return offset;
+    }
   }
   return null;
 }
