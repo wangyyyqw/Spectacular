@@ -52,13 +52,10 @@ void main() {
       contains('脚注索引 ${EpubChapterSource.chapterIndexCacheLimit}/'),
       reason: '脚注引用索引只保留最近章节',
     );
-    final whiteSpaceCached = int.parse(
-      RegExp(r'空白索引 (\d+)/').firstMatch(source.cacheReport)!.group(1)!,
-    );
     expect(
-      whiteSpaceCached,
-      lessThanOrEqualTo(EpubChapterSource.chapterIndexCacheLimit),
-      reason: 'white-space 判定不随长书无界增长',
+      source.cacheReport,
+      isNot(contains('空白索引')),
+      reason: '按元素聚合空白，无需保留额外的第二套正文索引',
     );
 
     // 再访问第 6 章：命中（不报错）且依然是上限内。

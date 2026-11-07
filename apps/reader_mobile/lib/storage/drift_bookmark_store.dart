@@ -25,29 +25,58 @@ class DriftBookmarkStore
 
   @override
   Future<List<ReaderBookmark>> list() async {
-    final bookId = (await _binding.read())?.id;
-    if (bookId == null) {
+    final book = await _binding.read();
+    if (book == null) {
       return const <ReaderBookmark>[];
     }
     final rows =
         await (_db.select(_db.annotations)
               ..where(
                 (table) =>
-                    table.bookId.equals(bookId) &
+                    table.bookId.equals(book.id) &
                     table.type.equals(_typeBookmark),
               )
               ..orderBy([(table) => OrderingTerm(expression: table.createdAt)]))
             .get();
-    return <ReaderBookmark>[for (final row in rows) _toBookmark(row)]
-      ..sort((a, b) => a.spineIndex.compareTo(b.spineIndex));
+    final bookmarks = <ReaderBookmark>[];
+    for (final row in rows) {
+      var anchor = AnchorRecord.decode(row.anchorJson);
+      if (anchor == null) {
+        anchor = await originalAnnotationAnchor(_db, book, row);
+        await (_db.update(
+          _db.annotations,
+        )..where((table) => table.id.equals(row.id))).write(
+          AnnotationsCompanion(anchorJson: Value<String?>(anchor.encode())),
+        );
+      }
+      if (anchor.semanticVersion != currentAnchorSemanticVersion) {
+        final verified = await verifyAnchorSemantics(_db, book, anchor);
+        if (verified.encode() != row.anchorJson) {
+          await (_db.update(
+            _db.annotations,
+          )..where((table) => table.id.equals(row.id))).write(
+            AnnotationsCompanion(
+              startCfi: Value<String>(verified.effective.start.cfi),
+              endCfi: Value<String>(verified.effective.start.cfi),
+              anchorJson: Value<String?>(verified.encode()),
+            ),
+          );
+          anchor = verified;
+        }
+      }
+      bookmarks.add(_toBookmark(row, anchor));
+    }
+    return bookmarks..sort((a, b) => a.spineIndex.compareTo(b.spineIndex));
   }
 
-  ReaderBookmark _toBookmark(AnnotationRow row) {
-    final anchor = AnchorRecord.decode(row.anchorJson);
+  ReaderBookmark _toBookmark(AnnotationRow row, AnchorRecord? anchor) {
+    final cfi = anchor != null && anchor.isResolved
+        ? anchor.effective.start.cfi
+        : row.startCfi;
     return ReaderBookmark(
       id: row.id,
-      cfi: row.startCfi,
-      spineIndex: _spineIndexOf(row.startCfi),
+      cfi: cfi,
+      spineIndex: _spineIndexOf(cfi),
       label: row.quote,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
       relocationStatus: anchor?.status,

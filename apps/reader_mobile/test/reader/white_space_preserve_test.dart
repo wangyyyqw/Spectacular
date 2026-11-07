@@ -2,9 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/css_chapter_book.dart';
 
-/// white-space 原文保留（P9-28）：聚合器一次只能按章级选一种空白模式，
-/// 作者 CSS 按选择器声明的 pre 族 white-space 到不了聚合阶段，换行与连续
-/// 空格会先被折叠掉。章节源对命中章节再聚合一遍保留原文，逐块取用。
+/// 聚合前计算元素最终 white-space；同章、同段内不同规则分别生效。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 

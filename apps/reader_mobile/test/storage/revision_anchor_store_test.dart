@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/text_length.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
@@ -53,6 +55,86 @@ void main() {
 
   String cfi(int offset) => index.anchorAt(0, offset)!.start.cfi;
 
+  Future<double> percentAt(int spine, int offset) async {
+    final source = await EpubChapterSource.openFile(File(book.sourcePath!));
+    try {
+      return source.readingPercentForCfi(
+        index.anchorAt(spine, offset)!.start.cfi,
+      )!;
+    } finally {
+      source.close();
+    }
+  }
+
+  test('旧语义进度按原文重定位并清除失效比例及像素元数据', () async {
+    final current = index.capture(cfi(12))!;
+    final point = <String, Object?>{
+      ...current.start.toJson(),
+      'cfi': cfi(0),
+      'charOffset': 0,
+      'chapterFingerprint': '旧聚合指纹',
+      'paragraphFingerprint': '旧段落指纹',
+    };
+    final original = LocationAnchor.fromJson({
+      ...current.toJson(),
+      'start': point,
+    });
+    final legacy = AnchorRecord(original: original);
+    await db
+        .into(db.readingProgress)
+        .insert(
+          ReadingProgressCompanion.insert(
+            bookId: Value(book.id),
+            locatorCfi: cfi(0),
+            percent: const Value(99),
+            spineIndex: const Value(0),
+            pageIndex: const Value(9),
+            anchorJson: Value(
+              jsonEncode({
+                ...legacy.toJson(),
+                'scrollOffset': 37.25,
+                'layoutFingerprint': '旧排版',
+                'readingPercent': 0.99,
+              }),
+            ),
+            updatedAt: 1,
+          ),
+        );
+    final store = DriftProgressStore(db);
+    final upgraded = (await store.snapshot())['current']!;
+    expect(upgraded.cfi, cfi(12));
+    expect(upgraded.approximate, isFalse);
+    expect(upgraded.scrollOffset, isNull);
+    expect(upgraded.layoutFingerprint, isNull);
+    expect(upgraded.pageIndex, 0);
+    expect(upgraded.readingPercent, closeTo(await percentAt(0, 12), 0.001));
+    final row = (await db.select(db.readingProgress).get()).single;
+    final verified = AnchorRecord.decode(row.anchorJson)!;
+    expect(verified.semanticVersion, currentAnchorSemanticVersion);
+    expect(verified.original.toJson(), legacy.original.toJson());
+    expect(row.percent, closeTo(upgraded.readingPercent! * 100, 0.001));
+    expect(await store.load('current'), upgraded);
+  });
+
+  test('旧锚点缺少正文时进度降级、书签待定位，恢复来源后可继续核验', () async {
+    final record = AnchorRecord(original: index.capture(cfi(5))!);
+    final missing = book.copyWith(sourcePath: const Value(null));
+    final progress = await verifyAnchorSemantics(
+      db,
+      missing,
+      record,
+      progress: true,
+    );
+    final bookmark = await verifyAnchorSemantics(db, missing, record);
+    expect(progress.status, 'approximate');
+    expect(bookmark.status, 'pending');
+    expect(progress.semanticVersion, isNull);
+    expect(bookmark.original.toJson(), record.original.toJson());
+    final recovered = await verifyAnchorSemantics(db, book, bookmark);
+    expect(recovered.isResolved, isTrue);
+    expect(recovered.semanticVersion, currentAnchorSemanticVersion);
+  });
+
   Future<void> bindMultiChapterSource() async {
     final bytes = buildMultiChapterEpub(
       chapters: ['第一章用于连续保存进度和笔记。', '中间章节的内容必须完整保留。', '最后一章用于恢复最新位置。'],
@@ -66,7 +148,11 @@ void main() {
         contentRevision: Value(index.revision),
         spineCount: Value(index.chapters.length),
         charCount: Value(
-          index.chapters.fold(0, (sum, chapter) => sum + chapter.text.length),
+          index.chapters.fold(
+            0,
+            (sum, chapter) =>
+                sum + TextLengthScanner.countPlainText(chapter.text),
+          ),
         ),
       ),
     );
@@ -79,11 +165,11 @@ void main() {
               bookId: book.id,
               spineIndex: chapter.spineIndex,
               href: chapter.href,
-              charCount: Value(chapter.text.length),
+              charCount: Value(TextLengthScanner.countPlainText(chapter.text)),
               charStart: Value(before),
             ),
           );
-      before += chapter.text.length;
+      before += TextLengthScanner.countPlainText(chapter.text);
     }
     final source = await EpubChapterSource.open(bytes, verifyCrc: false);
     final release = await bindReadingAnchorSource(
@@ -125,14 +211,24 @@ void main() {
       );
       expect(added?.relocationStatus, 'verified');
     }
-    expect(await DriftProgressStore(db).load('current'), latest);
+    final restored = await DriftProgressStore(db).load('current');
+    expect(restored!.cfi, latest!.cfi);
+    expect(restored.pageIndex, latest.pageIndex);
+    expect(restored.contentRevision, latest.contentRevision);
     expect(await annotations.list(), hasLength(3));
     final row = (await db.select(db.readingProgress).get()).single;
     final before = index.chapters
         .take(2)
-        .fold(0, (sum, ch) => sum + ch.text.length);
-    final total = index.chapters.fold(0, (sum, ch) => sum + ch.text.length);
-    expect(row.percent, closeTo((before + 8) / total * 100, 0.001));
+        .fold(0, (sum, ch) => sum + TextLengthScanner.countPlainText(ch.text));
+    final total = index.chapters.fold(
+      0,
+      (sum, ch) => sum + TextLengthScanner.countPlainText(ch.text),
+    );
+    final within = TextLengthScanner.countPlainText(
+      index.chapters[2].text.substring(0, 8),
+    );
+    expect(row.percent, closeTo((before + within) / total * 100, 0.001));
+    expect(restored.readingPercent, closeTo(row.percent / 100, 0.001));
   });
 
   test('借用阅读源保存跨章笔记保留中间章节和完整引用', () async {
@@ -201,11 +297,12 @@ void main() {
     final first = (await db.select(db.readingProgress).get()).single;
     final original = AnchorRecord.decode(first.anchorJson)!.original.toJson();
     expect(first.locatorCfi, initial.cfi);
-    expect(
-      first.percent,
-      closeTo(5 / index.chapters.single.text.length * 100, 0.001),
-    );
-    expect(await store.load('current'), initial);
+    expect(first.percent, closeTo(await percentAt(0, 5) * 100, 0.001));
+    final loaded = (await store.load('current'))!;
+    expect(loaded.cfi, initial.cfi);
+    expect(loaded.scrollOffset, initial.scrollOffset);
+    expect(loaded.approximate, isFalse);
+    expect(loaded.readingPercent, closeTo(await percentAt(0, 5), 0.001));
     await store.save(
       'current',
       ReaderProgress(
@@ -374,7 +471,11 @@ void main() {
       contentRevision: index.revision,
     );
     await progress.save('current', value);
-    expect(await progress.load('current'), value);
+    final restored = (await progress.load('current'))!;
+    expect(restored.cfi, value.cfi);
+    expect(restored.pageIndex, value.pageIndex);
+    expect(restored.contentRevision, value.contentRevision);
+    expect(restored.readingPercent, closeTo(await percentAt(0, 10), 0.001));
     await (db.update(db.books)..where((table) => table.id.equals(book.id)))
         .write(const BooksCompanion(contentRevision: Value('new-revision')));
     expect(

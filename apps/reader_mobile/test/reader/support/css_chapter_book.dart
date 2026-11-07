@@ -17,6 +17,7 @@ Uint8List buildCssChapterBook({
   String css = '',
   Map<String, List<int>> binaryFiles = const <String, List<int>>{},
   String itemrefAttributes = '',
+  String identifier = 'urn:uuid:00000000-0000-4000-8000-000000000001',
 }) {
   final chapter =
       '<?xml version="1.0" encoding="UTF-8"?>'
@@ -28,7 +29,7 @@ Uint8List buildCssChapterBook({
       '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
       'unique-identifier="b"><metadata '
       'xmlns:dc="http://purl.org/dc/elements/1.1/">'
-      '<dc:identifier id="b">urn:uuid:css-chapter</dc:identifier>'
+      '<dc:identifier id="b">$identifier</dc:identifier>'
       '<dc:title>t</dc:title><dc:language>zh</dc:language>'
       '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>'
       '</metadata><manifest>'

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/revision_relocator.dart';
 
 import '../reader/epub_chapter_source.dart';
 import '../storage/db.dart';
@@ -141,7 +143,16 @@ class _ReadingAnchorSource {
     if (last >= source.chapterCount) return null;
     final chapters = <AnchorChapter>[];
     for (var spine = first; spine <= last; spine++) {
-      final chapter = _chapters.remove(spine) ?? source.anchorChapter(spine);
+      final chapter =
+          _chapters.remove(spine) ??
+          (source.isChapterMissing(spine)
+              ? AnchorChapter(
+                  spineIndex: spine,
+                  href: source.document.spine[spine].href,
+                  blocks: const [],
+                  readable: false,
+                )
+              : source.anchorChapter(spine));
       _chapters[spine] = chapter;
       while (_chapters.length > EpubChapterSource.documentCacheChapterLimit) {
         _chapters.remove(_chapters.keys.first);
@@ -177,7 +188,68 @@ Future<AnchorRecord?> captureBookAnchor(
     original: existing?.original ?? anchor,
     current: existing == null ? null : anchor,
     status: approximate ? 'approximate' : 'verified',
+    semanticVersion: currentAnchorSemanticVersion,
   );
+}
+
+/// 旧正文语义锚点先按原文与上下文核验；无法建立索引时保留证据并降级。
+///
+/// 进度允许近似恢复；书签/标注必须找到唯一原文，否则保持待定位状态。
+Future<AnchorRecord> verifyAnchorSemantics(
+  AppDatabase db,
+  BookRow book,
+  AnchorRecord record, {
+  bool progress = false,
+}) async {
+  if (record.semanticVersion == currentAnchorSemanticVersion) return record;
+  final effective = record.effective;
+  final index = await loadBookAnchorIndex(
+    db,
+    book,
+    startCfi: effective.start.cfi,
+    endCfi: effective.end?.cfi,
+  );
+  if (index == null) {
+    return AnchorRecord(
+      original: record.original,
+      current: record.current,
+      status: progress ? 'approximate' : 'pending',
+      reason: '暂时无法读取正文，旧位置尚未核验',
+      // 保留旧版本，来源恢复后继续核验。
+      semanticVersion: record.semanticVersion,
+    );
+  }
+  return RevisionRelocator.relocate(
+    oldBook: index,
+    newBook: index,
+    record: record,
+    progress: progress,
+  );
+}
+
+/// 语义升级后的坐标需重新计算比例与像素，不能沿用旧排版元数据。
+String mergeAnchorMetadata(String verifiedJson, String? previousJson) {
+  if (previousJson == null || previousJson.isEmpty) return verifiedJson;
+  try {
+    final verified = jsonDecode(verifiedJson) as Map<String, dynamic>;
+    final previous = jsonDecode(previousJson) as Map<String, dynamic>;
+    final merged = <String, Object?>{...verified};
+    for (final entry in previous.entries) {
+      if (const {
+        'readingPercent',
+        'scrollOffset',
+        'layoutFingerprint',
+      }.contains(entry.key)) {
+        continue;
+      }
+      merged.putIfAbsent(entry.key, () => entry.value);
+    }
+    return jsonEncode(merged);
+  } on FormatException {
+    return verifiedJson;
+  } on TypeError {
+    return verifiedJson;
+  }
 }
 
 /// 缺少旧文件时只保存历史证据，不用新选区替换最初引用。

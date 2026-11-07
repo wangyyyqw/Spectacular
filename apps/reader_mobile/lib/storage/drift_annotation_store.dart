@@ -19,20 +19,54 @@ class DriftAnnotationStore
 
   @override
   Future<List<ReaderAnnotation>> list() async {
-    final bookId = (await _binding.read())?.id;
-    if (bookId == null) {
+    final book = await _binding.read();
+    if (book == null) {
       return const <ReaderAnnotation>[];
     }
     final rows =
         await (_db.select(_db.annotations)
               ..where(
                 (table) =>
-                    table.bookId.equals(bookId) &
+                    table.bookId.equals(book.id) &
                     table.type.isSmallerThanValue(2),
               )
               ..orderBy([(table) => OrderingTerm(expression: table.createdAt)]))
             .get();
-    return <ReaderAnnotation>[for (final row in rows) _toAnnotation(row)];
+    final annotations = <ReaderAnnotation>[];
+    for (final row in rows) {
+      var anchor = AnchorRecord.decode(row.anchorJson);
+      if (anchor == null) {
+        anchor = await originalAnnotationAnchor(_db, book, row);
+        await (_db.update(
+          _db.annotations,
+        )..where((table) => table.id.equals(row.id))).write(
+          AnnotationsCompanion(anchorJson: Value<String?>(anchor.encode())),
+        );
+      }
+      var startCfi = row.startCfi;
+      var endCfi = row.endCfi;
+      if (anchor.semanticVersion != currentAnchorSemanticVersion) {
+        final verified = await verifyAnchorSemantics(_db, book, anchor);
+        if (verified.encode() != row.anchorJson) {
+          startCfi = verified.effective.start.cfi;
+          endCfi = verified.effective.end?.cfi ?? startCfi;
+          await (_db.update(
+            _db.annotations,
+          )..where((table) => table.id.equals(row.id))).write(
+            AnnotationsCompanion(
+              startCfi: Value<String>(startCfi),
+              endCfi: Value<String>(endCfi),
+              anchorJson: Value<String?>(verified.encode()),
+            ),
+          );
+          anchor = verified;
+        }
+      }
+      annotations.add(
+        _toAnnotation(row, anchor: anchor, startCfi: startCfi, endCfi: endCfi),
+      );
+    }
+    return annotations;
   }
 
   @override
@@ -317,13 +351,18 @@ class DriftAnnotationStore
   String _matchingText(String value) =>
       value.replaceAll(RegExp(r'\s+'), ' ').trim();
 
-  ReaderAnnotation _toAnnotation(AnnotationRow row) {
-    final anchor = AnchorRecord.decode(row.anchorJson);
+  ReaderAnnotation _toAnnotation(
+    AnnotationRow row, {
+    AnchorRecord? anchor,
+    String? startCfi,
+    String? endCfi,
+  }) {
+    anchor ??= AnchorRecord.decode(row.anchorJson);
     return ReaderAnnotation(
       id: row.id,
       type: ReaderAnnotationType.fromStorage(row.type),
-      startCfi: row.startCfi,
-      endCfi: row.endCfi,
+      startCfi: startCfi ?? row.startCfi,
+      endCfi: endCfi ?? row.endCfi,
       quote: row.quote,
       contextBefore: row.contextBefore,
       contextAfter: row.contextAfter,
@@ -336,7 +375,7 @@ class DriftAnnotationStore
       relocationStatus: anchor?.status,
       relocationReason: anchor?.reason,
       currentQuote: anchor?.effective.quote,
-      anchorData: row.anchorJson,
+      anchorData: anchor?.encode() ?? row.anchorJson,
     );
   }
 }

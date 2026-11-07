@@ -239,6 +239,24 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       source.bookIdForTrace = widget.bookId;
       _source = source;
       if (widget.store case DriftProgressStore store) {
+        try {
+          final weights = await store.ensureCharacterIndex(
+            widget.bookId,
+            source,
+            _contentRevision,
+            isCancelled: () => !mounted,
+          );
+          if (weights != null) source.bindProgressWeights(weights);
+        } catch (error) {
+          await ReaderLog.instance.log(
+            'character_index_refresh_failed',
+            fields: {'bookId': widget.bookId, 'error': '$error'},
+          );
+        }
+        if (!mounted) {
+          source.close();
+          return;
+        }
         _releaseAnchorSource = await store.bindSource(
           widget.bookId,
           source,
@@ -324,12 +342,19 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     unawaited(_readingTracker?.finish() ?? Future<void>.value());
     _search?.dispose();
     _imageCache?.clear();
-    // 章节缓存不参与进度持久化，先同步释放，避免下一次开书与旧书缓存重叠。
-    _releaseAnchorSource?.call();
+    final releaseAnchorSource = _releaseAnchorSource;
+    final source = _source;
     _releaseAnchorSource = null;
-    _source?.close();
     _source = null;
-    unawaited(_finishClose(session).whenComplete(() => onClosed?.call()));
+    unawaited(
+      _finishClose(session).whenComplete(() {
+        // 最后一条进度保存完成后才能释放章节源与锚点索引；保存期间
+        // 可能仍需从源中校验 CFI，提前关闭会让退出保存失败。
+        releaseAnchorSource?.call();
+        source?.close();
+        onClosed?.call();
+      }),
+    );
     super.dispose();
   }
 
