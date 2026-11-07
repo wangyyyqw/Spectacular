@@ -1,11 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
+import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../integration_test/reader_perf_app.dart' as perf;
 
@@ -69,6 +73,41 @@ void main() {
     await tester.pump(const Duration(milliseconds: 24));
     expect(taps, 2);
     await task;
+  });
+
+  testWidgets('宿主路由已挂载后，慢章节准备不会被五秒路由期限误判', (tester) async {
+    final source = Completer<EpubChapterSource>();
+    final closed = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EpubReaderPage(
+          sourceFuture: source.future,
+          contentRevision: '慢准备验收',
+          bookId: '慢准备验收',
+          store: MemoryReaderProgressStore(),
+          onClosed: closed.complete,
+        ),
+      ),
+    );
+    var taps = 0;
+    var finished = false;
+    Object? failure;
+    final task = perf
+        .openPerfReader(isMounted: perf.isPerfReaderMounted, tap: () => taps++)
+        .then<void>(
+          (_) => finished = true,
+          onError: (Object error) => failure = error,
+        );
+    await tester.pump(const Duration(seconds: 6));
+    expect(find.byType(ReaderPage), findsNothing, reason: '正文仍在准备，应由原正文等待接管');
+    source.completeError(StateError('结束测试准备'));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await task;
+    await closed.future;
+    expect(failure, isNull);
+    expect(finished, isTrue);
+    expect(taps, 0);
   });
 
   test('字号确认拒绝空页、旧页、错误章节与仅更新配置', () {
