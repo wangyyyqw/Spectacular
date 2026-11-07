@@ -41,8 +41,12 @@ class DecodedImageCache {
   final Map<String, Future<ui.Image?>> _pending = <String, Future<ui.Image?>>{};
 
   /// 原始尺寸缓存（P3-07）：键 url；读过头后不再重复解析。
-  final Map<String, ImageIntrinsicSize?> _intrinsic =
-      <String, ImageIntrinsicSize?>{};
+  ///
+  /// 图片很多的工具书会持续触碰新 URL；这里按 LRU 限制条数，只保留
+  /// 每张图的两个整数，不保存图片字节。
+  static const int intrinsicLimit = 512;
+  final LinkedHashMap<String, ImageIntrinsicSize?> _intrinsic =
+      LinkedHashMap<String, ImageIntrinsicSize?>();
   int _bytes = 0;
   int _revision = 0;
   int _generation = 0;
@@ -57,7 +61,24 @@ class DecodedImageCache {
   int get revision => _revision;
 
   /// 原始尺寸（已读过头则直接返回）；未读过且字节在途时返回 null。
-  ImageIntrinsicSize? intrinsicOf(String url) => _intrinsic[url];
+  ImageIntrinsicSize? intrinsicOf(String url) => _touchIntrinsic(url);
+
+  ImageIntrinsicSize? _touchIntrinsic(String url) {
+    if (!_intrinsic.containsKey(url)) {
+      return null;
+    }
+    final value = _intrinsic.remove(url);
+    _intrinsic[url] = value;
+    return value;
+  }
+
+  void _rememberIntrinsic(String url, ImageIntrinsicSize? value) {
+    _intrinsic.remove(url);
+    _intrinsic[url] = value;
+    while (_intrinsic.length > intrinsicLimit) {
+      _intrinsic.remove(_intrinsic.keys.first);
+    }
+  }
 
   /// 同步取已解码图片；未命中返回 null（并提升 LRU 顺序）。
   ui.Image? lookup(String url) {
@@ -145,10 +166,10 @@ class DecodedImageCache {
       }
       // 封顶原图宽（P3-08，§50.2）：显示宽×DPR 超过原图时不放大解码；
       // 原始尺寸顺手缓存（§50.3 优化 3）。
-      var intrinsic = _intrinsic[url];
+      var intrinsic = _touchIntrinsic(url);
       if (!_intrinsic.containsKey(url)) {
         intrinsic = ImageSizeParser.readImageSize(bytes);
-        _intrinsic[url] = intrinsic;
+        _rememberIntrinsic(url, intrinsic);
       }
       var targetWidth = target.isFinite ? math.max(1, target.ceil()) : 0;
       if (intrinsic != null &&

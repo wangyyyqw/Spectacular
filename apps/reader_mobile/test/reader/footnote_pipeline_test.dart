@@ -76,7 +76,13 @@ void main() {
     for (var spine = referenceCount - 5; spine < chapters.length; spine++) {
       await source.loadChapter(spine);
     }
-    expect(source.cacheReport, contains('脚注索引 5/5'));
+    expect(
+      source.cacheReport,
+      contains(
+        '脚注索引 ${EpubChapterSource.chapterIndexCacheLimit}/'
+        '${EpubChapterSource.chapterIndexCacheLimit}',
+      ),
+    );
 
     expect(await noteTextAt(0), '末尾注释 0');
   });

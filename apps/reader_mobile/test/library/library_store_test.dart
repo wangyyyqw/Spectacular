@@ -37,6 +37,50 @@ void main() {
     expect(bytes.length, greaterThan(0));
   });
 
+  test('文件导入：直接复制原书并保留查重语义', () async {
+    final dir = Directory.systemTemp.createTempSync('library_file_import');
+    final sourceDir = Directory.systemTemp.createTempSync(
+      'library_file_source',
+    );
+    addTearDown(() {
+      dir.deleteSync(recursive: true);
+      sourceDir.deleteSync(recursive: true);
+    });
+    final bytes = buildTestEpub(
+      title: '文件导入书',
+      identifier: 'file-import-book',
+      cover: true,
+    );
+    final source = File('${sourceDir.path}/book.epub')..writeAsBytesSync(bytes);
+    final store = _open(dir).store;
+
+    final entry = await store.importFile(source.path);
+
+    expect(entry.title, '文件导入书');
+    expect(entry.importOutcome, BookImportOutcome.added);
+    expect(File(entry.filePath).readAsBytesSync(), bytes);
+    expect(
+      (await store.importFile(source.path)).importOutcome,
+      BookImportOutcome.unchanged,
+    );
+  });
+
+  test('旧书补写内容版本且不覆盖已有版本', () async {
+    final dir = Directory.systemTemp.createTempSync('library_revision');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final entry = await opened.store.importBytes(buildTestEpub(title: '旧书'));
+    await (opened.db.update(opened.db.books)
+          ..where((table) => table.uuid.equals(entry.id)))
+        .write(const BooksCompanion(contentRevision: Value(null)));
+
+    await opened.store.rememberContentRevision(entry.id, 'revision-one');
+    expect((await opened.store.list()).single.contentRevision, 'revision-one');
+
+    await opened.store.rememberContentRevision(entry.id, 'revision-two');
+    expect((await opened.store.list()).single.contentRevision, 'revision-one');
+  });
+
   test('条目跨实例持久化；删除后目录与条目都消失', () async {
     final dir = Directory.systemTemp.createTempSync('library_persist');
     addTearDown(() => dir.deleteSync(recursive: true));

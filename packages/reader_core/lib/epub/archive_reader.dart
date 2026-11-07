@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
 import 'epub_exception.dart';
+import 'zip_source.dart';
 
 /// OCF 校验结果。
 class OcfReport {
@@ -21,8 +23,24 @@ class OcfReport {
 }
 
 /// EPUB 的 ZIP 容器读取与 OCF 校验。
+///
+/// 默认走惰性索引：打开时只解析中央目录（几百 KB），条目在读取时才解压，
+/// 且不保留解压结果。100MB+ 的书不再把整本字节和解压内容常驻内存。
+///
+/// ZIP64/加密/特殊压缩等变体回退到 `package:archive` 整本解码，保持既有
+/// 兼容行为；这类归档在阅读路径上有大小上限，避免内存峰值失控。
 class EpubArchive {
-  EpubArchive._(this._entries, this._orderedNames, this.diagnostics);
+  EpubArchive._(this._backend, this._orderedNames, this._diagnostics);
+
+  final _ArchiveBackend _backend;
+  final List<String> _orderedNames;
+  final List<String> _diagnostics;
+
+  /// 打开期诊断（恢复档的记录，供 ImportReport 汇总）。
+  List<String> get diagnostics => List<String>.unmodifiable(_diagnostics);
+
+  /// 整本兜底上限：超过此大小的 ZIP64/加密容器直接拒绝。
+  static const int _legacyFallbackLimit = 512 * 1024 * 1024;
 
   /// 从字节打开 ZIP；损坏时按四档分类（P7-15），可恢复档先修复再抛：
   ///
@@ -37,8 +55,92 @@ class EpubArchive {
   /// 其余失败保持 [EpubException]（E_ARCHIVE/E_CRC）。
   ///
   /// [verify] 为 false 时跳过 CRC 校验：大文件（150MB+）解码能快数倍，
-  /// 阅读场景用（导入时已完整校验过一次）；条目内容在读取时才解压。
+  /// 阅读场景用（导入时已完整校验过一次）。
   factory EpubArchive.fromBytes(Uint8List bytes, {bool verify = true}) {
+    final index = ZipIndex.tryParse(
+      ZipByteSource.fromBytes(bytes),
+      validateHeaders: true,
+      verifyCrc: verify,
+    );
+    if (index != null) {
+      return _fromIndex(index, verify: verify);
+    }
+    return _legacyFromBytes(bytes, verify: verify);
+  }
+
+  /// 从文件打开：只解析中央目录，条目按需读取。
+  ///
+  /// 这是阅读路径的入口。内存占用只与中央目录和当前章节有关，不再随书
+  /// 的体积线性增长。[verify] 为 true 时逐条解压校验 CRC（导入用，内存
+  /// 有界但耗时）；阅读路径传 false——导入时已完整校验过一次。
+  static Future<EpubArchive> fromFile(File file, {bool verify = false}) async {
+    final source = await ZipByteSource.fromFile(file);
+    ZipIndex? index;
+    try {
+      index = ZipIndex.tryParse(
+        source,
+        validateHeaders: false,
+        verifyCrc: verify,
+      );
+    } catch (_) {
+      index = null;
+    }
+    if (index != null) {
+      try {
+        return _fromIndex(index, verify: verify);
+      } catch (_) {
+        index.release();
+        rethrow;
+      }
+    }
+    await source.close();
+    // 仅 ZIP64/加密/特殊编码等异常容器走整本兜底；正常 EPUB 不进入。
+    if (await file.length() > _legacyFallbackLimit) {
+      throw const EpubException('E_ARCHIVE', '归档格式不受支持且文件过大，无法安全打开');
+    }
+    final bytes = await file.readAsBytes();
+    return _legacyFromBytes(
+      bytes,
+      verify: verify,
+      notes: const <String>['E_ZIP_LEGACY: 归档变体不受惰性读取支持，已整本解码'],
+    );
+  }
+
+  static EpubArchive _fromIndex(
+    ZipIndex index, {
+    required bool verify,
+    List<String> notes = const <String>[],
+  }) {
+    if (verify) {
+      for (final name in List<String>.of(index.order)) {
+        final entry = index.entries[name];
+        if (entry != null) {
+          index.verifyEntry(entry);
+        }
+      }
+    }
+    if (index.entries.isEmpty) {
+      final truncated = index.diagnostics.any(
+        (item) => item.startsWith('E_ZIP_ENTRY_TRUNCATED'),
+      );
+      throw EpubException(
+        truncated ? 'E_ZIP_ENTRY_TRUNCATED' : 'E_ARCHIVE',
+        truncated ? '全部条目均损坏，无法恢复' : 'ZIP 中没有文件',
+      );
+    }
+    return EpubArchive._(
+      _ZipIndexBackend(index),
+      List<String>.of(index.order),
+      List<String>.unmodifiable(<String>[...notes, ...index.diagnostics]),
+    );
+  }
+
+  /// 旧的整本解码路径：仅用于惰性层不支持的归档变体。
+  static EpubArchive _legacyFromBytes(
+    Uint8List bytes, {
+    required bool verify,
+    List<String> notes = const <String>[],
+  }) {
     List<ArchiveFile> files;
     try {
       files = ZipDecoder().decodeBytes(bytes, verify: verify).files;
@@ -56,7 +158,8 @@ class EpubArchive {
             return _build(
               files,
               verify: verify,
-              diagnostics: const <String>[
+              diagnostics: <String>[
+                ...notes,
                 'E_ZIP_LOCAL_HEADER: 局部头偏移错位，已扫描修补中心目录并恢复',
               ],
             );
@@ -75,12 +178,13 @@ class EpubArchive {
       return _build(
         recovered,
         verify: verify,
-        diagnostics: const <String>[
+        diagnostics: <String>[
+          ...notes,
           'E_ZIP_LOCAL_HEADER: 解码丢失条目，已按局部头扫描修补恢复',
         ],
       );
     }
-    return _build(files, verify: verify, diagnostics: const <String>[]);
+    return _build(files, verify: verify, diagnostics: notes);
   }
 
   /// 静默丢条目的恢复：有名条目数少于中心目录时修补偏移重解码，
@@ -103,7 +207,8 @@ class EpubArchive {
     }
     try {
       final files = ZipDecoder().decodeBytes(repaired, verify: verify).files;
-      return files.where((file) => file.name.trim().isNotEmpty).length > namedCount
+      return files.where((file) => file.name.trim().isNotEmpty).length >
+              namedCount
           ? files
           : null;
     } catch (_) {
@@ -141,9 +246,7 @@ class EpubArchive {
       final failure = verify ? _entryFailure(file) : null;
       if (failure != null) {
         corrupted += 1;
-        notes.add(
-          'E_ZIP_ENTRY_TRUNCATED: 条目 ${file.name} 损坏（$failure），已跳过',
-        );
+        notes.add('E_ZIP_ENTRY_TRUNCATED: 条目 ${file.name} 损坏（$failure），已跳过');
         continue;
       }
       final name = _normalizePath(file.name);
@@ -151,9 +254,7 @@ class EpubArchive {
         // 解码器对局部头错位会产出「空名零长」占位条目：修复失败时
         // 在此留痕，不让丢条目完全静默（P7-15）。
         if (name.isEmpty && file.isFile) {
-          notes.add(
-            'E_ZIP_LOCAL_HEADER: 检测到无法定位的条目（局部头错位），已跳过',
-          );
+          notes.add('E_ZIP_LOCAL_HEADER: 检测到无法定位的条目（局部头错位），已跳过');
         }
         continue;
       }
@@ -162,14 +263,15 @@ class EpubArchive {
     }
     if (entries.isEmpty) {
       if (corrupted > 0) {
-        throw const EpubException(
-          'E_ZIP_ENTRY_TRUNCATED',
-          '全部条目均损坏，无法恢复',
-        );
+        throw const EpubException('E_ZIP_ENTRY_TRUNCATED', '全部条目均损坏，无法恢复');
       }
       throw const EpubException('E_ARCHIVE', 'ZIP 中没有文件');
     }
-    return EpubArchive._(entries, order, List<String>.unmodifiable(notes));
+    return EpubArchive._(
+      _LegacyBackend(entries),
+      order,
+      List<String>.unmodifiable(notes),
+    );
   }
 
   static String? _entryFailure(ArchiveFile file) {
@@ -193,18 +295,12 @@ class EpubArchive {
     if (message.contains('end of central directory') ||
         message.contains('eocd') ||
         message.contains('central directory')) {
-      return const EpubException(
-        'E_ZIP_EOCD_MISSING',
-        'EOCD/中心目录缺失，无法恢复',
-      );
+      return const EpubException('E_ZIP_EOCD_MISSING', 'EOCD/中心目录缺失，无法恢复');
     }
     if (message.contains('local file header') ||
         message.contains('local header') ||
         message.contains('invalid header')) {
-      return const EpubException(
-        'E_ZIP_LOCAL_HEADER',
-        '局部头损坏/错位，修补未成功',
-      );
+      return const EpubException('E_ZIP_LOCAL_HEADER', '局部头损坏/错位，修补未成功');
     }
     if (message.contains('encoding') || message.contains('filename')) {
       return EpubException('E_ZIP_NAME_ENCODING', '文件名编码错位：$error');
@@ -239,10 +335,7 @@ class EpubArchive {
       final extraLength = data.getUint16(cursor + 30, Endian.little);
       final commentLength = data.getUint16(cursor + 32, Endian.little);
       final localOffset = data.getUint32(cursor + 42, Endian.little);
-      final nameBytes = bytes.sublist(
-        cursor + 46,
-        cursor + 46 + nameLength,
-      );
+      final nameBytes = bytes.sublist(cursor + 46, cursor + 46 + nameLength);
       final repaired = _locateLocalHeader(
         bytes,
         expectedOffset: localOffset,
@@ -254,11 +347,8 @@ class EpubArchive {
       }
       if (repaired != localOffset) {
         patched ??= Uint8List.fromList(bytes);
-        ByteData.sublistView(patched).setUint32(
-          cursor + 42,
-          repaired,
-          Endian.little,
-        );
+        ByteData.sublistView(patched)
+            .setUint32(cursor + 42, repaired, Endian.little);
       }
       cursor += 46 + nameLength + extraLength + commentLength;
     }
@@ -309,8 +399,7 @@ class EpubArchive {
       return expectedOffset;
     }
     final back = expectedOffset - 4096 < 0 ? 0 : expectedOffset - 4096;
-    final forwardLimit =
-        expectedOffset + 65536 > searchLimit
+    final forwardLimit = expectedOffset + 65536 > searchLimit
         ? searchLimit
         : expectedOffset + 65536;
     for (var offset = back; offset + 30 <= forwardLimit; offset++) {
@@ -321,55 +410,39 @@ class EpubArchive {
     return null;
   }
 
-  final Map<String, ArchiveFile> _entries;
-  final List<String> _orderedNames;
-
-  /// 打开期诊断（恢复档的记录，供 ImportReport 汇总）。
-  final List<String> diagnostics;
-
   /// 全部文件名（保持 ZIP 顺序）。
   List<String> get names => List<String>.unmodifiable(_orderedNames);
 
   /// 文件数。
-  int get length => _entries.length;
+  int get length => _backend.length;
 
-  /// 释放所有条目持有的压缩字节与已解压缓存。
+  /// 释放所有条目持有的压缩字节与已解压缓存 / 文件句柄。
   ///
-  /// ZIP 条目引用打开时的原始字节，读取资源后还会缓存解压结果；阅读页关闭
-  /// 后必须主动清空，否则大书或重复打开时内存会一直占用。关闭后再次读取返回
-  /// null，调用方不应继续使用本归档。
+  /// 阅读页关闭后必须主动清空，否则大书或重复打开时内存会一直占用。
+  /// 关闭后再次读取返回 null，调用方不应继续使用本归档。
   void close() {
-    for (final entry in _entries.values) {
-      entry.clear();
-    }
-    _entries.clear();
+    _backend.close();
     _orderedNames.clear();
   }
 
   /// 是否存在指定路径。
-  bool contains(String path) => _entries.containsKey(_normalizePath(path));
+  bool contains(String path) => _backend.contains(_normalizePath(path));
 
   /// 读取字节；不存在返回 null。
-  Uint8List? readBytes(String path) {
-    final entry = _entries[_normalizePath(path)];
-    if (entry == null) {
-      return null;
-    }
-    return Uint8List.fromList(entry.content);
-  }
+  Uint8List? readBytes(String path) => _backend.readBytes(_normalizePath(path));
 
   /// 读取文本（UTF-8）；不存在返回 null。
   String? readString(String path) {
-    final entry = _entries[_normalizePath(path)];
-    if (entry == null) {
+    final bytes = readBytes(path);
+    if (bytes == null) {
       return null;
     }
-    return utf8.decode(entry.content, allowMalformed: true);
+    return utf8.decode(bytes, allowMalformed: true);
   }
 
   /// 条目的压缩方式；不存在返回 null。
   CompressionType? compressionOf(String path) =>
-      _entries[_normalizePath(path)]?.compression;
+      _backend.compressionOf(_normalizePath(path));
 
   /// 校验 OCF 的 mimetype 约定。
   OcfReport validateOcf() {
@@ -379,23 +452,27 @@ class EpubArchive {
     if (_orderedNames.isEmpty) {
       return OcfReport(errors: <String>['ZIP 为空'], warnings: warnings);
     }
+
     if (_orderedNames.first != 'mimetype') {
       errors.add('mimetype 不是第一个条目（实际：${_orderedNames.first}）');
     }
 
-    final mimetype = _entries['mimetype'];
-    if (mimetype == null) {
+    if (!_backend.contains('mimetype')) {
       return OcfReport(errors: <String>['缺少 mimetype 条目'], warnings: warnings);
     }
 
-    final value = utf8.decode(mimetype.content, allowMalformed: true).trim();
+    final value = utf8
+        .decode(
+          _backend.readBytes('mimetype') ?? Uint8List(0),
+          allowMalformed: true,
+        )
+        .trim();
     if (value != 'application/epub+zip') {
       errors.add('mimetype 内容错误：$value');
     }
-    if (mimetype.compression != CompressionType.none) {
-      warnings.add(
-        'mimetype 被压缩（${mimetype.compression?.name ?? 'unknown'}），不符合 OCF',
-      );
+    final compression = _backend.compressionOf('mimetype');
+    if (compression != CompressionType.none) {
+      warnings.add('mimetype 被压缩（${compression?.name ?? 'unknown'}），不符合 OCF');
     }
     return OcfReport(errors: errors, warnings: warnings);
   }
@@ -406,5 +483,74 @@ class EpubArchive {
       result = result.substring(1);
     }
     return result;
+  }
+}
+
+/// 归档后端：惰性索引或旧的整本解码。
+abstract class _ArchiveBackend {
+  int get length;
+  bool contains(String path);
+  Uint8List? readBytes(String path);
+  CompressionType? compressionOf(String path);
+  void close();
+}
+
+class _ZipIndexBackend implements _ArchiveBackend {
+  _ZipIndexBackend(this._index);
+
+  final ZipIndex _index;
+
+  @override
+  int get length => _index.entries.length;
+
+  @override
+  bool contains(String path) => _index.contains(path);
+
+  @override
+  Uint8List? readBytes(String path) => _index.readBytes(path);
+
+  @override
+  CompressionType? compressionOf(String path) {
+    return switch (_index.methodOf(path)) {
+      0 => CompressionType.none,
+      8 => CompressionType.deflate,
+      12 => CompressionType.bzip2,
+      93 => CompressionType.zstd,
+      _ => null,
+    };
+  }
+
+  @override
+  void close() {
+    _index.release();
+  }
+}
+
+class _LegacyBackend implements _ArchiveBackend {
+  _LegacyBackend(this._entries);
+
+  final Map<String, ArchiveFile> _entries;
+
+  @override
+  int get length => _entries.length;
+
+  @override
+  bool contains(String path) => _entries.containsKey(path);
+
+  @override
+  Uint8List? readBytes(String path) {
+    final entry = _entries[path];
+    return entry == null ? null : Uint8List.fromList(entry.content);
+  }
+
+  @override
+  CompressionType? compressionOf(String path) => _entries[path]?.compression;
+
+  @override
+  void close() {
+    for (final entry in _entries.values) {
+      entry.clear();
+    }
+    _entries.clear();
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -63,14 +65,34 @@ class BookOpener {
         return;
       }
       final readWatch = Stopwatch()..start();
-      final bytes = await library.readBytes(entry);
+      // 阅读页直接从文件惰性读取：100MB+ 的书不再先整本读进 Dart 堆。
+      // 内存库（测试/数据库不可用）仍保留字节入口。
+      final bytes = entry.filePath.isEmpty
+          ? await library.readBytes(entry)
+          : null;
+      final byteLength = bytes?.length ?? await File(entry.filePath).length();
+      // 旧书可能没有 content_revision；文件入口不能用整本字节现算，
+      // 改为流式哈希，保持旧版进度版本语义且不把整本书读进内存。
+      var contentRevision = entry.contentRevision;
+      if (bytes == null &&
+          (contentRevision == null || contentRevision.isEmpty)) {
+        contentRevision =
+            (await sha256.bind(File(entry.filePath).openRead()).first)
+                .toString();
+        try {
+          await library.rememberContentRevision(entry.id, contentRevision);
+        } catch (_) {
+          // 版本号补写失败不阻断本次阅读，下次打开再重试。
+        }
+      }
       readWatch.stop();
       unawaited(
         ReaderLog.instance.log(
           'user_open_book',
           fields: <String, Object?>{
             'book': entry.title,
-            'bytes': bytes.length,
+            'bytes': byteLength,
+            'source': bytes == null ? 'file' : 'memory',
             'read_ms': readWatch.elapsedMilliseconds,
           },
         ),
@@ -85,7 +107,7 @@ class BookOpener {
       }
       final closed = Completer<void>();
       await navigator.pushReplacement<void, void>(
-        _readerRoute(entry, bytes, closed),
+        _readerRoute(entry, bytes, contentRevision, closed),
       );
       await closed.future;
       await library.touchLastRead(entry.id);
@@ -154,7 +176,8 @@ class BookOpener {
   /// 阅读页入场：淡入、轻微放大和上浮，承接封面展开动画。
   Route<void> _readerRoute(
     BookEntry entry,
-    Uint8List bytes,
+    Uint8List? bytes,
+    String? contentRevision,
     Completer<void> closed,
   ) {
     final decorationImages = ReaderDecorationImages();
@@ -163,6 +186,7 @@ class BookOpener {
       reverseTransitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (_, _, _) => EpubReaderPage(
         bytes: bytes,
+        sourcePath: entry.filePath.isEmpty ? null : entry.filePath,
         bookId: entry.id,
         store: progressStore,
         bookmarks: library.bookmarkStore(entry.id),
@@ -178,7 +202,7 @@ class BookOpener {
         fontStore: ReaderFontStore(library),
         onSettingsChanged: _saveSettings,
         bookTitle: entry.title,
-        contentRevision: entry.contentRevision,
+        contentRevision: contentRevision,
         onClosed: closed.complete,
       ),
       transitionsBuilder: (_, animation, _, child) {

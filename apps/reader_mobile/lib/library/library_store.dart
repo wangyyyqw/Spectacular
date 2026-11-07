@@ -971,8 +971,39 @@ class LibraryStore {
   }) {
     final db = _db;
     final queue = db == null ? _importQueue : _databaseImportQueues[db];
-    Future<BookEntry> import() => _importBytes(
-      bytes,
+    Future<BookEntry> import() => _import(
+      _ImportPayload.bytes(bytes),
+      fallbackTitle: fallbackTitle,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+    );
+    final result = queue == null ? import() : queue.then((_) => import());
+    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
+    if (db != null) _databaseImportQueues[db] = _importQueue;
+    return result;
+  }
+
+  /// 从文件导入 EPUB：哈希、解析与落盘全程流式，不把整本读入内存。
+  ///
+  /// 这是书架导入的默认入口；100MB+ 的书内存占用与文件体积无关。
+  Future<BookEntry> importFile(
+    String path, {
+    String? fallbackTitle,
+    void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
+  }) {
+    if (_isMemory) {
+      return importBytes(
+        File(path).readAsBytesSync(),
+        fallbackTitle: fallbackTitle,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    }
+    final db = _db;
+    final queue = db == null ? _importQueue : _databaseImportQueues[db];
+    Future<BookEntry> import() => _import(
+      _ImportPayload.file(path),
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
       isCancelled: isCancelled,
@@ -985,8 +1016,8 @@ class LibraryStore {
 
   // 新书导入沿用既有串行主流程，文件和数据库提交共用完成标记。
   // 此协调方法保留较长结构，避免拆散软删除恢复的外键与失败清理边界。
-  Future<BookEntry> _importBytes(
-    Uint8List bytes, {
+  Future<BookEntry> _import(
+    _ImportPayload payload, {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
@@ -1003,8 +1034,7 @@ class LibraryStore {
         ? ReaderTrace.instance.start(ReaderTraceName.import)
         : null;
     BookEntry? unchangedEntry;
-    final analysis = await analyzeImportUnlessKnown(
-      bytes,
+    final analysis = await payload.analyze(
       shouldSkip: (revision) async {
         final db = _db;
         if (db == null) return false;
@@ -1056,7 +1086,7 @@ class LibraryStore {
       final openTrace = readerTraceEnabled
           ? ReaderTrace.instance.start(ReaderTraceName.import)
           : null;
-      final result = await openAnalyzed(bytes, analysis);
+      final result = await payload.open(analysis);
       openTrace?.stop();
       final document = result.document;
       if (document == null) {
@@ -1068,11 +1098,12 @@ class LibraryStore {
         );
       }
       try {
+        final updateBytes = await payload.readBytes();
         return await _replaceRevision(
           existing,
-          analysis: analysis,
-          bytes,
+          updateBytes,
           result,
+          analysis: analysis,
           onProgress: onProgress,
           isCancelled: isCancelled,
         );
@@ -1081,6 +1112,7 @@ class LibraryStore {
       }
     }
     if (_isMemory && _memoryEntries.containsKey(id)) {
+      final bytes = payload.bytes!;
       final same = listEquals(_memoryBytes[id], bytes);
       _checkImportCancelled(isCancelled);
       _memoryBytes[id] = bytes;
@@ -1116,7 +1148,7 @@ class LibraryStore {
         stagedDirectory = revisionDirectory;
         await revisionDirectory.create(recursive: true);
         final file = File(p.join(revisionDirectory.path, 'source.epub'));
-        await file.writeAsBytes(bytes, flush: true);
+        await payload.writeTo(file);
         filePath = file.path;
         onProgress?.call(0.7);
         final coverBytes = summary.coverBytes;
@@ -1157,7 +1189,7 @@ class LibraryStore {
         coverPath: coverPath,
       );
       if (_isMemory) {
-        _memoryBytes[id] = bytes;
+        _memoryBytes[id] = payload.bytes!;
         _memoryEntries[id] = entry;
       } else {
         final db = _db!;
@@ -1253,6 +1285,23 @@ class LibraryStore {
           .write(BooksCompanion(lastReadAt: Value(now.millisecondsSinceEpoch)));
     }
     _notify();
+  }
+
+  /// 旧书首次打开时补写内容版本，避免之后每次开书都重新哈希整本文件。
+  ///
+  /// 只填补空值，不覆盖导入流程已经写入的版本号。
+  Future<void> rememberContentRevision(String id, String revision) async {
+    if (revision.isEmpty || _isMemory) {
+      return;
+    }
+    final db = _db;
+    if (db == null) {
+      return;
+    }
+    await (db.update(db.books)..where(
+          (table) => table.uuid.equals(id) & table.contentRevision.isNull(),
+        ))
+        .write(BooksCompanion(contentRevision: Value(revision)));
   }
 
   /// 从书架移除书籍：保留用户数据，只清理书籍文件并标记为已删除。
@@ -1692,19 +1741,25 @@ class LibraryStore {
         continue;
       }
       try {
-        final bytes = await File(sourcePath).readAsBytes();
-        final document = (await openEpub(bytes)).document;
-        final coverBytes = document?.readCoverBytes();
-        if (document == null || coverBytes == null || coverBytes.isEmpty) {
-          continue;
+        // 惰性打开：只解压 OPF/导航与封面，不再把整本读进内存。
+        final result = await openEpubFile(File(sourcePath));
+        final document = result.document;
+        if (document == null) continue;
+        try {
+          final coverBytes = document.readCoverBytes();
+          if (coverBytes == null || coverBytes.isEmpty) {
+            continue;
+          }
+          final directory = await _bookDirectory(row.uuid);
+          final extension = _coverExtension(document.coverResourcePath);
+          final coverFile = File('${directory.path}/cover.$extension');
+          await coverFile.writeAsBytes(coverBytes, flush: true);
+          await (db.update(db.books)..where((table) => table.id.equals(row.id)))
+              .write(BooksCompanion(coverPath: Value(coverFile.path)));
+          filled += 1;
+        } finally {
+          document.archive.close();
         }
-        final directory = await _bookDirectory(row.uuid);
-        final extension = _coverExtension(document.coverResourcePath);
-        final coverFile = File('${directory.path}/cover.$extension');
-        await coverFile.writeAsBytes(coverBytes, flush: true);
-        await (db.update(db.books)..where((table) => table.id.equals(row.id)))
-            .write(BooksCompanion(coverPath: Value(coverFile.path)));
-        filled += 1;
       } catch (_) {
         // 单本解析失败跳过，不影响其它书。
       }
@@ -1822,5 +1877,50 @@ class LibraryStore {
     }
     final row = await _bookRowOfUuid(id);
     return row != null && row.deletedAt == null;
+  }
+}
+
+/// 一次导入的输入：文件路径（默认）或字节（测试/内存库）。
+///
+/// 文件路径全程不整本读入：哈希流式计算，解析在后台 isolate 走惰性 ZIP，
+/// 落盘直接复制文件。
+class _ImportPayload {
+  const _ImportPayload.bytes(Uint8List bytes) : _bytes = bytes, _path = null;
+
+  const _ImportPayload.file(String path) : _bytes = null, _path = path;
+
+  final Uint8List? _bytes;
+  final String? _path;
+
+  Uint8List? get bytes => _bytes;
+
+  Future<ImportAnalysis?> analyze({
+    required Future<bool> Function(String revision) shouldSkip,
+  }) {
+    final path = _path;
+    if (path != null) {
+      return analyzeImportFileUnlessKnown(path, shouldSkip: shouldSkip);
+    }
+    return analyzeImportUnlessKnown(_bytes!, shouldSkip: shouldSkip);
+  }
+
+  Future<EpubOpenResult> open(ImportAnalysis analysis) {
+    final path = _path;
+    if (path != null) {
+      return openAnalyzedFile(path, analysis);
+    }
+    return openAnalyzed(_bytes!, analysis);
+  }
+
+  Future<Uint8List> readBytes() async =>
+      _bytes ?? await File(_path!).readAsBytes();
+
+  Future<void> writeTo(File target) async {
+    final path = _path;
+    if (path != null) {
+      await File(path).copy(target.path);
+      return;
+    }
+    await target.writeAsBytes(_bytes!, flush: true);
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -90,6 +91,37 @@ void main() {
     expect(analysis.charCounts, isNotEmpty);
     expect(summary.coverBytes, isNotEmpty);
     expect(summary.coverExtension, 'jpg');
+    expect(analysis.report.ok, isTrue);
+  });
+
+  test('文件分析流式哈希并返回同一摘要', () async {
+    final directory = await Directory.systemTemp.createTemp('import-file-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final bytes = buildTestEpub(
+      title: '文件摘要书',
+      identifier: 'urn:uuid:file-analysis',
+      cover: true,
+    );
+    final file = File('${directory.path}/book.epub');
+    await file.writeAsBytes(bytes);
+    String? checkedRevision;
+
+    final analysis = await analyzeImportFileUnlessKnown(
+      file.path,
+      shouldSkip: (revision) async {
+        checkedRevision = revision;
+        return false;
+      },
+    );
+
+    expect(analysis, isNotNull);
+    expect(checkedRevision, analysis!.revision);
+    expect(analysis.summary?.meta.title, '文件摘要书');
+    expect(analysis.summary?.coverBytes, isNotEmpty);
     expect(analysis.report.ok, isTrue);
   });
 }
