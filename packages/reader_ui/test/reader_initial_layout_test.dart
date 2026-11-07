@@ -117,7 +117,7 @@ void main() {
   test('上一章跳转越过空章仍向前，落在前一有内容章首页', () async {
     final source = _Source()..empty.addAll([1498, 1499]);
     final session = await _restored(source);
-    await session.jumpToChapter(1499);
+    await session.jumpToChapter(1499, emptyDirection: -1);
     expect(
       session.progress,
       const ReaderProgress(spineIndex: 1497, pageIndex: 0),

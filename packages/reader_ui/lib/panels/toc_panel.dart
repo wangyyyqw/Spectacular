@@ -301,6 +301,7 @@ class _TocPanelState extends State<TocPanel> {
                     itemBuilder: (context, index) {
                       final row = rows[index];
                       final current = identical(row.entry, active);
+                      final missing = row.entry.missing;
                       final expanded = _expanded.contains(row.entry);
                       final hasChildren = row.entry.children.isNotEmpty;
                       return ListTile(
@@ -308,22 +309,28 @@ class _TocPanelState extends State<TocPanel> {
                           'toc-row-${row.entry.spineIndex}-${row.entry.title}',
                         ),
                         dense: true,
-                        selected: current,
+                        selected: current && !missing,
                         selectedColor: text,
-                        tileColor: current ? selectedRow : Colors.transparent,
-                        selectedTileColor: selectedRow,
+                        tileColor: current && !missing
+                            ? selectedRow
+                            : Colors.transparent,
+                        selectedTileColor: missing
+                            ? Colors.transparent
+                            : selectedRow,
                         contentPadding: EdgeInsets.only(
                           left: 16 + (row.depth - 1) * 16,
                           right: 16,
                         ),
                         title: Text(
-                          row.entry.title,
+                          missing
+                              ? '${row.entry.title}（章节缺失）'
+                              : row.entry.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,
-                            color: text,
-                            fontWeight: current
+                            color: missing ? muted : text,
+                            fontWeight: current && !missing
                                 ? FontWeight.w600
                                 : FontWeight.w400,
                           ),
@@ -348,7 +355,9 @@ class _TocPanelState extends State<TocPanel> {
                                 )
                               : Icon(Icons.expand_more, size: 16, color: faint),
                         ),
-                        onTap: () => widget.onSelect(row.entry),
+                        onTap: missing
+                            ? null
+                            : () => widget.onSelect(row.entry),
                       );
                     },
                   ),

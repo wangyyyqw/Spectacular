@@ -534,8 +534,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return '第 ${spineIndex + 1} 章';
   }
 
-  /// 全书进度（0..1）：章进度 + 章内页进度。
+  /// 当前正文位置占全书的比例（0..1）。
+  ///
+  /// EPUB 源按同一套字符权重计算；普通测试源或旧数据没有字符比例时，
+  /// 才退回按章/页估算，避免两套口径写回同一个进度字段。
   double _bookProgressOf(PageContent page) {
+    final positioned = _session.readingPercent;
+    if (positioned != null) return positioned.clamp(0.0, 1.0);
     final chapters = widget.source.chapterCount;
     if (chapters <= 0) {
       return 0;
@@ -588,9 +593,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final visitedPages = <(int, int)>{};
 
     void addStyle(ComputedStyle? style) {
-      final image = style?.backgroundImage;
-      if (image != null && image.isNotEmpty) {
-        urls.add(image);
+      if (style == null) {
+        return;
+      }
+      for (final layer in style.backgroundLayers) {
+        final image = layer.image;
+        if (image != null && image.isNotEmpty) {
+          urls.add(image);
+        }
+      }
+      final borderImage = style.borderImage?.url;
+      if (borderImage != null && borderImage.isNotEmpty) {
+        urls.add(borderImage);
       }
     }
 
@@ -599,6 +613,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         return;
       }
       addStyle(block.style);
+      for (final run in block.layout.runs) {
+        addStyle(run.style);
+      }
       for (final fragment in block.containers) {
         addStyle(fragment.container.style);
       }
@@ -618,6 +635,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (cells != null) {
         for (final cell in cells) {
           addStyle(cell.style);
+          for (final run in cell.layout.runs) {
+            addStyle(run.style);
+          }
           for (final line in cell.layout.lines) {
             for (final placement in line.inlineBoxes) {
               final payload = placement.spec.payload;
@@ -825,6 +845,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       for (final font in widget.customFonts) font.family: font,
     }.values.toList();
     if (oldWidget.pageTurnMode != widget.pageTurnMode) {
+      if (oldWidget.pageTurnMode == PageTurnMode.scroll &&
+          widget.pageTurnMode != PageTurnMode.scroll) {
+        _scrollKey.currentState?.captureLatestPosition();
+        unawaited(_flushScrollViewportForModeChange());
+      }
       _pageTurnMode = widget.pageTurnMode;
     }
     if (oldWidget.markSettings != widget.markSettings) {
@@ -1000,17 +1025,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
-  /// 进度滑杆：按全书百分比跳章。
+  /// 进度滑杆：按全书正文字符比例定位到章内 CFI。
   Future<void> _seekToProgress(double percent) async {
-    final chapters = widget.source.chapterCount;
-    if (chapters <= 0) {
-      return;
-    }
-    final target = (percent * chapters).floor().clamp(0, chapters - 1);
-    if (target == (_session.progress?.spineIndex ?? 0)) {
-      return;
-    }
-    await _session.jumpToChapter(target);
+    await _session.seekToReadingPercent(
+      percent,
+      continuous: _effectiveTurnMode == PageTurnMode.scroll,
+    );
   }
 
   /// 日/夜快速切换（设计稿顶部栏的日间夜间按钮）。
@@ -1344,7 +1364,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _applyOverrides(ReaderSettingsDefaults.overrides);
     _applyTheme(ReaderSettingsDefaults.themeId);
     _applyBackground(ReaderBackground.none.id);
-    _applyPageTurnMode(PageTurnMode.cover);
+    unawaited(_applyPageTurnMode(PageTurnMode.cover));
     _applyInkMode(false);
     _applyMarkSettings(const ReaderMarkSettings());
     if (widget.keepScreenOn) {
@@ -1366,13 +1386,34 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  void _applyPageTurnMode(PageTurnMode mode) {
+  Future<void> _applyPageTurnMode(PageTurnMode mode) async {
     if (mode == _pageTurnMode) return;
+    if (_effectiveTurnMode == PageTurnMode.scroll) {
+      // 滚动容器的 120ms 合并窗口尚未提交时，先取最新视口并等待分页器
+      // 落到目标页，避免切到分页模式后显示并保存较早的页号。
+      await _flushScrollViewportForModeChange();
+      if (!mounted) return;
+    }
     _pageTurnKey.currentState?.controller.cancel();
     _clearSelection();
     setState(() => _pageTurnMode = mode);
     widget.onPageTurnModeChanged?.call(mode);
     _log('user_page_turn_mode', {'mode': mode.id});
+  }
+
+  /// 切模式前把滚动容器的最新可见位置串行提交并落盘。
+  ///
+  /// [flushVisiblePosition] 会同步暂存快照并让分页器落到对应页；
+  /// [commitStagedViewport] 再补齐窗口销毁前尚未提交的位次；最后显式
+  /// [ReaderSession.flushProgress] 不依赖 120ms 合并/保存定时器。
+  Future<void> _flushScrollViewportForModeChange() async {
+    try {
+      await _scrollKey.currentState?.flushVisiblePosition();
+      await _session.commitStagedViewport();
+      await _session.flushProgress();
+    } catch (error) {
+      _log('progress_save_error', {'error': '$error'});
+    }
   }
 
   /// 重新加载全书标注（P4-18）并重定位到当前章（P4-20）。
@@ -1936,6 +1977,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Future<void> _flushReadingProgress() async {
     if (_effectiveTurnMode == PageTurnMode.scroll) {
+      _scrollKey.currentState?.captureLatestPosition();
       await _scrollKey.currentState?.flushVisiblePosition();
     }
     await _session.flushProgress();
@@ -1950,6 +1992,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    _scrollKey.currentState?.captureLatestPosition();
+    // 先同步取得最新视口并启动最后一次保存，再取消在途排版；这样即使
+    // 本轮排版被丢弃，退出保存仍读到旧的可见位置而不是已失效的页号。
+    _session.flushProgress().ignore();
     _session.cancelPendingLoads();
     _session.dispose();
     if (_ownsParagraphCache) {
@@ -2225,7 +2271,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ? null
                   : () {
                       _closeDrawer();
-                      unawaited(_session.jumpToChapter(page.spineIndex - 1));
+                      unawaited(
+                        _session.jumpToChapter(
+                          page.spineIndex - 1,
+                          emptyDirection: -1,
+                        ),
+                      );
                     },
               onNextChapter:
                   page.spineIndex >= widget.source.chapterCount - 1 ||
@@ -2277,7 +2328,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       tapZones: _tapZones,
                       keepScreenOn: widget.keepScreenOn,
                       volumeKeyPaging: widget.volumeKeyPaging,
-                      onPageTurnModeChanged: _applyPageTurnMode,
+                      onPageTurnModeChanged: (mode) {
+                        unawaited(_applyPageTurnMode(mode));
+                      },
                       onTapZonesChanged: _applyTapZones,
                       onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
                       onVolumeKeyPagingChanged: widget.onVolumeKeyPagingChanged,
@@ -2297,9 +2350,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onTocSelect: (entry) {
                         _dismissReaderMenu();
                         unawaited(
-                          _session.jumpToChapter(
-                            entry.spineIndex,
-                            title: entry.title,
+                          _session.jumpToTocEntry(
+                            entry,
+                            continuous:
+                                _effectiveTurnMode == PageTurnMode.scroll,
                           ),
                         );
                       },

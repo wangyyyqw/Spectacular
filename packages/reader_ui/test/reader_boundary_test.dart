@@ -90,8 +90,8 @@ void main() {
     expect(await session.previous(), isTrue);
     expect(
       session.progress,
-      const ReaderProgress(spineIndex: 0, pageIndex: 1),
-      reason: '跳过空章 1，回到章 0 末页',
+      const ReaderProgress(spineIndex: 0, pageIndex: 1, finished: true),
+      reason: '跳过空章 1，回到章 0 末页，已读完状态独立保留',
     );
     session.dispose();
   });
