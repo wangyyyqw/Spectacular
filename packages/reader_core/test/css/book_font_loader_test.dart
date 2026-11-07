@@ -151,6 +151,60 @@ void main() {
       expect(await register(_boldPath), isNot(regular));
     });
 
+    test('内容寻址字体跨 loader 复用进程级引擎注册', () async {
+      final faces = _parse(
+        '@font-face { font-family: ReuseProcess; src: url("font.otf"); }',
+      );
+      final before = BookFontLoader.engineLoadCountForTest;
+      final first = BookFontLoader(
+        bookId: 'reuse-process',
+        contentAddressed: true,
+      );
+      await first.load(faces, resolveBytes: (_) => _fileBytes(_regularPath));
+      final engine = first.engineFamily('ReuseProcess');
+      first.clear();
+
+      final second = BookFontLoader(
+        bookId: 'reuse-process',
+        contentAddressed: true,
+      );
+      addTearDown(second.clear);
+      await second.load(faces, resolveBytes: (_) => _fileBytes(_regularPath));
+      expect(second.engineFamily('ReuseProcess'), engine);
+      expect(
+        BookFontLoader.engineLoadCountForTest - before,
+        1,
+        reason: '同字形族在进程内只向 Flutter 字体引擎注册一次',
+      );
+    });
+
+    test('并发内容寻址加载只注册一次引擎字体', () async {
+      final faces = _parse(
+        '@font-face { font-family: ReuseConcurrent; src: url("font.otf"); }',
+      );
+      final before = BookFontLoader.engineLoadCountForTest;
+      final first = BookFontLoader(
+        bookId: 'reuse-concurrent',
+        contentAddressed: true,
+      );
+      final second = BookFontLoader(
+        bookId: 'reuse-concurrent',
+        contentAddressed: true,
+      );
+      addTearDown(first.clear);
+      addTearDown(second.clear);
+      await Future.wait([
+        first.load(faces, resolveBytes: (_) => _fileBytes(_regularPath)),
+        second.load(faces, resolveBytes: (_) => _fileBytes(_regularPath)),
+      ]);
+      expect(first.engineFamily('ReuseConcurrent'), isNotNull);
+      expect(
+        BookFontLoader.engineLoadCountForTest - before,
+        1,
+        reason: '并发打开同一本书不能重复占用字体引擎内存',
+      );
+    });
+
     test('大字体分块摘要与完整SHA-256相同', () async {
       final bytes = await _fileBytes(_regularPath);
       expect(bytes.length, greaterThan(64 * 1024));
