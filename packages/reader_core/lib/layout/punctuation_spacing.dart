@@ -54,6 +54,11 @@ class PunctuationSpacing {
   final _punctuation = <int>{};
   final _blockedGaps = <int>{};
   final _singleClusters = <int, bool>{};
+  // 收集过程按文档顺序插入；索引只缩小章内区间，不改变规则发射顺序。
+  late final _uniformOffsets = _uniform.keys.toList(growable: false);
+  late final _autospaceOffsets = _autospace.keys.toList(growable: false);
+  late final _pairOffsets = [for (final pair in _pairs) pair.left];
+  late final _blockedOffsets = _blockedGaps.toList(growable: false);
 
   void _collectBoundaries() {
     for (var offset = 0; offset < text.length; offset++) {
@@ -177,21 +182,24 @@ class PunctuationSpacing {
   (Map<int, GlyphSpacing>, Set<int>) _innerAdjustments(int start, int end) {
     final glyphs = <int, GlyphSpacing>{};
     final locked = <int>{
-      for (final gap in _blockedGaps)
-        if (gap >= start && gap < end) gap - start,
+      for (final gap in _offsetsInRange(_blockedOffsets, start, end))
+        gap - start,
     };
     _uniformAdjustments(start, end, glyphs, locked);
-    for (final pair in _pairs) {
-      if (pair.left < start || pair.right >= end) continue;
+    for (
+      var index = _firstOffset(_pairOffsets, start);
+      index < _pairs.length && _pairs[index].left < end;
+      index++
+    ) {
+      final pair = _pairs[index];
+      if (pair.right >= end) continue;
       final local = pair.glyph.offset - start;
       glyphs[local] = pair.glyph.atOffset(local);
       locked.add(pair.left - start);
     }
-    for (final entry in _autospace.entries) {
-      if (entry.key >= start &&
-          entry.key + 1 < end &&
-          !barriers.contains(entry.key + 1)) {
-        glyphs[entry.key - start] = entry.value.atOffset(entry.key - start);
+    for (final offset in _offsetsInRange(_autospaceOffsets, start, end - 1)) {
+      if (!barriers.contains(offset + 1)) {
+        glyphs[offset - start] = _autospace[offset]!.atOffset(offset - start);
       }
     }
     return (glyphs, locked);
@@ -203,16 +211,15 @@ class PunctuationSpacing {
     Map<int, GlyphSpacing> glyphs,
     Set<int> locked,
   ) {
-    for (final entry in _uniform.entries) {
-      if (entry.key < start || entry.key >= end) continue;
-      final local = entry.key - start;
-      final glyph = _uniformAdjacent(entry.key, start, end)
-          ? _proportionalGlyph(entry.key, _edgeCompressionRatio)!
-          : entry.value;
+    for (final offset in _offsetsInRange(_uniformOffsets, start, end)) {
+      final local = offset - start;
+      final glyph = _uniformAdjacent(offset, start, end)
+          ? _proportionalGlyph(offset, _edgeCompressionRatio)!
+          : _uniform[offset]!;
       glyphs[local] = glyph.atOffset(local);
       // 压缩后的标点两侧不再分配对齐字距，避免在非末行重新拉宽。
       if (local > 0) locked.add(local - 1);
-      if (entry.key + 1 < end) locked.add(local);
+      if (offset + 1 < end) locked.add(local);
     }
   }
 
@@ -372,6 +379,30 @@ class PunctuationSpacing {
   bool _explicitHalt(int offset) =>
       styleAt(offset).text.fontFeatures?.any((f) => f.feature == 'halt') ??
       false;
+}
+
+int _firstOffset(List<int> offsets, int start) {
+  var lower = 0;
+  var upper = offsets.length;
+  while (lower < upper) {
+    final middle = (lower + upper) ~/ 2;
+    if (offsets[middle] < start) {
+      lower = middle + 1;
+    } else {
+      upper = middle;
+    }
+  }
+  return lower;
+}
+
+Iterable<int> _offsetsInRange(List<int> offsets, int start, int end) sync* {
+  for (
+    var index = _firstOffset(offsets, start);
+    index < offsets.length && offsets[index] < end;
+    index++
+  ) {
+    yield offsets[index];
+  }
 }
 
 final Map<(TextStyle, String), ({double advance, double reduction})>

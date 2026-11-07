@@ -90,6 +90,25 @@ Uint8List _buildFormat4Font() {
 }
 
 void main() {
+  test('覆盖注册版本只随字体族或覆盖数据改变，重复解析登记不递增', () {
+    const family = 'user_coverage_revision';
+    final firstBytes = _buildFormat12Font();
+    final coverage = FontCoverage.parse(firstBytes)!;
+    final before = FontCoverageRegistry.revision;
+    FontCoverageRegistry.register(family, coverage);
+    expect(FontCoverageRegistry.revision, before + 1);
+    FontCoverageRegistry.register(family, coverage);
+    FontCoverageRegistry.register(family, FontCoverage.parse(firstBytes)!);
+    expect(FontCoverageRegistry.revision, before + 1);
+    FontCoverageRegistry.register(
+      family,
+      FontCoverage.parse(_buildFormat4Font())!,
+    );
+    expect(FontCoverageRegistry.revision, before + 2);
+    expect(FontCoverageRegistry.covers(family, 0x42), isTrue);
+    expect(FontCoverageRegistry.covers(family, 0x20000), isFalse);
+  });
+
   group('FontCoverage cmap 解析', () {
     test('真实字体：常用字覆盖、PUA 缺失、清单导出', () async {
       final bytes = await File(_regularPath).readAsBytes();

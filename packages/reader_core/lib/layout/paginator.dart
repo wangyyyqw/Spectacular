@@ -1493,125 +1493,35 @@ class Paginator {
   /// 从预切表格块中截出 `[startRow, endRow)`，并把单元格和行界坐标平移到
   /// 切片顶。rowspan 格跨过分页边界时只保留可见矩形，避免续页整列消失。
   static PageBlock tablePiece(PageBlock source, int startRow, int endRow) {
-    final table = source.table!;
-    final rowYs = table.rowYs;
-    final rowCount = rowYs.length - 1;
-    final headerRows = math.min(table.headerRowCount, rowCount);
-    final headerHeight = headerRows > 0
-        ? math.min(table.headerHeight, rowYs[headerRows])
-        : 0.0;
-    final repeatsHeader = headerRows > 0 && startRow >= headerRows;
-    // 首页保留预切表格在内容盒顶部的留白（例如 Flex align-content
-    // center/flex-end）；只有从后续行开始时才把该行顶平移到切片顶。
-    final top = startRow == 0 ? 0.0 : rowYs[startRow];
-    final bottom = rowYs[endRow];
-    final headerOffset = repeatsHeader ? headerHeight : 0.0;
-    final dataHeight = bottom - top;
-    final height = dataHeight + headerOffset;
-    final cells = <TableCellRender>[
-      for (final cell in table.cells)
-        if (!(repeatsHeader && cell.row < headerRows) &&
-            cell.rect.bottom > top + 0.01 &&
-            cell.rect.top < bottom - 0.01)
-          TableCellRender(
-            row: cell.row,
-            rect: Rect.fromLTRB(
-              cell.rect.left,
-              math.max(0.0, cell.rect.top - top) + headerOffset,
-              cell.rect.right,
-              math.min(dataHeight, cell.rect.bottom - top) + headerOffset,
-            ),
-            layout: cell.layout,
-            style: cell.style,
-            startCfi: cell.startCfi,
-          ),
-    ];
-    if (repeatsHeader) {
-      cells.insertAll(0, [
-        for (final cell in table.cells)
-          if (cell.row < headerRows)
-            TableCellRender(
-              row: cell.row,
-              rect: Rect.fromLTRB(
-                cell.rect.left,
-                math.max(0.0, cell.rect.top),
-                cell.rect.right,
-                math.min(headerHeight, cell.rect.bottom),
-              ),
-              layout: cell.layout,
-              style: cell.style,
-              startCfi: cell.startCfi,
-            ),
-      ]);
-    }
-    final layout = TextLayoutResult(
-      text: source.layout.text,
-      lines: <LineBox>[
-        LineBox(
-          start: 0,
-          end: 0,
-          top: 0,
-          height: height,
-          baseline: height,
-          width: table.tableWidth,
-        ),
-      ],
-      width: table.tableWidth,
-      height: height,
-      maxWidth: source.layout.maxWidth,
-      runs: const <StyledRun>[],
-    );
-    return PageBlock(
-      layout: layout,
-      pageBreakBefore: startRow == 0 && source.pageBreakBefore,
-      pageBreakAfter: endRow == rowCount && source.pageBreakAfter,
-      startCfi: source.startCfi,
-      endCfi: source.endCfi,
-      textRuleEligible: source.textRuleEligible,
-      style: source.style,
-      spaceBefore: startRow == 0 ? source.spaceBefore : 0,
-      spaceAfter: endRow == rowCount ? source.spaceAfter : 0,
-      topInset: startRow == 0 ? source.topInset : 0,
-      bottomInset: endRow == rowCount ? source.bottomInset : 0,
-      leftInset: source.leftInset,
-      breakInsideAvoid: source.breakInsideAvoid,
-      breakAfterAvoid: source.breakAfterAvoid,
-      listMarker: source.listMarker,
-      groupId: source.groupId,
-      table: TableRenderSpec(
-        cells: cells,
-        columnXs: table.columnXs,
-        rowYs: <double>[
-          if (repeatsHeader)
-            for (var row = 0; row <= headerRows; row++) rowYs[row],
-          for (
-            var row = repeatsHeader ? startRow + 1 : startRow;
-            row <= endRow;
-            row += 1
-          )
-            rowYs[row] - top + headerOffset,
-        ],
-        tableWidth: table.tableWidth,
-        headerRowCount: headerRows,
-        headerHeight: headerHeight,
-        flex: table.flex,
-      ),
-      containerSides: source.containerSides,
-      containers: <PageContainerFragment>[
-        for (final fragment in source.containers)
-          PageContainerFragment(
-            container: fragment.container,
-            startsHere: startRow == 0 && fragment.startsHere,
-            endsHere: endRow == rowCount && fragment.endsHere,
-            topInset: fragment.topInset,
-            bottomInset: fragment.bottomInset,
-          ),
-      ],
-      declaredContentHeight: height,
-      effectiveOpacity: source.effectiveOpacity,
-      footnotes: source.footnotes,
-    );
+    final work = _TablePieceWork(source, startRow, endRow);
+    for (final _ in work.steps()) {}
+    return work.result!;
   }
+
+  /// 单元格、行界和容器逐项交付预算，完成前不暴露部分表格。
+  static Future<PageBlock> tablePieceAsync(
+    PageBlock source,
+    int startRow,
+    int endRow, {
+    Future<void> Function()? checkpoint,
+  }) async {
+    final work = _TablePieceWork(source, startRow, endRow);
+    for (final _ in work.steps()) {
+      if (checkpoint != null) await checkpoint();
+    }
+    return work.result!;
+  }
+
+  /// 候选行数只读取行界与容器占位，不反复复制整表单元格。
+  static ({
+    double height,
+    double leading,
+    double trailing,
+    double topDecoration,
+    double bottomDecoration,
+  })
+  tablePieceMetrics(PageBlock source, int startRow, int endRow) =>
+      _TablePieceWork(source, startRow, endRow).metrics;
 
   /// 竖排块按页分栏：列长 = 本页可用高重新分列 → 每页容纳
   /// `floor(页宽 / 列宽)` 列，剩余列顺延下一页。返回每页的列块与每页占高；
@@ -1728,19 +1638,45 @@ class Paginator {
     );
   }
 
-  /// 对一章块列表分页。
+  /// 对一章块列表分页；与流式入口消费同一组候选断点。
   ChapterPagination measureChapter({
     required List<PageBlock> blocks,
     int spineIndex = 0,
     int maxPages = maxPagesPerChapter,
   }) {
-    final pages = <PageContent>[];
+    final progress = _PaginationProgress();
+    final pages = <PageContent>[
+      for (final step in _paginateSteps(
+        blocks: blocks,
+        spineIndex: spineIndex,
+        maxPages: maxPages,
+        progress: progress,
+      ))
+        if (step.page != null) step.page!,
+    ];
+    return ChapterPagination(
+      spineIndex: spineIndex,
+      pages: List<PageContent>.unmodifiable(pages),
+      pageHeight: pageHeight,
+      totalHeight: progress.totalHeight,
+      truncated: progress.truncated,
+    );
+  }
+
+  // 断页依赖当前页的未提交切片、容器续框、表头、组和后文前瞻。
+  // 保留单一算法保证两个入口等价；checkpoint 只让出执行权，不改变断点。
+  // 该循环较长是状态机算法的例外，结构化差分测试约束维护风险。
+  Iterable<_PaginationStep> _paginateSteps({
+    required List<PageBlock> blocks,
+    required int spineIndex,
+    required int maxPages,
+    required _PaginationProgress progress,
+    CancelToken? token,
+  }) sync* {
     var slices = <PageBlockSlice>[];
     var used = 0.0;
     var available = pageHeight - topPadding;
     var firstPage = true;
-    var totalHeight = 0.0;
-    var truncated = false;
     // 相邻块上下边距折叠（CSS 2.1 §8.3.1）：段距不再按两段 margin 相加。
     final flow = PageBlock.collapseAdjacentMargins(blocks);
     // 续框必须完整留在页面内，不能让文字容差吃掉边框和内边距。
@@ -1768,18 +1704,18 @@ class Paginator {
         ? block.textEdgesAt(endLine - 1).bottom
         : 0;
 
-    void record() {
+    PageContent? record() {
       // 空页不记录，避免零长度页。
       if (slices.isEmpty) {
-        return;
+        return null;
       }
       // 页数上限（P7-16）：达到上限不再产出页，丢弃在途切片并标记
       // 截断——行间收页同样受限，页数恰为上限。
-      if (pages.length >= maxPages) {
-        truncated = true;
+      if (progress.pageCount >= maxPages) {
+        progress.truncated = true;
         slices = <PageBlockSlice>[];
         used = 0;
-        return;
+        return null;
       }
       // 容行时已经预留，收页才实际挂到末片；后续块仍可使用这块空间。
       final lastFlow = slices.lastIndexWhere((slice) => !slice.overlay);
@@ -1796,23 +1732,24 @@ class Paginator {
           used -= credit;
         }
       }
-      pages.add(
-        PageContent(
-          spineIndex: spineIndex,
-          pageIndex: pages.length,
-          slices: List<PageBlockSlice>.unmodifiable(slices),
-          usedHeight: used,
-          pageHeight: pageHeight,
-          topPadding: firstPage ? topPadding : 0,
-        ),
+      final page = PageContent(
+        spineIndex: spineIndex,
+        pageIndex: progress.pageCount++,
+        slices: List<PageBlockSlice>.unmodifiable(slices),
+        usedHeight: used,
+        pageHeight: pageHeight,
+        topPadding: firstPage ? topPadding : 0,
       );
       slices = <PageBlockSlice>[];
       used = 0;
       available = pageHeight;
       firstPage = false;
+      return page;
     }
 
     for (var blockIndex = 0; blockIndex < flow.length; blockIndex++) {
+      if (token?.isCancelled ?? false) return;
+      if (blockIndex % 16 == 0) yield const _PaginationStep.checkpoint();
       final block = flow[blockIndex];
       // display: none 的块不占位（P2-15）。
       if (block.style?.display == CssDisplay.none) {
@@ -1860,8 +1797,8 @@ class Paginator {
       }
       // 页数上限截断（P7-16，对照 Reeden「一章超过 20000 页，章节在
       // 这里截断」）：达到上限即停止推进，已产出页保留。
-      if (pages.length >= maxPages) {
-        truncated = true;
+      if (progress.pageCount >= maxPages) {
+        progress.truncated = true;
         break;
       }
       // 整组不可切（P7-26，对照 Reeden D28「图和题注、画廊整组不切开」）：
@@ -1873,10 +1810,12 @@ class Paginator {
         if (groupExtent > available + fitTolerance &&
             groupExtent + block.containerTopInset(0) <=
                 pageHeight + fitTolerance) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
         }
       }
-      totalHeight += block.height + block.leadingExtent + block.trailingExtent;
+      progress.totalHeight +=
+          block.height + block.leadingExtent + block.trailingExtent;
       final lines = block.layout.lines;
       // 空块（无行且无盒高）不占位；声明了高度的空块（height/min-height）
       // 仍按盒高占位。
@@ -1884,7 +1823,8 @@ class Paginator {
         continue;
       }
       if (block.pageBreakBefore) {
-        record();
+        final page = record();
+        if (page != null) yield _PaginationStep.page(page);
       }
 
       // 多列（CSS Multicol §3）：按列宽重排后均衡分列；首列随正常流占高，
@@ -1931,7 +1871,8 @@ class Paginator {
               extent <= pageHeight + tolerance &&
               slices.isNotEmpty) {
             // 整块放不进当前页：先收页，再按新页重试（record 已重置可用高）。
-            record();
+            final page = record();
+            if (page != null) yield _PaginationStep.page(page);
           }
           if (extent <= available + tolerance) {
             // 覆盖列与首列首行对齐（含首列段前/上内缩）。
@@ -1989,6 +1930,10 @@ class Paginator {
             }
             used += extent;
             available -= extent;
+            if (block.pageBreakAfter) {
+              final page = record();
+              if (page != null) yield _PaginationStep.page(page);
+            }
             continue;
           }
           // 跨页列流（分页介质里的 multicol）：每列按本页可用高容纳行数，
@@ -1996,10 +1941,12 @@ class Paginator {
           // 作为覆盖切片绘制在首列右侧。
           var cursor = 0;
           while (cursor < relaid.lineCount) {
+            if (token?.isCancelled ?? false) return;
             final leading = cursor == 0 ? block.leadingExtent : 0.0;
             final usable = available - leading;
             if (usable <= tolerance) {
-              record();
+              final page = record();
+              if (page != null) yield _PaginationStep.page(page);
               continue;
             }
             final pageRanges = <(int, int)>[];
@@ -2011,6 +1958,10 @@ class Paginator {
               while (index < relaid.lineCount &&
                   pieceHeight + relaid.lines[index].height <=
                       usable + tolerance) {
+                if (index % 32 == 0) {
+                  yield const _PaginationStep.checkpoint();
+                  if (token?.isCancelled ?? false) return;
+                }
                 pieceHeight += relaid.lines[index].height;
                 index += 1;
               }
@@ -2089,8 +2040,13 @@ class Paginator {
             available -= sliceHeight;
             cursor = pageRanges.last.$2;
             if (cursor < relaid.lineCount) {
-              record();
+              final page = record();
+              if (page != null) yield _PaginationStep.page(page);
             }
+          }
+          if (block.pageBreakAfter) {
+            final page = record();
+            if (page != null) yield _PaginationStep.page(page);
           }
           continue;
         }
@@ -2120,7 +2076,8 @@ class Paginator {
           if (split != null) {
             for (var i = 0; i < split.chunks.length; i++) {
               if (i > 0) {
-                record();
+                final page = record();
+                if (page != null) yield _PaginationStep.page(page);
               }
               slices.add(
                 PageBlockSlice(
@@ -2134,13 +2091,18 @@ class Paginator {
             }
             used += split.pageHeight;
             available -= split.pageHeight;
+            if (block.pageBreakAfter) {
+              final page = record();
+              if (page != null) yield _PaginationStep.page(page);
+            }
             continue;
           }
         }
         final extent =
             block.leadingExtent + contentHeight + block.trailingExtent;
         if (extent > available + tolerance && slices.isNotEmpty) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
         }
         slices.add(
           PageBlockSlice(
@@ -2157,6 +2119,10 @@ class Paginator {
         );
         used += extent;
         available -= extent;
+        if (block.pageBreakAfter) {
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
+        }
         continue;
       }
 
@@ -2168,7 +2134,8 @@ class Paginator {
                   block.containerTopInset(0) +
                   block.containerBottomInset(lines.length) <=
               pageHeight + fitTolerance) {
-        record();
+        final page = record();
+        if (page != null) yield _PaginationStep.page(page);
       }
 
       // break-after: avoid（P3-22，Reeden 510 §3.3 优先级「avoid before
@@ -2184,7 +2151,7 @@ class Paginator {
         final nextTableRows = splittableTableRows(next);
         final nextHeaderRows = tableHeaderRows(next);
         final nextLineNeed = nextTableRows > 1
-            ? tablePiece(
+            ? tablePieceMetrics(
                 next,
                 0,
                 math.min(nextTableRows, nextHeaderRows + 1),
@@ -2207,7 +2174,8 @@ class Paginator {
             pairExtent + block.containerTopInset(0) <=
                 pageHeight + fitTolerance &&
             available < pairExtent - fitTolerance) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
         }
       }
 
@@ -2218,10 +2186,10 @@ class Paginator {
         final headerRows = tableHeaderRows(block);
         var rowStart = 0;
         while (rowStart < tableRows) {
+          if (token?.isCancelled ?? false) return;
           final firstCandidate = rowStart == 0 && headerRows > 0
               ? math.min(tableRows, headerRows + 1)
               : rowStart + 1;
-          PageBlock? fitted;
           var fittedEnd = rowStart;
           var fittedLeading = 0.0;
           for (
@@ -2229,28 +2197,38 @@ class Paginator {
             candidate <= tableRows;
             candidate++
           ) {
-            final piece = tablePiece(block, rowStart, candidate);
-            final leading = leadingOf(piece, 0);
-            final extent = leading + piece.height + piece.trailingExtent;
-            if (extent + piece.containerBottomInset(1) <=
-                available + fitTolerance) {
-              fitted = piece;
+            if (candidate % 16 == 0) {
+              yield const _PaginationStep.checkpoint();
+              if (token?.isCancelled ?? false) return;
+            }
+            final piece = tablePieceMetrics(block, rowStart, candidate);
+            final leading =
+                piece.leading + (slices.isEmpty ? piece.topDecoration : 0);
+            final extent = leading + piece.height + piece.trailing;
+            if (extent + piece.bottomDecoration <= available + fitTolerance) {
               fittedEnd = candidate;
               fittedLeading = leading;
             } else {
               break;
             }
           }
-          if (fitted == null) {
+          if (fittedEnd == rowStart) {
             if (slices.isNotEmpty) {
-              record();
+              final page = record();
+              if (page != null) yield _PaginationStep.page(page);
               continue;
             }
             // 单行高于整页：强制放一行，由渲染层按页面裁剪，避免死循环。
-            fitted = tablePiece(block, rowStart, firstCandidate);
             fittedEnd = firstCandidate;
-            fittedLeading = leadingOf(fitted, 0);
+            final piece = tablePieceMetrics(block, rowStart, fittedEnd);
+            fittedLeading = piece.leading + piece.topDecoration;
           }
+          final work = _TablePieceWork(block, rowStart, fittedEnd);
+          for (final _ in work.steps()) {
+            yield const _PaginationStep.checkpoint();
+            if (token?.isCancelled ?? false) return;
+          }
+          final fitted = work.result!;
           final extent = fittedLeading + fitted.height + fitted.trailingExtent;
           slices.add(
             PageBlockSlice(
@@ -2267,11 +2245,13 @@ class Paginator {
           available -= extent;
           rowStart = fittedEnd;
           if (rowStart < tableRows) {
-            record();
+            final page = record();
+            if (page != null) yield _PaginationStep.page(page);
           }
         }
         if (block.pageBreakAfter) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
         }
         continue;
       }
@@ -2306,18 +2286,26 @@ class Paginator {
         used += wholeExtent;
         available -= wholeExtent;
         if (block.pageBreakAfter) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
         }
         continue;
       }
 
       var lineStart = 0;
       while (lineStart < lineLimit) {
+        if (token?.isCancelled ?? false) return;
+        if (progress.pageCount >= maxPages) {
+          progress.truncated = true;
+          return;
+        }
         // 真实块首的段距只计一次；续页补容器边框和内边距，不重复 margin。
         final leading = leadingOf(block, lineStart);
         var fitEnd = lineStart;
         var linesHeight = 0.0;
         while (fitEnd < lineLimit) {
+          if (fitEnd % 32 == 0) yield const _PaginationStep.checkpoint();
+          if (token?.isCancelled ?? false) return;
           final lineHeight = lines[fitEnd].height;
           final candidateEnd = fitEnd + 1;
           final bottom =
@@ -2335,7 +2323,8 @@ class Paginator {
         if (fitEnd == lineStart) {
           // 当前页已非空：先收页，在新页重试本行。
           if (slices.isNotEmpty) {
-            record();
+            final page = record();
+            if (page != null) yield _PaginationStep.page(page);
             continue;
           }
           // 单行高于整页：强制放一行，避免死循环；P1-26 之后由渲染层裁切。
@@ -2355,7 +2344,8 @@ class Paginator {
         if (sliceHeight + block.containerBottomInset(fitEnd) >
                 available + fitTolerance + bottomCredit(block, fitEnd) &&
             slices.isNotEmpty) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
           continue;
         }
         slices.add(
@@ -2376,177 +2366,242 @@ class Paginator {
 
         // 本块还有行：当前页已满，记录后下一页继续。
         if (lineStart < lineLimit) {
-          record();
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
         }
       }
 
       if (block.pageBreakAfter) {
-        record();
+        final page = record();
+        if (page != null) yield _PaginationStep.page(page);
       }
     }
 
     // 收尾：未达上限时记录末页；已截断则丢弃在途部分页（P7-16
     // 截断语义——页数恰为上限，已产出页保留）。
-    if (pages.length < maxPages) {
-      record();
+    if (progress.pageCount < maxPages) {
+      final page = record();
+      if (page != null) yield _PaginationStep.page(page);
     }
+  }
+}
 
-    return ChapterPagination(
-      spineIndex: spineIndex,
-      pages: List<PageContent>.unmodifiable(pages),
-      pageHeight: pageHeight,
-      totalHeight: totalHeight,
-      truncated: truncated,
+class _PaginationProgress {
+  int pageCount = 0;
+  double totalHeight = 0;
+  bool truncated = false;
+}
+
+/// 单张表格切片的独立构建状态，同步与流式分页消费同一组步骤。
+class _TablePieceWork {
+  _TablePieceWork(this.source, this.startRow, this.endRow);
+  final PageBlock source;
+  final int startRow;
+  final int endRow;
+  late final table = source.table!;
+  late final rowYs = table.rowYs;
+  late final rowCount = rowYs.length - 1;
+  late final headerRows = math.min(table.headerRowCount, rowCount);
+  late final headerHeight = headerRows > 0
+      ? math.min(table.headerHeight, rowYs[headerRows])
+      : 0.0;
+  late final repeatsHeader = headerRows > 0 && startRow >= headerRows;
+  late final top = startRow == 0 ? 0.0 : rowYs[startRow];
+  late final bottom = rowYs[endRow];
+  late final headerOffset = repeatsHeader ? headerHeight : 0.0;
+  late final dataHeight = bottom - top;
+  late final height = dataHeight + headerOffset;
+  final cells = <TableCellRender>[];
+  final coordinates = <double>[];
+  final fragments = <PageContainerFragment>[];
+  PageBlock? result;
+
+  ({
+    double height,
+    double leading,
+    double trailing,
+    double topDecoration,
+    double bottomDecoration,
+  })
+  get metrics {
+    var topDecoration = 0.0;
+    var bottomDecoration = 0.0;
+    for (final fragment in source.containers) {
+      if (!fragment.container.cloneDecoration) continue;
+      if (!(startRow == 0 && fragment.startsHere)) {
+        topDecoration += fragment.container.topDecoration;
+      }
+      if (!(endRow == rowCount && fragment.endsHere)) {
+        bottomDecoration += fragment.container.bottomDecoration;
+      }
+    }
+    return (
+      height: height,
+      leading: startRow == 0 ? source.leadingExtent : 0,
+      trailing: endRow == rowCount ? source.trailingExtent : 0,
+      topDecoration: topDecoration,
+      bottomDecoration: bottomDecoration,
+    );
+  }
+
+  Iterable<void> steps() sync* {
+    if (repeatsHeader) {
+      for (final cell in table.cells) {
+        yield null;
+        if (cell.row < headerRows) cells.add(_headerCell(cell));
+      }
+      for (var row = 0; row <= headerRows; row++) {
+        yield null;
+        coordinates.add(rowYs[row]);
+      }
+    }
+    for (final cell in table.cells) {
+      yield null;
+      if (!(repeatsHeader && cell.row < headerRows) &&
+          cell.rect.bottom > top + 0.01 &&
+          cell.rect.top < bottom - 0.01) {
+        cells.add(_bodyCell(cell));
+      }
+    }
+    for (
+      var row = repeatsHeader ? startRow + 1 : startRow;
+      row <= endRow;
+      row++
+    ) {
+      yield null;
+      coordinates.add(rowYs[row] - top + headerOffset);
+    }
+    for (final fragment in source.containers) {
+      yield null;
+      fragments.add(
+        PageContainerFragment(
+          container: fragment.container,
+          startsHere: startRow == 0 && fragment.startsHere,
+          endsHere: endRow == rowCount && fragment.endsHere,
+          topInset: fragment.topInset,
+          bottomInset: fragment.bottomInset,
+        ),
+      );
+    }
+    yield null;
+    result = _build();
+  }
+
+  TableCellRender _headerCell(TableCellRender cell) => TableCellRender(
+    row: cell.row,
+    rect: Rect.fromLTRB(
+      cell.rect.left,
+      math.max(0.0, cell.rect.top),
+      cell.rect.right,
+      math.min(headerHeight, cell.rect.bottom),
+    ),
+    layout: cell.layout,
+    style: cell.style,
+    startCfi: cell.startCfi,
+  );
+
+  TableCellRender _bodyCell(TableCellRender cell) => TableCellRender(
+    row: cell.row,
+    rect: Rect.fromLTRB(
+      cell.rect.left,
+      math.max(0.0, cell.rect.top - top) + headerOffset,
+      cell.rect.right,
+      math.min(dataHeight, cell.rect.bottom - top) + headerOffset,
+    ),
+    layout: cell.layout,
+    style: cell.style,
+    startCfi: cell.startCfi,
+  );
+
+  // 保留 PageBlock 的完整字段传递；这里只构造结果，不包含遍历或分支决策。
+  PageBlock _build() {
+    final layout = TextLayoutResult(
+      text: source.layout.text,
+      lines: <LineBox>[
+        LineBox(
+          start: 0,
+          end: 0,
+          top: 0,
+          height: height,
+          baseline: height,
+          width: table.tableWidth,
+        ),
+      ],
+      width: table.tableWidth,
+      height: height,
+      maxWidth: source.layout.maxWidth,
+      runs: const <StyledRun>[],
+    );
+    return PageBlock(
+      layout: layout,
+      pageBreakBefore: startRow == 0 && source.pageBreakBefore,
+      pageBreakAfter: endRow == rowCount && source.pageBreakAfter,
+      startCfi: source.startCfi,
+      endCfi: source.endCfi,
+      textRuleEligible: source.textRuleEligible,
+      style: source.style,
+      spaceBefore: startRow == 0 ? source.spaceBefore : 0,
+      spaceAfter: endRow == rowCount ? source.spaceAfter : 0,
+      topInset: startRow == 0 ? source.topInset : 0,
+      bottomInset: endRow == rowCount ? source.bottomInset : 0,
+      leftInset: source.leftInset,
+      breakInsideAvoid: source.breakInsideAvoid,
+      breakAfterAvoid: source.breakAfterAvoid,
+      listMarker: source.listMarker,
+      groupId: source.groupId,
+      table: TableRenderSpec(
+        cells: cells,
+        columnXs: table.columnXs,
+        rowYs: coordinates,
+        tableWidth: table.tableWidth,
+        headerRowCount: headerRows,
+        headerHeight: headerHeight,
+        flex: table.flex,
+      ),
+      containerSides: source.containerSides,
+      containers: fragments,
+      declaredContentHeight: height,
+      effectiveOpacity: source.effectiveOpacity,
+      footnotes: source.footnotes,
     );
   }
 }
 
-/// 异步增量分页：每产出一页就让出事件循环，并响应取消。
+class _PaginationStep {
+  const _PaginationStep.page(this.page);
+  const _PaginationStep.checkpoint() : page = null;
+
+  final PageContent? page;
+}
+
+/// 异步增量分页：按与同步入口相同的断点产出，并响应取消与时间预算。
 extension PaginatorStreaming on Paginator {
-  /// 逐页产出本章内容。
+  /// [budgetCheck] 由阅读作业控制时间片；未提供时在检查点让出事件循环。
   Stream<PageContent> paginate({
     required List<PageBlock> blocks,
     int spineIndex = 0,
     CancelToken? token,
+    Future<void> Function()? budgetCheck,
+    int maxPages = Paginator.maxPagesPerChapter,
   }) async* {
-    final slices = <PageBlockSlice>[];
-    var used = 0.0;
-    var available = pageHeight - topPadding;
-    var firstPage = true;
-
-    PageContent? record() {
-      if (slices.isEmpty) {
-        return null;
+    final progress = _PaginationProgress();
+    final steps = _paginateSteps(
+      blocks: blocks,
+      spineIndex: spineIndex,
+      maxPages: maxPages,
+      progress: progress,
+      token: token,
+    );
+    for (final step in steps) {
+      if (token?.isCancelled ?? false) return;
+      final page = step.page;
+      if (page != null) yield page;
+      if (budgetCheck == null) {
+        await Future<void>.delayed(Duration.zero);
+      } else {
+        await budgetCheck();
       }
-      if (trimTextEdges) {
-        final last = slices.last;
-        final credit = last.block.textEdgesAt(last.endLine - 1).bottom;
-        slices[slices.length - 1] = last.withTextBottomTrim(credit);
-        used -= credit;
-      }
-      final page = PageContent(
-        spineIndex: spineIndex,
-        pageIndex: -1,
-        slices: List<PageBlockSlice>.unmodifiable(slices),
-        usedHeight: used,
-        pageHeight: pageHeight,
-        topPadding: firstPage ? topPadding : 0,
-      );
-      slices.clear();
-      used = 0;
-      available = pageHeight;
-      firstPage = false;
-      return page;
-    }
-
-    var pageIndex = 0;
-    // 与 measureChapter 同口径：相邻块上下边距折叠后再推进。
-    for (final block in PageBlock.collapseAdjacentMargins(blocks)) {
-      if (token?.isCancelled ?? false) {
-        return;
-      }
-      final lines = block.layout.lines;
-      if (lines.isEmpty) {
-        continue;
-      }
-      if (block.pageBreakBefore) {
-        final page = record();
-        if (page != null) {
-          yield _withIndex(page, pageIndex++);
-          await Future<void>.delayed(Duration.zero);
-          if (token?.isCancelled ?? false) {
-            return;
-          }
-        }
-      }
-
-      var lineStart = 0;
-      while (lineStart < lines.length) {
-        if (token?.isCancelled ?? false) {
-          return;
-        }
-        var fitEnd = lineStart;
-        final topTrim =
-            trimTextEdges && slices.isEmpty && !(firstPage && topPadding < 0)
-            ? block.textEdgesAt(lineStart).top
-            : 0.0;
-        var sliceHeight = -topTrim;
-        while (fitEnd < lines.length) {
-          final lineHeight = lines[fitEnd].height;
-          final bottomTrim = trimTextEdges
-              ? block.textEdgesAt(fitEnd).bottom
-              : 0.0;
-          if (sliceHeight + lineHeight <= available + tolerance + bottomTrim) {
-            sliceHeight += lineHeight;
-            fitEnd += 1;
-          } else {
-            break;
-          }
-        }
-        if (fitEnd == lineStart) {
-          if (slices.isNotEmpty) {
-            final page = record();
-            if (page != null) {
-              yield _withIndex(page, pageIndex++);
-              await Future<void>.delayed(Duration.zero);
-              if (token?.isCancelled ?? false) {
-                return;
-              }
-            }
-            continue;
-          }
-          sliceHeight = lines[lineStart].height - topTrim;
-          fitEnd = lineStart + 1;
-        }
-        slices.add(
-          PageBlockSlice(
-            block: block,
-            startLine: lineStart,
-            endLine: fitEnd,
-            height: sliceHeight,
-            leadingExtent: -topTrim,
-            textTopTrim: topTrim,
-          ),
-        );
-        used += sliceHeight;
-        available -= sliceHeight;
-        lineStart = fitEnd;
-        if (lineStart < lines.length) {
-          final page = record();
-          if (page != null) {
-            yield _withIndex(page, pageIndex++);
-            await Future<void>.delayed(Duration.zero);
-            if (token?.isCancelled ?? false) {
-              return;
-            }
-          }
-        }
-      }
-
-      if (block.pageBreakAfter) {
-        final page = record();
-        if (page != null) {
-          yield _withIndex(page, pageIndex++);
-          await Future<void>.delayed(Duration.zero);
-          if (token?.isCancelled ?? false) {
-            return;
-          }
-        }
-      }
-    }
-
-    final last = record();
-    if (last != null) {
-      yield _withIndex(last, pageIndex++);
+      if (token?.isCancelled ?? false) return;
     }
   }
-
-  static PageContent _withIndex(PageContent page, int index) => PageContent(
-    spineIndex: page.spineIndex,
-    pageIndex: index,
-    slices: page.slices,
-    usedHeight: page.usedHeight,
-    pageHeight: page.pageHeight,
-    topPadding: page.topPadding,
-  );
 }

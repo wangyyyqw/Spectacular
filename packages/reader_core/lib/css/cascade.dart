@@ -1,6 +1,7 @@
 import 'cascade_rule.dart';
 import 'cascade_rule_set.dart';
 import 'computed_style.dart';
+import 'fragmentation.dart';
 import 'parser.dart';
 import 'property_aliases.dart';
 import 'selector.dart';
@@ -310,19 +311,24 @@ abstract final class Cascade {
     )) {
       return;
     }
+    final property = CssFragmentation.canonicalProperty(declaration.property);
+    final value = CssFragmentation.canonicalValue(
+      declaration.property,
+      declaration.value,
+    );
     final level = _level(origin, declaration.important);
     _consider(
       winners,
-      declaration.property,
-      declaration.value,
+      property,
+      value,
       origin,
       level,
       specificity,
       sequence,
     );
     for (final longhand in _expandShorthand(
-      declaration.property,
-      declaration.value,
+      property,
+      value,
     ).entries) {
       _consider(
         winners,

@@ -429,6 +429,13 @@ class EpubArchive {
   /// 是否存在指定路径。
   bool contains(String path) => _backend.contains(_normalizePath(path));
 
+  /// 条目的未压缩字节数；不存在或归档已关闭时返回 null。
+  ///
+  /// 只读取中央目录或旧后端已有的条目元数据，不读取、解压或解析内容。
+  /// 阅读进度可据此准备全书权重，而无需扫描每章 XHTML。
+  int? uncompressedSizeOf(String path) =>
+      _backend.uncompressedSizeOf(_normalizePath(path));
+
   /// 读取字节；不存在返回 null。
   Uint8List? readBytes(String path) => _backend.readBytes(_normalizePath(path));
 
@@ -497,6 +504,7 @@ class EpubArchive {
 abstract class _ArchiveBackend {
   int get length;
   bool contains(String path);
+  int? uncompressedSizeOf(String path);
   Uint8List? readBytes(String path);
   Uint8List? readHead(String path, int maxBytes);
   CompressionType? compressionOf(String path);
@@ -513,6 +521,10 @@ class _ZipIndexBackend implements _ArchiveBackend {
 
   @override
   bool contains(String path) => _index.contains(path);
+
+  @override
+  int? uncompressedSizeOf(String path) =>
+      _index.entries[path]?.uncompressedSize;
 
   @override
   Uint8List? readBytes(String path) => _index.readBytes(path);
@@ -548,6 +560,9 @@ class _LegacyBackend implements _ArchiveBackend {
 
   @override
   bool contains(String path) => _entries.containsKey(path);
+
+  @override
+  int? uncompressedSizeOf(String path) => _entries[path]?.size;
 
   @override
   Uint8List? readBytes(String path) {
