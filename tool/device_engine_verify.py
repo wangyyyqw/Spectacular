@@ -42,6 +42,7 @@ FIXTURE_NAMES = [
     "verify-small.epub",
     "verify-broken-spine.epub",
 ]
+REVERSE_PORT_RANGE = range(60001, 60051)
 
 
 class DeviceHandler(BaseHTTPRequestHandler):
@@ -300,6 +301,30 @@ def ensure_fixtures() -> None:
         raise RuntimeError(f"fixtures 生成后仍缺失：{still}")
 
 
+def start_reverse_server(device: str, handler_factory):
+    """在设备允许的端口段启动宿主服务并建立 reverse。
+
+    Flyme/Android 16 会拒绝部分落在临时端口区间内的监听端口（实测 50019
+    返回 Operation not permitted，60001 正常）。这里逐个尝试安全端口，
+    既避免随机端口偶发失败，也保留本机端口被占用时的回退。
+    """
+    for port in REVERSE_PORT_RANGE:
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler_factory)
+        except OSError:
+            continue
+        result = subprocess.run(
+            ["adb", "-s", device, "reverse", f"tcp:{port}", f"tcp:{port}"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return server, port
+        server.server_close()
+    raise RuntimeError("无法建立 adb reverse：设备拒绝了 60001-60050 全部端口")
+
+
 def pick_device(requested: str | None) -> str:
     if requested:
         return requested
@@ -376,17 +401,15 @@ def verify(args) -> None:
     before = run(["adb", "-s", device, "shell", "pm", "path", APP_ID], capture=True)
     state = {"done": threading.Event(), "report": None, "samples": 0, "screenshots": []}
     logcat = args.output / "logcat.txt"
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0),
-        partial(
-            DeviceHandler,
-            device=device,
-            fixtures=FIXTURE_DIR,
-            output=args.output,
-            state=state,
-        ),
+    handler_factory = partial(
+        DeviceHandler,
+        device=device,
+        fixtures=FIXTURE_DIR,
+        output=args.output,
+        state=state,
     )
-    port = str(server.server_port)
+    server, host_port = start_reverse_server(device, handler_factory)
+    port = str(host_port)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     workspace_ctx = tempfile.TemporaryDirectory(prefix="spectacular-engine-")
     try:
@@ -397,7 +420,6 @@ def verify(args) -> None:
             prepare_workspace(workspace)
             apk = build_apk(workspace, f"http://127.0.0.1:{port}")
         print(f"APK：{apk}")
-        run(["adb", "-s", device, "reverse", f"tcp:{port}", f"tcp:{port}"])
         subprocess.run(
             ["adb", "-s", device, "logcat", "-c"], check=False,
             capture_output=True,

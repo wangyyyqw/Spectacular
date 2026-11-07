@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +27,7 @@ final _results = <String, Object?>{};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _results['start'] = _memory();
   runApp(const MaterialApp(home: Scaffold(body: Text('准备真机性能测试'))));
   try {
     final root = await getApplicationSupportDirectory();
@@ -35,9 +37,13 @@ Future<void> main() async {
     }
     // 每次运行用全新库：覆盖安装会保留上一轮的书架、进度与内容锚点，
     // 阅读器恢复到的位置就不再是本次写入的第 29 章，多轮测量会整体失效。
-    final db = AppDatabase(NativeDatabase(
-      File('${root.path}/perf-${DateTime.now().microsecondsSinceEpoch}.sqlite'),
-    ));
+    final db = AppDatabase(
+      NativeDatabase(
+        File(
+          '${root.path}/perf-${DateTime.now().microsecondsSinceEpoch}.sqlite',
+        ),
+      ),
+    );
     await _seedBook(db, file);
     final progress = DriftProgressStore(db);
     final library = LibraryStore(
@@ -56,14 +62,15 @@ Future<void> main() async {
       if (round == 2 && const bool.fromEnvironment('PERF_LONG_SCAN')) {
         await _scanLongBook();
       }
+      // 首轮最后跳到第 32 章，后续轮次停在第 29 章。旧阅读页的进度落盘
+      // 是异步的，必须等它真正写入后再清进度，否则下一轮会被旧位置覆盖。
+      final closingSpine = round == 0 ? 32 : 29;
       _navigator.currentState!.pop();
-      // 阅读页退出后才异步落盘并释放章节源；等它真正卸载再进下一轮，
-      // 否则下一次打开会与仍在释放的会话竞争。
       await _until(() => _find<ReaderPage>((_) => true) == null);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await _untilProgress(progress, closingSpine);
     }
     if (const bool.fromEnvironment('PERF_LONG_SCAN')) {
-      _results['after_close_rss_bytes'] = ProcessInfo.currentRss;
+      _results['after_close'] = _memory();
     }
     await _send('done', _results);
   } catch (error, stack) {
@@ -83,11 +90,11 @@ Future<void> _measureImport(Directory root, File original) async {
     );
     final stages = <String, int>{};
     final watch = Stopwatch()..start();
-    final bytes = await original.readAsBytes();
-    stages['read_ms'] = watch.elapsedMilliseconds;
-    final entry = await library.importBytes(
-      bytes,
+    // 走生产默认入口：文件流式导入，不整本读入内存。
+    final entry = await library.importFile(
+      original.path,
       onProgress: (progress) {
+        if (progress == 0.1) stages['started_ms'] = watch.elapsedMilliseconds;
         if (progress == 0.45) stages['verified_ms'] = watch.elapsedMilliseconds;
         if (progress == 0.85) stages['written_ms'] = watch.elapsedMilliseconds;
         if (progress == 0.95) stages['counted_ms'] = watch.elapsedMilliseconds;
@@ -99,6 +106,7 @@ Future<void> _measureImport(Directory root, File original) async {
       'complete_ms': watch.elapsedMilliseconds,
       'chapters': entry.spineCount,
       'characters': weights.totalCharacters,
+      ..._memory(),
     };
     await _send('sample', _results);
   } finally {
@@ -122,7 +130,8 @@ Future<File> _download(Directory root) async {
 }
 
 Future<void> _seedBook(AppDatabase db, File file) async {
-  // 测试准备使用固定书架记录；正文读取仍走生产 File.readAsBytes 路径。
+  // 测试准备使用固定书架记录；正文读取仍走生产惰性文件路径。
+  final revision = (await sha256.bind(file.openRead()).first).toString();
   await db
       .into(db.books)
       .insertOnConflictUpdate(
@@ -132,10 +141,23 @@ Future<void> _seedBook(AppDatabase db, File file) async {
           title: '诸神愚戏',
           contentDir: file.parent.path,
           sourcePath: Value(file.path),
+          contentRevision: Value(revision),
           spineCount: const Value(1541),
           createdAt: DateTime.now().millisecondsSinceEpoch,
         ),
       );
+}
+
+Future<void> _untilProgress(DriftProgressStore progress, int spine) async {
+  final watch = Stopwatch()..start();
+  while (watch.elapsed < const Duration(seconds: 10)) {
+    final saved = await progress.load(_bookId);
+    if (saved?.spineIndex == spine) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  throw TimeoutException('等待阅读进度落盘到第 $spine 章超时；现场 $_scene');
 }
 
 Future<void> _openRound(DriftProgressStore progress, int round) async {
@@ -150,7 +172,19 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
   }
   await _until(() => _bookTile() != null);
   final watch = Stopwatch()..start();
-  _bookTile()!.onTap!();
+  // BookOpener 在返回书架后还要完成进度落盘与 touchLastRead；这期间的
+  // 重开点击会被防重入逻辑忽略。性能测试按真实用户可以再次点击的行为
+  // 重试，直到新阅读页真正挂载。
+  var opened = false;
+  for (var attempt = 0; attempt < 20; attempt++) {
+    if (_find<ReaderPage>((_) => true) != null) {
+      opened = true;
+      break;
+    }
+    _bookTile()?.onTap?.call();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  if (!opened) throw StateError('第 $round 轮开书超时');
   _results['open_$round'] = await _sample(watch, 29);
   await _send('sample', _results);
   if (round != 0) return;
@@ -167,9 +201,11 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
 
 // 书架条目的点击目标是 InkWell，按公开 key 定位：列表模式 'book-row-<uuid>'、
 // 网格模式 'book-card-<uuid>'；BookEntry.id 用 uuid，不是整数主键。
-InkWell? _bookTile() => _find<InkWell>((widget) =>
-    widget.key == const ValueKey<String>('book-row-$_bookId') ||
-    widget.key == const ValueKey<String>('book-card-$_bookId'));
+InkWell? _bookTile() => _find<InkWell>(
+  (widget) =>
+      widget.key == const ValueKey<String>('book-row-$_bookId') ||
+      widget.key == const ValueKey<String>('book-card-$_bookId'),
+);
 
 Future<void> _jump(int spine) async {
   if (_find<ReaderMenuOverlay>((w) => w.open) == null) {
@@ -197,14 +233,13 @@ Future<Map<String, Object>> _sample(Stopwatch watch, int spine) async {
   // 首帧可能仍处于 AnimatedSwitcher 淡入，另记录完全显示后的时间。
   await _until(() => _fullyVisible(spine));
   await WidgetsBinding.instance.endOfFrame;
-  final memory = ProcessInfo.currentRss;
   final source = _find<ReaderPage>((_) => true)?.source;
   return {
     'text_ms': textMs,
     'images_ms': imagesMs,
     'complete_ms': watch.elapsedMilliseconds,
     'spine': spine,
-    'rss_bytes': memory,
+    ..._memory(),
     if (source is EpubChapterSource) 'cache': source.cacheReport,
   };
 }
@@ -216,6 +251,8 @@ Future<void> _scanLongBook() async {
   }
   final started = ProcessInfo.currentRss;
   var peakRss = started;
+  final startedPss = _pssBytes();
+  var peakPss = startedPss;
   final samples = <Map<String, Object>>[];
   final count = source.chapterCount;
   for (var spine = 0; spine < count; spine += 10) {
@@ -224,12 +261,15 @@ Future<void> _scanLongBook() async {
     await WidgetsBinding.instance.endOfFrame;
     final rss = ProcessInfo.currentRss;
     if (rss > peakRss) peakRss = rss;
+    final pss = _pssBytes();
+    if (pss > peakPss) peakPss = pss;
     if (spine == 0 || spine % 100 == 0 || spine + 10 >= count) {
       samples.add({
         'spine': spine,
         'load_ms': watch.elapsedMilliseconds,
         'pages': pages.length,
         'rss_bytes': rss,
+        'pss_bytes': pss,
         'cache': source.cacheReport,
       });
     }
@@ -240,9 +280,49 @@ Future<void> _scanLongBook() async {
     'start_rss_bytes': started,
     'peak_rss_bytes': peakRss,
     'end_rss_bytes': ProcessInfo.currentRss,
+    'start_pss_bytes': startedPss,
+    'peak_pss_bytes': peakPss,
+    'end_pss_bytes': _pssBytes(),
     'samples': samples,
   };
   await _send('sample', _results);
+}
+
+/// 进程内存：RSS + Android 口径的 PSS（`/proc/self/smaps_rollup`）。
+///
+/// PSS 是 Android 设置与 `ActivityManager` 使用的口径；GPU/EGL 不计入
+/// 这里，由宿主脚本的 `dumpsys meminfo` 另行核对。
+Map<String, Object> _memory() => {
+  'rss_bytes': ProcessInfo.currentRss,
+  'pss_bytes': _pssBytes(),
+  'hwm_bytes': _hwmBytes(),
+};
+
+int _pssBytes() {
+  try {
+    for (final line in File('/proc/self/smaps_rollup').readAsLinesSync()) {
+      if (line.startsWith('Pss:')) return _kbOf(line);
+    }
+  } catch (_) {
+    // 内核未开放 smaps_rollup 时只保留 RSS。
+  }
+  return 0;
+}
+
+int _hwmBytes() {
+  try {
+    for (final line in File('/proc/self/status').readAsLinesSync()) {
+      if (line.startsWith('VmHWM:')) return _kbOf(line);
+    }
+  } catch (_) {
+    // 同上。
+  }
+  return 0;
+}
+
+int _kbOf(String line) {
+  final match = RegExp(r'(\d+)').firstMatch(line);
+  return match == null ? 0 : (int.tryParse(match.group(1)!) ?? 0) * 1024;
 }
 
 bool _fullyVisible(int spine) {
@@ -308,7 +388,9 @@ String get _scene {
   _visit((widget) {
     if (widget is ReaderSemanticsLayer) pages.add(widget);
   });
-  final mounted = pages.map((w) => '#${w.page.spineIndex}:${w.page.slices.length}').join(',');
+  final mounted = pages
+      .map((w) => '#${w.page.spineIndex}:${w.page.slices.length}')
+      .join(',');
   final reader = _find<ReaderPage>((_) => true) != null;
   return '阅读页=$reader 语义页=[$mounted]';
 }
