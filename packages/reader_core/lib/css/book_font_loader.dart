@@ -65,6 +65,16 @@ class BookFontLoader {
   Future<void> _pendingLoad = Future<void>.value();
   int _generation = 0;
 
+  /// 进程级已注册字体族：Flutter 引擎无法同步卸载字体，重复打开同一本书
+  /// 时若再次 `FontLoader.load`，原生字形资源会继续叠加。
+  static final Set<String> _registeredEngineNames = <String>{};
+  static final Map<String, Future<void>> _engineRegistrations =
+      <String, Future<void>>{};
+  static int _engineLoadCount = 0;
+
+  /// 实际调用 `FontLoader.load` 的次数（测试诊断用）。
+  static int get engineLoadCountForTest => _engineLoadCount;
+
   /// 已播报过的降级键（P3-06）：同一 (族, 原因) 只进一次 result.warnings，
   /// 供 UI「提示只出现一次」口径；完整记录见 [degradationLog]。
   final Set<String> _degradationSeen = <String>{};
@@ -208,24 +218,24 @@ class BookFontLoader {
       engineName = _contentEngineName(cssFamily, cache);
       final metricFace = cache['w400i0'] ?? cache.values.first;
       final metrics = FontMetrics.parse(metricFace.bytes);
-      if (metrics != null) {
-        FontMetricsRegistry.register(engineName, metrics);
-        FontMetricsRegistry.register(cssFamily, metrics);
-      }
       try {
-        final loader = FontLoader(engineName);
-        // 先 regular 后其他，稳定顺序利于引擎选面复现。
-        final ordered = cache.values.toList()
-          ..sort((a, b) {
-            if (a.italic != b.italic) {
-              return a.italic ? 1 : -1;
-            }
-            return a.weight.compareTo(b.weight);
-          });
-        for (final face in ordered) {
-          loader.addFont(Future.value(ByteData.sublistView(face.bytes)));
+        if (contentAddressed) {
+          // 内容寻址族名已包含全部 face 摘要，同名即同字形，可跨 loader
+          // 复用进程级注册；并发打开同一本书也只注册一次。
+          await _ensureEngineRegistered(
+            engineName,
+            cssFamily: cssFamily,
+            cache: cache,
+            metrics: metrics,
+          );
+        } else {
+          await _registerEngine(
+            engineName,
+            cssFamily: cssFamily,
+            cache: cache,
+            metrics: metrics,
+          );
         }
-        await loader.load();
         if (generation != _generation) return _cancelledLoad;
         if (engineName != previousEngineName) {
           _registered.remove(previousEngineName);
@@ -246,6 +256,62 @@ class BookFontLoader {
       engineFamilies: Map.unmodifiable(engineFamilies),
       warnings: List.unmodifiable(warnings),
     );
+  }
+
+  static Future<void> _ensureEngineRegistered(
+    String engineName, {
+    required String cssFamily,
+    required Map<String, RegisteredFontFace> cache,
+    required FontMetrics? metrics,
+  }) {
+    if (_registeredEngineNames.contains(engineName)) {
+      return Future<void>.value();
+    }
+    final pending = _engineRegistrations[engineName];
+    if (pending != null) {
+      return pending;
+    }
+    final registration =
+        _registerEngine(
+          engineName,
+          cssFamily: cssFamily,
+          cache: cache,
+          metrics: metrics,
+        ).then<void>((_) {
+          _registeredEngineNames.add(engineName);
+        });
+    _engineRegistrations[engineName] = registration;
+    return registration.whenComplete(() {
+      if (identical(_engineRegistrations[engineName], registration)) {
+        _engineRegistrations.remove(engineName);
+      }
+    });
+  }
+
+  static Future<void> _registerEngine(
+    String engineName, {
+    required String cssFamily,
+    required Map<String, RegisteredFontFace> cache,
+    required FontMetrics? metrics,
+  }) async {
+    if (metrics != null) {
+      FontMetricsRegistry.register(engineName, metrics);
+      FontMetricsRegistry.register(cssFamily, metrics);
+    }
+    final loader = FontLoader(engineName);
+    // 先 regular 后其他，稳定顺序利于引擎选面复现。
+    final ordered = cache.values.toList()
+      ..sort((a, b) {
+        if (a.italic != b.italic) {
+          return a.italic ? 1 : -1;
+        }
+        return a.weight.compareTo(b.weight);
+      });
+    for (final face in ordered) {
+      loader.addFont(Future.value(ByteData.sublistView(face.bytes)));
+    }
+    await loader.load();
+    _engineLoadCount += 1;
   }
 
   static const _cancelledLoad = BookFontLoadResult(
