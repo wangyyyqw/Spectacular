@@ -465,6 +465,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       // 打开或借用失败仍继续释放已经取得的归档。
     } finally {
       source?.close();
+      await source?.preparationsStopped;
       _source = null;
     }
   }

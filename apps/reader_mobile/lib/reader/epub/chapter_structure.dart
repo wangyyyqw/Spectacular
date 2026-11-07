@@ -147,13 +147,8 @@ class ChapterStructureStore {
     final parsed = await task.wait(
       resources.scheduleChapter(spine, priority: task.priority),
     );
-    final sheets = await task.waitFuture(
-      styles.prepareStylesheets(
-        spine,
-        width: width,
-        priority: task.priority,
-        cancelSignal: task.cancelSignal,
-      ),
+    final sheets = await task.wait(
+      styles.scheduleStylesheets(spine, width: width, priority: task.priority),
     );
     final footnotes = await task.wait(
       resources.scheduleFootnotes(spine, priority: task.priority),
