@@ -431,6 +431,12 @@ class EpubArchive {
   /// 读取字节；不存在返回 null。
   Uint8List? readBytes(String path) => _backend.readBytes(_normalizePath(path));
 
+  /// 只读取条目开头至多 [maxBytes] 个解压字节；不存在返回 null。
+  ///
+  /// 供图片尺寸与媒体类型嗅探使用，避免为了文件头解压整张大图。
+  Uint8List? readHead(String path, int maxBytes) =>
+      _backend.readHead(_normalizePath(path), maxBytes);
+
   /// 读取文本（UTF-8）；不存在返回 null。
   String? readString(String path) {
     final bytes = readBytes(path);
@@ -491,6 +497,7 @@ abstract class _ArchiveBackend {
   int get length;
   bool contains(String path);
   Uint8List? readBytes(String path);
+  Uint8List? readHead(String path, int maxBytes);
   CompressionType? compressionOf(String path);
   void close();
 }
@@ -508,6 +515,10 @@ class _ZipIndexBackend implements _ArchiveBackend {
 
   @override
   Uint8List? readBytes(String path) => _index.readBytes(path);
+
+  @override
+  Uint8List? readHead(String path, int maxBytes) =>
+      _index.readHead(path, maxBytes);
 
   @override
   CompressionType? compressionOf(String path) {
@@ -541,6 +552,17 @@ class _LegacyBackend implements _ArchiveBackend {
   Uint8List? readBytes(String path) {
     final entry = _entries[path];
     return entry == null ? null : Uint8List.fromList(entry.content);
+  }
+
+  @override
+  Uint8List? readHead(String path, int maxBytes) {
+    final bytes = readBytes(path);
+    if (bytes == null || maxBytes <= 0) {
+      return bytes == null ? null : Uint8List(0);
+    }
+    return bytes.length <= maxBytes
+        ? bytes
+        : Uint8List.sublistView(bytes, 0, maxBytes);
   }
 
   @override

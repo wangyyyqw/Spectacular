@@ -57,6 +57,12 @@ abstract class ZipByteSource {
   /// 读取 `[offset, offset + count)`；越界时截断到归档末尾。
   Uint8List readRange(int offset, int count);
 
+  /// `readRange` 是否已经返回独立副本。
+  ///
+  /// 文件后端每次 `readSync` 都是新数组；内存后端返回归档字节的视图，
+  /// 公开读取结果前仍需复制，避免调用方修改归档内容。
+  bool get rangesAreIndependent => false;
+
   /// 释放底层句柄。
   Future<void> close();
 
@@ -80,6 +86,9 @@ class _MemoryZipSource implements ZipByteSource {
 
   @override
   int get length => _bytes?.length ?? 0;
+
+  @override
+  bool get rangesAreIndependent => false;
 
   @override
   Uint8List readRange(int offset, int count) {
@@ -111,6 +120,9 @@ class _FileZipSource implements ZipByteSource {
 
   @override
   int get length => _length;
+
+  @override
+  bool get rangesAreIndependent => true;
 
   @override
   Uint8List readRange(int offset, int count) {
@@ -294,14 +306,45 @@ class ZipIndex {
       final nameLength = headerData.getUint16(26, Endian.little);
       final extraLength = headerData.getUint16(28, Endian.little);
       final dataStart = offset + 30 + nameLength + extraLength;
-      final compressed = _source.readRange(dataStart, entry.compressedSize);
-      if (compressed.length < entry.compressedSize) {
+      if (dataStart + entry.compressedSize > _source.length) {
         _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
         return null;
       }
-      final bytes = entry.method == 0
-          ? Uint8List.fromList(compressed)
-          : Uint8List.fromList(ZLibCodec(raw: true).decode(compressed));
+      final Uint8List bytes;
+      if (entry.method == 0) {
+        final raw = _source.readRange(dataStart, entry.compressedSize);
+        if (raw.length != entry.compressedSize) {
+          _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
+          return null;
+        }
+        bytes = _source.rangesAreIndependent ? raw : Uint8List.fromList(raw);
+      } else {
+        // 按声明尺寸一次性分配输出，再以 64 KiB 压缩块喂给解码器；避免
+        // 「整条压缩数据 + 整条解压数据」同时驻留。
+        bytes = Uint8List(entry.uncompressedSize);
+        final output = _OutputSink(bytes);
+        final decoder = ZLibDecoder(raw: true).startChunkedConversion(output);
+        var cursor = dataStart;
+        var remaining = entry.compressedSize;
+        while (remaining > 0) {
+          final count = remaining > _ioChunkSize ? _ioChunkSize : remaining;
+          final chunk = _source.readRange(cursor, count);
+          if (chunk.length != count) {
+            throw _ZipEntryFailure(
+              'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整',
+            );
+          }
+          decoder.add(chunk);
+          cursor += count;
+          remaining -= count;
+        }
+        decoder.close();
+        if (output.written != entry.uncompressedSize) {
+          throw _ZipEntryFailure(
+            'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压尺寸与声明不符',
+          );
+        }
+      }
       if (_verifyCrc && entry.crc32 != 0 && _crc32(bytes) != entry.crc32) {
         _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 损坏（CRC 不符）');
         return null;
@@ -309,6 +352,66 @@ class ZipIndex {
       return bytes;
     } catch (error) {
       _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压失败（$error）');
+      return null;
+    }
+  }
+
+  /// 只读取条目开头至多 [maxBytes] 个解压字节。
+  ///
+  /// 图片尺寸、媒体类型嗅探只需要文件头。对 deflate 条目按压缩块增量解压，
+  /// 达到上限立即停止，避免为了几十字节的 PNG/JPEG 头解压整张图片。
+  Uint8List? readHead(String path, int maxBytes) {
+    final entry = entries[path];
+    if (entry == null) {
+      return null;
+    }
+    if (maxBytes <= 0) {
+      return Uint8List(0);
+    }
+    try {
+      final range = _compressedRange(entry);
+      final limit = entry.uncompressedSize < maxBytes
+          ? entry.uncompressedSize
+          : maxBytes;
+      if (limit <= 0) {
+        return Uint8List(0);
+      }
+      if (entry.method == 0) {
+        final count = range.length < limit ? range.length : limit;
+        final bytes = _source.readRange(range.start, count);
+        if (bytes.length != count) {
+          return null;
+        }
+        return _source.rangesAreIndependent ? bytes : Uint8List.fromList(bytes);
+      }
+      final output = Uint8List(limit);
+      final sink = _OutputSink(output, truncate: true);
+      final decoder = ZLibDecoder(raw: true).startChunkedConversion(sink);
+      var cursor = range.start;
+      var remaining = range.length;
+      while (remaining > 0 && !sink.full) {
+        final count = remaining > _ioChunkSize ? _ioChunkSize : remaining;
+        final chunk = _source.readRange(cursor, count);
+        if (chunk.length != count) {
+          break;
+        }
+        try {
+          decoder.add(chunk);
+        } catch (_) {
+          break;
+        }
+        cursor += count;
+        remaining -= count;
+      }
+      try {
+        decoder.close();
+      } catch (_) {
+        // 头部已足够时，不因尾部损坏丢弃当前章节资源。
+      }
+      return sink.written == output.length
+          ? output
+          : Uint8List.sublistView(output, 0, sink.written);
+    } catch (_) {
       return null;
     }
   }
@@ -530,6 +633,39 @@ int _crc32Update(int crc, List<int> bytes) {
     crc = _crcTable[(crc ^ byte) & 0xFF] ^ (crc >> 8);
   }
   return crc;
+}
+
+class _OutputSink implements Sink<List<int>> {
+  _OutputSink(this._output, {this.truncate = false});
+
+  final Uint8List _output;
+  final bool truncate;
+  int written = 0;
+
+  bool get full => written >= _output.length;
+
+  @override
+  void add(List<int> data) {
+    if (data.isEmpty) {
+      return;
+    }
+    final available = _output.length - written;
+    if (available <= 0) {
+      if (truncate) {
+        return;
+      }
+      throw const _ZipEntryFailure('E_ZIP_ENTRY_TRUNCATED: 解压尺寸超出声明值');
+    }
+    final count = data.length < available ? data.length : available;
+    _output.setRange(written, written + count, data);
+    written += count;
+    if (!truncate && count < data.length) {
+      throw const _ZipEntryFailure('E_ZIP_ENTRY_TRUNCATED: 解压尺寸超出声明值');
+    }
+  }
+
+  @override
+  void close() {}
 }
 
 class _Crc32Sink implements Sink<List<int>> {
