@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -45,7 +46,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '读屏首屏正文',
+    );
 
     // 首页聚焦后落在首块。
     expect(
@@ -55,13 +60,15 @@ void main() {
 
     // 连续翻三页：每页焦点都回到新页首块（读屏续读不跳段）。
     for (var i = 0; i < 3; i++) {
-      await tester.runAsync(() => session.next());
-      await tester.pumpAndSettle();
+      await pumpReaderTask(tester, session.next());
       expect(
         FocusManager.instance.primaryFocus?.debugLabel,
         'reader-first-block',
         reason: '第 ${i + 2} 页焦点在首块',
       );
     }
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

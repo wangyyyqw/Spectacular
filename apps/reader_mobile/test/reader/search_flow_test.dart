@@ -12,6 +12,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
@@ -76,7 +77,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
 
     // 菜单 → 搜索。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
@@ -92,15 +93,12 @@ void main() {
       find.byKey(const ValueKey<String>('search-input')),
       '沈河',
     );
-    // 扫描式搜索内部走 Isolate.run：fake async 环境下必须用 runAsync 等它。
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    });
+    // 假时钟触发防抖后，按结果就绪交付扫描 isolate 的真实 IO 消息。
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey<String>('search-results')),
+    );
     expect(
       find.byKey(const ValueKey<String>('search-results')),
       findsOneWidget,
@@ -110,7 +108,15 @@ void main() {
     final hits = find.byType(ListTile);
     expect(hits, findsWidgets);
     await tester.tap(hits.first);
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.jumpLoadingTitle == null &&
+          session.progress?.spineIndex == 0 &&
+          find.byType(SearchPanel).evaluate().isEmpty,
+      description: '搜索命中跳转与面板关闭',
+    );
 
     // 跳转：仍在第 0 章（命中在第一段），临时高亮已挂上。
     expect(session.progress!.spineIndex, 0);

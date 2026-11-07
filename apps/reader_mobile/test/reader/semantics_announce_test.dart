@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -29,6 +30,7 @@ Future<void> _pumpReader(
   required bool accessible,
   required void Function(ReaderSession) onSession,
 }) async {
+  late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
       home: MediaQuery(
@@ -42,7 +44,10 @@ Future<void> _pumpReader(
                 source: source,
                 store: MemoryReaderProgressStore(),
                 bookId: 'announce-$accessible',
-                onSessionReady: onSession,
+                onSessionReady: (value) {
+                  session = value;
+                  onSession(value);
+                },
               ),
             ),
           ),
@@ -50,7 +55,11 @@ Future<void> _pumpReader(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  await pumpReaderUntilComplete(
+    tester,
+    () => !session.loading && session.hasContent,
+    description: '播报首屏正文',
+  );
 }
 
 void main() {
@@ -59,19 +68,18 @@ void main() {
     final announced = <String>[];
     const channelName = 'flutter/accessibility';
     const codec = StandardMessageCodec();
-    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
-      channelName,
-      (message) async {
-        final payload = codec.decodeMessage(message);
-        if (payload is Map && payload['type'] == 'announce') {
-          final data = payload['data'];
-          if (data is Map) {
-            announced.add('${data['message']}');
-          }
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(channelName, (
+      message,
+    ) async {
+      final payload = codec.decodeMessage(message);
+      if (payload is Map && payload['type'] == 'announce') {
+        final data = payload['data'];
+        if (data is Map) {
+          announced.add('${data['message']}');
         }
-        return null;
-      },
-    );
+      }
+      return null;
+    });
     addTearDown(
       () => tester.binding.defaultBinaryMessenger.setMockMessageHandler(
         channelName,
@@ -87,10 +95,12 @@ void main() {
       onSession: (value) => session = value,
     );
     announced.clear();
-    await tester.runAsync(() => session.next());
-    await tester.pumpAndSettle();
+    await pumpReaderTask(tester, session.next());
     expect(announced, isNotEmpty, reason: '无障碍模式下翻页有播报');
     expect(announced.last, contains('页'), reason: '播报文案含页码');
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 
   testWidgets('无障碍关闭：翻页不播报（P4-29）', (tester) async {
@@ -98,19 +108,18 @@ void main() {
     final announced = <String>[];
     const channelName = 'flutter/accessibility';
     const codec = StandardMessageCodec();
-    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
-      channelName,
-      (message) async {
-        final payload = codec.decodeMessage(message);
-        if (payload is Map && payload['type'] == 'announce') {
-          final data = payload['data'];
-          if (data is Map) {
-            announced.add('${data['message']}');
-          }
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(channelName, (
+      message,
+    ) async {
+      final payload = codec.decodeMessage(message);
+      if (payload is Map && payload['type'] == 'announce') {
+        final data = payload['data'];
+        if (data is Map) {
+          announced.add('${data['message']}');
         }
-        return null;
-      },
-    );
+      }
+      return null;
+    });
     addTearDown(
       () => tester.binding.defaultBinaryMessenger.setMockMessageHandler(
         channelName,
@@ -126,8 +135,10 @@ void main() {
       onSession: (value) => session = value,
     );
     announced.clear();
-    await tester.runAsync(() => session.next());
-    await tester.pumpAndSettle();
+    await pumpReaderTask(tester, session.next());
     expect(announced, isEmpty, reason: '普通用户不被打扰');
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

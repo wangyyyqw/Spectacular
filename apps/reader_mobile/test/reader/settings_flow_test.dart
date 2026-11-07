@@ -18,6 +18,7 @@ import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -85,8 +86,9 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     final fingerprintBefore = session.layoutFingerprint;
+    final pageBefore = session.page;
 
     // 点中央 → 菜单 → 设置。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
@@ -100,7 +102,14 @@ void main() {
       find.byKey(const ValueKey<String>('settings-font-size')),
       const Offset(60, 0),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.layoutFingerprint != fingerprintBefore &&
+          !identical(session.page, pageBefore),
+      description: '新字号正文重排',
+    );
 
     // 即时重排：布局指纹变化。
     expect(session.layoutFingerprint, isNot(fingerprintBefore));
@@ -270,8 +279,8 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
-    expect(await session.next(), isTrue);
+    await pumpReaderUntil(tester, find.byType(ReaderView));
+    expect(await pumpReaderTask(tester, session.next()), isTrue);
     await tester.pumpAndSettle();
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
@@ -335,7 +344,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     final before = session.layoutFingerprint;
 
     // 菜单 → 排版 → 边距调节器。
@@ -362,7 +371,14 @@ void main() {
       find.byKey(const ValueKey<String>('margin-top-inner')),
       const Offset(0, 120),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.contentHeight! < heightBefore &&
+          session.page?.pageHeight == session.contentHeight,
+      description: '上内边距预览正文重排',
+    );
     expect(
       find.textContaining(RegExp(r'^上内 \d+$')),
       findsOneWidget,
@@ -384,7 +400,14 @@ void main() {
 
     // 取消：不应用，边距回到原样。
     await tester.tap(find.byKey(const ValueKey<String>('margin-cancel')));
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.page?.pageHeight == heightBefore &&
+          session.layoutFingerprint == before,
+      description: '取消边距后恢复原正文',
+    );
     expect(applied, isEmpty, reason: '取消不应用');
     expect(session.chapterPageCount, pagesBefore, reason: '取消后分页不变');
     expect(session.layoutFingerprint, before, reason: '取消后排版指纹不变');
@@ -409,7 +432,14 @@ void main() {
       find.byKey(const ValueKey<String>('margin-top-inner')),
       const Offset(0, 120),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.contentHeight! < heightBefore &&
+          session.page?.pageHeight == session.contentHeight,
+      description: '再次预览上内边距',
+    );
     await tester.tap(find.byKey(const ValueKey<String>('margin-apply')));
     await tester.pumpAndSettle();
     expect(applied, hasLength(1), reason: '保留回传一次');
@@ -434,6 +464,7 @@ void main() {
     final pageTurnValues = <PageTurnMode>[];
     final keepScreenOnValues = <bool>[];
     final volumeKeyPagingValues = <bool>[];
+    late ReaderSession session;
     final customMargins = ReaderMargins.defaults(
       safeTop: 20,
       safeBottom: 20,
@@ -462,6 +493,7 @@ void main() {
                 pageTurnMode: PageTurnMode.scroll,
                 keepScreenOn: true,
                 volumeKeyPaging: true,
+                onSessionReady: (value) => session = value,
                 onInkModeChanged: inkValues.add,
                 onMarginsChanged: marginsValues.add,
                 onTapZonesChanged: tapZonesValues.add,
@@ -474,7 +506,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
 
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
@@ -488,8 +520,17 @@ void main() {
       const Offset(0, -420),
     );
     await tester.pumpAndSettle();
+    final heightBeforeReset = session.contentHeight;
     await tester.tap(find.byKey(const ValueKey<String>('settings-reset')));
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.contentHeight != heightBeforeReset &&
+          session.page?.pageHeight == session.contentHeight &&
+          pageTurnValues.isNotEmpty,
+      description: '恢复默认边距与翻页方式后的正文重排',
+    );
 
     expect(inkValues, <bool>[false]);
     expect(marginsValues, hasLength(1));

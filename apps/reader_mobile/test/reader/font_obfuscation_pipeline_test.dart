@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/font_obfuscation.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_ui/reader_session.dart' show ChapterLoadCancelled;
 
 import 'support/css_chapter_book.dart';
 
@@ -311,7 +312,10 @@ void main() {
       _encryptedBook(font, FontObfuscationAlgorithm.idpf, 'closing'),
     );
     final loading = source.loadChapter(0);
-    final completed = expectLater(loading, throwsStateError);
+    final completed = expectLater(
+      loading,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
     source.close();
     await completed;
     expect(source.cacheReport, contains('页缓存 0/'));

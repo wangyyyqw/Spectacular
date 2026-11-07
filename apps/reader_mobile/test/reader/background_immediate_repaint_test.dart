@@ -10,6 +10,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Future<Uint8List> _png(Color color) async {
@@ -32,6 +33,11 @@ Future<Uint8List> _pixels(WidgetTester tester, String paperKey) async {
     render = render.parent;
   }
   final boundary = render! as RenderRepaintBoundary;
+  await pumpReaderUntilComplete(
+    tester,
+    () => !boundary.debugNeedsPaint,
+    description: '纸面完成绘制',
+  );
   final image = boundary.toImageSync();
   try {
     final data = (await tester.runAsync(image.toByteData))!;
@@ -67,7 +73,11 @@ Future<void> _waitImageTileReady(WidgetTester tester) async {
   fail('背景图片按钮一直处于忙碌状态');
 }
 
-Future<void> _select(WidgetTester tester, String key) async {
+Future<void> _select(
+  WidgetTester tester,
+  String key,
+  bool Function() isComplete,
+) async {
   final target = find.byKey(ValueKey(key));
   await tester.ensureVisible(target);
   await _pumpFrames(tester);
@@ -76,9 +86,10 @@ Future<void> _select(WidgetTester tester, String key) async {
   }
   await tester.tap(target);
   await tester.pump();
-  // 原生图片解码需离开测试虚拟时钟。
-  await tester.runAsync(
-    () => Future<void>.delayed(const Duration(milliseconds: 100)),
+  await pumpReaderUntilComplete(
+    tester,
+    isComplete,
+    description: '$key 背景加载与应用',
   );
   await _pumpFrames(tester);
   if (key == 'settings-background-image') {
@@ -86,7 +97,7 @@ Future<void> _select(WidgetTester tester, String key) async {
   }
 }
 
-Future<ReaderSession> _openReader(
+Future<(ReaderSession, VoidCallback)> _openReader(
   WidgetTester tester,
   PageTurnMode mode,
   List<String> changes,
@@ -115,8 +126,12 @@ Future<ReaderSession> _openReader(
       ),
     ),
   );
-  await _pumpFrames(tester);
-  return session;
+  await pumpReaderUntilComplete(
+    tester,
+    () => !session.loading && session.hasContent,
+    description: '${mode.label}首屏正文',
+  );
+  return (session, source.close);
 }
 
 Future<void> _verifyBackgrounds(
@@ -134,13 +149,17 @@ Future<void> _verifyBackgrounds(
     final key = id.startsWith('image:')
         ? 'settings-background-image'
         : 'settings-bg-$id';
-    await _select(tester, key);
+    await _select(tester, key, () => changes.isNotEmpty && changes.last == id);
     expect(changes.last, id);
     final current = await _pixels(tester, paperKey);
     expect(current, isNot(orderedEquals(previous)), reason: '$id 即时绘制');
     previous = current;
   }
-  await _select(tester, 'settings-bg-none');
+  await _select(
+    tester,
+    'settings-bg-none',
+    () => changes.isNotEmpty && changes.last == 'none',
+  );
   expect(changes.last, 'none');
   expect(
     await _pixels(tester, paperKey),
@@ -157,7 +176,7 @@ void main() {
   ]) {
     testWidgets('${mode.label}中背景连续选择后立即重绘当前纸面', (tester) async {
       final changes = <String>[];
-      final session = await _openReader(tester, mode, changes);
+      final (session, closeSource) = await _openReader(tester, mode, changes);
       final page = session.page;
       final position = session.progress;
       final fingerprint = session.layoutFingerprint;
@@ -170,6 +189,9 @@ void main() {
       expect(session.layoutFingerprint, fingerprint);
       expect(session.progress, position, reason: '阅读位置不变');
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      closeSource();
+      await tester.pump();
     });
   }
 }

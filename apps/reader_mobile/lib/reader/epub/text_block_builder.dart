@@ -1,0 +1,1369 @@
+import 'dart:math' as math;
+
+import 'package:reader_core/api.dart' show EpubNode, TextBlockNode;
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/epub/footnote.dart';
+import 'package:reader_core/layout/box_model.dart';
+import 'package:reader_core/layout/float_occupancy.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/parser/block_builder.dart';
+import 'package:reader_core/parser/text_aggregator.dart';
+import 'package:reader_core/position/cfi.dart' show cfiWithCharOffset;
+
+import '../prose_spacing_defaults.dart';
+import 'block_style_helpers.dart';
+import 'chapter_flow.dart';
+import 'chapter_selectors.dart';
+import 'chapter_style_resolver.dart';
+import 'chapter_text_measurer.dart';
+import 'container_blocks.dart';
+import 'generated_chapter_content.dart';
+import 'generated_content.dart';
+import 'image_block_builder.dart';
+import 'inline_content_builder.dart';
+import 'text_coordinates.dart';
+
+/// 聚合文字到分页块的构建过程；每段坐标和临时盒子只在本次调用中存在。
+class TextBlockBuilder {
+  TextBlockBuilder(this.styles, this.inline, this.content, this.flow)
+    : images = ImageBlockBuilder(styles, inline, content);
+
+  final ChapterStyleResolver styles;
+  final InlineContentBuilder inline;
+  final GeneratedChapterContent content;
+  final ChapterFlow flow;
+  final ImageBlockBuilder images;
+  ChapterTextMeasurer get measure => inline.measure;
+  double get contentWidth => styles.snapshot.width;
+  double get contentHeight => styles.snapshot.height;
+
+  Future<void> build(TextBlockNode node, BlockPosition position) async {
+    await measure.budget.checkpoint();
+    final context = await _context(node, position);
+    final authored = _authoredStyle(context);
+    if (await _buildEmptyBox(context, authored)) return;
+    final generated = await _generatedText(context, authored.style);
+    final body = await _bodyStyle(context, authored);
+    final metrics = await _metrics(context, body);
+    if (await _buildImageOnly(context, generated)) return;
+    final expanded = await _expandGeneratedText(context, body, generated);
+    final dropped = await _extractDropCap(context, body, expanded);
+    final paragraph = await _inlineParagraph(context, body, generated, dropped);
+    final measured = await _measureParagraph(context, body, metrics, paragraph);
+    await _appendBlocks(context, body, metrics, measured);
+  }
+
+  Future<_BlockContext> _context(
+    TextBlockNode node,
+    BlockPosition position,
+  ) async {
+    var eligible = true;
+    for (final element in position.ancestors) {
+      await measure.budget.checkpoint();
+      if (element.tag == 'header' ||
+          element.tag == 'footer' ||
+          FootnoteParser.isDefinitionElement(element.tag, element.attributes)) {
+        eligible = false;
+        break;
+      }
+    }
+    return _BlockContext(node, position, eligible);
+  }
+
+  _AuthoredStyle _authoredStyle(_BlockContext context) {
+    final position = context.position;
+    final listIndent = context.isListItem
+        ? styles.listIndentOf(position.ancestors)
+        : 0.0;
+    final relative = styles.styleForChain(
+      position.ancestors,
+      quoteDepth: position.quoteDepth,
+      firstInContainer: position.firstInContainer,
+      lastInContainer: position.lastInContainer,
+      listIndent: listIndent,
+    );
+    final isRelative = relative.position == CssPosition.relative;
+    final offsets = (
+      left: isRelative ? relative.left?.resolve(contentWidth) ?? 0.0 : 0.0,
+      top: isRelative ? relative.top?.resolve(contentHeight) ?? 0.0 : 0.0,
+    );
+    final style = styles.styleForChain(
+      position.ancestors,
+      quoteDepth: position.quoteDepth,
+      firstInContainer: position.firstInContainer,
+      lastInContainer: position.lastInContainer,
+      listIndent: listIndent,
+      listPosition: context.isListItem
+          ? (position.list!.inside
+                ? CssListStylePosition.inside
+                : CssListStylePosition.outside)
+          : null,
+    );
+    // 后续样式查询会覆盖 resolver 的临时旗标，必须立即冻结到本段。
+    return _AuthoredStyle(style, listIndent, offsets, (
+      bordered: styles.containerBorderedForLastChain,
+      opacity: styles.effectiveOpacityForLastChain,
+    ));
+  }
+
+  Future<bool> _buildEmptyBox(
+    _BlockContext context,
+    _AuthoredStyle authored,
+  ) async {
+    final node = context.node;
+    final hasEmptyInlineBox = await _hasEmptyInlineBox(node);
+    if (node.text.trim().isNotEmpty || hasEmptyInlineBox) return false;
+    // 空盒先于计数器和伪内容处理，沿用原章节遍历的语义顺序。
+    final block = await measure.emptyBoxBlock(
+      authored.style,
+      contentWidth,
+      containingHeight: contentHeight,
+    );
+    measure.budget.check();
+    if (block != null) flow.blocks.add(block);
+    return true;
+  }
+
+  Future<bool> _hasEmptyInlineBox(TextBlockNode node) async {
+    if (node is! TextContentNode) return false;
+    for (final mark in node.inlineMarks) {
+      await measure.budget.checkpoint();
+      if (mark.start == mark.end) return true;
+    }
+    return false;
+  }
+
+  Future<_GeneratedText> _generatedText(
+    _BlockContext context,
+    ComputedStyle style,
+  ) async {
+    content.applyCounters(context.ancestors);
+    var qNesting = 0;
+    for (final ancestor in context.ancestors) {
+      await measure.budget.checkpoint();
+      if (ancestor.tag == 'q') qNesting += 1;
+    }
+    final qLevel = context.tag == 'q' && qNesting > 0 ? qNesting - 1 : qNesting;
+    final before = content.pseudoContentOf(
+      context.ancestors,
+      '::before',
+      quotes: style.quotes,
+      quoteDepth: qLevel,
+    );
+    final after = content.pseudoContentOf(
+      context.ancestors,
+      '::after',
+      quotes: style.quotes,
+      quoteDepth: qLevel,
+    );
+    return _GeneratedText(
+      before,
+      after,
+      context.node is TextContentNode,
+      qLevel,
+    );
+  }
+
+  Future<_BodyStyle> _bodyStyle(
+    _BlockContext context,
+    _AuthoredStyle authored,
+  ) async {
+    final compact = await _compactComponent(context, authored.style);
+    final structured = _hasStructuredTitleText(
+      context.node.text,
+      authored.style,
+    );
+    var special = compact || context.position.containerFloat != null;
+    var promoted = false;
+    for (final view in context.ancestors) {
+      await measure.budget.checkpoint();
+      final container = styles.retainedContainers[view]?.style;
+      special =
+          special ||
+          (container != null &&
+              (container.display == CssDisplay.flex ||
+                  (container.columnCount ?? 1) > 1 ||
+                  container.columnWidth != null));
+      promoted = promoted || styles.promotedInlineStyles.containsKey(view);
+    }
+    special = special || promoted || structured;
+    var style = proseSpacingDefaults(
+      authored.style,
+      context.ancestors,
+      context.node.text,
+      specialComponent: special,
+    );
+    final applyReader =
+        !context.isHeading && !structured && !special && !promoted;
+    if (applyReader) style = styles.snapshot.overrides.applyTypography(style);
+    return _BodyStyle(authored, style, compact, structured, applyReader);
+  }
+
+  Future<bool> _compactComponent(
+    _BlockContext context,
+    ComputedStyle blockStyle,
+  ) async {
+    final ancestors = context.ancestors;
+    final parent = ancestors.length > 1
+        ? styles.chainStyle(ancestors.sublist(0, ancestors.length - 1))
+        : null;
+    if (parent == null || blockStyle.fontSize >= parent.fontSize * 0.9) {
+      return false;
+    }
+    for (var i = 0; i < ancestors.length - 1; i++) {
+      await measure.budget.checkpoint();
+      final factor = styles
+          .chainStyle(ancestors.sublist(0, i + 1))
+          .lineHeightFactor;
+      if (factor != null && factor <= 1.05) return true;
+    }
+    return false;
+  }
+
+  Future<_BlockMetrics> _metrics(_BlockContext context, _BodyStyle body) async {
+    final marker = _nextMarker(context, body.style);
+    final measurement = await _markerMeasureStyle(context, body, marker);
+    final list = context.position.list;
+    final listMetrics = _ListMetrics(
+      marker,
+      measurement,
+      context.isListItem && context.position.listFirst ? list!.spaceBefore : 0,
+      context.isListItem && context.position.listLast ? list!.spaceAfter : 0,
+    );
+    var splitFragment = false;
+    for (final ancestor in context.ancestors) {
+      await measure.budget.checkpoint();
+      if (styles.promotedInlineStyles.containsKey(ancestor) ||
+          (context.tag == 'reader-anonymous' &&
+              styles.splitInlineContainers.contains(ancestor))) {
+        splitFragment = true;
+        break;
+      }
+    }
+    final paragraphSpacing =
+        context.isHeading ||
+            context.tag == 'li' ||
+            splitFragment ||
+            body.structuredTitle ||
+            body.compact
+        ? null
+        : styles.snapshot.overrides.paragraphSpacing;
+    final absoluteBox = body.style.isOutOfFlow
+        ? body.style.resolveAbsoluteBox(
+            containingWidth: contentWidth,
+            containingHeight: contentHeight,
+          )
+        : null;
+    return _BlockMetrics(listMetrics, paragraphSpacing, absoluteBox);
+  }
+
+  String? _nextMarker(_BlockContext context, ComputedStyle style) {
+    final list = context.position.list;
+    if (!context.isListItem || !list!.markerPending) return null;
+    list.markerPending = false;
+    final text = list.nextMarker(style.listStyleType);
+    return text.isEmpty ? (style.listStyleImage == null ? null : '') : text;
+  }
+
+  Future<ComputedStyle> _markerMeasureStyle(
+    _BlockContext context,
+    _BodyStyle body,
+    String? marker,
+  ) async {
+    final inside = body.style.values.containsKey('list-style-position')
+        ? body.style.listStylePosition == CssListStylePosition.inside
+        : context.position.list?.inside ?? false;
+    if (marker == null || !inside) return body.style;
+    final indent = await measure.insideMarkerIndent(marker, body.style);
+    final position = context.position;
+    var style = styles.styleForChain(
+      position.ancestors,
+      quoteDepth: position.quoteDepth,
+      firstInContainer: position.firstInContainer,
+      lastInContainer: position.lastInContainer,
+      listIndent: body.authored.listIndent,
+      firstLineIndent: indent,
+    );
+    if (!context.isHeading) {
+      style = styles.snapshot.overrides.applyTypography(style);
+    }
+    return style;
+  }
+
+  Future<bool> _buildImageOnly(
+    _BlockContext context,
+    _GeneratedText generated,
+  ) async {
+    final paragraph = _ParagraphText.fromNode(context.node);
+    if (paragraph.text.trim() != '\uFFFC' ||
+        paragraph.images.length != 1 ||
+        generated.prefix.isNotEmpty ||
+        generated.suffix.isNotEmpty) {
+      return false;
+    }
+    final image = paragraph.images.single.node;
+    final footnote = await _imageOnlyFootnote(paragraph, image);
+    final blocks = await images.build(
+      BlockNode(
+        tag: image.tag,
+        display: DisplayMode.block,
+        children: const <EpubNode>[],
+        cfi: image.cfi,
+        attributes: image.attributes,
+        start: image.start,
+        end: image.end,
+      ),
+      BlockPosition(
+        ancestors: context.ancestors,
+        containerFloat: context.position.containerFloat,
+        containerFloatWidth: context.position.containerFloatWidth,
+        containerFloatGroup: context.position.containerFloatGroup,
+      ),
+      footnotes: <PageFootnote>[?footnote],
+    );
+    measure.budget.check();
+    flow.blocks.addAll(blocks);
+    return true;
+  }
+
+  Future<PageFootnote?> _imageOnlyFootnote(
+    _ParagraphText paragraph,
+    InlineNode image,
+  ) async {
+    for (final mark in paragraph.marks) {
+      await measure.budget.checkpoint();
+      final footnote = inline.footnoteForReference(
+        mark.tag,
+        mark.chain.isEmpty ? const {} : mark.chain.last.attributes,
+        paragraph.text.substring(mark.start, mark.end),
+        start: 0,
+        end: 1,
+      );
+      if (footnote != null) return footnote;
+    }
+    return inline.footnoteForReference(
+      image.tag,
+      image.attributes,
+      '',
+      start: 0,
+      end: 1,
+    );
+  }
+
+  Future<_ParagraphText> _expandGeneratedText(
+    _BlockContext context,
+    _BodyStyle body,
+    _GeneratedText generated,
+  ) async {
+    var paragraph = _ParagraphText.fromNode(context.node);
+    final marks = await _quoteMarks(context, paragraph, generated.qLevel);
+    final insertions = await _quoteInsertions(marks, body.style.quotes);
+    final quoted = await _quotedText(paragraph.text, insertions);
+    if (insertions.isNotEmpty ||
+        generated.prefix.isNotEmpty ||
+        generated.suffix.isNotEmpty) {
+      int boundary(int offset, bool opening) =>
+          _quoteBoundary(insertions, offset, generated.prefix.length, opening);
+      paragraph = await _remapParagraph(
+        paragraph,
+        '${generated.prefix}$quoted${generated.suffix}',
+        _CoordinateMapping(
+          (offset) => boundary(offset, true),
+          (offset) => boundary(offset, false),
+        ),
+      );
+    }
+    return _ParagraphText(
+      paragraph.text,
+      paragraph.marks,
+      paragraph.images,
+      paragraph.rubies,
+      await _pseudoImages(generated, paragraph.text),
+    );
+  }
+
+  Future<List<InlineMark>> _quoteMarks(
+    _BlockContext context,
+    _ParagraphText paragraph,
+    int qLevel,
+  ) async {
+    final result = <InlineMark>[];
+    if (context.tag == 'q' && qLevel >= 0) {
+      final chain = <MarkSubject>[];
+      for (final element in context.ancestors) {
+        await measure.budget.checkpoint();
+        chain.add(
+          MarkSubject(
+            tag: element.tag.toLowerCase(),
+            classes: (element.attributes['class'] ?? '')
+                .split(RegExp(r'\s+'))
+                .where((value) => value.isNotEmpty)
+                .toSet(),
+            attributes: element.attributes,
+          ),
+        );
+      }
+      result.add(
+        InlineMark(
+          start: 0,
+          end: paragraph.text.length,
+          tag: 'q',
+          classes: const [],
+          chain: chain,
+        ),
+      );
+    }
+    for (final mark in paragraph.marks) {
+      await measure.budget.checkpoint();
+      if (mark.tag.toLowerCase() == 'q' && mark.end > mark.start) {
+        result.add(mark);
+      }
+    }
+    return result;
+  }
+
+  Future<List<QuoteInsertion>> _quoteInsertions(
+    List<InlineMark> marks,
+    CssQuotes quotes,
+  ) async {
+    if (quotes is CssQuotesNone) return const [];
+    final insertions = <QuoteInsertion>[];
+    for (final mark in marks) {
+      await measure.budget.checkpoint();
+      var depth = -1;
+      for (final other in marks) {
+        await measure.budget.checkpoint();
+        if (other.start <= mark.start && other.end >= mark.end) depth += 1;
+      }
+      final pair = content.quotePairAt(quotes, depth);
+      insertions.add(
+        QuoteInsertion(
+          offset: mark.start,
+          text: pair.$1,
+          depth: depth,
+          opening: true,
+        ),
+      );
+      insertions.add(
+        QuoteInsertion(
+          offset: mark.end,
+          text: pair.$2,
+          depth: depth,
+          opening: false,
+        ),
+      );
+    }
+    insertions.sort(_compareQuoteInsertions);
+    return insertions;
+  }
+
+  static int _compareQuoteInsertions(QuoteInsertion a, QuoteInsertion b) {
+    final byOffset = a.offset.compareTo(b.offset);
+    if (byOffset != 0) return byOffset;
+    // 相邻先闭后开，嵌套开启从外到内，关闭从内到外。
+    if (a.opening != b.opening) return a.opening ? 1 : -1;
+    return a.opening ? a.depth.compareTo(b.depth) : b.depth.compareTo(a.depth);
+  }
+
+  Future<String> _quotedText(
+    String text,
+    List<QuoteInsertion> insertions,
+  ) async {
+    if (insertions.isEmpty) return text;
+    final quoted = StringBuffer();
+    var cursor = 0;
+    for (final insertion in insertions) {
+      await measure.budget.checkpoint();
+      quoted
+        ..write(text.substring(cursor, insertion.offset))
+        ..write(insertion.text);
+      cursor = insertion.offset;
+    }
+    quoted.write(text.substring(cursor));
+    return quoted.toString();
+  }
+
+  static int _quoteBoundary(
+    List<QuoteInsertion> insertions,
+    int offset,
+    int prefixLength,
+    bool opening,
+  ) {
+    var inserted = 0;
+    for (final insertion in insertions) {
+      if (insertion.offset < offset ||
+          (opening && insertion.opening && insertion.offset == offset)) {
+        inserted += insertion.text.length;
+      }
+    }
+    return prefixLength + offset + inserted;
+  }
+
+  Future<List<PseudoImageMark>> _pseudoImages(
+    _GeneratedText generated,
+    String text,
+  ) async {
+    if (!generated.active) return const [];
+    final result = <PseudoImageMark>[];
+    for (final image
+        in generated.before?.images ?? const <PseudoContentImage>[]) {
+      await measure.budget.checkpoint();
+      result.add(
+        PseudoImageMark(
+          offset: image.offset,
+          url: image.url,
+          pseudo: '::before',
+        ),
+      );
+    }
+    final suffixStart = text.length - generated.suffix.length;
+    for (final image
+        in generated.after?.images ?? const <PseudoContentImage>[]) {
+      await measure.budget.checkpoint();
+      result.add(
+        PseudoImageMark(
+          offset: suffixStart + image.offset,
+          url: image.url,
+          pseudo: '::after',
+        ),
+      );
+    }
+    return result;
+  }
+
+  Future<_DropCapResult> _extractDropCap(
+    _BlockContext context,
+    _BodyStyle body,
+    _ParagraphText paragraph,
+  ) async {
+    final lines = body.style.initialLetterLines;
+    if (lines == null ||
+        lines <= 0 ||
+        paragraph.text.isEmpty ||
+        floatSideOfStyle(body.style) != null ||
+        context.position.containerFloat != null) {
+      return _DropCapResult(paragraph, null);
+    }
+    final letter = styles.firstLetterRun(
+      styles.preparedStyles.firstLetterRules,
+      context.ancestors,
+      paragraph.text,
+      body.style,
+      sizeInitialLetter: false,
+    );
+    if (letter == null) return _DropCapResult(paragraph, null);
+    var end = letter.end;
+    if (end < paragraph.text.length &&
+        isHighSurrogate(paragraph.text.codeUnitAt(letter.start)) &&
+        isLowSurrogate(paragraph.text.codeUnitAt(end))) {
+      end += 1;
+    }
+    final cap = _DropCap(
+      paragraph.text.substring(letter.start, end),
+      letter.style,
+      lines,
+    );
+    final mapping = _CoordinateMapping.removal(letter.start, end);
+    final remaining = await _remapParagraph(
+      paragraph,
+      paragraph.text.substring(0, letter.start) + paragraph.text.substring(end),
+      mapping,
+    );
+    return _DropCapResult(remaining, cap);
+  }
+
+  Future<_ParagraphText> _remapParagraph(
+    _ParagraphText paragraph,
+    String text,
+    _CoordinateMapping mapping, {
+    List<InlineMark>? marks,
+  }) async => _ParagraphText(
+    text,
+    marks ?? await _remapMarks(paragraph.marks, mapping),
+    await _remapImages(paragraph.images, mapping),
+    mapping.remapRubies
+        ? await _remapRubies(paragraph.rubies, mapping)
+        : paragraph.rubies,
+    await _remapPseudoImages(paragraph.pseudoImages, mapping),
+  );
+
+  Future<List<InlineMark>> _remapMarks(
+    List<InlineMark> marks,
+    _CoordinateMapping mapping,
+  ) async {
+    final result = <InlineMark>[];
+    for (final mark in marks) {
+      await measure.budget.checkpoint();
+      final start = mapping.start(mark.start);
+      final end = mapping.end(mark.end);
+      if (mapping.removeEmpty && end <= start) continue;
+      result.add(
+        InlineMark(
+          start: start,
+          end: end,
+          tag: mark.tag,
+          classes: mark.classes,
+          chain: mark.chain,
+        ),
+      );
+    }
+    return result;
+  }
+
+  Future<List<InlineImageMark>> _remapImages(
+    List<InlineImageMark> images,
+    _CoordinateMapping mapping,
+  ) async {
+    final result = <InlineImageMark>[];
+    for (final image in images) {
+      await measure.budget.checkpoint();
+      if (mapping.keepOffset?.call(image.offset) == false) continue;
+      result.add(
+        InlineImageMark(offset: mapping.start(image.offset), node: image.node),
+      );
+    }
+    return result;
+  }
+
+  Future<List<RubyMark>> _remapRubies(
+    List<RubyMark> rubies,
+    _CoordinateMapping mapping,
+  ) async {
+    final result = <RubyMark>[];
+    for (final ruby in rubies) {
+      await measure.budget.checkpoint();
+      final start = mapping.start(ruby.start);
+      final end = mapping.end(ruby.end);
+      if (mapping.removeEmpty && end <= start) continue;
+      result.add(RubyMark(start: start, end: end, text: ruby.text));
+    }
+    return result;
+  }
+
+  Future<List<PseudoImageMark>> _remapPseudoImages(
+    List<PseudoImageMark> images,
+    _CoordinateMapping mapping,
+  ) async {
+    final result = <PseudoImageMark>[];
+    for (final image in images) {
+      await measure.budget.checkpoint();
+      if (mapping.keepOffset?.call(image.offset) == false) continue;
+      result.add(
+        PseudoImageMark(
+          offset: mapping.start(image.offset),
+          url: image.url,
+          pseudo: image.pseudo,
+        ),
+      );
+    }
+    return result;
+  }
+
+  Future<_InlineParagraph> _inlineParagraph(
+    _BlockContext context,
+    _BodyStyle body,
+    _GeneratedText generated,
+    _DropCapResult dropped,
+  ) async {
+    final inlineContext = _inlineContext(context, body);
+    final extracted = await _extractInlineElements(
+      context,
+      body,
+      dropped.paragraph,
+      inlineContext,
+    );
+    final runs = await styles.resolveInlineRunsAsync(
+      extracted.paragraph.marks,
+      inlineContext,
+      checkpoint: measure.budget.checkpoint,
+    );
+    final styledRuns = _pseudoRuns(
+      context,
+      body,
+      generated,
+      extracted.paragraph,
+      runs,
+    );
+    final images = await _inlineImages(
+      context,
+      body,
+      extracted.paragraph,
+      inlineContext,
+      extracted.elements,
+    );
+    return _InlineParagraph(
+      _DropCapResult(extracted.paragraph, dropped.cap),
+      extracted.elements,
+      styledRuns,
+      images,
+    );
+  }
+
+  InlineStyleContext _inlineContext(_BlockContext context, _BodyStyle body) => (
+    ancestors: context.ancestors,
+    style: body.style,
+    width: measure.textWidthFor(body.style),
+    readerFontFamily: body.applyReaderTypography
+        ? styles.snapshot.overrides.fontFamily
+        : null,
+  );
+
+  Future<({_ParagraphText paragraph, _InlineElements elements})>
+  _extractInlineElements(
+    _BlockContext context,
+    _BodyStyle body,
+    _ParagraphText initial,
+    InlineStyleContext inlineContext,
+  ) async {
+    var paragraph = initial;
+    final elements = _InlineElements();
+    if (context.node is! TextContentNode ||
+        floatSideOfStyle(body.style) != null ||
+        context.position.containerFloat != null) {
+      return (paragraph: paragraph, elements: elements);
+    }
+    final limit = initial.marks.length + initial.images.length;
+    for (var guard = 0; guard < limit; guard += 1) {
+      await measure.budget.checkpoint();
+      final extracted = await inline.extractInlineFloat(
+        text: paragraph.text,
+        marks: paragraph.marks,
+        images: paragraph.images,
+        context: inlineContext,
+      );
+      if (extracted == null) break;
+      _recordExtractedElements(elements, extracted);
+      // 保留旧提取器的 ruby 口径；图片与生成图片跟随摘除坐标重映射。
+      paragraph = await _remapParagraph(
+        paragraph,
+        extracted.text,
+        _CoordinateMapping(
+          extracted.remapOffset,
+          extracted.remapOffset,
+          keepOffset: (offset) => !extracted.removed(offset),
+          remapRubies: false,
+        ),
+        marks: extracted.marks,
+      );
+    }
+    return (paragraph: paragraph, elements: elements);
+  }
+
+  void _recordExtractedElements(
+    _InlineElements elements,
+    InlineFloatExtraction extracted,
+  ) {
+    if (extracted.block case final block?) elements.floats.add(block);
+    if (extracted.inlineBox == null) return;
+    elements.boxes = inline.appendInlineBox(elements.boxes, extracted);
+    if (extracted.footnote case final footnote?) {
+      elements.footnotes.add(footnote);
+    }
+  }
+
+  List<StyledRun> _pseudoRuns(
+    _BlockContext context,
+    _BodyStyle body,
+    _GeneratedText generated,
+    _ParagraphText paragraph,
+    List<StyledRun> runs,
+  ) => [
+    if (generated.prefix.isNotEmpty)
+      StyledRun(
+        start: 0,
+        end: generated.prefix.length,
+        style: styles.pseudoStyleFor(context.ancestors, body.style, '::before'),
+      ),
+    ...runs,
+    if (generated.suffix.isNotEmpty)
+      StyledRun(
+        start: paragraph.text.length - generated.suffix.length,
+        end: paragraph.text.length,
+        style: styles.pseudoStyleFor(context.ancestors, body.style, '::after'),
+      ),
+  ];
+
+  Future<List<InlineImageSpec>> _inlineImages(
+    _BlockContext context,
+    _BodyStyle body,
+    _ParagraphText paragraph,
+    InlineStyleContext inlineContext,
+    _InlineElements elements,
+  ) async {
+    final result = <InlineImageSpec>[];
+    for (final mark in paragraph.images) {
+      await measure.budget.checkpoint();
+      final attributes = mark.node.attributes;
+      final src =
+          attributes['src'] ??
+          attributes['xlink:href'] ??
+          attributes['href'] ??
+          attributes['data'];
+      if (src == null || src.isEmpty) continue;
+      final chain = _imageChain(context, paragraph, mark);
+      final imageStyle = styles.chainStyle(chain);
+      final image = _imageSpec(mark.offset, inline.imageUrl(src), imageStyle);
+      result.add(image);
+      if (imageStyle.writingMode == CssWritingMode.horizontalTb) {
+        elements.boxes.add(
+          inline.inlineImageBox(image, imageStyle, chain, inlineContext.width),
+        );
+      }
+    }
+    for (final mark in paragraph.pseudoImages) {
+      await measure.budget.checkpoint();
+      final style = styles.pseudoStyleFor(
+        context.ancestors,
+        body.style,
+        mark.pseudo,
+      );
+      result.add(_imageSpec(mark.offset, mark.url, style));
+    }
+    return result;
+  }
+
+  List<SelectorElement> _imageChain(
+    _BlockContext context,
+    _ParagraphText paragraph,
+    InlineImageMark image,
+  ) {
+    final source = paragraph.marks
+        .where(
+          (mark) => mark.start == image.offset && mark.tag == image.node.tag,
+        )
+        .firstOrNull;
+    return source == null
+        ? [
+            ...context.ancestors,
+            ChapterNodeView(image.node.tag, image.node.attributes, const []),
+          ]
+        : styles.inlineMarkChain(source, context.ancestors);
+  }
+
+  InlineImageSpec _imageSpec(int offset, String url, ComputedStyle style) =>
+      InlineImageSpec(
+        offset: offset,
+        url: url,
+        width: style.width?.resolve(contentWidth),
+        height: style.height?.resolve(contentWidth),
+        aspectRatio: style.aspectRatio,
+      );
+
+  Future<List<PageFootnote>> _footnotes(_InlineParagraph paragraph) async {
+    final notes = _FootnoteCollector(inline, paragraph.elements.footnotes);
+    final text = paragraph.dropped.paragraph;
+    for (final mark in text.marks) {
+      await measure.budget.checkpoint();
+      notes.add(
+        mark.tag,
+        mark.chain.isEmpty ? const {} : mark.chain.last.attributes,
+        text.text.substring(mark.start, mark.end),
+        mark.start,
+        mark.end,
+      );
+    }
+    for (final image in text.images) {
+      await measure.budget.checkpoint();
+      notes.add(
+        image.node.tag,
+        image.node.attributes,
+        '',
+        image.offset,
+        image.offset + 1,
+      );
+    }
+    return notes.result;
+  }
+
+  Future<List<StyledRun>> _finalRuns(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    _InlineParagraph paragraph,
+  ) async {
+    final runs = <StyledRun>[];
+    for (final run in paragraph.runs) {
+      await measure.budget.checkpoint();
+      final replaced = paragraph.elements.boxes.any(
+        (box) =>
+            box.replacesPlaceholder &&
+            run.start == box.offset &&
+            run.end == box.offset + 1,
+      );
+      if (!replaced) runs.add(run);
+    }
+    if (paragraph.dropped.cap == null) {
+      final letter = styles.firstLetterRun(
+        styles.preparedStyles.firstLetterRules,
+        context.ancestors,
+        paragraph.dropped.paragraph.text,
+        body.style,
+      );
+      if (letter != null) runs.add(letter);
+    }
+    return styles.snapshot.textOverlays.resolve(
+      blockCfi: _contentCfi(context, paragraph),
+      text: paragraph.dropped.paragraph.text,
+      style: metrics.list.measureStyle,
+      runs: runs,
+    );
+  }
+
+  String? _contentCfi(_BlockContext context, _InlineParagraph paragraph) {
+    final cap = paragraph.dropped.cap;
+    return cap == null || context.cfi == null
+        ? context.cfi
+        : cfiWithCharOffset(context.cfi!, cap.text.length);
+  }
+
+  Future<_MeasuredParagraph> _measureParagraph(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    _InlineParagraph paragraph,
+  ) async {
+    final notes = await _footnotes(paragraph);
+    final runs = await _finalRuns(context, body, metrics, paragraph);
+    final text = paragraph.dropped.paragraph;
+    final rubies = <RubyAnnotation>[];
+    for (final ruby in text.rubies) {
+      await measure.budget.checkpoint();
+      rubies.add(
+        RubyAnnotation(start: ruby.start, end: ruby.end, text: ruby.text),
+      );
+    }
+    final layout = await measure.layout(
+      text: text.text,
+      style: metrics.list.measureStyle,
+      maxWidth: _measureWidth(context, body, metrics),
+      runs: runs,
+      rubies: rubies,
+      inlineBoxes: paragraph.elements.boxes,
+    );
+    return _MeasuredParagraph(
+      _layoutBounds(layout, body.style, metrics.list.measureStyle),
+      paragraph,
+      notes,
+      rubies,
+      _contentCfi(context, paragraph),
+    );
+  }
+
+  double _measureWidth(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+  ) {
+    final position = context.position;
+    return floatSideOfStyle(body.style) == null &&
+            position.containerFloat != null &&
+            position.containerFloatWidth != null
+        ? styles.textWidthInFloat(
+            context.ancestors,
+            position.containerFloatWidth!,
+          )
+        : measure.textWidthFor(metrics.list.measureStyle);
+  }
+
+  TextLayoutResult _layoutBounds(
+    TextLayoutResult layout,
+    ComputedStyle blockStyle,
+    ComputedStyle measureStyle,
+  ) {
+    var result = layout;
+    if (blockStyle.isOutOfFlow && blockStyle.width != null) {
+      final box = BoxModel.fromStyle(blockStyle, containingWidth: contentWidth);
+      final width =
+          (box.contentWidth ?? 0) +
+          box.padding.horizontal +
+          box.borders.left +
+          box.borders.right;
+      result = pageBlockWithLayoutWidth(result, width: width, maxWidth: width);
+    }
+    final declaredWidth =
+        measureStyle.width != null && !measureStyle.width!.isAuto;
+    if (measureStyle.writingMode != CssWritingMode.horizontalTb &&
+        !declaredWidth &&
+        result.width.isFinite &&
+        result.width > 0 &&
+        result.width != result.maxWidth) {
+      result = pageBlockWithLayoutWidth(result, maxWidth: result.width);
+    }
+    return result;
+  }
+
+  Future<void> _appendBlocks(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    _MeasuredParagraph paragraph,
+  ) async {
+    await _appendLeadingBlocks(context, body, paragraph);
+    measure.budget.check();
+    if (paragraph.layout.lineCount == 0) return;
+    final side =
+        floatSideOfStyle(body.style) ?? context.position.containerFloat;
+    final inFlow = !body.style.isOutOfFlow && side == null;
+    final incomingShift = inFlow ? flow.pendingRelativeTop : 0.0;
+    if (inFlow) flow.pendingRelativeTop = 0;
+    final spacing = _blockSpacing(body, metrics, incomingShift);
+    if (side != null) {
+      flow.blocks.add(_floatBlock(context, body, paragraph, spacing, side));
+      return;
+    }
+    var block = _styledBlock(context, body, metrics, paragraph, spacing);
+    block = _relativeBlock(block, body.authored.relative);
+    if (body.authored.relative.top != 0) {
+      flow.pendingRelativeTop += body.authored.relative.top;
+    }
+    if (_isStructuredHeading(context, body.style, paragraph.layout)) {
+      block = block.withSpacing(breakAfterAvoid: true);
+    }
+    if (body.style.position == CssPosition.fixed) {
+      flow.fixedBlocks.add(block);
+    } else {
+      flow.blocks.add(block);
+    }
+  }
+
+  static ({double before, double after}) _blockSpacing(
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    double incomingShift,
+  ) => (
+    before:
+        (metrics.paragraphSpacing ?? body.style.margin.top) +
+        metrics.list.before -
+        incomingShift,
+    after:
+        (metrics.paragraphSpacing ?? body.style.margin.bottom) +
+        metrics.list.after,
+  );
+
+  Future<void> _appendLeadingBlocks(
+    _BlockContext context,
+    _BodyStyle body,
+    _MeasuredParagraph paragraph,
+  ) async {
+    final leading = List<PageBlock>.of(paragraph.inline.elements.floats);
+    final cap = paragraph.inline.dropped.cap;
+    if (cap != null) {
+      leading.add(
+        await measure.dropCapBlock(
+          text: cap.text,
+          style: cap.style,
+          bodyLineHeight:
+              paragraph.layout.lines.firstOrNull?.height ??
+              body.style.lineHeight,
+          lineCount: cap.lines,
+          gap: body.style.fontSize * 0.25,
+          effectiveOpacity: body.authored.container.opacity,
+          startCfi: context.cfi,
+        ),
+      );
+    }
+    measure.budget.check();
+    flow.blocks.addAll(leading);
+  }
+
+  PageBlock _floatBlock(
+    _BlockContext context,
+    _BodyStyle body,
+    _MeasuredParagraph paragraph,
+    ({double before, double after}) spacing,
+    FloatSide side,
+  ) => measure.floatedTextBlock(
+    layout: paragraph.layout,
+    style: body.style,
+    side: side,
+    spaceBefore: spacing.before,
+    spaceAfter: spacing.after,
+    inlineImages: paragraph.inline.images,
+    footnotes: paragraph.footnotes,
+    rubies: paragraph.rubies.isEmpty ? null : paragraph.rubies,
+    startCfi: paragraph.contentCfi,
+    textRuleEligible: context.textRuleEligible,
+    groupId:
+        side == context.position.containerFloat &&
+            context.position.containerFloat != null
+        ? context.position.containerFloatGroup
+        : context.position.groupId,
+    containerSides: body.authored.container.bordered,
+    effectiveOpacity: body.authored.container.opacity,
+  );
+
+  PageBlock _styledBlock(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    _MeasuredParagraph paragraph,
+    ({double before, double after}) spacing,
+  ) => PageBlock.styled(
+    layout: paragraph.layout,
+    style: body.style,
+    containingWidth: contentWidth,
+    startCfi: paragraph.contentCfi,
+    textRuleEligible: context.textRuleEligible,
+    groupId: context.position.groupId,
+    listMarker: metrics.list.marker,
+    spaceBefore: spacing.before,
+    spaceAfter: spacing.after,
+    rubies: paragraph.rubies.isEmpty ? null : paragraph.rubies,
+    inlineImages: paragraph.inline.images,
+    footnotes: paragraph.footnotes,
+    absolute: body.style.isOutOfFlow,
+    absoluteTop: metrics.absoluteBox?.top,
+    absoluteLeft: metrics.absoluteBox?.left,
+    bleedLeft: body.style.bleed.left,
+    bleedRight: body.style.bleed.right,
+    bleedTop: body.style.bleed.top,
+    bleedBottom: body.style.bleed.bottom,
+    containerSides: body.authored.container.bordered,
+    effectiveOpacity: body.authored.container.opacity,
+  );
+
+  PageBlock _relativeBlock(
+    PageBlock block,
+    ({double left, double top}) relative,
+  ) {
+    if (relative.left == 0 && relative.top == 0) return block;
+    // 按原相对定位分支复制字段，保留其视觉搬移与相邻段距抵扣口径。
+    return PageBlock(
+      layout: block.layout,
+      style: block.style,
+      spaceBefore: block.spaceBefore + relative.top,
+      spaceAfter: math.max(0.0, block.spaceAfter - relative.top),
+      topInset: block.topInset,
+      bottomInset: block.bottomInset,
+      leftInset: block.leftInset + relative.left,
+      startCfi: block.startCfi,
+      endCfi: block.endCfi,
+      textRuleEligible: block.textRuleEligible,
+      groupId: block.groupId,
+      listMarker: block.listMarker,
+      rubies: block.rubies,
+      inlineImages: block.inlineImages,
+      footnotes: block.footnotes,
+      absolute: block.absolute,
+      absoluteTop: block.absoluteTop,
+      absoluteLeft: block.absoluteLeft,
+      bleedLeft: block.bleedLeft,
+      bleedRight: block.bleedRight,
+      bleedTop: block.bleedTop,
+      bleedBottom: block.bleedBottom,
+      containerSides: block.containerSides,
+      effectiveOpacity: block.effectiveOpacity,
+      declaredContentHeight: block.declaredContentHeight,
+      verticalContentWidth: block.verticalContentWidth,
+    );
+  }
+
+  static bool _hasStructuredTitleText(String text, ComputedStyle style) =>
+      !text.contains('\uFFFC') &&
+      text.trim().length <= 40 &&
+      (style.textAlign == CssTextAlign.center ||
+          style.borders.hasBorder ||
+          style.padding.horizontal > 0);
+
+  static bool _isStructuredHeading(
+    _BlockContext context,
+    ComputedStyle style,
+    TextLayoutResult layout,
+  ) =>
+      !context.isHeading &&
+      layout.lineCount > 0 &&
+      layout.lineCount <= 2 &&
+      layout.text.trim().isNotEmpty &&
+      _hasStructuredTitleText(layout.text, style);
+}
+
+class _BlockContext {
+  _BlockContext(this.node, this.position, this.textRuleEligible)
+    : cfi = node is TextContentNode ? node.cfi.serialize() : null;
+  final TextBlockNode node;
+  final BlockPosition position;
+  final bool textRuleEligible;
+  List<SelectorElement> get ancestors => position.ancestors;
+  String get tag => ancestors.isEmpty ? 'body' : ancestors.last.tag;
+  bool get isHeading =>
+      const {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}.contains(tag);
+  bool get isListItem => tag == 'li' && position.list != null;
+  final String? cfi;
+}
+
+class _AuthoredStyle {
+  const _AuthoredStyle(
+    this.style,
+    this.listIndent,
+    this.relative,
+    this.container,
+  );
+  final ComputedStyle style;
+  final double listIndent;
+  final ({double left, double top}) relative;
+  final ({bool bordered, double opacity}) container;
+}
+
+class _BodyStyle {
+  const _BodyStyle(
+    this.authored,
+    this.style,
+    this.compact,
+    this.structuredTitle,
+    this.applyReaderTypography,
+  );
+  final _AuthoredStyle authored;
+  final ComputedStyle style;
+  final bool compact;
+  final bool structuredTitle;
+  final bool applyReaderTypography;
+}
+
+class _ListMetrics {
+  const _ListMetrics(this.marker, this.measureStyle, this.before, this.after);
+  final String? marker;
+  final ComputedStyle measureStyle;
+  final double before;
+  final double after;
+}
+
+class _BlockMetrics {
+  const _BlockMetrics(this.list, this.paragraphSpacing, this.absoluteBox);
+  final _ListMetrics list;
+  final double? paragraphSpacing;
+  final CssAbsoluteBox? absoluteBox;
+}
+
+class _GeneratedText {
+  const _GeneratedText(this.before, this.after, this.active, this.qLevel);
+  final PseudoContent? before;
+  final PseudoContent? after;
+  final bool active;
+  final int qLevel;
+  String get prefix => active ? before?.text ?? '' : '';
+  String get suffix => active ? after?.text ?? '' : '';
+}
+
+/// 所有 UTF-16 范围共享一个文字版本，变换后一起生成下一份坐标输入。
+class _ParagraphText {
+  const _ParagraphText(
+    this.text,
+    this.marks,
+    this.images,
+    this.rubies,
+    this.pseudoImages,
+  );
+  factory _ParagraphText.fromNode(TextBlockNode node) => node is TextContentNode
+      ? _ParagraphText(
+          node.text,
+          node.inlineMarks,
+          node.inlineImages,
+          node.rubies,
+          const [],
+        )
+      : _ParagraphText(node.text, const [], const [], const [], const []);
+  final String text;
+  final List<InlineMark> marks;
+  final List<InlineImageMark> images;
+  final List<RubyMark> rubies;
+  final List<PseudoImageMark> pseudoImages;
+}
+
+class _CoordinateMapping {
+  const _CoordinateMapping(
+    this.start,
+    this.end, {
+    this.keepOffset,
+    this.removeEmpty = false,
+    this.remapRubies = true,
+  });
+  factory _CoordinateMapping.removal(int start, int end) {
+    int remap(int offset) => offset <= start
+        ? offset
+        : offset >= end
+        ? offset - (end - start)
+        : start;
+    return _CoordinateMapping(
+      remap,
+      remap,
+      keepOffset: (offset) => offset < start || offset >= end,
+      removeEmpty: true,
+    );
+  }
+  final int Function(int) start;
+  final int Function(int) end;
+  final bool Function(int)? keepOffset;
+  final bool removeEmpty;
+  final bool remapRubies;
+}
+
+class _DropCap {
+  const _DropCap(this.text, this.style, this.lines);
+  final String text;
+  final ComputedStyle style;
+  final double lines;
+}
+
+class _DropCapResult {
+  const _DropCapResult(this.paragraph, this.cap);
+  final _ParagraphText paragraph;
+  final _DropCap? cap;
+}
+
+class _InlineElements {
+  final List<PageBlock> floats = [];
+  List<InlineBoxSpec> boxes = [];
+  final List<PageFootnote> footnotes = [];
+}
+
+class _InlineParagraph {
+  const _InlineParagraph(this.dropped, this.elements, this.runs, this.images);
+  final _DropCapResult dropped;
+  final _InlineElements elements;
+  final List<StyledRun> runs;
+  final List<InlineImageSpec> images;
+}
+
+class _FootnoteCollector {
+  _FootnoteCollector(this.inline, List<PageFootnote> boxNotes)
+    : result = List.of(boxNotes);
+  final InlineContentBuilder inline;
+  final List<PageFootnote> result;
+  final Set<int> seen = {};
+  void add(
+    String tag,
+    Map<String, String> attributes,
+    String text,
+    int start,
+    int end,
+  ) {
+    if (seen.contains(start)) return;
+    final note = inline.footnoteForReference(
+      tag,
+      attributes,
+      text,
+      start: start,
+      end: end,
+    );
+    if (note == null) return;
+    seen.add(start);
+    result.add(note);
+  }
+}
+
+class _MeasuredParagraph {
+  const _MeasuredParagraph(
+    this.layout,
+    this.inline,
+    this.footnotes,
+    this.rubies,
+    this.contentCfi,
+  );
+  final TextLayoutResult layout;
+  final _InlineParagraph inline;
+  final List<PageFootnote> footnotes;
+  final List<RubyAnnotation> rubies;
+  final String? contentCfi;
+}

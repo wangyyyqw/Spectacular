@@ -11,6 +11,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _book() => File('../../test_corpus/basic.epub').readAsBytesSync();
@@ -47,6 +48,7 @@ Future<void> _tap(WidgetTester tester, String key) async {
 void main() {
   testWidgets('连续切主题和背景保留前次设置', (tester) async {
     final changes = <ReaderSettings>[];
+    var closed = false;
     await tester.pumpWidget(
       MaterialApp(
         home: EpubReaderPage(
@@ -55,10 +57,11 @@ void main() {
           store: MemoryReaderProgressStore(),
           settings: ReaderSettings.defaults,
           onSettingsChanged: changes.add,
+          onClosed: () => closed = true,
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     await _themeMenu(tester);
     await _tap(tester, 'settings-theme-sepia');
     await _tap(tester, 'settings-bg-paper');
@@ -71,6 +74,12 @@ void main() {
     await _tap(tester, 'settings-theme-black');
     expect(changes.last.themeId, 'black');
     expect(changes.last.backgroundId, 'paper');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpReaderUntilComplete(
+      tester,
+      () => closed,
+      description: '主题测试阅读页释放',
+    );
   });
 
   testWidgets('图片取消和加载失败不保存，旧异步请求不覆盖新背景', (tester) async {
@@ -98,7 +107,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '图片竞态首屏正文',
+    );
     final fingerprint = session.layoutFingerprint;
     final position = session.progress;
     await _themeMenu(tester);
@@ -124,6 +137,9 @@ void main() {
     expect(session.layoutFingerprint, fingerprint);
     expect(session.progress, position);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
   testWidgets('恢复缺失图片时回退纯色，不显示已启用图片', (tester) async {
     final source = await openTestChapterSource(_book());
@@ -143,10 +159,13 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     await _themeMenu(tester);
     expect(find.text('图片背景已启用'), findsNothing);
     expect(changes, isEmpty, reason: '恢复失败不会保存无效图片');
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

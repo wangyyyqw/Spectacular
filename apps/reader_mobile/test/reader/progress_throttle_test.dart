@@ -48,6 +48,33 @@ class _CountingStore implements ReaderProgressStore {
   Future<Map<String, ReaderProgress>> snapshot() async => Map.of(items);
 }
 
+/// 页面仍由真实 EPUB 生成；节流测试只隔离跨章 IO 对计时的影响。
+class _PreparedPageSource implements ReaderChapterSource {
+  _PreparedPageSource(this.pages);
+
+  final List<List<PageContent>> pages;
+
+  @override
+  int get chapterCount => pages.length;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async =>
+      pages[spineIndex];
+}
+
+Future<ReaderChapterSource> _prepareBurstSource(WidgetTester tester) async {
+  final source = (await tester.runAsync(
+    () => openTestChapterSource(_corpusBook('basic.epub')),
+  ))!;
+  addTearDown(source.close);
+  return (await tester.runAsync(
+    () async => _PreparedPageSource([
+      for (var spine = 0; spine < source.chapterCount; spine++)
+        await source.loadChapter(spine),
+    ]),
+  ))!;
+}
+
 /// 同一段文字跨两页，且两页重叠包含保存行；真机冷启动曾因此退一页。
 class _OverlappingBoundarySource implements ReaderChapterSource {
   static const String _cfi = 'epubcfi(/6/2!/4/2/1)';
@@ -99,8 +126,10 @@ void main() {
   late ReaderSession session;
   late _CountingStore store;
 
-  Future<void> openSource() async {
-    final source = await openTestChapterSource(_corpusBook('basic.epub'));
+  Future<void> openSource({ReaderChapterSource? preparedSource}) async {
+    final source =
+        preparedSource ??
+        await openTestChapterSource(_corpusBook('basic.epub'));
     store = _CountingStore();
     session = ReaderSession(
       source: source,
@@ -111,9 +140,10 @@ void main() {
     await session.open();
   }
 
-  test('连续翻页按间隔合并写库（P4-10）', () async {
-    await openSource();
+  testWidgets('连续翻页按间隔合并写库（P4-10）', (tester) async {
+    await openSource(preparedSource: await _prepareBurstSource(tester));
     final start = session.progress!;
+    final burstStart = tester.binding.clock.now();
     var moved = 0;
     // 快速连续翻 10 页（不等待节流窗口）。
     for (var i = 0; i < 10; i++) {
@@ -124,19 +154,20 @@ void main() {
       moved += 1;
     }
     expect(moved, greaterThan(0), reason: '测试书应能翻页');
+    expect(tester.binding.clock.now(), burstStart, reason: '快速翻页不推进节流时钟');
     expect(
       store.writes,
       lessThanOrEqualTo(1),
       reason: '节流窗口内连续翻页只写一次（首次变化立即写）',
     );
     // 等节流窗口后再翻一页，应触发 trailing 写入。
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 120));
     await session.next();
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 120));
     expect(store.writes, inInclusiveRange(1, 3));
     expect(session.progress, isNot(start));
     session.dispose();
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   test('flushProgress 立即落盘（退出/切后台）', () async {
     await openSource();

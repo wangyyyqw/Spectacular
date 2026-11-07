@@ -9,6 +9,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -44,7 +45,7 @@ Future<void> _pumpReader(WidgetTester tester, EpubChapterSource source) async {
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  await pumpReaderUntil(tester, find.byType(ReaderView));
 }
 
 void main() {

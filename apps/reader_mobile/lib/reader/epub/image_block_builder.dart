@@ -1,0 +1,368 @@
+import 'dart:math' as math;
+
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/layout/box_model.dart';
+import 'package:reader_core/layout/float_occupancy.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/paint/image_size.dart';
+import 'package:reader_core/parser/block_builder.dart';
+
+import 'block_style_helpers.dart';
+import 'chapter_flow.dart';
+import 'chapter_selectors.dart';
+import 'chapter_style_resolver.dart';
+import 'generated_chapter_content.dart';
+import 'image_blocks.dart';
+import 'inline_content_builder.dart';
+
+typedef _ImageSize = (double width, double height);
+typedef _ImageFloat = ({FloatSide? side, double? width});
+typedef _ImageGeometry = ({
+  double width,
+  double height,
+  double blockWidth,
+  double containingWidth,
+  FloatSide? side,
+  int group,
+});
+
+/// 单张块级图片的尺寸与盒载荷；不改变共享遍历游标。
+class ImageBlockBuilder {
+  ImageBlockBuilder(this.styles, this.inline, this.content);
+
+  final ChapterStyleResolver styles;
+  final InlineContentBuilder inline;
+  final GeneratedChapterContent content;
+
+  Future<List<PageBlock>> build(
+    BlockNode node,
+    BlockPosition position, {
+    List<PageFootnote> footnotes = const [],
+  }) async {
+    await inline.measure.budget.checkpoint();
+    final src =
+        node.attributes['src'] ??
+        node.attributes['xlink:href'] ??
+        node.attributes['href'] ??
+        node.attributes['data'];
+    if (src == null || src.isEmpty) return const [];
+    final chain = await _foldedChain(node, position.ancestors);
+    final input = _ImageDescription(this, node, position, (src, chain));
+    final geometry = await _ImageSizing(input).measure();
+    final style = _imagePaintStyle(input, geometry);
+    final notes = _imageFootnotes(input, footnotes);
+    await inline.measure.budget.checkpoint();
+    return [_imageBlock(input, geometry, style, notes)];
+  }
+
+  Future<List<SelectorElement>> _foldedChain(
+    BlockNode node,
+    List<SelectorElement> ancestors,
+  ) async {
+    if (node.containerChain.isEmpty) return ancestors;
+    final result = <SelectorElement>[];
+    for (final hint in node.containerChain) {
+      await inline.measure.budget.checkpoint();
+      result.add(
+        ChapterNodeView(
+          hint.tag,
+          hint.classes.isEmpty ? const {} : {'class': hint.classes},
+          const [],
+        ),
+      );
+    }
+    return result;
+  }
+}
+
+/// 首次级联后立即冻结图片属性，后续容器级联不覆盖定位与透明度。
+class _ImageDescription {
+  _ImageDescription(
+    this.builder,
+    this.node,
+    this.position,
+    (String, List<SelectorElement>) source,
+  ) : url = builder.inline.imageUrl(source.$1),
+      chain = source.$2 {
+    imageChain = [
+      ...chain,
+      ChapterNodeView(node.tag, node.attributes, const []),
+    ];
+    style = builder.styles.styleForChain(imageChain);
+    promotedLeft = builder.styles.promotedLeftForLastChain;
+    opacity = builder.styles.effectiveOpacityForLastChain;
+    intrinsic = builder.inline.intrinsicSize(url);
+  }
+
+  final ImageBlockBuilder builder;
+  final BlockNode node;
+  final BlockPosition position;
+  final String url;
+  final List<SelectorElement> chain;
+  late final List<SelectorElement> imageChain;
+  late final ComputedStyle style;
+  late final double promotedLeft;
+  late final double opacity;
+  late final ImageIntrinsicSize? intrinsic;
+  ChapterStyleResolver get styles => builder.styles;
+  InlineContentBuilder get inline => builder.inline;
+}
+
+/// 容器宽、声明尺寸和浮动钳制按原先顺序解算，只持有当前图片输入。
+class _ImageSizing {
+  _ImageSizing(this.input);
+
+  final _ImageDescription input;
+
+  Future<_ImageGeometry> measure() async {
+    final containingWidth = await _containingWidth();
+    var size = _constrainMaxWidth(
+      _declaredSize(containingWidth),
+      containingWidth,
+    );
+    final chainFloat = await _containerFloat();
+    final side =
+        input.styles.floatSideOf(
+          input.node.attributes,
+          ancestors: input.chain,
+        ) ??
+        input.position.containerFloat ??
+        chainFloat.side;
+    final columnWidth = input.position.containerFloat != null
+        ? input.position.containerFloatWidth
+        : chainFloat.width;
+    size = _limitFloatingWidth(size, side, input.styles.snapshot.width);
+    var blockWidth = side != null ? size.$1 : input.styles.snapshot.width;
+    if (side != null && columnWidth != null) {
+      blockWidth = math.min(blockWidth, columnWidth);
+      size = _fitWidth(size, blockWidth);
+    }
+    return (
+      width: size.$1,
+      height: size.$2,
+      blockWidth: blockWidth,
+      containingWidth: containingWidth,
+      side: side,
+      group: _imageGroup(input.position, chainFloat.side),
+    );
+  }
+
+  Future<double> _containingWidth() async {
+    final bleed = input.style.bleed;
+    final snapshot = input.styles.snapshot;
+    if (bleed.left || bleed.right) {
+      return snapshot.width +
+          (bleed.left ? snapshot.overrides.padding?.left ?? 0 : 0) +
+          (bleed.right ? snapshot.overrides.padding?.right ?? 0 : 0);
+    }
+    var width = snapshot.width;
+    for (var i = 0; i < input.chain.length; i++) {
+      await input.inline.measure.budget.checkpoint();
+      final tag = input.chain[i].tag;
+      if (tag == 'body' || tag == 'html') continue;
+      final style = input.styles.chainStyle(input.chain.sublist(0, i + 1));
+      width = BoxModel.fromStyle(
+        style,
+        containingWidth: width,
+      ).resolveContentWidth(width);
+    }
+    return width;
+  }
+
+  _ImageSize _declaredSize(double width) {
+    final height = input.styles.snapshot.height;
+    final style = input.style;
+    return resolveImageDisplaySize(
+      input.node.attributes,
+      input.intrinsic,
+      width,
+      height,
+      cssWidth: style.width?.resolve(width),
+      cssHeight: style.height?.resolve(height),
+      cssMaxWidth: style.maxWidth?.resolve(width),
+      cssMaxHeight: style.maxHeight?.resolve(height),
+      aspectRatio: style.aspectRatio,
+    );
+  }
+
+  _ImageSize _constrainMaxWidth(_ImageSize size, double width) {
+    if (input.style.maxWidth == null) return size;
+    final constrained = BoxModel.fromStyle(
+      input.style,
+      containingWidth: width,
+    ).resolveContentWidth(width);
+    return _fitWidth(size, constrained);
+  }
+
+  Future<_ImageFloat> _containerFloat() async {
+    for (var i = input.chain.length; i >= 1; i--) {
+      await input.inline.measure.budget.checkpoint();
+      final style = input.styles.chainStyle(input.chain.sublist(0, i));
+      final side = floatSideOfStyle(style);
+      if (side != null) {
+        return (side: side, width: input.inline.measure.textWidthFor(style));
+      }
+    }
+    return (side: null, width: null);
+  }
+}
+
+_ImageSize _fitWidth(_ImageSize size, double width) =>
+    size.$1 > width ? (width, size.$2 * width / size.$1) : size;
+
+_ImageSize _limitFloatingWidth(
+  _ImageSize size,
+  FloatSide? side,
+  double width,
+) => side == null ? size : _fitWidth(size, width * 0.45);
+
+int _imageGroup(BlockPosition position, FloatSide? chainFloat) =>
+    position.containerFloat != null ||
+        (chainFloat != null && position.containerFloatGroup > 0)
+    ? position.containerFloatGroup
+    : 0;
+
+ComputedStyle _ownImageStyle(_ImageDescription input, double width) {
+  final base = input.styles.chainStyle(input.imageChain);
+  return ComputedStyle(
+    base.values,
+    parent: base,
+    explicitProperties: base.explicitProperties,
+    containingWidth: width,
+  );
+}
+
+double _usedMarginLeft(_ImageDescription input, _ImageGeometry geometry) {
+  final own = _ownImageStyle(input, geometry.containingWidth);
+  final inlineLevel =
+      own.display == CssDisplay.inline || own.display == CssDisplay.inlineBlock;
+  final widthIsAuto = own.width == null || own.width!.isAuto;
+  final autoMargins =
+      widthIsAuto && (own.marginLeftIsAuto || own.marginRightIsAuto);
+  final left = input.promotedLeft + own.margin.left;
+  if (geometry.side != null ||
+      input.style.isOutOfFlow ||
+      !(autoMargins || inlineLevel)) {
+    return left;
+  }
+  final model = BoxModel.fromStyle(
+    input.style,
+    containingWidth: geometry.containingWidth,
+  );
+  final slack = math.max(
+    0.0,
+    geometry.containingWidth -
+        (geometry.width + model.horizontalInset + own.margin.horizontal),
+  );
+  return left + _imageAlignment(own, slack, autoMargins);
+}
+
+double _imageAlignment(ComputedStyle own, double slack, bool autoMargins) =>
+    autoMargins
+    ? switch ((own.marginLeftIsAuto, own.marginRightIsAuto)) {
+        (true, true) => slack / 2,
+        (true, false) => slack,
+        _ => 0,
+      }
+    : switch (own.resolvedTextAlign) {
+        CssTextAlign.center => slack / 2,
+        CssTextAlign.end || CssTextAlign.right => slack,
+        _ => 0,
+      };
+
+ComputedStyle _imagePaintStyle(
+  _ImageDescription input,
+  _ImageGeometry geometry,
+) {
+  final fit = input.builder.content.objectFitBackground(
+    input.imageChain,
+    input.intrinsic,
+    boxWidth: geometry.width,
+    boxHeight: geometry.height,
+  );
+  final bleed = input.style.bleed;
+  return ComputedStyle({
+    ...input.style.values,
+    'width': '${geometry.width}px',
+    'margin-left': '${_usedMarginLeft(input, geometry)}px',
+    'background-image': 'url(${input.url})',
+    'background-size': fit.size,
+    'background-position': bleed.top
+        ? 'center top'
+        : (bleed.bottom ? 'center bottom' : fit.position),
+    'background-repeat': 'no-repeat',
+  });
+}
+
+TextLayoutResult _imageLayout(_ImageGeometry geometry) => TextLayoutResult(
+  text: '',
+  lines: [
+    LineBox(
+      start: 0,
+      end: 0,
+      top: 0,
+      height: geometry.height,
+      baseline: geometry.height,
+      width: geometry.blockWidth,
+    ),
+  ],
+  width: geometry.blockWidth,
+  height: geometry.height,
+  maxWidth: geometry.blockWidth,
+  runs: const [],
+);
+
+List<PageFootnote> _imageFootnotes(
+  _ImageDescription input,
+  List<PageFootnote> incoming,
+) {
+  final direct = input.inline.footnoteForReference(
+    input.node.tag,
+    input.node.attributes,
+    '',
+    start: 0,
+    end: 1,
+  );
+  return incoming.isNotEmpty ? incoming : [?direct];
+}
+
+PageBlock _imageBlock(
+  _ImageDescription input,
+  _ImageGeometry geometry,
+  ComputedStyle style,
+  List<PageFootnote> footnotes,
+) {
+  final model = BoxModel.fromStyle(
+    style,
+    containingWidth: input.styles.snapshot.width,
+  );
+  final layout = _imageLayout(geometry);
+  return PageBlock(
+    layout: layout,
+    startCfi: input.styles.selectorIndex.imageCfiOf(input.node),
+    style: style,
+    pageBreakBefore: style.pageBreakBefore,
+    pageBreakAfter: style.pageBreakAfter,
+    breakInsideAvoid: style.breakInsideAvoid,
+    breakAfterAvoid: style.breakAfterAvoid,
+    spaceBefore: style.margin.top,
+    spaceAfter: style.margin.bottom,
+    topInset: model.borders.top + model.padding.top,
+    bottomInset: model.borders.bottom + model.padding.bottom,
+    leftInset: model.borders.left + model.padding.left,
+    floatSide: geometry.side,
+    bleedLeft: input.style.bleed.left,
+    bleedRight: input.style.bleed.right,
+    bleedTop: input.style.bleed.top,
+    bleedBottom: input.style.bleed.bottom,
+    effectiveOpacity: input.opacity,
+    groupId: geometry.group,
+    declaredContentHeight: model.resolveContentHeight(
+      layout.height,
+      containingHeight: input.styles.snapshot.height,
+    ),
+    footnotes: footnotes,
+  );
+}

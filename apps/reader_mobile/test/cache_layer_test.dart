@@ -7,11 +7,12 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_ui/reader_session.dart' show ChapterLoadCancelled;
 
 /// P7-23：三层缓存与设置失效矩阵——
 /// 主题颜色变化 → 零重排（pagination 层键不含颜色）；
-/// 字号/行高/对齐/边距 → pagination 层失效；
-/// 几何变化 → 全失效；页索引重放命中（P7-22）。
+/// 字号/行高/对齐/边距/几何 → 完整键隔离并保留近期结果；
+/// 页、块和索引共用三项/32MiB 完成缓存，索引可以独立重放。
 void main() {
   Directory? corpus;
 
@@ -33,11 +34,13 @@ void main() {
 
   Future<EpubChapterSource> openSource() async {
     final file = File('${corpus!.path}/basic.epub');
-    return EpubChapterSource.open(
+    final source = await EpubChapterSource.open(
       file.readAsBytesSync(),
       contentWidth: 320,
       contentHeight: 480,
     );
+    addTearDown(source.close);
+    return source;
   }
 
   test('基础计算样式在同一环境复用，设置和尺寸变化后更新', () async {
@@ -158,15 +161,15 @@ void main() {
     }
   });
 
-  test('排版字段变化：styles 层块缓存同步失效', () async {
+  test('字号变化保留旧布局，新字号重建并可切回复用', () async {
     final source = await openSource();
-    await source.loadChapter(0);
+    final before = await source.loadChapter(0);
     expect(source.cacheReport, contains('块缓存 1/'));
     expect(source.cacheReport, contains('基础级联 1/'));
     expect(source.displayDocumentCacheHits, 0);
 
     await source.applyOverrides(const ReaderOverrides(fontSize: 20));
-    expect(source.cacheReport, contains('块缓存 0/'));
+    expect(source.cacheReport, contains('块缓存 1/'));
     expect(source.cacheReport, contains('基础级联 1/'));
     expect(
       source.cacheReport,
@@ -177,6 +180,8 @@ void main() {
     await source.loadChapter(0);
     expect(source.blockCacheHits, 0, reason: '失效后重新构建，不复用旧块');
     expect(source.displayDocumentCacheHits, 1, reason: '重排复用已解析章节结构');
+    await source.applyOverrides(const ReaderOverrides());
+    expect(await source.loadChapter(0), same(before));
   });
 
   test('只换字族：切回同一字族直接命中分页缓存', () async {
@@ -214,34 +219,45 @@ void main() {
     );
   });
 
-  test('字号与字族同时变化：字体维度的分页与块缓存全量失效', () async {
+  test('字号与字族同时变化隔离结果，三套近期布局各可复用', () async {
     final source = await openSource();
     addTearDown(source.close);
-    await source.loadChapter(0);
+    final builtin = await source.loadChapter(0);
     await source.applyOverrides(
       const ReaderOverrides(fontFamily: 'user_font_a'),
     );
-    await source.loadChapter(0);
+    final custom = await source.loadChapter(0);
 
     await source.applyOverrides(
       const ReaderOverrides(fontSize: 20, fontFamily: 'user_font_a'),
     );
-    expect(source.cacheReport, contains('页缓存 0/'));
-    expect(source.cacheReport, contains('块缓存 0/'));
+    expect(source.cacheReport, contains('页缓存 2/'));
+    expect(source.cacheReport, contains('块缓存 2/'));
+    final resized = await source.loadChapter(0);
+    expect(resized, isNot(same(custom)));
+    await source.applyOverrides(const ReaderOverrides());
+    expect(await source.loadChapter(0), same(builtin));
+    await source.applyOverrides(
+      const ReaderOverrides(fontFamily: 'user_font_a'),
+    );
+    expect(await source.loadChapter(0), same(custom));
   });
 
-  test('几何变化：styles 层块缓存同步失效', () async {
+  test('几何变化保留旧完整布局，结构按新宽度准备，切回可命中', () async {
     final source = await openSource();
-    await source.loadChapter(0);
+    final before = await source.loadChapter(0);
     expect(source.cacheReport, contains('基础级联 1/'));
     await source.applyContentSize(width: 280, height: 420);
-    expect(source.cacheReport, contains('块缓存 0/'));
+    expect(source.cacheReport, contains('块缓存 1/'));
     expect(source.cacheReport, contains('文档缓存 0/'));
     expect(
       source.cacheReport,
       contains('基础级联 1/'),
       reason: '尺寸变化只影响媒体查询求值，不改变已解析选择器',
     );
+    expect(await source.loadChapter(0), isNot(same(before)));
+    await source.applyContentSize(width: 320, height: 480);
+    expect(await source.loadChapter(0), same(before));
   });
 
   test('关闭章节源释放缓存并拒绝后续渲染', () async {
@@ -255,7 +271,10 @@ void main() {
     expect(source.cacheReport, contains('页缓存 0/'));
     expect(source.cacheReport, contains('块缓存 0/'));
     expect(source.cacheReport, contains('文档缓存 0/'));
-    await expectLater(source.loadChapter(0), throwsStateError);
+    await expectLater(
+      source.loadChapter(0),
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
     source.close();
   });
 

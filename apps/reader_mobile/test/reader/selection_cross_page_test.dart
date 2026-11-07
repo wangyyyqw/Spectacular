@@ -9,6 +9,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -48,7 +49,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
 
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
@@ -61,7 +62,7 @@ void main() {
       true,
     );
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
+    await _waitForCrossPageSelection(tester, session);
 
     final after = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
     expect(after.selection.isMultiPage, isTrue, reason: '拖到页边应翻页并扩展选区');
@@ -99,7 +100,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
 
@@ -107,15 +108,26 @@ void main() {
       true,
     );
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
+    await _waitForCrossPageSelection(tester, session);
 
     final layer = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
     expect(layer.selection.isMultiPage, isTrue);
 
-    final pages = await session.chapterPages();
+    final pages = await pumpReaderTask(tester, session.chapterPages());
     expect(pages, isNotEmpty);
   });
 }
+
+Future<void> _waitForCrossPageSelection(
+  WidgetTester tester,
+  ReaderSession session,
+) => pumpReaderUntilComplete(tester, () {
+  final layers = find.byType(SelectionLayer).evaluate();
+  if (layers.length != 1 || session.loading) return false;
+  final selection = (layers.single.widget as SelectionLayer).selection;
+  return selection.isMultiPage &&
+      selection.endPageIndex == session.progress?.pageIndex;
+}, description: '跨页选区与新页就绪');
 
 class _NoopAnnotationStore implements ReaderAnnotationStore {
   @override

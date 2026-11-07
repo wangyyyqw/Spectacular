@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -47,7 +48,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '墨水屏首屏正文',
+    );
     final fingerprint = session.layoutFingerprint;
     final progress = session.progress;
 
@@ -76,5 +81,8 @@ void main() {
 
     expect(session.layoutFingerprint, fingerprint, reason: '墨水屏不重排');
     expect(session.progress, progress);
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

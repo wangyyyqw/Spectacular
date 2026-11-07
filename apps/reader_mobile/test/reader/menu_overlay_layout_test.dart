@@ -4,6 +4,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
@@ -33,7 +34,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '浮层菜单首屏正文',
+    );
     final fingerprint = session.layoutFingerprint;
     final pageBefore = session.page;
 
@@ -59,5 +64,8 @@ void main() {
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
     expect(session.layoutFingerprint, fingerprint, reason: '收菜单不重排');
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

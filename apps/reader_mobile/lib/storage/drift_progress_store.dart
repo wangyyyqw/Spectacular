@@ -4,17 +4,18 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_core/position/location_anchor.dart';
-import 'package:reader_core/position/locator.dart';
-import 'package:reader_core/position/text_length.dart';
+import 'package:reader_core/position/book_progress_index.dart';
 
 import '../library/revision_anchor_store.dart';
+import '../reader/epub/book_page_counter.dart';
 import '../reader/epub_chapter_source.dart';
 
 import 'db.dart';
+import 'drift_book_page_count_store.dart';
 
 /// 阅读进度的 drift 实现（P4-10）：写 `reading_progress` 表。
 ///
-/// 位置串包含章、页及连续滚动的页内偏移；百分比复用导入字数权重，
+/// 位置串包含章、页及连续滚动的页内偏移；百分比复用归档条目权重，
 /// 结合当前章锚点比例计算，不为保存进度扫描全书。
 class DriftProgressStore implements ReaderProgressStore {
   /// 创建存储。
@@ -22,194 +23,6 @@ class DriftProgressStore implements ReaderProgressStore {
 
   final AppDatabase _db;
   static final RegExp _scrollOffsetPattern = RegExp(r'(?:^|/)scroll:([^/]+)$');
-  static const int _characterIndexVersion = 2;
-  static const String _characterIndexPrefix = 'character-index-v2:';
-  final Map<String, Future<ProgressWeights?>> _characterIndexTasks =
-      <String, Future<ProgressWeights?>>{};
-
-  /// 旧书首次打开时按新的正文聚合语义刷新字符统计。
-  ///
-  /// 结果按「书籍 + 内容摘要」记录在现有设置表；已是最新时直接返回，
-  /// 阅读期间不再扫描整本书。扫描可被 [isCancelled] 中止，未完成不写库。
-  Future<ProgressWeights?> ensureCharacterIndex(
-    String bookId,
-    EpubChapterSource source,
-    String revision, {
-    bool Function()? isCancelled,
-  }) {
-    final running = _characterIndexTasks[bookId];
-    if (running != null) return running;
-    late final Future<ProgressWeights?> task;
-    task = _ensureCharacterIndex(bookId, source, revision, isCancelled)
-        .whenComplete(() {
-          if (identical(_characterIndexTasks[bookId], task)) {
-            _characterIndexTasks.remove(bookId);
-          }
-        });
-    _characterIndexTasks[bookId] = task;
-    return task;
-  }
-
-  Future<ProgressWeights?> _ensureCharacterIndex(
-    String bookId,
-    EpubChapterSource source,
-    String revision,
-    bool Function()? isCancelled,
-  ) async {
-    final book = await resolveBookRow(_db, bookId);
-    if (book == null || book.deletedAt != null) return null;
-    if (book.contentRevision != null && book.contentRevision != revision) {
-      return null;
-    }
-    final key = '$_characterIndexPrefix${book.uuid}';
-    final setting = _decodeCharacterIndex(await _readSetting(key));
-    final excluded = <int>{...source.document.progressExcludedSpineIndexes};
-    for (var spine = 0; spine < source.chapterCount; spine++) {
-      if (source.isChapterMissing(spine)) excluded.add(spine);
-    }
-    if (setting != null &&
-        setting.version == _characterIndexVersion &&
-        setting.revision == revision &&
-        _sameIntSet(setting.excluded, excluded)) {
-      return characterWeights(bookId);
-    }
-    final counts = List<int>.filled(source.chapterCount, 0);
-    for (var spine = 0; spine < source.chapterCount; spine++) {
-      if (isCancelled?.call() == true) return null;
-      if (excluded.contains(spine) || source.isChapterMissing(spine)) {
-        excluded.add(spine);
-        continue;
-      }
-      counts[spine] = source.semanticCharacterCount(spine);
-      if (spine % 8 == 7) {
-        await Future<void>.delayed(Duration.zero);
-      }
-    }
-    if (isCancelled?.call() == true) return null;
-    final current = await resolveBookRow(_db, book.uuid);
-    if (current == null ||
-        current.deletedAt != null ||
-        current.contentRevision != book.contentRevision ||
-        current.sourcePath != book.sourcePath) {
-      return null;
-    }
-    final weights = ProgressWeights.fromCharCounts(counts, excluded: excluded);
-    await _db.transaction(() async {
-      final rows = await (_db.select(
-        _db.spineItems,
-      )..where((table) => table.bookId.equals(book.id))).get();
-      final bySpine = <int, SpineItemRow>{
-        for (final row in rows) row.spineIndex: row,
-      };
-      for (var spine = 0; spine < source.chapterCount; spine++) {
-        final item = source.document.spine[spine];
-        final existing = bySpine[spine];
-        if (existing == null) {
-          await _db
-              .into(_db.spineItems)
-              .insert(
-                SpineItemsCompanion.insert(
-                  bookId: book.id,
-                  spineIndex: spine,
-                  href: item.href,
-                  linear: Value<int>(item.linear ? 1 : 0),
-                  charCount: Value<int>(counts[spine]),
-                  charStart: Value<int>(weights.charStarts[spine]),
-                ),
-              );
-        } else {
-          await (_db.update(
-            _db.spineItems,
-          )..where((table) => table.id.equals(existing.id))).write(
-            SpineItemsCompanion(
-              href: Value<String>(item.href),
-              linear: Value<int>(item.linear ? 1 : 0),
-              charCount: Value<int>(counts[spine]),
-              charStart: Value<int>(weights.charStarts[spine]),
-            ),
-          );
-        }
-      }
-      await (_db.delete(_db.spineItems)..where(
-            (table) =>
-                table.bookId.equals(book.id) &
-                table.spineIndex.isBiggerOrEqualValue(source.chapterCount),
-          ))
-          .go();
-      await (_db.update(
-        _db.books,
-      )..where((table) => table.id.equals(book.id))).write(
-        BooksCompanion(charCount: Value<int>(weights.totalCharacters)),
-      );
-      await _db
-          .into(_db.settingsTable)
-          .insertOnConflictUpdate(
-            SettingsTableCompanion.insert(
-              key: key,
-              value: jsonEncode(<String, Object?>{
-                'version': _characterIndexVersion,
-                'revision': revision,
-                'excluded': excluded.toList()..sort(),
-              }),
-            ),
-          );
-    });
-    return weights;
-  }
-
-  /// 读取某本书已落库的字符权重；没有 spine 统计时返回 null。
-  Future<ProgressWeights?> characterWeights(String bookId) async {
-    final book = await resolveBookRow(_db, bookId);
-    if (book == null) return null;
-    final rows =
-        await (_db.select(_db.spineItems)
-              ..where((table) => table.bookId.equals(book.id))
-              ..orderBy([
-                (table) => OrderingTerm(expression: table.spineIndex),
-              ]))
-            .get();
-    if (rows.isEmpty) return null;
-    final setting = _decodeCharacterIndex(
-      await _readSetting('$_characterIndexPrefix${book.uuid}'),
-    );
-    return ProgressWeights.fromCharCounts(
-      <int>[for (final row in rows) row.charCount ?? 0],
-      excluded: <int>{
-        for (final row in rows)
-          if (row.linear == 0) row.spineIndex,
-        ...?setting?.excluded,
-      },
-    );
-  }
-
-  Future<String?> _readSetting(String key) async {
-    final row = await (_db.select(
-      _db.settingsTable,
-    )..where((table) => table.key.equals(key))).getSingleOrNull();
-    return row?.value;
-  }
-
-  ({int version, String revision, Set<int> excluded})? _decodeCharacterIndex(
-    String? source,
-  ) {
-    if (source == null) return null;
-    try {
-      final json = jsonDecode(source) as Map<String, dynamic>;
-      return (
-        version: json['version'] as int,
-        revision: json['revision'] as String,
-        excluded: <int>{
-          for (final value in json['excluded'] as List<dynamic>)
-            if (value is int) value,
-        },
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  bool _sameIntSet(Set<int> left, Set<int> right) =>
-      left.length == right.length && left.containsAll(right);
 
   /// 阅读期间借用现有章节源，避免保存进度和笔记时重新打开整本 EPUB。
   Future<void Function()> bindSource(
@@ -218,6 +31,14 @@ class DriftProgressStore implements ReaderProgressStore {
     String revision,
   ) => bindReadingAnchorSource(_db, bookId, source, revision);
 
+  /// 全书计页借用设置表，内容与布局版本变化时拒绝旧缓存。
+  BookPageCountStore pageCountStore(String bookId, String contentRevision) =>
+      DriftBookPageCountStore(
+        _db,
+        bookId: bookId,
+        contentRevision: contentRevision,
+      );
+
   /// 读取某书进度。
   @override
   Future<ReaderProgress?> load(String bookId) async {
@@ -225,7 +46,8 @@ class DriftProgressStore implements ReaderProgressStore {
     if (book == null) return null;
     final saved = await _rowFor(book.id);
     final row = saved == null ? null : await _upgradeAnchor(book, saved);
-    return row == null ? null : _toProgress(row);
+    if (row == null) return null;
+    return _currentProgress(book, row);
   }
 
   Future<ProgressRow> _upgradeAnchor(BookRow book, ProgressRow row) async {
@@ -350,29 +172,20 @@ class DriftProgressStore implements ReaderProgressStore {
   Future<double> _percentOf(BookRow book, AnchorRecord? record) async {
     if (record == null) return 0;
     final point = record.effective.start;
-    final index = await loadBookAnchorIndex(_db, book, startCfi: point.cfi);
-    final chapter = index?.chapter(point.spineIndex);
-    final offset = chapter?.offsetFor(point.cfi);
-    final length = chapter == null
-        ? 0
-        : TextLengthScanner.countPlainText(chapter.text);
-    final ratio = chapter != null && offset != null && length > 0
-        ? TextLengthScanner.countPlainText(chapter.text.substring(0, offset)) /
-              length
-        : point.chapterLength == 0
+    final weights = await loadBookProgressIndex(_db, book);
+    if (weights == null) return 0;
+    if (point.chapterLength == 0) {
+      final elementPercent = await loadElementReadingPercent(
+        _db,
+        book,
+        point.cfi,
+      );
+      if (elementPercent != null) return elementPercent * 100;
+    }
+    final ratio = point.chapterLength == 0
         ? 0.0
         : point.charOffset / point.chapterLength;
-    final weights = await characterWeights(book.uuid);
-    if (weights == null || point.spineIndex >= weights.chapterCount) {
-      // 兼容尚无导入字数统计的旧书，按章等权；单章仍保留精确比例。
-      final count = book.spineCount > 0 ? book.spineCount : 1;
-      return ((point.spineIndex + ratio) / count * 100).clamp(0, 100);
-    }
-    return weights.percentOf(
-          point.spineIndex,
-          charOffsetInChapter: weights.charCounts[point.spineIndex] * ratio,
-        ) *
-        100;
+    return weights.percentOf(point.spineIndex, ratio) * 100;
   }
 
   String? _encodeAnchor(
@@ -384,8 +197,11 @@ class DriftProgressStore implements ReaderProgressStore {
     if (record == null && progress.readingPercent == null) return null;
     final metadata = <String, Object?>{
       // 百分比标记同时区分「真实 0%」与没有比例字段的旧记录。
-      if (progress.readingPercent != null)
-        'readingPercent': progress.readingPercent!.clamp(0.0, 1.0),
+      'progressAlgorithmVersion': BookProgressIndex.algorithmVersion,
+      if (progress.contentRevision != null)
+        'contentRevision': progress.contentRevision,
+      if (record != null || progress.readingPercent != null)
+        'readingPercent': (percent / 100).clamp(0.0, 1.0),
       if (progress.scrollOffset != null) 'scrollOffset': progress.scrollOffset,
       if (progress.layoutFingerprint != null)
         'layoutFingerprint': progress.layoutFingerprint,
@@ -453,12 +269,58 @@ class DriftProgressStore implements ReaderProgressStore {
     for (final row in rows) {
       final book = booksById[row.bookId];
       if (book == null) continue;
-      result[book.uuid] = _toProgress(await _upgradeAnchor(book, row));
+      final current = await _upgradeAnchor(book, row);
+      result[book.uuid] = await _currentProgress(book, current);
     }
     return result;
   }
 
-  ReaderProgress _toProgress(ProgressRow row) {
+  Future<ReaderProgress> _currentProgress(BookRow book, ProgressRow row) async {
+    final record = AnchorRecord.decode(row.anchorJson);
+    if (record == null || _anchorReadingPercent(row.anchorJson) != null) {
+      return _toProgress(row);
+    }
+    final recalculated = await _percentOf(book, record) / 100;
+    final weights = await loadBookProgressIndex(_db, book);
+    if (record.status != 'pending' && weights?.estimated == false) {
+      await _rememberCalibratedPercent(book, row, recalculated);
+    }
+    return _toProgress(row, recalculatedPercent: recalculated);
+  }
+
+  Future<void> _rememberCalibratedPercent(
+    BookRow book,
+    ProgressRow row,
+    double percent,
+  ) async {
+    final metadata = jsonDecode(row.anchorJson!) as Map<String, dynamic>;
+    metadata['progressAlgorithmVersion'] = BookProgressIndex.algorithmVersion;
+    metadata['readingPercent'] = percent;
+    await _db.transaction(() async {
+      final currentBook = await resolveBookRow(
+        _db,
+        book.uuid,
+        allowAliases: false,
+      );
+      final current = await _rowFor(book.id);
+      if (currentBook == null ||
+          !_sameContent(book, currentBook) ||
+          current?.anchorJson != row.anchorJson ||
+          current?.updatedAt != row.updatedAt) {
+        return;
+      }
+      await (_db.update(
+        _db.readingProgress,
+      )..where((table) => table.bookId.equals(book.id))).write(
+        ReadingProgressCompanion(
+          anchorJson: Value(jsonEncode(metadata)),
+          percent: Value(percent * 100),
+        ),
+      );
+    });
+  }
+
+  ReaderProgress _toProgress(ProgressRow row, {double? recalculatedPercent}) {
     final record = AnchorRecord.decode(row.anchorJson);
     final usable = record != null && record.status != 'pending';
     final anchor = usable ? record.effective : null;
@@ -474,7 +336,8 @@ class DriftProgressStore implements ReaderProgressStore {
           ? null
           : anchor?.start.cfi ??
                 (row.locatorCfi.startsWith('epubcfi(') ? row.locatorCfi : null),
-      contentRevision: anchor?.revision,
+      contentRevision:
+          anchor?.revision ?? _anchorContentRevision(row.anchorJson),
       // 没有内容锚点的旧页号，以及无法用原文确认的锚点，都只能近似恢复；
       // 不能让调用方把这类位置当成精确 CFI。
       approximate:
@@ -482,12 +345,8 @@ class DriftProgressStore implements ReaderProgressStore {
           record.status == 'pending' ||
           record.status == 'approximate' ||
           anchor?.approximate == true,
-      // 旧版已有内容锚点时，percent 列仍代表同一次保存的正文比例；
-      // 新格式优先使用锚点内的 0～1 字段。只有完全没有锚点的旧页号
-      // 记录才交给书架按既有字符权重兜底，避免把未知比例伪造成 0%。
-      readingPercent:
-          anchorPercent ??
-          (record != null ? (row.percent / 100).clamp(0.0, 1.0) : null),
+      // 首次使用字节权重可校正旧比例，原始 CFI 和锚点证据仍保留。
+      readingPercent: anchorPercent ?? recalculatedPercent,
       layoutFingerprint: _anchorLayoutFingerprint(row.anchorJson),
     );
   }
@@ -495,10 +354,31 @@ class DriftProgressStore implements ReaderProgressStore {
   double? _anchorReadingPercent(String? source) {
     if (source == null) return null;
     try {
-      final value =
-          (jsonDecode(source) as Map<String, dynamic>)['readingPercent'];
+      final metadata = jsonDecode(source) as Map<String, dynamic>;
+      if (metadata['progressAlgorithmVersion'] !=
+          BookProgressIndex.algorithmVersion) {
+        return null;
+      }
+      final value = metadata['readingPercent'];
       if (value is! num || !value.isFinite) return null;
       return value.toDouble().clamp(0.0, 1.0);
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
+
+  String? _anchorContentRevision(String? source) {
+    if (source == null) return null;
+    try {
+      final metadata = jsonDecode(source) as Map<String, dynamic>;
+      if (metadata['progressAlgorithmVersion'] !=
+          BookProgressIndex.algorithmVersion) {
+        return null;
+      }
+      final revision = metadata['contentRevision'];
+      return revision is String && revision.isNotEmpty ? revision : null;
     } on FormatException {
       return null;
     } on TypeError {
