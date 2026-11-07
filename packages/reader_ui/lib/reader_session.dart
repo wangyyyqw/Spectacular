@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show Offset;
 
 import 'package:flutter/foundation.dart';
 import 'package:reader_core/api.dart';
@@ -674,12 +673,14 @@ class ReaderSession extends ChangeNotifier {
   /// [scrollOffset] 为空表示分页模式，此时取页首可见行。连续滚动容器用它
   /// 在同步快照时同时携带精确锚点。
   String? cfiAtPageOffset(PageContent value, double? scrollOffset) {
-    final hit = _hitAtPageOffset(value, scrollOffset);
+    final resolved = _flowHitAtPageOffset(value, scrollOffset);
+    final hit = resolved?.hit;
     final blockCfi = hit?.slice.block.startCfi;
     if (hit != null && blockCfi != null) {
       return cfiWithCharOffset(
         blockCfi,
-        (cfiCharOffset(blockCfi) ?? 0) + hit.line.start,
+        (cfiCharOffset(blockCfi) ?? 0) +
+            (resolved!.afterText ? hit.line.end : hit.line.start),
       );
     }
     final anchor = _anchorOf(value);
@@ -1689,16 +1690,43 @@ class ReaderSession extends ChangeNotifier {
     return null;
   }
 
-  static PageHit? _hitAtPageOffset(PageContent page, double? offset) {
-    if (offset == null) {
-      return null;
-    }
-    final top = page.topPadding;
-    final bottom = math.max(top, page.topPadding + page.usedHeight - 0.5);
+  static PageHit? _hitAtPageOffset(PageContent page, double? offset) =>
+      _flowHitAtPageOffset(page, offset)?.hit;
+
+  static ({PageHit hit, bool afterText})? _flowHitAtPageOffset(
+    PageContent page,
+    double? offset,
+  ) {
+    if (offset == null) return null;
     // 滚动位置会把行首坐标量化到略小于理论值；不加容差时正好落在
     // 上一行的半开区间末尾，书签/标注会锚到上一行。
-    final y = (offset + 0.01).clamp(top, bottom).toDouble();
-    return page.hitTest(Offset(0, y));
+    final y = math.max(page.topPadding, offset + 0.01);
+    var flowY = page.topPadding;
+    PageHit? last;
+    for (var index = 0; index < page.slices.length; index++) {
+      final slice = page.slices[index];
+      if (slice.overlay) continue;
+      var lineY = flowY + slice.leadingExtent;
+      for (
+        var lineIndex = slice.startLine;
+        lineIndex < slice.endLine;
+        lineIndex++
+      ) {
+        final line = slice.block.layout.lines[lineIndex];
+        final hit = PageHit(
+          sliceIndex: index,
+          slice: slice,
+          lineIndex: lineIndex,
+          line: line,
+        );
+        if (y < lineY + line.height) return (hit: hit, afterText: false);
+        last = hit;
+        lineY += line.height;
+      }
+      flowY += slice.height;
+    }
+    // 段间距取下一正文行，尾部留白取最后正文末端，不能退回页首。
+    return last == null ? null : (hit: last, afterText: true);
   }
 
   static PageHit? _firstHit(PageContent page) {
