@@ -219,6 +219,69 @@ void main() {
     expect(frozen.hasGlyph(engine, 0xE000), isFalse);
   });
 
+  test('同族反复查询按各字符覆盖返回，不复用前一字符的结果', () async {
+    final resources = BookResources(await _document());
+    addTearDown(resources.close);
+    final fonts = BookFonts(resources, onFontsChanged: (_) {});
+    addTearDown(fonts.close);
+    const family = 'user_glyph_strategy_view';
+    _registerUserCoverage(family);
+    final view = fonts.freeze();
+    for (var pass = 0; pass < 3; pass++) {
+      expect(view.hasGlyph(family, 0x41), isTrue);
+      expect(view.hasGlyph(family, 0xE000), isFalse);
+      expect(view.hasGlyph(family, 0x4E2D), isTrue);
+    }
+  });
+
+  test('用户覆盖按原始族名精确命中，优先于规范化别名', () async {
+    final resources = BookResources(await _document());
+    addTearDown(resources.close);
+    final fonts = BookFonts(resources, onFontsChanged: (_) {});
+    addTearDown(fonts.close);
+    _registerUserCoverage('  KaI  ');
+    _registerUserCoverage('  SeRiF  ');
+    final view = fonts.freeze();
+    for (var pass = 0; pass < 2; pass++) {
+      expect(view.hasGlyph('  KaI  ', 0x41), isTrue);
+      expect(view.hasGlyph('kai', 0x41), isFalse);
+      expect(view.hasGlyph('  SeRiF  ', 0xE000), isFalse);
+      expect(view.hasGlyph('serif', 0xE000), isTrue);
+    }
+  });
+
+  test('大量字体族切换后，覆盖结果和缺省回退策略保持一致', () async {
+    final resources = BookResources(await _document());
+    addTearDown(resources.close);
+    final fonts = BookFonts(resources, onFontsChanged: (_) {});
+    addTearDown(fonts.close);
+    const family = 'user_glyph_eviction_view';
+    _registerUserCoverage(family);
+    final view = fonts.freeze();
+    final expected = {
+      family: [true, false],
+      '楷体': [false, false],
+      'builtin_kai': [false, false],
+      'unknown': [true, true],
+      'builtin_song': [true, true],
+    };
+    void verify() {
+      for (final entry in expected.entries) {
+        expect(
+          [view.hasGlyph(entry.key, 0x41), view.hasGlyph(entry.key, 0xE000)],
+          entry.value,
+          reason: entry.key,
+        );
+      }
+    }
+
+    verify();
+    for (var index = 0; index < 80; index++) {
+      expect(view.hasGlyph('unknown_family_$index', 0x41), isTrue);
+    }
+    verify();
+  });
+
   test('在途关闭不回填字体状态或通知布局失效', () async {
     final resources = _GatedResources(await _document());
     final changes = <Set<String>>[];
@@ -248,6 +311,7 @@ void main() {
     final missing = frozen.dependency({family});
     final missingBookDependency = frozen.userFontDependency({family});
     final previousEnvironment = frozen.userFontEnvironmentDependency;
+    expect(frozen.hasGlyph(family, 0xE000), isTrue);
     _registerUserCoverage(family);
     final registered = fonts.freeze();
     expect(registered, isNot(same(frozen)));
@@ -264,6 +328,10 @@ void main() {
     expect(registered.userFontEnvironmentDependency, contains('$family='));
     expect(registered.dependency({'serif'}), frozen.dependency({'serif'}));
     expect(frozen.dependency({family}), missing, reason: '注册不修改已有作业快照');
+    expect(registered.hasGlyph(family, 0x41), isTrue);
+    expect(registered.hasGlyph(family, 0xE000), isFalse);
+    expect(frozen.hasGlyph(family, 0xE000), isTrue, reason: '旧视图保留已查询的覆盖策略');
+    expect(frozen.hasGlyph(family, 0xE001), isTrue, reason: '旧视图查询新字符仍使用旧覆盖');
     _registerUserCoverage(family);
     expect(fonts.freeze(), same(registered), reason: '重复登记相同覆盖不复制字体视图');
   });
