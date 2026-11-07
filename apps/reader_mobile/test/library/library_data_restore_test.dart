@@ -104,7 +104,7 @@ void main() {
 
     expect(
       await progressStore.load(restored.id),
-      const ReaderProgress(spineIndex: 2, pageIndex: 7),
+      const ReaderProgress(spineIndex: 2, pageIndex: 7, approximate: true),
     );
     final annotations = await library.annotationStore(restored.id)!.list();
     expect(annotations, hasLength(2));

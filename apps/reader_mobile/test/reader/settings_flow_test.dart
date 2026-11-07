@@ -35,6 +35,16 @@ Uint8List _corpusBook(String name) {
   }
 }
 
+String _layoutSettingsFingerprint(String fingerprint) => fingerprint
+    .split(';')
+    .where(
+      (part) =>
+          !part.startsWith('w=') &&
+          !part.startsWith('h=') &&
+          !part.startsWith('top='),
+    )
+    .join(';');
+
 void main() {
   testWidgets('菜单进设置改字号：即时重排并持久化（P4-21）', (tester) async {
     final library = LibraryStore.memory();
@@ -360,9 +370,14 @@ void main() {
     );
     expect(find.text('上内 12'), findsNothing, reason: '数值已随拖动改变');
     expect(
-      session.layoutFingerprint,
-      before,
+      _layoutSettingsFingerprint(session.layoutFingerprint),
+      _layoutSettingsFingerprint(before),
       reason: '边距只改变正文区尺寸，不改变字号等排版设置指纹',
+    );
+    expect(
+      session.layoutFingerprint,
+      isNot(before),
+      reason: '正文区尺寸变化也必须进入排版指纹',
     );
     expect(session.contentHeight, lessThan(heightBefore));
     expect(session.page!.pageHeight, session.contentHeight);

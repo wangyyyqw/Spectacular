@@ -136,11 +136,14 @@ class _StatsPageState extends State<StatsPage> {
         final bookWeights = weightsByBook[book.id];
         final current = progress[book.id];
         int? percent;
-        if (current != null && bookWeights != null && bookWeights.total > 0) {
-          // 已读完的进度以 100% 呈现，避免与「已读完」徽标互相矛盾。
-          percent = current.finished
-              ? 100
-              : bookWeights.percentInt(current.spineIndex);
+        if (current != null) {
+          percent = current.readingPercent == null
+              ? (bookWeights != null && bookWeights.total > 0
+                    ? bookWeights.percentInt(current.spineIndex)
+                    : null)
+              : (current.readingPercent! * 100).round().clamp(0, 100);
+        }
+        if (percent != null) {
           percentSum += percent;
           percentCount += 1;
         }
@@ -180,7 +183,11 @@ class _StatsPageState extends State<StatsPage> {
         if (lastReadAt == null) {
           continue;
         }
-        final date = DateTime(lastReadAt.year, lastReadAt.month, lastReadAt.day);
+        final date = DateTime(
+          lastReadAt.year,
+          lastReadAt.month,
+          lastReadAt.day,
+        );
         if (date.isBefore(activityDates.first)) {
           continue;
         }
@@ -225,9 +232,8 @@ class _StatsPageState extends State<StatsPage> {
       if (_stats == null) {
         setState(() => _error = '统计加载失败');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('统计刷新失败，请稍后重试')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('统计刷新失败，请稍后重试')));
       }
     }
   }
@@ -276,8 +282,7 @@ class _StatsPageState extends State<StatsPage> {
                   _HeatmapSection(stats: stats, onOpenBook: _openBook),
                   _Section(
                     title: '阅读分布',
-                    detail:
-                        '已开始 ${stats.started} 本 · 已读完 ${stats.finished} 本',
+                    detail: '已开始 ${stats.started} 本 · 已读完 ${stats.finished} 本',
                     child: _DistributionCard(stats: stats),
                   ),
                   _RecentSection(stats: stats, onOpenBook: _openBook),
@@ -382,10 +387,8 @@ class _AppBarHairline extends StatelessWidget implements PreferredSizeWidget {
   Size get preferredSize => const Size.fromHeight(1);
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 1,
-    color: Theme.of(context).colorScheme.outlineVariant,
-  );
+  Widget build(BuildContext context) =>
+      Container(height: 1, color: Theme.of(context).colorScheme.outlineVariant);
 }
 
 /// 细线分区：标题、右侧摘要、可选说明与内容。
@@ -685,11 +688,7 @@ class _OverviewGrid extends StatelessWidget {
 }
 
 class _MetricCell extends StatelessWidget {
-  const _MetricCell({
-    required this.label,
-    required this.value,
-    this.valueKey,
-  });
+  const _MetricCell({required this.label, required this.value, this.valueKey});
 
   final String label;
   final String value;
@@ -788,10 +787,7 @@ class _StatsError extends StatelessWidget {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 4),
-            Text(
-              '请稍后重试',
-              style: TextStyle(fontSize: 13, color: muted),
-            ),
+            Text('请稍后重试', style: TextStyle(fontSize: 13, color: muted)),
             const SizedBox(height: 16),
             OutlinedButton(
               key: const ValueKey<String>('stats-retry'),
@@ -897,9 +893,7 @@ class _TrendSectionState extends State<_TrendSection> {
               for (final period in _ChartPeriod.values)
                 Expanded(
                   child: InkWell(
-                    key: ValueKey<String>(
-                      'stats-chart-period-${period.name}',
-                    ),
+                    key: ValueKey<String>('stats-chart-period-${period.name}'),
                     onTap: () => setState(() {
                       _period = period;
                       _selectedIndex = _bucketCount(period) - 1;
@@ -1008,8 +1002,7 @@ class _TrendSectionState extends State<_TrendSection> {
                             key: ValueKey<String>(
                               'stats-chart-bar-${_period.name}-$index',
                             ),
-                            onTap: () =>
-                                setState(() => _selectedIndex = index),
+                            onTap: () => setState(() => _selectedIndex = index),
                             splashColor: Colors.transparent,
                             highlightColor: Colors.transparent,
                           ),
@@ -1192,9 +1185,7 @@ class _TrendPainter extends CustomPainter {
         points[index],
         selected ? 3.4 : 2,
         Paint()
-          ..color = selected
-              ? lineColor
-              : lineColor.withValues(alpha: 0.45),
+          ..color = selected ? lineColor : lineColor.withValues(alpha: 0.45),
       );
     }
   }
@@ -1719,9 +1710,7 @@ class _DayReadingSheet extends StatelessWidget {
                       child: metric(
                         '翻页次数',
                         '${day.pageTurns}',
-                        const ValueKey<String>(
-                          'stats-day-detail-page-turns',
-                        ),
+                        const ValueKey<String>('stats-day-detail-page-turns'),
                       ),
                     ),
                     Container(width: 1, height: 40, color: line),
@@ -1731,9 +1720,7 @@ class _DayReadingSheet extends StatelessWidget {
                         child: metric(
                           '阅读字数',
                           _formatMetricCharacters(day.charactersRead),
-                          const ValueKey<String>(
-                            'stats-day-detail-characters',
-                          ),
+                          const ValueKey<String>('stats-day-detail-characters'),
                         ),
                       ),
                     ),
@@ -1809,10 +1796,7 @@ class _DayReadingSheet extends StatelessWidget {
                       SizedBox(
                         width: 84,
                         child: Text(
-                          _formatTimeRange(
-                            segment.startedAt,
-                            segment.endedAt,
-                          ),
+                          _formatTimeRange(segment.startedAt, segment.endedAt),
                           style: TextStyle(
                             fontSize: 12,
                             color: muted,
@@ -1849,9 +1833,7 @@ class _DayReadingSheet extends StatelessWidget {
 }
 
 /// 合并同一本书相邻的碎片时段（间隔不超过 1 分钟）。
-List<_DayReadingSegment> _mergeDaySegments(
-  List<_DayReadingSegment> segments,
-) {
+List<_DayReadingSegment> _mergeDaySegments(List<_DayReadingSegment> segments) {
   final sorted = <_DayReadingSegment>[...segments]
     ..sort((left, right) => left.startedAt.compareTo(right.startedAt));
   final merged = <_DayReadingSegment>[];
@@ -2222,9 +2204,7 @@ class _ProgressLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final value = percent == null
-        ? 0.0
-        : (percent! / 100).clamp(0.0, 1.0);
+    final value = percent == null ? 0.0 : (percent! / 100).clamp(0.0, 1.0);
     final visible = percent == null || percent! <= 0
         ? 0.0
         : value < 0.02

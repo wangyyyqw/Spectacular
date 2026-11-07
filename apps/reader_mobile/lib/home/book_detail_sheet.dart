@@ -257,22 +257,25 @@ class _DetailAction extends StatelessWidget {
     final color = destructive
         ? theme.colorScheme.error
         : theme.colorScheme.onSurface;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      minLeadingWidth: 24,
-      leading: Icon(icon, size: 22, color: color),
-      title: Text(
-        label,
-        style: theme.textTheme.bodyMedium?.copyWith(color: color),
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        minLeadingWidth: 24,
+        leading: Icon(icon, size: 22, color: color),
+        title: Text(
+          label,
+          style: theme.textTheme.bodyMedium?.copyWith(color: color),
+        ),
+        trailing: destructive
+            ? null
+            : Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+        onTap: onTap,
       ),
-      trailing: destructive
-          ? null
-          : Icon(
-              Icons.chevron_right,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-      onTap: onTap,
     );
   }
 }

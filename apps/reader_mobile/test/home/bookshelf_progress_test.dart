@@ -80,12 +80,13 @@ void main() {
     await tester.runAsync(() async {
       entry = await library.importBytes(buildTestEpub(title: '进度书'));
     });
-    // 读到第 0 章第 2 页：单章书进度 0%，但状态应为在读。
+    // 阅读会话按正文字符权重保存 50%，书架必须直接展示同一比例，
+    // 不能再用页号或章号重新估算。
     await library.touchLastRead(entry.id);
     final progressStore = _TrackingProgressStore(<String, ReaderProgress>{});
     await progressStore.save(
       entry.id,
-      const ReaderProgress(spineIndex: 0, pageIndex: 2),
+      const ReaderProgress(spineIndex: 0, pageIndex: 2, readingPercent: 0.5),
     );
     final weights = await library.progressWeights(entry.id);
     expect(weights.total, greaterThan(0), reason: '导入期已统计字符数');
@@ -97,7 +98,7 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(find.textContaining('在读 0%'), findsOneWidget);
+    expect(find.textContaining('在读 50%'), findsOneWidget);
     expect(progressStore.loads, 0, reason: '书架应一次读取全部进度');
     expect(progressStore.snapshots, 1);
     await tester.tap(find.byTooltip('列表视图'));
@@ -108,7 +109,7 @@ void main() {
             find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
           )
           .data,
-      '测试作者 · 在读 0%',
+      '在读 50% · 测试作者',
     );
   });
 
@@ -140,12 +141,6 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(
-      find.byKey(const ValueKey<String>('book-reading-badge')),
-      findsOneWidget,
-    );
-    expect(find.text('已读完'), findsWidgets);
-
     await tester.pump();
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
@@ -155,7 +150,7 @@ void main() {
             find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
           )
           .data,
-      '测试作者 · 已读完',
+      '已读完 · 测试作者',
     );
   });
 

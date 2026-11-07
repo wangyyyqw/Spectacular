@@ -41,17 +41,49 @@ Future<Uint8List> _pixels(WidgetTester tester, String paperKey) async {
   }
 }
 
+/// 阅读页菜单含持续动画，`pumpAndSettle` 永不稳定；按固定帧推进。
+Future<void> _pumpFrames(
+  WidgetTester tester, {
+  int frames = 20,
+  Duration step = const Duration(milliseconds: 50),
+}) async {
+  for (var i = 0; i < frames; i++) {
+    await tester.pump(step);
+  }
+}
+
+Future<void> _waitImageTileReady(WidgetTester tester) async {
+  final tile = find.byKey(const ValueKey<String>('settings-background-image'));
+  for (var i = 0; i < 100; i++) {
+    final ink = tester.widget<InkWell>(
+      find.descendant(of: tile, matching: find.byType(InkWell)),
+    );
+    if (ink.onTap != null) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+  fail('背景图片按钮一直处于忙碌状态');
+}
+
 Future<void> _select(WidgetTester tester, String key) async {
   final target = find.byKey(ValueKey(key));
   await tester.ensureVisible(target);
-  await tester.pumpAndSettle();
+  await _pumpFrames(tester);
+  if (key == 'settings-background-image') {
+    await _waitImageTileReady(tester);
+  }
   await tester.tap(target);
   await tester.pump();
   // 原生图片解码需离开测试虚拟时钟。
   await tester.runAsync(
     () => Future<void>.delayed(const Duration(milliseconds: 100)),
   );
-  await tester.pumpAndSettle();
+  await _pumpFrames(tester);
+  if (key == 'settings-background-image') {
+    await _waitImageTileReady(tester);
+  }
 }
 
 Future<ReaderSession> _openReader(
@@ -83,7 +115,7 @@ Future<ReaderSession> _openReader(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  await _pumpFrames(tester);
   return session;
 }
 
@@ -94,9 +126,9 @@ Future<void> _verifyBackgrounds(
 ) async {
   final plain = await _pixels(tester, paperKey);
   await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
-  await tester.pumpAndSettle();
+  await _pumpFrames(tester);
   await tester.tap(find.byKey(const ValueKey('menu-entry-theme')));
-  await tester.pumpAndSettle();
+  await _pumpFrames(tester);
   var previous = plain;
   for (final id in ['paper', 'wood', 'gray', 'image:red', 'image:blue']) {
     final key = id.startsWith('image:')

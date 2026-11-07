@@ -46,7 +46,15 @@ void main() {
     await db.close();
     db = await AppDatabase.open(file);
     expect((await library().list()).single.lastReadAt, isNotNull);
-    expect(await DriftProgressStore(db).load(entry.id), progress);
+    expect(
+      await DriftProgressStore(db).load(entry.id),
+      const ReaderProgress(
+        spineIndex: 0,
+        pageIndex: 2,
+        finished: true,
+        approximate: true,
+      ),
+    );
     expect((await DriftBookReviewStore(db).snapshot())[entry.id]?.rating, 4);
     expect(
       (await DriftReadingSessionStore(db).list()).single.charactersRead,
@@ -65,7 +73,15 @@ void main() {
     expect(File(entry.filePath).existsSync(), isFalse);
     expect(await DriftBookReviewStore(db).snapshot(), isEmpty);
     await library().importBytes(bytes);
-    expect(await DriftProgressStore(db).load(entry.id), progress);
+    expect(
+      await DriftProgressStore(db).load(entry.id),
+      const ReaderProgress(
+        spineIndex: 0,
+        pageIndex: 2,
+        finished: true,
+        approximate: true,
+      ),
+    );
     expect(
       (await DriftBookReviewStore(db).snapshot())[entry.id]?.content,
       '审计书评',

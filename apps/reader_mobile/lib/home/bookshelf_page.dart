@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'package:reader_core/epub/importer.dart';
+import 'package:reader_core/position/locator.dart';
 
 import '../library/library_store.dart';
 import '../reader/book_opener.dart';
@@ -14,7 +15,7 @@ import 'book_detail_sheet.dart';
 import 'bookshelf_sort.dart';
 import '../storage/import_queue.dart';
 
-/// 书架条目 + 进度（P4-09：百分比由字符权重表算，章级粒度）。
+/// 书架条目与已保存的当前正文比例；旧记录才按字符权重估算。
 typedef _ShelfItem = ({BookEntry entry, int? percentInt, bool finished});
 
 const _shelfColumns = 3;
@@ -515,10 +516,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       int? percent;
       final current = progress[book.id];
       if (current != null) {
-        final bookWeights = weights[book.id];
-        if (bookWeights != null && bookWeights.total > 0) {
-          percent = bookWeights.percentInt(current.spineIndex);
-        }
+        percent = current.readingPercent == null
+            ? _fallbackPercent(weights[book.id], current)
+            : (current.readingPercent! * 100).round().clamp(0, 100);
       }
       items.add((
         entry: book,
@@ -542,6 +542,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         }
       });
     }
+  }
+
+  int? _fallbackPercent(ProgressWeights? weights, ReaderProgress progress) {
+    if (weights == null || weights.total <= 0) return null;
+    return weights.percentInt(progress.spineIndex);
   }
 
   /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
@@ -1632,6 +1637,7 @@ class _BookRow extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       entry.title,
+                      key: ValueKey<String>('book-row-title-${entry.id}'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -1932,6 +1938,7 @@ class _BookCard extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 entry.title,
+                key: ValueKey<String>('book-card-title-${entry.id}'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(

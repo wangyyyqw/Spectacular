@@ -513,7 +513,12 @@ void main() {
       final material = tester.widget<Material>(
         find.descendant(of: apply, matching: find.byType(Material)),
       );
-      expect(material.shape, isA<StadiumBorder>());
+      final shape = material.shape;
+      expect(shape, isA<RoundedRectangleBorder>());
+      expect(
+        (shape! as RoundedRectangleBorder).borderRadius,
+        BorderRadius.circular(4),
+      );
     });
 
     for (final size in [const Size(320, 640), const Size(800, 400)]) {
