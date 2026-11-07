@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' show Timeline;
 import 'dart:io';
-import 'dart:ui' show FrameTiming;
 
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
@@ -20,6 +21,8 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
+
+import 'reader_perf_probe.dart';
 
 /// 只由 device_reader_perf.py 在独立包运行；计时包含真实书架读盘和正文帧。
 const _server = String.fromEnvironment('PERF_SERVER');
@@ -38,6 +41,14 @@ final _results = <String, Object?>{};
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _results['start'] = _memory();
+  _results['measurement_contract'] = {
+    'schema': 2,
+    'opening': '原书已预读；首轮为进程内初开，后续为同进程重开',
+    'resizing': '每轮请求新字号后恢复原字号，分别保留样本',
+    'complete': '正文及图片就绪、淡入结束后的Flutter帧；不代表系统呈现时间',
+    'ui_gap': '4ms定时器回调最大间隔，包含结束时尚未回调的间隔',
+    'frames': '按原始buildStart时间归属事件；最终报告标记尾帧是否收齐',
+  };
   runApp(const MaterialApp(home: Scaffold(body: Text('准备真机性能测试'))));
   try {
     final root = await getApplicationSupportDirectory();
@@ -75,7 +86,7 @@ Future<void> main() async {
           const bool.fromEnvironment('PERF_LONG_SCAN')) {
         await _scanLongBook();
       }
-      // 首轮最后跳到第 32 章，后续轮次停在第 29 章。旧阅读页的进度落盘
+      // 非字号测试首轮最后跳到第 32 章，其他轮次停在目标章。旧阅读页的进度落盘
       // 是异步的，必须等它真正写入后再清进度，否则下一轮会被旧位置覆盖。
       final closingSpine = !_measureResizing && round == 0 ? 32 : _targetSpine;
       _navigator.currentState!.pop();
@@ -85,9 +96,12 @@ Future<void> main() async {
     if (const bool.fromEnvironment('PERF_LONG_SCAN')) {
       _results['after_close'] = _memory();
     }
+    await _uiProbe.drain();
     await _send('done', _results);
   } catch (error, stack) {
     await _send('done', {..._results, 'error': '$error', 'stack': '$stack'});
+  } finally {
+    _uiProbe.close();
   }
 }
 
@@ -174,32 +188,25 @@ Future<void> _untilProgress(DriftProgressStore progress, int spine) async {
 }
 
 Future<void> _openRound(DriftProgressStore progress, int round) async {
-  // 每轮都从第 29 章开。存储层在 cfi 为空且已有内容锚点时会保留旧位置
+  // 每轮都从目标章开。存储层在 cfi 为空且已有内容锚点时会保留旧位置
   // （书架标"读完"不得清掉锚点），所以先清进度再写入，并读回确认。
   await progress.clear(_bookId);
   const target = ReaderProgress(spineIndex: _targetSpine, pageIndex: 0);
   await progress.save(_bookId, target);
   final restored = await progress.load(_bookId);
   if (restored?.spineIndex != _targetSpine) {
-    throw StateError('第 $round 轮写入第 29 章失败，当前 ${restored?.spineIndex}');
+    throw StateError('第 $round 轮写入目标章失败，当前 ${restored?.spineIndex}');
   }
   await _until(() => _bookTile() != null);
   _uiProbe.start();
   final watch = Stopwatch()..start();
-  // BookOpener 在返回书架后还要完成进度落盘与 touchLastRead；这期间的
-  // 重开点击会被防重入逻辑忽略。性能测试按真实用户可以再次点击的行为
-  // 重试，直到新阅读页真正挂载。
-  var opened = false;
-  for (var attempt = 0; attempt < 20; attempt++) {
-    if (_find<ReaderPage>((_) => true) != null) {
-      opened = true;
-      break;
-    }
-    _bookTile()?.onTap?.call();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-  }
-  if (!opened) throw StateError('第 $round 轮开书超时');
-  _results['open_$round'] = await _sample(watch, _targetSpine);
+  await openPerfReader(
+    isMounted: () => _find<ReaderPage>((_) => true) != null,
+    tap: () => _bookTile()?.onTap?.call(),
+  );
+  final sample = await _sample(watch, _targetSpine);
+  sample['cache_temperature'] = round == 0 ? '预读文件后的进程内初开' : '同进程重开';
+  _results['open_$round'] = sample;
   await _send('sample', _results);
   if (_measureResizing) {
     await _resizeRound(round);
@@ -214,6 +221,29 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
     32,
   ]) {
     await _jump(spine);
+  }
+}
+
+/// 保留防重入期间的点击重试；挂载检测不等待下一个250ms重试时刻。
+Future<void> openPerfReader({
+  required bool Function() isMounted,
+  required VoidCallback tap,
+}) async {
+  if (isMounted()) return;
+  var expired = false;
+  final deadline = Timer(const Duration(seconds: 5), () => expired = true);
+  final retry = Timer.periodic(const Duration(milliseconds: 250), (_) {
+    if (!expired && !isMounted()) tap();
+  });
+  try {
+    tap();
+    while (!isMounted()) {
+      if (expired) throw TimeoutException('等待阅读页挂载超时');
+      await Future<void>.delayed(const Duration(milliseconds: 8));
+    }
+  } finally {
+    deadline.cancel();
+    retry.cancel();
   }
 }
 
@@ -233,59 +263,87 @@ Future<void> _resizeRound(int round) async {
     _uiProbe.start();
     final watch = Stopwatch()..start();
     reader.onOverridesChanged!(reader.overrides!.copyWith(fontSize: size));
-    await _until(
-      () =>
-          !identical(previous, _find<ReaderSemanticsLayer>((_) => true)?.page),
-    );
+    await _until(() {
+      final source = _find<ReaderPage>((_) => true)?.source;
+      return isRequestedFontPage(
+        current: _find<ReaderSemanticsLayer>((_) => true)?.page,
+        previous: previous,
+        requestedSize: size,
+        appliedSize: source is EpubChapterSource
+            ? source.overrides.fontSize
+            : null,
+      );
+    });
     final sample = await _sample(watch, _targetSpine);
+    sample['cache_temperature'] = size == _fontSize ? '恢复原字号' : '本轮首次请求新字号';
     _results['resize_${round}_$size'] = sample;
     await _send('sample', _results);
   }
 }
 
+/// 字号验收仅适用含正文的页面；空页、旧页和仅更新设置均不算排版完成。
+bool isRequestedFontPage({
+  required PageContent? current,
+  required PageContent previous,
+  required double requestedSize,
+  required double? appliedSize,
+}) =>
+    current != null &&
+    !identical(previous, current) &&
+    current.spineIndex == previous.spineIndex &&
+    appliedSize == requestedSize &&
+    current.slices.any(
+      (slice) =>
+          slice.block.layout.text.isNotEmpty &&
+          slice.block.style?.fontSize == requestedSize,
+    );
+
 /// 事件循环间隔与真实帧耗时分别记录；同设备前后使用同一探针。
 class _UiProbe {
   Timer? _timer;
   final Stopwatch _watch = Stopwatch();
-  int _last = 0;
-  int _maximumGap = 0;
-  int _maximumBuild = 0;
-  int _maximumRaster = 0;
+  final _samples = ReaderPerfProbeSamples();
+  bool _listening = false;
 
   void start() {
     _timer?.cancel();
-    WidgetsBinding.instance.removeTimingsCallback(_frames);
-    _last = _maximumGap = _maximumBuild = _maximumRaster = 0;
+    if (!_listening) {
+      WidgetsBinding.instance.addTimingsCallback(_samples.addFrames);
+      _listening = true;
+    }
+    _samples.start(Timeline.now);
     _watch
       ..reset()
       ..start();
-    WidgetsBinding.instance.addTimingsCallback(_frames);
     _timer = Timer.periodic(const Duration(milliseconds: 4), (_) {
-      final now = _watch.elapsedMicroseconds;
-      final gap = now - _last;
-      if (gap > _maximumGap) _maximumGap = gap;
-      _last = now;
+      _samples.tick(_watch.elapsedMicroseconds);
     });
-  }
-
-  void _frames(List<FrameTiming> frames) {
-    for (final frame in frames) {
-      final build = frame.buildDuration.inMicroseconds;
-      final raster = frame.rasterDuration.inMicroseconds;
-      if (build > _maximumBuild) _maximumBuild = build;
-      if (raster > _maximumRaster) _maximumRaster = raster;
-    }
   }
 
   Map<String, Object> finish() {
     _timer?.cancel();
     _watch.stop();
-    WidgetsBinding.instance.removeTimingsCallback(_frames);
-    return {
-      'longest_ui_gap_ms': _maximumGap / 1000,
-      'longest_build_ms': _maximumBuild / 1000,
-      'longest_raster_ms': _maximumRaster / 1000,
-    };
+    return _samples.finish(
+      elapsedMicros: _watch.elapsedMicroseconds,
+      rawFrameTimestampMicros: Timeline.now,
+    );
+  }
+
+  Future<void> drain() async {
+    // Release帧批次通常每秒交付；等待不计入任何操作耗时。
+    final watch = Stopwatch()..start();
+    while (!_samples.complete && watch.elapsed < const Duration(seconds: 3)) {
+      await WidgetsBinding.instance.endOfFrame;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
+  void close() {
+    _timer?.cancel();
+    if (_listening) {
+      WidgetsBinding.instance.removeTimingsCallback(_samples.addFrames);
+      _listening = false;
+    }
   }
 }
 
@@ -309,6 +367,7 @@ Future<void> _jump(int spine) async {
   final entry = flattenToc(toc.entries)
       .firstWhere((r) => r.entry.spineIndex == spine)
       .entry;
+  _uiProbe.start();
   final watch = Stopwatch()..start();
   toc.onSelect(entry);
   _results['jump_$spine'] = await _sample(watch, spine);
@@ -321,17 +380,42 @@ Future<Map<String, Object>> _sample(Stopwatch watch, int spine) async {
   await _imagesReady();
   final imagesMs = watch.elapsedMilliseconds;
   // 首帧可能仍处于 AnimatedSwitcher 淡入，另记录完全显示后的时间。
-  await _until(() => _fullyVisible(spine));
+  await _until(() => isPerfPageFullyVisible(spine));
   await WidgetsBinding.instance.endOfFrame;
   final source = _find<ReaderPage>((_) => true)?.source;
-  return {
-    ..._uiProbe.finish(),
+  final sample = _uiProbe.finish();
+  sample.addAll({
     'text_ms': textMs,
     'images_ms': imagesMs,
     'complete_ms': watch.elapsedMilliseconds,
     'spine': spine,
     ..._memory(),
+    'environment': _sampleEnvironment(),
     if (source is EpubChapterSource) 'cache': source.cacheReport,
+  });
+  return sample;
+}
+
+Map<String, Object?> _sampleEnvironment() {
+  final element = _findElement((widget) => widget is ReaderSemanticsLayer)!;
+  final layer = element.widget as ReaderSemanticsLayer;
+  final media = MediaQuery.of(element);
+  final reader = _find<ReaderPage>((_) => true)!;
+  final source = reader.source;
+  return {
+    'viewport': [media.size.width, media.size.height],
+    'dpr': media.devicePixelRatio,
+    'text_scale_at_21': media.textScaler.scale(21),
+    'page_width': layer.pageWidth,
+    'requested_font_size': reader.overrides?.fontSize,
+    'requested_font_family': reader.overrides?.fontFamily,
+    'source_font_size': source is EpubChapterSource
+        ? source.overrides.fontSize
+        : null,
+    'visible_font_families': {
+      for (final slice in layer.page.slices)
+        ...?slice.block.style?.fontFamilies,
+    }.toList()..sort(),
   };
 }
 
@@ -432,7 +516,8 @@ int _kbOf(String line) {
   return match == null ? 0 : (int.tryParse(match.group(1)!) ?? 0) * 1024;
 }
 
-bool _fullyVisible(int spine) {
+/// 封面准备期正文已挂载但语义被排除，不能提前算作完整显示。
+bool isPerfPageFullyVisible(int spine) {
   final element = _findElement(
     (widget) =>
         widget is ReaderSemanticsLayer && widget.page.spineIndex == spine,
@@ -442,6 +527,8 @@ bool _fullyVisible(int spine) {
   element.visitAncestorElements((ancestor) {
     final widget = ancestor.widget;
     if (widget is FadeTransition && widget.opacity.value < 1) visible = false;
+    if (widget is ExcludeSemantics && widget.excluding) visible = false;
+    if (widget is Offstage && widget.offstage) visible = false;
     return visible;
   });
   return visible;

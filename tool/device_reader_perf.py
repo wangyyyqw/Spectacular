@@ -3,12 +3,15 @@
 
 import argparse
 from functools import partial
+import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -18,12 +21,111 @@ from device_css_test import (
     APP_ID, ROOT, TEST_ID, drop_plugin_dependency, prepare_workspace, run)
 
 
+SOURCE_ROOTS = ("apps/reader_mobile/lib", "packages")
+BUSINESS_PATHS = ("apps/reader_mobile/lib", ":(glob)packages/*/lib/**")
+HARNESS_PATHS = ("tool/device_reader_perf.py", "tool/device_css_test.py",
+                 "apps/reader_mobile/integration_test/reader_perf_app.dart",
+                 "apps/reader_mobile/integration_test/reader_perf_probe.dart")
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def business_snapshot(workspace):
+    """散列实际复制的业务代码，测试入口与测试文件不计入业务脏状态。"""
+    roots = [workspace / SOURCE_ROOTS[0], *workspace.glob("packages/*/lib")]
+    entries = sorted(
+        (path.relative_to(workspace).as_posix(), file_sha256(path))
+        for root in roots for path in root.rglob("*") if path.is_file()
+    )
+    encoded = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
+    return {"file_count": len(entries),
+            "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest()}
+
+
+def revision_metadata(revision):
+    def git(*arguments):
+        return run(["git", *arguments], cwd=ROOT, capture=True).strip()
+
+    def changes(*paths):
+        return run(["git", "status", "--porcelain=v1", "--untracked-files=all",
+                    "--", *paths], cwd=ROOT, capture=True).splitlines()
+
+    business = changes(*BUSINESS_PATHS)
+    harness = changes(*HARNESS_PATHS)
+    working_tree = changes()
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    commit = git("rev-parse", "--verify", f"{revision}^{{commit}}") if revision else head
+    return {
+        "source": {"revision": commit,
+                   "kind": "git_archive" if revision else "working_tree",
+                   "business_dirty": bool(business) if not revision else False},
+        "harness": {"revision": head, "dirty": bool(harness), "changes": harness},
+        "working_tree": {"revision": head, "dirty": bool(working_tree),
+                         "changes": working_tree,
+                         "business_dirty": bool(business), "business_changes": business},
+    }
+
+
+def device_metadata(adb):
+    """仅在正式运行时读取设备环境；失败保留原因，不把缺失值当一致。"""
+    commands = {
+        "manufacturer": ["getprop", "ro.product.manufacturer"],
+        "model": ["getprop", "ro.product.model"],
+        "device": ["getprop", "ro.product.device"],
+        "android_release": ["getprop", "ro.build.version.release"],
+        "sdk": ["getprop", "ro.build.version.sdk"],
+        "build_fingerprint": ["getprop", "ro.build.fingerprint"],
+        "abi": ["getprop", "ro.product.cpu.abi"],
+        "wm_size": ["wm", "size"],
+        "wm_density": ["wm", "density"],
+        "font_scale": ["settings", "get", "system", "font_scale"],
+    }
+    values = {"serial": adb[-1]}
+    errors = {}
+    for key, command in commands.items():
+        try:
+            result = subprocess.run(adb + ["shell", *command], capture_output=True,
+                                    text=True, timeout=10, check=False)
+            if result.returncode:
+                errors[key] = {"exit_code": result.returncode, "stderr": result.stderr.strip()}
+            else:
+                values[key] = result.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired) as error:
+            errors[key] = str(error)
+    return {**values, "errors": errors}
+
+
+def report_provenance(args, workspace, revisions, device):
+    harness_files = {
+        name: file_sha256((workspace if name.startswith("apps/") else ROOT) / name)
+        for name in HARNESS_PATHS
+    }
+    return {
+        "source": {**revisions["source"], "snapshot": business_snapshot(workspace)},
+        "harness": {**revisions["harness"], "sha256_by_path": harness_files},
+        "working_tree": revisions["working_tree"],
+        "book": {"path": str(args.book.resolve()), "sha256": file_sha256(args.book),
+                 "size_bytes": args.book.stat().st_size},
+        "command": {"argv": list(sys.argv), "cwd": str(Path.cwd()),
+                    "parameters": {key: str(value) if isinstance(value, Path) else value
+                                   for key, value in vars(args).items()}},
+        "device": device,
+    }
+
+
 class ReportHandler(SimpleHTTPRequestHandler):
     """流式保存样本，完成后唤醒宿主；不接受任何设备命令。"""
 
-    def __init__(self, *args, output, done, **kwargs):
+    def __init__(self, *args, output, done, provenance, **kwargs):
         self.output = output
         self.done = done
+        self.provenance = provenance
         super().__init__(*args, **kwargs)
 
     def do_POST(self):
@@ -35,6 +137,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self.send_error(400)
             return
         data = json.loads(self.rfile.read(size))
+        data["provenance"] = self.provenance
         self.output.write_text(json.dumps(data, ensure_ascii=False, indent=2))
         print(json.dumps(data, ensure_ascii=False), flush=True)
         self.send_response(204)
@@ -102,12 +205,17 @@ def prepare(workspace, revision):
     if revision:
         # 只替换业务源与包；测试入口始终用当前版本以保持测量口径一致。
         archive = subprocess.check_output([
-            "git", "archive", revision, "apps/reader_mobile/lib", "packages"], cwd=ROOT)
+            "git", "archive", revision, *SOURCE_ROOTS], cwd=ROOT)
         with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
             for member in bundle.getmembers():
                 path = Path(member.name)
                 if path.is_absolute() or ".." in path.parts or not (member.isfile() or member.isdir()):
                     raise RuntimeError(f"不支持的源码归档条目：{member.name}")
+            # 当前版本新增的文件不在旧归档中；先清临时业务目录，避免混入基线。
+            for name in SOURCE_ROOTS:
+                target = workspace / name
+                if target.exists():
+                    shutil.rmtree(target)
             bundle.extractall(workspace)
     manifest = workspace / "apps/reader_mobile/android/app/src/main/AndroidManifest.xml"
     source = manifest.read_text().replace(
@@ -147,14 +255,17 @@ def benchmark(args):
     before = run(adb + ["shell", "pm", "path", APP_ID], capture=True)
     args.output.mkdir(parents=True, exist_ok=True)
     done = threading.Event()
+    revisions = revision_metadata(args.revision)
     with tempfile.TemporaryDirectory(prefix="spectacular-perf-") as directory:
         workspace = Path(directory)
-        prepare(workspace, args.revision)
+        prepare(workspace, revisions["source"]["revision"] if args.revision else None)
+        provenance = report_provenance(args, workspace, revisions, device_metadata(adb))
         inputs = workspace / "inputs"
         inputs.mkdir()
         (inputs / "book.epub").symlink_to(args.book.resolve())
         server = ThreadingHTTPServer(("127.0.0.1", 0), partial(ReportHandler,
-            directory=str(inputs), output=args.output / "report.json", done=done))
+            directory=str(inputs), output=args.output / "report.json", done=done,
+            provenance=provenance))
         port = str(server.server_port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
