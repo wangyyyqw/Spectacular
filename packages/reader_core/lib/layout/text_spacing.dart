@@ -177,7 +177,13 @@ class _SpacingSpans {
   TextSpan visit(TextSpan span, TextStyle inherited) {
     final style = inherited.merge(span.style);
     final text = span.text ?? '';
-    final children = _textSpans(text, style);
+    // 父节点已显式设置同一完整样式时，未调整片段无需再次推入原生样式栈。
+    // 部分样式仍保留合并结果，避免改变 leadingDistribution 等继承行为。
+    final children = _textSpans(
+      text,
+      style,
+      span.style == style ? null : style,
+    );
     cursor += text.length;
     for (final child in span.children ?? const <InlineSpan>[]) {
       children.add(child is TextSpan ? visit(child, style) : child);
@@ -185,7 +191,11 @@ class _SpacingSpans {
     return TextSpan(style: span.style, children: children);
   }
 
-  List<InlineSpan> _textSpans(String text, TextStyle style) {
+  List<InlineSpan> _textSpans(
+    String text,
+    TextStyle style,
+    TextStyle? unadjustedStyle,
+  ) {
     final children = <InlineSpan>[];
     var start = 0;
     for (final range in _adjustedRanges(text)) {
@@ -194,7 +204,7 @@ class _SpacingSpans {
       if (adjusted == null || local < start) continue;
       if (local > start) {
         children.add(
-          TextSpan(text: text.substring(start, local), style: style),
+          TextSpan(text: text.substring(start, local), style: unadjustedStyle),
         );
       }
       final cluster = range.current;
@@ -202,7 +212,9 @@ class _SpacingSpans {
       start = local + cluster.length;
     }
     if (start < text.length) {
-      children.add(TextSpan(text: text.substring(start), style: style));
+      children.add(
+        TextSpan(text: text.substring(start), style: unadjustedStyle),
+      );
     }
     return children;
   }
