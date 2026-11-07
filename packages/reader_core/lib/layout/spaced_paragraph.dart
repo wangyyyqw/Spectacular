@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show StringCharacters;
 
@@ -329,15 +331,27 @@ class SpacedParagraph {
         ? TextSpan(text: '\u200b', style: spacing.styleAt(start).text)
         : sliceTextSpan(span, start, end);
     final lineSpan = applyTextSpacing(source, plan);
-    final painter = _painter(lineSpan);
-    final metric = painter.computeLineMetrics().first;
-    final naturalWidth = painter.width;
-    painter.dispose();
-    return _LineMeasurement(
-      SpacedLine(start, end, metric, plan),
-      lineSpan,
-      naturalWidth,
+    final scaler = TextScaler.linear(scale);
+    final builder = ui.ParagraphBuilder(
+      (lineSpan.style ?? const TextStyle()).getParagraphStyle(
+        textAlign: TextAlign.start,
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+      ),
     );
+    lineSpan.build(builder, textScaler: scaler);
+    final paragraph = builder.build()
+      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+    try {
+      // 单行原生接口保留相同行度量，避免整表接口转换每个 run 的样式。
+      return _LineMeasurement(
+        SpacedLine(start, end, paragraph.getLineMetricsAt(0)!, plan),
+        lineSpan,
+        paragraph.maxIntrinsicWidth,
+      );
+    } finally {
+      paragraph.dispose();
+    }
   }
 
   TextSpan _span(int start, int end, bool first) {
