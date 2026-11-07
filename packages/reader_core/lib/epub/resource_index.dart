@@ -218,7 +218,7 @@ class ResourceIndex {
       if (!stems.contains(_stemOf(name))) {
         continue;
       }
-      final bytes = archive.readBytes(name);
+      final bytes = archive.readHead(name, 12);
       if (bytes == null || bytes.isEmpty) {
         continue;
       }

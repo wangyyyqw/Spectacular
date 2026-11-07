@@ -246,6 +246,10 @@ class EpubChapterSource
   /// 图片尺寸正值/缺失值上限；仅保存路径与尺寸，不保存图片字节。
   static const int imageIntrinsicCacheLimit = 512;
 
+  /// 图片尺寸探测上限；JPEG 可能因 EXIF 缩略图把 SOF 推后，但不应为此
+  /// 解压整张大图。超过上限时按占位比例排版，图片内容仍完整渲染。
+  static const int imageHeaderProbeBytes = 256 * 1024;
+
   void _touchPageCache(String key) {
     _pageCacheOrder.remove(key);
     _pageCacheOrder.add(key);
@@ -939,7 +943,7 @@ class EpubChapterSource
     if (_imageIntrinsicMiss.containsKey(url)) {
       return null;
     }
-    final bytes = document.archive.readBytes(url);
+    final bytes = document.archive.readHead(url, imageHeaderProbeBytes);
     final size = bytes == null ? null : ImageSizeParser.readImageSize(bytes);
     if (size == null) {
       _imageIntrinsicMiss[url] = true;
@@ -4599,7 +4603,10 @@ class EpubChapterSource
           if (!imageSizes.containsKey(url)) {
             var size = _imageIntrinsicCache[url];
             if (size == null && !_imageIntrinsicMiss.containsKey(url)) {
-              final bytes = this.document.archive.readBytes(url);
+              final bytes = this.document.archive.readHead(
+                url,
+                imageHeaderProbeBytes,
+              );
               size = bytes == null
                   ? null
                   : ImageSizeParser.readImageSize(bytes);

@@ -307,6 +307,60 @@ void main() {
     archive.close();
   });
 
+  test('readHead 只返回 store/deflate 条目前缀且不污染完整读取', () async {
+    final payload = Uint8List.fromList(
+      List<int>.generate(300000, (index) => index & 0xFF),
+    );
+    final files = Archive()
+      ..addFile(
+        ArchiveFile('stored.bin', payload.length, payload)
+          ..compression = CompressionType.none,
+      )
+      ..addFile(
+        ArchiveFile('deflated.bin', payload.length, payload)
+          ..compression = CompressionType.deflate,
+      );
+    final archive = EpubArchive.fromBytes(
+      Uint8List.fromList(ZipEncoder().encode(files)),
+      verify: false,
+    );
+    addTearDown(archive.close);
+
+    final head = archive.readHead('deflated.bin', 64)!;
+    expect(head, payload.sublist(0, 64));
+    head.fillRange(0, head.length, 0);
+    expect(archive.readHead('deflated.bin', 64), payload.sublist(0, 64));
+    expect(archive.readHead('stored.bin', 64), payload.sublist(0, 64));
+    expect(archive.readHead('missing.bin', 64), isNull);
+    expect(archive.readHead('deflated.bin', 0), isEmpty);
+    expect(archive.readBytes('deflated.bin'), payload);
+    expect(archive.readBytes('stored.bin'), payload);
+  });
+
+  test('文件后端 readHead 按需解压文件头', () async {
+    final payload = Uint8List.fromList(
+      List<int>.generate(180000, (index) => 255 - (index & 0xFF)),
+    );
+    final files = Archive()
+      ..addFile(
+        ArchiveFile('image.jpg', payload.length, payload)
+          ..compression = CompressionType.deflate,
+      );
+    final directory = await Directory.systemTemp.createTemp('epub-head-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file = File('${directory.path}/book.epub');
+    await file.writeAsBytes(ZipEncoder().encode(files));
+
+    final archive = await EpubArchive.fromFile(file);
+    addTearDown(archive.close);
+    expect(archive.readHead('image.jpg', 32), payload.sublist(0, 32));
+    expect(archive.readBytes('image.jpg'), payload);
+  });
+
   test('大 stored 条目导入时仍完整校验 CRC', () {
     final content = Uint8List(2 * 1024 * 1024);
     for (var i = 0; i < content.length; i++) {
