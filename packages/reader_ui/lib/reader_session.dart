@@ -5,17 +5,23 @@ import 'package:flutter/foundation.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/location_anchor.dart';
 
+import 'book_page_count.dart';
 import 'virtual_pager.dart';
+
+export 'book_page_count.dart';
 
 typedef _ContentSizeRequest = ({
   double width,
   double height,
   double topInset,
   bool preview,
+  int generation,
 });
 typedef _OverrideRequest = ({ReaderOverrides overrides, int generation});
 
@@ -57,7 +63,7 @@ class ReaderProgress {
 
   /// 当前正文位置占全书的比例（0～1）。
   ///
-  /// 由同一套字符权重计算，排除目录、非正文与缺失章节。旧记录为空。
+  /// 由章节源的统一进度索引计算，排除目录、非正文与缺失章节。旧记录为空。
   final double? readingPercent;
 
   /// 产生此位置时的排版指纹；仅用于判断能否复用精确像素偏移。
@@ -158,6 +164,65 @@ abstract interface class ReaderChapterSource {
 
   /// 加载一章的页。
   Future<List<PageContent>> loadChapter(int spineIndex);
+}
+
+/// 排版任务优先级；当前阅读始终优先于预取和全书计页。
+enum ChapterLayoutPriority { reading, prefetch, pageCount }
+
+/// 等待者主动取消；用于区别可忽略的过期请求与真实读取失败。
+class ChapterLoadCancelled implements Exception {
+  const ChapterLoadCancelled();
+
+  @override
+  String toString() => '章节排版请求已取消';
+}
+
+/// 单个等待者持有的任务句柄；取消不影响其他等待者。
+abstract interface class ChapterLoadHandle {
+  Future<List<PageContent>> get result;
+  void cancel();
+}
+
+/// 可取消、可按优先级调度的章节源。
+abstract interface class ScheduledChapterSource implements ReaderChapterSource {
+  ChapterLoadHandle scheduleChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+    bool retainResult = true,
+  });
+
+  void cancelPendingLayouts();
+}
+
+/// 只准备原文锚点，不进行文字测量或分页。
+abstract interface class AnchorChapterSource implements ReaderChapterSource {
+  Future<AnchorChapter> loadAnchorChapter(int spineIndex);
+}
+
+/// 每章冻结排版输入前先核验该章装饰与字体。
+abstract interface class PreparedChapterSource implements AnchorChapterSource {
+  /// 准备目标章原文装饰与字体；不得借此调用章节分页。
+  void setChapterPreparer(Future<void> Function(int)? preparer);
+
+  /// 存储读取后更新书级请求度量指纹，不随逐章核验或字体就绪而改变。
+  void setBookTypographyFingerprint(String fingerprint);
+}
+
+/// 全书手工装饰请求的字体族；登记依赖不提前加载其他章节的字体。
+abstract interface class BookTypographyFontSource {
+  void setBookTypographyFamilies(Set<String> families);
+
+  /// 目标章实际加载后的结果；尚未尝试的字体保持未确认状态。
+  /// 加载失败须覆盖同进程中残留的注册状态，但不改变原始字体请求集合。
+  void setBookTypographyFontAvailability(String family, bool available);
+}
+
+/// 可订阅的全书实际页数；其结果不参与阅读百分比的分母。
+abstract interface class PageCountingChapterSource
+    implements ReaderChapterSource {
+  ValueListenable<BookPageCountState> get pageCountState;
+  void setPageCountingActive(bool active);
+  void setCurrentReadingChapter(int spineIndex);
 }
 
 /// 书签（P4-13）：位置用 CFI 存，重排后仍能定位。
@@ -272,10 +337,10 @@ abstract interface class MissingChapterSource implements ReaderChapterSource {
   bool isChapterMissing(int spineIndex);
 }
 
-/// 能按字符权重计算全书位置，并在比例与 CFI 之间双向转换的章节源。
+/// 能按原文位置计算全书进度，并在比例与 CFI 之间双向转换的章节源。
 ///
 /// UI 只消费 0～1 的比例；章节源负责把 CFI 解析到章内字符偏移，并使用
-/// 与书库一致的字符权重（排除目录、非正文与缺失章节）。
+/// 与书库一致的进度权重（排除目录、非正文与缺失章节）。
 abstract interface class PositionedChapterSource
     implements ReaderChapterSource {
   /// CFI 对应的全书正文比例（0～1）；无法定位时返回 null。
@@ -286,6 +351,12 @@ abstract interface class PositionedChapterSource
 
   /// 目录项应跳转的 CFI：优先目录自带 CFI，其次解析 fragment，最后章首。
   String? cfiForTocEntry(TocEntry entry);
+}
+
+/// 百分比跳转先定位目标章，再异步准备该章原文索引。
+abstract interface class AsyncPositionedChapterSource
+    implements PositionedChapterSource {
+  Future<String?> prepareCfiForReadingPercent(double percent);
 }
 
 /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
@@ -361,6 +432,7 @@ class ReaderSession extends ChangeNotifier {
   final Duration persistInterval;
 
   VirtualPager? _pager;
+  final Set<ChapterLoadHandle> _chapterLoads = <ChapterLoadHandle>{};
   ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
   int _pageTurns = 0;
@@ -379,12 +451,20 @@ class ReaderSession extends ChangeNotifier {
   ];
 
   /// 准备邻页；加载失败交给调用方处理，原页继续可读。
-  Future<PreparedPageTurn?> preparePageTurn(bool next) async {
+  Future<PreparedPageTurn?> preparePageTurn(
+    bool next, {
+    bool prefetch = false,
+  }) async {
     final pager = _pager;
     final origin = page;
     final generation = _generation;
     if (pager == null || origin == null || _loading) return null;
-    final target = await pager.prepareAdjacent(next ? 1 : -1);
+    VirtualPage? target;
+    try {
+      target = await pager.prepareAdjacent(next ? 1 : -1, prefetch: prefetch);
+    } on ChapterLoadCancelled {
+      return null;
+    }
     if (_disposed ||
         generation != _generation ||
         !identical(origin, page) ||
@@ -414,14 +494,55 @@ class ReaderSession extends ChangeNotifier {
   }
 
   /// 加载连续滚动所需的一章；复用章节源的排版缓存，不改变当前位置。
-  Future<ScrollChapterLayout> loadScrollChapter(int spineIndex) async {
+  Future<ScrollChapterLayout> loadScrollChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) async {
     if (spineIndex < 0 || spineIndex >= source.chapterCount) {
       throw RangeError.index(spineIndex, source, 'spineIndex');
     }
     return ScrollChapterLayout.fromPages(
       spineIndex,
-      await source.loadChapter(spineIndex),
+      _pager?.spinePages[spineIndex] ??
+          await _loadChapter(spineIndex, priority: priority),
     );
+  }
+
+  Future<List<PageContent>> _loadChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) async {
+    final scheduled = source;
+    if (scheduled is! ScheduledChapterSource) {
+      return scheduled.loadChapter(spineIndex);
+    }
+    final handle = scheduled.scheduleChapter(spineIndex, priority: priority);
+    _chapterLoads.add(handle);
+    try {
+      return await handle.result;
+    } finally {
+      _chapterLoads.remove(handle);
+    }
+  }
+
+  Future<List<PageContent>> _prefetchChapter(int spineIndex) =>
+      _loadChapter(spineIndex, priority: ChapterLayoutPriority.prefetch);
+
+  void _cancelChapterWaiters() {
+    for (final handle in _chapterLoads.toList()) {
+      handle.cancel();
+    }
+    _chapterLoads.clear();
+  }
+
+  /// 阅读页在首帧绘制后和生命周期变化时控制后台计页。
+  void setPageCountingActive(bool active) {
+    final counting = source;
+    if (counting is PageCountingChapterSource) {
+      counting.setPageCountingActive(
+        active && !_disposed && hasContent && !_loading,
+      );
+    }
   }
 
   /// 同步暂存连续滚动的可见位置。
@@ -563,6 +684,7 @@ class ReaderSession extends ChangeNotifier {
   double? _contentHeight;
   double _contentTopInset = 0;
   _ContentSizeRequest? _pendingContentSize;
+  _ContentSizeRequest? _activeContentSize;
   Future<void>? _contentSizeTask;
   _OverrideRequest? _pendingOverride;
   Future<void>? _overridesTask;
@@ -643,6 +765,7 @@ class ReaderSession extends ChangeNotifier {
     _jumpToken += 1;
     _jumpLoadingTitle = null;
     _pager?.cancelPendingNavigation();
+    _cancelChapterWaiters();
     _loading = false;
     _notify();
   }
@@ -714,7 +837,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 当前正文位置占全书的比例（0～1）。
   ///
-  /// 由章节源按字符权重计算；源不支持时返回 null，由调用方回退到旧的
+  /// 由章节源按原文位置计算；源不支持时返回 null，由调用方回退到旧的
   /// 章节/页估算，不能把两套口径混在同一个进度字段里。
   double? get readingPercent {
     final source = this.source;
@@ -728,7 +851,7 @@ class ReaderSession extends ChangeNotifier {
     return value;
   }
 
-  /// 按全书字符比例跳转到章内 CFI。
+  /// 按全书进度跳转到章内 CFI。
   Future<bool> seekToReadingPercent(double percent, {bool? continuous}) async {
     final source = this.source;
     if (source is! PositionedChapterSource) {
@@ -740,7 +863,19 @@ class ReaderSession extends ChangeNotifier {
         title: '全书进度',
       );
     }
-    final cfi = source.cfiForReadingPercent(percent.clamp(0.0, 1.0));
+    final token = ++_jumpToken;
+    _generation += 1;
+    _cancelChapterWaiters();
+    final safe = percent.clamp(0.0, 1.0);
+    String? cfi;
+    try {
+      cfi = source is AsyncPositionedChapterSource
+          ? await source.prepareCfiForReadingPercent(safe)
+          : source.cfiForReadingPercent(safe);
+    } on ChapterLoadCancelled {
+      return false;
+    }
+    if (_disposed || token != _jumpToken) return false;
     if (cfi == null) return false;
     return jumpToCfi(
       cfi,
@@ -751,7 +886,35 @@ class ReaderSession extends ChangeNotifier {
 
   /// 目录项跳转：优先目录 CFI，其次 fragment，最后章首。
   Future<bool> jumpToTocEntry(TocEntry entry, {bool? continuous}) async {
-    if (entry.missing) return false;
+    if (entry.missing || _disposed || _pager == null) return false;
+    final source = this.source;
+    if (source is! AnchorChapterSource) {
+      return _jumpToPreparedTocEntry(entry, continuous);
+    }
+    if (entry.spineIndex < 0 || entry.spineIndex >= source.chapterCount) {
+      return false;
+    }
+    final token = ++_jumpToken;
+    _generation += 1;
+    _pager?.cancelPendingNavigation();
+    _cancelChapterWaiters();
+    _jumpLoadingTitle = entry.title;
+    _notify();
+    try {
+      await source.loadAnchorChapter(entry.spineIndex);
+      if (_disposed || token != _jumpToken) return false;
+      return await _jumpToPreparedTocEntry(entry, continuous);
+    } on ChapterLoadCancelled {
+      return false;
+    } finally {
+      if (token == _jumpToken) {
+        _jumpLoadingTitle = null;
+        _notify();
+      }
+    }
+  }
+
+  Future<bool> _jumpToPreparedTocEntry(TocEntry entry, bool? continuous) {
     final source = this.source;
     final cfi = source is PositionedChapterSource
         ? source.cfiForTocEntry(entry)
@@ -783,6 +946,9 @@ class ReaderSession extends ChangeNotifier {
       return false;
     }
     final token = ++_jumpToken;
+    _generation += 1;
+    _pager?.cancelPendingNavigation();
+    _cancelChapterWaiters();
     _jumpLoadingTitle = title ?? '书签位置';
     _notify();
     final trace = readerTraceEnabled
@@ -794,7 +960,6 @@ class ReaderSession extends ChangeNotifier {
     try {
       if (_loading || _contentSizeTask != null) await _waitForReload();
       if (_disposed || token != _jumpToken) return false;
-      _generation += 1;
       _clearScrollPosition();
       final pager = _pager!;
       final origin = pager.current;
@@ -805,7 +970,8 @@ class ReaderSession extends ChangeNotifier {
       // 章节已分页：按 CFI 定位页号（重排后页号会变，CFI 不变）。
       final targetSpine = pager.current?.spineIndex;
       if (targetSpine == null) return false;
-      final pages = await source.loadChapter(targetSpine);
+      final pages =
+          pager.spinePages[targetSpine] ?? await _loadChapter(targetSpine);
       if (token != _jumpToken) {
         return false;
       }
@@ -847,6 +1013,8 @@ class ReaderSession extends ChangeNotifier {
       _notify();
       _persist();
       return changed || pageIndex != 0;
+    } on ChapterLoadCancelled {
+      return false;
     } finally {
       trace?.stop();
       if (token == _jumpToken) {
@@ -864,7 +1032,8 @@ class ReaderSession extends ChangeNotifier {
     if (current == null) {
       return const <PageContent>[];
     }
-    return source.loadChapter(current.spineIndex);
+    return _pager?.spinePages[current.spineIndex] ??
+        await _loadChapter(current.spineIndex);
   }
 
   /// 跳转加载中的目标章名（null = 不在跳转中，P4-12 全屏浮层用）。
@@ -884,6 +1053,9 @@ class ReaderSession extends ChangeNotifier {
       return false;
     }
     final token = ++_jumpToken;
+    _generation += 1;
+    _pager?.cancelPendingNavigation();
+    _cancelChapterWaiters();
     _jumpLoadingTitle = title ?? '第 ${spineIndex + 1} 章';
     _notify();
     final trace = readerTraceEnabled
@@ -895,7 +1067,6 @@ class ReaderSession extends ChangeNotifier {
     try {
       if (_loading || _contentSizeTask != null) await _waitForReload();
       if (_disposed || token != _jumpToken) return false;
-      _generation += 1;
       _clearScrollPosition();
       final pager = _pager!;
       final changed = await pager.goTo(
@@ -915,6 +1086,8 @@ class ReaderSession extends ChangeNotifier {
         _persist();
       }
       return changed;
+    } on ChapterLoadCancelled {
+      return false;
     } finally {
       trace?.stop();
       if (token == _jumpToken) {
@@ -1090,22 +1263,31 @@ class ReaderSession extends ChangeNotifier {
       final usableCache = sameRevision || legacyProgress;
       _restoredFinished = usableCache && (saved?.finished ?? false);
       _suppressRestoredFinished = saved != null && !saved.finished;
+      final savedCfi = sameRevision ? saved?.cfi : null;
+      final parsedSaved = savedCfi == null ? null : EpubCfi.parse(savedCfi);
+      final savedSpine = parsedSaved == null
+          ? null
+          : spineIndexOfCfi(parsedSaved);
       final pager = VirtualPager(
         spineCount: source.chapterCount,
-        loader: source.loadChapter,
+        loader: _loadChapter,
+        prefetchLoader: source is ScheduledChapterSource
+            ? _prefetchChapter
+            : null,
       );
       await pager.initialize(
-        startSpine: usableCache ? saved?.spineIndex ?? 0 : 0,
+        startSpine: usableCache ? savedSpine ?? saved?.spineIndex ?? 0 : 0,
         startPage: usableCache ? saved?.pageIndex ?? 0 : 0,
       );
       if (generation != _generation) return;
       if (pager.current == null) {
         throw StateError('全书没有可读章节');
       }
-      _pager = pager;
       _clearScrollPosition();
-      final savedCfi = sameRevision ? saved?.cfi : null;
       if (savedCfi != null) {
+        final fingerprint = _layoutFingerprintForSpine(
+          pager.current!.spineIndex,
+        );
         await _restoreCfi(
           pager,
           savedCfi,
@@ -1114,11 +1296,11 @@ class ReaderSession extends ChangeNotifier {
           preferredPageIndex:
               sameRevision &&
                   (saved?.layoutFingerprint == null ||
-                      saved?.layoutFingerprint == layoutFingerprint)
+                      saved?.layoutFingerprint == fingerprint)
               ? saved?.pageIndex
               : null,
           savedScrollOffset:
-              sameRevision && saved?.layoutFingerprint == layoutFingerprint
+              sameRevision && saved?.layoutFingerprint == fingerprint
               ? saved?.scrollOffset
               : null,
         );
@@ -1128,10 +1310,7 @@ class ReaderSession extends ChangeNotifier {
         _scrollPageIndex = saved.pageIndex;
         _scrollOffset = saved.scrollOffset;
       }
-      final parsedSaved = savedCfi == null ? null : EpubCfi.parse(savedCfi);
-      final savedSpine = parsedSaved == null
-          ? null
-          : spineIndexOfCfi(parsedSaved);
+      _pager = pager;
       _readingAnchor =
           savedCfi == null ||
               savedSpine == null ||
@@ -1167,7 +1346,7 @@ class ReaderSession extends ChangeNotifier {
     final parsed = EpubCfi.parse(cfi);
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
     if (spine == null || spine < 0 || spine >= source.chapterCount) return;
-    final pages = await source.loadChapter(spine);
+    final pages = pager.spinePages[spine] ?? await _loadChapter(spine);
     if (_disposed || generation != _generation) return;
     final anchor = ReaderAnchor(cfi: cfi);
     final index =
@@ -1257,18 +1436,23 @@ class ReaderSession extends ChangeNotifier {
   ReaderOverrides get overrides => _overrides;
 
   /// 正文排版语义版本；正文解析或分页语义变化时递增。
-  static const String layoutSemanticVersion = 'reader-layout-2';
+  static const String layoutSemanticVersion =
+      'reader-layout-2:page-index-${PageIndex.currentSchemaVersion}';
 
   /// 当前布局指纹（P2-24）。
   ///
   /// 包含排版语义版本、正文尺寸、阅读设置和字体依赖。颜色与翻页动画
   /// 不参与，因此换主题仍可直接复用正文几何与精确滚动偏移。
   String get layoutFingerprint {
+    return _layoutFingerprintForSpine(
+      _scrollSpineIndex ?? page?.spineIndex ?? 0,
+    );
+  }
+
+  String _layoutFingerprintForSpine(int spineIndex) {
     final sourceDependency = switch (source) {
       final SpineLayoutDependencyChapterSource chapter =>
-        chapter.layoutDependencyForSpine(
-          _scrollSpineIndex ?? page?.spineIndex ?? 0,
-        ),
+        chapter.layoutDependencyForSpine(spineIndex),
       final LayoutDependencyChapterSource chapter => chapter.layoutDependency,
       _ => '-',
     };
@@ -1337,6 +1521,7 @@ class ReaderSession extends ChangeNotifier {
     }
     final pending = _pendingOverride;
     if ((_overridesTask != null &&
+            pending == null &&
             next.fingerprint == _overrides.fingerprint) ||
         (pending != null &&
             next.fingerprint == pending.overrides.fingerprint)) {
@@ -1348,6 +1533,7 @@ class ReaderSession extends ChangeNotifier {
     }
     _pendingOverride = (overrides: next, generation: ++_generation);
     _pager?.cancelPendingNavigation();
+    _cancelChapterWaiters();
     return _overridesTask ??= _drainOverrides();
   }
 
@@ -1384,6 +1570,7 @@ class ReaderSession extends ChangeNotifier {
     final current = page;
     if (_disposed || current == null) return false;
     final generation = ++_generation;
+    _cancelChapterWaiters();
     final anchor = anchorCfi == null
         ? (_readingAnchor.isEmpty ? _anchorOf(current) : _readingAnchor)
         : ReaderAnchor(cfi: anchorCfi);
@@ -1409,13 +1596,40 @@ class ReaderSession extends ChangeNotifier {
     bool preview = false,
   }) {
     if (_disposed) return Future.value();
+    final pending = _pendingContentSize;
+    if (pending?.width == width &&
+        pending?.height == height &&
+        pending?.topInset == topInset &&
+        pending?.preview == preview) {
+      return _contentSizeTask ?? Future.value();
+    }
+    final changed = _requiresContentReflow(width, height, topInset);
     _pendingContentSize = (
       width: width,
       height: height,
       topInset: topInset,
       preview: preview,
+      generation: changed ? ++_generation : _generation,
     );
+    if (changed) {
+      _pager?.cancelPendingNavigation();
+      _cancelChapterWaiters();
+    }
     return _contentSizeTask ??= _drainContentSizes();
+  }
+
+  bool _requiresContentReflow(double width, double height, double topInset) {
+    final active = _activeContentSize;
+    if (active?.width == width &&
+        active?.height == height &&
+        active?.topInset == topInset) {
+      return false;
+    }
+    return _contentWidth != width ||
+        _contentHeight != height ||
+        _contentTopInset != topInset ||
+        _contentSizeTask != null ||
+        _error != null;
   }
 
   Future<void> _drainContentSizes() async {
@@ -1423,19 +1637,25 @@ class ReaderSession extends ChangeNotifier {
       while (!_disposed && _pendingContentSize != null) {
         final next = _pendingContentSize!;
         _pendingContentSize = null;
+        _activeContentSize = next;
         try {
           await _applyContentSize(next);
         } catch (error) {
+          if (next.generation != _generation) continue;
           _error = error;
           _notify();
+        } finally {
+          if (_activeContentSize == next) _activeContentSize = null;
         }
       }
     } finally {
       _contentSizeTask = null;
+      _activeContentSize = null;
     }
   }
 
   Future<void> _applyContentSize(_ContentSizeRequest next) async {
+    if (next.generation != _generation) return;
     final currentPage = _pager?.current?.content;
     if (next.preview && _contentSizePreviewAnchor == null) {
       _contentSizePreviewAnchor = _readingAnchor.isEmpty
@@ -1473,14 +1693,16 @@ class ReaderSession extends ChangeNotifier {
     ReaderAnchor anchor,
   ) async {
     final spine = page?.spineIndex ?? 0;
-    final generation = ++_generation;
+    final generation = next.generation;
+    // 尺寸与字号可能交错提交。尺寸是最新请求的输入，即使其单独重排
+    // 被字号请求替代，也必须供最终布局指纹使用。
+    _setContentSize(next);
     final changed = await src.applyContentSize(
       width: next.width,
       height: next.height,
       topInset: next.topInset,
     );
     if (generation != _generation) return;
-    _setContentSize(next);
     if (changed || _error != null) {
       final original = _contentSizePreviewProgress;
       // 原尺寸直接恢复原页号，避免锚点恰在页边界时退到前一页。
@@ -1533,14 +1755,17 @@ class ReaderSession extends ChangeNotifier {
           return;
         }
       }
-      final pages = await source.loadChapter(spine);
+      final pages = await _loadChapter(spine);
       if (generation != _generation) {
         return;
       }
       final pager = VirtualPager(
         spineCount: source.chapterCount,
         loader: (index) =>
-            index == spine ? Future.value(pages) : source.loadChapter(index),
+            index == spine ? Future.value(pages) : _loadChapter(index),
+        prefetchLoader: source is ScheduledChapterSource
+            ? _prefetchChapter
+            : null,
       );
       await pager.initialize(
         startSpine: spine,
@@ -1968,6 +2193,15 @@ class ReaderSession extends ChangeNotifier {
 
   void _notify() {
     if (!_disposed) {
+      final counting = source;
+      final current = page;
+      if (counting is PageCountingChapterSource) {
+        if (_loading) {
+          counting.setPageCountingActive(false);
+        } else if (current != null) {
+          counting.setCurrentReadingChapter(current.spineIndex);
+        }
+      }
       notifyListeners();
     }
   }
@@ -1979,6 +2213,8 @@ class ReaderSession extends ChangeNotifier {
     _pendingOverride = null;
     _jumpToken += 1;
     _pager?.cancelPendingNavigation();
+    _cancelChapterWaiters();
+    setPageCountingActive(false);
     // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
     _flushProgress().ignore();
     _persistTimer?.cancel();

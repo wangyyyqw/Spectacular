@@ -24,6 +24,7 @@ class ContinuousScrollView extends StatefulWidget {
     required this.padding,
     required this.revision,
     this.onPageVisible,
+    this.onContentReady,
     this.onTapAtPage,
     this.onUserScroll,
   });
@@ -33,6 +34,9 @@ class ContinuousScrollView extends StatefulWidget {
   final EdgeInsets padding;
   final Object revision;
   final ValueChanged<PageContent>? onPageVisible;
+
+  /// 当前代次正文已绘制并完成视口恢复；宿主可据此启动低优先级计页。
+  final VoidCallback? onContentReady;
   final bool Function(PageContent page, Offset localPosition)? onTapAtPage;
   final VoidCallback? onUserScroll;
 
@@ -51,6 +55,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   double _visiblePageOffset = 0;
   bool _loading = true;
   bool _extendingBefore = false;
+  bool _insertingBefore = false;
   bool _extendingAfter = false;
   bool _trimmingWindow = false;
   Future<void>? _extendBeforeTask;
@@ -136,11 +141,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         return;
       }
       loaded.add(pivot);
-      final previous = await _findReadable(pivot.spineIndex - 1, direction: -1);
-      if (previous != null) loaded.add(previous);
-      final next = await _findReadable(pivot.spineIndex + 1, direction: 1);
-      if (next != null) loaded.add(next);
-      atBookEnd = next == null;
+      atBookEnd = pivot.spineIndex == widget.session.source.chapterCount - 1;
+    } on ChapterLoadCancelled {
+      return;
     } catch (error) {
       if (!mounted || token != _loadToken) return;
       setState(() {
@@ -184,6 +187,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   Future<ScrollChapterLayout?> _findReadable(
     int start, {
     required int direction,
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
   }) async {
     final count = widget.session.source.chapterCount;
     for (var spine = start; spine >= 0 && spine < count; spine += direction) {
@@ -191,7 +195,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       if (source is MissingChapterSource && source.isChapterMissing(spine)) {
         continue;
       }
-      final layout = await widget.session.loadScrollChapter(spine);
+      final layout = await widget.session.loadScrollChapter(
+        spine,
+        priority: priority,
+      );
       if (!layout.isEmpty) return layout;
     }
     return null;
@@ -292,6 +299,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         // 书尾因内容不足无法置顶时尤其不能覆盖已保存的精确偏移。
         _captureVisiblePage(commit: false, stage: false);
         _restoring = false;
+        widget.onContentReady?.call();
+        unawaited(_extendBefore());
+        unawaited(_extendAfter());
         _maybeExtendWindow();
       }
     }
@@ -625,11 +635,20 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   Future<void> _extendBefore() {
     final running = _extendBeforeTask;
     if (running != null) return running;
+    final token = _loadToken;
+    final generation = _layoutGeneration;
     final task = _loadExtendBefore();
-    return _extendBeforeTask = task.whenComplete(() {
-      _extendBeforeTask = null;
-      _extendingBefore = false;
-    });
+    return _extendBeforeTask = task
+        .onError<ChapterLoadCancelled>((_, _) {})
+        .whenComplete(() {
+          final inserted = _insertingBefore;
+          _extendBeforeTask = null;
+          _extendingBefore = false;
+          _insertingBefore = false;
+          if (inserted && _isCurrentWindow(token, generation)) {
+            _maybeExtendWindow();
+          }
+        });
   }
 
   Future<void> _loadExtendBefore() async {
@@ -640,8 +659,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     final layout = await _findReadable(
       _chapters.first.spineIndex - 1,
       direction: -1,
+      priority: ChapterLayoutPriority.prefetch,
     );
     if (!_isCurrentWindow(token, generation) || layout == null) return;
+    _insertingBefore = true;
     _captureVisiblePage(commit: false, stage: false);
     final visibleContent = _visibleContent;
     final visibleOffset = _visiblePageOffset;
@@ -718,10 +739,12 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     final running = _extendAfterTask;
     if (running != null) return running;
     final task = _loadExtendAfter();
-    return _extendAfterTask = task.whenComplete(() {
-      _extendAfterTask = null;
-      _extendingAfter = false;
-    });
+    return _extendAfterTask = task
+        .onError<ChapterLoadCancelled>((_, _) {})
+        .whenComplete(() {
+          _extendAfterTask = null;
+          _extendingAfter = false;
+        });
   }
 
   Future<void> _loadExtendAfter() async {
@@ -732,6 +755,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     final layout = await _findReadable(
       _chapters.last.spineIndex + 1,
       direction: 1,
+      priority: ChapterLayoutPriority.prefetch,
     );
     if (!_isCurrentWindow(token, generation)) return;
     if (layout == null) {
@@ -856,6 +880,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     for (final chapter in _chapters) chapter.spineIndex,
   ];
 
+  /// 新版面已经绘制；重排中的旧窗口仍可读，但不应启动新版面的计页。
+  bool get isCurrentLayoutVisible =>
+      !_loading &&
+      !_restoring &&
+      _entries.isNotEmpty &&
+      _layoutGeneration == widget.session.generation;
+
   /// 当前页面键数量；测试用于确认离窗页面的 key 已释放。
   @visibleForTesting
   int get debugPageKeyCount => _pageKeys.length;
@@ -894,11 +925,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             final canNavigate =
-                !_restoring &&
                 !_programmaticJump &&
                 !_trimmingWindow &&
-                !_extendingBefore &&
-                !_extendingAfter &&
+                !_insertingBefore &&
                 _layoutGeneration == widget.session.generation &&
                 !widget.session.loading;
             // 尺寸重排可能触发系统弹道校正，仅像素变化不足以证明用户导航。
@@ -912,6 +941,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
                 notification is UserScrollNotification &&
                 notification.direction != ScrollDirection.idle;
             if (canNavigate && (explicitStart || userDirection)) {
+              if (_restoring) {
+                _restoreToken += 1;
+                _restoring = false;
+              }
               _userDragging = true;
               _hasUserScrollSinceRestore = true;
               widget.onUserScroll?.call();

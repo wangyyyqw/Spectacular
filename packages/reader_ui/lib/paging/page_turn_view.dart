@@ -219,7 +219,10 @@ class PageTurnViewState extends State<PageTurnView>
 
   Future<PageContent?> _prepareWarmPage(bool next) async {
     try {
-      return (await widget.session.preparePageTurn(next))?.target.content;
+      return (await widget.session.preparePageTurn(
+        next,
+        prefetch: true,
+      ))?.target.content;
     } catch (_) {
       return null;
     }
