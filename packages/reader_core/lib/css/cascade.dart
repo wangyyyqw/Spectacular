@@ -81,8 +81,12 @@ abstract final class Cascade {
     var sequence = 0;
     for (final rule in sorted) {
       // @media 过滤（P8-02）：条件不命中视口的规则不参与级联。
-      final media = rule.rule.media;
-      if (media != null && !mediaMatches(media, viewportWidth ?? containingWidth)) {
+      final mediaConditions = rule.rule.mediaConditions.isNotEmpty
+          ? rule.rule.mediaConditions
+          : <String>[?rule.rule.media];
+      if (mediaConditions.any(
+        (media) => !mediaMatches(media, viewportWidth ?? containingWidth),
+      )) {
         continue;
       }
       Specificity? matchedSpecificity;
@@ -231,7 +235,8 @@ abstract final class Cascade {
     }
     final value = _substituteVars(declaration.value, variables);
     // 变量替换后无效时按 unset 处理，不能恢复被级联覆盖的旧声明。
-    final valid = value.isNotEmpty &&
+    final valid =
+        value.isNotEmpty &&
         ComputedStyle.isValidDeclaration(declaration.property, value);
     return CssDeclaration(
       property: declaration.property,
@@ -379,10 +384,7 @@ abstract final class Cascade {
 
   /// 盒类与文字简写 → 长属性（P9-27）：与浏览器一致，在级联阶段展开，
   /// 这样作者简写与 UA 长属性按同一属性名比优先级。
-  static Map<String, String> _expandShorthand(
-    String property,
-    String value,
-  ) {
+  static Map<String, String> _expandShorthand(String property, String value) {
     const sides = <String>['top', 'right', 'bottom', 'left'];
     switch (property) {
       case 'text-emphasis':
@@ -394,7 +396,9 @@ abstract final class Cascade {
       case 'font':
         if (_isGlobalKeyword(value)) {
           return {
-            for (final key in ComputedStyle.parseFontShorthand('16px serif')!.keys)
+            for (final key in ComputedStyle.parseFontShorthand(
+              '16px serif',
+            )!.keys)
               key: value,
           };
         }
@@ -436,8 +440,7 @@ abstract final class Cascade {
         };
       case 'border':
         return <String, String>{
-          for (final side in sides)
-            ..._borderLonghands(side, value),
+          for (final side in sides) ..._borderLonghands(side, value),
         };
       case 'border-top':
       case 'border-right':
@@ -453,8 +456,7 @@ abstract final class Cascade {
           return const <String, String>{};
         }
         return <String, String>{
-          for (var i = 0; i < 4; i++)
-            'border-${sides[i]}-$suffix': parts[i],
+          for (var i = 0; i < 4; i++) 'border-${sides[i]}-$suffix': parts[i],
         };
       case 'outline':
         if (_isGlobalKeyword(value)) {
@@ -469,6 +471,42 @@ abstract final class Cascade {
             'outline-$suffix':
                 parts?[suffix] ?? ComputedStyle.initialValue('outline-$suffix'),
         };
+      case 'background':
+        const longhands = <String>[
+          'background-image',
+          'background-color',
+          'background-repeat',
+          'background-position',
+          'background-size',
+          'background-origin',
+          'background-clip',
+          'background-attachment',
+        ];
+        if (_isGlobalKeyword(value)) {
+          return <String, String>{
+            for (final longhand in longhands) longhand: value,
+          };
+        }
+        final parsed = ComputedStyle.parseBackgroundShorthand(value);
+        if (parsed == null) {
+          return const <String, String>{};
+        }
+        return <String, String>{
+          for (final longhand in longhands)
+            longhand: parsed[longhand] ?? ComputedStyle.initialValue(longhand),
+        };
+      case 'text-decoration':
+        if (_isGlobalKeyword(value)) {
+          return <String, String>{
+            for (final longhand in const [
+              'text-decoration-line',
+              'text-decoration-style',
+              'text-decoration-color',
+            ])
+              longhand: value,
+          };
+        }
+        return ComputedStyle.parseTextDecorationShorthand(value);
       default:
         return const <String, String>{};
     }
@@ -483,7 +521,8 @@ abstract final class Cascade {
       for (final suffix in const ['width', 'style', 'color'])
         'border-$side-$suffix': _isGlobalKeyword(value)
             ? value
-            : parts?[suffix] ?? ComputedStyle.initialValue('border-$side-$suffix'),
+            : parts?[suffix] ??
+                  ComputedStyle.initialValue('border-$side-$suffix'),
     };
   }
 
@@ -644,9 +683,8 @@ abstract final class Cascade {
     if (f == 'print' || f == 'speech' || f == 'handheld' || f == 'aural') {
       return false;
     }
-    final m = RegExp(
-      r'\((min|max)-width\s*:\s*([\d.]+)(px|em)?\)',
-    ).firstMatch(f);
+    final m = RegExp(r'\((min|max)-width\s*:\s*([\d.]+)(px|em)?\)')
+        .firstMatch(f);
     if (m == null) {
       return false;
     }

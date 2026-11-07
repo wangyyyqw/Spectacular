@@ -60,7 +60,15 @@ class TextLayoutCache {
     if (cached != null) {
       _entries[key] = cached;
       _hits += 1;
-      return cached;
+      return cached.withRuns(
+        TextLayoutEngine.styledRuns(
+          text: text,
+          style: style,
+          runs: runs,
+          hasGlyph: hasGlyph,
+          leadingDistribution: leadingDistribution,
+        ),
+      );
     }
     _misses += 1;
     final result = TextLayoutEngine.layout(

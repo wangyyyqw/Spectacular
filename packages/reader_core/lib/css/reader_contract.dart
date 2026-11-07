@@ -59,10 +59,12 @@ abstract final class ReaderContract {
     return CssRule(
       selector: rule.selector,
       declarations: List<CssDeclaration>.unmodifiable(
-        rule.declarations
-            .where((declaration) => !propertyIsPrivate(declaration.property)),
+        rule.declarations.where(
+          (declaration) => !propertyIsPrivate(declaration.property),
+        ),
       ),
       media: rule.media,
+      mediaConditions: rule.mediaConditions,
     );
   }
 

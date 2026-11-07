@@ -1,0 +1,6 @@
+{
+  "name": "115-audit-media-position-whitespace",
+  "tags": ["white-space", "position", "media"],
+  "css": "body { margin: 0; font-family: builtin_song; font-size: 17px; } p { margin: 12px 0; line-height: 1.8; text-align: left; text-spacing-trim: space-all; } .outer { left: 30px; top: 20px; } .auto { position: relative; } .inherit { position: relative; left: inherit; } .spaces { white-space: pre-wrap; } .normal { white-space: normal; } .media { color: #008800; } @media print, screen { @media (min-width: 400px) { .media { color: red; } } } @media screen { @media (max-width: 400px), print { .media { background-color: #ddeeff; } } }",
+  "html": "<section class=\"outer\"><p class=\"auto\">偏移默认 auto</p><p class=\"inherit\">显式继承左偏移</p></section><p class=\"spaces\">甲  乙\n丙 <span class=\"normal\">丁  戊\n己</span>  庚</p><p class=\"media\">嵌套媒体逐层合取</p>"
+}

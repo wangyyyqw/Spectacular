@@ -827,6 +827,40 @@ class TextLayoutResult implements TextLayout {
   /// 是否竖排。
   bool get isVertical => writingMode != CssWritingMode.horizontalTb;
 
+  /// 复用同一份几何，仅替换本次调用的行内绘制 runs。
+  ///
+  /// 段落缓存键只包含影响度量的 run 指纹，颜色、背景和装饰不在键内；
+  /// 命中后必须重新绑定当前 runs，不能把首段绘制样式带给后续段落。
+  TextLayoutResult withRuns(List<StyledRun> currentRuns) {
+    var same = currentRuns.length == runs.length;
+    if (same) {
+      for (var i = 0; i < runs.length; i++) {
+        final current = currentRuns[i];
+        final cached = runs[i];
+        if (current.start != cached.start ||
+            current.end != cached.end ||
+            current.baselineShift != cached.baselineShift ||
+            current.syntheticFontFallback != cached.syntheticFontFallback ||
+            !identical(current.style, cached.style)) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (same) return this;
+    return TextLayoutResult(
+      text: text,
+      lines: lines,
+      width: width,
+      height: height,
+      maxWidth: maxWidth,
+      runs: List<StyledRun>.unmodifiable(currentRuns),
+      isRtl: isRtl,
+      writingMode: writingMode,
+      plainTextLayout: plainTextLayout,
+    );
+  }
+
   /// 行数。
   int get lineCount => lines.length;
 
@@ -1002,6 +1036,34 @@ abstract final class TextLayoutEngine {
     );
   }
 
+  /// 计算绘制用 runs（含字形回退分段），不执行断行。
+  ///
+  /// 段落缓存命中后几何可以复用，但颜色、背景、装饰和当前字体的回退分段
+  /// 必须按本次调用重新生成，不能沿用缓存首段的绘制信息。
+  static List<StyledRun> styledRuns({
+    required String text,
+    required ComputedStyle style,
+    List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+  }) {
+    text = applyTextTransform(text, style.textTransform);
+    final ordered = _applyVerticalAlign(
+      _normalizeRuns(runs, text.length),
+      style,
+      leadingDistribution,
+    );
+    if (hasGlyph == null) {
+      return ordered;
+    }
+    return _applyScriptFallback(
+      text: text,
+      runs: ordered,
+      baseStyle: style,
+      hasGlyph: hasGlyph,
+    );
+  }
+
   /// 批量测量纯文本片段的无界宽度。
   ///
   /// 表格最小内容宽会把中文逐字、拉丁词逐段测量；每个片段单独创建
@@ -1140,21 +1202,15 @@ abstract final class TextLayoutEngine {
               .clamp(-inlineWidth, math.max(0.0, inlineWidth - 1))
               .toDouble()
         : 0.0;
-    final ordered = _applyVerticalAlign(
-      _normalizeRuns(runs, text.length),
-      style,
-      leadingDistribution,
-    );
     // P2-12：按字形覆盖叠加字体族分段。未传 hasGlyph 时走原路径，
     // 行为与之前完全一致。
-    final styled = hasGlyph == null
-        ? ordered
-        : _applyScriptFallback(
-            text: text,
-            runs: ordered,
-            baseStyle: style,
-            hasGlyph: hasGlyph,
-          );
+    final styled = styledRuns(
+      text: text,
+      style: style,
+      runs: runs,
+      hasGlyph: hasGlyph,
+      leadingDistribution: leadingDistribution,
+    );
     // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
     var measuredEnd = text.length;
     while (measuredEnd > 0 && text.codeUnitAt(measuredEnd - 1) == 10) {

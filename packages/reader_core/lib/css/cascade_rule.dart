@@ -29,6 +29,7 @@ class CascadeRule {
         selector: rule.selector,
         declarations: declarations,
         media: rule.media,
+        mediaConditions: rule.mediaConditions,
       ),
       selectors: selectors,
       origin: origin,
