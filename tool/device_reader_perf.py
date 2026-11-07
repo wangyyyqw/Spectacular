@@ -7,10 +7,12 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
+import re
 import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 
 from device_css_test import (
     APP_ID, ROOT, TEST_ID, drop_plugin_dependency, prepare_workspace, run)
@@ -39,6 +41,60 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         if self.path == "/done":
             self.done.set()
+
+
+def sample_meminfo(adb, package, stop, samples, interval):
+    """轮询 Android 总 PSS；包含 EGL/图形共享页，作为系统设置口径。"""
+    started = time.monotonic()
+    while not stop.is_set():
+        try:
+            result = subprocess.run(
+                adb + ["shell", "dumpsys", "meminfo", package],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            pss = re.search(r"^\s*TOTAL PSS:\s*([\d,]+)", result.stdout, re.MULTILINE)
+            rss = re.search(r"^\s*TOTAL RSS:\s*([\d,]+)", result.stdout, re.MULTILINE)
+            if pss:
+                breakdown = {}
+                for line in result.stdout.splitlines():
+                    match = re.match(
+                        r"^\s*(.+?)\s+([\d,]+)(?:\s+[\d,]+){4,7}\s*$",
+                        line,
+                    )
+                    if match is None:
+                        continue
+                    name = match.group(1).strip()
+                    if name in ("App Summary", "Dalvik"):
+                        break
+                    breakdown[name] = int(match.group(2).replace(",", "")) * 1024
+                samples.append({
+                    "t_ms": int((time.monotonic() - started) * 1000),
+                    "total_pss_bytes": int(pss.group(1).replace(",", "")) * 1024,
+                    "total_rss_bytes": (
+                        int(rss.group(1).replace(",", "")) * 1024 if rss else None
+                    ),
+                    "breakdown": breakdown,
+                })
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        stop.wait(interval)
+
+
+def summarize_meminfo(samples):
+    if not samples:
+        return {"samples": [], "peak_total_pss_bytes": None,
+                "peak_total_rss_bytes": None}
+    return {
+        "samples": samples,
+        "peak_total_pss_bytes": max(item["total_pss_bytes"] for item in samples),
+        "peak_total_rss_bytes": max(
+            item["total_rss_bytes"] or 0 for item in samples
+        ),
+        "peak_sample": max(samples, key=lambda item: item["total_pss_bytes"]),
+    }
 
 
 def prepare(workspace, revision):
@@ -101,13 +157,34 @@ def benchmark(args):
             run(adb + ["reverse", f"tcp:{port}", f"tcp:{port}"])
             run(adb + ["shell", "am", "force-stop", TEST_ID])
             run(adb + ["install", "-r", str(apk)])
+            stop_meminfo = threading.Event()
+            meminfo_samples = []
+            meminfo_thread = None
+            if args.meminfo_interval > 0:
+                meminfo_thread = threading.Thread(
+                    target=sample_meminfo,
+                    args=(adb, TEST_ID, stop_meminfo, meminfo_samples,
+                          args.meminfo_interval),
+                    daemon=True,
+                )
             run(adb + ["shell", "am", "start", "-n", TEST_ID + "/" + TEST_ID + ".MainActivity"])
+            if meminfo_thread is not None:
+                meminfo_thread.start()
             if not done.wait(900):
                 raise TimeoutError("性能测试超时，已有样本保留在 report.json")
+            if meminfo_thread is not None:
+                stop_meminfo.set()
+                meminfo_thread.join(timeout=12)
             report = json.loads((args.output / "report.json").read_text())
+            report["host_meminfo"] = summarize_meminfo(meminfo_samples)
+            (args.output / "report.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2)
+            )
             if "error" in report:
                 raise RuntimeError(report["error"])
         finally:
+            if "stop_meminfo" in locals():
+                stop_meminfo.set()
             server.shutdown()
             server.server_close()
             subprocess.run(adb + ["shell", "am", "force-stop", TEST_ID], check=False)
@@ -128,6 +205,8 @@ def main():
                         help="测试远跳；前后版本必须使用相同开关，旧版本不支持时传 --no-far-jump")
     parser.add_argument("--measure-import", action="store_true",
                         help="在隔离包临时书库测量完整导入，含读盘、校验、落盘、字符统计与入库")
+    parser.add_argument("--meminfo-interval", type=float, default=1.0,
+                        help="dumpsys meminfo 采样间隔秒；0 关闭")
     args = parser.parse_args()
     if not args.book.is_file():
         parser.error("找不到原书")

@@ -39,16 +39,23 @@ Future<void> main() async {
   final runWatch = Stopwatch()..start();
   try {
     final root = await getApplicationSupportDirectory();
-    final fixtures = await _downloadFixtures(root);
+    final fixtureBytes = await _downloadFixtures(root);
+    final fixtureDir = Directory('${root.path}/fixtures');
+    await fixtureDir.create(recursive: true);
+    final fixtures = <String, File>{};
+    for (final entry in fixtureBytes.entries) {
+      fixtures[entry.key] = await File('${fixtureDir.path}/${entry.key}.epub')
+          .writeAsBytes(entry.value, flush: true);
+    }
     _results['fixtures'] = fixtures
-        .map((key, value) => MapEntry(key, value.length))
+        .map((key, value) => MapEntry(key, value.lengthSync()))
         .cast<String, Object?>();
     final db = AppDatabase(NativeDatabase(File('${root.path}/verify.sqlite')));
     await db.customStatement('DELETE FROM books');
     final progress = DriftProgressStore(db);
     await _runNamed('S1-S3 混合样本：打开/目录/长章节/翻页', () async {
       await _mountAndRun(
-        bytes: fixtures['verify-mixed']!,
+        sourcePath: fixtures['verify-mixed']!.path,
         bookId: 'verify-mixed',
         store: progress,
         body: (harness) => _mixedScenarios(harness),
@@ -56,7 +63,7 @@ Future<void> main() async {
     });
     await _runNamed('S4 容错样本：缺资源/错误路径/异常样式', () async {
       await _mountAndRun(
-        bytes: fixtures['verify-tolerance']!,
+        sourcePath: fixtures['verify-tolerance']!.path,
         bookId: 'verify-tolerance',
         store: progress,
         body: (harness) => _toleranceScenarios(harness),
@@ -64,7 +71,7 @@ Future<void> main() async {
     });
     await _runNamed('S5 小样本：字号/主题/连续滚动', () async {
       await _mountAndRun(
-        bytes: fixtures['verify-small']!,
+        sourcePath: fixtures['verify-small']!.path,
         bookId: 'verify-small',
         store: progress,
         body: (harness) => _smallScenarios(harness),
@@ -72,7 +79,7 @@ Future<void> main() async {
     });
     await _runNamed('S6 断链 spine：按 manifest 恢复阅读顺序', () async {
       await _mountAndRun(
-        bytes: fixtures['verify-broken-spine']!,
+        sourcePath: fixtures['verify-broken-spine']!.path,
         bookId: 'verify-broken-spine',
         store: progress,
         body: (harness) => _brokenSpineScenarios(harness),
@@ -88,10 +95,7 @@ Future<void> main() async {
   await _send('done', _results);
 }
 
-Future<void> _runNamed(
-  String name,
-  Future<void> Function() body,
-) async {
+Future<void> _runNamed(String name, Future<void> Function() body) async {
   final watch = Stopwatch()..start();
   final scenario = <String, Object?>{
     'name': name,
@@ -112,7 +116,7 @@ Future<void> _runNamed(
 
 /// 把 harness 挂到 widget 树，运行 body，然后卸载。
 Future<void> _mountAndRun({
-  required Uint8List bytes,
+  required String sourcePath,
   required String bookId,
   required DriftProgressStore store,
   required Future<void> Function(_HarnessController) body,
@@ -124,7 +128,7 @@ Future<void> _mountAndRun({
       navigatorKey: navigatorKey,
       home: _ReaderHarness(
         key: harnessKey,
-        bytes: bytes,
+        sourcePath: sourcePath,
         bookId: bookId,
         store: store,
       ),
@@ -157,7 +161,10 @@ Future<void> _mixedScenarios(_HarnessController harness) async {
 
   await _step('嵌套目录与跳转', () async {
     final rows = flattenToc(source.toc);
-    final maxDepth = rows.fold<int>(0, (d, row) => row.depth > d ? row.depth : d);
+    final maxDepth = rows.fold<int>(
+      0,
+      (d, row) => row.depth > d ? row.depth : d,
+    );
     final longEntry = rows
         .firstWhere((row) => row.entry.title.contains('长章节'))
         .entry;
@@ -181,7 +188,9 @@ Future<void> _mixedScenarios(_HarnessController harness) async {
       'rss_bytes': ProcessInfo.currentRss,
     });
     if (harness.currentSpine() != longEntry.spineIndex) {
-      throw StateError('跳转后 spine=${harness.currentSpine()}，期望 ${longEntry.spineIndex}');
+      throw StateError(
+        '跳转后 spine=${harness.currentSpine()}，期望 ${longEntry.spineIndex}',
+      );
     }
     await _capture('long-enter');
   });
@@ -269,7 +278,9 @@ Future<void> _mixedScenarios(_HarnessController harness) async {
       throw StateError('后一份样式表的加粗规则未生效：${authorEm.style?.fontWeight}');
     }
     if (!(firstIndent(tight) > 4 && firstIndent(noIndent) < 1)) {
-      throw StateError('缩进探针异常：tight=${firstIndent(tight)} noIndent=${firstIndent(noIndent)}');
+      throw StateError(
+        '缩进探针异常：tight=${firstIndent(tight)} noIndent=${firstIndent(noIndent)}',
+      );
     }
   });
 
@@ -312,7 +323,8 @@ Future<void> _mixedScenarios(_HarnessController harness) async {
     // 等待条件只要求真实存在的三张图片解码完成。
     const expectedImages = 3;
     await _until(
-      () => urls.where((url) => harness.imageCache.lookup(url) != null).length >=
+      () =>
+          urls.where((url) => harness.imageCache.lookup(url) != null).length >=
           expectedImages,
       timeout: const Duration(seconds: 20),
     );
@@ -396,9 +408,8 @@ Future<void> _smallScenarios(_HarnessController harness) async {
     final before = await source.loadChapter(0);
     final beforeHeight = _firstLineHeight(before);
     harness.applySettings(
-      (settings) => settings.copyWithOverrides(
-        settings.overrides.copyWith(fontSize: 24),
-      ),
+      (settings) =>
+          settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 24)),
     );
     await harness.waitRelayout();
     final after = await source.loadChapter(0);
@@ -423,9 +434,8 @@ Future<void> _smallScenarios(_HarnessController harness) async {
     await Future<void>.delayed(const Duration(milliseconds: 400));
     await _capture('theme-sepia');
     harness.applySettings(
-      (settings) => settings.copyWithOverrides(
-        settings.overrides.copyWith(fontSize: 17),
-      ),
+      (settings) =>
+          settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 17)),
     );
     await harness.waitRelayout();
     _record({'themes': 'dark,sepia'});
@@ -605,10 +615,12 @@ Future<Map<String, Uint8List>> _downloadFixtures(Directory root) async {
     'verify-broken-spine',
   ];
   final client = HttpClient();
-  final result = <String, Uint8List>{}; 
+  final result = <String, Uint8List>{};
   try {
     for (final name in names) {
-      final request = await client.getUrl(Uri.parse('$_server/fixtures/$name.epub'));
+      final request = await client.getUrl(
+        Uri.parse('$_server/fixtures/$name.epub'),
+      );
       final response = await request.close();
       if (response.statusCode != 200) {
         throw StateError('fixture 下载失败：$name → ${response.statusCode}');
@@ -660,7 +672,8 @@ class _HarnessController {
     return cache;
   }
 
-  int currentSpine() => _find<ReaderSemanticsLayer>((_) => true)!.page.spineIndex;
+  int currentSpine() =>
+      _find<ReaderSemanticsLayer>((_) => true)!.page.spineIndex;
 
   int currentPageIndex() =>
       _find<ReaderSemanticsLayer>((_) => true)!.page.pageIndex;
@@ -670,10 +683,11 @@ class _HarnessController {
     if (_find<ReaderMenuOverlay>((overlay) => overlay.open) == null) {
       view.onToggleToolbar!();
     }
-    await _until(() => _find<ReaderMenuOverlay>((overlay) => overlay.open) != null);
-    _find<ReaderMenuOverlay>((overlay) => overlay.open)!.onEntry(
-      ReaderMenuEntry.toc,
+    await _until(
+      () => _find<ReaderMenuOverlay>((overlay) => overlay.open) != null,
     );
+    _find<ReaderMenuOverlay>((overlay) => overlay.open)!
+        .onEntry(ReaderMenuEntry.toc);
     await _until(() => _find<TocPanel>((_) => true) != null);
   }
 
@@ -699,7 +713,8 @@ class _HarnessController {
     await _until(
       () =>
           _find<ReaderSemanticsLayer>(
-            (layer) => layer.page.spineIndex == spine && layer.page.slices.isNotEmpty,
+            (layer) =>
+                layer.page.spineIndex == spine && layer.page.slices.isNotEmpty,
           ) !=
           null,
     );
@@ -719,12 +734,12 @@ class _HarnessController {
 class _ReaderHarness extends StatefulWidget {
   const _ReaderHarness({
     super.key,
-    required this.bytes,
+    required this.sourcePath,
     required this.bookId,
     required this.store,
   });
 
-  final Uint8List bytes;
+  final String sourcePath;
   final String bookId;
   final DriftProgressStore store;
 
@@ -753,7 +768,7 @@ class _ReaderHarnessState extends State<_ReaderHarness> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: EpubReaderPage(
-        bytes: widget.bytes,
+        sourcePath: widget.sourcePath,
         bookId: widget.bookId,
         store: widget.store,
         settings: _settings,
