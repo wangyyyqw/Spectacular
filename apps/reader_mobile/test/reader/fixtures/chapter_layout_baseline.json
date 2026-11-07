@@ -1,0 +1,538 @@
+[
+  {
+    "page": 0,
+    "height": 180.0,
+    "used": 158.84,
+    "top": 0.0,
+    "background": null,
+    "slices": [
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/2/1)",
+          null
+        ],
+        "text": "章节基线",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          69.84,
+          13.92,
+          19.92,
+          0.0,
+          null,
+          6.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": null,
+        "style": "fs=24.0;lh=36.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=700;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            4,
+            0.0,
+            36.0,
+            25.2001,
+            96.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            4,
+            "fs=24.0;lh=36.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=700;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/4/2/1)",
+          null
+        ],
+        "text": "甲乙，丙丁。混排小字戊己庚辛壬癸。",
+        "range": [
+          0,
+          2
+        ],
+        "geometry": [
+          56.0,
+          8.0,
+          0.0,
+          0.0,
+          null,
+          0.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": null,
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            11,
+            0.0,
+            24.0,
+            16.8,
+            160.0
+          ],
+          [
+            11,
+            17,
+            24.0,
+            24.0,
+            40.8,
+            96.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            6,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ],
+          [
+            6,
+            10,
+            "fs=12.0;lh=18.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ],
+          [
+            10,
+            17,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": [
+          [
+            true,
+            false,
+            0.0,
+            180.0,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr"
+          ]
+        ]
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/4/4/1)",
+          null
+        ],
+        "text": "第二段，“引号内容”与粗体内容。",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          33.0,
+          3.0,
+          5.0,
+          0.0,
+          null,
+          0.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": null,
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            10,
+            0.0,
+            25.0,
+            16.8,
+            160.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            11,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ],
+          [
+            11,
+            15,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=700;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ],
+          [
+            15,
+            16,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": [
+          [
+            false,
+            true,
+            0.0,
+            180.0,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr"
+          ]
+        ]
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/8/1)",
+          null
+        ],
+        "text": "固定页注",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          24.0,
+          0.0,
+          0.0,
+          5.0,
+          10.0,
+          0.0,
+          0.0
+        ],
+        "overlay": true,
+        "group": 0,
+        "marker": null,
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            4,
+            0.0,
+            24.0,
+            16.8,
+            64.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            4,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      }
+    ]
+  },
+  {
+    "page": 1,
+    "height": 180.0,
+    "used": 167.0,
+    "top": 0.0,
+    "background": null,
+    "slices": [
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/4/4/1)",
+          null
+        ],
+        "text": "第二段，“引号内容”与粗体内容。",
+        "range": [
+          1,
+          2
+        ],
+        "geometry": [
+          37.0,
+          5.0,
+          8.0,
+          0.0,
+          null,
+          0.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": null,
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            10,
+            16,
+            25.0,
+            24.0,
+            41.8,
+            96.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            11,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ],
+          [
+            11,
+            15,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=700;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ],
+          [
+            15,
+            16,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": [
+          [
+            false,
+            true,
+            0.0,
+            180.0,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr"
+          ]
+        ]
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/6/2/1)",
+          null
+        ],
+        "text": "第一项",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          40.0,
+          16.0,
+          0.0,
+          0.0,
+          null,
+          0.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": "1.",
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=listItem;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            3,
+            0.0,
+            24.0,
+            16.0,
+            48.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            3,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=listItem;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/6/4/1)",
+          null
+        ],
+        "text": "第二项",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          24.0,
+          0.0,
+          0.0,
+          0.0,
+          null,
+          0.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": "2.",
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=listItem;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            3,
+            0.0,
+            24.0,
+            16.0,
+            48.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            3,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=listItem;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/6/4/2/2/1)",
+          null
+        ],
+        "text": "嵌套项",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          40.0,
+          16.0,
+          0.0,
+          0.0,
+          null,
+          0.0,
+          0.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": "○",
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=listItem;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            3,
+            0.0,
+            24.0,
+            16.8,
+            48.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            3,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=listItem;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/10/1)",
+          null
+        ],
+        "text": "结尾正文。",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          26.0,
+          3.0,
+          -1.0,
+          0.0,
+          null,
+          0.0,
+          4.0
+        ],
+        "overlay": false,
+        "group": 0,
+        "marker": null,
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            5,
+            0.0,
+            24.0,
+            16.0,
+            80.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            5,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=justify;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAll;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      },
+      {
+        "cfi": [
+          "epubcfi(/6/2!/4/8/1)",
+          null
+        ],
+        "text": "固定页注",
+        "range": [
+          0,
+          1
+        ],
+        "geometry": [
+          24.0,
+          0.0,
+          0.0,
+          5.0,
+          10.0,
+          0.0,
+          0.0
+        ],
+        "overlay": true,
+        "group": 0,
+        "marker": null,
+        "style": "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+        "lines": [
+          [
+            0,
+            4,
+            0.0,
+            24.0,
+            16.8,
+            64.0
+          ]
+        ],
+        "runs": [
+          [
+            0,
+            4,
+            "fs=16.0;lh=24.0;ls=0.0;ws=0.0;ta=start;ti=0.0;tt=none;wsp=normal;fw=400;it=false;ff=Ahem;vc=normal;vl=normal;fk=auto;ffs=normal;fst=100.0;fsa=0.0;disp=block;vis=visible;hp=none;ts=trimAdjacent;as=none;tj=auto;al=auto;il=0.0;tab=8;lb=auto;tc=none;wm=horizontalTb;to=mixed;hy=manual;wb=normal;ow=normal;tov=clip;dir=ltr",
+            0.0
+          ]
+        ],
+        "images": [],
+        "footnotes": [],
+        "containers": []
+      }
+    ]
+  }
+]

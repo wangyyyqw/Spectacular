@@ -127,6 +127,11 @@ def build(workspace, url, args):
         "flutter", "build", "apk", "--release",
         "--target=integration_test/reader_perf_app.dart", "--target-platform=android-arm64",
         "--dart-define=PERF_SERVER=" + url,
+        "--dart-define=PERF_ROUNDS=" + str(args.rounds),
+        "--dart-define=PERF_SPINE=" + str(args.target_spine),
+        "--dart-define=PERF_FONT_SIZE=" + str(args.font_size),
+        "--dart-define=PERF_TITLE=" + args.title,
+        "--dart-define=PERF_RESIZE=" + ("true" if args.resize else "false"),
         "--dart-define=PERF_IMPORT=" + ("true" if args.measure_import else "false"),
         "--dart-define=PERF_LONG_SCAN=" + ("true" if args.long_scan else "false"),
         "--dart-define=PERF_FAR_JUMP=" + ("true" if args.far_jump else "false")], cwd=app)
@@ -199,6 +204,11 @@ def main():
     parser.add_argument("--book", type=Path, default=ROOT / "test_corpus/real/zhushen-yuxi.epub")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", help="可选基线 Git revision；当前测试入口保持不变")
+    parser.add_argument("--rounds", type=int, default=5, help="每种开书及字号变化的样本轮数")
+    parser.add_argument("--target-spine", type=int, default=29, help="开书恢复的 spine 序号")
+    parser.add_argument("--font-size", type=float, default=21, help="基准字号；字号测试往返基准和基准加一")
+    parser.add_argument("--title", default="诸神愚戏", help="隔离书架测试书名")
+    parser.add_argument("--resize", action="store_true", help="每轮测量真实阅读页字号更新及缓存恢复")
     parser.add_argument("--long-scan", action="store_true",
                         help="连续加载全书抽样章节并记录 RSS 与缓存状态")
     parser.add_argument("--far-jump", action=argparse.BooleanOptionalAction, default=True,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show FrameTiming;
 
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' show Value;
@@ -18,10 +19,19 @@ import 'package:reader_ui/panels/toc_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_mobile/reader/reader_settings.dart';
 
 /// 只由 device_reader_perf.py 在独立包运行；计时包含真实书架读盘和正文帧。
 const _server = String.fromEnvironment('PERF_SERVER');
 const _bookId = 'perf-book';
+const _rounds = int.fromEnvironment('PERF_ROUNDS', defaultValue: 5);
+const _targetSpine = int.fromEnvironment('PERF_SPINE', defaultValue: 29);
+final _fontSize = double.parse(
+  const String.fromEnvironment('PERF_FONT_SIZE', defaultValue: '21'),
+);
+const _measureResizing = bool.fromEnvironment('PERF_RESIZE');
+const _title = String.fromEnvironment('PERF_TITLE', defaultValue: '诸神愚戏');
+final _uiProbe = _UiProbe();
 final _navigator = GlobalKey<NavigatorState>();
 final _results = <String, Object?>{};
 
@@ -51,20 +61,23 @@ Future<void> main() async {
       directoryProvider: () async => root,
     );
     await library.setSetting('bookshelf.grid', 'false');
+    await ReaderSettingsStore(library)
+        .save(ReaderSettings(fontSize: _fontSize));
     runApp(
       MaterialApp(
         navigatorKey: _navigator,
         home: BookshelfPage(library: library, progressStore: progress),
       ),
     );
-    for (var round = 0; round < 3; round++) {
+    for (var round = 0; round < _rounds; round++) {
       await _openRound(progress, round);
-      if (round == 2 && const bool.fromEnvironment('PERF_LONG_SCAN')) {
+      if (round == _rounds - 1 &&
+          const bool.fromEnvironment('PERF_LONG_SCAN')) {
         await _scanLongBook();
       }
       // 首轮最后跳到第 32 章，后续轮次停在第 29 章。旧阅读页的进度落盘
       // 是异步的，必须等它真正写入后再清进度，否则下一轮会被旧位置覆盖。
-      final closingSpine = round == 0 ? 32 : 29;
+      final closingSpine = !_measureResizing && round == 0 ? 32 : _targetSpine;
       _navigator.currentState!.pop();
       await _until(() => _find<ReaderPage>((_) => true) == null);
       await _untilProgress(progress, closingSpine);
@@ -138,11 +151,11 @@ Future<void> _seedBook(AppDatabase db, File file) async {
         BooksCompanion.insert(
           id: const Value(1),
           uuid: _bookId,
-          title: '诸神愚戏',
+          title: _title,
           contentDir: file.parent.path,
           sourcePath: Value(file.path),
           contentRevision: Value(revision),
-          spineCount: const Value(1541),
+          spineCount: Value(await _chapterCount(file)),
           createdAt: DateTime.now().millisecondsSinceEpoch,
         ),
       );
@@ -164,13 +177,14 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
   // 每轮都从第 29 章开。存储层在 cfi 为空且已有内容锚点时会保留旧位置
   // （书架标"读完"不得清掉锚点），所以先清进度再写入，并读回确认。
   await progress.clear(_bookId);
-  const target = ReaderProgress(spineIndex: 29, pageIndex: 0);
+  const target = ReaderProgress(spineIndex: _targetSpine, pageIndex: 0);
   await progress.save(_bookId, target);
   final restored = await progress.load(_bookId);
-  if (restored?.spineIndex != 29) {
+  if (restored?.spineIndex != _targetSpine) {
     throw StateError('第 $round 轮写入第 29 章失败，当前 ${restored?.spineIndex}');
   }
   await _until(() => _bookTile() != null);
+  _uiProbe.start();
   final watch = Stopwatch()..start();
   // BookOpener 在返回书架后还要完成进度落盘与 touchLastRead；这期间的
   // 重开点击会被防重入逻辑忽略。性能测试按真实用户可以再次点击的行为
@@ -185,8 +199,12 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
     await Future<void>.delayed(const Duration(milliseconds: 250));
   }
   if (!opened) throw StateError('第 $round 轮开书超时');
-  _results['open_$round'] = await _sample(watch, 29);
+  _results['open_$round'] = await _sample(watch, _targetSpine);
   await _send('sample', _results);
+  if (_measureResizing) {
+    await _resizeRound(round);
+    return;
+  }
   if (round != 0) return;
   for (final spine in [
     30,
@@ -196,6 +214,78 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
     32,
   ]) {
     await _jump(spine);
+  }
+}
+
+Future<int> _chapterCount(File file) async {
+  final source = await EpubChapterSource.openFile(file, verifyCrc: false);
+  try {
+    return source.chapterCount;
+  } finally {
+    source.close();
+  }
+}
+
+Future<void> _resizeRound(int round) async {
+  for (final size in [_fontSize + 1, _fontSize]) {
+    final reader = _find<ReaderPage>((_) => true)!;
+    final previous = _find<ReaderSemanticsLayer>((_) => true)!.page;
+    _uiProbe.start();
+    final watch = Stopwatch()..start();
+    reader.onOverridesChanged!(reader.overrides!.copyWith(fontSize: size));
+    await _until(
+      () =>
+          !identical(previous, _find<ReaderSemanticsLayer>((_) => true)?.page),
+    );
+    final sample = await _sample(watch, _targetSpine);
+    _results['resize_${round}_$size'] = sample;
+    await _send('sample', _results);
+  }
+}
+
+/// 事件循环间隔与真实帧耗时分别记录；同设备前后使用同一探针。
+class _UiProbe {
+  Timer? _timer;
+  final Stopwatch _watch = Stopwatch();
+  int _last = 0;
+  int _maximumGap = 0;
+  int _maximumBuild = 0;
+  int _maximumRaster = 0;
+
+  void start() {
+    _timer?.cancel();
+    WidgetsBinding.instance.removeTimingsCallback(_frames);
+    _last = _maximumGap = _maximumBuild = _maximumRaster = 0;
+    _watch
+      ..reset()
+      ..start();
+    WidgetsBinding.instance.addTimingsCallback(_frames);
+    _timer = Timer.periodic(const Duration(milliseconds: 4), (_) {
+      final now = _watch.elapsedMicroseconds;
+      final gap = now - _last;
+      if (gap > _maximumGap) _maximumGap = gap;
+      _last = now;
+    });
+  }
+
+  void _frames(List<FrameTiming> frames) {
+    for (final frame in frames) {
+      final build = frame.buildDuration.inMicroseconds;
+      final raster = frame.rasterDuration.inMicroseconds;
+      if (build > _maximumBuild) _maximumBuild = build;
+      if (raster > _maximumRaster) _maximumRaster = raster;
+    }
+  }
+
+  Map<String, Object> finish() {
+    _timer?.cancel();
+    _watch.stop();
+    WidgetsBinding.instance.removeTimingsCallback(_frames);
+    return {
+      'longest_ui_gap_ms': _maximumGap / 1000,
+      'longest_build_ms': _maximumBuild / 1000,
+      'longest_raster_ms': _maximumRaster / 1000,
+    };
   }
 }
 
@@ -235,6 +325,7 @@ Future<Map<String, Object>> _sample(Stopwatch watch, int spine) async {
   await WidgetsBinding.instance.endOfFrame;
   final source = _find<ReaderPage>((_) => true)?.source;
   return {
+    ..._uiProbe.finish(),
     'text_ms': textMs,
     'images_ms': imagesMs,
     'complete_ms': watch.elapsedMilliseconds,
