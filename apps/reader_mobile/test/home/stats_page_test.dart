@@ -126,8 +126,12 @@ void main() {
       'c': ProgressWeights.fromCharCounts([25, 25]),
     });
     final progress = _FakeProgressStore({
-      'a': const ReaderProgress(spineIndex: 1, pageIndex: 0),
-      'b': const ReaderProgress(spineIndex: 0, pageIndex: 0),
+      'a': const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        readingPercent: 0.6,
+      ),
+      'b': const ReaderProgress(spineIndex: 0, pageIndex: 0, readingPercent: 0),
     });
 
     await tester.pumpWidget(
@@ -762,10 +766,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('统计加载失败'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('stats-retry')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey<String>('stats-retry')), findsOneWidget);
   });
 }
 

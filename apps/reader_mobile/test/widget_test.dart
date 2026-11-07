@@ -44,7 +44,7 @@ void main() {
 
     await tester.tap(find.text('我的'));
     await _settle(tester);
-    expect(find.text('排版引擎'), findsOneWidget);
+    expect(find.text('书架排序'), findsOneWidget);
   });
 
   testWidgets('书架：导入后出现书籍卡片，可进入阅读并返回', (tester) async {

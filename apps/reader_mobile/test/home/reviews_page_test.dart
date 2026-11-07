@@ -102,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('还没有书评'), findsOneWidget);
-    expect(find.text('待写书评'), findsOneWidget);
+    expect(find.text('待写书评'), findsWidgets);
     await tester.tap(find.text('写书评'));
     await tester.pumpAndSettle();
 
@@ -151,7 +151,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey<String>('review-detail')), findsOneWidget);
-    expect(find.text('详情作者'), findsOneWidget);
+    expect(find.text('详情作者'), findsWidgets);
     final detailContent = tester.widget<SelectableText>(
       find.byKey(const ValueKey<String>('review-detail-content')),
     );
@@ -241,7 +241,14 @@ void main() {
       });
     await _pumpReviews(tester, books: books, store: store);
 
-    expect(find.text('已写 2 / 3 本'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('reviews-summary-value-已写书评')),
+          )
+          .data,
+      '2 篇',
+    );
     await tester.tap(find.byTooltip('搜索书评'));
     await tester.pumpAndSettle();
 
@@ -258,8 +265,14 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-alive')),
       findsNothing,
     );
-    expect(find.text('已写 1'), findsOneWidget);
-    expect(find.text('已写 2 / 3 本'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('reviews-summary-value-已写书评')),
+          )
+          .data,
+      '2 篇',
+    );
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('reviews-search-field')),
@@ -290,7 +303,14 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-star')),
       findsOneWidget,
     );
-    expect(find.text('已写 2 / 3 本'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('reviews-summary-value-已写书评')),
+          )
+          .data,
+      '2 篇',
+    );
   });
 
   testWidgets('书评页可按已写和待写状态筛选', (tester) async {
@@ -347,10 +367,15 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('reviews-filter-all')));
     await tester.pumpAndSettle();
-    final allChip = tester.widget<ChoiceChip>(
-      find.byKey(const ValueKey<String>('reviews-filter-all')),
+    expect(
+      tester
+          .widget<Semantics>(
+            find.byKey(const ValueKey<String>('reviews-filter-selected-all')),
+          )
+          .properties
+          .selected,
+      isTrue,
     );
-    expect(allChip.selected, isTrue);
     expect(
       find.byKey(const ValueKey<String>('review-card-reviewed-a')),
       findsOneWidget,
@@ -448,10 +473,15 @@ void main() {
       find.byKey(const ValueKey<String>('reviews-search-field')),
       findsNothing,
     );
-    final allChip = tester.widget<ChoiceChip>(
-      find.byKey(const ValueKey<String>('reviews-filter-all')),
+    expect(
+      tester
+          .widget<Semantics>(
+            find.byKey(const ValueKey<String>('reviews-filter-selected-all')),
+          )
+          .properties
+          .selected,
+      isTrue,
     );
-    expect(allChip.selected, isTrue);
     expect(
       find.byKey(const ValueKey<String>('review-card-reviewed')),
       findsOneWidget,

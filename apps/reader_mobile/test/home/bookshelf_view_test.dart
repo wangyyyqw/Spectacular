@@ -16,8 +16,15 @@ Future<void> _settle(WidgetTester tester, {int frames = 8}) async {
 
 /// 列表视图里的书名顺序。
 List<String> _listTitles(WidgetTester tester) => <String>[
-  for (final tile in tester.widgetList<ListTile>(find.byType(ListTile)))
-    ((tile.title as Text).data) ?? '',
+  for (final text in tester.widgetList<Text>(
+    find.descendant(
+      of: find.byKey(const ValueKey<String>('bookshelf-list')),
+      matching: find.byType(Text),
+    ),
+  ))
+    if (text.key is ValueKey<String> &&
+        (text.key! as ValueKey<String>).value.startsWith('book-row-title-'))
+      text.data ?? '',
 ];
 
 void main() {
@@ -77,7 +84,7 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-list')),
       findsOneWidget,
     );
-    expect(find.text('测试作者 · 未开始'), findsNWidgets(entries.length));
+    expect(find.text('未开始 · 测试作者'), findsNWidgets(entries.length));
     expect(
       find.byWidgetPredicate(
         (widget) =>

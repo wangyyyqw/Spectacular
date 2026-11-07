@@ -60,11 +60,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('山海小记'), findsWidgets);
-    expect(find.text('正在展开'), findsOneWidget);
+    expect(find.text('正在打开'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is Hero && widget.tag == bookCoverHeroTag(entry.id),
+        (widget) => widget is Hero && widget.tag == bookCoverHeroTag(entry.id),
       ),
       findsOneWidget,
     );

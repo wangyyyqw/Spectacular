@@ -43,7 +43,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('告警书'), findsWidgets);
-    expect(find.textContaining('可读性：L'), findsOneWidget);
+    expect(find.text('内容完整'), findsOneWidget);
     expect(find.text('E_MANIFEST_MEDIA_TYPE_INFERRED'), findsOneWidget);
     expect(find.textContaining('缺少 media-type'), findsOneWidget);
     expect(find.text('导入报告'), findsOneWidget);
@@ -71,7 +71,7 @@ void main() {
     final coverSize = tester.getSize(
       find.byKey(const ValueKey<String>('book-detail-cover')),
     );
-    expect(coverSize.width / coverSize.height, closeTo(4 / 3, 0.001));
+    expect(coverSize, const Size(80, 108));
   });
 
   testWidgets('点删除返回 delete，由书架执行确认流程', (tester) async {

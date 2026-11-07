@@ -314,6 +314,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
       pageIndex: existing?.pageIndex ?? 0,
       finished: true,
       scrollOffset: existing?.scrollOffset,
+      cfi: existing?.cfi,
+      contentRevision: existing?.contentRevision,
+      approximate: existing?.approximate ?? false,
+      readingPercent: existing?.readingPercent,
+      layoutFingerprint: existing?.layoutFingerprint,
     );
     try {
       await progressStore.save(_entry.id, progress);
@@ -375,6 +380,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
       pageIndex: existing?.pageIndex ?? 0,
       finished: false,
       scrollOffset: existing?.scrollOffset,
+      cfi: existing?.cfi,
+      contentRevision: existing?.contentRevision,
+      approximate: existing?.approximate ?? false,
+      readingPercent: existing?.readingPercent,
+      layoutFingerprint: existing?.layoutFingerprint,
     );
     try {
       await progressStore.save(_entry.id, progress);

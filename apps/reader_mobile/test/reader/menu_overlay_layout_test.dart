@@ -49,7 +49,12 @@ void main() {
     expect(session.layoutFingerprint, fingerprint, reason: '开抽屉不重排');
 
     // 关闭抽屉 → 关闭菜单。
-    await tester.tap(find.byKey(const ValueKey<String>('menu-drawer-close')));
+    await tester.tapAt(
+      tester.getTopLeft(
+            find.byKey(const ValueKey<String>('menu-drawer-mask')),
+          ) +
+          const Offset(12, 12),
+    );
     await tester.pumpAndSettle();
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();

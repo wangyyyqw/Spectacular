@@ -15,6 +15,12 @@ import 'package:reader_ui/theme/reader_theme.dart';
 
 import '../support/test_epub.dart';
 
+Future<void> _pumpFrames(WidgetTester tester, {int frames = 30}) async {
+  for (var i = 0; i < frames; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
 Future<void> _savePreview(WidgetTester tester, String name) async {
   final boundary = tester.renderObject<RenderRepaintBoundary>(
     find.byKey(const ValueKey('界面预览')),
@@ -67,7 +73,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester);
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.byType(BottomNavigationBar), findsOneWidget);
     expect(find.text('山海之间'), findsWidgets);
@@ -79,12 +85,12 @@ void main() {
           matching: find.text(label),
         ),
       );
-      await tester.pumpAndSettle();
+      await _pumpFrames(tester);
       expect(tester.takeException(), isNull);
       await _savePreview(tester, label);
     }
     await tester.tap(find.byKey(const ValueKey('bookshelf-sort-setting')));
-    await tester.pumpAndSettle();
+    await _pumpFrames(tester, frames: 8);
     expect(find.text('书架排序'), findsWidgets);
     expect(find.byType(AlertDialog), findsOneWidget);
     final theme = buildAppTheme();
@@ -125,7 +131,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await _pumpFrames(tester, frames: 8);
       expect(panel!.colorScheme.surface, theme.background);
       expect(panel!.colorScheme.inverseSurface, theme.text);
       expect(panel!.colorScheme.onInverseSurface, theme.background);

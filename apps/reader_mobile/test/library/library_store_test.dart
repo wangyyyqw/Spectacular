@@ -109,8 +109,9 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('library_dup');
     addTearDown(() => dir.deleteSync(recursive: true));
     final store = _open(dir).store;
-    await store.importBytes(buildTestEpub(title: '唯一书'));
-    final again = await store.importBytes(buildTestEpub(title: '唯一书'));
+    final bytes = buildTestEpub(title: '唯一书');
+    await store.importBytes(bytes);
+    final again = await store.importBytes(bytes);
     expect(again.importOutcome, BookImportOutcome.unchanged);
     expect(await store.list(), hasLength(1));
   });

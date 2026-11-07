@@ -14,13 +14,15 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 List<String> _listTitles(WidgetTester tester) => <String>[
-  for (final tile in tester.widgetList<ListTile>(
+  for (final text in tester.widgetList<Text>(
     find.descendant(
       of: find.byKey(const ValueKey<String>('bookshelf-list')),
-      matching: find.byType(ListTile),
+      matching: find.byType(Text),
     ),
   ))
-    ((tile.title as Text).data) ?? '',
+    if (text.key is ValueKey<String> &&
+        (text.key! as ValueKey<String>).value.startsWith('book-row-title-'))
+      text.data ?? '',
 ];
 
 void main() {

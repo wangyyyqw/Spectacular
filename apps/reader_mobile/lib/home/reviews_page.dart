@@ -433,6 +433,7 @@ class _ReviewFilterBar extends StatelessWidget {
         for (final filter in _ReviewFilter.values)
           Expanded(
             child: Semantics(
+              key: ValueKey<String>('reviews-filter-selected-${filter.name}'),
               selected: filter == selected,
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -604,6 +605,7 @@ class _SummaryValue extends StatelessWidget {
           children: [
             Text(
               value,
+              key: ValueKey<String>('reviews-summary-value-$label'),
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontSize: 24,
                 fontWeight: FontWeight.w600,

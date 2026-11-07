@@ -113,6 +113,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
     await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('drawer-tab-bookmarks')),
+    );
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('drawer-add-bookmark')),
       findsOneWidget,
