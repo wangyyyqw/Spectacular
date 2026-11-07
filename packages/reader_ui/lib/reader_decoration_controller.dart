@@ -9,8 +9,12 @@ extension _ReaderDecorationController on _ReaderPageState {
       ).isNotEmpty;
 
   List<ReaderDecoration> get _orderedManualDecorations =>
-      List.of(_resolvedDecorations)
-        ..sort((left, right) => left.createdAt.compareTo(right.createdAt));
+      List.of(_resolvedDecorations)..sort(_compareManualDecorations);
+
+  int _compareManualDecorations(ReaderDecoration left, ReaderDecoration right) {
+    final creation = left.createdAt.compareTo(right.createdAt);
+    return creation == 0 ? left.id.compareTo(right.id) : creation;
+  }
 
   List<ReaderTextOverlay> get _textOverlays => [
     for (final matches in _chapterRuleMatches.values)
@@ -32,12 +36,17 @@ extension _ReaderDecorationController on _ReaderPageState {
         ),
   ];
 
-  ReaderTextOverlay _manualTextOverlay(ReaderDecoration decoration) {
+  ReaderTextOverlay _manualTextOverlay(
+    ReaderDecoration decoration, {
+    bool checkFontAvailability = true,
+  }) {
     final style = decoration.style;
     return ReaderTextOverlay(
       startCfi: decoration.startCfi,
       endCfi: decoration.endCfi,
-      fontFamily: _unavailableDecorationFonts.contains(style.fontFamily)
+      fontFamily:
+          checkFontAvailability &&
+              _unavailableDecorationFonts.contains(style.fontFamily)
           ? null
           : style.fontFamily,
       fontSizeScale: style.fontSizeScale,
@@ -105,7 +114,12 @@ extension _ReaderDecorationController on _ReaderPageState {
     _decorationLoading = true;
     final anchor = _session.currentCfi;
     try {
-      if (!await _readDecorationStores(generation)) return false;
+      if (!await (_decorationStoresTask = _readDecorationStores(generation))) {
+        return false;
+      }
+      if (widget.source is PreparedChapterSource) {
+        return await _reloadPreparedDecorations(generation, anchor);
+      }
       if (!await _verifyManualDecorations(generation)) return false;
       await _loadDecorationFonts(generation);
       if (!_currentDecorationRequest(generation)) return false;
@@ -136,28 +150,130 @@ extension _ReaderDecorationController on _ReaderPageState {
     }
   }
 
+  Future<bool> _reloadPreparedDecorations(
+    int generation,
+    String? anchor,
+  ) async {
+    final current = _session.page;
+    var restored = true;
+    if (current != null) {
+      final changed = await _prepareDecorationsForLayout(current.spineIndex);
+      restored = await _restoreDecorationPosition(changed, anchor, generation);
+      if (!_currentDecorationRequest(generation)) return false;
+      await _prepareDecorationChapter(generation: generation);
+    }
+    await _loadDecorationImages(generation);
+    return restored && _currentDecorationRequest(generation);
+  }
+
+  Future<void> _prepareChapterBeforeLayout(int spineIndex) async {
+    int generation;
+    do {
+      generation = _decorationGeneration;
+      await _prepareDecorationsForLayout(spineIndex);
+      if (!mounted) throw const ChapterLoadCancelled();
+    } while (generation != _decorationGeneration);
+  }
+
+  Future<void> _waitForDecorationStores() async {
+    Future<bool>? task;
+    do {
+      task = _decorationStoresTask;
+      try {
+        await task;
+      } catch (_) {
+        // 读取失败由装饰控制器提示，正文保留最后一份已核验装饰。
+      }
+    } while (mounted && !identical(task, _decorationStoresTask));
+  }
+
+  /// 原文核验和字体准备在章节源冻结输入前完成；不等待首屏分页。
+  Future<bool> _prepareDecorationsForLayout(int spineIndex) async {
+    await _waitForDecorationStores();
+    final generation = _decorationGeneration;
+    if (!_currentDecorationRequest(generation)) return false;
+    final key = (generation, spineIndex);
+    final pending = _chapterDecorationPreparations[key];
+    if (pending != null) {
+      await pending;
+      return false;
+    }
+    final task = _prepareChapterDecorations(spineIndex, generation);
+    _chapterDecorationPreparations[key] = task;
+    try {
+      return await task;
+    } catch (_) {
+      if (identical(_chapterDecorationPreparations[key], task)) {
+        unawaited(_chapterDecorationPreparations.remove(key));
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> _prepareChapterDecorations(
+    int spineIndex,
+    int generation,
+  ) async {
+    if (!await _verifyManualDecorations(generation, spineIndex: spineIndex)) {
+      return false;
+    }
+    await _loadDecorationFonts(generation, spineIndex: spineIndex);
+    if (!_currentDecorationRequest(generation)) return false;
+    final source = widget.source;
+    final changed =
+        source is ReaderTextOverlaySource &&
+        await (source as ReaderTextOverlaySource).applyTextOverlays(
+          _textOverlays,
+        );
+    if (_currentDecorationRequest(generation)) {
+      _changeReaderState(() => _painter = _buildPainter());
+    }
+    return changed;
+  }
+
   Future<bool> _readDecorationStores(int generation) async {
-    final items =
-        await widget.decorations?.list() ?? const <ReaderDecoration>[];
-    final groups =
-        await widget.decorationRules?.listGroups() ??
-        const <ReaderDecorationRuleGroup>[];
-    final rules =
-        await widget.decorationRules?.listRules() ??
-        const <ReaderDecorationRule>[];
+    final itemsTask = widget.decorations?.list();
+    final groupsTask = widget.decorationRules?.listGroups();
+    final rulesTask = widget.decorationRules?.listRules();
+    final items = await itemsTask ?? const <ReaderDecoration>[];
+    final groups = await groupsTask ?? const <ReaderDecorationRuleGroup>[];
+    final rules = await rulesTask ?? const <ReaderDecorationRule>[];
     if (!_currentDecorationRequest(generation)) return false;
     _changeReaderState(() {
       _decorations = items;
       _decorationGroups = groups;
       _decorationRules = rules;
-      _resolvedDecorations = const [];
+      _manualDecorationsByChapter.clear();
+      _chapterDecorationPreparations.clear();
       _chapterRuleMatches.clear();
       _decorationScheduledChapters.clear();
     });
+    final source = widget.source;
+    if (source case BookTypographyFontSource fonts) {
+      fonts.setBookTypographyFamilies({
+        for (final item in items) ?item.style.fontFamily,
+      });
+    }
+    if (source is PreparedChapterSource) {
+      final ordered = List.of(items)..sort(_compareManualDecorations);
+      source.setBookTypographyFingerprint(
+        ReaderTextOverlayResolver([
+          for (final item in ordered)
+            _manualTextOverlay(item, checkFontAvailability: false),
+        ], colors: false).typographyFingerprint,
+      );
+    }
     return true;
   }
 
-  Future<bool> _verifyManualDecorations(int generation) async {
+  Future<bool> _verifyManualDecorations(
+    int generation, {
+    int? spineIndex,
+  }) async {
+    final source = widget.source;
+    if (spineIndex != null && source is AnchorChapterSource) {
+      return _verifyDecorationAnchors(source, spineIndex, generation);
+    }
     final chapters = <int, List<ReaderDecoration>>{};
     for (final decoration in _decorations) {
       if (decoration.needsRelocation) continue;
@@ -180,6 +296,41 @@ extension _ReaderDecorationController on _ReaderPageState {
       );
     }
     _changeReaderState(() => _resolvedDecorations = verified);
+    return true;
+  }
+
+  Future<bool> _verifyDecorationAnchors(
+    AnchorChapterSource source,
+    int spine,
+    int generation,
+  ) async {
+    if (_manualDecorationsByChapter.containsKey(spine)) return true;
+    final items = _decorations.where((decoration) {
+      if (decoration.needsRelocation) return false;
+      final parsedFirst = EpubCfi.parse(decoration.startCfi);
+      final parsedLast = EpubCfi.parse(decoration.endCfi);
+      final first = parsedFirst == null ? null : spineIndexOfCfi(parsedFirst);
+      final last = parsedLast == null ? null : spineIndexOfCfi(parsedLast);
+      return first != null && last != null && first <= spine && spine <= last;
+    }).toList();
+    final verified = items.isEmpty
+        ? const <ReaderDecoration>[]
+        : ReaderDecorationRelocator.resolveAnchors(
+            decorations: items,
+            book: AnchorBook(
+              revision: widget.contentRevision ?? 'reader-layout',
+              chapters: [await source.loadAnchorChapter(spine)],
+            ),
+          );
+    if (!_currentDecorationRequest(generation)) return false;
+    _changeReaderState(() {
+      _manualDecorationsByChapter[spine] = verified;
+      final unique = <String, ReaderDecoration>{
+        for (final chapter in _manualDecorationsByChapter.values)
+          for (final decoration in chapter) decoration.id: decoration,
+      };
+      _resolvedDecorations = unique.values.toList();
+    });
     return true;
   }
 
@@ -218,23 +369,52 @@ extension _ReaderDecorationController on _ReaderPageState {
     ).isNotEmpty;
   }
 
-  Future<void> _loadDecorationFonts(int generation) async {
+  Future<void> _loadDecorationFonts(int generation, {int? spineIndex}) async {
     final loader = widget.onLoadFont;
     if (loader == null) return;
     final fonts = {
-      for (final decoration in _orderedManualDecorations)
+      for (final decoration
+          in spineIndex == null
+              ? _orderedManualDecorations
+              : _manualDecorationsByChapter[spineIndex] ??
+                    const <ReaderDecoration>[])
         if (decoration.style.fontFamily != null) decoration.style.fontFamily!,
     };
     for (final family in fonts) {
       try {
-        await loader(family);
+        await _ensureDecorationFont(family, loader);
         if (!_currentDecorationRequest(generation)) return;
         _unavailableDecorationFonts.remove(family);
+        _reportDecorationFontAvailability(family, true);
       } catch (_) {
         if (!_currentDecorationRequest(generation)) return;
-        if (_unavailableDecorationFonts.add(family)) {
+        final newlyUnavailable = _unavailableDecorationFonts.add(family);
+        _reportDecorationFontAvailability(family, false);
+        if (newlyUnavailable) {
           _showToast('装饰字体加载失败，已跟随正文');
         }
+      }
+    }
+  }
+
+  void _reportDecorationFontAvailability(String family, bool available) {
+    if (widget.source case BookTypographyFontSource source) {
+      source.setBookTypographyFontAvailability(family, available);
+    }
+  }
+
+  Future<void> _ensureDecorationFont(
+    String family,
+    Future<void> Function(String) loader,
+  ) async {
+    if (_loadedDecorationFonts.contains(family)) return;
+    final task = _decorationFontLoads.putIfAbsent(family, () => loader(family));
+    try {
+      await task;
+      if (mounted) _loadedDecorationFonts.add(family);
+    } finally {
+      if (identical(_decorationFontLoads[family], task)) {
+        unawaited(_decorationFontLoads.remove(family));
       }
     }
   }

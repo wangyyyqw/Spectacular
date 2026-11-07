@@ -198,6 +198,18 @@ class _GatedSource implements ReaderChapterSource {
   }
 }
 
+class _DelayedNeighbors extends _Source {
+  final gate = Completer<void>();
+  final requested = <int>[];
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    requested.add(spineIndex);
+    if (spineIndex != 2) await gate.future;
+    return super.loadChapter(spineIndex);
+  }
+}
+
 Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
   for (var i = 0; i < 20 && !condition(); i++) {
     await tester.pump(const Duration(milliseconds: 100));
@@ -262,6 +274,10 @@ void main() {
     );
     final restoredScrollable = tester.state<ScrollableState>(
       find.byType(Scrollable),
+    );
+    await _pumpUntil(
+      tester,
+      () => (restoredScrollable.position.pixels - 9445).abs() < 0.01,
     );
     expect(restoredScrollable.position.pixels, closeTo(9445, 0.01));
     expect(session.progress?.spineIndex, 2);
@@ -404,6 +420,7 @@ void main() {
     );
 
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    await _pumpUntil(tester, () => scrollable.position.pixels > 9000);
     scrollable.position.jumpTo(80);
     await tester.pump(const Duration(milliseconds: 200));
     await _pumpUntil(tester, () => source.loads.contains(0));
@@ -418,6 +435,57 @@ void main() {
       closeTo(-60, 1),
     );
     session.dispose();
+  });
+
+  testWidgets('滚动首屏不等待邻章，补章期间仍可阅读并保存最新位置', (tester) async {
+    final source = _DelayedNeighbors();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'delayed-neighbors',
+      const ReaderProgress(spineIndex: 2, pageIndex: 1, scrollOffset: 125),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'delayed-neighbors',
+    );
+    await session.open();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 320,
+          height: 480,
+          child: ContinuousScrollView(
+            session: session,
+            revision: 1,
+            padding: const EdgeInsets.all(20),
+            paperBuilder: (page, size) => ColoredBox(
+              key: ValueKey('delayed-${page.spineIndex}-${page.pageIndex}'),
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntil(tester, () => source.requested.contains(1));
+    expect(source.gate.isCompleted, isFalse);
+    expect(
+      find.byKey(const ValueKey('continuous-scroll-loading')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('delayed-2-1')), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(session.progress!.pageIndex, greaterThanOrEqualTo(2));
+    final before = session.progress;
+    source.gate.complete();
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(session.progress, before, reason: '补邻章不能把用户新位置还原成开书位置');
+    await session.flushProgress();
+    session.dispose();
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('连续滚动只保留视口附近的章节', (tester) async {

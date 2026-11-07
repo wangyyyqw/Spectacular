@@ -27,11 +27,13 @@ class VirtualPager {
   VirtualPager({
     required this.spineCount,
     required this.loader,
+    this.prefetchLoader,
     this.prefetchRadius = 1,
   }) : assert(spineCount >= 0);
 
   final int spineCount;
   final SpinePagesLoader loader;
+  final SpinePagesLoader? prefetchLoader;
 
   /// 从已加载章节中提供的前后邻页数，不触发额外整章排版。
   final int prefetchRadius;
@@ -44,6 +46,7 @@ class VirtualPager {
   final Map<int, int> _spinePageCounts = <int, int>{};
   final Map<int, int> _pageOffsets = <int, int>{};
   final Map<int, Future<void>> _pendingLoads = {};
+  final Set<int> _pendingPrefetchSpines = {};
   (int, int)? _currentReal;
   bool _initialized = false;
   int _navigationToken = 0;
@@ -103,7 +106,10 @@ class VirtualPager {
   Future<bool> previous() => _movePage(-1);
 
   /// 准备真实邻页但不改变阅读位置；空章按内容顺序跳过。
-  Future<VirtualPage?> prepareAdjacent(int direction) async {
+  Future<VirtualPage?> prepareAdjacent(
+    int direction, {
+    bool prefetch = false,
+  }) async {
     assert(direction == -1 || direction == 1);
     final origin = _currentReal;
     if (origin == null) return null;
@@ -114,7 +120,7 @@ class VirtualPager {
       spine >= 0 && spine < spineCount;
       spine += direction
     ) {
-      await _loadSpine(spine);
+      await _loadSpine(spine, prefetch: prefetch);
       final pages = _spinePages[spine]!;
       if (pages.isNotEmpty) {
         return _pageAt((spine, direction < 0 ? pages.length - 1 : 0));
@@ -203,17 +209,22 @@ class VirtualPager {
     return false;
   }
 
-  Future<void> _loadSpine(int spine) async {
+  Future<void> _loadSpine(int spine, {bool prefetch = false}) async {
     if (_spinePages.containsKey(spine)) {
       _touchSpine(spine);
       return;
     }
+    if (!prefetch &&
+        prefetchLoader != null &&
+        _pendingPrefetchSpines.remove(spine)) {
+      // 用户已开始读预取中的章节，为同一在途作业增加前台等待者并提升优先级。
+      _storeSpine(spine, await loader(spine));
+      return;
+    }
     final pending = _pendingLoads.putIfAbsent(spine, () async {
-      final pages = await loader(spine);
-      _spinePages[spine] = List<PageContent>.unmodifiable(pages);
-      _recordPageCount(spine, pages.length);
-      _touchSpine(spine);
-      _trimSpinePages();
+      if (prefetch) _pendingPrefetchSpines.add(spine);
+      final pages = await (prefetch ? prefetchLoader ?? loader : loader)(spine);
+      _storeSpine(spine, pages);
     });
     try {
       await pending;
@@ -221,7 +232,17 @@ class VirtualPager {
       _pendingLoads.removeWhere(
         (key, value) => key == spine && identical(value, pending),
       );
+      if (!_pendingLoads.containsKey(spine)) {
+        _pendingPrefetchSpines.remove(spine);
+      }
     }
+  }
+
+  void _storeSpine(int spine, List<PageContent> pages) {
+    _spinePages[spine] = List<PageContent>.unmodifiable(pages);
+    _recordPageCount(spine, pages.length);
+    _touchSpine(spine);
+    _trimSpinePages();
   }
 
   void _commitCurrent((int, int) position) {

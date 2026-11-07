@@ -121,6 +121,16 @@ abstract final class AnnotationRelocator {
           AnchorChapter(spineIndex: entry.key, href: '', blocks: entry.value),
       ],
     );
+    return relocateAnchors(annotations: annotations, book: book, pages: pages);
+  }
+
+  /// 使用已聚合原文核验，不需要先生成章节页面。
+  static List<AnnotationRelocation> relocateAnchors({
+    required List<ReaderAnnotation> annotations,
+    required AnchorBook book,
+    List<PageContent> pages = const <PageContent>[],
+  }) {
+    if (annotations.isEmpty || book.chapters.isEmpty) return const [];
     return [for (final item in annotations) _relocateOne(item, book, pages)];
   }
 
@@ -194,7 +204,7 @@ abstract final class AnnotationRelocator {
         : AnnotationRelocationStatus.relocated,
     startCfi: start,
     endCfi: end,
-    page: pages.first,
+    page: pages.firstOrNull,
   );
 
   static AnnotationRelocation _failed(
