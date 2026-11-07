@@ -163,6 +163,23 @@ class _ShortTailSource implements ReaderChapterSource {
   }
 }
 
+class _MissingScrollSource
+    implements ReaderChapterSource, MissingChapterSource {
+  final missing = <int>{1, 3};
+
+  @override
+  int get chapterCount => 5;
+
+  @override
+  bool isChapterMissing(int spineIndex) => missing.contains(spineIndex);
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (missing.contains(spineIndex)) return const <PageContent>[];
+    return [for (var page = 0; page < 3; page++) _page(spineIndex, page)];
+  }
+}
+
 /// 延迟指定章节加载，模拟真机补章期间的点击。
 class _GatedSource implements ReaderChapterSource {
   _GatedSource(this.inner);
@@ -247,10 +264,9 @@ void main() {
       find.byType(Scrollable),
     );
     expect(restoredScrollable.position.pixels, closeTo(9445, 0.01));
-    expect(
-      session.progress,
-      const ReaderProgress(spineIndex: 2, pageIndex: 1, scrollOffset: 125),
-    );
+    expect(session.progress?.spineIndex, 2);
+    expect(session.progress?.pageIndex, 1);
+    expect(session.progress?.scrollOffset, 125);
     expect(built.length, lessThan(90), reason: '长章节只构建可见范围');
 
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
@@ -296,10 +312,9 @@ void main() {
     scrollable.position.jumpTo(350);
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(
-      session.progress,
-      const ReaderProgress(spineIndex: 0, pageIndex: 1, scrollOffset: 30),
-    );
+    expect(session.progress?.spineIndex, 0);
+    expect(session.progress?.pageIndex, 1);
+    expect(session.progress?.scrollOffset, 30);
     session.dispose();
   });
 
@@ -501,11 +516,13 @@ void main() {
       targetLine.start,
     );
     await session.jumpToCfi(targetCfi, continuous: true);
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
     await _pumpUntil(
       tester,
       () =>
           session.progress?.pageIndex == 5 &&
-          session.progress?.scrollOffset != null,
+          session.progress?.scrollOffset != null &&
+          scrollable.position.pixels > 100,
     );
 
     final layout = ScrollChapterLayout.fromPages(0, source.pages);
@@ -514,7 +531,6 @@ void main() {
       targetY += slice.block.layout.lines[i].height;
     }
     final expected = 20 + layout.offsetOfPage(targetPage.pageIndex) + targetY;
-    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
     await _pumpUntil(tester, () => scrollable.position.pixels > 20);
     expect(scrollable.position.pixels, closeTo(expected, 0.01));
     session.dispose();
@@ -622,6 +638,7 @@ void main() {
       unawaited(key.currentState!.scrollPage(true));
       await tester.pumpAndSettle();
     }
+    await tester.pump(const Duration(milliseconds: 200));
 
     expect(source.loads, contains(2));
     expect(session.progress?.spineIndex, 2);
@@ -669,10 +686,11 @@ void main() {
 
     await tester.pumpAndSettle();
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    // 邻章仍在加载，窗口尚未到全书末尾，此时没有书尾恢复留白。
     scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
     await tester.pump(const Duration(milliseconds: 200));
 
-    final room = scrollable.position.maxScrollExtent;
+    final room = scrollable.position.pixels;
     unawaited(key.currentState!.scrollPage(true));
     await tester.pump(const Duration(milliseconds: 200));
     expect(scrollable.position.pixels, closeTo(room, 0.01), reason: '补章未完成前不动');
@@ -683,6 +701,49 @@ void main() {
 
     expect(scrollable.position.pixels, greaterThan(room + 300));
     expect(session.progress?.spineIndex, 1);
+    session.dispose();
+  });
+
+  testWidgets('连续滚动窗口跳过缺章并从最近的后续章节冷开', (tester) async {
+    final source = _MissingScrollSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'scroll-missing',
+      const ReaderProgress(spineIndex: 1, pageIndex: 0),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll-missing',
+    );
+    await session.open();
+    expect(session.progress?.spineIndex, 2);
+    final key = GlobalKey<ContinuousScrollViewState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 320,
+            height: 480,
+            child: ContinuousScrollView(
+              key: key,
+              session: session,
+              revision: 1,
+              padding: const EdgeInsets.all(20),
+              paperBuilder: (page, size) =>
+                  const ColoredBox(color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntil(
+      tester,
+      () => key.currentState?.debugLoadedSpineIndices.length == 3,
+    );
+    expect(key.currentState?.debugLoadedSpineIndices, <int>[0, 2, 4]);
     session.dispose();
   });
 }

@@ -108,7 +108,7 @@ void main() {
     expect(source.loadCount, greaterThan(pagesBefore), reason: '设置变化触发重新加载');
     expect(
       session.layoutFingerprint,
-      const ReaderOverrides(fontSize: 24).fingerprint,
+      contains(const ReaderOverrides(fontSize: 24).fingerprint),
     );
     expect(session.error, isNull);
     session.dispose();
@@ -184,7 +184,7 @@ void main() {
     expect(source.loadCount, initialLoads + 2, reason: '中间 20 号设置不再启动整章排版');
     expect(
       session.layoutFingerprint,
-      const ReaderOverrides(fontSize: 22).fingerprint,
+      contains(const ReaderOverrides(fontSize: 22).fingerprint),
     );
     expect(session.error, isNull);
     session.dispose();

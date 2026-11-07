@@ -57,14 +57,23 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   Future<void>? _extendAfterTask;
   int _loadToken = 0;
   int _restoreToken = 0;
-  late int _layoutGeneration = widget.session.generation;
+  int? _windowReloadGeneration;
+  late int _layoutGeneration;
+  late final ReaderViewportSnapshot? Function() _viewportSnapshotProvider =
+      _snapshotForSession;
   Object? _error;
   bool _restoring = false;
   bool _programmaticJump = false;
+  bool _userDragging = false;
+  bool _hasUserScrollSinceRestore = false;
+  bool _windowAtBookEnd = false;
+  double? _lastHandledOffset;
 
   @override
   void initState() {
     super.initState();
+    _layoutGeneration = widget.session.generation;
+    widget.session.registerViewportSnapshotProvider(_viewportSnapshotProvider);
     _controller.addListener(_handleScroll);
     unawaited(_loadInitialWindow());
   }
@@ -74,55 +83,120 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session != widget.session ||
         _layoutGeneration != widget.session.generation) {
-      _layoutGeneration = widget.session.generation;
-      unawaited(_loadInitialWindow());
+      if (oldWidget.session != widget.session) {
+        oldWidget.session.unregisterViewportSnapshotProvider(
+          _viewportSnapshotProvider,
+        );
+        widget.session.registerViewportSnapshotProvider(
+          _viewportSnapshotProvider,
+        );
+      }
+      _scheduleWindowReload(widget.session.generation);
     }
+  }
+
+  void _scheduleWindowReload(int generation) {
+    if (_windowReloadGeneration == generation) return;
+    _windowReloadGeneration = generation;
+    _loadToken += 1;
+    _restoreToken += 1;
+    _syncTimer?.cancel();
+    unawaited(_reloadWindowAfterLayout(generation));
+  }
+
+  Future<void> _reloadWindowAfterLayout(int generation) async {
+    await widget.session.waitForPendingLayout();
+    if (!mounted ||
+        generation != _windowReloadGeneration ||
+        generation != widget.session.generation) {
+      return;
+    }
+    _windowReloadGeneration = null;
+    await _loadInitialWindow();
   }
 
   Future<void> _loadInitialWindow() async {
     final token = ++_loadToken;
+    await widget.session.waitForPendingLayout();
+    if (!mounted || token != _loadToken) return;
+    final generation = widget.session.generation;
     final progress = widget.session.progress;
     final center = progress?.spineIndex ?? 0;
-    final indices = <int>{
-      if (center > 0) center - 1,
-      center,
-      if (center + 1 < widget.session.source.chapterCount) center + 1,
-    }.toList()..sort();
-    final layouts = await Future.wait([
-      for (final spine in indices) _loadChapter(spine),
-    ]);
-    if (!mounted || token != _loadToken) return;
-    final loaded = layouts.nonNulls.toList();
-    final current = loaded.where((layout) => layout.spineIndex == center);
-    if (current.isEmpty) {
+    final loaded = <ScrollChapterLayout>[];
+    var atBookEnd = false;
+    try {
+      final pivot =
+          await _findReadable(center, direction: 1) ??
+          await _findReadable(center - 1, direction: -1);
+      if (pivot == null) {
+        if (!mounted || token != _loadToken) return;
+        setState(() {
+          _loading = false;
+          _error = StateError('全书没有可读章节');
+        });
+        return;
+      }
+      loaded.add(pivot);
+      final previous = await _findReadable(pivot.spineIndex - 1, direction: -1);
+      if (previous != null) loaded.add(previous);
+      final next = await _findReadable(pivot.spineIndex + 1, direction: 1);
+      if (next != null) loaded.add(next);
+      atBookEnd = next == null;
+    } catch (error) {
+      if (!mounted || token != _loadToken) return;
       setState(() {
         _loading = false;
-        _error = StateError('当前章加载失败');
+        _error = error;
       });
       return;
     }
+    if (!mounted ||
+        token != _loadToken ||
+        generation != widget.session.generation) {
+      return;
+    }
+    loaded.sort((left, right) => left.spineIndex.compareTo(right.spineIndex));
     _syncTimer?.cancel();
     setState(() {
+      _layoutGeneration = generation;
       _chapters
         ..clear()
         ..addAll(loaded);
       _error = null;
       _loading = false;
       _visibleContent = null;
+      _hasUserScrollSinceRestore = false;
+      _windowAtBookEnd = atBookEnd;
+      _lastHandledOffset = null;
       _rebuildEntries();
     });
     await WidgetsBinding.instance.endOfFrame;
-    if (mounted && token == _loadToken) {
+    if (_isCurrentWindow(token, generation)) {
       _jumpToReadingPosition(progress);
     }
   }
 
-  Future<ScrollChapterLayout?> _loadChapter(int spine) async {
-    try {
-      return await widget.session.loadScrollChapter(spine);
-    } catch (_) {
-      return null;
+  bool _isCurrentWindow(int token, int generation) =>
+      mounted &&
+      token == _loadToken &&
+      generation == _layoutGeneration &&
+      generation == widget.session.generation;
+
+  /// 读取一段可读章节；缺失章返回空布局，未知异常由调用方按错误处理。
+  Future<ScrollChapterLayout?> _findReadable(
+    int start, {
+    required int direction,
+  }) async {
+    final count = widget.session.source.chapterCount;
+    for (var spine = start; spine >= 0 && spine < count; spine += direction) {
+      final source = widget.session.source;
+      if (source is MissingChapterSource && source.isChapterMissing(spine)) {
+        continue;
+      }
+      final layout = await widget.session.loadScrollChapter(spine);
+      if (!layout.isEmpty) return layout;
     }
+    return null;
   }
 
   void _rebuildEntries() {
@@ -150,9 +224,18 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   void _jumpToReadingPosition(ReaderProgress? progress) {
     if (!_controller.hasClients) return;
+    final desired = progress?.spineIndex ?? 0;
     final spine =
-        progress?.spineIndex ?? _chapters.firstOrNull?.spineIndex ?? 0;
-    final page = progress?.pageIndex ?? 0;
+        _chapters
+            .where((item) => item.spineIndex >= desired)
+            .firstOrNull
+            ?.spineIndex ??
+        _chapters.lastOrNull?.spineIndex ??
+        0;
+    final page = spine == progress?.spineIndex ? progress?.pageIndex ?? 0 : 0;
+    final offsetInPage = spine == progress?.spineIndex
+        ? progress?.scrollOffset ?? 0
+        : 0.0;
     final chapter = _chapters
         .where((item) => item.spineIndex == spine)
         .firstOrNull;
@@ -162,9 +245,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       0.0,
       chapter.offsetOfPage(page + 1) - pageStart,
     );
-    final pageOffset = (progress?.scrollOffset ?? 0)
-        .clamp(0.0, pageExtent)
-        .toDouble();
+    final pageOffset = offsetInPage.clamp(0.0, pageExtent).toDouble();
     final offset =
         widget.padding.top + _chapterTop(spine) + pageStart + pageOffset;
     _restoring = true;
@@ -183,10 +264,14 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     ReaderProgress? progress,
     int token,
   ) async {
+    final loadToken = _loadToken;
+    final generation = _layoutGeneration;
     try {
       for (var attempt = 0; attempt < 3; attempt++) {
         await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || !_controller.hasClients || token != _restoreToken) {
+        if (!_isCurrentWindow(loadToken, generation) ||
+            !_controller.hasClients ||
+            token != _restoreToken) {
           return;
         }
         final spine =
@@ -196,14 +281,19 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
           continue;
         }
         await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || token != _restoreToken) return;
+        if (!_isCurrentWindow(loadToken, generation) ||
+            token != _restoreToken) {
+          return;
+        }
         _captureVisiblePage(commit: false);
         return;
       }
     } finally {
-      if (mounted && token == _restoreToken) {
+      if (_isCurrentWindow(loadToken, generation) && token == _restoreToken) {
+        // 程序恢复只校正视口，不把“可见页首”反写成用户阅读位置；
+        // 书尾因内容不足无法置顶时尤其不能覆盖已保存的精确偏移。
+        _captureVisiblePage(commit: false, stage: false);
         _restoring = false;
-        _captureVisiblePage();
         _maybeExtendWindow();
       }
     }
@@ -270,6 +360,18 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   void _handleScroll() {
     if (!_controller.hasClients) return;
+    final currentOffset = _controller.offset;
+    final previousOffset = _lastHandledOffset;
+    _lastHandledOffset = currentOffset;
+    if (!_restoring &&
+        !_programmaticJump &&
+        !_trimmingWindow &&
+        !_extendingBefore &&
+        !_extendingAfter &&
+        previousOffset != null &&
+        (currentOffset - previousOffset).abs() > 0.5) {
+      _hasUserScrollSinceRestore = true;
+    }
     _captureVisiblePage();
     if (!_restoring) {
       _maybeExtendWindow();
@@ -277,7 +379,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
   }
 
-  void _captureVisiblePage({bool commit = true}) {
+  void _captureVisiblePage({bool commit = true, bool stage = true}) {
     if (_entries.isEmpty || !_controller.hasClients) return;
     final actual = _entryAtActualOffset();
     final _ScrollEntry page;
@@ -303,12 +405,31 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       _visibleContent = content;
       widget.onPageVisible?.call(content);
     }
-    if (!commit || _restoring || _programmaticJump) {
+    if (_restoring || _programmaticJump) {
+      _syncTimer?.cancel();
+      return;
+    }
+    final generation = _layoutGeneration;
+    if (widget.session.loading || generation != widget.session.generation) {
+      _syncTimer?.cancel();
+      return;
+    }
+    if (stage && _hasUserScrollSinceRestore) {
+      widget.session.stageViewportSnapshot(
+        ReaderViewportSnapshot(
+          spineIndex: page.chapter.spineIndex,
+          pageIndex: page.segment.pageIndex,
+          scrollOffset: pageOffset,
+          generation: generation,
+          cfi: widget.session.cfiAtPageOffset(content, pageOffset),
+        ),
+      );
+    }
+    if (!commit || !_hasUserScrollSinceRestore) {
       _syncTimer?.cancel();
       return;
     }
     _syncTimer?.cancel();
-    final generation = _layoutGeneration;
     _syncTimer = Timer(const Duration(milliseconds: 120), () {
       if (!mounted ||
           generation != _layoutGeneration ||
@@ -320,22 +441,57 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
           page.chapter.spineIndex,
           page.segment.pageIndex,
           pageOffset,
+          cfi: widget.session.cfiAtPageOffset(content, pageOffset),
+          generation: generation,
         ),
       );
     });
   }
 
-  /// 在切后台前立即提交当前可见页，避免连续滚动的防抖窗口丢失位置。
-  Future<void> flushVisiblePosition() async {
-    if (!_controller.hasClients) return;
+  ReaderViewportSnapshot? _snapshotForSession() {
+    if (!mounted ||
+        _entries.isEmpty ||
+        !_controller.hasClients ||
+        _restoring ||
+        widget.session.loading ||
+        _layoutGeneration != widget.session.generation) {
+      return null;
+    }
+    if (!_hasUserScrollSinceRestore) return null;
+    _captureVisiblePage(commit: false, stage: false);
+    final content = _visibleContent;
+    if (content == null) return null;
+    return ReaderViewportSnapshot(
+      spineIndex: content.spineIndex,
+      pageIndex: content.pageIndex,
+      scrollOffset: _visiblePageOffset,
+      generation: _layoutGeneration,
+      cfi: widget.session.cfiAtPageOffset(content, _visiblePageOffset),
+    );
+  }
+
+  /// 同步暂存当前可见位置；退出/切模式时无需等待 120ms 合并窗口。
+  void captureLatestPosition() {
+    if (!mounted || !_controller.hasClients || !_hasUserScrollSinceRestore) {
+      return;
+    }
     _syncTimer?.cancel();
     _captureVisiblePage(commit: false);
+  }
+
+  /// 在切后台前立即提交当前可见页，避免连续滚动的防抖窗口丢失位置。
+  Future<void> flushVisiblePosition() async {
+    if (!_controller.hasClients || !_hasUserScrollSinceRestore) return;
+    _syncTimer?.cancel();
+    _captureVisiblePage(commit: false, stage: false);
     final page = _visibleContent;
     if (page == null) return;
     await widget.session.commitScrollPosition(
       page.spineIndex,
       page.pageIndex,
       _visiblePageOffset,
+      cfi: widget.session.cfiAtPageOffset(page, _visiblePageOffset),
+      generation: _layoutGeneration,
     );
   }
 
@@ -410,12 +566,17 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     final first = _chapterAtOffset(_controller.offset - height * 0.25);
     final last = _chapterAtOffset(_controller.offset + height * 1.5);
     if (first == null || last == null) return;
-    final retained = _chapters.where(
-      (chapter) =>
-          chapter.spineIndex >= first - 1 && chapter.spineIndex <= last + 1,
+    final firstIndex = _chapters.indexWhere(
+      (chapter) => chapter.spineIndex == first,
     );
-    if (retained.length == _chapters.length) return;
-    unawaited(_replaceChapterWindow(retained.toList(growable: false)));
+    final lastIndex = _chapters.indexWhere(
+      (chapter) => chapter.spineIndex == last,
+    );
+    if (firstIndex < 0 || lastIndex < 0) return;
+    final from = math.max(0, firstIndex - 1);
+    final to = math.min(_chapters.length, lastIndex + 2);
+    if (from == 0 && to == _chapters.length) return;
+    unawaited(_replaceChapterWindow(_chapters.sublist(from, to)));
   }
 
   /// 内容坐标处的章节序号；越界按内容范围钳制到首尾章。
@@ -437,6 +598,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       for (final chapter in retained) chapter.spineIndex,
     };
     setState(() {
+      if (retained.last.spineIndex != _chapters.last.spineIndex) {
+        _windowAtBookEnd = false;
+      }
       _chapters
         ..clear()
         ..addAll(retained);
@@ -468,7 +632,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       }
     }
     _trimmingWindow = false;
-    _captureVisiblePage();
+    _captureVisiblePage(commit: false, stage: false);
   }
 
   /// 向前补一章；并发调用共享同一次加载，便于翻页等待结果。
@@ -484,15 +648,15 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   Future<void> _loadExtendBefore() async {
     if (_chapters.isEmpty) return;
-    final target = _chapters.first.spineIndex - 1;
-    if (target < 0) return;
     final token = _loadToken;
+    final generation = _layoutGeneration;
     _extendingBefore = true;
-    final layout = await _loadChapter(target);
-    if (!mounted || token != _loadToken || layout == null) {
-      return;
-    }
-    _captureVisiblePage(commit: false);
+    final layout = await _findReadable(
+      _chapters.first.spineIndex - 1,
+      direction: -1,
+    );
+    if (!_isCurrentWindow(token, generation) || layout == null) return;
+    _captureVisiblePage(commit: false, stage: false);
     final visibleContent = _visibleContent;
     final visibleOffset = _visiblePageOffset;
     final oldOffset = _controller.hasClients ? _controller.offset : 0.0;
@@ -501,7 +665,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       _rebuildEntries();
     });
     await WidgetsBinding.instance.endOfFrame;
-    if (mounted && _controller.hasClients) {
+    if (_isCurrentWindow(token, generation) && _controller.hasClients) {
       var restored = false;
       if (visibleContent != null) {
         restored = _revealAtPage(
@@ -512,7 +676,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       }
       for (var attempt = 0; attempt < 2 && !restored; attempt++) {
         await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || !_controller.hasClients) break;
+        if (!_isCurrentWindow(token, generation) || !_controller.hasClients) {
+          break;
+        }
         if (visibleContent != null) {
           restored = _revealAtPage(
             visibleContent.spineIndex,
@@ -523,10 +689,11 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       }
       if (restored) {
         await WidgetsBinding.instance.endOfFrame;
-        if (mounted && _controller.hasClients) {
-          _captureVisiblePage();
+        if (_isCurrentWindow(token, generation) && _controller.hasClients) {
+          _captureVisiblePage(commit: false, stage: false);
         }
       } else {
+        if (!_isCurrentWindow(token, generation)) return;
         final fallback = (oldOffset + layout.extent).clamp(
           0.0,
           _controller.position.maxScrollExtent,
@@ -538,7 +705,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
           attempt < 2 && !restored && visibleContent != null;
           attempt++
         ) {
-          if (!mounted || !_controller.hasClients || token != _loadToken) {
+          if (!_isCurrentWindow(token, generation) || !_controller.hasClients) {
             break;
           }
           restored = _revealAtPage(
@@ -553,8 +720,8 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         if (restored) {
           await WidgetsBinding.instance.endOfFrame;
         }
-        if (mounted && _controller.hasClients) {
-          _captureVisiblePage();
+        if (_isCurrentWindow(token, generation) && _controller.hasClients) {
+          _captureVisiblePage(commit: false, stage: false);
         }
       }
     }
@@ -573,21 +740,26 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   Future<void> _loadExtendAfter() async {
     if (_chapters.isEmpty) return;
-    final target = _chapters.last.spineIndex + 1;
-    if (target >= widget.session.source.chapterCount) return;
     final token = _loadToken;
+    final generation = _layoutGeneration;
     _extendingAfter = true;
-    final layout = await _loadChapter(target);
-    if (!mounted || token != _loadToken || layout == null) {
+    final layout = await _findReadable(
+      _chapters.last.spineIndex + 1,
+      direction: 1,
+    );
+    if (!_isCurrentWindow(token, generation)) return;
+    if (layout == null) {
+      if (!_windowAtBookEnd) setState(() => _windowAtBookEnd = true);
       return;
     }
     setState(() {
+      _windowAtBookEnd = false;
       _chapters.add(layout);
       _rebuildEntries();
     });
     _extendingAfter = false;
     await WidgetsBinding.instance.endOfFrame;
-    if (mounted && token == _loadToken) {
+    if (_isCurrentWindow(token, generation)) {
       _trimWindow();
     }
   }
@@ -595,7 +767,11 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   /// 翻一屏前保证目标方向有足够余量：窗口到边时先等邻章加载完成，
   /// 否则滚动会被旧的最大范围钳制，点击看起来毫无反应。
   Future<void> _ensureTurnRoom(bool next) async {
-    for (var attempt = 0; attempt < 4; attempt++) {
+    for (
+      var attempt = 0;
+      attempt < widget.session.source.chapterCount;
+      attempt++
+    ) {
       if (!mounted || !_controller.hasClients || _chapters.isEmpty) return;
       final height = _controller.position.viewportDimension;
       final room = next
@@ -617,6 +793,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   /// 点击区按当前可视高度移动一屏。
   Future<void> scrollPage(bool next) async {
     if (!_controller.hasClients) return;
+    _hasUserScrollSinceRestore = true;
     await _ensureTurnRoom(next);
     if (!mounted || !_controller.hasClients) return;
     final height = _controller.position.viewportDimension;
@@ -721,21 +898,34 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
           1.0,
           double.infinity,
         );
+        // 书尾预留一屏滚动空间，使末页任意页内偏移都能恢复到视口顶部。
+        // 留白只参与滚动物理，不进入页切片、字符权重或阅读进度。
+        final scrollPadding = widget.padding.copyWith(
+          bottom: _windowAtBookEnd
+              ? math.max(widget.padding.bottom, constraints.maxHeight)
+              : widget.padding.bottom,
+        );
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             if (notification is ScrollStartNotification &&
                 notification.dragDetails != null) {
+              _userDragging = true;
               widget.onUserScroll?.call();
             }
             if (notification is ScrollEndNotification) {
-              _captureVisiblePage();
+              // 程序恢复/窗口前插产生的滚动结束不是用户阅读导航，不能把
+              // 书尾被 maxScrollExtent 钳制后的可见页反写为保存位置。
+              if (_userDragging) {
+                _userDragging = false;
+                _captureVisiblePage();
+              }
             }
             return false;
           },
           child: ListView.builder(
             key: const ValueKey<String>('continuous-scroll'),
             controller: _controller,
-            padding: widget.padding,
+            padding: scrollPadding,
             itemCount: _entries.length,
             itemBuilder: (context, index) {
               final entry = _entries[index];
@@ -762,6 +952,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   @override
   void dispose() {
+    if (mounted && _controller.hasClients && _entries.isNotEmpty) {
+      _syncTimer?.cancel();
+      _captureVisiblePage(commit: false);
+    }
+    widget.session.unregisterViewportSnapshotProvider(
+      _viewportSnapshotProvider,
+    );
     _loadToken++;
     _syncTimer?.cancel();
     _controller

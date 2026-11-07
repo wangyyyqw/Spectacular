@@ -86,7 +86,16 @@ class VirtualPager {
     if (_initialized) return;
     final token = ++_navigationToken;
     final target = startSpine.clamp(0, spineCount == 0 ? 0 : spineCount - 1);
-    await _findPage(target, startPage < 0 ? 0 : startPage, 1, token);
+    final found = await _findPage(
+      target,
+      startPage < 0 ? 0 : startPage,
+      1,
+      token,
+    );
+    if (!found && token == _navigationToken && target > 0) {
+      // 目标章缺失且其后没有可读章节时，冷开必须回退到前面最近的完好章。
+      await _findPage(target - 1, -1, -1, token);
+    }
     if (token == _navigationToken) _initialized = true;
   }
 
@@ -132,12 +141,29 @@ class VirtualPager {
   Future<bool> goTo(int spineIndex, int pageIndex, {int emptyDirection = 1}) {
     _ensureInitialized();
     assert(emptyDirection == 1 || emptyDirection == -1);
-    return _findPage(
+    if (spineIndex < 0 || spineIndex >= spineCount) {
+      return Future<bool>.value(false);
+    }
+    final token = ++_navigationToken;
+    return _goToWithFallback(
       spineIndex,
       pageIndex < 0 ? 0 : pageIndex,
       emptyDirection,
-      ++_navigationToken,
+      token,
     );
+  }
+
+  Future<bool> _goToWithFallback(
+    int spineIndex,
+    int pageIndex,
+    int emptyDirection,
+    int token,
+  ) async {
+    if (await _findPage(spineIndex, pageIndex, emptyDirection, token)) {
+      return true;
+    }
+    if (token != _navigationToken) return false;
+    return _findPage(spineIndex - emptyDirection, -1, -emptyDirection, token);
   }
 
   /// 使在途导航失效；已完成的章节加载仍可作为缓存复用。

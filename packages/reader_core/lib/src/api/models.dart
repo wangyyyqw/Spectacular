@@ -135,6 +135,7 @@ class TocEntry {
     this.children = const <TocEntry>[],
     this.playOrder,
     this.cfi,
+    this.missing = false,
   });
 
   /// 显示标题。
@@ -154,6 +155,9 @@ class TocEntry {
 
   /// 绑定后的 CFI；未绑定时为 null。
   final EpubCfi? cfi;
+
+  /// 该目录目标对应的章节文件已确认缺失；仍可展开子项，但不可导航。
+  final bool missing;
 }
 
 /// 导入结果与可读性分级。

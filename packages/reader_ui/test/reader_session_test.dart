@@ -252,10 +252,11 @@ void main() {
     expect(session.pageTurns, 1);
     expect(session.charactersRead, 6);
     await session.flushProgress();
-    expect(
-      await session.store.load('scroll-sync'),
-      const ReaderProgress(spineIndex: 1, pageIndex: 1, scrollOffset: 42.5),
-    );
+    final saved = await session.store.load('scroll-sync');
+    expect(saved?.spineIndex, 1);
+    expect(saved?.pageIndex, 1);
+    expect(saved?.scrollOffset, 42.5);
+    expect(saved?.layoutFingerprint, session.layoutFingerprint);
   });
 
   test('连续滚动跳转 CFI 定位到目标页内行', () async {
@@ -310,10 +311,7 @@ void main() {
 
     await session.commitScrollPosition(0, 0, 0);
     await session.jumpToCfi(secondLineCfi!, continuous: true);
-    expect(
-      session.progress!.scrollOffset,
-      closeTo(secondLineHeight, 0.01),
-    );
+    expect(session.progress!.scrollOffset, closeTo(secondLineHeight, 0.01));
     expect(session.currentLineText, '第二行');
 
     // 真实滚动容器会把行首坐标量化到略小于理论值，仍应命中该行。

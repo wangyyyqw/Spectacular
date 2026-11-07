@@ -31,6 +31,8 @@ class ReaderProgress {
     this.cfi,
     this.contentRevision,
     this.approximate = false,
+    this.readingPercent,
+    this.layoutFingerprint,
   });
 
   /// 章节序号。
@@ -39,7 +41,7 @@ class ReaderProgress {
   /// 章内页序号。
   final int pageIndex;
 
-  /// 是否已到达全书最后一页。
+  /// 是否已读完；回翻只改变当前位置，不撤销此状态。
   final bool finished;
 
   /// 连续滚动模式在当前页切片内的垂直偏移；分页模式为 null。
@@ -54,6 +56,14 @@ class ReaderProgress {
   /// 此次位置来自旧版页号或比例兜底。
   final bool approximate;
 
+  /// 当前正文位置占全书的比例（0～1）。
+  ///
+  /// 由同一套字符权重计算，排除目录、非正文与缺失章节。旧记录为空。
+  final double? readingPercent;
+
+  /// 产生此位置时的排版指纹；仅用于判断能否复用精确像素偏移。
+  final String? layoutFingerprint;
+
   @override
   bool operator ==(Object other) =>
       other is ReaderProgress &&
@@ -63,7 +73,9 @@ class ReaderProgress {
       other.scrollOffset == scrollOffset &&
       other.cfi == cfi &&
       other.contentRevision == contentRevision &&
-      other.approximate == approximate;
+      other.approximate == approximate &&
+      other.readingPercent == readingPercent &&
+      other.layoutFingerprint == layoutFingerprint;
 
   @override
   int get hashCode => Object.hash(
@@ -74,11 +86,33 @@ class ReaderProgress {
     cfi,
     contentRevision,
     approximate,
+    readingPercent,
+    layoutFingerprint,
   );
 
   @override
   String toString() =>
       'ReaderProgress($spineIndex,$pageIndex,$finished,$scrollOffset)';
+}
+
+/// 连续滚动容器在某一排版代次下的可见位置。
+///
+/// 快照先同步进入会话，供退出/切模式时立即落盘；[generation] 用于丢弃
+/// 重排前尚未提交的旧视口。
+class ReaderViewportSnapshot {
+  const ReaderViewportSnapshot({
+    required this.spineIndex,
+    required this.pageIndex,
+    required this.scrollOffset,
+    required this.generation,
+    this.cfi,
+  });
+
+  final int spineIndex;
+  final int pageIndex;
+  final double scrollOffset;
+  final int generation;
+  final String? cfi;
 }
 
 /// 阅读进度存储。
@@ -216,6 +250,45 @@ abstract interface class RestylableChapterSource
   Future<void> applyOverrides(ReaderOverrides overrides);
 }
 
+/// 能报告影响正文度量的源状态（字体注册、字体缩放等）。
+///
+/// 该值只用于判断滚动位置能否复用精确像素偏移；为空时仍按 CFI 恢复。
+abstract interface class LayoutDependencyChapterSource
+    implements ReaderChapterSource {
+  /// 当前字体/度量依赖的稳定指纹。
+  String get layoutDependency;
+}
+
+/// 字体按章加载时只比较目标章的度量，避免访问其他章改变恢复指纹。
+abstract interface class SpineLayoutDependencyChapterSource
+    implements LayoutDependencyChapterSource {
+  String layoutDependencyForSpine(int spineIndex);
+}
+
+/// 能区分“章节文件确认缺失”和普通解析/IO 错误的章节源。
+///
+/// 缺章返回空页，分页器按可读章节顺序跳过；未知异常仍向上抛出。
+abstract interface class MissingChapterSource implements ReaderChapterSource {
+  /// 指定 spine 是否已确认缺失。
+  bool isChapterMissing(int spineIndex);
+}
+
+/// 能按字符权重计算全书位置，并在比例与 CFI 之间双向转换的章节源。
+///
+/// UI 只消费 0～1 的比例；章节源负责把 CFI 解析到章内字符偏移，并使用
+/// 与书库一致的字符权重（排除目录、非正文与缺失章节）。
+abstract interface class PositionedChapterSource
+    implements ReaderChapterSource {
+  /// CFI 对应的全书正文比例（0～1）；无法定位时返回 null。
+  double? readingPercentForCfi(String? cfi);
+
+  /// 全书正文比例对应的 CFI；没有可读正文时返回 null。
+  String? cfiForReadingPercent(double percent);
+
+  /// 目录项应跳转的 CFI：优先目录自带 CFI，其次解析 fragment，最后章首。
+  String? cfiForTocEntry(TocEntry entry);
+}
+
 /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
 class ReaderAnchor {
   /// 创建锚点；[cfi] 为空表示没有可恢复位置。
@@ -264,6 +337,7 @@ class ReaderSession extends ChangeNotifier {
     required this.bookId,
     this.persistInterval = defaultPersistInterval,
     this.contentRevision,
+    this.layoutDependency,
   });
 
   /// 进度写入节流间隔（P4-10，§76.6）。
@@ -280,6 +354,9 @@ class ReaderSession extends ChangeNotifier {
 
   /// 原 EPUB 文件的内容摘要，用于拒绝旧会话覆盖新版位置。
   final String? contentRevision;
+
+  /// 宿主额外提供的排版依赖（文字缩放、运行时字体版本等）。
+  final String? layoutDependency;
 
   /// 进度写入节流间隔：间隔内的连续翻页合并成一次写库。
   final Duration persistInterval;
@@ -331,6 +408,7 @@ class ReaderSession extends ChangeNotifier {
     }
     _recordPageTurn(turn.origin);
     _clearScrollPosition();
+    _readingAnchor = _anchorOf(page);
     _notify();
     _persist();
     return true;
@@ -347,47 +425,138 @@ class ReaderSession extends ChangeNotifier {
     );
   }
 
+  /// 同步暂存连续滚动的可见位置。
+  ///
+  /// 只更新会话数据，不等待分页器加载目标页；因此退出、生命周期刷新和
+  /// 120ms 合并窗口内的模式切换都能立即读到最新位置。[generation] 与当前
+  /// 排版代次不一致时拒绝写入，防止旧滚动窗口覆盖重排结果。
+  bool stageViewportSnapshot(
+    ReaderViewportSnapshot snapshot, {
+    bool userNavigation = true,
+  }) {
+    if (_disposed || snapshot.generation != _generation) return false;
+    final offset = snapshot.scrollOffset.isFinite
+        ? math.max(0.0, snapshot.scrollOffset).toDouble()
+        : 0.0;
+    final staged = ReaderViewportSnapshot(
+      spineIndex: snapshot.spineIndex,
+      pageIndex: snapshot.pageIndex,
+      scrollOffset: offset,
+      generation: snapshot.generation,
+      cfi: snapshot.cfi,
+    );
+    _stagedViewport = staged;
+    _scrollSpineIndex = staged.spineIndex;
+    _scrollPageIndex = staged.pageIndex;
+    _scrollOffset = staged.scrollOffset;
+    final cfi = staged.cfi;
+    if (cfi != null && cfi.isNotEmpty) {
+      _readingAnchor = ReaderAnchor(cfi: cfi);
+    }
+    if (userNavigation) {
+      _suppressRestoredFinished = false;
+      _restoredFinished = _finishedAt(staged.spineIndex, staged.pageIndex);
+    }
+    _persist();
+    return true;
+  }
+
+  /// 注册连续滚动容器的“取最新视口”回调。
+  ///
+  /// [flushProgress] 会先同步调用它，避免调用方先 flush 再读取容器时拿到
+  /// 120ms 窗口之前的旧位置。
+  void registerViewportSnapshotProvider(
+    ReaderViewportSnapshot? Function() provider,
+  ) {
+    _viewportSnapshotProvider = provider;
+  }
+
+  /// 解除视口回调；只在仍是同一回调时解除，避免窗口切换误删新视图。
+  void unregisterViewportSnapshotProvider(
+    ReaderViewportSnapshot? Function() provider,
+  ) {
+    if (identical(_viewportSnapshotProvider, provider)) {
+      _viewportSnapshotProvider = null;
+    }
+  }
+
   /// 同步连续滚动的页号与页内偏移；页面内容本身不重新分页。
   Future<bool> commitScrollPosition(
     int spineIndex,
     int pageIndex,
-    double scrollOffset,
-  ) async {
+    double scrollOffset, {
+    String? cfi,
+    int? generation,
+    bool userNavigation = true,
+  }) async {
     final pager = _pager;
-    if (_disposed || _loading || pager == null) return false;
     final offset = scrollOffset.isFinite
         ? math.max(0.0, scrollOffset).toDouble()
         : 0.0;
-    final previous = progress;
-    if (previous?.spineIndex == spineIndex &&
-        previous?.pageIndex == pageIndex &&
-        previous?.scrollOffset == offset) {
-      return true;
+    final snapshot = ReaderViewportSnapshot(
+      spineIndex: spineIndex,
+      pageIndex: pageIndex,
+      scrollOffset: offset,
+      generation: generation ?? _generation,
+      cfi: cfi,
+    );
+    if (_disposed) return false;
+    if (!stageViewportSnapshot(snapshot, userNavigation: userNavigation)) {
+      return false;
     }
-    final generation = _generation;
+    if (_loading || pager == null) return false;
+    final previous = pager.current;
     final pageChanged =
         previous?.spineIndex != spineIndex || previous?.pageIndex != pageIndex;
     final origin = page;
+    final currentGeneration = _generation;
     if (pageChanged) {
       final changed = await pager.goTo(spineIndex, pageIndex);
-      if (!changed || _disposed || generation != _generation) return false;
+      final latest = _stagedViewport;
+      if (!changed ||
+          _disposed ||
+          currentGeneration != _generation ||
+          latest?.generation != snapshot.generation ||
+          latest?.spineIndex != spineIndex ||
+          latest?.pageIndex != pageIndex) {
+        return false;
+      }
     }
-    _scrollSpineIndex = spineIndex;
-    _scrollPageIndex = pageIndex;
-    _scrollOffset = offset;
     _restoredApproximate = false;
-    if (pageChanged) {
+    if (pageChanged && userNavigation) {
       _recordPageTurn(origin);
-      _notify();
     }
+    if (snapshot.cfi == null) {
+      final current = page;
+      _readingAnchor = current == null
+          ? const ReaderAnchor()
+          : _anchorAtPageOffset(current, offset);
+    }
+    _stagedViewport = null;
+    _notify();
     _persist();
     return true;
+  }
+
+  /// 把已暂存的最新视口同步到分页器；模式切换/退出前调用。
+  Future<bool> commitStagedViewport() async {
+    final snapshot = _stagedViewport;
+    if (snapshot == null) return true;
+    return commitScrollPosition(
+      snapshot.spineIndex,
+      snapshot.pageIndex,
+      snapshot.scrollOffset,
+      cfi: snapshot.cfi,
+      generation: snapshot.generation,
+      userNavigation: false,
+    );
   }
 
   void _clearScrollPosition() {
     _scrollSpineIndex = null;
     _scrollPageIndex = null;
     _scrollOffset = null;
+    _stagedViewport = null;
     _restoredApproximate = false;
   }
 
@@ -414,6 +583,7 @@ class ReaderSession extends ChangeNotifier {
   bool get approximateRestoration => _restoredApproximate;
   bool _disposed = false;
   Timer? _persistTimer;
+  bool _persistIntervalElapsed = false;
   Future<void>? _persistTask;
   ReaderProgress? _lastPersisted;
   int _persistWrites = 0;
@@ -422,6 +592,15 @@ class ReaderSession extends ChangeNotifier {
   int? _scrollSpineIndex;
   int? _scrollPageIndex;
   double? _scrollOffset;
+  ReaderAnchor _readingAnchor = const ReaderAnchor();
+  ReaderViewportSnapshot? _stagedViewport;
+  ReaderViewportSnapshot? Function()? _viewportSnapshotProvider;
+  String? _readingPercentCfi;
+  double? _readingPercentValue;
+  bool _firstChangeAfterOpen = false;
+  bool _dirty = false;
+  bool _flushingProgress = false;
+  Future<void>? _activeFlush;
 
   /// 已写库次数（节流验收用：连续翻 100 页应 ≤5 次）。
   int get persistWriteCount => _persistWrites;
@@ -442,6 +621,8 @@ class ReaderSession extends ChangeNotifier {
 
   /// 整书进度（按章节位置估算，0～1），用于加载态进度条。
   double get bookProgress {
+    final positioned = readingPercent;
+    if (positioned != null) return positioned.clamp(0.0, 1.0);
     final value = progress;
     if (value == null) {
       return 0;
@@ -485,7 +666,15 @@ class ReaderSession extends ChangeNotifier {
     if (value == null) {
       return null;
     }
-    final hit = _hitAtScrollOffset(value);
+    return cfiAtPageOffset(value, _scrollOffset);
+  }
+
+  /// 指定页在给定页内偏移处的首个可见行 CFI。
+  ///
+  /// [scrollOffset] 为空表示分页模式，此时取页首可见行。连续滚动容器用它
+  /// 在同步快照时同时携带精确锚点。
+  String? cfiAtPageOffset(PageContent value, double? scrollOffset) {
+    final hit = _hitAtPageOffset(value, scrollOffset);
     final blockCfi = hit?.slice.block.startCfi;
     if (hit != null && blockCfi != null) {
       return cfiWithCharOffset(
@@ -512,7 +701,7 @@ class ReaderSession extends ChangeNotifier {
     if (value == null) {
       return '';
     }
-    final hit = _hitAtScrollOffset(value) ?? _firstHit(value);
+    final hit = _hitAtPageOffset(value, _scrollOffset) ?? _firstHit(value);
     if (hit == null) {
       return '';
     }
@@ -520,6 +709,60 @@ class ReaderSession extends ChangeNotifier {
     final start = hit.line.start.clamp(0, text.length);
     final end = hit.line.end.clamp(start, text.length);
     return text.substring(start, end).trim();
+  }
+
+  /// 当前正文位置占全书的比例（0～1）。
+  ///
+  /// 由章节源按字符权重计算；源不支持时返回 null，由调用方回退到旧的
+  /// 章节/页估算，不能把两套口径混在同一个进度字段里。
+  double? get readingPercent {
+    final source = this.source;
+    if (source is! PositionedChapterSource) return null;
+    final cfi = _anchorCfi(_readingAnchor) ?? currentCfi;
+    if (cfi == null) return null;
+    if (_readingPercentCfi == cfi) return _readingPercentValue;
+    final value = source.readingPercentForCfi(cfi);
+    _readingPercentCfi = cfi;
+    _readingPercentValue = value;
+    return value;
+  }
+
+  /// 按全书字符比例跳转到章内 CFI。
+  Future<bool> seekToReadingPercent(double percent, {bool? continuous}) async {
+    final source = this.source;
+    if (source is! PositionedChapterSource) {
+      return jumpToChapter(
+        (percent * this.source.chapterCount).floor().clamp(
+          0,
+          math.max(0, this.source.chapterCount - 1),
+        ),
+        title: '全书进度',
+      );
+    }
+    final cfi = source.cfiForReadingPercent(percent.clamp(0.0, 1.0));
+    if (cfi == null) return false;
+    return jumpToCfi(
+      cfi,
+      title: '全书进度',
+      continuous: continuous ?? _scrollOffset != null,
+    );
+  }
+
+  /// 目录项跳转：优先目录 CFI，其次 fragment，最后章首。
+  Future<bool> jumpToTocEntry(TocEntry entry, {bool? continuous}) async {
+    if (entry.missing) return false;
+    final source = this.source;
+    final cfi = source is PositionedChapterSource
+        ? source.cfiForTocEntry(entry)
+        : entry.cfi?.serialize();
+    if (cfi != null) {
+      return jumpToCfi(
+        cfi,
+        title: entry.title,
+        continuous: continuous ?? _scrollOffset != null,
+      );
+    }
+    return jumpToChapter(entry.spineIndex, title: entry.title);
   }
 
   /// 跳到指定 CFI（书签跳转用，P4-13）：解析 spine 后在目标章内定位页。
@@ -559,25 +802,29 @@ class ReaderSession extends ChangeNotifier {
         return false;
       }
       // 章节已分页：按 CFI 定位页号（重排后页号会变，CFI 不变）。
-      final pages = await source.loadChapter(spine);
+      final targetSpine = pager.current?.spineIndex;
+      if (targetSpine == null) return false;
+      final pages = await source.loadChapter(targetSpine);
       if (token != _jumpToken) {
         return false;
       }
-      final anchor = ReaderAnchor(cfi: cfi);
+      final anchor = targetSpine == spine
+          ? ReaderAnchor(cfi: cfi)
+          : _anchorOf(pager.current?.content);
       final pageIndex = _locatePage(pages, anchor);
       if (pageIndex != 0) {
-        await pager.goTo(spine, pageIndex);
+        await pager.goTo(targetSpine, pageIndex);
         if (token != _jumpToken) {
           return false;
         }
       }
       if (continuous) {
-        final layout = ScrollChapterLayout.fromPages(spine, pages);
+        final layout = ScrollChapterLayout.fromPages(targetSpine, pages);
         for (final segment in layout.segments) {
           if (segment.pageIndex != pageIndex) continue;
           final offset = _scrollOffsetForAnchor(segment.content, anchor);
           if (offset != null) {
-            _scrollSpineIndex = spine;
+            _scrollSpineIndex = targetSpine;
             _scrollPageIndex = pageIndex;
             _scrollOffset = offset;
           }
@@ -591,7 +838,11 @@ class ReaderSession extends ChangeNotifier {
       if (origin?.spineIndex != target?.spineIndex ||
           origin?.pageIndex != target?.pageIndex) {
         _suppressRestoredFinished = false;
+        _restoredFinished = _finishedAt(target!.spineIndex, target.pageIndex);
       }
+      _readingAnchor = target?.spineIndex == spine
+          ? anchor
+          : _anchorOf(target?.content);
       _notify();
       _persist();
       return changed || pageIndex != 0;
@@ -623,7 +874,11 @@ class ReaderSession extends ChangeNotifier {
   /// token 防竞态（§27.1）：每次跳转递增 token，任务完成时比对，与当前
   /// token 不符直接丢弃结果——连续点多个目录项不会出现「后到的旧结果覆盖
   /// 新位置」。跳转期间 [jumpLoadingTitle] 生效，由阅读页显示全屏浮层。
-  Future<bool> jumpToChapter(int spineIndex, {String? title}) async {
+  Future<bool> jumpToChapter(
+    int spineIndex, {
+    String? title,
+    int emptyDirection = 1,
+  }) async {
     if (_pager == null) {
       return false;
     }
@@ -645,13 +900,16 @@ class ReaderSession extends ChangeNotifier {
       final changed = await pager.goTo(
         spineIndex,
         0,
-        emptyDirection: spineIndex < (page?.spineIndex ?? 0) ? -1 : 1,
+        emptyDirection: emptyDirection,
       );
       if (token != _jumpToken) {
         return false;
       }
       if (changed) {
         _suppressRestoredFinished = false;
+        final target = pager.current!;
+        _restoredFinished = _finishedAt(target.spineIndex, target.pageIndex);
+        _readingAnchor = _anchorOf(pager.current?.content);
         _notify();
         _persist();
       }
@@ -677,36 +935,60 @@ class ReaderSession extends ChangeNotifier {
     if (!_disposed) _loading = false;
   }
 
+  /// 等待当前重排/尺寸任务完成；连续滚动窗口据此读取最终进度。
+  Future<void> waitForPendingLayout() => _waitForReload();
+
   /// 当前进度。
   ReaderProgress? get progress {
     final current = _pager?.current;
     if (current == null) {
       return null;
     }
-    final lastSpineIndex = _lastReadableSpineIndex;
-    final lastChapterPages = lastSpineIndex == null
-        ? null
-        : _pager?.spinePages[lastSpineIndex]?.length;
-    final finished =
-        _restoredFinished ||
-        (!_suppressRestoredFinished &&
-            lastChapterPages != null &&
-            lastChapterPages > 0 &&
-            current.spineIndex == lastSpineIndex &&
-            current.pageIndex >= lastChapterPages - 1);
+    final finished = _finishedAt(current.spineIndex, current.pageIndex);
+    final anchorCfi = _anchorCfi(_readingAnchor);
+    final percent = readingPercent;
     return ReaderProgress(
       spineIndex: current.spineIndex,
       pageIndex: current.pageIndex,
       finished: finished,
-      cfi: contentRevision == null ? null : currentCfi,
+      cfi: contentRevision == null ? null : anchorCfi ?? currentCfi,
       contentRevision: contentRevision,
       approximate: _restoredApproximate,
+      readingPercent: percent,
+      layoutFingerprint: _scrollOffset == null ? null : layoutFingerprint,
       scrollOffset:
           current.spineIndex == _scrollSpineIndex &&
               current.pageIndex == _scrollPageIndex
           ? _scrollOffset
           : null,
     );
+  }
+
+  bool _finishedAt(int spineIndex, int pageIndex) {
+    if (_restoredFinished) return true;
+    if (_suppressRestoredFinished) return false;
+    final lastSpineIndex = _lastReadableSpineIndex;
+    if (lastSpineIndex == null || spineIndex != lastSpineIndex) return false;
+    final pages = _pager?.spinePages[lastSpineIndex]?.length ?? 0;
+    return pages > 0 && pageIndex >= pages - 1;
+  }
+
+  static String? _anchorCfi(ReaderAnchor anchor) {
+    final cfi = anchor.cfi;
+    if (cfi == null || cfi.isEmpty) return null;
+    if (anchor.charOffset == 0) return cfi;
+    return cfiWithCharOffset(
+      cfi,
+      (cfiCharOffset(cfi) ?? 0) + anchor.charOffset,
+    );
+  }
+
+  ReaderAnchor _anchorAtPageOffset(PageContent page, double? offset) {
+    final cfi = cfiAtPageOffset(page, offset);
+    if (cfi == null || cfi.isEmpty) {
+      return _anchorOf(page);
+    }
+    return ReaderAnchor(cfi: cfi);
   }
 
   /// 末尾章节可能为空，只有向后导航到书尾时才全部加载。
@@ -763,6 +1045,10 @@ class ReaderSession extends ChangeNotifier {
 
   void _recordPageTurn(PageContent? origin) {
     _suppressRestoredFinished = false;
+    final target = _pager?.current;
+    if (target != null) {
+      _restoredFinished = _finishedAt(target.spineIndex, target.pageIndex);
+    }
     _restoredApproximate = false;
     _pageTurns += 1;
     _charactersRead += _textOf(origin)
@@ -812,6 +1098,9 @@ class ReaderSession extends ChangeNotifier {
         startPage: usableCache ? saved?.pageIndex ?? 0 : 0,
       );
       if (generation != _generation) return;
+      if (pager.current == null) {
+        throw StateError('全书没有可读章节');
+      }
       _pager = pager;
       _clearScrollPosition();
       final savedCfi = sameRevision ? saved?.cfi : null;
@@ -821,7 +1110,16 @@ class ReaderSession extends ChangeNotifier {
           savedCfi,
           generation,
           continuous: saved?.scrollOffset != null,
-          preferredPageIndex: sameRevision ? saved?.pageIndex : null,
+          preferredPageIndex:
+              sameRevision &&
+                  (saved?.layoutFingerprint == null ||
+                      saved?.layoutFingerprint == layoutFingerprint)
+              ? saved?.pageIndex
+              : null,
+          savedScrollOffset:
+              sameRevision && saved?.layoutFingerprint == layoutFingerprint
+              ? saved?.scrollOffset
+              : null,
         );
         if (generation != _generation) return;
       } else if (saved?.scrollOffset != null && usableCache) {
@@ -829,11 +1127,23 @@ class ReaderSession extends ChangeNotifier {
         _scrollPageIndex = saved.pageIndex;
         _scrollOffset = saved.scrollOffset;
       }
+      final parsedSaved = savedCfi == null ? null : EpubCfi.parse(savedCfi);
+      final savedSpine = parsedSaved == null
+          ? null
+          : spineIndexOfCfi(parsedSaved);
+      _readingAnchor =
+          savedCfi == null ||
+              savedSpine == null ||
+              pager.current?.spineIndex != savedSpine
+          ? _anchorOf(pager.current?.content)
+          : ReaderAnchor(cfi: savedCfi);
       _restoredApproximate =
           (saved?.approximate ?? false) || (saved != null && !usableCache);
       _loading = false;
       // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
       _lastPersisted = progress;
+      _firstChangeAfterOpen = true;
+      _dirty = false;
       _notify();
     } catch (error) {
       if (generation != _generation) {
@@ -851,6 +1161,7 @@ class ReaderSession extends ChangeNotifier {
     int generation, {
     bool continuous = false,
     int? preferredPageIndex,
+    double? savedScrollOffset,
   }) async {
     final parsed = EpubCfi.parse(cfi);
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
@@ -865,14 +1176,16 @@ class ReaderSession extends ChangeNotifier {
             _pageContainsAnchor(pages[preferredPageIndex], anchor)
         ? preferredPageIndex
         : _locatePage(pages, anchor);
-    await pager.goTo(spine, index);
+    final moved = await pager.goTo(spine, index);
     if (_disposed || generation != _generation || !continuous) return;
+    if (!moved || pager.current?.spineIndex != spine) return;
     final layout = ScrollChapterLayout.fromPages(spine, pages);
     for (final segment in layout.segments) {
       if (segment.pageIndex != index) continue;
       _scrollSpineIndex = spine;
       _scrollPageIndex = index;
-      _scrollOffset = _scrollOffsetForAnchor(segment.content, anchor);
+      _scrollOffset =
+          savedScrollOffset ?? _scrollOffsetForAnchor(segment.content, anchor);
       break;
     }
   }
@@ -914,6 +1227,7 @@ class ReaderSession extends ChangeNotifier {
     final changed = await pager.next();
     if (changed && generation == _generation) {
       _recordPageTurn(origin);
+      _readingAnchor = _anchorOf(page);
       _notify();
       _persist();
     }
@@ -931,6 +1245,7 @@ class ReaderSession extends ChangeNotifier {
     final changed = await pager.previous();
     if (changed && generation == _generation) {
       _recordPageTurn(origin);
+      _readingAnchor = _anchorOf(page);
       _notify();
       _persist();
     }
@@ -940,8 +1255,33 @@ class ReaderSession extends ChangeNotifier {
   /// 当前设置。
   ReaderOverrides get overrides => _overrides;
 
+  /// 正文排版语义版本；正文解析或分页语义变化时递增。
+  static const String layoutSemanticVersion = 'reader-layout-2';
+
   /// 当前布局指纹（P2-24）。
-  String get layoutFingerprint => _overrides.fingerprint;
+  ///
+  /// 包含排版语义版本、正文尺寸、阅读设置和字体依赖。颜色与翻页动画
+  /// 不参与，因此换主题仍可直接复用正文几何与精确滚动偏移。
+  String get layoutFingerprint {
+    final sourceDependency = switch (source) {
+      final SpineLayoutDependencyChapterSource chapter =>
+        chapter.layoutDependencyForSpine(
+          _scrollSpineIndex ?? page?.spineIndex ?? 0,
+        ),
+      final LayoutDependencyChapterSource chapter => chapter.layoutDependency,
+      _ => '-',
+    };
+    return [
+      layoutSemanticVersion,
+      'w=${_contentWidth ?? '-'}',
+      'h=${_contentHeight ?? '-'}',
+      'top=$_contentTopInset',
+      'textScale=1.0',
+      _overrides.fingerprint,
+      'font=$sourceDependency',
+      'env=${layoutDependency ?? '-'}',
+    ].join(';');
+  }
 
   /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
   ReaderAnchor _anchorOf(PageContent? page) {
@@ -1017,7 +1357,9 @@ class ReaderSession extends ChangeNotifier {
         _pendingOverride = null;
         final currentPage = _pager?.current?.content;
         final spine = currentPage?.spineIndex ?? 0;
-        final anchor = _anchorOf(currentPage);
+        final anchor = _readingAnchor.isEmpty
+            ? _anchorOf(currentPage)
+            : _readingAnchor;
         _overrides = request.overrides;
         final src = source;
         if (src is! RestylableChapterSource) {
@@ -1042,8 +1384,11 @@ class ReaderSession extends ChangeNotifier {
     if (_disposed || current == null) return false;
     final generation = ++_generation;
     final anchor = anchorCfi == null
-        ? _anchorOf(current)
+        ? (_readingAnchor.isEmpty ? _anchorOf(current) : _readingAnchor)
         : ReaderAnchor(cfi: anchorCfi);
+    if (anchorCfi == null && !anchor.isEmpty) {
+      _readingAnchor = anchor;
+    }
     await (_reloadTask = _reloadChapter(
       generation: generation,
       spine: current.spineIndex,
@@ -1092,7 +1437,9 @@ class ReaderSession extends ChangeNotifier {
   Future<void> _applyContentSize(_ContentSizeRequest next) async {
     final currentPage = _pager?.current?.content;
     if (next.preview && _contentSizePreviewAnchor == null) {
-      _contentSizePreviewAnchor = _anchorOf(currentPage);
+      _contentSizePreviewAnchor = _readingAnchor.isEmpty
+          ? _anchorOf(currentPage)
+          : _readingAnchor;
       _contentSizePreviewProgress = progress;
       _contentSizeBeforePreview = (
         _contentWidth,
@@ -1100,7 +1447,9 @@ class ReaderSession extends ChangeNotifier {
         _contentTopInset,
       );
     }
-    final anchor = _contentSizePreviewAnchor ?? _anchorOf(currentPage);
+    final anchor =
+        _contentSizePreviewAnchor ??
+        (_readingAnchor.isEmpty ? _anchorOf(currentPage) : _readingAnchor);
     if (_contentWidth == next.width &&
         _contentHeight == next.height &&
         _contentTopInset == next.topInset &&
@@ -1171,8 +1520,9 @@ class ReaderSession extends ChangeNotifier {
     Future<void> Function()? prepare,
     int? pageIndex,
   }) async {
-    _clearScrollPosition();
+    final wasContinuous = _scrollOffset != null || _stagedViewport != null;
     _pager?.cancelPendingNavigation();
+    _stagedViewport = null;
     _loading = true;
     _notify();
     try {
@@ -1199,6 +1549,27 @@ class ReaderSession extends ChangeNotifier {
         return;
       }
       _pager = pager;
+      final current = pager.current?.content;
+      final effectiveAnchor = anchor.isEmpty || current?.spineIndex != spine
+          ? _anchorOf(current)
+          : anchor;
+      _readingAnchor = effectiveAnchor;
+      if (wasContinuous) {
+        final offset = current == null
+            ? null
+            : _scrollOffsetForAnchor(current, effectiveAnchor);
+        if (current != null && offset != null) {
+          _scrollSpineIndex = current.spineIndex;
+          _scrollPageIndex = current.pageIndex;
+          _scrollOffset = offset;
+        } else {
+          _clearScrollPosition();
+        }
+      } else {
+        _scrollSpineIndex = null;
+        _scrollPageIndex = null;
+        _scrollOffset = null;
+      }
       _error = null;
     } catch (error) {
       if (generation != _generation) {
@@ -1318,8 +1689,7 @@ class ReaderSession extends ChangeNotifier {
     return null;
   }
 
-  PageHit? _hitAtScrollOffset(PageContent page) {
-    final offset = _scrollOffset;
+  static PageHit? _hitAtPageOffset(PageContent page, double? offset) {
     if (offset == null) {
       return null;
     }
@@ -1389,52 +1759,183 @@ class ReaderSession extends ChangeNotifier {
     return null;
   }
 
-  /// 调度进度写入（P4-10）：值变化才写，2 秒内的多次翻页合并成一次。
+  /// 调度进度写入（P4-10）。
   ///
-  /// 首次变化立即落盘（leading），避免「翻一页就退出」的短会话丢进度；
-  /// 之后的连续变化走 trailing 合并。
+  /// 首次真实变化立即落盘；之后以「首次变脏时刻」为起点固定间隔合并，
+  /// 连续操作不会不断推迟截止时间。失败时保留脏状态，后续周期和显式
+  /// [flushProgress] 都会重试。
   void _persist() {
+    if (_flushingProgress) {
+      _dirty = true;
+      return;
+    }
     final value = _progressToPersist;
     if (value == null || value == _lastPersisted) {
       return;
     }
-    if (_lastPersisted == null) {
+    _dirty = true;
+    if (_firstChangeAfterOpen) {
+      _firstChangeAfterOpen = false;
       _flushProgress().ignore();
       return;
     }
-    _persistTimer?.cancel();
-    _persistTimer = Timer(persistInterval, () => _flushProgress().ignore());
+    _scheduleRetry();
   }
 
   /// 立即落盘（生命周期切后台/退出阅读页/强杀前调用）。
-  Future<void> flushProgress() => _flushProgress();
-
-  ReaderProgress? get _progressToPersist =>
-      _contentSizePreviewProgress ?? progress;
-
-  Future<void> _flushProgress() async {
-    _persistTimer?.cancel();
-    _persistTimer = null;
-    while (_persistTask != null) {
-      try {
-        await _persistTask;
-      } catch (_) {
-        // 上一轮失败仍保留待保存位置，本次落盘继续重试。
+  Future<void> flushProgress() async {
+    if (!_flushingProgress) {
+      _captureLatestViewport();
+    }
+    try {
+      await _flushProgress();
+    } finally {
+      if (!_dirty) {
+        // 显式刷新已完成本轮保存；下一次变化重新开始周期，不能留下空闲任务。
+        _persistTimer?.cancel();
+        _persistTimer = null;
+        _persistIntervalElapsed = true;
       }
     }
-    final value = _progressToPersist;
-    if (value == null || value == _lastPersisted) {
+  }
+
+  ReaderProgress? get _progressToPersist {
+    final preview = _contentSizePreviewProgress;
+    if (preview != null) return preview;
+    final staged = _stagedViewport;
+    if (staged != null) {
+      return ReaderProgress(
+        spineIndex: staged.spineIndex,
+        pageIndex: staged.pageIndex,
+        finished: _finishedAt(staged.spineIndex, staged.pageIndex),
+        scrollOffset: staged.scrollOffset,
+        cfi: contentRevision == null
+            ? null
+            : staged.cfi ?? _anchorCfi(_readingAnchor),
+        contentRevision: contentRevision,
+        approximate: _restoredApproximate,
+        readingPercent: switch (source) {
+          final PositionedChapterSource positioned =>
+            positioned.readingPercentForCfi(
+              staged.cfi ?? _anchorCfi(_readingAnchor),
+            ),
+          _ => null,
+        },
+        layoutFingerprint: layoutFingerprint,
+      );
+    }
+    return progress;
+  }
+
+  void _captureLatestViewport() {
+    final provider = _viewportSnapshotProvider;
+    if (provider == null) return;
+    try {
+      final snapshot = provider();
+      if (snapshot != null) {
+        stageViewportSnapshot(snapshot);
+      }
+    } catch (_) {
+      // 视口取不到时保留上一份快照，不能因此阻断退出保存。
+    }
+  }
+
+  Future<void> _flushProgress() async {
+    final active = _activeFlush;
+    if (active != null) {
+      Object? activeError;
+      StackTrace? activeStack;
+      try {
+        await active;
+      } catch (error, stack) {
+        activeError = error;
+        activeStack = stack;
+      }
+      // 本轮仍要补写最新位置；但显式 flush 的调用方需要知道上一轮失败，
+      // 便于生命周期层提示或再次刷新，不能把异常静默吞掉。
+      try {
+        await _flushProgress();
+      } catch (_) {
+        if (activeError == null) rethrow;
+      }
+      if (activeError != null) {
+        Error.throwWithStackTrace(
+          activeError,
+          activeStack ?? StackTrace.current,
+        );
+      }
       return;
     }
-    final task = store.save(bookId, value);
-    _persistTask = task;
+    final task = _flushProgressNow();
+    late final Future<void> tracked;
+    tracked = task.whenComplete(() {
+      if (identical(_activeFlush, tracked)) {
+        _activeFlush = null;
+      }
+    });
+    _activeFlush = tracked;
+    return tracked;
+  }
+
+  Future<void> _flushProgressNow() async {
+    _flushingProgress = true;
     try {
-      await task;
-      _lastPersisted = value;
-      _persistWrites += 1;
+      while (_persistTask != null) {
+        try {
+          await _persistTask;
+        } catch (_) {
+          // 上一轮失败仍保留待保存位置，本次落盘继续重试。
+        }
+      }
+      final value = _progressToPersist;
+      if (value == null || value == _lastPersisted) {
+        _dirty = false;
+        return;
+      }
+      _persistTimer?.cancel();
+      _persistIntervalElapsed = false;
+      // 截止时间从实际写入开始计算；慢 IO 不能在完成后再推迟一个周期。
+      _persistTimer = _disposed
+          ? null
+          : Timer(persistInterval, () {
+              _persistTimer = null;
+              _persistIntervalElapsed = true;
+              if (_dirty && !_flushingProgress && !_disposed) {
+                _flushProgress().ignore();
+              }
+            });
+      final task = store.save(bookId, value);
+      _persistTask = task;
+      try {
+        await task;
+        _lastPersisted = value;
+        _persistWrites += 1;
+        if (_progressToPersist == value) {
+          _dirty = false;
+        }
+      } catch (_) {
+        _dirty = true;
+        _scheduleRetry();
+        rethrow;
+      } finally {
+        _persistTask = null;
+      }
     } finally {
-      _persistTask = null;
+      _flushingProgress = false;
+      if (_dirty) {
+        _scheduleRetry();
+      }
     }
+  }
+
+  void _scheduleRetry() {
+    if (_disposed || _persistTimer != null || _persistTask != null) return;
+    final delay = _persistIntervalElapsed ? Duration.zero : persistInterval;
+    _persistTimer = Timer(delay, () {
+      _persistTimer = null;
+      _persistIntervalElapsed = true;
+      _flushProgress().ignore();
+    });
   }
 
   void _notify() {
