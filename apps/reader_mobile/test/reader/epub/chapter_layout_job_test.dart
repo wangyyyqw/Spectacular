@@ -44,6 +44,38 @@ List<PageContent> _pages() => [
   ),
 ];
 
+class _LayoutQueueProbe {
+  final committed = <String>[];
+  final finished = <String>[];
+  late LayoutBudget runningBudget;
+  late final scheduler = ChapterLayoutScheduler(
+    isCurrent: (_) => true,
+    run: _run,
+    onFinished: (snapshot) => finished.add(snapshot.key),
+  );
+
+  ChapterLoadHandle request(String key, ChapterLayoutPriority priority) =>
+      scheduler.schedule(
+        _snapshot(key),
+        priority: priority,
+        retainResult: false,
+      );
+
+  Future<List<PageContent>> _run(
+    LayoutSnapshot snapshot,
+    LayoutBudget budget,
+    bool Function() retain,
+  ) async {
+    if (snapshot.key == '共享') {
+      runningBudget = budget;
+      await budget.checkpoint(force: true);
+    }
+    budget.check();
+    committed.add(snapshot.key);
+    return _pages();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -128,6 +160,56 @@ void main() {
     expect(retained, isFalse);
     expect(priority, ChapterLayoutPriority.pageCount);
   });
+
+  for (final priority in [
+    ChapterLayoutPriority.prefetch,
+    ChapterLayoutPriority.reading,
+  ]) {
+    test('共享阅读取消后已排队的 ${priority.name} 抢占降级作业', () async {
+      final probe = _LayoutQueueProbe();
+      addTearDown(probe.scheduler.close);
+      final reading = probe.request('共享', ChapterLayoutPriority.reading);
+      final counting = probe.request('共享', ChapterLayoutPriority.pageCount);
+      final alsoCounting = probe.request('共享', ChapterLayoutPriority.pageCount);
+      final next = probe.request('排队', priority);
+      expect(probe.runningBudget.token.isCancelled, isFalse);
+
+      reading.cancel();
+
+      expect(probe.runningBudget.token.isCancelled, isTrue);
+      await expectLater(reading.result, throwsA(isA<ChapterLoadCancelled>()));
+      await expectLater(counting.result, throwsA(isA<ChapterLoadCancelled>()));
+      await expectLater(
+        alsoCounting.result,
+        throwsA(isA<ChapterLoadCancelled>()),
+      );
+      expect(await next.result, hasLength(1));
+      expect(probe.committed, ['排队']);
+      expect(probe.finished, ['共享', '排队']);
+    });
+  }
+
+  for (final priority in [
+    ChapterLayoutPriority.reading,
+    ChapterLayoutPriority.pageCount,
+  ]) {
+    test('取消共享阅读后剩余 ${priority.name} 不被同优先级排队请求抢占', () async {
+      final probe = _LayoutQueueProbe();
+      addTearDown(probe.scheduler.close);
+      final first = probe.request('共享', ChapterLayoutPriority.reading);
+      final remaining = probe.request('共享', priority);
+      final next = probe.request('排队', priority);
+
+      first.cancel();
+
+      expect(probe.runningBudget.token.isCancelled, isFalse);
+      await expectLater(first.result, throwsA(isA<ChapterLoadCancelled>()));
+      expect(await remaining.result, hasLength(1));
+      expect(await next.result, hasLength(1));
+      expect(probe.committed, ['共享', '排队']);
+      expect(probe.finished, ['共享', '排队']);
+    });
+  }
 
   test('后台等待帧时前台可抢占，取消立即唤醒旧预算', () async {
     final started = Completer<void>();
