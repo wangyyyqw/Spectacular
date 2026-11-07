@@ -254,6 +254,9 @@ Future<void> _scanLongBook() async {
   final startedPss = _pssBytes();
   var peakPss = startedPss;
   final samples = <Map<String, Object>>[];
+  final peaks = <Map<String, Object>>[];
+  var peakChapterPss = 0;
+  var peakChapterSpine = 0;
   final count = source.chapterCount;
   for (var spine = 0; spine < count; spine += 10) {
     final watch = Stopwatch()..start();
@@ -263,6 +266,16 @@ Future<void> _scanLongBook() async {
     if (rss > peakRss) peakRss = rss;
     final pss = _pssBytes();
     if (pss > peakPss) peakPss = pss;
+    if (pss > peakChapterPss) {
+      peakChapterPss = pss;
+      peakChapterSpine = spine;
+    }
+    peaks.add({
+      'spine': spine,
+      'load_ms': watch.elapsedMilliseconds,
+      'pages': pages.length,
+      'pss_bytes': pss,
+    });
     if (spine == 0 || spine % 100 == 0 || spine + 10 >= count) {
       samples.add({
         'spine': spine,
@@ -283,6 +296,9 @@ Future<void> _scanLongBook() async {
     'start_pss_bytes': startedPss,
     'peak_pss_bytes': peakPss,
     'end_pss_bytes': _pssBytes(),
+    'peak_chapter_spine': peakChapterSpine,
+    'peak_chapter_pss_bytes': peakChapterPss,
+    'chapter_samples': peaks,
     'samples': samples,
   };
   await _send('sample', _results);
