@@ -12,6 +12,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
@@ -201,7 +202,7 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
   _uiProbe.start();
   final watch = Stopwatch()..start();
   await openPerfReader(
-    isMounted: () => _find<ReaderPage>((_) => true) != null,
+    isMounted: isPerfReaderMounted,
     tap: () => _bookTile()?.onTap?.call(),
   );
   final sample = await _sample(watch, _targetSpine);
@@ -223,6 +224,9 @@ Future<void> _openRound(DriftProgressStore progress, int round) async {
     await _jump(spine);
   }
 }
+
+/// 路由挂载先于章节准备；正文仍交给原有就绪等待，兼容基线的慢扫描。
+bool isPerfReaderMounted() => _find<EpubReaderPage>((_) => true) != null;
 
 /// 保留防重入期间的点击重试；挂载检测不等待下一个250ms重试时刻。
 Future<void> openPerfReader({
