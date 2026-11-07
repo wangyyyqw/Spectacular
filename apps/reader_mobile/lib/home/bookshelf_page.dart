@@ -1672,9 +1672,10 @@ class _BookRow extends StatelessWidget {
 String _shelfMetaLabel(BookEntry entry, int? percentInt, bool finished) {
   final author = entry.author.trim().isEmpty ? '未知作者' : entry.author.trim();
   final status = switch (finished ? BookReadingStatus.finished : entry.status) {
-    BookReadingStatus.unread => '未开始',
+    BookReadingStatus.unread => percentInt == null ? '未开始' : '在读 $percentInt%',
     BookReadingStatus.reading => percentInt == null ? '在读' : '在读 $percentInt%',
-    BookReadingStatus.finished => '已读完',
+    BookReadingStatus.finished =>
+      percentInt == null ? '已读完' : '已读完 · $percentInt%',
   };
   return '$status · $author';
 }

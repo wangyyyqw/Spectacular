@@ -113,7 +113,7 @@ void main() {
     );
   });
 
-  testWidgets('到达全书末页后书架显示已读完状态', (tester) async {
+  testWidgets('已读完书回翻后书架同时显示当前正文比例与读完状态', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-finished');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -131,7 +131,12 @@ void main() {
     });
     await progressStore.save(
       entry.id,
-      const ReaderProgress(spineIndex: 0, pageIndex: 0, finished: true),
+      const ReaderProgress(
+        spineIndex: 0,
+        pageIndex: 0,
+        finished: true,
+        readingPercent: 0.375,
+      ),
     );
 
     await tester.pumpWidget(
@@ -150,7 +155,7 @@ void main() {
             find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
           )
           .data,
-      '已读完 · 测试作者',
+      '已读完 · 38% · 测试作者',
     );
   });
 
