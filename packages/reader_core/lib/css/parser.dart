@@ -33,6 +33,7 @@ class CssRule {
     required this.selector,
     required this.declarations,
     this.media,
+    this.mediaConditions = const <String>[],
   });
 
   /// 选择器文本。
@@ -43,6 +44,12 @@ class CssRule {
 
   /// `@media` 条件；顶层规则为 null。
   final String? media;
+
+  /// 从外到内的逐层 `@media` 条件。
+  ///
+  /// 每层保留自己的逗号/not 语义，求值时逐层合取；不能把嵌套列表直接
+  /// 拼成字符串，否则 `screen, print` 会绕过内层条件。
+  final List<String> mediaConditions;
 }
 
 /// `@import` 记录。
@@ -133,6 +140,40 @@ abstract final class CssParser {
 
   static final RegExp _syntaxErrorPattern = RegExp(r'^\d+:\d+:');
 
+  /// 解析元素 `style` 属性中的声明。
+  ///
+  /// 与样式表共用同一套声明解析和属性别名，自定义属性保留大小写；
+  /// 版权/私有命名空间过滤由调用方按来源语义完成。
+  static List<CssDeclaration> parseInlineDeclarations(String raw) {
+    if (raw.trim().isEmpty) return const <CssDeclaration>[];
+    final parsed = _parseSingle('*{$raw}');
+    final rule = parsed.rules.firstOrNull;
+    if (rule != null) return rule.declarations;
+    // 极端语法错误时退回逐段解析，至少保留可识别的声明。
+    final declarations = <CssDeclaration>[];
+    for (final part in raw.split(';')) {
+      final colon = part.indexOf(':');
+      if (colon <= 0) continue;
+      var value = part.substring(colon + 1).trim();
+      var important = false;
+      if (value.toLowerCase().endsWith('!important')) {
+        important = true;
+        value = value.substring(0, value.length - '!important'.length).trim();
+      }
+      final property = part.substring(0, colon).trim();
+      if (property.isNotEmpty && value.isNotEmpty) {
+        declarations.add(
+          CssDeclaration(
+            property: property,
+            value: value,
+            important: important,
+          ),
+        );
+      }
+    }
+    return List<CssDeclaration>.unmodifiable(declarations);
+  }
+
   /// 解析一段 CSS。
   ///
   /// 伪元素近似诊断（P7-28）：`::first-letter`（首字下沉的最常见载体）
@@ -212,7 +253,10 @@ abstract final class CssParser {
     // 由提取器自行扫描；collect 里对 FontFaceDirective 静默跳过。
     final fontFaces = CssFontFaceExtractor.extract(css, warnings);
 
-    void collect(List<TreeNode> nodes, {String? media}) {
+    void collect(
+      List<TreeNode> nodes, {
+      List<String> media = const <String>[],
+    }) {
       for (final node in nodes) {
         if (node is RuleSet) {
           final rawSelector = node.selectorGroup?.span?.text.trim() ?? '';
@@ -229,7 +273,8 @@ abstract final class CssParser {
             CssRule(
               selector: selector,
               declarations: declarations,
-              media: media,
+              media: media.isEmpty ? null : media.join(' and '),
+              mediaConditions: List<String>.unmodifiable(media),
             ),
           );
         } else if (node is MediaDirective) {
@@ -239,7 +284,7 @@ abstract final class CssParser {
               .join(', ');
           collect(
             node.rules,
-            media: media == null ? query : '$media and $query',
+            media: <String>[...media, if (query.isNotEmpty) query],
           );
         } else if (node is ImportDirective) {
           final mediaText = node.mediaQueries

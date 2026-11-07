@@ -1,0 +1,6 @@
+{
+  "name": "114-audit-shorthands",
+  "tags": ["background", "text-decoration"],
+  "css": "body { margin: 0; font-family: builtin_song; font-size: 17px; } p { margin: 12px 0; padding: 10px; line-height: 1.8; text-align: left; text-spacing-trim: space-all; } .background { color: #234567; background-color: red; background: currentColor content-box; } .reset { background-image: linear-gradient(red, blue); background: #cceebb; } .decoration { text-decoration-line: line-through; text-decoration-color: red; text-decoration-style: double; text-decoration: underline; } .layers { background: linear-gradient(90deg, #cdf, #cdf) no-repeat left top / 100% 10px, linear-gradient(#fdd, #fdd) no-repeat left bottom / 100% 10px #ffffff; }",
+  "html": "<p class=\"background\">背景当前色与单个盒关键字</p><p class=\"reset\">背景简写清除旧图像</p><p class=\"decoration\">装饰简写重置线型与颜色</p><p class=\"layers\">两个背景层分别保留位置和尺寸</p>"
+}

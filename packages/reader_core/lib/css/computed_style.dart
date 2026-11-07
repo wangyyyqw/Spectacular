@@ -1704,6 +1704,17 @@ class ComputedStyle {
       'outline-style' => 'none',
       'outline-color' => 'currentcolor',
       'outline-offset' => '0px',
+      'background-color' => 'transparent',
+      'background-image' => 'none',
+      'background-repeat' => 'repeat',
+      'background-position' => '0% 0%',
+      'background-size' => 'auto',
+      'background-origin' => 'padding-box',
+      'background-clip' => 'border-box',
+      'background-attachment' => 'scroll',
+      'text-decoration-line' => 'none',
+      'text-decoration-style' => 'solid',
+      'text-decoration-color' => 'currentcolor',
       _ => 'normal',
     };
   }
@@ -2634,39 +2645,24 @@ class ComputedStyle {
               CssEdges.zero;
     String? edgeValue(String property) =>
         edgeExplicit.contains(property) ? edgeValues[property] : null;
-    final top =
-        _parseOffset(
-          edgeValue('top'),
-          fontSize: fontSize,
-          rootFontSize: rootFontSize,
-        ) ??
-        parent?.top;
-    final right =
-        _parseOffset(
-          edgeValue('right'),
-          fontSize: fontSize,
-          rootFontSize: rootFontSize,
-        ) ??
-        parent?.right;
-    final bottom =
-        _parseOffset(
-          edgeValue('bottom'),
-          fontSize: fontSize,
-          rootFontSize: rootFontSize,
-        ) ??
-        parent?.bottom;
-    final left =
-        _parseOffset(
-          edgeValue('left'),
-          fontSize: fontSize,
-          rootFontSize: rootFontSize,
-        ) ??
-        parent?.left;
+    CssLength? offsetValue(String property) => _parseOffset(
+      edgeValue(property),
+      parent: parent,
+      property: property,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
+    final top = offsetValue('top');
+    final right = offsetValue('right');
+    final bottom = offsetValue('bottom');
+    final left = offsetValue('left');
 
     // background 与 border 不继承，按 CSS 初始值兜底（§65 背景与边框组）。
+    final rawBackgroundColor = backgroundValue('background-color') ?? '';
     final backgroundColor =
-        _parseColor(backgroundValue('background-color') ?? '') ??
-        const Color(0x00000000);
+        rawBackgroundColor.trim().toLowerCase() == 'currentcolor'
+        ? color
+        : _parseColor(rawBackgroundColor) ?? const Color(0x00000000);
     final backgroundImageValue = backgroundValue('background-image');
     final backgroundImage = _parseUrl(backgroundImageValue);
     // 渐变结构（W2）：url 与渐变互斥——同一 background-image 只会命中一个。
@@ -3847,6 +3843,7 @@ class ComputedStyle {
       'tab=$tabSize;lb=${lineBreak.name};tc=${textCombine.name};'
       'wm=${writingMode.name};to=${textOrientation.name};'
       'hy=${hyphens.name};wb=${wordBreak.name};ow=${overflowWrap.name};'
+      'tov=${textOverflow.name};'
       'dir=${direction.name}';
 
   /// 行内基线偏移（逻辑像素，正值向下）。
@@ -6684,23 +6681,51 @@ class ComputedStyle {
     'bottom',
   };
 
-  /// 解析 `background` 简写（P9-11）：拆分出 image/color/repeat/
-  /// position/size；attachment 与多背景暂不支持（取第一层）。渐变（W2）
-  /// 原样放进 `background-image`，由 [_parseGradient] 结构化。
+  /// 解析 `background` 简写（P9-11/F06）：按逗号分层拆分出
+  /// image/color/repeat/position/size/origin/clip/attachment。
+  ///
+  /// 每层缺省项按 CSS 初始值补齐；颜色只取最后一层，与浏览器一致。
+  /// 渐变（W2）原样放进 `background-image`，由 [_parseGradient] 结构化。
   static Map<String, String>? _parseBackgroundShorthand(String? raw) {
     if (raw == null) {
       return null;
     }
+    final layers = _splitTopLevel(raw, ',');
+    if (layers.isEmpty) {
+      return null;
+    }
+    final parsed = <Map<String, String>>[
+      for (final layer in layers)
+        if (layer.isNotEmpty) _parseBackgroundLayer(layer),
+    ];
+    if (parsed.isEmpty) {
+      return null;
+    }
+    String initials(String key, String initial) =>
+        parsed.map((layer) => layer[key] ?? initial).join(', ');
+    return <String, String>{
+      'background-image': initials('background-image', 'none'),
+      'background-repeat': initials('background-repeat', 'repeat'),
+      'background-position': initials('background-position', '0% 0%'),
+      'background-size': initials('background-size', 'auto'),
+      'background-origin': initials('background-origin', 'padding-box'),
+      'background-clip': initials('background-clip', 'border-box'),
+      'background-attachment': initials('background-attachment', 'scroll'),
+      'background-color': parsed.last['background-color'] ?? 'transparent',
+    };
+  }
+
+  static Map<String, String> _parseBackgroundLayer(String raw) {
     final result = <String, String>{};
     final images = RegExp(
-      r'url\([^)]*\)',
+      r'''url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)''',
       caseSensitive: false,
     ).allMatches(raw).map((match) => match.group(0)!).toList();
     if (images.isNotEmpty) {
       result['background-image'] = images.first;
     }
-    // 渐变：配对括号截取，避免色标里的 rgba(...) 把串截断；只有没有 url
-    // 时才当作 image（一层背景只能有一个 image）。
+    // 渐变：配对括号截取，避免色标里的 rgba(...) 把串截断；一层只能有
+    // 一个图像，优先 url，其次渐变。
     final gradient = _firstGradientFunction(raw);
     if (images.isEmpty && gradient != null) {
       result['background-image'] = gradient;
@@ -6712,29 +6737,17 @@ class ComputedStyle {
     if (gradient != null) {
       rest = rest.replaceFirst(gradient, ' ');
     }
-    // 其余层/重复前缀残留的渐变片段统一清掉，避免污染 position/size 分词。
-    rest = rest.replaceAll(
-      RegExp(
-        r'(?:repeating-)?(?:-[a-z]+-)?(?:linear|radial)-gradient\(',
-        caseSensitive: false,
-      ),
-      ' ',
-    );
-    final tokens = rest
-        .split(RegExp(r'\s+'))
-        .where((token) => token.isNotEmpty)
-        .toList();
+    // 斜杠两侧可能没有空格（`center/cover`），统一拆成独立 token。
+    rest = rest.replaceAll('/', ' / ');
+    final tokens = _cssTokens(rest);
     final positions = <String>[];
     final sizes = <String>[];
     var afterSlash = false;
+    var boxCount = 0;
     for (final token in tokens) {
       final lower = token.toLowerCase();
       if (lower == '/') {
         afterSlash = true;
-        continue;
-      }
-      if (afterSlash) {
-        sizes.add(token);
         continue;
       }
       if (_backgroundRepeatKeywords.contains(lower)) {
@@ -6742,25 +6755,76 @@ class ComputedStyle {
         continue;
       }
       if (const <String>{'scroll', 'fixed', 'local'}.contains(lower)) {
-        // background-attachment 无对应字段，静态分页下忽略。
+        result['background-attachment'] = lower;
+        continue;
+      }
+      if (const <String>{
+        'border-box',
+        'padding-box',
+        'content-box',
+      }.contains(lower)) {
+        boxCount += 1;
+        result[boxCount == 1 ? 'background-origin' : 'background-clip'] = lower;
+        if (boxCount == 1) result['background-clip'] = lower;
+        continue;
+      }
+      if (lower == 'currentcolor' || _parseColor(token) != null) {
+        result['background-color'] = token;
+        continue;
+      }
+      if (afterSlash) {
+        sizes.add(token);
         continue;
       }
       if (_backgroundPositionKeywords.contains(lower) ||
           _backgroundLengthToken.hasMatch(token)) {
         positions.add(token);
-        continue;
-      }
-      if (_parseColor(token) != null) {
-        result['background-color'] = token;
       }
     }
     if (positions.isNotEmpty) {
-      result['background-position'] = positions.take(2).join(' ');
+      result['background-position'] = positions.join(' ');
     }
     if (sizes.isNotEmpty) {
-      result['background-size'] = sizes.join(' ');
+      result['background-size'] = sizes.take(2).join(' ');
     }
-    return result.isEmpty ? null : result;
+    return result;
+  }
+
+  /// 公开的 `background` 简写解析入口；供级联在竞争前展开成长属性。
+  static Map<String, String>? parseBackgroundShorthand(String raw) =>
+      _parseBackgroundShorthand(raw);
+
+  /// `text-decoration` 简写拆成长属性；缺项按初始值重置。
+  static Map<String, String> parseTextDecorationShorthand(String raw) {
+    final line = _parseTextDecoration(raw) ?? CssTextDecoration.none;
+    CssTextDecorationStyle style = CssTextDecorationStyle.solid;
+    String color = 'currentcolor';
+    for (final token in _cssTokens(raw)) {
+      final lower = token.toLowerCase();
+      final parsedStyle = _parseTextDecorationStyle(lower);
+      if (parsedStyle != null) {
+        style = parsedStyle;
+        continue;
+      }
+      if (lower == 'currentcolor' || _parseColor(lower) != null) {
+        color = lower;
+      }
+    }
+    return <String, String>{
+      'text-decoration-line': switch (line) {
+        CssTextDecoration.none => 'none',
+        CssTextDecoration.underline => 'underline',
+        CssTextDecoration.lineThrough => 'line-through',
+        CssTextDecoration.overline => 'overline',
+        CssTextDecoration.underlineLineThrough => 'underline line-through',
+        CssTextDecoration.underlineOverline => 'underline overline',
+        CssTextDecoration.lineThroughOverline => 'line-through overline',
+        CssTextDecoration.underlineLineThroughOverline =>
+          'underline line-through overline',
+      },
+      'text-decoration-style': style.name,
+      'text-decoration-color': color,
+    };
   }
 
   static CssEdges _resolveMargin(
@@ -7444,6 +7508,8 @@ class ComputedStyle {
 
   static CssLength? _parseOffset(
     String? raw, {
+    ComputedStyle? parent,
+    String? property,
     required double fontSize,
     required double rootFontSize,
   }) {
@@ -7451,7 +7517,20 @@ class ComputedStyle {
       return null;
     }
     final value = raw.trim().toLowerCase();
-    if (value.isEmpty || value == 'auto') {
+    if (value.isEmpty) {
+      return null;
+    }
+    if (value == 'inherit') {
+      return switch (property) {
+        'top' => parent?.top,
+        'right' => parent?.right,
+        'bottom' => parent?.bottom,
+        'left' => parent?.left,
+        _ => null,
+      };
+    }
+    // 偏移属性不继承；auto/initial/unset 都回到初始值 auto。
+    if (value == 'auto' || value == 'initial' || value == 'unset') {
       return null;
     }
     return _resolveCssLength(
