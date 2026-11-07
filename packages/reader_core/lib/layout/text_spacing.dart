@@ -1,5 +1,5 @@
 import 'package:flutter/painting.dart';
-import 'package:flutter/widgets.dart' show StringCharacters;
+import 'package:flutter/widgets.dart' show CharacterRange;
 
 /// 几何规则版本；颜色不参与布局缓存失效。
 const int textSpacingRevision = 3;
@@ -144,6 +144,11 @@ class _SpacingSpans {
   final double extra;
   final Set<int> hidden;
   final Set<int> replaced;
+  late final _offsets = <int>{
+    ...spacing.glyphs.keys,
+    if (extra != 0) ...gaps,
+    ...hidden,
+  }.toList()..sort();
   int cursor = 0;
 
   TextStyle? _adjusted(int offset, TextStyle style) {
@@ -172,30 +177,79 @@ class _SpacingSpans {
   TextSpan visit(TextSpan span, TextStyle inherited) {
     final style = inherited.merge(span.style);
     final text = span.text ?? '';
-    final children = <InlineSpan>[];
-    var start = 0;
-    var local = 0;
-    for (final cluster in text.characters) {
-      final adjusted = _adjusted(cursor + local, style);
-      if (adjusted != null) {
-        if (local > start) {
-          children.add(
-            TextSpan(text: text.substring(start, local), style: style),
-          );
-        }
-        children.add(TextSpan(text: cluster, style: adjusted));
-        start = local + cluster.length;
-      }
-      local += cluster.length;
-    }
-    if (start < text.length) {
-      children.add(TextSpan(text: text.substring(start), style: style));
-    }
+    final children = _textSpans(text, style);
     cursor += text.length;
     for (final child in span.children ?? const <InlineSpan>[]) {
       children.add(child is TextSpan ? visit(child, style) : child);
     }
     return TextSpan(style: span.style, children: children);
+  }
+
+  List<InlineSpan> _textSpans(String text, TextStyle style) {
+    final children = <InlineSpan>[];
+    var start = 0;
+    for (final range in _adjustedRanges(text)) {
+      final local = range.stringBeforeLength;
+      final adjusted = _adjusted(cursor + local, style);
+      if (adjusted == null || local < start) continue;
+      if (local > start) {
+        children.add(
+          TextSpan(text: text.substring(start, local), style: style),
+        );
+      }
+      final cluster = range.current;
+      children.add(TextSpan(text: cluster, style: adjusted));
+      start = local + cluster.length;
+    }
+    if (start < text.length) {
+      children.add(TextSpan(text: text.substring(start), style: style));
+    }
+    return children;
+  }
+
+  /// 只访问会改变样式的字簇；UTF-16 偏移落在字簇内部时仍不拆开它。
+  Iterable<CharacterRange> _adjustedRanges(String text) sync* {
+    if (text.isEmpty) return;
+    // 样式节点可能恰好切开代理码对；此时反向定位会越过字串开头。
+    // 沿用原来的正向字簇边界，保留这些节点的原文与调整位置。
+    if ((text.codeUnitAt(0) ^ 0xDC00) <= 0x3FF) {
+      final range = CharacterRange(text);
+      while (range.moveNext()) {
+        yield range;
+      }
+      return;
+    }
+    final end = cursor + text.length;
+    final trailing = spacing.trailingSpaceStart;
+    for (var index = _firstOffset(cursor); index < _offsets.length; index++) {
+      final offset = _offsets[index];
+      if (offset >= end || trailing != null && offset >= trailing) break;
+      final local = offset - cursor;
+      final range = CharacterRange.at(text, local, local + 1);
+      if (range.stringBeforeLength == local) yield range;
+    }
+    if (trailing == null || trailing >= end) return;
+    final range = CharacterRange.at(
+      text,
+      (trailing - cursor).clamp(0, text.length),
+    );
+    while (range.moveNext()) {
+      yield range;
+    }
+  }
+
+  int _firstOffset(int start) {
+    var lower = 0;
+    var upper = _offsets.length;
+    while (lower < upper) {
+      final middle = (lower + upper) ~/ 2;
+      if (_offsets[middle] < start) {
+        lower = middle + 1;
+      } else {
+        upper = middle;
+      }
+    }
+    return lower;
   }
 }
 
@@ -218,7 +272,7 @@ TextSpan sliceTextSpan(TextSpan source, int start, int end) {
       }
     }
     return TextSpan(
-      text: text.substring(from, until),
+      text: span.text == null ? null : text.substring(from, until),
       style: span.style,
       children: children.isEmpty ? null : children,
     );

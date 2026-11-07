@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
@@ -30,6 +33,23 @@ ParsedElementView _element(
 /// 行高继承遵循无单位因子语义（CSS 2.1 §10.8）。
 void main() {
   group('uaStylesheetCss 解析', () {
+    test('UA 治理保留 78 个声明块、127 条声明及原声明顺序', () {
+      final plain = uaStylesheetCss.replaceAll(
+        RegExp(r'/\*.*?\*/', dotAll: true),
+        '',
+      ).replaceAll(RegExp(r'\s+'), '');
+      expect(
+        sha256.convert(utf8.encode(plain)).toString(),
+        '22d62e368e424e8ddfde03d77daa242a999ae27244d2833d78d72ed53d79263a',
+      );
+      final sheet = CssParser.parse(uaStylesheetCss);
+      expect(sheet.rules, hasLength(78));
+      expect(sheet.rules.fold<int>(0, (sum, rule) =>
+          sum + rule.declarations.length), 127);
+      final ids = RegExp(r'UA-(\d{3})；').allMatches(uaStylesheetCss)
+          .map((match) => int.parse(match[1]!)).toList();
+      expect(ids, List.generate(78, (index) => index + 1));
+    });
     test('整体可解析且规则数符合分区预期', () {
       final rules = uaRules();
       // 分节数：隐藏 2 + 页面 1 + 流内容 3 + 标题 6 + 列表 4 + 表格 1 +
@@ -49,7 +69,7 @@ void main() {
       );
       expect(style.values['font-size'], '2em');
       expect(style.values['font-weight'], 'bold');
-      expect(style.values['page-break-after'], 'avoid');
+      expect(style.values['break-after'], 'avoid');
     });
 
     test('hr 默认灰线在 UA 层，可被作者边框与高度覆盖', () {
@@ -140,6 +160,26 @@ void main() {
       'font-size': '16px',
       'line-height': '1.5',
       'font-family': 'serif',
+    });
+
+    test('h1～h6 两入口的标题度量和避页底结果相同', () {
+      for (var level = 1; level <= 6; level++) {
+        final tag = 'h$level';
+        final cascaded = Cascade.compute(
+          element: _element(tag),
+          ancestors: const [],
+          rules: uaRules(),
+          parent: base,
+        );
+        final compatible = UaBlockDefaults.apply(base, tag)!;
+        expect(compatible.fontSize, cascaded.fontSize, reason: tag);
+        expect(compatible.fontWeight, cascaded.fontWeight, reason: tag);
+        expect(compatible.margin.top, cascaded.margin.top, reason: tag);
+        expect(compatible.margin.bottom, cascaded.margin.bottom, reason: tag);
+        expect(compatible.breakAfterAvoid, isTrue, reason: tag);
+        expect(cascaded.breakAfterAvoid, isTrue, reason: tag);
+        expect(compatible.values['break-after'], 'avoid', reason: tag);
+      }
     });
 
     test('h1：字号 2em、加粗、上下边距按自身字号解算', () {

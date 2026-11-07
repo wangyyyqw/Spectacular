@@ -3,13 +3,26 @@ import 'dart:typed_data';
 /// 已注册用户字体的字形覆盖，缺字继续走阅读器已有的逐字回退链。
 abstract final class FontCoverageRegistry {
   static final Map<String, FontCoverage> _fonts = {};
+  static int _revision = 0;
+
+  /// 只有字体族或实际字形覆盖变化时递增，重复登记相同数据保持不变。
+  static int get revision => _revision;
 
   static void register(String family, FontCoverage coverage) {
+    final previous = _fonts[family];
+    if (identical(previous, coverage) ||
+        previous != null && previous._sameCoverage(coverage)) {
+      return;
+    }
     _fonts[family] = coverage;
+    _revision += 1;
   }
 
   static bool? covers(String family, int codePoint) =>
       _fonts[family]?.covers(codePoint);
+
+  /// 作业只读取启动时的字形覆盖，晚到字体在依赖检查处触发新作业。
+  static Map<String, FontCoverage> snapshot() => Map.unmodifiable(_fonts);
 }
 
 /// 字体字形覆盖检测（P3-04）。
@@ -30,6 +43,29 @@ class FontCoverage {
 
   /// format 4 段（升序，互不重叠）：[startCode, endCode]（BMP）。
   final Uint32List _format4Segments;
+
+  /// 依赖键只包含实际覆盖数据，不包含注册次数或对象身份。
+  late final String fingerprint = _coverageFingerprint();
+
+  bool _sameCoverage(FontCoverage other) =>
+      _sameValues(_format12Groups, other._format12Groups) &&
+      _sameValues(_format4Segments, other._format4Segments);
+
+  static bool _sameValues(Uint32List first, Uint32List second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
+  }
+
+  String _coverageFingerprint() {
+    var hash = 0x811c9dc5;
+    for (final value in [..._format12Groups, -1, ..._format4Segments]) {
+      hash = ((hash ^ value) * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16);
+  }
 
   static const int _sfntTrue = 0x74727565; // 'true'
   static const int _otto = 0x4F54544F; // 'OTTO'
@@ -73,11 +109,7 @@ class FontCoverage {
     }
   }
 
-  static FontCoverage? _parseCmap(
-    ByteData data,
-    int length,
-    int cmapOffset,
-  ) {
+  static FontCoverage? _parseCmap(ByteData data, int length, int cmapOffset) {
     final numSubtables = data.getUint16(cmapOffset + 2);
     int? format4;
     int? format12;
@@ -102,21 +134,19 @@ class FontCoverage {
         format4 = offset;
       }
     }
-    final groups =
-        format12 == null ? Uint32List(0) : _parseFormat12(data, length, format12);
-    final segments =
-        format4 == null ? Uint32List(0) : _parseFormat4(data, length, format4);
+    final groups = format12 == null
+        ? Uint32List(0)
+        : _parseFormat12(data, length, format12);
+    final segments = format4 == null
+        ? Uint32List(0)
+        : _parseFormat4(data, length, format4);
     if (groups.isEmpty && segments.isEmpty) {
       return null;
     }
     return FontCoverage._(groups, segments);
   }
 
-  static Uint32List _parseFormat12(
-    ByteData data,
-    int length,
-    int offset,
-  ) {
+  static Uint32List _parseFormat12(ByteData data, int length, int offset) {
     if (offset + 16 > length) {
       return Uint32List(0);
     }
@@ -214,8 +244,7 @@ class FontCoverage {
         _binarySearch(_format12Groups, codePoint)) {
       return true;
     }
-    if (codePoint <= 0xFFFF &&
-        _binarySearch(_format4Segments, codePoint)) {
+    if (codePoint <= 0xFFFF && _binarySearch(_format4Segments, codePoint)) {
       return true;
     }
     return false;
@@ -239,7 +268,7 @@ class FontCoverage {
     return <String>[
       for (final codePoint in missingCodePoints(text))
         'U+${codePoint.toRadixString(16).toUpperCase().padLeft(4, '0')}'
-        ' [${String.fromCharCode(codePoint)}]',
+            ' [${String.fromCharCode(codePoint)}]',
     ].join('\n');
   }
 

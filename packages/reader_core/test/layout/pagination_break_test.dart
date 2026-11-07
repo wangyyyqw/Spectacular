@@ -1,7 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/cascade.dart';
+import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/parser/document_parser.dart';
 
 ComputedStyle _style(Map<String, String> overrides) =>
     ComputedStyle(<String, String>{
@@ -78,6 +82,32 @@ void main() {
     // 直接断成 3+1。
     expect(pages[0].slices.single.endLine, 3);
     expect(pages[1].slices.single.startLine, 3);
+  });
+
+  test('书内孤行寡行及 important 不把 3+1 改成 2+2', () async {
+    final element = DocumentParser.parse(
+      xhtml: '<html><body><p id="prose">正文</p></body></html>',
+      spineIndex: 0,
+    ).elementById('prose')!;
+    final style = Cascade.compute(
+      element: ParsedElementView.wrap(element, {}),
+      ancestors: const [],
+      rules: const [],
+      inlineDeclarations: CssParser.parseInlineDeclarations(
+        'font-family: Ahem; font-size: 16px; line-height: 1.5; '
+        'orphans: 2 !important; widows: 2 !important;',
+      ),
+    );
+    final blocks = [_block('aa\nbb\ncc\ndd', style)];
+    final paginator = Paginator(pageHeight: 72);
+    final measured = paginator.measureChapter(blocks: blocks).pages;
+    final streamed = await paginator.paginate(blocks: blocks).toList();
+    for (final pages in [measured, streamed]) {
+      expect(pages, hasLength(2));
+      expect(pages.first.slices.single.endLine, 3);
+      expect(pages.last.slices.single.startLine, 3);
+      expect(pages.last.slices.single.endLine, 4);
+    }
   });
 
   test('样式驱动：PageBlock.styled 读取分页与 break-inside 标记', () {

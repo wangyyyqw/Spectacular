@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart' show TextLeadingDistribution;
 
 import '../css/computed_style.dart';
 import 'line_breaker.dart';
+import 'text_edges.dart';
 import 'text_layout.dart';
 
 /// 段落布局缓存（P2-26，S2 结论：逐段 Paragraph + 缓存，不合并整页）。
@@ -22,6 +23,7 @@ class TextLayoutCache {
       LinkedHashMap<String, TextLayoutResult>();
   int _hits = 0;
   int _misses = 0;
+  int _epoch = 0;
 
   /// 命中次数。
   int get hits => _hits;
@@ -45,6 +47,7 @@ class TextLayoutCache {
     List<StyledRun> runs = const <StyledRun>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool Function(String family, int codeUnit)? hasGlyph,
+    String fontDependency = '',
   }) {
     final key = _key(
       text: text,
@@ -55,22 +58,21 @@ class TextLayoutCache {
       runs: runs,
       rubies: rubies,
       hasGlyph: hasGlyph,
+      fontDependency: fontDependency,
     );
-    final cached = _entries.remove(key);
+    final cached = _take(
+      key,
+      () => TextLayoutEngine.styledRuns(
+        text: text,
+        style: style,
+        runs: runs,
+        hasGlyph: hasGlyph,
+        leadingDistribution: leadingDistribution,
+      ),
+    );
     if (cached != null) {
-      _entries[key] = cached;
-      _hits += 1;
-      return cached.withRuns(
-        TextLayoutEngine.styledRuns(
-          text: text,
-          style: style,
-          runs: runs,
-          hasGlyph: hasGlyph,
-          leadingDistribution: leadingDistribution,
-        ),
-      );
+      return cached;
     }
-    _misses += 1;
     final result = TextLayoutEngine.layout(
       text: text,
       style: style,
@@ -86,8 +88,78 @@ class TextLayoutCache {
     return result;
   }
 
+  /// 同步入口使用的同一布局键与算法；取消或失败不会留下缓存条目。
+  Future<TextLayoutResult> layoutAsync({
+    required String text,
+    required ComputedStyle style,
+    required double maxWidth,
+    double textScaleFactor = 1,
+    TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+    List<StyledRun> runs = const <StyledRun>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    String fontDependency = '',
+    Future<void> Function()? checkpoint,
+  }) async {
+    if (checkpoint != null) await checkpoint();
+    final key = _key(
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      textScaleFactor: textScaleFactor,
+      leadingDistribution: leadingDistribution,
+      runs: runs,
+      rubies: rubies,
+      hasGlyph: hasGlyph,
+      fontDependency: fontDependency,
+    );
+    final cached = _take(
+      key,
+      () => TextLayoutEngine.styledRuns(
+        text: text,
+        style: style,
+        runs: runs,
+        hasGlyph: hasGlyph,
+        leadingDistribution: leadingDistribution,
+      ),
+    );
+    if (cached != null) return cached;
+    final epoch = _epoch;
+    final result = await TextLayoutEngine.layoutAsync(
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      textScaleFactor: textScaleFactor,
+      leadingDistribution: leadingDistribution,
+      runs: runs,
+      rubies: rubies,
+      hasGlyph: hasGlyph,
+      checkpoint: checkpoint,
+    );
+    if (checkpoint != null) await checkpoint();
+    if (epoch == _epoch) {
+      _entries[key] = result;
+      _evict();
+    }
+    return result;
+  }
+
+  TextLayoutResult? _take(String key, List<StyledRun> Function() currentRuns) {
+    final cached = _entries.remove(key);
+    if (cached == null) {
+      _misses += 1;
+      return null;
+    }
+    _entries[key] = cached;
+    _hits += 1;
+    final result = cached.withRuns(currentRuns());
+    reuseTextLineEdges(cached, result);
+    return result;
+  }
+
   /// 清空缓存（设置重排时调用）。
   void clear() {
+    _epoch += 1;
     _entries.clear();
     _hits = 0;
     _misses = 0;
@@ -108,11 +180,14 @@ class TextLayoutCache {
     required List<StyledRun> runs,
     required List<RubyAnnotation> rubies,
     required bool Function(String family, int codeUnit)? hasGlyph,
+    required String fontDependency,
   }) {
     final buffer = StringBuffer('spacing=$textSpacingRevision|')
+      ..write('fractional=${LineBreaker.preserveFractionalLineHeight}|')
+      ..write('fonts=$fontDependency|')
       ..write(style.layoutFingerprint)
       ..write('|w=')
-      ..write(maxWidth.toStringAsFixed(2))
+      ..write(maxWidth.toString())
       ..write('|s=')
       ..write(textScaleFactor)
       ..write('|ld=')

@@ -9,6 +9,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/cjk_justify.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/punctuation_spacing.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/line_spans.dart';
@@ -70,6 +71,50 @@ Future<void> _loadFonts() async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFonts);
+
+  test('长段区间只按本地字簇与字体计算，不借用区间外标点和锁定边界', () {
+    const fragment = '（甲），「乙。English 中文！';
+    final prefix = '前文，' * 800;
+    final start = prefix.length;
+    final text = '$prefix$fragment${'后文。' * 800}';
+    for (final trim in ['trim-both', 'trim-all', 'trim-adjacent']) {
+      final base = _style({'text-spacing-trim': trim});
+      final large = _style({'text-spacing-trim': trim, 'font-size': '30px'});
+      PunctuationSpacing plan(String source, int offset) => PunctuationSpacing(
+        text: source,
+        barriers: {offset + 5, offset + 6},
+        autospace: true,
+        styleAt: (index) {
+          final css = index - offset == 4 ? large : base;
+          return (
+            css: css,
+            text: TextLayoutEngine.textStyleFor(css),
+            baselineShift: 0,
+          );
+        },
+      );
+      final full = plan(text, start);
+      final local = plan(fragment, 0);
+      for (final from in [0, 1, 3, 5, 8]) {
+        for (final until in [8, 12, fragment.length]) {
+          if (until < from) continue;
+          expect(
+            full
+                .range(
+                  start + from,
+                  start + until,
+                  edges: (firstLine: false, trimEnd: true),
+                )
+                .fingerprint,
+            local
+                .range(from, until, edges: (firstLine: false, trimEnd: true))
+                .fingerprint,
+            reason: '$trim/$from/$until',
+          );
+        }
+      }
+    }
+  });
 
   test('按原始宽度压缩：行内 20%，相邻及行首行尾 40%，不叠加', () {
     final style = _style({'text-spacing-trim': 'trim-all'});
@@ -573,6 +618,39 @@ void main() {
     _expectWidths(long, style);
   });
 
+  test('混排英文行宽按独立行样式实测，不复用整段的塑形上下文', () {
+    const text =
+        '（《正文》）。「甲乙」，甲乙丙丁\n'
+        '（《正文》）。a\u0301 与 👨‍👩‍👧‍👦，a\u0301 与 👨‍👩‍👧‍👦，'
+        '「甲乙」，「甲乙」，English 123 （《正文》）。「甲乙」，';
+    final style = _style({'font-size': '22px', 'text-autospace': 'normal'});
+    final layout = TextLayoutEngine.layout(
+      text: text,
+      style: style,
+      maxWidth: 73,
+      runs: [
+        StyledRun(
+          start: 1,
+          end: 5,
+          style: ComputedStyle({
+            'font-size': '28px',
+            'font-weight': 'bold',
+          }, parent: style),
+        ),
+      ],
+    );
+    final english = layout.lines.where(
+      (line) =>
+          RegExp(r'^[A-Za-z]+$').hasMatch(text.substring(line.start, line.end)),
+    );
+    expect(english, isNotEmpty);
+    for (final line in english) {
+      final painter = _paintLine(layout, line.copyWith(justifyExtra: 0), style);
+      expect(painter.width, closeTo(line.width, .00001));
+      painter.dispose();
+    }
+  });
+
   test('复用单行探测时不同候选宽度不泄漏，保留原有合法断点', () {
     const text = '（甲乙丙，丁）。「戊己庚」，（辛壬癸）这是窄行正文；英文 reader 保持完整。';
     final expected = {
@@ -834,7 +912,11 @@ void _expectPunctuationHits(PageContent page, ComputedStyle style) {
   }
 }
 
-Future<Rect> _inkBounds(String char, bool halt, [double letterSpacing = 0]) async {
+Future<Rect> _inkBounds(
+  String char,
+  bool halt, [
+  double letterSpacing = 0,
+]) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)..scale(2);
   final painter = TextPainter(

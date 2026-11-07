@@ -3,6 +3,7 @@ import 'dart:ui' show Color, Radius, Size;
 
 import 'package:csslib/parser.dart' as csslib;
 
+import 'fragmentation.dart';
 import 'property_aliases.dart';
 
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
@@ -1662,6 +1663,7 @@ class CssBorders {
 class ComputedStyle {
   /// 级联关键字使用初始值，避免解析失败后意外沿用父样式。
   static String initialValue(String property, [double rootFontSize = 16]) {
+    property = CssFragmentation.canonicalProperty(property);
     if (property.startsWith('margin-') || property.startsWith('padding-')) {
       return '0px';
     }
@@ -1671,6 +1673,7 @@ class ComputedStyle {
       if (property.endsWith('-style')) return 'none';
     }
     return switch (property) {
+      'break-before' || 'break-after' || 'break-inside' => 'auto',
       'font-size' => '${rootFontSize}px',
       'color' => '#000000',
       'font-family' => 'serif',
@@ -1721,6 +1724,10 @@ class ComputedStyle {
 
   /// 显式继承非继承属性时，长度必须传递计算值，不能重复解算 em。
   String? computedValue(String property) {
+    property = CssFragmentation.canonicalProperty(property);
+    if (CssFragmentation.isBreakProperty(property)) {
+      return values[property] ?? 'auto';
+    }
     final edge = RegExp(r'^(margin|padding)-(top|right|bottom|left)$')
         .firstMatch(property);
     if (edge != null) {
@@ -1768,6 +1775,10 @@ class ComputedStyle {
 
   /// 复用类型解析器过滤已支持属性的无效值，保留较早的有效声明。
   static bool isValidDeclaration(String property, String raw) {
+    if (CssFragmentation.isIgnored(property)) return false;
+    if (CssFragmentation.isBreakProperty(property)) {
+      return CssFragmentation.isValidValue(property, raw);
+    }
     final value = raw.trim().toLowerCase();
     if (property.startsWith('--') ||
         raw.contains('var(') ||
@@ -2033,7 +2044,13 @@ class ComputedStyle {
     double rootFontSize = 16,
     double containingWidth = 0,
   }) {
-    final explicit = explicitProperties ?? values.keys.toSet();
+    values = CssFragmentation.normalizeValues(
+      values,
+      inheritedValue: parent?.computedValue,
+    );
+    final explicit = explicitProperties == null
+        ? values.keys.toSet()
+        : CssFragmentation.normalizeProperties(explicitProperties);
     String? explicitValue(String property) =>
         explicit.contains(property) ? values[property] : null;
     // 作者文字色沿继承链生效：子元素即使没有自己的 color 声明，也继续
@@ -2532,20 +2549,19 @@ class ComputedStyle {
         : rawEmphasisColor.toLowerCase() == 'currentcolor'
         ? null
         : _parseColor(rawEmphasisColor) ?? parent?.textEmphasisColor;
-    final pageBreakBefore = _parsePageBreak(
-      explicitValue('page-break-before') ?? explicitValue('break-before'),
+    String breakValue(String property) => explicitValue(property) ?? 'auto';
+    final pageBreakBefore = CssFragmentation.forcesPage(
+      breakValue('break-before'),
     );
-    final pageBreakAfter = _parsePageBreak(
-      explicitValue('page-break-after') ?? explicitValue('break-after'),
+    final pageBreakAfter = CssFragmentation.forcesPage(
+      breakValue('break-after'),
     );
-    final rawBreakInside =
-        explicitValue('break-inside') ?? explicitValue('page-break-inside');
-    final breakInsideAvoid = rawBreakInside?.trim().toLowerCase() == 'avoid';
-
-    // avoid 档位（P3-22，Reeden 510 §3.3：avoid before（标题不落页底））。
-    final breakAfterAvoidRaw =
-        explicitValue('break-after') ?? explicitValue('page-break-after');
-    final breakAfterAvoid = breakAfterAvoidRaw?.trim().toLowerCase() == 'avoid';
+    final breakInsideAvoid = CssFragmentation.avoidsPage(
+      breakValue('break-inside'),
+    );
+    final breakAfterAvoid = CssFragmentation.avoidsPage(
+      breakValue('break-after'),
+    );
 
     // P0 收口补全（P2-18）：text-shadow、背景子属性、定位偏移、clear、表格边框。
     final rawShadow = explicitValue('text-shadow');
@@ -7759,14 +7775,6 @@ class ComputedStyle {
       return CssTextEmphasisPosition.over;
     }
     return null;
-  }
-
-  static bool _parsePageBreak(String? raw) {
-    final value = raw?.trim().toLowerCase();
-    return value == 'always' ||
-        value == 'page' ||
-        value == 'left' ||
-        value == 'right';
   }
 
   static CssVerticalAlign? _parseVerticalAlign(String? raw) =>

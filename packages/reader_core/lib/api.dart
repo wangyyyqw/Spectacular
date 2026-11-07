@@ -6,3 +6,4 @@ library;
 export 'src/api/interfaces.dart';
 export 'src/api/models.dart';
 export 'text/reader_text_overlay.dart';
+export 'position/book_progress_index.dart';

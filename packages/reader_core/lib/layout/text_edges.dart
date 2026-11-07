@@ -14,7 +14,18 @@ class PageTextEdges {
   final double bottom;
 }
 
-final _edgeCache = Expando<Map<(LineBox, ComputedStyle), PageTextEdges>>();
+final _edgeCache = Expando<Map<(LineBox, String), PageTextEdges>>();
+
+/// 几何缓存只替换绘制 runs 时，保留已经实测的行高留白。
+///
+/// 调用方须先确认文本、字体依赖和 run 度量键相同；不同布局不共享此表。
+void reuseTextLineEdges(TextLayoutResult source, TextLayoutResult target) {
+  if (identical(source, target) || !identical(source.lines, target.lines)) {
+    return;
+  }
+  final cache = _edgeCache[source];
+  if (cache != null) _edgeCache[target] = cache;
+}
 
 /// 与绘制使用相同的文字和字体回退，只关闭单行首尾的行高扩展。
 PageTextEdges textLineEdges(
@@ -23,31 +34,52 @@ PageTextEdges textLineEdges(
   ComputedStyle style,
 ) {
   final cache = _edgeCache[layout] ??= {};
-  return cache.putIfAbsent((line, style), () {
-    final painter = TextPainter(
-      text: buildLineSpan(
-        layout: layout,
-        line: line,
-        baseStyle: TextLayoutEngine.textStyleFor(style),
-        punctCompression:
-            style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent,
-        textAutospace: style.textAutospace == CssTextAutospace.normal,
-      ),
-      textDirection: layout.isRtl ? TextDirection.rtl : TextDirection.ltr,
-      textHeightBehavior: const TextHeightBehavior(
-        applyHeightToFirstAscent: false,
-        applyHeightToLastDescent: false,
-      ),
-    )..layout();
+  final fingerprint = style.layoutFingerprint;
+  final key = (line, fingerprint);
+  final cached = cache[key];
+  if (cached != null) return cached;
+  return cache[key] = _measureSingle(layout, line, style);
+}
+
+PageTextEdges _measureSingle(
+  TextLayoutResult layout,
+  LineBox line,
+  ComputedStyle style,
+) {
+  final painter = TextPainter(
+    text: _lineSpan(layout, line, style),
+    textDirection: layout.isRtl ? TextDirection.rtl : TextDirection.ltr,
+    textHeightBehavior: const TextHeightBehavior(
+      applyHeightToFirstAscent: false,
+      applyHeightToLastDescent: false,
+    ),
+  )..layout();
+  try {
     final ascent = painter.computeDistanceToActualBaseline(
       TextBaseline.alphabetic,
     );
-    final descent = painter.height - ascent;
+    return _edges(line, ascent, painter.height - ascent);
+  } finally {
     painter.dispose();
-    final baseline = line.baseline - line.top;
-    return PageTextEdges(
-      top: math.max(0, baseline - ascent),
-      bottom: math.max(0, line.height - baseline - descent),
-    );
-  });
+  }
+}
+
+InlineSpan _lineSpan(
+  TextLayoutResult layout,
+  LineBox line,
+  ComputedStyle style,
+) => buildLineSpan(
+  layout: layout,
+  line: line,
+  baseStyle: TextLayoutEngine.textStyleFor(style),
+  punctCompression: style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent,
+  textAutospace: style.textAutospace == CssTextAutospace.normal,
+);
+
+PageTextEdges _edges(LineBox line, double ascent, double descent) {
+  final baseline = line.baseline - line.top;
+  return PageTextEdges(
+    top: math.max(0, baseline - ascent),
+    bottom: math.max(0, line.height - baseline - descent),
+  );
 }

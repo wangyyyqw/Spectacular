@@ -82,8 +82,8 @@ class RubyMark {
 
 /// 行内图片标记（P9-06）：聚合文本中 U+FFFC 占位符的下标与来源节点。
 ///
-/// 混合文本里的 `<img>` 保留占位符参与排版，绘制层按 [offset] 把图片
-/// 画在占位符字形的位置上（否则只会看到一个豆腐块）。
+/// img/image 与带 data 的 object 在混合文本里保留图片占位符，
+/// 绘制层按 [offset] 把图片画在占位符位置上。
 class InlineImageMark {
   /// 创建标记。
   const InlineImageMark({required this.offset, required this.node});
@@ -429,7 +429,10 @@ abstract final class TextAggregator {
           : null;
       activeInline.add(node);
       if (openMark != null) activeMarks.add(openMark);
-      if (node.tag == 'img' || node.tag == 'image') {
+      final objectImage =
+          node.tag == 'object' &&
+          (node.attributes['data']?.trim().isNotEmpty ?? false);
+      if (node.tag == 'img' || node.tag == 'image' || objectImage) {
         accumulator.addImage(node);
       } else {
         final inlineChain = <MarkSubject>[
@@ -524,7 +527,7 @@ abstract final class TextAggregator {
         : null;
     flush();
 
-    // 纯图块折叠（真实书适配）：块内唯一实质内容是一个 img/image（无
+    // 纯图块折叠（真实书适配）：块内唯一实质内容是一个 img/image/object（无
     // 其他文本、无强制换行）时，丢弃占位文本、保留图片属性（src/width/
     // height/class），产出 tag='img' 的块节点供章节源构造图片块。
     if (onlyImage != null) {
@@ -590,7 +593,7 @@ class _TextAccumulator {
   final List<TextRun> _runs = <TextRun>[];
   final List<int> _hardBreaks = <int>[];
 
-  /// 块内遇到的图片行内节点（`<img>`/`<image>`），供纯图块折叠判定
+  /// 块内遇到的图片行内节点（img/image 与带 data 的 object），供纯图块折叠判定
   /// 与行内图片绘制（P9-06）。
   final List<InlineImageMark> images = <InlineImageMark>[];
 

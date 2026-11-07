@@ -1000,6 +1000,37 @@ class LineBreaker {
       softWrap: softWrap,
     );
   }
+
+  /// 分批驱动同一断行算法；检查点异常会中止并释放本次原生测量资源。
+  Future<TextLayoutResult> layoutAsync({
+    required String text,
+    required ComputedStyle style,
+    required double maxWidth,
+    double textScaleFactor = 1,
+    TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+    List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    Future<void> Function()? checkpoint,
+  }) {
+    final softWrap =
+        style.whiteSpace != CssWhiteSpace.nowrap &&
+        style.whiteSpace != CssWhiteSpace.pre;
+    return TextLayoutEngine._layoutRawAsync(
+      text: text,
+      style: style,
+      maxWidth: effectiveWidth(style, maxWidth),
+      textScaleFactor: textScaleFactor,
+      leadingDistribution: leadingDistribution,
+      runs: runs,
+      hasGlyph: hasGlyph,
+      inlineBoxes: inlineBoxes,
+      rubies: rubies,
+      softWrap: softWrap,
+      checkpoint: checkpoint,
+    );
+  }
 }
 
 /// 用 TextPainter 做行测量。
@@ -1035,6 +1066,34 @@ abstract final class TextLayoutEngine {
       rubies: rubies,
     );
   }
+
+  /// 可取消的文字测量入口；TextPainter 仍在当前 Flutter 主 isolate 执行。
+  ///
+  /// 同步/异步仅驱动方式不同，字体、标点、行内盒与原文下标共用同一算法。
+  static Future<TextLayoutResult> layoutAsync({
+    required String text,
+    required ComputedStyle style,
+    required double maxWidth,
+    double textScaleFactor = 1,
+    TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+    LineBreaker? lineBreaker,
+    List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    Future<void> Function()? checkpoint,
+  }) => (lineBreaker ?? LineBreaker()).layoutAsync(
+    text: text,
+    style: style,
+    maxWidth: maxWidth,
+    textScaleFactor: textScaleFactor,
+    leadingDistribution: leadingDistribution,
+    runs: runs,
+    hasGlyph: hasGlyph,
+    inlineBoxes: inlineBoxes,
+    rubies: rubies,
+    checkpoint: checkpoint,
+  );
 
   /// 计算绘制用 runs（含字形回退分段），不执行断行。
   ///
@@ -1159,6 +1218,78 @@ abstract final class TextLayoutEngine {
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool softWrap = true,
   }) {
+    final work = _TextLayoutWork<TextLayoutResult>();
+    try {
+      for (final _ in _layoutRawSteps(
+        work,
+        text: text,
+        style: style,
+        maxWidth: maxWidth,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+        runs: runs,
+        hasGlyph: hasGlyph,
+        inlineBoxes: inlineBoxes,
+        rubies: rubies,
+        softWrap: softWrap,
+      )) {}
+      return work.result!;
+    } finally {
+      work.painters.dispose();
+    }
+  }
+
+  static Future<TextLayoutResult> _layoutRawAsync({
+    required String text,
+    required ComputedStyle style,
+    required double maxWidth,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+    List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    bool softWrap = true,
+    Future<void> Function()? checkpoint,
+  }) async {
+    final work = _TextLayoutWork<TextLayoutResult>();
+    try {
+      if (checkpoint != null) await checkpoint();
+      for (final _ in _layoutRawSteps(
+        work,
+        text: text,
+        style: style,
+        maxWidth: maxWidth,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+        runs: runs,
+        hasGlyph: hasGlyph,
+        inlineBoxes: inlineBoxes,
+        rubies: rubies,
+        softWrap: softWrap,
+      )) {
+        if (checkpoint != null) await checkpoint();
+      }
+      if (checkpoint != null) await checkpoint();
+      return work.result!;
+    } finally {
+      work.painters.dispose();
+    }
+  }
+
+  static Iterable<bool> _layoutRawSteps(
+    _TextLayoutWork<TextLayoutResult> work, {
+    required String text,
+    required ComputedStyle style,
+    required double maxWidth,
+    required double textScaleFactor,
+    required TextLeadingDistribution leadingDistribution,
+    List<StyledRun> runs = const <StyledRun>[],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
+    List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    bool softWrap = true,
+  }) sync* {
     // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
     text = applyTextTransform(text, style.textTransform);
     // tab-size（CSS Text 3）：`white-space: pre*` 里的制表符按制表位展开成
@@ -1235,82 +1366,97 @@ abstract final class TextLayoutEngine {
     // Chrome 那样在当前行可容纳的位置断词。纯文本自动断词因此先算出
     // 实际断行点，再用硬换行交给 TextPainter 排版；带行内样式的段落仍
     // 走 ZWSP 路径。
-    final autoHyphenBreaks =
-        inlineBoxes.isEmpty &&
-            runs.isEmpty &&
-            softWrap &&
-            !vertical &&
-            style.hyphens == CssHyphens.auto &&
-            style.wordBreak == CssWordBreak.normal &&
-            style.overflowWrap == CssOverflowWrap.normal &&
-            style.lineBreak != CssLineBreak.anywhere &&
-            !measuredText.contains('\u00AD')
-        ? _autoHyphenBreaks(
-            text: measuredText,
-            width: width,
-            firstLineWidth: width - indent,
-            style: style,
-            textScaleFactor: textScaleFactor,
-            leadingDistribution: leadingDistribution,
-            hyphenAdvance: hyphenAdvance,
-          )
-        : const <int, bool>{};
-    var breakPlan = inlineBoxes.isNotEmpty
-        ? SoftBreakPlan.identity(measuredText, hyphenAdvance: hyphenAdvance)
-        : autoHyphenBreaks.isNotEmpty
-        ? _planForcedHyphenBreaks(
-            text: measuredText,
-            breaks: autoHyphenBreaks,
-            hyphenAdvance: hyphenAdvance,
-          )
-        : planSoftBreaks(
-            text: measuredText,
-            hyphens: style.hyphens,
-            overflowWrap: style.overflowWrap,
-            wordBreak: style.wordBreak,
-            contentWidth: inlineWidth,
-            style: style,
-            textScaleFactor: textScaleFactor,
-            hyphenAdvance: hyphenAdvance,
-          );
-    List<LineBox> measureText(
+    final autoBreakWork = _TextLayoutWork<Map<int, bool>>(work.painters);
+    if (inlineBoxes.isEmpty &&
+        runs.isEmpty &&
+        softWrap &&
+        !vertical &&
+        style.hyphens == CssHyphens.auto &&
+        style.wordBreak == CssWordBreak.normal &&
+        style.overflowWrap == CssOverflowWrap.normal &&
+        style.lineBreak != CssLineBreak.anywhere &&
+        !measuredText.contains('\u00AD')) {
+      yield* _autoHyphenBreakSteps(
+        autoBreakWork,
+        text: measuredText,
+        width: width,
+        firstLineWidth: width - indent,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+        hyphenAdvance: hyphenAdvance,
+      );
+    }
+    final autoHyphenBreaks = autoBreakWork.result ?? const <int, bool>{};
+    final planWork = _TextLayoutWork<SoftBreakPlan>(work.painters);
+    if (inlineBoxes.isNotEmpty) {
+      planWork.result = SoftBreakPlan.identity(
+        measuredText,
+        hyphenAdvance: hyphenAdvance,
+      );
+    } else if (autoHyphenBreaks.isNotEmpty) {
+      planWork.result = _planForcedHyphenBreaks(
+        text: measuredText,
+        breaks: autoHyphenBreaks,
+        hyphenAdvance: hyphenAdvance,
+      );
+    } else {
+      yield* _softBreakSteps(
+        planWork,
+        text: measuredText,
+        hyphens: style.hyphens,
+        overflowWrap: style.overflowWrap,
+        wordBreak: style.wordBreak,
+        contentWidth: inlineWidth,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        hyphenAdvance: hyphenAdvance,
+      );
+    }
+    final breakPlan = planWork.result!;
+    late List<LineBox> measured;
+    Iterable<bool> measureText(
       String source,
       List<_InlineBoxMark> inlineBoxMarks,
       List<int> offsets,
-    ) {
+    ) sync* {
       final measuredRuns = _measurementRuns(styled, offsets);
       final barriers = _spacingBarriers(rubies, inlineBoxMarks, offsets);
-      final raw = measuredText.isEmpty || indent == 0
-          ? _measureSegment(
-              text: source,
-              inlineBoxMarks: inlineBoxMarks,
-              width: vertical ? verticalMeasureWidth : measureWidth,
-              contentWidth: inlineWidth,
-              style: style,
-              textScaleFactor: textScaleFactor,
-              leadingDistribution: leadingDistribution,
-              runs: measuredRuns,
-              spacingBarriers: barriers,
-            )
-          : _measureWithIndent(
-              text: source,
-              inlineBoxMarks: inlineBoxMarks,
-              width: vertical ? verticalMeasureWidth : measureWidth,
-              contentWidth: inlineWidth,
-              indent: indent,
-              style: style,
-              textScaleFactor: textScaleFactor,
-              leadingDistribution: leadingDistribution,
-              runs: measuredRuns,
-              spacingBarriers: barriers,
-            );
-      return _mapSoftBreaks(raw, breakPlan);
+      final segment = _TextLayoutWork<List<LineBox>>(work.painters);
+      if (measuredText.isEmpty || indent == 0) {
+        yield* _measureSegmentSteps(
+          segment,
+          text: source,
+          inlineBoxMarks: inlineBoxMarks,
+          width: vertical ? verticalMeasureWidth : measureWidth,
+          contentWidth: inlineWidth,
+          style: style,
+          textScaleFactor: textScaleFactor,
+          leadingDistribution: leadingDistribution,
+          runs: measuredRuns,
+          spacingBarriers: barriers,
+        );
+      } else {
+        yield* _measureWithIndentSteps(
+          segment,
+          text: source,
+          inlineBoxMarks: inlineBoxMarks,
+          width: vertical ? verticalMeasureWidth : measureWidth,
+          contentWidth: inlineWidth,
+          indent: indent,
+          style: style,
+          textScaleFactor: textScaleFactor,
+          leadingDistribution: leadingDistribution,
+          runs: measuredRuns,
+          spacingBarriers: barriers,
+        );
+      }
+      measured = _mapSoftBreaks(segment.result!, breakPlan);
     }
 
     // 行内盒「整块换行」：盒在行尾放不下时在盒前强制换行后重测（最多 4 轮，
     // 每轮至少解决一个溢出盒）。
     final forcedBreaks = <int>{};
-    late List<LineBox> measured;
     for (var attempt = 0; attempt < 4; attempt++) {
       final boxText = inlineBoxes.isEmpty
           ? null
@@ -1321,7 +1467,7 @@ abstract final class TextLayoutEngine {
             );
       // 缩进非零就走首行减宽路径：负缩进的首行宽 = width + |indent|，
       // 行左缘由 LineBox.indent（负值）画到内容盒左侧。
-      measured = measureText(
+      yield* measureText(
         boxText?.text ?? breakPlan.text,
         boxText?.marks ?? const <_InlineBoxMark>[],
         boxText?.offsets ?? breakPlan.offsets,
@@ -1333,7 +1479,7 @@ abstract final class TextLayoutEngine {
         // 竖排（CSS Writing Modes §3，最小可用映射）：横排测量得到的每「行」
         // 变成一「列」，列宽 = 行高，列长 = 该行宽；rl 首列在最右、lr 在左。
         // 文字仍在列内自上而下（字符顺序与横排一致），逐字旋转由绘制层做。
-        return _verticalFromLines(
+        work.result = _verticalFromLines(
           text: text,
           lines: measured,
           style: style,
@@ -1341,6 +1487,7 @@ abstract final class TextLayoutEngine {
           runs: styled,
           isRtl: style.isRtl,
         );
+        return;
       }
       if (boxText == null) {
         break;
@@ -1377,13 +1524,18 @@ abstract final class TextLayoutEngine {
         break;
       }
     }
-    return _result(
+    final aligned = <LineBox>[];
+    for (final line in _align(measuredText, measured, style, width, (
+      runs: styled,
+      scale: textScaleFactor,
+      leading: leadingDistribution,
+    ))) {
+      aligned.add(line);
+      if (aligned.length % 16 == 0) yield false;
+    }
+    work.result = _result(
       text,
-      _align(measuredText, measured, style, width, (
-        runs: styled,
-        scale: textScaleFactor,
-        leading: leadingDistribution,
-      )),
+      aligned,
       width,
       styled,
       style,
@@ -1417,6 +1569,32 @@ abstract final class TextLayoutEngine {
     double textScaleFactor = 1,
     double hyphenAdvance = 0,
   }) {
+    final work = _TextLayoutWork<SoftBreakPlan>();
+    for (final _ in _softBreakSteps(
+      work,
+      text: text,
+      hyphens: hyphens,
+      overflowWrap: overflowWrap,
+      wordBreak: wordBreak,
+      contentWidth: contentWidth,
+      style: style,
+      textScaleFactor: textScaleFactor,
+      hyphenAdvance: hyphenAdvance,
+    )) {}
+    return work.result!;
+  }
+
+  static Iterable<bool> _softBreakSteps(
+    _TextLayoutWork<SoftBreakPlan> work, {
+    required String text,
+    required CssHyphens hyphens,
+    required CssOverflowWrap overflowWrap,
+    required CssWordBreak wordBreak,
+    required double contentWidth,
+    required ComputedStyle style,
+    double textScaleFactor = 1,
+    double hyphenAdvance = 0,
+  }) sync* {
     final autoHyphen = hyphens == CssHyphens.auto;
     final manualHyphen = hyphens == CssHyphens.manual || autoHyphen;
     final breakAnywhere =
@@ -1430,7 +1608,8 @@ abstract final class TextLayoutEngine {
         !(manualHyphen && hasSoftHyphen) &&
         !breakAnywhere &&
         !breakLongWord) {
-      return SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+      work.result = SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+      return;
     }
     // 断点：原文下标 → 是否带连字符（key 是「断在该下标之前」）。
     final breaks = <int, bool>{};
@@ -1464,6 +1643,7 @@ abstract final class TextLayoutEngine {
         )) {
           breaks[start + offset] = autoHyphen && !breakAnywhere;
         }
+        yield false;
         continue;
       }
       if (code == 0x00AD && manualHyphen) {
@@ -1473,9 +1653,11 @@ abstract final class TextLayoutEngine {
         continue;
       }
       index += 1;
+      if (index % 64 == 0) yield false;
     }
     if (breaks.isEmpty) {
-      return SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+      work.result = SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+      return;
     }
     final buffer = StringBuffer();
     final offsets = <int>[0];
@@ -1499,21 +1681,24 @@ abstract final class TextLayoutEngine {
       }
       buffer.write(text[p]);
       offsets.add(p + 1);
+      if (p % 64 == 63) yield false;
     }
     final planned = buffer.toString();
     if (planned.length == text.length && hyphenPoints.isEmpty) {
-      return SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+      work.result = SoftBreakPlan.identity(text, hyphenAdvance: hyphenAdvance);
+      return;
     }
     if (planned.length == text.length) {
       // 等长替换（软连字符 → ZWSP）：映射恒等，但保留连字符断点。
-      return SoftBreakPlan(
+      work.result = SoftBreakPlan(
         text: planned,
         offsets: List<int>.generate(text.length + 1, (i) => i),
         hyphenPoints: hyphenPoints,
         hyphenAdvance: hyphenAdvance,
       );
+      return;
     }
-    return SoftBreakPlan(
+    work.result = SoftBreakPlan(
       text: planned,
       offsets: offsets,
       hyphenPoints: hyphenPoints,
@@ -1526,7 +1711,8 @@ abstract final class TextLayoutEngine {
   /// 先按完整的自然词测量当前行；下一个词放不下时，从该词的音节断点中取
   /// 加上行尾连字符仍能放下的最靠后位置。这样断点随实际行宽推进，与
   /// Chrome 的 `ShapingLineBreaker` 行为一致。
-  static Map<int, bool> _autoHyphenBreaks({
+  static Iterable<bool> _autoHyphenBreakSteps(
+    _TextLayoutWork<Map<int, bool>> work, {
     required String text,
     required double width,
     required double firstLineWidth,
@@ -1534,9 +1720,10 @@ abstract final class TextLayoutEngine {
     required double textScaleFactor,
     required TextLeadingDistribution leadingDistribution,
     required double hyphenAdvance,
-  }) {
+  }) sync* {
     if (!width.isFinite || width <= hyphenAdvance) {
-      return const <int, bool>{};
+      work.result = const <int, bool>{};
+      return;
     }
     final breaks = <int, bool>{};
     var lineStart = 0;
@@ -1564,8 +1751,9 @@ abstract final class TextLayoutEngine {
         break;
       }
       firstLine = false;
+      yield false;
     }
-    return breaks;
+    work.result = breaks;
   }
 
   /// 返回 `(本行断点, 是否断词, 下一行起点)`。
@@ -2130,7 +2318,8 @@ abstract final class TextLayoutEngine {
   }
 
   /// 首行减宽断行，尾段用完整宽度重排后合并（§61.2）。
-  static List<LineBox> _measureWithIndent({
+  static Iterable<bool> _measureWithIndentSteps(
+    _TextLayoutWork<List<LineBox>> work, {
     required String text,
     required double width,
     required double contentWidth,
@@ -2141,11 +2330,13 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     List<_InlineBoxMark> inlineBoxMarks = const <_InlineBoxMark>[],
     Set<int> spacingBarriers = const {},
-  }) {
+  }) sync* {
     final firstWidth = math.max(1.0, width - indent);
     // 首段先不带行内盒测一次，拿到分界后再把「落在首段」的盒补进去
     // （盒占宽会改变首段末行，但盒的位置由原文偏移决定，不受影响）。
-    var head = _measureSegment(
+    final segment = _TextLayoutWork<List<LineBox>>(work.painters);
+    yield* _measureSegmentSteps(
+      segment,
       text: text,
       width: firstWidth,
       contentWidth: firstWidth,
@@ -2156,8 +2347,10 @@ abstract final class TextLayoutEngine {
       spacingBarriers: spacingBarriers,
       firstLineOnly: true,
     );
+    var head = segment.result!;
     if (head.isEmpty) {
-      return const <LineBox>[];
+      work.result = const <LineBox>[];
+      return;
     }
     if (inlineBoxMarks.isNotEmpty) {
       final headMarks = <_InlineBoxMark>[
@@ -2165,7 +2358,8 @@ abstract final class TextLayoutEngine {
           if (mark.index < head.first.end) mark,
       ];
       if (headMarks.isNotEmpty) {
-        head = _measureSegment(
+        yield* _measureSegmentSteps(
+          segment,
           text: text,
           width: firstWidth,
           contentWidth: firstWidth,
@@ -2177,6 +2371,7 @@ abstract final class TextLayoutEngine {
           spacingBarriers: spacingBarriers,
           firstLineOnly: true,
         );
+        head = segment.result!;
       }
     }
     final first = head.first.copyWith(indent: indent);
@@ -2185,7 +2380,8 @@ abstract final class TextLayoutEngine {
       remainderStart += 1;
     }
     final remainder = text.substring(remainderStart);
-    final rest = _measureSegment(
+    yield* _measureSegmentSteps(
+      segment,
       text: remainder,
       width: width,
       contentWidth: contentWidth,
@@ -2200,6 +2396,7 @@ abstract final class TextLayoutEngine {
       },
       firstLine: remainderStart > 0 && text[remainderStart - 1] == '\n',
     );
+    final rest = segment.result!;
     final lines = <LineBox>[first];
     for (var i = 0; i < rest.length; i++) {
       final line = rest[i];
@@ -2226,9 +2423,10 @@ abstract final class TextLayoutEngine {
           isLastLine: i == rest.length - 1,
         ),
       );
+      yield false;
     }
     lines[0] = lines[0].copyWith(isLastLine: rest.isEmpty);
-    return lines;
+    work.result = lines;
   }
 
   /// 按 text-align 计算每行水平偏移与 justify 分摊宽度（§61.5）。
@@ -2236,14 +2434,14 @@ abstract final class TextLayoutEngine {
   /// 行宽已含 text-indent 造成的减宽，比较基准是 `width - indent`；
   /// justify 的末行与硬换行行按 start 对齐，不拉伸——除非
   /// `text-align-last` 指定（P7-21）或 `text-justify: justify-all`。
-  static List<LineBox> _align(
+  static Iterable<LineBox> _align(
     String text,
     List<LineBox> lines,
     ComputedStyle style,
     double width,
     ({List<StyledRun> runs, double scale, TextLeadingDistribution leading})
     context,
-  ) {
+  ) sync* {
     // 标点悬挂（P7-18）：`hanging-punctuation: allow-end` 时，两端
     // 对齐的非末行行尾句读挂到版心右缘外——该行的可分配余量加上
     // 句读 advance，末字（句读）落在右缘之外；末行与硬换行不悬挂
@@ -2287,7 +2485,6 @@ abstract final class TextLayoutEngine {
     final lastMayJustify =
         mode == CssTextJustify.justifyAll ||
         style.textAlignLast == CssTextAlign.justify;
-    final aligned = <LineBox>[];
     for (final line in lines) {
       final slack = width.isFinite
           ? math.max(0.0, width - line.indent - line.width)
@@ -2329,7 +2526,7 @@ abstract final class TextLayoutEngine {
           spacing != null && justifyExtra > 0 && line.inlineBoxes.isNotEmpty
           ? _justifyInlineBoxes(line, gaps, justifyExtra)
           : line.inlineBoxes;
-      aligned.add(switch (align) {
+      yield switch (align) {
         CssTextAlign.start || CssTextAlign.left => line.copyWith(
           offsetX: line.indent,
           justifyExtra: justifyExtra,
@@ -2360,9 +2557,8 @@ abstract final class TextLayoutEngine {
           spacing: spacing,
           inlineBoxes: boxes,
         ),
-      });
+      };
     }
-    return aligned;
   }
 
   static double? _centeredTextOffset(
@@ -2612,7 +2808,8 @@ abstract final class TextLayoutEngine {
     return TextSpan(style: baseStyle, children: children);
   }
 
-  static List<LineBox> _measureSegment({
+  static Iterable<bool> _measureSegmentSteps(
+    _TextLayoutWork<List<LineBox>> work, {
     required String text,
     required double width,
     required ComputedStyle style,
@@ -2624,7 +2821,7 @@ abstract final class TextLayoutEngine {
     Set<int> spacingBarriers = const {},
     bool firstLine = true,
     bool firstLineOnly = false,
-  }) {
+  }) sync* {
     final baseStyle = textStyleFor(
       style,
       leadingDistribution: leadingDistribution,
@@ -2685,22 +2882,33 @@ abstract final class TextLayoutEngine {
             firstLine: firstLine,
             maxLines: maxLines,
           );
-    final painter = TextPainter(
-      text: spacingPlan != null
-          ? applyTextSpacing(
-              sourceSpan,
-              spacingPlan.range(0, text.length, trimTrailing: false),
-            )
-          : compress && inlineBoxMarks.isEmpty && plainTextLayout
-          ? applySyntheticSmallCaps(
-              _plainSpan(text, style, baseStyle, textScaleFactor),
-            )
-          : sourceSpan,
-      textDirection: _textDirectionOf(style),
-      textScaler: TextScaler.linear(textScaleFactor),
-      maxLines: maxLines,
-    )..layout(maxWidth: width);
-    final measuredLines = paragraph?.layout(painter);
+    final painter = work.painters.own(
+      TextPainter(
+        text: spacingPlan != null
+            ? applyTextSpacing(
+                sourceSpan,
+                spacingPlan.range(0, text.length, trimTrailing: false),
+              )
+            : compress && inlineBoxMarks.isEmpty && plainTextLayout
+            ? applySyntheticSmallCaps(
+                _plainSpan(text, style, baseStyle, textScaleFactor),
+              )
+            : sourceSpan,
+        textDirection: _textDirectionOf(style),
+        textScaler: TextScaler.linear(textScaleFactor),
+        maxLines: maxLines,
+      ),
+    );
+    painter.layout(maxWidth: width);
+    yield false;
+    final steps = paragraph?.lineSteps(painter);
+    final measuredLines = steps == null ? null : <SpacedLine>[];
+    if (steps != null) {
+      for (final line in steps) {
+        measuredLines!.add(line);
+        yield false;
+      }
+    }
     final metrics =
         measuredLines?.map((line) => line.metrics).toList() ??
         painter.computeLineMetrics();
@@ -2711,7 +2919,9 @@ abstract final class TextLayoutEngine {
             style.lineHeightFactor != null
         ? style.lineHeight
         : null;
-    final lineRanges = textLineRanges(painter, text, metrics.length);
+    final lineRanges = measuredLines == null
+        ? textLineRanges(painter, text, metrics.length)
+        : const <TextRange>[];
     final lines = <LineBox>[];
     var top = 0.0;
     for (var metricIndex = 0; metricIndex < metrics.length; metricIndex++) {
@@ -2748,6 +2958,7 @@ abstract final class TextLayoutEngine {
         ),
       );
       top += lineHeight;
+      if (steps == null || metricIndex % 16 == 15) yield false;
     }
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
@@ -2809,8 +3020,8 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution,
     );
-    painter.dispose();
-    return result;
+    work.painters.release(painter);
+    work.result = result;
   }
 
   /// 收回被行尾字距挤到单独一行的末字。
@@ -4294,5 +4505,34 @@ abstract final class TextLayoutEngine {
   static FontWeight _fontWeight(int weight) {
     final index = ((weight / 100).round() - 1).clamp(0, 8);
     return FontWeight.values[index];
+  }
+}
+
+/// 单次文字测量的临时状态；同步和异步驱动器共用同一算法与资源所有权。
+class _TextLayoutWork<T> {
+  _TextLayoutWork([_LayoutPainters? painters])
+    : painters = painters ?? _LayoutPainters();
+
+  final _LayoutPainters painters;
+  T? result;
+}
+
+class _LayoutPainters {
+  final _owned = <TextPainter>{};
+
+  TextPainter own(TextPainter painter) {
+    _owned.add(painter);
+    return painter;
+  }
+
+  void release(TextPainter painter) {
+    if (_owned.remove(painter)) painter.dispose();
+  }
+
+  void dispose() {
+    for (final painter in _owned) {
+      painter.dispose();
+    }
+    _owned.clear();
   }
 }

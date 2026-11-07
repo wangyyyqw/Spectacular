@@ -70,6 +70,7 @@ class SpacedParagraph {
   final double scale;
   final bool firstLine;
   final int? maxLines;
+  final _measurements = <(int, int, bool), _LineMeasurement>{};
 
   TextPainter _painter(
     TextSpan text, [
@@ -82,7 +83,26 @@ class SpacedParagraph {
     maxLines: maxLines,
   )..layout(maxWidth: width);
 
-  List<SpacedLine>? layout(TextPainter painter) {
+  List<SpacedLine>? layout(TextPainter painter) => lineSteps(painter)?.toList();
+
+  /// 与同步入口共用逐行算法；检查点可让出执行或抛出取消异常。
+  Future<List<SpacedLine>?> layoutAsync(
+    TextPainter painter, {
+    Future<void> Function()? checkpoint,
+  }) async {
+    if (checkpoint != null) await checkpoint();
+    final steps = lineSteps(painter);
+    if (steps == null) return null;
+    final result = <SpacedLine>[];
+    for (final line in steps) {
+      result.add(line);
+      if (checkpoint != null) await checkpoint();
+    }
+    return result;
+  }
+
+  /// 每次迭代只完成一行，不把整段行重排封装成不可中断的同步调用。
+  Iterable<SpacedLine>? lineSteps(TextPainter painter) {
     final edges = spacing.hasEdgeAdjustments;
     if (!edges && !spacing.hasAdjustments) return null;
     final measured = _lines(painter);
@@ -98,7 +118,7 @@ class SpacedParagraph {
       ];
       if (!_crossesLine(lines)) return lines;
     }
-    return _layoutLines(measured);
+    return _layoutLines(measured, painter);
   }
 
   List<({int start, int end, LineMetrics metrics})> _lines(
@@ -128,17 +148,23 @@ class SpacedParagraph {
     return false;
   }
 
-  List<SpacedLine> _layoutLines(
+  Iterable<SpacedLine> _layoutLines(
     List<({int start, int end, LineMetrics metrics})> measured,
-  ) {
-    final lines = <SpacedLine>[];
+    TextPainter baseline,
+  ) sync* {
     var start = 0;
+    var lineCount = 0;
     final extra = spacing.maxEndReduction * scale;
     while (start < text.length) {
       final first = start == 0 ? firstLine : text[start - 1] == '\n';
-      final line = _nextLine(start, extra, first, _windowEnd(start, measured));
-      lines.add(line);
-      if (lines.length == maxLines) break;
+      final index = _baselineIndex(start, measured);
+      final limit = index + 2 < measured.length
+          ? measured[index + 2].end
+          : text.length;
+      // 行首截断会改变英文等字形的塑形上下文，整段 metrics 不能替代行测量。
+      final line = _nextLine(start, extra, first, limit, baseline);
+      yield line;
+      if (++lineCount == maxLines) break;
       // 平台给出的空行不消耗正文，只越过它对应的硬换行。
       var next = line.end;
       if (next < text.length && text[next] == '\n') next++;
@@ -147,11 +173,10 @@ class SpacedParagraph {
       }
       start = next;
     }
-    return lines;
   }
 
   // 只探测基线断行附近三行；避免长段落逐行重排整个余文造成平方级开销。
-  int _windowEnd(
+  int _baselineIndex(
     int start,
     List<({int start, int end, LineMetrics metrics})> lines,
   ) {
@@ -165,15 +190,26 @@ class SpacedParagraph {
         high = middle;
       }
     }
-    return low + 2 < lines.length ? lines[low + 2].end : text.length;
+    return low;
   }
 
-  SpacedLine _nextLine(int start, double extra, bool first, int limit) {
-    final probe = _lineProbe(start, first, limit);
+  SpacedLine _nextLine(
+    int start,
+    double extra,
+    bool first,
+    int limit,
+    TextPainter baseline,
+  ) {
+    final probe = _lineProbe(start, first, limit, baseline);
     try {
       return _fitLine(probe, start, extra);
     } finally {
-      probe.painter.dispose();
+      if (identical(probe.painter, baseline)) {
+        // 候选宽度只重排同一原生段落；调用方后续查询仍使用原始约束。
+        baseline.layout(maxWidth: width);
+      } else {
+        probe.painter.dispose();
+      }
     }
   }
 
@@ -181,8 +217,13 @@ class SpacedParagraph {
     int start,
     bool first,
     int limit,
+    TextPainter baseline,
   ) {
-    final probe = _painter(_span(start, limit, first), width, 1);
+    final source = _span(start, limit, first);
+    // 缩进只测首行时，整段已按相同文本、样式与 maxLines 塑形，无需再建一份。
+    final probe = baseline.maxLines == 1 && baseline.text == source
+        ? baseline
+        : _painter(source, width, 1);
     var end = probe.getLineBoundary(const TextPosition(offset: 0)).end + start;
     while (end == limit && limit < text.length) {
       limit = (limit + (limit - start) + 1).clamp(0, text.length);
@@ -242,21 +283,47 @@ class SpacedParagraph {
   }
 
   bool _legalBoundary(TextPainter probe, int start, int end) {
-    final prefix = _painter(
-      sliceTextSpan(probe.text! as TextSpan, 0, end - start),
-    );
-    final natural = prefix.width;
-    prefix.dispose();
+    final source = sliceTextSpan(probe.text! as TextSpan, 0, end - start);
+    final measured = _measurements[(start, end, true)];
+    // 只有完整样式树相同才复用自然宽；行边或相邻调整不同仍独立塑形。
+    final natural = measured?.span == source
+        ? measured!.naturalWidth
+        : _naturalWidth(source);
     return _firstEnd(probe, natural + 0.01) == end - start;
   }
 
+  double _naturalWidth(TextSpan source) {
+    final painter = _painter(source);
+    try {
+      return painter.width;
+    } finally {
+      painter.dispose();
+    }
+  }
+
   SpacedLine measure(int start, int end, {bool trimEnd = true}) {
+    final key = (start, end, trimEnd);
+    final cached = _measurements[key];
+    if (cached != null) return cached.line;
+    final line = _measureLine(start, end, trimEnd);
+    if (_measurements.length >= 256) {
+      _measurements.remove(_measurements.keys.first);
+    }
+    _measurements[key] = line;
+    return line.line;
+  }
+
+  LineSpacing _lineSpacing(int start, int end, {bool trimEnd = true}) {
     final first = start == 0 ? firstLine : text[start - 1] == '\n';
-    final plan = spacing.range(
+    return spacing.range(
       start,
       end,
       edges: (firstLine: first, trimEnd: trimEnd),
     );
+  }
+
+  _LineMeasurement _measureLine(int start, int end, bool trimEnd) {
+    final plan = _lineSpacing(start, end, trimEnd: trimEnd);
     // 空硬换行仍需携带原字号的 strut；空省略号前缀也不能取空 metrics。
     final source = start == end
         ? TextSpan(text: '\u200b', style: spacing.styleAt(start).text)
@@ -264,8 +331,13 @@ class SpacedParagraph {
     final lineSpan = applyTextSpacing(source, plan);
     final painter = _painter(lineSpan);
     final metric = painter.computeLineMetrics().first;
+    final naturalWidth = painter.width;
     painter.dispose();
-    return SpacedLine(start, end, metric, plan);
+    return _LineMeasurement(
+      SpacedLine(start, end, metric, plan),
+      lineSpan,
+      naturalWidth,
+    );
   }
 
   TextSpan _span(int start, int end, bool first) {
@@ -277,4 +349,12 @@ class SpacedParagraph {
     );
     return applyTextSpacing(sliceTextSpan(span, start, end), plan);
   }
+}
+
+class _LineMeasurement {
+  const _LineMeasurement(this.line, this.span, this.naturalWidth);
+
+  final SpacedLine line;
+  final TextSpan span;
+  final double naturalWidth;
 }
