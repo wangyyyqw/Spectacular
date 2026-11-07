@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -47,7 +48,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     expect(find.byType(SelectionLayer), findsNothing);
 
     // 长按正文区中央 → 选词。
@@ -73,7 +74,7 @@ void main() {
     );
 
     // 翻页清除选区（程序化翻页，避开菜单位置干扰）。
-    await tester.runAsync(() => session.next());
+    await pumpReaderTask(tester, session.next());
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing);
   });

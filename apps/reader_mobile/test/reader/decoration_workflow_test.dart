@@ -18,6 +18,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 
+import '../support/reader_pump.dart';
 import 'support/css_chapter_book.dart';
 
 const _padding = EdgeInsets.fromLTRB(24, 40, 24, 40);
@@ -111,7 +112,7 @@ Future<void> _show(WidgetTester tester, _Fixture fixture) async {
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  await pumpReaderUntil(tester, find.byType(ReaderView));
 }
 
 Future<void> _selectText(WidgetTester tester, _Fixture fixture) async {
@@ -131,18 +132,18 @@ Future<void> _savePreset(WidgetTester tester, String name) async {
   await tester.tap(find.byKey(ValueKey('decoration-preset-$name')));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('decoration-save')));
-  await tester.pumpAndSettle();
-  for (var attempt = 0; attempt < 50; attempt++) {
-    if (find.text('装饰已保存').evaluate().isNotEmpty ||
+  await pumpReaderUntilComplete(
+    tester,
+    () =>
+        find.text('装饰已保存').evaluate().isNotEmpty &&
+            find
+                .byKey(const ValueKey('decoration-editor-sheet'))
+                .evaluate()
+                .isEmpty ||
         find.text('装饰保存失败，请重试').evaluate().isNotEmpty ||
-        find.text('当前位置不支持标注').evaluate().isNotEmpty) {
-      break;
-    }
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 20)),
-    );
-    await tester.pumpAndSettle();
-  }
+        find.text('当前位置不支持标注').evaluate().isNotEmpty,
+    description: '装饰保存结果',
+  );
   expect(
     find.text('装饰已保存'),
     findsOneWidget,
@@ -237,9 +238,12 @@ void main() {
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('drawer-tab-decorations')).hitTestable(),
+    );
     await tester.tap(find.byKey(const ValueKey('drawer-tab-decorations')));
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderDecorationPanel));
     expect(find.byType(ReaderDecorationPanel), findsOneWidget);
     expect(find.byKey(ValueKey('decoration-row-${saved.id}')), findsOneWidget);
     expect(

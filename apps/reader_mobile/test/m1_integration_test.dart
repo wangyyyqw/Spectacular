@@ -9,10 +9,13 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
+
+import 'support/reader_pump.dart';
 
 /// P2-35 M1 集成测试：真实 EPUB 样本走完整「打开→分页→绘制→翻页→
 /// 设置重排→主题切换→进度恢复」链路。
@@ -70,11 +73,19 @@ Widget _app(
   ),
 );
 
-Future<void> _tapRight(WidgetTester tester) async {
+Future<void> _tapRight(WidgetTester tester, ReaderSession session) async {
+  final before = session.progress;
+  final pages = await pumpReaderTask(tester, session.chapterPages());
+  final atEnd =
+      before!.spineIndex == session.source.chapterCount - 1 &&
+      before.pageIndex == pages.length - 1;
   final rect = tester.getRect(find.byType(ReaderPage));
   await tester.tapAt(
     rect.topLeft + Offset(rect.width * 0.85, rect.height * 0.5),
   );
+  if (!atEnd) {
+    await pumpReaderUntilComplete(tester, () => session.progress != before);
+  }
   await tester.pumpAndSettle();
 }
 
@@ -142,7 +153,7 @@ void main() {
     await tester.pumpWidget(
       _app(source, store, onReady: (value) => session = value),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
 
     // 打开 + 分页 + 绘制。
     expect(session.error, isNull);
@@ -154,7 +165,7 @@ void main() {
     final anchor = _firstCfi(session.page);
     // 连续翻页到末页。
     for (var i = 0; i < 10; i++) {
-      await _tapRight(tester);
+      await _tapRight(tester, session);
       final progress = session.progress!;
       if (visited.last == progress) {
         break;
@@ -171,7 +182,7 @@ void main() {
 
     // 末页不再前进。
     final atEnd = session.progress!;
-    await _tapRight(tester);
+    await _tapRight(tester, session);
     expect(session.progress, atEnd);
 
     // 恢复进度：节流写入后显式落盘（P4-10：2 秒窗口内的翻页会合并）。
@@ -181,7 +192,7 @@ void main() {
       store: store,
       bookId: 'm1-integration',
     );
-    await reopened.open();
+    await pumpReaderTask(tester, reopened.open());
     expect(reopened.progress, atEnd, reason: '重新打开应恢复到保存进度');
     expect(reopened.page, isNotNull);
     reopened.dispose();
@@ -198,7 +209,10 @@ void main() {
         onReady: (value) => session = value,
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.layoutFingerprint.contains('fs=22.0'),
+    );
     expect(session.error, isNull);
     expect(session.layoutFingerprint, contains('fs=22.0'));
     expect(session.page, isNotNull, reason: '重排后不应空白');
@@ -253,10 +267,11 @@ void main() {
 
     // 冷启动重放（P7-22/23）：清页缓存后同章按页索引直接出页，
     // 页数与几何一致，不重跑分页状态机。
-    final first = await source.loadChapter(0);
+    addTearDown(source.close);
+    final first = await pumpReaderTask(tester, source.loadChapter(0));
     expect(first, isNotEmpty);
     source.clearPaginationCache();
-    final replayed = await source.loadChapter(0);
+    final replayed = await pumpReaderTask(tester, source.loadChapter(0));
     expect(replayed, hasLength(first.length));
     for (var i = 0; i < first.length; i++) {
       expect(replayed[i].pageIndex, first[i].pageIndex);
@@ -269,9 +284,14 @@ void main() {
     expect(opened.ok, isTrue, reason: opened.report.message);
     final brokenSource = opened.document;
     expect(brokenSource, isNotNull);
+    addTearDown(brokenSource!.archive.close);
     final pages = await EpubChapterSource.open(broken);
-    final brokenPages = await pages.loadChapter(0);
+    addTearDown(pages.close);
+    final brokenPages = await pumpReaderTask(tester, pages.loadChapter(0));
     expect(brokenPages, isNotEmpty, reason: '容错路径仍应产出可读页');
+    pages.close();
+    source.close();
+    brokenSource.archive.close();
   }, skip: Platform.environment['M1_INTEGRATION'] == '0');
 
   testWidgets('真实书冒烟：诸神愚戏打开→首页绘制→翻一页（REAL_EPUB=1）', (tester) async {
@@ -290,14 +310,14 @@ void main() {
         onReady: (value) => session = value,
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     watch.stop();
 
     expect(session.error, isNull);
     expect(session.page, isNotNull);
     expect(session.progress, isNotNull);
     final before = session.progress!;
-    await _tapRight(tester);
+    await _tapRight(tester, session);
     expect(session.page, isNotNull);
     expect(session.progress, isNotNull);
     // ignore: avoid_print

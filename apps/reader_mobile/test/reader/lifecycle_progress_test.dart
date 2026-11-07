@@ -7,6 +7,8 @@ import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
+
 Uint8List _corpusBook(String name) {
   var directory = Directory.current;
   while (true) {
@@ -49,6 +51,7 @@ void main() {
 
   testWidgets('切换后台立即保存最后阅读位置', (tester) async {
     final store = _CountingStore();
+    var closed = false;
     store.items['lifecycle-progress'] = const ReaderProgress(
       spineIndex: 0,
       pageIndex: 0,
@@ -60,16 +63,21 @@ void main() {
           bookId: 'lifecycle-progress',
           bookTitle: '生命周期进度',
           store: store,
+          onClosed: () => closed = true,
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     final before = store.items['lifecycle-progress'];
     expect(before, isNotNull);
 
     final view = tester.getRect(find.byType(ReaderView));
     await tester.tapAt(view.topRight + Offset(-4, view.height * 0.4));
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => store.items['lifecycle-progress'] != before,
+      description: '首次翻页进度写入',
+    );
     expect(
       store.items['lifecycle-progress'],
       isNot(before),
@@ -83,5 +91,8 @@ void main() {
     final saved = store.items['lifecycle-progress'];
     expect(saved, isNotNull);
     expect(saved, afterPageTurn, reason: '后台保存不丢刚刚写入的页面');
+    await tester.pumpWidget(const SizedBox.shrink());
+    tester.binding.scheduleForcedFrame();
+    await pumpReaderUntilComplete(tester, () => closed, description: '后台阅读页释放');
   });
 }

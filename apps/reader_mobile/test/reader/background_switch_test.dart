@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -50,7 +51,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '背景切换首屏正文',
+    );
     final fingerprint = session.layoutFingerprint;
     final progress = session.progress;
 
@@ -75,6 +80,9 @@ void main() {
     expect(changes, contains('paper'), reason: '背景变化回调');
     expect(session.layoutFingerprint, fingerprint, reason: '换背景不进入排版指纹，不重排');
     expect(session.progress, progress, reason: '位置不变');
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 
   test('背景纹理资源存在且可解码（P4-22）', () async {

@@ -7,6 +7,7 @@ import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/storage/file_progress_store.dart';
 
 import 'support/test_epub.dart';
+import 'support/reader_pump.dart';
 
 /// 内存存储（零 IO）：加载圈转一帧即出内容，固定 pump 即可。
 Future<void> _settle(WidgetTester tester, {int frames = 4}) async {
@@ -72,10 +73,10 @@ void main() {
     expect(cover.aspectRatio, closeTo(3 / 4, 0.001));
 
     await tester.tap(find.text('山海小记').first);
-    // 打开是同步计算（微任务）+ 骨架屏无限动画：固定步进推进到内容出现。
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey<String>('reader-page')),
+    );
     // 正文由 Canvas 绘制（无 Text 组件）：断言 ReaderPage 已挂载。
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
 

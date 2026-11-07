@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -12,6 +13,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
@@ -33,7 +35,7 @@ void main() {
     expect(harness.session.contentHeight, height);
     expect(harness.source.loads, isEmpty, reason: '连续六次更新不逐次重排');
     await tester.pump(const Duration(milliseconds: 30));
-    await tester.pumpAndSettle();
+    await _waitForPageHeight(tester, harness.session, height - 8);
     expect(harness.session.contentHeight, height - 8);
     expect(harness.source.loads, [0], reason: '拖动中仍能预览最新正文');
     await gesture.moveBy(const Offset(0, 1));
@@ -41,10 +43,11 @@ void main() {
     expect(harness.session.contentHeight, height - 8);
     await gesture.up();
     await tester.pump();
-    await tester.pumpAndSettle();
+    await _waitForPageHeight(tester, harness.session, height - 9);
     expect(harness.session.contentHeight, height - 9);
     expect(harness.source.loads, [0, 0]);
     expect(harness.applied, isEmpty);
+    await _closeReader(tester, harness);
   });
 
   for (final action in ['cancel', 'apply']) {
@@ -64,7 +67,11 @@ void main() {
       await tester.pump();
       expect(harness.session.contentHeight, height);
       await tester.tap(_control(action));
-      await tester.pumpAndSettle();
+      await _waitForPageHeight(
+        tester,
+        harness.session,
+        height - (action == 'apply' ? 4 : 0),
+      );
       await gesture.cancel();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(MarginEditor), findsNothing);
@@ -79,6 +86,7 @@ void main() {
             : isEmpty,
       );
       expect(tester.takeException(), isNull);
+      await _closeReader(tester, harness);
     });
   }
 
@@ -96,15 +104,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(harness.source.loads, isEmpty);
     expect(tester.takeException(), isNull);
+    await _closeReader(tester, harness);
   });
 
   testWidgets('拖动只重排当前章，保存后已访问和未访问章节均按需更新', (tester) async {
     final harness = await _mountReader(tester);
     final session = harness.session;
-    await session.jumpToChapter(1);
+    await _jumpToChapter(tester, session, 1);
     final oldOtherCount = session.chapterPageCount;
-    await session.jumpToChapter(0);
-    await tester.pumpAndSettle();
+    await _jumpToChapter(tester, session, 0);
     final beforeCount = session.chapterPageCount;
     final beforeHeight = session.contentHeight!;
     harness.source.loads.clear();
@@ -120,7 +128,7 @@ void main() {
             .margins
             .bottomInner;
     await tester.drag(_control('bottom-inner'), const Offset(0, -48));
-    await tester.pumpAndSettle();
+    await _waitForPageHeight(tester, session, beforeHeight - change);
     expect(session.chapterPageCount, greaterThan(beforeCount));
     expect(session.contentHeight, beforeHeight - change);
     expect(harness.source.loads, isNotEmpty);
@@ -132,23 +140,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(harness.applied, hasLength(1));
     expect(harness.source.loads.length, loads, reason: '保存不重复排当前章，也不预排其他章');
-    await session.jumpToChapter(1);
-    await tester.pumpAndSettle();
+    await _jumpToChapter(tester, session, 1);
     expect(harness.source.loads.last, 1);
     expect(session.page!.pageHeight, beforeHeight - change);
     expect(session.chapterPageCount, greaterThan(oldOtherCount));
     expect(harness.source.loads, isNot(contains(2)));
-    await session.jumpToChapter(2);
-    await tester.pumpAndSettle();
+    await _jumpToChapter(tester, session, 2);
     expect(harness.source.loads.last, 2);
     expect(session.page!.pageHeight, beforeHeight - change);
+    await _closeReader(tester, harness);
   });
 
   testWidgets('章内页码变化不打断拖动，取消恢复分页、原页与持久化进度', (tester) async {
     final harness = await _mountReader(tester);
     final session = harness.session;
     for (var index = 0; index < 8; index++) {
-      expect(await session.next(), isTrue);
+      expect(await pumpReaderTask(tester, session.next()), isTrue);
     }
     await session.flushProgress();
     await tester.pumpAndSettle();
@@ -160,10 +167,10 @@ void main() {
     final origin = tester.getCenter(_control('top-outer'));
     final gesture = await tester.startGesture(origin);
     await gesture.moveBy(const Offset(0, 20));
-    await tester.pumpAndSettle();
+    await _waitForPageHeight(tester, session, beforeHeight - 20);
     for (var index = 0; index < 10; index++) {
       await gesture.moveBy(const Offset(0, 3));
-      await tester.pumpAndSettle();
+      await _waitForPageHeight(tester, session, beforeHeight - 23 - index * 3);
       expect(session.contentHeight, beforeHeight - 23 - index * 3);
       expect(tester.state(find.byType(MarginEditor)), same(editor));
     }
@@ -178,12 +185,13 @@ void main() {
     await session.flushProgress();
     expect(await harness.store.load('margin-pagination'), before);
     await tester.tap(_control('cancel'));
-    await tester.pumpAndSettle();
+    await _waitForPageHeight(tester, session, beforeHeight);
     expect(session.chapterPageCount, beforeCount);
     expect(session.contentHeight, beforeHeight);
     expect(session.progress, before);
     expect(harness.applied, isEmpty);
     _expectHeaderMatches(tester, session);
+    await _closeReader(tester, harness);
   });
 
   testWidgets('保存时等待在途重排完成再允许翻页，不抢跑其他章节', (tester) async {
@@ -203,17 +211,83 @@ void main() {
     await tester.pump();
     expect(harness.session.progress, before);
     harness.source.loadGate!.complete();
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !harness.session.loading &&
+          harness.session.page?.pageHeight == height - 24 &&
+          _control('pagination-barrier').evaluate().isEmpty,
+      description: '在途边距重排完成并释放翻页屏障',
+    );
     expect(_control('pagination-barrier'), findsNothing);
     expect(harness.session.contentHeight, height - 24);
     expect(harness.source.loads.every((spine) => spine == 0), isTrue);
+    await _closeReader(tester, harness);
   });
 }
 
 Finder _control(String name) => find.byKey(ValueKey<String>('margin-$name'));
 
+Future<void> _waitForPageHeight(
+  WidgetTester tester,
+  ReaderSession session,
+  double height,
+) => pumpReaderUntilComplete(tester, () {
+  if (session.loading || session.page?.pageHeight != height) return false;
+  final layers = find.byType(ReaderSemanticsLayer).evaluate();
+  return layers.length == 1 &&
+      identical(
+        (layers.single.widget as ReaderSemanticsLayer).page,
+        session.page,
+      );
+}, description: '正文按边距重排至 $height');
+
+Future<void> _jumpToChapter(
+  WidgetTester tester,
+  ReaderSession session,
+  int spine,
+) async {
+  await pumpReaderTask(tester, session.jumpToChapter(spine));
+  await pumpReaderUntilComplete(
+    tester,
+    () =>
+        !session.loading &&
+        session.jumpLoadingTitle == null &&
+        session.page?.spineIndex == spine &&
+        find.byType(ReaderView).evaluate().length == 1,
+    description: '第 ${spine + 1} 章正文就绪',
+  );
+}
+
+Future<void> _closeReader(WidgetTester tester, _Harness harness) async {
+  // Widget 测试的定时器核验先于 addTearDown，成功路径需先释放自建源。
+  await tester.pumpWidget(const SizedBox());
+  harness.source.delegate.close();
+}
+
 void _expectHeaderMatches(WidgetTester tester, ReaderSession session) {
-  final header = tester.widget<ReaderPageHeader>(find.byType(ReaderPageHeader));
+  final page = session.page!;
+  final paper = find.byKey(
+    ValueKey('reader-page-${page.spineIndex}-${page.pageIndex}'),
+  );
+  // 邻页位图预热也会构建纸张；核验当前正文自己的页眉。
+  final header = tester.widget<ReaderPageHeader>(
+    find.descendant(
+      of: paper,
+      matching: find.byElementPredicate((element) {
+        if (element.widget is! ReaderPageHeader) return false;
+        var backgroundCapture = false;
+        element.visitAncestorElements((ancestor) {
+          if (ancestor.widget is ExcludeSemantics) {
+            backgroundCapture = true;
+            return false;
+          }
+          return true;
+        });
+        return !backgroundCapture;
+      }, description: '当前正文页眉'),
+    ),
+  );
   expect(
     header.pageLabel,
     '${session.progress!.pageIndex + 1}/${session.chapterPageCount}',
@@ -244,6 +318,7 @@ Future<_Harness> _mountReader(WidgetTester tester) async {
   final source = await openTestChapterSource(
     buildMultiChapterEpub(chapters: [chapter, chapter, chapter]),
   );
+  addTearDown(source.close);
   final harness = _Harness(_CountingSource(source));
   await tester.pumpWidget(
     MaterialApp(
@@ -264,7 +339,7 @@ Future<_Harness> _mountReader(WidgetTester tester) async {
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  await pumpReaderUntil(tester, find.byType(ReaderView));
   return harness;
 }
 

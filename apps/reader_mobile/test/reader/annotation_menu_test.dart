@@ -18,6 +18,7 @@ import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/db.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -197,9 +198,7 @@ void main() {
         ),
       ),
     );
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     expect(
       find.byKey(const ValueKey<String>('epub-reader-scaffold')),
       findsOneWidget,
@@ -282,7 +281,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await pumpReaderUntil(tester, find.byType(ReaderView));
     }
 
     await pumpReader();
@@ -353,7 +352,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntil(tester, find.byType(ReaderView));
 
     final center = tester.getCenter(find.byType(ReaderView));
     await tester.longPressAt(center);

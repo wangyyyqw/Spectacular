@@ -12,6 +12,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 Uint8List _corpusBook(String name) {
@@ -106,7 +107,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '书签菜单首屏正文',
+    );
 
     // 打开菜单 → 目录抽屉 → 「加书签」。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
@@ -133,8 +138,7 @@ void main() {
     expect(saved.single.label, contains(session.currentLineText));
 
     // 翻到下一章后再从书签列表跳回。
-    await session.jumpToChapter(2);
-    await tester.pumpAndSettle();
+    await pumpReaderTask(tester, session.jumpToChapter(2));
     expect(session.progress!.spineIndex, 2);
 
     await tester.tap(
@@ -143,7 +147,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('共 1 条'), findsOneWidget);
     await tester.tap(find.text(saved.single.label));
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading &&
+          session.progress?.spineIndex == saved.single.spineIndex,
+      description: '书签目标章正文',
+    );
     expect(session.progress!.spineIndex, saved.single.spineIndex);
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

@@ -7,6 +7,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 /// 找 test_corpus 样书（有真实目录）。
@@ -48,7 +49,11 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () => !session.loading && session.hasContent,
+      description: '目录首屏正文',
+    );
     expect(session.toc, isNotEmpty, reason: '样书应有目录');
 
     // 点阅读区中央打开菜单（用控件实际中心，避免 SizedBox 溢出边界）。
@@ -65,9 +70,17 @@ void main() {
     final target = session.toc.last;
     final before = session.progress?.spineIndex;
     await tester.tap(find.text(target.title).last);
-    await tester.pumpAndSettle();
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          !session.loading && session.progress?.spineIndex == target.spineIndex,
+      description: '目录目标章正文',
+    );
 
     expect(session.progress?.spineIndex, target.spineIndex);
     expect(session.progress?.spineIndex, isNot(before), reason: '应跳到目标章');
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.close();
+    await tester.pump();
   });
 }

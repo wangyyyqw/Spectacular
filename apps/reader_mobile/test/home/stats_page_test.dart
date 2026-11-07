@@ -8,6 +8,7 @@ import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
+import '../support/reader_pump.dart';
 
 class _FakeLibrary extends LibraryStore {
   _FakeLibrary(this.books, this.weights) : super.memory();
@@ -548,9 +549,10 @@ void main() {
     );
 
     await tester.tap(find.byKey(ValueKey<String>('stats-open-${entry.id}')));
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey<String>('reader-page')),
+    );
 
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
   });

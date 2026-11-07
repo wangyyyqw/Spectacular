@@ -4,8 +4,9 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart' show TocEntry;
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/position/cfi.dart';
-import 'package:reader_core/position/locator.dart';
+import 'package:reader_core/position/book_progress_index.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -59,7 +60,7 @@ String _text(int count) => List<String>.filled(count, '甲').join();
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('多章不等长书籍的字符比例可双向换算并支持 0%/100%', () async {
+  test('多章不等长书籍的字节比例可双向换算并支持 0%/100%', () async {
     final source = await EpubChapterSource.open(
       _buildBook(<String>[_text(100), _text(300), _text(100)]),
       verifyCrc: false,
@@ -105,14 +106,17 @@ void main() {
     expect(session.readingPercent, closeTo(0.5, 0.02));
   });
 
-  test('旧字符统计为空时等权估算仍支持章内比例和排除章节', () async {
+  test('元数据不可用时等权估算仍支持章内比例和排除章节', () async {
     final source = await EpubChapterSource.open(
       _buildBook([_text(200), _text(600), _text(100)]),
       verifyCrc: false,
     );
     addTearDown(source.close);
-    source.bindProgressWeights(
-      ProgressWeights.fromCharCounts([0, 0, 0], excluded: {2}),
+    source.bindProgressIndex(
+      BookProgressIndex.fromUncompressedSizes(
+        [null, null, null],
+        excluded: {2},
+      ),
     );
     for (final percent in [0.0, 0.25, 0.75, 1.0]) {
       final cfi = source.cfiForReadingPercent(percent)!;
@@ -180,7 +184,7 @@ void main() {
     );
   });
 
-  test('含空白与段首缩进的章节按非空白字符往返定位', () async {
+  test('含空白与段首缩进的章节按聚合原文偏移往返定位', () async {
     final source = await EpubChapterSource.open(
       _buildBook(
         const <String>['空白'],
@@ -195,10 +199,7 @@ void main() {
     int weightAt(String cfi) {
       final offset = chapter.offsetFor(cfi);
       expect(offset, isNotNull);
-      return chapter.text
-          .substring(0, offset!)
-          .replaceAll(RegExp(r'\s'), '')
-          .length;
+      return offset!;
     }
 
     for (var offset = 0; offset <= chapter.text.length; offset++) {
@@ -213,6 +214,37 @@ void main() {
         lessThanOrEqualTo(1),
         reason: '原文偏移 $offset',
       );
+    }
+  });
+
+  test('千章书建立字节比例只准备目标 CFI 的章节原文', () async {
+    final source = await EpubChapterSource.open(
+      _buildBook(List<String>.filled(1000, _text(100))),
+      verifyCrc: false,
+    );
+    addTearDown(source.close);
+    expect(source.progressIndex.estimated, isFalse);
+    expect(source.anchorPreparationCount, 0);
+    final chapter = await source.loadAnchorChapter(777);
+    final cfi = chapter.cfiAt(chapter.text.length ~/ 2)!;
+    final percent = source.readingPercentForCfi(cfi)!;
+    expect(source.cfiForReadingPercent(percent), cfi);
+    expect(source.anchorPreparationCount, 1);
+  });
+
+  test('同一 CFI 的全书百分比不随字号往返改变', () async {
+    final source = await EpubChapterSource.open(
+      _buildBook([_text(100), _text(600), _text(100)]),
+      verifyCrc: false,
+    );
+    addTearDown(source.close);
+    final chapter = await source.loadAnchorChapter(1);
+    final cfi = chapter.cfiAt(chapter.text.length ~/ 2)!;
+    final original = source.readingPercentForCfi(cfi);
+    for (final size in [21.0, 22.0, 17.0]) {
+      await source.applyOverrides(ReaderOverrides(fontSize: size));
+      await source.loadChapter(1);
+      expect(source.readingPercentForCfi(cfi), original);
     }
   });
 }

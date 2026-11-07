@@ -135,7 +135,7 @@ void main() {
     expect(recovered.semanticVersion, currentAnchorSemanticVersion);
   });
 
-  Future<void> bindMultiChapterSource() async {
+  Future<EpubChapterSource> bindMultiChapterSource() async {
     final bytes = buildMultiChapterEpub(
       chapters: ['第一章用于连续保存进度和笔记。', '中间章节的内容必须完整保留。', '最后一章用于恢复最新位置。'],
     );
@@ -183,10 +183,11 @@ void main() {
       source.close();
     });
     await File(book.sourcePath!).rename('${book.sourcePath!}.moved');
+    return source;
   }
 
   test('借用阅读源保存多章进度与笔记无需重读原文件，恢复最新位置和准确百分比', () async {
-    await bindMultiChapterSource();
+    final source = await bindMultiChapterSource();
     final progress = DriftProgressStore(db);
     final annotations = DriftAnnotationStore(db, 'current');
     ReaderProgress? latest;
@@ -217,17 +218,10 @@ void main() {
     expect(restored.contentRevision, latest.contentRevision);
     expect(await annotations.list(), hasLength(3));
     final row = (await db.select(db.readingProgress).get()).single;
-    final before = index.chapters
-        .take(2)
-        .fold(0, (sum, ch) => sum + TextLengthScanner.countPlainText(ch.text));
-    final total = index.chapters.fold(
-      0,
-      (sum, ch) => sum + TextLengthScanner.countPlainText(ch.text),
+    expect(
+      row.percent,
+      closeTo(source.readingPercentForCfi(latest.cfi)! * 100, 0.001),
     );
-    final within = TextLengthScanner.countPlainText(
-      index.chapters[2].text.substring(0, 8),
-    );
-    expect(row.percent, closeTo((before + within) / total * 100, 0.001));
     expect(restored.readingPercent, closeTo(row.percent / 100, 0.001));
   });
 

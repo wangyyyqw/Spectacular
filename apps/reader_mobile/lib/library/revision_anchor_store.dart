@@ -5,8 +5,11 @@ import 'package:crypto/crypto.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/position/revision_relocator.dart';
+import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/position/book_progress_index.dart';
 
 import '../reader/epub_chapter_source.dart';
+import '../reader/epub/book_progress.dart';
 import '../storage/db.dart';
 
 /// 当前身份优先；历史别名必须唯一，不能把歧义旧数据挂到其他书。
@@ -37,6 +40,66 @@ Future<BookRow?> resolveBookRow(
 
 final _bookIndexes = Expando<Map<String, Future<AnchorBook?>>>();
 final _readingSources = Expando<Map<String, _ReadingAnchorSource>>();
+final _progressIndexes = Expando<Map<String, Future<BookProgressIndex?>>>();
+
+/// 进度只用条目元数据；借用活跃来源或按文件版本缓存轻量权重。
+Future<BookProgressIndex?> loadBookProgressIndex(AppDatabase db, BookRow row) {
+  final binding = _readingSources[db]?[row.uuid];
+  if (binding != null && binding.matches(row)) {
+    return Future.value(binding.source.progressIndex);
+  }
+  final key =
+      '${row.uuid}:${row.sourcePath}:${row.contentRevision}:'
+      '${row.layoutVersion}:${row.spineCount}';
+  final cache = _progressIndexes[db] ??= {};
+  final cached = cache.remove(key);
+  if (cached != null) {
+    cache[key] = cached;
+    return cached;
+  }
+  while (cache.length >= 2) {
+    cache.remove(cache.keys.first);
+  }
+  late final Future<BookProgressIndex?> task;
+  task = _readProgressIndex(row).then((result) {
+    // 文件缺失或损坏是暂时状态，恢复来源后应重新读取真实条目元数据。
+    if (!result.cacheable && identical(cache[key], task)) cache.remove(key);
+    return result.index;
+  });
+  cache[key] = task;
+  return task;
+}
+
+Future<({BookProgressIndex index, bool cacheable})> _readProgressIndex(
+  BookRow row,
+) async {
+  final path = row.sourcePath;
+  if (path != null) {
+    try {
+      final result = await openEpubFile(File(path), verifyCrc: false);
+      final document = result.document;
+      if (document != null) {
+        try {
+          return (index: bookProgressIndexFor(document), cacheable: true);
+        } finally {
+          document.archive.close();
+        }
+      }
+    } on FileSystemException {
+      // 旧书文件暂不可用时保留 CFI，只降级元数据权重。
+    } on FormatException {
+      // 损坏的归档不应阻止已有阅读进度展示。
+    } on StateError {
+      // 缺少必要文档时同样按可读章等权降级。
+    }
+  }
+  return (
+    index: BookProgressIndex.fromUncompressedSizes(
+      List<int?>.filled(row.spineCount, null),
+    ),
+    cacheable: false,
+  );
+}
 
 /// 借用阅读会话已打开的原书，解除绑定不关闭仍由阅读页持有的来源。
 Future<void Function()> bindReadingAnchorSource(
@@ -134,6 +197,7 @@ class _ReadingAnchorSource {
   final _chapters = <int, AnchorChapter>{};
 
   bool matches(BookRow current) =>
+      !source.isClosed &&
       row.uuid == current.uuid &&
       row.sourcePath == current.sourcePath &&
       row.contentRevision == current.contentRevision &&
@@ -161,7 +225,73 @@ class _ReadingAnchorSource {
     }
     return AnchorBook(revision: revision, chapters: chapters);
   }
+
+  LocationAnchor? elementAnchor(String cfi) {
+    final spine = _spineOf(cfi);
+    if (spine == null || !source.isValidElementCfi(cfi)) return null;
+    final chapter = source.anchorChapter(spine);
+    if (chapter.text.isNotEmpty || source.readingPercentForCfi(cfi) == null) {
+      return null;
+    }
+    // 空文本章没有字符坐标，只保留经真实文档元素核验的原始 CFI。
+    return LocationAnchor(
+      revision: revision,
+      start: AnchorPoint(
+        cfi: cfi,
+        spineIndex: spine,
+        href: chapter.href,
+        title: chapter.title,
+        chapterFingerprint: chapter.fingerprint,
+        paragraphFingerprint: '',
+        charOffset: 0,
+        chapterLength: 0,
+        quote: '',
+        contextBefore: '',
+        contextAfter: '',
+      ),
+      quote: '',
+    );
+  }
 }
+
+Future<T?> _withElementSource<T>(
+  AppDatabase db,
+  BookRow row,
+  T? Function(_ReadingAnchorSource source) read,
+) async {
+  final binding = _readingSources[db]?[row.uuid];
+  if (binding != null && binding.matches(row)) return read(binding);
+  final path = row.sourcePath;
+  if (path == null) return null;
+  try {
+    final file = File(path);
+    final source = await EpubChapterSource.openFile(file, verifyCrc: false);
+    try {
+      final revision =
+          row.contentRevision ??
+          (await sha256.bind(file.openRead()).first).toString();
+      return read(_ReadingAnchorSource(row, source, revision));
+    } finally {
+      source.close();
+    }
+  } on FileSystemException {
+    return null;
+  } on FormatException {
+    return null;
+  } on StateError {
+    return null;
+  }
+}
+
+/// 无字符的图片章按经核验的元素顺序计算比例，不制造正文偏移。
+Future<double?> loadElementReadingPercent(
+  AppDatabase db,
+  BookRow row,
+  String cfi,
+) => _withElementSource(db, row, (binding) {
+  if (binding.elementAnchor(cfi) == null) return null;
+  return binding.source.readingPercentForCfi(cfi);
+});
 
 /// 首次原始锚点永留，手动修正只替换当前锚点。
 Future<AnchorRecord?> captureBookAnchor(
@@ -178,11 +308,15 @@ Future<AnchorRecord?> captureBookAnchor(
     startCfi: startCfi,
     endCfi: endCfi,
   );
-  final anchor = book?.capture(
-    startCfi,
-    endCfi: endCfi,
-    approximate: approximate,
-  );
+  final anchor =
+      book?.capture(startCfi, endCfi: endCfi, approximate: approximate) ??
+      (endCfi == null
+          ? await _withElementSource(
+              db,
+              row,
+              (binding) => binding.elementAnchor(startCfi),
+            )
+          : null);
   if (anchor == null) return null;
   return AnchorRecord(
     original: existing?.original ?? anchor,

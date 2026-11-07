@@ -42,7 +42,9 @@ class EpubReaderPage extends StatefulWidget {
   const EpubReaderPage({
     super.key,
     this.bytes,
+    this.bytesFuture,
     this.sourcePath,
+    this.sourceFuture,
     required this.bookId,
     required this.store,
     this.bookmarks,
@@ -52,19 +54,29 @@ class EpubReaderPage extends StatefulWidget {
     this.decorationImages,
     this.readingSessions,
     this.settings,
+    this.settingsFuture,
     this.onSettingsChanged,
     this.bookTitle = '阅读',
     this.onMarginsChanged,
     this.fontStore,
     this.contentRevision,
+    this.contentRevisionFuture,
+    this.readingActive = true,
+    this.onReady,
     this.onClosed,
   });
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
 
+  /// 打开宿主读取一次的字节；与封面动画同时准备。
+  final Future<Uint8List>? bytesFuture;
+
   /// EPUB 文件路径（阅读页默认入口，惰性读取，不常驻整本字节）。
   final String? sourcePath;
+
+  /// 可共享的打开任务；本页唯一负责关闭已完成或取消后晚到的源。
+  final Future<EpubChapterSource>? sourceFuture;
 
   /// 书籍标识。
   final String bookId;
@@ -93,6 +105,9 @@ class EpubReaderPage extends StatefulWidget {
   /// 初始阅读设置（P4-21）。
   final ReaderSettings? settings;
 
+  /// 设置尚未读完时先挂载页面，首次排版仍等待设置和用户字体。
+  final Future<ReaderSettings>? settingsFuture;
+
   /// 设置变化（调用方持久化）。
   final ValueChanged<ReaderSettings>? onSettingsChanged;
 
@@ -108,6 +123,15 @@ class EpubReaderPage extends StatefulWidget {
   /// 书库已存的原书 SHA-256；为 null 时才现算。
   final String? contentRevision;
 
+  /// 旧书的流式摘要与源打开并行，首次排版前必须得到实际版本。
+  final Future<String>? contentRevisionFuture;
+
+  /// 封面已揭开后才记录前台阅读时长。
+  final bool readingActive;
+
+  /// 目标正文和进度数字已绘制，或打开失败可以展示错误时通知宿主。
+  final VoidCallback? onReady;
+
   /// 阅读页退出动画结束后，进度已落盘且章节源已释放。
   final VoidCallback? onClosed;
 
@@ -119,17 +143,24 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     with WidgetsBindingObserver {
   late ReaderSettings _settings = widget.settings ?? ReaderSettings.defaults;
   final _backgroundStore = ReaderBackgroundStore();
-  // 优先用书库已存版本号，避免每次打开都在 UI isolate 上哈希整本书。
-  late final String _contentRevision = switch (widget.contentRevision) {
-    final String saved when saved.isNotEmpty => saved,
-    _ => widget.bytes == null ? '' : sha256.convert(widget.bytes!).toString(),
-  };
+  String _contentRevision = '';
   List<ReaderFontOption> _customFonts = const [];
+
+  Future<void> _prepareInitialSettings() async {
+    final pending = widget.settingsFuture;
+    if (pending != null) {
+      final settings = await pending;
+      if (_openingCancelled) return;
+      _settings = settings;
+    }
+    await _prepareFonts();
+  }
 
   Future<void> _prepareFonts() async {
     final store = widget.fontStore;
-    if (store == null) return;
+    if (store == null || _openingCancelled) return;
     final fonts = await store.list();
+    if (_openingCancelled) return;
     _customFonts = [
       for (final font in fonts)
         ReaderFontOption(family: font.family, label: font.displayName),
@@ -138,7 +169,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     try {
       await store.load(_settings.fontFamily!);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || _openingCancelled) return;
       _changeSettings(_settings.copyWithFont(null));
       ScaffoldMessenger.of(
         context,
@@ -163,6 +194,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (widget.settings != oldWidget.settings) {
       _settings = widget.settings ?? ReaderSettings.defaults;
     }
+    if (widget.readingActive != oldWidget.readingActive) {
+      _syncReadingActivity();
+    }
   }
 
   EpubChapterSource? _source;
@@ -170,131 +204,166 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   DecodedImageCache? _imageCache;
   ReadingSessionTracker? _readingTracker;
   ReaderSession? _readerSession;
-  void Function()? _releaseAnchorSource;
+  late final Future<EpubChapterSource> _sourceTask;
+  Future<void Function()>? _anchorBinding;
+  Future<void>? _sourceCloseTask;
+  Future<void> _backgroundFlush = Future<void>.value();
   int _trackedPageTurns = 0;
   int _trackedCharactersRead = 0;
   Object? _error;
   bool _loading = true;
+  bool _closing = false;
+  bool _openingFailed = false;
+  bool _readable = false;
+  bool _readyNotified = false;
+  bool _readyScheduled = false;
+
+  bool get _openingCancelled => _closing || _openingFailed;
 
   /// 打开书埋点（P4-31）：从 initState 到首帧渲染完成。
-  late final ReaderTraceHandle? _openTrace = readerTraceEnabled
-      ? ReaderTrace.instance.start(
-          ReaderTraceName.bookOpen,
-          bookId: widget.bookId,
-        )
-      : null;
+  ReaderTraceHandle? _openTrace;
 
   @override
   void initState() {
     super.initState();
+    if (readerTraceEnabled) {
+      _openTrace = ReaderTrace.instance.start(
+        ReaderTraceName.bookOpen,
+        bookId: widget.bookId,
+      );
+    }
     final sessionStore = widget.readingSessions;
     if (sessionStore != null) {
       _readingTracker = ReadingSessionTracker(
         store: sessionStore,
         bookId: widget.bookId,
-      )..start();
+      );
     }
     WidgetsBinding.instance.addObserver(this);
-    // 先让加载骨架绘制一帧，再做同步解析：openEpub 对 156MB 的书要 1.5 秒，
-    // 直接同步跑会让页面转场期间黑屏（用户看不到任何东西）。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _open();
-      }
-    });
+    // 源打开与设置/字体准备并行，首屏排版等待二者和实际内容版本到齐。
+    final watch = Stopwatch()..start();
+    _sourceTask = widget.sourceFuture ?? _openSource();
+    _sourceTask.ignore();
+    unawaited(_open(watch));
   }
 
-  Future<void> _open() async {
-    final watch = Stopwatch()..start();
+  Future<void> _open(Stopwatch watch) async {
     try {
-      await _prepareFonts();
-      if (!mounted) return;
-      // 阅读时跳过 CRC 校验：这本书导入时已完整校验过一次，150MB+ 的大书
-      // 光校验就要多花近一倍时间。
-      final path = widget.sourcePath;
-      final bytes = widget.bytes;
-      if (path == null && bytes == null) {
-        throw StateError('阅读页缺少 EPUB 来源');
-      }
-      final source = path != null
-          ? await EpubChapterSource.openFile(File(path), verifyCrc: false)
-          : await EpubChapterSource.open(bytes!, verifyCrc: false);
-      unawaited(
-        ReaderLog.instance.log(
-          'epub_parse',
-          fields: <String, Object?>{
-            'kb': bytes == null
-                ? await File(path!).length() ~/ 1024
-                : bytes.length ~/ 1024,
-            'source': path == null ? 'memory' : 'file',
-            'chapters': source.chapterCount,
-            'ms': watch.elapsedMilliseconds,
-          },
-        ),
-      );
-      if (!mounted) {
-        source.close();
-        return;
-      }
-      source.bookIdForTrace = widget.bookId;
-      _source = source;
-      if (widget.store case DriftProgressStore store) {
-        try {
-          final weights = await store.ensureCharacterIndex(
-            widget.bookId,
-            source,
-            _contentRevision,
-            isCancelled: () => !mounted,
-          );
-          if (weights != null) source.bindProgressWeights(weights);
-        } catch (error) {
-          await ReaderLog.instance.log(
-            'character_index_refresh_failed',
-            fields: {'bookId': widget.bookId, 'error': '$error'},
-          );
-        }
-        if (!mounted) {
-          source.close();
-          return;
-        }
-        _releaseAnchorSource = await store.bindSource(
-          widget.bookId,
-          source,
-          _contentRevision,
-        );
-        if (!mounted) {
-          _releaseAnchorSource?.call();
-          source.close();
-          return;
-        }
-      }
-      setState(() {
-        _search = ScanSearchService(
-          source: source,
-          onLog: (event, fields) =>
-              unawaited(ReaderLog.instance.log(event, fields: fields)),
-        );
-        _imageCache = DecodedImageCache(
-          // P4-32：条数与字节双上限。中端机内存预算有限，12MB 约等于
-          // 2~4 屏图片；翻回上一屏仍命中，继续远跳时按 LRU 重解码。
-          maxEntries: 16,
-          maxBytes: 12 << 20,
-          loadBytes: (url) => _loadImageBytes(source, url),
-        );
-        _loading = false;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openTrace?.stop());
+      final revision = _resolveContentRevision();
+      revision.ignore();
+      await Future.wait([
+        _prepareInitialSettings(),
+        _prepareSource(revision, watch),
+      ], eagerError: true);
+      if (!mounted || _closing) return;
+      _showSource();
     } catch (error) {
-      _releaseAnchorSource?.call();
-      _releaseAnchorSource = null;
-      _source?.close();
-      _source = null;
-      if (mounted) {
+      _openingFailed = true;
+      if (mounted && !_closing) {
         setState(() {
           _error = error;
           _loading = false;
         });
+        _scheduleReady();
       }
+      await _closeSource();
+    }
+  }
+
+  void _showSource() {
+    final source = _source!;
+    setState(() {
+      _search = ScanSearchService(
+        source: source,
+        onLog: (event, fields) =>
+            unawaited(ReaderLog.instance.log(event, fields: fields)),
+      );
+      _imageCache = DecodedImageCache(
+        // 条数与字节双上限，翻回上一屏仍可复用图片解码。
+        maxEntries: 16,
+        maxBytes: 12 << 20,
+        loadBytes: (url) => _loadImageBytes(source, url),
+      );
+      _loading = false;
+    });
+  }
+
+  Future<EpubChapterSource> _openSource() async {
+    // 导入已经校验归档，阅读期间只按需读取目标章节。
+    final path = widget.sourcePath;
+    if (path != null) {
+      return EpubChapterSource.openFile(
+        File(path),
+        verifyCrc: false,
+        contentVersion: widget.contentRevision,
+      );
+    }
+    final bytes = widget.bytes ?? await widget.bytesFuture;
+    if (bytes == null) throw StateError('阅读页缺少 EPUB 来源');
+    return EpubChapterSource.open(
+      bytes,
+      verifyCrc: false,
+      contentVersion: widget.contentRevision,
+    );
+  }
+
+  Future<String> _resolveContentRevision() async {
+    final pending = widget.contentRevisionFuture;
+    if (pending != null) return pending;
+    final known = widget.contentRevision;
+    if (known != null && known.isNotEmpty) return known;
+    final path = widget.sourcePath;
+    if (path != null) {
+      return (await sha256.bind(File(path).openRead()).first).toString();
+    }
+    final bytes = widget.bytes ?? await widget.bytesFuture;
+    if (bytes == null) throw StateError('阅读页缺少 EPUB 内容版本');
+    return sha256.convert(bytes).toString();
+  }
+
+  Future<void> _prepareSource(Future<String> revision, Stopwatch watch) async {
+    final source = await _sourceTask;
+    if (_openingCancelled) return;
+    _source = source;
+    source.bookIdForTrace = widget.bookId;
+    unawaited(_logParsedSource(source, watch));
+    _contentRevision = await revision;
+    if (_openingCancelled) return;
+    if (_contentRevision.isEmpty) throw StateError('阅读页缺少 EPUB 内容版本');
+    source.setContentVersion(_contentRevision);
+    if (widget.store case DriftProgressStore store) {
+      source.setPageCountStore(
+        store.pageCountStore(widget.bookId, _contentRevision),
+      );
+      _anchorBinding = store.bindSource(
+        widget.bookId,
+        source,
+        _contentRevision,
+      );
+      await _anchorBinding;
+    }
+  }
+
+  Future<void> _logParsedSource(
+    EpubChapterSource source,
+    Stopwatch watch,
+  ) async {
+    final elapsedMs = watch.elapsedMilliseconds;
+    try {
+      final length = widget.sourcePath == null
+          ? (widget.bytes ?? await widget.bytesFuture)?.length ?? 0
+          : await File(widget.sourcePath!).length();
+      await ReaderLog.instance.log(
+        'epub_parse',
+        fields: {
+          'kb': length ~/ 1024,
+          'source': widget.sourcePath == null ? 'memory' : 'file',
+          'chapters': source.chapterCount,
+          'ms': elapsedMs,
+        },
+      );
+    } catch (_) {
+      // 日志晚到或来源已经释放，不影响页面退出。
     }
   }
 
@@ -303,7 +372,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final tracker = _readingTracker;
     switch (state) {
       case AppLifecycleState.resumed:
-        tracker?.start();
+        _syncReadingActivity();
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
@@ -315,18 +384,39 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     }
   }
 
-  void _flushProgressInBackground() {
-    final session = _readerSession;
-    if (session == null) return;
-    unawaited(_flushProgress(session));
+  @override
+  void didHaveMemoryPressure() {
+    _source?.clearNonCurrentLayouts();
   }
 
-  Future<void> _flushProgress(ReaderSession session) async {
+  void _flushProgressInBackground() {
+    final session = _readerSession;
+    final source = _source;
+    session?.setPageCountingActive(false);
+    _backgroundFlush = _backgroundFlush.then(
+      (_) => _flushStores(session, source),
+    );
+    unawaited(_backgroundFlush);
+  }
+
+  Future<void> _flushStores(
+    ReaderSession? session,
+    EpubChapterSource? source,
+  ) async {
     try {
-      await session.flushProgress();
+      await session?.flushProgress();
     } catch (error) {
       await ReaderLog.instance.log(
         'progress_save_error',
+        fields: {'bookId': widget.bookId, 'error': '$error'},
+      );
+    }
+    if (source == null || source.isClosed) return;
+    try {
+      await source.flushPageCounts();
+    } catch (error) {
+      await ReaderLog.instance.log(
+        'page_count_save_error',
         fields: {'bookId': widget.bookId, 'error': '$error'},
       );
     }
@@ -334,24 +424,18 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   @override
   void dispose() {
+    _closing = true;
+    _openTrace?.stop();
     final session = _readerSession;
     final onClosed = widget.onClosed;
+    session?.setPageCountingActive(false);
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(_readingTracker?.finish() ?? Future<void>.value());
     _search?.dispose();
     _imageCache?.clear();
-    final releaseAnchorSource = _releaseAnchorSource;
-    final source = _source;
-    _releaseAnchorSource = null;
-    _source = null;
     unawaited(
       _finishClose(session).whenComplete(() {
-        // 最后一条进度保存完成后才能释放章节源与锚点索引；保存期间
-        // 可能仍需从源中校验 CFI，提前关闭会让退出保存失败。
-        releaseAnchorSource?.call();
-        source?.close();
         onClosed?.call();
       }),
     );
@@ -360,12 +444,28 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   Future<void> _finishClose(ReaderSession? session) async {
     try {
-      await session?.flushProgress();
-    } catch (error) {
-      await ReaderLog.instance.log(
-        'progress_save_error',
-        fields: {'bookId': widget.bookId, 'error': '$error'},
-      );
+      await _backgroundFlush;
+      await _flushStores(session, _source);
+      await _readingTracker?.finish();
+    } finally {
+      // 保存可能仍需校验原始 CFI，进度与计页落盘后才释放源。
+      await _closeSource();
+    }
+  }
+
+  Future<void> _closeSource() => _sourceCloseTask ??= _releaseSource();
+
+  Future<void> _releaseSource() async {
+    EpubChapterSource? source;
+    try {
+      source = await _sourceTask;
+      final binding = _anchorBinding;
+      if (binding != null) (await binding)();
+    } catch (_) {
+      // 打开或借用失败仍继续释放已经取得的归档。
+    } finally {
+      source?.close();
+      _source = null;
     }
   }
 
@@ -377,7 +477,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       // 阅读页自行处理安全区，并让正文始终铺满可用区域。
       resizeToAvoidBottomInset: false,
       body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 250),
+        duration: widget.readingActive
+            ? const Duration(milliseconds: 250)
+            : Duration.zero,
         child: _buildBody(),
       ),
     );
@@ -465,6 +567,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _trackedPageTurns = session.pageTurns;
     _trackedCharactersRead = session.charactersRead;
     session.addListener(_syncReadingStats);
+    _scheduleReady();
   }
 
   void _syncReadingStats() {
@@ -472,6 +575,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (session == null) {
       return;
     }
+    _scheduleReady();
     final pageTurns = session.pageTurns - _trackedPageTurns;
     final characters = session.charactersRead - _trackedCharactersRead;
     if (pageTurns <= 0 && characters <= 0) {
@@ -480,6 +584,46 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _trackedPageTurns = session.pageTurns;
     _trackedCharactersRead = session.charactersRead;
     _readingTracker?.recordPageTurn(count: pageTurns, characters: characters);
+  }
+
+  void _scheduleReady() {
+    if (_readyNotified || _readyScheduled || _closing) return;
+    final session = _readerSession;
+    final failed = _error != null || session?.error != null;
+    final complete = _hasPreparedFrame(session);
+    if (!failed && !complete) return;
+    _readyScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _readyScheduled = false;
+      if (!mounted || _closing || _readyNotified) return;
+      final session = _readerSession;
+      if (_error == null && session?.error == null) {
+        if (!_hasPreparedFrame(session)) return;
+        _readable = true;
+      }
+      _readyNotified = true;
+      _openTrace?.stop();
+      _syncReadingActivity();
+      widget.onReady?.call();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  bool _hasPreparedFrame(ReaderSession? session) =>
+      session != null &&
+      !session.loading &&
+      session.hasContent &&
+      session.readingPercent != null;
+
+  void _syncReadingActivity() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final foreground =
+        lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    if (_readable && widget.readingActive && foreground && !_closing) {
+      _readingTracker?.start();
+    } else {
+      unawaited(_readingTracker?.pause() ?? Future<void>.value());
+    }
   }
 
   Future<List<SearchPanelResult>> _searchResults(String query) async => [
