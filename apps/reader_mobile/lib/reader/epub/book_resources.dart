@@ -3,9 +3,11 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/epub/archive_reader.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/epub/footnote.dart';
+import 'package:reader_core/epub/xml_encoding.dart';
 import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/paint/image_size.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -63,7 +65,7 @@ class BookResources {
     );
   }
 
-  /// 只传纯 XHTML 与章节序号到 isolate，不传归档或原生文字测量对象。
+  /// 解压、文字解码和解析共用准备 isolate，归档凭据始终留在宿主。
   Future<ParsedDocument> prepareChapter(
     int spineIndex, {
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
@@ -101,25 +103,29 @@ class BookResources {
     int epoch,
     PreparationTask task,
   ) async {
+    late EpubEntryRead read;
+    late String path;
     final result = await task.wait(
       preparationWorker.schedule(
         'parse:$spineIndex@$epoch',
         () {
           _checkPreparation(epoch);
-          return (
-            xhtml: _readChapterString(spineIndex),
-            spine: spineIndex,
-            path: _chapterPath(spineIndex),
-          );
+          path = _chapterPath(spineIndex);
+          read = document.archive.prepareEntry(path) ?? _missingChapter(path);
+          return (payload: read.payload, spine: spineIndex, path: path);
         },
-        _parseChapterText,
+        _parseChapterEntry,
         priority: task.priority,
       ),
     );
     _checkPreparation(epoch);
     task.check();
-    _parsed[spineIndex] = result;
-    return result;
+    if (!document.archive.commitEntry(read, result.error)) {
+      throw const ChapterLoadCancelled();
+    }
+    final parsed = result.parsed ?? _missingChapter(path);
+    _parsed[spineIndex] = parsed;
+    return parsed;
   }
 
   void _checkPreparation(int epoch) {
@@ -246,35 +252,61 @@ class BookResources {
     final source = prepared.footnotes;
     final result = source == null
         ? const <String, FootnoteAnchor>{}
-        : await task.wait(
-            preparationWorker.schedule(
-              'resolve-footnotes:$spineIndex@$epoch',
-              () {
-                _checkPreparation(epoch);
-                return (source: source, inputs: _noteTargets(source));
-              },
-              _resolvePreparedFootnotes,
-              priority: task.priority,
-            ),
-          );
+        : await _resolveNoteTargets(source, spineIndex, epoch, task);
     _checkPreparation(epoch);
     task.check();
     _footnoteReferenceCache[spineIndex] = result;
     return result;
   }
 
-  List<_ChapterText> _noteTargets(FootnoteDocument source) {
+  Future<Map<String, FootnoteAnchor>> _resolveNoteTargets(
+    FootnoteDocument source,
+    int spineIndex,
+    int epoch,
+    PreparationTask task,
+  ) async {
+    final reads = <EpubEntryRead>[];
+    final result = await task.wait(
+      preparationWorker.schedule(
+        'resolve-footnotes:$spineIndex@$epoch',
+        () {
+          _checkPreparation(epoch);
+          return (source: source, inputs: _noteTargets(source, reads));
+        },
+        _resolvePreparedFootnotes,
+        priority: task.priority,
+      ),
+    );
+    _checkPreparation(epoch);
+    task.check();
+    for (var index = 0; index < reads.length; index++) {
+      if (!document.archive.commitEntry(reads[index], result.errors[index])) {
+        throw const ChapterLoadCancelled();
+      }
+    }
+    return result.references;
+  }
+
+  List<_ChapterEntry> _noteTargets(
+    FootnoteDocument source,
+    List<EpubEntryRead> reads,
+  ) {
     final paths = <String>{};
-    final result = <_ChapterText>[];
+    final result = <_ChapterEntry>[];
     final spines = _spinePaths ??= {
       for (final item in document.spine) _chapterPath(item.index): item.index,
     };
     for (final anchor in source.anchors) {
       final path = FootnoteParser.targetPathOf(anchor, source.path);
       if (path == null || path == source.path || !paths.add(path)) continue;
-      final xhtml = document.archive.readString(path);
-      if (xhtml != null) {
-        result.add((xhtml: xhtml, path: path, spine: spines[path] ?? -1));
+      final read = document.archive.prepareEntry(path);
+      if (read != null) {
+        reads.add(read);
+        result.add((
+          payload: read.payload,
+          path: path,
+          spine: spines[path] ?? -1,
+        ));
       }
     }
     return result;
@@ -333,6 +365,15 @@ class BookResources {
 }
 
 typedef _ChapterText = ({String xhtml, String path, int spine});
+typedef _ChapterEntry = ({EpubEntryPayload payload, String path, int spine});
+typedef _ChapterEntryResult = ({_ChapterResources? parsed, String? error});
+typedef _FootnoteEntryResult = ({
+  Map<String, FootnoteAnchor> references,
+  List<String?> errors,
+});
+
+Never _missingChapter(String path) =>
+    throw EpubException('E_SPINE_MISSING', '章节文件不存在：$path');
 
 class _ChapterResources {
   const _ChapterResources(this.document, this.styleSources, this.footnotes);
@@ -353,20 +394,36 @@ _ChapterResources _parseChapterText(_ChapterText input) => _ChapterResources(
       : null,
 );
 
-Map<String, FootnoteAnchor> _resolvePreparedFootnotes(
-  ({FootnoteDocument source, List<_ChapterText> inputs}) input,
-) => _resolveFootnotes(input.source, input.inputs);
+_ChapterEntryResult _parseChapterEntry(_ChapterEntry input) {
+  final decoded = decodeEpubEntry(input.payload);
+  final bytes = decoded.bytes;
+  return (
+    parsed: bytes == null
+        ? null
+        : _parseChapterText((
+            xhtml: decodeXmlBytes(bytes),
+            path: input.path,
+            spine: input.spine,
+          )),
+    error: decoded.error,
+  );
+}
 
-Map<String, FootnoteAnchor> _resolveFootnotes(
-  FootnoteDocument source,
-  List<_ChapterText> targets,
+_FootnoteEntryResult _resolvePreparedFootnotes(
+  ({FootnoteDocument source, List<_ChapterEntry> inputs}) input,
 ) {
+  final source = input.source;
   final documents = <String, FootnoteDocument>{source.path: source};
-  for (final input in targets) {
-    documents[input.path] = FootnoteParser.parse(
-      spineIndex: input.spine,
-      path: input.path,
-      xhtml: input.xhtml,
+  final errors = <String?>[];
+  for (final target in input.inputs) {
+    final decoded = decodeEpubEntry(target.payload);
+    errors.add(decoded.error);
+    final bytes = decoded.bytes;
+    if (bytes == null) continue;
+    documents[target.path] = FootnoteParser.parse(
+      spineIndex: target.spine,
+      path: target.path,
+      xhtml: decodeXmlBytes(bytes),
     );
   }
   final result = <String, FootnoteAnchor>{};
@@ -376,5 +433,5 @@ Map<String, FootnoteAnchor> _resolveFootnotes(
   )) {
     result.putIfAbsent(anchor.referenceKey, () => anchor);
   }
-  return Map.unmodifiable(result);
+  return (references: Map.unmodifiable(result), errors: errors);
 }

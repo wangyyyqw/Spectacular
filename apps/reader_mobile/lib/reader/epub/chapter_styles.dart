@@ -7,6 +7,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
+import 'package:reader_core/epub/archive_reader.dart';
 import 'package:reader_core/epub/xml_encoding.dart';
 import 'package:reader_ui/reader_session.dart'
     show ChapterLayoutPriority, ChapterLoadCancelled;
@@ -124,21 +125,27 @@ class ChapterStyles {
   Future<CssStylesheet> _prepareSheet(String url, PreparationTask task) async {
     final cached = _sheetCache[url];
     if (cached != null) return cached;
-    final sheet = await task.wait(
+    EpubEntryRead? read;
+    final prepared = await task.wait(
       _resources.preparationWorker.schedule(
         'css-parse:$url',
         () {
           _checkPreparation(task);
-          return _resources.document.archive.readBytes(url);
+          read = _resources.document.archive.prepareEntry(url);
+          return read?.payload;
         },
-        parseCssBytes,
+        parseCssEntry,
         priority: task.priority,
       ),
     );
     _checkPreparation(task);
+    if (read != null &&
+        !_resources.document.archive.commitEntry(read!, prepared.error)) {
+      throw const ChapterLoadCancelled();
+    }
     return _sheetCache.putIfAbsent(
       url,
-      () => _absolutizeSheet(sheet, p.posix.dirname(url)),
+      () => _absolutizeSheet(prepared.sheet, p.posix.dirname(url)),
     );
   }
 

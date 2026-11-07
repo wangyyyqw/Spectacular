@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/zip_source.dart';
 import 'package:reader_mobile/reader/epub/book_fonts.dart';
 import 'package:reader_mobile/reader/epub/book_resources.dart';
 import 'package:reader_mobile/reader/epub/chapter_selectors.dart';
@@ -32,6 +34,7 @@ Future<BookResources> _resources({
   Map<String, String> files = const {},
   Map<String, List<int>> binaryFiles = const {},
   int chapters = 1,
+  Set<String> damagedFiles = const {},
 }) async {
   final archive = Archive();
   for (final entry in <String, String>{
@@ -51,11 +54,27 @@ Future<BookResources> _resources({
   for (final entry in binaryFiles.entries) {
     archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
   }
-  final opened = await openEpub(
-    ZipEncoder().encodeBytes(archive),
-    verifyCrc: false,
-  );
+  final bytes = ZipEncoder().encodeBytes(archive);
+  if (damagedFiles.isNotEmpty) _damageEntries(bytes, damagedFiles);
+  final opened = await openEpub(bytes, verifyCrc: false);
   return BookResources(opened.document!);
+}
+
+void _damageEntries(Uint8List bytes, Set<String> paths) {
+  final index = ZipIndex.tryParse(ZipByteSource.fromBytes(bytes))!;
+  final data = ByteData.sublistView(bytes);
+  for (final path in paths) {
+    final entry = index.entries[path]!;
+    expect(entry.method, 8);
+    final offset = entry.localHeaderOffset;
+    final start =
+        offset +
+        30 +
+        data.getUint16(offset + 26, Endian.little) +
+        data.getUint16(offset + 28, Endian.little);
+    bytes[start] = 0x07;
+  }
+  index.release();
 }
 
 List<SelectorElement> _paragraph(ChapterSelectors selectors) =>
@@ -74,6 +93,30 @@ List<int> _utf16(String text) => [
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('外链 CSS 在 worker 解压失败后提交坏项并保留空表降级', () async {
+    const path = 'OEBPS/Styles/bad.css';
+    final resources = await _resources(
+      head: '<link rel="stylesheet" href="../Styles/bad.css"/>',
+      files: {path: 'p{color:red}' * 100},
+      damagedFiles: {path},
+    );
+    final fonts = BookFonts(resources, onFontsChanged: (_) {});
+    final styles = ChapterStyles(resources, fonts);
+    addTearDown(() async {
+      styles.close();
+      fonts.close();
+      resources.close();
+      await styles.preparationsStopped;
+      await resources.preparationsStopped;
+    });
+    expect(resources.document.archive.contains(path), isTrue);
+    final sheets = await styles.prepareStylesheets(0, width: 320);
+    expect(sheets.single.rules, isEmpty);
+    expect(resources.document.archive.contains(path), isFalse);
+    expect(resources.preparationWorker.activeIsolates, 0);
+    expect(resources.preparationWorker.openPortCount, 0);
+  });
 
   test('异步样式保留 UTF16、重复导入与媒体顺序，跨章复用作者表身份', () async {
     final resources = await _resources(

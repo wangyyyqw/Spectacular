@@ -5,8 +5,24 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 import 'epub_exception.dart';
+import 'epub_entry.dart';
 import 'xml_encoding.dart';
 import 'zip_source.dart';
+
+export 'epub_entry.dart'
+    show EpubEntryPayload, EpubEntryDecodeResult, decodeEpubEntry;
+
+/// 宿主独占的读取凭据；仅 [payload] 可交给纯数据 worker。
+class EpubEntryRead {
+  EpubEntryRead._(this._owner, this._path, this._identity, this.payload);
+
+  final EpubArchive _owner;
+  final String _path;
+  final Object _identity;
+  final EpubEntryPayload payload;
+}
+
+typedef _PreparedEntry = ({Object identity, EpubEntryPayload payload});
 
 /// OCF 校验结果。
 class OcfReport {
@@ -439,6 +455,28 @@ class EpubArchive {
   /// 读取字节；不存在返回 null。
   Uint8List? readBytes(String path) => _backend.readBytes(_normalizePath(path));
 
+  /// 准备单条完整输入，保留归档句柄与修复状态；旧后端仍在宿主解码。
+  EpubEntryRead? prepareEntry(String path) {
+    final normalized = _normalizePath(path);
+    final prepared = _backend.prepareEntry(normalized);
+    return prepared == null
+        ? null
+        : EpubEntryRead._(
+            this,
+            normalized,
+            prepared.identity,
+            prepared.payload,
+          );
+  }
+
+  /// 提交纯数据解压状态；外来、已关闭或已移除条目的凭据返回 false。
+  ///
+  /// 宿主应先检查作业取消和版本，再调用本方法并发布解析产物。
+  bool commitEntry(EpubEntryRead read, String? error) {
+    if (!identical(read._owner, this)) return false;
+    return _backend.commitEntry(read._path, read._identity, error);
+  }
+
   /// 只读取条目开头至多 [maxBytes] 个解压字节；不存在返回 null。
   ///
   /// 供图片尺寸与媒体类型嗅探使用，避免为了文件头解压整张大图。
@@ -506,6 +544,8 @@ abstract class _ArchiveBackend {
   bool contains(String path);
   int? uncompressedSizeOf(String path);
   Uint8List? readBytes(String path);
+  _PreparedEntry? prepareEntry(String path);
+  bool commitEntry(String path, Object identity, String? error);
   Uint8List? readHead(String path, int maxBytes);
   CompressionType? compressionOf(String path);
   void close();
@@ -528,6 +568,20 @@ class _ZipIndexBackend implements _ArchiveBackend {
 
   @override
   Uint8List? readBytes(String path) => _index.readBytes(path);
+
+  @override
+  _PreparedEntry? prepareEntry(String path) {
+    final prepared = _index.prepareEntry(path);
+    return prepared == null
+        ? null
+        : (identity: prepared.entry, payload: prepared.payload);
+  }
+
+  @override
+  bool commitEntry(String path, Object identity, String? error) =>
+      identity is ZipEntryInfo &&
+      identity.name == path &&
+      _index.commitEntry(identity, error);
 
   @override
   Uint8List? readHead(String path, int maxBytes) =>
@@ -569,6 +623,21 @@ class _LegacyBackend implements _ArchiveBackend {
     final entry = _entries[path];
     return entry == null ? null : Uint8List.fromList(entry.content);
   }
+
+  @override
+  _PreparedEntry? prepareEntry(String path) {
+    final entry = _entries[path];
+    if (entry == null) return null;
+    // 不推断 ArchiveFile.rawContent 的编码，沿用特殊压缩与加密兼容路径。
+    return (
+      identity: entry,
+      payload: EpubEntryPayload.decoded(Uint8List.fromList(entry.content)),
+    );
+  }
+
+  @override
+  bool commitEntry(String path, Object identity, String? error) =>
+      error == null && identical(_entries[path], identity);
 
   @override
   Uint8List? readHead(String path, int maxBytes) {

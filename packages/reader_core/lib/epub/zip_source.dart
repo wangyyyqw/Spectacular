@@ -2,50 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-/// ZIP 中央目录中的一个条目。
-///
-/// 只保存定位信息，不持有压缩或解压后的字节：大型 EPUB（100MB+）打开时
-/// 不该把整本内容读进内存。
-class ZipEntryInfo {
-  /// 创建条目信息。
-  const ZipEntryInfo({
-    required this.name,
-    required this.rawNameBytes,
-    required this.method,
-    required this.crc32,
-    required this.compressedSize,
-    required this.uncompressedSize,
-    required this.localHeaderOffset,
-    required this.flags,
-  });
+import 'epub_entry.dart';
 
-  /// 归档内路径。
-  final String name;
-
-  /// 中央目录中的原始文件名字节；局部头必须按原字节比较。
-  final Uint8List rawNameBytes;
-
-  /// 压缩方式：0 = store，8 = deflate。
-  final int method;
-
-  /// 未压缩内容的 CRC32。
-  final int crc32;
-
-  /// 压缩后字节数。
-  final int compressedSize;
-
-  /// 未压缩字节数。
-  final int uncompressedSize;
-
-  /// 局部头在归档中的偏移。
-  final int localHeaderOffset;
-
-  /// 通用标志位。
-  final int flags;
-
-  /// 是否使用 UTF-8 文件名。
-  bool get usesUtf8Name => flags & 0x800 != 0;
-}
+export 'epub_entry.dart' show ZipEntryInfo;
 
 /// ZIP 字节来源：内存或磁盘文件。
 ///
@@ -288,71 +247,100 @@ class ZipIndex {
   /// 读取条目字节；缺失或损坏返回 null。
   Uint8List? readBytes(String path) {
     final entry = entries[path];
-    if (entry == null) {
-      return null;
-    }
+    if (entry == null) return null;
     try {
-      final offset = _headerOffsetFor(entry);
-      if (offset == null) {
-        _drop(entry, 'E_ZIP_LOCAL_HEADER: 条目 ${entry.name} 的局部头无法定位');
-        return null;
-      }
-      final header = _source.readRange(offset, 30);
-      if (header.length < 30) {
-        _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 的局部头被截断');
-        return null;
-      }
-      final headerData = ByteData.sublistView(header);
-      final nameLength = headerData.getUint16(26, Endian.little);
-      final extraLength = headerData.getUint16(28, Endian.little);
-      final dataStart = offset + 30 + nameLength + extraLength;
-      if (dataStart + entry.compressedSize > _source.length) {
-        _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
-        return null;
-      }
-      final Uint8List bytes;
-      if (entry.method == 0) {
-        final raw = _source.readRange(dataStart, entry.compressedSize);
-        if (raw.length != entry.compressedSize) {
-          _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
-          return null;
-        }
-        bytes = _source.rangesAreIndependent ? raw : Uint8List.fromList(raw);
-      } else {
-        // 按声明尺寸一次性分配输出，再以 64 KiB 压缩块喂给解码器；避免
-        // 「整条压缩数据 + 整条解压数据」同时驻留。
-        bytes = Uint8List(entry.uncompressedSize);
-        final output = _OutputSink(bytes);
-        final decoder = ZLibDecoder(raw: true).startChunkedConversion(output);
-        var cursor = dataStart;
-        var remaining = entry.compressedSize;
-        while (remaining > 0) {
-          final count = remaining > _ioChunkSize ? _ioChunkSize : remaining;
-          final chunk = _source.readRange(cursor, count);
-          if (chunk.length != count) {
-            throw _ZipEntryFailure(
-              'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整',
-            );
-          }
-          decoder.add(chunk);
-          cursor += count;
-          remaining -= count;
-        }
-        decoder.close();
-        if (output.written != entry.uncompressedSize) {
-          throw _ZipEntryFailure(
-            'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压尺寸与声明不符',
-          );
-        }
-      }
-      if (_verifyCrc && entry.crc32 != 0 && _crc32(bytes) != entry.crc32) {
-        _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 损坏（CRC 不符）');
-        return null;
-      }
-      return bytes;
+      final range = _fullReadRange(entry);
+      if (range == null) return null;
+      final result = decodeEpubEntryChunks(
+        entry,
+        _verifyCrc,
+        () => _independentRange(range.start, range.length),
+        () => _entryChunks(entry, range.start),
+      );
+      commitEntry(entry, result.error);
+      return result.bytes;
     } catch (error) {
       _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压失败（$error）');
       return null;
+    }
+  }
+
+  /// 只为当前完整读取物化压缩条目；句柄与修复状态仍由本索引持有。
+  ({ZipEntryInfo entry, EpubEntryPayload payload})? prepareEntry(String path) {
+    final entry = entries[path];
+    if (entry == null) return null;
+    try {
+      final range = _fullReadRange(entry);
+      if (range == null) return null;
+      final bytes = _independentRange(range.start, range.length);
+      if (bytes.length != range.length) {
+        final message = 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整';
+        if (entry.method != 0) throw _ZipEntryFailure(message);
+        _drop(entry, message);
+        return null;
+      }
+      return (
+        entry: entry,
+        payload: EpubEntryPayload.compressed(
+          bytes,
+          entry,
+          verifyCrc: _verifyCrc,
+        ),
+      );
+    } catch (error) {
+      _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压失败（$error）');
+      return null;
+    }
+  }
+
+  /// 仅当前条目可接收解码结果；关闭或旧条目晚到不会修改索引。
+  bool commitEntry(ZipEntryInfo entry, String? error) {
+    if (!identical(entries[entry.name], entry)) return false;
+    if (error != null) _drop(entry, error);
+    return true;
+  }
+
+  Uint8List _independentRange(int start, int count) {
+    final bytes = _source.readRange(start, count);
+    return _source.rangesAreIndependent ? bytes : Uint8List.fromList(bytes);
+  }
+
+  ({int start, int length})? _fullReadRange(ZipEntryInfo entry) {
+    final offset = _headerOffsetFor(entry);
+    if (offset == null) {
+      _drop(entry, 'E_ZIP_LOCAL_HEADER: 条目 ${entry.name} 的局部头无法定位');
+      return null;
+    }
+    final header = _source.readRange(offset, 30);
+    if (header.length < 30) {
+      _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 的局部头被截断');
+      return null;
+    }
+    final data = ByteData.sublistView(header);
+    final start =
+        offset +
+        30 +
+        data.getUint16(26, Endian.little) +
+        data.getUint16(28, Endian.little);
+    if (start + entry.compressedSize > _source.length) {
+      _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
+      return null;
+    }
+    return (start: start, length: entry.compressedSize);
+  }
+
+  Iterable<Uint8List> _entryChunks(ZipEntryInfo entry, int start) sync* {
+    var cursor = start;
+    var remaining = entry.compressedSize;
+    while (remaining > 0) {
+      final count = remaining > _ioChunkSize ? _ioChunkSize : remaining;
+      final chunk = _source.readRange(cursor, count);
+      if (chunk.length != count) {
+        throw _ZipEntryFailure('E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
+      }
+      yield chunk;
+      cursor += count;
+      remaining -= count;
     }
   }
 
@@ -621,11 +609,6 @@ Uint32List _buildCrcTable() {
     table[i] = value;
   }
   return table;
-}
-
-/// CRC32（IEEE 802.3，与 ZIP 一致）；查表实现，校验 100MB 级归档也可接受。
-int _crc32(Uint8List bytes) {
-  return _crc32Update(0xFFFFFFFF, bytes) ^ 0xFFFFFFFF;
 }
 
 int _crc32Update(int crc, List<int> bytes) {
