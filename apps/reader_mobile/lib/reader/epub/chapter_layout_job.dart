@@ -168,8 +168,13 @@ class ChapterLayoutScheduler {
 
   void _preempt(ChapterLayoutPriority priority) {
     final running = _running;
-    if (running == null || running.priority.index <= priority.index) return;
+    if (running == null ||
+        running.budget?.token.isCancelled == true ||
+        running.priority.index <= priority.index) {
+      return;
+    }
     // 低优先级请求可稍后重试，不能挡住当前阅读的最新请求。
+    running.budget?.cancel();
     for (final waiter in running.waiters.toList()) {
       waiter.cancel();
     }
@@ -188,6 +193,10 @@ class ChapterLayoutScheduler {
     job.waiters.removeWhere((waiter) => waiter.isComplete);
     if (job.waiters.isNotEmpty) {
       job.refreshPriority();
+      if (identical(job, _running)) {
+        final next = _next();
+        if (next != null) _preempt(next.priority);
+      }
       return;
     }
     job.budget?.cancel();
