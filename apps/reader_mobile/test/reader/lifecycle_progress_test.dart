@@ -72,19 +72,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       store.items['lifecycle-progress'],
-      before,
-      reason: '2 秒节流窗口内，普通翻页只保留待写入位置',
+      isNot(before),
+      reason: '首次真实翻页立即写入，短会话退出也不丢位置',
     );
+    final afterPageTurn = store.items['lifecycle-progress'];
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
 
     final saved = store.items['lifecycle-progress'];
     expect(saved, isNotNull);
-    expect(
-      (saved!.spineIndex, saved.pageIndex),
-      isNot((before!.spineIndex, before.pageIndex)),
-      reason: '后台保存应更新到暂停前的页面',
-    );
+    expect(saved, afterPageTurn, reason: '后台保存不丢刚刚写入的页面');
   });
 }

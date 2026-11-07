@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -13,11 +12,14 @@ import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/reader_contract.dart';
 import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/epub/footnote.dart';
+import 'package:reader_core/epub/xml_encoding.dart';
 import 'package:reader_core/layout/block_flow.dart' show collapseMargins;
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
@@ -37,9 +39,12 @@ import 'package:reader_core/parser/document_parser.dart'
 import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
-import 'package:reader_core/position/cfi.dart' show cfiWithCharOffset;
+import 'package:reader_core/position/cfi.dart'
+    show EpubCfi, cfiWithCharOffset, spineIndexOfCfi;
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/text/font_coverage.dart';
+import 'package:reader_core/position/text_length.dart';
 import 'package:reader_core/text/xhtml_text.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -52,6 +57,9 @@ class EpubChapterSource
         RestylableChapterSource,
         ResizableChapterSource,
         TocChapterSource,
+        MissingChapterSource,
+        PositionedChapterSource,
+        SpineLayoutDependencyChapterSource,
         ReaderTextOverlaySource {
   EpubChapterSource._({
     required this.document,
@@ -140,7 +148,42 @@ class EpubChapterSource
 
   /// 目录（P4-11）：每项自带目标 spine 序号。
   @override
-  List<TocEntry> get toc => document.toc;
+  List<TocEntry> get toc => _tocWithMissing(document.toc);
+
+  List<TocEntry> _tocWithMissing(List<TocEntry> entries) {
+    final represented = <int>{};
+    TocEntry decorate(TocEntry entry) {
+      represented.add(entry.spineIndex);
+      return TocEntry(
+        title: entry.title,
+        spineIndex: entry.spineIndex,
+        fragment: entry.fragment,
+        children: <TocEntry>[
+          for (final child in entry.children) decorate(child),
+        ],
+        playOrder: entry.playOrder,
+        cfi: entry.cfi,
+        missing: entry.missing || isChapterMissing(entry.spineIndex),
+      );
+    }
+
+    final roots = <TocEntry>[for (final entry in entries) decorate(entry)];
+    for (var spine = 0; spine < chapterCount; spine++) {
+      if (!isChapterMissing(spine) || represented.contains(spine)) continue;
+      final item = TocEntry(
+        title: '第 ${spine + 1} 章',
+        spineIndex: spine,
+        missing: true,
+      );
+      var insertAt = 0;
+      while (insertAt < roots.length && roots[insertAt].spineIndex < spine) {
+        insertAt += 1;
+      }
+      roots.insert(insertAt, item);
+      represented.add(spine);
+    }
+    return roots;
+  }
 
   /// 原始正文区宽（未扣设置页边距）。
   final double baseContentWidth;
@@ -202,16 +245,6 @@ class EpubChapterSource
   BlockDocument? _pendingBlockDocument;
   // 原始元素树提供结构伪类/兄弟组合器所需的真实 childElements。
   _ParsedSelectorIndex? _pendingSelectorIndex;
-
-  /// white-space 原文保留（P9-28）：命中章节的判定结果与两遍保留模式
-  /// 聚合的文本节点（键 = 源码起止偏移），见 [_preservedTexts]。
-  final BoundedCache<int, bool> _preservingWhiteSpaceCache = BoundedCache(
-    chapterIndexCacheLimit,
-  );
-  final BoundedCache<int, Map<String, TextContentNode>> _preservedRawTexts =
-      BoundedCache(chapterIndexCacheLimit);
-  final BoundedCache<int, Map<String, TextContentNode>> _preservedPreLineTexts =
-      BoundedCache(chapterIndexCacheLimit);
 
   /// 页缓存（key = paginationKey）：按章 LRU，上限 [pageCacheChapterLimit] 章
   /// （只留当前章 ±1，兼顾回跳命中与中端机内存上限）。
@@ -464,13 +497,14 @@ class EpubChapterSource
         : TextAggregator.aggregate(
             _buildDisplayDocument(parsed!, spineIndex),
             inlineDisplay: displayOf,
+            whiteSpaceFor: (node, _) => styleOf(node).whiteSpace,
           );
     final chapter = AnchorChapter(
       spineIndex: spineIndex,
       href: document.spine[spineIndex].href,
       title: _anchorChapterTitle(spineIndex),
       readable: !document.progressExcludedSpineIndexes.contains(spineIndex),
-      blocks: _anchorBlocks(tree.root, spineIndex, styleOf, displayOf),
+      blocks: _anchorBlocks(tree.root, styleOf),
     );
     _anchorChapterCache[cacheKey] = chapter;
     return chapter;
@@ -507,9 +541,7 @@ class EpubChapterSource
 
   List<AnchorBlock> _anchorBlocks(
     EpubNode root,
-    int spineIndex,
     ComputedStyle Function(EpubNode) styleOf,
-    InlineDisplayResolver displayOf,
   ) {
     final result = <AnchorBlock>[];
     void walk(EpubNode node, ComputedStyle parentStyle) {
@@ -520,14 +552,8 @@ class EpubChapterSource
         return;
       }
       if (node is TextContentNode) {
-        final text = _textNodeFor(
-          spineIndex,
-          node,
-          style.whiteSpace,
-          displayOf,
-        );
-        if (text.text.trim().isNotEmpty) {
-          result.add(AnchorBlock(cfi: node.cfi.serialize(), text: text.text));
+        if (node.text.trim().isNotEmpty) {
+          result.add(AnchorBlock(cfi: node.cfi.serialize(), text: node.text));
         }
       } else if (node is BlockNode) {
         if (const {'td', 'th', 'caption'}.contains(node.tag)) {
@@ -580,7 +606,6 @@ class EpubChapterSource
       '基础级联 ${_baseChapterCascadeCache.length}/$chapterIndexCacheLimit 组；'
       '满屏索引 ${_fullBleedCache.length}/$chapterIndexCacheLimit 章；'
       '脚注索引 ${_footnoteReferenceCache.length}/$chapterIndexCacheLimit 章；'
-      '空白索引 ${_preservingWhiteSpaceCache.length}/$chapterIndexCacheLimit 章；'
       '字体 face ${_fontFacesSeen.length} 个/${_bookFontEngines.length} 族；'
       '段落布局 ${_layoutCache.length}/$textLayoutCacheLimit 条；'
       '文本宽度 ${_textWidthCache.length}/2048 条；'
@@ -1193,6 +1218,179 @@ class EpubChapterSource
   @override
   int get chapterCount => document.spine.length;
 
+  @override
+  String get layoutDependency {
+    // 引擎族名含实际字体摘要，冷开时不依赖字体注册次数和访问顺序。
+    final families =
+        _bookFontEngines.entries
+            .map((entry) => '${entry.key}=${entry.value}')
+            .toList()
+          ..sort();
+    return 'base=${baseStyle.layoutFingerprint};fonts=${families.join(',')}';
+  }
+
+  @override
+  String layoutDependencyForSpine(int spineIndex) {
+    final dependencies = _paginationFontFamilies[_paginationKey(spineIndex)];
+    final families = [
+      for (final family in dependencies ?? const <String>{})
+        '$family=${_bookFontEngines[family] ?? family}',
+    ]..sort();
+    return 'base=${baseStyle.layoutFingerprint};fonts=${families.join(',')}';
+  }
+
+  final Set<int> _knownMissingSpines = <int>{};
+  List<int>? _positionCharCounts;
+  List<int>? _externalCharCounts;
+  Set<int>? _externalExcludedSpines;
+  ProgressWeights? _positionWeights;
+
+  /// 绑定书库已保存的字符统计，避免阅读时重新扫描整本书。
+  void bindProgressWeights(ProgressWeights weights) {
+    _externalCharCounts = List<int>.unmodifiable(weights.charCounts);
+    _externalExcludedSpines = Set<int>.unmodifiable(weights.excluded);
+    _positionWeights = null;
+  }
+
+  /// 按正文聚合语义统计单章字符数；缺失章节为 0。
+  int semanticCharacterCount(int spineIndex) {
+    if (spineIndex < 0 || spineIndex >= chapterCount) return 0;
+    if (isChapterMissing(spineIndex)) return 0;
+    return TextLengthScanner.countPlainText(anchorChapter(spineIndex).text);
+  }
+
+  @override
+  bool isChapterMissing(int spineIndex) {
+    if (_knownMissingSpines.contains(spineIndex)) return true;
+    if (spineIndex < 0 || spineIndex >= chapterCount) return true;
+    if (document.isChapterMissing(spineIndex)) {
+      _knownMissingSpines.add(spineIndex);
+      _positionWeights = null;
+      return true;
+    }
+    return false;
+  }
+
+  ProgressWeights _weightsForPosition() {
+    final cached = _positionWeights;
+    if (cached != null) return cached;
+    final externalCounts = _externalCharCounts;
+    if (externalCounts != null) {
+      final excluded = <int>{...?_externalExcludedSpines};
+      for (var spine = 0; spine < chapterCount; spine++) {
+        if (isChapterMissing(spine)) excluded.add(spine);
+      }
+      return _positionWeights = ProgressWeights.fromCharCounts(
+        externalCounts,
+        excluded: excluded,
+      );
+    }
+    final excluded = <int>{...document.progressExcludedSpineIndexes};
+    final counts = _positionCharCounts ??= <int>[];
+    if (counts.isEmpty) {
+      for (var spine = 0; spine < chapterCount; spine++) {
+        if (isChapterMissing(spine)) {
+          excluded.add(spine);
+          counts.add(0);
+        } else {
+          // 与 [readingPercentForCfi]/[cfiForReadingPercent] 使用同一份
+          // 聚合正文计数；原始 XHTML 的轻量去标签口径无法正确处理
+          // CDATA、行内块提升和实体，会把同一位置算成两种比例。
+          counts.add(semanticCharacterCount(spine));
+        }
+      }
+    }
+    return _positionWeights = ProgressWeights.fromCharCounts(
+      counts,
+      excluded: excluded,
+    );
+  }
+
+  @override
+  double? readingPercentForCfi(String? cfi) {
+    if (cfi == null || cfi.isEmpty) return null;
+    final parsed = EpubCfi.parse(cfi);
+    final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+    if (spine == null || spine < 0 || spine >= chapterCount) return null;
+    if (isChapterMissing(spine)) return null;
+    final weights = _weightsForPosition();
+    if (weights.total <= 0) return null;
+    final chapter = anchorChapter(spine);
+    final offset = chapter.offsetFor(cfi);
+    if (offset == null) return null;
+    final weightedOffset = TextLengthScanner.countPlainText(
+      chapter.text.substring(0, offset.clamp(0, chapter.text.length)),
+    );
+    final length = TextLengthScanner.countPlainText(chapter.text);
+    final within = length == 0
+        ? 0.0
+        : weightedOffset / length * weights.charCounts[spine];
+    return weights.percentOf(spine, charOffsetInChapter: within);
+  }
+
+  @override
+  String? cfiForReadingPercent(double percent) {
+    final weights = _weightsForPosition();
+    if (weights.total <= 0) return null;
+    final included = <int>[
+      for (var spine = 0; spine < chapterCount; spine++)
+        if (weights.includes(spine)) spine,
+    ];
+    if (included.isEmpty) return null;
+    final target = (percent.clamp(0.0, 1.0) * weights.total).clamp(
+      0.0,
+      weights.total.toDouble(),
+    );
+    var spine = included.last;
+    for (final candidate in included) {
+      final end = weights.charStarts[candidate] + weights.charCounts[candidate];
+      if (target <= end) {
+        spine = candidate;
+        break;
+      }
+    }
+    final chapter = anchorChapter(spine);
+    final atEnd = target >= weights.total;
+    final within = (target - weights.charStarts[spine]).clamp(
+      0.0,
+      weights.charCounts[spine].toDouble(),
+    );
+    final chapterRead =
+        (within /
+                weights.charCounts[spine] *
+                TextLengthScanner.countPlainText(chapter.text))
+            .round();
+    final offset = TextLengthScanner.offsetForPlainTextCount(
+      chapter.text,
+      chapterRead,
+    );
+    return chapter.cfiAt(offset, end: atEnd);
+  }
+
+  @override
+  String? cfiForTocEntry(TocEntry entry) {
+    if (entry.missing || isChapterMissing(entry.spineIndex)) return null;
+    final direct = entry.cfi;
+    if (direct != null && spineIndexOfCfi(direct) == entry.spineIndex) {
+      final serialized = direct.serialize();
+      if (serialized.isNotEmpty &&
+          (anchorChapter(entry.spineIndex).offsetFor(serialized) != null ||
+              document.parseDocument(entry.spineIndex).nodeAtCfi(direct) !=
+                  null)) {
+        return serialized;
+      }
+    }
+    final fragment = entry.fragment?.trim();
+    if (fragment != null && fragment.isNotEmpty) {
+      final element = document
+          .parseDocument(entry.spineIndex)
+          .elementById(fragment);
+      final cfi = element?.cfi.serialize();
+      if (cfi != null && cfi.isNotEmpty) return cfi;
+    }
+    return anchorChapter(entry.spineIndex).cfiAt(0);
+  }
+
   /// 满屏判定缓存（P3-10）：spineIndex → 分析结果；聚合文本含 U+FFFC
   /// 才做深度分析，普通文字章零开销。固定版强制检查作者样式可见性，
   /// 因此同时记录该结果是否已完成隐藏元素过滤。
@@ -1267,9 +1465,6 @@ class EpubChapterSource
     _clearDisplayDocumentCache();
     _pendingBlockDocument = null;
     _pendingSelectorIndex = null;
-    _preservingWhiteSpaceCache.clear();
-    _preservedRawTexts.clear();
-    _preservedPreLineTexts.clear();
     _fullBleedCache.clear();
     _imageIntrinsicCache.clear();
     _imageIntrinsicMiss.clear();
@@ -1393,8 +1588,7 @@ class EpubChapterSource
         _inlineDeclarationsOf(chain.last.attributes['style']),
       );
       for (final rule in prepared.cascadeRules.candidatesFor(chain.last)) {
-        final media = rule.rule.media;
-        if (media != null && !Cascade.mediaMatches(media, contentWidth)) {
+        if (!_ruleMediaMatches(rule.rule.media, rule.rule.mediaConditions)) {
           continue;
         }
         if (!matches(chain, rule.selectors.selectors)) {
@@ -1544,6 +1738,7 @@ class EpubChapterSource
       declarations: _rewriteBookFontDeclarations(rule.declarations),
       selectorText: rule.selectorText,
       media: rule.media,
+      mediaConditions: rule.mediaConditions,
     );
     return _ChapterCascadePreparation(
       auxiliaryRules: List<_AuxiliaryCssRule>.unmodifiable(
@@ -1697,9 +1892,8 @@ class EpubChapterSource
       if (xhtmlBytes == null) {
         return const <CssStylesheet>[];
       }
-      final sources = CssParser.extractFromXhtml(
-        utf8.decode(xhtmlBytes, allowMalformed: true),
-      ).sources;
+      final sources = CssParser.extractFromXhtml(decodeXmlBytes(xhtmlBytes))
+          .sources;
       final loader = CssStylesheetLoader(
         resolveUrl: (url, baseDir) =>
             document.resources.resolve(url, baseDir: baseDir) ?? url,
@@ -1711,7 +1905,7 @@ class EpubChapterSource
             return const CssStylesheet(rules: [], imports: [], warnings: []);
           }
           return _absolutizeSheet(
-            CssParser.parse(utf8.decode(bytes, allowMalformed: true)),
+            CssParser.parse(decodeTextBytes(bytes)),
             p.posix.dirname(url),
           );
         }),
@@ -1726,74 +1920,6 @@ class EpubChapterSource
         ))
           sheet,
     ];
-  }
-
-  /// 章节作者 CSS 是否声明了「保留空白」族的 `white-space`
-  /// （pre / pre-wrap / pre-line / break-spaces）。
-  ///
-  /// 命中才需要第二遍保留模式的聚合（见 [_preservedTexts]），普通书零
-  /// 额外开销。
-  bool _chapterDeclaresPreservingWhiteSpace(int spineIndex) {
-    return _preservingWhiteSpaceCache.putIfAbsent(spineIndex, () {
-      for (final sheet in _chapterStylesheets(spineIndex)) {
-        for (final rule in sheet.rules) {
-          for (final declaration in rule.declarations) {
-            if (declaration.property != 'white-space') {
-              continue;
-            }
-            final value = declaration.value.trim().toLowerCase();
-            if (value.startsWith('pre') || value.contains('break-spaces')) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
-    });
-  }
-
-  /// 再聚合一遍章节（保留原文），返回「源码起止偏移 → 文本节点」。
-  ///
-  /// [TextAggregator] 一次只能按章级选一种空白模式，作者 CSS 里按选择器
-  /// 声明的 `white-space: pre` 族到不了聚合阶段，换行与连续空格会先被
-  /// 折叠掉、排版层再也拿不回来。这里对命中章节按保留模式重跑一遍（同
-  /// 一份块树，纯字符串处理，不重新解析 XHTML），pre 族块从这份结果里取
-  /// 文本，其余块继续用默认折叠结果。
-  Map<String, TextContentNode> _preservedTexts(
-    int spineIndex,
-    CssWhiteSpace whiteSpace, [
-    InlineDisplayResolver? inlineDisplay,
-  ]) {
-    final cache = whiteSpace == CssWhiteSpace.preLine
-        ? _preservedPreLineTexts
-        : _preservedRawTexts;
-    final cached = cache[spineIndex];
-    if (cached != null) {
-      return cached;
-    }
-    final result = <String, TextContentNode>{};
-    if (_chapterDeclaresPreservingWhiteSpace(spineIndex)) {
-      final aggregated = TextAggregator.aggregate(
-        document.parseBlocks(spineIndex),
-        inlineDisplay: inlineDisplay,
-        whiteSpace: whiteSpace == CssWhiteSpace.preLine
-            ? CssWhiteSpace.preLine
-            : CssWhiteSpace.preWrap,
-      );
-      void walk(EpubNode node) {
-        if (node is TextContentNode) {
-          result['${node.start}:${node.end}'] = node;
-        } else if (node is BlockNode) {
-          for (final child in node.children) {
-            walk(child);
-          }
-        }
-      }
-
-      walk(aggregated.root);
-    }
-    cache[spineIndex] = result;
-    return result;
   }
 
   /// 首字伪元素规则在章级解析一次，避免每个段落重复扫描整份 CSS。
@@ -1820,32 +1946,13 @@ class EpubChapterSource
               declarations: rule.declarations,
               selectorText: main,
               media: rule.media,
+              mediaConditions: rule.mediaConditions,
             ));
           }
         }
       }
     }
     return result;
-  }
-
-  /// 取块排版用的文本节点：pre 族块换成保留原文的同一节点，其余块沿用
-  /// 聚合器已折叠的文本（行为与改动前完全一致）。
-  TextBlockNode _textNodeFor(
-    int spineIndex,
-    TextBlockNode node,
-    CssWhiteSpace whiteSpace, [
-    InlineDisplayResolver? inlineDisplay,
-  ]) {
-    if (whiteSpace != CssWhiteSpace.pre &&
-        whiteSpace != CssWhiteSpace.preWrap &&
-        whiteSpace != CssWhiteSpace.preLine) {
-      return node;
-    }
-    if (node is! TextContentNode) {
-      return node;
-    }
-    final texts = _preservedTexts(spineIndex, whiteSpace, inlineDisplay);
-    return texts['${node.start}:${node.end}'] ?? node;
   }
 
   PageBlock? _emptyBoxBlock(
@@ -1921,7 +2028,7 @@ class EpubChapterSource
   /// 级联只保存声明字符串，绘制层用 `imageLookup(url)` 查解码图；不先解析
   /// 的话 `url(../Images/x.jpg)` 与资源索引的键对不上，背景图永远画不出来。
   CssStylesheet _absolutizeSheet(CssStylesheet sheet, String baseDir) {
-    if (sheet.rules.isEmpty) {
+    if (sheet.rules.isEmpty && sheet.fontFaces.isEmpty) {
       return sheet;
     }
     var changed = false;
@@ -1954,8 +2061,46 @@ class EpubChapterSource
                 selector: rule.selector,
                 declarations: List.unmodifiable(declarations),
                 media: rule.media,
+                mediaConditions: rule.mediaConditions,
               )
             : rule,
+      );
+    }
+    final fontFaces = <CssFontFace>[];
+    for (final face in sheet.fontFaces) {
+      var faceChanged = false;
+      final sources = <CssFontSource>[];
+      for (final source in face.sources) {
+        if (source.isLocal ||
+            source.ref.startsWith('data:') ||
+            source.ref.startsWith('http://') ||
+            source.ref.startsWith('https://')) {
+          sources.add(source);
+          continue;
+        }
+        final resolved = document.resources.resolve(
+          source.ref,
+          baseDir: baseDir,
+        );
+        if (resolved == null || resolved == source.ref) {
+          sources.add(source);
+          continue;
+        }
+        faceChanged = true;
+        sources.add(CssFontSource.url(resolved, format: source.format));
+      }
+      if (faceChanged) changed = true;
+      fontFaces.add(
+        faceChanged
+            ? CssFontFace(
+                family: face.family,
+                sources: List<CssFontSource>.unmodifiable(sources),
+                weight: face.weight,
+                style: face.style,
+                display: face.display,
+                unicodeRange: face.unicodeRange,
+              )
+            : face,
       );
     }
     if (!changed) {
@@ -1965,7 +2110,8 @@ class EpubChapterSource
       rules: List.unmodifiable(rules),
       imports: sheet.imports,
       warnings: sheet.warnings,
-      fontFaces: sheet.fontFaces,
+      fontFaces: List<CssFontFace>.unmodifiable(fontFaces),
+      mediaConditions: sheet.mediaConditions,
     );
   }
 
@@ -2022,36 +2168,25 @@ class EpubChapterSource
   /// 链缓存键（P8-02）：tag#id.class 按链拼接。
   /// 内联 style 属性声明解析（P8-02）：`k:v; k2:v2 !important` →
   /// 引擎 CssDeclaration（参与 inline 源级联）。
+  bool _ruleMediaMatches(String? media, List<String> conditions) {
+    if (conditions.isNotEmpty) {
+      return conditions.every(
+        (condition) => Cascade.mediaMatches(condition, contentWidth),
+      );
+    }
+    return media == null || Cascade.mediaMatches(media, contentWidth);
+  }
+
   static List<CssDeclaration> _inlineDeclarationsOf(String? raw) {
     if (raw == null || raw.trim().isEmpty) {
       return const <CssDeclaration>[];
     }
-    final result = <CssDeclaration>[];
-    for (final part in raw.split(';')) {
-      final colon = part.indexOf(':');
-      if (colon <= 0) {
-        continue;
-      }
-      var value = part.substring(colon + 1).trim();
-      var important = false;
-      if (value.toLowerCase().endsWith('!important')) {
-        important = true;
-        value = value.substring(0, value.length - '!important'.length).trim();
-      }
-      final property = part.substring(0, colon).trim().toLowerCase();
-      if (property.isNotEmpty &&
-          value.isNotEmpty &&
-          !property.startsWith('-')) {
-        result.add(
-          CssDeclaration(
-            property: property,
-            value: value,
-            important: important,
-          ),
-        );
-      }
-    }
-    return result;
+    return List<CssDeclaration>.unmodifiable(
+      CssParser.parseInlineDeclarations(raw).where(
+        (declaration) =>
+            !ReaderContract.propertyIsPrivate(declaration.property),
+      ),
+    );
   }
 
   /// `content` 值求值（W20）：字符串字面量、attr()、counter()/counters()、
@@ -2221,8 +2356,7 @@ class EpubChapterSource
     final declarations = <String, String>{};
     final parents = ancestors.sublist(0, ancestors.length - 1);
     for (final rule in rules) {
-      final media = rule.media;
-      if (media != null && !Cascade.mediaMatches(media, contentWidth)) {
+      if (!_ruleMediaMatches(rule.media, rule.mediaConditions)) {
         continue;
       }
       var matched = false;
@@ -2913,6 +3047,7 @@ class EpubChapterSource
               declarations: rule.declarations,
               selectorText: selector,
               media: rule.media,
+              mediaConditions: rule.mediaConditions,
             ));
           }
         }
@@ -4417,7 +4552,16 @@ class EpubChapterSource
     if (_closed) {
       throw StateError('章节来源已关闭');
     }
-    return _loadChapterPages(spineIndex, _layoutGeneration);
+    if (isChapterMissing(spineIndex)) {
+      return const <PageContent>[];
+    }
+    try {
+      return await _loadChapterPages(spineIndex, _layoutGeneration);
+    } on EpubException catch (error) {
+      if (error.code != 'E_SPINE_MISSING') rethrow;
+      _knownMissingSpines.add(spineIndex);
+      return const <PageContent>[];
+    }
   }
 
   bool _isCurrentLayout(int generation) =>
@@ -4850,8 +4994,7 @@ class EpubChapterSource
           >{};
       for (final (order, rule)
           in (pseudoRules[pseudo] ?? const <_AuxiliaryCssRule>[]).indexed) {
-        final media = rule.media;
-        if (media != null && !Cascade.mediaMatches(media, contentWidth)) {
+        if (!_ruleMediaMatches(rule.media, rule.mediaConditions)) {
           continue;
         }
         Specificity? matched;
@@ -5062,6 +5205,7 @@ class EpubChapterSource
                 selector: rule.selectorText,
                 declarations: rule.declarations,
                 media: rule.media,
+                mediaConditions: rule.mediaConditions,
               ),
               origin: CascadeOrigin.author,
               order: index,
@@ -5107,6 +5251,14 @@ class EpubChapterSource
         document,
         whiteSpace: style.whiteSpace,
         inlineDisplay: inlineDisplay,
+        whiteSpaceFor: (node, ancestors) => chainStyle(
+          selectorIndex.chainOf(node) ??
+              [
+                for (final ancestor in ancestors)
+                  _NodeView(ancestor.tag, ancestor.attributes, const []),
+                selectorViewOf(node),
+              ],
+        ).whiteSpace,
       );
       _putDisplayDocumentCache(
         spineIndex,
@@ -5114,8 +5266,6 @@ class EpubChapterSource
         document: document,
         selectors: selectorIndex,
       );
-      _preservedRawTexts.remove(spineIndex);
-      _preservedPreLineTexts.remove(spineIndex);
     }
     chainStyleCache.clear();
     gatherImageSrcs(document.root);
@@ -7183,8 +7333,7 @@ class EpubChapterSource
         final relativeTop = isRelative
             ? (relativeProbe.top?.resolve(contentHeight) ?? 0.0)
             : 0.0;
-        // 块样式先算：`white-space` 决定用折叠态文本还是保留原文的文本
-        // （逐块生效，聚合器只能在章级选一种模式）。
+        // 聚合时已按元素最终 white-space 处理，渲染与锚点共用该正文。
         var blockStyle = styleForChain(
           ancestors,
           quoteDepth: quoteDepth,
@@ -7202,12 +7351,7 @@ class EpubChapterSource
         final inBorderedContainer = containerBorderedForLastChain;
         // 祖先累计 opacity：必须在后续任何 styleForChain 调用前读走。
         final blockOpacity = effectiveOpacityForLastChain;
-        final textNode = _textNodeFor(
-          spineIndex,
-          node,
-          blockStyle.whiteSpace,
-          inlineDisplay,
-        );
+        final textNode = node;
         final text = textNode.text;
         final hasEmptyInlineBox =
             textNode is TextContentNode &&
@@ -8962,6 +9106,7 @@ typedef _AuxiliaryCssRule = ({
   List<CssDeclaration> declarations,
   String selectorText,
   String? media,
+  List<String> mediaConditions,
 });
 
 /// `<q>` 生成的单个引号，用于同步扩写文本并重映射行内偏移。

@@ -60,6 +60,12 @@ class FileReaderProgressStore implements ReaderProgressStore {
                 : null,
             approximate: value['approximate'] == true,
             scrollOffset: scroll is num ? scroll.toDouble() : null,
+            readingPercent: value['readingPercent'] is num
+                ? (value['readingPercent'] as num).toDouble()
+                : null,
+            layoutFingerprint: value['layoutFingerprint'] is String
+                ? value['layoutFingerprint'] as String
+                : null,
           );
         }
       }
@@ -119,6 +125,10 @@ class FileReaderProgressStore implements ReaderProgressStore {
             if (entry.value.approximate) 'approximate': true,
             if (entry.value.scrollOffset != null)
               'scroll': entry.value.scrollOffset,
+            if (entry.value.readingPercent != null)
+              'readingPercent': entry.value.readingPercent,
+            if (entry.value.layoutFingerprint != null)
+              'layoutFingerprint': entry.value.layoutFingerprint,
           },
       };
       await file.writeAsString(jsonEncode(data), flush: true);

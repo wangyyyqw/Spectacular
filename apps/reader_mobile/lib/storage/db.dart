@@ -326,7 +326,7 @@ class ReadingProgress extends Table {
   /// 用户手动标记的读完状态。
   BoolColumn get finished => boolean().withDefault(const Constant(false))();
 
-  /// 全书百分比（0～1）。
+  /// 全书百分比（0～100；UI 使用的 `ReaderProgress.readingPercent` 为 0～1）。
   RealColumn get percent => real().withDefault(const Constant(0))();
 
   /// 写入时间（毫秒）。

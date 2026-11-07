@@ -77,9 +77,16 @@ void main() {
       same(enlarged.layout),
     );
     expect(await source.applyTextOverlays(const []), isTrue);
+    final restored = _firstTextBlock(await source.loadChapter(0)).layout;
     expect(
-      _firstTextBlock(await source.loadChapter(0)).layout,
-      same(original.layout),
+      restored.lines,
+      same(original.layout.lines),
+      reason: '缓存复用几何，当前样式区间重新绑定',
+    );
+    expect(restored.runs.first.style.fontSize, 16);
+    expect(
+      restored.runs.first.style.color,
+      original.layout.runs.first.style.color,
     );
   });
 

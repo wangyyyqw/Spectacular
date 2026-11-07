@@ -172,11 +172,9 @@ void main() {
 
   test('共享作者样式跨章节复用准备结果且每章样式正确', () async {
     final source = await EpubChapterSource.open(
-      _book(
-        '<link rel="stylesheet" href="s.css"/>',
-        {'s.css': 'p { color: red; }'},
-        chapterCount: 3,
-      ),
+      _book('<link rel="stylesheet" href="s.css"/>', {
+        's.css': 'p { color: red; }',
+      }, chapterCount: 3),
       contentWidth: 300,
       contentHeight: 500,
     );
@@ -186,14 +184,14 @@ void main() {
       final pages = await source.loadChapter(spine);
       final color = pages
           .expand((page) => page.slices)
-          .firstWhere(
-            (slice) => slice.block.layout.text.contains('审计样式'),
-          )
+          .firstWhere((slice) => slice.block.layout.text.contains('审计样式'))
           .block
           .style!
           .color;
       expect(color, const Color(0xffff0000));
     }
-    expect(source.cacheReport, contains('级联准备 1/'));
+    // 三章共享同一套作者样式，首章准备后走基础级联缓存，不应逐章重算。
+    expect(source.cacheReport, contains('基础级联 1/3 组'));
+    expect(source.cacheReport, contains('级联准备 0/3 组'));
   });
 }

@@ -18,6 +18,8 @@ void main() {
         cfi: 'epubcfi(/6/2!/4/2:3)',
         contentRevision: 'test-revision',
         approximate: true,
+        readingPercent: 0.375,
+        layoutFingerprint: 'reader-layout-2;w=400',
       ),
     );
     expect(File('${dir.path}/reader_progress.json').existsSync(), isTrue);
@@ -33,6 +35,8 @@ void main() {
         cfi: 'epubcfi(/6/2!/4/2:3)',
         contentRevision: 'test-revision',
         approximate: true,
+        readingPercent: 0.375,
+        layoutFingerprint: 'reader-layout-2;w=400',
       ),
     );
     expect(await second.load('missing'), isNull);
