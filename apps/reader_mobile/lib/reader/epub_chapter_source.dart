@@ -28,6 +28,7 @@ import 'epub/chapter_positions.dart';
 import 'epub/book_resources.dart';
 import 'epub/book_fonts.dart';
 import 'epub/chapter_styles.dart';
+import 'epub/chapter_style_key.dart';
 import 'epub/chapter_structure.dart';
 import 'epub/container_blocks.dart';
 import 'epub/chapter_layout_job.dart';
@@ -178,6 +179,7 @@ class EpubChapterSource
 
   /// 书籍基础样式。
   final ComputedStyle baseStyle;
+  late final String _baseStyleKey = chapterBaseStyleKey(baseStyle);
 
   /// 是否回收页首/页尾的行高留白。
   ///
@@ -298,7 +300,7 @@ class EpubChapterSource
 
   String get _configurationKey =>
       '$_cacheScope'
-      'base=${baseStyle.layoutFingerprint}|${contentWidth}x$contentHeight'
+      'base=$_baseStyleKey|${contentWidth}x$contentHeight'
       '|page=$baseContentHeight|top=$_contentTopInset|trim=$trimTextEdges'
       '|spacing=$textSpacingRevision|index=${PageIndex.currentSchemaVersion}'
       '|${_overrides.fingerprint}';
@@ -481,7 +483,7 @@ class EpubChapterSource
 
   @override
   String get layoutDependency =>
-      'base=${baseStyle.layoutFingerprint};'
+      'base=$_baseStyleKey;'
       'fonts=${_fonts.freeze().dependency({...baseStyle.fontFamilies, ?_overrides.fontFamily})}';
 
   @override
@@ -489,7 +491,7 @@ class EpubChapterSource
     final snapshot = _lastSnapshots[spineIndex];
     return snapshot == null
         ? layoutDependency
-        : 'base=${baseStyle.layoutFingerprint};fonts=${snapshot.fontDependency}';
+        : 'base=$_baseStyleKey;fonts=${snapshot.fontDependency}';
   }
 
   /// 全书只持有条目权重；原文索引按目标章准备。
