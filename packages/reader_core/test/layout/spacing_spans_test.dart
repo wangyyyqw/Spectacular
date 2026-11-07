@@ -14,8 +14,127 @@ double _width(TextSpan span) {
   }
 }
 
+List<Object?> _geometry(TextSpan span, double width, double scale) {
+  final painter = TextPainter(
+    text: span,
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.linear(scale),
+  )..layout(maxWidth: width);
+  try {
+    return [
+      painter.size,
+      for (final metric in painter.computeLineMetrics())
+        [
+          metric.hardBreak,
+          metric.ascent,
+          metric.descent,
+          metric.unscaledAscent,
+          metric.height,
+          metric.width,
+          metric.left,
+          metric.baseline,
+          metric.lineNumber,
+        ],
+      for (var offset = 0; offset < span.toPlainText().length; offset++)
+        [
+          painter.getLineBoundary(TextPosition(offset: offset)),
+          for (final box in painter.getBoxesForSelection(
+            TextSelection(baseOffset: offset, extentOffset: offset + 1),
+          ))
+            [box.left, box.top, box.right, box.bottom, box.direction],
+        ],
+    ];
+  } finally {
+    painter.dispose();
+  }
+}
+
+const _prefix = 'Aa\u0301👨‍👩‍👧‍👦';
+const _suffix = 'ffi AV\n';
+
+({TextSpan source, TextSpan legacy}) _spacingTrees(
+  TextStyle style,
+  TextStyle? childStyle,
+) {
+  final merged = style.merge(childStyle);
+  return (
+    source: TextSpan(
+      style: style,
+      text: '$_prefix，$_suffix',
+      children: [TextSpan(text: '小，乙a\u0301', style: childStyle)],
+    ),
+    // 旧实现对每个未调整片段都显式写入完整的合并样式。
+    legacy: TextSpan(
+      style: style,
+      children: [
+        TextSpan(text: _prefix, style: style),
+        TextSpan(text: '，', style: style.copyWith(letterSpacing: 3)),
+        TextSpan(text: _suffix, style: style),
+        TextSpan(
+          style: childStyle,
+          children: [
+            TextSpan(text: '小', style: merged),
+            TextSpan(text: '，', style: merged.copyWith(letterSpacing: 3)),
+            TextSpan(text: '乙a\u0301', style: merged),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+void _expectLegacyGeometry(TextStyle style, TextStyle? childStyle) {
+  final trees = _spacingTrees(style, childStyle);
+  final second = _prefix.length + 1 + _suffix.length + 1;
+  final actual = applyTextSpacing(
+    trees.source,
+    LineSpacing(
+      glyphs: {
+        _prefix.length: GlyphSpacing(offset: _prefix.length, letterSpacing: 2),
+        second: GlyphSpacing(offset: second, letterSpacing: 2),
+      },
+    ),
+  );
+  expect((actual.children!.first as TextSpan).style, isNull);
+  final child = actual.children!.last as TextSpan;
+  expect((child.children!.first as TextSpan).style, style.merge(childStyle));
+  expect(actual.toPlainText(), trees.legacy.toPlainText());
+  for (final width in [61.0, 121.5, double.infinity]) {
+    for (final scale in [1.0, 1.25]) {
+      expect(
+        _geometry(actual, width, scale),
+        _geometry(trees.legacy, width, scale),
+        reason: '$style / $childStyle / $width / $scale',
+      );
+    }
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('完整样式去重与旧树的行度量和字盒精确一致，部分样式保留合并值', () {
+    for (final leading in [null, ...TextLeadingDistribution.values]) {
+      for (final height in [null, 1.0, 1.6]) {
+        final style = _style.copyWith(
+          height: height,
+          leadingDistribution: leading,
+        );
+        for (final childStyle in [
+          null,
+          const TextStyle(color: Color(0xFFFF0000)),
+          for (final childLeading in TextLeadingDistribution.values)
+            TextStyle(
+              fontSize: 29,
+              height: 1.1,
+              leadingDistribution: childLeading,
+            ),
+        ]) {
+          _expectLegacyGeometry(style, childStyle);
+        }
+      }
+    }
+  });
 
   test('区间切片保留无文本样式节点，完整区间与原树相同', () {
     const source = TextSpan(
