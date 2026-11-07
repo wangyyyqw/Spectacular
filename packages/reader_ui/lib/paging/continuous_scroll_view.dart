@@ -67,7 +67,6 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   bool _userDragging = false;
   bool _hasUserScrollSinceRestore = false;
   bool _windowAtBookEnd = false;
-  double? _lastHandledOffset;
 
   @override
   void initState() {
@@ -167,7 +166,6 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       _visibleContent = null;
       _hasUserScrollSinceRestore = false;
       _windowAtBookEnd = atBookEnd;
-      _lastHandledOffset = null;
       _rebuildEntries();
     });
     await WidgetsBinding.instance.endOfFrame;
@@ -360,18 +358,6 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   void _handleScroll() {
     if (!_controller.hasClients) return;
-    final currentOffset = _controller.offset;
-    final previousOffset = _lastHandledOffset;
-    _lastHandledOffset = currentOffset;
-    if (!_restoring &&
-        !_programmaticJump &&
-        !_trimmingWindow &&
-        !_extendingBefore &&
-        !_extendingAfter &&
-        previousOffset != null &&
-        (currentOffset - previousOffset).abs() > 0.5) {
-      _hasUserScrollSinceRestore = true;
-    }
     _captureVisiblePage();
     if (!_restoring) {
       _maybeExtendWindow();
@@ -907,10 +893,29 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         );
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            if (notification is ScrollStartNotification &&
-                notification.dragDetails != null) {
+            final canNavigate =
+                !_restoring &&
+                !_programmaticJump &&
+                !_trimmingWindow &&
+                !_extendingBefore &&
+                !_extendingAfter &&
+                _layoutGeneration == widget.session.generation &&
+                !widget.session.loading;
+            // 尺寸重排可能触发系统弹道校正，仅像素变化不足以证明用户导航。
+            // 拖动有 dragDetails；外部 jumpTo 在 idle 活动中发出开始通知；
+            // 鼠标/无障碍则通过 UserScrollNotification 报告阅读方向。
+            final explicitStart =
+                notification is ScrollStartNotification &&
+                (notification.dragDetails != null ||
+                    !_controller.position.isScrollingNotifier.value);
+            final userDirection =
+                notification is UserScrollNotification &&
+                notification.direction != ScrollDirection.idle;
+            if (canNavigate && (explicitStart || userDirection)) {
               _userDragging = true;
+              _hasUserScrollSinceRestore = true;
               widget.onUserScroll?.call();
+              _captureVisiblePage();
             }
             if (notification is ScrollEndNotification) {
               // 程序恢复/窗口前插产生的滚动结束不是用户阅读导航，不能把

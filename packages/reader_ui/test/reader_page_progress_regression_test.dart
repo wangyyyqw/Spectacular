@@ -17,9 +17,10 @@ class _ReflowSource
         RestylableChapterSource,
         ResizableChapterSource,
         LayoutDependencyChapterSource {
-  _ReflowSource({this.lines = 180});
+  _ReflowSource({this.lines = 180, this.chapters = 1});
 
   final int lines;
+  final int chapters;
   double fontSize = 16;
   double lineHeight = 1.5;
   double width = 320;
@@ -28,7 +29,7 @@ class _ReflowSource
   Completer<void>? gate;
 
   @override
-  int get chapterCount => 1;
+  int get chapterCount => chapters;
 
   @override
   String get layoutDependency =>
@@ -74,7 +75,7 @@ class _ReflowSource
             PageBlock(
               layout: layout,
               style: style,
-              startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+              startCfi: 'epubcfi(/6/${(spineIndex + 1) * 2}!/4/2/1:0)',
             ),
           ],
           spineIndex: spineIndex,
@@ -214,6 +215,47 @@ void main() {
     final persisted = await store.load('tail-switch');
     expect(persisted?.pageIndex, saved.pageIndex);
     expect(persisted?.finished, isTrue);
+  });
+
+  testWidgets('跨章窗口字号循环及延迟弹道校正不重新定义阅读锚点', (tester) async {
+    final source = _ReflowSource(chapters: 3);
+    final store = MemoryReaderProgressStore();
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _readerPage(
+        source,
+        store: store,
+        bookId: 'multi-reflow-correction',
+        mode: PageTurnMode.scroll,
+        onSessionReady: (value) => session = value,
+      ),
+    );
+    await _settle(tester);
+    await session.jumpToCfi('epubcfi(/6/4!/4/2/1:250)', continuous: true);
+    await _settle(tester);
+    final original = session.progress!.cfi;
+    expect(session.progress!.spineIndex, 1);
+    for (final size in [20.0, 16.0, 20.0, 16.0]) {
+      await session.applyOverrides(ReaderOverrides(fontSize: size));
+      await _settle(tester);
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      // 系统校正由无拖动的滚动活动驱动；它不能授予当前位置写入权限。
+      final correction = position.animateTo(
+        position.pixels + 3,
+        duration: const Duration(milliseconds: 80),
+        curve: Curves.linear,
+      );
+      await tester.pumpAndSettle();
+      await correction;
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(seconds: 3));
+      expect(session.progress!.cfi, original);
+      await session.flushProgress();
+      expect((await store.load('multi-reflow-correction'))!.cfi, original);
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('内容不足一屏时冷开保留精确滚动偏移', (tester) async {
