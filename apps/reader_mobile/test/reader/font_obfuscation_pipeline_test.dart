@@ -129,11 +129,12 @@ Uint8List _encryptedBook(
       css:
           '@font-face {font-family: "$family"; src: url("../Fonts/f.otf");}'
           'p {font-family: "$family", serif;}',
+      identifier: 'urn:uuid:12345678-1234-1234-1234-123456789abc',
     ),
   );
   final obfuscated = FontObfuscator.obfuscate(
     font,
-    identifier: 'urn:uuid:css-chapter',
+    identifier: 'urn:uuid:12345678-1234-1234-1234-123456789abc',
     algorithm: algorithm,
   );
   archive.addFile(

@@ -1,11 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:crypto/crypto.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/font_obfuscation.dart';
 import 'package:reader_core/text/font_coverage.dart';
@@ -36,36 +34,30 @@ Uint8List _buildEncryptedEpub({
   bool sinf = false,
 }) {
   final archive = Archive();
-  archive.addFile(ArchiveFile('mimetype', 20, 'application/epub+zip'.codeUnits));
+  archive.addFile(
+    ArchiveFile('mimetype', 20, 'application/epub+zip'.codeUnits),
+  );
   void addText(String name, String content) {
     final bytes = Uint8List.fromList(content.codeUnits);
     archive.addFile(ArchiveFile(name, bytes.length, bytes));
   }
 
-  addText(
-    'META-INF/container.xml',
-    '''<?xml version="1.0"?>
+  addText('META-INF/container.xml', '''<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
-</container>''',
-  );
-  addText(
-    'META-INF/encryption.xml',
-    '''<?xml version="1.0"?>
+</container>''');
+  addText('META-INF/encryption.xml', '''<?xml version="1.0"?>
 <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
     xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
   <enc:EncryptedData>
     <enc:EncryptionMethod Algorithm="$algorithmUri"/>
     <enc:CipherData><enc:CipherReference URI="OEBPS/Fonts/test.otf"/></enc:CipherData>
   </enc:EncryptedData>
-</encryption>''',
-  );
+</encryption>''');
   if (sinf) {
     addText('META-INF/sinf.xml', '<sinf/>');
   }
-  addText(
-    'OEBPS/content.opf',
-    '''<?xml version="1.0"?>
+  addText('OEBPS/content.opf', '''<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="uid">$_identifier</dc:identifier>
@@ -77,8 +69,7 @@ Uint8List _buildEncryptedEpub({
     <item id="font1" href="Fonts/test.otf" media-type="font/otf"/>
   </manifest>
   <spine><itemref idref="c1"/></spine>
-</package>''',
-  );
+</package>''');
   addText(
     'OEBPS/c1.xhtml',
     '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>正文</p></body></html>',
@@ -117,10 +108,70 @@ void main() {
       expect(restored, fontBytes);
     });
 
-    test('Adobe：SHA-1(identifier 原文)，1024 字节（规范外遗留算法）', () {
+    test('Adobe：UUID 16 字节密钥，1024 字节（Readium 参考实现）', () {
+      const uuid = 'urn:uuid:00112233-4455-6677-8899-aabbccddeeff';
       expect(
-        FontObfuscator.adobeKey(_identifier),
-        Uint8List.fromList(sha1.convert(utf8.encode(_identifier)).bytes),
+        FontObfuscator.adobeKey(uuid),
+        Uint8List.fromList(<int>[
+          0x00,
+          0x11,
+          0x22,
+          0x33,
+          0x44,
+          0x55,
+          0x66,
+          0x77,
+          0x88,
+          0x99,
+          0xaa,
+          0xbb,
+          0xcc,
+          0xdd,
+          0xee,
+          0xff,
+        ]),
+      );
+      // 独立固定向量：输入为 0x00..0x1f，按 16 字节 UUID 循环 XOR。
+      expect(
+        FontObfuscator.deobfuscate(
+          Uint8List.fromList(List<int>.generate(32, (index) => index)),
+          identifier: uuid,
+          algorithm: FontObfuscationAlgorithm.adobe,
+        ),
+        Uint8List.fromList(<int>[
+          0x00,
+          0x10,
+          0x20,
+          0x30,
+          0x40,
+          0x50,
+          0x60,
+          0x70,
+          0x80,
+          0x90,
+          0xa0,
+          0xb0,
+          0xc0,
+          0xd0,
+          0xe0,
+          0xf0,
+          0x10,
+          0x00,
+          0x30,
+          0x20,
+          0x50,
+          0x40,
+          0x70,
+          0x60,
+          0x90,
+          0x80,
+          0xb0,
+          0xa0,
+          0xd0,
+          0xc0,
+          0xf0,
+          0xe0,
+        ]),
       );
       final obfuscated = FontObfuscator.obfuscate(
         fontBytes,
@@ -202,13 +253,9 @@ void main() {
     <${prefix}CipherData><${prefix}CipherReference URI="OEBPS/a.otf"/></${prefix}CipherData>
   </${prefix}EncryptedData>
 </encryption>''');
-        expect(
-          map.entries,
-          <String, FontObfuscationAlgorithm>{
-            'OEBPS/a.otf': FontObfuscationAlgorithm.idpf,
-          },
-          reason: 'prefix=$prefix',
-        );
+        expect(map.entries, <String, FontObfuscationAlgorithm>{
+          'OEBPS/a.otf': FontObfuscationAlgorithm.idpf,
+        }, reason: 'prefix=$prefix');
       }
     });
 
@@ -242,8 +289,11 @@ void main() {
 </encryption>''';
       final map = FontEncryptionMap.parse(xml);
       expect(map.entries['OEBPS/a.otf'], FontObfuscationAlgorithm.idpf);
-      expect(map.entries['OEBPS/b.ttf'], FontObfuscationAlgorithm.adobe,
-          reason: '前导 / 归一为 ZIP 根路径');
+      expect(
+        map.entries['OEBPS/b.ttf'],
+        FontObfuscationAlgorithm.adobe,
+        reason: '前导 / 归一为 ZIP 根路径',
+      );
       expect(map.entries.containsKey('OEBPS/c.otf'), isFalse);
       expect(map.unknownAlgorithms, ['http://example.com/unknown']);
     });
@@ -270,8 +320,7 @@ void main() {
       final doc = result.document!;
       final restored = await doc.readFontBytes('Fonts/test.otf');
       expect(restored, fontBytes, reason: '解混淆产物与原字体一致');
-      expect(FontCoverage.parse(restored!), isNotNull,
-          reason: '解出的字体可解析（可渲染）');
+      expect(FontCoverage.parse(restored!), isNotNull, reason: '解出的字体可解析（可渲染）');
       // ZIP 内原始条目保持混淆态：原书不被改写。
       expect(doc.archive.readBytes('OEBPS/Fonts/test.otf'), obfuscated);
     });
@@ -288,8 +337,7 @@ void main() {
       );
       final result = await openEpub(epubBytes);
       expect(result.ok, isTrue);
-      final restored =
-          await result.document!.readFontBytes('Fonts/test.otf');
+      final restored = await result.document!.readFontBytes('Fonts/test.otf');
       expect(restored, fontBytes);
     });
 
@@ -307,9 +355,7 @@ void main() {
       final result = await openEpub(epubBytes);
       expect(result.ok, isTrue);
       expect(
-        result.report.warnings.any(
-          (w) => w.contains('E_FAIRPLAY_ENCRYPTION'),
-        ),
+        result.report.warnings.any((w) => w.contains('E_FAIRPLAY_ENCRYPTION')),
         isTrue,
       );
     });

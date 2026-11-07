@@ -3,7 +3,7 @@
 /// - IDPF（EPUB 3.2 OCF §4.2，`http://www.idpf.org/2008/embedding`）：
 ///   密钥 = SHA-1(去除空白的 unique identifier)，混淆前 1040 字节；
 /// - Adobe（规范外遗留算法，通行实现同 Readium）：
-///   密钥 = SHA-1(unique identifier 原文)，混淆前 1024 字节；
+///   密钥 = UUID 的 16 字节二进制值，混淆前 1024 字节；
 /// - 两者都是密钥循环 XOR，解混淆与混淆互为逆操作。
 /// 参考：https://www.w3.org/publishing/epub32/epub-ocf.html#sec-font-obfuscation
 library;
@@ -42,7 +42,7 @@ class FontEncryptionMap {
 
   /// 空表（无加密声明或解析失败）。
   const FontEncryptionMap.empty()
-      : this._(const <String, FontObfuscationAlgorithm>{}, const <String>[]);
+    : this._(const <String, FontObfuscationAlgorithm>{}, const <String>[]);
 
   const FontEncryptionMap._(this.entries, this.unknownAlgorithms);
 
@@ -86,8 +86,7 @@ class FontEncryptionMap {
         for (final uri in reference) {
           // CipherReference URI 以 '/' 开头表示 ZIP 根路径；否则同样
           // 相对根（OCF 规范），统一去头。
-          final path =
-              uri.startsWith('/') ? uri.substring(1) : uri;
+          final path = uri.startsWith('/') ? uri.substring(1) : uri;
           entries[path] = algorithm;
         }
       }
@@ -101,10 +100,7 @@ class FontEncryptionMap {
   }
 
   static String? _algorithmUriOf(XmlElement data) => data
-      .findElements(
-        'EncryptionMethod',
-        namespaceUri: _xmlEncryptionNamespace,
-      )
+      .findElements('EncryptionMethod', namespaceUri: _xmlEncryptionNamespace)
       .firstOrNull
       ?.getAttribute('Algorithm')
       ?.trim();
@@ -168,10 +164,23 @@ abstract final class FontObfuscator {
     return Uint8List.fromList(digest.bytes);
   }
 
-  /// Adobe 密钥：SHA-1(identifier 原文)，20 字节（通行实现，同 Readium）。
+  /// Adobe 密钥：identifier 中 UUID 的 16 字节二进制值。
+  ///
+  /// 例：`urn:uuid:00112233-4455-6677-8899-aabbccddeeff`
+  /// → `00 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff`。
   static Uint8List adobeKey(String identifier) {
-    final digest = sha1.convert(utf8.encode(identifier));
-    return Uint8List.fromList(digest.bytes);
+    final raw = identifier
+        .trim()
+        .replaceFirst(RegExp(r'^urn:uuid:', caseSensitive: false), '')
+        .replaceAll('-', '')
+        .trim();
+    if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(raw)) {
+      throw FormatException('Adobe 字体解混淆需要合法 UUID：$identifier');
+    }
+    return Uint8List.fromList([
+      for (var i = 0; i < 32; i += 2)
+        int.parse(raw.substring(i, i + 2), radix: 16),
+    ]);
   }
 
   /// 解混淆；对同一算法而言，重复调用等价于混淆。
