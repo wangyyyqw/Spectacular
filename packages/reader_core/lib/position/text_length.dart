@@ -35,6 +35,33 @@ abstract final class TextLengthScanner {
     return count;
   }
 
+  /// 统计已聚合正文中的非空白字符数（UTF-16 code unit，与 CFI 同口径）。
+  ///
+  /// 旧书刷新字符统计时使用聚合后的正文，而不是原始 XHTML 正则去标签，
+  /// 这样 CDATA、行内块提升等文本语义与阅读位置使用同一套坐标。
+  static int countPlainText(String text) {
+    var count = 0;
+    for (var index = 0; index < text.length; index++) {
+      if (!_isWhitespace(text.codeUnitAt(index))) count += 1;
+    }
+    return count;
+  }
+
+  /// 返回第 [target] 个非空白字符之后的原文偏移。
+  ///
+  /// 用于把字符权重进度反向映射到 CFI：跳过空白字符，保留 UTF-16 代码
+  /// 单元偏移语义。目标为 0 时返回 0，超出总数时返回文本长度。
+  static int offsetForPlainTextCount(String text, int target) {
+    if (target <= 0) return 0;
+    var count = 0;
+    for (var index = 0; index < text.length; index++) {
+      if (_isWhitespace(text.codeUnitAt(index))) continue;
+      count += 1;
+      if (count == target) return index + 1;
+    }
+    return text.length;
+  }
+
   // 保持 Dart RegExp 的 \s 集合，避免逐码元创建字符串并运行正则。
   static bool _isWhitespace(int codeUnit) =>
       codeUnit == 0x0020 ||

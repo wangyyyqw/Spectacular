@@ -57,6 +57,7 @@ String prepareHtml5Input(String xhtml) =>
 PreparedHtml5Input prepareHtml5InputWithOffsets(String source) {
   final output = StringBuffer();
   final offsets = <int>[];
+  String? rawTextTag;
 
   void copyRange(int start, int end) {
     for (var i = start; i < end; i++) {
@@ -68,6 +69,22 @@ PreparedHtml5Input prepareHtml5InputWithOffsets(String source) {
   void writeMapped(String value, int sourceOffset) {
     output.write(value);
     offsets.addAll(List<int>.filled(value.length, sourceOffset));
+  }
+
+  /// CDATA 在 HTML5 解析器里会被当作注释丢弃；正文中的 CDATA 必须转成
+  /// 等义文本实体。逐字符映射到原源码位置，CFI 的字符偏移仍对应原文。
+  void writeCdataText(int start, int end) {
+    for (var i = start; i < end; i++) {
+      final escaped = switch (source[i]) {
+        '&' => '&amp;',
+        '<' => '&lt;',
+        '>' => '&gt;',
+        final value => value,
+      };
+      for (var j = 0; j < escaped.length; j++) {
+        writeMapped(escaped[j], i);
+      }
+    }
   }
 
   var cursor = 0;
@@ -87,7 +104,11 @@ PreparedHtml5Input prepareHtml5InputWithOffsets(String source) {
     if (source.startsWith('<![CDATA[', cursor)) {
       final close = source.indexOf(']]>', cursor + 9);
       final end = close < 0 ? source.length : close + 3;
-      copyRange(cursor, end);
+      if (rawTextTag == null) {
+        writeCdataText(cursor + 9, close < 0 ? source.length : close);
+      } else {
+        copyRange(cursor, end);
+      }
       cursor = end;
       continue;
     }
@@ -96,9 +117,18 @@ PreparedHtml5Input prepareHtml5InputWithOffsets(String source) {
       copyRange(cursor, source.length);
       break;
     }
-    if (source.startsWith('</', cursor) ||
-        source.startsWith('<!', cursor) ||
-        source.startsWith('<?', cursor)) {
+    if (source.startsWith('</', cursor)) {
+      if (rawTextTag != null) {
+        final lower = source.substring(cursor, tagEnd + 1).toLowerCase();
+        if (lower.startsWith('</$rawTextTag')) {
+          rawTextTag = null;
+        }
+      }
+      copyRange(cursor, tagEnd + 1);
+      cursor = tagEnd + 1;
+      continue;
+    }
+    if (source.startsWith('<!', cursor) || source.startsWith('<?', cursor)) {
       copyRange(cursor, tagEnd + 1);
       cursor = tagEnd + 1;
       continue;
@@ -116,6 +146,11 @@ PreparedHtml5Input prepareHtml5InputWithOffsets(String source) {
     final localName = tagName.split(':').last.toLowerCase();
     final beforeClose = source.substring(cursor, tagEnd).trimRight();
     final selfClosing = beforeClose.endsWith('/');
+    if (!selfClosing &&
+        !_voidElements.contains(localName) &&
+        (localName == 'script' || localName == 'style')) {
+      rawTextTag = localName;
+    }
     if (!selfClosing || _voidElements.contains(localName)) {
       copyRange(cursor, tagEnd + 1);
       cursor = tagEnd + 1;

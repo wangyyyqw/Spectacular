@@ -367,7 +367,10 @@ class EpubDocumentImpl implements EpubDocument {
       algorithm: algorithm,
     );
     if (cache != null) {
-      return cache.getOrCompute('$path:${raw.length}', decrypt);
+      return cache.getOrCompute(
+        'font-obfuscation-v2:$algorithm:$path:${raw.length}',
+        decrypt,
+      );
     }
     return decrypt();
   }
@@ -542,6 +545,20 @@ class EpubDocumentImpl implements EpubDocument {
         resources.resolve(item.href, baseDir: baseDir) ??
         p.posix.normalize(p.posix.join(baseDir, item.href));
     return archive.readString(resolved);
+  }
+
+  /// 章节文件是否已确认缺失。
+  ///
+  /// 只检查归档条目是否存在，不解析 XHTML；解析/排版/IO 异常仍按错误
+  /// 处理，不能把未知错误当成可跳过的缺章。
+  bool isChapterMissing(int spineIndex) {
+    if (spineIndex < 0 || spineIndex >= spine.length) return true;
+    final item = spine[spineIndex];
+    final baseDir = p.posix.dirname(opfPath);
+    final resolved =
+        resources.resolve(item.href, baseDir: baseDir) ??
+        p.posix.normalize(p.posix.join(baseDir, item.href));
+    return !archive.contains(resolved);
   }
 
   /// 把指定 spine 解析为节点树。

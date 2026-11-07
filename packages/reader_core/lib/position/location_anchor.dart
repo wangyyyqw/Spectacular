@@ -4,6 +4,12 @@ import 'package:crypto/crypto.dart';
 
 import 'cfi.dart';
 
+/// 当前正文聚合与锚点坐标语义版本。
+///
+/// 解析、行内块提升或空白处理变化时递增；旧锚点读取后先用原文证据
+/// 核验，不能仅凭旧 CFI 当作精确位置。
+const String currentAnchorSemanticVersion = 'text-2';
+
 /// 阅读器实际使用的文本块；CFI 偏移沿用现有块内 UTF-16 坐标。
 class AnchorBlock {
   const AnchorBlock({required this.cfi, required this.text});
@@ -243,12 +249,16 @@ class AnchorRecord {
     this.current,
     this.status = 'verified',
     this.reason,
+    this.semanticVersion,
   });
 
   final LocationAnchor original;
   final LocationAnchor? current;
   final String status;
   final String? reason;
+
+  /// 创建锚点时的正文语义版本；旧记录为空。
+  final String? semanticVersion;
   LocationAnchor get effective => current ?? original;
   bool get isResolved => status == 'verified' || status == 'relocated';
 
@@ -258,6 +268,7 @@ class AnchorRecord {
     'current': current?.toJson(),
     'status': status,
     'reason': reason,
+    if (semanticVersion != null) 'semanticVersion': semanticVersion,
   };
 
   String encode() => jsonEncode(toJson());
@@ -285,6 +296,7 @@ class AnchorRecord {
             : LocationAnchor.fromJson(json['current'] as Map<String, dynamic>),
         status: status,
         reason: json['reason'] as String?,
+        semanticVersion: json['semanticVersion'] as String?,
       );
     } catch (_) {
       return null;

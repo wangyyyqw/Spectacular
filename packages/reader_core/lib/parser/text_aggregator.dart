@@ -217,6 +217,11 @@ class _WhiteSpaceMode {
 }
 
 /// 把块树中的行内内容聚合为可测量文本。
+typedef WhiteSpaceResolver = CssWhiteSpace Function(
+  EpubNode node,
+  List<MarkSubject> ancestors,
+);
+
 abstract final class TextAggregator {
   /// 记录样式标记的标签（真实书适配）：这些标签的行内元素即使无 class
   /// 也产标记（UA 语义样式：粗斜体/上下标/删除线等）。
@@ -249,11 +254,13 @@ abstract final class TextAggregator {
     BlockDocument document, {
     CssWhiteSpace whiteSpace = CssWhiteSpace.normal,
     InlineDisplayResolver? inlineDisplay,
+    WhiteSpaceResolver? whiteSpaceFor,
   }) {
     final root = _aggregateBlock(
       document.root,
       mode: _WhiteSpaceMode.from(whiteSpace),
       inlineDisplay: inlineDisplay,
+      whiteSpaceFor: whiteSpaceFor,
     );
     return BlockDocument(
       spineIndex: document.spineIndex,
@@ -267,9 +274,14 @@ abstract final class TextAggregator {
     required _WhiteSpaceMode mode,
     List<MarkSubject> chain = const <MarkSubject>[],
     InlineDisplayResolver? inlineDisplay,
+    WhiteSpaceResolver? whiteSpaceFor,
   }) {
     // `<pre>` 标签自带 `white-space: pre` 的 UA 语义。
-    final effective = block.tag == 'pre' ? _WhiteSpaceMode.pre : mode;
+    final effective = whiteSpaceFor != null
+        ? _WhiteSpaceMode.from(whiteSpaceFor(block, chain))
+        : block.tag == 'pre'
+        ? _WhiteSpaceMode.pre
+        : mode;
     // 后代选择器链（真实书对齐）：块级祖先（body→div→p…）入链。
     final blockSubject = MarkSubject(
       tag: block.tag,
@@ -347,7 +359,14 @@ abstract final class TextAggregator {
       return buffer.toString();
     }
 
-    void visitInline(InlineNode node, List<MarkSubject> ancestors) {
+    void visitInline(
+      InlineNode node,
+      List<MarkSubject> ancestors,
+      _WhiteSpaceMode inheritedMode,
+    ) {
+      final inlineMode = whiteSpaceFor == null
+          ? inheritedMode
+          : _WhiteSpaceMode.from(whiteSpaceFor(node, ancestors));
       final display = inlineDisplay?.call(node, ancestors);
       if (display == CssDisplay.none) return;
       if (display == CssDisplay.block) {
@@ -368,6 +387,7 @@ abstract final class TextAggregator {
               mode: effective,
               chain: ancestors,
               inlineDisplay: inlineDisplay,
+              whiteSpaceFor: whiteSpaceFor,
             ),
             activeInline,
           ),
@@ -425,9 +445,24 @@ abstract final class TextAggregator {
         ];
         for (final child in node.children) {
           if (child is ParsedText) {
-            accumulator.addText(child);
+            accumulator.addText(child, whiteSpaceMode: inlineMode);
           } else if (child is InlineNode) {
-            visitInline(child, inlineChain);
+            visitInline(child, inlineChain, inlineMode);
+          } else if (child is BlockNode) {
+            // 行内节点（尤其链接）可包含 HTML5 允许的块级后代。不能把它
+            // 当成行内文本继续拼接：先结束当前文本流，再按块递归聚合，
+            // 让 CFI、块边界和外层链接祖先都保留下来。
+            flush();
+            final aggregated = _aggregateBlock(
+              child,
+              mode: inlineMode,
+              chain: <MarkSubject>[...subjectChain, ...inlineChain],
+              inlineDisplay: inlineDisplay,
+              whiteSpaceFor: whiteSpaceFor,
+            );
+            children.add(
+              PromotedBlockNode(aggregated, List<InlineNode>.of(activeInline)),
+            );
           } else if (child is TextBlockNode) {
             accumulator.addRawText(child.text);
           }
@@ -461,6 +496,7 @@ abstract final class TextAggregator {
             mode: effective,
             chain: subjectChain,
             inlineDisplay: inlineDisplay,
+            whiteSpaceFor: whiteSpaceFor,
           ),
         );
       } else if (child is InlineNode) {
@@ -470,7 +506,7 @@ abstract final class TextAggregator {
           children.add(child);
           continue;
         }
-        visitInline(child, subjectChain);
+        visitInline(child, subjectChain, effective);
       } else if (child is ParsedText) {
         accumulator.addText(child);
       } else if (child is TextBlockNode) {
@@ -638,7 +674,8 @@ class _TextAccumulator {
     }
   }
 
-  void addText(ParsedText node) {
+  void addText(ParsedText node, {_WhiteSpaceMode? whiteSpaceMode}) {
+    final effective = whiteSpaceMode ?? mode;
     final value = node.text;
     if (value.isEmpty) {
       return;
@@ -650,13 +687,13 @@ class _TextAccumulator {
 
     for (final char in value.split('')) {
       if (_isCollapsibleWhitespace(char)) {
-        if (char == '\n' && mode.keepNewlines) {
+        if (char == '\n' && effective.keepNewlines) {
           _flushPendingSpace();
           _writeBreak();
           emitted += 1;
           continue;
         }
-        if (mode.collapseSpaces) {
+        if (effective.collapseSpaces) {
           _pendingSpace = true;
           continue;
         }

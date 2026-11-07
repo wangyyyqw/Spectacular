@@ -139,4 +139,30 @@ void main() {
       }
     });
   });
+
+  group('聚合正文权重反向映射', () {
+    test('按非空白字符计数并保留 UTF-16 偏移', () {
+      const text = '甲  乙\n丙\t丁';
+      expect(TextLengthScanner.countPlainText(text), 4);
+      expect(TextLengthScanner.offsetForPlainTextCount(text, 0), 0);
+      expect(TextLengthScanner.offsetForPlainTextCount(text, 1), 1);
+      expect(TextLengthScanner.offsetForPlainTextCount(text, 2), 4);
+      expect(TextLengthScanner.offsetForPlainTextCount(text, 3), 6);
+      expect(TextLengthScanner.offsetForPlainTextCount(text, 4), 8);
+      expect(TextLengthScanner.offsetForPlainTextCount(text, 9), text.length);
+    });
+
+    test('每个非空白目标的往返计数一致', () {
+      const text = '  第一段。\n\n  第二段：甲 乙\t丙\u3000丁  ';
+      final count = TextLengthScanner.countPlainText(text);
+      for (var target = 0; target <= count; target++) {
+        final offset = TextLengthScanner.offsetForPlainTextCount(text, target);
+        expect(
+          TextLengthScanner.countPlainText(text.substring(0, offset)),
+          target,
+          reason: '目标 $target',
+        );
+      }
+    });
+  });
 }
