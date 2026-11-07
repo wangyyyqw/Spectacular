@@ -564,6 +564,13 @@ class EpubChapterSource
   /// 是否已关闭。
   bool get isClosed => _closed;
 
+  /// 退出阅读页前等待已取消的准备任务与 worker 端口实际释放。
+  Future<void> get preparationsStopped => Future.wait([
+    _structures.preparationsStopped,
+    _styles.preparationsStopped,
+    _resources.preparationsStopped,
+  ]);
+
   /// 关闭在途任务和书籍资源；近期缓存只保留不含资源句柄的纯布局。
   void close() {
     if (_closed) return;

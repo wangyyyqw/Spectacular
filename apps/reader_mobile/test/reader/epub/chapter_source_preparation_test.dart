@@ -40,6 +40,7 @@ void main() {
     final pending = source.scheduleChapter(0);
     source.close();
     await expectLater(pending.result, throwsA(isA<ChapterLoadCancelled>()));
+    await source.preparationsStopped;
     await expectLater(
       source.scheduleChapter(0).result,
       throwsA(isA<ChapterLoadCancelled>()),

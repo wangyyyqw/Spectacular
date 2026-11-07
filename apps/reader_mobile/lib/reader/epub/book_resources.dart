@@ -151,11 +151,16 @@ class BookResources {
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
     Future<void>? cancelSignal,
   }) => awaitPreparation(
-    mapPreparation(
-      _scheduleResources(spineIndex, priority: priority),
-      (prepared) => prepared.styleSources,
-    ),
+    scheduleStyleSources(spineIndex, priority: priority),
     cancelSignal: cancelSignal,
+  );
+
+  ChapterPreparationHandle<List<CssStyleSource>> scheduleStyleSources(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) => mapPreparation(
+    _scheduleResources(spineIndex, priority: priority),
+    (prepared) => prepared.styleSources,
   );
 
   String _chapterPath(int spineIndex) {

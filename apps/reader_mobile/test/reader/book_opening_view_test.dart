@@ -118,7 +118,7 @@ void main() {
 
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
-    await openFuture;
+    await pumpReaderTask(tester, openFuture);
   });
 
   testWidgets('快速读盘在封面展开期间准备正文和数字，揭开不重复打开', (tester) async {
@@ -184,7 +184,7 @@ void main() {
 
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
-    await openFuture;
+    await pumpReaderTask(tester, openFuture);
   });
 
   testWidgets('开场动画期间返回会取消后续阅读页打开', (tester) async {
@@ -222,7 +222,7 @@ void main() {
     await _pumpFrames(tester);
     library.finish(bytes);
     await _pumpFrames(tester);
-    await openFuture;
+    await pumpReaderTask(tester, openFuture);
 
     expect(find.text('书架'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('reader-page')), findsNothing);
@@ -256,7 +256,7 @@ void main() {
     expect(library.revisionWrites, 0);
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
-    await openFuture;
+    await pumpReaderTask(tester, openFuture);
   });
 
   testWidgets('窄横屏和大字号下开场页不溢出', (tester) async {

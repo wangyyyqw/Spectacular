@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -9,6 +11,11 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/css_chapter_book.dart';
 
+int _holdWorker(SendPort ready) {
+  ready.send(true);
+  while (true) {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late BookResources resources;
@@ -18,7 +25,7 @@ void main() {
 
   setUp(() async {
     final document = (await openEpub(
-      buildCssChapterBook(body: '<p>清理后重新准备章节结构</p>'),
+      buildCssChapterBook(body: '<p>清理后重新准备章节结构</p>', css: 'p {color: red}'),
       verifyCrc: false,
     )).document!;
     resources = BookResources(document);
@@ -37,9 +44,37 @@ void main() {
     fonts.close();
     resources.close();
     await structures.preparationsStopped;
+    await styles.preparationsStopped;
     await resources.preparationsStopped;
     expect(resources.preparationWorker.activeIsolates, 0);
     expect(resources.preparationWorker.openPortCount, 0);
+  });
+
+  test('结构准备升级阅读优先级时穿过样式等待并抢占后台 worker', () async {
+    await resources.prepareChapter(0);
+    final ready = ReceivePort();
+    addTearDown(ready.close);
+    final background = resources.preparationWorker.schedule(
+      '占用后台解析槽',
+      () => ready.sendPort,
+      _holdWorker,
+      priority: ChapterLayoutPriority.pageCount,
+    );
+    await ready.first;
+    final preempted = expectLater(
+      background.result,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
+    final handle = structures.schedule(
+      0,
+      320,
+      priority: ChapterLayoutPriority.pageCount,
+    );
+    await Future<void>.delayed(Duration.zero);
+    handle.promote(ChapterLayoutPriority.reading);
+    await handle.result;
+    await preempted;
+    expect(structures.preparations, 1);
   });
 
   test('清理取消旧准备，同键新结果保留缓存身份并在关闭后释放资源', () async {

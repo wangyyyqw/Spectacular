@@ -8,12 +8,15 @@ import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/xml_encoding.dart';
-import 'package:reader_ui/reader_session.dart' show ChapterLayoutPriority;
+import 'package:reader_ui/reader_session.dart'
+    show ChapterLayoutPriority, ChapterLoadCancelled;
 
 import '../bounded_cache.dart';
 import 'book_fonts.dart';
 import 'book_resources.dart';
+import 'chapter_preparation_job.dart';
 import 'chapter_selectors.dart';
+import 'css_preparation.dart';
 
 /// 章节作者样式与派生级联缓存；原文读取和归档生命周期由资源服务持有。
 class ChapterStyles {
@@ -33,6 +36,10 @@ class ChapterStyles {
       BoundedCache(preparationCacheLimit);
   final BoundedCache<_CssSheetSetKey, ChapterCascadePreparation> _fontCache =
       BoundedCache(preparationCacheLimit);
+  final _preparing = ChapterPreparationScheduler();
+  bool _closed = false;
+
+  Future<void> get preparationsStopped => _preparing.idle;
 
   String get cacheReport =>
       '样式章索引 ${_chapterSheets.length}/$preparationCacheLimit 章；'
@@ -41,7 +48,7 @@ class ChapterStyles {
 
   /// 完整来源只解析一次；每次按作业快照宽度判断 link/@import 的媒体条件。
   List<CssStylesheet> stylesheets(int spineIndex, {required double width}) {
-    if (_resources.isClosed) return const [];
+    if (_closed || _resources.isClosed) return const [];
     final sheets = _chapterSheets.putIfAbsent(
       spineIndex,
       () => _loadChapterSheets(spineIndex),
@@ -49,26 +56,95 @@ class ChapterStyles {
     return _activeSheets(sheets, width);
   }
 
-  /// 生产路径等待目标章的纯数据解析，缓存淘汰也不会退回同步 HTML 扫描。
+  /// 每个等待者独立取消；解析与导入等待向共享 worker 传递优先级。
+  ChapterPreparationHandle<List<CssStylesheet>> scheduleStylesheets(
+    int spineIndex, {
+    required double width,
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) {
+    if (_closed || _resources.isClosed) return cancelledPreparation();
+    final cached = _chapterSheets[spineIndex];
+    if (cached != null) {
+      return completedPreparation(_activeSheets(cached, width));
+    }
+    return mapPreparation(
+      _preparing.schedule(
+        'chapter-styles:$spineIndex',
+        (task) => _prepareChapterSheets(spineIndex, task),
+        priority: priority,
+      ),
+      (sheets) => _activeSheets(sheets, width),
+    );
+  }
+
+  /// 生产路径等待目标章与 CSS 的纯数据解析，不退回同步 HTML 扫描。
   Future<List<CssStylesheet>> prepareStylesheets(
     int spineIndex, {
     required double width,
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
     Future<void>? cancelSignal,
-  }) async {
-    if (_resources.isClosed) return const [];
-    var sheets = _chapterSheets[spineIndex];
-    if (sheets == null) {
-      final sources = await _resources.prepareStyleSources(
-        spineIndex,
-        priority: priority,
-        cancelSignal: cancelSignal,
-      );
-      if (_resources.isClosed) return const [];
-      sheets = _loadChapterSheets(spineIndex, sources);
-      _chapterSheets[spineIndex] = sheets;
-    }
-    return _activeSheets(sheets, width);
+  }) => awaitPreparation(
+    scheduleStylesheets(spineIndex, width: width, priority: priority),
+    cancelSignal: cancelSignal,
+  );
+
+  Future<List<CssStylesheet>> _prepareChapterSheets(
+    int spineIndex,
+    PreparationTask task,
+  ) async {
+    final sources = await task.wait(
+      _resources.scheduleStyleSources(spineIndex, priority: task.priority),
+    );
+    _checkPreparation(task);
+    var inlineIndex = 0;
+    final sheets = await _loader().loadAsync(
+      sources,
+      _chapterBase(spineIndex),
+      readSheetAsync: (url) => _prepareSheet(url, task),
+      prepareInlineAsync: (css, baseDir) async {
+        final sheet = await task.wait(
+          _resources.preparationWorker.schedule(
+            'css-inline:$spineIndex:${inlineIndex++}',
+            () {
+              _checkPreparation(task);
+              return css;
+            },
+            parseCssText,
+            priority: task.priority,
+          ),
+        );
+        _checkPreparation(task);
+        return _absolutizeSheet(sheet, baseDir);
+      },
+    );
+    _checkPreparation(task);
+    return _chapterSheets.putIfAbsent(spineIndex, () => sheets);
+  }
+
+  Future<CssStylesheet> _prepareSheet(String url, PreparationTask task) async {
+    final cached = _sheetCache[url];
+    if (cached != null) return cached;
+    final sheet = await task.wait(
+      _resources.preparationWorker.schedule(
+        'css-parse:$url',
+        () {
+          _checkPreparation(task);
+          return _resources.document.archive.readBytes(url);
+        },
+        parseCssBytes,
+        priority: task.priority,
+      ),
+    );
+    _checkPreparation(task);
+    return _sheetCache.putIfAbsent(
+      url,
+      () => _absolutizeSheet(sheet, p.posix.dirname(url)),
+    );
+  }
+
+  void _checkPreparation(PreparationTask task) {
+    task.check();
+    if (_closed || _resources.isClosed) throw const ChapterLoadCancelled();
   }
 
   static List<CssStylesheet> _activeSheets(
@@ -82,10 +158,12 @@ class ChapterStyles {
         sheet,
   ];
 
-  List<CssStylesheet> _loadChapterSheets(
-    int spineIndex, [
-    List<CssStyleSource>? sources,
-  ]) {
+  List<CssStylesheet> _loadChapterSheets(int spineIndex) => _loader().load(
+    _resources.chapterStyleSources(spineIndex),
+    _chapterBase(spineIndex),
+  );
+
+  String _chapterBase(int spineIndex) {
     final document = _resources.document;
     final item = document.spine[spineIndex];
     final path =
@@ -94,18 +172,16 @@ class ChapterStyles {
           baseDir: p.posix.dirname(document.opfPath),
         ) ??
         item.href;
-    final loader = CssStylesheetLoader(
-      resolveUrl: (url, baseDir) =>
-          document.resources.resolve(url, baseDir: baseDir) ?? url,
-      prepareInline: (css, baseDir) =>
-          _absolutizeSheet(CssParser.parse(css), baseDir),
-      readSheet: (url) => _sheetCache.putIfAbsent(url, () => _readSheet(url)),
-    );
-    return loader.load(
-      sources ?? _resources.chapterStyleSources(spineIndex),
-      p.posix.dirname(path),
-    );
+    return p.posix.dirname(path);
   }
+
+  CssStylesheetLoader _loader() => CssStylesheetLoader(
+    resolveUrl: (url, baseDir) =>
+        _resources.document.resources.resolve(url, baseDir: baseDir) ?? url,
+    prepareInline: (css, baseDir) =>
+        _absolutizeSheet(CssParser.parse(css), baseDir),
+    readSheet: (url) => _sheetCache.putIfAbsent(url, () => _readSheet(url)),
+  );
 
   CssStylesheet _readSheet(String url) {
     final bytes = _resources.document.archive.readBytes(url);
@@ -450,6 +526,9 @@ class ChapterStyles {
 
   /// 宿主关闭书籍时释放本服务缓存，不关闭共享资源或字体服务。
   void close() {
+    if (_closed) return;
+    _closed = true;
+    _preparing.close();
     _sheetCache.clear();
     _chapterSheets.clear();
     _baseCache.clear();

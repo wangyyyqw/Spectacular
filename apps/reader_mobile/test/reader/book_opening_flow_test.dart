@@ -58,15 +58,22 @@ class _DeferredDecorations extends Fake implements ReaderDecorationStore {
   }
 }
 
-/// 取消路径只应调用 close，不应再读取晚到的章节源。
+/// 取消路径仅关闭并等待释放，不应再读取晚到源的章节内容。
 class _ClosingSource extends Fake implements EpubChapterSource {
   _ClosingSource(this.source);
 
   final EpubChapterSource source;
+  final released = Completer<void>();
   int closeCalls = 0;
 
   @override
   bool get isClosed => source.isClosed;
+
+  @override
+  Future<void> get preparationsStopped async {
+    await released.future;
+    await source.preparationsStopped;
+  }
 
   @override
   void close() {
@@ -223,6 +230,9 @@ void main() {
     await tester.pump();
     expect(observed.isClosed, isTrue);
     expect(observed.closeCalls, 1);
+    expect(closed, 0, reason: '退出回调等待准备任务实际释放');
+    observed.released.complete();
+    await tester.pump();
     expect(closed, 1);
     expect(find.byType(ReaderPage), findsNothing);
     expect(tester.takeException(), isNull);
