@@ -1,9 +1,8 @@
-import 'dart:convert';
-
 import 'package:xml/xml.dart';
 
 import 'archive_reader.dart';
 import 'epub_exception.dart';
+import 'xml_encoding.dart';
 
 /// container.xml 中的 rootfile 信息。
 class ContainerInfo {
@@ -33,7 +32,7 @@ abstract final class EpubContainer {
 
     final XmlDocument document;
     try {
-      document = XmlDocument.parse(utf8.decode(bytes));
+      document = XmlDocument.parse(decodeXmlBytes(bytes));
     } on FormatException catch (error) {
       throw EpubException(
         'E_CONTAINER_XML',

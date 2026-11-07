@@ -24,9 +24,7 @@ class ProgressWeights {
     List<int> charCounts, {
     Set<int> excluded = const <int>{},
   }) {
-    final counts = <int>[
-      for (final count in charCounts) math.max(0, count),
-    ];
+    final counts = <int>[for (final count in charCounts) math.max(0, count)];
     final starts = List<int>.filled(counts.length, 0);
     var total = 0;
     for (var index = 0; index < counts.length; index++) {
@@ -37,10 +35,21 @@ class ProgressWeights {
     }
     if (total == 0 && counts.isNotEmpty) {
       // 没有字符统计（旧书未统计）：按章等权估算，保证进度可用。
+      // 被排除的目录/非正文章不能进入等权分母，否则全书永远到不了 100%。
+      final estimatedCounts = <int>[
+        for (var index = 0; index < counts.length; index++)
+          excluded.contains(index) ? 0 : 1,
+      ];
+      final estimatedStarts = List<int>.filled(counts.length, 0);
+      var estimatedTotal = 0;
+      for (var index = 0; index < estimatedCounts.length; index++) {
+        estimatedStarts[index] = estimatedTotal;
+        estimatedTotal += estimatedCounts[index];
+      }
       return ProgressWeights(
-        charCounts: List<int>.filled(counts.length, 1),
-        charStarts: List<int>.generate(counts.length, (index) => index),
-        total: counts.length,
+        charCounts: estimatedCounts,
+        charStarts: estimatedStarts,
+        total: estimatedTotal,
         excluded: excluded,
         estimated: true,
       );

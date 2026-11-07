@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/parser/cfi_binder.dart';
 import 'package:reader_core/parser/document_parser.dart';
+import 'package:reader_core/parser/html5_input.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../support/corpus.dart';
@@ -83,7 +84,13 @@ void main() {
     final doc = DocumentParser.parse(xhtml: value, spineIndex: 0);
     expect(doc.plainText, contains('before'));
     expect(doc.plainText, contains('after'));
+    expect(doc.plainText, contains('a < b & c'));
     expect(doc.plainText, contains('if (a < b)'));
+    final cdataStart = value.indexOf('a < b & c');
+    final prepared = prepareHtml5InputWithOffsets(value);
+    final preparedText = prepared.xhtml.indexOf('a &lt; b &amp; c');
+    expect(preparedText, greaterThanOrEqualTo(0));
+    expect(prepared.originalOffset(preparedText), cdataStart);
     for (final text in doc.textNodes) {
       expect(EpubCfi.parse(text.cfi.serialize()), isNotNull);
     }

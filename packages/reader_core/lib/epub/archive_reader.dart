@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 import 'epub_exception.dart';
+import 'xml_encoding.dart';
 import 'zip_source.dart';
 
 /// OCF 校验结果。
@@ -437,13 +438,13 @@ class EpubArchive {
   Uint8List? readHead(String path, int maxBytes) =>
       _backend.readHead(_normalizePath(path), maxBytes);
 
-  /// 读取文本（UTF-8）；不存在返回 null。
+  /// 读取 XML/XHTML 文本（UTF-8 或 UTF-16）；不存在返回 null。
   String? readString(String path) {
     final bytes = readBytes(path);
     if (bytes == null) {
       return null;
     }
-    return utf8.decode(bytes, allowMalformed: true);
+    return decodeXmlBytes(bytes);
   }
 
   /// 条目的压缩方式；不存在返回 null。

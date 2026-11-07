@@ -8,7 +8,10 @@ void main() {
       expect(weights.total, 600);
       expect(weights.charStarts, <int>[0, 100, 300]);
       expect(weights.percentOf(0, charOffsetInChapter: 0), 0);
-      expect(weights.percentOf(1, charOffsetInChapter: 100), closeTo(200 / 600, 1e-9));
+      expect(
+        weights.percentOf(1, charOffsetInChapter: 100),
+        closeTo(200 / 600, 1e-9),
+      );
       expect(weights.percentOf(2, charOffsetInChapter: 300), 1);
       expect(weights.percentInt(1, charOffsetInChapter: 100), 33);
       expect(weights.percentOf10000(1, charOffsetInChapter: 100), 3333);
@@ -58,6 +61,18 @@ void main() {
       expect(weights.total, 4);
       expect(weights.percentInt(2), 50);
       expect(weights.totalCharacters, 4);
+    });
+
+    test('无字符统计且存在排除章时，等权分母不包含排除章', () {
+      final weights = ProgressWeights.fromCharCounts(
+        <int>[0, 0, 0],
+        excluded: <int>{0},
+      );
+      expect(weights.estimated, isTrue);
+      expect(weights.total, 2);
+      expect(weights.includes(0), isFalse);
+      expect(weights.percentOf(1), 0);
+      expect(weights.percentOf(2, charOffsetInChapter: 1), 1);
     });
   });
 }
