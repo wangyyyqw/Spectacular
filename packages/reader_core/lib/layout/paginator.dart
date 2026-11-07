@@ -1704,6 +1704,21 @@ class Paginator {
         ? block.textEdgesAt(endLine - 1).bottom
         : 0;
 
+    // 完整行盒已放得下时，无需为候选页尾塑形；收页仍精确测量真实末行。
+    bool fitsTextExtent(PageBlock block, int endLine, double extent) {
+      final limit = available + fitTolerance;
+      final line = endLine > 0 ? block.layout.lines[endLine - 1] : null;
+      final baseline = line == null ? 0.0 : line.baseline - line.top;
+      final finiteLine =
+          line == null ||
+          (baseline.isFinite && (line.height - baseline).isFinite);
+      return (extent.isFinite &&
+              limit.isFinite &&
+              finiteLine &&
+              extent <= limit) ||
+          extent <= limit + bottomCredit(block, endLine);
+    }
+
     PageContent? record() {
       // 空页不记录，避免零长度页。
       if (slices.isEmpty) {
@@ -2269,8 +2284,11 @@ class Paginator {
       // 高度因此对后续块的位置生效；溢出盒高的行丢弃（overflow 近似）。
       final wholeLeading = leadingOf(block, 0);
       final wholeExtent = wholeLeading + boxHeight + block.trailingExtent;
-      if (wholeExtent + block.containerBottomInset(lineLimit) <=
-          available + fitTolerance + bottomCredit(block, lineLimit)) {
+      if (fitsTextExtent(
+        block,
+        lineLimit,
+        wholeExtent + block.containerBottomInset(lineLimit),
+      )) {
         slices.add(
           PageBlockSlice(
             block: block,
@@ -2311,8 +2329,11 @@ class Paginator {
           final bottom =
               block.containerBottomInset(candidateEnd) +
               (candidateEnd == lineLimit ? block.trailingExtent : 0);
-          if (leading + linesHeight + lineHeight + bottom <=
-              available + fitTolerance + bottomCredit(block, candidateEnd)) {
+          if (fitsTextExtent(
+            block,
+            candidateEnd,
+            leading + linesHeight + lineHeight + bottom,
+          )) {
             linesHeight += lineHeight;
             fitEnd += 1;
           } else {
@@ -2341,7 +2362,9 @@ class Paginator {
             : 0.0;
         final sliceHeight = leading + linesHeight + trailing + boxTail;
         // 盒内留白也占页高：当前页放不下整盒时先把本块移到新页（页已非空）。
-        if (sliceHeight + block.containerBottomInset(fitEnd) >
+        final sliceExtent = sliceHeight + block.containerBottomInset(fitEnd);
+        if (sliceExtent > available + fitTolerance &&
+            sliceExtent >
                 available + fitTolerance + bottomCredit(block, fitEnd) &&
             slices.isNotEmpty) {
           final page = record();

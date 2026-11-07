@@ -7,6 +7,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/text_edges.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
@@ -58,8 +59,47 @@ Future<Uint8List> _pixels(void Function(Canvas) paint) async {
   return data!.buffer.asUint8List();
 }
 
+class _MeasuredEdgesBlock extends PageBlock {
+  _MeasuredEdgesBlock(String text)
+    : super(layout: _block(text).layout, style: _style);
+
+  final measuredLines = <int>{};
+
+  @override
+  PageTextEdges textEdgesAt(int lineIndex) {
+    measuredLines.add(lineIndex);
+    return super.textEdgesAt(lineIndex);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('已能容纳的行不提前测量页尾，真正边界仍保留精确裁边', () {
+    final block = _MeasuredEdgesBlock(List.filled(12, 'abc').join('\n'));
+    final pages = _paginate([block], height: 140).pages;
+    expect(pages, hasLength(3));
+    expect(pages.map((page) => page.slices.single.endLine), [4, 8, 12]);
+    expect(pages.map((page) => page.usedHeight), everyElement(140));
+    expect(block.measuredLines, isNot(contains(1)));
+    expect(block.measuredLines, isNot(contains(2)));
+    expect(block.measuredLines, containsAll([0, 3, 4, 7, 8, 11]));
+  });
+
+  test('NaN 盒尾保留原比较行为，不以否定容纳判断额外收页', () {
+    final first = _block('abc');
+    final second = PageBlock(
+      layout: first.layout,
+      style: _style,
+      declaredContentHeight: double.nan,
+    );
+    final pages = Paginator(pageHeight: 100)
+        .measureChapter(blocks: [first, second])
+        .pages;
+    expect(pages, hasLength(1));
+    expect(pages.single.slices, hasLength(2));
+    expect(pages.single.usedHeight.isNaN, isTrue);
+  });
 
   test('页首尾各回收十像素行高留白，页内基线距离不变', () {
     final block = _block('abc\ndef\nghi\njkl\nmno\npqr');
