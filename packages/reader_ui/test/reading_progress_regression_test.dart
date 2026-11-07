@@ -222,6 +222,23 @@ void main() {
     expect(reopened.progress!.scrollOffset, closeTo(37.25, 1e-9));
   });
 
+  test('滚动进入书尾留白时锚点取正文末端，不回退块首', () async {
+    final source = _ParagraphSource(paragraphs: 20, pageHeight: 120);
+    final session = await _openSession(source);
+    addTearDown(session.dispose);
+    final pages = await source.loadChapter(0);
+    final page = pages.last;
+    final lastSlice = page.slices.last;
+    final cfi = session.cfiAtPageOffset(page, page.usedHeight + 30);
+    final expected =
+        '${lastSlice.block.startCfi!.replaceFirst(')', '')}'
+        ':${lastSlice.block.layout.text.length})';
+    expect(cfi, expected);
+    await session.commitScrollPosition(0, page.pageIndex, page.usedHeight + 30);
+    expect(session.progress!.cfi, expected);
+    expect(session.progress!.finished, isTrue);
+  });
+
   test('持续阅读按固定间隔落盘，失败后保留待保存状态并重试', () async {
     final store = _CountingStore();
     final session = ReaderSession(
