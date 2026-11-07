@@ -42,10 +42,16 @@ final _results = <String, Object?>{};
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _results['start'] = _memory();
+  _results['process'] = {
+    'pid': pid,
+    'measurement_started_at_utc': DateTime.now().toUtc().toIso8601String(),
+    'rounds': _rounds,
+  };
   _results['measurement_contract'] = {
-    'schema': 2,
+    'schema': 3,
     'opening': '原书已预读；首轮为进程内初开，后续为同进程重开',
-    'resizing': '每轮请求新字号后恢复原字号，分别保留样本',
+    'resizing': '首轮请求进程内首次使用的字号；后续轮可能命中跨来源缓存，不能作为新字号冷排样本',
+    'fresh_gate': '前后各启动五次独立进程，每次rounds=1；分别统计首次新字号和恢复原字号',
     'complete': '正文及图片就绪、淡入结束后的Flutter帧；不代表系统呈现时间',
     'ui_gap': '4ms定时器回调最大间隔，包含结束时尚未回调的间隔',
     'frames': '按原始buildStart时间归属事件；最终报告标记尾帧是否收齐',
@@ -279,7 +285,11 @@ Future<void> _resizeRound(int round) async {
       );
     });
     final sample = await _sample(watch, _targetSpine);
-    sample['cache_temperature'] = size == _fontSize ? '恢复原字号' : '本轮首次请求新字号';
+    sample['cache_temperature'] = size == _fontSize
+        ? '恢复原字号'
+        : round == 0
+        ? '进程内首次请求新字号'
+        : '同进程再次请求该字号，可能命中跨来源缓存';
     _results['resize_${round}_$size'] = sample;
     await _send('sample', _results);
   }
