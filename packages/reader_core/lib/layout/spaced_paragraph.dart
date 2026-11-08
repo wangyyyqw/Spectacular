@@ -74,6 +74,8 @@ class SpacedParagraph {
   final bool firstLine;
   final int? maxLines;
   final _measurements = <(int, int, bool), _LineMeasurement>{};
+  final _paragraphStyles = <TextStyle, ui.ParagraphStyle>{};
+  late final TextScaler _scaler = TextScaler.linear(scale);
 
   TextPainter _painter(
     TextSpan text, [
@@ -82,7 +84,7 @@ class SpacedParagraph {
   ]) => TextPainter(
     text: text,
     textDirection: TextDirection.ltr,
-    textScaler: TextScaler.linear(scale),
+    textScaler: _scaler,
     maxLines: maxLines,
   )..layout(maxWidth: width);
 
@@ -402,15 +404,18 @@ class SpacedParagraph {
         ? TextSpan(text: '\u200b', style: spacing.styleAt(start).text)
         : sliceTextSpan(span, start, end);
     final lineSpan = applyTextSpacing(source, plan);
-    final scaler = TextScaler.linear(scale);
+    final baseStyle = lineSpan.style ?? const TextStyle();
     final builder = ui.ParagraphBuilder(
-      (lineSpan.style ?? const TextStyle()).getParagraphStyle(
-        textAlign: TextAlign.start,
-        textDirection: TextDirection.ltr,
-        textScaler: scaler,
+      _paragraphStyles.putIfAbsent(
+        baseStyle,
+        () => baseStyle.getParagraphStyle(
+          textAlign: TextAlign.start,
+          textDirection: TextDirection.ltr,
+          textScaler: _scaler,
+        ),
       ),
     );
-    lineSpan.build(builder, textScaler: scaler);
+    lineSpan.build(builder, textScaler: _scaler);
     final paragraph = builder.build()
       ..layout(const ui.ParagraphConstraints(width: double.infinity));
     try {
