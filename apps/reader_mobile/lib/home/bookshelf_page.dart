@@ -10,6 +10,7 @@ import 'package:reader_core/position/locator.dart';
 
 import '../library/library_store.dart';
 import '../reader/book_opener.dart';
+import '../reader/reader_text_warmup.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
 import 'bookshelf_sort.dart';
@@ -97,6 +98,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
   @override
   void initState() {
     super.initState();
+    try {
+      // 正式性能探针直接从书架启动；这里兜底预热，确保其他启动入口也能
+      // 在打开书籍前完成字体解析，且不给首帧留下一次性布局成本。
+      warmUpReaderTextRendering();
+    } catch (error, stack) {
+      debugPrint('reader text warm-up failed: $error\n$stack');
+    }
     widget.library.addListener(_reload);
     _bookOpener = BookOpener(
       library: widget.library,
