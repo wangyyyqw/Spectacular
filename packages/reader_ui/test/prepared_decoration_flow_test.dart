@@ -111,7 +111,7 @@ class _PreparedSource
         PreparedChapterSource,
         ReaderTextOverlaySource,
         RestylableChapterSource,
-        PageCountingChapterSource {
+        CurrentReadingChapterSource {
   Future<void> Function(int)? preparer;
   final anchors = <int>[];
   final loads =
@@ -119,23 +119,10 @@ class _PreparedSource
   List<ReaderTextOverlay> overlays = const [];
   String bookTypography = '';
   double font = 16;
-  final activeRequests = <bool>[];
   final currentChapters = <int>[];
-  void Function(bool)? onCountingActive;
 
   @override
   int get chapterCount => 1000;
-
-  @override
-  final ValueNotifier<BookPageCountState> pageCountState = ValueNotifier(
-    BookPageCountState(
-      layoutKey: 'test',
-      completedPages: 0,
-      completedChapters: 0,
-      totalChapters: 1000,
-      status: BookPageCountStatus.idle,
-    ),
-  );
 
   @override
   void setChapterPreparer(Future<void> Function(int)? preparer) {
@@ -145,12 +132,6 @@ class _PreparedSource
   @override
   void setBookTypographyFingerprint(String fingerprint) =>
       bookTypography = fingerprint;
-
-  @override
-  void setPageCountingActive(bool active) {
-    activeRequests.add(active);
-    onCountingActive?.call(active);
-  }
 
   @override
   void setCurrentReadingChapter(int spineIndex) =>
@@ -386,7 +367,6 @@ void main() {
     expect(source.loads, isEmpty);
     expect(fonts, ['AuditFont']);
     expect(session.page, isNull);
-    expect(source.activeRequests, isNot(contains(true)));
     expect(source.bookTypography, contains(_cfi(999, 3)));
     fontGate.complete();
     await tester.pumpAndSettle();
@@ -397,28 +377,9 @@ void main() {
     expect(source.loads.single.overlays.single.fontSizeScale, 0.85);
     expect(source.loads.single.overlays.single.fontWeight, 600);
     expect(find.text('1/1'), findsOneWidget);
-    expect(find.text('已排 0 页'), findsOneWidget);
     expect(session.progress?.cfi, _cfi(740, 3));
-    expect(source.activeRequests, contains(true));
-    final initialPercent = tester
-        .widget<ReaderPageFooter>(find.byType(ReaderPageFooter))
-        .progress;
-    source.pageCountState.value = BookPageCountState(
-      layoutKey: 'test',
-      completedPages: 2000,
-      completedChapters: 1000,
-      totalChapters: 1000,
-      status: BookPageCountStatus.complete,
-    );
-    await tester.pump();
-    expect(find.text('全书 2000 页'), findsOneWidget);
-    expect(
-      tester.widget<ReaderPageFooter>(find.byType(ReaderPageFooter)).progress,
-      initialPercent,
-      reason: '累计页数变化不改变独立的阅读百分比',
-    );
+    expect(source.currentChapters, contains(740));
     await tester.pumpWidget(const SizedBox());
-    expect(source.activeRequests.last, isFalse);
   });
 
   testWidgets('并发章准备共享字体加载，逐章核验不改变书级指纹', (tester) async {
@@ -455,33 +416,6 @@ void main() {
     expect(source.anchors, [740, 741]);
     expect(fonts, ['AuditFont']);
     await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('滚动正文绘制后启动计页，后台暂停并在前台绘制后续算', (tester) async {
-    final source = _PreparedSource();
-    var starts = 0;
-    source.onCountingActive = (active) {
-      if (!active) return;
-      starts += 1;
-      expect(
-        find.byKey(const ValueKey('continuous-scroll-loading')),
-        findsNothing,
-      );
-    };
-    await tester.pumpWidget(
-      _reader(source, await _saved(), _Store([]), mode: PageTurnMode.scroll),
-    );
-    await tester.pumpAndSettle();
-    expect(starts, greaterThan(0));
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    expect(source.activeRequests.last, isFalse);
-    final beforeResume = starts;
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    expect(starts, beforeResume, reason: '恢复生命周期时先等待正文帧');
-    await tester.pump();
-    expect(starts, greaterThan(beforeResume));
-    await tester.pumpWidget(const SizedBox());
-    expect(source.activeRequests.last, isFalse);
   });
 
   testWidgets('纯绘制装饰更新不触发当前章几何重排', (tester) async {

@@ -570,34 +570,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool? _lastContentSizePreview;
   Future<void>? _initialOpen;
   bool _approximateNoticeShown = false;
-  bool _countingForeground = true;
-  bool _pageCountStartScheduled = false;
-
-  bool get _visibleCountingLayout =>
-      _effectiveTurnMode != PageTurnMode.scroll ||
-      (_scrollKey.currentState?.isCurrentLayoutVisible ?? false);
-
-  void _schedulePageCounting() {
-    if (widget.source is! PageCountingChapterSource ||
-        _pageCountStartScheduled ||
-        !_countingForeground ||
-        _session.loading ||
-        !_session.hasContent ||
-        !_visibleCountingLayout) {
-      return;
-    }
-    _pageCountStartScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pageCountStartScheduled = false;
-      if (mounted &&
-          _countingForeground &&
-          !_session.loading &&
-          _visibleCountingLayout) {
-        _session.setPageCountingActive(true);
-      }
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-  }
 
   /// 预取页内图片；解码完成后 setState，占位替换为真图。
   ///
@@ -847,9 +819,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    _countingForeground =
-        lifecycle == null || lifecycle == AppLifecycleState.resumed;
     _savedMargins = widget.margins;
     _overrides = widget.overrides ?? ReaderSettingsDefaults.overrides;
     _theme = widget.theme;
@@ -2003,13 +1972,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _countingForeground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
-      _schedulePageCounting();
       _pageTurnKey.currentState?.resumeWarmup();
       return;
     }
-    _session.setPageCountingActive(false);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
@@ -2194,7 +2160,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         child: Text('无内容'),
       );
     }
-    _schedulePageCounting();
     return LayoutBuilder(
       key: const ValueKey<String>('reader-content'),
       builder: (context, constraints) {
@@ -2609,7 +2574,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         child: ContinuousScrollView(
           key: _scrollKey,
           session: _session,
-          onContentReady: _schedulePageCounting,
           revision: revision,
           padding: padding,
           paperBuilder: _buildScrollPaper,
@@ -2748,24 +2712,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           left: padding.left,
           right: padding.right,
           bottom: padding.bottom,
-          child: IgnorePointer(child: _pageFooter(page)),
+          child: IgnorePointer(
+            child: ReaderPageFooter(
+              theme: _effectiveTheme,
+              progress: _bookProgressOf(page),
+              inkMode: _inkMode,
+            ),
+          ),
         ),
     ];
-  }
-
-  Widget _pageFooter(PageContent page) {
-    final source = widget.source;
-    Widget footer(BookPageCountState? count) => ReaderPageFooter(
-      theme: _effectiveTheme,
-      progress: _bookProgressOf(page),
-      pageCount: count,
-      inkMode: _inkMode,
-    );
-    if (source is! PageCountingChapterSource) return footer(null);
-    return ValueListenableBuilder<BookPageCountState>(
-      valueListenable: source.pageCountState,
-      builder: (context, count, _) => footer(count),
-    );
   }
 }
 

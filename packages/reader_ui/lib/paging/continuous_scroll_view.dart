@@ -24,7 +24,6 @@ class ContinuousScrollView extends StatefulWidget {
     required this.padding,
     required this.revision,
     this.onPageVisible,
-    this.onContentReady,
     this.onTapAtPage,
     this.onUserScroll,
   });
@@ -35,8 +34,6 @@ class ContinuousScrollView extends StatefulWidget {
   final Object revision;
   final ValueChanged<PageContent>? onPageVisible;
 
-  /// 当前代次正文已绘制并完成视口恢复；宿主可据此启动低优先级计页。
-  final VoidCallback? onContentReady;
   final bool Function(PageContent page, Offset localPosition)? onTapAtPage;
   final VoidCallback? onUserScroll;
 
@@ -299,7 +296,6 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         // 书尾因内容不足无法置顶时尤其不能覆盖已保存的精确偏移。
         _captureVisiblePage(commit: false, stage: false);
         _restoring = false;
-        widget.onContentReady?.call();
         unawaited(_extendBefore());
         unawaited(_extendAfter());
         _maybeExtendWindow();
@@ -879,13 +875,6 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   List<int> get debugLoadedSpineIndices => <int>[
     for (final chapter in _chapters) chapter.spineIndex,
   ];
-
-  /// 新版面已经绘制；重排中的旧窗口仍可读，但不应启动新版面的计页。
-  bool get isCurrentLayoutVisible =>
-      !_loading &&
-      !_restoring &&
-      _entries.isNotEmpty &&
-      _layoutGeneration == widget.session.generation;
 
   /// 当前页面键数量；测试用于确认离窗页面的 key 已释放。
   @visibleForTesting

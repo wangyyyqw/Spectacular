@@ -267,7 +267,7 @@ class _PreparationJob<T> {
   final Future<T> Function(PreparationTask task) run;
   final waiters = <_PreparationWaiter<T>>{};
   PreparationTask? task;
-  ChapterLayoutPriority priority = ChapterLayoutPriority.pageCount;
+  ChapterLayoutPriority priority = ChapterLayoutPriority.background;
 }
 
 class _PreparationWaiter<T> implements ChapterPreparationHandle<T> {

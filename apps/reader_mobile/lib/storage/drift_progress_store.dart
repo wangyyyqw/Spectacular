@@ -7,11 +7,9 @@ import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/position/book_progress_index.dart';
 
 import '../library/revision_anchor_store.dart';
-import '../reader/epub/book_page_counter.dart';
 import '../reader/epub_chapter_source.dart';
 
 import 'db.dart';
-import 'drift_book_page_count_store.dart';
 
 /// 阅读进度的 drift 实现（P4-10）：写 `reading_progress` 表。
 ///
@@ -30,14 +28,6 @@ class DriftProgressStore implements ReaderProgressStore {
     EpubChapterSource source,
     String revision,
   ) => bindReadingAnchorSource(_db, bookId, source, revision);
-
-  /// 全书计页借用设置表，内容与布局版本变化时拒绝旧缓存。
-  BookPageCountStore pageCountStore(String bookId, String contentRevision) =>
-      DriftBookPageCountStore(
-        _db,
-        bookId: bookId,
-        contentRevision: contentRevision,
-      );
 
   /// 读取某书进度。
   @override

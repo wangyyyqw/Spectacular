@@ -183,7 +183,7 @@ void main() {
       '占用后台槽',
       () => ready.sendPort,
       _holdWorker,
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
     );
     await ready.first;
     final preempted = expectLater(
@@ -193,12 +193,12 @@ void main() {
     final first = styles.scheduleStylesheets(
       0,
       width: 320,
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
     );
     final second = styles.scheduleStylesheets(
       0,
       width: 640,
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
     );
     // 让章节准备持有正在等待的 CSS worker 子任务，再验证优先级沿链传播。
     await Future<void>.delayed(Duration.zero);

@@ -58,7 +58,7 @@ void main() {
       '占用后台解析槽',
       () => ready.sendPort,
       _holdWorker,
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
     );
     await ready.first;
     final preempted = expectLater(
@@ -68,7 +68,7 @@ void main() {
     final handle = structures.schedule(
       0,
       320,
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
     );
     await Future<void>.delayed(Duration.zero);
     handle.promote(ChapterLayoutPriority.reading);

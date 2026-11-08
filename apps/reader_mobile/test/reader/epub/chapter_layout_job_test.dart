@@ -150,7 +150,7 @@ void main() {
     );
     final counting = scheduler.schedule(
       _snapshot('降级'),
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
       retainResult: false,
     );
     reading.cancel();
@@ -158,7 +158,7 @@ void main() {
     gate.complete();
     expect(await counting.result, hasLength(1));
     expect(retained, isFalse);
-    expect(priority, ChapterLayoutPriority.pageCount);
+    expect(priority, ChapterLayoutPriority.background);
   });
 
   for (final priority in [
@@ -169,8 +169,11 @@ void main() {
       final probe = _LayoutQueueProbe();
       addTearDown(probe.scheduler.close);
       final reading = probe.request('共享', ChapterLayoutPriority.reading);
-      final counting = probe.request('共享', ChapterLayoutPriority.pageCount);
-      final alsoCounting = probe.request('共享', ChapterLayoutPriority.pageCount);
+      final counting = probe.request('共享', ChapterLayoutPriority.background);
+      final alsoCounting = probe.request(
+        '共享',
+        ChapterLayoutPriority.background,
+      );
       final next = probe.request('排队', priority);
       expect(probe.runningBudget.token.isCancelled, isFalse);
 
@@ -191,7 +194,7 @@ void main() {
 
   for (final priority in [
     ChapterLayoutPriority.reading,
-    ChapterLayoutPriority.pageCount,
+    ChapterLayoutPriority.background,
   ]) {
     test('取消共享阅读后剩余 ${priority.name} 不被同优先级排队请求抢占', () async {
       final probe = _LayoutQueueProbe();
@@ -229,7 +232,7 @@ void main() {
     addTearDown(scheduler.close);
     final background = scheduler.schedule(
       _snapshot('后台'),
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
       retainResult: false,
     );
     await started.future;
@@ -245,7 +248,7 @@ void main() {
 
   for (final priority in [
     ChapterLayoutPriority.prefetch,
-    ChapterLayoutPriority.pageCount,
+    ChapterLayoutPriority.background,
   ]) {
     test('${priority.name} 等待帧期间升为阅读立即继续同一作业', () async {
       final budget = LayoutBudget(priority: priority, isCurrent: () => true);
@@ -262,7 +265,7 @@ void main() {
     });
   }
 
-  test('待执行队列依次处理阅读、预取、计页，几何作业不并发', () async {
+  test('待执行队列依次处理阅读、预取、后台，几何作业不并发', () async {
     final gate = Completer<void>();
     final order = <String>[];
     var concurrent = 0;
@@ -286,7 +289,7 @@ void main() {
           retainResult: false,
         );
     final current = request('当前', ChapterLayoutPriority.reading);
-    final counting = request('计页', ChapterLayoutPriority.pageCount);
+    final counting = request('后台', ChapterLayoutPriority.background);
     final prefetch = request('预取', ChapterLayoutPriority.prefetch);
     final reading = request('阅读', ChapterLayoutPriority.reading);
     gate.complete();
@@ -296,7 +299,7 @@ void main() {
       prefetch.result,
       reading.result,
     ]);
-    expect(order, ['当前', '阅读', '预取', '计页']);
+    expect(order, ['当前', '阅读', '预取', '后台']);
     expect(maximum, 1);
   });
 

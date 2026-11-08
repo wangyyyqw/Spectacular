@@ -128,7 +128,7 @@ class BookFonts {
   }
 
   /// 记录宿主实际加载结果；注册表可能仍保留已删除文件的旧字形。
-  /// 只改变依赖快照，由宿主更新计页配置，不自行取消或重排章节。
+  /// 只改变依赖快照，不自行取消或重排章节。
   bool setUserFontAvailability(String family, bool available) {
     if (_isClosed || _userFontAvailability[family] == available) return false;
     _userFontAvailability[family] = available;
