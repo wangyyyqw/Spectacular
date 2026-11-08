@@ -42,4 +42,22 @@ void main() {
     cache.clear();
     expect(cache.length, 0);
   });
+
+  test('BoundedCache 淘汰时跳过受保护键，解除后可正常淘汰', () {
+    var pinned = 'a';
+    final cache = BoundedCache<String, int>(2, isPinned: (key) => key == pinned)
+      ..['a'] = 1
+      ..['b'] = 2
+      ..['c'] = 3;
+
+    expect(cache.containsKey('a'), isTrue);
+    expect(cache.containsKey('b'), isFalse);
+    expect(cache.containsKey('c'), isTrue);
+
+    pinned = 'c';
+    cache['d'] = 4;
+    expect(cache.containsKey('a'), isFalse);
+    expect(cache.containsKey('c'), isTrue);
+    expect(cache.containsKey('d'), isTrue);
+  });
 }

@@ -75,12 +75,16 @@ class ChapterStructureStore {
   final BookResources resources;
   final ChapterStyles styles;
   final ComputedStyle baseStyle;
-  final _cache = BoundedCache<String, ChapterStructure>(capacity);
+  late final _cache = BoundedCache<String, ChapterStructure>(
+    capacity,
+    isPinned: (key) => key == _currentKey,
+  );
   final _preparing = ChapterPreparationScheduler();
   int preparations = 0;
   int hits = 0;
   bool _closed = false;
   int _epoch = 0;
+  String? _currentKey;
 
   int get length => _cache.length;
   Future<void> get preparationsStopped => _preparing.idle;
@@ -96,6 +100,7 @@ class ChapterStructureStore {
   }) {
     if (_closed || resources.isClosed) return cancelledPreparation();
     final key = _key(spine, width);
+    if (priority == ChapterLayoutPriority.reading) _currentKey = key;
     final cached = _cached(key);
     if (cached != null) return completedPreparation(cached);
     final epoch = _epoch;
@@ -202,6 +207,7 @@ class ChapterStructureStore {
 
   void clear() {
     _epoch += 1;
+    _currentKey = null;
     _preparing.cancelAll();
     _cache.clear();
   }

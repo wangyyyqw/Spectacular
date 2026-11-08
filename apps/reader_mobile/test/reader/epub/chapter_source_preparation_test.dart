@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/css_chapter_book.dart';
+import '../../support/test_epub.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,5 +50,54 @@ void main() {
       throwsA(isA<ChapterLoadCancelled>()),
     );
     expect(source.chapterLayoutCount, 0);
+  });
+
+  test('正式源后台计页写满结构缓存后重载当前章仍命中', () async {
+    final source = await EpubChapterSource.open(
+      buildMultiChapterEpub(
+        chapters: [for (var i = 0; i < 6; i++) '第 ${i + 1} 章正文' * 40],
+      ),
+      contentWidth: 300,
+      contentHeight: 500,
+      verifyCrc: false,
+    );
+    addTearDown(source.close);
+
+    final current = await source.loadChapter(3);
+    source.setCurrentReadingChapter(3);
+    final preparations = source.anchorPreparationCount;
+    expect(source.chapterLayoutCount, 1);
+
+    final handles = [
+      for (final spine in [0, 1, 2, 4, 5])
+        source.scheduleChapter(
+          spine,
+          priority: ChapterLayoutPriority.pageCount,
+        ),
+    ];
+    for (final handle in handles) {
+      unawaited(
+        handle.result.then((_) {}, onError: (Object _, StackTrace _) {}),
+      );
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    while (source.anchorPreparationCount < preparations + handles.length &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(source.anchorPreparationCount, preparations + handles.length);
+    final layouts = source.chapterLayoutCount;
+    for (final handle in handles) {
+      handle.cancel();
+    }
+
+    final reopened = await source.loadChapter(3);
+    expect(identical(reopened, current), isTrue);
+    expect(source.chapterLayoutCount, layouts);
+    expect(
+      source.anchorPreparationCount,
+      preparations + handles.length,
+      reason: '后台计页不应挤出当前阅读章结构',
+    );
   });
 }

@@ -3,10 +3,14 @@ import 'dart:collection';
 /// 按最近访问顺序淘汰的定长缓存。
 class BoundedCache<K extends Object, V extends Object> {
   /// 创建最多保存 [capacity] 项的缓存。
-  BoundedCache(this.capacity) : assert(capacity > 0, '缓存容量必须大于 0');
+  BoundedCache(this.capacity, {this.isPinned})
+    : assert(capacity > 0, '缓存容量必须大于 0');
 
   /// 最大条目数。
   final int capacity;
+
+  /// 淘汰时优先跳过受保护键；容量仍为 [capacity]。
+  final bool Function(K key)? isPinned;
 
   final LinkedHashMap<K, V> _entries = LinkedHashMap<K, V>();
 
@@ -32,7 +36,11 @@ class BoundedCache<K extends Object, V extends Object> {
       ..remove(key)
       ..[key] = value;
     while (_entries.length > capacity) {
-      _entries.remove(_entries.keys.first);
+      final victim = _entries.keys.firstWhere(
+        (key) => !(isPinned?.call(key) ?? false),
+        orElse: () => _entries.keys.first,
+      );
+      _entries.remove(victim);
     }
   }
 
