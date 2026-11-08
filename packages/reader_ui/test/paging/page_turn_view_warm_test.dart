@@ -51,6 +51,41 @@ class _Source implements ReaderChapterSource {
   }
 }
 
+Future<ReaderSession> _openInputSession() async {
+  final store = MemoryReaderProgressStore();
+  await store.save(
+    'warm-input',
+    const ReaderProgress(spineIndex: 1, pageIndex: 0),
+  );
+  final session = ReaderSession(
+    source: _Source(),
+    store: store,
+    bookId: 'warm-input',
+  );
+  await session.open();
+  return session;
+}
+
+Widget _inputView(
+  ReaderSession session,
+  GlobalKey<PageTurnViewState> key, {
+  ReaderPageImagesPreparer? prepare,
+  int revision = 1,
+}) => MaterialApp(
+  home: PageTurnView(
+    key: key,
+    session: session,
+    mode: PageTurnMode.cover,
+    revision: revision,
+    preparePageImages: prepare,
+    paperBuilder: (page, size) => ColoredBox(
+      color: const Color(0xFFFFFFFF),
+      child: Text('${page.spineIndex}'),
+    ),
+    paperColor: const Color(0xFFFFFFFF),
+  ),
+);
+
 void main() {
   testWidgets('静止时预热前后章快照且不改变阅读位置', (tester) async {
     final source = _Source();
@@ -198,5 +233,72 @@ void main() {
     }
     expect(key.currentState!.snapshotCount, 3);
     session.dispose();
+  });
+
+  testWidgets('前进翻页不等待未完成的上一章图片预热', (tester) async {
+    final session = await _openInputSession();
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+      session.dispose();
+    });
+    final key = GlobalKey<PageTurnViewState>();
+    final prepared = <int>[];
+    await tester.pumpWidget(
+      _inputView(
+        session,
+        key,
+        prepare: (page) {
+          prepared.add(page.spineIndex);
+          return page.spineIndex == 0 ? gate.future : Future<void>.value();
+        },
+      ),
+    );
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(key.currentState!.snapshotCount, 2);
+    expect(prepared, contains(0));
+    key.currentState!.controller.request(true);
+    await tester.pumpAndSettle();
+
+    expect(session.page!.spineIndex, 2, reason: '上一章的图片加载不应阻塞前进输入');
+    expect(gate.isCompleted, isFalse);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('收尾后的纸面版本刷新不丢失尚未松手的下一次滑动', (tester) async {
+    final session = await _openInputSession();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final revision = ValueNotifier<int>(1);
+    addTearDown(revision.dispose);
+    await tester.pumpWidget(
+      ValueListenableBuilder<int>(
+        valueListenable: revision,
+        builder: (_, value, _) => _inputView(session, key, revision: value),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final controller = key.currentState!.controller;
+    controller.request(false);
+    await tester.pump();
+    final down = Offset(controller.size.width - 10, controller.size.height / 2);
+    final latest = down.translate(-controller.size.width * 0.6, 0);
+    controller.pointerDown(down);
+    controller.beginDrag(DragStartDetails(localPosition: down));
+    controller.updateDrag(
+      DragUpdateDetails(globalPosition: latest, localPosition: latest),
+    );
+    revision.value++;
+    await tester.pumpAndSettle();
+    expect(session.page!.spineIndex, 0);
+    controller.endDrag(DragEndDetails());
+    await tester.pumpAndSettle();
+
+    expect(session.page!.spineIndex, 1);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }
