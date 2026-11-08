@@ -36,6 +36,9 @@ class DecodedImageCache {
   /// 解码后字节上限（按 `宽 × 高 × 4` 估算）。
   final int maxBytes;
 
+  /// 宿主整体替换当前可见资源集合；预取不能淘汰这些图片，也不能突破预算。
+  Set<String> protectedUrls = const {};
+
   final LinkedHashMap<String, _CacheEntry> _entries =
       LinkedHashMap<String, _CacheEntry>();
   final Map<String, Future<ui.Image?>> _pending = <String, Future<ui.Image?>>{};
@@ -146,6 +149,7 @@ class DecodedImageCache {
   void clear() {
     _generation++;
     _pending.clear();
+    protectedUrls = const {};
     _intrinsic.clear();
     for (final entry in _entries.values) {
       entry.image.dispose();
@@ -203,28 +207,40 @@ class DecodedImageCache {
 
   bool _store(String url, ui.Image image) {
     final byteSize = image.width * image.height * 4;
-    if (maxEntries < 1 || byteSize > maxBytes) return false;
-    final old = _entries.remove(url);
-    if (old != null) {
-      _bytes -= old.byteSize;
-      old.image.dispose();
+    if (maxEntries < 1 || byteSize > maxBytes || !_makeRoom(url, byteSize)) {
+      return false;
     }
+    _releaseEntry(url);
     _entries[url] = _CacheEntry(image, byteSize);
     _bytes += byteSize;
-    _evictIfNeeded();
     return true;
   }
 
-  void _evictIfNeeded() {
-    while (_entries.length > maxEntries ||
-        (_bytes > maxBytes && _entries.isNotEmpty)) {
-      final oldest = _entries.keys.first;
-      final entry = _entries.remove(oldest);
-      if (entry != null) {
-        _bytes -= entry.byteSize;
-        entry.image.dispose();
-      }
+  /// 先确认能腾出空间，再释放非可见资源；失败时保留已有缓存。
+  bool _makeRoom(String url, int byteSize) {
+    final previous = _entries[url];
+    var count = _entries.length + (previous == null ? 1 : 0);
+    var bytes = _bytes - (previous?.byteSize ?? 0) + byteSize;
+    final victims = <String>[];
+    for (final entry in _entries.entries) {
+      if (count <= maxEntries && bytes <= maxBytes) break;
+      if (entry.key == url || protectedUrls.contains(entry.key)) continue;
+      victims.add(entry.key);
+      count--;
+      bytes -= entry.value.byteSize;
     }
+    if (count > maxEntries || bytes > maxBytes) return false;
+    for (final key in victims) {
+      _releaseEntry(key);
+    }
+    return true;
+  }
+
+  void _releaseEntry(String url) {
+    final entry = _entries.remove(url);
+    if (entry == null) return;
+    _bytes -= entry.byteSize;
+    entry.image.dispose();
   }
 }
 

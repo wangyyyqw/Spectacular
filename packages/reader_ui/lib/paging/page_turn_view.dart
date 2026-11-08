@@ -137,8 +137,6 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   Future<ui.Image?> _enqueueCapture(PageContent page) {
-    final cached = _cache.get(page);
-    if (cached != null) return Future.value(cached);
     final result = _captureQueue.then((_) => _capture(page));
     _captureQueue = result.then<void>(
       (_) {},
@@ -148,14 +146,17 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   Future<ui.Image?> _capture(PageContent page) async {
-    final cached = _cache.get(page);
-    if (cached != null || !mounted) return cached;
+    if (!mounted) return null;
     final token = _captureToken;
     final prepare = widget.preparePageImages;
     if (prepare != null) {
       await prepare(page);
       if (!mounted || token != _captureToken) return null;
     }
+    // 快照仍有效时，目标页的解码资源可能已被其他预热页淘汰。
+    // 先补齐图片再复用位图，才能在动画结束后直接显示完整的静态纸面。
+    final cached = _cache.get(page);
+    if (cached != null) return cached;
     final current = identical(page, widget.session.page);
     if (!current) setState(() => _capturePage = page);
     ui.Image? image;

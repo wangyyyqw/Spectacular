@@ -279,9 +279,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
             unawaited(ReaderLog.instance.log(event, fields: fields)),
       );
       _imageCache = DecodedImageCache(
-        // 条数与字节双上限，翻回上一屏仍可复用图片解码。
+        // 1080×2400 真机的两页背景与画廊图需共同驻留，仍受双上限约束。
         maxEntries: 16,
-        maxBytes: 12 << 20,
+        maxBytes: 32 << 20,
         loadBytes: (url) => _loadImageBytes(source, url),
       );
       _loading = false;

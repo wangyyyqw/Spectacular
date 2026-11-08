@@ -16,6 +16,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
+import 'package:reader_core/layout/text_layout.dart' show TextLayoutResult;
 
 import 'annotations/annotation.dart';
 import 'annotations/annotation_editor_sheet.dart';
@@ -71,6 +72,7 @@ part 'reader_annotation_controller.dart';
 part 'reader_decoration_controller.dart';
 part 'reader_decoration_actions.dart';
 part 'reader_gallery_controller.dart';
+part 'reader_image_assets.dart';
 
 const MethodChannel _readerPlatformChannel = MethodChannel(
   'com.spectacular.reader_mobile/reader',
@@ -566,6 +568,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 构建时仍可补取。
   final Set<int> _prefetchedPageKeys = <int>{};
   static const int _prefetchedPageLimit = 32;
+  Object? _imagePage;
 
   /// 图片缓存版本号，解码完成后触发重绘。
   int _imageRevision = 0;
@@ -586,106 +589,28 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     double displayWidth, {
     bool notify = true,
     bool includeAdjacent = false,
+    bool includeGalleryAdjacent = true,
   }) async {
     final cache = widget.imageCache;
-    if (cache == null) {
-      return;
-    }
-    final urls = <String>{};
-    final visited = <PageBlock>{};
-    final pages = <PageContent>[
+    if (cache == null) return;
+    final assets = _PageImageAssets(
+      _galleryFrameOf,
+      includeGalleryAdjacent: includeGalleryAdjacent,
+    );
+    for (final candidate in [
       page,
       if (includeAdjacent) ..._session.adjacentPages,
-    ];
-    final visitedPages = <(int, int)>{};
-
-    void addStyle(ComputedStyle? style) {
-      if (style == null) {
-        return;
-      }
-      for (final layer in style.backgroundLayers) {
-        final image = layer.image;
-        if (image != null && image.isNotEmpty) {
-          urls.add(image);
-        }
-      }
-      final borderImage = style.borderImage?.url;
-      if (borderImage != null && borderImage.isNotEmpty) {
-        urls.add(borderImage);
-      }
+    ]) {
+      assets.addPage(candidate, required: identical(candidate, _session.page));
     }
-
-    void addBlock(PageBlock block) {
-      if (!visited.add(block)) {
-        return;
-      }
-      addStyle(block.style);
-      final gallery = block.gallery;
-      if (gallery != null) {
-        final current = _galleryFrameOf(gallery);
-        for (var index = current - 1; index <= current + 1; index++) {
-          if (index < 0 || index >= gallery.frames.length) continue;
-          for (final slice in gallery.frames[index].content.slices) {
-            addBlock(slice.block);
-          }
-        }
-      }
-      for (final run in block.layout.runs) {
-        addStyle(run.style);
-      }
-      for (final fragment in block.containers) {
-        addStyle(fragment.container.style);
-      }
-      for (final image in block.inlineImages) {
-        urls.add(image.url);
-      }
-      for (final line in block.layout.lines) {
-        for (final placement in line.inlineBoxes) {
-          final payload = placement.spec.payload;
-          if (payload is PageBlock) {
-            addBlock(payload);
-          }
-        }
-      }
-      // Flex 行和普通表格都以单元格样式承载图片背景，不能只扫外层块样式。
-      final cells = block.table?.cells;
-      if (cells != null) {
-        for (final cell in cells) {
-          addStyle(cell.style);
-          for (final run in cell.layout.runs) {
-            addStyle(run.style);
-          }
-          for (final line in cell.layout.lines) {
-            for (final placement in line.inlineBoxes) {
-              final payload = placement.spec.payload;
-              if (payload is PageBlock) {
-                addBlock(payload);
-              }
-            }
-          }
-        }
-      }
+    if (identical(page, _session.page)) {
+      cache.protectedUrls = assets.requiredUrls;
     }
-
-    for (final candidate in pages) {
-      if (!visitedPages.add((candidate.spineIndex, candidate.pageIndex))) {
-        continue;
-      }
-      for (final slice in candidate.slices) {
-        addBlock(slice.block);
-      }
-      // 整页背景（P9-04）：body 的 background-image 也要预解码。
-      if (candidate.background != null) {
-        urls.add(candidate.background!.imageUrl);
-      }
-    }
-    if (urls.isEmpty) {
-      return;
-    }
+    if (assets.urls.isEmpty) return;
     final before = cache.revision;
     final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
     await cache.prefetch(
-      urls,
+      [...assets.requiredUrls, ...assets.urls.difference(assets.requiredUrls)],
       displayWidth: displayWidth,
       devicePixelRatio: ratio,
     );
@@ -701,7 +626,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (width <= 0) {
       return Future<void>.value();
     }
-    return _prefetchPageImages(page, width, notify: false);
+    return _prefetchPageImages(
+      page,
+      width,
+      notify: false,
+      includeGalleryAdjacent: false,
+    );
   }
 
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
@@ -766,6 +696,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   void _schedulePrefetch(PageContent page, double displayWidth) {
     final key = page.spineIndex * 100000 + page.pageIndex;
+    if (identical(page, _session.page)) {
+      final current = (page, _session.readingCfi);
+      if (_imagePage != current) {
+        _imagePage = current;
+        // 回到已访问页或同页 CFI 跳转时，也要恢复当前可见图片的保护集合。
+        _prefetchedPageKeys.remove(key);
+      }
+    }
     if (!_prefetchedPageKeys.add(key)) {
       return;
     }
@@ -916,6 +854,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (oldWidget.theme != widget.theme ||
         oldWidget.background != widget.background ||
         oldWidget.imageCache != widget.imageCache) {
+      if (oldWidget.imageCache != widget.imageCache) {
+        oldWidget.imageCache?.protectedUrls = const {};
+        _prefetchedPageKeys.clear();
+        _imagePage = null;
+      }
       setState(() => _painter = _buildPainter());
     }
     if (oldWidget.overrides != widget.overrides) {
@@ -2035,6 +1978,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _semanticsFirstFocus.dispose();
     _backgroundRequest++;
     _backgroundImage?.dispose();
+    widget.imageCache?.protectedUrls = const {};
     _decorationGeneration++;
     _annotationGeneration++;
     _ruleEngine.dispose();
