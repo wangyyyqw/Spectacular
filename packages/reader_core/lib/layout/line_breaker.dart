@@ -2863,6 +2863,9 @@ abstract final class TextLayoutEngine {
     // 横排新路径按实际 run 测量标点；其他排版保留旧的纯文本兼容规则。
     // 中西文自动间距继续沿用已有适用范围，不扩展到混合字号。
     final plainTextLayout = !_runsAffectTextLayout(runs, style);
+    // 仅颜色/装饰不同的 run 不改变字形、字距和行高；测量时退化成单一样式，
+    // 绘制仍保留原始 runs。这样逐行精确测量不必反复遍历无意义的样式树。
+    final layoutRuns = plainTextLayout ? const <StyledRun>[] : runs;
     final compress =
         plainTextLayout &&
         (style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent ||
@@ -2891,13 +2894,15 @@ abstract final class TextLayoutEngine {
         style.writingMode == CssWritingMode.horizontalTb &&
         (style.whiteSpace == CssWhiteSpace.normal ||
             style.whiteSpace == CssWhiteSpace.nowrap);
-    final sourceSpan = _measurementSpan(text, runs, baseStyle, inlineBoxMarks, (
-      css: style,
-      scale: textScaleFactor,
-      leading: leadingDistribution,
-    ));
+    final sourceSpan = _measurementSpan(
+      text,
+      layoutRuns,
+      baseStyle,
+      inlineBoxMarks,
+      (css: style, scale: textScaleFactor, leading: leadingDistribution),
+    );
     final spacingPlan = horizontal
-        ? _punctuationPlan(text, style, runs, (
+        ? _punctuationPlan(text, style, layoutRuns, (
             base: baseStyle,
             leading: leadingDistribution,
             autospace:

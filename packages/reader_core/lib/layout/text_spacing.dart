@@ -267,6 +267,14 @@ class _SpacingSpans {
 
 /// 保留完整样式树的原文子区间，供断行探测与上下标分段绘制复用。
 TextSpan sliceTextSpan(TextSpan source, int start, int end) {
+  if (source.children == null && source.text != null) {
+    final from = start.clamp(0, source.text!.length);
+    final until = end.clamp(from, source.text!.length);
+    return TextSpan(
+      text: source.text!.substring(from, until),
+      style: source.style,
+    );
+  }
   var cursor = 0;
   TextSpan visit(TextSpan span) {
     final text = span.text ?? '';
