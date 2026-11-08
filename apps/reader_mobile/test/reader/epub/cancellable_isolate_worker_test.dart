@@ -90,10 +90,10 @@ void main() {
     addTearDown(worker.close);
     addTearDown(started.close);
     final background = worker.schedule(
-      '后台计页',
+      '后台排版',
       () => started.sendPort,
       _runUntilCancelled,
-      priority: ChapterLayoutPriority.pageCount,
+      priority: ChapterLayoutPriority.background,
     );
     expect(await started.first, '已启动');
     final cancelled = expectLater(

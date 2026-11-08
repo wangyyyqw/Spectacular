@@ -45,7 +45,7 @@ void main() {
     expect(resources.preparationWorker.openPortCount, 0);
   });
 
-  test('后台计页写满容量时仍保留当前阅读章结构', () async {
+  test('后台预取写满容量时仍保留当前阅读章结构', () async {
     const width = 320.0;
     final current = await structures
         .schedule(3, width, priority: ChapterLayoutPriority.reading)
@@ -54,7 +54,7 @@ void main() {
 
     for (final spine in [0, 1, 2]) {
       await structures
-          .schedule(spine, width, priority: ChapterLayoutPriority.pageCount)
+          .schedule(spine, width, priority: ChapterLayoutPriority.background)
           .result;
     }
     expect(structures.length, ChapterStructureStore.capacity);
@@ -77,7 +77,7 @@ void main() {
         .result;
     for (final spine in [1, 2, 4]) {
       await structures
-          .schedule(spine, width, priority: ChapterLayoutPriority.pageCount)
+          .schedule(spine, width, priority: ChapterLayoutPriority.background)
           .result;
     }
 

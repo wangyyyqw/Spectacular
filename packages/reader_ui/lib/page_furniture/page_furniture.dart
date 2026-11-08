@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../book_page_count.dart';
 import '../theme/reader_theme.dart';
 
 /// 页眉/页脚槽位与组件（P8-10 页家具，样式对齐设计稿
@@ -98,7 +97,6 @@ class ReaderPageFooter extends StatefulWidget {
     super.key,
     required this.theme,
     required this.progress,
-    this.pageCount,
     this.inkMode = false,
     this.now,
   });
@@ -108,9 +106,6 @@ class ReaderPageFooter extends StatefulWidget {
 
   /// 全书进度（0..1）。
   final double progress;
-
-  /// 独立累计的全书实际页数；未完成时显示已得页数。
-  final BookPageCountState? pageCount;
 
   /// 墨水屏模式：不降透明度。
   final bool inkMode;
@@ -178,19 +173,6 @@ class _ReaderPageFooterState extends State<ReaderPageFooter> {
               _BatteryGlyph(color: color),
             ],
           ),
-          if (widget.pageCount case final count?)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  count.label,
-                  style: style,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
           Text('$percent%', style: style),
         ],
       ),

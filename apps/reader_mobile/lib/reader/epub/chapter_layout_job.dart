@@ -268,7 +268,7 @@ class _ChapterJob {
   _ChapterJob(this.snapshot);
 
   final LayoutSnapshot snapshot;
-  ChapterLayoutPriority priority = ChapterLayoutPriority.pageCount;
+  ChapterLayoutPriority priority = ChapterLayoutPriority.background;
   final Set<_ChapterWaiter> waiters = {};
   LayoutBudget? budget;
 

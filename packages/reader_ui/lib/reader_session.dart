@@ -11,10 +11,7 @@ import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
-import 'book_page_count.dart';
 import 'virtual_pager.dart';
-
-export 'book_page_count.dart';
 
 typedef _ContentSizeRequest = ({
   double width,
@@ -166,8 +163,8 @@ abstract interface class ReaderChapterSource {
   Future<List<PageContent>> loadChapter(int spineIndex);
 }
 
-/// 排版任务优先级；当前阅读始终优先于预取和全书计页。
-enum ChapterLayoutPriority { reading, prefetch, pageCount }
+/// 排版任务优先级；当前阅读始终优先于预取和后台任务。
+enum ChapterLayoutPriority { reading, prefetch, background }
 
 /// 等待者主动取消；用于区别可忽略的过期请求与真实读取失败。
 class ChapterLoadCancelled implements Exception {
@@ -228,11 +225,9 @@ abstract interface class BookTypographyFontSource {
   void setBookTypographyFontAvailability(String family, bool available);
 }
 
-/// 可订阅的全书实际页数；其结果不参与阅读百分比的分母。
-abstract interface class PageCountingChapterSource
+/// 可接收当前阅读章节的章节源；用于固定当前章缓存。
+abstract interface class CurrentReadingChapterSource
     implements ReaderChapterSource {
-  ValueListenable<BookPageCountState> get pageCountState;
-  void setPageCountingActive(bool active);
   void setCurrentReadingChapter(int spineIndex);
 }
 
@@ -562,16 +557,6 @@ class ReaderSession extends ChangeNotifier {
       return await handle.result;
     } finally {
       if (identical(_positionPreparation, handle)) _positionPreparation = null;
-    }
-  }
-
-  /// 阅读页在首帧绘制后和生命周期变化时控制后台计页。
-  void setPageCountingActive(bool active) {
-    final counting = source;
-    if (counting is PageCountingChapterSource) {
-      counting.setPageCountingActive(
-        active && !_disposed && hasContent && !_loading,
-      );
     }
   }
 
@@ -2233,14 +2218,12 @@ class ReaderSession extends ChangeNotifier {
 
   void _notify() {
     if (!_disposed) {
-      final counting = source;
+      final readingSource = source;
       final current = page;
-      if (counting is PageCountingChapterSource) {
-        if (_loading) {
-          counting.setPageCountingActive(false);
-        } else if (current != null) {
-          counting.setCurrentReadingChapter(current.spineIndex);
-        }
+      if (!_loading &&
+          current != null &&
+          readingSource is CurrentReadingChapterSource) {
+        readingSource.setCurrentReadingChapter(current.spineIndex);
       }
       notifyListeners();
     }
@@ -2254,7 +2237,6 @@ class ReaderSession extends ChangeNotifier {
     _jumpToken += 1;
     _pager?.cancelPendingNavigation();
     _cancelChapterWaiters();
-    setPageCountingActive(false);
     // 退出前把最后一次进度写下去（P4-10：不依赖节流定时器）。
     _flushProgress().ignore();
     _persistTimer?.cancel();

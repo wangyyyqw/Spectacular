@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/parser.dart';
@@ -38,7 +37,6 @@ import 'epub/chapter_layout_pipeline.dart';
 import 'epub/chapter_block_walker.dart';
 import 'epub/chapter_text_overlays.dart';
 import 'epub/chapter_page_flags.dart';
-import 'epub/book_page_counter.dart';
 import 'epub/full_page_layout.dart';
 
 export 'epub/chapter_page_flags.dart';
@@ -56,7 +54,7 @@ class EpubChapterSource
         PreparedChapterSource,
         BookTypographyFontSource,
         ScheduledChapterSource,
-        PageCountingChapterSource,
+        CurrentReadingChapterSource,
         SpineLayoutDependencyChapterSource,
         ReaderTextOverlaySource {
   EpubChapterSource._({
@@ -164,7 +162,6 @@ class EpubChapterSource
     _contentVersion = version;
     _layoutGeneration += 1;
     cancelPendingLayouts();
-    _syncPageCountLayout();
   }
 
   /// 目录（P4-11）：每项自带目标 spine 序号。
@@ -244,10 +241,6 @@ class EpubChapterSource
   int _preparerEpoch = 0;
   int _blockCacheHits = 0;
   int _chapterLayoutCount = 0;
-  BookPageCountStore? _pageCountStore;
-  BookPageCounter? _pageCounter;
-  int? _currentReadingSpine;
-  bool _pageCountingRequested = false;
   late final ChapterLayoutScheduler _scheduler = ChapterLayoutScheduler(
     run: _runLayout,
     isCurrent: _isCurrentSnapshot,
@@ -307,20 +300,6 @@ class EpubChapterSource
 
   String get _preparationKey =>
       '$_configurationKey|generation=$_layoutGeneration';
-
-  String get _bookLayoutKey {
-    final fonts = _fonts.freeze();
-    final families = {
-      ...baseStyle.fontFamilies,
-      ?_overrides.fontFamily,
-      ..._bookTypographyFamilies,
-    };
-    final typography =
-        _bookTypographyFingerprint ?? _chapterOverlays.typographyFingerprint;
-    return '$_configurationKey|book=$typography'
-        '|font=${fonts.userFontDependency(families)}'
-        '|user-fonts=${fonts.userFontEnvironmentDependency}';
-  }
 
   String _paginationKey(int spine, String dependency) =>
       '$_configurationKey|spine=$spine|font=$dependency'
@@ -411,7 +390,6 @@ class EpubChapterSource
       next.typographyFingerprint,
     );
     _scheduler.cancelWhere((snapshot) => !_isCurrentSnapshot(snapshot));
-    if (_bookTypographyFingerprint == null) _syncPageCountLayout();
     return true;
   }
 
@@ -433,7 +411,6 @@ class EpubChapterSource
     );
     cancelPendingLayouts();
     if (width != contentWidth) _clearViewportStructure();
-    _syncPageCountLayout();
   }
 
   static bool _isFontOnlyChange(
@@ -471,7 +448,6 @@ class EpubChapterSource
     _logInvalidation('viewportSizeChanged', '$previous', '$next');
     cancelPendingLayouts();
     if (previous.width != next.width) _clearViewportStructure();
-    _syncPageCountLayout();
     return true;
   }
 
@@ -580,7 +556,6 @@ class EpubChapterSource
     _layoutGeneration += 1;
     cancelPendingLayouts();
     _scheduler.close();
-    _pageCounter?.close();
     _layoutInputs.clear();
     _preparerTasks.clear();
     _lastSnapshots.clear();
@@ -673,7 +648,6 @@ class EpubChapterSource
     _bookTypographyFingerprint = fingerprint;
     _preparerEpoch += 1;
     _preparerTasks.clear();
-    _syncPageCountLayout();
   }
 
   @override
@@ -684,14 +658,11 @@ class EpubChapterSource
       return;
     }
     _bookTypographyFamilies = next;
-    _syncPageCountLayout();
   }
 
   @override
   void setBookTypographyFontAvailability(String family, bool available) {
-    if (_fonts.setUserFontAvailability(family, available)) {
-      _syncPageCountLayout();
-    }
+    _fonts.setUserFontAvailability(family, available);
   }
 
   @override
@@ -701,7 +672,6 @@ class EpubChapterSource
     bool retainResult = true,
   }) {
     if (!_closed && isChapterMissing(spineIndex)) return _emptyChapterHandle();
-    _syncPageCountLayout();
     final key = _preparationKey;
     final preparation = _structures.schedule(
       spineIndex,
@@ -920,13 +890,6 @@ class EpubChapterSource
       _completed.put(layout);
       _lastSnapshots[snapshot.spineIndex] = snapshot;
     }
-    if (budget.priority != ChapterLayoutPriority.pageCount) {
-      _ensurePageCounter().recordChapter(
-        _bookLayoutKey,
-        snapshot.spineIndex,
-        layout.pages.length,
-      );
-    }
   }
 
   void _traceCache(bool hit) {
@@ -959,71 +922,10 @@ class EpubChapterSource
     _positions.clearCoordinates();
   }
 
-  /// 存储在首屏前绑定；订阅器和进行中的计页状态保持同一所有者。
-  void setPageCountStore(BookPageCountStore store) {
-    _pageCountStore = store;
-    final counter = _pageCounter;
-    if (counter != null) unawaited(counter.bindStore(store));
-  }
-
-  Future<void> flushPageCounts() async => _pageCounter?.flush();
-
-  BookPageCounter _ensurePageCounter() {
-    final existing = _pageCounter;
-    if (existing != null) return existing;
-    final counter = _pageCounter = BookPageCounter(
-      chapterCount: chapterCount,
-      isMissing: isChapterMissing,
-      store: _pageCountStore,
-      schedule: (spine) => scheduleChapter(
-        spine,
-        priority: ChapterLayoutPriority.pageCount,
-        retainResult: false,
-      ),
-    );
-    unawaited(counter.useLayout(_bookLayoutKey));
-    counter.setActive(_pageCountingRequested && _currentReadingSpine != null);
-    return counter;
-  }
-
-  void _syncPageCountLayout() {
-    final counter = _pageCounter;
-    if (counter != null && !_closed) {
-      final next = _bookLayoutKey;
-      unawaited(counter.useLayout(next));
-      _recordValidCachedCounts(counter, next);
-    }
-  }
-
-  void _recordValidCachedCounts(BookPageCounter counter, String layoutKey) {
-    for (final layout in _completed.entries) {
-      final snapshot = _lastSnapshots[layout.spineIndex];
-      if (snapshot == null ||
-          snapshot.key != layout.key ||
-          !_isCurrentSnapshot(snapshot) ||
-          _completed.requiresReplay(layout.key)) {
-        continue;
-      }
-      counter.recordChapter(layoutKey, layout.spineIndex, layout.pages.length);
-    }
-  }
-
-  @override
-  ValueListenable<BookPageCountState> get pageCountState =>
-      _ensurePageCounter().state;
-
-  @override
-  void setPageCountingActive(bool active) {
-    _pageCountingRequested = active;
-    _ensurePageCounter().setActive(active && _currentReadingSpine != null);
-  }
-
   @override
   void setCurrentReadingChapter(int spineIndex) {
-    _currentReadingSpine = spineIndex;
     final snapshot = _lastSnapshots[spineIndex];
     if (snapshot != null) _completed.setCurrent(snapshot.key);
-    _ensurePageCounter().setActive(_pageCountingRequested);
   }
 
   ChapterLoadHandle _emptyChapterHandle() => _EmptyChapterHandle();

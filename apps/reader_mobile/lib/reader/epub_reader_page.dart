@@ -332,9 +332,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (_contentRevision.isEmpty) throw StateError('阅读页缺少 EPUB 内容版本');
     source.setContentVersion(_contentRevision);
     if (widget.store case DriftProgressStore store) {
-      source.setPageCountStore(
-        store.pageCountStore(widget.bookId, _contentRevision),
-      );
       _anchorBinding = store.bindSource(
         widget.bookId,
         source,
@@ -391,32 +388,16 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   void _flushProgressInBackground() {
     final session = _readerSession;
-    final source = _source;
-    session?.setPageCountingActive(false);
-    _backgroundFlush = _backgroundFlush.then(
-      (_) => _flushStores(session, source),
-    );
+    _backgroundFlush = _backgroundFlush.then((_) => _flushStores(session));
     unawaited(_backgroundFlush);
   }
 
-  Future<void> _flushStores(
-    ReaderSession? session,
-    EpubChapterSource? source,
-  ) async {
+  Future<void> _flushStores(ReaderSession? session) async {
     try {
       await session?.flushProgress();
     } catch (error) {
       await ReaderLog.instance.log(
         'progress_save_error',
-        fields: {'bookId': widget.bookId, 'error': '$error'},
-      );
-    }
-    if (source == null || source.isClosed) return;
-    try {
-      await source.flushPageCounts();
-    } catch (error) {
-      await ReaderLog.instance.log(
-        'page_count_save_error',
         fields: {'bookId': widget.bookId, 'error': '$error'},
       );
     }
@@ -428,7 +409,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _openTrace?.stop();
     final session = _readerSession;
     final onClosed = widget.onClosed;
-    session?.setPageCountingActive(false);
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
     WidgetsBinding.instance.removeObserver(this);
@@ -445,10 +425,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   Future<void> _finishClose(ReaderSession? session) async {
     try {
       await _backgroundFlush;
-      await _flushStores(session, _source);
+      await _flushStores(session);
       await _readingTracker?.finish();
     } finally {
-      // 保存可能仍需校验原始 CFI，进度与计页落盘后才释放源。
+      // 保存可能仍需校验原始 CFI，进度落盘后才释放源。
       await _closeSource();
     }
   }

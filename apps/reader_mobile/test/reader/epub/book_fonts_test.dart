@@ -368,7 +368,7 @@ void main() {
       fallback.userFontEnvironmentDependency,
       ready.userFontEnvironmentDependency,
     );
-    expect(changes, isEmpty, reason: '宿主决定计页失效，可用性登记不触发全局重排');
+    expect(changes, isEmpty, reason: '可用性登记不触发全局重排');
     fonts.close();
     expect(fonts.setUserFontAvailability(family, true), isFalse);
   });

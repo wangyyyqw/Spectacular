@@ -52,7 +52,7 @@ void main() {
     expect(source.chapterLayoutCount, 0);
   });
 
-  test('正式源后台计页写满结构缓存后重载当前章仍命中', () async {
+  test('正式源后台预取写满结构缓存后重载当前章仍命中', () async {
     final source = await EpubChapterSource.open(
       buildMultiChapterEpub(
         chapters: [for (var i = 0; i < 6; i++) '第 ${i + 1} 章正文' * 40],
@@ -72,7 +72,7 @@ void main() {
       for (final spine in [0, 1, 2, 4, 5])
         source.scheduleChapter(
           spine,
-          priority: ChapterLayoutPriority.pageCount,
+          priority: ChapterLayoutPriority.background,
         ),
     ];
     for (final handle in handles) {
@@ -97,7 +97,7 @@ void main() {
     expect(
       source.anchorPreparationCount,
       preparations + handles.length,
-      reason: '后台计页不应挤出当前阅读章结构',
+      reason: '后台预取不应挤出当前阅读章结构',
     );
   });
 }

@@ -45,7 +45,7 @@ void main() {
     final background = scheduler.schedule('共享', (task) {
       started.complete(task);
       return task.waitFuture(gate.future);
-    }, priority: ChapterLayoutPriority.pageCount);
+    }, priority: ChapterLayoutPriority.background);
     final reading = scheduler.schedule('共享', (_) async => '不应重复执行');
     final task = await started.future;
     expect(task.priority, ChapterLayoutPriority.reading);
@@ -57,7 +57,7 @@ void main() {
     expect(task.isActive, isTrue);
     reading.cancel();
 
-    expect(task.priority, ChapterLayoutPriority.pageCount);
+    expect(task.priority, ChapterLayoutPriority.background);
     await cancelled;
     expect(await next.result, '新章节');
     await scheduler.idle;
@@ -93,7 +93,7 @@ void main() {
     expect(unexpectedRuns, 0);
   });
 
-  test('排队任务按阅读、预取、计页的优先级依次执行', () async {
+  test('排队任务按阅读、预取、后台的优先级依次执行', () async {
     final scheduler = ChapterPreparationScheduler();
     addTearDown(scheduler.close);
     final started = Completer<void>();
@@ -112,7 +112,7 @@ void main() {
       return key;
     }, priority: priority);
 
-    final counting = enqueue('计页', ChapterLayoutPriority.pageCount);
+    final counting = enqueue('后台', ChapterLayoutPriority.background);
     final prefetch = enqueue('预取', ChapterLayoutPriority.prefetch);
     final reading = enqueue('阅读', ChapterLayoutPriority.reading);
     gate.complete('释放槽位');
@@ -120,9 +120,9 @@ void main() {
     expect(await blocker.result, '释放槽位');
     expect(
       await Future.wait([counting.result, prefetch.result, reading.result]),
-      ['计页', '预取', '阅读'],
+      ['后台', '预取', '阅读'],
     );
     await scheduler.idle;
-    expect(order, ['阅读', '预取', '计页']);
+    expect(order, ['阅读', '预取', '后台']);
   });
 }
