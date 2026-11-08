@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/api.dart' show PageGallery, PageGalleryFrame;
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
@@ -276,6 +277,8 @@ class _LayoutMemoryWork {
 
   Iterable<int> _metadata(Object value) => switch (value) {
     PageFootnote() => _footnote(value),
+    PageGallery() => _add(128, [value.cfi, value.frames]),
+    PageGalleryFrame() => _add(64, [value.cfi, value.content, value.imageUrl]),
     InlineImageSpec() => _add(96, [value.url]),
     InlineBoxPlacement() => _add(96, [value.spec]),
     InlineBoxSpec() => _add(128, [value.payload]),
@@ -322,6 +325,7 @@ class _LayoutMemoryWork {
       block.endCfi,
       block.listMarker,
       block.table,
+      block.gallery,
       block.containers,
       block.inlineImages,
       block.footnotes,

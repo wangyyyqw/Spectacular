@@ -10,6 +10,7 @@ class FullBleedChapter {
     required this.singleImageSrc,
     required this.singleImageHasDimensions,
     this.singleImageCfi,
+    this.hasGallery = false,
   });
 
   /// 章节内 img/image 与带 data 的 object 图片叶数量。
@@ -27,9 +28,13 @@ class FullBleedChapter {
   /// 唯一图片是否声明了 width/height 属性。
   final bool singleImageHasDimensions;
 
+  /// 画廊即使只有一帧，也必须保留作者的容器尺寸与样式。
+  final bool hasGallery;
+
   /// 章节是否走满屏路径：仅含一张**无宽高属性**的图片、无正文、
   /// src 非空。双图及以上或含正文走普通路径。
   bool get isFullBleed =>
+      !hasGallery &&
       imageCount == 1 &&
       !hasVisibleText &&
       singleImageSrc != null &&
@@ -58,6 +63,7 @@ class _FullBleedAnalysis {
   String? _singleSrc;
   String? _singleCfi;
   bool _singleHasDimensions = false;
+  bool _hasGallery = false;
 
   FullBleedChapter get result => FullBleedChapter(
     imageCount: _imageCount,
@@ -65,6 +71,7 @@ class _FullBleedAnalysis {
     singleImageSrc: _imageCount == 1 ? _singleSrc : null,
     singleImageCfi: _imageCount == 1 ? _singleCfi : null,
     singleImageHasDimensions: _singleHasDimensions,
+    hasGallery: _hasGallery,
   );
 
   void visit(EpubNode node) {
@@ -73,6 +80,11 @@ class _FullBleedAnalysis {
     }
     if (!_isVisible(node)) return;
     if (node is BlockNode) {
+      if ((node.attributes['class'] ?? '')
+          .split(RegExp(r'\s+'))
+          .contains('duokan-image-gallery')) {
+        _hasGallery = true;
+      }
       _visitChildren(node.children);
       return;
     }

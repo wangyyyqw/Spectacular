@@ -123,4 +123,24 @@ void main() {
     // 清掉 1s 定时器再结束（fake_async 不留 pending timer）。
     await tester.pump(const Duration(seconds: 1));
   });
+
+  testWidgets('无缩略图且加载失败：显示错误并允许重新加载', (tester) async {
+    var loads = 0;
+    final image = await tester.runAsync(() => _createImage(40, 30, 0xFF00FF00));
+    addTearDown(() => image?.dispose());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ImagePreviewPage(
+          loadOriginal: () async => ++loads == 1 ? null : image,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('图片无法加载'), findsOneWidget);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('preview-viewer')), findsOneWidget);
+    expect(loads, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }

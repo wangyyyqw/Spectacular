@@ -8,6 +8,7 @@ import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
 import 'float_occupancy.dart' show FloatSide;
+import 'image_gallery.dart';
 import 'page_background.dart';
 import 'table_layout.dart' show TableCellRender, TableRenderSpec;
 import 'text_layout.dart';
@@ -168,6 +169,7 @@ class PageBlock {
     this.listMarker,
     this.groupId = 0,
     this.table,
+    this.gallery,
     this.floatSide,
     this.floatContainingLeft,
     this.floatContainingWidth,
@@ -211,6 +213,7 @@ class PageBlock {
     List<PageFootnote> footnotes = const <PageFootnote>[],
     bool textRuleEligible = true,
     TableRenderSpec? table,
+    PageGallery? gallery,
     bool absolute = false,
     double? absoluteTop,
     double? absoluteLeft,
@@ -249,6 +252,7 @@ class PageBlock {
       footnotes: footnotes,
       textRuleEligible: textRuleEligible,
       table: table,
+      gallery: gallery,
       absolute: absolute,
       absoluteTop: absoluteTop,
       absoluteLeft: absoluteLeft,
@@ -325,6 +329,9 @@ class PageBlock {
   /// layout 为空文本单行盒（高度=切片高，仅参与分页几何），绘制层
   /// 走表格分支（网格线 + 逐格文字）。
   final TableRenderSpec? table;
+
+  /// 多看画廊载荷；整组作为一个原子块分页，分帧选择只影响绘制。
+  final PageGallery? gallery;
 
   /// 浮动方向（flat 管线接入）：非 null 时本块是浮动元素（通常为
   /// 图片块），由浮动感知分页登记占位并以覆盖切片渲染——不占流高。
@@ -557,6 +564,7 @@ class PageBlock {
     listMarker: listMarker,
     groupId: groupId,
     table: table,
+    gallery: gallery,
     floatSide: floatSide,
     floatContainingLeft: floatContainingLeft,
     floatContainingWidth: floatContainingWidth,

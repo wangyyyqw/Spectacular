@@ -532,6 +532,27 @@ abstract final class TextAggregator {
     // height/class），产出 tag='img' 的块节点供章节源构造图片块。
     if (onlyImage != null) {
       final image = onlyImage;
+      if (_isGalleryContainer(block)) {
+        return BlockNode(
+          tag: block.tag,
+          display: block.display,
+          children: [
+            BlockNode(
+              tag: 'img',
+              display: DisplayMode.block,
+              children: const <EpubNode>[],
+              cfi: image.cfi,
+              attributes: image.attributes,
+              start: image.start,
+              end: image.end,
+            ),
+          ],
+          cfi: block.cfi,
+          attributes: block.attributes,
+          start: block.start,
+          end: block.end,
+        );
+      }
       return BlockNode(
         tag: 'img',
         display: DisplayMode.block,
@@ -549,7 +570,9 @@ abstract final class TextAggregator {
     }
     // 外层容器折叠：聚合后子节点恰好是一个已折叠的 img 块（div>div>img）；
     // 有任何文本内容时 children 会多于 1 个，不会误折叠。
-    if (children.length == 1 && children.single is BlockNode) {
+    if (!_isGalleryContainer(block) &&
+        children.length == 1 &&
+        children.single is BlockNode) {
       final only = children.single as BlockNode;
       if (only.tag == 'img' && only.children.isEmpty) {
         return BlockNode(
@@ -574,6 +597,12 @@ abstract final class TextAggregator {
       start: block.start,
       end: block.end,
     );
+  }
+
+  static bool _isGalleryContainer(BlockNode block) {
+    final classes = (block.attributes['class'] ?? '').split(RegExp(r'\s+'));
+    return classes.contains('duokan-image-gallery') ||
+        classes.contains('duokan-image-gallery-cell');
   }
 }
 

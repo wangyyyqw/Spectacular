@@ -56,6 +56,9 @@ class _ImagePreviewPageState extends State<ImagePreviewPage> {
         builder: (context, snapshot) {
           final image = snapshot.data ?? widget.thumbnail;
           if (image == null) {
+            if (snapshot.connectionState == ConnectionState.done) {
+              return _unavailable();
+            }
             return const Center(child: CircularProgressIndicator());
           }
           return InteractiveViewer(
@@ -72,4 +75,24 @@ class _ImagePreviewPageState extends State<ImagePreviewPage> {
       ),
     );
   }
+
+  Widget _unavailable() => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('图片无法加载', style: TextStyle(color: Colors.white)),
+        TextButton.icon(
+          style: TextButton.styleFrom(foregroundColor: Colors.white),
+          onPressed: () {
+            final original = widget.loadOriginal();
+            setState(() {
+              _original = original;
+            });
+          },
+          icon: const Icon(Icons.refresh),
+          label: const Text('重试'),
+        ),
+      ],
+    ),
+  );
 }
