@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show StringCharacters;
 
+import 'punct_trim.dart';
 import 'punctuation_spacing.dart';
 import 'text_spacing.dart';
 
@@ -160,11 +161,14 @@ class SpacedParagraph {
     while (start < text.length) {
       final first = start == 0 ? firstLine : text[start - 1] == '\n';
       final index = _baselineIndex(start, measured);
+      final baseLine = measured[index];
       final limit = index + 2 < measured.length
           ? measured[index + 2].end
           : text.length;
       // 行首截断会改变英文等字形的塑形上下文，整段 metrics 不能替代行测量。
-      final line = _nextLine(start, extra, first, limit, baseline);
+      final line =
+          _unchangedLine(start, baseLine, extra) ??
+          _nextLine(start, extra, first, limit, baseline);
       yield line;
       if (++lineCount == maxLines) break;
       // 平台给出的空行不消耗正文，只越过它对应的硬换行。
@@ -176,6 +180,73 @@ class SpacedParagraph {
       start = next;
     }
   }
+
+  /// 平台基线行已排满时，行边最大挤压也不足以再收一个全角字；此时基线
+  /// 断点可靠，只需精确测量本行，跳过逐行探针与单行重排。基线行仍可能
+  /// 因挤压多收一字，此时最多向前补三个全角字；其余情况回退到逐行探针，
+  /// 保持英文塑形上下文与禁则语义不变。
+  SpacedLine? _unchangedLine(
+    int start,
+    ({int start, int end, LineMetrics metrics}) baselineLine,
+    double extra,
+  ) {
+    if (baselineLine.start != start || baselineLine.end <= start) return null;
+    final hardBreak = text.indexOf('\n', start);
+    final maxEnd = hardBreak < 0 ? text.length : hardBreak;
+    if (maxEnd <= start ||
+        text[maxEnd - 1] == ' ' ||
+        text[maxEnd - 1] == '\t') {
+      return null;
+    }
+    var end = baselineLine.end;
+    if (end > maxEnd) end = maxEnd;
+    if (end >= maxEnd) {
+      final line = measure(start, end);
+      return line.metrics.width <= width + 0.01 ? line : null;
+    }
+    if (!_isCjk(text.codeUnitAt(end))) return null;
+    final fontSize = spacing.styleAt(end).text.fontSize ?? 0;
+    final baselineAdvance = (spacing.canTrimEnd(end) ? 0.45 : 0.9) * fontSize;
+    final baselineExtra = end > start && spacing.canTrimEnd(end - 1)
+        ? extra
+        : 0.0;
+    if (baselineLine.metrics.width + baselineAdvance - baselineExtra >
+        width + 0.01) {
+      final line = measure(start, end);
+      // 行首压缩会释放额外宽度，基线宽度不足以证明断点，交回逐行探针。
+      return line.metrics.width <= width + 0.01 && line.spacing.startTrim == 0
+          ? line
+          : null;
+    }
+    // 基线断点后仍可能容纳一字；逐字精确测量，最多补三字。
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final line = measure(start, end);
+      if (line.metrics.width > width + 0.01) return null;
+      if (end > start && punctOpeningSet.contains(text[end - 1])) {
+        return null;
+      }
+      if (end >= maxEnd) return line;
+      final next = text.codeUnitAt(end);
+      if (!_isCjk(next)) return null;
+      final size = spacing.styleAt(end).text.fontSize ?? 0;
+      final advance = (spacing.canTrimEnd(end) ? 0.45 : 0.9) * size;
+      final availableExtra = end > start && spacing.canTrimEnd(end - 1)
+          ? extra
+          : 0.0;
+      if (line.metrics.width + advance - availableExtra > width + 0.01) {
+        // 断在行首禁则标点前会生成非法行首，必须交回逐行探针。
+        return punctLineStartProhibitedSet.contains(text[end]) ? null : line;
+      }
+      end += text.substring(end).characters.first.length;
+    }
+    return null;
+  }
+
+  bool _isCjk(int unit) =>
+      (unit >= 0x2E80 && unit <= 0x9FFF) ||
+      (unit >= 0xAC00 && unit <= 0xD7AF) ||
+      (unit >= 0xF900 && unit <= 0xFAFF) ||
+      (unit >= 0xFF00 && unit <= 0xFFEF);
 
   // 只探测基线断行附近三行；避免长段落逐行重排整个余文造成平方级开销。
   int _baselineIndex(
