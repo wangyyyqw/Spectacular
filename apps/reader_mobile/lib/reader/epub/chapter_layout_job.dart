@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:reader_core/api.dart' show CancelToken;
 import 'package:reader_core/css/computed_style.dart';
@@ -88,9 +89,10 @@ class LayoutBudget {
     }
   }
 
-  Future<void> checkpoint({bool force = false}) async {
+  Future<void> checkpoint({bool force = false}) {
     final waiting = checkpointIfNeeded(force: force);
-    if (waiting != null) await waiting;
+    // 未超预算时同步完成，避免逐行检查产生成千上万个微任务。
+    return waiting ?? SynchronousFuture<void>(null);
   }
 
   /// 密集纯数据遍历每步仍核验预算，未超限时不创建异步任务。

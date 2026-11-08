@@ -1034,6 +1034,9 @@ class LineBreaker {
 }
 
 /// 用 TextPainter 做行测量。
+/// 首行缩进探测的初始字符窗口；不足时按需倍增到全文。
+const int _indentProbeChars = 32;
+
 abstract final class TextLayoutEngine {
   /// 按 [maxWidth] 测量 [text]。
   ///
@@ -2334,40 +2337,70 @@ abstract final class TextLayoutEngine {
     final firstWidth = math.max(1.0, width - indent);
     // 首段先不带行内盒测一次，拿到分界后再把「落在首段」的盒补进去
     // （盒占宽会改变首段末行，但盒的位置由原文偏移决定，不受影响）。
-    final segment = _TextLayoutWork<List<LineBox>>(work.painters);
-    yield* _measureSegmentSteps(
-      segment,
-      text: text,
-      width: firstWidth,
-      contentWidth: firstWidth,
-      style: style,
-      textScaleFactor: textScaleFactor,
-      leadingDistribution: leadingDistribution,
-      runs: runs,
-      spacingBarriers: spacingBarriers,
-      firstLineOnly: true,
-    );
-    var head = segment.result!;
+    // 首行探测只需断点前的少量上下文；长段按需倍增，避免为一行塑形整段余文。
+    var headText = text.length <= _indentProbeChars
+        ? text
+        : text.substring(0, _indentProbeChars);
+    var headRuns = text.length <= _indentProbeChars
+        ? runs
+        : _sliceRuns(runs, 0, _indentProbeChars);
+    var headMarks = text.length <= _indentProbeChars
+        ? inlineBoxMarks
+        : <_InlineBoxMark>[
+            for (final mark in inlineBoxMarks)
+              if (mark.index < _indentProbeChars) mark,
+          ];
+    late List<LineBox> head;
+    while (true) {
+      final segment = _TextLayoutWork<List<LineBox>>(work.painters);
+      yield* _measureSegmentSteps(
+        segment,
+        text: headText,
+        width: firstWidth,
+        contentWidth: firstWidth,
+        style: style,
+        textScaleFactor: textScaleFactor,
+        leadingDistribution: leadingDistribution,
+        runs: headRuns,
+        inlineBoxMarks: headMarks,
+        spacingBarriers: spacingBarriers,
+        firstLineOnly: true,
+      );
+      head = segment.result!;
+      if (head.isEmpty ||
+          head.first.end < headText.length ||
+          headText.length == text.length) {
+        break;
+      }
+      final next = math.min(text.length, headText.length * 2);
+      headText = text.substring(0, next);
+      headRuns = _sliceRuns(runs, 0, next);
+      headMarks = <_InlineBoxMark>[
+        for (final mark in inlineBoxMarks)
+          if (mark.index < next) mark,
+      ];
+    }
     if (head.isEmpty) {
       work.result = const <LineBox>[];
       return;
     }
-    if (inlineBoxMarks.isNotEmpty) {
-      final headMarks = <_InlineBoxMark>[
+    if (headMarks.isNotEmpty) {
+      final firstMarks = <_InlineBoxMark>[
         for (final mark in inlineBoxMarks)
           if (mark.index < head.first.end) mark,
       ];
-      if (headMarks.isNotEmpty) {
+      if (firstMarks.isNotEmpty) {
+        final segment = _TextLayoutWork<List<LineBox>>(work.painters);
         yield* _measureSegmentSteps(
           segment,
-          text: text,
+          text: headText,
           width: firstWidth,
           contentWidth: firstWidth,
-          inlineBoxMarks: headMarks,
+          inlineBoxMarks: firstMarks,
           style: style,
           textScaleFactor: textScaleFactor,
           leadingDistribution: leadingDistribution,
-          runs: runs,
+          runs: headRuns,
           spacingBarriers: spacingBarriers,
           firstLineOnly: true,
         );
@@ -2380,8 +2413,9 @@ abstract final class TextLayoutEngine {
       remainderStart += 1;
     }
     final remainder = text.substring(remainderStart);
+    final restSegment = _TextLayoutWork<List<LineBox>>(work.painters);
     yield* _measureSegmentSteps(
-      segment,
+      restSegment,
       text: remainder,
       width: width,
       contentWidth: contentWidth,
@@ -2396,7 +2430,7 @@ abstract final class TextLayoutEngine {
       },
       firstLine: remainderStart > 0 && text[remainderStart - 1] == '\n',
     );
-    final rest = segment.result!;
+    final rest = restSegment.result!;
     final lines = <LineBox>[first];
     for (var i = 0; i < rest.length; i++) {
       final line = rest[i];
