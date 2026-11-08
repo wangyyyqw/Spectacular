@@ -60,8 +60,8 @@ class PageIndex {
   const PageIndex({required this.schemaVersion, required this.entries});
 
   /// 当前 schema 版本；换代即整体失效（不迁移，对照 RPI2 换代策略）。
-  // 新旧断页别名统一层叠，且流式与普通分页共用规则；拒绝 v5 旧页边界。
-  static const int currentSchemaVersion = 6;
+  // 多看画廊改为单个原子块，旧版逐帧排列的块序号与页边界不可重放。
+  static const int currentSchemaVersion = 7;
 
   /// schema 版本。
   final int schemaVersion;

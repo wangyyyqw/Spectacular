@@ -34,6 +34,8 @@ import 'decorations/decoration_rule_page.dart';
 import 'decorations/decoration_rules.dart';
 import 'a11y/semantics_layer.dart';
 import 'footnote_dialog.dart';
+import 'gallery/reader_gallery_controls.dart';
+import 'image_preview_page.dart';
 import 'menu/reader_menu_overlay.dart';
 import 'panels/margin_editor.dart';
 import 'panels/tap_zone_editor.dart';
@@ -68,6 +70,7 @@ import 'loading_skeleton.dart';
 part 'reader_annotation_controller.dart';
 part 'reader_decoration_controller.dart';
 part 'reader_decoration_actions.dart';
+part 'reader_gallery_controller.dart';
 
 const MethodChannel _readerPlatformChannel = MethodChannel(
   'com.spectacular.reader_mobile/reader',
@@ -270,6 +273,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       widget.paragraphCache ?? ParagraphCache(maxEntries: 128);
   late final bool _ownsParagraphCache = widget.paragraphCache == null;
   late PagePainter _painter = _buildPainter();
+  final Map<String, ({int index, String? anchor, int generation})>
+  _gallerySelections = {};
 
   /// 当前排版设置（P4-21：设置面板可改，初始来自 widget.overrides）。
   late ReaderOverrides _overrides;
@@ -431,6 +436,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       paragraphCache: _paragraphCache,
       textOverlays: _textOverlays,
       beforeBlockText: _paintDecorationsBeforeText,
+      galleryFrameOf: _galleryFrameOf,
     );
   }
 
@@ -614,6 +620,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         return;
       }
       addStyle(block.style);
+      final gallery = block.gallery;
+      if (gallery != null) {
+        final current = _galleryFrameOf(gallery);
+        for (var index = current - 1; index <= current + 1; index++) {
+          if (index < 0 || index >= gallery.frames.length) continue;
+          for (final slice in gallery.frames[index].content.slices) {
+            addBlock(slice.block);
+          }
+        }
+      }
       for (final run in block.layout.runs) {
         addStyle(run.style);
       }
@@ -1828,6 +1844,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   bool _handleTapInPage(PageContent page, Offset pagePosition) {
+    if (_handleGalleryTap(page, pagePosition)) return true;
     final persistent = <ReaderAnnotation>[
       for (final annotation in _resolvedAnnotations)
         if (annotation.id != 'search-hit') annotation,
@@ -2545,6 +2562,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Widget _buildReadingView(Size size) {
+    final page = _session.page;
+    if (page != null) _syncGalleryFrames(page);
     final revision = (
       _painter,
       _imageRevision,
@@ -2652,6 +2671,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             ),
           ),
         ..._paperFurniture(page),
+        ..._galleryLayers(page, padding: _bodyPadding()),
       ],
     ),
   );
@@ -2684,6 +2704,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               backgroundsBehindText: true,
             ),
           ),
+        ..._galleryLayers(page),
       ],
     );
   }

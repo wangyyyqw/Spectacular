@@ -7,6 +7,7 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../layout/box_model.dart';
 import '../layout/line_breaker.dart';
+import '../layout/image_gallery.dart';
 import '../layout/paginator.dart';
 import '../layout/table_layout.dart';
 import '../layout/text_layout.dart';
@@ -89,6 +90,7 @@ class PagePainter {
     this.paragraphCache,
     this.textOverlays = const [],
     this.beforeBlockText,
+    this.galleryFrameOf,
   });
 
   /// 页面背景色。
@@ -150,6 +152,9 @@ class PagePainter {
   ///
   /// 可用于阅读器装饰底层；调用前后独立保存画布状态，不影响后续绘制。
   final void Function(Canvas, PageContent, PageBlockSlice)? beforeBlockText;
+
+  /// UI 提供画廊当前帧；缺省显示第一帧，不改动排版结果。
+  final int Function(PageGallery gallery)? galleryFrameOf;
 
   /// 绘制一页。
   ///
@@ -558,6 +563,11 @@ class PagePainter {
     _SliceGeometry geometry,
     int sliceIndex,
   ) {
+    final gallery = geometry.slice.block.gallery;
+    if (gallery != null) {
+      _paintGallery(canvas, geometry, gallery);
+      return;
+    }
     final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
     // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
     final tableSpec = geometry.slice.block.table;
@@ -700,6 +710,57 @@ class PagePainter {
           lineY += line.height;
         }
       },
+    );
+  }
+
+  void _paintGallery(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    PageGallery gallery,
+  ) {
+    if (gallery.frames.isEmpty ||
+        gallery.scale <= 0 ||
+        gallery.contentHeight <= 0) {
+      return;
+    }
+    final index = (galleryFrameOf?.call(gallery) ?? 0).clamp(
+      0,
+      gallery.frames.length - 1,
+    );
+    final top = geometry.y + geometry.leading;
+    final left = gallery.left + gallery.width * (1 - gallery.scale) / 2;
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(gallery.left, top, gallery.width, gallery.contentHeight),
+    );
+    canvas.translate(left, top);
+    canvas.scale(gallery.scale);
+    canvas.translate(-gallery.left, 0);
+    _paintGalleryFrame(canvas, geometry, gallery.frames[index].content);
+    canvas.restore();
+  }
+
+  void _paintGalleryFrame(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    PageContent page,
+  ) {
+    final size = Size(geometry.pageWidth, geometry.pageHeight);
+    final slices = _sliceGeometries(
+      page,
+      size,
+      pageInsets: geometry.pageInsets,
+    );
+    _paintContents(
+      _PagePaintContext(
+        canvas,
+        page,
+        Rect.fromLTWH(0, 0, size.width, page.pageHeight),
+        {for (var i = 0; i < slices.length; i++) slices[i]: i},
+      ),
+      slices,
+      0,
+      geometry.style.effectiveOpacity,
     );
   }
 

@@ -320,13 +320,20 @@ void main() {
       verifyCrc: false,
     );
     final page = (await source.loadChapter(20)).first;
-    final image = page.slices
+    final gallery = page.slices
         .map((slice) => slice.block)
-        .firstWhere(
-          (block) =>
-              block.layout.text.isEmpty && block.style?.backgroundImage != null,
-        );
-    final width = image.style!.width!.resolve(344)!;
-    expect(image.style!.margin.left + width / 2, closeTo(172, 0.01));
+        .firstWhere((block) => block.gallery != null)
+        .gallery!;
+    for (final frame in gallery.frames) {
+      final image = frame.content.slices
+          .map((slice) => slice.block)
+          .firstWhere(
+            (block) =>
+                block.layout.text.isEmpty &&
+                block.style?.backgroundImage != null,
+          );
+      final width = image.style!.width!.resolve(344)!;
+      expect(image.style!.margin.left + width / 2, closeTo(172, 0.01));
+    }
   }, skip: !realBook.existsSync());
 }

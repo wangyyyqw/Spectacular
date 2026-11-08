@@ -65,6 +65,25 @@ void main() {
     expect(analysis.isFullBleed, isTrue);
   });
 
+  test('单帧多看画廊不启用满屏快路径，保留作者容器排版', () {
+    final gallery = BlockNode(
+      tag: 'div',
+      display: DisplayMode.block,
+      children: [
+        _img({'src': 'img/pic.png'}),
+      ],
+      cfi: _cfi(),
+      attributes: const {'class': 'extra duokan-image-gallery'},
+      start: 0,
+      end: 0,
+    );
+    final result = analyzeFullBleed(_doc(_block('body', [gallery])));
+    expect(result.imageCount, 1);
+    expect(result.hasVisibleText, isFalse);
+    expect(result.hasGallery, isTrue);
+    expect(result.isFullBleed, isFalse);
+  });
+
   test('SVG image 元素按 xlink:href 取 src', () {
     final doc = _doc(
       _block('body', [

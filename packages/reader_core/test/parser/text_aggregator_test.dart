@@ -297,6 +297,32 @@ void main() {
   });
 
   group('纯图块折叠（真实书适配）', () {
+    test('无题注的多看画廊保留分帧容器和图片叶元素', () {
+      final doc = _aggregate(
+        '<div class="extra duokan-image-gallery">'
+        '<div class="duokan-image-gallery-cell"><img src="a.png"/></div>'
+        '<div class="duokan-image-gallery-cell"><img src="a.png"/></div>'
+        '</div>',
+      );
+      final gallery = doc.root.children.single as BlockNode;
+      expect(gallery.attributes['class'], 'extra duokan-image-gallery');
+      expect(gallery.children, hasLength(2));
+      for (final child in gallery.children.cast<BlockNode>()) {
+        expect(child.attributes['class'], 'duokan-image-gallery-cell');
+        final image = child.children.single as BlockNode;
+        expect(image.tag, 'img');
+        expect(image.attributes['src'], 'a.png');
+        expect(image.cfi, isNot(child.cfi));
+      }
+    });
+
+    test('相似类名仍按普通纯图容器折叠', () {
+      final doc = _aggregate(
+        '<div class="duokan-image-gallery-extra"><img src="a.png"/></div>',
+      );
+      expect(doc.root.tag, 'img');
+    });
+
     BlockNode? soleImageBlock(EpubNode node) {
       if (node is BlockNode && node.tag == 'img') {
         return node;

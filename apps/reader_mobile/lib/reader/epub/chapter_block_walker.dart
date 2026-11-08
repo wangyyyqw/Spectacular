@@ -13,6 +13,7 @@ import 'chapter_style_resolver.dart';
 import 'container_blocks.dart';
 import 'flex_blocks.dart';
 import 'generated_chapter_content.dart';
+import 'gallery_block_builder.dart';
 import 'image_block_builder.dart';
 import 'inline_content_builder.dart';
 import 'table_block_builder.dart';
@@ -80,6 +81,10 @@ class ChapterBlockWalker {
     final scope = _containerScope(node, position, ancestors, chain);
     _retainContainer(scope, identical(node, root));
     scope.child = _childScope(scope);
+    if (scope.retained != null && isDuokanGallery(node)) {
+      await _gallery(scope, root);
+      return;
+    }
     await _children(scope, root);
     await _finishContainer(scope);
   }
@@ -307,6 +312,50 @@ class ChapterBlockWalker {
       }
     }
   }
+
+  Future<void> _gallery(_ContainerScope scope, BlockNode root) async {
+    final frames = <GalleryFrameBlocks>[];
+    final children = scope.node.children.cast<BlockNode>().toList();
+    for (final child in children) {
+      await inline.measure.budget.checkpoint();
+      final frameFlow = ChapterFlow();
+      await ChapterBlockWalker(
+        styles,
+        inline,
+        content,
+        frameFlow,
+      )._walk(child, _childPosition(scope, child, children), root);
+      frames.add((
+        cfi: child.cfi.serialize(),
+        blocks: frameFlow.blocks,
+        fixed: frameFlow.fixedBlocks,
+      ));
+    }
+    final block =
+        await GalleryBlockBuilder(
+          styles,
+          inline.measure.budget.checkpoint,
+        ).build(
+          scope.node,
+          scope.retained!,
+          frames,
+          groupId: scope.child.groupId,
+          ancestorExtent: _galleryAncestorExtent(scope),
+        );
+    if (block != null) flow.blocks.add(block);
+  }
+
+  double _galleryAncestorExtent(_ContainerScope scope) => scope.ancestors
+      .map((view) => styles.retainedContainers[view])
+      .nonNulls
+      .fold(
+        0.0,
+        (extent, container) =>
+            extent +
+            container.topDecoration +
+            container.bottomDecoration +
+            container.style.margin.vertical,
+      );
 
   BlockPosition _childPosition(
     _ContainerScope scope,

@@ -806,6 +806,9 @@ class ReaderSession extends ChangeNotifier {
     return cfiAtPageOffset(value, _scrollOffset);
   }
 
+  /// 当前逻辑阅读锚点；页内画廊可据此显示跳转指定的分帧。
+  String? get readingCfi => _anchorCfi(_readingAnchor) ?? currentCfi;
+
   /// 指定页在给定页内偏移处的首个可见行 CFI。
   ///
   /// [scrollOffset] 为空表示分页模式，此时取页首可见行。连续滚动容器用它
@@ -1886,6 +1889,7 @@ class ReaderSession extends ChangeNotifier {
     final targetPath = _cfiPath(target);
     final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
     for (final slice in page.slices) {
+      if (slice.block.gallery?.frameIndexForCfi(cfi) != null) return true;
       if (_tableContainsCfi(slice.block, targetPath, targetOffset)) {
         return true;
       }
@@ -2015,6 +2019,9 @@ class ReaderSession extends ChangeNotifier {
     var flowY = page.topPadding;
     for (final slice in page.slices) {
       final sliceTop = slice.overlay ? (slice.absoluteTop ?? flowY) : flowY;
+      if (slice.block.gallery?.frameIndexForCfi(cfi) != null) {
+        return math.max(0.0, sliceTop + slice.leadingExtent);
+      }
       final baseCfi = slice.block.startCfi;
       final parsedBase = baseCfi == null ? null : EpubCfi.parse(baseCfi);
       if (parsedBase != null &&

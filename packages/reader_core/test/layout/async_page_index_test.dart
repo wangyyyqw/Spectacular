@@ -89,9 +89,9 @@ class _Cancelled implements Exception {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('同步与异步编码保留 v6 已持久化字节，解码条目一致', () async {
+  test('同步与异步编码保留 v7 固定字节，解码条目一致并拒绝旧 v6', () async {
     const index = PageIndex(
-      schemaVersion: 6,
+      schemaVersion: 7,
       entries: [
         PageIndexEntry(
           blockIndex: 3,
@@ -103,15 +103,18 @@ void main() {
       ],
     );
     final persisted = _hex(
-      '52504931000600000001'
+      '52504931000700000001'
       '000000030000000740454000000000004059000000000000c014000000000000'
       '0000023c',
     );
-    expect(PageIndex.currentSchemaVersion, 6);
+    expect(PageIndex.currentSchemaVersion, 7);
     expect(index.encode(), persisted);
     expect(await index.encodeAsync(), persisted);
     expect(PageIndex.decode(persisted)!.entries, index.entries);
     expect((await PageIndex.decodeAsync(persisted))!.entries, index.entries);
+    final old = Uint8List.fromList(persisted)..[5] = 6;
+    expect(PageIndex.decode(old), isNull);
+    expect(await PageIndex.decodeAsync(old), isNull);
   });
 
   test('块映射与页提取异步遍历保留原有身份、空页及重复块语义', () async {
@@ -209,8 +212,9 @@ void main() {
     const cases = [
       PageIndex(schemaVersion: 5, entries: []),
       PageIndex(schemaVersion: 6, entries: []),
+      PageIndex(schemaVersion: PageIndex.currentSchemaVersion, entries: []),
       PageIndex(
-        schemaVersion: 6,
+        schemaVersion: PageIndex.currentSchemaVersion,
         entries: [
           PageIndexEntry(
             blockIndex: 9,
@@ -222,7 +226,7 @@ void main() {
         ],
       ),
       PageIndex(
-        schemaVersion: 6,
+        schemaVersion: PageIndex.currentSchemaVersion,
         entries: [
           PageIndexEntry(
             blockIndex: 0,
@@ -234,7 +238,7 @@ void main() {
         ],
       ),
       PageIndex(
-        schemaVersion: 6,
+        schemaVersion: PageIndex.currentSchemaVersion,
         entries: [
           PageIndexEntry(
             blockIndex: 0,
