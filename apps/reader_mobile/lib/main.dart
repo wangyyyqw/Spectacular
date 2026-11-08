@@ -9,6 +9,7 @@ import 'package:reader_ui/reader_ui.dart';
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
+import 'reader/reader_text_warmup.dart';
 import 'storage/db.dart';
 import 'storage/drift_progress_store.dart';
 import 'storage/file_progress_store.dart';
@@ -99,6 +100,16 @@ Future<void> main() async {
       log,
     );
     progressStore = driftStore;
+  }
+  try {
+    warmUpReaderTextRendering();
+  } catch (error, stack) {
+    unawaited(
+      log.log(
+        'text_warmup_failed',
+        fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
+      ),
+    );
   }
   runApp(ReaderApp(library: library, progressStore: progressStore));
 }
