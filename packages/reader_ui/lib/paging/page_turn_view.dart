@@ -48,7 +48,7 @@ class PageTurnViewState extends State<PageTurnView>
   late final PageTurnController controller = PageTurnController(
     session: widget.session,
     vsync: this,
-    acquireImage: _enqueueCapture,
+    acquireImage: _acquireTurnImage,
   )..addListener(_controllerChanged);
   final _currentBoundary = GlobalKey();
   final _captureBoundary = GlobalKey();
@@ -84,7 +84,7 @@ class PageTurnViewState extends State<PageTurnView>
 
   void _invalidate() {
     _revisionDirty = false;
-    controller.cancel();
+    if (controller.active) controller.cancel();
     _captureToken++;
     _capturePage = null;
     _lastWarm = null;
@@ -115,6 +115,7 @@ class PageTurnViewState extends State<PageTurnView>
   /// 切后台时释放翻页位图；恢复后按当前页重新预热。
   void releaseCachedBitmaps() {
     _warmSuspended = true;
+    controller.cancel();
     _invalidate();
     _captureQueue = Future<void>.value();
   }
@@ -137,7 +138,8 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   Future<ui.Image?> _enqueueCapture(PageContent page) {
-    final result = _captureQueue.then((_) => _capture(page));
+    final token = _captureToken;
+    final result = _captureQueue.then((_) => _capture(page, token));
     _captureQueue = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
@@ -145,9 +147,14 @@ class PageTurnViewState extends State<PageTurnView>
     return result;
   }
 
-  Future<ui.Image?> _capture(PageContent page) async {
-    if (!mounted) return null;
-    final token = _captureToken;
+  Future<ui.Image?> _acquireTurnImage(PageContent page) {
+    // 用户翻页优先；无关邻页预热即使仍在解码，也不能挡住当前输入。
+    _cancelPendingCaptures();
+    return _enqueueCapture(page);
+  }
+
+  Future<ui.Image?> _capture(PageContent page, int token) async {
+    if (!mounted || token != _captureToken) return null;
     final prepare = widget.preparePageImages;
     if (prepare != null) {
       await prepare(page);

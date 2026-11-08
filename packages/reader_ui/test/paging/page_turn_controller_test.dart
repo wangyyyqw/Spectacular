@@ -113,6 +113,24 @@ void _drag(
   }
 }
 
+void _swipeDuringTurn(
+  PageTurnController controller, {
+  bool next = true,
+  bool complete = true,
+  bool release = true,
+}) {
+  final fromRight = next != controller.rtl;
+  final down = ui.Offset(fromRight ? 310 : 10, 240);
+  final distance = complete ? 220.0 : 10.0;
+  final latest = down.translate(fromRight ? -distance : distance, 0);
+  controller.pointerDown(down);
+  controller.beginDrag(DragStartDetails(localPosition: down));
+  controller.updateDrag(
+    DragUpdateDetails(globalPosition: latest, localPosition: latest),
+  );
+  if (release) controller.endDrag(DragEndDetails());
+}
+
 void _expectSameCurl(PageTurnController forward, PageTurnController backward) {
   expect(backward.point, forward.point);
   expect(backward.progress, closeTo(forward.progress, 0.00001));
@@ -301,6 +319,91 @@ void main() {
     expect(controller.session.progress!.pageIndex, 4);
     await controller.session.flushProgress();
   });
+
+  for (final rtl in [false, true]) {
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 收尾期间的完整滑动逐页排队且保留方向', (tester) async {
+      final controller = await _controller(tester, rtl: rtl, pageCount: 5);
+      controller.request(true);
+      await tester.pump();
+      expect(controller.phase, PageTurnPhase.settling);
+      _swipeDuringTurn(controller);
+      _swipeDuringTurn(controller, next: false);
+      await tester.pumpAndSettle();
+
+      expect(controller.phase, PageTurnPhase.idle);
+      expect(controller.session.progress!.pageIndex, 2);
+      expect(controller.session.pageTurns, 3);
+      await controller.session.flushProgress();
+    });
+  }
+
+  testWidgets('图片准备期间的完整滑动不会丢失', (tester) async {
+    final gate = Completer<void>();
+    final controller = await _controller(
+      tester,
+      imageGate: gate.future,
+      pageCount: 5,
+    );
+    controller.request(true);
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.preparing);
+    _swipeDuringTurn(controller);
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 3);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('起手时动画未结束、松手时已结束的滑动仍翻页', (tester) async {
+    final controller = await _controller(tester, pageCount: 5);
+    controller.request(true);
+    await tester.pump();
+    _swipeDuringTurn(controller, release: false);
+    await tester.pumpAndSettle();
+    expect(controller.session.progress!.pageIndex, 2);
+    controller.endDrag(DragEndDetails());
+    await tester.pumpAndSettle();
+
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 3);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('滑动尚未松手时外部跳转使旧输入失效', (tester) async {
+    final controller = await _controller(tester, pageCount: 5);
+    controller.request(true);
+    await tester.pump();
+    _swipeDuringTurn(controller, release: false);
+    await tester.pumpAndSettle();
+    await controller.session.jumpToChapter(0);
+    expect(controller.session.progress!.pageIndex, 0);
+    controller.endDrag(DragEndDetails());
+    await tester.pumpAndSettle();
+
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.progress!.pageIndex, 0);
+    await controller.session.flushProgress();
+  });
+
+  for (final cancel in [false, true]) {
+    testWidgets('收尾期间${cancel ? '取消的' : '距离不足的'}滑动不额外翻页或取消当前动画', (
+      tester,
+    ) async {
+      final controller = await _controller(tester, pageCount: 5);
+      controller.request(true);
+      await tester.pump();
+      _swipeDuringTurn(controller, complete: cancel, release: !cancel);
+      if (cancel) controller.cancelDrag();
+      expect(controller.phase, PageTurnPhase.settling);
+      await tester.pumpAndSettle();
+
+      expect(controller.phase, PageTurnPhase.idle);
+      expect(controller.session.progress!.pageIndex, 2);
+      await controller.session.flushProgress();
+    });
+  }
 
   testWidgets('轻点翻页期间拖动手势取消不会清空翻页动画', (tester) async {
     final controller = await _controller(tester);

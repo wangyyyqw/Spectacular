@@ -39,6 +39,8 @@ class PageTurnController extends ChangeNotifier {
   ui.Image? originImage, targetImage;
   PreparedPageTurn? turn;
   ui.Offset? _down, _latest;
+  ui.Offset? _pointerDown;
+  _PendingDrag? _pendingDrag;
   bool _released = false, _complete = true, _dragging = false;
   bool _disposed = false, _committing = false;
   final List<bool> _queued = <bool>[];
@@ -67,8 +69,7 @@ class PageTurnController extends ChangeNotifier {
 
   /// 原始按下位置只记录，不抢占长按、链接或选区手势。
   void pointerDown(ui.Offset position) {
-    if (active) return;
-    _down = position;
+    _pointerDown = position;
   }
 
   /// 点击、键盘等离散输入按先后顺序排队，动画结束后逐页执行。
@@ -83,13 +84,28 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void beginDrag(DragStartDetails details) {
-    if (active) return;
-    _down ??= details.localPosition;
+    final down = _pointerDown ?? details.localPosition;
+    _pointerDown = null;
+    if (active) {
+      // 下一次滑动单独记录，不能覆盖仍在准备或收尾的翻页触点。
+      _pendingDrag = _PendingDrag(
+        down,
+        details.localPosition,
+        session.generation,
+      );
+      return;
+    }
+    _down = down;
     _latest = details.localPosition;
     _dragging = true;
   }
 
   void updateDrag(DragUpdateDetails details) {
+    final pending = _pendingDrag;
+    if (pending != null) {
+      pending.latest = details.localPosition;
+      return;
+    }
     if (!_dragging || phase == PageTurnPhase.settling) return;
     _latest = details.localPosition;
     final dx = _latest!.dx - _down!.dx;
@@ -100,6 +116,17 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void endDrag(DragEndDetails details) {
+    final pending = _pendingDrag;
+    if (pending != null) {
+      _pendingDrag = null;
+      final dx = pending.latest.dx - pending.down.dx;
+      final direction = (dx < 0) != rtl;
+      if (pending.generation == session.generation &&
+          _acceptSwipe(dx, details.primaryVelocity ?? 0, direction)) {
+        request(direction);
+      }
+      return;
+    }
     if (!_dragging) return;
     _released = true;
     _dragging = false;
@@ -110,6 +137,11 @@ class PageTurnController extends ChangeNotifier {
 
   /// 仅取消真实拖动；轻点也会触发拖动手势取消，不能影响点击翻页队列。
   void cancelDrag() {
+    if (_pendingDrag != null) {
+      _pendingDrag = null;
+      _pointerDown = null;
+      return;
+    }
     if (!_dragging) return;
     cancel();
   }
@@ -176,10 +208,13 @@ class PageTurnController extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool _shouldComplete() {
-    final sign = (next != rtl) ? -1 : 1;
-    final p = ((_latest!.dx - _down!.dx) * sign / size.width).clamp(0, 1);
-    final velocity = _releaseVelocity * sign / size.width;
+  bool _shouldComplete() =>
+      _acceptSwipe(_latest!.dx - _down!.dx, _releaseVelocity, next);
+
+  bool _acceptSwipe(double dx, double releaseVelocity, bool direction) {
+    final sign = (direction != rtl) ? -1 : 1;
+    final p = (dx * sign / size.width).clamp(0, 1);
+    final velocity = releaseVelocity * sign / size.width;
     final threshold = mode == PageTurnMode.simulationBessel ? 0.25 : 0.35;
     return velocity > -0.8 && (velocity >= 0.8 || p >= threshold);
   }
@@ -235,7 +270,8 @@ class PageTurnController extends ChangeNotifier {
     _committing = true;
     if (_complete && prepared != null) session.commitPageTurn(prepared);
     _committing = false;
-    cancel();
+    // 正常收尾只释放当前翻页，保留已开始但尚未松手的下一次滑动。
+    _resetTurn();
     if (queued.isNotEmpty && !_disposed) {
       _queued.addAll(queued.skip(1));
       scheduleMicrotask(() {
@@ -257,6 +293,13 @@ class PageTurnController extends ChangeNotifier {
 
   /// 指针取消、版面失效和外部跳转均保留已提交位置。
   void cancel() {
+    _queued.clear();
+    _pendingDrag = null;
+    _pointerDown = null;
+    _resetTurn();
+  }
+
+  void _resetTurn() {
     _token++;
     _settling.stop(canceled: true);
     phase = PageTurnPhase.idle;
@@ -264,7 +307,6 @@ class PageTurnController extends ChangeNotifier {
     turn = null;
     point = null;
     progress = 0;
-    _queued.clear();
     _resetPointer();
     if (!_disposed) notifyListeners();
   }
@@ -283,4 +325,12 @@ class PageTurnController extends ChangeNotifier {
     _settling.dispose();
     super.dispose();
   }
+}
+
+class _PendingDrag {
+  _PendingDrag(this.down, this.latest, this.generation);
+
+  final ui.Offset down;
+  ui.Offset latest;
+  final int generation;
 }
