@@ -224,7 +224,7 @@ class EpubChapterSource
   }) => pageBlockWithLayoutWidth(source, width: width, maxWidth: maxWidth);
 
   static const int pageCacheChapterLimit = ChapterLayoutCache.maxEntries;
-  static const int textLayoutCacheLimit = 128;
+  static const int textLayoutCacheLimit = 4096;
   static const int blockCacheChapterLimit = pageCacheChapterLimit;
   static const int documentCacheChapterLimit = 3;
   static const int chapterIndexCacheLimit = 3;
