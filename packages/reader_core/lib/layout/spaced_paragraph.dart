@@ -75,7 +75,42 @@ class SpacedParagraph {
   final int? maxLines;
   final _measurements = <(int, int, bool), _LineMeasurement>{};
   final _paragraphStyles = <TextStyle, ui.ParagraphStyle>{};
+  final _uiTextStyles = <TextStyle, ui.TextStyle>{};
+  TextStyle? _lastParagraphBase;
+  ui.ParagraphStyle? _lastParagraphStyle;
+  TextStyle? _lastUiBase;
+  ui.TextStyle? _lastUiStyle;
   late final TextScaler _scaler = TextScaler.linear(scale);
+
+  ui.ParagraphStyle _paragraphStyle(TextStyle style) {
+    final cached = _lastParagraphStyle;
+    if (cached != null && identical(style, _lastParagraphBase)) {
+      return cached;
+    }
+    final resolved = _paragraphStyles.putIfAbsent(
+      style,
+      () => style.getParagraphStyle(
+        textAlign: TextAlign.start,
+        textDirection: TextDirection.ltr,
+        textScaler: _scaler,
+      ),
+    );
+    _lastParagraphBase = style;
+    _lastParagraphStyle = resolved;
+    return resolved;
+  }
+
+  ui.TextStyle _uiTextStyle(TextStyle style) {
+    final cached = _lastUiStyle;
+    if (cached != null && identical(style, _lastUiBase)) return cached;
+    final resolved = _uiTextStyles.putIfAbsent(
+      style,
+      () => style.getTextStyle(textScaler: _scaler),
+    );
+    _lastUiBase = style;
+    _lastUiStyle = resolved;
+    return resolved;
+  }
 
   TextPainter _painter(
     TextSpan text, [
@@ -405,17 +440,15 @@ class SpacedParagraph {
         : sliceTextSpan(span, start, end);
     final lineSpan = applyTextSpacing(source, plan);
     final baseStyle = lineSpan.style ?? const TextStyle();
-    final builder = ui.ParagraphBuilder(
-      _paragraphStyles.putIfAbsent(
-        baseStyle,
-        () => baseStyle.getParagraphStyle(
-          textAlign: TextAlign.start,
-          textDirection: TextDirection.ltr,
-          textScaler: _scaler,
-        ),
-      ),
-    );
-    lineSpan.build(builder, textScaler: _scaler);
+    final builder = ui.ParagraphBuilder(_paragraphStyle(baseStyle));
+    final flatText = lineSpan.children == null ? lineSpan.text : null;
+    if (flatText != null && lineSpan.style != null) {
+      builder.pushStyle(_uiTextStyle(baseStyle));
+      builder.addText(flatText);
+      builder.pop();
+    } else {
+      lineSpan.build(builder, textScaler: _scaler);
+    }
     final paragraph = builder.build()
       ..layout(const ui.ParagraphConstraints(width: double.infinity));
     try {
