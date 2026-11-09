@@ -141,7 +141,15 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(source.loads, [(spine: 0, font: 23.0, width: 800.0, height: 600.0)]);
+    expect(source.loads.where((item) => item.spine == 0), [
+      (spine: 0, font: 23.0, width: 800.0, height: 600.0),
+    ]);
+    expect(source.loads.last, (
+      spine: 1,
+      font: 23.0,
+      width: 800.0,
+      height: 600.0,
+    ), reason: '邻章沿用最终布局预取，不能先用旧尺寸排版');
   });
 
   testWidgets('首开未完成时改变尺寸会在完成后重排，不会卡在加载态', (tester) async {
@@ -168,7 +176,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(session.loading, isFalse);
     expect(session.page, isNotNull);
-    expect(source.loads.map((e) => e.width), [
+    expect(source.loads.where((e) => e.spine == 0).map((e) => e.width), [
       760,
       360,
     ], reason: '扣除默认左右各 20 像素页边距');

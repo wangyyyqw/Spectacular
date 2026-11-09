@@ -18,6 +18,7 @@ class ChapterPositions {
   final _coordinates = BoundedCache<int, ChapterTextCoordinates>(3);
   final _plainTexts = BoundedCache<int, String>(3);
   BookProgressIndex? _progress;
+  List<TocEntry>? _toc;
 
   int get chapterCount => resources.document.spine.length;
   int get plainTextCacheCount => _plainTexts.length;
@@ -41,8 +42,9 @@ class ChapterPositions {
   }
 
   void markMissing(int spine) {
-    _knownMissing.add(spine);
+    if (!_knownMissing.add(spine)) return;
     _progress = null;
+    _toc = null;
   }
 
   AnchorChapter anchorChapter(int spine, double width) =>
@@ -107,7 +109,10 @@ class ChapterPositions {
     return anchorChapter(entry.spineIndex, width).cfiAt(0);
   }
 
-  List<TocEntry> get toc {
+  // 纸面页眉每次构建都会读取目录，整书缺章检查只在目录失效后执行一次。
+  List<TocEntry> get toc => _toc ??= _buildToc();
+
+  List<TocEntry> _buildToc() {
     final represented = <int>{};
     final roots = [
       for (final entry in resources.document.toc)
@@ -125,7 +130,7 @@ class ChapterPositions {
       );
       represented.add(spine);
     }
-    return roots;
+    return List<TocEntry>.unmodifiable(roots);
   }
 
   TocEntry _decorateEntry(TocEntry entry, Set<int> represented) {
@@ -163,5 +168,6 @@ class ChapterPositions {
     _plainTexts.clear();
     _knownMissing.clear();
     _progress = null;
+    _toc = null;
   }
 }

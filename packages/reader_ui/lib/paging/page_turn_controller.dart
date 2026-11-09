@@ -48,6 +48,8 @@ class PageTurnController extends ChangeNotifier {
   double _startProgress = 0;
   ui.Offset? _startPoint, _endPoint;
   double _releaseVelocity = 0;
+  int? _generation;
+  PageContent? _origin;
 
   bool get active => phase != PageTurnPhase.idle;
 
@@ -112,7 +114,10 @@ class PageTurnController extends ChangeNotifier {
     if (!active && dx.abs() > 1) {
       unawaited(_prepare((dx < 0) != rtl, dragging: true));
     }
-    if (phase == PageTurnPhase.dragging) _updateDragFrame();
+    if (phase == PageTurnPhase.dragging ||
+        (phase == PageTurnPhase.preparing && originImage != null)) {
+      _updateDragFrame();
+    }
   }
 
   void endDrag(DragEndDetails details) {
@@ -132,6 +137,13 @@ class PageTurnController extends ChangeNotifier {
     _dragging = false;
     _releaseVelocity = details.primaryVelocity ?? 0;
     if (phase == PageTurnPhase.dragging) _settle(_shouldComplete());
+    if (phase == PageTurnPhase.preparing && !_shouldComplete()) {
+      if (originImage == null || mode == PageTurnMode.none) {
+        cancel();
+      } else {
+        _settle(false);
+      }
+    }
     if (!active) _resetPointer();
   }
 
@@ -147,13 +159,18 @@ class PageTurnController extends ChangeNotifier {
   }
 
   Future<void> _prepare(bool direction, {required bool dragging}) async {
-    if (size.isEmpty || _disposed) return;
+    if (size.isEmpty || _disposed || session.page == null) return;
     final token = ++_token;
     next = direction;
+    _generation = session.generation;
+    _origin = session.page;
     phase = PageTurnPhase.preparing;
     _released = !dragging;
     progress = 0;
+    _initializePoint();
+    notifyListeners();
     try {
+      if (!await _prepareOrigin(token, dragging)) return;
       final prepared = await session.preparePageTurn(next);
       if (!_valid(token)) return;
       if (prepared == null) {
@@ -162,20 +179,34 @@ class PageTurnController extends ChangeNotifier {
       }
       turn = prepared;
       if (mode != PageTurnMode.none) {
-        originImage = await acquireImage(prepared.origin);
+        final target = await acquireImage(prepared.target.content);
         if (!_valid(token)) return;
-        targetImage = await acquireImage(prepared.target.content);
-        if (!_valid(token)) return;
+        if (target == null) return cancel();
+        targetImage = target;
       }
-      _initializePoint();
       phase = PageTurnPhase.dragging;
-      if (dragging) _updateDragFrame();
+      // 已松手时从等待期间实际显示的位置接续，不能跳到过期触点再收尾。
+      if (dragging && !_released) _updateDragFrame();
+      notifyListeners();
       if (_released) {
         _settle(dragging ? _shouldComplete() : true);
       }
     } catch (_) {
       if (_valid(token)) cancel();
     }
+  }
+
+  Future<bool> _prepareOrigin(int token, bool dragging) async {
+    if (mode == PageTurnMode.none) return true;
+    final origin = await acquireImage(_origin!);
+    if (!_valid(token)) return false;
+    if (origin == null) {
+      cancel();
+      return false;
+    }
+    originImage = origin;
+    if (dragging) _updateDragFrame();
+    return true;
   }
 
   bool _valid(int token) => !_disposed && token == _token;
@@ -205,6 +236,13 @@ class PageTurnController extends ChangeNotifier {
       final sign = (next != rtl) ? -1 : 1;
       progress = ((_latest!.dx - _down!.dx) * sign / size.width).clamp(0, 1);
     }
+    // 冷目标未就绪时只轻抬原页，保留可见反馈和后续完整的翻页行程。
+    if (phase == PageTurnPhase.preparing && progress > 0.08) {
+      progress = 0.08;
+      if (mode == PageTurnMode.simulationBessel) {
+        point = ui.Offset(size.width * 0.84, point!.dy);
+      }
+    }
     notifyListeners();
   }
 
@@ -222,9 +260,7 @@ class PageTurnController extends ChangeNotifier {
   void _settle(bool complete) {
     _complete = complete;
     _startProgress = progress;
-    if (mode == PageTurnMode.none ||
-        originImage == null ||
-        targetImage == null) {
+    if (mode == PageTurnMode.none) {
       _finish();
       return;
     }
@@ -277,13 +313,28 @@ class PageTurnController extends ChangeNotifier {
       scheduleMicrotask(() {
         if (!_disposed) request(queued.first);
       });
+    } else {
+      _resumePendingDrag();
     }
+  }
+
+  void _resumePendingDrag() {
+    final pending = _pendingDrag;
+    _pendingDrag = null;
+    if (pending == null || pending.generation != session.generation) return;
+    _down = pending.down;
+    _latest = pending.latest;
+    _dragging = true;
+    final dx = pending.latest.dx - pending.down.dx;
+    if (dx.abs() > 1) unawaited(_prepare((dx < 0) != rtl, dragging: true));
   }
 
   void _sessionChanged() {
     if (_committing || !active) return;
     final prepared = turn;
     if (session.loading ||
+        _generation != session.generation ||
+        !identical(_origin, session.page) ||
         (prepared != null &&
             (prepared.generation != session.generation ||
                 !identical(prepared.origin, session.page)))) {
@@ -305,6 +356,8 @@ class PageTurnController extends ChangeNotifier {
     phase = PageTurnPhase.idle;
     originImage = targetImage = null;
     turn = null;
+    _generation = null;
+    _origin = null;
     point = null;
     progress = 0;
     _resetPointer();

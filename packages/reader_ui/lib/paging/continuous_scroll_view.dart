@@ -43,6 +43,8 @@ class ContinuousScrollView extends StatefulWidget {
 
 /// 连续滚动状态；阅读页通过它响应点击区的前后屏移动。
 class ContinuousScrollViewState extends State<ContinuousScrollView> {
+  // 保留两屏准备时间，快速滑动时不要到半屏余量才开始排版下一章。
+  static const _prefetchScreens = 2.0;
   final ScrollController _controller = ScrollController();
   final List<ScrollChapterLayout> _chapters = <ScrollChapterLayout>[];
   final List<_ScrollEntry> _entries = <_ScrollEntry>[];
@@ -531,11 +533,11 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   void _maybeExtendWindow() {
     if (_restoring || !_controller.hasClients || _chapters.isEmpty) return;
     final height = _controller.position.viewportDimension;
-    if (_controller.offset - widget.padding.top < height * 0.25) {
+    if (_controller.offset - widget.padding.top < height * _prefetchScreens) {
       unawaited(_extendBefore());
     }
     final remaining = _controller.position.maxScrollExtent - _controller.offset;
-    if (remaining < height * 0.5) {
+    if (remaining < height * _prefetchScreens) {
       unawaited(_extendAfter());
     }
   }
@@ -555,8 +557,12 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       return;
     }
     final height = _controller.position.viewportDimension;
-    final first = _chapterAtOffset(_controller.offset - height * 0.25);
-    final last = _chapterAtOffset(_controller.offset + height * 1.5);
+    final first = _chapterAtOffset(
+      _controller.offset - height * _prefetchScreens,
+    );
+    final last = _chapterAtOffset(
+      _controller.offset + height * (1 + _prefetchScreens),
+    );
     if (first == null || last == null) return;
     final firstIndex = _chapters.indexWhere(
       (chapter) => chapter.spineIndex == first,

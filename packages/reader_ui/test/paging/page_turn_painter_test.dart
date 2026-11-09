@@ -131,6 +131,28 @@ void _expectMirrored(ByteData forward, ByteData backward) {
 }
 
 void main() {
+  for (final mode in [
+    PageTurnMode.cover,
+    PageTurnMode.coverStack,
+    PageTurnMode.simulationBessel,
+    PageTurnMode.slideHorizontal,
+  ]) {
+    testWidgets('${mode.label} 冷目标等待期间原页轻抬仍铺满纸面', (tester) async {
+      final controller = _controller(tester, solid: true)
+        ..mode = mode
+        ..phase = PageTurnPhase.preparing
+        ..targetImage = null
+        ..progress = 0.08
+        ..point = const Offset(168, 240);
+      final data = (await tester.runAsync(() => _render(controller)))!;
+      expect(_pixel(data, 60, 150), [255, 255, 0, 255]);
+      for (var y = 0; y < 300; y += 10) {
+        for (var x = 0; x < 200; x += 10) {
+          expect(_pixel(data, x, y).last, 255, reason: '准备期间不能露出透明空白');
+        }
+      }
+    });
+  }
   for (final rtl in [false, true]) {
     testWidgets('${rtl ? 'RTL' : 'LTR'} 上中下起卷全程与下一页互为左右镜像', (tester) async {
       final forward = _controller(tester, solid: true)..rtl = rtl;

@@ -129,6 +129,22 @@ class VirtualPager {
     return null;
   }
 
+  /// 阅读当前章时提前准备邻章，避免直到末页才开始整章排版。
+  Future<void> prefetchChapter(int direction) async {
+    assert(direction == -1 || direction == 1);
+    final origin = _currentReal;
+    if (origin == null) return;
+    for (
+      var spine = origin.$1 + direction;
+      spine >= 0 && spine < spineCount;
+      spine += direction
+    ) {
+      await _loadSpine(spine, prefetch: true);
+      if (_spinePages[spine]?.isNotEmpty == true) return;
+      if (_currentReal?.$1 != origin.$1) return;
+    }
+  }
+
   /// 动画结束时原子提交；来源改变或目标过期时拒绝提交。
   bool commitPrepared(PageContent origin, VirtualPage target) {
     if (!identical(current?.content, origin)) return false;
