@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'bessel_painter.dart';
+import 'curl3d_painter.dart';
 import 'page_turn_controller.dart';
 import 'page_turn_mode.dart';
 
@@ -10,12 +11,14 @@ import 'page_turn_mode.dart';
 class PageTurnPainter extends CustomPainter {
   PageTurnPainter(this.controller, {required this.paperColor})
     : _besselPainter = BesselPainter(paperColor: paperColor),
+      _curl3dPainter = Curl3dPainter(paperColor: paperColor),
       super(repaint: controller);
 
   final PageTurnController controller;
   final Color paperColor;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
   final BesselPainter _besselPainter;
+  final Curl3dPainter _curl3dPainter;
 
   /// 堆叠覆盖中下一页只跟随当前页移动的一小段，形成搓纸视差。
   static const _coverStackShift = 0.08;
@@ -29,8 +32,27 @@ class PageTurnPainter extends CustomPainter {
     // 目标未就绪时轻抬原页，不能因跨章加载阻断手势反馈。
     final target = controller.targetImage ?? origin;
     if (!controller.active || origin == null || target == null) return;
+    final opacity = controller.targetOpacity;
+    if (opacity < 1) {
+      _paintTurn(canvas, size, origin, origin);
+      if (opacity > 0) {
+        canvas.saveLayer(
+          Offset.zero & size,
+          Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+        );
+        _paintTurn(canvas, size, origin, target);
+        canvas.restore();
+      }
+      return;
+    }
+    _paintTurn(canvas, size, origin, target);
+  }
+
+  void _paintTurn(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final p = controller.progress;
-    if (p <= 0 || p >= 1) {
+    final curl3d = controller.mode == PageTurnMode.simulation3d;
+    // 3D 的可见程度由折角几何决定，不看进度。
+    if (!curl3d && (p <= 0 || p >= 1)) {
       _image(canvas, p >= 1 ? target : origin, size);
       return;
     }
@@ -38,6 +60,8 @@ class PageTurnPainter extends CustomPainter {
     canvas.clipRect(Offset.zero & size);
     if (controller.mode == PageTurnMode.simulationBessel) {
       _bessel(canvas, size, origin, target);
+    } else if (curl3d) {
+      _curl3d(canvas, size, origin, target);
     } else if (controller.mode == PageTurnMode.slideHorizontal) {
       final sign = (controller.next != controller.rtl) ? -1 : 1;
       _translated(canvas, origin, size, sign * p * size.width);
@@ -67,6 +91,22 @@ class PageTurnPainter extends CustomPainter {
       canvas.restoreToCount(saveCount);
       _besselFallback(canvas, size, origin, target);
     }
+  }
+
+  void _curl3d(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
+    final geometry = controller.curl3dGeometry;
+    if (geometry == null || !geometry.active) {
+      _image(canvas, controller.progress >= 1 ? target : origin, size);
+      return;
+    }
+    _curl3dPainter.paint(
+      canvas,
+      size,
+      origin,
+      target,
+      geometry: geometry,
+      mirror: !controller.fromRight,
+    );
   }
 
   void _besselFallback(

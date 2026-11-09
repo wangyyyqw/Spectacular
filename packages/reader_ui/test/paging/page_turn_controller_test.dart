@@ -34,6 +34,7 @@ Future<PageTurnController> _controller(
   WidgetTester tester, {
   bool rtl = false,
   Future<void>? imageGate,
+  Future<void>? targetImageGate,
   int pageCount = 3,
 }) async {
   final store = MemoryReaderProgressStore();
@@ -53,8 +54,9 @@ Future<PageTurnController> _controller(
       PageTurnController(
           session: session,
           vsync: tester,
-          acquireImage: (_) async {
+          acquireImage: (page) async {
             await imageGate;
+            if (page.pageIndex != 1) await targetImageGate;
             return image;
           },
         )
@@ -282,6 +284,7 @@ void main() {
     PageTurnMode.cover,
     PageTurnMode.coverStack,
     PageTurnMode.simulationBessel,
+    PageTurnMode.simulation3d,
     PageTurnMode.slideHorizontal,
   ]) {
     testWidgets('${mode.label}收尾统一使用 420 毫秒动画', (tester) async {
@@ -303,6 +306,30 @@ void main() {
       await controller.session.flushProgress();
     });
   }
+
+  testWidgets('3D 仿真折角跟随触点移动', (tester) async {
+    final controller = await _controller(tester);
+    controller.mode = PageTurnMode.simulation3d;
+    const down = ui.Offset(310, 240);
+    controller.pointerDown(down);
+    controller.beginDrag(DragStartDetails(localPosition: down));
+    _move(controller, const ui.Offset(150, 300));
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.point, isNotNull);
+    expect(controller.point!.dx, closeTo(160, 0.5));
+    expect(controller.point!.dy, closeTo(300, 0.5));
+    final geometry = controller.curl3dGeometry!;
+    expect(geometry.grab, const ui.Offset(320, 240));
+    final corner = geometry.pointAt(geometry.grab).position;
+    expect(
+      (corner - controller.point!).distance,
+      lessThan(0.01),
+      reason: '折起的页角必须贴在触点上',
+    );
+    controller.cancel();
+  });
 
   testWidgets('动画期间快速连续点击逐页排队翻页', (tester) async {
     final controller = await _controller(tester, pageCount: 5);
@@ -489,7 +516,7 @@ void main() {
   }
 
   for (final next in [false, true]) {
-    testWidgets('${next ? '下一页' : '上一页'}松手按距离和速度判定且只提交一次', (tester) async {
+    testWidgets('${next ? '下一页' : '上一页'}松手按方向与最小距离判定且只提交一次', (tester) async {
       final controller = await _controller(tester);
       for (final flick in [false, true]) {
         final down = ui.Offset(next ? 310 : 10, 240);
@@ -513,6 +540,175 @@ void main() {
         );
       }
       await controller.session.flushProgress();
+    });
+  }
+
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      for (final waiting in ['ready', 'origin', 'target']) {
+        testWidgets('$rtl/$next/$waiting 零速慢回拖取消且正向恢复可提交', (tester) async {
+          for (final resume in [false, true]) {
+            final gate = Completer<void>();
+            final controller = await _controller(
+              tester,
+              rtl: rtl,
+              imageGate: waiting == 'origin' ? gate.future : null,
+              targetImageGate: waiting == 'target' ? gate.future : null,
+            );
+            final sign = (next != rtl) ? -1.0 : 1.0;
+            final down = ui.Offset(sign < 0 ? 310 : 10, 240);
+            void move(double distance) {
+              final p = down.translate(sign * distance, 0);
+              controller.updateDrag(
+                DragUpdateDetails(localPosition: p, globalPosition: p),
+              );
+            }
+
+            controller.pointerDown(down);
+            controller.beginDrag(DragStartDetails(localPosition: down));
+            move(210);
+            await tester.pump();
+            for (var distance = 209.5; distance >= 50; distance -= 0.5) {
+              move(distance);
+            }
+            if (resume) move(60);
+            controller.endDrag(DragEndDetails());
+            gate.complete();
+            await tester.pumpAndSettle();
+            expect(
+              controller.session.progress!.pageIndex,
+              resume ? (next ? 2 : 0) : 1,
+            );
+            await controller.session.flushProgress();
+          }
+        });
+      }
+    }
+  }
+
+  testWidgets('仿真末段一像素内抖动不改变方向', (tester) async {
+    final controller = await _controller(tester);
+    const down = ui.Offset(310, 240);
+    controller.pointerDown(down);
+    controller.beginDrag(DragStartDetails(localPosition: down));
+    _move(controller, const ui.Offset(220, 240));
+    await tester.pump();
+    _move(controller, const ui.Offset(220.5, 240));
+    _move(controller, const ui.Offset(220.9, 240));
+    controller.endDrag(DragEndDetails());
+    await tester.pumpAndSettle();
+    expect(controller.session.progress!.pageIndex, 2);
+    await controller.session.flushProgress();
+  });
+
+  for (final releaseBeforeFinish in [false, true]) {
+    testWidgets('排队回拖跨过起点仍保留初始方向 $releaseBeforeFinish', (tester) async {
+      final controller = await _controller(tester, pageCount: 5);
+      controller.request(true);
+      await tester.pump();
+      const down = ui.Offset(160, 240);
+      controller.pointerDown(down);
+      controller.beginDrag(DragStartDetails(localPosition: down));
+      controller.updateDrag(
+        DragUpdateDetails(
+          localPosition: const ui.Offset(80, 240),
+          globalPosition: const ui.Offset(80, 240),
+        ),
+      );
+      controller.updateDrag(
+        DragUpdateDetails(
+          localPosition: const ui.Offset(210, 240),
+          globalPosition: const ui.Offset(210, 240),
+        ),
+      );
+      if (!releaseBeforeFinish) {
+        await tester.pumpAndSettle();
+        expect(controller.next, isTrue);
+      }
+      controller.endDrag(DragEndDetails());
+      await tester.pumpAndSettle();
+      expect(controller.session.progress!.pageIndex, 2);
+      expect(controller.session.pageTurns, 1);
+      await controller.session.flushProgress();
+    });
+  }
+
+  for (final mode in PageTurnMode.values) {
+    if (mode == PageTurnMode.simulationBessel ||
+        mode == PageTurnMode.simulation3d) {
+      continue;
+    }
+    testWidgets('${mode.label} 保留旧距离与速度门槛', (tester) async {
+      final controller = await _controller(tester);
+      controller.mode = mode;
+      const down = ui.Offset(310, 240);
+      controller.pointerDown(down);
+      controller.beginDrag(DragStartDetails(localPosition: down));
+      controller.updateDrag(
+        DragUpdateDetails(
+          localPosition: const ui.Offset(280, 240),
+          globalPosition: const ui.Offset(280, 240),
+        ),
+      );
+      await tester.pump();
+      controller.endDrag(
+        DragEndDetails(
+          primaryVelocity: -120,
+          velocity: const Velocity(pixelsPerSecond: ui.Offset(-120, 0)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.session.progress!.pageIndex, 1);
+    });
+  }
+
+  for (final next in [false, true]) {
+    testWidgets('${next ? '下一页' : '上一页'}轻扫方向一致即翻页，反向甩动回弹', (tester) async {
+      Future<int> run({
+        required double distance,
+        required double velocity,
+      }) async {
+        final controller = await _controller(tester);
+        final down = ui.Offset(next ? 310 : 10, 240);
+        controller.pointerDown(down);
+        controller.beginDrag(DragStartDetails(localPosition: down));
+        _move(
+          controller,
+          ui.Offset(next ? 310 - distance : 10 + distance, 240),
+        );
+        await tester.pump();
+        controller.endDrag(
+          DragEndDetails(
+            primaryVelocity: velocity,
+            velocity: Velocity(pixelsPerSecond: ui.Offset(velocity, 0)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final page = controller.session.progress!.pageIndex;
+        await controller.session.flushProgress();
+        return page;
+      }
+
+      expect(
+        await run(distance: 30, velocity: 0),
+        next ? 2 : 0,
+        reason: '慢拖超过 8% 页宽即按起手方向提交',
+      );
+      expect(
+        await run(distance: 20, velocity: next ? -120 : 120),
+        next ? 2 : 0,
+        reason: '轻扫方向一致即翻页，不再要求 1/4 页宽',
+      );
+      expect(
+        await run(distance: 20, velocity: next ? 120 : -120),
+        next ? 1 : 1,
+        reason: '反向甩动取消',
+      );
+      expect(
+        await run(distance: 10, velocity: 0),
+        next ? 1 : 1,
+        reason: '细微抖动不翻页',
+      );
     });
   }
 

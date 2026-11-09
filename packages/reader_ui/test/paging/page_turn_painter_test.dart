@@ -28,6 +28,10 @@ class _Controller extends PageTurnController {
   });
 
   bool invalidGeometry = false;
+  double opacity = 1;
+
+  @override
+  double get targetOpacity => opacity;
 
   @override
   BesselGeometry? get besselGeometry =>
@@ -131,6 +135,33 @@ void _expectMirrored(ByteData forward, ByteData backward) {
 }
 
 void main() {
+  for (final mode in [
+    PageTurnMode.simulationBessel,
+    PageTurnMode.cover,
+    PageTurnMode.coverStack,
+    PageTurnMode.slideHorizontal,
+  ]) {
+    testWidgets('${mode.label}冷目标首帧与等待帧像素一致且渐入不透明', (tester) async {
+      final controller = _controller(tester)
+        ..mode = mode
+        ..progress = 0.08
+        ..point = const Offset(168, 220);
+      final target = controller.targetImage;
+      controller.targetImage = null;
+      final waiting = await tester.runAsync(() => _render(controller));
+      controller.targetImage = target;
+      controller.opacity = 0;
+      final first = await tester.runAsync(() => _render(controller));
+      expect(first!.buffer.asUint8List(), waiting!.buffer.asUint8List());
+      controller.opacity = 0.5;
+      final middle = await tester.runAsync(() => _render(controller));
+      final bytes = middle!.buffer.asUint8List();
+      for (var index = 3; index < bytes.length; index += 4) {
+        expect(bytes[index], 255, reason: '接续合成不能出现透明裂隙');
+      }
+    });
+  }
+
   for (final mode in [
     PageTurnMode.cover,
     PageTurnMode.coverStack,

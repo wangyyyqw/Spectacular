@@ -12,6 +12,9 @@ enum PageTurnMode {
   /// 二次贝塞尔轮廓与纸背反射。
   simulationBessel('simulationBessel', '贝塞尔仿真'),
 
+  /// 固定 UV 的圆柱卷曲，带纸背与明暗。
+  simulation3d('simulation3d', '3D仿真'),
+
   /// 按元素流纵向连续阅读。
   scroll('scroll', '连续滚动'),
 

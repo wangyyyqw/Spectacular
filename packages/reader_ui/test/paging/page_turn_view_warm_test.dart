@@ -52,6 +52,11 @@ class _Source implements ReaderChapterSource {
   }
 }
 
+class _FiveChapterSource extends _Source {
+  @override
+  int get chapterCount => 5;
+}
+
 class _GatedSource extends _Source {
   final previous = Completer<List<PageContent>>();
 
@@ -105,6 +110,52 @@ class _LongChapterSource extends _Source {
 }
 
 void main() {
+  for (final mode in PageTurnMode.values.where(
+    (mode) => mode != PageTurnMode.none,
+  )) {
+    testWidgets('${mode.label} 跨两章按近邻优先预热前后各两页', (tester) async {
+      final source = _FiveChapterSource();
+      final store = MemoryReaderProgressStore();
+      await store.save(
+        '跨章两页',
+        const ReaderProgress(spineIndex: 2, pageIndex: 0),
+      );
+      final session = ReaderSession(
+        source: source,
+        store: store,
+        bookId: '跨章两页',
+      );
+      await session.open();
+      addTearDown(session.dispose);
+      final key = GlobalKey<PageTurnViewState>();
+      final prepared = <int>[];
+      await tester.pumpWidget(
+        _inputView(
+          session,
+          key,
+          mode: mode,
+          prepare: (page) async {
+            prepared.add(page.spineIndex);
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(source.loads, [2, 3, 1, 4, 0]);
+      expect(prepared, [2, 3, 1, 4, 0]);
+      expect(key.currentState!.snapshotCount, 5);
+      expect(
+        key.currentState!.snapshotBytes,
+        lessThanOrEqualTo(64 * 1024 * 1024),
+      );
+      expect(
+        session.progress,
+        const ReaderProgress(spineIndex: 2, pageIndex: 0),
+      );
+      expect(session.pageTurns, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   for (final mode in [PageTurnMode.cover, PageTurnMode.none]) {
     testWidgets('${mode.label} 章内阅读即准备邻章且不提交或遍历全书', (tester) async {
       final source = _LongChapterSource();
@@ -424,6 +475,29 @@ void main() {
 
     expect(session.page!.spineIndex, 1);
     await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('章内预热当前页前后各两页', (tester) async {
+    final source = _LongChapterSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'warm-radius',
+      const ReaderProgress(spineIndex: 1, pageIndex: 3),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'warm-radius',
+    );
+    await session.open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    await tester.pumpWidget(_inputView(session, key));
+    await tester.pumpAndSettle();
+
+    expect(key.currentState!.snapshotCount, 5, reason: '当前页加前后各两页');
+    expect(session.adjacentPages.length, 4);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

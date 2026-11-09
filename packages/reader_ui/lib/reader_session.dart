@@ -463,10 +463,16 @@ class ReaderSession extends ChangeNotifier {
   ];
 
   /// 空闲时按阅读方向提前排版邻章，结果只进缓存，不修改阅读进度。
-  Future<void> prefetchTurnChapter(bool next) async {
+  Future<void> prefetchTurnChapter(
+    bool next, {
+    bool Function()? shouldContinue,
+  }) async {
     if (_disposed || _loading) return;
     try {
-      await _pager?.prefetchChapter(next ? 1 : -1);
+      await _pager?.prefetchChapter(
+        next ? 1 : -1,
+        shouldContinue: shouldContinue,
+      );
     } on ChapterLoadCancelled {
       // 用户导航或重排可抢占预取，下次空闲时再准备。
     }
@@ -476,6 +482,8 @@ class ReaderSession extends ChangeNotifier {
   Future<PreparedPageTurn?> preparePageTurn(
     bool next, {
     bool prefetch = false,
+    int distance = 1,
+    bool Function()? shouldContinue,
   }) async {
     final pager = _pager;
     final origin = page;
@@ -483,7 +491,12 @@ class ReaderSession extends ChangeNotifier {
     if (pager == null || origin == null || _loading) return null;
     VirtualPage? target;
     try {
-      target = await pager.prepareAdjacent(next ? 1 : -1, prefetch: prefetch);
+      target = await pager.prepareAdjacent(
+        next ? 1 : -1,
+        prefetch: prefetch,
+        distance: distance,
+        shouldContinue: shouldContinue,
+      );
     } on ChapterLoadCancelled {
       return null;
     }
@@ -1309,6 +1322,8 @@ class ReaderSession extends ChangeNotifier {
       final pager = VirtualPager(
         spineCount: source.chapterCount,
         loader: _loadChapter,
+        // 快照缓存与翻页预热按当前页前后各两页准备。
+        prefetchRadius: 2,
         prefetchLoader: source is ScheduledChapterSource
             ? _prefetchChapter
             : null,
@@ -1801,6 +1816,7 @@ class ReaderSession extends ChangeNotifier {
         spineCount: source.chapterCount,
         loader: (index) =>
             index == spine ? Future.value(pages) : _loadChapter(index),
+        prefetchRadius: 2,
         prefetchLoader: source is ScheduledChapterSource
             ? _prefetchChapter
             : null,
