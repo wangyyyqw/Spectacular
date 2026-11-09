@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/animation.dart';
@@ -23,27 +24,32 @@ class PageTurnController extends ChangeNotifier {
     required this.acquireImage,
   }) {
     _settling = AnimationController(vsync: vsync)..addListener(_animateFrame);
-    _catchUp = AnimationController(
+    _targetFade = AnimationController(
       vsync: vsync,
       duration: const Duration(milliseconds: 100),
-    )..addListener(_catchUpFrame);
+    )..addListener(_targetFadeFrame);
+    _positionCatchUp = vsync.createTicker(_catchUpPositionFrame);
     session.addListener(_sessionChanged);
   }
 
   final ReaderSession session;
   final Future<ui.Image?> Function(PageContent page) acquireImage;
   late final AnimationController _settling;
-  late final AnimationController _catchUp;
+  late final AnimationController _targetFade;
+  late final Ticker _positionCatchUp;
+  Duration _catchUpElapsed = Duration.zero;
   bool _preparationVisible = false;
-  double _catchUpProgress = 0;
-  ui.Offset? _catchUpPoint;
   bool _lifting = false, _rejected3dDrag = false;
   bool _starting3dAnimation = false;
   Timer? _tapRelease;
   Curl3dGeometry? _lastCurlGeometry;
 
-  /// 冷目标露底渐入，折角位置仍由当前手势决定。
-  double get targetOpacity => _catchUp.isAnimating ? _catchUp.value : 1;
+  static const _catchUpFrameLimit = Duration(milliseconds: 16);
+  static const _catchUpResponse = Duration(milliseconds: 50);
+  static const _catchUpTravel = Duration(milliseconds: 320);
+
+  /// 冷目标露底渐入，独立于折角位置的追赶。
+  double get targetOpacity => _targetFade.isAnimating ? _targetFade.value : 1;
   PageTurnPhase phase = PageTurnPhase.idle;
   PageTurnMode mode = PageTurnMode.cover;
   ui.Size size = ui.Size.zero;
@@ -183,6 +189,7 @@ class PageTurnController extends ChangeNotifier {
       return;
     }
     if (!_dragging) return;
+    _positionCatchUp.stop();
     if (mode == PageTurnMode.simulation3d) _stopLifting();
     _released = true;
     _dragging = false;
@@ -394,10 +401,8 @@ class PageTurnController extends ChangeNotifier {
 
   void _updateDragFrame() {
     if (mode == PageTurnMode.simulation3d && (_lifting || _released)) return;
-    if (_catchUp.isAnimating && mode != PageTurnMode.simulation3d) {
-      _catchUpFrame();
-      return;
-    }
+    // 追赶期间只记录最新输入，同一帧内的手势不能重复推进显示位置。
+    if (_positionCatchUp.isActive) return;
     _resolveDragFrame();
     if (phase == PageTurnPhase.preparing && !_preparationVisible) {
       final token = _token;
@@ -435,24 +440,65 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _startCatchUp() {
-    _catchUpProgress = progress;
-    _catchUpPoint = point;
-    _catchUp.forward(from: 0);
+    if (mode != PageTurnMode.simulation3d && !_released) {
+      _startPositionCatchUp();
+    }
+    _targetFade.forward(from: 0);
     if (mode == PageTurnMode.simulation3d && !_released) _updateDragFrame();
   }
 
-  void _catchUpFrame() {
-    if (mode != PageTurnMode.simulation3d &&
-        phase == PageTurnPhase.dragging &&
-        !_released) {
-      _resolveDragFrame();
-      final t = Curves.easeOutCubic.transform(_catchUp.value);
-      progress = _catchUpProgress + (progress - _catchUpProgress) * t;
-      if (mode == PageTurnMode.simulationBessel) {
-        point = ui.Offset.lerp(_catchUpPoint, point, t);
-      }
-    }
+  void _targetFadeFrame() {
     if (!_disposed) notifyListeners();
+  }
+
+  void _startPositionCatchUp() {
+    _catchUpElapsed = Duration.zero;
+    _positionCatchUp.start();
+  }
+
+  /// 丢帧只延长追赶；每帧最多推进一页宽的 5%，不能补跳等待期间的位移。
+  void _catchUpPositionFrame(Duration elapsed) {
+    final delta = elapsed - _catchUpElapsed;
+    _catchUpElapsed = elapsed;
+    final waiting3d =
+        mode == PageTurnMode.simulation3d && phase == PageTurnPhase.preparing;
+    if ((!waiting3d && phase != PageTurnPhase.dragging) ||
+        _released ||
+        _disposed) {
+      _positionCatchUp.stop();
+      return;
+    }
+    final micros = math.min(
+      delta.inMicroseconds,
+      _catchUpFrameLimit.inMicroseconds,
+    );
+    if (micros <= 0) return;
+    _advanceCatchUpPosition(micros);
+    notifyListeners();
+  }
+
+  void _advanceCatchUpPosition(int frameMicros) {
+    final previousPoint = point;
+    final previousProgress = progress;
+    _resolveDragFrame();
+    final pointBased =
+        mode == PageTurnMode.simulationBessel ||
+        mode == PageTurnMode.simulation3d;
+    final distance = pointBased
+        ? (point! - previousPoint!).distance
+        : (progress - previousProgress).abs() * size.width;
+    if (distance <= 0.5) {
+      _positionCatchUp.stop();
+      return;
+    }
+    // 接近触点时减速；较远时以一页宽 / 320ms 的上限追赶当前目标。
+    final t = math.min(
+      frameMicros / _catchUpResponse.inMicroseconds,
+      size.width * frameMicros / (_catchUpTravel.inMicroseconds * distance),
+    );
+    progress = previousProgress + (progress - previousProgress) * t;
+    if (pointBased) point = ui.Offset.lerp(previousPoint, point, t);
+    if (mode == PageTurnMode.simulation3d) progress = _curlProgress();
   }
 
   bool _shouldComplete() {
@@ -503,6 +549,7 @@ class PageTurnController extends ChangeNotifier {
   static const double _distanceGuard = 0.08;
 
   void _settle(bool complete) {
+    _positionCatchUp.stop();
     _stopLifting();
     _complete = complete;
     _startProgress = progress;
@@ -592,12 +639,27 @@ class PageTurnController extends ChangeNotifier {
     if (value == 1) {
       _settling.stop(canceled: false);
       if (_lifting) {
-        _lifting = false;
-        if (!_released) point = _curlPointer();
+        _finishLifting();
       }
     }
     progress = _curlProgress();
     notifyListeners();
+  }
+
+  void _finishLifting() {
+    _lifting = false;
+    if (_released) return;
+    final target = _curlPointer();
+    final limit =
+        size.width *
+        _catchUpFrameLimit.inMicroseconds /
+        _catchUpTravel.inMicroseconds;
+    if ((target - point!).distance <= limit) {
+      point = target;
+    } else {
+      // 起卷期间积累的大幅移动继续逐帧追赶，不能在动画末帧重设触点。
+      _startPositionCatchUp();
+    }
   }
 
   void _finish() {
@@ -661,7 +723,8 @@ class PageTurnController extends ChangeNotifier {
     _lifting = false;
     _lastCurlGeometry = null;
     _settling.stop(canceled: true);
-    _catchUp.stop(canceled: true);
+    _targetFade.stop(canceled: true);
+    _positionCatchUp.stop();
     phase = PageTurnPhase.idle;
     originImage = targetImage = null;
     final prepared = turn;
@@ -690,7 +753,8 @@ class PageTurnController extends ChangeNotifier {
     cancel();
     session.removeListener(_sessionChanged);
     _settling.dispose();
-    _catchUp.dispose();
+    _targetFade.dispose();
+    _positionCatchUp.dispose();
     super.dispose();
   }
 }
