@@ -45,11 +45,7 @@ Future<PageTurnController> _controller(
     bookId: 'curl',
   );
   await session.open();
-  final recorder = ui.PictureRecorder();
-  ui.Canvas(recorder);
-  final picture = recorder.endRecording();
-  final image = picture.toImageSync(1, 1);
-  picture.dispose();
+  final image = _image();
   final controller =
       PageTurnController(
           session: session,
@@ -69,6 +65,55 @@ Future<PageTurnController> _controller(
     image.dispose();
   });
   return controller;
+}
+
+ui.Image _image() {
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder);
+  final picture = recorder.endRecording();
+  final image = picture.toImageSync(1, 1);
+  picture.dispose();
+  return image;
+}
+
+Future<PageTurnController> _curlController(
+  WidgetTester tester, {
+  bool rtl = false,
+  Future<void>? imageGate,
+  Future<void>? targetImageGate,
+  int pageCount = 3,
+}) async => (await _controller(
+  tester,
+  rtl: rtl,
+  imageGate: imageGate,
+  targetImageGate: targetImageGate,
+  pageCount: pageCount,
+))..mode = PageTurnMode.simulation3d;
+
+Future<void> _startCurlDrag(
+  WidgetTester tester,
+  PageTurnController controller,
+  ui.Offset down,
+  ui.Offset touch,
+) async {
+  final physical = ui.Offset(
+    controller.rtl ? controller.size.width - down.dx : down.dx,
+    down.dy,
+  );
+  controller.pointerDown(physical);
+  controller.beginDrag(DragStartDetails(localPosition: physical));
+  _move(controller, touch);
+  await tester.pump();
+  await tester.pump();
+}
+
+void _releaseCurl(PageTurnController controller, double velocity) {
+  controller.endDrag(
+    DragEndDetails(
+      primaryVelocity: velocity,
+      velocity: Velocity(pixelsPerSecond: ui.Offset(velocity, 0)),
+    ),
+  );
 }
 
 void _move(PageTurnController controller, ui.Offset canonical) {
@@ -168,6 +213,20 @@ Completer<void> _requestWithActivationCancellation(
 }
 
 void main() {
+  testWidgets('3D 起手以平移检测器的采样锚点为准', (tester) async {
+    final controller = await _curlController(tester);
+    controller.pointerDown(const ui.Offset(310, 100));
+    controller.beginDrag(
+      DragStartDetails(localPosition: const ui.Offset(282, 240)),
+    );
+    _move(controller, const ui.Offset(265, 240));
+    await tester.pump();
+    await tester.pump();
+    expect(controller.horizontal, isTrue);
+    expect(controller.grab, const ui.Offset(320, 240));
+    controller.cancel();
+  });
+
   testWidgets('无动画目标激活前取消后可继续翻页', (tester) async {
     final controller = (await _controller(tester))..mode = PageTurnMode.none;
     final cancelled = _requestWithActivationCancellation(controller);
@@ -329,7 +388,6 @@ void main() {
     PageTurnMode.cover,
     PageTurnMode.coverStack,
     PageTurnMode.simulationBessel,
-    PageTurnMode.simulation3d,
     PageTurnMode.slideHorizontal,
   ]) {
     testWidgets('${mode.label}收尾统一使用 420 毫秒动画', (tester) async {
@@ -352,28 +410,364 @@ void main() {
     });
   }
 
-  testWidgets('3D 仿真折角跟随触点移动', (tester) async {
-    final controller = await _controller(tester);
-    controller.mode = PageTurnMode.simulation3d;
-    const down = ui.Offset(310, 240);
-    controller.pointerDown(down);
-    controller.beginDrag(DragStartDetails(localPosition: down));
-    _move(controller, const ui.Offset(150, 300));
-    await tester.pump();
-    await tester.pump();
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      testWidgets('3D $rtl/$next 严格三分区且实际指针只按 RTL 镜像', (tester) async {
+        final controller = await _curlController(tester, rtl: rtl);
+        for (final y in <double>[159.9, 160, 240, 320, 320.1]) {
+          final x = next ? 220.0 : 100.0;
+          await _startCurlDrag(
+            tester,
+            controller,
+            ui.Offset(next ? 310 : 10, y),
+            ui.Offset(x, y + 60),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
 
-    expect(controller.point, isNotNull);
-    expect(controller.point!.dx, closeTo(160, 0.5));
-    expect(controller.point!.dy, closeTo(300, 0.5));
-    final geometry = controller.curl3dGeometry!;
-    expect(geometry.grab, const ui.Offset(320, 240));
-    final corner = geometry.pointAt(geometry.grab).position;
-    expect(
-      (corner - controller.point!).distance,
-      lessThan(0.01),
-      reason: '折起的页角必须贴在触点上',
+          final center = y >= 160 && y <= 320;
+          final grabY = center ? 240.0 : (y < 160 ? 0.0 : 480.0);
+          expect(controller.next, next);
+          expect(controller.horizontal, center);
+          expect(controller.grab, ui.Offset(next ? 320 : -320, grabY));
+          expect(controller.point, ui.Offset(x, center ? 240 : y + 60));
+          expect(controller.curl3dGeometry!.touch, controller.point);
+          _move(controller, ui.Offset(x + (next ? -30 : 30), 520));
+          expect(controller.point!.dy, center ? 240 : 520);
+          controller.cancel();
+          expect(controller.session.pageTurns, 0);
+        }
+      });
+
+      testWidgets('3D $rtl/$next 拖回右缘及越界保留本轮网格，新轮不复用', (tester) async {
+        final controller = await _curlController(tester, rtl: rtl);
+        await _startCurlDrag(
+          tester,
+          controller,
+          ui.Offset(next ? 310 : 10, 240),
+          ui.Offset(next ? 220 : 100, 240),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+        final folded = controller.curl3dGeometry!;
+        expect(folded.active, isTrue);
+        for (final x in <double>[320, 350]) {
+          _move(controller, ui.Offset(x, 240));
+          expect(controller.point, ui.Offset(x, 240));
+          expect(controller.curl3dGeometry, same(folded));
+        }
+        controller.cancel();
+        expect(controller.curl3dGeometry, isNull);
+        controller.request(true);
+        final initial = controller.curl3dGeometry!;
+        expect(initial.active, isFalse);
+        expect(initial, isNot(same(folded)));
+        expect(
+          initial.pointAt(const ui.Offset(300, 200)).position,
+          const ui.Offset(300, 200),
+        );
+        controller.cancel();
+        await tester.pumpAndSettle();
+        expect(controller.session.pageTurns, 0);
+      });
+
+      testWidgets('3D $rtl/$next 普通松手严格超过 10 dp、快扫按释放方向', (tester) async {
+        const cases = [
+          (distance: 10.0, velocity: 0.0, backtrack: false, complete: false),
+          (distance: 11.0, velocity: 0.0, backtrack: false, complete: true),
+          (distance: 11.0, velocity: 0.0, backtrack: true, complete: true),
+          (distance: 40.0, velocity: -19.0, backtrack: false, complete: true),
+          (distance: 11.0, velocity: 20.0, backtrack: false, complete: true),
+          (distance: 40.0, velocity: -20.0, backtrack: false, complete: false),
+          (distance: 0.0, velocity: 0.0, backtrack: true, complete: true),
+        ];
+        for (final sample in cases) {
+          final controller = await _curlController(tester, rtl: rtl);
+          final sign = next ? -1.0 : 1.0;
+          final down = ui.Offset(next ? 310 : 10, 240);
+          await _startCurlDrag(
+            tester,
+            controller,
+            down,
+            down.translate(sign * (sample.backtrack ? 40 : sample.distance), 0),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+          if (sample.backtrack) {
+            _move(controller, down.translate(sign * sample.distance, 0));
+          }
+          final velocity = sample.velocity * sign * (rtl ? -1 : 1);
+          _releaseCurl(controller, velocity);
+          _releaseCurl(controller, -velocity);
+          await tester.pumpAndSettle();
+
+          expect(
+            controller.session.page!.pageIndex,
+            sample.complete ? (next ? 2 : 0) : 1,
+          );
+          expect(controller.session.pageTurns, sample.complete ? 1 : 0);
+          await controller.session.flushProgress();
+        }
+      });
+    }
+  }
+
+  testWidgets('3D 起手按屏高计算时长并使用 smoothstep', (tester) async {
+    final controller = await _curlController(tester);
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(280, 300),
     );
+    expect(controller.point, const ui.Offset(320, 240));
+    await tester.pump(const Duration(milliseconds: 5));
+    expect(controller.point!.dx, closeTo(315.84, 0.001));
+    _move(controller, const ui.Offset(270, 40));
+    expect(controller.point!.dx, closeTo(315.84, 0.001));
+    await tester.pump(const Duration(milliseconds: 19));
+    expect(controller.point!.dx, greaterThan(280));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(controller.point, const ui.Offset(270, 240));
     controller.cancel();
+  });
+
+  testWidgets('3D 起手上限 100 ms、完成收尾按距离计算时长', (tester) async {
+    final controller = await _curlController(tester);
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(160, 240),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.point, const ui.Offset(240, 240));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.point, const ui.Offset(160, 240));
+
+    controller.endDrag(DragEndDetails());
+    expect(controller.point, const ui.Offset(160, 240));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(controller.point, const ui.Offset(-80, 240));
+    expect(controller.session.pageTurns, 0);
+    await tester.pump(const Duration(milliseconds: 149));
+    expect(controller.phase, PageTurnPhase.settling);
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pumpAndSettle();
+    expect(controller.session.page!.pageIndex, 2);
+    expect(controller.session.pageTurns, 1);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('3D 起手中松手从已显示位置接续并以 150 ms 回弹', (tester) async {
+    final controller = await _curlController(tester);
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(160, 240),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.point, const ui.Offset(240, 240));
+    _releaseCurl(controller, 20);
+    expect(controller.point, const ui.Offset(240, 240));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 75));
+    expect(controller.point, const ui.Offset(280, 240));
+    await tester.pump(const Duration(milliseconds: 74));
+    expect(controller.phase, PageTurnPhase.settling);
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pumpAndSettle();
+    expect(controller.session.page!.pageIndex, 1);
+    expect(controller.session.pageTurns, 0);
+  });
+
+  testWidgets('3D 冷目标等待时冻结松手显示点，就绪后连续收尾', (tester) async {
+    final gate = Completer<void>();
+    final controller = await _curlController(
+      tester,
+      targetImageGate: gate.future,
+    );
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 80),
+      const ui.Offset(150, 120),
+    );
+    await tester.pump(const Duration(milliseconds: 25));
+    final displayed = controller.point;
+    controller.endDrag(DragEndDetails());
+    expect(controller.point, displayed);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(controller.phase, PageTurnPhase.preparing);
+    expect(controller.point, displayed);
+    gate.complete();
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.settling);
+    expect(controller.point, displayed);
+    await tester.pumpAndSettle();
+    expect(controller.session.page!.pageIndex, 2);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('3D 冷目标只渐入透明度，手指不参与渐入插值', (tester) async {
+    final gate = Completer<void>();
+    final controller = await _curlController(
+      tester,
+      targetImageGate: gate.future,
+    );
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(220, 300),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    gate.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(controller.targetOpacity, 0);
+    _move(controller, const ui.Offset(150, 50));
+    expect(controller.point, const ui.Offset(150, 240));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.targetOpacity, closeTo(0.5, 0.001));
+    _move(controller, const ui.Offset(140, 500));
+    expect(controller.point, const ui.Offset(140, 240));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.targetOpacity, 1);
+    controller.cancel();
+  });
+
+  for (final next in [false, true]) {
+    testWidgets('3D 点击${next ? '前进等待 50' : '后退等待 75'} ms 并复用按下纵坐标', (
+      tester,
+    ) async {
+      final controller = await _curlController(tester);
+      controller.pointerDown(const ui.Offset(290, 80));
+      controller.request(next);
+      await tester.pump();
+      await tester.pump();
+      expect(controller.grab, ui.Offset(next ? 320 : -320, 0));
+      expect(controller.phase, PageTurnPhase.dragging);
+      final delay = next ? 50 : 75;
+      await tester.pump(Duration(milliseconds: delay - 1));
+      final displayed = controller.point;
+      expect(controller.phase, PageTurnPhase.dragging);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(controller.phase, PageTurnPhase.settling);
+      expect(controller.point, displayed);
+      await tester.pumpAndSettle();
+      expect(controller.session.page!.pageIndex, next ? 2 : 0);
+      await controller.session.flushProgress();
+    });
+  }
+
+  testWidgets('3D 活动时拒绝点击与新拖动，冷准备和收尾均不排队', (tester) async {
+    final gate = Completer<void>();
+    final controller = await _curlController(
+      tester,
+      targetImageGate: gate.future,
+      pageCount: 5,
+    );
+    controller.request(true);
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.preparing);
+    controller.request(false);
+    _swipeDuringTurn(controller, next: false);
+    await tester.pump(const Duration(milliseconds: 50));
+    final displayed = controller.point;
+    gate.complete();
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.settling);
+    controller.request(true);
+    _swipeDuringTurn(controller);
+    expect(controller.point, displayed);
+    await tester.pumpAndSettle();
+    expect(controller.session.page!.pageIndex, 2);
+    expect(controller.session.pageTurns, 1);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('3D 按住原拖动时拒绝的新手势不覆盖原触点', (tester) async {
+    final controller = await _curlController(tester, pageCount: 5);
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(220, 240),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    controller.request(false);
+    _swipeDuringTurn(controller, next: false);
+    expect(controller.phase, PageTurnPhase.dragging);
+    expect(controller.point, const ui.Offset(220, 240));
+    _releaseCurl(controller, 0);
+    await tester.pumpAndSettle();
+    expect(controller.session.page!.pageIndex, 2);
+    expect(controller.session.pageTurns, 1);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('3D 起手首次同步通知中取消后不再回写', (tester) async {
+    final controller = await _curlController(tester);
+    var cancelled = false;
+    controller.addListener(() {
+      if (cancelled || controller.originImage == null) return;
+      cancelled = true;
+      controller.cancel();
+    });
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(cancelled, isTrue);
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.point, isNull);
+    expect(controller.progress, 0);
+    expect(controller.session.pageTurns, 0);
+  });
+
+  testWidgets('3D 取消后的旧点击等待不能覆盖新 token', (tester) async {
+    final controller = await _curlController(tester);
+    controller.request(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+    controller.cancel();
+    controller.request(false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(controller.phase, PageTurnPhase.dragging);
+    expect(controller.next, isFalse);
+    expect(controller.session.pageTurns, 0);
+    controller.cancel();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.page!.pageIndex, 1);
+  });
+
+  testWidgets('3D dispose 取消点击等待及起手回写', (tester) async {
+    final image = _image();
+    final session = ReaderSession(
+      source: _Source(3),
+      store: MemoryReaderProgressStore(),
+      bookId: 'dispose-curl',
+    );
+    await session.open();
+    final controller =
+        PageTurnController(
+            session: session,
+            vsync: tester,
+            acquireImage: (_) async => image,
+          )
+          ..size = const ui.Size(320, 480)
+          ..mode = PageTurnMode.simulation3d;
+    addTearDown(() {
+      session.dispose();
+      image.dispose();
+    });
+    controller.request(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+    controller.dispose();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.takeException(), isNull);
+    expect(session.pageTurns, 0);
   });
 
   testWidgets('动画期间快速连续点击逐页排队翻页', (tester) async {

@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:reader_core/layout/paginator.dart';
 
 import '../reader_session.dart';
+import 'duokan_curl_shader.dart';
 import 'page_snapshot_cache.dart';
 import 'page_turn_controller.dart';
 import 'page_turn_mode.dart';
@@ -18,6 +19,9 @@ typedef ReaderPaperBuilder = Widget Function(PageContent page, Size size);
 /// 生成纸面快照前解码该页图片，避免翻页完成后才补图。
 typedef ReaderPageImagesPreparer = Future<void> Function(PageContent page);
 
+/// 不含正文的阅读主题纸底，与完整纸面使用同一套背景绘制。
+typedef ReaderPaperBackgroundPainter = void Function(Canvas canvas, Size size);
+
 class PageTurnView extends StatefulWidget {
   const PageTurnView({
     super.key,
@@ -27,6 +31,7 @@ class PageTurnView extends StatefulWidget {
     required this.paperBuilder,
     required this.paperColor,
     this.preparePageImages,
+    this.paintBackground,
     this.preload = true,
     this.rtl = false,
   });
@@ -37,6 +42,7 @@ class PageTurnView extends StatefulWidget {
   final ReaderPaperBuilder paperBuilder;
   final Color paperColor;
   final ReaderPageImagesPreparer? preparePageImages;
+  final ReaderPaperBackgroundPainter? paintBackground;
   final bool rtl;
 
   /// 重排编辑期间暂停后台准备，避免预览尚未稳定时抢跑邻章。
@@ -70,6 +76,7 @@ class PageTurnViewState extends State<PageTurnView>
   PageContent? _renderedPage;
   PageContent? _staticPage;
   ui.Image? _staticImage;
+  ui.Image? _backgroundImage;
   bool _staticPaperReady = false;
   int _staticToken = 0;
   final _window = <int, PageContent>{};
@@ -84,8 +91,12 @@ class PageTurnViewState extends State<PageTurnView>
 
   Set<PageContent> get _windowPages => _window.values.toSet();
 
-  int get snapshotBytes => _cache.bytes;
-  int get snapshotCount => _cache.length;
+  int get snapshotBytes =>
+      _cache.bytes +
+      (_backgroundImage == null
+          ? 0
+          : _backgroundImage!.width * _backgroundImage!.height * 4);
+  int get snapshotCount => _cache.length + (_backgroundImage == null ? 0 : 1);
 
   /// 该页由完整快照承接，补图后的静态重绘交给本视口统一恢复。
   bool isPresentingSnapshot(PageContent page) => identical(_staticPage, page);
@@ -118,7 +129,14 @@ class PageTurnViewState extends State<PageTurnView>
     _windowPage = null;
     _captures.clear();
     _cache.clear();
+    _clearBackgroundImage();
     _clearStaticImage();
+  }
+
+  void _clearBackgroundImage() {
+    _backgroundImage?.dispose();
+    _backgroundImage = null;
+    _cache.reservedBytes = 0;
   }
 
   void _controllerChanged() {
@@ -227,11 +245,36 @@ class PageTurnViewState extends State<PageTurnView>
     return result;
   }
 
-  Future<ui.Image?> _acquireTurnImage(PageContent page) {
+  Future<ui.Image?> _acquireTurnImage(PageContent page) async {
     if (_usesWindow) return _enqueueWindowCapture(page, urgent: true);
-    // 3D 仿真保留原有捕获策略。
     _cancelPendingCaptures();
+    final token = _captureToken;
+    if (widget.mode == PageTurnMode.simulation3d) {
+      await _prepareCurlBackground();
+      if (!mounted || token != _captureToken) return null;
+    }
     return _enqueueCapture(page);
+  }
+
+  Future<void> _prepareCurlBackground() async {
+    final token = _captureToken;
+    await DuokanCurlShader.load();
+    if (!mounted || token != _captureToken || _backgroundImage != null) return;
+    final paint = widget.paintBackground;
+    if (paint == null || _size.isEmpty) return;
+    final recorder = ui.PictureRecorder();
+    paint(Canvas(recorder)..scale(_ratio), _size);
+    final picture = recorder.endRecording();
+    try {
+      _backgroundImage = picture.toImageSync(
+        (_size.width * _ratio).ceil(),
+        (_size.height * _ratio).ceil(),
+      );
+      _cache.reservedBytes =
+          _backgroundImage!.width * _backgroundImage!.height * 4;
+    } finally {
+      picture.dispose();
+    }
   }
 
   void _syncWindow() {
@@ -412,6 +455,10 @@ class PageTurnViewState extends State<PageTurnView>
     final token = _captureToken;
     final animate = widget.mode != PageTurnMode.none;
     if (!_canWarm(page, token)) return;
+    if (widget.mode == PageTurnMode.simulation3d) {
+      await _prepareCurlBackground();
+      if (!_canWarm(page, token)) return;
+    }
     if (animate) {
       await (_usesWindow ? _enqueueWindowCapture(page) : _enqueueCapture(page));
     }
@@ -489,7 +536,7 @@ class PageTurnViewState extends State<PageTurnView>
     builder: (context, constraints) {
       final size = constraints.biggest;
       final deviceRatio = MediaQuery.devicePixelRatioOf(context);
-      // 位图宽高按像素取整；预算覆盖当前页与前后各两页共五个快照。
+      // 纹理纸底占用同一预算，六张容量覆盖五张页面与一张纸底。
       final cacheRatio =
           math.sqrt(
             _cache.maxBytes /
@@ -555,6 +602,7 @@ class PageTurnViewState extends State<PageTurnView>
                   painter: PageTurnPainter(
                     controller,
                     paperColor: widget.paperColor,
+                    backgroundImage: _backgroundImage,
                   ),
                 ),
               ),
@@ -571,6 +619,7 @@ class PageTurnViewState extends State<PageTurnView>
     controller.removeListener(_controllerChanged);
     controller.dispose();
     _cache.clear();
+    _clearBackgroundImage();
     _clearStaticImage();
     super.dispose();
   }

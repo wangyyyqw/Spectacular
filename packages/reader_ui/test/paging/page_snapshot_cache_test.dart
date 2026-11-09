@@ -74,4 +74,22 @@ void main() {
     expect(cache.bytes, 0);
     expect(cache.length, 0);
   });
+
+  test('纸底占用同一预算并淘汰旧页，清空后释放预留', () {
+    final cache = PageSnapshotCache(maxBytes: 48);
+    final pages = [for (var index = 0; index < 3; index++) _page(index)];
+    for (final page in pages) {
+      cache.put(page, _image(2, 2));
+    }
+    cache.reservedBytes = 16;
+    expect(cache.bytes, 32);
+    expect(cache.length, 2);
+    expect(cache.get(pages.first), isNull);
+    cache.clear();
+    for (final page in pages) {
+      cache.put(page, _image(2, 2));
+    }
+    expect(cache.length, 3, reason: '纸底已释放，容量应恢复');
+    cache.clear();
+  });
 }

@@ -2580,6 +2580,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       config: ReaderGestureConfig(
         tapZones: _tapZones,
         verticalWriting: _readingRtl,
+        minimumFlingVelocity: _effectiveTurnMode == PageTurnMode.simulation3d
+            ? 20
+            : null,
       ),
       onPrevious: () => _requestPageTurn(false),
       onNext: () => _requestPageTurn(true),
@@ -2611,12 +2614,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         revision: revision,
         paperBuilder: _buildPaper,
         paperColor: _effectiveTheme?.background ?? widget.background,
+        paintBackground: _painter.pageBackgroundImage == null
+            ? null
+            : _paintTurnBackground,
         preparePageImages: _prepareTurnPageImages,
         preload: !_editingMargins && !_finishingMarginEdit,
         rtl: _readingRtl,
       ),
     );
   }
+
+  void _paintTurnBackground(Canvas canvas, Size size) => _painter
+      .paintBackground(canvas, pageSize: size, pageInsets: _bodyPadding());
 
   Widget _buildPaper(PageContent page, Size size) => ClipRect(
     key: ValueKey('reader-page-${page.spineIndex}-${page.pageIndex}'),

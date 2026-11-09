@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/bessel_geometry.dart';
+import 'package:reader_ui/paging/duokan_curl_shader.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_painter.dart';
@@ -61,6 +62,9 @@ ui.Image _splitImage(Color left, Color right) {
 }
 
 Future<ByteData> _render(PageTurnController controller) async {
+  if (controller.mode == PageTurnMode.simulation3d) {
+    await DuokanCurlShader.load();
+  }
   final recorder = ui.PictureRecorder();
   PageTurnPainter(
     controller,
@@ -135,6 +139,30 @@ void _expectMirrored(ByteData forward, ByteData backward) {
 }
 
 void main() {
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      testWidgets('3D ${rtl ? 'RTL' : 'LTR'} ${next ? '前进卷走原页' : '后退卷回上一页'}', (
+        tester,
+      ) async {
+        final controller = _controller(tester)
+          ..mode = PageTurnMode.simulation3d
+          ..rtl = rtl
+          ..next = next
+          ..grab = Offset(next ? 200 : -200, 150)
+          ..point = const Offset(100, 150);
+        final bytes = (await tester.runAsync(() => _render(controller)))!;
+        final sheet = next
+            ? (rtl ? [0, 255, 0, 255] : [255, 255, 0, 255])
+            : (rtl ? [0, 0, 255, 255] : [255, 0, 0, 255]);
+        final bottom = next
+            ? (rtl ? [255, 0, 0, 255] : [0, 0, 255, 255])
+            : (rtl ? [255, 255, 0, 255] : [0, 255, 0, 255]);
+        expect(_pixel(bytes, rtl ? 189 : 10, 150), sheet);
+        expect(_pixel(bytes, rtl ? 9 : 190, 150), bottom);
+      });
+    }
+  }
+
   for (final mode in [
     PageTurnMode.simulationBessel,
     PageTurnMode.simulation3d,
