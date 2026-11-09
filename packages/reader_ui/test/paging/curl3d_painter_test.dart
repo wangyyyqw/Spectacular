@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/paging/curl3d_geometry.dart';
 import 'package:reader_ui/paging/curl3d_painter.dart';
+import 'package:reader_ui/paging/duokan_curl_shader.dart';
 
 const _size = Size(400, 600);
 const _red = Color(0xFFFF0000);
@@ -38,23 +39,16 @@ Future<ui.Image> _marked() async {
 Future<ByteData> _render(
   ui.Image origin,
   ui.Image target, {
-  Offset grab = const Offset(400, 600),
-  Offset touch = const Offset(300, 480),
-  Offset slide = Offset.zero,
+  Curl3dGeometry? geometry,
   bool mirror = false,
 }) async {
+  await DuokanCurlShader.load();
   final recorder = ui.PictureRecorder();
   Curl3dPainter(paperColor: _paper).paint(
     Canvas(recorder),
-    _size,
     origin,
     target,
-    geometry: Curl3dGeometry(
-      size: _size,
-      grab: grab,
-      touch: touch,
-      slide: slide,
-    ),
+    geometry: geometry ?? _geometry(),
     mirror: mirror,
   );
   final picture = recorder.endRecording();
@@ -64,6 +58,11 @@ Future<ByteData> _render(
   picture.dispose();
   return data!;
 }
+
+Curl3dGeometry _geometry({
+  Offset grab = const Offset(400, 600),
+  Offset touch = const Offset(300, 480),
+}) => Curl3dGeometry(size: _size, grab: grab, touch: touch);
 
 List<int> _pixel(ByteData data, int x, int y) {
   final offset = (y * 400 + x) * 4;
@@ -85,12 +84,23 @@ void main() {
     final data = await _render(origin, target);
     expect(_isBlue(_pixel(data, 392, 594)), isTrue, reason: '页角处应露出下一页');
     expect(_isRed(_pixel(data, 20, 40)), isTrue, reason: '未翻起的部分保持原页');
+    expect(_pixel(data, 20, 40), [255, 0, 0, 255], reason: '平面正面不额外压暗');
     expect(_isRed(_pixel(data, 200, 300)), isTrue);
     origin.dispose();
     target.dispose();
   });
 
-  test('纸背铺纸色且不透明', () async {
+  test('静态底页和卷纸正面均还原原 GLES 的 RGB565 采样', () async {
+    final origin = await _solid(const Color(0xFF808080));
+    final target = await _solid(const Color(0xFF123456));
+    addTearDown(origin.dispose);
+    addTearDown(target.dispose);
+    final data = await _render(origin, target);
+    expect(_pixel(data, 20, 40), [132, 129, 132, 255]);
+    expect(_pixel(data, 392, 594), [16, 53, 82, 255]);
+  });
+
+  test('纸背带正面透印且不透明', () async {
     final origin = await _solid(_red);
     final target = await _solid(_blue);
     final data = await _render(origin, target);
@@ -118,7 +128,7 @@ void main() {
   });
 
   for (final mirror in [false, true]) {
-    test('${mirror ? '左侧' : '右侧'}近水平拖动时上下角折痕阴影完整且对称', () async {
+    test('${mirror ? '左侧' : '右侧'}近水平拖动时上下角纸面与两类阴影对称', () async {
       final origin = await _solid(_red);
       final target = await _solid(_blue);
       addTearDown(origin.dispose);
@@ -126,29 +136,30 @@ void main() {
       final upper = await _render(
         origin,
         target,
-        grab: const Offset(400, 0),
-        touch: const Offset(200, 12),
+        geometry: _geometry(
+          grab: const Offset(400, 0),
+          touch: const Offset(200, 12),
+        ),
         mirror: mirror,
       );
       final lower = await _render(
         origin,
         target,
-        touch: const Offset(200, 588),
+        geometry: _geometry(touch: const Offset(200, 588)),
         mirror: mirror,
       );
-      // 取未被纸背遮挡、分布在折痕两段的原页像素，检查接触阴影没有截断。
-      for (final (x, y) in [(227, 100), (215, 300)]) {
-        final screenX = mirror ? 399 - x : x;
-        final topPixel = _pixel(upper, screenX, 599 - y);
-        final bottomPixel = _pixel(lower, screenX, y);
-        expect(topPixel.first, lessThan(250), reason: '上角折痕应压暗原页');
-        expect(
-          bottomPixel.first,
-          closeTo(topPixel.first, 1),
-          reason: '下角阴影不能截断',
-        );
-        expect(bottomPixel.sublist(1), [0, 0, 255], reason: '采样位置仍是完整的原页');
+      var error = 0;
+      for (var y = 0; y < 600; y++) {
+        for (var x = 0; x < 400; x++) {
+          final a = _pixel(upper, x, 599 - y);
+          final b = _pixel(lower, x, y);
+          for (var channel = 0; channel < 4; channel++) {
+            error += (a[channel] - b[channel]).abs();
+          }
+          expect(b.last, 255, reason: '阴影与纸背合成不能留下透明裂隙');
+        }
       }
+      expect(error / upper.lengthInBytes, lessThan(0.25), reason: '只容忍亚像素纸边误差');
     });
   }
 
@@ -167,14 +178,13 @@ void main() {
     target.dispose();
   });
 
-  test('收尾位移把纸张推出画面，只留下下一页', () async {
+  test('完成时卷页自然移出视口，底页完整显露', () async {
     final origin = await _solid(_red);
     final target = await _solid(_blue);
     final data = await _render(
       origin,
       target,
-      touch: const Offset(-240, 480),
-      slide: const Offset(-400, 0),
+      geometry: _geometry(touch: const Offset(-400, 600)),
     );
     for (var x = 4; x < 400; x += 40) {
       expect(_isBlue(_pixel(data, x, 300)), isTrue, reason: 'x=$x 应只剩下一页');

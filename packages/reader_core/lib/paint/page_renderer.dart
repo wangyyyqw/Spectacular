@@ -156,6 +156,24 @@ class PagePainter {
   /// UI 提供画廊当前帧；缺省显示第一帧，不改动排版结果。
   final int Function(PageGallery gallery)? galleryFrameOf;
 
+  /// 只绘制阅读主题的纸底，供卷页背面的背景纹理复用。
+  void paintBackground(
+    Canvas canvas, {
+    required Size pageSize,
+    EdgeInsets pageInsets = EdgeInsets.zero,
+  }) {
+    final rect = Rect.fromLTWH(
+      -pageInsets.left,
+      -pageInsets.top,
+      pageSize.width,
+      pageSize.height,
+    );
+    canvas.save();
+    canvas.translate(pageInsets.left, pageInsets.top);
+    _paintPaperBackground(canvas, rect);
+    canvas.restore();
+  }
+
   /// 绘制一页。
   ///
   /// 行的水平位置由布局阶段按 text-align 算好（[LineBox.offsetX]）；
@@ -196,9 +214,7 @@ class PagePainter {
     canvas.save();
     canvas.translate(pageInsets.left, pageInsets.top);
     _notifyPhase(PagePaintPhase.background);
-    canvas.drawRect(pageRect, Paint()..color = background);
-    // 背景纹理平铺在背景色之上、正文之下（P4-22，只影响绘制层）。
-    _paintReaderBackground(canvas, pageRect);
+    _paintPaperBackground(canvas, pageRect);
 
     // 书籍整页背景图（P9-04）：平铺在背景色/纹理之上、正文之下。
     _paintBookPageBackground(canvas, page, pageRect);
@@ -1622,6 +1638,11 @@ class PagePainter {
       canvas.restore();
     }
     canvas.restore();
+  }
+
+  void _paintPaperBackground(Canvas canvas, Rect pageRect) {
+    canvas.drawRect(pageRect, Paint()..color = background);
+    _paintReaderBackground(canvas, pageRect);
   }
 
   void _paintReaderBackground(Canvas canvas, Rect pageRect) {

@@ -86,6 +86,7 @@ Widget _inputView(
   ReaderPageImagesPreparer? prepare,
   int revision = 1,
   PageTurnMode mode = PageTurnMode.cover,
+  ReaderPaperBackgroundPainter? paintBackground,
 }) => MaterialApp(
   home: PageTurnView(
     key: key,
@@ -93,6 +94,7 @@ Widget _inputView(
     mode: mode,
     revision: revision,
     preparePageImages: prepare,
+    paintBackground: paintBackground,
     paperBuilder: (page, size) => ColoredBox(
       color: const Color(0xFFFFFFFF),
       child: Text('${page.spineIndex}'),
@@ -110,6 +112,52 @@ class _LongChapterSource extends _Source {
 }
 
 void main() {
+  testWidgets('3D 纸底只捕获一次、按版本重建并计入位图预算', (tester) async {
+    final session = await _openInputSession();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    var paints = 0;
+    void background(Canvas canvas, Size size) {
+      paints++;
+      canvas.drawColor(const Color(0xFFEDE5CF), BlendMode.src);
+    }
+
+    Future<void> show(int revision) async {
+      await tester.pumpWidget(
+        _inputView(
+          session,
+          key,
+          revision: revision,
+          mode: PageTurnMode.simulation3d,
+          paintBackground: background,
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await show(1);
+    expect(paints, 1);
+    expect(key.currentState!.snapshotCount, 4, reason: '三页快照加一张主题纸底');
+    expect(
+      key.currentState!.snapshotBytes,
+      lessThanOrEqualTo(64 * 1024 * 1024),
+    );
+    key.currentState!.controller.request(true);
+    await tester.pumpAndSettle();
+    expect(paints, 1, reason: '翻页帧不重新绘制或捕获背景');
+    await show(2);
+    expect(paints, 2);
+    key.currentState!.releaseCachedBitmaps();
+    await tester.pump();
+    expect(key.currentState!.snapshotCount, 0);
+    expect(key.currentState!.snapshotBytes, 0);
+    key.currentState!.resumeWarmup();
+    await tester.pumpAndSettle();
+    expect(paints, 3);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final mode in PageTurnMode.values.where(
     (mode) => mode != PageTurnMode.none,
   )) {

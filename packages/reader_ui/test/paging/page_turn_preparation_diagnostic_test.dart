@@ -108,6 +108,10 @@ void main() {
               ..mode = mode;
         _start(controller);
         await tester.pump();
+        if (mode == PageTurnMode.simulation3d) {
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+        }
         _move(controller, 100);
         expect(controller.phase, PageTurnPhase.preparing);
         expect(controller.progress, 0.08);
@@ -119,10 +123,10 @@ void main() {
         final expected = bessel
             ? 220 / 640
             : curl3d
-            ? 210 / (320 * 0.9)
+            ? 220 / 640
             : 210 / 320;
         if (bessel) expect(beforeX, closeTo(268.8, 0.001));
-        if (curl3d) expect(beforeX, 110);
+        if (curl3d) expect(beforeX, 100);
         tester.binding.scheduleFrame();
         await tester.pump(const Duration(milliseconds: 16));
         source.gate!.complete([_page(3)]);
@@ -130,12 +134,17 @@ void main() {
         expect(controller.phase, PageTurnPhase.dragging);
         expect(controller.originImage, same(origin));
         expect(controller.targetImage, same(image));
-        expect(controller.progress, 0.08);
+        expect(controller.progress, curl3d ? expected : 0.08);
         expect(controller.point!.dx, beforeX);
         expect(controller.targetOpacity, 0);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 50));
-        expect(controller.progress, inExclusiveRange(0.08, expected));
+        expect(
+          controller.progress,
+          curl3d
+              ? closeTo(expected, 0.00001)
+              : inExclusiveRange(0.08, expected),
+        );
         if (bessel) {
           expect(controller.point!.dx, inExclusiveRange(100, beforeX));
         }
@@ -166,13 +175,13 @@ void main() {
             bessel
                 ? 240 / 640
                 : curl3d
-                ? 230 / (320 * 0.9)
+                ? 240 / 640
                 : 230 / 320,
             0.00001,
           ),
         );
         if (bessel) expect(controller.point!.dx, 80);
-        if (curl3d) expect(controller.point!.dx, 90);
+        if (curl3d) expect(controller.point!.dx, 80);
         expect(controller.targetOpacity, 1);
         debugPrint(
           '诊断 ${mode.label}：进度 0.08 -> ${controller.progress}；'
@@ -246,8 +255,11 @@ void main() {
     expect(controller.phase, PageTurnPhase.dragging);
     expect(controller.point!.dx, 100);
     expect(controller.progress, closeTo(0.34375, 0.00001));
-    expect(prepared.where((spine) => spine == 3), hasLength(1),
-        reason: '翻页复用正在准备的目标，不重复解码');
+    expect(
+      prepared.where((spine) => spine == 3),
+      hasLength(1),
+      reason: '翻页复用正在准备的目标，不重复解码',
+    );
     debugPrint(
       '诊断 复用预热：原先仅1张快照；目标就绪前进度0.08，'
       '就绪后${controller.progress}；图片准备调用 $prepared',

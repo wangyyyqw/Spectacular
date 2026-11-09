@@ -1,8 +1,159 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/tap_zones.dart';
+
+Future<void> _pumpGestureView(
+  WidgetTester tester,
+  ReaderView view, {
+  double? touchSlop,
+  Offset origin = Offset.zero,
+}) async {
+  Widget child = Align(
+    alignment: Alignment.topLeft,
+    child: Padding(
+      padding: EdgeInsets.only(left: origin.dx, top: origin.dy),
+      child: SizedBox(width: 300, height: 200, child: view),
+    ),
+  );
+  if (touchSlop != null) {
+    child = MediaQuery(
+      data: MediaQueryData(
+        gestureSettings: DeviceGestureSettings(touchSlop: touchSlop),
+      ),
+      child: child,
+    );
+  }
+  await tester.pumpWidget(MaterialApp(home: child));
+}
+
+Future<void> _deceleratingDrag(
+  WidgetTester tester,
+  Offset start,
+  double distance, {
+  double? finalVelocity,
+  double leadDistance = 0,
+}) async {
+  final gesture = await tester.startGesture(start);
+  final curveStart = start + Offset(distance.sign * 50, 0);
+  await _primeNativeDrag(tester, gesture, curveStart, distance.sign);
+  final velocity = finalVelocity ?? distance.sign * 30;
+  final initialVelocity = 20 * distance - velocity;
+  await gesture.moveTo(
+    curveStart + Offset(leadDistance, 0),
+    timeStamp: const Duration(milliseconds: 200),
+  );
+  await tester.pump(const Duration(milliseconds: 20));
+  // 最近 100 ms 用二次减速轨迹，同时覆盖系统最小快扫距离和末端速度。
+  for (var step = 1; step <= 5; step++) {
+    final t = step * 0.02;
+    final dx = initialVelocity * t + (velocity - initialVelocity) * t * t / 0.2;
+    await gesture.moveTo(
+      curveStart + Offset(leadDistance + dx, 0),
+      timeStamp: Duration(milliseconds: 200 + step * 20),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+  await gesture.up(timeStamp: const Duration(milliseconds: 300));
+  await tester.pump();
+}
+
+Future<void> _primeNativeDrag(
+  WidgetTester tester,
+  TestGesture gesture,
+  Offset end,
+  double direction,
+) async {
+  await _moveSamples(tester, gesture, [
+    for (final offset in [-49, -30, -20, -10, 0])
+      end + Offset(offset * direction, 0),
+  ]);
+}
+
+Future<void> _moveSamples(
+  WidgetTester tester,
+  TestGesture gesture,
+  List<Offset> positions, {
+  int firstTime = 20,
+}) async {
+  for (var index = 0; index < positions.length; index++) {
+    await gesture.moveTo(
+      positions[index],
+      timeStamp: Duration(milliseconds: firstTime + index * 20),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+}
+
+void _expectNativeHandoff(List<Object> events, Offset origin) {
+  expect(events, [isA<DragStartDetails>(), isA<DragUpdateDetails>()]);
+  final start = events[0] as DragStartDetails;
+  final update = events[1] as DragUpdateDetails;
+  expect(start.localPosition, const Offset(143, 90));
+  expect(start.globalPosition, origin + const Offset(143, 90));
+  expect(start.sourceTimeStamp, const Duration(milliseconds: 100));
+  expect(update.localPosition, const Offset(140, 96));
+  expect(update.globalPosition, origin + const Offset(140, 96));
+  expect(update.delta, const Offset(-3, 6));
+  expect(update.primaryDelta, isNull);
+  expect(update.sourceTimeStamp, start.sourceTimeStamp);
+}
+
+Future<double> _boundaryDragVelocity(
+  WidgetTester tester,
+  double minimumVelocity,
+) async {
+  final events = <String>[];
+  final ends = <DragEndDetails>[];
+  var updates = 0;
+  await _pumpGestureView(
+    tester,
+    ReaderView(
+      config: ReaderGestureConfig(minimumFlingVelocity: minimumVelocity),
+      onDragStart: (_) => events.add('开始'),
+      onDragUpdate: (_) => updates++,
+      onDragEnd: (details) {
+        events.add('结束');
+        ends.add(details);
+      },
+      onDragCancel: () => events.add('取消'),
+    ),
+  );
+  final start =
+      tester.getTopLeft(find.byType(ReaderView)) + const Offset(150, 100);
+  await _deceleratingDrag(tester, start, 20, finalVelocity: 20);
+  expect(events, ['开始', '结束']);
+  expect(updates, greaterThan(0));
+  expect(ends, hasLength(1));
+  expect(ends.single.velocity.pixelsPerSecond.dx, ends.single.primaryVelocity);
+  return ends.single.primaryVelocity!;
+}
+
+Future<void> _twoPointerDrag(
+  WidgetTester tester,
+  Offset start, {
+  required bool alreadyStarted,
+}) async {
+  final first = await tester.startGesture(start, pointer: 1);
+  if (alreadyStarted) {
+    await _primeNativeDrag(tester, first, start - const Offset(50, 0), -1);
+  }
+  final second = await tester.createGesture(pointer: 2);
+  await second.down(
+    start + const Offset(-20, 20),
+    timeStamp: const Duration(milliseconds: 120),
+  );
+  await first.moveTo(
+    start + const Offset(-80, 0),
+    timeStamp: const Duration(milliseconds: 140),
+  );
+  await first.up(timeStamp: const Duration(milliseconds: 160));
+  await second.up(timeStamp: const Duration(milliseconds: 160));
+  await tester.pump();
+}
 
 void main() {
   group('ReaderGestureInterpreter', () {
@@ -352,6 +503,402 @@ void main() {
       await tester.pumpAndSettle();
       expect(next.value, 0);
       expect(tester.takeException(), isNull);
+    });
+
+    for (final minimum in <double?>[null, 20]) {
+      testWidgets('最低快扫速度 $minimum 保留左右低速及反向释放的原值', (tester) async {
+        for (final direction in <double>[-1, 1]) {
+          for (final reverse in [false, true]) {
+            final ends = <DragEndDetails>[];
+            await _pumpGestureView(
+              tester,
+              ReaderView(
+                config: ReaderGestureConfig(minimumFlingVelocity: minimum),
+                onDragEnd: ends.add,
+              ),
+            );
+            final start =
+                tester.getTopLeft(find.byType(ReaderView)) +
+                const Offset(150, 100);
+            final velocity = (reverse ? -direction : direction) * 30;
+            await _deceleratingDrag(
+              tester,
+              start,
+              direction * 20,
+              finalVelocity: velocity,
+            );
+            expect(ends, hasLength(1));
+            expect(
+              ends.single.primaryVelocity,
+              closeTo(minimum == null ? 0 : velocity, 0.01),
+            );
+            expect(ends.single.velocity.pixelsPerSecond.dy, 0);
+            expect(
+              ends.single.velocity.pixelsPerSecond.dx,
+              ends.single.primaryVelocity,
+            );
+          }
+        }
+      });
+    }
+
+    testWidgets('快扫速度等于配置门槛时保留真实估计值', (tester) async {
+      final estimate = await _boundaryDragVelocity(tester, 1);
+      expect(estimate, closeTo(20, 0.01));
+      // 重放同一轨迹，用真实估计值验证等号，避免把采样舍入当作速度规则。
+      expect(await _boundaryDragVelocity(tester, estimate), estimate);
+      expect(await _boundaryDragVelocity(tester, estimate + 0.01), 0);
+    });
+
+    testWidgets('原生起拖交付越 slop 锚点，再更新第三个后续 MOVE 的实际位置', (tester) async {
+      final events = <Object>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onDragStart: events.add,
+          onDragUpdate: events.add,
+        ),
+        touchSlop: 36,
+        origin: const Offset(37, 29),
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      final down = origin + const Offset(180, 90);
+      final gesture = await tester.startGesture(down);
+      await _moveSamples(tester, gesture, [
+        for (final delta in [
+          Offset(-1, 0),
+          Offset(-37, 0),
+          Offset(-38, 2),
+          Offset(-39, 4),
+        ])
+          down + delta,
+      ]);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(events, isEmpty);
+      await gesture.moveTo(
+        down + const Offset(-40, 6),
+        timeStamp: const Duration(milliseconds: 100),
+      );
+      _expectNativeHandoff(events, origin);
+      await gesture.moveTo(down + const Offset(-45, 8));
+      expect(events, hasLength(3));
+      final update = events.last as DragUpdateDetails;
+      expect(update.delta, const Offset(-5, 0));
+      expect(update.localPosition, const Offset(135, 98));
+      await gesture.up();
+    });
+
+    for (final angle in [45.0, 49.9, 50.1]) {
+      testWidgets('原生水平方向门槛 $angle 度使用径向系统 slop', (tester) async {
+        for (final direction in [-1.0, 1.0]) {
+          var started = 0;
+          await _pumpGestureView(
+            tester,
+            ReaderView(
+              config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+              onDragStart: (_) => started++,
+            ),
+            touchSlop: 24,
+          );
+          final down =
+              tester.getTopLeft(find.byType(ReaderView)) +
+              const Offset(150, 80);
+          final radians = angle * math.pi / 180;
+          final vector = Offset(
+            direction * math.cos(radians),
+            math.sin(radians),
+          );
+          final gesture = await tester.startGesture(down);
+          await _moveSamples(tester, gesture, [
+            for (final distance in [1, 26, 27, 28, 29])
+              down + vector * distance.toDouble(),
+          ]);
+          expect(started, angle < 50 ? 1 : 0);
+          await gesture.up();
+          await tester.pump();
+        }
+      });
+    }
+
+    testWidgets('已过 slop 但采样未起拖的双指取消，第二指移动也不恢复翻页', (tester) async {
+      final events = <String>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onDragStart: (_) => events.add('开始'),
+          onDragEnd: (_) => events.add('结束'),
+          onDragCancel: () => events.add('取消'),
+          onNext: () => events.add('点击'),
+        ),
+      );
+      final down =
+          tester.getTopLeft(find.byType(ReaderView)) + const Offset(270, 100);
+      final first = await tester.startGesture(down, pointer: 1);
+      await _moveSamples(tester, first, [
+        down + const Offset(-1, 0),
+        down + const Offset(-40, 0),
+      ]);
+      expect(events, isEmpty);
+      final second = await tester.startGesture(
+        down + const Offset(-20, 20),
+        pointer: 2,
+      );
+      await _moveSamples(tester, second, [
+        for (final distance in [21, 60, 70, 80, 90])
+          down + Offset(-distance.toDouble(), 20),
+      ], firstTime: 60);
+      await first.up();
+      await second.up();
+      await tester.pump();
+      expect(events, isNotEmpty);
+      expect(events.every((event) => event == '取消'), isTrue);
+      events.clear();
+      await _deceleratingDrag(tester, down, -80);
+      expect(events, ['开始', '结束']);
+    });
+
+    for (final minimum in <double?>[null, 20]) {
+      for (final alreadyStarted in [false, true]) {
+        testWidgets('最低速度 $minimum 双指，已起拖 $alreadyStarted', (tester) async {
+          final events = <String>[];
+          var next = 0;
+          await _pumpGestureView(
+            tester,
+            ReaderView(
+              config: ReaderGestureConfig(minimumFlingVelocity: minimum),
+              onDragStart: (_) => events.add('开始'),
+              onDragEnd: (_) => events.add('结束'),
+              onDragCancel: () => events.add('取消'),
+              onNext: () => next++,
+            ),
+          );
+          final start =
+              tester.getTopLeft(find.byType(ReaderView)) +
+              const Offset(270, 100);
+          await _twoPointerDrag(tester, start, alreadyStarted: alreadyStarted);
+          expect(
+            events,
+            minimum != null && !alreadyStarted ? ['取消'] : ['开始', '结束'],
+          );
+          expect(next, minimum == null ? 1 : 0);
+          events.clear();
+          await _deceleratingDrag(tester, start, -80);
+          expect(events, ['开始', '结束']);
+        });
+      }
+    }
+
+    testWidgets('低速快扫沿用设备 slop 和最小距离，拖动不会补发边缘点击', (tester) async {
+      var started = 0;
+      var next = 0;
+      final ends = <DragEndDetails>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onDragStart: (_) => started++,
+          onDragEnd: ends.add,
+          onNext: () => next++,
+        ),
+        touchSlop: 8,
+      );
+      final start =
+          tester.getTopLeft(find.byType(ReaderView)) + const Offset(270, 100);
+      await _deceleratingDrag(tester, start, -12);
+      expect(started, 1);
+      expect(ends, hasLength(1));
+      expect(ends.single.primaryVelocity, closeTo(-30, 0.01));
+      expect(next, 0);
+    });
+
+    testWidgets('最低速度 20 不改变系统 36 dp 的起拖距离', (tester) async {
+      var started = 0;
+      var next = 0;
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onDragStart: (_) => started++,
+          onNext: () => next++,
+        ),
+        touchSlop: 36,
+      );
+      final start =
+          tester.getTopLeft(find.byType(ReaderView)) + const Offset(270, 100);
+      final gesture = await tester.startGesture(start);
+      await gesture.moveBy(
+        const Offset(-20, 0),
+        timeStamp: const Duration(milliseconds: 20),
+      );
+      expect(started, 0);
+      await gesture.up(timeStamp: const Duration(milliseconds: 30));
+      await tester.pump();
+      expect(started, 0);
+      expect(next, 1);
+    });
+
+    testWidgets('低速释放仍受设备最小快扫距离约束', (tester) async {
+      final ends = <DragEndDetails>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onDragEnd: ends.add,
+        ),
+        touchSlop: 36,
+      );
+      final start =
+          tester.getTopLeft(find.byType(ReaderView)) + const Offset(150, 100);
+      await _deceleratingDrag(tester, start, 20, leadDistance: 60);
+      expect(ends, hasLength(1));
+      expect(ends.single.primaryVelocity, 0);
+    });
+
+    testWidgets('可配置快扫仍与单击消费及双击选择竞争', (tester) async {
+      var tapped = 0;
+      var next = 0;
+      var selected = 0;
+      var started = 0;
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onTapAt: (_) {
+            tapped++;
+            return true;
+          },
+          onNext: () => next++,
+          onDoubleTapAt: (_) => selected++,
+          onDragStart: (_) => started++,
+        ),
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      await tester.tapAt(origin + const Offset(270, 100));
+      await tester.pump(kDoubleTapTimeout);
+      expect(tapped, 1);
+      expect(next, 0);
+      await tester.tapAt(origin + const Offset(150, 100));
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(origin + const Offset(150, 100));
+      await tester.pumpAndSettle();
+      expect(selected, 1);
+      expect(tapped, 1);
+      expect(started, 0);
+    });
+
+    testWidgets('可配置快扫不会抢占长按选择', (tester) async {
+      var selected = 0;
+      var started = 0;
+      var tapped = 0;
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onLongPressAt: (_) => selected++,
+          onDragStart: (_) => started++,
+          onNext: () => tapped++,
+          onToggleToolbar: () => tapped++,
+        ),
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      await tester.longPressAt(origin + const Offset(270, 100));
+      await tester.pumpAndSettle();
+      expect(selected, 1);
+      expect(started, 0);
+      expect(tapped, 0);
+    });
+
+    testWidgets('可配置水平快扫不拦截垂直及 50 度外的子视图滚动', (tester) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      var started = 0;
+      final gestures = <ReaderGesture>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          continuousScroll: true,
+          onGesture: gestures.add,
+          onDragStart: (_) => started++,
+          child: ListView(
+            controller: scroll,
+            children: [
+              for (var row = 0; row < 20; row++) const SizedBox(height: 60),
+            ],
+          ),
+        ),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -120));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(0));
+      expect(started, 0);
+      expect(gestures, isEmpty);
+      scroll.jumpTo(0);
+      final down =
+          tester.getTopLeft(find.byType(ReaderView)) + const Offset(150, 150);
+      final drag = await tester.startGesture(down);
+      await _moveSamples(tester, drag, [
+        for (var step = 1; step <= 5; step++)
+          down + Offset(-70.0, -100.0) * (step / 5),
+      ]);
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(0));
+      expect(started, 0);
+      expect(gestures, isEmpty);
+    });
+
+    testWidgets('可配置水平快扫保留纵向手势观察', (tester) async {
+      final gestures = <ReaderGesture>[];
+      var started = 0;
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onGesture: gestures.add,
+          onDragStart: (_) => started++,
+        ),
+      );
+      await tester.fling(find.byType(ReaderView), const Offset(0, -80), 1000);
+      await tester.pumpAndSettle();
+      expect(gestures, [ReaderGesture.swipeUp]);
+      expect(started, 0);
+    });
+
+    testWidgets('可配置水平快扫保留辅助功能滚动生命周期', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final events = <Object>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+          onDragStart: events.add,
+          onDragUpdate: events.add,
+          onDragEnd: events.add,
+        ),
+      );
+      tester.semantics.scrollLeft(
+        scrollable: find.semantics.scrollable(axis: Axis.horizontal),
+      );
+      await tester.pump();
+      expect(events, [
+        isA<DragStartDetails>(),
+        isA<DragUpdateDetails>(),
+        isA<DragEndDetails>(),
+      ]);
+      expect(
+        (events[0] as DragStartDetails).localPosition,
+        const Offset(150, 100),
+      );
+      expect((events[1] as DragUpdateDetails).delta, const Offset(-240, 0));
+      expect(
+        (events[2] as DragEndDetails).localPosition,
+        const Offset(-90, 100),
+      );
+      expect((events[2] as DragEndDetails).primaryVelocity, 0);
+      semantics.dispose();
     });
   });
 }

@@ -81,6 +81,10 @@ void main() {
       final controller = await _open(tester, mode, source: source);
       _start(controller);
       await tester.pump();
+      if (mode == PageTurnMode.simulation3d) {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       expect(controller.phase, PageTurnPhase.preparing);
       expect(controller.originImage, isNotNull, reason: '下一章未完成时原页已可绘制');
       expect(controller.progress, greaterThan(0));
@@ -108,7 +112,7 @@ void main() {
       final source = _Source();
       final controller = await _open(tester, mode, source: source);
       _start(controller);
-      _move(controller, 295);
+      _move(controller, mode == PageTurnMode.simulation3d ? 301 : 295);
       await tester.pump();
       controller.endDrag(DragEndDetails());
       await tester.pumpAndSettle();
@@ -121,25 +125,42 @@ void main() {
       expect(controller.originImage, isNull);
       expect(controller.session.pageTurns, 0);
     });
-    testWidgets('${mode.label} 连续滑动在前次收尾后立即接管未松手触点', (tester) async {
-      final source = _Source()
-        ..nextChapter.complete([_Source.page(1, 0), _Source.page(1, 1)]);
-      final controller = await _open(tester, mode, source: source);
-      controller.request(true);
-      await tester.pump();
-      _start(controller);
-      _move(controller, 100);
-      await tester.pumpAndSettle();
-      expect(controller.session.page!.spineIndex, 1);
-      expect(controller.phase, PageTurnPhase.dragging, reason: '第二笔仍按住时应直接跟手');
-      _move(controller, 80);
-      expect(controller.progress, greaterThan(0));
-      controller.endDrag(DragEndDetails());
-      await tester.pumpAndSettle();
-      expect(controller.session.page!.pageIndex, 1);
-      expect(controller.session.pageTurns, 2);
-      await controller.session.flushProgress();
-    });
+    testWidgets(
+      '${mode.label} ${mode == PageTurnMode.simulation3d ? '动画中拒绝第二次拖动' : '连续滑动在收尾后接管触点'}',
+      (tester) async {
+        final source = _Source()
+          ..nextChapter.complete([_Source.page(1, 0), _Source.page(1, 1)]);
+        final controller = await _open(tester, mode, source: source);
+        controller.request(true);
+        await tester.pump();
+        _start(controller);
+        _move(controller, 100);
+        await tester.pumpAndSettle();
+        expect(controller.session.page!.spineIndex, 1);
+        if (mode == PageTurnMode.simulation3d) {
+          expect(controller.phase, PageTurnPhase.idle);
+          _move(controller, 80);
+          controller.endDrag(DragEndDetails());
+          await tester.pumpAndSettle();
+          expect(controller.session.page!.pageIndex, 0);
+          expect(controller.session.pageTurns, 1);
+          await controller.session.flushProgress();
+          return;
+        }
+        expect(
+          controller.phase,
+          PageTurnPhase.dragging,
+          reason: '第二笔仍按住时应直接跟手',
+        );
+        _move(controller, 80);
+        expect(controller.progress, greaterThan(0));
+        controller.endDrag(DragEndDetails());
+        await tester.pumpAndSettle();
+        expect(controller.session.page!.pageIndex, 1);
+        expect(controller.session.pageTurns, 2);
+        await controller.session.flushProgress();
+      },
+    );
   }
   testWidgets('仿真冷跨章大幅回拖零速度松手立即回弹', (tester) async {
     final source = _Source();

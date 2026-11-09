@@ -9,13 +9,20 @@ import 'page_turn_mode.dart';
 
 /// 每帧只绘制缓存位图和变换，正文不会重新布局。
 class PageTurnPainter extends CustomPainter {
-  PageTurnPainter(this.controller, {required this.paperColor})
-    : _besselPainter = BesselPainter(paperColor: paperColor),
-      _curl3dPainter = Curl3dPainter(paperColor: paperColor),
-      super(repaint: controller);
+  PageTurnPainter(
+    this.controller, {
+    required this.paperColor,
+    this.backgroundImage,
+  }) : _besselPainter = BesselPainter(paperColor: paperColor),
+       _curl3dPainter = Curl3dPainter(
+         paperColor: paperColor,
+         backgroundImage: backgroundImage,
+       ),
+       super(repaint: controller);
 
   final PageTurnController controller;
   final Color paperColor;
+  final ui.Image? backgroundImage;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
   final BesselPainter _besselPainter;
   final Curl3dPainter _curl3dPainter;
@@ -95,17 +102,17 @@ class PageTurnPainter extends CustomPainter {
 
   void _curl3d(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final geometry = controller.curl3dGeometry;
-    if (geometry == null || !geometry.active) {
-      _image(canvas, controller.progress >= 1 ? target : origin, size);
+    if (geometry == null) {
+      _image(canvas, origin, size);
       return;
     }
+    // 单页后退卷回上一张纸；规范坐标只随阅读方向镜像。
     _curl3dPainter.paint(
       canvas,
-      size,
-      origin,
-      target,
+      controller.next ? origin : target,
+      controller.next ? target : origin,
       geometry: geometry,
-      mirror: !controller.fromRight,
+      mirror: controller.rtl,
     );
   }
 
@@ -192,5 +199,6 @@ class PageTurnPainter extends CustomPainter {
   @override
   bool shouldRepaint(PageTurnPainter oldDelegate) =>
       oldDelegate.controller != controller ||
-      oldDelegate.paperColor != paperColor;
+      oldDelegate.paperColor != paperColor ||
+      oldDelegate.backgroundImage != backgroundImage;
 }
