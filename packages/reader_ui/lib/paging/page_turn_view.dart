@@ -110,7 +110,7 @@ class PageTurnViewState extends State<PageTurnView>
       if (controller.active) {
         _revisionDirty = true;
       } else {
-        _invalidate();
+        _invalidate(retainStaticImage: true);
       }
     }
     if (oldWidget.preload != widget.preload) {
@@ -119,7 +119,7 @@ class PageTurnViewState extends State<PageTurnView>
     }
   }
 
-  void _invalidate() {
+  void _invalidate({bool retainStaticImage = false}) {
     _revisionDirty = false;
     if (controller.active) controller.cancel();
     _captureToken++;
@@ -130,7 +130,16 @@ class PageTurnViewState extends State<PageTurnView>
     _captures.clear();
     _cache.clear();
     _clearBackgroundImage();
-    _clearStaticImage();
+    if (retainStaticImage &&
+        _staticImage != null &&
+        identical(_staticPage, widget.session.page)) {
+      // 绘制版本失效不撤下落页快照；新版原图和静态纸面就绪后再交接。
+      _staticToken++;
+      _staticPaperReady = false;
+      unawaited(_restoreStaticPaper());
+    } else {
+      _clearStaticImage();
+    }
   }
 
   void _clearBackgroundImage() {
@@ -165,7 +174,7 @@ class PageTurnViewState extends State<PageTurnView>
     }
     if (!controller.active) {
       if (_revisionDirty) {
-        _invalidate();
+        _invalidate(retainStaticImage: true);
         return;
       }
       if (_pageDirty) _cancelPendingCaptures();

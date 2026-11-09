@@ -492,6 +492,70 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  for (final duringTurn in [true, false]) {
+    testWidgets('3D ${duringTurn ? '动画中' : '落页后'}刷新版本，补图期间仍保持完整快照', (
+      tester,
+    ) async {
+      final session = await _openInputSession();
+      final gate = Completer<void>();
+      final revision = ValueNotifier<int>(1);
+      var blocked = false;
+      addTearDown(session.dispose);
+      addTearDown(revision.dispose);
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      final key = GlobalKey<PageTurnViewState>();
+      await tester.pumpWidget(
+        ValueListenableBuilder<int>(
+          valueListenable: revision,
+          builder: (_, value, _) => _inputView(
+            session,
+            key,
+            revision: value,
+            mode: PageTurnMode.simulation3d,
+            prepare: (_) => blocked ? gate.future : Future<void>.value(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      blocked = true;
+      key.currentState!.controller.request(true);
+      if (duringTurn) {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 75));
+        expect(key.currentState!.controller.active, isTrue);
+        revision.value++;
+      }
+      await tester.pumpAndSettle();
+      expect(session.page!.spineIndex, 2);
+      expect(
+        find.byKey(const ValueKey('page-turn-static-snapshot')),
+        findsOneWidget,
+      );
+
+      if (!duringTurn) {
+        revision.value++;
+        await tester.pump();
+      }
+      expect(gate.isCompleted, isFalse);
+      expect(
+        find.byKey(const ValueKey('page-turn-static-snapshot')),
+        findsOneWidget,
+        reason: '补图未完成时版本刷新只能失效预热缓存，不能撤下落页快照',
+      );
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('page-turn-static-snapshot')),
+        findsNothing,
+      );
+      await session.flushProgress();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('收尾后的纸面版本刷新不丢失尚未松手的下一次滑动', (tester) async {
     final session = await _openInputSession();
     addTearDown(session.dispose);
