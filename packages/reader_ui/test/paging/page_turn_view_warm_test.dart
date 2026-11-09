@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -49,6 +50,14 @@ class _Source implements ReaderChapterSource {
     loads.add(spineIndex);
     return [_page(spineIndex)];
   }
+}
+
+class _GatedSource extends _Source {
+  final previous = Completer<List<PageContent>>();
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) =>
+      spineIndex == 0 ? previous.future : super.loadChapter(spineIndex);
 }
 
 Future<ReaderSession> _openInputSession() async {
@@ -234,6 +243,92 @@ void main() {
     expect(key.currentState!.snapshotCount, 3);
     session.dispose();
   });
+
+  testWidgets('前进快照不等待尚未完成的后退章节排版', (tester) async {
+    final source = _GatedSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'warm-order',
+      const ReaderProgress(spineIndex: 1, pageIndex: 0),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'warm-order',
+    );
+    await session.open();
+    addTearDown(session.dispose);
+    addTearDown(() {
+      if (!source.previous.isCompleted) source.previous.complete([_page(0)]);
+    });
+    final key = GlobalKey<PageTurnViewState>();
+    await tester.pumpWidget(_inputView(session, key));
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(key.currentState!.snapshotCount, 2, reason: '前进页就绪后立即生成快照');
+    expect(source.previous.isCompleted, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final complete in [true, false]) {
+    testWidgets('${complete ? '完成' : '回退'}缓存翻页不等解码，补图期间保持完整纸面', (tester) async {
+      final session = await _openInputSession();
+      final gate = Completer<void>();
+      var blocked = false;
+      addTearDown(session.dispose);
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      final key = GlobalKey<PageTurnViewState>();
+      await tester.pumpWidget(
+        _inputView(
+          session,
+          key,
+          prepare: (_) => blocked ? gate.future : Future<void>.value(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(key.currentState!.snapshotCount, 3);
+      blocked = true;
+      final controller = key.currentState!.controller;
+      final originSpine = session.page!.spineIndex;
+      if (complete) {
+        controller.request(true);
+      } else {
+        const down = Offset(790, 300);
+        const latest = Offset(770, 300);
+        controller.pointerDown(down);
+        controller.beginDrag(DragStartDetails(localPosition: down));
+        controller.updateDrag(
+          DragUpdateDetails(globalPosition: latest, localPosition: latest),
+        );
+      }
+      await tester.pump();
+
+      expect(
+        controller.phase,
+        complete ? PageTurnPhase.settling : PageTurnPhase.dragging,
+        reason: '已有完整快照时不应等待原图重新解码',
+      );
+      if (!complete) controller.endDrag(DragEndDetails());
+      await tester.pumpAndSettle();
+      expect(session.page!.spineIndex, complete ? 2 : originSpine);
+      expect(
+        find.byKey(const ValueKey('page-turn-static-snapshot')),
+        findsOneWidget,
+      );
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('page-turn-static-snapshot')),
+        findsNothing,
+      );
+      await session.flushProgress();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('前进翻页不等待未完成的上一章图片预热', (tester) async {
     final session = await _openInputSession();

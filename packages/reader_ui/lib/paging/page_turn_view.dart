@@ -64,9 +64,16 @@ class PageTurnViewState extends State<PageTurnView>
   bool _pageDirty = false;
   bool _warmSuspended = false;
   PageContent? _renderedPage;
+  PageContent? _staticPage;
+  ui.Image? _staticImage;
+  bool _staticPaperReady = false;
+  int _staticToken = 0;
 
   int get snapshotBytes => _cache.bytes;
   int get snapshotCount => _cache.length;
+
+  /// 该页由完整快照承接，补图后的静态重绘交给本视口统一恢复。
+  bool isPresentingSnapshot(PageContent page) => identical(_staticPage, page);
 
   @override
   void didUpdateWidget(PageTurnView oldWidget) {
@@ -89,6 +96,7 @@ class PageTurnViewState extends State<PageTurnView>
     _capturePage = null;
     _lastWarm = null;
     _cache.clear();
+    _clearStaticImage();
   }
 
   void _controllerChanged() {
@@ -101,7 +109,15 @@ class PageTurnViewState extends State<PageTurnView>
       if (widget.session.page != null) widget.session.page!,
       if (controller.turn != null) controller.turn!.target.content,
     };
-    if (show != _showAnimation) setState(() => _showAnimation = show);
+    if (show != _showAnimation) {
+      if (show) {
+        _clearStaticImage();
+        _staticPage = controller.turn!.target.content;
+        _staticImage = controller.targetImage!.clone();
+      }
+      setState(() => _showAnimation = show);
+      if (!show) unawaited(_restoreStaticPaper());
+    }
     if (!controller.active) {
       if (_revisionDirty) {
         _invalidate();
@@ -110,6 +126,37 @@ class PageTurnViewState extends State<PageTurnView>
       if (_pageDirty) _cancelPendingCaptures();
       _scheduleWarm();
     }
+  }
+
+  void _clearStaticImage() {
+    _staticToken++;
+    _staticImage?.dispose();
+    _staticImage = null;
+    _staticPage = null;
+    _staticPaperReady = false;
+  }
+
+  /// 快照先接住落页，原图在动画之外补齐后再恢复静态纸面。
+  Future<void> _restoreStaticPaper() async {
+    final page = widget.session.page;
+    if (!identical(page, _staticPage)) {
+      _clearStaticImage();
+      final image = page == null ? null : _cache.get(page);
+      if (image == null) return;
+      _staticPage = page;
+      _staticImage = image.clone();
+    }
+    if (page == null) return;
+    final token = _staticToken;
+    try {
+      await widget.preparePageImages?.call(page);
+    } catch (_) {
+      // 宿主解码失败时恢复既有缺图占位，不能留下永久覆盖的快照。
+    }
+    if (!mounted || token != _staticToken) return;
+    setState(() => _staticPaperReady = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted && token == _staticToken) setState(_clearStaticImage);
   }
 
   /// 切后台时释放翻页位图；恢复后按当前页重新预热。
@@ -155,15 +202,14 @@ class PageTurnViewState extends State<PageTurnView>
 
   Future<ui.Image?> _capture(PageContent page, int token) async {
     if (!mounted || token != _captureToken) return null;
+    // 完整快照可直接翻动；静态纸面所需原图在落页时独立恢复。
+    final cached = _cache.get(page);
+    if (cached != null) return cached;
     final prepare = widget.preparePageImages;
     if (prepare != null) {
       await prepare(page);
       if (!mounted || token != _captureToken) return null;
     }
-    // 快照仍有效时，目标页的解码资源可能已被其他预热页淘汰。
-    // 先补齐图片再复用位图，才能在动画结束后直接显示完整的静态纸面。
-    final cached = _cache.get(page);
-    if (cached != null) return cached;
     final current = identical(page, widget.session.page);
     if (!current) setState(() => _capturePage = page);
     ui.Image? image;
@@ -200,30 +246,31 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   Future<void> _warm(PageContent page) async {
-    final candidates = <PageContent>{page, ...widget.session.adjacentPages};
+    final token = _captureToken;
+    final adjacent = widget.session.adjacentPages;
+    final candidates = <PageContent>{
+      page,
+      ...(controller.next ? adjacent.reversed : adjacent),
+    };
     for (final candidate in candidates) {
-      if (!mounted ||
-          controller.active ||
-          !identical(page, widget.session.page)) {
-        return;
-      }
+      if (!_canWarm(page, token)) return;
       await _enqueueCapture(candidate);
     }
-    // 先准备用户最常继续的前进方向，再补后退方向；两侧同时排版会在
-    // 跨章时争用主 isolate，让下一手势反而更慢。
-    final prepared = <PageContent>[
-      ?await _prepareWarmPage(true),
-      ?await _prepareWarmPage(false),
-    ];
-    for (final candidate in prepared) {
-      if (!mounted ||
-          controller.active ||
-          !identical(page, widget.session.page)) {
-        return;
-      }
-      await _enqueueCapture(candidate);
+    // 沿最近一次翻页方向先预热；两侧同时排版会在跨章时争用主 isolate。
+    for (final next in [controller.next, !controller.next]) {
+      if (!_canWarm(page, token)) return;
+      final candidate = await _prepareWarmPage(next);
+      if (!_canWarm(page, token)) return;
+      if (candidate != null) await _enqueueCapture(candidate);
     }
   }
+
+  bool _canWarm(PageContent page, int token) =>
+      mounted &&
+      !_warmSuspended &&
+      token == _captureToken &&
+      !controller.active &&
+      identical(page, widget.session.page);
 
   Future<PageContent?> _prepareWarmPage(bool next) async {
     try {
@@ -256,6 +303,9 @@ class PageTurnViewState extends State<PageTurnView>
       controller.mode = widget.mode;
       final page = widget.session.page!;
       if (!identical(page, _renderedPage)) {
+        if (!_showAnimation && !identical(page, _staticPage)) {
+          _clearStaticImage();
+        }
         _renderedPage = page;
         _pageDirty = true;
         if (!controller.active) _cancelPendingCaptures();
@@ -273,10 +323,26 @@ class PageTurnViewState extends State<PageTurnView>
                 ),
               ),
             ),
-          RepaintBoundary(
-            key: _currentBoundary,
-            child: widget.paperBuilder(page, size),
+          Offstage(
+            offstage:
+                _showAnimation ||
+                (identical(_staticPage, page) && !_staticPaperReady),
+            child: RepaintBoundary(
+              key: _currentBoundary,
+              child: widget.paperBuilder(page, size),
+            ),
           ),
+          if (!_showAnimation && identical(_staticPage, page))
+            Positioned.fill(
+              child: IgnorePointer(
+                child: RawImage(
+                  key: const ValueKey('page-turn-static-snapshot'),
+                  image: _staticImage,
+                  fit: BoxFit.fill,
+                  filterQuality: FilterQuality.low,
+                ),
+              ),
+            ),
           if (_showAnimation)
             IgnorePointer(
               child: RepaintBoundary(
@@ -301,6 +367,7 @@ class PageTurnViewState extends State<PageTurnView>
     controller.removeListener(_controllerChanged);
     controller.dispose();
     _cache.clear();
+    _clearStaticImage();
     super.dispose();
   }
 }

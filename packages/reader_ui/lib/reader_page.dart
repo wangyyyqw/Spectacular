@@ -606,8 +606,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (identical(page, _session.page)) {
       cache.protectedUrls = assets.requiredUrls;
     }
+    await _prefetchPageAssets(assets, page, displayWidth, notify: notify);
+  }
+
+  Future<void> _prefetchPageAssets(
+    _PageImageAssets assets,
+    PageContent page,
+    double displayWidth, {
+    required bool notify,
+  }) async {
+    final cache = widget.imageCache!;
     if (assets.urls.isEmpty) return;
     final before = cache.revision;
+    final presentingSnapshot =
+        _pageTurnKey.currentState?.isPresentingSnapshot(page) ?? false;
+    final missingVisible = {
+      for (final url in assets.requiredUrls)
+        if (cache.lookup(url) == null) url,
+    };
     final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
     await cache.prefetch(
       [...assets.requiredUrls, ...assets.urls.difference(assets.requiredUrls)],
@@ -615,6 +631,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       devicePixelRatio: ratio,
     );
     if (!notify || !mounted || cache.revision == before) {
+      return;
+    }
+    // 邻页和相邻分帧的解码不改变当前纸面，不能清空已预热的翻页快照。
+    if (_effectiveTurnMode != PageTurnMode.scroll &&
+        (presentingSnapshot ||
+            !identical(page, _session.page) ||
+            !missingVisible.any((url) => cache.lookup(url) != null))) {
       return;
     }
     setState(() => _imageRevision = cache.revision);
@@ -712,7 +735,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _prefetchPageImages(page, displayWidth, includeAdjacent: true);
+        _prefetchPageImages(
+          page,
+          displayWidth,
+          includeAdjacent:
+              _effectiveTurnMode == PageTurnMode.scroll ||
+              _effectiveTurnMode == PageTurnMode.none,
+        );
       }
     });
   }
