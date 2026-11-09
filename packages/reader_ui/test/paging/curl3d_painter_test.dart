@@ -117,6 +117,41 @@ void main() {
     target.dispose();
   });
 
+  for (final mirror in [false, true]) {
+    test('${mirror ? '左侧' : '右侧'}近水平拖动时上下角折痕阴影完整且对称', () async {
+      final origin = await _solid(_red);
+      final target = await _solid(_blue);
+      addTearDown(origin.dispose);
+      addTearDown(target.dispose);
+      final upper = await _render(
+        origin,
+        target,
+        grab: const Offset(400, 0),
+        touch: const Offset(200, 12),
+        mirror: mirror,
+      );
+      final lower = await _render(
+        origin,
+        target,
+        touch: const Offset(200, 588),
+        mirror: mirror,
+      );
+      // 取未被纸背遮挡、分布在折痕两段的原页像素，检查接触阴影没有截断。
+      for (final (x, y) in [(227, 100), (215, 300)]) {
+        final screenX = mirror ? 399 - x : x;
+        final topPixel = _pixel(upper, screenX, 599 - y);
+        final bottomPixel = _pixel(lower, screenX, y);
+        expect(topPixel.first, lessThan(250), reason: '上角折痕应压暗原页');
+        expect(
+          bottomPixel.first,
+          closeTo(topPixel.first, 1),
+          reason: '下角阴影不能截断',
+        );
+        expect(bottomPixel.sublist(1), [0, 0, 255], reason: '采样位置仍是完整的原页');
+      }
+    });
+  }
+
   test('正面标记位置不被折角采样移动', () async {
     final origin = await _marked();
     final target = await _solid(_blue);

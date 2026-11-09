@@ -143,7 +143,52 @@ void _expectSameCurl(PageTurnController forward, PageTurnController backward) {
   expect(backward.fromRight, !forward.fromRight);
 }
 
+Completer<void> _requestWithActivationCancellation(
+  PageTurnController controller,
+) {
+  final cancelled = Completer<void>();
+  runZoned(
+    () => controller.request(true),
+    zoneSpecification: ZoneSpecification(
+      scheduleMicrotask: (self, parent, zone, callback) {
+        parent.scheduleMicrotask(zone, () {
+          if (!cancelled.isCompleted &&
+              controller.phase == PageTurnPhase.preparing &&
+              controller.turn != null) {
+            // 在目标就绪后的下一次异步续接前模拟取消输入。
+            controller.cancel();
+            cancelled.complete();
+          }
+          callback();
+        });
+      },
+    ),
+  );
+  return cancelled;
+}
+
 void main() {
+  testWidgets('无动画目标激活前取消后可继续翻页', (tester) async {
+    final controller = (await _controller(tester))..mode = PageTurnMode.none;
+    final cancelled = _requestWithActivationCancellation(controller);
+    await tester.pumpAndSettle();
+
+    expect(cancelled.isCompleted, isTrue);
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.turn, isNull);
+    expect(controller.originImage, isNull);
+    expect(controller.targetImage, isNull);
+    expect(controller.session.page!.pageIndex, 1);
+    expect(controller.session.pageTurns, 0);
+
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(controller.session.page!.pageIndex, 2);
+    expect(controller.session.pageTurns, 1);
+    await controller.session.flushProgress();
+  });
+
   for (final rtl in [false, true]) {
     testWidgets('${rtl ? 'RTL' : 'LTR'} 回拖时页角与触点重合', (tester) async {
       final controller = await _controller(tester, rtl: rtl);

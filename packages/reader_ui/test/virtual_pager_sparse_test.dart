@@ -17,6 +17,101 @@ List<PageContent> _pages(int spine, {int count = 2}) => [
 ];
 
 void main() {
+  for (final cancelWarm in [false, true]) {
+    test('连续空章预热取消=$cancelWarm，活动目标仍可提交且缓存不超五章', () async {
+      final gate = Completer<List<PageContent>>();
+      final blocked = Completer<void>();
+      var warming = true;
+      final pager = VirtualPager(
+        spineCount: 8,
+        loader: (spine) async {
+          if (spine == 5) {
+            blocked.complete();
+            return gate.future;
+          }
+          return _pages(spine, count: [0, 1, 7].contains(spine) ? 1 : 0);
+        },
+      );
+      await pager.initialize();
+      final origin = pager.current!.content;
+      final target = await pager.prepareAdjacent(1, retainTarget: true);
+      final pending = pager.prepareAdjacent(
+        1,
+        prefetch: true,
+        distance: 2,
+        shouldContinue: () => warming,
+      );
+      await blocked.future;
+      if (cancelWarm) warming = false;
+      gate.complete(const []);
+      final warmed = await pending;
+
+      expect(warmed?.spineIndex, cancelWarm ? isNull : 7);
+      expect(pager.loadedSpines, contains(1));
+      expect(
+        pager.loadedSpines.length,
+        lessThanOrEqualTo(VirtualPager.loadedSpineLimit),
+      );
+      expect(pager.commitPrepared(origin, target!), isTrue);
+      expect(pager.current!.spineIndex, 1);
+    });
+  }
+
+  for (final invalidate in ['释放目标', '取消导航', '外部跳转']) {
+    test('$invalidate 后旧目标可被淘汰，缓存仍不超五章', () async {
+      final pager = VirtualPager(
+        spineCount: 8,
+        loader: (spine) async =>
+            _pages(spine, count: [0, 1, 7].contains(spine) ? 1 : 0),
+      );
+      await pager.initialize();
+      final target = await pager.prepareAdjacent(1, retainTarget: true);
+      switch (invalidate) {
+        case '释放目标':
+          pager.releasePrepared(target!);
+          pager.releasePrepared(target);
+        case '取消导航':
+          pager.cancelPendingNavigation();
+        case '外部跳转':
+          await pager.goTo(0, 0);
+      }
+      await pager.prepareAdjacent(1, prefetch: true, distance: 2);
+
+      expect(pager.loadedSpines, isNot(contains(1)));
+      expect(
+        pager.loadedSpines.length,
+        lessThanOrEqualTo(VirtualPager.loadedSpineLimit),
+      );
+      expect(pager.current!.spineIndex, 0);
+    });
+  }
+
+  test('旧目标重复释放不影响同章新目标，提交后释放其他目标保护', () async {
+    final pager = VirtualPager(
+      spineCount: 14,
+      loader: (spine) async =>
+          _pages(spine, count: [0, 1, 7, 13].contains(spine) ? 1 : 0),
+    );
+    await pager.initialize();
+    final origin = pager.current!.content;
+    final old = await pager.prepareAdjacent(1, retainTarget: true);
+    final current = await pager.prepareAdjacent(1, retainTarget: true);
+    pager.releasePrepared(old!);
+    pager.releasePrepared(old);
+    await pager.prepareAdjacent(1, distance: 2, retainTarget: true);
+
+    expect(pager.loadedSpines, contains(1));
+    expect(pager.commitPrepared(origin, current!), isTrue);
+    await pager.prepareAdjacent(1, prefetch: true, distance: 2);
+
+    expect(pager.loadedSpines, isNot(contains(7)));
+    expect(
+      pager.loadedSpines.length,
+      lessThanOrEqualTo(VirtualPager.loadedSpineLimit),
+    );
+    expect(pager.current!.spineIndex, 1);
+  });
+
   test('两页预热跨过空章且只使用低优先级加载', () async {
     final reading = <int>[];
     final prefetch = <int>[];

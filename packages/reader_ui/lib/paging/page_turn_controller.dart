@@ -38,10 +38,8 @@ class PageTurnController extends ChangeNotifier {
   double _catchUpProgress = 0;
   ui.Offset? _catchUpPoint;
 
-  /// 冷目标露底渐入；3D 保持原有绘制行为。
-  double get targetOpacity => mode == PageTurnMode.simulation3d
-      ? 1
-      : (_catchUp.isAnimating ? _catchUp.value : 1);
+  /// 冷目标露底渐入，折角位置仍由当前手势决定。
+  double get targetOpacity => _catchUp.isAnimating ? _catchUp.value : 1;
   PageTurnPhase phase = PageTurnPhase.idle;
   PageTurnMode mode = PageTurnMode.cover;
   ui.Size size = ui.Size.zero;
@@ -205,6 +203,24 @@ class PageTurnController extends ChangeNotifier {
 
   Future<void> _prepare(bool direction, {required bool dragging}) async {
     if (size.isEmpty || _disposed || session.page == null) return;
+    final token = _beginPreparation(direction, dragging);
+    try {
+      if (!await _prepareOrigin(token, dragging)) return;
+      final prepared = await session.preparePageTurn(next);
+      if (!_valid(token)) {
+        if (prepared != null) session.releasePageTurn(prepared);
+        return;
+      }
+      if (prepared == null) return cancel();
+      turn = prepared;
+      if (!await _prepareTarget(token, prepared) || !_valid(token)) return;
+      _activatePreparedTurn(dragging);
+    } catch (_) {
+      if (_valid(token)) cancel();
+    }
+  }
+
+  int _beginPreparation(bool direction, bool dragging) {
     final token = ++_token;
     next = direction;
     _generation = session.generation;
@@ -223,36 +239,32 @@ class PageTurnController extends ChangeNotifier {
     });
     _initializePoint();
     notifyListeners();
-    try {
-      if (!await _prepareOrigin(token, dragging)) return;
-      final prepared = await session.preparePageTurn(next);
-      if (!_valid(token)) return;
-      if (prepared == null) {
-        cancel();
-        return;
-      }
-      turn = prepared;
-      if (mode != PageTurnMode.none) {
-        final target = await acquireImage(prepared.target.content);
-        if (!_valid(token)) return;
-        if (target == null) return cancel();
-        targetImage = target;
-      }
-      phase = PageTurnPhase.dragging;
-      // 已松手时从等待期间实际显示的位置接续，不能跳到过期触点再收尾。
-      if (_preparationVisible &&
-          mode != PageTurnMode.simulation3d &&
-          mode != PageTurnMode.none) {
-        _startCatchUp();
-      } else if (dragging && !_released) {
-        _updateDragFrame();
-      }
-      notifyListeners();
-      if (_released) {
-        _settle(dragging ? _shouldComplete() : true);
-      }
-    } catch (_) {
-      if (_valid(token)) cancel();
+    return token;
+  }
+
+  Future<bool> _prepareTarget(int token, PreparedPageTurn prepared) async {
+    if (mode == PageTurnMode.none) return true;
+    final target = await acquireImage(prepared.target.content);
+    if (!_valid(token)) return false;
+    if (target == null) {
+      cancel();
+      return false;
+    }
+    targetImage = target;
+    return true;
+  }
+
+  void _activatePreparedTurn(bool dragging) {
+    phase = PageTurnPhase.dragging;
+    // 已松手时从等待期间实际显示的位置接续；3D 只渐入底页，不插值折角。
+    if (_preparationVisible && mode != PageTurnMode.none) {
+      _startCatchUp();
+    } else if (dragging && !_released) {
+      _updateDragFrame();
+    }
+    notifyListeners();
+    if (_released) {
+      _settle(dragging ? _shouldComplete() : true);
     }
   }
 
@@ -504,6 +516,8 @@ class PageTurnController extends ChangeNotifier {
     _catchUp.stop(canceled: true);
     phase = PageTurnPhase.idle;
     originImage = targetImage = null;
+    final prepared = turn;
+    if (prepared != null) session.releasePageTurn(prepared);
     turn = null;
     _generation = null;
     _origin = null;
