@@ -30,6 +30,19 @@ class BesselPainter {
   final Float32List _edgeTextureCoordinates = Float32List(
     (_edgeSegments + 2) * 4,
   );
+  final Float32List _cornerPositions = Float32List(32);
+  final Float32List _cornerTextureCoordinates = Float32List(32);
+  static final _cornerIndices = Uint16List.fromList([
+    for (var row = 0; row < 3; row++)
+      for (var column = 0; column < 3; column++) ...[
+        row * 4 + column,
+        row * 4 + column + 1,
+        row * 4 + column + 4,
+        row * 4 + column + 1,
+        row * 4 + column + 5,
+        row * 4 + column + 4,
+      ],
+  ]);
 
   /// 纸背只保留少量透印反差，纸色覆盖独立于位图/网格的绘制路径。
   static const double _backInkContrast = 0.22;
@@ -253,11 +266,53 @@ class BesselPainter {
     ui.Image image,
     bool rtl,
   ) {
-    // 等比例反射保留文字尺寸，避免曲面采样在纸角附近放大字形。
     canvas.save();
     canvas.transform(geometry.reflection());
-    _drawImage(canvas, image, geometry.size, rtl);
+    if (rtl) {
+      canvas.translate(geometry.size.width, 0);
+      canvas.scale(-1, 1);
+    }
+    canvas.scale(
+      geometry.size.width / image.width,
+      geometry.size.height / image.height,
+    );
+    final mesh = _cornerMesh(canvas, image);
+    _drawBackContent(canvas, mesh, image);
     canvas.restore();
+    mesh.dispose();
+  }
+
+  ui.Vertices _cornerMesh(Canvas canvas, ui.Image image) {
+    final bounds = canvas.getLocalClipBounds();
+    final xs = _cornerAxis(bounds.left, bounds.right, image.width);
+    final ys = _cornerAxis(bounds.top, bounds.bottom, image.height);
+    for (var row = 0; row < 4; row++) {
+      for (var column = 0; column < 4; column++) {
+        final index = (row * 4 + column) * 2;
+        _cornerPositions[index] = xs[column];
+        _cornerPositions[index + 1] = ys[row];
+        _cornerTextureCoordinates[index] = xs[column].clamp(xs[1], xs[2]);
+        _cornerTextureCoordinates[index + 1] = ys[row].clamp(ys[1], ys[2]);
+      }
+    }
+    // 中间保持等比例反射，九宫格外侧只拉伸边缘，单次绘制填满弯折轮廓。
+    return ui.Vertices.raw(
+      ui.VertexMode.triangles,
+      _cornerPositions,
+      textureCoordinates: _cornerTextureCoordinates,
+      indices: _cornerIndices,
+    );
+  }
+
+  List<double> _cornerAxis(double start, double end, int extent) {
+    // 快照尺寸向上取整，最外一像素可能半透明；延展内侧完整纹理。
+    final inset = math.min(1.5, extent / 2);
+    return [
+      math.min(start, inset),
+      inset,
+      extent - inset,
+      math.max(end, extent - inset),
+    ];
   }
 
   /// 网格先绘制原始不透明内容，再统一覆盖纸色淡化。
