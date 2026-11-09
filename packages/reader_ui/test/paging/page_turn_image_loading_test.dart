@@ -130,6 +130,7 @@ Future<(ReaderSession, DecodedImageCache)> _show(
   GlobalKey key, {
   PageTurnMode mode = PageTurnMode.cover,
   Future<void> Function(String url)? beforeLoad,
+  ValueNotifier<Color>? background,
 }) async {
   final assets = (await tester.runAsync(
     () async => [
@@ -146,6 +147,7 @@ Future<(ReaderSession, DecodedImageCache)> _show(
     },
   );
   addTearDown(cache.clear);
+  final source = _Source();
   final store = MemoryReaderProgressStore();
   await store.save('图片翻页回归', const ReaderProgress(spineIndex: 1, pageIndex: 0));
   late ReaderSession session;
@@ -153,14 +155,19 @@ Future<(ReaderSession, DecodedImageCache)> _show(
     MaterialApp(
       home: RepaintBoundary(
         key: key,
-        child: ReaderPage(
-          source: _Source(),
-          store: store,
-          bookId: '图片翻页回归',
-          imageCache: cache,
-          pageTurnMode: mode,
-          showPageFooter: false,
-          onSessionReady: (value) => session = value,
+        child: ValueListenableBuilder<Color>(
+          valueListenable:
+              background ?? const AlwaysStoppedAnimation(Colors.white),
+          builder: (_, color, _) => ReaderPage(
+            source: source,
+            store: store,
+            bookId: '图片翻页回归',
+            imageCache: cache,
+            background: color,
+            pageTurnMode: mode,
+            showPageFooter: false,
+            onSessionReady: (value) => session = value,
+          ),
         ),
       ),
     ),
@@ -213,49 +220,63 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('画廊原图被淘汰后仿真翻页不等解码且落页不闪白', (tester) async {
-    final key = GlobalKey();
-    final gate = Completer<void>();
-    var blocked = false;
-    addTearDown(() {
-      if (!gate.isCompleted) gate.complete();
+  for (final mode in [
+    PageTurnMode.simulationBessel,
+    PageTurnMode.simulation3d,
+  ]) {
+    testWidgets('画廊原图被淘汰后${mode.label}不等解码且落页不闪白', (tester) async {
+      final key = GlobalKey();
+      final gate = Completer<void>();
+      final background = ValueNotifier<Color>(Colors.white);
+      var blocked = false;
+      addTearDown(background.dispose);
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      final (session, cache) = await _show(
+        tester,
+        key,
+        mode: mode,
+        beforeLoad: (_) => blocked ? gate.future : Future<void>.value(),
+        background: background,
+      );
+      final view = tester.state<PageTurnViewState>(find.byType(PageTurnView));
+      expect(view.snapshotCount, 3);
+      // 四个无关资源挤出画廊主图与背景，保留已经生成的完整页面快照。
+      cache.protectedUrls = const {};
+      await tester.runAsync(
+        () => cache.prefetch([
+          'extra-0',
+          'extra-1',
+          'extra-2',
+          'extra-3',
+        ], displayWidth: 1),
+      );
+      expect(cache.lookup('image-2-0'), isNull);
+      blocked = true;
+      view.controller.request(true);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 75));
+      expect(view.controller.phase, PageTurnPhase.settling);
+      await tester.pumpAndSettle();
+      expect(session.page!.spineIndex, 2);
+      expect(
+        find.byKey(const ValueKey('page-turn-static-snapshot')),
+        findsOneWidget,
+      );
+      await _expectPaper(tester, key);
+
+      // 宿主绘制版本在原图重解码期间刷新，快照仍应接住完整背景与主图。
+      background.value = const Color(0xffdddddd);
+      await tester.pump();
+      await _expectPaper(tester, key);
+      gate.complete();
+      await _advance(tester);
+      _expectAssets(cache, 2);
+      await _expectPaper(tester, key);
+      await tester.pumpWidget(const SizedBox.shrink());
     });
-    final (session, cache) = await _show(
-      tester,
-      key,
-      mode: PageTurnMode.simulationBessel,
-      beforeLoad: (_) => blocked ? gate.future : Future<void>.value(),
-    );
-    final view = tester.state<PageTurnViewState>(find.byType(PageTurnView));
-    expect(view.snapshotCount, 3);
-    // 四个无关资源挤出画廊主图与背景，保留已经生成的完整页面快照。
-    cache.protectedUrls = const {};
-    await tester.runAsync(
-      () => cache.prefetch([
-        'extra-0',
-        'extra-1',
-        'extra-2',
-        'extra-3',
-      ], displayWidth: 1),
-    );
-    expect(cache.lookup('image-2-0'), isNull);
-    blocked = true;
-    view.controller.request(true);
-    await tester.pump();
-    expect(view.controller.phase, PageTurnPhase.settling);
-    await tester.pumpAndSettle();
-    expect(session.page!.spineIndex, 2);
-    expect(
-      find.byKey(const ValueKey('page-turn-static-snapshot')),
-      findsOneWidget,
-    );
-    await _expectPaper(tester, key);
-    gate.complete();
-    await _advance(tester);
-    _expectAssets(cache, 2);
-    await _expectPaper(tester, key);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }
 
   testWidgets('画廊切帧后正文往返保留选择且不在动画中绘制静态画廊', (tester) async {
     final key = GlobalKey();
