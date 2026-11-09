@@ -58,10 +58,6 @@ class BesselPainter {
     canvas.clipPath(Path.combine(PathOperation.union, front, back));
     _drawImage(canvas, paper, geometry.size, rtl);
     canvas.restore();
-    canvas.save();
-    canvas.clipPath(front);
-    _drawImage(canvas, paper, geometry.size, rtl);
-    canvas.restore();
     _frontShadows(canvas, geometry, front);
     _back(canvas, geometry, back, paper, rtl);
     canvas.restore();

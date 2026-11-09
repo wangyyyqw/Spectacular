@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -10,6 +11,8 @@ import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/image_cache.dart';
+import 'package:reader_ui/gallery/reader_gallery_controls.dart';
+import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -124,8 +127,10 @@ Future<void> _advance(WidgetTester tester) async {
 
 Future<(ReaderSession, DecodedImageCache)> _show(
   WidgetTester tester,
-  GlobalKey key,
-) async {
+  GlobalKey key, {
+  PageTurnMode mode = PageTurnMode.cover,
+  Future<void> Function(String url)? beforeLoad,
+}) async {
   final assets = (await tester.runAsync(
     () async => [
       await _png(const Color(0xff00dd44)),
@@ -135,7 +140,10 @@ Future<(ReaderSession, DecodedImageCache)> _show(
   // 四张 RGBA 单像素图的预算，只容纳当前页和一个目标页的必需资源。
   final cache = DecodedImageCache(
     maxBytes: 16,
-    loadBytes: (url) async => assets[url.startsWith('image-') ? 0 : 1],
+    loadBytes: (url) async {
+      await beforeLoad?.call(url);
+      return assets[url.startsWith('image-') ? 0 : 1];
+    },
   );
   addTearDown(cache.clear);
   final store = MemoryReaderProgressStore();
@@ -150,7 +158,7 @@ Future<(ReaderSession, DecodedImageCache)> _show(
           store: store,
           bookId: '图片翻页回归',
           imageCache: cache,
-          pageTurnMode: PageTurnMode.cover,
+          pageTurnMode: mode,
           showPageFooter: false,
           onSessionReady: (value) => session = value,
         ),
@@ -201,6 +209,93 @@ void main() {
     await _advance(tester);
     expect(session.page!.spineIndex, 1);
     _expectAssets(cache, 1);
+    await _expectPaper(tester, key);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('画廊原图被淘汰后仿真翻页不等解码且落页不闪白', (tester) async {
+    final key = GlobalKey();
+    final gate = Completer<void>();
+    var blocked = false;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final (session, cache) = await _show(
+      tester,
+      key,
+      mode: PageTurnMode.simulationBessel,
+      beforeLoad: (_) => blocked ? gate.future : Future<void>.value(),
+    );
+    final view = tester.state<PageTurnViewState>(find.byType(PageTurnView));
+    expect(view.snapshotCount, 3);
+    // 四个无关资源挤出画廊主图与背景，保留已经生成的完整页面快照。
+    cache.protectedUrls = const {};
+    await tester.runAsync(
+      () => cache.prefetch([
+        'extra-0',
+        'extra-1',
+        'extra-2',
+        'extra-3',
+      ], displayWidth: 1),
+    );
+    expect(cache.lookup('image-2-0'), isNull);
+    blocked = true;
+    view.controller.request(true);
+    await tester.pump();
+    expect(view.controller.phase, PageTurnPhase.settling);
+    await tester.pumpAndSettle();
+    expect(session.page!.spineIndex, 2);
+    expect(
+      find.byKey(const ValueKey('page-turn-static-snapshot')),
+      findsOneWidget,
+    );
+    await _expectPaper(tester, key);
+    gate.complete();
+    await _advance(tester);
+    _expectAssets(cache, 2);
+    await _expectPaper(tester, key);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('画廊切帧后正文往返保留选择且不在动画中绘制静态画廊', (tester) async {
+    final key = GlobalKey();
+    final (session, _) = await _show(
+      tester,
+      key,
+      mode: PageTurnMode.simulationBessel,
+    );
+    final view = tester.state<PageTurnViewState>(find.byType(PageTurnView));
+    view.controller.request(true);
+    await _advance(tester);
+    final gallery = tester.widget<ReaderGalleryControls>(
+      find.byType(ReaderGalleryControls),
+    );
+    gallery.onChanged(1);
+    await _advance(tester);
+    expect(
+      tester
+          .widget<ReaderGalleryControls>(find.byType(ReaderGalleryControls))
+          .index,
+      1,
+    );
+    for (final next in [false, true]) {
+      view.controller.request(next);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        find.byType(ReaderGalleryControls),
+        findsNothing,
+        reason: '仿真动画只合成快照，静态画廊不再重复绘制',
+      );
+      await _advance(tester);
+    }
+    expect(session.page!.spineIndex, 2);
+    expect(
+      tester
+          .widget<ReaderGalleryControls>(find.byType(ReaderGalleryControls))
+          .index,
+      1,
+    );
     await _expectPaper(tester, key);
     await tester.pumpWidget(const SizedBox.shrink());
   });
