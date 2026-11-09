@@ -84,10 +84,35 @@ void main() {
     await pager.next(); // 页 0.1，章末仍只需要当前章
     expect(loads, [0]);
     final prefetched = pager.prefetchedPages;
-    expect(
-      prefetched.map((page) => (page.spineIndex, page.pageIndex)),
-      [(0, 0)],
-    );
+    expect(prefetched.map((page) => (page.spineIndex, page.pageIndex)), [
+      (0, 0),
+    ]);
+  });
+
+  test('显式预取在章内提前准备下一章且不提交进度', () async {
+    await pager.initialize();
+    final origin = pager.current!.content;
+    await pager.prefetchChapter(1);
+    expect(loads, [0, 1]);
+    expect(identical(pager.current!.content, origin), isTrue);
+    await pager.next();
+    final target = await pager.prepareAdjacent(1);
+    expect(target!.spineIndex, 1);
+    expect(loads, [0, 1], reason: '到章末时复用提前加载的整章');
+  });
+
+  test('预取跳过空章并在书籍两端停止', () async {
+    counts = [1, 0, 2];
+    await pager.initialize();
+    await pager.prefetchChapter(-1);
+    expect(loads, [0]);
+    await pager.prefetchChapter(1);
+    expect(loads, [0, 1, 2]);
+    expect(pager.current!.spineIndex, 0);
+    expect((await pager.prepareAdjacent(1))!.spineIndex, 2);
+    await pager.goTo(2, 0);
+    await pager.prefetchChapter(1);
+    expect(loads, [0, 1, 2]);
   });
 
   test('边界章不加载越界章节', () async {

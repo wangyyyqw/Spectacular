@@ -26,7 +26,8 @@ class PageTurnPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final origin = controller.originImage;
-    final target = controller.targetImage;
+    // 目标未就绪时轻抬原页，不能因跨章加载阻断手势反馈。
+    final target = controller.targetImage ?? origin;
     if (!controller.active || origin == null || target == null) return;
     final p = controller.progress;
     if (p <= 0 || p >= 1) {

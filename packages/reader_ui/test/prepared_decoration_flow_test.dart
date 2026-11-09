@@ -284,8 +284,8 @@ void main() {
     expect(source.loads, isEmpty);
     gate.complete();
     await tester.pumpAndSettle();
-    expect(source.loads, hasLength(1));
-    expect(source.loads.single.spine, 740);
+    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
+    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
     expect(loads, ['AuditFont']);
     expect(source.availability, {'AuditFont': true});
     await tester.pumpWidget(const SizedBox());
@@ -310,8 +310,12 @@ void main() {
     expect(source.availability, {'AuditFont': false});
     expect(loads, ['AuditFont']);
     expect(source.anchors, [740]);
-    expect(source.loads, hasLength(1));
-    final overlay = source.loads.single.overlays.single;
+    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
+    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    final overlay = source.loads
+        .firstWhere((item) => item.spine == 740)
+        .overlays
+        .single;
     expect(overlay.fontFamily, isNull);
     expect(overlay.fontSizeScale, 0.85, reason: '字体回退保留其余手工度量装饰');
     expect(source.bookTypography, contains('AuditFont'));
@@ -340,7 +344,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('真实字体度量装饰在目标章首排前准备，只排一次且不读其他章', (tester) async {
+  testWidgets('真实字体度量装饰在目标章首排前准备，邻章预取不重复当前章', (tester) async {
     final source = _PreparedSource();
     final store = await _saved();
     final decorations = _Store([
@@ -370,12 +374,13 @@ void main() {
     expect(source.bookTypography, contains(_cfi(999, 3)));
     fontGate.complete();
     await tester.pumpAndSettle();
-    expect(source.loads, hasLength(1));
-    expect(source.loads.single.spine, 740);
-    expect(source.loads.single.font, 23);
-    expect(source.loads.single.overlays, hasLength(1));
-    expect(source.loads.single.overlays.single.fontSizeScale, 0.85);
-    expect(source.loads.single.overlays.single.fontWeight, 600);
+    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
+    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    final current = source.loads.firstWhere((item) => item.spine == 740);
+    expect(current.font, 23);
+    expect(current.overlays, hasLength(1));
+    expect(current.overlays.single.fontSizeScale, 0.85);
+    expect(current.overlays.single.fontWeight, 600);
     expect(find.text('1/1'), findsOneWidget);
     expect(session.progress?.cfi, _cfi(740, 3));
     expect(source.currentChapters, contains(740));
@@ -429,7 +434,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(source.loads, hasLength(1));
+    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
+    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
     await tester.pumpWidget(
       _reader(
         source,
@@ -441,7 +447,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(source.loads, hasLength(1));
+    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
+    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
     expect(source.overlays, hasLength(2));
   });
 

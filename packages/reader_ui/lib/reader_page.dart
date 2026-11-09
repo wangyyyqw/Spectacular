@@ -2612,6 +2612,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         paperBuilder: _buildPaper,
         paperColor: _effectiveTheme?.background ?? widget.background,
         preparePageImages: _prepareTurnPageImages,
+        preload: !_editingMargins && !_finishingMarginEdit,
         rtl: _readingRtl,
       ),
     );

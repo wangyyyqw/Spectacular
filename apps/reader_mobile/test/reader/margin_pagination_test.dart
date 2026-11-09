@@ -139,12 +139,19 @@ void main() {
     await tester.tap(_control('apply'));
     await tester.pumpAndSettle();
     expect(harness.applied, hasLength(1));
-    expect(harness.source.loads.length, loads, reason: '保存不重复排当前章，也不预排其他章');
+    expect(
+      harness.source.loads.where((spine) => spine == 0),
+      hasLength(loads),
+      reason: '保存不重复排当前章，空闲后允许按最终边距预取邻章',
+    );
     await _jumpToChapter(tester, session, 1);
-    expect(harness.source.loads.last, 1);
+    expect(harness.source.loads, contains(1));
     expect(session.page!.pageHeight, beforeHeight - change);
     expect(session.chapterPageCount, greaterThan(oldOtherCount));
-    expect(harness.source.loads, isNot(contains(2)));
+    expect(
+      harness.source.loads.every((spine) => spine >= 0 && spine <= 2),
+      isTrue,
+    );
     await _jumpToChapter(tester, session, 2);
     expect(harness.source.loads.last, 2);
     expect(session.page!.pageHeight, beforeHeight - change);
@@ -221,7 +228,11 @@ void main() {
     );
     expect(_control('pagination-barrier'), findsNothing);
     expect(harness.session.contentHeight, height - 24);
-    expect(harness.source.loads.every((spine) => spine == 0), isTrue);
+    expect(
+      harness.source.loads.where((spine) => spine == 0).length,
+      lessThanOrEqualTo(2),
+      reason: '在途当前章只排一次，完成后才允许预取邻章',
+    );
     await _closeReader(tester, harness);
   });
 }

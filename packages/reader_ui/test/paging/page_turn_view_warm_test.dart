@@ -80,11 +80,12 @@ Widget _inputView(
   GlobalKey<PageTurnViewState> key, {
   ReaderPageImagesPreparer? prepare,
   int revision = 1,
+  PageTurnMode mode = PageTurnMode.cover,
 }) => MaterialApp(
   home: PageTurnView(
     key: key,
     session: session,
-    mode: PageTurnMode.cover,
+    mode: mode,
     revision: revision,
     preparePageImages: prepare,
     paperBuilder: (page, size) => ColoredBox(
@@ -95,7 +96,36 @@ Widget _inputView(
   ),
 );
 
+class _LongChapterSource extends _Source {
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    loads.add(spineIndex);
+    return [for (var i = 0; i < 8; i++) _page(spineIndex)];
+  }
+}
+
 void main() {
+  for (final mode in [PageTurnMode.cover, PageTurnMode.none]) {
+    testWidgets('${mode.label} 章内阅读即准备邻章且不提交或遍历全书', (tester) async {
+      final source = _LongChapterSource();
+      final session = ReaderSession(
+        source: source,
+        store: MemoryReaderProgressStore(),
+        bookId: '章内预取',
+      );
+      await session.open();
+      addTearDown(session.dispose);
+      final key = GlobalKey<PageTurnViewState>();
+      await tester.pumpWidget(_inputView(session, key, mode: mode));
+      await tester.pumpAndSettle();
+      expect(source.loads, [0, 1]);
+      expect(session.page!.spineIndex, 0);
+      expect(session.pageTurns, 0);
+      if (mode == PageTurnMode.none) expect(key.currentState!.snapshotCount, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('静止时预热前后章快照且不改变阅读位置', (tester) async {
     final source = _Source();
     final store = MemoryReaderProgressStore();

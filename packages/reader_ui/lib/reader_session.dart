@@ -462,6 +462,16 @@ class ReaderSession extends ChangeNotifier {
       page.content,
   ];
 
+  /// 空闲时按阅读方向提前排版邻章，结果只进缓存，不修改阅读进度。
+  Future<void> prefetchTurnChapter(bool next) async {
+    if (_disposed || _loading) return;
+    try {
+      await _pager?.prefetchChapter(next ? 1 : -1);
+    } on ChapterLoadCancelled {
+      // 用户导航或重排可抢占预取，下次空闲时再准备。
+    }
+  }
+
   /// 准备邻页；加载失败交给调用方处理，原页继续可读。
   Future<PreparedPageTurn?> preparePageTurn(
     bool next, {
