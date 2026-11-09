@@ -4,10 +4,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:reader_core/layout/paginator.dart';
 
 import '../reader_session.dart';
 import 'bessel_geometry.dart';
+import 'curl3d_geometry.dart';
 import 'page_turn_mode.dart';
 
 /// 翻页阶段；只有收尾成功才提交阅读位置。
@@ -21,12 +23,25 @@ class PageTurnController extends ChangeNotifier {
     required this.acquireImage,
   }) {
     _settling = AnimationController(vsync: vsync)..addListener(_animateFrame);
+    _catchUp = AnimationController(
+      vsync: vsync,
+      duration: const Duration(milliseconds: 100),
+    )..addListener(_catchUpFrame);
     session.addListener(_sessionChanged);
   }
 
   final ReaderSession session;
   final Future<ui.Image?> Function(PageContent page) acquireImage;
   late final AnimationController _settling;
+  late final AnimationController _catchUp;
+  bool _preparationVisible = false;
+  double _catchUpProgress = 0;
+  ui.Offset? _catchUpPoint;
+
+  /// 冷目标露底渐入；3D 保持原有绘制行为。
+  double get targetOpacity => mode == PageTurnMode.simulation3d
+      ? 1
+      : (_catchUp.isAnimating ? _catchUp.value : 1);
   PageTurnPhase phase = PageTurnPhase.idle;
   PageTurnMode mode = PageTurnMode.cover;
   ui.Size size = ui.Size.zero;
@@ -36,11 +51,18 @@ class PageTurnController extends ChangeNotifier {
   bool horizontal = true;
   double progress = 0;
   ui.Offset? point;
+
+  /// 3D 仿真被按住的页角，规范坐标；轻点翻页时取页角或侧边。
+  ui.Offset? grab;
+
+  /// 3D 仿真收尾时整页滑出画面的水平位移。
+  double slide = 0;
   ui.Image? originImage, targetImage;
   PreparedPageTurn? turn;
   ui.Offset? _down, _latest;
   ui.Offset? _pointerDown;
   _PendingDrag? _pendingDrag;
+  _DragMotion? _dragMotion;
   bool _released = false, _complete = true, _dragging = false;
   bool _disposed = false, _committing = false;
   final List<bool> _queued = <bool>[];
@@ -55,6 +77,19 @@ class PageTurnController extends ChangeNotifier {
 
   /// 活动纸的物理起卷侧；前后翻页的轴互为镜像。
   bool get fromRight => next != rtl;
+
+  /// 3D 仿真的折角几何：折痕是抓取页角与当前触点的中垂线。
+  Curl3dGeometry? get curl3dGeometry {
+    final anchor = grab;
+    final current = point;
+    if (anchor == null || current == null) return null;
+    return Curl3dGeometry(
+      size: size,
+      grab: anchor,
+      touch: current,
+      slide: ui.Offset(slide, 0),
+    );
+  }
 
   /// 前后翻页共用右侧规范坐标，绘制时按起卷侧镜像。
   BesselGeometry? get besselGeometry {
@@ -99,6 +134,7 @@ class PageTurnController extends ChangeNotifier {
     }
     _down = down;
     _latest = details.localPosition;
+    _dragMotion = _DragMotion(down.dx)..update(details.localPosition.dx);
     _dragging = true;
   }
 
@@ -106,13 +142,15 @@ class PageTurnController extends ChangeNotifier {
     final pending = _pendingDrag;
     if (pending != null) {
       pending.latest = details.localPosition;
+      pending.motion.update(details.localPosition.dx);
       return;
     }
     if (!_dragging || phase == PageTurnPhase.settling) return;
     _latest = details.localPosition;
-    final dx = _latest!.dx - _down!.dx;
-    if (!active && dx.abs() > 1) {
-      unawaited(_prepare((dx < 0) != rtl, dragging: true));
+    final motion = _dragMotion!..update(_latest!.dx);
+    final initialSign = motion.initialSign;
+    if (!active && initialSign != null) {
+      unawaited(_prepare((initialSign < 0) != rtl, dragging: true));
     }
     if (phase == PageTurnPhase.dragging ||
         (phase == PageTurnPhase.preparing && originImage != null)) {
@@ -125,9 +163,16 @@ class PageTurnController extends ChangeNotifier {
     if (pending != null) {
       _pendingDrag = null;
       final dx = pending.latest.dx - pending.down.dx;
-      final direction = (dx < 0) != rtl;
+      final initialSign = pending.motion.initialSign;
+      if (initialSign == null) return;
+      final direction = (initialSign < 0) != rtl;
       if (pending.generation == session.generation &&
-          _acceptSwipe(dx, details.primaryVelocity ?? 0, direction)) {
+          _acceptSwipe(
+            dx,
+            details.primaryVelocity ?? 0,
+            direction,
+            pending.motion.lastSign,
+          )) {
         request(direction);
       }
       return;
@@ -167,6 +212,15 @@ class PageTurnController extends ChangeNotifier {
     phase = PageTurnPhase.preparing;
     _released = !dragging;
     progress = 0;
+    slide = 0;
+    _preparationVisible = false;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_valid(token) &&
+          phase == PageTurnPhase.preparing &&
+          originImage != null) {
+        _preparationVisible = true;
+      }
+    });
     _initializePoint();
     notifyListeners();
     try {
@@ -186,7 +240,13 @@ class PageTurnController extends ChangeNotifier {
       }
       phase = PageTurnPhase.dragging;
       // 已松手时从等待期间实际显示的位置接续，不能跳到过期触点再收尾。
-      if (dragging && !_released) _updateDragFrame();
+      if (_preparationVisible &&
+          mode != PageTurnMode.simulation3d &&
+          mode != PageTurnMode.none) {
+        _startCatchUp();
+      } else if (dragging && !_released) {
+        _updateDragFrame();
+      }
       notifyListeners();
       if (_released) {
         _settle(dragging ? _shouldComplete() : true);
@@ -221,10 +281,30 @@ class PageTurnController extends ChangeNotifier {
     top = down.dy < size.height / 2;
     // 起手所在的中心二十分之一从侧边卷起；手势内固定类型，跨区不跳变。
     horizontal = (down.dy - size.height / 2).abs() <= size.height / 40;
-    point = ui.Offset(size.width, down.dy.clamp(0.1, size.height - 0.1));
+    final edge = ui.Offset(size.width, down.dy.clamp(0.1, size.height - 0.1));
+    grab = horizontal ? edge : ui.Offset(size.width, top ? 0.0 : size.height);
+    // 3D 从页角起卷，抓取点与触点重合时折角为零；其余模式从侧边起手。
+    point = mode == PageTurnMode.simulation3d ? grab : edge;
   }
 
   void _updateDragFrame() {
+    if (_catchUp.isAnimating) {
+      _catchUpFrame();
+      return;
+    }
+    _resolveDragFrame();
+    if (phase == PageTurnPhase.preparing && !_preparationVisible) {
+      final token = _token;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (_valid(token) && phase == PageTurnPhase.preparing) {
+          _preparationVisible = true;
+        }
+      });
+    }
+    notifyListeners();
+  }
+
+  void _resolveDragFrame() {
     if (mode == PageTurnMode.simulationBessel) {
       final latest = _canonical(_latest!);
       point = ui.Offset(
@@ -232,6 +312,18 @@ class PageTurnController extends ChangeNotifier {
         latest.dy.clamp(0.1, size.height - 0.1),
       );
       progress = ((size.width - point!.dx) / (2 * size.width)).clamp(0, 1);
+    } else if (mode == PageTurnMode.simulation3d) {
+      // 页角随手指平移，折痕始终是页角与触点的中垂线。
+      final delta = _canonical(_latest!) - _canonical(_down!);
+      final anchor = grab;
+      point = anchor == null
+          ? null
+          : ui.Offset(
+              (anchor.dx + delta.dx).clamp(-size.width, size.width),
+              (anchor.dy + delta.dy).clamp(0.0, size.height),
+            );
+      final travel = point == null ? 0.0 : (point! - anchor!).distance;
+      progress = (travel / (size.width * 0.9)).clamp(0.0, 0.999);
     } else {
       final sign = (next != rtl) ? -1 : 1;
       progress = ((_latest!.dx - _down!.dx) * sign / size.width).clamp(0, 1);
@@ -243,19 +335,61 @@ class PageTurnController extends ChangeNotifier {
         point = ui.Offset(size.width * 0.84, point!.dy);
       }
     }
-    notifyListeners();
   }
 
-  bool _shouldComplete() =>
-      _acceptSwipe(_latest!.dx - _down!.dx, _releaseVelocity, next);
+  void _startCatchUp() {
+    _catchUpProgress = progress;
+    _catchUpPoint = point;
+    _catchUp.forward(from: 0);
+  }
 
-  bool _acceptSwipe(double dx, double releaseVelocity, bool direction) {
+  void _catchUpFrame() {
+    if (phase == PageTurnPhase.dragging && !_released) {
+      _resolveDragFrame();
+      final t = Curves.easeOutCubic.transform(_catchUp.value);
+      progress = _catchUpProgress + (progress - _catchUpProgress) * t;
+      if (mode == PageTurnMode.simulationBessel) {
+        point = ui.Offset.lerp(_catchUpPoint, point, t);
+      }
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  bool _shouldComplete() => _acceptSwipe(
+    _latest!.dx - _down!.dx,
+    _releaseVelocity,
+    next,
+    _dragMotion?.lastSign,
+  );
+
+  /// 仿真翻页以松手方向为主；低速时使用有效末段方向，避免慢回拖误提交。
+  bool _acceptSwipe(
+    double dx,
+    double releaseVelocity,
+    bool direction,
+    double? lastSign,
+  ) {
     final sign = (direction != rtl) ? -1 : 1;
     final p = (dx * sign / size.width).clamp(0, 1);
     final velocity = releaseVelocity * sign / size.width;
-    final threshold = mode == PageTurnMode.simulationBessel ? 0.25 : 0.35;
-    return velocity > -0.8 && (velocity >= 0.8 || p >= threshold);
+    if (mode != PageTurnMode.simulationBessel &&
+        mode != PageTurnMode.simulation3d) {
+      return velocity > -0.8 && (velocity >= 0.8 || p >= 0.35);
+    }
+    if (velocity <= -_reverseVelocity) return false;
+    if (velocity >= _directionVelocity) return true;
+    if (lastSign != null && lastSign * sign < 0) return false;
+    return p >= _distanceGuard;
   }
+
+  /// 松手方向阈值，按页宽/秒计；大于该值即视为朝翻页方向轻扫。
+  static const double _directionVelocity = 0.05;
+
+  /// 反向阈值，略大于 0，滤掉指针抖动。
+  static const double _reverseVelocity = 0.05;
+
+  /// 无速度时仍需拖过的最小页宽比例，防止轻点或抖动误翻。
+  static const double _distanceGuard = 0.08;
 
   void _settle(bool complete) {
     _complete = complete;
@@ -265,14 +399,23 @@ class PageTurnController extends ChangeNotifier {
       return;
     }
     phase = PageTurnPhase.settling;
-    final bessel = mode == PageTurnMode.simulationBessel;
-    if (bessel) _prepareBesselEnd();
+    final pointBased =
+        mode == PageTurnMode.simulationBessel ||
+        mode == PageTurnMode.simulation3d;
+    if (pointBased) _preparePointEnd();
     _settling.duration = pageTurnAnimationDuration;
     unawaited(_runSettling(++_token));
   }
 
-  void _prepareBesselEnd() {
+  void _preparePointEnd() {
     _startPoint = point;
+    if (mode == PageTurnMode.simulation3d) {
+      // 完成时折角继续展开并整页滑出；取消时退回抓取页角。
+      _endPoint = _complete
+          ? ui.Offset(-size.width * 0.6, point?.dy ?? size.height / 2)
+          : grab;
+      return;
+    }
     final y = horizontal
         ? point!.dy
         : top
@@ -293,9 +436,11 @@ class PageTurnController extends ChangeNotifier {
 
   void _animateFrame() {
     final bessel = mode == PageTurnMode.simulationBessel;
+    final curl3d = mode == PageTurnMode.simulation3d;
     final t = Curves.easeOutCubic.transform(_settling.value);
     progress = _startProgress + ((_complete ? 1 : 0) - _startProgress) * t;
-    if (bessel) point = ui.Offset.lerp(_startPoint, _endPoint, t);
+    if (bessel || curl3d) point = ui.Offset.lerp(_startPoint, _endPoint, t);
+    if (curl3d) slide = _complete ? -size.width * t : 0;
     notifyListeners();
   }
 
@@ -324,9 +469,12 @@ class PageTurnController extends ChangeNotifier {
     if (pending == null || pending.generation != session.generation) return;
     _down = pending.down;
     _latest = pending.latest;
+    _dragMotion = pending.motion;
     _dragging = true;
-    final dx = pending.latest.dx - pending.down.dx;
-    if (dx.abs() > 1) unawaited(_prepare((dx < 0) != rtl, dragging: true));
+    final initialSign = pending.motion.initialSign;
+    if (initialSign != null) {
+      unawaited(_prepare((initialSign < 0) != rtl, dragging: true));
+    }
   }
 
   void _sessionChanged() {
@@ -353,6 +501,7 @@ class PageTurnController extends ChangeNotifier {
   void _resetTurn() {
     _token++;
     _settling.stop(canceled: true);
+    _catchUp.stop(canceled: true);
     phase = PageTurnPhase.idle;
     originImage = targetImage = null;
     turn = null;
@@ -360,12 +509,15 @@ class PageTurnController extends ChangeNotifier {
     _origin = null;
     point = null;
     progress = 0;
+    slide = 0;
     _resetPointer();
     if (!_disposed) notifyListeners();
   }
 
   void _resetPointer() {
     _down = _latest = null;
+    grab = null;
+    _dragMotion = null;
     _released = _dragging = false;
     _releaseVelocity = 0;
   }
@@ -376,14 +528,43 @@ class PageTurnController extends ChangeNotifier {
     cancel();
     session.removeListener(_sessionChanged);
     _settling.dispose();
+    _catchUp.dispose();
     super.dispose();
   }
 }
 
 class _PendingDrag {
-  _PendingDrag(this.down, this.latest, this.generation);
+  _PendingDrag(this.down, this.latest, this.generation)
+    : motion = (_DragMotion(down.dx)..update(latest.dx));
 
   final ui.Offset down;
   ui.Offset latest;
   final int generation;
+  final _DragMotion motion;
+}
+
+class _DragMotion {
+  _DragMotion(this.down) : _anchor = down;
+
+  final double down;
+  double _anchor;
+  double? initialSign, lastSign;
+
+  void update(double x) {
+    if (initialSign == null && (x - down).abs() > 1) {
+      initialSign = (x - down).sign;
+    }
+    // 从最近极值累计反向位移，过滤一像素内的抖动，同时保留慢拖方向。
+    final delta = x - _anchor;
+    if (lastSign == null) {
+      if (delta.abs() <= 1) return;
+      lastSign = delta.sign;
+      _anchor = x;
+    } else if (delta * lastSign! > 0) {
+      _anchor = x;
+    } else if (delta.abs() > 1) {
+      lastSign = delta.sign;
+      _anchor = x;
+    }
+  }
 }

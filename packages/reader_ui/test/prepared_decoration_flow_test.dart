@@ -285,7 +285,7 @@ void main() {
     gate.complete();
     await tester.pumpAndSettle();
     expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
     expect(loads, ['AuditFont']);
     expect(source.availability, {'AuditFont': true});
     await tester.pumpWidget(const SizedBox());
@@ -311,7 +311,7 @@ void main() {
     expect(loads, ['AuditFont']);
     expect(source.anchors, [740]);
     expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
     final overlay = source.loads
         .firstWhere((item) => item.spine == 740)
         .overlays
@@ -375,7 +375,7 @@ void main() {
     fontGate.complete();
     await tester.pumpAndSettle();
     expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
     final current = source.loads.firstWhere((item) => item.spine == 740);
     expect(current.font, 23);
     expect(current.overlays, hasLength(1));
@@ -435,7 +435,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
     await tester.pumpWidget(
       _reader(
         source,
@@ -448,7 +448,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {739, 740, 741});
+    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
     expect(source.overlays, hasLength(2));
   });
 

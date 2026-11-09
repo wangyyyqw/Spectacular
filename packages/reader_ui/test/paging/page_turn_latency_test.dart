@@ -141,6 +141,27 @@ void main() {
       await controller.session.flushProgress();
     });
   }
+  testWidgets('仿真冷跨章大幅回拖零速度松手立即回弹', (tester) async {
+    final source = _Source();
+    final controller = await _open(
+      tester,
+      PageTurnMode.simulationBessel,
+      source: source,
+    );
+    _start(controller);
+    await tester.pump();
+    _move(controller, 100);
+    _move(controller, 250);
+    controller.endDrag(DragEndDetails());
+    await tester.pumpAndSettle();
+    expect(controller.active, isFalse);
+    expect(controller.session.pageTurns, 0);
+    source.nextChapter.complete([_Source.page(1, 0)]);
+    await tester.pumpAndSettle();
+    expect(controller.session.page!.spineIndex, 0);
+    expect(controller.session.pageTurns, 0);
+  });
+
   testWidgets('目标快照失败保留原页，不能直接闪到下一页', (tester) async {
     final source = _Source()..nextChapter.complete([_Source.page(1, 0)]);
     final controller = await _open(

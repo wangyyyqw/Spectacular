@@ -72,6 +72,17 @@ class PageTurnViewState extends State<PageTurnView>
   ui.Image? _staticImage;
   bool _staticPaperReady = false;
   int _staticToken = 0;
+  final _window = <int, PageContent>{};
+  final _captures = <PageContent, _WindowCapture>{};
+  final _pendingCaptures = <_WindowCapture>[];
+  bool _capturingWindow = false;
+  PageContent? _windowPage;
+
+  bool get _usesWindow =>
+      widget.mode != PageTurnMode.simulation3d &&
+      widget.mode != PageTurnMode.scroll;
+
+  Set<PageContent> get _windowPages => _window.values.toSet();
 
   int get snapshotBytes => _cache.bytes;
   int get snapshotCount => _cache.length;
@@ -103,6 +114,9 @@ class PageTurnViewState extends State<PageTurnView>
     _captureToken++;
     _capturePage = null;
     _lastWarm = null;
+    _window.clear();
+    _windowPage = null;
+    _captures.clear();
     _cache.clear();
     _clearStaticImage();
   }
@@ -111,9 +125,14 @@ class PageTurnViewState extends State<PageTurnView>
     if (!mounted) return;
     final show = controller.active && controller.originImage != null;
     _cache.protected = {
+      if (_usesWindow && _windowPage != null) _windowPage!,
       if (widget.session.page != null) widget.session.page!,
       if (controller.turn != null) controller.turn!.target.content,
     };
+    if (_usesWindow) {
+      _syncWindow();
+      _cache.retainPages(_windowPages);
+    }
     final target = controller.turn?.target.content;
     if (show &&
         controller.targetImage != null &&
@@ -132,6 +151,7 @@ class PageTurnViewState extends State<PageTurnView>
         return;
       }
       if (_pageDirty) _cancelPendingCaptures();
+      if (_usesWindow) unawaited(_drainWindowCaptures());
       _scheduleWarm();
     }
   }
@@ -185,6 +205,11 @@ class PageTurnViewState extends State<PageTurnView>
 
   /// 页面提交后丢弃仅供旧页使用的排队截图，避免快速翻页时任务累积。
   void _cancelPendingCaptures() {
+    if (_usesWindow) {
+      _pageDirty = false;
+      _syncWindow();
+      return;
+    }
     _pageDirty = false;
     _captureToken++;
     _captureQueue = Future<void>.value();
@@ -203,27 +228,141 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   Future<ui.Image?> _acquireTurnImage(PageContent page) {
-    // 用户翻页优先；无关邻页预热即使仍在解码，也不能挡住当前输入。
+    if (_usesWindow) return _enqueueWindowCapture(page, urgent: true);
+    // 3D 仿真保留原有捕获策略。
     _cancelPendingCaptures();
     return _enqueueCapture(page);
   }
 
-  Future<ui.Image?> _capture(PageContent page, int token) async {
-    if (!mounted || token != _captureToken) return null;
+  void _syncWindow() {
+    final page = widget.session.page;
+    if (page == null || identical(page, _windowPage)) return;
+    final offset = _window.entries
+        .where((entry) => identical(entry.value, page))
+        .map((entry) => entry.key)
+        .firstOrNull;
+    final retained = <int, PageContent>{};
+    if (offset != null) {
+      for (final entry in _window.entries) {
+        final distance = entry.key - offset;
+        if (distance.abs() <= 2) retained[distance] = entry.value;
+      }
+    }
+    _window
+      ..clear()
+      ..addAll(retained)
+      ..[0] = page;
+    _windowPage = page;
+    _lastWarm = null;
+    _cache.retainPages(_windowPages);
+  }
+
+  bool _retainCapture(PageContent page) =>
+      _windowPages.contains(page) ||
+      identical(page, widget.session.page) ||
+      (controller.active &&
+          (identical(page, _windowPage) ||
+              identical(page, controller.turn?.target.content)));
+
+  Future<ui.Image?> _enqueueWindowCapture(
+    PageContent page, {
+    bool urgent = false,
+  }) {
+    final cached = _cache.get(page);
+    if (cached != null) return Future.value(cached);
+    var capture = _captures[page];
+    if (capture != null && capture.token == _captureToken) {
+      if (urgent) capture.urgent = true;
+      if (urgent && _pendingCaptures.remove(capture)) {
+        _pendingCaptures.insert(0, capture);
+        unawaited(_drainWindowCaptures());
+      }
+      return capture.result.future;
+    }
+    capture = _WindowCapture(page, _captureToken)..urgent = urgent;
+    _captures[page] = capture;
+    unawaited(_prepareWindowCapture(capture));
+    return capture.result.future;
+  }
+
+  Future<void> _prepareWindowCapture(_WindowCapture capture) async {
+    try {
+      await widget.preparePageImages?.call(capture.page);
+      if (capture.urgent) {
+        _pendingCaptures.insert(0, capture);
+      } else {
+        _pendingCaptures.add(capture);
+      }
+      unawaited(_drainWindowCaptures());
+    } catch (error, stack) {
+      capture.result.completeError(error, stack);
+      if (identical(_captures[capture.page], capture)) {
+        _captures.remove(capture.page);
+      }
+    }
+  }
+
+  Future<void> _drainWindowCaptures() async {
+    if (_capturingWindow) return;
+    _capturingWindow = true;
+    try {
+      while (_pendingCaptures.isNotEmpty) {
+        final index = controller.active
+            ? _pendingCaptures.indexWhere((capture) => capture.urgent)
+            : 0;
+        if (index < 0) break;
+        final capture = _pendingCaptures.removeAt(index);
+        try {
+          final image = await _capture(
+            capture.page,
+            capture.token,
+            imagesPrepared: true,
+          );
+          capture.result.complete(image);
+        } catch (error, stack) {
+          capture.result.completeError(error, stack);
+        } finally {
+          if (identical(_captures[capture.page], capture)) {
+            _captures.remove(capture.page);
+          }
+        }
+      }
+    } finally {
+      _capturingWindow = false;
+    }
+  }
+
+  Future<ui.Image?> _capture(
+    PageContent page,
+    int token, {
+    bool imagesPrepared = false,
+  }) async {
+    bool valid() =>
+        mounted &&
+        token == _captureToken &&
+        (!_usesWindow || _retainCapture(page));
+    if (!valid()) return null;
     // 完整快照可直接翻动；静态纸面所需原图在落页时独立恢复。
     final cached = _cache.get(page);
     if (cached != null) return cached;
     final prepare = widget.preparePageImages;
-    if (prepare != null) {
+    if (prepare != null && !imagesPrepared) {
       await prepare(page);
-      if (!mounted || token != _captureToken) return null;
+      if (!valid()) return null;
     }
-    final current = identical(page, widget.session.page);
+    final current =
+        identical(page, widget.session.page) &&
+        (!_usesWindow || !_showAnimation);
     if (!current) setState(() => _capturePage = page);
     ui.Image? image;
     for (var attempt = 0; attempt < 2; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || token != _captureToken) return null;
+      if (!valid()) {
+        if (mounted && identical(_capturePage, page)) {
+          setState(() => _capturePage = null);
+        }
+        return null;
+      }
       final key = current ? _currentBoundary : _captureBoundary;
       final boundary = key.currentContext?.findRenderObject();
       if (boundary is RenderRepaintBoundary && !boundary.debugNeedsPaint) {
@@ -237,15 +376,21 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   void _scheduleWarm() {
-    if (_warmSuspended || !widget.preload || !mounted || controller.active) {
+    if (_warmSuspended ||
+        !widget.preload ||
+        !mounted ||
+        (!_usesWindow && controller.active)) {
       return;
     }
+    if (_usesWindow) _syncWindow();
     final page = widget.session.page;
     final key = (page, widget.revision, _size, _ratio);
     if (page == null || _size.isEmpty || key == _lastWarm) return;
     _lastWarm = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !controller.active) unawaited(_warm(page));
+      if (mounted && (_usesWindow || !controller.active)) {
+        unawaited(_warm(page));
+      }
     });
     WidgetsBinding.instance.scheduleFrame();
   }
@@ -253,24 +398,47 @@ class PageTurnViewState extends State<PageTurnView>
   Future<void> _warm(PageContent page) async {
     final token = _captureToken;
     final animate = widget.mode != PageTurnMode.none;
-    final adjacent = widget.session.adjacentPages;
-    final candidates = <PageContent>{
-      if (animate) page,
-      if (animate) ...(controller.next ? adjacent.reversed : adjacent),
-    };
-    for (final candidate in candidates) {
-      if (!_canWarm(page, token)) return;
-      await _enqueueCapture(candidate);
+    if (!_canWarm(page, token)) return;
+    if (animate) {
+      await (_usesWindow ? _enqueueWindowCapture(page) : _enqueueCapture(page));
     }
-    // 沿最近一次翻页方向先预热；两侧同时排版会在跨章时争用主 isolate。
+    // 先两侧近邻，再准备第二页；同距离优先最近翻页方向，避免远页抢跑。
+    for (var distance = 1; distance <= 2; distance++) {
+      for (final next in [controller.next, !controller.next]) {
+        if (!_canWarm(page, token)) return;
+        final offset = next ? distance : -distance;
+        final candidate = _usesWindow && _window.containsKey(offset)
+            ? _window[offset]
+            : await _prepareWarmPage(next, distance, page, token);
+        if (!_canWarm(page, token)) return;
+        if (candidate != null) {
+          if (_usesWindow) _window[offset] = candidate;
+          if (animate) {
+            await (_usesWindow
+                ? _enqueueWindowCapture(candidate)
+                : _enqueueCapture(candidate));
+          }
+        }
+      }
+    }
+    // 窗口外邻章只在空闲时预取，不能抢占活动翻页。
     for (final next in [controller.next, !controller.next]) {
       if (!_canWarm(page, token)) return;
-      final candidate = await _prepareWarmPage(next);
-      if (!_canWarm(page, token)) return;
-      if (candidate != null && animate) await _enqueueCapture(candidate);
-      if (!_canWarm(page, token)) return;
+      if (_usesWindow && controller.active) {
+        _lastWarm = null;
+        return;
+      }
       try {
-        await widget.session.prefetchTurnChapter(next);
+        await widget.session.prefetchTurnChapter(
+          next,
+          shouldContinue: () {
+            if (_usesWindow && controller.active) {
+              _lastWarm = null;
+              return false;
+            }
+            return _canWarm(page, token);
+          },
+        );
       } catch (_) {
         // 预取错误不影响当前正文，实际翻页时允许重新加载。
       }
@@ -282,14 +450,21 @@ class PageTurnViewState extends State<PageTurnView>
       !_warmSuspended &&
       widget.preload &&
       token == _captureToken &&
-      !controller.active &&
+      (_usesWindow || !controller.active) &&
       identical(page, widget.session.page);
 
-  Future<PageContent?> _prepareWarmPage(bool next) async {
+  Future<PageContent?> _prepareWarmPage(
+    bool next,
+    int distance,
+    PageContent page,
+    int token,
+  ) async {
     try {
       return (await widget.session.preparePageTurn(
         next,
         prefetch: true,
+        distance: distance,
+        shouldContinue: () => _canWarm(page, token),
       ))?.target.content;
     } catch (_) {
       return null;
@@ -301,9 +476,12 @@ class PageTurnViewState extends State<PageTurnView>
     builder: (context, constraints) {
       final size = constraints.biggest;
       final deviceRatio = MediaQuery.devicePixelRatioOf(context);
-      // 位图宽高按像素取整，预留 2% 余量才能同时保留当前、前、后三页。
+      // 位图宽高按像素取整；预算覆盖当前页与前后各两页共五个快照。
       final cacheRatio =
-          math.sqrt(_cache.maxBytes / (size.width * size.height * 4 * 3)) *
+          math.sqrt(
+            _cache.maxBytes /
+                (size.width * size.height * 4 * _cache.maxEntries),
+          ) *
           0.98;
       final ratio = math.min(deviceRatio, cacheRatio);
       if (_size != size || _ratio != ratio) {
@@ -383,4 +561,13 @@ class PageTurnViewState extends State<PageTurnView>
     _clearStaticImage();
     super.dispose();
   }
+}
+
+class _WindowCapture {
+  _WindowCapture(this.page, this.token);
+
+  final PageContent page;
+  final int token;
+  bool urgent = false;
+  final result = Completer<ui.Image?>();
 }

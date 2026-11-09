@@ -35,7 +35,7 @@ class VirtualPager {
   final SpinePagesLoader loader;
   final SpinePagesLoader? prefetchLoader;
 
-  /// 从已加载章节中提供的前后邻页数，不触发额外整章排版。
+  /// 当前页前后各自预热的真实邻页数。
   final int prefetchRadius;
 
   /// 导航会话保留的章节页窗口；与章节源分页缓存保持同一上限。
@@ -70,15 +70,16 @@ class VirtualPager {
   /// 只提供真实相邻且已加载的页，不跨过未加载章节的断档。
   List<VirtualPage> get prefetchedPages {
     final result = <VirtualPage>[];
-    for (final direction in [-1, 1]) {
-      var position = _currentReal;
-      for (
-        var distance = 0;
-        position != null && distance < prefetchRadius;
-        distance++
-      ) {
-        position = _cachedAdjacent(position, direction);
-        if (position != null) result.add(_pageAt(position));
+    var previous = _currentReal;
+    var next = _currentReal;
+    for (var distance = 0; distance < prefetchRadius; distance++) {
+      if (previous != null) {
+        previous = _cachedAdjacent(previous, -1);
+        if (previous != null) result.add(_pageAt(previous));
+      }
+      if (next != null) {
+        next = _cachedAdjacent(next, 1);
+        if (next != null) result.add(_pageAt(next));
       }
     }
     return result;
@@ -109,39 +110,68 @@ class VirtualPager {
   Future<VirtualPage?> prepareAdjacent(
     int direction, {
     bool prefetch = false,
+    int distance = 1,
+    bool Function()? shouldContinue,
   }) async {
     assert(direction == -1 || direction == 1);
+    assert(distance > 0);
     final origin = _currentReal;
+    final token = _navigationToken;
     if (origin == null) return null;
-    final cached = _cachedAdjacent(origin, direction);
-    if (cached != null) return _pageAt(cached);
-    for (
-      var spine = origin.$1 + direction;
-      spine >= 0 && spine < spineCount;
-      spine += direction
-    ) {
-      await _loadSpine(spine, prefetch: prefetch);
-      final pages = _spinePages[spine]!;
-      if (pages.isNotEmpty) {
-        return _pageAt((spine, direction < 0 ? pages.length - 1 : 0));
+    bool valid() =>
+        token == _navigationToken &&
+        origin == _currentReal &&
+        (shouldContinue?.call() ?? true);
+    var position = origin;
+    for (var step = 0; step < distance; step++) {
+      if (!valid()) return null;
+      final cached = _cachedAdjacent(position, direction);
+      if (cached != null) {
+        position = cached;
+        continue;
       }
+      var found = false;
+      for (
+        var spine = position.$1 + direction;
+        spine >= 0 && spine < spineCount;
+        spine += direction
+      ) {
+        if (!valid()) return null;
+        await _loadSpine(spine, prefetch: prefetch);
+        if (!valid()) return null;
+        final pages = _spinePages[spine]!;
+        if (pages.isNotEmpty) {
+          position = (spine, direction < 0 ? pages.length - 1 : 0);
+          found = true;
+          break;
+        }
+      }
+      if (!found) return null;
     }
-    return null;
+    return _pageAt(position);
   }
 
   /// 阅读当前章时提前准备邻章，避免直到末页才开始整章排版。
-  Future<void> prefetchChapter(int direction) async {
+  Future<void> prefetchChapter(
+    int direction, {
+    bool Function()? shouldContinue,
+  }) async {
     assert(direction == -1 || direction == 1);
     final origin = _currentReal;
+    final token = _navigationToken;
     if (origin == null) return;
     for (
       var spine = origin.$1 + direction;
       spine >= 0 && spine < spineCount;
       spine += direction
     ) {
+      if (token != _navigationToken ||
+          origin != _currentReal ||
+          !(shouldContinue?.call() ?? true)) {
+        return;
+      }
       await _loadSpine(spine, prefetch: true);
       if (_spinePages[spine]?.isNotEmpty == true) return;
-      if (_currentReal?.$1 != origin.$1) return;
     }
   }
 

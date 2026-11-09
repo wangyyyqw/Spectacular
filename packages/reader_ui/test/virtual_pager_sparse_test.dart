@@ -17,6 +17,62 @@ List<PageContent> _pages(int spine, {int count = 2}) => [
 ];
 
 void main() {
+  test('两页预热跨过空章且只使用低优先级加载', () async {
+    final reading = <int>[];
+    final prefetch = <int>[];
+    final pager = VirtualPager(
+      spineCount: 6,
+      prefetchRadius: 2,
+      loader: (spine) async {
+        reading.add(spine);
+        return _pages(spine, count: 1);
+      },
+      prefetchLoader: (spine) async {
+        prefetch.add(spine);
+        return _pages(spine, count: spine == 3 ? 0 : 1);
+      },
+    );
+    await pager.initialize(startSpine: 2);
+    final origin = pager.current!.content;
+    final next = await pager.prepareAdjacent(1, prefetch: true, distance: 2);
+    final previous = await pager.prepareAdjacent(
+      -1,
+      prefetch: true,
+      distance: 2,
+    );
+    expect(next!.spineIndex, 5);
+    expect(previous!.spineIndex, 0);
+    expect(reading, [2]);
+    expect(prefetch, [3, 4, 5, 1, 0]);
+    expect(identical(pager.current!.content, origin), isTrue);
+  });
+
+  test('两页预热取消后不继续加载第二章且不提交位置', () async {
+    final gate = Completer<List<PageContent>>();
+    final prefetch = <int>[];
+    var active = true;
+    final pager = VirtualPager(
+      spineCount: 4,
+      loader: (spine) async => _pages(spine, count: 1),
+      prefetchLoader: (spine) async {
+        prefetch.add(spine);
+        return gate.future;
+      },
+    );
+    await pager.initialize();
+    final pending = pager.prepareAdjacent(
+      1,
+      prefetch: true,
+      distance: 2,
+      shouldContinue: () => active,
+    );
+    active = false;
+    gate.complete(_pages(1, count: 1));
+    expect(await pending, isNull);
+    expect(prefetch, [1]);
+    expect(pager.current!.spineIndex, 0);
+  });
+
   test('高章序打开及远距离跳转均只加载目标章，不等待邻章', () async {
     final loads = <int>[];
     final never = Completer<List<PageContent>>();
@@ -125,11 +181,7 @@ void main() {
       lessThanOrEqualTo(VirtualPager.loadedSpineLimit),
     );
     expect(pager.loadedSpines, contains(60));
-    expect(
-      pager.mappedPageCount,
-      14,
-      reason: '只淘汰页面内容，保留每章页数元数据以稳定虚拟页码',
-    );
+    expect(pager.mappedPageCount, 14, reason: '只淘汰页面内容，保留每章页数元数据以稳定虚拟页码');
     expect(await pager.previous(), isTrue);
     expect((pager.current!.spineIndex, pager.current!.pageIndex), (59, 1));
   });
