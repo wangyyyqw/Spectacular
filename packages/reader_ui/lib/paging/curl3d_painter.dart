@@ -163,9 +163,13 @@ class Curl3dPainter {
     final center = geometry.creaseCenter + geometry.slide;
     final span = geometry.size.longestSide * 2;
     final width = geometry.radius * 2.2;
-    final a = center - geometry.e * span - geometry.u * width;
-    final b = center + geometry.e * span + geometry.u * width;
-    final rect = Rect.fromPoints(a, b);
+    final halfWidth = geometry.e.dx.abs() * span + geometry.u.dx.abs() * width;
+    final halfHeight = geometry.e.dy.abs() * span + geometry.u.dy.abs() * width;
+    final rect = Rect.fromCenter(
+      center: center,
+      width: halfWidth * 2,
+      height: halfHeight * 2,
+    );
     // 折痕处最深，向两侧对称衰减；不能只朝正面衰减，否则纸背一侧会被整片压暗。
     _creasePaint.shader = ui.Gradient.linear(
       center - geometry.u * width,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,8 +41,9 @@ Widget _view(
   ReaderSession session,
   GlobalKey<PageTurnViewState> key,
   ReaderPageImagesPreparer prepare,
-  PageTurnMode mode,
-) => MaterialApp(
+  PageTurnMode mode, {
+  ReaderPaperBuilder? paperBuilder,
+}) => MaterialApp(
   home: ListenableBuilder(
     listenable: session,
     builder: (_, _) => PageTurnView(
@@ -49,15 +51,70 @@ Widget _view(
       session: session,
       mode: mode,
       revision: 1,
-      paperBuilder: (page, size) =>
-          ColoredBox(color: Colors.white, child: Text('${page.pageIndex}')),
+      paperBuilder:
+          paperBuilder ??
+          (page, size) =>
+              ColoredBox(color: Colors.white, child: Text('${page.pageIndex}')),
       paperColor: Colors.white,
       preparePageImages: prepare,
     ),
   ),
 );
 
+Future<void> _pumpUntil(WidgetTester tester, bool Function() ready) async {
+  for (var frame = 0; frame < 35 && !ready(); frame++) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  expect(ready(), isTrue, reason: '应到达待检查的捕获阶段');
+}
+
+Future<List<int>> _firstPixel(ui.Image image) async {
+  final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+  return List<int>.generate(4, data.getUint8);
+}
+
 void main() {
+  testWidgets('等待捕获期间往返导航仍把邻页画面缓存到正确页', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final gate = Completer<void>();
+    final prepared = <int>[];
+    final key = GlobalKey<PageTurnViewState>();
+    await tester.pumpWidget(
+      _view(
+        session,
+        key,
+        (page) async {
+          prepared.add(page.pageIndex);
+          if (page.pageIndex == 4) await gate.future;
+        },
+        PageTurnMode.simulationBessel,
+        paperBuilder: (page, size) => ColoredBox(
+          color: page.pageIndex == 4
+              ? const Color(0xFF0000FF)
+              : const Color(0xFFFF0000),
+        ),
+      ),
+    );
+    await _pumpUntil(tester, () => prepared.contains(4));
+    await session.next();
+    await tester.pump();
+    gate.complete();
+    await tester.idle();
+    await session.previous();
+    await tester.pump();
+    final controller = key.currentState!.controller;
+    controller.request(true);
+    await _pumpUntil(tester, () => controller.targetImage != null);
+    final pixel = await tester.runAsync(
+      () => _firstPixel(controller.targetImage!),
+    );
+    expect(controller.turn!.target.pageIndex, 4);
+    expect(pixel, [0, 0, 255, 255], reason: '目标快照必须来自页4，不能误捕获当前页3');
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final mode in [
     PageTurnMode.cover,
     PageTurnMode.coverStack,

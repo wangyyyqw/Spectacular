@@ -137,6 +137,7 @@ void _expectMirrored(ByteData forward, ByteData backward) {
 void main() {
   for (final mode in [
     PageTurnMode.simulationBessel,
+    PageTurnMode.simulation3d,
     PageTurnMode.cover,
     PageTurnMode.coverStack,
     PageTurnMode.slideHorizontal,
@@ -145,6 +146,7 @@ void main() {
       final controller = _controller(tester)
         ..mode = mode
         ..progress = 0.08
+        ..grab = const Offset(200, 300)
         ..point = const Offset(168, 220);
       final target = controller.targetImage;
       controller.targetImage = null;
@@ -156,6 +158,7 @@ void main() {
       controller.opacity = 0.5;
       final middle = await tester.runAsync(() => _render(controller));
       final bytes = middle!.buffer.asUint8List();
+      expect(bytes, isNot(equals(first.buffer.asUint8List())));
       for (var index = 3; index < bytes.length; index += 4) {
         expect(bytes[index], 255, reason: '接续合成不能出现透明裂隙');
       }

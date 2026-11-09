@@ -489,35 +489,39 @@ class ReaderSession extends ChangeNotifier {
     final origin = page;
     final generation = _generation;
     if (pager == null || origin == null || _loading) return null;
-    VirtualPage? target;
     try {
-      target = await pager.prepareAdjacent(
+      final target = await pager.prepareAdjacent(
         next ? 1 : -1,
         prefetch: prefetch,
         distance: distance,
         shouldContinue: shouldContinue,
+        retainTarget: !prefetch,
+      );
+      if (target == null) return null;
+      if (_disposed || generation != _generation || !identical(origin, page)) {
+        pager.releasePrepared(target);
+        return null;
+      }
+      return PreparedPageTurn(
+        origin: origin,
+        target: target,
+        generation: generation,
       );
     } on ChapterLoadCancelled {
       return null;
     }
-    if (_disposed ||
-        generation != _generation ||
-        !identical(origin, page) ||
-        target == null) {
-      return null;
-    }
-    return PreparedPageTurn(
-      origin: origin,
-      target: target,
-      generation: generation,
-    );
   }
+
+  /// 取消或丢弃翻页结果时释放目标章；旧结果不会影响新目标。
+  void releasePageTurn(PreparedPageTurn turn) =>
+      _pager?.releasePrepared(turn.target);
 
   /// 视觉收尾完成后提交一次；取消、跳转或重排均使旧目标失效。
   bool commitPageTurn(PreparedPageTurn turn) {
     if (_disposed ||
         turn.generation != _generation ||
         !(_pager?.commitPrepared(turn.origin, turn.target) ?? false)) {
+      releasePageTurn(turn);
       return false;
     }
     _recordPageTurn(turn.origin);

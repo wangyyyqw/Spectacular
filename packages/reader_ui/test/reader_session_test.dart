@@ -64,6 +64,18 @@ class FakeSource implements ReaderChapterSource {
   }
 }
 
+class _SparseTurnSource extends FakeSource {
+  _SparseTurnSource() : super(chapterCount: 8, pagesPerChapter: 1);
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    loads.add(spineIndex);
+    return [
+      if ([0, 1, 7].contains(spineIndex)) _makePage(spineIndex, 0),
+    ];
+  }
+}
+
 class _MultiLineSource implements ReaderChapterSource {
   _MultiLineSource() {
     final style = ComputedStyle(const <String, String>{
@@ -343,6 +355,49 @@ void main() {
     expect(session.pageTurns, 1);
     expect(session.charactersRead, 6);
     session.dispose();
+  });
+
+  test('前台翻页目标不被跨空章预热淘汰，收尾仍提交真实邻页', () async {
+    final session = ReaderSession(
+      source: _SparseTurnSource(),
+      store: MemoryReaderProgressStore(),
+      bookId: '受保护翻页',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+    final target = await session.preparePageTurn(true);
+    final warmed = await session.preparePageTurn(
+      true,
+      prefetch: true,
+      distance: 2,
+    );
+
+    expect(warmed!.target.spineIndex, 7);
+    expect(session.pageTurns, 0);
+    expect(session.commitPageTurn(target!), isTrue);
+    expect(session.progress, const ReaderProgress(spineIndex: 1, pageIndex: 0));
+    expect(session.pageTurns, 1);
+  });
+
+  test('释放旧翻页允许淘汰，重复释放不会取消同章新翻页', () async {
+    final source = _SparseTurnSource();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: '释放翻页',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+    final old = await session.preparePageTurn(true);
+    session.releasePageTurn(old!);
+    await session.preparePageTurn(true, prefetch: true, distance: 2);
+    final current = await session.preparePageTurn(true);
+    session.releasePageTurn(old);
+    await session.preparePageTurn(true, prefetch: true, distance: 2);
+
+    expect(source.loads.where((spine) => spine == 1), hasLength(2));
+    expect(session.commitPageTurn(current!), isTrue);
+    expect(session.progress, const ReaderProgress(spineIndex: 1, pageIndex: 0));
   });
 
   test('目录跳转不计翻页，连续滚动跨页计一次', () async {

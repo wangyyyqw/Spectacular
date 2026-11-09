@@ -82,6 +82,7 @@ Widget _view(
 void main() {
   for (final mode in [
     PageTurnMode.simulationBessel,
+    PageTurnMode.simulation3d,
     PageTurnMode.cover,
     PageTurnMode.coverStack,
     PageTurnMode.slideHorizontal,
@@ -114,8 +115,14 @@ void main() {
         final origin = controller.originImage;
         final beforeX = controller.point!.dx;
         final bessel = mode == PageTurnMode.simulationBessel;
-        final expected = bessel ? 220 / 640 : 210 / 320;
+        final curl3d = mode == PageTurnMode.simulation3d;
+        final expected = bessel
+            ? 220 / 640
+            : curl3d
+            ? 210 / (320 * 0.9)
+            : 210 / 320;
         if (bessel) expect(beforeX, closeTo(268.8, 0.001));
+        if (curl3d) expect(beforeX, 110);
         tester.binding.scheduleFrame();
         await tester.pump(const Duration(milliseconds: 16));
         source.gate!.complete([_page(3)]);
@@ -132,6 +139,7 @@ void main() {
         if (bessel) {
           expect(controller.point!.dx, inExclusiveRange(100, beforeX));
         }
+        if (curl3d) expect(controller.point!.dx, beforeX);
         if (releaseDuringCatchUp) {
           final beforeRelease = controller.progress;
           final pointBeforeRelease = controller.point;
@@ -154,9 +162,17 @@ void main() {
         await tester.pump(const Duration(milliseconds: 60));
         expect(
           controller.progress,
-          closeTo(bessel ? 240 / 640 : 230 / 320, 0.00001),
+          closeTo(
+            bessel
+                ? 240 / 640
+                : curl3d
+                ? 230 / (320 * 0.9)
+                : 230 / 320,
+            0.00001,
+          ),
         );
         if (bessel) expect(controller.point!.dx, 80);
+        if (curl3d) expect(controller.point!.dx, 90);
         expect(controller.targetOpacity, 1);
         debugPrint(
           '诊断 ${mode.label}：进度 0.08 -> ${controller.progress}；'

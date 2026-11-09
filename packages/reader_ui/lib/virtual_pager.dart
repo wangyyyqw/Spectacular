@@ -47,6 +47,7 @@ class VirtualPager {
   final Map<int, int> _pageOffsets = <int, int>{};
   final Map<int, Future<void>> _pendingLoads = {};
   final Set<int> _pendingPrefetchSpines = {};
+  final Set<VirtualPage> _preparedTargets = Set<VirtualPage>.identity();
   (int, int)? _currentReal;
   bool _initialized = false;
   int _navigationToken = 0;
@@ -88,7 +89,7 @@ class VirtualPager {
   /// 直接加载目标章；空章按书籍顺序向后找，不遍历目标之前的章节。
   Future<void> initialize({int startSpine = 0, int startPage = 0}) async {
     if (_initialized) return;
-    final token = ++_navigationToken;
+    final token = _beginNavigation();
     final target = startSpine.clamp(0, spineCount == 0 ? 0 : spineCount - 1);
     final found = await _findPage(
       target,
@@ -107,11 +108,13 @@ class VirtualPager {
   Future<bool> previous() => _movePage(-1);
 
   /// 准备真实邻页但不改变阅读位置；空章按内容顺序跳过。
+  /// [retainTarget] 保护活动目标章，直到提交、导航失效或显式释放。
   Future<VirtualPage?> prepareAdjacent(
     int direction, {
     bool prefetch = false,
     int distance = 1,
     bool Function()? shouldContinue,
+    bool retainTarget = false,
   }) async {
     assert(direction == -1 || direction == 1);
     assert(distance > 0);
@@ -125,30 +128,27 @@ class VirtualPager {
     var position = origin;
     for (var step = 0; step < distance; step++) {
       if (!valid()) return null;
-      final cached = _cachedAdjacent(position, direction);
-      if (cached != null) {
-        position = cached;
-        continue;
-      }
-      var found = false;
-      for (
-        var spine = position.$1 + direction;
-        spine >= 0 && spine < spineCount;
-        spine += direction
-      ) {
+      var adjacent = _cachedAdjacent(position, direction);
+      var spine = position.$1 + direction;
+      while (adjacent == null && spine >= 0 && spine < spineCount) {
         if (!valid()) return null;
         await _loadSpine(spine, prefetch: prefetch);
         if (!valid()) return null;
-        final pages = _spinePages[spine]!;
-        if (pages.isNotEmpty) {
-          position = (spine, direction < 0 ? pages.length - 1 : 0);
-          found = true;
-          break;
-        }
+        adjacent = _loadedEdge(spine, direction);
+        spine += direction;
       }
-      if (!found) return null;
+      if (adjacent == null) return null;
+      position = adjacent;
     }
-    return _pageAt(position);
+    final target = _pageAt(position);
+    if (retainTarget) _preparedTargets.add(target);
+    return target;
+  }
+
+  (int, int)? _loadedEdge(int spine, int direction) {
+    final pages = _spinePages[spine]!;
+    if (pages.isEmpty) return null;
+    return (spine, direction < 0 ? pages.length - 1 : 0);
   }
 
   /// 阅读当前章时提前准备邻章，避免直到末页才开始整章排版。
@@ -177,16 +177,25 @@ class VirtualPager {
 
   /// 动画结束时原子提交；来源改变或目标过期时拒绝提交。
   bool commitPrepared(PageContent origin, VirtualPage target) {
-    if (!identical(current?.content, origin)) return false;
+    if (!identical(current?.content, origin)) {
+      releasePrepared(target);
+      return false;
+    }
     final pages = _spinePages[target.spineIndex];
     if (pages == null ||
         target.pageIndex >= pages.length ||
         !identical(pages[target.pageIndex], target.content)) {
+      releasePrepared(target);
       return false;
     }
-    _navigationToken++;
+    _beginNavigation();
     _commitCurrent((target.spineIndex, target.pageIndex));
     return true;
+  }
+
+  /// 按准备结果身份释放，重复释放不会撤销同章新目标的保护。
+  void releasePrepared(VirtualPage target) {
+    if (_preparedTargets.remove(target)) _trimSpinePages();
   }
 
   /// 跳到章内页；越界页码钳制，空章沿 [emptyDirection] 查找。
@@ -196,7 +205,7 @@ class VirtualPager {
     if (spineIndex < 0 || spineIndex >= spineCount) {
       return Future<bool>.value(false);
     }
-    final token = ++_navigationToken;
+    final token = _beginNavigation();
     return _goToWithFallback(
       spineIndex,
       pageIndex < 0 ? 0 : pageIndex,
@@ -219,11 +228,19 @@ class VirtualPager {
   }
 
   /// 使在途导航失效；已完成的章节加载仍可作为缓存复用。
-  void cancelPendingNavigation() => _navigationToken++;
+  void cancelPendingNavigation() {
+    _beginNavigation();
+    _trimSpinePages();
+  }
+
+  int _beginNavigation() {
+    _preparedTargets.clear();
+    return ++_navigationToken;
+  }
 
   Future<bool> _movePage(int direction) {
     _ensureInitialized();
-    final token = ++_navigationToken;
+    final token = _beginNavigation();
     final position = _currentReal;
     if (position == null) return Future.value(false);
     final index = position.$2 + direction;
@@ -304,8 +321,13 @@ class VirtualPager {
 
   void _trimSpinePages() {
     final currentSpine = _currentReal?.$1;
+    final preparedSpines = {
+      for (final target in _preparedTargets) target.spineIndex,
+    };
     while (_spinePages.length > loadedSpineLimit) {
-      final removeAt = _spineOrder.indexWhere((spine) => spine != currentSpine);
+      final removeAt = _spineOrder.indexWhere(
+        (spine) => spine != currentSpine && !preparedSpines.contains(spine),
+      );
       if (removeAt < 0) break;
       _spinePages.remove(_spineOrder.removeAt(removeAt));
     }

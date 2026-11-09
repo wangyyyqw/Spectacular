@@ -350,29 +350,42 @@ class PageTurnViewState extends State<PageTurnView>
       await prepare(page);
       if (!valid()) return null;
     }
-    final current =
-        identical(page, widget.session.page) &&
-        (!_usesWindow || !_showAnimation);
+    return _capturePaper(page, valid);
+  }
+
+  bool _usesCurrentBoundary(PageContent page) =>
+      identical(page, widget.session.page) && (!_usesWindow || !_showAnimation);
+
+  Future<ui.Image?> _capturePaper(
+    PageContent page,
+    bool Function() valid,
+  ) async {
+    var current = _usesCurrentBoundary(page);
     if (!current) setState(() => _capturePage = page);
-    ui.Image? image;
-    for (var attempt = 0; attempt < 2; attempt++) {
-      await WidgetsBinding.instance.endOfFrame;
-      if (!valid()) {
-        if (mounted && identical(_capturePage, page)) {
-          setState(() => _capturePage = null);
+    try {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!valid()) return null;
+        if (current && !_usesCurrentBoundary(page)) {
+          // 导航或动画可能在等待帧时替换当前边界，改用该页自己的捕获纸面。
+          current = false;
+          setState(() => _capturePage = page);
+          continue;
         }
-        return null;
+        final key = current ? _currentBoundary : _captureBoundary;
+        final boundary = key.currentContext?.findRenderObject();
+        if (boundary is RenderRepaintBoundary && !boundary.debugNeedsPaint) {
+          final image = boundary.toImageSync(pixelRatio: _ratio);
+          _cache.put(page, image);
+          return image;
+        }
       }
-      final key = current ? _currentBoundary : _captureBoundary;
-      final boundary = key.currentContext?.findRenderObject();
-      if (boundary is RenderRepaintBoundary && !boundary.debugNeedsPaint) {
-        image = boundary.toImageSync(pixelRatio: _ratio);
-        _cache.put(page, image);
-        break;
+      return null;
+    } finally {
+      if (mounted && identical(_capturePage, page)) {
+        setState(() => _capturePage = null);
       }
     }
-    if (mounted && _capturePage != null) setState(() => _capturePage = null);
-    return image;
   }
 
   void _scheduleWarm() {
