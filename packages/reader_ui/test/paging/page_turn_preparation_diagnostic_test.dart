@@ -169,6 +169,14 @@ void main() {
         }
         _move(controller, 80);
         await tester.pump(const Duration(milliseconds: 60));
+        if (!curl3d) {
+          expect(
+            controller.progress,
+            inExclusiveRange(0.08, bessel ? 240 / 640 : 230 / 320),
+            reason: '淡入结束后仍逐帧追赶，不能在最后一帧直接恢复触点',
+          );
+          await tester.pumpAndSettle(const Duration(milliseconds: 16));
+        }
         expect(
           controller.progress,
           closeTo(

@@ -557,6 +557,41 @@ void main() {
     await controller.session.flushProgress();
   });
 
+  for (final milliseconds in [16, 120]) {
+    testWidgets('3D 起卷结束后手指已移动，${milliseconds}ms 帧间隔连续接续', (tester) async {
+      final gate = Completer<void>();
+      final controller = await _curlController(
+        tester,
+        targetImageGate: gate.future,
+      );
+      await _startCurlDrag(
+        tester,
+        controller,
+        const ui.Offset(310, 240),
+        const ui.Offset(240, 240),
+      );
+      await tester.pump(const Duration(milliseconds: 40));
+      final before = controller.point!;
+      _move(controller, const ui.Offset(100, 240));
+      await tester.pump(const Duration(milliseconds: 10));
+      expect((controller.point! - before).distance, lessThanOrEqualTo(16.01));
+      expect(controller.point!.dx, greaterThan(100));
+      await tester.pump();
+      final catchingUp = controller.point!;
+      await tester.pump(Duration(milliseconds: milliseconds));
+      expect(
+        (controller.point! - catchingUp).distance,
+        lessThanOrEqualTo(16.01),
+      );
+      expect(controller.phase, PageTurnPhase.preparing);
+      gate.complete();
+      await tester.pumpAndSettle(const Duration(milliseconds: 16));
+      expect(controller.point, const ui.Offset(100, 240));
+      expect(controller.targetOpacity, 1);
+      controller.cancel();
+    });
+  }
+
   testWidgets('3D 起手中松手从已显示位置接续并以 150 ms 回弹', (tester) async {
     final controller = await _curlController(tester);
     await _startCurlDrag(
