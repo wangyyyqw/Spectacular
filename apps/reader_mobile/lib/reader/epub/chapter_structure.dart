@@ -231,7 +231,11 @@ ChapterStructure _buildStructure(_StructureInput input) {
   final display = buildAnchorDisplayDocument(input.parsed, input.footnotes);
   final structural = analyzeFullBleed(display);
   final visible = structural.isFullBleed || input.config.fixed
-      ? analyzeFullBleed(display, isRendered: raw.isRendered)
+      ? analyzeFullBleed(
+          display,
+          isRendered: raw.isRendered,
+          preserveImageLayout: (node) => _hasImageLayout(raw.styleOf(node)),
+        )
       : structural;
   final document = aggregateAnchorDocument(display, raw);
   return ChapterStructure(
@@ -251,3 +255,16 @@ ChapterStructure _buildStructure(_StructureInput input) {
     fontFamilies: Set.unmodifiable(raw.referencedFontFamilies),
   );
 }
+
+bool _hasImageLayout(ComputedStyle style) =>
+    style.position != CssPosition.static ||
+    style.transforms.isNotEmpty ||
+    _hasImageSize(style) ||
+    style.margin.horizontal != 0 ||
+    style.margin.vertical != 0;
+
+bool _hasImageSize(ComputedStyle style) =>
+    (style.width != null && !style.width!.isAuto) ||
+    (style.height != null && !style.height!.isAuto) ||
+    (style.maxWidth != null && style.values['max-width'] != '100%') ||
+    style.maxHeight != null;

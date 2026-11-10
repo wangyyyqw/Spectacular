@@ -517,7 +517,7 @@ class _FlexRowLayout {
         math.min(ownWidth, size.container),
         block.topInset + block.height + block.bottomInset,
       ),
-      layout: block.layout,
+      layout: _cellTextLayout(block.layout, style, ownWidth),
       style: style,
       startCfi: block.startCfi,
     );
@@ -559,6 +559,64 @@ class _FlexRowLayout {
       declaredContentHeight: layoutHeight,
     );
   }
+}
+
+/// 收到自然宽的 Flex 文字沿用断行与行内载荷，只迁移原内容宽的对齐坐标。
+/// 已有行放不下或需要重新拉伸时，保持原布局；收缩重排需另行计算行高。
+TextLayoutResult _cellTextLayout(
+  TextLayoutResult layout,
+  ComputedStyle style,
+  double borderWidth,
+) {
+  final width = math.max(
+    0.0,
+    borderWidth -
+        style.padding.horizontal -
+        style.borders.left.width -
+        style.borders.right.width,
+  );
+  if (layout.isVertical ||
+      !layout.maxWidth.isFinite ||
+      (width - layout.maxWidth).abs() < .01 ||
+      layout.lines.any(
+        (line) => line.indent + line.advanceWidth > width + .01,
+      )) {
+    return layout;
+  }
+  return TextLayoutResult(
+    text: layout.text,
+    lines: [
+      for (final line in layout.lines)
+        line.copyWith(
+          offsetX:
+              line.offsetX +
+              _cellAlignShift(line, style, width - layout.maxWidth),
+        ),
+    ],
+    width: layout.width,
+    height: layout.height,
+    maxWidth: width,
+    runs: layout.runs,
+    isRtl: layout.isRtl,
+    writingMode: layout.writingMode,
+    plainTextLayout: layout.plainTextLayout,
+  );
+}
+
+double _cellAlignShift(LineBox line, ComputedStyle style, double delta) {
+  final align = line.isLastLine || line.isHardBreak
+      ? style.textAlignLast ??
+            (style.textAlign == CssTextAlign.justify
+                ? CssTextAlign.start
+                : style.textAlign)
+      : style.textAlign;
+  return switch (align) {
+    CssTextAlign.center => delta / 2,
+    CssTextAlign.right => delta,
+    CssTextAlign.start => style.isRtl ? delta : 0,
+    CssTextAlign.end => style.isRtl ? 0 : delta,
+    _ => 0,
+  };
 }
 
 _CrossDistribution _crossDistribution(

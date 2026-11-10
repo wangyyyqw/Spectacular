@@ -104,6 +104,19 @@ void main() {
     expect(analyzeFullBleed(doc).isFullBleed, isFalse);
   });
 
+  test('作者图片排版约束阻止自动满屏，保留真实叶位置', () {
+    final image = _img({'src': 'a.png'});
+    final doc = _doc(_block('body', [image]));
+    final analysis = analyzeFullBleed(
+      doc,
+      preserveImageLayout: (node) => identical(node, image),
+    );
+    expect(analysis.singleImageHasLayout, isTrue);
+    expect(analysis.isFullBleed, isFalse);
+    expect(analysis.singleImageCfi, image.cfi.serialize());
+    expect(analyzeFullBleed(doc).isFullBleed, isTrue);
+  });
+
   test('双图 → 普通路径', () {
     final doc = _doc(
       _block('body', [
