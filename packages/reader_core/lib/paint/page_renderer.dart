@@ -4582,7 +4582,9 @@ class PagePainter {
     }
     if (line != null &&
         runs.any(
-          (run) => run.style.margin.left != 0 || run.style.margin.right != 0,
+          (run) =>
+              !run.syntheticFontFallback &&
+              (run.style.margin.left != 0 || run.style.margin.right != 0),
         )) {
       final marginPlan = _InlineMarginPlan(
         runs: runs,
@@ -5273,6 +5275,8 @@ class _InlineMarginPlan {
     required this.isRtl,
   }) {
     for (final run in runs) {
+      // 合成 run 继承正文块样式，不是行内元素；块级 margin 已由页面几何消费。
+      if (run.syntheticFontFallback) continue;
       if (_hasLeadingMargin(run)) {
         _total += run.style.margin.left;
       }
@@ -5304,6 +5308,7 @@ class _InlineMarginPlan {
   double shiftAtOffset(int offset) {
     var shift = _baseShift;
     for (final run in runs) {
+      if (run.syntheticFontFallback) continue;
       if (run.end <= offset) {
         if (_hasLeadingMargin(run)) {
           shift += run.style.margin.left;
