@@ -19,16 +19,19 @@ String colorToHex(Color color) {
   return (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
 }
 
-/// 从 body 的级联结果取整页背景；书籍未声明背景图时返回 null。
+/// 从 body 的级联结果取整页背景；书籍未声明背景色或背景图时返回 null。
 ///
-/// 只取 `background-image` 与尺寸/平铺/定位：页面底色仍由阅读主题决定。
+/// 透明背景色不覆盖阅读主题；有色背景先铺页面，背景图再按尺寸/平铺/定位叠加。
 PageBackground? chapterPageBackground(ComputedStyle style) {
-  final url = style.backgroundImage;
-  if (url == null || url.isEmpty) {
+  final rawUrl = style.backgroundImage;
+  final url = rawUrl == null || rawUrl.isEmpty ? null : rawUrl;
+  final color = style.backgroundColor.a > 0 ? style.backgroundColor : null;
+  if (url == null && color == null) {
     return null;
   }
   return PageBackground(
     imageUrl: url,
+    backgroundColor: color,
     size: style.backgroundSize,
     repeat: style.backgroundRepeat,
     position: style.backgroundPosition,

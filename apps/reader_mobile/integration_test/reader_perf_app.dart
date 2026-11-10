@@ -569,7 +569,7 @@ Future<void> _imagesReady() async {
   final reader = _find<ReaderPage>((_) => true)!;
   final page = _find<ReaderSemanticsLayer>((_) => true)!.page;
   final urls = <String>{
-    if (page.background != null) page.background!.imageUrl,
+    if (page.background?.imageUrl case final String url) url,
     for (final slice in page.slices) ...[
       if (slice.block.style?.backgroundImage != null)
         slice.block.style!.backgroundImage!,

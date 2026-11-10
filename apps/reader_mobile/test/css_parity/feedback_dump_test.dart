@@ -189,7 +189,7 @@ Iterable<PageBlock> _blocks(PageBlock block) sync* {
 }
 
 Set<String> _imageUrls(PageContent page) => {
-  if (page.background != null) page.background!.imageUrl,
+  if (page.background?.imageUrl case final String url) url,
   for (final slice in page.slices)
     for (final block in _blocks(slice.block)) ...{
       for (final image in block.inlineImages) image.url,

@@ -536,8 +536,9 @@ List<String> _imageUrlsOf(List<PageContent> pages) {
           urls.add(containerImage);
         }
       }
-      if (page.background != null) {
-        urls.add(page.background!.imageUrl);
+      final pageImage = page.background?.imageUrl;
+      if (pageImage != null) {
+        urls.add(pageImage);
       }
     }
   }

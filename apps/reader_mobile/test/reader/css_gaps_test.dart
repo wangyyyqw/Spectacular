@@ -111,6 +111,7 @@ void main() {
     final background = pages.first.background;
     expect(background, isNotNull);
     expect(background!.imageUrl, 'OEBPS/Images/i.png');
+    expect(background.backgroundColor, const Color(0xFF101820));
     expect(background.repeat, CssBackgroundRepeat.noRepeat);
     expect(background.size.mode, CssBackgroundSizeMode.cover);
   });
