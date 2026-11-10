@@ -141,26 +141,54 @@ void _expectMirrored(ByteData forward, ByteData backward) {
 void main() {
   for (final rtl in [false, true]) {
     for (final next in [false, true]) {
-      testWidgets('3D ${rtl ? 'RTL' : 'LTR'} ${next ? '前进卷走原页' : '后退卷回上一页'}', (
+      testWidgets('3D ${rtl ? 'RTL' : 'LTR'} ${next ? '前进' : '后退'}卷走当前页且纹理正向', (
         tester,
       ) async {
         final controller = _controller(tester)
           ..mode = PageTurnMode.simulation3d
           ..rtl = rtl
           ..next = next
-          ..grab = Offset(next ? 200 : -200, 150)
+          ..grab = const Offset(200, 150)
           ..point = const Offset(100, 150);
         final bytes = (await tester.runAsync(() => _render(controller)))!;
-        final sheet = next
-            ? (rtl ? [0, 255, 0, 255] : [255, 255, 0, 255])
-            : (rtl ? [0, 0, 255, 255] : [255, 0, 0, 255]);
-        final bottom = next
-            ? (rtl ? [255, 0, 0, 255] : [0, 0, 255, 255])
-            : (rtl ? [255, 255, 0, 255] : [0, 255, 0, 255]);
-        expect(_pixel(bytes, rtl ? 189 : 10, 150), sheet);
-        expect(_pixel(bytes, rtl ? 9 : 190, 150), bottom);
+        final fromRight = next != rtl;
+        expect(
+          _pixel(bytes, fromRight ? 10 : 189, 150),
+          fromRight ? [255, 255, 0, 255] : [0, 255, 0, 255],
+          reason: '未卷走的一侧仍显示当前页，文字与图片保持正向',
+        );
+        expect(
+          _pixel(bytes, fromRight ? 190 : 9, 150),
+          fromRight ? [0, 0, 255, 255] : [255, 0, 0, 255],
+          reason: '卷走后露出目标页，后退时底页为上一页',
+        );
       });
     }
+
+    testWidgets('3D ${rtl ? 'RTL' : 'LTR'} 上中下起卷全程前后互为左右镜像', (tester) async {
+      final forward = _controller(tester, solid: true)
+        ..mode = PageTurnMode.simulation3d
+        ..rtl = rtl;
+      final backward = _controller(tester, solid: true)
+        ..mode = PageTurnMode.simulation3d
+        ..rtl = rtl
+        ..next = false;
+      for (final y in <double>[60, 150, 240]) {
+        final grabY = y == 150 ? 150.0 : (y < 150 ? 0.0 : 300.0);
+        for (final x in <double>[180, 100, 0, -100, -180]) {
+          for (final controller in [forward, backward]) {
+            controller
+              ..grab = Offset(200, grabY)
+              ..point = Offset(x, y)
+              ..progress = (200 - x) / 400;
+          }
+          final frames = await tester.runAsync(
+            () async => [await _render(forward), await _render(backward)],
+          );
+          _expectMirrored(frames![0], frames[1]);
+        }
+      }
+    });
   }
 
   for (final mode in [
