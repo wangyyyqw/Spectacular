@@ -250,6 +250,7 @@ class RubyAnnotation {
     required this.start,
     required this.end,
     required this.text,
+    this.style,
   });
 
   /// 起始偏移（UTF-16，含，块文本坐标系）。
@@ -260,6 +261,9 @@ class RubyAnnotation {
 
   /// 注音文本。
   final String text;
+
+  /// 作者 rt 的最终样式；旧的直接构造入口仍沿用基字半号默认值。
+  final ComputedStyle? style;
 }
 
 /// 行内盒的竖直对齐（CSS `vertical-align` 的行内块子集）。

@@ -318,6 +318,7 @@ abstract final class FootnoteParser {
           directImageSource == null) {
         continue;
       }
+      if (_insideDefinition(element)) continue;
       final targetPath = hasFragment
           ? targetPathOf(
               FootnoteAnchor(
@@ -371,6 +372,18 @@ abstract final class FootnoteParser {
       ),
       anchors: List<FootnoteAnchor>.unmodifiable(anchors),
     );
+  }
+
+  /// 定义块内的无标记返回链接也不属于正文入口，保留其文字供注文读取。
+  static bool _insideDefinition(XmlElement element) {
+    var parent = element.parent;
+    while (parent is XmlElement) {
+      if (isDefinitionElement(parent.name.local, _attributesOf(parent))) {
+        return true;
+      }
+      parent = parent.parent;
+    }
+    return false;
   }
 
   /// 在已解析的文档集合中解析锚点目标。

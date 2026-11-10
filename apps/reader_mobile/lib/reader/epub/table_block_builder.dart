@@ -2,8 +2,11 @@ import 'dart:math' as math;
 import 'dart:ui' show Rect;
 
 import 'package:reader_core/api.dart' show EpubNode, TextBlockNode;
+import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
@@ -14,6 +17,7 @@ import 'chapter_flow.dart';
 import 'chapter_layout_job.dart';
 import 'chapter_selectors.dart';
 import 'chapter_style_resolver.dart';
+import 'chapter_styles.dart';
 import 'inline_content_builder.dart';
 
 /// 单次表格的构建入口；全部阶段成功后才向章节流追加最终块。
@@ -39,7 +43,7 @@ class TableBlockBuilder {
 /// 样式副作用在首次级联后立即保存，后续格或标题级联不会覆盖表格属性。
 class _TableDescription {
   _TableDescription.resolve(
-    ChapterStyleResolver styles,
+    this.styles,
     this.node,
     List<SelectorElement> ancestors,
   ) {
@@ -47,25 +51,123 @@ class _TableDescription {
       ...ancestors,
       ChapterNodeView('table', node.attributes, const []),
     ]);
+    rawStyle = styles.chainStyle(chain);
     style = styles.styleForChain(chain);
     availableWidth = math.max(
       1.0,
-      styles.snapshot.width - style.margin.horizontal,
+      styles.snapshot.width -
+          style.margin.horizontal +
+          (rawStyle.marginLeftIsAuto ? rawStyle.margin.left : 0) +
+          (rawStyle.marginRightIsAuto ? rawStyle.margin.right : 0),
     );
+    spacingHint = _hasAuthorSpacing()
+        ? null
+        : _htmlCellSpacing(node.attributes['cellspacing']);
     borderedContainer = styles.containerBorderedForLastChain;
     opacity = styles.effectiveOpacityForLastChain;
   }
 
+  final ChapterStyleResolver styles;
   final BlockNode node;
   late final List<SelectorElement> chain;
+  late final ComputedStyle rawStyle;
   late final ComputedStyle style;
   late final double availableWidth;
+  late final double? spacingHint;
   late final bool borderedContainer;
   late final double opacity;
 
   bool get collapse => style.borderCollapse == CssBorderCollapse.collapse;
-  double get spacingX => collapse ? 0 : style.borderSpacing.left;
-  double get spacingY => collapse ? 0 : style.borderSpacing.top;
+  double get spacingX => collapse ? 0 : spacingHint ?? style.borderSpacing.left;
+  double get spacingY => collapse ? 0 : spacingHint ?? style.borderSpacing.top;
+
+  static double? _htmlCellSpacing(String? value) {
+    final spacing = double.tryParse(
+      value?.trim().replaceFirst(RegExp(r'px$'), '') ?? '',
+    );
+    return spacing != null && spacing.isFinite && spacing >= 0 ? spacing : null;
+  }
+
+  bool _hasAuthorSpacing() {
+    bool declaresSpacing(CssDeclaration declaration) =>
+        declaration.property == 'border-spacing' &&
+        ComputedStyle.isValidDeclaration(
+          declaration.property,
+          declaration.value,
+        );
+    if (inlineDeclarationsOf(node.attributes['style']).any(declaresSpacing)) {
+      return true;
+    }
+    final ancestors = chain.sublist(0, chain.length - 1);
+    return styles.cascadeRules
+        .candidatesFor(chain.last)
+        .any(
+          (rule) =>
+              rule.origin != CascadeOrigin.userAgent &&
+              rule.rule.declarations.any(declaresSpacing) &&
+              ruleMediaMatches(
+                rule.rule.media,
+                rule.rule.mediaConditions,
+                styles.contentWidth,
+              ) &&
+              rule.selectors.selectors.any(
+                (selector) => selector.matches(chain.last, ancestors),
+              ),
+        );
+  }
+
+  /// 自动表宽只有测量后才确定；此时解算 auto 外边距，再加回祖先投影。
+  ComputedStyle styleForWidth(double width) {
+    final margins = _autoMargins(width);
+    return ComputedStyle(
+      {
+        ...style.values,
+        'width': '${width}px',
+        'font-size': '${style.fontSize}px',
+        'font-weight': '${style.fontWeight}',
+        'line-height':
+            style.unitlessLineHeightFactor?.toString() ??
+            (style.lineHeightFactor == null
+                ? 'normal'
+                : '${style.lineHeight}px'),
+        'margin-left': '${margins.left}px',
+        'margin-right': '${margins.right}px',
+        if (spacingHint != null) 'border-spacing': '${spacingHint}px',
+      },
+      parent: style,
+      containingWidth: styles.snapshot.width,
+      explicitProperties: {
+        ...style.explicitProperties,
+        'width',
+        'margin-left',
+        'margin-right',
+      },
+      hasExplicitTextColor: style.hasExplicitTextColor,
+      declaredTextProperties: style.declaredTextProperties,
+    );
+  }
+
+  ({double left, double right}) _autoMargins(double width) {
+    final leftAuto = rawStyle.marginLeftIsAuto;
+    final rightAuto = rawStyle.marginRightIsAuto;
+    final remaining = math.max(
+      0.0,
+      availableWidth -
+          width -
+          BoxModel.fromStyle(
+            style,
+            containingWidth: availableWidth,
+          ).horizontalInset,
+    );
+    final share = rawStyle.cssFloat == CssFloat.none && !rawStyle.isOutOfFlow
+        ? remaining / (leftAuto && rightAuto ? 2 : 1)
+        : 0.0;
+    return (
+      left: style.margin.left + (leftAuto ? share - rawStyle.margin.left : 0),
+      right:
+          style.margin.right + (rightAuto ? share - rawStyle.margin.right : 0),
+    );
+  }
 }
 
 class _TableRow {
@@ -858,12 +960,7 @@ class _TableBuild {
     TableRenderSpec spec,
     PageBlock? caption,
   ) => PageBlock.styled(
-    style: ComputedStyle(
-      {...table.style.values, 'width': '${width}px'},
-      parent: table.style,
-      containingWidth: styles.snapshot.width,
-      explicitProperties: table.style.explicitProperties,
-    ),
+    style: table.styleForWidth(width),
     containingWidth: styles.snapshot.width,
     containerSides: table.borderedContainer,
     effectiveOpacity: table.opacity,

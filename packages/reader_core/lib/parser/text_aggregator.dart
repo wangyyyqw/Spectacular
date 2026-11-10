@@ -68,7 +68,12 @@ class InlineMark {
 /// 注音标注（P8-08，CSS Ruby 1 flat 近似）：主文本区间 + 注音文本。
 class RubyMark {
   /// 创建注音标注。
-  const RubyMark({required this.start, required this.end, required this.text});
+  const RubyMark({
+    required this.start,
+    required this.end,
+    required this.text,
+    this.chain = const [],
+  });
 
   /// 主文本区间起始（聚合文本坐标系，含）。
   final int start;
@@ -78,6 +83,9 @@ class RubyMark {
 
   /// 注音文本（rt 子文本拼接，多 rt 以空格连接）。
   final String text;
+
+  /// 首个非空 rt 的原始祖先链，用于按作者 CSS 解算注音样式。
+  final List<MarkSubject> chain;
 }
 
 /// 行内图片标记（P9-06）：聚合文本中 U+FFFC 占位符的下标与来源节点。
@@ -245,6 +253,7 @@ abstract final class TextAggregator {
     'cite',
     'q',
     'span',
+    'ruby',
   };
 
   /// 聚合一个章节。
@@ -405,7 +414,17 @@ abstract final class TextAggregator {
         return;
       }
       if (node.tag == 'rt' || node.tag == 'rtc') {
-        accumulator.captureRubyText(hiddenAwareInlineText(node, ancestors));
+        accumulator.captureRubyText(
+          hiddenAwareInlineText(node, ancestors),
+          chain: [
+            ...ancestors,
+            MarkSubject(
+              tag: node.tag,
+              attributes: node.attributes,
+              classes: (node.attributes['class'] ?? '').split(' ').toSet(),
+            ),
+          ],
+        );
         return;
       }
       final ruby = node.tag == 'ruby'
@@ -634,6 +653,7 @@ class _TextAccumulator {
 
   /// 当前 ruby 捕获的注音片段（rt 顺序）。
   final List<String> _rubyTextParts = <String>[];
+  List<MarkSubject> _rubyChain = const [];
   bool _pendingSpace = false;
   int? _lastCodeUnit;
   ParsedText? _firstText;
@@ -781,8 +801,9 @@ class _TextAccumulator {
   }
 
   /// 注音捕获（P8-08）：rt/rtc 文本不进主流，暂存待 ruby 收口。
-  void captureRubyText(String text) {
+  void captureRubyText(String text, {List<MarkSubject> chain = const []}) {
     if (text.trim().isNotEmpty) {
+      if (_rubyTextParts.isEmpty) _rubyChain = List.unmodifiable(chain);
       _rubyTextParts.add(text.trim());
     }
   }
@@ -791,9 +812,13 @@ class _TextAccumulator {
   void closeRuby(int start) {
     final end = _buffer.length;
     final annotation = _rubyTextParts.join(' ');
+    final chain = _rubyChain;
     _rubyTextParts.clear();
+    _rubyChain = const [];
     if (end > start && annotation.isNotEmpty) {
-      rubies.add(RubyMark(start: start, end: end, text: annotation));
+      rubies.add(
+        RubyMark(start: start, end: end, text: annotation, chain: chain),
+      );
     }
   }
 

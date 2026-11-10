@@ -1260,6 +1260,7 @@ class Paginator {
                   start: math.max(ruby.start, textRange.$1) - textRange.$1,
                   end: math.min(ruby.end, textRange.$2) - textRange.$1,
                   text: ruby.text,
+                  style: ruby.style,
                 ),
           ],
     inlineImages: textRange == null

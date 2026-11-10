@@ -295,7 +295,7 @@ class _LayoutMemoryWork {
     PageBackground() => _add(128, [value.imageUrl]),
     PageContainerFragment() => _add(64, [value.container]),
     PageContainer() => _add(128, [value.style]),
-    RubyAnnotation() => _add(64, [value.text]),
+    RubyAnnotation() => _add(64, [value.text, value.style]),
     LineSpacing() => _spacing(value),
     List<Object?>() => _list(value),
     _ => const <int>[],
