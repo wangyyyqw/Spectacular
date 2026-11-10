@@ -77,9 +77,13 @@ class ChapterTextMeasurer {
   ///
   /// 依赖：T2 在 ComputedStyle 侧提供的 `contentBoxWidth`（把 box-sizing /
   /// 百分比基准 / min-max 钳制收敛在一处，与 `BoxModel` 同口径）；这里只
-  /// 保留 24px 的下限，避免极窄区间测不出行。
-  double textWidthFor(ComputedStyle style) =>
-      math.max(24.0, style.contentBoxWidth(contentWidth));
+  /// 对未声明宽度的正文保留 24px 下限；作者明确指定的窄列保留内容宽。
+  double textWidthFor(ComputedStyle style) {
+    final width = style.contentBoxWidth(contentWidth);
+    return style.width != null && !style.width!.isAuto
+        ? width
+        : math.max(24.0, width);
+  }
 
   /// 浮动文本块：`PageBlock.styled` 不透传 floatSide，这里按同一口径
   /// 直接构造（内缩 = 边框 + 内边距；声明高度走 [BoxModel] 解算）。
