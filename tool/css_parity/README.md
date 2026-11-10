@@ -4,6 +4,35 @@
 当前 102 组用例（编号 01–105，缺 65、85、87），覆盖选择器、文字、盒模型、背景、列表、表格、多列、书写模式、变换、Flex、
 滤镜、浮动等属性组；属性级覆盖情况见 `coverage.md`（覆盖矩阵）。
 
+## 原书样式核查
+
+`apps/reader_mobile/test/css_parity/feedback_dump_test.dart` 可按本地外部清单顺序
+加载 EPUB、检查分页几何、导出页面图片及计算样式。清单为 JSON 数组，每项包含
+`id`、原书绝对路径 `path`、从零开始的章节索引数组 `spines`。
+
+```bash
+cd apps/reader_mobile
+FEEDBACK_MANIFEST=/tmp/spectacular-feedback/first-render.json \
+FEEDBACK_OUTPUT=/tmp/spectacular-feedback/render \
+flutter test --no-pub test/css_parity/feedback_dump_test.dart
+```
+
+默认使用书籍样式、350×700 正文区，每章导出前三页；`FEEDBACK_MAX_PAGES=0`
+导出全部页，`FEEDBACK_READER_SETTINGS=1` 施加本项目默认阅读设置。
+输出目录按 `id` 分开，`report.json` 包含每页块、表格单元格、计算样式与定位信息。
+长批次宜分书运行，以隔离书内字体和原生解码器的常驻资源。
+
+该入口检查解析、分页与绘制是否成功。原书验收按用户要求：Flex 等布局以阅微为准，
+其他 CSS 样式以多看为准，结合同章节的截图逐图核对；
+Flutter 单测使用测试字体环境，缺失的系统字体和 SVG 解码可能与真机不同，字体外观与
+降级资源仍需真机复核。版权语料、截图和日志保存在仓库外。
+
+净流高允许作者负外边距造成负值，实际内容盒仍检查非负。图片加载按正式阅读器的
+原路径、资源索引与前 64 章目录回退；原书确实缺图需单独记录。
+2026-11-10 全批 181 本、1,663 个代表章节、16,116 页分页和 3,163 张 PNG 成功，
+不等于全部样式视觉通过；具体代码版本、后续修复和未完成差异见
+[待反馈 EPUB 样式核查](../../docs/待反馈EPUB样式核查.md)。
+
 ## 组成
 
 | 文件 | 作用 |
