@@ -300,8 +300,11 @@ class ResourceIndex {
       return value;
     }
     try {
-      return Uri.decodeFull(value);
+      // 原书可混用中文路径与 %20；先规范化为 ASCII URI 再解码 UTF-8。
+      return Uri.decodeFull(Uri.parse(value).toString());
     } on FormatException {
+      return value;
+    } on ArgumentError {
       return value;
     }
   }

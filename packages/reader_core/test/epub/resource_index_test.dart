@@ -112,4 +112,37 @@ void main() {
     expect(bytes, isNotNull);
     expect(utf8.decode(bytes!), contains('<html'));
   }, skip: skip);
+
+  test('中文路径与百分号编码混用时正确读取字体，非法百分号保留原名', () {
+    const font = 'Fonts/方正东港宋 简 ExtraBold.TTF';
+    const literal = 'Fonts/方正%ZZ.ttf';
+    final archive = Archive()
+      ..addFile(ArchiveFile(font, 1, [1]))
+      ..addFile(ArchiveFile(literal, 1, [2]));
+    final reader = EpubArchive.fromBytes(
+      Uint8List.fromList(ZipEncoder().encode(archive)),
+    );
+    addTearDown(reader.close);
+    final index = ResourceIndex.build(
+      archive: reader,
+      manifest: const [],
+      opfPath: 'OEBPS/content.opf',
+    );
+    expect(
+      index.read(
+        reader,
+        '../Fonts/方正东港宋%20简%20ExtraBold.TTF',
+        baseDir: 'OEBPS',
+      ),
+      [1],
+    );
+    expect(
+      index.resolve(
+        '../Fonts/${Uri.encodeComponent('方正东港宋 简 ExtraBold.TTF')}',
+        baseDir: 'OEBPS',
+      ),
+      font,
+    );
+    expect(index.resolve('../Fonts/方正%ZZ.ttf', baseDir: 'OEBPS'), literal);
+  });
 }
