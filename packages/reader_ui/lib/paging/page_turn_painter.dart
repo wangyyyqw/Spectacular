@@ -106,13 +106,13 @@ class PageTurnPainter extends CustomPainter {
       _image(canvas, origin, size);
       return;
     }
-    // 单页后退卷回上一张纸；规范坐标只随阅读方向镜像。
+    // 前后翻页都卷走当前页，按物理起卷侧镜像几何，底页为目标页。
     _curl3dPainter.paint(
       canvas,
-      controller.next ? origin : target,
-      controller.next ? target : origin,
+      origin,
+      target,
       geometry: geometry,
-      mirror: controller.rtl,
+      mirror: !controller.fromRight,
     );
   }
 

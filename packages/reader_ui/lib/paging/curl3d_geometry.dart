@@ -3,8 +3,8 @@ import 'dart:ui';
 
 /// 多看圆柱卷页的正交投影，页面坐标始终作为固定纹理坐标。
 ///
-/// 输入采用从左到右、y 向下的页面坐标。前进从右缘起手，后退从左侧
-/// 虚拟页的 -width 起手；镜像及实际翻页方向由调用方处理。
+/// 输入采用从左到右、y 向下的页面坐标。支持右缘与原生虚拟左页抓点；
+/// 当前控制器前后翻页均从右缘起手，由调用方镜像为实际起卷侧。
 class Curl3dGeometry {
   Curl3dGeometry({
     required this.size,
@@ -26,7 +26,7 @@ class Curl3dGeometry {
 
   final Size size;
 
-  /// 固定起手点：前进 x 为 width，后退 x 为 -width。
+  /// 固定起手点：右缘 x 为 width；原生虚拟左页抓点 x 为 -width。
   final Offset grab;
 
   /// 当前实际指针位置，允许越过页面边界。

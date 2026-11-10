@@ -60,7 +60,7 @@ class PageTurnController extends ChangeNotifier {
   double progress = 0;
   ui.Offset? point;
 
-  /// 3D 仿真抓取点；上一页从可见页左侧的虚拟纸张起卷。
+  /// 3D 仿真抓取点；前后翻页均使用当前页的右缘规范坐标。
   ui.Offset? grab;
   ui.Image? originImage, targetImage;
   PreparedPageTurn? turn;
@@ -121,7 +121,7 @@ class PageTurnController extends ChangeNotifier {
     }
     if (mode == PageTurnMode.simulation3d) {
       _down = ui.Offset(
-        rtl ? size.width : 0,
+        next != rtl ? 0 : size.width,
         _pointerDown?.dy ?? size.height / 2,
       );
       _pointerDown = null;
@@ -359,9 +359,8 @@ class PageTurnController extends ChangeNotifier {
   bool _valid(int token) => !_disposed && token == _token;
 
   ui.Offset _canonical(ui.Offset position) {
-    final mirror = mode == PageTurnMode.simulation3d ? rtl : !fromRight;
     return ui.Offset(
-      mirror ? size.width - position.dx : position.dx,
+      fromRight ? position.dx : size.width - position.dx,
       position.dy,
     );
   }
@@ -381,10 +380,11 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _initializeCurlPoint(ui.Offset down) {
-    top = down.dy < size.height / 3;
-    horizontal = !top && down.dy <= size.height * 2 / 3;
+    top = down.dy < size.height / 2;
+    // 仅中央 5% 从整条侧边起卷，其余抓上/下页角；整次手势固定起卷方式。
+    horizontal = (down.dy - size.height / 2).abs() <= size.height / 40;
     final y = horizontal ? size.height / 2 : (top ? 0.0 : size.height);
-    grab = ui.Offset(next ? size.width : -size.width, y);
+    grab = ui.Offset(size.width, y);
     point = grab;
   }
 
@@ -394,7 +394,7 @@ class PageTurnController extends ChangeNotifier {
   }
 
   double _curlProgress() {
-    final distance = next ? size.width - point!.dx : point!.dx + size.width;
+    final distance = size.width - point!.dx;
     final value = (distance / (2 * size.width)).clamp(0.0, 1.0);
     return phase == PageTurnPhase.preparing ? value.clamp(0.0, 0.08) : value;
   }
