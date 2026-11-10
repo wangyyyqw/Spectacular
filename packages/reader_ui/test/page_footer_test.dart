@@ -4,6 +4,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
@@ -69,34 +70,53 @@ class _SizedPageSource implements ResizableChapterSource {
   }
 
   @override
-  Future<List<PageContent>> loadChapter(int spineIndex) async => [_page(0, 0)];
+  Future<List<PageContent>> loadChapter(int spineIndex) async => [
+    _page(0, 0),
+    _page(0, 1),
+  ];
+}
+
+void _expectFurniture(WidgetTester tester, {int? chapter}) {
+  expect(
+    find.byType(ReaderPageHeader),
+    chapter == null ? findsNothing : findsOneWidget,
+  );
+  if (chapter != null) {
+    expect(find.text('第 $chapter 章'), findsOneWidget);
+    expect(find.text('2/2'), findsOneWidget);
+  }
+  expect(find.byType(ReaderPageFooter), findsOneWidget);
+  expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsOneWidget);
+  expect(find.textContaining(RegExp(r'%$')), findsOneWidget);
 }
 
 void main() {
-  testWidgets('P8-10 页脚页码显示（6 槽第一槽）', (tester) async {
+  testWidgets('每章首页隐藏页眉，前后翻页与目录跳转均保留页脚', (tester) async {
+    late ReaderSession session;
     await tester.pumpWidget(
       MaterialApp(
         home: ReaderPage(
-          source: _MultiPageSource(chapters: 2, pagesPerChapter: 3),
+          source: _MultiPageSource(chapters: 2, pagesPerChapter: 2),
           store: MemoryReaderProgressStore(),
           bookId: 'footer-test',
+          pageTurnMode: PageTurnMode.none,
+          onSessionReady: (value) => session = value,
         ),
       ),
     );
     await tester.pumpAndSettle();
-    // 设计稿样式（P8-10）：页眉左标题右页码，页脚左时间电池右进度百分比。
-    expect(find.text('第 1 章'), findsOneWidget, reason: '页眉章标题');
-    expect(find.text('1/3'), findsOneWidget, reason: '页眉页码');
-    expect(
-      find.textContaining(RegExp(r'^\d{2}:\d{2}$')),
-      findsOneWidget,
-      reason: '页脚时钟',
-    );
-    expect(
-      find.textContaining(RegExp(r'%$')),
-      findsOneWidget,
-      reason: '页脚进度百分比',
-    );
+    _expectFurniture(tester);
+    for (final chapter in [1, null, 2]) {
+      await session.next();
+      await tester.pumpAndSettle();
+      _expectFurniture(tester, chapter: chapter);
+    }
+    await session.previous();
+    await tester.pumpAndSettle();
+    _expectFurniture(tester);
+    await session.jumpToChapter(0);
+    await tester.pumpAndSettle();
+    _expectFurniture(tester);
   });
 
   testWidgets('showPageFooter=false 关闭页脚', (tester) async {
@@ -115,10 +135,11 @@ void main() {
     expect(find.textContaining(RegExp(r'%$')), findsNothing);
   });
 
-  testWidgets('显式边距按外段定位页眉页脚、内段定位正文', (tester) async {
+  testWidgets('首页保留正文留白，后续页按显式外段定位页眉页脚', (tester) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.binding.setSurfaceSize(const Size(400, 800));
     final source = _SizedPageSource();
+    late ReaderSession session;
     const margins = ReaderMargins(
       left: 20,
       right: 20,
@@ -134,6 +155,8 @@ void main() {
           store: MemoryReaderProgressStore(),
           bookId: 'margin-layout',
           margins: margins,
+          pageTurnMode: PageTurnMode.none,
+          onSessionReady: (value) => session = value,
         ),
       ),
     );
@@ -150,6 +173,11 @@ void main() {
 
     final header = find.byType(ReaderPageHeader);
     final footer = find.byType(ReaderPageFooter);
+    expect(header, findsNothing);
+    expect(tester.getBottomLeft(footer), const Offset(20, 782));
+
+    await session.next();
+    await tester.pumpAndSettle();
     expect(tester.getTopLeft(header), const Offset(20, 30));
     expect(tester.getBottomLeft(footer), const Offset(20, 782));
   });

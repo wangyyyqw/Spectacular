@@ -2176,7 +2176,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         // 出血页把整页让给图：绘制画布取满屏，正文由 pageInsets 内缩，
         // 出血块才能铺到屏幕边缘。页眉页脚按页类型让位：
         // - 整页背景图页（封面/扉页）：页眉页脚都不画；
-        // - 顶部出血页（章首横幅图）：只让位页眉，页脚保留。
+        // - 章首页或顶部出血页（章首横幅图）：隐藏页眉，页脚保留。
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -2712,7 +2712,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final padding = _furniturePadding();
     final full = _isFullPageBackground(page);
     return [
-      if (widget.showPageFooter && !full && !_hasTopBleed(page))
+      if (widget.showPageFooter &&
+          page.pageIndex > 0 &&
+          !full &&
+          !_hasTopBleed(page))
         Positioned(
           left: padding.left,
           right: padding.right,
