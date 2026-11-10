@@ -3611,7 +3611,10 @@ class PagePainter {
   ) {
     final sides = [borders.top, borders.right, borders.bottom, borders.left];
     if (sides.any(
-      (side) => side.isVisible && side.style != CssBorderStyle.solid,
+      (side) =>
+          side.isVisible &&
+          side.color.a > 0 &&
+          side.style != CssBorderStyle.solid,
     )) {
       return false;
     }
@@ -4306,8 +4309,11 @@ class PagePainter {
       for (var index = 0; index < boundaries.length - 1; index++) {
         final start = boundaries[index];
         final stop = boundaries[index + 1];
+        final text = sliceTextSpan(span, start, stop);
+        // 图间空白没有墨迹，占宽由完整行布局保留；零字号行尾无需查询 caret。
+        if (text.toPlainText().trim().isEmpty) continue;
         final segment = TextPainter(
-          text: sliceTextSpan(span, start, stop),
+          text: text,
           textDirection: painter.textDirection,
         )..layout();
         final offset = painter.getOffsetForCaret(
