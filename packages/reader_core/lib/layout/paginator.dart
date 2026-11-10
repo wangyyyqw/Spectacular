@@ -177,6 +177,7 @@ class PageBlock {
     this.inlineImages = const <InlineImageSpec>[],
     this.footnotes = const <PageFootnote>[],
     this.textRuleEligible = true,
+    this.isReplaced = false,
     this.absolute = false,
     this.absoluteTop,
     this.absoluteLeft,
@@ -212,6 +213,7 @@ class PageBlock {
     List<InlineImageSpec> inlineImages = const <InlineImageSpec>[],
     List<PageFootnote> footnotes = const <PageFootnote>[],
     bool textRuleEligible = true,
+    bool isReplaced = false,
     TableRenderSpec? table,
     PageGallery? gallery,
     bool absolute = false,
@@ -251,6 +253,7 @@ class PageBlock {
       inlineImages: inlineImages,
       footnotes: footnotes,
       textRuleEligible: textRuleEligible,
+      isReplaced: isReplaced,
       table: table,
       gallery: gallery,
       absolute: absolute,
@@ -357,6 +360,9 @@ class PageBlock {
 
   /// 是否允许自动文字规则匹配；脚注正文及页眉页脚应关闭。
   final bool textRuleEligible;
+
+  /// img 等替换元素的内容以背景载荷保存，但参与前景绘制阶段。
+  final bool isReplaced;
 
   /// 绝对定位块（P9-19）：不占流高，绘制在页内绝对坐标处。
   final bool absolute;
@@ -574,6 +580,7 @@ class PageBlock {
     inlineImages: inlineImages,
     footnotes: footnotes,
     textRuleEligible: textRuleEligible,
+    isReplaced: isReplaced,
     absolute: absolute,
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
@@ -814,8 +821,13 @@ class PageBlockSlice {
   ///
   /// [top] 是切片顶边在页面上的 y；绘制与命中都要限制在这个矩形内，
   /// 跨页块因此不会画到下一页或下一块的地盘上。
-  Rect clipRect(double top, double width) =>
-      Rect.fromLTWH(0, top, width, height);
+  /// 作者负外边距只回退流游标；裁剪仍包含提前绘制的行和负尾距前的内容。
+  Rect clipRect(double top, double width) => Rect.fromLTRB(
+    0,
+    top + math.min(0.0, leadingExtent),
+    width,
+    top + height - math.min(0.0, trailingExtent),
+  );
 
   /// 收页时补上已预留的下装饰，保持正文高度与其它几何信息不变。
   PageBlockSlice withBottomDecoration(double extent) => PageBlockSlice(
@@ -1197,6 +1209,7 @@ class Paginator {
         ? source.endCfi
         : _columnCfi(source.startCfi, textRange.$2) ?? source.endCfi,
     textRuleEligible: source.textRuleEligible,
+    isReplaced: source.isReplaced,
     style: source.style,
     topInset: source.topInset,
     bottomInset: source.bottomInset,
@@ -1406,6 +1419,7 @@ class Paginator {
     startCfi: source.startCfi,
     endCfi: source.endCfi,
     textRuleEligible: source.textRuleEligible,
+    isReplaced: source.isReplaced,
     style: source.style,
     spaceBefore: source.spaceBefore,
     spaceAfter: source.spaceAfter,
@@ -1630,6 +1644,7 @@ class Paginator {
       startCfi: source.startCfi,
       endCfi: source.endCfi,
       textRuleEligible: source.textRuleEligible,
+      isReplaced: source.isReplaced,
       style: source.style,
       topInset: source.topInset,
       bottomInset: source.bottomInset,
@@ -2570,6 +2585,7 @@ class _TablePieceWork {
       startCfi: source.startCfi,
       endCfi: source.endCfi,
       textRuleEligible: source.textRuleEligible,
+      isReplaced: source.isReplaced,
       style: source.style,
       spaceBefore: startRow == 0 ? source.spaceBefore : 0,
       spaceAfter: endRow == rowCount ? source.spaceAfter : 0,

@@ -56,7 +56,7 @@ int _countColor(ByteData data, int rgba) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('逐块完成背景边框文本装饰，选区最后绘制', () async {
+  test('普通流先绘制背景边框，再绘制文字装饰，选区最后绘制', () async {
     final page = _page([
       _block('aa', const {
         'background-color': '#ff0000',
@@ -79,10 +79,10 @@ void main() {
       PagePaintPhase.background,
       PagePaintPhase.blockBackground,
       PagePaintPhase.blockBorder,
-      PagePaintPhase.text,
-      PagePaintPhase.decoration,
       PagePaintPhase.blockBackground,
       PagePaintPhase.blockBorder,
+      PagePaintPhase.text,
+      PagePaintPhase.decoration,
       PagePaintPhase.text,
       PagePaintPhase.decoration,
       PagePaintPhase.selection,

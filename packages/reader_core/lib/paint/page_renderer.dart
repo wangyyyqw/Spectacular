@@ -18,7 +18,7 @@ import 'line_spans.dart';
 import 'paragraph_cache.dart';
 import 'text_emphasis.dart';
 
-/// 页面先绘制背景，各块依次绘制背景、边框、文本、装饰，最后绘制选区。
+/// 页面与普通流盒背景先绘制，再绘制内容和独立合成组，最后绘制选区。
 enum PagePaintPhase {
   /// 页面底色与背景。
   background,
@@ -239,8 +239,28 @@ class PagePainter {
     _PagePaintContext context,
     List<_SliceGeometry> geometries,
     int depth,
-    double parentOpacity,
-  ) {
+    double parentOpacity, {
+    _FlowPaintPhase phase = _FlowPaintPhase.all,
+  }) {
+    final groups = _paintGroups(geometries, depth);
+    if (phase != _FlowPaintPhase.all) {
+      for (final group in groups) {
+        _paintGroup(context, group, depth, parentOpacity, phase);
+      }
+      return;
+    }
+    for (final next in [
+      _FlowPaintPhase.negative,
+      _FlowPaintPhase.background,
+      _FlowPaintPhase.foreground,
+    ]) {
+      for (final group in groups) {
+        _paintGroup(context, group, depth, parentOpacity, next);
+      }
+    }
+  }
+
+  List<_PaintGroup> _paintGroups(List<_SliceGeometry> geometries, int depth) {
     final groups = <_PaintGroup>[];
     for (final geometry in geometries) {
       final fragments = geometry.slice.block.containers;
@@ -259,12 +279,43 @@ class PagePainter {
       final byZ = a.style.zIndex.compareTo(b.style.zIndex);
       return byZ != 0 ? byZ : a.order.compareTo(b.order);
     });
-    for (final group in groups) {
-      if (group.container != null) {
-        _paintContainer(context, group, depth, parentOpacity);
-      } else if (!group.geometries.single.hidden) {
-        _paintBlock(context, group.geometries.single, parentOpacity);
-      }
+    return groups;
+  }
+
+  /// 普通流背景先于替换图片和行内文字；定位与合成组仍作为整体绘制。
+  void _paintGroup(
+    _PagePaintContext context,
+    _PaintGroup group,
+    int depth,
+    double parentOpacity,
+    _FlowPaintPhase phase,
+  ) {
+    final split = group.canSplitFlowPaint;
+    final negative = group.style.zIndex < 0;
+    if (negative &&
+        phase != _FlowPaintPhase.negative &&
+        phase != _FlowPaintPhase.all) {
+      return;
+    }
+    if (!negative && phase == _FlowPaintPhase.negative && !split) return;
+    if (phase == _FlowPaintPhase.background && !split) return;
+    final effectivePhase = split && !negative ? phase : _FlowPaintPhase.all;
+    if (group.container != null) {
+      _paintContainer(
+        context,
+        group,
+        depth,
+        parentOpacity,
+        phase: effectivePhase,
+      );
+    } else if (!group.geometries.single.hidden &&
+        effectivePhase != _FlowPaintPhase.negative) {
+      _paintBlock(
+        context,
+        group.geometries.single,
+        parentOpacity,
+        phase: effectivePhase,
+      );
     }
   }
 
@@ -272,8 +323,9 @@ class PagePainter {
     _PagePaintContext context,
     _PaintGroup group,
     int depth,
-    double parentOpacity,
-  ) {
+    double parentOpacity, {
+    _FlowPaintPhase phase = _FlowPaintPhase.all,
+  }) {
     final canvas = context.canvas;
     final geometry = _containerGeometry(group, depth, context.page.pageHeight);
     _inBlockSpace(canvas, geometry, clip: false, () {
@@ -281,7 +333,9 @@ class PagePainter {
         canvas,
         geometry,
         () => _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
-          if (!geometry.hidden) {
+          if (!geometry.hidden &&
+              (phase == _FlowPaintPhase.all ||
+                  phase == _FlowPaintPhase.background)) {
             _paintBoxShadow(canvas, geometry);
             _paintBlockBackground(
               canvas,
@@ -291,8 +345,10 @@ class PagePainter {
             );
             _paintBlockBorder(canvas, geometry);
           }
-          _paintContainerContents(context, group, geometry, depth);
-          if (!geometry.hidden) {
+          _paintContainerContents(context, group, geometry, depth, phase);
+          if (!geometry.hidden &&
+              (phase == _FlowPaintPhase.all ||
+                  phase == _FlowPaintPhase.foreground)) {
             _paintBlockOutline(canvas, geometry);
           }
         }),
@@ -305,6 +361,7 @@ class PagePainter {
     _PaintGroup group,
     _SliceGeometry geometry,
     int depth,
+    _FlowPaintPhase phase,
   ) {
     final canvas = context.canvas;
     canvas.save();
@@ -319,6 +376,7 @@ class PagePainter {
       group.geometries,
       depth + 1,
       geometry.style.effectiveOpacity,
+      phase: phase,
     );
     canvas.restore();
   }
@@ -398,43 +456,60 @@ class PagePainter {
     );
   }
 
-  /// 每个元素完整绘制后再合成，避免高层背景下透出低层文字。
+  /// 有合成效果的元素完整绘制，普通流元素按背景和前景阶段绘制。
   void _paintBlock(
     _PagePaintContext context,
     _SliceGeometry geometry,
-    double parentOpacity,
-  ) {
+    double parentOpacity, {
+    _FlowPaintPhase phase = _FlowPaintPhase.all,
+  }) {
     final canvas = context.canvas;
-    final page = context.page;
-    final sliceIndex = context.indexOf[geometry]!;
     _inBlockSpace(canvas, geometry, clip: false, () {
       _withClipPath(
         canvas,
         geometry,
         () => _withEffects(canvas, geometry, parentOpacity: parentOpacity, () {
-          _notifyPhase(PagePaintPhase.blockBackground);
-          _paintBoxShadow(canvas, geometry);
-          _clipBlock(canvas, geometry, clip: true, () {
-            _paintBlockBackground(canvas, geometry, page, context.pageRect);
-          });
-          _notifyPhase(PagePaintPhase.blockBorder);
-          _clipBlock(canvas, geometry, clip: true, () {
-            _paintBlockBorder(canvas, geometry);
-          });
-          if (beforeBlockText != null) {
-            canvas.save();
-            beforeBlockText!(canvas, page, geometry.slice);
-            canvas.restore();
+          if (phase != _FlowPaintPhase.foreground) {
+            _paintBlockBox(context, geometry);
           }
-          _notifyPhase(PagePaintPhase.text);
-          _paintBlockText(canvas, page, geometry, sliceIndex);
-          _notifyPhase(PagePaintPhase.decoration);
-          _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
-          _paintBlockRubies(canvas, geometry);
-          _paintBlockOutline(canvas, geometry);
+          if (phase == _FlowPaintPhase.background) return;
+          _paintBlockForeground(context, geometry);
         }),
       );
     });
+  }
+
+  void _paintBlockBox(_PagePaintContext context, _SliceGeometry geometry) {
+    final canvas = context.canvas;
+    _notifyPhase(PagePaintPhase.blockBackground);
+    _paintBoxShadow(canvas, geometry);
+    _clipBlock(canvas, geometry, clip: true, () {
+      _paintBlockBackground(canvas, geometry, context.page, context.pageRect);
+    });
+    _notifyPhase(PagePaintPhase.blockBorder);
+    _clipBlock(canvas, geometry, clip: true, () {
+      _paintBlockBorder(canvas, geometry);
+    });
+  }
+
+  void _paintBlockForeground(
+    _PagePaintContext context,
+    _SliceGeometry geometry,
+  ) {
+    final canvas = context.canvas;
+    final page = context.page;
+    final sliceIndex = context.indexOf[geometry]!;
+    if (beforeBlockText != null) {
+      canvas.save();
+      beforeBlockText!(canvas, page, geometry.slice);
+      canvas.restore();
+    }
+    _notifyPhase(PagePaintPhase.text);
+    _paintBlockText(canvas, page, geometry, sliceIndex);
+    _notifyPhase(PagePaintPhase.decoration);
+    _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
+    _paintBlockRubies(canvas, geometry);
+    _paintBlockOutline(canvas, geometry);
   }
 
   void _paintBlockBackground(
@@ -4974,7 +5049,34 @@ class _PaintGroup {
   final PageContainer? container;
   final List<_SliceGeometry> geometries;
   ComputedStyle get style => container?.style ?? geometries.first.style;
+
+  bool get canSplitFlowPaint {
+    final css = style;
+    if (css.position != CssPosition.static ||
+        css.cssFloat != CssFloat.none ||
+        css.zIndex != 0 ||
+        css.opacity < 1 ||
+        css.transforms.isNotEmpty ||
+        css.filters.isNotEmpty ||
+        css.backdropFilters.isNotEmpty ||
+        css.clipPath != null ||
+        css.mixBlendMode != CssMixBlendMode.normal ||
+        css.display == CssDisplay.flex ||
+        css.display == CssDisplay.inlineBlock) {
+      return false;
+    }
+    if (container != null) return true;
+    final block = geometries.single.slice.block;
+    return !block.absolute &&
+        block.floatSide == null &&
+        block.effectiveOpacity >= 1 &&
+        block.table == null &&
+        block.gallery == null &&
+        !block.isReplaced;
+  }
 }
+
+enum _FlowPaintPhase { all, negative, background, foreground }
 
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
 class _LineRun {
@@ -5128,10 +5230,10 @@ class _SliceGeometry {
               (style.borders.bottom.isVisible ? style.borders.bottom.width : 0);
     final top = block.bleedTop
         ? -pageInsets.top
-        : (slice.leadingExtent > 0 ? y + slice.leadingExtent - ownTop : y);
+        : (slice.leadingExtent != 0 ? y + slice.leadingExtent - ownTop : y);
     final bottom = block.bleedBottom
         ? pageHeight + pageInsets.bottom
-        : (slice.trailingExtent > 0
+        : (slice.trailingExtent != 0
               ? y + slice.height - slice.trailingExtent + ownBottom
               : y + slice.height);
     // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：

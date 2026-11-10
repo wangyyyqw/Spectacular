@@ -52,6 +52,104 @@ List<int> _pixel(ByteData data, int x, int y) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  for (final position in ['static', 'relative']) {
+    test('负边距容器为 $position 时按绘制阶段叠放图片内容', () async {
+      final imageStyle = ComputedStyle({
+        'background-color': '#ff0000',
+        'width': '100px',
+      });
+      final image = PageBlock(
+        layout: TextLayoutResult(
+          text: '',
+          lines: const [
+            LineBox(
+              start: 0,
+              end: 0,
+              top: 0,
+              height: 60,
+              baseline: 60,
+              width: 100,
+            ),
+          ],
+          width: 100,
+          height: 60,
+          maxWidth: 100,
+        ),
+        style: imageStyle,
+        isReplaced: true,
+      );
+      final parent = PageContainer(
+        style: ComputedStyle({'position': position, 'background': '#0000ff'}),
+        left: 0,
+        width: 120,
+      );
+      final text = _block('aa', {'color': '#ffffff'}).withSpacing(
+        topInset: -40,
+        containers: [
+          PageContainerFragment(
+            container: parent,
+            startsHere: true,
+            endsHere: true,
+          ),
+        ],
+      );
+      final data = await _render([image, text]);
+      expect(
+        _pixel(data, 80, 25),
+        position == 'static' ? [255, 0, 0, 255] : [0, 0, 255, 255],
+      );
+      expect(_pixel(data, 110, 25), [0, 0, 255, 255]);
+      expect(_pixel(data, 8, 28), [
+        255,
+        255,
+        255,
+        255,
+      ], reason: '容器文字仍在图片前景之后绘制');
+    });
+  }
+
+  test('普通背景图块保持背景阶段，不当作替换图片提升层级', () async {
+    final first = _block('aa', {
+      'background': '#ff0000',
+      'height': '60px',
+      'color': 'transparent',
+    });
+    final next = _block('aa', {
+      'background': '#0000ff',
+      'margin-top': '-40px',
+      'color': 'transparent',
+    });
+    final data = await _render([first, next]);
+    expect(_pixel(data, 80, 25), [0, 0, 255, 255]);
+  });
+
+  test('静态祖先内的负层级覆盖块仍先于后续普通流背景绘制', () async {
+    final parent = PageContainer(style: ComputedStyle({}), left: 0, width: 200);
+    final behind =
+        _block(' ', {
+          'position': 'absolute',
+          'z-index': '-1',
+          'background': '#ff0000',
+          'width': '120px',
+          'height': '120px',
+        }).withSpacing(
+          containers: [
+            PageContainerFragment(
+              container: parent,
+              startsHere: true,
+              endsHere: true,
+            ),
+          ],
+        );
+    final front = _block('aa', {
+      'background': '#0000ff',
+      'height': '120px',
+      'color': 'transparent',
+    });
+    final data = await _render([behind, front]);
+    expect(_pixel(data, 80, 8), [0, 0, 255, 255]);
+  });
+
   test('高层不透明背景遮住低层文字', () async {
     const positioned = {
       'position': 'absolute',

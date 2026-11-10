@@ -136,6 +136,61 @@ void main() {
     expect(_hasInk(fullBytes, 10, 24), isTrue, reason: '不裁剪时墨迹会落到 10px 以下');
   });
 
+  test('负上下外边距保留流游标且文字仍绘制在实际行区', () async {
+    final page = Paginator(pageHeight: 100)
+        .measureChapter(
+          blocks: [
+            PageBlock(
+              layout: TextLayoutResult(
+                text: '',
+                lines: const [
+                  LineBox(
+                    start: 0,
+                    end: 0,
+                    top: 0,
+                    height: 60,
+                    baseline: 60,
+                    width: 180,
+                  ),
+                ],
+                width: 180,
+                height: 60,
+                maxWidth: 180,
+              ),
+            ),
+            PageBlock(
+              layout: TextLayoutEngine.layout(
+                text: 'A',
+                style: _style(),
+                maxWidth: 180,
+              ),
+              style: _style(),
+              topInset: -12,
+              bottomInset: -36,
+            ),
+            _block('B'),
+          ],
+        )
+        .pages
+        .single;
+    final negative = page.slices[1];
+    expect(negative.height, -24);
+    expect(negative.leadingExtent, -12);
+    expect(negative.trailingExtent, -36);
+    final flowTop = page.slices.first.height;
+    final clip = negative.clipRect(flowTop, 200);
+    expect(clip.top, flowTop - 12);
+    expect(clip.bottom, flowTop + 12);
+    expect(clip.height, 24);
+    expect(
+      page.usedHeight,
+      page.slices.fold(0.0, (sum, slice) => sum + slice.height),
+      reason: '不能通过钳制负占位改变分页和索引语义',
+    );
+    final bytes = await _renderPage(page);
+    expect(_hasInk(bytes, 60, 72), isTrue, reason: '负尾距不能裁掉实际行的下半部');
+  });
+
   test('跨页边框按切片矩形裁剪，不画到下一页', () async {
     final pagination = Paginator(pageHeight: 48)
         .measureChapter(blocks: [_block('a\nb\nc')]);
