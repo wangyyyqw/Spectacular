@@ -3524,6 +3524,15 @@ class PagePainter {
     )) {
       return;
     }
+    if (_paintJoinedDoubleBorders(
+      canvas,
+      box,
+      borders,
+      startsBlock,
+      endsBlock,
+    )) {
+      return;
+    }
     // 四边一致且实线：整块（首尾都在本页）用整框描边，圆角生效
     //（与阅微整框描边路径一致）。
     if (borders.isUniform && borders.top.style == CssBorderStyle.solid) {
@@ -3632,6 +3641,54 @@ class PagePainter {
       Offset(box.right - borders.right.width / 2, box.bottom),
       outward: const Offset(1, 0),
     );
+  }
+
+  /// 双线边框画成两个同心圆角环。逐边画线会在四角形成交叉或缺口，
+  /// 也无法正确应用作者声明的 border-radius。
+  bool _paintJoinedDoubleBorders(
+    Canvas canvas,
+    Rect box,
+    CssBorders borders,
+    bool starts,
+    bool ends,
+  ) {
+    if (!starts ||
+        !ends ||
+        !borders.isUniform ||
+        borders.top.style != CssBorderStyle.double) {
+      return false;
+    }
+    final side = borders.top;
+    final stripe = side.width / 3;
+    final radii = borders.radiiFor(box.size);
+    Radius insetRadius(Radius radius, double inset) => Radius.elliptical(
+      math.max(0, radius.x - inset),
+      math.max(0, radius.y - inset),
+    );
+
+    void paintRing(double inset) {
+      final ring = box.deflate(inset);
+      if (ring.width <= 0 || ring.height <= 0) {
+        return;
+      }
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          ring,
+          topLeft: insetRadius(radii.topLeft, inset),
+          topRight: insetRadius(radii.topRight, inset),
+          bottomRight: insetRadius(radii.bottomRight, inset),
+          bottomLeft: insetRadius(radii.bottomLeft, inset),
+        ),
+        Paint()
+          ..color = side.color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stripe,
+      );
+    }
+
+    paintRing(stripe / 2);
+    paintRing(side.width - stripe / 2);
+    return true;
   }
 
   /// 3D 边框按 Chromium 的同心斜接几何绘制。外半和内半分别成环，
