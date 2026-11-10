@@ -330,6 +330,46 @@ void main() {
     expect(result.pages.skip(1).every((page) => page.topPadding == 0), isTrue);
   });
 
+  test('浮动章首出血图回收顶部内缩，图片绕排位置随正文同步上移', () async {
+    final blocks = [
+      PageBlock(
+        layout: _boxLayout(220, 60),
+        style: ComputedStyle({'background-image': 'url(header.png)'}),
+        bleedTop: true,
+      ),
+      _paragraph('标题'),
+      _float(height: 10),
+      _paragraph(_sentence * 14),
+    ];
+    final result = await _layout().paginate(blocks, const [], null);
+    final first = result.pages.first;
+    expect(first.topPadding, -24);
+    expect(first.pageHeight, 100);
+    final image = first.slices.singleWhere((slice) => slice.overlay);
+    expect(image.absoluteTop, 60 + blocks[1].height - 24);
+    expect(first.usedHeight + first.topPadding, lessThanOrEqualTo(100));
+    expect(result.pages.length, greaterThan(1));
+    expect(result.pages.skip(1).every((page) => page.topPadding == 0), isTrue);
+  });
+
+  test('出血图后的同组浮动图片和图注同步上移，不减少首屏可用高度', () async {
+    final result = await _layout().paginate([
+      PageBlock(
+        layout: _boxLayout(220, 40),
+        style: ComputedStyle({'background-image': 'url(header.png)'}),
+        bleedTop: true,
+      ),
+      ..._groupedFloats(),
+    ], const [], null);
+    expect(result.pages, hasLength(1));
+    final page = result.pages.single;
+    final floats = page.slices.where((slice) => slice.overlay).toList();
+    expect(floats.map((slice) => slice.absoluteTop), [16, 36, 16, 36]);
+    expect(page.usedHeight, 100);
+    expect(page.topPadding, -24);
+    expect(page.pageHeight, 100);
+  });
+
   test('绕排跨页恢复全宽，续行不重复缩进且原文坐标连续', () async {
     final text = _sentence * 14;
     final style = _base.withTypography(textIndent: 32);

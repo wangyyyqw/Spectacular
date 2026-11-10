@@ -395,12 +395,14 @@ class _FloatPagination {
   var hasFlowOnPage = false;
   var lastContentBottom = 0.0;
   var lastBottomMargin = 0.0;
+  var topPadding = 0.0;
 
   double get width => layout.snapshot.width;
-  double get height => layout.snapshot.height;
+  double get height => layout.snapshot.height - topPadding;
   LayoutBudget get budget => layout.budget;
 
   Future<List<PageContent>> run() async {
+    topPadding = await layout._chapterTopPadding(blocks);
     nextFlowLeading = await _nextLeading();
     for (var index = 0; index < blocks.length; index++) {
       await budget.checkpoint();
@@ -415,8 +417,10 @@ class _FloatPagination {
     if (block.absolute) {
       _addAbsolute(block);
     } else if (block.floatSide != null) {
-      if (block.groupId >= 500000) {
-        final group = await _floatGroup(index);
+      if (block.floatBox != null || block.groupId >= 500000) {
+        final group = block.groupId >= 500000
+            ? await _floatGroup(index)
+            : [block];
         await _addFloatGroup(group, index);
         return group.length - 1;
       }
@@ -480,12 +484,13 @@ class _FloatPagination {
         pageIndex: pages.length,
         slices: List.unmodifiable(slices),
         usedHeight: y,
-        pageHeight: height,
-        topPadding: 0,
+        pageHeight: layout.snapshot.height,
+        topPadding: topPadding,
       ),
     );
     slices = <PageBlockSlice>[];
     y = 0;
+    topPadding = 0;
     hasFlowOnPage = false;
     lastContentBottom = lastBottomMargin = 0;
     occupancy.clear();
@@ -522,14 +527,18 @@ class _FloatPagination {
   }
 
   _FloatRegion floatRegion(PageBlock block) {
-    final left = (block.floatContainingLeft ?? 0.0)
-        .clamp(0.0, width)
-        .toDouble();
+    final left =
+        (block.floatBox?.containingLeft ?? block.floatContainingLeft ?? 0.0)
+            .clamp(0.0, width)
+            .toDouble();
     return (
       left: left,
-      width: (block.floatContainingWidth ?? width)
-          .clamp(0.0, math.max(0.0, width - left))
-          .toDouble(),
+      width:
+          (block.floatBox?.containingWidth ??
+                  block.floatContainingWidth ??
+                  width)
+              .clamp(0.0, math.max(0.0, width - left))
+              .toDouble(),
     );
   }
 
@@ -632,6 +641,15 @@ class _FloatPagination {
     _FloatRegion region, {
     bool grouped = false,
   }) {
+    final container = grouped ? block.floatBox?.container : null;
+    if (container != null) {
+      final margin = container.style.margin;
+      return (
+        occupied: math.min(region.width, container.width + margin.horizontal),
+        leftSpace: margin.left,
+        marginLeft: container.left,
+      );
+    }
     final style = block.style;
     final inset = style == null
         ? 0.0
@@ -664,7 +682,10 @@ class _FloatPagination {
 
   Future<_FloatGroupGeometry> _groupHeight(List<PageBlock> group) async {
     final tops = <double>[];
-    var cursor = 0.0;
+    final container = group.first.floatBox?.container;
+    var cursor = container == null
+        ? 0.0
+        : container.topDecoration + group.first.spaceBefore;
     for (var index = 0; index < group.length; index++) {
       await budget.checkpoint();
       final member = group[index];
@@ -674,7 +695,22 @@ class _FloatPagination {
       tops.add(cursor);
       cursor += member.topInset + member.height + member.bottomInset;
     }
-    return (tops: tops, height: cursor);
+    return (
+      tops: tops,
+      height:
+          cursor +
+          (container == null
+              ? 0
+              : container.bottomDecoration + group.last.spaceAfter),
+    );
+  }
+
+  ({double top, double bottom}) _floatGroupMargins(List<PageBlock> group) {
+    final margin = group.first.floatBox?.container.style.margin;
+    return (
+      top: margin?.top ?? group.first.spaceBefore,
+      bottom: margin?.bottom ?? group.last.spaceAfter,
+    );
   }
 
   Future<void> _addFloatGroup(List<PageBlock> group, int index) async {
@@ -683,8 +719,9 @@ class _FloatPagination {
     final region = floatRegion(first);
     final dimensions = _floatWidth(first, region, grouped: true);
     final geometry = await _groupHeight(group);
-    final top = first.spaceBefore;
-    final bottom = last.spaceAfter;
+    final margins = _floatGroupMargins(group);
+    final top = margins.top;
+    final bottom = margins.bottom;
     if (y > 0 &&
         _flowPosition(first, index) +
                 top +
@@ -709,30 +746,35 @@ class _FloatPagination {
     _FloatWidth dimensions,
     _FloatGroupGeometry geometry,
   ) async {
-    final top = group.first.spaceBefore;
-    final bottom = group.last.spaceAfter;
-    occupancy.insert(
-      BoxOccupied(
-        rect: Rect.fromLTWH(
-          placement.x,
-          placement.top - top,
-          dimensions.occupied,
-          top + geometry.height + bottom,
-        ),
-        baseline: placement.top,
-        side: group.first.floatSide!,
-      ),
-    );
+    final margins = _floatGroupMargins(group);
+    final top = margins.top;
+    final bottom = margins.bottom;
+    final source = group.first.floatBox?.container;
+    final container = source == null
+        ? null
+        : PageContainer(
+            style: source.style,
+            left: placement.x + dimensions.leftSpace,
+            width: source.width,
+          );
+    _occupyFloatGroup(group.first, placement, dimensions.occupied, (
+      top: top,
+      height: geometry.height,
+      bottom: bottom,
+    ));
     for (var member = 0; member < group.length; member++) {
       await budget.checkpoint();
+      final block = _floatGroupBlock(group, member, container);
       slices.add(
         PageBlockSlice(
-          block: group[member],
+          block: block,
           startLine: 0,
-          endLine: group[member].layout.lineCount,
-          height: group[member].height,
+          endLine: block.layout.lineCount,
+          height: block.topInset + block.height + block.bottomInset,
+          leadingExtent: block.topInset,
+          trailingExtent: block.bottomInset,
           overlay: true,
-          absoluteTop: placement.top + geometry.tops[member],
+          absoluteTop: topPadding + placement.top + geometry.tops[member],
           leftInset: math.max(
             0.0,
             placement.x + dimensions.leftSpace - dimensions.marginLeft,
@@ -740,6 +782,55 @@ class _FloatPagination {
         ),
       );
     }
+  }
+
+  void _occupyFloatGroup(
+    PageBlock first,
+    _FloatPosition placement,
+    double occupiedWidth,
+    ({double top, double height, double bottom}) extent,
+  ) {
+    occupancy.insert(
+      BoxOccupied(
+        rect: Rect.fromLTWH(
+          placement.x,
+          placement.top - extent.top,
+          occupiedWidth,
+          extent.top + extent.height + extent.bottom,
+        ),
+        baseline: placement.top,
+        side: first.floatSide!,
+      ),
+    );
+  }
+
+  PageBlock _floatGroupBlock(
+    List<PageBlock> group,
+    int index,
+    PageContainer? container,
+  ) {
+    final block = group[index];
+    if (container == null) return block;
+    final first = index == 0;
+    final last = index == group.length - 1;
+    return block.withSpacing(
+      containers: [
+        ...block.containers,
+        PageContainerFragment(
+          container: container,
+          startsHere: first,
+          endsHere: last,
+          topInset: first
+              ? block.topInset + block.spaceBefore + container.topDecoration
+              : 0,
+          bottomInset: last
+              ? block.bottomInset +
+                    block.spaceAfter +
+                    container.bottomDecoration
+              : 0,
+        ),
+      ],
+    );
   }
 
   Future<void> _addFloat(PageBlock block, int index) async {
@@ -807,7 +898,7 @@ class _FloatPagination {
         leadingExtent: block.topInset,
         trailingExtent: block.bottomInset,
         overlay: true,
-        absoluteTop: placement.top,
+        absoluteTop: topPadding + placement.top,
         leftInset: math.max(
           0.0,
           placement.x + dimensions.leftSpace - dimensions.marginLeft,

@@ -115,6 +115,19 @@ class PageContainer {
   );
 }
 
+/// 容器浮动拆成多个子块后，仍共享作者的整盒尺寸和包含块范围。
+class PageFloatBox {
+  const PageFloatBox({
+    required this.container,
+    required this.containingLeft,
+    required this.containingWidth,
+  });
+
+  final PageContainer container;
+  final double containingLeft;
+  final double containingWidth;
+}
+
 /// 一个文本块在祖先容器中的位置；距离均以本块内容区为基准。
 class PageContainerFragment {
   const PageContainerFragment({
@@ -171,6 +184,7 @@ class PageBlock {
     this.table,
     this.gallery,
     this.floatSide,
+    this.floatBox,
     this.floatContainingLeft,
     this.floatContainingWidth,
     this.rubies,
@@ -340,6 +354,9 @@ class PageBlock {
   /// 图片块），由浮动感知分页登记占位并以覆盖切片渲染——不占流高。
   final FloatSide? floatSide;
 
+  /// 容器浮动的整盒占位；图片和图注的自身宽度不改变此范围。
+  final PageFloatBox? floatBox;
+
   /// 浮动的包含块左缘（页面坐标）。行内浮动必须相对所在段落收窄，
   /// 不能按整页版心左右缘排布。
   final double? floatContainingLeft;
@@ -467,6 +484,13 @@ class PageBlock {
   /// 块末行之后的额外高度（下内缩 + 段后间距）。
   double get trailingExtent => bottomInset + spaceAfter;
 
+  /// 页尾只截断放不下的正外边距，内边距和边框仍必须留在内容页。
+  double trailingExtentForPage(double remainingHeight) =>
+      bottomInset +
+      (spaceAfter > 0
+          ? math.min(spaceAfter, math.max(0.0, remainingHeight - bottomInset))
+          : spaceAfter);
+
   /// 只回收普通文字的行高留白，保留装饰盒、图片和特殊基线的完整几何。
   PageTextEdges textEdgesAt(int lineIndex) {
     final computed = style;
@@ -553,6 +577,7 @@ class PageBlock {
     double? bottomInset,
     List<PageContainerFragment>? containers,
     bool? breakAfterAvoid,
+    PageFloatBox? floatBox,
   }) => PageBlock(
     layout: layout,
     pageBreakBefore: pageBreakBefore,
@@ -572,6 +597,7 @@ class PageBlock {
     table: table,
     gallery: gallery,
     floatSide: floatSide,
+    floatBox: floatBox ?? this.floatBox,
     floatContainingLeft: floatContainingLeft,
     floatContainingWidth: floatContainingWidth,
     rubies: rubies,
@@ -1432,6 +1458,7 @@ class Paginator {
     groupId: source.groupId,
     table: source.table,
     floatSide: source.floatSide,
+    floatBox: source.floatBox,
     rubies: source.rubies,
     inlineImages: source.inlineImages,
     footnotes: source.footnotes,
@@ -2306,7 +2333,13 @@ class Paginator {
       // 盒能整块放进当前页：单切片按盒子高度占位（不按行高之和），声明
       // 高度因此对后续块的位置生效；溢出盒高的行丢弃（overflow 近似）。
       final wholeLeading = leadingOf(block, 0);
-      final wholeExtent = wholeLeading + boxHeight + block.trailingExtent;
+      final wholeTrailing = block.trailingExtentForPage(
+        available -
+            wholeLeading -
+            boxHeight -
+            block.containerBottomInset(lineLimit),
+      );
+      final wholeExtent = wholeLeading + boxHeight + wholeTrailing;
       if (fitsTextExtent(
         block,
         lineLimit,
@@ -2320,7 +2353,7 @@ class Paginator {
             height: wholeExtent,
             leadingExtent: wholeLeading,
             textTopTrim: topCredit(block, 0),
-            trailingExtent: block.trailingExtent,
+            trailingExtent: wholeTrailing,
             leftInset: block.leftInset,
           ),
         );
@@ -2349,13 +2382,21 @@ class Paginator {
           if (token?.isCancelled ?? false) return;
           final lineHeight = lines[fitEnd].height;
           final candidateEnd = fitEnd + 1;
-          final bottom =
-              block.containerBottomInset(candidateEnd) +
-              (candidateEnd == lineLimit ? block.trailingExtent : 0);
+          final contentExtent = leading + linesHeight + lineHeight;
+          final bottomDecoration = block.containerBottomInset(candidateEnd);
+          final boxTail =
+              candidateEnd == lineLimit && !clipped && boxHeight > lineTotal
+              ? boxHeight - lineTotal
+              : 0.0;
+          final trailing = candidateEnd == lineLimit
+              ? block.trailingExtentForPage(
+                  available - contentExtent - boxTail - bottomDecoration,
+                )
+              : 0.0;
           if (fitsTextExtent(
             block,
             candidateEnd,
-            leading + linesHeight + lineHeight + bottom,
+            contentExtent + boxTail + bottomDecoration + trailing,
           )) {
             linesHeight += lineHeight;
             fitEnd += 1;
@@ -2376,12 +2417,19 @@ class Paginator {
           fitEnd = lineStart + 1;
         }
 
-        final trailing = fitEnd == lineLimit ? block.trailingExtent : 0.0;
-
         // 块尾切片按盒子高度收口：行比盒矮时补白到盒底（声明高度生效）；
         // 跨页切开时各页仍按行高累计，末片再补足。
         final boxTail = fitEnd == lineLimit && !clipped
             ? math.max(0.0, boxHeight - lineTotal)
+            : 0.0;
+        final trailing = fitEnd == lineLimit
+            ? block.trailingExtentForPage(
+                available -
+                    leading -
+                    linesHeight -
+                    boxTail -
+                    block.containerBottomInset(fitEnd),
+              )
             : 0.0;
         final sliceHeight = leading + linesHeight + trailing + boxTail;
         // 盒内留白也占页高：当前页放不下整盒时先把本块移到新页（页已非空）。

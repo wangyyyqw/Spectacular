@@ -18,13 +18,14 @@ import 'image_blocks.dart';
 import 'inline_content_builder.dart';
 
 typedef _ImageSize = (double width, double height);
-typedef _ImageFloat = ({FloatSide? side, double? width});
+typedef _ImageFloat = ({FloatSide? side, double? width, PageFloatBox? box});
 typedef _ImageGeometry = ({
   double width,
   double height,
   double blockWidth,
   double containingWidth,
   FloatSide? side,
+  PageFloatBox? floatBox,
   int group,
 });
 
@@ -62,6 +63,10 @@ class ImageBlockBuilder {
     List<SelectorElement> ancestors,
   ) async {
     if (node.containerChain.isEmpty) return ancestors;
+    final original = styles.selectorIndex.chainOf(node);
+    if (original != null) {
+      return original.take(original.length - 1).toList(growable: false);
+    }
     final result = <SelectorElement>[];
     for (final hint in node.containerChain) {
       await inline.measure.budget.checkpoint();
@@ -126,17 +131,15 @@ class _ImageSizing {
       containingWidth,
     );
     final chainFloat = await _containerFloat();
-    final side =
-        input.styles.floatSideOf(
-          input.node.attributes,
-          ancestors: input.chain,
-        ) ??
-        input.position.containerFloat ??
-        chainFloat.side;
+    final ownSide = input.styles.floatSideOf(
+      input.node.attributes,
+      ancestors: input.chain,
+    );
+    final side = ownSide ?? input.position.containerFloat ?? chainFloat.side;
     final columnWidth = input.position.containerFloat != null
         ? input.position.containerFloatWidth
         : chainFloat.width;
-    size = _limitFloatingWidth(size, side, input.styles.snapshot.width);
+    size = _limitFloatingWidth(size, ownSide, input.styles.snapshot.width);
     var blockWidth = side != null || input.style.isOutOfFlow
         ? size.$1
         : input.styles.snapshot.width;
@@ -150,6 +153,7 @@ class _ImageSizing {
       blockWidth: blockWidth,
       containingWidth: containingWidth,
       side: side,
+      floatBox: ownSide == null ? chainFloat.box : null,
       group: _imageGroup(input.position, chainFloat.side),
     );
   }
@@ -171,7 +175,12 @@ class _ImageSizing {
     for (var i = 0; i < input.chain.length; i++) {
       await input.inline.measure.budget.checkpoint();
       final tag = input.chain[i].tag;
-      if (tag == 'body' || tag == 'html') continue;
+      if (tag == 'html') continue;
+      final container = input.styles.retainedContainers[input.chain[i]];
+      if (container != null) {
+        width = container.contentWidth;
+        continue;
+      }
       final style = input.styles.chainStyle(input.chain.sublist(0, i + 1));
       width = BoxModel.fromStyle(
         style,
@@ -218,15 +227,13 @@ class _ImageSizing {
   }
 
   Future<_ImageFloat> _containerFloat() async {
-    for (var i = input.chain.length; i >= 1; i--) {
-      await input.inline.measure.budget.checkpoint();
-      final style = input.styles.chainStyle(input.chain.sublist(0, i));
-      final side = floatSideOfStyle(style);
-      if (side != null) {
-        return (side: side, width: input.inline.measure.textWidthFor(style));
-      }
-    }
-    return (side: null, width: null);
+    await input.inline.measure.budget.checkpoint();
+    final box = input.styles.floatBoxForChain(input.chain);
+    return (
+      side: box == null ? null : floatSideOfStyle(box.container.style),
+      width: box?.container.contentWidth,
+      box: box,
+    );
   }
 }
 
@@ -263,7 +270,7 @@ double _usedMarginLeft(_ImageDescription input, _ImageGeometry geometry) {
   final autoMargins =
       widthIsAuto && (own.marginLeftIsAuto || own.marginRightIsAuto);
   final left = input.promotedLeft + own.margin.left;
-  if (geometry.side != null ||
+  if ((geometry.side != null && geometry.floatBox == null) ||
       input.style.isOutOfFlow ||
       !(autoMargins || inlineLevel)) {
     return left;
@@ -376,6 +383,7 @@ PageBlock _imageBlock(
     bottomInset: model.borders.bottom + model.padding.bottom,
     leftInset: model.borders.left + model.padding.left,
     floatSide: geometry.side,
+    floatBox: geometry.floatBox,
     bleedLeft: input.style.bleed.left,
     bleedRight: input.style.bleed.right,
     bleedTop: input.style.bleed.top,

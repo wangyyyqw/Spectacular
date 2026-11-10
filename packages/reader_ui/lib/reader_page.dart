@@ -7,7 +7,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:reader_core/api.dart' hide ComputedStyle;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/table_layout.dart' show TableCellRender;
 import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
@@ -596,6 +598,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final assets = _PageImageAssets(
       _galleryFrameOf,
       includeGalleryAdjacent: includeGalleryAdjacent,
+      pageWidth: displayWidth,
     );
     for (final candidate in [
       page,
@@ -624,12 +627,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       for (final url in assets.requiredUrls)
         if (cache.lookup(url) == null) url,
     };
-    final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
-    await cache.prefetch(
-      [...assets.requiredUrls, ...assets.urls.difference(assets.requiredUrls)],
-      displayWidth: displayWidth,
-      devicePixelRatio: ratio,
-    );
+    await _loadPageAssets(assets, displayWidth);
     if (!notify || !mounted || cache.revision == before) {
       return;
     }
@@ -641,6 +639,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     setState(() => _imageRevision = cache.revision);
+  }
+
+  Future<void> _loadPageAssets(
+    _PageImageAssets assets,
+    double displayWidth,
+  ) async {
+    final cache = widget.imageCache!;
+    final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
+    for (final url in [
+      ...assets.requiredUrls,
+      ...assets.urls.difference(assets.requiredUrls),
+    ]) {
+      await cache.load(
+        url,
+        displayWidth: assets.displayWidths[url] ?? displayWidth,
+        devicePixelRatio: ratio,
+      );
+    }
   }
 
   /// 翻页快照前准备目标页图片；不触发版本失效，避免取消当前手势。
