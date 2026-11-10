@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/layout/block_flow.dart' show collapseMargins;
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
@@ -55,7 +56,15 @@ class ImageBlockBuilder {
     final style = _imagePaintStyle(input, geometry);
     final notes = _imageFootnotes(input, footnotes);
     await inline.measure.budget.checkpoint();
-    return [_imageBlock(input, geometry, style, notes)];
+    final block = _imageBlock(input, geometry, style, notes);
+    if (node.containerChain.isEmpty) return [block];
+    final margins = _foldedAncestorMargins(input);
+    return [
+      block.withSpacing(
+        spaceBefore: collapseMargins(block.spaceBefore, margins.before),
+        spaceAfter: collapseMargins(block.spaceAfter, margins.after),
+      ),
+    ];
   }
 
   Future<List<SelectorElement>> _foldedChain(
@@ -80,6 +89,21 @@ class ImageBlockBuilder {
     }
     return result;
   }
+}
+
+/// 纯图折叠会移除逐层父块；每层父块都只有这张图，因此把它们的外边距
+/// 依次与图片段距折叠，避免 `div > img` 的垂直定位或间距丢失。
+({double before, double after}) _foldedAncestorMargins(
+  _ImageDescription input,
+) {
+  var before = 0.0;
+  var after = 0.0;
+  for (var index = 0; index < input.chain.length; index++) {
+    final style = input.styles.chainStyle(input.chain.sublist(0, index + 1));
+    before = collapseMargins(before, style.margin.top);
+    after = collapseMargins(after, style.margin.bottom);
+  }
+  return (before: before, after: after);
 }
 
 /// 首次级联后立即冻结图片属性，后续容器级联不覆盖定位与透明度。
@@ -209,7 +233,9 @@ class _ImageSizing {
       input.intrinsic,
       width,
       height,
-      cssWidth: style.width?.resolve(width),
+      cssWidth: _duokanFullWidthImage(input)
+          ? width
+          : style.width?.resolve(width),
       cssHeight: style.height?.resolve(height),
       cssMaxWidth: style.maxWidth?.resolve(width),
       cssMaxHeight: style.maxHeight?.resolve(height),
@@ -235,6 +261,14 @@ class _ImageSizing {
       box: box,
     );
   }
+}
+
+/// 多看把 `.imgd` 内唯一的图片按正文宽铺满；原书常见的
+/// `width="60%"` 只参与多看以外的回退排版。
+bool _duokanFullWidthImage(_ImageDescription input) {
+  if (input.chain.isEmpty) return false;
+  final classes = input.chain.last.attributes['class'];
+  return classes != null && classes.split(RegExp(r'\s+')).contains('imgd');
 }
 
 _ImageSize _fitWidth(_ImageSize size, double width) =>

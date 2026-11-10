@@ -208,6 +208,45 @@ void main() {
     await _expectSeparatedInk(page);
   });
 
+  test('块容器内的单图保留百分比上下外边距', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="image-page"><img src="../Images/left.png" width="60%"/></div>'
+          '<p>正文</p>',
+      css:
+          'body, p { margin: 0; } '
+          '.image-page { width: 100%; margin: 60% 0 40%; text-align: center; }',
+      binaryFiles: {'OEBPS/Images/left.png': _leftBytes},
+      contentWidth: 200,
+      contentHeight: 500,
+    );
+    final page = (await source.loadChapter(0)).first;
+    final slice = page.slices.first;
+    expect(slice.leadingExtent, closeTo(120, .01));
+    expect(slice.block.spaceBefore, closeTo(120, .01));
+    expect(slice.leftInset + slice.block.style!.margin.left, closeTo(40, .01));
+    expect(page.slices.last.block.spaceBefore, closeTo(80, .01));
+  });
+
+  test('多看 imgd 容器中的单图铺满正文宽并保留百分比上边距', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="imgd" style="width:100%;">'
+          '<img src="../Images/left.png" width="60%"/></div>',
+      css:
+          'body { margin: 0; } '
+          '.imgd { margin-top: 60%; text-align: center; }',
+      binaryFiles: {'OEBPS/Images/left.png': _leftBytes},
+      contentWidth: 200,
+      contentHeight: 500,
+    );
+    final page = (await source.loadChapter(0)).single;
+    final block = page.slices.single.block;
+    expect(block.style!.width!.value, closeTo(200, .01));
+    expect(block.spaceBefore, closeTo(120, .01));
+    expect(block.style!.margin.left, 0);
+  });
+
   test('阅读器覆盖正文大小时，图片 em 仍按作者父标题样式解算', () async {
     final source = await openCssChapter(
       body:
