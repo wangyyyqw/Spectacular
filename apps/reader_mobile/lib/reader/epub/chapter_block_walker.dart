@@ -175,6 +175,10 @@ class ChapterBlockWalker {
         ),
         style: style,
         containingWidth: width,
+        spaceBefore:
+            styles.snapshot.overrides.paragraphSpacing ?? style.margin.top,
+        spaceAfter:
+            styles.snapshot.overrides.paragraphSpacing ?? style.margin.bottom,
       ),
     );
   }

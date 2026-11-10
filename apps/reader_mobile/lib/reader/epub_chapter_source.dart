@@ -374,7 +374,7 @@ class EpubChapterSource
 
   /// 文本块样式：同一环境复用书籍样式叠加阅读器覆盖的结果。
   ComputedStyle get style => _resolvedBaseStyle ??= _applyCustomFont(
-    _overrides.apply(baseStyle, containingWidth: contentWidth),
+    _overrides.applyCascadeBase(baseStyle, containingWidth: contentWidth),
   );
 
   /// 字体策略只改字族，标题、表格与行内元素继续保留作者的字号与盒样式。

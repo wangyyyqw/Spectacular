@@ -2905,6 +2905,48 @@ class ComputedStyle {
     textIndent: textIndent,
   );
 
+  /// 按阅读器字号缩放作者声明的相对字体排版。
+  ///
+  /// 用于标题、紧凑组件等必须保留作者相对字号的元素。字号倍数与行高一起
+  /// 调整；当前元素以 `em`/`rem` 声明的外边距也随字号缩放，其余长度不变。
+  ComputedStyle scaleRelativeTypography(double fontSize) {
+    if (fontSize <= 0 || fontSize == this.fontSize) return this;
+    final factor = fontSize / this.fontSize;
+    final scaledLineHeightFactor = lineHeightFactor == null
+        ? null
+        : lineHeight * factor / fontSize;
+    return _withTextProperties(
+      fontSize: fontSize,
+      lineHeightFactor: scaledLineHeightFactor,
+      marginOverride: CssEdges(
+        top: _scaledRelativeLength(values['margin-top'], margin.top, factor),
+        right: _scaledRelativeLength(
+          values['margin-right'],
+          margin.right,
+          factor,
+        ),
+        bottom: _scaledRelativeLength(
+          values['margin-bottom'],
+          margin.bottom,
+          factor,
+        ),
+        left: _scaledRelativeLength(values['margin-left'], margin.left, factor),
+      ),
+    );
+  }
+
+  static double _scaledRelativeLength(
+    String? declaration,
+    double value,
+    double factor,
+  ) {
+    final raw = declaration?.trim().toLowerCase();
+    if (raw == null || !(raw.endsWith('em') || raw.endsWith('rem'))) {
+      return value;
+    }
+    return value * factor;
+  }
+
   /// 覆盖选区的字体与文字色，保留作者背景、边框、盒尺寸及非继承属性。
   ///
   /// 字号和字距采用逻辑像素；颜色不参与排版指纹。未提供的属性原样继承。
@@ -2936,6 +2978,7 @@ class ComputedStyle {
     bool? italic,
     double? letterSpacing,
     Color? color,
+    CssEdges? marginOverride,
   }) {
     if (fontSize == null &&
         lineHeightFactor == null &&
@@ -3014,7 +3057,7 @@ class ComputedStyle {
       textAlign: textAlign ?? this.textAlign,
       textIndent: textIndent ?? this.textIndent,
       letterSpacing: letterSpacing ?? this.letterSpacing,
-      margin: margin,
+      margin: marginOverride ?? margin,
       position: position,
       cssFloat: cssFloat,
       display: display,
