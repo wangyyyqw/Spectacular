@@ -731,7 +731,16 @@ class PagePainter {
             final lineRuns = _lineRuns(layout, line);
             final textY = lineY + textLineBaselineOffset(layout, line, painter);
             // 普通 run 与独立行内盒都在文字之前绘制，不能互相替代。
-            _paintInlineBoxes(canvas, painter, lineRuns, x, textY, line: line);
+            _paintInlineBoxes(
+              canvas,
+              painter,
+              lineRuns,
+              x,
+              textY,
+              line: line,
+              textAlign: geometry.style.textAlign,
+              isRtl: layout.isRtl,
+            );
             if (line.inlineBoxes.isNotEmpty) {
               _paintInlineBoxPlacements(
                 canvas,
@@ -751,6 +760,8 @@ class PagePainter {
               x,
               textY,
               line: line,
+              textAlign: geometry.style.textAlign,
+              isRtl: layout.isRtl,
             );
             // 装饰线（P2-17/P9-18）：line-through / overline 的实线按
             // 浏览器几何重画，画在文字之上（浏览器同样在文字之后绘制）。
@@ -2300,6 +2311,8 @@ class PagePainter {
             x,
             textY - (painter.height - line.height) / 2,
             line: line,
+            textAlign: style.textAlign,
+            isRtl: cell.layout.isRtl,
           );
           if (line.inlineBoxes.isNotEmpty) {
             _paintInlineBoxPlacements(
@@ -2320,6 +2333,8 @@ class PagePainter {
             x,
             textY,
             line: line,
+            textAlign: style.textAlign,
+            isRtl: cell.layout.isRtl,
           );
           painter.dispose();
         }
@@ -2717,6 +2732,8 @@ class PagePainter {
             origin.dx,
             origin.dy,
             line: line,
+            textAlign: style.textAlign,
+            isRtl: layout.isRtl,
           );
           if (hasEmphasis) {
             emphasis.paint(canvas, painter, line, origin);
@@ -2756,8 +2773,9 @@ class PagePainter {
   /// 独立行内盒由 placements 绘制，run 在插入点拆段并跟随文字位移。
   ///
   /// 排版宽度没有把行内 padding 计入（flat 管线不做行内盒布局），这里
-  /// 按字形框外扩 padding 绘制——视觉上还原书籍设计，代价是与相邻文字
-  /// 可能轻微重叠。
+  /// 按字形框外扩 padding 绘制。带水平 margin 的连续 span 改用紧字形盒，
+  /// 并把累计 margin 作为 run 间隔，否则相邻 rgba 背景会在 padding
+  /// 交叠处连成一线并叠加出更深的竖条。
   void _paintInlineBoxes(
     Canvas canvas,
     TextPainter painter,
@@ -2765,7 +2783,15 @@ class PagePainter {
     double x,
     double y, {
     required LineBox line,
+    required CssTextAlign textAlign,
+    required bool isRtl,
   }) {
+    final marginPlan = _InlineMarginPlan(
+      runs: runs,
+      line: line,
+      textAlign: textAlign,
+      isRtl: isRtl,
+    );
     for (final run in runs) {
       if (run.syntheticFontFallback) {
         continue;
@@ -2777,19 +2803,31 @@ class PagePainter {
           run.end <= run.start) {
         continue;
       }
+      final hasHorizontalMargin =
+          style.margin.left != 0 || style.margin.right != 0;
       final boxes = _lineRangeRects(
         painter,
         line,
         TextSelection(baseOffset: run.start, extentOffset: run.end),
-        heightStyle: ui.BoxHeightStyle.includeLineSpacingMiddle,
+        heightStyle: hasHorizontalMargin
+            ? ui.BoxHeightStyle.tight
+            : ui.BoxHeightStyle.includeLineSpacingMiddle,
       );
+      final marginShift = marginPlan.shiftAtOffset(run.start);
       for (final box in boxes) {
-        final rect = Rect.fromLTRB(
-          x + box.left - style.padding.left,
-          y + box.top - style.padding.top,
-          x + box.right + style.padding.right,
-          y + box.bottom + style.padding.bottom,
-        );
+        final rect = hasHorizontalMargin
+            ? Rect.fromLTRB(
+                x + box.left + marginShift,
+                y + box.top,
+                x + box.right + marginShift,
+                y + box.bottom,
+              )
+            : Rect.fromLTRB(
+                x + box.left - style.padding.left,
+                y + box.top - style.padding.top,
+                x + box.right + style.padding.right,
+                y + box.bottom + style.padding.bottom,
+              );
         _paintOuterShadow(canvas, rect, style);
         if (hasBackground) {
           final radii = style.borders.radiiFor(rect.size);
@@ -4532,12 +4570,55 @@ class PagePainter {
     double x,
     double y, {
     LineBox? line,
+    required CssTextAlign textAlign,
+    required bool isRtl,
   }) {
     if (lineText.isEmpty) {
       return;
     }
     if (line != null && line.inlineBoxes.isNotEmpty) {
       _paintTextAroundInlineBoxes(canvas, painter, line, runs, x, y);
+      return;
+    }
+    if (line != null &&
+        runs.any(
+          (run) => run.style.margin.left != 0 || run.style.margin.right != 0,
+        )) {
+      final marginPlan = _InlineMarginPlan(
+        runs: runs,
+        line: line,
+        textAlign: textAlign,
+        isRtl: isRtl,
+      );
+      for (final segment in _lineSegments(lineText.length, runs)) {
+        final boxes = painter.getBoxesForSelection(
+          TextSelection(baseOffset: segment.start, extentOffset: segment.end),
+        );
+        if (boxes.isEmpty) {
+          continue;
+        }
+        final segmentPainter = TextPainter(
+          text: sliceTextSpan(
+            painter.text! as TextSpan,
+            segment.start,
+            segment.end,
+          ),
+          textDirection: painter.textDirection,
+        )..layout();
+        final baseline =
+            painter.computeDistanceToActualBaseline(TextBaseline.alphabetic) -
+            segmentPainter.computeDistanceToActualBaseline(
+              TextBaseline.alphabetic,
+            );
+        segmentPainter.paint(
+          canvas,
+          Offset(
+            x + boxes.first.left + marginPlan.shiftAtOffset(segment.start),
+            y + baseline + segment.baselineShift,
+          ),
+        );
+        segmentPainter.dispose();
+      }
       return;
     }
     final hasShift = runs.any((run) => run.baselineShift != 0);
@@ -5035,6 +5116,8 @@ class PagePainter {
             run.style,
             run.baselineShift,
             run.syntheticFontFallback,
+            run.start,
+            run.end,
           ),
         );
       }
@@ -5177,6 +5260,70 @@ class _PaintGroup {
 
 enum _FlowPaintPhase { all, negative, background, foreground }
 
+/// 普通行内 run 的水平 margin 在绘制期的位移。
+///
+/// flat 排版没有把行内 margin 计入 LineBox 宽度。这里按对齐方式补回外边距
+/// 的居中/右对齐偏移，再让每个 run 从累计外边距处开始；文字、背景和边框
+/// 共用同一组位移，避免背景分块后文字仍停在旧位置。
+class _InlineMarginPlan {
+  _InlineMarginPlan({
+    required this.runs,
+    required this.line,
+    required this.textAlign,
+    required this.isRtl,
+  }) {
+    for (final run in runs) {
+      if (_hasLeadingMargin(run)) {
+        _total += run.style.margin.left;
+      }
+      if (_hasTrailingMargin(run)) {
+        _total += run.style.margin.right;
+      }
+    }
+    _baseShift = switch (textAlign) {
+      CssTextAlign.center => -_total / 2,
+      CssTextAlign.right => -_total,
+      CssTextAlign.end => isRtl ? 0 : -_total,
+      CssTextAlign.start => isRtl ? -_total : 0,
+      CssTextAlign.left || CssTextAlign.justify => 0,
+    };
+  }
+
+  final List<_LineRun> runs;
+  final LineBox line;
+  final CssTextAlign textAlign;
+  final bool isRtl;
+  var _total = 0.0;
+  late final double _baseShift;
+
+  /// 单个 run 跨行时，只在原元素的起点/终点应用左/右外边距。
+  bool _hasLeadingMargin(_LineRun run) => run.sourceStart >= line.start;
+  bool _hasTrailingMargin(_LineRun run) => run.sourceEnd <= line.end;
+
+  /// [offset] 为行内局部字符偏移。
+  double shiftAtOffset(int offset) {
+    var shift = _baseShift;
+    for (final run in runs) {
+      if (run.end <= offset) {
+        if (_hasLeadingMargin(run)) {
+          shift += run.style.margin.left;
+        }
+        if (_hasTrailingMargin(run)) {
+          shift += run.style.margin.right;
+        }
+        continue;
+      }
+      if (run.start <= offset) {
+        if (_hasLeadingMargin(run)) {
+          shift += run.style.margin.left;
+        }
+      }
+      break;
+    }
+    return shift;
+  }
+}
+
 /// 行内一段样式区间（行内局部坐标，带基线偏移）。
 class _LineRun {
   const _LineRun(
@@ -5185,6 +5332,8 @@ class _LineRun {
     this.style,
     this.baselineShift,
     this.syntheticFontFallback,
+    this.sourceStart,
+    this.sourceEnd,
   );
 
   final int start;
@@ -5192,6 +5341,8 @@ class _LineRun {
   final ComputedStyle style;
   final double baselineShift;
   final bool syntheticFontFallback;
+  final int sourceStart;
+  final int sourceEnd;
 }
 
 /// 行内绘制段：样式为 null 时用基础样式。
