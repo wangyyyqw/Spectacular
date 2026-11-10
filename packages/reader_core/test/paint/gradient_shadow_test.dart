@@ -214,6 +214,36 @@ void main() {
     expect(grays, greaterThan(0), reason: '模糊边缘应有灰阶过渡');
   });
 
+  test('圆角半透明背景：外阴影只出现在边框盒外，不染色卡片内部', () async {
+    const card = {
+      'height': '90px',
+      'margin': '30px 40px 0',
+      'background': 'rgba(247, 250, 249, .9)',
+      'border': '1px solid rgba(0, 0, 0, .8)',
+      'border-radius': '28px',
+      'color': 'transparent',
+    };
+    final plain = await _render(_style(card));
+    final shadowed = await _render(
+      _style({...card, 'box-shadow': '8px 6px 12px 4px rgba(25, 25, 112, .8)'}),
+    );
+    expect(
+      _pixel(shadowed, 120, 70),
+      _pixel(plain, 120, 70),
+      reason: '半透明填充只能与页面底色合成，不能透出外阴影',
+    );
+    expect(
+      _pixel(shadowed, 205, 70).r,
+      lessThan(_pixel(plain, 205, 70).r),
+      reason: '边框盒外仍保留偏移、扩展和模糊阴影',
+    );
+    expect(
+      _pixel(shadowed, 48, 38).r,
+      lessThan(_pixel(plain, 48, 38).r),
+      reason: '圆角外侧不能被矩形裁剪一起清除',
+    );
+  });
+
   test('box-shadow inset：阴影只在 padding-box 内侧（透明边框内不出现）', () async {
     // 大字号把块撑高，留出 10px 透明边框 + 足够的 padding-box 高度。
     final data = await _render(

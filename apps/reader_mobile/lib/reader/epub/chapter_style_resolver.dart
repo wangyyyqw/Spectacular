@@ -6,6 +6,7 @@ import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/block_builder.dart';
@@ -114,6 +115,36 @@ class ChapterStyleResolver {
       width = chainStyle(chain.sublist(0, i + 1)).contentBoxWidth(width);
     }
     return math.max(24.0, width);
+  }
+
+  /// 单图折叠路径也能从原始祖先链还原浮动整盒，避免按图片宽占位。
+  PageFloatBox? floatBoxForChain(List<SelectorElement> chain) {
+    var left = 0.0;
+    var width = contentWidth;
+    PageFloatBox? result;
+    for (var index = 0; index < chain.length; index++) {
+      final view = chain[index];
+      if (view.tag == 'html') continue;
+      final computed = chainStyle(chain.sublist(0, index + 1));
+      final model = BoxModel.fromStyle(computed, containingWidth: width);
+      final container =
+          retainedContainers[view] ??
+          PageContainer(
+            style: computed,
+            left: left + computed.margin.left,
+            width: model.borderBoxWidth(model.resolveContentWidth(width)),
+          );
+      if (floatSideOfStyle(computed) != null) {
+        result = PageFloatBox(
+          container: container,
+          containingLeft: left,
+          containingWidth: width,
+        );
+      }
+      left = container.contentLeft;
+      width = container.contentWidth;
+    }
+    return result;
   }
 
   ComputedStyle pseudoStyleFor(
@@ -403,8 +434,8 @@ class ChapterStyleResolver {
     bool first,
     bool last,
   ) {
-    // 列表缩进独立解算；body/html 盒由阅读器页面接管。
-    if (const {'ul', 'ol', 'li', 'body', 'html'}.contains(chain[index].tag)) {
+    // 列表缩进独立解算；html 不进入章节根盒。
+    if (const {'ul', 'ol', 'li', 'html'}.contains(chain[index].tag)) {
       return;
     }
     final ancestorStyle = chainStyle(chain.sublist(0, index + 1));
@@ -415,7 +446,32 @@ class ChapterStyleResolver {
           contentWidth - retained.contentLeft - retained.contentWidth;
       return;
     }
-    final nearest = index == chain.length - 2;
+    if (chain[index].tag == 'body') {
+      // 单图根节点折叠后没有保留容器，仍累计原始 body 的水平盒。
+      projection.left +=
+          ancestorStyle.margin.left +
+          ancestorStyle.borders.left.width +
+          ancestorStyle.padding.left;
+      projection.right +=
+          ancestorStyle.margin.right +
+          ancestorStyle.borders.right.width +
+          ancestorStyle.padding.right;
+      return;
+    }
+    _projectLooseAncestor(
+      projection,
+      ancestorStyle,
+      index == chain.length - 2,
+      (first, last),
+    );
+  }
+
+  void _projectLooseAncestor(
+    _ContainerProjection projection,
+    ComputedStyle ancestorStyle,
+    bool nearest,
+    (bool, bool) edges,
+  ) {
     if (nearest && ancestorStyle.borders.hasBorder) projection.bordered = true;
     for (final property in _promotedBoxProps) {
       final value = ancestorStyle.values[property];
@@ -425,8 +481,8 @@ class ChapterStyleResolver {
       _projectVerticalEdges(
         projection.declarations,
         ancestorStyle,
-        first,
-        last,
+        edges.$1,
+        edges.$2,
       );
     }
     projection.left += ancestorStyle.padding.left + ancestorStyle.margin.left;
@@ -466,7 +522,7 @@ class ChapterStyleResolver {
   ) {
     final declarations = <String, String>{
       ...projection.declarations,
-      ...computed.values,
+      ..._resolvedProjectionValues(computed),
     };
     if (projection.left > 0) {
       declarations['margin-left'] =
@@ -488,6 +544,29 @@ class ChapterStyleResolver {
     }
     return declarations;
   }
+
+  /// 只投影盒位置，不按页面宽度或根字号重算已解算的相对属性。
+  static Map<String, String> _resolvedProjectionValues(ComputedStyle style) => {
+    ...style.values,
+    'font-size': '${style.fontSize}px',
+    'font-weight': '${style.fontWeight}',
+    // 无单位因子继续供后代继承；百分比和长度继承最终绝对行高。
+    'line-height':
+        style.unitlessLineHeightFactor?.toString() ??
+        (style.lineHeightFactor == null ? 'normal' : '${style.lineHeight}px'),
+    for (final property in const [
+      'margin-top',
+      'margin-right',
+      'margin-bottom',
+      'margin-left',
+      'padding-top',
+      'padding-right',
+      'padding-bottom',
+      'padding-left',
+    ])
+      if (style.values[property]?.contains('%') ?? false)
+        property: style.computedValue(property)!,
+  };
 
   ComputedStyle styleFor(
     String tag, {

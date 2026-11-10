@@ -89,9 +89,9 @@ class _Cancelled implements Exception {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('同步与异步编码保留 v7 固定字节，解码条目一致并拒绝旧 v6', () async {
+  test('同步与异步编码保留 v8 固定字节，解码条目一致并拒绝旧 v7', () async {
     const index = PageIndex(
-      schemaVersion: 7,
+      schemaVersion: 8,
       entries: [
         PageIndexEntry(
           blockIndex: 3,
@@ -103,16 +103,16 @@ void main() {
       ],
     );
     final persisted = _hex(
-      '52504931000700000001'
+      '52504931000800000001'
       '000000030000000740454000000000004059000000000000c014000000000000'
       '0000023c',
     );
-    expect(PageIndex.currentSchemaVersion, 7);
+    expect(PageIndex.currentSchemaVersion, 8);
     expect(index.encode(), persisted);
     expect(await index.encodeAsync(), persisted);
     expect(PageIndex.decode(persisted)!.entries, index.entries);
     expect((await PageIndex.decodeAsync(persisted))!.entries, index.entries);
-    final old = Uint8List.fromList(persisted)..[5] = 6;
+    final old = Uint8List.fromList(persisted)..[5] = 7;
     expect(PageIndex.decode(old), isNull);
     expect(await PageIndex.decodeAsync(old), isNull);
   });

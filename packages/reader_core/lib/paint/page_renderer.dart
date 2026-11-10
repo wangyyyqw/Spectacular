@@ -1991,6 +1991,7 @@ class PagePainter {
   ///
   /// 形状 = 边框盒 + spread（圆角同比放大，Chromium 口径），再按
   /// (offsetX, offsetY) 平移；blur 用 MaskFilter（σ = blur/2，CSS 口径）。
+  /// 外阴影裁掉原始圆角边框盒内部，避免污染透明或半透明背景。
   /// 内阴影由 [_paintInsetBoxShadow] 在背景之后绘制。
   /// 跨页切片不重复投影（首尾都在本页才画）。
   void _paintBoxShadow(Canvas canvas, _SliceGeometry geometry) {
@@ -2011,14 +2012,18 @@ class PagePainter {
     if (blur > 0) {
       paint.maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2);
     }
-    canvas.drawRRect(
-      _shadowRRect(
-        borders,
-        box.inflate(shadow.spread).translate(shadow.offsetX, shadow.offsetY),
-        shadow.spread,
-      ),
-      paint,
+    final shadowBox = box
+        .inflate(shadow.spread)
+        .translate(shadow.offsetX, shadow.offsetY);
+    canvas.save();
+    canvas.clipPath(
+      Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(box.expandToInclude(shadowBox).inflate(blur * 2 + 1))
+        ..addRRect(_shadowRRect(borders, box, 0)),
     );
+    canvas.drawRRect(_shadowRRect(borders, shadowBox, shadow.spread), paint);
+    canvas.restore();
   }
 
   /// 内阴影（W2）：裁到 padding-box（Chromium 实测：透明边框下阴影不进入

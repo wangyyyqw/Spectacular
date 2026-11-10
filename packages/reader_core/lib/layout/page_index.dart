@@ -60,8 +60,8 @@ class PageIndex {
   const PageIndex({required this.schemaVersion, required this.entries});
 
   /// 当前 schema 版本；换代即整体失效（不迁移，对照 RPI2 换代策略）。
-  // 多看画廊改为单个原子块，旧版逐帧排列的块序号与页边界不可重放。
-  static const int currentSchemaVersion = 7;
+  // 页尾正外边距不再挤走末行，旧版断点与切片高度必须重新计算。
+  static const int currentSchemaVersion = 8;
 
   /// schema 版本。
   final int schemaVersion;
@@ -413,11 +413,27 @@ class _IndexReplayPage {
         return;
       }
       final range = (block: bi, start: line, stop: stop);
-      final edges = _edges(block, range);
+      var edges = _edges(block, range);
       var height = edges.leading + edges.trailing;
       for (var l = line; l < stop; l++) {
         yield 0;
         height += block.layout.lines[l].height;
+      }
+      if (stop == block.layout.lineCount) {
+        final remaining =
+            entry.pageHeight -
+            entry.topPadding -
+            used -
+            (height - block.trailingExtent + edges.bottomTrim);
+        final adjustment =
+            block.trailingExtentForPage(remaining) - block.trailingExtent;
+        height += adjustment;
+        edges = (
+          leading: edges.leading,
+          trailing: edges.trailing + adjustment,
+          topTrim: edges.topTrim,
+          bottomTrim: edges.bottomTrim,
+        );
       }
       _appendSlice(block, range, edges, height);
       if (bi == end.block) break;

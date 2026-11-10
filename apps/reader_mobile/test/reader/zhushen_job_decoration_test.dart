@@ -61,7 +61,11 @@ void main() {
         expect(text, _text(description).trim());
       }
       for (final page in pages) {
-        expect(page.usedHeight, lessThanOrEqualTo(source.contentHeight));
+        expect(
+          page.topPadding + page.usedHeight,
+          lessThanOrEqualTo(source.contentHeight),
+          reason: '首页顶部出血的负偏移参与实际页底坐标',
+        );
         expect(
           page.slices.every(
             (slice) => slice.block.containers.every(

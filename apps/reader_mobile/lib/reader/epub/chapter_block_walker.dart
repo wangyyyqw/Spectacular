@@ -44,7 +44,9 @@ class ChapterBlockWalker {
     document.root,
     BlockPosition(
       attributes: document.root.attributes,
-      ancestors: [ChapterNodeView('body', document.root.attributes, const [])],
+      ancestors: document.root.tag == 'body'
+          ? const []
+          : [ChapterNodeView('body', document.root.attributes, const [])],
     ),
     document.root,
   );
@@ -232,8 +234,15 @@ class ChapterBlockWalker {
 
   void _retainContainer(_ContainerScope scope, bool isRoot) {
     final style = scope.style;
+    final isBodyRoot = isRoot && scope.node.tag == 'body';
+    final isFloating =
+        floatSideOfStyle(style) != null &&
+        scope.node.children.any((child) => child is BlockNode);
     if (scope.position.containerFloat != null ||
-        !(scope.isFlexRow || retainsContainer(scope.node, style))) {
+        !(isBodyRoot ||
+            isFloating ||
+            scope.isFlexRow ||
+            retainsContainer(scope.node, style))) {
       return;
     }
     final parents = scope.ancestors
@@ -249,8 +258,15 @@ class ChapterBlockWalker {
       cloneDecoration: clonesContainerDecoration(style),
       isPageRoot: isRoot,
     );
-    scope.retained = retained;
     styles.retainedContainers[scope.chain.last] = retained;
+    // 根盒提供作者水平内缩与后代百分比基准；页面背景和垂直留白
+    // 继续由页级路径处理，避免重复绘制背景或重复消费 table-cell 内边距。
+    if (isBodyRoot &&
+        !scope.isFlexRow &&
+        !retainsContainer(scope.node, style)) {
+      return;
+    }
+    scope.retained = retained;
     if (!scope.isFlexRow &&
         scope.node.children.any((child) => child is PromotedBlockNode)) {
       styles.splitInlineContainers.add(scope.chain.last);
@@ -279,7 +295,8 @@ class ChapterBlockWalker {
       containerFloat: side ?? parent.containerFloat,
       containerFloatWidth: side == null
           ? parent.containerFloatWidth
-          : inline.measure.textWidthFor(scope.style),
+          : scope.retained?.contentWidth ??
+                inline.measure.textWidthFor(scope.style),
       containerFloatGroup: floatGroup,
     );
   }
@@ -406,7 +423,9 @@ class ChapterBlockWalker {
         checkpoint: inline.measure.budget.checkpoint,
       );
     }
-    if (retained != null && !scope.isFlexRow) {
+    if (retained != null && floatSideOfStyle(scope.style) != null) {
+      await _finishFloatContainer(scope);
+    } else if (retained != null && !scope.isFlexRow) {
       await wrapContainerBlocks(
         flow.blocks,
         scope.start,
@@ -420,6 +439,18 @@ class ChapterBlockWalker {
       );
     }
     await _alignPageTableCell(scope);
+  }
+
+  Future<void> _finishFloatContainer(_ContainerScope scope) async {
+    final box = styles.floatBoxForChain(scope.chain);
+    for (var index = scope.start; index < flow.blocks.length; index++) {
+      await inline.measure.budget.checkpoint();
+      final block = flow.blocks[index];
+      if (block.groupId == scope.child.containerFloatGroup &&
+          block.floatSide == scope.child.containerFloat) {
+        flow.blocks[index] = block.withSpacing(floatBox: box);
+      }
+    }
   }
 
   Future<void> _finishFlexRow(
