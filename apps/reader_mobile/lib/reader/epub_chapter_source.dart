@@ -156,6 +156,9 @@ class EpubChapterSource
   final BookResources _resources;
   EpubDocumentImpl get document => _resources.document;
 
+  /// 阅读图片复用书籍准备 worker；关闭后不再发布旧资源。
+  Future<Uint8List?> readImageBytes(String url) => _resources.readImage(url);
+
   /// 旧书摘要在首次排版前绑定；已完成纯布局按实际内容版本复用。
   void setContentVersion(String version) {
     if (_closed || version.trim().isEmpty || version == _contentVersion) return;

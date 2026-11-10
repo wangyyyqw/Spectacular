@@ -43,6 +43,7 @@ Widget _view(
   ReaderPageImagesPreparer prepare,
   PageTurnMode mode, {
   ReaderPaperBuilder? paperBuilder,
+  bool preload = true,
 }) => MaterialApp(
   home: ListenableBuilder(
     listenable: session,
@@ -50,6 +51,7 @@ Widget _view(
       key: key,
       session: session,
       mode: mode,
+      preload: preload,
       revision: 1,
       paperBuilder:
           paperBuilder ??
@@ -61,8 +63,12 @@ Widget _view(
   ),
 );
 
-Future<void> _pumpUntil(WidgetTester tester, bool Function() ready) async {
-  for (var frame = 0; frame < 35 && !ready(); frame++) {
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() ready, {
+  int maxFrames = 35,
+}) async {
+  for (var frame = 0; frame < maxFrames && !ready(); frame++) {
     await tester.pump(const Duration(milliseconds: 16));
   }
   expect(ready(), isTrue, reason: '应到达待检查的捕获阶段');
@@ -74,6 +80,127 @@ Future<List<int>> _firstPixel(ui.Image image) async {
 }
 
 void main() {
+  testWidgets('3D 冷目标提交后立即回翻复用刚读过的原页', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final gate = Completer<void>();
+    var blocked = false;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    await tester.pumpWidget(
+      _view(
+        session,
+        key,
+        (_) => blocked ? gate.future : Future<void>.value(),
+        PageTurnMode.simulation3d,
+        preload: false,
+      ),
+    );
+    final controller = key.currentState!.controller;
+    controller.request(true);
+    await _pumpUntil(tester, () => !controller.active, maxFrames: 90);
+    expect(session.page!.pageIndex, 4);
+    expect(key.currentState!.snapshotCount, 2);
+    blocked = true;
+    controller.request(false);
+    await tester.pump();
+    expect(controller.targetImage, isNotNull, reason: '回翻命中原页快照，不等图片重新准备');
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(session.page!.pageIndex, 3);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('3D 连续翻页的短空闲直接补齐第二邻页，不在缓存命中处多等帧', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final prepared = <int>[];
+    await tester.pumpWidget(
+      _view(session, key, (page) async {
+        prepared.add(page.pageIndex);
+      }, PageTurnMode.simulation3d),
+    );
+    await tester.pumpAndSettle();
+    expect(key.currentState!.snapshotCount, 5);
+    final controller = key.currentState!.controller;
+    controller.request(true);
+    await _pumpUntil(tester, () => !controller.active, maxFrames: 90);
+    expect(session.page!.pageIndex, 4);
+    prepared.clear();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(prepared, [6], reason: '近邻命中后应立即补新窗口的 +2 页');
+    expect(key.currentState!.snapshotCount, 5);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('取消后迟到的目标图片不能在下一次手势中插队截图', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    await tester.pumpWidget(
+      _view(session, key, (page) {
+        return page.pageIndex == 4 ? gate.future : Future<void>.value();
+      }, PageTurnMode.simulation3d),
+    );
+    final controller = key.currentState!.controller;
+    controller.request(true);
+    await _pumpUntil(tester, () => controller.originImage != null);
+    controller.cancel();
+    controller.beginDrag(
+      DragStartDetails(localPosition: const Offset(10, 300)),
+    );
+    controller.updateDrag(
+      DragUpdateDetails(
+        globalPosition: const Offset(300, 300),
+        localPosition: const Offset(300, 300),
+      ),
+    );
+    await _pumpUntil(tester, () => controller.phase == PageTurnPhase.dragging);
+    expect(key.currentState!.snapshotCount, 2);
+    gate.complete();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(key.currentState!.snapshotCount, 2);
+    expect(controller.turn!.target.pageIndex, 2);
+    controller.cancel();
+    await tester.pumpAndSettle();
+    expect(key.currentState!.snapshotCount, 5);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('后台图片准备失败后，实际翻页可重新请求并提交', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    var requests = 0;
+    await tester.pumpWidget(
+      _view(session, key, (page) async {
+        if (page.pageIndex == 4 && ++requests == 1) {
+          throw StateError('首次解码失败');
+        }
+      }, PageTurnMode.simulation3d),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    expect(tester.takeException(), isNull);
+    key.currentState!.controller.request(true);
+    await tester.pumpAndSettle();
+    expect(session.page!.pageIndex, 4);
+    expect(requests, greaterThanOrEqualTo(2));
+    expect(tester.takeException(), isNull);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('等待捕获期间往返导航仍把邻页画面缓存到正确页', (tester) async {
     final session = await _open();
     addTearDown(session.dispose);
@@ -119,6 +246,7 @@ void main() {
     PageTurnMode.cover,
     PageTurnMode.coverStack,
     PageTurnMode.simulationBessel,
+    PageTurnMode.simulation3d,
     PageTurnMode.slideHorizontal,
   ]) {
     testWidgets('${mode.label} 成功提交仅补窗口差集，回退不移动窗口', (tester) async {
@@ -145,7 +273,13 @@ void main() {
         ),
       );
       await tester.pump();
-      controller.endDrag(DragEndDetails());
+      final velocity = mode == PageTurnMode.simulation3d ? 20.0 : 0.0;
+      controller.endDrag(
+        DragEndDetails(
+          primaryVelocity: velocity,
+          velocity: Velocity(pixelsPerSecond: Offset(velocity, 0)),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(session.page!.pageIndex, 3);
       expect(key.currentState!.snapshotCount, 5);
@@ -212,9 +346,7 @@ void main() {
         return page.pageIndex == 4 ? gate.future : Future<void>.value();
       }, PageTurnMode.cover),
     );
-    for (var i = 0; i < 8; i++) {
-      await tester.pump();
-    }
+    await _pumpUntil(tester, () => prepared.contains(4));
     expect(prepared, [3, 4]);
     final controller = key.currentState!.controller;
     controller.pointerDown(const Offset(790, 300));
@@ -235,7 +367,7 @@ void main() {
     expect(controller.phase, PageTurnPhase.dragging);
     expect(session.page!.pageIndex, 3);
     expect(key.currentState!.snapshotCount, 2);
-    expect(prepared, [3, 4, 2]);
+    expect(prepared, [3, 4], reason: '手势期间不启动后方页面的后台图片准备');
     controller.cancel();
     await tester.pumpAndSettle();
     expect(key.currentState!.snapshotCount, 5);

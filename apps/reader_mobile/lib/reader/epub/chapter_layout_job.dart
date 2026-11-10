@@ -104,17 +104,19 @@ class LayoutBudget {
     if (!force && elapsed < limit) return null;
     if (elapsed > maxSliceMicroseconds) maxSliceMicroseconds = elapsed;
     yieldCount += 1;
-    return _yield(background);
+    return _yield(priority == ChapterLayoutPriority.background);
   }
 
-  Future<void> _yield(bool background) async {
-    if (background) {
+  Future<void> _yield(bool waitForFrame) async {
+    if (waitForFrame) {
       await Future.any([
         SchedulerBinding.instance.endOfFrame,
         _cancelled.future,
         _promotedToReading.future,
       ]);
     } else {
+      // 邻章预取每片仍限 2ms，但不把数十个片段串成数十帧等待。
+      // 零延迟事件给输入、动画和前台抢占机会，随后继续尚未完成的排版。
       await Future<void>.delayed(Duration.zero);
     }
     _slice.reset();

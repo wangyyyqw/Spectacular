@@ -34,7 +34,7 @@ abstract class ZipByteSource {
   /// 从文件打开。
   static Future<ZipByteSource> fromFile(File file) async {
     final handle = await file.open();
-    return _FileZipSource(handle, await handle.length());
+    return _FileZipSource(file, handle, await handle.length());
   }
 }
 
@@ -71,8 +71,9 @@ class _MemoryZipSource implements ZipByteSource {
 }
 
 class _FileZipSource implements ZipByteSource {
-  _FileZipSource(this._handle, this._length);
+  _FileZipSource(this._file, this._handle, this._length);
 
+  final File _file;
   final RandomAccessFile _handle;
   final int _length;
   bool _closed = false;
@@ -91,6 +92,24 @@ class _FileZipSource implements ZipByteSource {
     final end = (offset + count).clamp(0, _length);
     _handle.setPositionSync(offset);
     return _handle.readSync(end - offset);
+  }
+
+  /// 独立句柄异步读取，不与同步头部探测共享游标或在途 IO。
+  Future<Uint8List> readRangeAsync(int offset, int count) async {
+    if (_closed || offset < 0 || offset >= _length || count <= 0) {
+      return Uint8List(0);
+    }
+    final handle = await _file.open();
+    try {
+      if (_closed) return Uint8List(0);
+      await handle.setPosition(offset);
+      final bytes = await handle.read(
+        (offset + count).clamp(0, _length) - offset,
+      );
+      return _closed ? Uint8List(0) : bytes;
+    } finally {
+      await handle.close();
+    }
   }
 
   @override
@@ -289,6 +308,38 @@ class ZipIndex {
       );
     } catch (error) {
       _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压失败（$error）');
+      return null;
+    }
+  }
+
+  /// 大块压缩数据异步读盘；局部头校验与条目凭据仍由当前索引持有。
+  Future<({ZipEntryInfo entry, EpubEntryPayload payload})?> prepareEntryAsync(
+    String path,
+  ) async {
+    final source = _source;
+    if (source is! _FileZipSource) return prepareEntry(path);
+    final entry = entries[path];
+    if (entry == null) return null;
+    try {
+      final range = _fullReadRange(entry);
+      if (range == null) return null;
+      final bytes = await source.readRangeAsync(range.start, range.length);
+      if (!identical(entries[path], entry)) return null;
+      if (bytes.length != range.length) {
+        throw _ZipEntryFailure('E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
+      }
+      return (
+        entry: entry,
+        payload: EpubEntryPayload.compressed(
+          bytes,
+          entry,
+          verifyCrc: _verifyCrc,
+        ),
+      );
+    } catch (error) {
+      if (identical(entries[path], entry)) {
+        _drop(entry, 'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压失败（$error）');
+      }
       return null;
     }
   }

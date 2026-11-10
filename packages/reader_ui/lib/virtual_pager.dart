@@ -41,6 +41,9 @@ class VirtualPager {
   /// 导航会话保留的章节页窗口；与章节源分页缓存保持同一上限。
   static const int loadedSpineLimit = 5;
 
+  /// 本项目的前向内容储备，独立于前后各两张的位图窗口。
+  static const int turnPrefetchPageBudget = 4;
+
   final Map<int, List<PageContent>> _spinePages = {};
   final List<int> _spineOrder = <int>[];
   final Map<int, int> _spinePageCounts = <int, int>{};
@@ -151,27 +154,57 @@ class VirtualPager {
     return (spine, direction < 0 ? pages.length - 1 : 0);
   }
 
-  /// 阅读当前章时提前准备邻章，避免直到末页才开始整章排版。
-  Future<void> prefetchChapter(
+  /// 连续已就绪页不足预算时补一个非空邻章，返回该章朝向阅读侧的首页。
+  Future<PageContent?> prefetchChapter(
     int direction, {
     bool Function()? shouldContinue,
+    int pageBudget = turnPrefetchPageBudget,
   }) async {
     assert(direction == -1 || direction == 1);
+    assert(pageBudget > 0);
     final origin = _currentReal;
     final token = _navigationToken;
-    if (origin == null) return;
+    if (origin == null) return null;
+    final start = _spineBeyondReadyPages(direction, pageBudget);
+    if (start == null) return null;
     for (
-      var spine = origin.$1 + direction;
+      var spine = start;
       spine >= 0 && spine < spineCount;
       spine += direction
     ) {
       if (token != _navigationToken ||
           origin != _currentReal ||
           !(shouldContinue?.call() ?? true)) {
-        return;
+        return null;
       }
       await _loadSpine(spine, prefetch: true);
-      if (_spinePages[spine]?.isNotEmpty == true) return;
+      if (token != _navigationToken ||
+          origin != _currentReal ||
+          !(shouldContinue?.call() ?? true)) {
+        return null;
+      }
+      final pages = _spinePages[spine];
+      if (pages != null && pages.isNotEmpty) {
+        return direction > 0 ? pages.first : pages.last;
+      }
+    }
+    return null;
+  }
+
+  int? _spineBeyondReadyPages(int direction, int limit) {
+    var position = _currentReal!;
+    for (var count = 0; count < limit; count++) {
+      final next = _cachedAdjacent(position, direction);
+      if (next == null) return position.$1 + direction;
+      position = next;
+    }
+    return null;
+  }
+
+  /// 来源已取消这些低优先级等待者，新请求不得复用它们尚未完成的 Future。
+  void discardCancelledPrefetch(Iterable<int> spines) {
+    for (final spine in spines) {
+      if (_pendingPrefetchSpines.remove(spine)) _pendingLoads.remove(spine);
     }
   }
 
@@ -277,18 +310,27 @@ class VirtualPager {
       _touchSpine(spine);
       return;
     }
-    if (!prefetch &&
+    var pending = _pendingLoads[spine];
+    final promote =
+        !prefetch &&
         prefetchLoader != null &&
-        _pendingPrefetchSpines.remove(spine)) {
-      // 用户已开始读预取中的章节，为同一在途作业增加前台等待者并提升优先级。
-      _storeSpine(spine, await loader(spine));
-      return;
+        _pendingPrefetchSpines.contains(spine);
+    if (pending == null || promote) {
+      // 同章前台等待者提升共享作业，替换 Future 后旧结果不能覆盖新结果。
+      late final Future<void> request;
+      request = (prefetch ? prefetchLoader ?? loader : loader)(spine)
+          .then((pages) {
+            if (identical(_pendingLoads[spine], request)) {
+              _storeSpine(spine, pages);
+            }
+          });
+      _pendingLoads[spine] = pending = request;
+      if (prefetch) {
+        _pendingPrefetchSpines.add(spine);
+      } else {
+        _pendingPrefetchSpines.remove(spine);
+      }
     }
-    final pending = _pendingLoads.putIfAbsent(spine, () async {
-      if (prefetch) _pendingPrefetchSpines.add(spine);
-      final pages = await (prefetch ? prefetchLoader ?? loader : loader)(spine);
-      _storeSpine(spine, pages);
-    });
     try {
       await pending;
     } finally {
@@ -298,6 +340,11 @@ class VirtualPager {
       if (!_pendingLoads.containsKey(spine)) {
         _pendingPrefetchSpines.remove(spine);
       }
+    }
+    // 被前台接管的旧预取也等待新结果，避免把尚未发布的章节视为已就绪。
+    final replacement = _pendingLoads[spine];
+    if (replacement != null && !identical(replacement, pending)) {
+      await replacement;
     }
   }
 

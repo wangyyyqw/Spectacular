@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,12 +12,14 @@ import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/epub/resource_index.dart';
 import 'package:reader_core/epub/zip_source.dart';
+import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_mobile/reader/epub/book_resources.dart';
 import 'package:reader_ui/reader_session.dart';
 
 const _chapter = 'OEBPS/Text/chapter.xhtml';
 const _notes = 'OEBPS/Text/notes.xhtml';
 const _indirect = 'OEBPS/Text/indirect.xhtml';
+const _image = 'OEBPS/Images/插图.png';
 const _opf = '''
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -111,10 +114,35 @@ Future<void> _waitForWorker(BookResources resources) async {
   fail('章节准备在 100 个事件循环轮次内未启动 worker');
 }
 
+Future<Uint8List> _pngBytes() async {
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder).drawColor(const ui.Color(0xff00ff00), ui.BlendMode.src);
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(1, 1);
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  picture.dispose();
+  return bytes!.buffer.asUint8List();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   for (final compression in [CompressionType.none, CompressionType.deflate]) {
+    test('$compression 图片异步读取保留原字节和相对路径兼容', () async {
+      final bytes = utf8.encode('图片资源原始字节' * 100);
+      final resources = _resources({_image: bytes}, compression: compression);
+      for (final path in [
+        _image,
+        '/$_image',
+        '../Images/插图.png',
+        'OEBPS/Images/%E6%8F%92%E5%9B%BE.png#图片',
+      ]) {
+        expect(await resources.readImage(path), bytes, reason: path);
+      }
+      expect(await resources.readImage('missing.png'), isNull);
+    });
+
     test('$compression 章节与直接脚注在 worker 解码 UTF16', () async {
       final source = _xhtml(
         '<p>中文正文'
@@ -150,6 +178,115 @@ void main() {
       expect(resources.footnoteCacheCount, 1);
     });
   }
+
+  test('并发图片读取共享结果，损坏条目在结果提交后移除', () async {
+    final bytes = utf8.encode('并发图片原始字节' * 1000);
+    final resources = _resources(
+      {_image: bytes, 'bad.png': bytes},
+      damaged: {'bad.png'},
+    );
+    final reads = await Future.wait([
+      resources.readImage(_image),
+      resources.readImage('/$_image'),
+      resources.readImage(_image.replaceAll('/', '\\')),
+    ]);
+    expect(reads.first, bytes);
+    for (final read in reads.skip(1)) {
+      expect(read, same(reads.first));
+    }
+    expect(await resources.readImage('bad.png'), isNull);
+    expect(resources.document.archive.contains('bad.png'), isFalse);
+    expect(await resources.readImage('bad.png'), isNull);
+  });
+
+  test('图片不抢占章节预取，被前台抢占后自动恢复而不返回缺图', () async {
+    final bytes = Uint8List(8 * 1024 * 1024);
+    final resources = _resources({_image: bytes});
+    final backgroundReady = ReceivePort();
+    addTearDown(backgroundReady.close);
+    final background = resources.preparationWorker.schedule(
+      '占用预取槽',
+      () => backgroundReady.sendPort,
+      _holdWorker,
+      priority: ChapterLayoutPriority.prefetch,
+    );
+    await backgroundReady.first;
+    final stopped = expectLater(
+      background.result,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
+    final image = resources.readImage(_image);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(resources.preparationWorker.activeIsolates, 1);
+    background.cancel();
+    await stopped;
+    await _waitForWorker(resources);
+    final foregroundReady = ReceivePort();
+    addTearDown(foregroundReady.close);
+    final foreground = resources.preparationWorker.schedule(
+      '前台章节优先',
+      () => foregroundReady.sendPort,
+      _holdWorker,
+    );
+    await foregroundReady.first;
+    final foregroundStopped = expectLater(
+      foreground.result,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
+    foreground.cancel();
+    await foregroundStopped;
+    expect(await image, bytes);
+  });
+
+  test('已解码图片命中缓存时不等待被占用的准备槽', () async {
+    final resources = _resources({_image: await _pngBytes()});
+    final images = DecodedImageCache(loadBytes: resources.readImage);
+    addTearDown(images.clear);
+    final image = await images.load(_image, displayWidth: 100);
+    expect(image, isNotNull);
+    final ready = ReceivePort();
+    addTearDown(ready.close);
+    final hold = resources.preparationWorker.schedule(
+      '占用图片准备槽',
+      () => ready.sendPort,
+      _holdWorker,
+    );
+    await ready.first;
+    expect(await images.load(_image, displayWidth: 100), same(image));
+    final cancelled = expectLater(
+      hold.result,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
+    hold.cancel();
+    await cancelled;
+  });
+
+  test('关闭书籍丢弃排队与运行中的图片，随后读取返回空', () async {
+    final resources = _resources({_image: Uint8List(8 * 1024 * 1024)});
+    final ready = ReceivePort();
+    addTearDown(ready.close);
+    final hold = resources.preparationWorker.schedule(
+      '图片之前占用槽位',
+      () => ready.sendPort,
+      _holdWorker,
+    );
+    await ready.first;
+    final queued = resources.readImage(_image);
+    final stopped = expectLater(
+      hold.result,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
+    await _close(resources);
+    await stopped;
+    expect(await queued, isNull);
+    expect(await resources.readImage(_image), isNull);
+
+    final reopened = _resources({_image: Uint8List(8 * 1024 * 1024)});
+    final running = reopened.readImage(_image);
+    await _waitForWorker(reopened);
+    await _close(reopened);
+    expect(await running, isNull);
+  });
 
   test('损坏章节在解压结果提交后移除，缺失错误码和文本保持不变', () async {
     final resources = _resources(

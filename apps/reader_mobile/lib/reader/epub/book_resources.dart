@@ -35,6 +35,7 @@ class BookResources {
   final _parsed = BoundedCache<int, _ChapterResources>(chapterIndexCacheLimit);
   final _preparing = ChapterPreparationScheduler();
   final _preparingFootnotes = ChapterPreparationScheduler();
+  final _imageReads = <String, Future<Uint8List?>>{};
   final preparationWorker = CancellableIsolateWorker();
   Map<String, int>? _spinePaths;
   Set<String>? _fontDirectories;
@@ -51,6 +52,9 @@ class BookResources {
       _preparing.idle,
       _preparingFootnotes.idle,
       preparationWorker.idle,
+      ..._imageReads.values.map(
+        (read) => read.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      ),
     ]);
   }
 
@@ -323,6 +327,76 @@ class BookResources {
           item.href,
     );
     return document.resources.resolve(src, baseDir: chapterBase) ?? src;
+  }
+
+  /// 图片压缩区间异步读盘，解压与 CRC 在共享 worker 执行。
+  Future<Uint8List?> readImage(String url) async {
+    if (_closed) return null;
+    final tried = <String>{};
+    try {
+      for (final path in _imagePaths(url)) {
+        if (_closed) return null;
+        if (!tried.add(path)) continue;
+        final bytes = await _imageReads.putIfAbsent(
+          path,
+          () => _readImageEntry(path),
+        );
+        if (_closed) return null;
+        if (bytes != null) return bytes;
+      }
+    } on ChapterLoadCancelled {
+      // 关闭书籍或准备作业被取消后，旧图片不能回写到新阅读页。
+    }
+    return null;
+  }
+
+  Iterable<String> _imagePaths(String url) sync* {
+    final direct = url.replaceAll('\\', '/').replaceFirst(RegExp(r'^/+'), '');
+    if (document.archive.contains(direct)) yield direct;
+    final resolved = document.resources.resolve(url);
+    if (resolved != null) yield resolved;
+    for (final item in document.spine.take(64)) {
+      final slash = item.href.lastIndexOf('/');
+      final base = slash < 0 ? '' : item.href.substring(0, slash);
+      final candidate = document.resources.resolve(url, baseDir: base);
+      if (candidate != null) yield candidate;
+    }
+  }
+
+  Future<Uint8List?> _readImageEntry(String path) async {
+    try {
+      final read = await document.archive.prepareEntryAsync(path);
+      if (_closed || read == null) return null;
+      final result = await _decodeImageEntry(path, read);
+      if (_closed) return null;
+      return document.archive.commitEntry(read, result.error)
+          ? result.bytes
+          : null;
+    } finally {
+      // 调用方正在等待此 Future，清槽时不再次等待自身。
+      _imageReads.remove(path)?.ignore();
+    }
+  }
+
+  Future<EpubEntryDecodeResult> _decodeImageEntry(
+    String path,
+    EpubEntryRead read,
+  ) async {
+    while (!_closed) {
+      try {
+        return await preparationWorker
+            .schedule(
+              'image:$path',
+              () => read.payload,
+              decodeEpubEntry,
+              priority: ChapterLayoutPriority.prefetch,
+            )
+            .result;
+      } on ChapterLoadCancelled {
+        // 前台章节可抢占图片；仍有等待者时排队重试，不把取消当作缺图。
+      }
+    }
+    throw const ChapterLoadCancelled();
   }
 
   /// 图片原始尺寸（与 collect 的预取共用缓存；读不到时返回 null）。

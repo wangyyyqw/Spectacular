@@ -333,6 +333,54 @@ void main() {
     expect(session.progress?.spineIndex, 0);
   });
 
+  test('翻页接管同章预取并取消另一方向预取，旧结果不覆盖前台页', () async {
+    final source = _ScheduledSource();
+    final session = await _open(
+      source,
+      saved: const ReaderProgress(spineIndex: 5, pageIndex: 0),
+    );
+    addTearDown(session.dispose);
+    source.hold = true;
+    final forward = session.prefetchTurnChapter(true);
+    final backward = session.prefetchTurnChapter(false);
+    final forwardHandle = source.handles[source.handles.length - 2];
+    final backwardHandle = source.handles.last;
+    final reading = session.preparePageTurn(true);
+    final readingHandle = source.handles.last;
+    expect(readingHandle.priority, ChapterLayoutPriority.reading);
+    expect(readingHandle.spine, 6);
+    expect(forwardHandle.cancelled, isFalse);
+    expect(backwardHandle.cancelled, isTrue);
+    forwardHandle.complete(pageCount: 1);
+    await Future<void>.delayed(Duration.zero);
+    readingHandle.complete(pageCount: 3);
+    final turn = await reading;
+    expect(turn, isNotNull);
+    expect(await backward, isNull);
+    expect(await forward, same(turn!.target.content));
+    expect(session.commitPageTurn(turn), isTrue);
+    expect(session.chapterPageCount, 3, reason: '前台发布结果应取代旧预取结果');
+    await session.flushProgress();
+  });
+
+  test('取消预取后同一轮立即重新请求不会复用已取消的等待者', () async {
+    final source = _ScheduledSource();
+    final session = await _open(source);
+    addTearDown(session.dispose);
+    source.hold = true;
+    final old = session.prefetchTurnChapter(true);
+    final cancelled = source.handles.last;
+    session.cancelTurnPrefetch();
+    final next = session.prefetchTurnChapter(true);
+    final replacement = source.handles.last;
+    expect(cancelled.cancelled, isTrue);
+    expect(replacement, isNot(same(cancelled)));
+    replacement.complete();
+    expect(await old, isNull);
+    expect((await next)!.spineIndex, 1);
+    expect(session.progress?.spineIndex, 0);
+  });
+
   test('旋转与字号交错时保留最终尺寸输入，不提交过期字号版面', () async {
     final source = _ScheduledSource();
     final session = await _open(source);

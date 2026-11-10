@@ -101,6 +101,34 @@ void main() {
     expect(loads, [0, 1], reason: '到章末时复用提前加载的整章');
   });
 
+  test('前方四页预算充足时不排邻章，不足时仅补一个非空章', () async {
+    counts = [6, 1, 3];
+    await pager.initialize();
+    expect(await pager.prefetchChapter(1), isNull);
+    expect(loads, [0]);
+    await pager.goTo(0, 2);
+    final first = await pager.prefetchChapter(1);
+    expect(first!.spineIndex, 1);
+    expect(loads, [0, 1]);
+    expect(pager.current!.pageIndex, 2);
+    expect(await pager.prefetchChapter(1), isNull);
+    await pager.next();
+    expect((await pager.prefetchChapter(1))!.spineIndex, 2);
+    expect(loads, [0, 1, 2], reason: '已有短章不足预算时继续补其后的邻章');
+  });
+
+  test('预算可按方向配置且不会越过未加载断档计算已就绪页', () async {
+    counts = [5, 2, 5];
+    await pager.initialize(startSpine: 1, startPage: 1);
+    expect(await pager.prefetchChapter(-1, pageBudget: 1), isNull);
+    expect(loads, [1]);
+    final last = await pager.prefetchChapter(-1, pageBudget: 2);
+    expect((last!.spineIndex, last.pageIndex), (0, 4));
+    expect(loads, [1, 0]);
+    expect(pager.current!.spineIndex, 1);
+    expect(pager.current!.pageIndex, 1);
+  });
+
   test('预取跳过空章并在书籍两端停止', () async {
     counts = [1, 0, 2];
     await pager.initialize();

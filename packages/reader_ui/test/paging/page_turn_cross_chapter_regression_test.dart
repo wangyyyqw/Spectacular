@@ -108,11 +108,8 @@ void main() {
       );
       expect(controller.turn!.target.spineIndex, 1);
       source.gate.complete();
-      if (mode == PageTurnMode.simulation3d) {
-        await tester.pump(const Duration(milliseconds: 16));
-      } else {
-        await _pumpUntil(tester, () => source.loads.contains(7));
-      }
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(source.loads, isNot(contains(7)), reason: '手势期间不续排后续空章');
       controller.endDrag(DragEndDetails());
       await tester.pumpAndSettle();
       expect(session.page!.spineIndex, 1, reason: '预热不能淘汰正在翻向的章节');
