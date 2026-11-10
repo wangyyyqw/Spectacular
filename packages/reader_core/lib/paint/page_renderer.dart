@@ -2077,74 +2077,100 @@ class PagePainter {
     );
   }
 
-  /// 注音绘制（P8-08，CSS Ruby 1 flat 近似）：定位主文本区间所在行，
-  /// 逐字符累进求区间起点 x，注音按 50% 字号居中画在行顶上方。
+  /// 注音复用实际行内样式的基字坐标，并消费作者 rt 的最终样式。
   void _paintRubies(
     Canvas canvas,
     _SliceGeometry geometry,
     List<RubyAnnotation> rubies,
   ) {
-    final layout = geometry.slice.block.layout;
-    final rubyStyle = geometry.textStyle.copyWith(
-      fontSize: geometry.textStyle.fontSize != null
-          ? geometry.textStyle.fontSize! * 0.5
-          : null,
-    );
     for (final ruby in rubies) {
-      // 找覆盖区间起点的行。
-      LineBox? hostLine;
-      var hostIndex = geometry.slice.startLine;
-      var lineY = geometry.y + geometry.leading;
-      for (; hostIndex < geometry.slice.endLine; hostIndex++) {
-        final line = layout.lines[hostIndex];
-        if (ruby.start >= line.start && ruby.start < line.end) {
-          hostLine = line;
-          break;
-        }
-        lineY += line.height;
-      }
-      if (hostLine == null) {
-        continue;
-      }
-      final lineStart = hostLine.start;
-      final prefix = layout.text.substring(lineStart, ruby.start);
-      final painter = TextPainter(
-        text: TextSpan(text: prefix, style: geometry.textStyle),
-        textDirection: _textDirectionOf(layout),
-      )..layout();
-      final x0 = geometry.leftInset + hostLine.offsetX + painter.width;
-      painter.dispose();
-      final basePainter = TextPainter(
-        text: TextSpan(
-          text: layout.text.substring(ruby.start, ruby.end),
-          style: geometry.textStyle,
-        ),
-        textDirection: _textDirectionOf(layout),
-      )..layout();
-      final baseWidth = basePainter.width;
-      basePainter.dispose();
-      final rubyPainter = TextPainter(
-        text: TextSpan(text: ruby.text, style: rubyStyle),
-        textDirection: _textDirectionOf(layout),
-      )..layout();
-      // ruby-align：注音在基字区间内的水平对齐（CSS Ruby 1 §5）。
-      final slack = baseWidth - rubyPainter.width;
-      final offset = switch (geometry.style.rubyAlign) {
-        CssRubyAlign.start => 0.0,
-        // flat 管线把整段注音作为一个文本盒；居中即 space-around 的
-        // 单盒近似，space-between 暂按同一盒宽处理。
-        CssRubyAlign.center ||
-        CssRubyAlign.spaceBetween ||
-        CssRubyAlign.spaceAround => slack / 2,
-      };
-      final rx = x0 + offset;
-      // ruby-position：over 画在行顶上方、under 画在行底下（横排）。
-      final ry = geometry.style.rubyPosition == CssRubyPosition.under
-          ? lineY + hostLine.height
-          : lineY - rubyPainter.height;
-      rubyPainter.paint(canvas, ui.Offset(rx, ry));
-      rubyPainter.dispose();
+      final host = _rubyHost(geometry, ruby);
+      if (host == null) continue;
+      final base = _rubyBaseRange(geometry, host.line, ruby);
+      if (base != null) _paintRuby(canvas, geometry, ruby, host, base);
     }
+  }
+
+  ({LineBox line, double top})? _rubyHost(
+    _SliceGeometry geometry,
+    RubyAnnotation ruby,
+  ) {
+    var top = geometry.y + geometry.leading;
+    final layout = geometry.slice.block.layout;
+    for (
+      var index = geometry.slice.startLine;
+      index < geometry.slice.endLine;
+      index++
+    ) {
+      final line = layout.lines[index];
+      if (ruby.start >= line.start && ruby.start < line.end) {
+        return (line: line, top: top);
+      }
+      top += line.height;
+    }
+    return null;
+  }
+
+  ({double left, double width})? _rubyBaseRange(
+    _SliceGeometry geometry,
+    LineBox line,
+    RubyAnnotation ruby,
+  ) {
+    final layout = geometry.slice.block.layout;
+    final painter = TextPainter(
+      text: _lineSpan(layout, line, geometry.textStyle),
+      textDirection: _textDirectionOf(layout),
+    )..layout();
+    try {
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(
+          baseOffset: ruby.start - line.start,
+          extentOffset: math.min(ruby.end, line.end) - line.start,
+        ),
+      );
+      if (boxes.isEmpty) return null;
+      final left = boxes.map((box) => box.left).reduce(math.min);
+      final right = boxes.map((box) => box.right).reduce(math.max);
+      return (left: left, width: right - left);
+    } finally {
+      painter.dispose();
+    }
+  }
+
+  TextStyle _rubyTextStyle(RubyAnnotation ruby, TextStyle fallback) =>
+      ruby.style == null
+      ? fallback.copyWith(
+          fontSize: fallback.fontSize == null ? null : fallback.fontSize! * .5,
+        )
+      : _paintTextStyleFor(ruby.style!);
+
+  void _paintRuby(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    RubyAnnotation ruby,
+    ({LineBox line, double top}) host,
+    ({double left, double width}) base,
+  ) {
+    final computed = ruby.style ?? geometry.style;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: ruby.text,
+        style: _rubyTextStyle(ruby, geometry.textStyle),
+      ),
+      textDirection: _textDirectionOf(geometry.slice.block.layout),
+    )..layout();
+    final slack = base.width - painter.width;
+    final offset = computed.rubyAlign == CssRubyAlign.start
+        ? (computed.isRtl ? slack : 0.0)
+        : slack / 2;
+    final top = computed.rubyPosition == CssRubyPosition.under
+        ? host.top + host.line.height
+        : host.top - painter.height;
+    painter.paint(
+      canvas,
+      Offset(geometry.leftInset + host.line.offsetX + base.left + offset, top),
+    );
+    painter.dispose();
   }
 
   /// 表格切片绘制（P9-16）：表格/单元格底色与边框按 CSS 画，
@@ -4272,10 +4298,13 @@ class PagePainter {
     required int endLine,
     required List<VerticalGlyphMetric> metrics,
   }) {
-    final rubySize = style.fontSize * 0.5;
-    final rubyStyle = TextLayoutEngine.textStyleFor(style)
-        .copyWith(fontSize: rubySize);
     for (final ruby in rubies) {
+      final computed = ruby.style ?? style;
+      final rubyStyle = _rubyTextStyle(
+        ruby,
+        TextLayoutEngine.textStyleFor(style),
+      );
+      final rubySize = rubyStyle.fontSize ?? style.fontSize * .5;
       for (var lineIndex = startLine; lineIndex < endLine; lineIndex++) {
         final column = layout.lines[lineIndex];
         if (!column.vertical) {
@@ -4309,12 +4338,12 @@ class PagePainter {
           continue;
         }
         // 注音逐字正立堆叠，整体在字符范围居中。
-        final advanceTotal = ruby.text.length * rubySize;
+        final advanceTotal = ruby.text.runes.length * rubySize;
         var rubyY = top + (bottom - top - advanceTotal) / 2;
         // 注音用一个宽度 = 注音字号的虚拟列贴在列的一侧（CSS Ruby 1 §5）：
         // `over` 在列右（vertical-rl 的「上」，圆心落在列右缘、可越出到列间）、
         // `under` 在列左（圆心落在列左缘）。
-        final rubyColumnLeft = style.rubyPosition == CssRubyPosition.under
+        final rubyColumnLeft = computed.rubyPosition == CssRubyPosition.under
             ? columnLeft - rubySize / 2
             : columnLeft + column.width - rubySize / 2;
 
@@ -4322,7 +4351,7 @@ class PagePainter {
           _paintVerticalGlyph(
             canvas,
             String.fromCharCode(rune),
-            rubyStyle.copyWith(color: style.color),
+            rubyStyle,
             upright: true,
             columnLeft: rubyColumnLeft,
             columnWidth: rubySize,

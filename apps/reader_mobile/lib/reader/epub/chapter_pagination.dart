@@ -353,6 +353,7 @@ class ChapterPageLayout {
             start: math.max(0, ruby.start - start),
             end: ruby.end - start,
             text: ruby.text,
+            style: ruby.style,
           ),
         );
       }

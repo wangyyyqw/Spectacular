@@ -637,7 +637,9 @@ class TextBlockBuilder {
       final start = mapping.start(ruby.start);
       final end = mapping.end(ruby.end);
       if (mapping.removeEmpty && end <= start) continue;
-      result.add(RubyMark(start: start, end: end, text: ruby.text));
+      result.add(
+        RubyMark(start: start, end: end, text: ruby.text, chain: ruby.chain),
+      );
     }
     return result;
   }
@@ -927,13 +929,7 @@ class TextBlockBuilder {
     final notes = await _footnotes(paragraph);
     final runs = await _finalRuns(context, body, metrics, paragraph);
     final text = paragraph.dropped.paragraph;
-    final rubies = <RubyAnnotation>[];
-    for (final ruby in text.rubies) {
-      await measure.budget.checkpoint();
-      rubies.add(
-        RubyAnnotation(start: ruby.start, end: ruby.end, text: ruby.text),
-      );
-    }
+    final rubies = await _rubyAnnotations(context, body, text);
     final layout = await measure.layout(
       text: text.text,
       style: metrics.list.measureStyle,
@@ -949,6 +945,41 @@ class TextBlockBuilder {
       rubies,
       _contentCfi(context, paragraph),
     );
+  }
+
+  Future<List<RubyAnnotation>> _rubyAnnotations(
+    _BlockContext context,
+    _BodyStyle body,
+    _ParagraphText text,
+  ) async {
+    final annotations = <RubyAnnotation>[];
+    final inlineContext = _inlineContext(context, body);
+    for (final ruby in text.rubies) {
+      await measure.budget.checkpoint();
+      final chain = ruby.chain;
+      final style = chain.isEmpty
+          ? null
+          : await styles.inlineMarkStyleAsync(
+              InlineMark(
+                start: ruby.start,
+                end: ruby.end,
+                tag: chain.last.tag,
+                classes: chain.last.classes.toList(),
+                chain: chain,
+              ),
+              inlineContext,
+              checkpoint: measure.budget.checkpoint,
+            );
+      annotations.add(
+        RubyAnnotation(
+          start: ruby.start,
+          end: ruby.end,
+          text: ruby.text,
+          style: style,
+        ),
+      );
+    }
+    return annotations;
   }
 
   double _measureWidth(

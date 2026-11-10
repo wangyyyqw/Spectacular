@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -104,6 +105,47 @@ void main() {
     final footnotes = blocks.expand((block) => block.footnotes);
     expect(footnotes, isEmpty);
     expect(blocks.map((block) => block.layout.text), contains('第一章正文'));
+  });
+
+  test('多看无标记返回链接保留含图片注号的整段正文与点击数据', () async {
+    const noteText = '“叠”是日本面积单位，一叠约等于1.62平方米。';
+    final source = await openCssChapter(
+      body:
+          '<p>居住在六叠<sup><a class="duokan-footnote" href="#note_3" '
+          'id="noteBack_3"><img src="../Images/note.png"/></a></sup>'
+          '大小的出租屋里。</p><p>下一段正文。</p>'
+          '<ol class="duokan-footnote-content"><li class="duokan-footnote-item" '
+          'id="note_3"><a href="#noteBack_3">$noteText</a></li></ol>',
+      css:
+          'p {margin:0; font:16px Ahem; text-indent:0;} '
+          '.duokan-footnote img {width:1.3em; vertical-align:middle;}',
+      binaryFiles: {
+        'OEBPS/Images/note.png': base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+          'AAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+        ),
+      },
+    );
+    addTearDown(source.close);
+    final page = (await source.loadChapter(0)).single;
+    final blocks = page.slices.map((slice) => slice.block);
+    expect(
+      blocks.map((block) => block.layout.text).join('\n'),
+      '居住在六叠\uFFFC大小的出租屋里。\n下一段正文。',
+    );
+    final note = blocks.expand((block) => block.footnotes).single;
+    expect(note.text, noteText);
+    final lineBox = TextHitTester.lineBoxes(page)
+        .firstWhere((box) => box.slice.block.footnotes.contains(note));
+    final line = lineBox.slice.block.layout.lines[lineBox.lineIndex];
+    final image = line.inlineBoxes.single;
+    final center = Offset(
+      lineBox.rect.left + image.left + image.width / 2,
+      (lineBox.textTop ?? lineBox.rect.top) +
+          image.topIn(line.baseline - line.top) +
+          image.height / 2,
+    );
+    expect(TextHitTester.footnoteAt(page, center), same(note));
   });
 
   test('目标 id 位于无 id 列表项时隐藏整条注释定义', () async {

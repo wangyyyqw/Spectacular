@@ -81,6 +81,23 @@ void main() {
     expect(anchor.noteText, '多看注释');
   });
 
+  test('多看定义中的无标记返回链接不生成正文注释引用', () {
+    final source = _doc('''
+<html><body>
+<p>居住在六叠<sup><a class="duokan-footnote" href="#note_3" id="noteBack_3">
+<img src="Images/note.png"/></a></sup>大小的出租屋里。</p>
+<ol class="duokan-footnote-content"><li class="duokan-footnote-item" id="note_3">
+<a href="#noteBack_3">“叠”是日本面积单位，一叠约等于1.62平方米。</a>
+</li></ol></body></html>
+''');
+    final anchors = _resolve(source, [source]);
+    expect(anchors, hasLength(1));
+    expect(anchors.single.sourceId, 'noteBack_3');
+    expect(anchors.single.targetId, 'note_3');
+    expect(anchors.single.kind, NoteKind.footnote);
+    expect(anchors.single.noteText, '“叠”是日本面积单位，一叠约等于1.62平方米。');
+  });
+
   test('QQ、掌阅、通用与 Reeden 类名均可识别', () {
     final source = _doc('''
 <html><body>
