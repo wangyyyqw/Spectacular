@@ -11,6 +11,7 @@ class FullBleedChapter {
     required this.singleImageHasDimensions,
     this.singleImageCfi,
     this.hasGallery = false,
+    this.singleImageHasLayout = false,
   });
 
   /// 章节内 img/image 与带 data 的 object 图片叶数量。
@@ -31,10 +32,14 @@ class FullBleedChapter {
   /// 画廊即使只有一帧，也必须保留作者的容器尺寸与样式。
   final bool hasGallery;
 
-  /// 章节是否走满屏路径：仅含一张**无宽高属性**的图片、无正文、
-  /// src 非空。双图及以上或含正文走普通路径。
+  /// 唯一图片有作者尺寸或定位约束时，普通排版必须消费这些样式。
+  final bool singleImageHasLayout;
+
+  /// 章节是否走满屏路径：仅含一张无宽高属性和作者排版约束的图片，
+  /// 无正文、src 非空。双图及以上或含正文走普通路径。
   bool get isFullBleed =>
       !hasGallery &&
+      !singleImageHasLayout &&
       imageCount == 1 &&
       !hasVisibleText &&
       singleImageSrc != null &&
@@ -45,25 +50,29 @@ class FullBleedChapter {
 /// 章节满屏判定（P3-10）：扫描块树统计图片与正文。
 ///
 /// [isRendered] 可排除被作者 CSS 隐藏的行内子树；未提供时保持纯结构判定。
+/// [preserveImageLayout] 由样式层确认作者约束，避免自动满屏绕过图片排版。
 FullBleedChapter analyzeFullBleed(
   BlockDocument document, {
   bool Function(EpubNode node)? isRendered,
+  bool Function(InlineNode node)? preserveImageLayout,
 }) {
-  final analysis = _FullBleedAnalysis(isRendered);
+  final analysis = _FullBleedAnalysis(isRendered, preserveImageLayout);
   analysis.visit(document.root);
   return analysis.result;
 }
 
 /// 每次扫描独立保存计数和唯一叶坐标，不引用聚合后的伪父位置。
 class _FullBleedAnalysis {
-  _FullBleedAnalysis(this.isRendered);
+  _FullBleedAnalysis(this.isRendered, this.preserveImageLayout);
   final bool Function(EpubNode node)? isRendered;
+  final bool Function(InlineNode node)? preserveImageLayout;
   int _imageCount = 0;
   bool _hasVisibleText = false;
   String? _singleSrc;
   String? _singleCfi;
   bool _singleHasDimensions = false;
   bool _hasGallery = false;
+  bool _singleHasLayout = false;
 
   FullBleedChapter get result => FullBleedChapter(
     imageCount: _imageCount,
@@ -72,6 +81,7 @@ class _FullBleedAnalysis {
     singleImageCfi: _imageCount == 1 ? _singleCfi : null,
     singleImageHasDimensions: _singleHasDimensions,
     hasGallery: _hasGallery,
+    singleImageHasLayout: _singleHasLayout,
   );
 
   void visit(EpubNode node) {
@@ -134,6 +144,7 @@ class _FullBleedAnalysis {
     _singleHasDimensions =
         (node.attributes['width']?.trim().isNotEmpty ?? false) ||
         (node.attributes['height']?.trim().isNotEmpty ?? false);
+    _singleHasLayout = preserveImageLayout?.call(node) ?? false;
   }
 
   void _recordText(String text) {

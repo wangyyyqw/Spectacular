@@ -15,6 +15,7 @@ import 'flex_blocks.dart';
 import 'generated_chapter_content.dart';
 import 'gallery_block_builder.dart';
 import 'image_block_builder.dart';
+import 'page_root_table_cell.dart';
 import 'inline_content_builder.dart';
 import 'table_block_builder.dart';
 import 'text_block_builder.dart';
@@ -308,7 +309,8 @@ class ChapterBlockWalker {
       final start = flow.blocks.length;
       await _walk(child, _childPosition(scope, child, blockChildren), root);
       if (scope.isFlexRow && flow.blocks.length > start) {
-        scope.flexItems.add(flow.blocks.sublist(start));
+        final item = await _positionedBlocks(start, positioned: false);
+        if (item.isNotEmpty) scope.flexItems.add(item);
       }
     }
   }
@@ -392,18 +394,7 @@ class ChapterBlockWalker {
     await inline.measure.budget.checkpoint();
     final retained = scope.retained;
     if (scope.isFlexRow && retained != null) {
-      final row = await buildFlexRowBlockAsync(
-        containerStyle: scope.style,
-        containerWidth: retained.contentWidth,
-        items: scope.flexItems,
-        containingWidth: width,
-        pageContentHeight: height,
-        groupId: scope.child.groupId,
-        checkpoint: inline.measure.budget.checkpoint,
-      );
-      if (row != null) {
-        flow.blocks.replaceRange(scope.start, flow.blocks.length, [row]);
-      }
+      await _finishFlexRow(scope, retained);
     }
     if (scope.isPageRootFlexColumn) {
       await alignPageRootFlexColumnAsync(
@@ -428,6 +419,65 @@ class ChapterBlockWalker {
         checkpoint: inline.measure.budget.checkpoint,
       );
     }
+    await _alignPageTableCell(scope);
+  }
+
+  Future<void> _finishFlexRow(
+    _ContainerScope scope,
+    PageContainer retained,
+  ) async {
+    final positioned = await _positionedBlocks(scope.start, positioned: true);
+    final row = await buildFlexRowBlockAsync(
+      containerStyle: scope.style,
+      containerWidth: retained.contentWidth,
+      items: scope.flexItems,
+      containingWidth: width,
+      pageContentHeight: height,
+      groupId: scope.child.groupId,
+      checkpoint: inline.measure.budget.checkpoint,
+    );
+    if (row != null) {
+      flow.blocks.replaceRange(scope.start, flow.blocks.length, [
+        row,
+        ...positioned,
+      ]);
+    }
+  }
+
+  Future<List<PageBlock>> _positionedBlocks(
+    int start, {
+    required bool positioned,
+  }) async {
+    final blocks = <PageBlock>[];
+    for (final block in flow.blocks.skip(start)) {
+      await inline.measure.budget.checkpoint();
+      if (block.absolute == positioned) blocks.add(block);
+    }
+    return blocks;
+  }
+
+  Future<void> _alignPageTableCell(_ContainerScope scope) async {
+    final parent = scope.ancestors.lastOrNull;
+    if (scope.style.display != CssDisplay.tableCell ||
+        parent?.tag != 'body' ||
+        parent!.childElements.length != 1) {
+      return;
+    }
+    final rootStyle = styles.chainStyle(scope.ancestors);
+    if (rootStyle.display != CssDisplay.table || rootStyle.height == null) {
+      return;
+    }
+    await alignPageRootTableCell(
+      blocks: flow.blocks,
+      start: scope.start,
+      rootStyle: rootStyle,
+      alignment: scope.style.verticalAlign,
+      page: (
+        width: width,
+        height: height,
+        checkpoint: inline.measure.budget.checkpoint,
+      ),
+    );
   }
 }
 
