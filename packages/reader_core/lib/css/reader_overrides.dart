@@ -176,6 +176,28 @@ class ReaderOverrides {
     );
   }
 
+  /// 应用作者 CSS 的级联根样式，暂不注入正文字号。
+  ///
+  /// 字号由正文块在作者 CSS 完成 `em/%` 解算后再覆盖；若提前放进根样式，
+  /// `.card { font-size:.75em; border:1em }` 这类作者盒会随阅读字号一起
+  /// 放大边框、内边距和外边距，破坏原书版式。其它阅读器声明照常参与级联。
+  ComputedStyle applyCascadeBase(
+    ComputedStyle base, {
+    double? containingWidth,
+  }) {
+    final declarations = toCssDeclarations()..remove('font-size');
+    if (declarations.isEmpty) {
+      return base;
+    }
+    return ComputedStyle(
+      declarations,
+      parent: base,
+      explicitProperties: declarations.keys.toSet(),
+      containingWidth: containingWidth ?? 0,
+      rootFontSize: base.fontSize,
+    );
+  }
+
   /// 复制并覆盖部分字段。
   ReaderOverrides copyWith({
     double? fontSize,

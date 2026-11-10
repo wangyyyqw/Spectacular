@@ -27,7 +27,10 @@ class ChapterStyleResolver {
   final ChapterCascadePreparation preparedStyles;
   double get contentWidth => snapshot.width;
   late final ComputedStyle style = _applyCustomFont(
-    snapshot.overrides.apply(snapshot.baseStyle, containingWidth: contentWidth),
+    snapshot.overrides.applyCascadeBase(
+      snapshot.baseStyle,
+      containingWidth: contentWidth,
+    ),
   );
   CascadeRuleSet get cascadeRules => preparedStyles.cascadeRules;
   Map<String, List<AuxiliaryCssRule>> get pseudoRules =>

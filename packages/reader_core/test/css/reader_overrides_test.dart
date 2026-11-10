@@ -49,6 +49,19 @@ void main() {
       expect(applied.padding.bottom, 30);
       expect(applied.padding.left, 40);
     });
+
+    test('作者级联根不注入正文字号，其它阅读器声明照常生效', () {
+      const overrides = ReaderOverrides(
+        fontSize: 22,
+        lineHeight: 1.3,
+        textColor: Color(0xFF445566),
+      );
+      final applied = overrides.applyCascadeBase(_bookStyle());
+
+      expect(applied.fontSize, 16, reason: '作者 em 盒仍按书内基准字号解算');
+      expect(applied.lineHeightFactor, closeTo(1.3, 0.001));
+      expect(applied.color, const Color(0xFF445566));
+    });
   });
 
   group('CSS 声明与指纹', () {

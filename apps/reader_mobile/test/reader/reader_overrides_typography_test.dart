@@ -89,6 +89,64 @@ void main() {
     }
   });
 
+  test('阅读器字号不连带放大作者 em 盒与标题比例', () async {
+    for (final readerSize in [12.0, 20.0]) {
+      final source = await openCssChapter(
+        body:
+            '<div class="design-box">'
+            '<h1>制作信息</h1><p>作者：测试作者</p>'
+            '<p class="ovalnote">制作说明</p></div>',
+        css:
+            'body { font-size: 16px; } '
+            '.design-box { font-size: .75em; border: double 1em #000; '
+            'padding: .5em; margin: 1.5em 0; } '
+            '.design-box h1 { font-size: 1.2em; margin: 12px auto; } '
+            '.design-box p { margin: 4px 1em; } '
+            '.ovalnote { font-size: .9em; }',
+        overrides: ReaderOverrides(
+          fontSize: readerSize,
+          lineHeight: 1.3,
+          paragraphSpacing: 0,
+        ),
+      );
+      final blocks = (await source.loadChapter(0))
+          .expand((page) => page.slices)
+          .map((slice) => slice.block)
+          .toList();
+      final paragraph = blocks.firstWhere(
+        (block) => block.layout.text.contains('作者：测试作者'),
+      );
+      final heading = blocks.firstWhere((block) => block.layout.text == '制作信息');
+      final note = blocks.firstWhere((block) => block.layout.text == '制作说明');
+      final container = paragraph.containers.single.container.style;
+
+      expect(paragraph.style!.fontSize, readerSize, reason: '正文跟随阅读器字号');
+      expect(container.fontSize, closeTo(12, 0.001), reason: '作者 .75em 盒保持源比例');
+      expect(container.borders.left.width, closeTo(12, 0.001));
+      expect(container.padding.left, closeTo(6, 0.001));
+      expect(heading.style!.fontSize, closeTo(readerSize * 1.2, 0.001));
+      expect(note.style!.fontSize, closeTo(readerSize * 0.9, 0.001));
+    }
+  });
+
+  test('阅读器段距同步应用于分隔线', () async {
+    final source = await openCssChapter(
+      body: '<div class="design-box"><p>前文</p><hr/><p>后文</p></div>',
+      css:
+          '.design-box { font-size: .75em; } '
+          '.design-box p { margin: 4px 0; } '
+          '.design-box hr { margin: 6px 0; border: 1px dashed #000; }',
+      overrides: const ReaderOverrides(paragraphSpacing: 0),
+    );
+    final rule = (await source.loadChapter(0))
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.style?.borders.top.width == 1);
+
+    expect(rule.spaceBefore, 0);
+    expect(rule.spaceAfter, 0);
+  });
+
   test('正文字体覆盖作者块与行内样式', () async {
     final source = await openCssChapter(
       body: '<p class="quote">正文<span class="inline">行内</span></p>',

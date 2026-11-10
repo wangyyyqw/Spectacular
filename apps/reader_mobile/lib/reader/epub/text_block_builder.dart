@@ -197,8 +197,76 @@ class TextBlockBuilder {
     );
     final applyReader =
         !context.isHeading && !structured && !special && !promoted;
-    if (applyReader) style = styles.snapshot.overrides.applyTypography(style);
+    if (applyReader) {
+      final nestedSize = _nestedRelativeFontSize(context);
+      style = nestedSize == null
+          ? styles.snapshot.overrides.applyTypography(style)
+          : style.scaleRelativeTypography(nestedSize);
+    } else {
+      final readerSize = _scaledComponentFontSize(context);
+      if (readerSize != null) {
+        style = style.scaleRelativeTypography(readerSize);
+      }
+    }
     return _BodyStyle(authored, style, compact, structured, applyReader);
+  }
+
+  /// 保留标题和紧凑组件自身的相对字号，同时让比例以阅读器字号为基准。
+  double? _scaledComponentFontSize(_BlockContext context) {
+    final readerSize = styles.snapshot.overrides.fontSize;
+    final ancestors = context.ancestors;
+    if (readerSize == null || ancestors.length < 2) {
+      return null;
+    }
+    final computed = styles.chainStyle(ancestors);
+    if (!computed.explicitProperties.contains('font-size') &&
+        !computed.explicitProperties.contains('font')) {
+      return null;
+    }
+    final raw = _fontSizeDeclaration(computed);
+    if (raw != null &&
+        RegExp(r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$').hasMatch(raw)) {
+      return null;
+    }
+    final parent = styles.chainStyle(
+      ancestors.sublist(0, ancestors.length - 1),
+    );
+    if (parent.fontSize <= 0) return null;
+    return readerSize * computed.fontSize / parent.fontSize;
+  }
+
+  /// 普通正文若位于作者缩小/放大的容器内，也保留块自身的相对字号。
+  ///
+  /// 例如 `.design-box{font-size:.75em}` 中的 `.ovalnote{font-size:.9em}`，
+  /// 阅读器字号应先作为正文基准，再应用 `.9em`；直接提升到满字号会破坏
+  /// 作者层级并导致换行差异。
+  double? _nestedRelativeFontSize(_BlockContext context) {
+    final scaled = _scaledComponentFontSize(context);
+    if (scaled == null) return null;
+    final ancestors = context.ancestors;
+    for (var length = 2; length < ancestors.length; length += 1) {
+      final ancestor = styles.chainStyle(ancestors.sublist(0, length));
+      if (!ancestor.explicitProperties.contains('font-size') &&
+          !ancestor.explicitProperties.contains('font')) {
+        continue;
+      }
+      final raw = _fontSizeDeclaration(ancestor);
+      if (raw != null &&
+          !RegExp(r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$').hasMatch(raw)) {
+        return scaled;
+      }
+    }
+    return null;
+  }
+
+  String? _fontSizeDeclaration(ComputedStyle style) {
+    if (style.explicitProperties.contains('font-size')) {
+      return style.values['font-size']?.trim().toLowerCase();
+    }
+    final shorthand = style.values['font'];
+    return shorthand == null
+        ? null
+        : ComputedStyle.parseFontShorthand(shorthand)?['font-size'];
   }
 
   Future<bool> _compactComponent(
