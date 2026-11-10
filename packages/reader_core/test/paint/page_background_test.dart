@@ -138,6 +138,27 @@ void main() {
     expect(_pixel(data, 60, 40), _white);
   });
 
+  test('没有背景图时整页背景色仍覆盖主题底色', () async {
+    final page = _page(
+      _style(),
+      background: const PageBackground(backgroundColor: Color(0xFF000000)),
+    );
+    final data = await _render(page);
+    expect(_pixel(data, 115, 75), const Color(0xFF000000));
+  });
+
+  test('背景图缺失时书籍背景色仍然保留', () async {
+    final page = _page(
+      _style(),
+      background: const PageBackground(
+        imageUrl: 'OEBPS/missing.png',
+        backgroundColor: Color(0xFF123456),
+      ),
+    );
+    final data = await _render(page);
+    expect(_pixel(data, 115, 75), const Color(0xFF123456));
+  });
+
   test('浅色页：可辨认的书籍显式颜色照书，不被主题色刷掉（P9-02）', () async {
     final page = _page(_style(color: '#94a3b8', explicitColor: true));
     final data = await _render(page, textColor: _red);

@@ -1089,11 +1089,19 @@ class PagePainter {
     Rect pageRect,
   ) {
     final spec = page.background;
-    final lookup = imageLookup;
-    if (spec == null || lookup == null) {
+    if (spec == null) {
       return;
     }
-    final image = lookup(spec.imageUrl);
+    final color = spec.backgroundColor;
+    if (color != null && color.a > 0) {
+      canvas.drawRect(pageRect, Paint()..color = color);
+    }
+    final url = spec.imageUrl;
+    final lookup = imageLookup;
+    if (url == null || lookup == null) {
+      return;
+    }
+    final image = lookup(url);
     if (image == null) {
       return;
     }

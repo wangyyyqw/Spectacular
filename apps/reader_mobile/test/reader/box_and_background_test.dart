@@ -81,6 +81,35 @@ void main() {
     expect(block.spaceAfter, 12, reason: '下边距同样折叠');
     expect(block.bottomInset, 0);
   });
+
+  test('body 只有背景色时也作为整页背景', () async {
+    final source = await EpubChapterSource.open(
+      _buildPanelEpub(
+        css:
+            'body { margin: 0; background-color: #000000; } '
+            '.panel { background: #ffffff; padding: 8px; }',
+        chapter:
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+            '<title>黑底白卡</title>'
+            '<link rel="stylesheet" type="text/css" href="../Styles/styles.css"/>'
+            '</head><body class="bk"><div class="panel"><p>白卡正文</p></div></body></html>',
+      ),
+      contentWidth: 320,
+      contentHeight: 560,
+      verifyCrc: false,
+    );
+    await source.applyOverrides(ReaderSettingsDefaults.overrides);
+    final page = (await source.loadChapter(0)).first;
+
+    expect(page.background?.imageUrl, isNull);
+    expect(page.background?.backgroundColor, const Color(0xFF000000));
+    final block = page.slices
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.layout.text.contains('白卡正文'));
+    expect(block.containers.single.container.style.backgroundColor,
+        const Color(0xFFFFFFFF));
+  });
 }
 
 /// 最小 EPUB：body 背景图 + 一个带边框/内边距/背景色的 div 面板。
