@@ -90,7 +90,10 @@ class _ImageDescription {
       ...chain,
       ChapterNodeView(node.tag, node.attributes, const []),
     ];
-    style = builder.styles.styleForChain(imageChain);
+    final projected = builder.styles.styleForChain(imageChain);
+    style = projected.isOutOfFlow
+        ? builder.styles.chainStyle(imageChain)
+        : projected;
     promotedLeft = builder.styles.promotedLeftForLastChain;
     opacity = builder.styles.effectiveOpacityForLastChain;
     intrinsic = builder.inline.intrinsicSize(url);
@@ -134,7 +137,9 @@ class _ImageSizing {
         ? input.position.containerFloatWidth
         : chainFloat.width;
     size = _limitFloatingWidth(size, side, input.styles.snapshot.width);
-    var blockWidth = side != null ? size.$1 : input.styles.snapshot.width;
+    var blockWidth = side != null || input.style.isOutOfFlow
+        ? size.$1
+        : input.styles.snapshot.width;
     if (side != null && columnWidth != null) {
       blockWidth = math.min(blockWidth, columnWidth);
       size = _fitWidth(size, blockWidth);
@@ -158,6 +163,11 @@ class _ImageSizing {
           (bleed.right ? snapshot.overrides.padding?.right ?? 0 : 0);
     }
     var width = snapshot.width;
+    if (input.style.isOutOfFlow &&
+        (input.style.position == CssPosition.fixed ||
+            !await _hasPositionedAncestor())) {
+      return width;
+    }
     for (var i = 0; i < input.chain.length; i++) {
       await input.inline.measure.budget.checkpoint();
       final tag = input.chain[i].tag;
@@ -169,6 +179,17 @@ class _ImageSizing {
       ).resolveContentWidth(width);
     }
     return width;
+  }
+
+  Future<bool> _hasPositionedAncestor() async {
+    for (var index = input.chain.length - 1; index >= 0; index--) {
+      await input.inline.measure.budget.checkpoint();
+      if (input.styles.chainStyle(input.chain.sublist(0, index + 1)).position !=
+          CssPosition.static) {
+        return true;
+      }
+    }
+    return false;
   }
 
   _ImageSize _declaredSize(double width) {
@@ -286,7 +307,8 @@ ComputedStyle _imagePaintStyle(
   return ComputedStyle({
     ...input.style.values,
     'width': '${geometry.width}px',
-    'margin-left': '${_usedMarginLeft(input, geometry)}px',
+    'margin-left':
+        '${input.style.isOutOfFlow ? input.style.margin.left : _usedMarginLeft(input, geometry)}px',
     'background-image': 'url(${input.url})',
     'background-size': fit.size,
     'background-position': bleed.top
@@ -341,6 +363,7 @@ PageBlock _imageBlock(
   final layout = _imageLayout(geometry);
   return PageBlock(
     layout: layout,
+    isReplaced: true,
     startCfi: input.styles.selectorIndex.imageCfiOf(input.node),
     style: style,
     pageBreakBefore: style.pageBreakBefore,
@@ -358,6 +381,7 @@ PageBlock _imageBlock(
     bleedTop: input.style.bleed.top,
     bleedBottom: input.style.bleed.bottom,
     effectiveOpacity: input.opacity,
+    absolute: style.isOutOfFlow,
     groupId: geometry.group,
     declaredContentHeight: model.resolveContentHeight(
       layout.height,
