@@ -2,11 +2,13 @@
 """在隔离 release 包中测量真实书架打开、目录跳转及正文图片首帧。"""
 
 import argparse
+import base64
 from functools import partial
 import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -25,6 +27,7 @@ SOURCE_ROOTS = ("apps/reader_mobile/lib", "packages")
 BUSINESS_PATHS = ("apps/reader_mobile/lib", ":(glob)packages/*/lib/**")
 HARNESS_PATHS = ("tool/device_reader_perf.py", "tool/device_css_test.py",
                  "apps/reader_mobile/integration_test/reader_perf_app.dart",
+                 "apps/reader_mobile/integration_test/page_turn_perf_app.dart",
                  "apps/reader_mobile/integration_test/reader_perf_probe.dart")
 
 
@@ -133,7 +136,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
             return
         size = int(self.headers.get("Content-Length", 0))
-        if not 0 < size < 65536:
+        if not 0 < size < 1024 * 1024:
             self.send_error(400)
             return
         data = json.loads(self.rfile.read(size))
@@ -202,6 +205,10 @@ def summarize_meminfo(samples):
 
 def prepare(workspace, revision):
     prepare_workspace(workspace)
+    # 仅复制已经下载的原生依赖；sqlite3 hook 会按当前包内哈希重新校验。
+    cache = Path("apps/reader_mobile/.dart_tool/hooks_runner/shared/sqlite3/build")
+    for source in (ROOT / cache).glob("download-*"):
+        shutil.copytree(source, workspace / cache / source.name, dirs_exist_ok=True)
     if revision:
         # 只替换业务源与包；测试入口始终用当前版本以保持测量口径一致。
         archive = subprocess.check_output([
@@ -228,25 +235,33 @@ def prepare(workspace, revision):
 
 def build(workspace, url, args):
     app = workspace / "apps/reader_mobile"
+    target = "integration_test/" + ("page_turn_perf_app.dart" if args.page_turn else "reader_perf_app.dart")
+    defines = {
+        "PERF_SERVER": url, "PERF_ROUNDS": str(args.rounds),
+        "PERF_SPINE": str(args.target_spine), "PERF_FONT_SIZE": str(args.font_size),
+        "PERF_TITLE": args.title,
+        **{name: "true" if value else "false" for name, value in {
+            "PERF_RESIZE": args.resize, "PERF_IMPORT": args.measure_import,
+            "PERF_LONG_SCAN": args.long_scan, "PERF_FAR_JUMP": args.far_jump,
+        }.items()},
+    }
     run(["flutter", "pub", "get", "--offline"], cwd=app)
     run([
-        # 不能加 --no-pub：release 需要 flutter 重新注入插件列表，
-        # 否则会沿用 pub get 生成（含已移除开发依赖）的注册文件。
-        "flutter", "build", "apk", "--release",
-        "--target=integration_test/reader_perf_app.dart", "--target-platform=android-arm64",
-        "--dart-define=PERF_SERVER=" + url,
-        "--dart-define=PERF_ROUNDS=" + str(args.rounds),
-        "--dart-define=PERF_SPINE=" + str(args.target_spine),
-        "--dart-define=PERF_FONT_SIZE=" + str(args.font_size),
-        "--dart-define=PERF_TITLE=" + args.title,
-        "--dart-define=PERF_RESIZE=" + ("true" if args.resize else "false"),
-        "--dart-define=PERF_IMPORT=" + ("true" if args.measure_import else "false"),
-        "--dart-define=PERF_LONG_SCAN=" + ("true" if args.long_scan else "false"),
-        "--dart-define=PERF_FAR_JUMP=" + ("true" if args.far_jump else "false")], cwd=app)
+        "flutter", "build", "apk", "--release", "--no-pub", "--config-only",
+        "--target=" + target,
+        "--target-platform=android-arm64",
+        *[f"--dart-define={key}={value}" for key, value in defines.items()]], cwd=app)
+    encoded = ",".join(base64.b64encode(f"{key}={value}".encode()).decode()
+                       for key, value in defines.items())
+    # target/defines 是 Gradle 项目参数；config-only 不持久化这两项。
+    run(["./gradlew", "--offline", "--console=plain", ":app:assembleRelease",
+         "-Ptarget-platform=android-arm64", "-Ptarget=" + target,
+         "-Pdart-defines=" + encoded], cwd=app / "android", env=dict(os.environ))
     apk = app / "build/app/outputs/flutter-apk/app-release.apk"
     actual = run(["apkanalyzer", "manifest", "application-id", str(apk)], capture=True).strip()
     if actual != TEST_ID:
         raise RuntimeError(f"拒绝安装非隔离包：{actual}")
+    shutil.copy2(apk, args.output / "app-release.apk")
     return apk
 
 
@@ -272,7 +287,7 @@ def benchmark(args):
             apk = build(workspace, f"http://127.0.0.1:{port}", args)
             run(adb + ["reverse", f"tcp:{port}", f"tcp:{port}"])
             run(adb + ["shell", "am", "force-stop", TEST_ID])
-            run(adb + ["install", "-r", str(apk)])
+            run(adb + ["install", "--no-streaming", "-r", str(apk)])
             stop_meminfo = threading.Event()
             meminfo_samples = []
             meminfo_thread = None
@@ -316,6 +331,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", help="可选基线 Git revision；当前测试入口保持不变")
     parser.add_argument("--rounds", type=int, default=5, help="每种开书及字号变化的样本轮数")
+    parser.add_argument("--page-turn", action="store_true", help="测量3D翻页准备、连续翻页及跨章；格列佛游记使用 --target-spine 10")
     parser.add_argument("--target-spine", type=int, default=29, help="开书恢复的 spine 序号")
     parser.add_argument("--font-size", type=float, default=21, help="基准字号；字号测试往返基准和基准加一")
     parser.add_argument("--title", default="诸神愚戏", help="隔离书架测试书名")

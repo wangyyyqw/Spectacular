@@ -40,6 +40,8 @@ void main() {
     expect(previous['frame_count'], 2);
     expect(previous['longest_build_ms'], 0.7);
     expect(previous['longest_raster_ms'], 0.8);
+    expect(previous['raster_p95_ms'], 0.8);
+    expect(previous['frames_over_16_67_ms'], 0);
     expect(previous['frame_timings_complete'], isTrue);
     expect(samples.complete, isFalse, reason: '当前事件仍在进行');
 
@@ -77,6 +79,21 @@ void main() {
     expect(result['frame_count'], 3);
     expect(result['frame_timings_complete'], isTrue);
     expect(samples.complete, isTrue);
+  });
+
+  test('P95 使用最近秩且固定阈值统计真实窗口内的帧', () {
+    final samples = ReaderPerfProbeSamples()..start(0);
+    samples.addFrames([
+      for (var index = 1; index <= 20; index++)
+        _frame(index * 1000, raster: index * 1000),
+    ]);
+    final result = samples.finish(
+      elapsedMicros: 20000,
+      rawFrameTimestampMicros: 20000,
+    );
+    expect(result['raster_p95_ms'], 19);
+    expect(result['frames_over_16_67_ms'], 4);
+    expect(result['frame_count'], 20);
   });
 
   test('观察到后续帧但事件内无帧时不误报完整', () {

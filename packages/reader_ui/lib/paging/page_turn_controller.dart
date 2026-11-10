@@ -240,19 +240,30 @@ class PageTurnController extends ChangeNotifier {
     if (size.isEmpty || _disposed || session.page == null) return;
     final token = _beginPreparation(direction, dragging);
     try {
-      if (!await _prepareOrigin(token, dragging) || !_valid(token)) return;
-      final prepared = await session.preparePageTurn(next);
-      if (!_valid(token)) {
-        if (prepared != null) session.releasePageTurn(prepared);
-        return;
-      }
-      if (prepared == null) return cancel();
-      turn = prepared;
-      if (!await _prepareTarget(token, prepared) || !_valid(token)) return;
+      // 原页与目标资源同时准备；视口只将实际截图串行，避免解码相互阻塞。
+      final ready = await Future.wait([
+        _prepareOrigin(token, dragging),
+        _prepareDestination(token, direction),
+      ], eagerError: true);
+      if (!_valid(token) || ready.any((value) => !value)) return;
       _activatePreparedTurn(dragging);
     } catch (_) {
       if (_valid(token)) cancel();
     }
+  }
+
+  Future<bool> _prepareDestination(int token, bool direction) async {
+    final prepared = await session.preparePageTurn(direction);
+    if (!_valid(token)) {
+      if (prepared != null) session.releasePageTurn(prepared);
+      return false;
+    }
+    if (prepared == null) {
+      cancel();
+      return false;
+    }
+    turn = prepared;
+    return _prepareTarget(token, prepared);
   }
 
   int _beginPreparation(bool direction, bool dragging) {

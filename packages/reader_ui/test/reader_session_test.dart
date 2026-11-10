@@ -580,6 +580,9 @@ void main() {
     unawaited(pending);
     expect(find.textContaining('正在打开'), findsNothing);
     expect(session.progress?.spineIndex, 5);
+    await tester.pumpWidget(const SizedBox.shrink());
+    // FakeSource 的普通 Future 不支持取消，退出后仅泵完已发出的加载。
+    await tester.pump(source.delay);
   });
 
   testWidgets('阅读页可绘制并响应翻页', (tester) async {

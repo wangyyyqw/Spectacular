@@ -643,37 +643,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       );
 }
 
-/// 从 EPUB 归档读取图片字节：先按原样路径找，再按 OPF 目录解析，
-/// 最后按各 spine 章节目录逐个尝试（背景图 URL 相对所在章节）。
-Future<Uint8List?> _loadImageBytes(EpubChapterSource source, String url) async {
-  final document = source.document;
-  final direct = document.archive.readBytes(url);
-  if (direct != null) {
-    return direct;
-  }
-  final resolved = document.resources.resolve(url);
-  if (resolved != null) {
-    final bytes = document.archive.readBytes(resolved);
-    if (bytes != null) {
-      return bytes;
-    }
-  }
-  var tried = 0;
-  for (final item in document.spine) {
-    if (tried >= 64) {
-      break;
-    }
-    tried += 1;
-    final slash = item.href.lastIndexOf('/');
-    final baseDir = slash < 0 ? '' : item.href.substring(0, slash);
-    final candidate = document.resources.resolve(url, baseDir: baseDir);
-    if (candidate == null) {
-      continue;
-    }
-    final bytes = document.archive.readBytes(candidate);
-    if (bytes != null) {
-      return bytes;
-    }
-  }
-  return null;
-}
+/// 路径兼容与归档解压统一交给书籍资源，解压不再占用阅读界面线程。
+Future<Uint8List?> _loadImageBytes(EpubChapterSource source, String url) =>
+    source.readImageBytes(url);

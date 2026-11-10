@@ -111,7 +111,173 @@ class _LongChapterSource extends _Source {
   }
 }
 
+class _LocatedChapterSource extends _Source {
+  @override
+  int get chapterCount => 6;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    loads.add(spineIndex);
+    final style = _style();
+    final layout = TextLayoutEngine.layout(
+      text: '章内定位内容',
+      style: style,
+      maxWidth: 280,
+    );
+    return [
+      for (var index = 0; index < 8; index++)
+        PageContent(
+          spineIndex: spineIndex,
+          pageIndex: index,
+          slices: [
+            PageBlockSlice(
+              block: PageBlock(
+                layout: layout,
+                style: style,
+                startCfi:
+                    'epubcfi(/6/${(spineIndex + 1) * 2}!/4/${(index + 1) * 2}/1:0)',
+              ),
+              startLine: 0,
+              endLine: layout.lineCount,
+              height: layout.height,
+            ),
+          ],
+          usedHeight: layout.height,
+          pageHeight: 200,
+          topPadding: 0,
+        ),
+    ];
+  }
+}
+
 void main() {
+  testWidgets('后翻后跳到章末，前向内容预排不等待当前页图片', (tester) async {
+    final source = _LocatedChapterSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      '跳章末预排',
+      const ReaderProgress(spineIndex: 0, pageIndex: 3),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: '跳章末预排',
+    );
+    await session.open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: session,
+        builder: (_, _) => _inputView(
+          session,
+          key,
+          mode: PageTurnMode.simulation3d,
+          prepare: (page) => page.spineIndex == 3 && page.pageIndex == 7
+              ? gate.future
+              : Future<void>.value(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    key.currentState!.controller.request(false);
+    await tester.pumpAndSettle();
+    expect(session.page!.pageIndex, 2);
+    expect(key.currentState!.controller.next, isFalse);
+    await session.jumpToCfi('epubcfi(/6/8!/4/16/1:0)');
+    expect((session.page!.spineIndex, session.page!.pageIndex), (3, 7));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(source.loads, contains(4), reason: '上次后翻方向不能把章末内容预排改为后向');
+    expect(gate.isCompleted, isFalse);
+    expect(session.pageTurns, 1);
+    gate.complete();
+    await tester.pumpAndSettle();
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('空闲一百毫秒后才预热，内容预排不等待当前页慢图片', (tester) async {
+    final source = _Source();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: '内容与位图独立',
+    );
+    await session.open();
+    addTearDown(session.dispose);
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final key = GlobalKey<PageTurnViewState>();
+    final prepared = <int>[];
+    await tester.pumpWidget(
+      _inputView(
+        session,
+        key,
+        mode: PageTurnMode.simulation3d,
+        prepare: (page) {
+          prepared.add(page.spineIndex);
+          return page.spineIndex == 0 ? gate.future : Future<void>.value();
+        },
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 99));
+    expect(prepared, isEmpty);
+    expect(source.loads, [0]);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(prepared, [0]);
+    expect(source.loads, [0, 1], reason: '慢原图不阻塞内容储备，单轮只补一非空章');
+    expect(key.currentState!.snapshotCount, 0);
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(key.currentState!.snapshotCount, 3);
+    expect(session.pageTurns, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('3D 原页图片未完成时已并行准备目标，截图仍按各自纸面捕获', (tester) async {
+    final session = await _openInputSession();
+    addTearDown(session.dispose);
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final key = GlobalKey<PageTurnViewState>();
+    final prepared = <int>[];
+    await tester.pumpWidget(
+      _inputView(
+        session,
+        key,
+        mode: PageTurnMode.simulation3d,
+        prepare: (page) {
+          prepared.add(page.spineIndex);
+          return page.spineIndex == 1 ? gate.future : Future<void>.value();
+        },
+      ),
+    );
+    final controller = key.currentState!.controller;
+    controller.request(true);
+    for (var frame = 0; frame < 4; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(prepared, [1, 2]);
+    expect(controller.phase, PageTurnPhase.preparing);
+    expect(controller.originImage, isNull);
+    expect(controller.targetImage, isNotNull);
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(session.page!.spineIndex, 2);
+    expect(session.pageTurns, 1);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('3D 纸底只捕获一次、按版本重建并计入位图预算', (tester) async {
     final session = await _openInputSession();
     addTearDown(session.dispose);
@@ -205,7 +371,7 @@ void main() {
   }
 
   for (final mode in [PageTurnMode.cover, PageTurnMode.none]) {
-    testWidgets('${mode.label} 章内阅读即准备邻章且不提交或遍历全书', (tester) async {
+    testWidgets('${mode.label} 前方四页已就绪时不抢跑邻章', (tester) async {
       final source = _LongChapterSource();
       final session = ReaderSession(
         source: source,
@@ -217,7 +383,7 @@ void main() {
       final key = GlobalKey<PageTurnViewState>();
       await tester.pumpWidget(_inputView(session, key, mode: mode));
       await tester.pumpAndSettle();
-      expect(source.loads, [0, 1]);
+      expect(source.loads, [0]);
       expect(session.page!.spineIndex, 0);
       expect(session.pageTurns, 0);
       if (mode == PageTurnMode.none) expect(key.currentState!.snapshotCount, 0);
@@ -392,9 +558,7 @@ void main() {
     });
     final key = GlobalKey<PageTurnViewState>();
     await tester.pumpWidget(_inputView(session, key));
-    for (var frame = 0; frame < 8; frame++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
+    await tester.pumpAndSettle();
 
     expect(key.currentState!.snapshotCount, 2, reason: '前进页就绪后立即生成快照');
     expect(source.previous.isCompleted, isFalse);

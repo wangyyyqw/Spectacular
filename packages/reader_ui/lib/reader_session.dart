@@ -443,7 +443,8 @@ class ReaderSession extends ChangeNotifier {
   final Duration persistInterval;
 
   VirtualPager? _pager;
-  final Set<ChapterLoadHandle> _chapterLoads = <ChapterLoadHandle>{};
+  final _chapterLoads =
+      <ChapterLoadHandle, ({int spine, ChapterLayoutPriority priority})>{};
   ReaderPreparationHandle<Object?>? _positionPreparation;
   ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
@@ -463,19 +464,39 @@ class ReaderSession extends ChangeNotifier {
   ];
 
   /// 空闲时按阅读方向提前排版邻章，结果只进缓存，不修改阅读进度。
-  Future<void> prefetchTurnChapter(
+  Future<PageContent?> prefetchTurnChapter(
     bool next, {
     bool Function()? shouldContinue,
+    int pageBudget = VirtualPager.turnPrefetchPageBudget,
   }) async {
-    if (_disposed || _loading) return;
+    if (_disposed || _loading) return null;
     try {
-      await _pager?.prefetchChapter(
+      return await _pager?.prefetchChapter(
         next ? 1 : -1,
         shouldContinue: shouldContinue,
+        pageBudget: pageBudget,
       );
     } on ChapterLoadCancelled {
       // 用户导航或重排可抢占预取，下次空闲时再准备。
+      return null;
     }
+  }
+
+  /// 交互开始时撤销低优先级等待者；前台正在接管的同章任务继续共享。
+  void cancelTurnPrefetch() {
+    final reading = {
+      for (final request in _chapterLoads.values)
+        if (request.priority == ChapterLayoutPriority.reading) request.spine,
+    };
+    final cancelled = <int>{};
+    for (final entry in _chapterLoads.entries.toList()) {
+      if (entry.value.priority == ChapterLayoutPriority.prefetch &&
+          !reading.contains(entry.value.spine)) {
+        entry.key.cancel();
+        cancelled.add(entry.value.spine);
+      }
+    }
+    _pager?.discardCancelledPrefetch(cancelled);
   }
 
   /// 准备邻页；加载失败交给调用方处理，原页继续可读。
@@ -490,13 +511,16 @@ class ReaderSession extends ChangeNotifier {
     final generation = _generation;
     if (pager == null || origin == null || _loading) return null;
     try {
-      final target = await pager.prepareAdjacent(
+      final pending = pager.prepareAdjacent(
         next ? 1 : -1,
         prefetch: prefetch,
         distance: distance,
         shouldContinue: shouldContinue,
         retainTarget: !prefetch,
       );
+      // 先注册前台目标，再撤其他预取，避免同章共享任务被提前取消重做。
+      if (!prefetch) cancelTurnPrefetch();
+      final target = await pending;
       if (target == null) return null;
       if (_disposed || generation != _generation || !identical(origin, page)) {
         pager.releasePrepared(target);
@@ -556,7 +580,8 @@ class ReaderSession extends ChangeNotifier {
       return scheduled.loadChapter(spineIndex);
     }
     final handle = scheduled.scheduleChapter(spineIndex, priority: priority);
-    _chapterLoads.add(handle);
+    _chapterLoads[handle] = (spine: spineIndex, priority: priority);
+    if (priority == ChapterLayoutPriority.reading) cancelTurnPrefetch();
     try {
       return await handle.result;
     } finally {
@@ -570,7 +595,7 @@ class ReaderSession extends ChangeNotifier {
   void _cancelChapterWaiters() {
     _positionPreparation?.cancel();
     _positionPreparation = null;
-    for (final handle in _chapterLoads.toList()) {
+    for (final handle in _chapterLoads.keys.toList()) {
       handle.cancel();
     }
     _chapterLoads.clear();

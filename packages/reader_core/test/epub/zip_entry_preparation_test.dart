@@ -12,6 +12,25 @@ const _path = 'Text/chapter.xhtml';
 
 void main() {
   for (final compression in [CompressionType.none, CompressionType.deflate]) {
+    test('$compression 异步文件读取与同步探测交错时不共享游标', () async {
+      final data = utf8.encode('图片字节与同步读取保持一致' * 10000);
+      final file = await _tempFile(_zip(data, compression));
+      final archive = await EpubArchive.fromFile(file);
+      addTearDown(archive.close);
+      final first = archive.prepareEntryAsync('/Text\\chapter.xhtml');
+      final second = archive.prepareEntryAsync(_path);
+      expect(archive.readHead(_path, 32), data.take(32));
+      expect(archive.readBytes(_path), data);
+      for (final pending in [first, second]) {
+        final read = (await pending)!;
+        final payload = read.payload;
+        final result = await Isolate.run(() => decodeEpubEntry(payload));
+        expect(result.bytes, data);
+        expect(archive.commitEntry(read, result.error), isTrue);
+      }
+      expect(await archive.prepareEntryAsync('missing'), isNull);
+    });
+
     test('$compression 文件与内存准备结果独立，纯 payload 可跨 isolate', () async {
       final data = utf8.encode('<p>解压结果与原文保持一致。</p>' * 10000);
       final zip = _zip(data, compression);
@@ -33,6 +52,44 @@ void main() {
       }
     });
   }
+
+  test('异步读取未完成时关闭归档，晚到输入不可提交', () async {
+    final file = await _tempFile(
+      _zip(Uint8List(4 * 1024 * 1024), CompressionType.none),
+    );
+    final archive = await EpubArchive.fromFile(file);
+    final pending = archive.prepareEntryAsync(_path);
+    archive.close();
+    expect(await pending, isNull);
+    expect(await archive.prepareEntryAsync(_path), isNull);
+    expect(archive.diagnostics, isEmpty);
+  });
+
+  test('异步读取保留坏压缩条目的提交淘汰及内存旧后端兼容', () async {
+    final zip = _zip(utf8.encode('损坏图片' * 100), CompressionType.deflate);
+    zip[_contentStart(zip)] = 0x07;
+    final archive = await EpubArchive.fromFile(await _tempFile(zip));
+    addTearDown(archive.close);
+    final read = (await archive.prepareEntryAsync(_path))!;
+    final result = decodeEpubEntry(read.payload);
+    expect(result.bytes, isNull);
+    expect(archive.contains(_path), isTrue);
+    expect(archive.commitEntry(read, result.error), isTrue);
+    expect(archive.contains(_path), isFalse);
+    for (final compression in [
+      CompressionType.deflate,
+      CompressionType.bzip2,
+    ]) {
+      final memory = EpubArchive.fromBytes(
+        _zip(utf8.encode('兼容图片'), compression),
+        verify: false,
+      );
+      addTearDown(memory.close);
+      final prepared = (await memory.prepareEntryAsync(_path))!;
+      expect(utf8.decode(decodeEpubEntry(prepared.payload).bytes!), '兼容图片');
+      expect(memory.commitEntry(prepared, null), isTrue);
+    }
+  });
 
   test('关闭和另一归档拒绝提交，关闭后独立 payload 仍可解码', () {
     final zip = _zip(utf8.encode('正文'), CompressionType.deflate);

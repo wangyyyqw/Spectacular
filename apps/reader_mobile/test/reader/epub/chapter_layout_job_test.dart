@@ -246,10 +246,7 @@ void main() {
     expect(order, ['后台', '前台']);
   });
 
-  for (final priority in [
-    ChapterLayoutPriority.prefetch,
-    ChapterLayoutPriority.background,
-  ]) {
+  for (final priority in [ChapterLayoutPriority.background]) {
     test('${priority.name} 等待帧期间升为阅读立即继续同一作业', () async {
       final budget = LayoutBudget(priority: priority, isCurrent: () => true);
       var completed = false;
@@ -264,6 +261,25 @@ void main() {
       expect(budget.yieldCount, 1);
     });
   }
+
+  test('邻章预取让出事件循环后继续，无需额外绘制一帧', () async {
+    final budget = LayoutBudget(
+      priority: ChapterLayoutPriority.prefetch,
+      isCurrent: () => true,
+    );
+    var completed = false;
+    final waiting = budget
+        .checkpoint(force: true)
+        .then((_) => completed = true);
+    await Future<void>.value();
+    expect(completed, isFalse, reason: '必须离开当前微任务队列，允许输入和前台抢占');
+    await waiting;
+    expect(completed, isTrue);
+    expect(budget.yieldCount, 1);
+    final cancelled = budget.checkpoint(force: true);
+    budget.cancel();
+    await expectLater(cancelled, throwsA(isA<ChapterLoadCancelled>()));
+  });
 
   test('待执行队列依次处理阅读、预取、后台，几何作业不并发', () async {
     final gate = Completer<void>();

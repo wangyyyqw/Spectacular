@@ -59,12 +59,15 @@ class _ProbeWindow {
   int _maximumBuild = 0;
   int _maximumRaster = 0;
   int _frameCount = 0;
+  final List<int> _rasters = [];
   final Map<String, Object> result = {
     'longest_ui_gap_ms': 0.0,
     'longest_build_ms': 0.0,
     'longest_raster_ms': 0.0,
     'frame_count': 0,
     'frame_timings_complete': false,
+    'raster_p95_ms': 0.0,
+    'frames_over_16_67_ms': 0,
   };
 
   bool get complete => result['frame_timings_complete'] == true;
@@ -87,6 +90,12 @@ class _ProbeWindow {
     result['longest_build_ms'] = _maximumBuild / 1000;
     result['longest_raster_ms'] = _maximumRaster / 1000;
     result['frame_count'] = ++_frameCount;
+    _rasters.add(raster);
+    final ordered = _rasters.toList()..sort();
+    result['raster_p95_ms'] = ordered[(ordered.length * .95).ceil() - 1] / 1000;
+    result['frames_over_16_67_ms'] = _rasters
+        .where((value) => value > 16667)
+        .length;
   }
 
   void updateCompletion(int? latestBuildStart) {

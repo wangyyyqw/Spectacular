@@ -469,6 +469,20 @@ class EpubArchive {
           );
   }
 
+  /// 文件后端异步读取完整压缩区间，供准备 worker 解压大图片。
+  Future<EpubEntryRead?> prepareEntryAsync(String path) async {
+    final normalized = _normalizePath(path);
+    final prepared = await _backend.prepareEntryAsync(normalized);
+    return prepared == null
+        ? null
+        : EpubEntryRead._(
+            this,
+            normalized,
+            prepared.identity,
+            prepared.payload,
+          );
+  }
+
   /// 提交纯数据解压状态；外来、已关闭或已移除条目的凭据返回 false。
   ///
   /// 宿主应先检查作业取消和版本，再调用本方法并发布解析产物。
@@ -545,6 +559,7 @@ abstract class _ArchiveBackend {
   int? uncompressedSizeOf(String path);
   Uint8List? readBytes(String path);
   _PreparedEntry? prepareEntry(String path);
+  Future<_PreparedEntry?> prepareEntryAsync(String path);
   bool commitEntry(String path, Object identity, String? error);
   Uint8List? readHead(String path, int maxBytes);
   CompressionType? compressionOf(String path);
@@ -572,6 +587,14 @@ class _ZipIndexBackend implements _ArchiveBackend {
   @override
   _PreparedEntry? prepareEntry(String path) {
     final prepared = _index.prepareEntry(path);
+    return prepared == null
+        ? null
+        : (identity: prepared.entry, payload: prepared.payload);
+  }
+
+  @override
+  Future<_PreparedEntry?> prepareEntryAsync(String path) async {
+    final prepared = await _index.prepareEntryAsync(path);
     return prepared == null
         ? null
         : (identity: prepared.entry, payload: prepared.payload);
@@ -634,6 +657,10 @@ class _LegacyBackend implements _ArchiveBackend {
       payload: EpubEntryPayload.decoded(Uint8List.fromList(entry.content)),
     );
   }
+
+  @override
+  Future<_PreparedEntry?> prepareEntryAsync(String path) async =>
+      prepareEntry(path);
 
   @override
   bool commitEntry(String path, Object identity, String? error) =>
