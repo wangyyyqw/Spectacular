@@ -242,18 +242,21 @@ void main() {
     expect(report.errors.first, contains('内容错误'));
   });
 
-  test('mimetype 不在首位时报错', () {
+  test('mimetype 不在首位时保留警告且资源可读取', () {
     final archive = Archive()
       ..addFile(ArchiveFile('a.txt', 1, <int>[65]))
       ..addFile(
         ArchiveFile('mimetype', 20, utf8.encode('application/epub+zip'))
           ..compression = CompressionType.none,
       );
-    final report = EpubArchive.fromBytes(
+    final epub = EpubArchive.fromBytes(
       Uint8List.fromList(ZipEncoder().encode(archive)),
-    ).validateOcf();
-    expect(report.ok, isFalse);
-    expect(report.errors.first, contains('不是第一个条目'));
+    );
+    addTearDown(epub.close);
+    final report = epub.validateOcf();
+    expect(report.ok, isTrue);
+    expect(report.warnings, contains(contains('不是第一个条目')));
+    expect(epub.readString('a.txt'), 'A');
   });
 
   test('文件后端按需读取，关闭后释放句柄', () async {

@@ -506,7 +506,7 @@ class EpubArchive {
     }
 
     if (_orderedNames.first != 'mimetype') {
-      errors.add('mimetype 不是第一个条目（实际：${_orderedNames.first}）');
+      warnings.add('mimetype 不是第一个条目（实际：${_orderedNames.first}），不符合 OCF');
     }
 
     if (!_backend.contains('mimetype')) {
