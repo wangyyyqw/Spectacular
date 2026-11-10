@@ -1146,6 +1146,15 @@ class _FloatPagination {
         narrowed,
         start: page.cursor,
       );
+      // 核心断行不为段尾 LF 产出空行，但原文仍保留 LF 和字符偏移。
+      // 消费这些不绘制的尾字符，避免下一页对空行表取 first。
+      if (measured.lines.isEmpty &&
+          block.layout.text.codeUnits
+              .skip(page.cursor)
+              .every((unit) => unit == 10)) {
+        page.cursor = block.layout.text.length;
+        break;
+      }
       var batch = await _takeBatchLines(block, measured, page, leading, range);
       if (batch.taken == 0) {
         if (y > 0 || page.lines.isNotEmpty) break;

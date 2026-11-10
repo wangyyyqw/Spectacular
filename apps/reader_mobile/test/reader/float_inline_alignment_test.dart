@@ -183,7 +183,8 @@ void main() {
     expect(pages.length, greaterThan(1));
     final lines = [
       for (final page in pages)
-        ...TextHitTester.lineBoxes(page).where((box) => box.text != '浮动'),
+        ...TextHitTester.lineBoxes(page)
+            .where((box) => box.slice.block.floatSide == null),
     ];
     expect(lines.map((box) => box.text).join(), '前$text后');
     for (final box in lines) {
@@ -191,8 +192,32 @@ void main() {
     }
     for (final page in pages) {
       for (final box in TextHitTester.lineBoxes(page)) {
-        if (box.text != '浮动') _expectHitBounds(page, box);
+        if (box.slice.block.floatSide == null) _expectHitBounds(page, box);
       }
     }
+  });
+
+  test('浮动章节的标题尾换行不额外分页或读取空行', () async {
+    final source = await openCssChapter(
+      body: '<h2>作者介绍<br/> <b></b></h2><div class="float">浮动</div><p>介绍正文</p>',
+      css:
+          'body {margin:0;font:17px/1.6 align_song;} '
+          'h2,p {margin:0;text-indent:0;} '
+          '.float {float:right;width:20px;height:15px;}',
+      contentWidth: _width,
+      contentHeight: _height,
+    );
+    addTearDown(source.close);
+    final pages = await source.loadChapter(0);
+    expect(pages, hasLength(1));
+    final headings = TextHitTester.lineBoxes(pages.single)
+        .where((box) => box.slice.block.style?.fontSize == 25.5);
+    expect(headings.map((box) => box.text).join(), '作者介绍');
+    expect(
+      TextHitTester.lineBoxes(pages.single).map((box) => box.text).join(),
+      contains('介绍正文'),
+    );
+    expect(pages.single.usedHeight.isFinite, isTrue);
+    await _paint(pages.single, null);
   });
 }

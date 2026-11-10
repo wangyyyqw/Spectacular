@@ -100,6 +100,20 @@ void main() {
     expect(breaker.tooNarrow, isFalse);
   });
 
+  test('作者声明的一字宽块保留请求宽，自动宽正文仍受下限保护', () {
+    final breaker = LineBreaker();
+    for (final width in ['1em', '20px', '10%']) {
+      final style = ComputedStyle({..._style().values, 'width': width});
+      final layout = breaker.layout(text: 'ABCD', style: style, maxWidth: 20);
+      expect(layout.maxWidth, 20);
+      expect(layout.lines, hasLength(4));
+    }
+    expect(breaker.tooNarrow, isFalse);
+    final automatic = ComputedStyle({..._style().values, 'width': 'auto'});
+    expect(breaker.effectiveWidth(automatic, 20), 48);
+    expect(breaker.tooNarrow, isTrue);
+  });
+
   test('字号变化时下限按 3em 折算', () {
     final breaker = LineBreaker();
     final result = breaker.layout(

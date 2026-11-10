@@ -941,9 +941,10 @@ class LineBreaker {
   double minimumWidthFor(ComputedStyle style) =>
       style.fontSize * minimumWidthEm;
 
-  /// 返回实际使用的宽度；正文低于下限时钳制并记录一次告警。
+  /// 返回实际宽度；无作者宽度的正文低于下限时钳制并记录一次告警。
   double effectiveWidth(ComputedStyle style, double requestedWidth) {
-    if (style.display == CssDisplay.inlineBlock) {
+    if (style.display == CssDisplay.inlineBlock ||
+        (style.width != null && !style.width!.isAuto)) {
       return requestedWidth;
     }
     final minimum = minimumWidthFor(style);
@@ -966,7 +967,7 @@ class LineBreaker {
 
   /// 按 [maxWidth] 测量 [text]。
   ///
-  /// 正文宽度低于 3em 时钳制到 3em，行内块保留请求宽。
+  /// 无作者宽度的正文低于 3em 时钳制；行内块和作者声明宽度保留请求宽。
   /// `nowrap`/`pre` 不软换行（测量时按无限宽排一行），但 `maxWidth` 仍记录
   /// 有限的内容宽，供对齐与诊断使用。
   /// [runs] 为行内样式区间，用于混排字号与行内元素；未覆盖部分沿用 [style]。
