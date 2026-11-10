@@ -108,6 +108,14 @@ int _redPixels(ByteData bytes, int left, int right) {
   return count;
 }
 
+int _differentPixels(ByteData a, ByteData b) {
+  var count = 0;
+  for (var offset = 0; offset < a.lengthInBytes; offset += 4) {
+    if (a.getUint32(offset) != b.getUint32(offset)) count++;
+  }
+  return count;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final cases = {
@@ -201,5 +209,22 @@ void main() {
       greaterThan(0),
       reason: '作者 run 的盒仍应绘制',
     );
+  });
+  test('字体回退合成 run 不消费块级水平 margin', () async {
+    final plain = await _render(
+      properties: const {},
+      table: false,
+      crossBox: true,
+      withBox: false,
+      syntheticFontFallback: true,
+    );
+    final withBlockMargin = await _render(
+      properties: const {'margin': '0 12px'},
+      table: false,
+      crossBox: true,
+      withBox: false,
+      syntheticFontFallback: true,
+    );
+    expect(_differentPixels(plain, withBlockMargin), 0);
   });
 }
