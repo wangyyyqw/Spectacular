@@ -39,6 +39,15 @@ void main() {
     ]);
   });
 
+  test('br 即使被作者样式声明为块，也保留段落内的强制换行', () {
+    final document = aggregate('<p>标题前<br class="block"/>标题后</p>');
+
+    final text = textsOf(document.root).single;
+    expect(text.text, '标题前\n标题后');
+    expect(text.hardBreaks, [3]);
+    expect(document.root.children.single, isA<BlockNode>());
+  });
+
   test('跨块行内标记分片重开，并保留提升块的行内祖先', () {
     final document = aggregate(
       '<p>前<b>粗<span class="block">中</span>后</b>尾</p>',

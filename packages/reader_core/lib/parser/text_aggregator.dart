@@ -378,6 +378,14 @@ abstract final class TextAggregator {
           : _WhiteSpaceMode.from(whiteSpaceFor(node, ancestors));
       final display = inlineDisplay?.call(node, ancestors);
       if (display == CssDisplay.none) return;
+      // `<br>` 的语义始终是强制换行。部分 EPUB 会给它声明
+      // `display:block`（常见于 Calibre 导出的 `.calibre4`），不能因此把它
+      // 当成容器边界拆开段落，否则段落的相对字号和上下边距会只作用于部分
+      // 文本片段。
+      if (node.tag == 'br') {
+        accumulator.addBreak();
+        return;
+      }
       if (display == CssDisplay.block) {
         flush();
         final promoted = BlockNode(
@@ -401,10 +409,6 @@ abstract final class TextAggregator {
             activeInline,
           ),
         );
-        return;
-      }
-      if (node.tag == 'br') {
-        accumulator.addBreak();
         return;
       }
       // 注音捕获（P8-08，CSS Ruby 1）：rp（括号）完全忽略；rt/rtc 文本
