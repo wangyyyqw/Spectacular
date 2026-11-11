@@ -79,7 +79,8 @@ Android Use 操作与查看页面，ADB 保存 1080×2400 截图和核验安装�
 使该行到正文的字形净空只有 18 个物理像素。标题内部行距正常，标题区到正文的间距仍需修复。
 证据为 `/tmp/spectacular-title-spacing-current-20261111.png`、
 `/tmp/spectacular-title-spacing-pipeline-20261111.json` 与
-`/tmp/spectacular-title-spacing-pixels-20261111.json`；本次仅核查间距，未修改排版实现。
+`/tmp/spectacular-title-spacing-pixels-20261111.json`；本次补核未修改排版实现。
+此间距问题后续已由[EPUB 局部段距保留修复](M3-EPUB局部段距保留修复.md)处理并通过真机复核。
 
 Flutter 3.47.5 / Dart 3.13.4；依赖解析和 Gradle 构建使用本地缓存：
 
