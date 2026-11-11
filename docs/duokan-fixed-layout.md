@@ -12,8 +12,9 @@ EPUB 的可读性，不追求与多看客户端像素级一致。
 - 缺失扩展文件时按 `reflow` 打开；损坏 XML、错误根元素、未知布局或非法
   尺寸只写入可恢复警告，不阻止书籍打开，也不改变可读性分级。
 - OPF `itemref` 的 `properties` 由核心解析器保留，宿主据此识别
-  `duokan-page-fullscreen`、`duokan-page-fitwindow` 与
-  `page-spread-left/right`。
+  `duokan-page-fullscreen`、`duokan-page-fullscreen-spread-left/right` 与
+  `duokan-page-fitwindow`。标准 `page-spread-left/right` 只指定双页摆放，
+  不触发整页图或改变图片裁切方向。
 
 ## 支持矩阵
 
@@ -27,7 +28,10 @@ EPUB 的可读性，不追求与多看客户端像素级一致。
 单页图规则：
 
 - 默认 `contain`，上下左右居中，不裁切。
-- `duokan-page-fullscreen` 使用 `cover`。
+- `duokan-page-fullscreen` 使用 `cover` 居中裁切。
+- 单页模式下，`duokan-page-fullscreen-spread-left/right` 使用 `cover`
+  等比铺满，并分别保留图片左侧或右侧，上下居中。可见范围取决于图片与视口
+  比例，不固定截取半张图片；左右标记同时出现时回退居中。
 - `duokan-page-fitwindow` 优先使用 `contain`；与 fullscreen 同时出现时
   fitwindow 优先。
 - 图片页四边出血，跳过阅读器页边距、正文字号、页眉和页脚设置。

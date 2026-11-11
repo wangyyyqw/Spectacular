@@ -613,10 +613,9 @@ class EpubChapterSource
   static OpfPageFlags _pageFlagsFromProperties(Iterable<String> properties) {
     final tokens = properties.toSet();
     bool has(String name) => tokens.contains(name);
-    final spreadLeft =
-        has('page-spread-left') || has('duokan-page-fullscreen-spread-left');
-    final spreadRight =
-        has('page-spread-right') || has('duokan-page-fullscreen-spread-right');
+    // 标准 page-spread-* 只指定双页摆放，不触发整页图或图片裁切。
+    final spreadLeft = has('duokan-page-fullscreen-spread-left');
+    final spreadRight = has('duokan-page-fullscreen-spread-right');
     return OpfPageFlags(
       // 全屏跨页的左右页也是全屏页。
       fullScreen: has('duokan-page-fullscreen') || spreadLeft || spreadRight,
