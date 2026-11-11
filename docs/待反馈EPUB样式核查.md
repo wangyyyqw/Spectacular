@@ -86,7 +86,11 @@ EPUB 内含 3 个 CSS、共 21,125 字节。450 个 XHTML 均引用 `font.css` �
 - 真机像素扫描中，《内容简介》第一段首行右缘由 `x=1021` 收敛至 `x=972`，后续非末行右缘为 `x=973…974`；第二段同样对齐。离线 Release APK 构建成功，`127,260,130` 字节，SHA-256 为 `a0d5beab3a3b7d382b906367408d0909ae1ec318539f78d8a06bae1f2a109cc5`。
 - 本项目和同机多看截图分别保存为 `/tmp/spectacular-007-justify-after.png`、`/tmp/spectacular-007-duokan-intro.png`，修复前截图保留在 `/tmp/spectacular-007-justify-before.png`。
 
-当前完成扉页签名图与《内容简介》页的针对性核对，007 仍未完成整书逐页核查。
+继续核对版权页时发现，边框内 `.cp { font-size: 60%; }` 与 `.cp1 { font-size: 65%; }` 被阅读器正文排版覆盖，计算字号均为 17px、行高均为 27.2px，导致 CIP 数据与正文同大并横向溢出。根因是普通正文只保留“祖先容器声明的相对字号”，遗漏了当前元素自身由 class 声明的百分比字号。现在仅对 class、id 或内联样式命中的当前百分比字号保留作者比例，普通 `body`/`p` 字号仍由阅读器覆盖；正文基准保持 17px 不变，`.cp` 与 `.cp1` 分别计算为 10.2px 和 11.05px。
+
+新增合成回归覆盖全局 `p` 为 80%、边框内标题为 65% 和正文为 60% 的组合，确认正文仍使用阅读器字号。相关 35 项测试及 `flutter analyze --no-pub` 通过；离线 Release APK 构建并覆盖安装至 MEIZU 20 后，版权页文字已完整收进边框。本项目修复后截图与多看参考分别为 `/tmp/spectacular-007-copyright-device-after.png`、`/tmp/spectacular-007-copyright-duokan.png`，修复前截图保留在 `/tmp/spectacular-007-copyright-device-before.png`。
+
+当前完成扉页签名图、《内容简介》两端对齐和版权页 CIP 字号的针对性核对，007 仍未完成整书逐页核查。
 
 ## 语料和覆盖口径
 

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:reader_core/api.dart' show EpubNode, TextBlockNode;
+import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/epub/footnote.dart';
@@ -17,6 +18,7 @@ import 'block_style_helpers.dart';
 import 'chapter_flow.dart';
 import 'chapter_selectors.dart';
 import 'chapter_style_resolver.dart';
+import 'chapter_styles.dart' show inlineDeclarationsOf, ruleMediaMatches;
 import 'chapter_text_measurer.dart';
 import 'container_blocks.dart';
 import 'generated_chapter_content.dart';
@@ -198,10 +200,12 @@ class TextBlockBuilder {
     final applyReader =
         !context.isHeading && !structured && !special && !promoted;
     if (applyReader) {
-      final nestedSize = _nestedRelativeFontSize(context);
-      style = nestedSize == null
+      final relativeSize =
+          _nestedRelativeFontSize(context) ??
+          _scopedPercentageFontSize(context);
+      style = relativeSize == null
           ? styles.snapshot.overrides.applyTypography(style)
-          : style.scaleRelativeTypography(nestedSize);
+          : style.scaleRelativeTypography(relativeSize);
     } else {
       final readerSize = _scaledComponentFontSize(context);
       if (readerSize != null) {
@@ -257,6 +261,58 @@ class TextBlockBuilder {
       }
     }
     return null;
+  }
+
+  /// 版权页等组件常用 class 百分字号；以阅读器字号为基准，避免被普通
+  /// 正文覆盖成满字号。全局 `p` 的百分字号不进入这里。
+  double? _scopedPercentageFontSize(_BlockContext context) {
+    if (!_hasScopedFontSize(context)) return null;
+    final computed = styles.chainStyle(context.ancestors);
+    final raw = _fontSizeDeclaration(computed);
+    if (raw == null) return null;
+    final readerSize = styles.snapshot.overrides.fontSize;
+    if (readerSize == null) return null;
+    if (!RegExp(r'^(?:\d+(?:\.\d+)?|\.\d+)%$').hasMatch(raw)) return null;
+    return readerSize * double.parse(raw.substring(0, raw.length - 1)) / 100;
+  }
+
+  /// 组件自己通过 class/id/内联样式声明字号时，保留相对比例；普通 `p` 或
+  /// `body` 上的作者字号继续由阅读器字号覆盖。
+  bool _hasScopedFontSize(_BlockContext context) {
+    final ancestors = context.ancestors;
+    if (ancestors.length < 2) return false;
+    final current = ancestors.last;
+    final parents = ancestors.sublist(0, ancestors.length - 1);
+    if (inlineDeclarationsOf(current.attributes['style']).any(
+      (declaration) =>
+          declaration.property == 'font-size' || declaration.property == 'font',
+    )) {
+      return true;
+    }
+    for (final rule in styles.cascadeRules.candidatesFor(current)) {
+      if (rule.origin != CascadeOrigin.author ||
+          !ruleMediaMatches(
+            rule.rule.media,
+            rule.rule.mediaConditions,
+            contentWidth,
+          ) ||
+          !rule.rule.declarations.any(
+            (declaration) =>
+                declaration.property == 'font-size' ||
+                declaration.property == 'font',
+          )) {
+        continue;
+      }
+      if (rule.selectors.selectors.any(
+        (selector) =>
+            selector.matches(current, parents) &&
+            (selector.specificity.id > 0 ||
+                selector.specificity.classCount > 0),
+      )) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String? _fontSizeDeclaration(ComputedStyle style) {
