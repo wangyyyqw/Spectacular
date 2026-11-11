@@ -342,18 +342,32 @@ class ChapterStyleResolver {
     int index,
     ComputedStyle parent,
     double width,
-  ) => Cascade.compute(
-    element: chain[index],
-    ancestors: chain.sublist(0, index),
-    rules: cascadeRules.candidatesFor(chain[index]),
-    inlineDeclarations: snapshot.fonts.rewriteDeclarations(
-      inlineDeclarationsOf(chain[index].attributes['style']),
-    ),
-    parent: parent,
-    rootFontSize: style.fontSize,
-    containingWidth: width,
-    viewportWidth: contentWidth,
-  );
+  ) {
+    final computed = Cascade.compute(
+      element: chain[index],
+      ancestors: chain.sublist(0, index),
+      rules: cascadeRules.candidatesFor(chain[index]),
+      inlineDeclarations: snapshot.fonts.rewriteDeclarations(
+        inlineDeclarationsOf(chain[index].attributes['style']),
+      ),
+      parent: parent,
+      rootFontSize: style.fontSize,
+      containingWidth: width,
+      viewportWidth: contentWidth,
+    );
+    final readerSize = snapshot.overrides.fontSize;
+    final rootSize = style.fontSize;
+    final rawSize = fontSizeDeclarationOf(computed);
+    if (readerSize == null ||
+        rootSize <= 0 ||
+        !(rawSize?.endsWith('rem') ?? false)) {
+      return computed;
+    }
+    // em 已从最终父字号解算；rem 单独改用阅读器根基准，盒模型仍先按原书解算。
+    return computed.scaleRelativeTypography(
+      readerSize * computed.fontSize / rootSize,
+    );
+  }
 
   ComputedStyle _inlineReaderFont(
     ComputedStyle parent,

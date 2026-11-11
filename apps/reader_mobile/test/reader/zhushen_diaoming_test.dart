@@ -46,8 +46,10 @@ void main() {
       final line = body.layout.lines.first;
       final tag = line.inlineBoxes.single;
       final payload = tag.spec.payload! as PageBlock;
+      // 原书 p.t-desc 和 span.t-tag 各声明 .8em，标签继承已缩放的父段落。
+      expect(body.style!.fontSize, closeTo(size * .8, .001));
       expect(payload.layout.text, '【死亡】信仰');
-      expect(payload.style!.fontSize, closeTo(size * .8, .001));
+      expect(payload.style!.fontSize, closeTo(size * .8 * .8, .001));
       expect(payload.style!.color.toARGB32(), 0xff9bb0d1);
       expect(payload.layout.lineCount, 1);
       expect(tag.spec.marginRight, 5);
@@ -55,7 +57,7 @@ void main() {
       expect(tag.left + tag.spec.outerWidth, lessThan(line.width));
       final baseline = line.baseline - line.top;
       final midpoint = baseline - tag.ascent + tag.spec.outerHeight / 2;
-      expect(midpoint, closeTo(baseline - size / 4, .01));
+      expect(midpoint, closeTo(baseline - size * .8 / 4, .01));
       expect(line.height - baseline, greaterThanOrEqualTo(tag.descent - .001));
       expect(body.layout.text, endsWith('是否可以死去。'));
       expect(
