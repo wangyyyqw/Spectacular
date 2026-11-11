@@ -129,6 +129,51 @@ void main() {
     }
   });
 
+  test('普通正文保留作者百分字号且正文基准不变', () async {
+    for (final readerSize in [12.0, 20.0]) {
+      final source = await openCssChapter(
+        body:
+            '<p>正文</p>'
+            '<div class="copyright">'
+            '<p class="subhead">图书在版编目数据</p>'
+            '<p class="small">方舟</p>'
+            '</div>',
+        css:
+            'body { font-size: 16px; } p { font-size: 80%; } '
+            '.copyright { padding: 1em; border: 1px solid #412938; } '
+            '.subhead { font-size: 65%; } '
+            '.small { font-size: 60%; }',
+        overrides: ReaderOverrides(
+          fontSize: readerSize,
+          lineHeight: 1.6,
+          paragraphSpacing: 0,
+        ),
+      );
+      final blocks = (await source.loadChapter(0))
+          .expand((page) => page.slices)
+          .map((slice) => slice.block)
+          .toList();
+      final body = blocks.firstWhere((block) => block.layout.text == '正文');
+      final subhead = blocks.firstWhere(
+        (block) => block.layout.text == '图书在版编目数据',
+      );
+      final small = blocks.firstWhere((block) => block.layout.text == '方舟');
+
+      expect(body.style!.fontSize, readerSize, reason: '正文继续跟随阅读器字号');
+      expect(
+        subhead.style!.fontSize,
+        closeTo(readerSize * 0.65, 0.001),
+        reason: 'CIP 标题保留作者 65% 相对字号',
+      );
+      expect(
+        small.style!.fontSize,
+        closeTo(readerSize * 0.6, 0.001),
+        reason: '作者 60% 相对字号不能被提升为正文满字号',
+      );
+      expect(small.style!.lineHeight, closeTo(readerSize * 0.6 * 1.6, 0.001));
+    }
+  });
+
   test('阅读器段距同步应用于分隔线', () async {
     final source = await openCssChapter(
       body: '<div class="design-box"><p>前文</p><hr/><p>后文</p></div>',
