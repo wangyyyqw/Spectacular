@@ -1,0 +1,449 @@
+import 'dart:collection';
+import 'dart:math' as math;
+
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/block_flow.dart' show collapseMargins;
+import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/parser/block_builder.dart';
+import 'package:reader_core/parser/text_aggregator.dart';
+
+/// 相邻外边距折叠，但浮动/绝对定位块不参与（CSS 2.1 §8.3.1：浮动元素
+/// 的 margin 不与任何相邻 margin 折叠），也不打断相邻在流兄弟的折叠
+///——把它们先摘出来，只折叠连续的在流块，再放回原位。
+///
+/// 之前直接对整条块链折叠，浮动的段前/段后距被挪到邻居身上，多行浮动
+/// 段落的静态位置因此偏了十几像素（38-float-clear）。
+List<PageBlock> collapseMarginsIgnoringFloats(List<PageBlock> blocks) {
+  final work = _MarginCollapseWork(blocks);
+  for (final _ in work.steps()) {}
+  return work.result;
+}
+
+/// 逐块、逐容器边界检查预算，完成之前不替换调用者的块列表。
+Future<List<PageBlock>> collapseMarginsIgnoringFloatsAsync(
+  List<PageBlock> blocks, {
+  Future<void> Function()? checkpoint,
+}) async {
+  final work = _MarginCollapseWork(blocks);
+  await _consumeContainerSteps(work.steps(), checkpoint);
+  return work.result;
+}
+
+/// 浮动分页会把一段拆为多个块，仍保留容器真实首末标记供装饰占位使用。
+List<PageContainerFragment> containerFragmentsFor(
+  PageBlock block, {
+  required bool starts,
+  required bool ends,
+}) => [
+  for (final fragment in block.containers)
+    PageContainerFragment(
+      container: fragment.container,
+      startsHere: starts && fragment.startsHere,
+      endsHere: ends && fragment.endsHere,
+      topInset: fragment.topInset,
+      bottomInset: fragment.bottomInset,
+    ),
+];
+
+/// 有块级后代的普通容器保留盒结构，浮动和特殊排版仍走各自路径。
+bool retainsContainer(BlockNode node, ComputedStyle style) {
+  const tags = {
+    'div',
+    'section',
+    'article',
+    'aside',
+    'main',
+    'header',
+    'footer',
+    'blockquote',
+    'figure',
+  };
+  final splitInlineFlow =
+      node is PromotedBlockNode ||
+      node.children.any((child) => child is PromotedBlockNode);
+  return (tags.contains(node.tag) || splitInlineFlow) &&
+      node.children.any((child) => child is BlockNode) &&
+      style.cssFloat == CssFloat.none &&
+      style.position == CssPosition.static &&
+      style.writingMode == CssWritingMode.horizontalTb;
+}
+
+/// Flex 直接子项的公共盒。卡片类容器在 `_wrapContainerBlocks` 后
+/// 会挂到每个后代块上，取所有成员的共同前缀即可还原该子项背景。
+PageContainer? commonFlexItemContainer(List<PageBlock> item) {
+  if (item.isEmpty || item.first.containers.isEmpty) {
+    return null;
+  }
+  var count = item.first.containers.length;
+  for (final block in item.skip(1)) {
+    count = math.min(count, block.containers.length);
+    for (var index = 0; index < count; index += 1) {
+      if (!identical(
+        block.containers[index].container,
+        item.first.containers[index].container,
+      )) {
+        count = index;
+        break;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+  }
+  return item.first.containers.first.container;
+}
+
+/// 横排分页默认闭合带框容器；作者的显式 slice 优先。
+bool clonesContainerDecoration(ComputedStyle style) {
+  final value =
+      (style.values['box-decoration-break'] ??
+              style.values['-webkit-box-decoration-break'])
+          ?.trim()
+          .toLowerCase();
+  if (value == 'slice') return false;
+  return value == 'clone' || style.borders.hasBorder;
+}
+
+/// 卡片开头的短标题跟随至少一行正文，不把整个长卡片锁为不可分组。
+bool isContainerHeading(PageBlock block) {
+  if (block.absolute || block.floatSide != null) return false;
+  final table = block.table;
+  if (table != null) {
+    return table.rowYs.length == 2 &&
+        table.cells.isNotEmpty &&
+        table.cells.every((cell) => cell.layout.lineCount <= 2);
+  }
+  final hasText =
+      block.layout.text.trim().isNotEmpty ||
+      block.layout.lines.any(
+        (line) => line.inlineBoxes.any((box) {
+          final payload = box.spec.payload;
+          return payload is PageBlock && payload.layout.text.trim().isNotEmpty;
+        }),
+      );
+  return hasText && block.layout.lineCount > 0 && block.layout.lineCount <= 2;
+}
+
+/// 竖排和分栏尚未按各自分页轴预留续框空间，仍保持切片语义。
+List<PageBlock> configureContainerDecoration(List<PageBlock> blocks) {
+  final work = _ContainerDecorationWork(blocks);
+  for (final _ in work.steps()) {}
+  return work.result;
+}
+
+/// 发现特殊分页轴和替换每个容器片段时共用同步算法的预算边界。
+Future<List<PageBlock>> configureContainerDecorationAsync(
+  List<PageBlock> blocks, {
+  Future<void> Function()? checkpoint,
+}) async {
+  final work = _ContainerDecorationWork(blocks);
+  await _consumeContainerSteps(work.steps(), checkpoint);
+  return work.result;
+}
+
+Future<void> _consumeContainerSteps(
+  Iterable<int> steps,
+  Future<void> Function()? checkpoint,
+) async {
+  await checkpoint?.call();
+  for (final _ in steps) {
+    await checkpoint?.call();
+  }
+  await checkpoint?.call();
+}
+
+/// 浮动和定位块保持原位，在流邻居只修改实际需要折叠的那一对。
+class _MarginCollapseWork {
+  _MarginCollapseWork(this.source);
+
+  final List<PageBlock> source;
+  final _blocks = <PageBlock>[];
+  var _flowCount = 0;
+  int? _previous;
+  List<PageBlock> get result => _flowCount < 2 ? source : _blocks;
+
+  Iterable<int> steps() sync* {
+    for (final current in source) {
+      yield 0;
+      if (current.floatSide != null || current.absolute) {
+        _blocks.add(current);
+        continue;
+      }
+      _flowCount += 1;
+      if (_previous case final previousIndex?) {
+        final previous = _blocks[previousIndex];
+        final boundary = _MarginBoundary(previous, current);
+        yield* boundary.steps();
+        if (previous.spaceAfter != 0 && !boundary.blocked) {
+          _blocks[previousIndex] = previous.withSpacing(spaceAfter: 0);
+          _blocks.add(
+            current.withSpacing(
+              spaceBefore: collapseMargins(
+                previous.spaceAfter,
+                current.spaceBefore,
+              ),
+            ),
+          );
+          _previous = _blocks.length - 1;
+          continue;
+        }
+      }
+      _blocks.add(current);
+      _previous = _blocks.length - 1;
+    }
+  }
+}
+
+/// 容器边框和内边距隔断相邻段距，保持原先前块优先的短路顺序。
+class _MarginBoundary {
+  _MarginBoundary(this.previous, this.current);
+
+  final PageBlock previous;
+  final PageBlock current;
+  bool blocked = false;
+
+  Iterable<int> steps() sync* {
+    for (final fragment in previous.containers) {
+      yield 0;
+      final style = fragment.container.style;
+      if (fragment.endsHere &&
+          style.padding.bottom + style.borders.bottom.width > 0) {
+        blocked = true;
+        return;
+      }
+    }
+    for (final fragment in current.containers) {
+      yield 0;
+      final style = fragment.container.style;
+      if (fragment.startsHere &&
+          style.padding.top + style.borders.top.width > 0) {
+        blocked = true;
+        return;
+      }
+    }
+  }
+}
+
+class _ContainerDecorationWork {
+  _ContainerDecorationWork(this.source);
+
+  final List<PageBlock> source;
+  final _replacements = HashMap<PageContainer, PageContainer>.identity();
+  final _blocks = <PageBlock>[];
+  bool _special = false;
+  List<PageBlock> get result => _special ? _blocks : source;
+
+  Iterable<int> steps() sync* {
+    yield* _findSpecial();
+    if (_special) yield* _rewriteBlocks();
+  }
+
+  Iterable<int> _findSpecial() sync* {
+    for (final block in source) {
+      yield 0;
+      if (_specialStyle(block.style)) {
+        _special = true;
+        return;
+      }
+      for (final fragment in block.containers) {
+        yield 0;
+        if (_specialStyle(fragment.container.style)) {
+          _special = true;
+          return;
+        }
+      }
+    }
+  }
+
+  static bool _specialStyle(ComputedStyle? style) =>
+      style != null &&
+      (style.writingMode != CssWritingMode.horizontalTb ||
+          (style.columnCount ?? 1) > 1 ||
+          (style.columnWidth != null && !style.columnWidth!.isAuto));
+
+  Iterable<int> _rewriteBlocks() sync* {
+    for (final block in source) {
+      yield 0;
+      if (block.containers.isEmpty) {
+        _blocks.add(block);
+        continue;
+      }
+      final fragments = <PageContainerFragment>[];
+      yield* _rewriteFragments(block.containers, fragments);
+      _blocks.add(block.withSpacing(containers: fragments));
+    }
+  }
+
+  Iterable<int> _rewriteFragments(
+    List<PageContainerFragment> source,
+    List<PageContainerFragment> target,
+  ) sync* {
+    for (final fragment in source) {
+      yield 0;
+      final container = fragment.container;
+      final sliced = _replacements.putIfAbsent(
+        container,
+        () => PageContainer(
+          style: container.style,
+          left: container.left,
+          width: container.width,
+          isPageRoot: container.isPageRoot,
+        ),
+      );
+      target.add(
+        PageContainerFragment(
+          container: sliced,
+          startsHere: fragment.startsHere,
+          endsHere: fragment.endsHere,
+          topInset: fragment.topInset,
+          bottomInset: fragment.bottomInset,
+        ),
+      );
+    }
+  }
+}
+
+/// 容器是否可与首个/末个在流子块折叠上下外边距。
+///
+/// 建立独立块格式化上下文的盒子（浮动、定位、非 visible overflow、
+/// inline-block/table/flex 等）不折叠；普通 block/list-item 才折叠。
+bool containerCollapsesMargins(ComputedStyle style) {
+  final blockLevel =
+      style.display == CssDisplay.block || style.display == CssDisplay.listItem;
+  return blockLevel &&
+      style.cssFloat == CssFloat.none &&
+      style.position != CssPosition.absolute &&
+      style.position != CssPosition.fixed &&
+      style.overflow == CssOverflow.visible;
+}
+
+/// 只改宽/最大宽的重建：`writingMode`/`isRtl` 必须一起带上，否则下游
+/// （绘制/选区/分页）会把竖排块当横排处理（35-writing-mode 曾因此走错
+/// 绘制路径）。
+TextLayoutResult pageBlockWithLayoutWidth(
+  TextLayoutResult source, {
+  double? width,
+  double? maxWidth,
+}) => TextLayoutResult(
+  text: source.text,
+  lines: source.lines,
+  width: width ?? source.width,
+  height: source.height,
+  maxWidth: maxWidth ?? source.maxWidth,
+  runs: source.runs,
+  isRtl: source.isRtl,
+  writingMode: source.writingMode,
+  plainTextLayout: source.plainTextLayout,
+);
+
+/// 容器垂直占位按预算挂到首末后代，保留原有 margin 折叠顺序。
+Future<void> wrapContainerBlocks(
+  List<PageBlock> blocks,
+  int start,
+  PageContainer container, {
+  double? paragraphSpacing,
+  Future<void> Function()? checkpoint,
+}) async {
+  if (start == blocks.length) return;
+  final style = container.style;
+  final top = style.padding.top + style.borders.top.width;
+  final bottom = style.padding.bottom + style.borders.bottom.width;
+  // 含浮动的容器，上内边距必须先作为独立在流空间推进游标。若直接
+  // 挂在首个在流块上，浮动仍按填充前的游标定位，后续浮动（气泡）
+  // 又会把整段内边距计入静态位置，消息间距会被放大。
+  var hasFloatChild = false;
+  for (var index = start; index < blocks.length; index++) {
+    await checkpoint?.call();
+    if (blocks[index].floatSide != null) {
+      hasFloatChild = true;
+      break;
+    }
+  }
+  final hasTopSpacer = hasFloatChild && top > 0;
+  if (hasTopSpacer) {
+    blocks.insert(
+      start,
+      PageBlock(
+        layout: TextLayoutResult(
+          text: '',
+          lines: const <LineBox>[],
+          width: container.contentWidth,
+          height: top,
+          maxWidth: container.contentWidth,
+          runs: const <StyledRun>[],
+        ),
+        containers: <PageContainerFragment>[
+          PageContainerFragment(container: container, startsHere: true),
+        ],
+      ),
+    );
+    start += 1;
+  }
+  // 容器上内边距必须落在第一个在流块上：浮动块由独立覆盖层绘制，
+  // 把顶部留白挂在浮动上只会推移覆盖层，不会推进正文游标，标题/名字
+  // 会和头像错位。下内边距同理优先交给最后一个在流块。
+  var topTarget = start;
+  for (var i = start; i < blocks.length; i++) {
+    await checkpoint?.call();
+    if (blocks[i].floatSide == null && !blocks[i].absolute) {
+      topTarget = i;
+      break;
+    }
+  }
+  var bottomTarget = start;
+  for (var i = blocks.length - 1; i >= start; i--) {
+    await checkpoint?.call();
+    if (blocks[i].floatSide == null && !blocks[i].absolute) {
+      bottomTarget = i;
+      break;
+    }
+  }
+  // 无上边框/内边距的块容器与首个在流子块发生外边距折叠：父、子 margin
+  // 取较大者，而不是相加。保留在 spaceBefore 上还能继续与外层折叠。
+  final containerCollapses =
+      paragraphSpacing == null && containerCollapsesMargins(style);
+  final collapseTop = top == 0 && containerCollapses;
+  final collapseBottom = bottom == 0 && containerCollapses;
+  for (var i = start; i < blocks.length; i++) {
+    await checkpoint?.call();
+    final block = blocks[i];
+    final first = i == start;
+    final last = i == blocks.length - 1;
+    blocks[i] = block.withSpacing(
+      breakAfterAvoid:
+          block.breakAfterAvoid ||
+          (first && !last && isContainerHeading(block)),
+      spaceBefore: first && collapseTop
+          ? collapseMargins(style.margin.top, block.spaceBefore)
+          : block.spaceBefore,
+      spaceAfter: last && collapseBottom
+          ? collapseMargins(block.spaceAfter, style.margin.bottom)
+          : block.spaceAfter,
+      topInset:
+          block.topInset +
+          (i == topTarget
+              ? (hasTopSpacer ? 0 : top) +
+                    (collapseTop ? 0 : (paragraphSpacing ?? style.margin.top))
+              : 0),
+      bottomInset:
+          block.bottomInset +
+          (i == bottomTarget
+              ? bottom +
+                    (collapseBottom
+                        ? 0
+                        : (paragraphSpacing ?? style.margin.bottom))
+              : 0),
+      containers: [
+        PageContainerFragment(
+          container: container,
+          startsHere: first && !hasTopSpacer,
+          endsHere: last,
+          topInset: first && !hasTopSpacer ? block.leadingExtent + top : 0,
+          bottomInset: last ? block.trailingExtent + bottom : 0,
+        ),
+        ...block.containers,
+      ],
+    );
+  }
+}

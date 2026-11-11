@@ -9,9 +9,12 @@ import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/cfi.dart';
-import 'package:reader_core/position/location_anchor.dart';
 
 import 'virtual_pager.dart';
+
+// 保留既有入口；契约与来源实现现在都可直接依赖核心包。
+export 'package:reader_core/source/chapter_source.dart';
+export 'package:reader_core/source/toc.dart';
 
 typedef _ContentSizeRequest = ({
   double width,
@@ -154,83 +157,6 @@ class MemoryReaderProgressStore implements ReaderProgressStore {
       Map<String, ReaderProgress>.unmodifiable(_items);
 }
 
-/// 章节页来源。
-abstract interface class ReaderChapterSource {
-  /// 章节数。
-  int get chapterCount;
-
-  /// 加载一章的页。
-  Future<List<PageContent>> loadChapter(int spineIndex);
-}
-
-/// 排版任务优先级；当前阅读始终优先于预取和后台任务。
-enum ChapterLayoutPriority { reading, prefetch, background }
-
-/// 等待者主动取消；用于区别可忽略的过期请求与真实读取失败。
-class ChapterLoadCancelled implements Exception {
-  const ChapterLoadCancelled();
-
-  @override
-  String toString() => '章节排版请求已取消';
-}
-
-/// 单个等待者持有的任务句柄；取消不影响其他等待者。
-abstract interface class ChapterLoadHandle {
-  Future<List<PageContent>> get result;
-  void cancel();
-}
-
-/// 可取消、可按优先级调度的章节源。
-abstract interface class ScheduledChapterSource implements ReaderChapterSource {
-  ChapterLoadHandle scheduleChapter(
-    int spineIndex, {
-    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
-    bool retainResult = true,
-  });
-
-  void cancelPendingLayouts();
-}
-
-/// 只准备原文锚点，不进行文字测量或分页。
-abstract interface class AnchorChapterSource implements ReaderChapterSource {
-  Future<AnchorChapter> loadAnchorChapter(int spineIndex);
-}
-
-/// 位置准备的独立等待者，取消不会影响同键的装饰核验或章节排版。
-abstract interface class ReaderPreparationHandle<T> {
-  Future<T> get result;
-  void cancel();
-}
-
-abstract interface class ScheduledAnchorChapterSource
-    implements AnchorChapterSource {
-  ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(int spineIndex);
-}
-
-/// 每章冻结排版输入前先核验该章装饰与字体。
-abstract interface class PreparedChapterSource implements AnchorChapterSource {
-  /// 准备目标章原文装饰与字体；不得借此调用章节分页。
-  void setChapterPreparer(Future<void> Function(int)? preparer);
-
-  /// 存储读取后更新书级请求度量指纹，不随逐章核验或字体就绪而改变。
-  void setBookTypographyFingerprint(String fingerprint);
-}
-
-/// 全书手工装饰请求的字体族；登记依赖不提前加载其他章节的字体。
-abstract interface class BookTypographyFontSource {
-  void setBookTypographyFamilies(Set<String> families);
-
-  /// 目标章实际加载后的结果；尚未尝试的字体保持未确认状态。
-  /// 加载失败须覆盖同进程中残留的注册状态，但不改变原始字体请求集合。
-  void setBookTypographyFontAvailability(String family, bool available);
-}
-
-/// 可接收当前阅读章节的章节源；用于固定当前章缓存。
-abstract interface class CurrentReadingChapterSource
-    implements ReaderChapterSource {
-  void setCurrentReadingChapter(int spineIndex);
-}
-
 /// 书签（P4-13）：位置用 CFI 存，重排后仍能定位。
 class ReaderBookmark {
   /// 创建书签。
@@ -292,84 +218,6 @@ abstract interface class ReaderBookmarkStore {
   Future<void> remove(String id);
 }
 
-/// 能提供目录的章节源（P4-11）：章节数之外的目录树。
-abstract interface class TocChapterSource implements ReaderChapterSource {
-  /// 目录项（嵌套结构，每项自带目标 spine 序号）。
-  List<TocEntry> get toc;
-}
-
-/// 目录项 + 层级（P4-11：面板按层级缩进展示）。
-typedef TocRow = ({TocEntry entry, int depth});
-
-/// 把目录树展开成线性行（深度优先，depth 从 1 起）。
-List<TocRow> flattenToc(List<TocEntry> entries, {int depth = 1}) {
-  final rows = <TocRow>[];
-  for (final entry in entries) {
-    rows.add((entry: entry, depth: depth));
-    if (entry.children.isNotEmpty) {
-      rows.addAll(flattenToc(entry.children, depth: depth + 1));
-    }
-  }
-  return rows;
-}
-
-/// 支持按设置重排的章节源（P2-24）：字号/行高/页边距变化后原地重排。
-abstract interface class RestylableChapterSource
-    implements ReaderChapterSource {
-  /// 应用阅读器覆盖设置；调用方随后应重新加载章节。
-  Future<void> applyOverrides(ReaderOverrides overrides);
-}
-
-/// 能报告影响正文度量的源状态（字体注册、字体缩放等）。
-///
-/// 该值只用于判断滚动位置能否复用精确像素偏移；为空时仍按 CFI 恢复。
-abstract interface class LayoutDependencyChapterSource
-    implements ReaderChapterSource {
-  /// 当前字体/度量依赖的稳定指纹。
-  String get layoutDependency;
-}
-
-/// 字体按章加载时只比较目标章的度量，避免访问其他章改变恢复指纹。
-abstract interface class SpineLayoutDependencyChapterSource
-    implements LayoutDependencyChapterSource {
-  String layoutDependencyForSpine(int spineIndex);
-}
-
-/// 能区分“章节文件确认缺失”和普通解析/IO 错误的章节源。
-///
-/// 缺章返回空页，分页器按可读章节顺序跳过；未知异常仍向上抛出。
-abstract interface class MissingChapterSource implements ReaderChapterSource {
-  /// 指定 spine 是否已确认缺失。
-  bool isChapterMissing(int spineIndex);
-}
-
-/// 能按原文位置计算全书进度，并在比例与 CFI 之间双向转换的章节源。
-///
-/// UI 只消费 0～1 的比例；章节源负责把 CFI 解析到章内字符偏移，并使用
-/// 与书库一致的进度权重（排除目录、非正文与缺失章节）。
-abstract interface class PositionedChapterSource
-    implements ReaderChapterSource {
-  /// CFI 对应的全书正文比例（0～1）；无法定位时返回 null。
-  double? readingPercentForCfi(String? cfi);
-
-  /// 全书正文比例对应的 CFI；没有可读正文时返回 null。
-  String? cfiForReadingPercent(double percent);
-
-  /// 目录项应跳转的 CFI：优先目录自带 CFI，其次解析 fragment，最后章首。
-  String? cfiForTocEntry(TocEntry entry);
-}
-
-/// 百分比跳转先定位目标章，再异步准备该章原文索引。
-abstract interface class AsyncPositionedChapterSource
-    implements PositionedChapterSource {
-  Future<String?> prepareCfiForReadingPercent(double percent);
-}
-
-abstract interface class ScheduledPositionedChapterSource
-    implements AsyncPositionedChapterSource {
-  ReaderPreparationHandle<String?> scheduleCfiForReadingPercent(double percent);
-}
-
 /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
 class ReaderAnchor {
   /// 创建锚点；[cfi] 为空表示没有可恢复位置。
@@ -396,17 +244,6 @@ class PreparedPageTurn {
   final PageContent origin;
   final VirtualPage target;
   final int generation;
-}
-
-/// 可应用正文区尺寸的章节源（旋转/窗口变化，P2-31）。
-abstract interface class ResizableChapterSource implements ReaderChapterSource {
-  /// 应用正文区尺寸及整页到正文的上内缩（含安全区与页眉槽）。
-  /// 返回是否真的发生变化，变化后调用方重新加载章节。
-  Future<bool> applyContentSize({
-    required double width,
-    required double height,
-    double topInset = 0,
-  });
 }
 
 /// 最小阅读会话：打开/恢复、翻页、保存进度。

@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/perf/trace.dart';
+import 'package:reader_core/source/format_opener.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration.dart';
@@ -23,6 +24,7 @@ import '../search/scan_search_service.dart';
 import '../storage/reading_session_store.dart';
 import '../storage/drift_progress_store.dart';
 import 'epub_chapter_source.dart';
+import 'epub_format_opener.dart';
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
@@ -290,21 +292,17 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   Future<EpubChapterSource> _openSource() async {
     // 导入已经校验归档，阅读期间只按需读取目标章节。
+    const ReaderFormatOpener<EpubChapterSource> opener = EpubFormatOpener(
+      verifyCrc: false,
+    );
+    final options = ReaderOpenOptions(contentVersion: widget.contentRevision);
     final path = widget.sourcePath;
     if (path != null) {
-      return EpubChapterSource.openFile(
-        File(path),
-        verifyCrc: false,
-        contentVersion: widget.contentRevision,
-      );
+      return opener.openFile(File(path), options: options);
     }
     final bytes = widget.bytes ?? await widget.bytesFuture;
     if (bytes == null) throw StateError('阅读页缺少 EPUB 来源');
-    return EpubChapterSource.open(
-      bytes,
-      verifyCrc: false,
-      contentVersion: widget.contentRevision,
-    );
+    return opener.openBytes(bytes, options: options);
   }
 
   Future<String> _resolveContentRevision() async {
