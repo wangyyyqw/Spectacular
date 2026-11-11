@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_background.dart';
@@ -683,7 +684,8 @@ class _FloatPagination {
 
   Future<_FloatGroupGeometry> _groupHeight(List<PageBlock> group) async {
     final tops = <double>[];
-    final container = group.first.floatBox?.container;
+    final floatBox = group.first.floatBox;
+    final container = floatBox?.container;
     var cursor = container == null
         ? 0.0
         : container.topDecoration + group.first.spaceBefore;
@@ -696,14 +698,30 @@ class _FloatPagination {
       tops.add(cursor);
       cursor += member.topInset + member.height + member.bottomInset;
     }
+    final measuredHeight =
+        cursor +
+        (container == null
+            ? 0
+            : container.bottomDecoration + group.last.spaceAfter);
     return (
       tops: tops,
-      height:
-          cursor +
-          (container == null
-              ? 0
-              : container.bottomDecoration + group.last.spaceAfter),
+      height: floatBox == null
+          ? measuredHeight
+          : _floatContainerHeight(floatBox, measuredHeight),
     );
+  }
+
+  double _floatContainerHeight(PageFloatBox box, double measuredHeight) {
+    final model = BoxModel.fromStyle(
+      box.container.style,
+      containingWidth: box.containingWidth,
+    );
+    // 浮动包含块未保留确定高度，沿用盒模型的百分比解算基准。
+    final contentHeight = model.resolveContentHeight(
+      measuredHeight - model.verticalInset,
+      containingHeight: 0,
+    );
+    return model.borderBoxHeight(contentHeight);
   }
 
   ({double top, double bottom}) _floatGroupMargins(List<PageBlock> group) {
@@ -1189,6 +1207,7 @@ class _FloatPagination {
         containers: block.containers,
         effectiveOpacity: block.effectiveOpacity,
         declaredContentHeight: block.height,
+        footnotes: block.footnotes,
       );
 
   Future<void> _layoutText(PageBlock block) async {
@@ -1206,13 +1225,40 @@ class _FloatPagination {
         cursor,
       );
       cursor = page.cursor;
-      if (page.lines.isEmpty) {
-        await closePage();
-        continue;
+      if (page.lines.isNotEmpty) {
+        await _appendTextPage(block, page, available, leading);
       }
-      await _appendTextPage(block, page, available, leading);
-      if (cursor < block.layout.text.length) await closePage();
+      if (page.blockedUntil case final bottom?) {
+        await _advanceBlockedText(
+          block,
+          bottom,
+          leadingOf(block, starts: cursor == 0),
+        );
+      } else if (cursor < block.layout.text.length) {
+        await closePage();
+      }
     }
+  }
+
+  Future<void> _advanceBlockedText(
+    PageBlock block,
+    double bottom,
+    double leading,
+  ) async {
+    final nextY = math.min(height, bottom - leading);
+    final delta = nextY - y;
+    if (delta > 0) {
+      slices.add(
+        PageBlockSlice(
+          block: _clearSpacer(block, delta),
+          startLine: 0,
+          endLine: 1,
+          height: delta,
+        ),
+      );
+      y = nextY;
+    }
+    if (y + leading >= height - .01) await closePage();
   }
 
   Future<_TextPage> _fillTextPage(
@@ -1225,19 +1271,15 @@ class _FloatPagination {
     final page = _TextPage(start);
     while (page.cursor < block.layout.text.length) {
       await budget.checkpoint();
-      final range = await _rangeAt(
+      final input = await _measureAvailableText(
         block,
         style,
         available,
+        page,
         y + leading + page.height,
       );
-      final narrowed = math.max(24.0, available - range.left - range.right);
-      final measured = await layout._relayoutFloatText(
-        block,
-        style,
-        narrowed,
-        start: page.cursor,
-      );
+      if (input == null) break;
+      final (measured: measured, range: range) = input;
       // 核心断行不为段尾 LF 产出空行，但原文仍保留 LF 和字符偏移。
       // 消费这些不绘制的尾字符，避免下一页对空行表取 first。
       if (measured.lines.isEmpty &&
@@ -1261,6 +1303,60 @@ class _FloatPagination {
       );
     }
     return page;
+  }
+
+  Future<({TextLayoutResult measured, _OccupiedRange range})?>
+  _measureAvailableText(
+    PageBlock block,
+    ComputedStyle style,
+    double available,
+    _TextPage page,
+    double lineY,
+  ) async {
+    final range = await _rangeAt(block, style, available, lineY);
+    page.blockedUntil = await _blockedLineBottom(
+      block,
+      style,
+      available,
+      range,
+      lineY,
+    );
+    if (page.blockedUntil != null) return null;
+    final narrowed = math.max(24.0, available - range.left - range.right);
+    final measured = await layout._relayoutFloatText(
+      block,
+      style,
+      narrowed,
+      start: page.cursor,
+    );
+    return (measured: measured, range: range);
+  }
+
+  /// 浮动把行宽占满或压到断行下限以下时等待，不能扩宽后叠到图片上。
+  Future<double?> _blockedLineBottom(
+    PageBlock block,
+    ComputedStyle style,
+    double available,
+    _OccupiedRange range,
+    double lineY,
+  ) async {
+    if (range.left <= 0 && range.right <= 0) return null;
+    final minimum = math.min(available, LineBreaker().effectiveWidth(style, 0));
+    final remaining = available - range.left - range.right;
+    if (remaining > .5 && remaining + .5 >= minimum) return null;
+    final probeBottom = lineY + block.layout.lines.first.height;
+    var bottom = double.infinity;
+    for (final item in occupancy.items) {
+      await budget.checkpoint();
+      final rect = item.rect;
+      if (rect.top < probeBottom &&
+          rect.bottom > lineY + .01 &&
+          rect.left < range.flowRight &&
+          rect.right > range.flowLeft) {
+        bottom = math.min(bottom, rect.bottom);
+      }
+    }
+    return bottom.isFinite ? bottom : null;
   }
 
   Future<_OccupiedRange> _rangeAt(
@@ -1446,6 +1542,7 @@ class _FloatPagination {
       inlineImages: images,
       rubies: rubies,
       effectiveOpacity: block.effectiveOpacity,
+      footnotes: block.footnotes,
     );
   }
 
@@ -1474,6 +1571,7 @@ class _TextPage {
 
   int cursor;
   double height = 0;
+  double? blockedUntil;
   final lines = <LineBox>[];
 
   TextLayoutResult toLayout(PageBlock block, double width) => TextLayoutResult(

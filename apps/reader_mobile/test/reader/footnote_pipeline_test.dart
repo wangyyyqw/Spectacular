@@ -10,6 +10,83 @@ import 'support/css_chapter_book.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  test('浮动绕排及跨页重建保留标题和正文图片注释的实际点击区', () async {
+    const tail = '正文续行。';
+    final source = await openCssChapter(
+      body:
+          '<div class="float">浮动</div>'
+          '<h1>标题<sup><a class="duokan-footnote" href="#fn1">'
+          '<img src="../Images/note.png"/></a></sup></h1>'
+          '<p>开头<sup><a class="duokan-footnote" href="#fn2">'
+          '<img src="../Images/note.png"/></a></sup>${tail * 50}'
+          '<sup><a class="duokan-footnote" href="#fn3">'
+          '<img src="../Images/note.png"/></a></sup>结尾</p>'
+          '<aside role="doc-footnote"><ol>'
+          '<li id="fn1">标题注释</li><li id="fn2">开头注释</li>'
+          '<li id="fn3">结尾注释</li></ol></aside>',
+      css:
+          'body,h1,p {margin:0;font:16px/1.3 Ahem;text-indent:0;} '
+          '.float {float:right;width:50px;height:60px;} '
+          'sup img {width:12px;height:12px;}',
+      contentWidth: 240,
+      contentHeight: 120,
+    );
+    addTearDown(source.close);
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    final hitNotes = <String?>{};
+    for (final page in pages) {
+      for (final box in TextHitTester.lineBoxes(page)) {
+        final line = box.slice.block.layout.lines[box.lineIndex];
+        for (final image in line.inlineBoxes) {
+          final note = box.slice.block.footnotes
+              .where((note) => note.contains(image.offset))
+              .single;
+          final center = Offset(
+            box.rect.left + image.left + image.width / 2,
+            (box.textTop ?? box.rect.top) +
+                image.topIn(line.baseline - line.top) +
+                image.height / 2,
+          );
+          expect(TextHitTester.footnoteAt(page, center), same(note));
+          hitNotes.add(note.text);
+        }
+      }
+    }
+    expect(hitNotes, {'标题注释', '开头注释', '结尾注释'});
+  });
+
+  test('浮动章节中声明高度的文字盒重建后仍能点击图片注释', () async {
+    final source = await openCssChapter(
+      body:
+          '<div class="float">浮动</div>'
+          '<p>正文<a class="duokan-footnote" href="#fn1">'
+          '<img src="../Images/note.png" width="12" height="12"/></a></p>'
+          '<aside id="fn1" role="doc-footnote">声明高度盒的注释</aside>',
+      css:
+          'body,p {margin:0;font:16px/1.3 Ahem;text-indent:0;} '
+          '.float {float:right;width:50px;height:30px;} '
+          'p {height:70px;}',
+      contentWidth: 240,
+      contentHeight: 120,
+    );
+    addTearDown(source.close);
+    final page = (await source.loadChapter(0)).single;
+    final box = TextHitTester.lineBoxes(page)
+        .singleWhere((box) => box.slice.block.layout.text.startsWith('正文'));
+    final note = box.slice.block.footnotes.single;
+    final line = box.slice.block.layout.lines[box.lineIndex];
+    final image = line.inlineBoxes.single;
+    final center = Offset(
+      box.rect.left + image.left + image.width / 2,
+      (box.textTop ?? box.rect.top) +
+          image.topIn(line.baseline - line.top) +
+          image.height / 2,
+    );
+    expect(note.text, '声明高度盒的注释');
+    expect(TextHitTester.footnoteAt(page, center), same(note));
+  });
+
   test('注释定义不进入正文页面，注号映射为可点击数据', () async {
     final source = await openCssChapter(
       body: '''
