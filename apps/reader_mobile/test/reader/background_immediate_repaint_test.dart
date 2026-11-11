@@ -97,7 +97,7 @@ Future<void> _select(
   }
 }
 
-Future<(ReaderSession, VoidCallback)> _openReader(
+Future<(ReaderSession, Future<void> Function())> _openReader(
   WidgetTester tester,
   PageTurnMode mode,
   List<String> changes,
@@ -131,7 +131,13 @@ Future<(ReaderSession, VoidCallback)> _openReader(
     () => !session.loading && session.hasContent,
     description: '${mode.label}首屏正文',
   );
-  return (session, source.close);
+  return (
+    session,
+    () async {
+      source.close();
+      await source.preparationsStopped;
+    },
+  );
 }
 
 Future<void> _verifyBackgrounds(
@@ -190,8 +196,8 @@ void main() {
       expect(session.progress, position, reason: '阅读位置不变');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
-      closeSource();
-      await tester.pump();
+      await pumpReaderTask(tester, closeSource());
+      await tester.pumpAndSettle();
     });
   }
 }

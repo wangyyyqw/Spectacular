@@ -9,6 +9,8 @@ import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart' show ChapterLoadCancelled;
 
+import 'reader/support/css_chapter_book.dart';
+
 /// P7-23：三层缓存与设置失效矩阵——
 /// 主题颜色变化 → 零重排（pagination 层键不含颜色）；
 /// 字号/行高/对齐/边距/几何 → 完整键隔离并保留近期结果；
@@ -43,26 +45,63 @@ void main() {
     return source;
   }
 
-  test('基础计算样式在同一环境复用，设置和尺寸变化后更新', () async {
-    final source = await openSource();
-    addTearDown(source.close);
-    await source.applyOverrides(
-      const ReaderOverrides(fontSize: 18, paragraphSpacing: 10),
+  Future<EpubChapterSource> openStyleProbe() async {
+    final source = await openCssChapter(
+      body: '<p>缓存样式验证</p>',
+      css: 'html, body { font-size: 16px; } p { margin: 0; text-indent: 0; }',
+      contentWidth: 320,
+      contentHeight: 480,
+      overrides: const ReaderOverrides(fontSize: 18),
     );
+    addTearDown(source.close);
+    return source;
+  }
+
+  test('级联基准保留作者字号，正文测量消费阅读器字号和颜色', () async {
+    final source = await openStyleProbe();
     final first = source.style;
     expect(source.style, same(first));
-    await source.applyContentSize(width: 280, height: 420);
-    final resized = source.style;
-    expect(resized, isNot(same(first)));
-    expect(source.style, same(resized));
-    expect(await source.applyContentSize(width: 280, height: 420), isFalse);
-    expect(source.style, same(resized));
+    expect(first.fontSize, 16, reason: '作者 em 几何在阅读字号覆盖前解算');
+    final before = await source.loadChapter(0);
+    final initialBlock = before.single.slices.single.block;
+    expect(initialBlock.style!.fontSize, 18);
+    expect(initialBlock.layout.runs.single.style.fontSize, 18);
+
     await source.applyOverrides(
       const ReaderOverrides(fontSize: 22, textColor: Color(0xFF123456)),
     );
-    expect(source.style.fontSize, 22);
+    final after = await source.loadChapter(0);
+    final updatedBlock = after.single.slices.single.block;
+    expect(after, isNot(same(before)));
+    expect(source.style.fontSize, 16);
     expect(source.style.color, const Color(0xFF123456));
     expect(source.style, same(source.style));
+    expect(updatedBlock.style!.fontSize, 22);
+    expect(updatedBlock.layout.runs.single.style.fontSize, 22);
+    expect(
+      updatedBlock.layout.runs.single.style.color,
+      const Color(0xFF123456),
+    );
+  });
+
+  test('尺寸变化更新实际测量，重复尺寸复用已完成布局', () async {
+    final source = await openStyleProbe();
+    final before = await source.loadChapter(0);
+    expect(before.single.slices.single.block.layout.maxWidth, 320);
+
+    expect(await source.applyContentSize(width: 280, height: 420), isTrue);
+    final resized = await source.loadChapter(0);
+    expect(resized, isNot(same(before)));
+    expect(resized.single.slices.single.block.layout.maxWidth, 280);
+    expect(
+      resized.single.slices.single.block.layout.runs.single.style.fontSize,
+      18,
+    );
+    expect(source.style.fontSize, 16);
+    expect(source.style, same(source.style));
+
+    expect(await source.applyContentSize(width: 280, height: 420), isFalse);
+    expect(await source.loadChapter(0), same(resized));
   });
 
   test('切主题（颜色）：页对象原样复用（零重排）', () async {
