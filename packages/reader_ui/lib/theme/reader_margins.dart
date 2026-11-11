@@ -76,9 +76,8 @@ class ReaderMargins {
     );
   }
 
-  /// 旧版合计边距；仅用于兼容没有页眉页脚槽的调用。
-  EdgeInsets toPadding() =>
-      EdgeInsets.fromLTRB(left, top, right, bottom);
+  /// 不包含页眉页脚自身高度的合计边距。
+  EdgeInsets toPadding() => EdgeInsets.fromLTRB(left, top, right, bottom);
 
   /// 复制并覆盖若干项。
   ReaderMargins copyWith({
@@ -140,14 +139,8 @@ class ReaderMargins {
       other.bottomOuter == bottomOuter;
 
   @override
-  int get hashCode => Object.hash(
-    left,
-    right,
-    topOuter,
-    topInner,
-    bottomInner,
-    bottomOuter,
-  );
+  int get hashCode =>
+      Object.hash(left, right, topOuter, topInner, bottomInner, bottomOuter);
 
   @override
   String toString() =>

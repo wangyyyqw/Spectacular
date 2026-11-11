@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:flutter/widgets.dart' show StringCharacters;
 
 import 'db.dart';
 
@@ -11,6 +12,9 @@ class BookReview {
     required this.createdAt,
     required this.updatedAt,
   });
+
+  /// 正文按用户感知的字符计数，与编辑器限制保持一致。
+  static const maxContentLength = 5000;
 
   /// 书籍 uuid。
   final String bookId;
@@ -70,6 +74,9 @@ class DriftBookReviewStore implements BookReviewStore {
     required String content,
   }) async {
     final normalizedContent = content.trim();
+    if (normalizedContent.characters.length > BookReview.maxContentLength) {
+      throw const FormatException('书评最多 5000 个字符');
+    }
     final normalizedRating = rating?.clamp(1, 5);
     if (normalizedContent.isEmpty && normalizedRating == null) {
       await remove(bookId);
@@ -77,7 +84,7 @@ class DriftBookReviewStore implements BookReviewStore {
     }
     final internalId = await _bookIdOf(bookId);
     if (internalId == null) {
-      return;
+      throw const FormatException('书籍已移除，无法保存书评');
     }
     final existing = await (_db.select(
       _db.bookReviews,
@@ -87,7 +94,7 @@ class DriftBookReviewStore implements BookReviewStore {
         .into(_db.bookReviews)
         .insertOnConflictUpdate(
           BookReviewsCompanion.insert(
-        bookId: Value<int>(internalId),
+            bookId: Value<int>(internalId),
             rating: Value<int?>(normalizedRating),
             content: Value<String>(normalizedContent),
             createdAt: existing?.createdAt ?? now,
@@ -108,9 +115,11 @@ class DriftBookReviewStore implements BookReviewStore {
   }
 
   Future<int?> _bookIdOf(String bookId) async {
-    final rows = await (_db.select(
-      _db.books,
-    )..where((table) => table.uuid.equals(bookId))).get();
+    final rows =
+        await (_db.select(_db.books)..where(
+              (table) => table.uuid.equals(bookId) & table.deletedAt.isNull(),
+            ))
+            .get();
     return rows.isEmpty ? null : rows.single.id;
   }
 

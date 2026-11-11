@@ -54,6 +54,7 @@ import 'panels/decoration_panel.dart';
 import 'panels/mark_settings_sheet.dart';
 import 'theme/reader_background.dart';
 import 'theme/reader_drawer_style.dart';
+import 'page_furniture/corner_info.dart';
 import 'theme/reader_environment.dart';
 import 'theme/reader_panel_theme.dart';
 import 'selection/selection.dart';
@@ -106,6 +107,8 @@ class ReaderPage extends StatefulWidget {
     this.customFonts = const [],
     this.onPickFont,
     this.onLoadFont,
+    this.onRenameFont,
+    this.onRemoveFont,
     this.backgroundId = 'none',
     this.inkMode = false,
     this.onBackgroundChanged,
@@ -117,6 +120,8 @@ class ReaderPage extends StatefulWidget {
     this.overrides,
     this.paragraphCache,
     this.showPageFooter = true,
+    this.cornerInfo = ReaderCornerInfo.defaults,
+    this.onCornerInfoChanged,
     this.bookTitle = '阅读',
     this.margins,
     this.onMarginsChanged,
@@ -178,6 +183,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 使用已保存字体前，宿主负责注册字体。
   final Future<void> Function(String family)? onLoadFont;
+  final Future<ReaderFontOption> Function(String family, String name)?
+  onRenameFont;
+  final Future<void> Function(String family)? onRemoveFont;
 
   /// 初始背景 id（P4-22）。
   final String backgroundId;
@@ -209,8 +217,10 @@ class ReaderPage extends StatefulWidget {
   /// 正文区外边距。
   final EdgeInsets padding;
 
-  /// 页脚页码（P8-10 页家具 6 槽的第一槽；槽模板与设置项后续接入）。
+  /// 是否显示页眉页脚。
   final bool showPageFooter;
+  final ReaderCornerInfo cornerInfo;
+  final ValueChanged<ReaderCornerInfo>? onCornerInfoChanged;
 
   /// 书名（菜单顶部栏显示）。
   final String bookTitle;
@@ -293,6 +303,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool _pickingBackgroundImage = false;
   late ReaderTheme? _customTheme = widget.customTheme;
   late List<ReaderFontOption> _customFonts = List.of(widget.customFonts);
+  late ReaderCornerInfo _cornerInfo = widget.cornerInfo;
+
+  double get _headerHeight => widget.showPageFooter && _cornerInfo.hasHeader
+      ? PageFurniture.headerHeight
+      : 0;
+  double get _footerHeight => widget.showPageFooter && _cornerInfo.hasFooter
+      ? PageFurniture.footerHeight
+      : 0;
 
   /// 墨水屏模式（P4-23）：为 true 时强制纯黑白主题、禁用背景纹理。
   late bool _inkMode;
@@ -363,8 +381,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       left: padding.left,
       right: padding.right,
       topOuter: padding.top,
-      topInner: widget.showPageFooter ? PageFurniture.headerGap : 0,
-      bottomInner: widget.showPageFooter ? PageFurniture.footerGap : 0,
+      topInner: _headerHeight > 0 ? PageFurniture.headerGap : 0,
+      bottomInner: _footerHeight > 0 ? PageFurniture.footerGap : 0,
       bottomOuter: padding.bottom,
     );
   }
@@ -497,8 +515,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (margins != null) {
       return margins.toBodyPadding(
         showFurniture: widget.showPageFooter,
-        headerHeight: PageFurniture.headerHeight,
-        footerHeight: PageFurniture.footerHeight,
+        headerHeight: _headerHeight,
+        footerHeight: _footerHeight,
       );
     }
     final base = _effectivePadding();
@@ -506,9 +524,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return base;
     }
     return base +
-        const EdgeInsets.only(
-          top: PageFurniture.headerHeight + PageFurniture.headerGap,
-          bottom: PageFurniture.footerHeight + PageFurniture.footerGap,
+        EdgeInsets.only(
+          top: _headerHeight > 0 ? _headerHeight + PageFurniture.headerGap : 0,
+          bottom: _footerHeight > 0
+              ? _footerHeight + PageFurniture.footerGap
+              : 0,
         );
   }
 
@@ -849,10 +869,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _customFonts = {
-      for (final font in _customFonts) font.family: font,
-      for (final font in widget.customFonts) font.family: font,
-    }.values.toList();
+    if (oldWidget.customFonts != widget.customFonts) {
+      _customFonts = List.of(widget.customFonts);
+    }
+    if (oldWidget.cornerInfo != widget.cornerInfo) {
+      _cornerInfo = widget.cornerInfo;
+    }
     if (oldWidget.pageTurnMode != widget.pageTurnMode) {
       if (oldWidget.pageTurnMode == PageTurnMode.scroll &&
           widget.pageTurnMode != PageTurnMode.scroll) {
@@ -1355,6 +1377,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return font;
   }
 
+  void _applyCornerInfo(ReaderCornerInfo info) {
+    if (_cornerInfo == info) return;
+    setState(() => _cornerInfo = info);
+    widget.onCornerInfoChanged?.call(info);
+  }
+
   /// 切换墨水屏模式（P4-23）：纯黑白 + 禁用纹理，只重绘不重排。
   void _applyInkMode(bool enabled) {
     if (enabled == _inkMode) {
@@ -1381,6 +1409,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     unawaited(_applyPageTurnMode(PageTurnMode.cover));
     _applyInkMode(false);
     _applyMarkSettings(const ReaderMarkSettings());
+    _applyCornerInfo(ReaderCornerInfo.defaults);
     if (widget.keepScreenOn) {
       widget.onKeepScreenOnChanged?.call(false);
     }
@@ -2337,6 +2366,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       customFonts: _customFonts,
                       onPickFont: widget.onPickFont == null ? null : _pickFont,
                       onLoadFont: widget.onLoadFont,
+                      onRenameFont: widget.onRenameFont,
+                      onRemoveFont: widget.onRemoveFont,
+                      cornerInfo: _cornerInfo,
+                      onCornerInfoChanged: _applyCornerInfo,
                       onPickBackgroundImage:
                           widget.onPickBackgroundImage == null
                           ? null
@@ -2482,6 +2515,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     onPreview: _previewMarginChange,
     onDragChanged: _marginDragChanged,
     showPageFurniture: widget.showPageFooter,
+    headerHeight: _headerHeight,
+    footerHeight: _footerHeight,
     onCancel: () => setState(() {
       _clearMarginPreview();
       _editingMargins = false;
@@ -2559,6 +2594,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _resolvedAnnotations,
       _tempHighlight,
       _bodyPadding(),
+      _cornerInfo,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();
@@ -2711,8 +2747,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   List<Widget> _paperFurniture(PageContent page) {
     final padding = _furniturePadding();
     final full = _isFullPageBackground(page);
+    final data = ReaderCornerData(
+      bookTitle: widget.bookTitle,
+      chapterTitle: _chapterTitleOf(page.spineIndex),
+      pageLabel:
+          '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
+      progress: _bookProgressOf(page),
+    );
     return [
       if (widget.showPageFooter &&
+          _cornerInfo.hasHeader &&
           page.pageIndex > 0 &&
           !full &&
           !_hasTopBleed(page))
@@ -2727,10 +2771,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               pageLabel:
                   '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
               inkMode: _inkMode,
+              info: _cornerInfo,
+              data: data,
             ),
           ),
         ),
-      if (widget.showPageFooter && !full)
+      if (widget.showPageFooter && _cornerInfo.hasFooter && !full)
         Positioned(
           left: padding.left,
           right: padding.right,
@@ -2740,6 +2786,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               theme: _effectiveTheme,
               progress: _bookProgressOf(page),
               inkMode: _inkMode,
+              info: _cornerInfo,
+              data: data,
             ),
           ),
         ),
@@ -2848,6 +2896,10 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.customFonts,
     required this.onPickFont,
     required this.onLoadFont,
+    required this.onRenameFont,
+    required this.onRemoveFont,
+    required this.cornerInfo,
+    required this.onCornerInfoChanged,
     required this.onPickBackgroundImage,
     required this.backgroundImageLoader,
     required this.pickingBackgroundImage,
@@ -2906,6 +2958,11 @@ class _ReaderDrawerContent extends StatefulWidget {
   final List<ReaderFontOption> customFonts;
   final Future<ReaderFontOption?> Function()? onPickFont;
   final Future<void> Function(String family)? onLoadFont;
+  final Future<ReaderFontOption> Function(String family, String name)?
+  onRenameFont;
+  final Future<void> Function(String family)? onRemoveFont;
+  final ReaderCornerInfo cornerInfo;
+  final ValueChanged<ReaderCornerInfo> onCornerInfoChanged;
   final VoidCallback? onPickBackgroundImage;
   final Future<Uint8List> Function(String id)? backgroundImageLoader;
   final bool pickingBackgroundImage;
@@ -2999,6 +3056,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           customFonts: widget.customFonts,
           onPickFont: widget.onPickFont,
           onLoadFont: widget.onLoadFont,
+          onRenameFont: widget.onRenameFont,
+          onRemoveFont: widget.onRemoveFont,
           themeId: widget.themeId,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
@@ -3014,6 +3073,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           tapZones: widget.tapZones,
           keepScreenOn: widget.keepScreenOn,
           volumeKeyPaging: widget.volumeKeyPaging,
+          cornerInfo: widget.cornerInfo,
+          onCornerInfoChanged: widget.onCornerInfoChanged,
           onPageTurnModeChanged: widget.onPageTurnModeChanged,
           onTapZonesChanged: widget.onTapZonesChanged,
           onKeepScreenOnChanged: widget.onKeepScreenOnChanged,

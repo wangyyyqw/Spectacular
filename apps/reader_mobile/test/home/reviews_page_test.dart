@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -15,6 +18,10 @@ class _FakeLibrary extends LibraryStore {
 
 class _MemoryReviewStore implements BookReviewStore {
   final Map<String, BookReview> items = <String, BookReview>{};
+  bool failSnapshot = false;
+  bool failSave = false;
+  Completer<void>? pendingSave;
+  int saveCalls = 0;
 
   @override
   Future<void> remove(String bookId) async {
@@ -27,6 +34,9 @@ class _MemoryReviewStore implements BookReviewStore {
     int? rating,
     required String content,
   }) async {
+    saveCalls++;
+    if (failSave) throw StateError('写入失败');
+    await pendingSave?.future;
     final now = DateTime.now();
     final existing = items[bookId];
     items[bookId] = BookReview(
@@ -39,8 +49,10 @@ class _MemoryReviewStore implements BookReviewStore {
   }
 
   @override
-  Future<Map<String, BookReview>> snapshot() async =>
-      Map<String, BookReview>.unmodifiable(items);
+  Future<Map<String, BookReview>> snapshot() async {
+    if (failSnapshot) throw StateError('读取失败');
+    return Map<String, BookReview>.unmodifiable(items);
+  }
 }
 
 BookEntry _book(String id, String title, String author) => BookEntry(
@@ -71,12 +83,19 @@ Future<void> _pumpReviews(
   WidgetTester tester, {
   required List<BookEntry> books,
   required _MemoryReviewStore store,
+  Size size = const Size(1080, 2400),
+  double textScale = 1,
 }) async {
-  tester.view.physicalSize = const Size(1080, 2400);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 2;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       home: ReviewsPage(library: _FakeLibrary(books), reviewStore: store),
     ),
   );
@@ -84,6 +103,123 @@ Future<void> _pumpReviews(
 }
 
 void main() {
+  testWidgets('小屏大字号下书评汇总、详情和编辑操作均可见', (tester) async {
+    final book = _book('large-text', '一本书名较长的作品', '测试作者');
+    final store = _MemoryReviewStore()
+      ..items[book.id] = _review(book.id, '足够长的正文，用来验证详情和编辑页。', rating: 5);
+    await _pumpReviews(
+      tester,
+      books: [book],
+      store: store,
+      size: const Size(640, 1600),
+      textScale: 1.6,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('review-card-large-text')));
+    await tester.pumpAndSettle();
+    for (final key in ['review-detail-copy', 'review-detail-edit']) {
+      final rect = tester.getRect(find.byKey(ValueKey(key)));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.bottom, lessThanOrEqualTo(800));
+    }
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-content')), findsOneWidget);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('review-save'))).bottom,
+      lessThanOrEqualTo(800),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('首次书评加载失败可重试，成功后恢复书目列表', (tester) async {
+    final book = _book('retry-load', '加载重试', '作者');
+    final store = _MemoryReviewStore()..failSnapshot = true;
+    await _pumpReviews(tester, books: [book], store: store);
+    expect(find.text('书评加载失败，请重试'), findsOneWidget);
+    store.failSnapshot = false;
+    await tester.tap(find.byKey(const ValueKey('reviews-load-retry')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('review-pending-retry-load')),
+      findsOneWidget,
+    );
+    expect(find.text('书评加载失败，请重试'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('书评保存失败保留正文和评分，重试成功后才关闭编辑器', (tester) async {
+    final book = _book('retry-save', '保存重试', '作者');
+    final store = _MemoryReviewStore()..failSave = true;
+    await _pumpReviews(tester, books: [book], store: store);
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('review-rating-4')));
+    await tester.enterText(
+      find.byKey(const ValueKey('review-content')),
+      '不能丢失的草稿',
+    );
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-editor')), findsOneWidget);
+    expect(find.text('不能丢失的草稿'), findsOneWidget);
+    expect(find.text('保存失败，草稿已保留，请重试'), findsOneWidget);
+    expect(store.items, isEmpty);
+
+    store.failSave = false;
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(store.items[book.id]!.content, '不能丢失的草稿');
+    expect(store.items[book.id]!.rating, 4);
+    expect(store.saveCalls, 2);
+  });
+
+  testWidgets('书评写入等待期间禁用重复保存和退出，不弹出放弃草稿确认', (tester) async {
+    final book = _book('pending-save', '等待保存', '作者');
+    final pending = Completer<void>();
+    final store = _MemoryReviewStore()..pendingSave = pending;
+    await _pumpReviews(tester, books: [book], store: store);
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('review-content')),
+      '等待中的草稿',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pump();
+    expect(store.saveCalls, 1);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('review-save')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('review-editor-close')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('review-content')))
+          .readOnly,
+      isTrue,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('review-editor')), findsOneWidget);
+    expect(find.text('放弃未保存的书评？'), findsNothing);
+    expect(store.saveCalls, 1);
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(store.items[book.id]!.content, '等待中的草稿');
+  });
+
   testWidgets('书评页可新增、展示并删除书评', (tester) async {
     final book = BookEntry(
       id: 'review-book',
@@ -156,6 +292,29 @@ void main() {
       find.byKey(const ValueKey<String>('review-detail-content')),
     );
     expect(detailContent.data, longReview);
+
+    String? clipboard;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboard = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('review-detail-copy')));
+    await tester.pumpAndSettle();
+    expect(clipboard, contains(book.title));
+    expect(clipboard, contains(book.author));
+    expect(clipboard, contains('评分：5/5'));
+    expect(clipboard, endsWith(longReview));
 
     await tester.tap(find.byKey(const ValueKey<String>('review-detail-edit')));
     await tester.pumpAndSettle();

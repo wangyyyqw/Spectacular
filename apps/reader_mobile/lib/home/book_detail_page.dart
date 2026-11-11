@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +6,8 @@ import 'package:path/path.dart' as p;
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import 'book_cover_image.dart';
+import 'finish_book_sheet.dart';
 import '../storage/book_review_store.dart';
 import '../storage/reading_session_store.dart';
 
@@ -292,24 +293,33 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 
   Future<void> _editFinished() async {
-    final progressStore = widget.progressStore;
-    if (progressStore == null) {
+    if (widget.progressStore == null) {
       _showMessage('当前无法保存读完标记');
       return;
     }
-    final draft = await showModalBottomSheet<_FinishDraft>(
+    final draft = await showModalBottomSheet<FinishBookDraft>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
-      builder: (_) => _FinishBookSheet(book: _entry, review: _review),
+      builder: (_) => FinishBookSheet(
+        book: _entry,
+        review: _review,
+        allowReview: _reviewStore != null,
+        onCommit: _saveFinished,
+      ),
     );
-    if (draft == null || !mounted) {
-      return;
+    if (draft != null && mounted) {
+      _showMessage(_reviewStore == null ? '已标记读完' : '已标记读完并保存书评');
     }
+  }
+
+  ReaderProgress _finishedProgress() {
     final existing = _progress;
     final lastSpine = ((_entry.spineCount ?? 1) - 1).clamp(0, 1000000);
-    final progress = ReaderProgress(
+    return ReaderProgress(
       spineIndex: existing?.spineIndex ?? lastSpine,
       pageIndex: existing?.pageIndex ?? 0,
       finished: true,
@@ -320,31 +330,32 @@ class _BookDetailPageState extends State<BookDetailPage> {
       readingPercent: existing?.readingPercent,
       layoutFingerprint: existing?.layoutFingerprint,
     );
+  }
+
+  Future<void> _saveFinished(FinishBookDraft draft) async {
+    final progressStore = widget.progressStore;
+    if (progressStore == null) throw const FormatException('当前无法保存读完标记');
+    final reviewStore = _reviewStore;
+    final progress = _finishedProgress();
+    await reviewStore?.save(
+      _entry.id,
+      rating: draft.rating,
+      content: draft.content,
+    );
     try {
       await progressStore.save(_entry.id, progress);
-      final reviewStore = _reviewStore;
-      if (reviewStore != null) {
-        await reviewStore.save(
-          _entry.id,
-          rating: draft.rating,
-          content: draft.content,
-        );
-      }
-      final reviews =
-          await (reviewStore?.snapshot() ??
-              Future<Map<String, BookReview>>.value(
-                const <String, BookReview>{},
-              ));
-      if (!mounted) {
-        return;
-      }
+    } catch (_) {
+      throw FormatException(
+        reviewStore == null ? '读完标记保存失败，请重试' : '书评已保存，读完标记保存失败，请重试',
+      );
+    }
+    final reviews =
+        await reviewStore?.snapshot() ?? const <String, BookReview>{};
+    if (mounted) {
       setState(() {
         _progress = progress;
         _review = reviews[_entry.id];
       });
-      _showMessage(reviewStore == null ? '已标记读完' : '已标记读完并保存书评');
-    } catch (_) {
-      _showMessage('保存失败，请重试');
     }
   }
 
@@ -653,7 +664,12 @@ class _CoverEditor extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _BookCover(entry: entry),
+        BookCoverImage(
+          key: const ValueKey('book-detail-page-cover'),
+          book: entry,
+          width: 120,
+          height: 160,
+        ),
         const SizedBox(width: 20),
         Expanded(
           child: Column(
@@ -691,51 +707,6 @@ class _CoverEditor extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _BookCover extends StatelessWidget {
-  const _BookCover({required this.entry});
-
-  final BookEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final placeholder = Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: theme.textTheme.headlineMedium?.copyWith(
-          color: theme.colorScheme.onSurface,
-        ),
-      ),
-    );
-    final path = entry.coverPath;
-    return SizedBox(
-      key: const ValueKey<String>('book-detail-page-cover'),
-      width: 120,
-      height: 160,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: path == null
-            ? placeholder
-            : Image.file(
-                File(path),
-                key: ValueKey<String>('cover-$path'),
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.cover,
-                cacheWidth: 480,
-                errorBuilder: (_, _, _) => placeholder,
-              ),
-      ),
     );
   }
 }
@@ -1158,147 +1129,6 @@ class _ReviewStars extends StatelessWidget {
                 : Theme.of(context).colorScheme.outlineVariant,
           ),
       ],
-    );
-  }
-}
-
-class _FinishDraft {
-  const _FinishDraft({required this.rating, required this.content});
-
-  final int? rating;
-  final String content;
-}
-
-class _FinishBookSheet extends StatefulWidget {
-  const _FinishBookSheet({required this.book, required this.review});
-
-  final BookEntry book;
-  final BookReview? review;
-
-  @override
-  State<_FinishBookSheet> createState() => _FinishBookSheetState();
-}
-
-class _FinishBookSheetState extends State<_FinishBookSheet> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.review?.content ?? '',
-  );
-  late int? _rating = widget.review?.rating;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      key: const ValueKey<String>('book-detail-finish-sheet'),
-      color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.outlineVariant,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text('读完信息', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 3),
-                Text(
-                  widget.book.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text('评分（可选）', style: theme.textTheme.labelLarge),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    for (var star = 1; star <= 5; star++)
-                      IconButton(
-                        key: ValueKey<String>(
-                          'book-detail-finish-rating-$star',
-                        ),
-                        tooltip: '$star 星',
-                        onPressed: () => setState(
-                          () => _rating = _rating == star ? null : star,
-                        ),
-                        iconSize: 34,
-                        color: const Color(0xFFE0A327),
-                        icon: Icon(
-                          star <= (_rating ?? 0)
-                              ? Icons.star_rounded
-                              : Icons.star_outline_rounded,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Text('书评（可选）', style: theme.textTheme.labelLarge),
-                const SizedBox(height: 8),
-                TextField(
-                  key: const ValueKey<String>('book-detail-finish-review'),
-                  controller: _controller,
-                  minLines: 4,
-                  maxLines: 7,
-                  maxLength: 1000,
-                  textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(
-                    hintText: '写下这本书带给你的感受…',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: <Widget>[
-                    TextButton(
-                      key: const ValueKey<String>('book-detail-finish-cancel'),
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      key: const ValueKey<String>('book-detail-finish-save'),
-                      onPressed: () => Navigator.of(context).pop(
-                        _FinishDraft(
-                          rating: _rating,
-                          content: _controller.text.trim(),
-                        ),
-                      ),
-                      child: const Text('保存并标记读完'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

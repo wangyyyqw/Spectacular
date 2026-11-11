@@ -102,7 +102,166 @@ BookEntry _book(
   );
 }
 
+Future<void> _scrollTo(
+  WidgetTester tester,
+  Finder target,
+  double distance,
+) async {
+  await tester.scrollUntilVisible(
+    target,
+    distance,
+    scrollable: find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.down,
+        )
+        .first,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  testWidgets('小屏大字号可查看习惯、排行和日期详情，图表按钮支持逐日切换', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final handle = tester.ensureSemantics();
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.6)),
+            child: child!,
+          ),
+          home: StatsPage(
+            library: _FakeLibrary([_book('a', '一本较长书名的阅读记录')], const {}),
+            progressStore: _FakeProgressStore(const {}),
+            sessionStore: _FakeSessionStore([
+              ReadingSession(
+                bookId: 'a',
+                startedAt: today.add(const Duration(hours: 9)),
+                endedAt: today.add(const Duration(hours: 10)),
+                duration: const Duration(hours: 1),
+                pageTurns: 123,
+                charactersRead: 54321,
+              ),
+            ]),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await _scrollTo(
+        tester,
+        find.byKey(const ValueKey('stats-chart-previous')),
+        180,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('stats-chart-bucket-duration')),
+            )
+            .data,
+        '1 小时',
+      );
+      await tester.tap(find.byKey(const ValueKey('stats-chart-previous')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('stats-chart-bucket-duration')),
+            )
+            .data,
+        '0 分钟',
+      );
+      await tester.tap(find.byKey(const ValueKey('stats-chart-next')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('stats-chart-bucket-duration')),
+            )
+            .data,
+        '1 小时',
+      );
+      for (final key in ['stats-current-streak', 'stats-ranking-counts-a']) {
+        await _scrollTo(tester, find.byKey(ValueKey(key)), 180);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+      final day = find.byKey(ValueKey('stats-heatmap-day-${_dateKey(today)}'));
+      await _scrollTo(tester, day, -180);
+      await tester.ensureVisible(day);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(day), const Size(48, 48));
+      expect(find.bySemanticsLabel(RegExp('今天，1 小时，1次阅读')), findsOneWidget);
+      await tester.tap(day);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('stats-day-detail')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      handle.dispose();
+    }
+  });
+
+  testWidgets('阅读习惯和按书排行显示有效会话的详细数据', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final sessions = [
+      ReadingSession(
+        bookId: 'a',
+        startedAt: DateTime(today.year, today.month, today.day - 1, 9),
+        endedAt: DateTime(today.year, today.month, today.day - 1, 9, 30),
+        duration: const Duration(minutes: 30),
+        pageTurns: 3,
+        charactersRead: 300,
+      ),
+      ReadingSession(
+        bookId: 'a',
+        startedAt: today.add(const Duration(hours: 14)),
+        endedAt: today.add(const Duration(hours: 14, minutes: 20)),
+        duration: const Duration(minutes: 20),
+        pageTurns: 2,
+        charactersRead: 200,
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([_book('a', '详细统计')], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore(sessions),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final entry in const {
+      'stats-current-streak': '2 天',
+      'stats-sessions': '2 次',
+      'stats-average-day': '25 分钟',
+      'stats-longest-session': '30 分钟',
+      'stats-reading-speed': '平均 10 字/分',
+      'stats-ranking-duration-a': '50 分钟',
+    }.entries) {
+      final target = find.byKey(ValueKey(entry.key));
+      await _scrollTo(tester, target, 180);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(target).data, entry.value);
+    }
+    expect(
+      find.byKey(const ValueKey('stats-ranking-counts-a')),
+      findsOneWidget,
+    );
+    expect(find.text('2 次 · 5 次翻页 · 500 字'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('统计页展示真实进度、近七日阅读和累计字数', (tester) async {
     final now = DateTime.now();
     final books = [
@@ -197,7 +356,8 @@ void main() {
     );
     expect(library.progressWeightCalls, 0, reason: '统计页应批量读取进度权重');
     expect(library.batchProgressWeightCalls, 1);
-    await tester.scrollUntilVisible(
+    await _scrollTo(
+      tester,
       find.byKey(const ValueKey<String>('stats-band-unread')),
       300,
     );
@@ -222,7 +382,8 @@ void main() {
           .data,
       '51-75% 1 本',
     );
-    await tester.scrollUntilVisible(
+    await _scrollTo(
+      tester,
       find.byKey(const ValueKey<String>('stats-book-a')),
       300,
     );
@@ -499,7 +660,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
+    await _scrollTo(
+      tester,
       find.byKey(const ValueKey<String>('stats-band-finished')),
       300,
     );
@@ -535,7 +697,8 @@ void main() {
     for (var i = 0; i < 16; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    await tester.scrollUntilVisible(
+    await _scrollTo(
+      tester,
       find.byKey(ValueKey<String>('stats-open-${entry.id}')),
       300,
     );
@@ -627,7 +790,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
+    await _scrollTo(
+      tester,
       find.byKey(const ValueKey<String>('stats-chart-period')),
       300,
     );
@@ -763,7 +927,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final dayKey = ValueKey<String>('stats-heatmap-day-${_dateKey(today)}');
-    await tester.scrollUntilVisible(find.byKey(dayKey), 300);
+    await _scrollTo(tester, find.byKey(dayKey), 300);
     await tester.ensureVisible(find.byKey(dayKey));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(dayKey));

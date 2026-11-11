@@ -110,8 +110,9 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 听书（为 null 时不显示入口图标）。
   final VoidCallback? onTts;
 
-  static const Duration _slide = Duration(milliseconds: 180);
-  static const Curve _ease = Cubic(0.32, 0.72, 0, 1);
+  static const Duration _enter = Duration(milliseconds: 280);
+  static const Duration _exit = Duration(milliseconds: 200);
+  static const Curve _ease = Curves.easeOutCubic;
 
   @override
   Widget build(BuildContext context) {
@@ -122,6 +123,8 @@ class ReaderMenuOverlay extends StatelessWidget {
     final fill = theme?.fill ?? fg.withValues(alpha: 0.08);
     final topInset = safeTop;
     final bottomInset = safeBottom;
+    final reduceMotion = inkMode || MediaQuery.disableAnimationsOf(context);
+    final duration = reduceMotion ? Duration.zero : (open ? _enter : _exit);
 
     // 透明 Material：InkWell/InkResponse 需要 Material 祖先（阅读页本身没有）。
     return Material(
@@ -135,11 +138,11 @@ class ReaderMenuOverlay extends StatelessWidget {
             right: 0,
             child: AnimatedSlide(
               offset: open ? Offset.zero : const Offset(0, -1.01),
-              duration: _slide,
+              duration: duration,
               curve: _ease,
               child: AnimatedOpacity(
                 opacity: open ? 1 : 0,
-                duration: _slide,
+                duration: duration,
                 child: IgnorePointer(
                   ignoring: !open,
                   child: Container(
@@ -153,8 +156,8 @@ class ReaderMenuOverlay extends StatelessWidget {
                       child: Row(
                         children: <Widget>[
                           _IconButton(
-                            icon: Icons.arrow_back_ios_new,
-                            iconSize: 18,
+                            icon: Icons.arrow_back_rounded,
+                            iconSize: 22,
                             color: fg,
                             onTap: onBack,
                             tooltip: '返回书架',
@@ -212,11 +215,11 @@ class ReaderMenuOverlay extends StatelessWidget {
             bottom: 0,
             child: AnimatedSlide(
               offset: open ? Offset.zero : const Offset(0, 1.01),
-              duration: _slide,
+              duration: duration,
               curve: _ease,
               child: AnimatedOpacity(
                 opacity: open ? 1 : 0,
-                duration: _slide,
+                duration: duration,
                 child: IgnorePointer(
                   ignoring: !open,
                   child: Container(
@@ -259,15 +262,37 @@ class ReaderMenuOverlay extends StatelessWidget {
             ),
           ),
           // 抽屉
-          if (drawerChild != null)
-            Positioned.fill(
-              child: _DrawerLayer(
-                title: drawerTitle,
-                theme: theme,
-                onClose: onCloseDrawer,
-                child: drawerChild!,
+          Positioned.fill(
+            child: AnimatedSwitcher(
+              duration: reduceMotion ? Duration.zero : _enter,
+              reverseDuration: reduceMotion ? Duration.zero : _exit,
+              switchInCurve: _ease,
+              switchOutCurve: _ease,
+              layoutBuilder: (current, previous) => Stack(
+                fit: StackFit.expand,
+                children: [...previous, ?current],
               ),
+              transitionBuilder: (child, animation) {
+                final drawer = child as _DrawerLayer;
+                return _DrawerLayer(
+                  title: drawer.title,
+                  theme: drawer.theme,
+                  onClose: drawer.onClose,
+                  animation: animation,
+                  child: drawer.child,
+                );
+              },
+              child: drawerChild == null
+                  ? null
+                  : _DrawerLayer(
+                      key: const ValueKey('reader-drawer'),
+                      title: drawerTitle,
+                      theme: theme,
+                      onClose: onCloseDrawer,
+                      child: drawerChild!,
+                    ),
             ),
+          ),
         ],
       ),
     );
@@ -303,7 +328,7 @@ class _IconButton extends StatelessWidget {
       tooltip: tooltip,
       onPressed: onTap,
       visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
     );
   }
 }
@@ -524,9 +549,12 @@ class _EntriesRow extends StatelessWidget {
 
   static const Map<ReaderMenuEntry, ({IconData icon, String label})> items =
       <ReaderMenuEntry, ({IconData icon, String label})>{
-        ReaderMenuEntry.toc: (icon: Icons.menu_book_outlined, label: '目录'),
-        ReaderMenuEntry.theme: (icon: Icons.star_border_outlined, label: '主题'),
-        ReaderMenuEntry.type: (icon: Icons.format_size, label: '排版'),
+        ReaderMenuEntry.toc: (
+          icon: Icons.format_list_bulleted_rounded,
+          label: '目录',
+        ),
+        ReaderMenuEntry.theme: (icon: Icons.palette_outlined, label: '主题'),
+        ReaderMenuEntry.type: (icon: Icons.text_fields_rounded, label: '排版'),
         ReaderMenuEntry.settings: (icon: Icons.settings_outlined, label: '设置'),
       };
 
@@ -575,16 +603,19 @@ class _EntriesRow extends StatelessWidget {
 /// 抽屉（设计稿 `.drawer`：圆角 20 顶、grip、标题 + 内容）。
 class _DrawerLayer extends StatelessWidget {
   const _DrawerLayer({
+    super.key,
     required this.title,
     required this.theme,
     required this.child,
     required this.onClose,
+    this.animation = const AlwaysStoppedAnimation(1),
   });
 
   final String title;
   final ReaderTheme? theme;
   final Widget child;
   final VoidCallback onClose;
+  final Animation<double> animation;
 
   @override
   Widget build(BuildContext context) {
@@ -595,79 +626,118 @@ class _DrawerLayer extends StatelessWidget {
     final handle = dark
         ? panelTheme.text.withValues(alpha: 0.22)
         : ReaderDrawerStyle.handle;
-    return Stack(
-      children: <Widget>[
-        // 遮罩：点一下关闭抽屉
-        Positioned.fill(
-          child: GestureDetector(
-            key: const ValueKey<String>('menu-drawer-mask'),
-            behavior: HitTestBehavior.opaque,
-            onTap: onClose,
-            child: ColoredBox(color: Colors.black.withValues(alpha: 0.4)),
-          ),
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) => IgnorePointer(
+        ignoring: animation.status == AnimationStatus.reverse,
+        child: ExcludeSemantics(
+          excluding: animation.status == AnimationStatus.reverse,
+          child: child,
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 300),
-            curve: const Cubic(0.2, 0.8, 0.2, 1),
-            builder: (context, value, child) => FractionalTranslation(
-              translation: Offset(0, 1 - value),
-              child: child,
-            ),
-            child: Container(
-              key: const ValueKey<String>('reader-drawer-surface'),
-              height: MediaQuery.of(context).size.height * 0.75,
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 20,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
+      ),
+      child: Stack(
+        children: <Widget>[
+          // 遮罩：点一下关闭抽屉
+          Positioned.fill(
+            child: FadeTransition(
+              opacity: animation,
+              child: GestureDetector(
+                key: const ValueKey<String>('menu-drawer-mask'),
+                behavior: HitTestBehavior.opaque,
+                onTap: onClose,
+                child: ColoredBox(color: Colors.black.withValues(alpha: 0.4)),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: handle,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 1),
+                end: Offset.zero,
+              ).animate(animation),
+              child: Container(
+                key: const ValueKey<String>('reader-drawer-surface'),
+                height: MediaQuery.of(context).size.height * 0.75,
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
                   ),
-                  const SizedBox(height: 10),
-                  // 参考稿没有可见标题栏；保留零高度标题节点供读屏与旧流程定位。
-                  SizedBox(
-                    height: 0,
-                    child: Opacity(
-                      opacity: 0,
-                      child: Text(
-                        key: const ValueKey<String>('reader-drawer-title'),
-                        title,
-                        style: TextStyle(fontSize: 14, color: fg),
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 20,
+                      offset: const Offset(0, -4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    GestureDetector(
+                      key: const ValueKey('reader-drawer-handle'),
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragEnd: (details) {
+                        if ((details.primaryVelocity ?? 0) > 150) onClose();
+                      },
+                      child: SizedBox(
+                        height: 24,
+                        width: double.infinity,
+                        child: Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: handle,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  Flexible(
-                    child: ReaderPanelTheme(theme: panelTheme, child: child),
-                  ),
-                ],
+                    Padding(
+                      padding: const EdgeInsets.only(left: 20, right: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              key: const ValueKey<String>(
+                                'reader-drawer-title',
+                              ),
+                              title,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: fg,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            key: const ValueKey('reader-drawer-close'),
+                            tooltip: '关闭$title',
+                            onPressed: onClose,
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: fg,
+                              size: 22,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Flexible(
+                      child: ReaderPanelTheme(theme: panelTheme, child: child),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

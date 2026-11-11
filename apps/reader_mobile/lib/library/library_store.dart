@@ -361,9 +361,14 @@ class LibraryStore {
         db.userFonts,
       )..where((table) => table.family.equals(font.family))).get();
       if (existing.isNotEmpty) {
-        await (db.update(db.userFonts)
-              ..where((table) => table.family.equals(font.family)))
-            .write(UserFontsCompanion(filePath: Value(font.filePath)));
+        await (db.update(
+          db.userFonts,
+        )..where((table) => table.family.equals(font.family))).write(
+          UserFontsCompanion(
+            filePath: Value(font.filePath),
+            displayName: Value(font.displayName),
+          ),
+        );
         return;
       }
       await db
@@ -376,6 +381,18 @@ class LibraryStore {
             ),
           );
     });
+  }
+
+  /// 删除字体清单项，文件生命周期由字体存储负责。
+  Future<void> removeUserFont(String family) async {
+    if (_isMemory) {
+      _memoryFonts.remove(family);
+      return;
+    }
+    final db = _db!;
+    await (db.delete(
+      db.userFonts,
+    )..where((table) => table.family.equals(family))).go();
   }
 
   /// 全部分组，按创建时间升序。

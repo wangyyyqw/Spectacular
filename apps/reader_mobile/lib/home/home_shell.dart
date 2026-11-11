@@ -71,22 +71,22 @@ class _HomeShellState extends State<HomeShell> {
           items: const <BottomNavigationBarItem>[
             BottomNavigationBarItem(
               icon: Icon(Icons.library_books_outlined),
-              activeIcon: Icon(Icons.library_books),
+              activeIcon: Icon(Icons.library_books_rounded),
               label: '书架',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.bar_chart_outlined),
-              activeIcon: Icon(Icons.bar_chart),
+              icon: Icon(Icons.insights_outlined),
+              activeIcon: Icon(Icons.insights_rounded),
               label: '统计',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.rate_review_outlined),
-              activeIcon: Icon(Icons.rate_review),
+              activeIcon: Icon(Icons.rate_review_rounded),
               label: '书评',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person),
+              activeIcon: Icon(Icons.person_rounded),
               label: '我的',
             ),
           ],

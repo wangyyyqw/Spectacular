@@ -20,6 +20,8 @@ class MarginEditor extends StatefulWidget {
     this.onPreview,
     this.onDragChanged,
     this.showPageFurniture = true,
+    this.headerHeight = PageFurniture.headerHeight,
+    this.footerHeight = PageFurniture.footerHeight,
     this.maxOuter = 96,
     this.maxInner = 60,
     this.maxSide = 48,
@@ -45,6 +47,8 @@ class MarginEditor extends StatefulWidget {
 
   /// 是否按页眉页脚槽计算正文位置；关闭时内段直接连接屏幕外侧。
   final bool showPageFurniture;
+  final double headerHeight;
+  final double footerHeight;
 
   /// 上/下外段上限。
   final double maxOuter;
@@ -77,8 +81,8 @@ class _MarginEditorState extends State<MarginEditor> {
 
   EdgeInsets get _bodyPadding => _draft.toBodyPadding(
     showFurniture: widget.showPageFurniture,
-    headerHeight: PageFurniture.headerHeight,
-    footerHeight: PageFurniture.footerHeight,
+    headerHeight: widget.headerHeight,
+    footerHeight: widget.footerHeight,
   );
 
   @override
@@ -105,6 +109,8 @@ class _MarginEditorState extends State<MarginEditor> {
             outerPadding: _draft.toOuterPadding(),
             bodyPadding: _bodyPadding,
             showPageFurniture: widget.showPageFurniture,
+            headerHeight: widget.headerHeight,
+            footerHeight: widget.footerHeight,
             color: scheme.onSurface.withValues(alpha: 0.06),
             shadowColor: scheme.onSurface.withValues(alpha: 0.1),
             lineColor: scheme.primary.withValues(alpha: 0.35),
@@ -131,7 +137,21 @@ class _MarginEditorState extends State<MarginEditor> {
             child: _verticalRow(top: top),
           ),
           // 操作栏固定在底部，调节按钮在它上方移动，避免拖到保存按钮下面。
-          if (!top) ...<Widget>[_buildActions(), const SizedBox(height: 8)],
+          if (!top) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '拖动调节 · 点数值精调 · 单位 dp',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                ),
+              ),
+            ),
+            _buildActions(),
+            const SizedBox(height: 8),
+          ],
         ],
       ),
     ),
@@ -307,6 +327,18 @@ class _PillState extends State<_Pill> {
   bool _dragging = false;
   Offset _lastPosition = Offset.zero;
 
+  Future<void> _editValue() async {
+    final value = await showDialog<double>(
+      context: context,
+      builder: (_) => _MarginValueDialog(
+        label: widget.label,
+        value: widget.value,
+        max: widget.max,
+      ),
+    );
+    if (value != null && mounted) widget.onDelta(value - widget.value);
+  }
+
   double _axisDelta(Offset delta) =>
       (widget.axis == Axis.horizontal ? delta.dx : delta.dy) * widget.dragSign;
 
@@ -394,20 +426,98 @@ class _PillState extends State<_Pill> {
   );
 
   // 固定标签宽度，个位与两位数切换时按钮不会横向抖动。
-  Widget _buildValue(ColorScheme scheme) => SizedBox(
-    width: (widget.label.length + 3) * 12,
-    height: 36,
-    child: FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Text(
-        '${widget.label} ${widget.value.round()}',
-        style: TextStyle(
-          fontSize: 12,
-          color: _dragging ? scheme.onPrimaryContainer : scheme.onSurface,
-          fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  Widget _buildValue(ColorScheme scheme) => InkWell(
+    key: ValueKey('margin-value-${widget.label}'),
+    onTap: _editValue,
+    child: SizedBox(
+      width: (widget.label.length + 3) * 12,
+      height: 36,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          '${widget.label} ${_formatMargin(widget.value)}',
+          style: TextStyle(
+            fontSize: 12,
+            color: _dragging ? scheme.onPrimaryContainer : scheme.onSurface,
+            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          ),
         ),
       ),
     ),
+  );
+}
+
+String _formatMargin(double value) =>
+    value.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
+
+/// 精调输入与拖动共用增量回调，保留预览、取消和保存语义。
+class _MarginValueDialog extends StatefulWidget {
+  const _MarginValueDialog({
+    required this.label,
+    required this.value,
+    required this.max,
+  });
+
+  final String label;
+  final double value;
+  final double max;
+
+  @override
+  State<_MarginValueDialog> createState() => _MarginValueDialogState();
+}
+
+class _MarginValueDialogState extends State<_MarginValueDialog> {
+  late final _initialText = _formatMargin(widget.value);
+  late final _controller = TextEditingController(text: _initialText);
+
+  double? get _value {
+    final text = _controller.text.trim();
+    // 显示一位小数；未编辑确认时保留拖动产生的原始精度。
+    final value = text == _initialText ? widget.value : double.tryParse(text);
+    return value != null && value.isFinite && value >= 0 && value <= widget.max
+        ? value
+        : null;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('${widget.label}边距'),
+    content: TextField(
+      key: const ValueKey('margin-value-input'),
+      controller: _controller,
+      autofocus: true,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      textInputAction: TextInputAction.done,
+      decoration: InputDecoration(
+        labelText: '边距',
+        suffixText: 'dp',
+        helperText: '范围 0–${widget.max.round()}',
+        errorText: _value == null ? '请输入范围内的数值' : null,
+      ),
+      onChanged: (_) => setState(() {}),
+      onSubmitted: (_) {
+        if (_value != null) Navigator.of(context).pop(_value);
+      },
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        key: const ValueKey('margin-value-confirm'),
+        onPressed: _value == null
+            ? null
+            : () => Navigator.of(context).pop(_value),
+        child: const Text('应用数值'),
+      ),
+    ],
   );
 }
 
@@ -499,6 +609,8 @@ class _MarginZonePainter extends CustomPainter {
     required this.outerPadding,
     required this.bodyPadding,
     required this.showPageFurniture,
+    required this.headerHeight,
+    required this.footerHeight,
     required this.color,
     required this.shadowColor,
     required this.lineColor,
@@ -507,6 +619,8 @@ class _MarginZonePainter extends CustomPainter {
   final EdgeInsets outerPadding;
   final EdgeInsets bodyPadding;
   final bool showPageFurniture;
+  final double headerHeight;
+  final double footerHeight;
   final Color color;
   final Color shadowColor;
   final Color lineColor;
@@ -522,10 +636,8 @@ class _MarginZonePainter extends CustomPainter {
     if (body.width <= 0 || body.height <= 0) {
       return;
     }
-    final topFurniture = showPageFurniture ? PageFurniture.headerHeight : 0.0;
-    final bottomFurniture = showPageFurniture
-        ? PageFurniture.footerHeight
-        : 0.0;
+    final topFurniture = showPageFurniture ? headerHeight : 0.0;
+    final bottomFurniture = showPageFurniture ? footerHeight : 0.0;
     final topInnerStart = outerPadding.top + topFurniture;
     final bottomInnerEnd = size.height - outerPadding.bottom - bottomFurniture;
     // 外段与页眉页脚到正文的内段分别绘制；内段为 0 时自然不产生阴影。
@@ -598,6 +710,8 @@ class _MarginZonePainter extends CustomPainter {
       oldDelegate.outerPadding != outerPadding ||
       oldDelegate.bodyPadding != bodyPadding ||
       oldDelegate.showPageFurniture != showPageFurniture ||
+      oldDelegate.headerHeight != headerHeight ||
+      oldDelegate.footerHeight != footerHeight ||
       oldDelegate.color != color ||
       oldDelegate.shadowColor != shadowColor ||
       oldDelegate.lineColor != lineColor;

@@ -3,8 +3,27 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/page_furniture/corner_info.dart';
 
 void main() {
+  test('四角设置持久化，修改字体、主题和边距不丢失显示偏好', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+    const info = ReaderCornerInfo(
+      topLeft: ReaderCornerContent.bookTitle,
+      bottomRight: ReaderCornerContent.battery,
+    );
+    final settings = ReaderSettings.defaults
+        .copyWithCornerInfo(info)
+        .copyWithFont(null)
+        .copyWithTheme('black')
+        .copyWithOverrides(ReaderSettings.defaults.overrides);
+    await store.save(settings);
+    expect((await store.load()).cornerInfo, info);
+    await library.setSetting(ReaderSettingsStore.keyCornerInfo, 'bad-json');
+    expect((await store.load()).cornerInfo, ReaderCornerInfo.defaults);
+  });
+
   test('自定义字体与强制开关持久化，修改其它设置不会丢失', () async {
     final library = LibraryStore.memory();
     final store = ReaderSettingsStore(library);

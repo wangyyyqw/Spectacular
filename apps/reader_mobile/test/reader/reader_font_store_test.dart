@@ -10,6 +10,16 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 
+class _FailingFontRemovalLibrary extends LibraryStore {
+  _FailingFontRemovalLibrary(AppDatabase db, Directory directory)
+    : super(database: db, directoryProvider: () async => directory);
+
+  @override
+  Future<void> removeUserFont(String family) async {
+    throw StateError('模拟字体清单删除失败');
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -60,6 +70,33 @@ void main() {
     expect(second.displayName, '首次名称');
     expect(await store.list(), hasLength(1));
     expect(await Directory('${directory.path}/reader_fonts').list().length, 1);
+  });
+
+  test('重命名保留字体身份，移除后文件和清单同步消失且可重新导入', () async {
+    final font = await store.import(bytes, displayName: '原名称.otf');
+    final renamed = await store.rename(font.family, '新的名称');
+    expect(renamed.family, font.family);
+    expect((await store.load(font.family)).displayName, '新的名称');
+    await expectLater(store.rename(font.family, '   '), throwsFormatException);
+    await store.remove(font.family);
+    expect(await store.list(), isEmpty);
+    expect(await File(font.filePath).exists(), isFalse);
+    await expectLater(store.load(font.family), throwsFormatException);
+    final imported = await store.import(bytes, displayName: '重新导入.otf');
+    expect(imported.family, font.family);
+    expect(imported.displayName, '重新导入');
+  });
+
+  test('字体清单删除失败时还原文件，原字体仍可正常加载', () async {
+    final failing = ReaderFontStore(
+      _FailingFontRemovalLibrary(db, directory),
+      directoryProvider: () async => directory,
+    );
+    final font = await failing.import(bytes, displayName: '保留字体.otf');
+    await expectLater(failing.remove(font.family), throwsStateError);
+    expect((await failing.list()).single.family, font.family);
+    expect((await failing.load(font.family)).filePath, font.filePath);
+    expect(await File(font.filePath).readAsBytes(), bytes);
   });
 
   test('重新导入修复过期存储路径，保留字体名称和条目', () async {

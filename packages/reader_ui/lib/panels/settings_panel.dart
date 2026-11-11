@@ -8,11 +8,16 @@ import 'package:reader_core/css/reader_overrides.dart';
 
 import '../annotations/mark_settings.dart';
 import '../paging/page_turn_mode.dart';
+import '../page_furniture/corner_info.dart';
 import '../tap_zones.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_drawer_style.dart';
 import '../theme/reader_theme.dart';
 import 'custom_theme_dialog.dart';
+import 'corner_info_editor.dart';
+import 'font_picker_sheet.dart';
+
+export 'font_picker_sheet.dart' show ReaderFontOption;
 
 /// 阅读设置默认值（P4-21，与 Reeden/阅微的默认一致）。
 abstract final class ReaderSettingsDefaults {
@@ -66,14 +71,6 @@ enum SettingsSection {
   settings,
 }
 
-/// 宿主已保存的自定义字体，界面只使用族名与显示名称。
-class ReaderFontOption {
-  const ReaderFontOption({required this.family, required this.label});
-
-  final String family;
-  final String label;
-}
-
 /// 设置面板（P4-21）：字号/行高/段距/页边距/主题，改动即时生效。
 ///
 /// 翻页动画等「不触发重排」的项按 §42.3 与排版参数分开，这里只放排版与主题。
@@ -91,6 +88,10 @@ class SettingsPanel extends StatefulWidget {
     this.customFonts = const [],
     this.onPickFont,
     this.onLoadFont,
+    this.onRenameFont,
+    this.onRemoveFont,
+    this.cornerInfo = ReaderCornerInfo.defaults,
+    this.onCornerInfoChanged,
     this.pickingBackgroundImage = false,
     this.backgroundId = 'none',
     this.onBackgroundChanged,
@@ -140,6 +141,14 @@ class SettingsPanel extends StatefulWidget {
 
   /// 使用已保存字体前，由宿主注册到排版引擎。
   final Future<void> Function(String family)? onLoadFont;
+
+  /// 自定义字体管理由宿主更新文件和清单。
+  final Future<ReaderFontOption> Function(String family, String name)?
+  onRenameFont;
+  final Future<void> Function(String family)? onRemoveFont;
+
+  final ReaderCornerInfo cornerInfo;
+  final ValueChanged<ReaderCornerInfo>? onCornerInfoChanged;
 
   /// 由宿主选择并保存图片。
   final VoidCallback? onPickBackgroundImage;
@@ -210,7 +219,6 @@ class SettingsPanel extends StatefulWidget {
 }
 
 class _SettingsPanelState extends State<SettingsPanel> {
-  static const Color _accent = Color(0xFF5EC27D);
   static const Duration _sliderCommitDelay = Duration(milliseconds: 80);
 
   static const List<PageTurnMode> _pageTurnOrder = <PageTurnMode>[
@@ -228,8 +236,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
   late String? _fontFamily = widget.overrides.fontFamily;
   late bool _overrideEmbeddedFonts = widget.overrides.overrideEmbeddedFonts;
   late List<ReaderFontOption> _customFonts = List.of(widget.customFonts);
+  late ReaderCornerInfo _cornerInfo = widget.cornerInfo;
   bool _pickingFont = false;
-  bool _loadingFont = false;
+  bool _choosingFont = false;
   late double _lineHeight =
       widget.overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight;
   late double _paragraphSpacing =
@@ -297,14 +306,16 @@ class _SettingsPanelState extends State<SettingsPanel> {
           widget.overrides.padding?.left ??
           ReaderSettingsDefaults.horizontalPadding;
     }
-    _customFonts = {
-      for (final font in _customFonts) font.family: font,
-      for (final font in widget.customFonts) font.family: font,
-    }.values.toList();
+    if (oldWidget.customFonts != widget.customFonts) {
+      _customFonts = List.of(widget.customFonts);
+    }
+    if (oldWidget.cornerInfo != widget.cornerInfo) {
+      _cornerInfo = widget.cornerInfo;
+    }
   }
 
   bool get _isCustomFont => _fontFamily?.startsWith('user_') ?? false;
-  bool get _busyFont => _pickingFont || _loadingFont;
+  bool get _busyFont => _pickingFont || _choosingFont;
 
   void _selectFont(String? family) {
     if (_fontFamily == family) return;
@@ -339,24 +350,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
     }
   }
 
-  Future<void> _selectSavedFont(String? family) async {
-    if (family == null || family == _fontFamily || _busyFont) return;
-    final load = widget.onLoadFont;
-    if (load == null) {
-      _selectFont(family);
-      return;
-    }
-    setState(() => _loadingFont = true);
-    try {
-      await load(family);
-      if (mounted) _selectFont(family);
-    } catch (error) {
-      if (mounted) _showFontError('字体加载失败', error);
-    } finally {
-      if (mounted) setState(() => _loadingFont = false);
-    }
-  }
-
   void _showFontError(String action, Object error) {
     final message = error is FormatException
         ? error.message
@@ -375,129 +368,58 @@ class _SettingsPanelState extends State<SettingsPanel> {
     if (mounted && result != null) widget.onThemeChanged(result.id);
   }
 
-  Future<void> _showFontPicker() async {
-    if (_busyFont) return;
-    final panelTheme = Theme.of(context);
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: ReaderDrawerStyle.surfaceOf(panelTheme),
-      showDragHandle: false,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => Theme(
-        data: panelTheme,
-        child: SafeArea(
-          top: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.62,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 8, bottom: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE0E0E0),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: _SheetTitle(),
-                  ),
-                ),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: <Widget>[
-                      _fontOptionTile(
-                        context,
-                        key: 'settings-font-book',
-                        label: '书籍字体',
-                        value: null,
-                      ),
-                      _fontOptionTile(
-                        context,
-                        key: 'settings-font-song',
-                        label: '宋体',
-                        value: ReaderSettingsDefaults.fontSong,
-                      ),
-                      _fontOptionTile(
-                        context,
-                        key: 'settings-font-hei',
-                        label: '黑体',
-                        value: ReaderSettingsDefaults.fontSans,
-                      ),
-                      for (final font in _customFonts)
-                        _fontOptionTile(
-                          context,
-                          key: 'settings-custom-font-${font.family}',
-                          label: font.label,
-                          value: font.family,
-                          saved: true,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+  String get _fontLabel {
+    if (_fontFamily == null) return '书籍字体';
+    if (_fontFamily == ReaderSettingsDefaults.fontSong) return '宋体';
+    if (_fontFamily == ReaderSettingsDefaults.fontSans) return '黑体';
+    return _customFonts
+            .where((font) => font.family == _fontFamily)
+            .firstOrNull
+            ?.label ??
+        '自定义字体';
   }
 
-  Widget _fontOptionTile(
-    BuildContext sheetContext, {
-    required String key,
-    required String label,
-    required String? value,
-    bool saved = false,
-  }) {
-    final selected = _fontFamily == value;
-    final text = ReaderDrawerStyle.textOf(Theme.of(sheetContext));
-    return InkWell(
-      key: ValueKey<String>(key),
-      onTap: _busyFont
-          ? null
-          : () {
-              Navigator.of(sheetContext).pop();
-              if (saved) {
-                _selectSavedFont(value);
-              } else {
-                _selectFont(value);
-              }
-            },
-      child: SizedBox(
-        height: 48,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: selected ? _accent : text,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  ),
-                ),
-              ),
-              if (selected) const Icon(Icons.check, size: 18, color: _accent),
-            ],
-          ),
-        ),
+  Future<void> _showFontPicker() async {
+    if (_busyFont) return;
+    setState(() => _choosingFont = true);
+    final selection = await showModalBottomSheet<ReaderFontSelection>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => ReaderFontPickerSheet(
+        fonts: _customFonts,
+        selected: _fontFamily,
+        onLoad: widget.onLoadFont,
+        onRename: widget.onRenameFont == null
+            ? null
+            : (family, name) async {
+                final renamed = await widget.onRenameFont!(family, name);
+                if (mounted) {
+                  setState(
+                    () => _customFonts = [
+                      for (final font in _customFonts)
+                        font.family == family ? renamed : font,
+                    ],
+                  );
+                }
+                return renamed;
+              },
+        onRemove: widget.onRemoveFont == null
+            ? null
+            : (family) async {
+                await widget.onRemoveFont!(family);
+                if (!mounted) return;
+                setState(
+                  () =>
+                      _customFonts.removeWhere((font) => font.family == family),
+                );
+                if (_fontFamily == family) _selectFont(null);
+              },
       ),
     );
+    if (mounted) setState(() => _choosingFont = false);
+    if (selection != null && mounted) _selectFont(selection.family);
   }
 
   String get _sectionTitle => switch (widget.section) {
@@ -703,7 +625,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   child: _FontButton(
                     key: const ValueKey<String>('settings-font-picker'),
                     icon: Icons.text_fields,
-                    label: '选择自定义字体',
+                    label: '选择字体',
                     onPressed: _busyFont ? null : _showFontPicker,
                   ),
                 ),
@@ -712,11 +634,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   child: _FontButton(
                     key: const ValueKey<String>('settings-import-font'),
                     icon: Icons.file_upload_outlined,
-                    label: _loadingFont
-                        ? '加载中'
-                        : _pickingFont
-                        ? '导入中'
-                        : '导入自定义字体',
+                    label: _pickingFont ? '导入中' : '导入自定义字体',
                     onPressed: widget.onPickFont == null || _busyFont
                         ? null
                         : _pickFont,
@@ -725,6 +643,23 @@ class _SettingsPanelState extends State<SettingsPanel> {
               ],
             ),
             const SizedBox(height: 12),
+            Text(
+              '当前：$_fontLabel',
+              key: const ValueKey('settings-current-font'),
+              style: TextStyle(
+                fontSize: 12,
+                color: ReaderDrawerStyle.textOf(theme),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '支持 TTF、OTF，最大 50MB。缺字会使用内置字体补全。',
+              style: TextStyle(
+                fontSize: 11,
+                color: ReaderDrawerStyle.secondaryOf(theme),
+              ),
+            ),
+            const SizedBox(height: 8),
             _compactSwitchRow(
               key: const ValueKey<String>('settings-override-embedded-fonts'),
               label: '全书使用自定义字体',
@@ -1103,7 +1038,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
         ),
       ),
       const SizedBox(height: 6),
-      const _CornerPreview(),
+      CornerInfoEditor(
+        info: _cornerInfo,
+        onChanged: widget.onCornerInfoChanged == null
+            ? null
+            : (info) {
+                setState(() => _cornerInfo = info);
+                widget.onCornerInfoChanged!(info);
+              },
+      ),
       const SizedBox(height: 10),
       _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
       _compactSwitchRow(
@@ -1376,22 +1319,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.slideHorizontal => '滑动',
     PageTurnMode.none => '无',
   };
-}
-
-class _SheetTitle extends StatelessWidget {
-  const _SheetTitle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      '选择字体',
-      style: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-        color: ReaderDrawerStyle.textOf(Theme.of(context)),
-      ),
-    );
-  }
 }
 
 class _FontButton extends StatelessWidget {
@@ -1701,97 +1628,6 @@ class _SettingsEntryRow extends StatelessWidget {
   }
 }
 
-class _CornerPreview extends StatelessWidget {
-  const _CornerPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 86,
-      child: CustomPaint(
-        painter: const _DashedRoundedRectPainter(
-          color: Color(0xFFDDDDDD),
-          radius: 8,
-        ),
-        child: Stack(
-          children: const <Widget>[
-            Positioned(
-              top: 8,
-              left: 8,
-              child: _CornerChip(
-                key: ValueKey<String>('settings-corner-top-left'),
-                label: '时间',
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: _CornerChip(
-                key: ValueKey<String>('settings-corner-top-right'),
-                label: '书名',
-              ),
-            ),
-            Positioned(
-              bottom: 8,
-              left: 8,
-              child: _CornerChip(
-                key: ValueKey<String>('settings-corner-bottom-left'),
-                label: '进度',
-              ),
-            ),
-            Positioned(
-              bottom: 8,
-              right: 8,
-              child: _CornerChip(
-                key: ValueKey<String>('settings-corner-bottom-right'),
-                label: '电量',
-              ),
-            ),
-            Center(
-              child: Opacity(
-                opacity: 0.5,
-                child: Text(
-                  '点击四角按钮修改信息',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF999999)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CornerChip extends StatelessWidget {
-  const _CornerChip({super.key, required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0xFFE0E0E0)),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-            color: Color(0x0D000000),
-            blurRadius: 2,
-            offset: Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 11, color: Color(0xFF333333)),
-      ),
-    );
-  }
-}
-
 class _ImageTileFrame extends StatelessWidget {
   const _ImageTileFrame({required this.selected, required this.child});
 
@@ -1983,37 +1819,4 @@ class _DashedCirclePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedCirclePainter oldDelegate) =>
       oldDelegate.color != color;
-}
-
-class _DashedRoundedRectPainter extends CustomPainter {
-  const _DashedRoundedRectPainter({required this.color, required this.radius});
-
-  final Color color;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0.5, 0.5, size.width - 1, size.height - 1),
-      Radius.circular(radius),
-    );
-    canvas.drawRRect(rect, Paint()..color = const Color(0xFFF9F9F9));
-    final path = Path()..addRRect(rect);
-    for (final metric in path.computeMetrics()) {
-      var distance = 0.0;
-      while (distance < metric.length) {
-        final end = (distance + 5).clamp(0.0, metric.length);
-        canvas.drawPath(metric.extractPath(distance, end), paint);
-        distance += 9;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DashedRoundedRectPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.radius != radius;
 }

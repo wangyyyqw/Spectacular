@@ -18,6 +18,8 @@ Widget _panel({
   List<ReaderFontOption> fonts = const [],
   Future<ReaderFontOption?> Function()? pick,
   Future<void> Function(String family)? load,
+  Future<ReaderFontOption> Function(String family, String name)? rename,
+  Future<void> Function(String family)? remove,
   required ValueChanged<ReaderOverrides> onChanged,
 }) => MaterialApp(
   home: Scaffold(
@@ -28,6 +30,8 @@ Widget _panel({
       customFonts: fonts,
       onPickFont: pick,
       onLoadFont: load,
+      onRenameFont: rename,
+      onRemoveFont: remove,
       onOverridesChanged: onChanged,
       onThemeChanged: (_) {},
     ),
@@ -65,7 +69,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      for (final text in ['字体设置', '选择自定义字体', '全书使用自定义字体']) {
+      for (final text in ['字体设置', '选择字体', '全书使用自定义字体']) {
         final label = find.text(text).first;
         final widget = tester.widget<Text>(label);
         final color = DefaultTextStyle.of(tester.element(label)).style
@@ -133,7 +137,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(requested, [_font.family, _otherFont.family]);
     expect(changes.length, 1);
-    expect(find.text('字体加载失败：字体文件无法读取'), findsOneWidget);
+    expect(find.text('字体文件无法读取'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('font-picker-error')),
+      findsOneWidget,
+      reason: '加载失败后保留选择页，用户可以选择其他字体',
+    );
   });
 
   testWidgets('导入字体后默认保留内嵌字体，开关覆盖全书并可关闭', (tester) async {
@@ -156,6 +165,65 @@ void main() {
     await tester.tap(find.byKey(_switchKey));
     await tester.pumpAndSettle();
     expect(changes.last.overrideEmbeddedFonts, isFalse);
+  });
+
+  testWidgets('试读不改变正文选择，重命名和移除后清单与当前选择同步', (tester) async {
+    final changes = <ReaderOverrides>[];
+    final loaded = <String>[];
+    final removed = <String>[];
+    await tester.pumpWidget(
+      _panel(
+        overrides: const ReaderOverrides(
+          fontFamily: 'user_test',
+          overrideEmbeddedFonts: true,
+        ),
+        fonts: const [_font, _otherFont],
+        load: (family) async => loaded.add(family),
+        rename: (family, name) async =>
+            ReaderFontOption(family: family, label: name),
+        remove: (family) async => removed.add(family),
+        onChanged: changes.add,
+      ),
+    );
+    await _openPicker(tester);
+    final actions = find.byKey(const ValueKey('font-actions-user_other'));
+    await tester.tap(actions);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('试读预览'));
+    await tester.pumpAndSettle();
+    expect(loaded, ['user_other']);
+    expect(changes, isEmpty);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('font-preview-text')))
+          .style!
+          .fontFamily,
+      'user_other',
+    );
+    await tester.tap(actions);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重命名'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('font-rename-input')),
+      '试读字体',
+    );
+    await tester.tap(find.byKey(const ValueKey('font-rename-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.text('试读字体'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('font-actions-user_test')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除字体'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('font-remove-confirm')));
+    await tester.pumpAndSettle();
+    expect(removed, ['user_test']);
+    expect(changes.single.fontFamily, isNull);
+    expect(changes.single.overrideEmbeddedFonts, isFalse);
+    expect(
+      find.byKey(const ValueKey('settings-custom-font-user_test')),
+      findsNothing,
+    );
   });
 
   testWidgets('已导入字体可选择，更换自定义字体保留覆盖开关', (tester) async {

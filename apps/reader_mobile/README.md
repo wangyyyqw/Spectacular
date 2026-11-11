@@ -15,6 +15,21 @@ Spectacular Reader 的 Flutter 应用宿主，包含 Android、iOS 和 macOS 工
 
 当前支持 EPUB。TXT、PDF 只有核心格式契约；TTS 依赖已声明、UI 有可选回调，但应用尚未接入朗读流程。全局实现状态见 [根 README](../../README.md)。
 
+## 阅读与业务细节（2026-11-12）
+
+| 功能 | 当前行为与实现位置 |
+|---|---|
+| 阅读菜单与边距 | 菜单和抽屉进入、退出有动画，墨水屏和系统减少动态效果使用即时切换；六项边距支持拖动、点击数值输入小数、预览、取消及保存。宿主由 `epub_reader_page.dart` 接入 `reader_ui`。 |
+| 自定义字体 | `ReaderFontStore` 管理导入、注册、试读、重命名和移除；名称变更不改变字体身份。移除当前字体恢复书籍字体并关闭全书字体覆盖，清单与偏好持久化。 |
+| 四角信息 | `ReaderSettings.cornerInfo` 独立保存四角的隐藏、章节名、书名、章内页码、全书进度、时间及电量；隐藏整行回收正文高度，显式边距继续保留。Android `MainActivity.getBatteryLevel` 提供真实电量。 |
+| 封面与图标 | `home/book_cover_image.dart` 统一书架、详情、统计和书评的封面，按宽度与屏幕倍率解码、等比完整显示；缺失和失败回退书名占位。沿用 Material 图标，菜单提供语义标签和触控目标。 |
+| 统计 | `home/reading_insights.dart` 为概览、趋势与热力图提供同一统计口径；新增连续／最长连续天数、日均、平均／最长单次、四时段分布、估算字速，以及按书的时长、次数、翻页和字数排行。 |
+| 书评与读完 | 书评页面与 `home/finish_book_sheet.dart` 统一评分和 5000 字正文；保存成功后关闭，失败保留草稿，保存期间防止重复提交，未保存退出需确认；详情支持复制全文。 |
+
+统计中的阅读次数是连续前台片段次数；退出、后台和再次进入会产生不同片段。跨自然日的翻页和字数按时长分配，标为估算且总数守恒；日均以实际阅读天数计算，字速不是净阅读速度测量。书评与读完标记分别保存，后者失败时会明确提示书评已保存，保留编辑器供重试。
+
+实现、分类回归及真机覆盖见 [功能细节优化与 APK 验收](../../docs/功能细节优化与APK验收-2026-11-12.md)。
+
 ## 本地运行
 
 使用已配置的 Flutter、Android SDK 或 Xcode。当前验证工具链为 Flutter 3.47.5、Dart 3.13.4，依赖版本与平台覆盖以 `pubspec.yaml`、锁文件及实际验收为准。
@@ -39,7 +54,7 @@ flutter run --no-pub
 flutter build apk --release --no-pub --target-platform=android-arm64
 ```
 
-`--no-pub` 跳过 Dart 依赖解析，Gradle 离线构建还需 `--offline`。本次 APK 使用 Flutter 配置生成、正式插件注册与本地 Gradle `:app:assembleRelease` 完成离线打包，具体命令和插件注册前置见 [统一实现与 APK 验收](../../docs/统一实现与APK验收-2026-11-11.md)。
+`--no-pub` 跳过 Dart 依赖解析，Gradle 离线构建还需 `--offline`。验收 APK 使用 Flutter 配置生成、正式插件注册与本地 Gradle `:app:assembleRelease` 完成离线打包，命令和插件注册前置见 [统一实现与 APK 验收](../../docs/统一实现与APK验收-2026-11-11.md)，最新产物与安装结果见 [功能细节优化与 APK 验收](../../docs/功能细节优化与APK验收-2026-11-12.md)。
 
 产物保存在被忽略的 `dist/`。当前包名为 `com.spectacular.reader_mobile`，应用版本为 `1.0.0+1`；开发验收包未完成商店签名和发布材料准备。覆盖安装必须使用相同签名，原开发数据的保存与本次初始数据库验收准备见专项记录。
 
