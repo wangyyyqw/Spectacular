@@ -81,6 +81,7 @@ class ParsedDocument implements SpineDocument {
     required this.textNodes,
     required this.elementsById,
     required this.parserChoice,
+    this.htmlAttributes = const <String, String>{},
     this.parseDiagnostics = const <String>[],
   }) : plainText = textNodes.map((node) => node.text).join();
 
@@ -92,6 +93,9 @@ class ParsedDocument implements SpineDocument {
 
   /// 原始 XHTML，用于失效 CFI 容错。
   final String source;
+
+  /// 根元素属性供视口轴级联使用；不把 html 插入正文树，保持原有 CFI。
+  final Map<String, String> htmlAttributes;
 
   /// 全部文本节点（文档顺序）。
   final List<ParsedText> textNodes;
@@ -215,10 +219,7 @@ abstract final class DocumentParser {
       );
     }
     final prepared = prepareHtml5InputWithOffsets(xhtml);
-    final document = html_parser.parse(
-      prepared.xhtml,
-      generateSpans: true,
-    );
+    final document = html_parser.parse(prepared.xhtml, generateSpans: true);
     final body = document.body;
     if (body == null) {
       throw const FormatException('XHTML 缺少 body');
@@ -236,9 +237,8 @@ abstract final class DocumentParser {
       return builder.build();
     }
 
-    int offsetStart(dom.Node node) => prepared.originalOffset(
-      node.sourceSpan?.start.offset ?? 0,
-    );
+    int offsetStart(dom.Node node) =>
+        prepared.originalOffset(node.sourceSpan?.start.offset ?? 0);
     int offsetEnd(dom.Node node) => prepared.originalOffset(
       node.sourceSpan?.end.offset ?? offsetStart(node),
     );
@@ -273,10 +273,7 @@ abstract final class DocumentParser {
             text: flat,
             start: offsetStart(element),
             end: offsetEnd(element),
-            cfi: build(<CfiStep>[
-              ...path,
-              CfiStep(1),
-            ]),
+            cfi: build(<CfiStep>[...path, CfiStep(1)]),
           );
           node.children.add(text);
           textNodes.add(text);
@@ -294,7 +291,9 @@ abstract final class DocumentParser {
             elementIndex * 2,
             assertion: childId == null || childId.isEmpty ? null : childId,
           );
-          node.children.add(convert(child, <CfiStep>[...path, step], depth + 1));
+          node.children.add(
+            convert(child, <CfiStep>[...path, step], depth + 1),
+          );
         } else if (child is dom.Text) {
           textIndex += 1;
           final step = CfiStep(textIndex * 2 - 1);
@@ -312,6 +311,13 @@ abstract final class DocumentParser {
     }
 
     final root = convert(body, const <CfiStep>[], 0);
+    final htmlAttributes = <String, String>{
+      for (final entry in document.documentElement!.attributes.entries)
+        entry.key.toString(): _capAttributeValue(
+          entry.value,
+          () => attributesTruncated += 1,
+        ),
+    };
     if (depthClamped > 0) {
       diagnostics.add(
         'E_DOM_NESTING_TOO_DEEP: $depthClamped 处嵌套超过 $maxDomDepth 层，'
@@ -328,6 +334,7 @@ abstract final class DocumentParser {
       spineIndex: spineIndex,
       root: root,
       source: xhtml,
+      htmlAttributes: Map.unmodifiable(htmlAttributes),
       textNodes: List<ParsedText>.unmodifiable(textNodes),
       elementsById: Map<String, ParsedElement>.unmodifiable(elementsById),
       parserChoice: choice,

@@ -13,6 +13,11 @@ class GeneratedChapterContent {
   final ChapterStyleResolver styles;
   final String Function(String) resolveImageUrl;
   final Map<String, int> cssCounters = {};
+
+  /// 内在尺寸预测使用独立计数器快照，不推进正式构块的文档序状态。
+  GeneratedChapterContent measurementSnapshot() =>
+      GeneratedChapterContent(styles, resolveImageUrl)
+        ..cssCounters.addAll(cssCounters);
   List<AuxiliaryCssRule> get auxiliaryRules =>
       styles.preparedStyles.auxiliaryRules;
   Map<String, List<AuxiliaryCssRule>> get pseudoRules =>

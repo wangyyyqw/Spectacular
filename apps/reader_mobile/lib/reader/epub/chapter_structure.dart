@@ -221,7 +221,10 @@ class ChapterStructureStore {
 }
 
 ChapterStructure _buildStructure(_StructureInput input) {
-  final selectors = ChapterSelectors(input.parsed.root);
+  final selectors = ChapterSelectors(
+    input.parsed.root,
+    htmlAttributes: input.parsed.htmlAttributes,
+  );
   final raw = ChapterRawStyles(
     selectors,
     input.config.baseStyle,

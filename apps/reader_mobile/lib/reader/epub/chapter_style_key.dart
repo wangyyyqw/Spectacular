@@ -29,6 +29,8 @@ Map<String, String> _ordered(Map<String, String> values) => {
 Map<String, Object?> _text(ComputedStyle s) => {
   'fontSize': s.fontSize,
   'parentFontSize': s.parentFontSize,
+  'cssRootFontSize': s.cssRootFontSize,
+  'cssFontSize': s.cssFontSize,
   'lineHeight': s.lineHeight,
   'lineHeightFactor': s.lineHeightFactor,
   'unitlessLineHeightFactor': s.unitlessLineHeightFactor,
@@ -91,6 +93,7 @@ Map<String, Object?> _flow(ComputedStyle s) => {
   'emptyCells': s.emptyCells,
   'borderSpacing': s.borderSpacing,
   'listStyleType': s.listStyleType,
+  'listStyleString': s.listStyleString,
   'listStylePosition': s.listStylePosition,
   'listStyleImage': s.listStyleImage,
   'tableLayout': s.tableLayout,
@@ -100,6 +103,7 @@ Map<String, Object?> _boxes(ComputedStyle s) => {
   'margin': s.margin,
   'padding': s.padding,
   'width': s.width,
+  'intrinsicWidth': s.intrinsicWidth,
   'height': s.height,
   'minWidth': s.minWidth,
   'maxWidth': s.maxWidth,
@@ -196,6 +200,7 @@ Object _encodePaintValue(Object? value) => switch (value) {
 };
 
 Object _encodeDecorationValue(Object? value) => switch (value) {
+  CssBackgroundRepeat() => [value.x, value.y],
   CssBorderSide() => [value.width, value.style, value.color],
   CssBorderImage() => [
     value.url,
@@ -217,6 +222,7 @@ Object _encodeDecorationValue(Object? value) => switch (value) {
     value.repeating,
     value.stops,
   ],
+  CssConicGradient() => ['conic', value.stops],
   _ => throw StateError('基础样式键尚未覆盖 ${value.runtimeType}'),
 };
 

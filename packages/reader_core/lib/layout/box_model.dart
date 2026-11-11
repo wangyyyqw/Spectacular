@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../css/computed_style.dart';
+import 'intrinsic_widths.dart';
 
 /// 盒模型尺寸合成：把样式里的 width/height/padding/border/margin/box-sizing
 /// 解算成盒尺寸（CSS 2.1 §10，逻辑像素）。
@@ -20,6 +21,7 @@ class BoxModel {
     required this.minHeight,
     required this.maxHeight,
     required this.containingWidth,
+    required this.intrinsicWidth,
   });
 
   /// 从计算样式解算盒模型。
@@ -67,6 +69,7 @@ class BoxModel {
       minHeight: style.minHeight,
       maxHeight: style.maxHeight,
       containingWidth: containingWidth,
+      intrinsicWidth: style.intrinsicWidth,
     );
   }
 
@@ -106,6 +109,9 @@ class BoxModel {
   /// 百分比尺寸的解算基准。
   final double containingWidth;
 
+  /// 仅在调用方提供内容测量结果时消费，不干预原有 auto 和替换元素路径。
+  final CssIntrinsicWidth? intrinsicWidth;
+
   /// padding + border 的水平总和。
   double get horizontalInset => padding.horizontal + borders.horizontal;
 
@@ -122,7 +128,10 @@ class BoxModel {
 
   /// 解算内容宽：auto 取可用宽减去 inset 与 margin，声明宽直接用 box-sizing
   /// 折出的内容宽，最后按 min/max 钳制（min 优先于 max）。
-  double resolveContentWidth(double availableWidth) {
+  double resolveContentWidth(
+    double availableWidth, {
+    IntrinsicWidths? intrinsicWidths,
+  }) {
     final autoWidth = math.max(
       0.0,
       availableWidth - horizontalInset - margin.horizontal,
@@ -139,7 +148,10 @@ class BoxModel {
       inset: horizontalInset,
       boxSizing: boxSizing,
     );
-    return _clamp(contentWidth ?? autoWidth, min, max);
+    final intrinsic = intrinsicWidths == null || intrinsicWidth == null
+        ? null
+        : intrinsicWidths.resolve(intrinsicWidth!, autoWidth);
+    return _clamp(intrinsic ?? contentWidth ?? autoWidth, min, max);
   }
 
   /// 解算内容高：未声明高度用测量值，声明高度按 box-sizing 解算后按 min/max

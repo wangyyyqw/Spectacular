@@ -285,6 +285,32 @@ class _LayoutMemoryWork {
     PageBlockSlice() => _add(192, [value.block]),
     TableCellRender() => _add(256, [value.layout, value.style, value.startCfi]),
     StyledRun() => _add(64, [value.style]),
+    _ => _background(value),
+  };
+
+  Iterable<int> _background(Object value) => switch (value) {
+    PageBackground() => _add(128, [
+      value.imageUrl,
+      value.layers,
+      value.size,
+      value.position,
+      value.repeat,
+    ]),
+    CssBackgroundLayer() => _add(96, [
+      value.image,
+      value.gradient,
+      value.size,
+      value.position,
+      value.repeat,
+    ]),
+    CssGradient() => _add(80, [
+      value.stops,
+      if (value is CssRadialGradient) ...[value.centerX, value.centerY],
+    ]),
+    CssGradientStop() => _add(48),
+    CssBackgroundSize() => _add(32, [value.width, value.height]),
+    CssBackgroundPosition() => _add(24, [value.x, value.y]),
+    CssLength() || CssBackgroundRepeat() => _add(24),
     _ => _leaf(value),
   };
 
@@ -292,7 +318,6 @@ class _LayoutMemoryWork {
     String() => _add(value.length * 2),
     TypedData() => _add(32, [value.buffer]),
     ByteBuffer() => _add(value.lengthInBytes),
-    PageBackground() => _add(128, [value.imageUrl]),
     PageContainerFragment() => _add(64, [value.container]),
     PageContainer() => _add(128, [value.style]),
     RubyAnnotation() => _add(64, [value.text, value.style]),
@@ -350,6 +375,13 @@ class _LayoutMemoryWork {
 
   Iterable<int> _style(ComputedStyle style) sync* {
     bytes += 512 + style.values.length * 32;
+    yield* _references([
+      style.backgroundImage,
+      style.backgroundGradient,
+      style.backgroundSize,
+      style.backgroundPosition,
+      style.backgroundRepeat,
+    ]);
     for (final declaration in style.values.entries) {
       yield* _references([declaration.key, declaration.value]);
     }

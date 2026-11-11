@@ -80,14 +80,27 @@ class ListContext {
 
   int _olCounter = 0;
 
+  /// 内在尺寸预测复制序号和首块状态，不能消费正式列表的标记。
+  ListContext measurementSnapshot() =>
+      ListContext(
+          type,
+          depth,
+          spaceBefore: spaceBefore,
+          spaceAfter: spaceAfter,
+          inside: inside,
+        )
+        ..markerPending = markerPending
+        .._olCounter = _olCounter;
+
   /// 当前项的标记文本（P9-12）：优先按 `list-style-type` 选择
   ///（decimal/roman/alpha 等），`none` 不画标记；未声明时 ol 递增序号、
   /// ul 按深度取 disc→circle→square（Reeden 630 §0-#4 嵌套类型轮换）。
-  String nextMarker(CssListStyleType style) {
+  String nextMarker(CssListStyleType style, {String? customMarker}) {
     if (type == 'ol') {
       _olCounter += 1;
       return switch (style) {
         CssListStyleType.none => '',
+        CssListStyleType.custom => customMarker ?? '',
         CssListStyleType.lowerRoman =>
           '${romanCounter(_olCounter).toLowerCase()}.',
         CssListStyleType.upperRoman => '${romanCounter(_olCounter)}.',
@@ -102,6 +115,7 @@ class ListContext {
     }
     return switch (style) {
       CssListStyleType.none => '',
+      CssListStyleType.custom => customMarker ?? '',
       CssListStyleType.circle => '○',
       CssListStyleType.square => '▪',
       CssListStyleType.decimal => '${_olCounter += 1}.',

@@ -24,12 +24,18 @@ class ChapterNodeView implements SelectorElement {
 
 /// 原始元素与聚合节点之间的选择器坐标桥，不持有章节源或分页结果。
 class ChapterSelectors {
-  ChapterSelectors(ParsedElement root) {
-    _build(root);
+  ChapterSelectors(ParsedElement root, {Map<String, String>? htmlAttributes}) {
+    final view = _build(root);
+    htmlElement = htmlAttributes == null
+        ? null
+        : ChapterNodeView('html', htmlAttributes, [view]);
     _index(root, const []);
   }
 
   ChapterSelectors._();
+
+  /// 只供根视口轴计算；正文选择器链与 CFI 坐标仍从 body 起算。
+  late final ChapterNodeView? htmlElement;
 
   final Map<String, List<SelectorElement>> _chains = {};
   final Map<String, ChapterNodeView> _views = {};
@@ -48,9 +54,13 @@ class ChapterSelectors {
   static Future<ChapterSelectors> prepare(
     ParsedElement root, {
     Future<void> Function()? checkpoint,
+    Map<String, String>? htmlAttributes,
   }) async {
     final result = ChapterSelectors._();
-    await result._buildAsync(root, checkpoint);
+    final view = await result._buildAsync(root, checkpoint);
+    result.htmlElement = htmlAttributes == null
+        ? null
+        : ChapterNodeView('html', htmlAttributes, [view]);
     await result._indexAsync(root, const [], checkpoint);
     return result;
   }

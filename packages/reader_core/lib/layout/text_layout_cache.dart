@@ -48,6 +48,7 @@ class TextLayoutCache {
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool Function(String family, int codeUnit)? hasGlyph,
     String fontDependency = '',
+    bool preserveContentWidth = false,
   }) {
     final key = _key(
       text: text,
@@ -59,6 +60,7 @@ class TextLayoutCache {
       rubies: rubies,
       hasGlyph: hasGlyph,
       fontDependency: fontDependency,
+      preserveContentWidth: preserveContentWidth,
     );
     final cached = _take(
       key,
@@ -82,6 +84,7 @@ class TextLayoutCache {
       runs: runs,
       rubies: rubies,
       hasGlyph: hasGlyph,
+      lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
     );
     _entries[key] = result;
     _evict();
@@ -100,6 +103,7 @@ class TextLayoutCache {
     bool Function(String family, int codeUnit)? hasGlyph,
     String fontDependency = '',
     Future<void> Function()? checkpoint,
+    bool preserveContentWidth = false,
   }) async {
     if (checkpoint != null) await checkpoint();
     final key = _key(
@@ -112,6 +116,7 @@ class TextLayoutCache {
       rubies: rubies,
       hasGlyph: hasGlyph,
       fontDependency: fontDependency,
+      preserveContentWidth: preserveContentWidth,
     );
     final cached = _take(
       key,
@@ -135,6 +140,7 @@ class TextLayoutCache {
       rubies: rubies,
       hasGlyph: hasGlyph,
       checkpoint: checkpoint,
+      lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
     );
     if (checkpoint != null) await checkpoint();
     if (epoch == _epoch) {
@@ -181,10 +187,14 @@ class TextLayoutCache {
     required List<RubyAnnotation> rubies,
     required bool Function(String family, int codeUnit)? hasGlyph,
     required String fontDependency,
+    required bool preserveContentWidth,
   }) {
     final buffer = StringBuffer('spacing=$textSpacingRevision|')
       ..write('fractional=${LineBreaker.preserveFractionalLineHeight}|')
       ..write('fonts=$fontDependency|')
+      ..write(
+        'contentWidth=${preserveContentWidth || style.intrinsicWidth != null}|',
+      )
       ..write(style.layoutFingerprint)
       ..write('|w=')
       ..write(maxWidth.toString())

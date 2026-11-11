@@ -4,7 +4,19 @@ import 'dart:ui' show Color, Radius, Size;
 import 'package:csslib/parser.dart' as csslib;
 
 import 'fragmentation.dart';
+import 'length.dart';
+import 'font_size.dart';
+import 'intrinsic_width.dart';
+import 'background_values.dart';
+import 'background_declarations.dart';
+import 'list_style.dart';
+import 'value_tokens.dart';
 import 'property_aliases.dart';
+
+export 'length.dart';
+export 'background_values.dart';
+export 'list_style.dart';
+export 'intrinsic_width.dart';
 
 /// 文本对齐（避免把 Flutter 枚举带进纯解析层）。
 enum CssTextAlign { start, end, left, right, center, justify }
@@ -272,234 +284,6 @@ class CssTextShadow {
 
   /// 阴影颜色；null 表示跟随文字颜色。
   final Color? color;
-}
-
-/// 背景平铺方式（CSS background-repeat）。
-enum CssBackgroundRepeat { repeat, repeatX, repeatY, noRepeat }
-
-/// 背景尺寸模式（CSS background-size）。
-enum CssBackgroundSizeMode { auto, cover, contain, explicit }
-
-/// 背景尺寸：关键字或明确宽高（auto 表示该维按比例）。
-class CssBackgroundSize {
-  /// 关键字尺寸。
-  const CssBackgroundSize.keyword(this.mode) : width = null, height = null;
-
-  /// 明确尺寸（可为 auto）。
-  const CssBackgroundSize.explicit({this.width, this.height})
-    : mode = CssBackgroundSizeMode.explicit;
-
-  /// 模式。
-  final CssBackgroundSizeMode mode;
-
-  /// 宽（explicit 模式）。
-  final CssLength? width;
-
-  /// 高（explicit 模式）。
-  final CssLength? height;
-}
-
-/// 背景位置（CSS background-position，关键字已折算成百分比/像素）。
-class CssBackgroundPosition {
-  /// 创建位置。
-  const CssBackgroundPosition({required this.x, required this.y});
-
-  /// 水平位置。
-  final CssLength x;
-
-  /// 垂直位置。
-  final CssLength y;
-}
-
-/// 背景绘制区域（CSS background-origin 的基础）。
-enum CssBackgroundOrigin { borderBox, paddingBox, contentBox }
-
-/// 背景裁剪区域（CSS background-clip）。
-enum CssBackgroundClip { borderBox, paddingBox, contentBox, text }
-
-/// 一个背景层（CSS 多背景按声明顺序从前到后排列）。
-class CssBackgroundLayer {
-  /// 创建背景层。
-  const CssBackgroundLayer({
-    this.image,
-    this.gradient,
-    this.repeat = CssBackgroundRepeat.repeat,
-    this.size = const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto),
-    this.position = const CssBackgroundPosition(
-      x: CssLength(0, isPercent: true),
-      y: CssLength(0, isPercent: true),
-    ),
-    this.origin = CssBackgroundOrigin.paddingBox,
-    this.clip = CssBackgroundClip.borderBox,
-  });
-
-  /// 背景图 URL；与 [gradient] 互斥。
-  final String? image;
-
-  /// 背景渐变；与 [image] 互斥。
-  final CssGradient? gradient;
-
-  /// 平铺方式。
-  final CssBackgroundRepeat repeat;
-
-  /// 背景尺寸。
-  final CssBackgroundSize size;
-
-  /// 背景位置。
-  final CssBackgroundPosition position;
-
-  /// 定位区域。
-  final CssBackgroundOrigin origin;
-
-  /// 裁剪区域。
-  final CssBackgroundClip clip;
-}
-
-/// 渐变色标（CSS `<color-stop>`）。
-///
-/// 位置三者择一：[position]（百分比换算的比例，普通渐变 0–1，repeating 渐变
-/// 可 >1）、[positionPx]（像素/em 已解算）或都为 null（自动分布）。
-/// 绘制层用 [fractionOf] 统一换算。
-class CssGradientStop {
-  /// 创建色标。
-  const CssGradientStop({required this.color, this.position, this.positionPx});
-
-  /// 颜色。
-  final Color color;
-
-  /// 位置比例（来自百分比；repeating 渐变可 >1）；null 表示未声明或像素位置。
-  final double? position;
-
-  /// 位置（像素，em 已按字号解算）；null 表示未声明或百分比位置。
-  final double? positionPx;
-
-  /// 换算成 0–1 比例：百分比直接返回；像素按 [extent]（渐变线长度或盒子
-  /// 尺寸）换算；未声明位置或 [extent] ≤ 0 时返回 null（由绘制层均分）。
-  double? fractionOf(double extent) {
-    if (position != null) {
-      return position;
-    }
-    final px = positionPx;
-    if (px == null || extent <= 0) {
-      return null;
-    }
-    return px / extent;
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is CssGradientStop &&
-      other.color == color &&
-      other.position == position &&
-      other.positionPx == positionPx;
-
-  @override
-  int get hashCode => Object.hash(color, position, positionPx);
-
-  @override
-  String toString() =>
-      'CssGradientStop($color,${position ?? positionPx ?? "auto"})';
-}
-
-/// 背景渐变（`background-image: <gradient>` 的解析结果）。
-///
-/// 支持 `linear-gradient()` / `radial-gradient()` 及其 `repeating-` 变体
-/// （[repeating] 标记）；不支持 conic、多背景层。读取点：绘制层按
-/// [CssLinearGradient] / [CssRadialGradient] 分派，[stops] 至少 2 个，
-/// 位置用 [CssGradientStop.fractionOf] 换算。
-sealed class CssGradient {
-  const CssGradient({required this.stops, this.repeating = false});
-
-  /// 色标（按声明顺序，至少 2 个）。
-  final List<CssGradientStop> stops;
-
-  /// 是否 `repeating-linear-gradient` / `repeating-radial-gradient`。
-  ///
-  /// true 时绘制层按色标区间循环平铺（最后一个色标到第一个色标的距离
-  /// 即重复周期）。
-  final bool repeating;
-
-  @override
-  bool operator ==(Object other) =>
-      other.runtimeType == runtimeType &&
-      other is CssGradient &&
-      other.repeating == repeating &&
-      _listEquals(other.stops, stops);
-
-  @override
-  int get hashCode =>
-      Object.hash(runtimeType, repeating, Object.hashAll(stops));
-}
-
-/// 线性渐变。
-///
-/// [angle] 是 CSS 角度（0deg = 向上、90deg = 向右、顺时针），
-/// `to <side|corner>` 已折算成角度，未声明方向时按规范默认 180deg（向下）。
-final class CssLinearGradient extends CssGradient {
-  /// 创建线性渐变。
-  const CssLinearGradient({
-    required super.stops,
-    super.repeating,
-    this.angle = 180,
-  });
-
-  /// 渐变角度（度）。
-  final double angle;
-
-  @override
-  bool operator ==(Object other) =>
-      other is CssLinearGradient && super == other && other.angle == angle;
-
-  @override
-  int get hashCode => Object.hash(angle, repeating, Object.hashAll(stops));
-
-  @override
-  String toString() =>
-      'CssLinearGradient(${angle}deg,repeating=$repeating,$stops)';
-}
-
-/// 径向渐变形状。
-enum CssRadialShape { circle, ellipse }
-
-/// 径向渐变。
-///
-/// 不支持 extent 关键字（closest-side / farthest-corner 等）：绘制层按默认
-/// farthest-corner 近似。[centerX]/[centerY] 支持百分比（默认 50%）与像素。
-final class CssRadialGradient extends CssGradient {
-  /// 创建径向渐变。
-  const CssRadialGradient({
-    required super.stops,
-    super.repeating,
-    this.shape = CssRadialShape.ellipse,
-    this.centerX = const CssLength(50, isPercent: true),
-    this.centerY = const CssLength(50, isPercent: true),
-  });
-
-  /// 形状（`circle` / `ellipse`）。
-  final CssRadialShape shape;
-
-  /// 中心点水平位置（百分比按盒子宽解算）。
-  final CssLength centerX;
-
-  /// 中心点垂直位置（百分比按盒子高解算）。
-  final CssLength centerY;
-
-  @override
-  bool operator ==(Object other) =>
-      other is CssRadialGradient &&
-      super == other &&
-      other.shape == shape &&
-      other.centerX == centerX &&
-      other.centerY == centerY;
-
-  @override
-  int get hashCode =>
-      Object.hash(shape, centerX, centerY, repeating, Object.hashAll(stops));
-
-  @override
-  String toString() =>
-      'CssRadialGradient(${shape.name},repeating=$repeating,'
-      '$centerX/$centerY,$stops)';
 }
 
 /// 滤镜函数种类（CSS `filter`）。
@@ -969,36 +753,6 @@ enum CssTableLayout {
   fixed,
 }
 
-/// 列表标记类型（CSS `list-style-type`，P9-12）。
-enum CssListStyleType {
-  /// 实心圆点。
-  disc,
-
-  /// 空心圆。
-  circle,
-
-  /// 方块。
-  square,
-
-  /// 阿拉伯数字。
-  decimal,
-
-  /// 小写罗马数字。
-  lowerRoman,
-
-  /// 大写罗马数字。
-  upperRoman,
-
-  /// 小写字母。
-  lowerAlpha,
-
-  /// 大写字母。
-  upperAlpha,
-
-  /// 不显示标记。
-  none,
-}
-
 /// 列表标记位置（CSS `list-style-position`；W2）。
 ///
 /// `outside`（初始值）：标记在内容框外，正文首行不缩进、换行不绕标记；
@@ -1047,59 +801,6 @@ class CssEdges {
 
   @override
   String toString() => 'CssEdges($top,$right,$bottom,$left)';
-}
-
-/// 尺寸值：像素 / 百分比 / auto。
-///
-/// 解析层只记录数值与单位标记，百分比按基准长度解算留到盒模型计算时。
-class CssLength {
-  /// 创建尺寸值；[isPercent] 为 true 时 [value] 是百分比数字（如 50 表示
-  /// 50%）；[isViewportHeight] 为 true 时表示 `vh`。
-  const CssLength(
-    this.value, {
-    this.isAuto = false,
-    this.isPercent = false,
-    this.isViewportHeight = false,
-  });
-
-  /// 关键字 `auto`。
-  const CssLength.auto()
-    : value = 0,
-      isAuto = true,
-      isPercent = false,
-      isViewportHeight = false;
-
-  /// 数值（像素或百分比数字）。
-  final double value;
-
-  /// 是否为关键字 `auto`。
-  final bool isAuto;
-
-  /// 是否为百分比。
-  final bool isPercent;
-
-  /// 是否使用视口高度单位（`vh`）。具体像素值需在拿到页面高度后解算。
-  final bool isViewportHeight;
-
-  /// 按基准长度解算像素；auto 返回 null。
-  double? resolve(double base, {double? viewportHeight}) {
-    if (isAuto) {
-      return null;
-    }
-    if (isViewportHeight) {
-      return viewportHeight == null ? null : value * viewportHeight / 100;
-    }
-    return isPercent ? value * base / 100 : value;
-  }
-
-  @override
-  String toString() => isAuto
-      ? 'CssLength(auto)'
-      : (isPercent
-            ? 'CssLength($value%)'
-            : (isViewportHeight
-                  ? 'CssLength(${value}vh)'
-                  : 'CssLength($value)'));
 }
 
 /// 盒模型尺寸基准（CSS `box-sizing`）。
@@ -1711,6 +1412,7 @@ class ComputedStyle {
       'background-image' => 'none',
       'background-repeat' => 'repeat',
       'background-position' => '0% 0%',
+      'background-position-x' || 'background-position-y' => '0%',
       'background-size' => 'auto',
       'background-origin' => 'padding-box',
       'background-clip' => 'border-box',
@@ -1725,8 +1427,19 @@ class ComputedStyle {
   /// 显式继承非继承属性时，长度必须传递计算值，不能重复解算 em。
   String? computedValue(String property) {
     property = CssFragmentation.canonicalProperty(property);
+    if (property == 'width' && intrinsicWidth != null) {
+      return switch (intrinsicWidth!) {
+        CssIntrinsicWidth.minContent => 'min-content',
+        CssIntrinsicWidth.maxContent => 'max-content',
+        CssIntrinsicWidth.fitContent => 'fit-content',
+      };
+    }
     if (CssFragmentation.isBreakProperty(property)) {
       return values[property] ?? 'auto';
+    }
+    if (property == 'background-position-x' ||
+        property == 'background-position-y') {
+      return _computedBackgroundAxis(property);
     }
     final edge = RegExp(r'^(margin|padding)-(top|right|bottom|left)$')
         .firstMatch(property);
@@ -1773,6 +1486,31 @@ class ComputedStyle {
     return values[property];
   }
 
+  String _computedBackgroundAxis(String property) {
+    final shorthand = _parseBackgroundShorthand(values['background']);
+    final position =
+        values['background-position'] ??
+        shorthand?['background-position'] ??
+        '0% 0%';
+    final raw =
+        values[property] ??
+        CssBackgroundDeclarations.positionLonghands(position)?[property] ??
+        '0%';
+    // 计算值的列表长度独立于图像数；继承后可能被更多背景层使用。
+    return (cssValueTokens(raw, separator: ',') ?? const ['0%'])
+        .map((value) {
+          final length =
+              CssBackgroundDeclarations.axis(
+                value,
+                fontSize: cssFontSize,
+                rootFontSize: cssRootFontSize,
+              ) ??
+              const CssLength(0, isPercent: true);
+          return '${length.value}${length.isPercent ? '%' : 'px'}';
+        })
+        .join(', ');
+  }
+
   /// 复用类型解析器过滤已支持属性的无效值，保留较早的有效声明。
   static bool isValidDeclaration(String property, String raw) {
     if (CssFragmentation.isIgnored(property)) return false;
@@ -1784,6 +1522,44 @@ class ComputedStyle {
         raw.contains('var(') ||
         const {'inherit', 'initial', 'unset'}.contains(value)) {
       return true;
+    }
+    if (property == 'background-position-x' ||
+        property == 'background-position-y') {
+      final layers = cssValueTokens(raw, separator: ',');
+      return layers != null &&
+          layers.isNotEmpty &&
+          layers.every(
+            (layer) => CssBackgroundDeclarations.validAxis(
+              layer,
+              horizontal: property.endsWith('-x'),
+            ),
+          );
+    }
+    if (property == 'background-repeat') {
+      final layers = cssValueTokens(raw, separator: ',');
+      return layers != null &&
+          layers.isNotEmpty &&
+          layers.every(
+            (layer) => CssBackgroundDeclarations.repeat(layer) != null,
+          );
+    }
+    if (property == 'background-position') {
+      return CssBackgroundDeclarations.positionLonghands(raw) != null;
+    }
+    if (property == 'background') {
+      return _parseBackgroundShorthand(raw) != null;
+    }
+    if (property == 'background-image') {
+      final layers = cssValueTokens(raw, separator: ',');
+      return layers != null &&
+          layers.isNotEmpty &&
+          layers.every(_validBackgroundImage);
+    }
+    if (property == 'list-style-type') {
+      return CssListStyles.validType(raw);
+    }
+    if (property == 'list-style') {
+      return CssListStyles.shorthand(raw) != null;
     }
     if (property == 'border' ||
         const {
@@ -1912,38 +1688,15 @@ class ComputedStyle {
         value == 'normal') {
       return true;
     }
-    if (property == 'font-size' &&
-        const {
-          'xx-small',
-          'x-small',
-          'small',
-          'medium',
-          'large',
-          'x-large',
-          'xx-large',
-          'smaller',
-          'larger',
-        }.contains(value)) {
+    if (property == 'font-size' && CssFontSizes.isKeyword(value)) return true;
+    if (property == 'width' && CssIntrinsicWidth.parse(value) != null) {
       return true;
     }
-    final viewportHeight = RegExp(r'^(-?(?:\d+(?:\.\d+)?|\.\d+))vh$')
-        .firstMatch(value);
-    if (viewportHeight != null) {
-      if (!const {
-        'width',
-        'height',
-        'min-width',
-        'min-height',
-        'max-width',
-        'max-height',
-      }.contains(property)) {
-        return false;
-      }
-      final number = double.parse(viewportHeight.group(1)!);
-      return number.isFinite && number >= 0;
-    }
     final length = _resolveLength(
-      value,
+      const CssValueContext(
+        viewportWidth: 100,
+        viewportHeight: 100,
+      ).resolveValue(value),
       fontSize: 16,
       parentFontSize: 16,
       rootFontSize: 16,
@@ -2043,7 +1796,22 @@ class ComputedStyle {
     Map<String, String> customProperties = const <String, String>{},
     double rootFontSize = 16,
     double containingWidth = 0,
+    CssValueContext? valueContext,
   }) {
+    var context =
+        valueContext ?? parent?.valueContext ?? const CssValueContext();
+    if (!context.rootAxisResolved &&
+        (parent?.valueContext.rootAxisResolved ?? false)) {
+      context = context.withRootAxis(parent!.valueContext.rootIsVertical);
+    }
+    if (parent == null &&
+        !context.rootAxisResolved &&
+        values.containsKey('writing-mode')) {
+      context = context.withRootAxis(
+        isVerticalWritingMode(values['writing-mode']!),
+      );
+    }
+    values = context.resolveValues(values);
     values = CssFragmentation.normalizeValues(
       values,
       inheritedValue: parent?.computedValue,
@@ -2072,6 +1840,11 @@ class ComputedStyle {
     final rawFontSize = fontValue('font-size');
     if (rawFontSize != null) {
       fontSize =
+          CssFontSizes.resolve(
+            rawFontSize,
+            parent: parentFontSize,
+            root: rootFontSize,
+          ) ??
           _resolveLength(
             rawFontSize,
             fontSize: parentFontSize,
@@ -2589,16 +2362,13 @@ class ComputedStyle {
           rootFontSize: rootFontSize,
         ) ??
         const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto);
-    final backgroundPosition =
-        _parseBackgroundPosition(
-          backgroundValue('background-position'),
-          fontSize: fontSize,
-          rootFontSize: rootFontSize,
-        ) ??
-        const CssBackgroundPosition(
-          x: CssLength(0, isPercent: true),
-          y: CssLength(0, isPercent: true),
-        );
+    final backgroundPosition = _backgroundPositionWithAxes(
+      backgroundValue('background-position'),
+      x: backgroundValue('background-position-x'),
+      y: backgroundValue('background-position-y'),
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+    );
     final backgroundOrigin =
         _parseBackgroundOrigin(explicitValue('background-origin')) ??
         CssBackgroundOrigin.paddingBox;
@@ -2632,11 +2402,14 @@ class ComputedStyle {
     // list-style-type（P9-12）：简写在层叠层已展开成长属性，这里只读
     // 长属性，继承与特异性才和 CSS 一致。
     final rawListStyle = explicitValue('list-style-type');
-    final listStyleType = rawListStyle == null
-        ? (parent?.listStyleType ?? CssListStyleType.disc)
-        : _parseListStyleType(rawListStyle) ??
-              parent?.listStyleType ??
-              CssListStyleType.disc;
+    final parsedListStyle = rawListStyle == null
+        ? null
+        : CssListStyles.type(rawListStyle);
+    final listStyleType =
+        parsedListStyle?.type ?? parent?.listStyleType ?? CssListStyleType.disc;
+    final listStyleString = parsedListStyle == null
+        ? parent?.listStyleString
+        : parsedListStyle.text;
     // list-style-position 继承，初始 outside；`list-style` 简写里的
     // inside/outside 由层叠层展开成长属性（与 list-style-type 同一条路径）。
     final listStylePosition =
@@ -2715,6 +2488,7 @@ class ComputedStyle {
     }
 
     final width = dimension('width');
+    final intrinsicWidth = CssIntrinsicWidth.parse(explicitValue('width'));
     final height = dimension('height');
     final minWidth = dimension('min-width');
     final maxWidth = dimension('max-width');
@@ -2757,6 +2531,9 @@ class ComputedStyle {
     );
 
     return ComputedStyle._(
+      valueContext: context,
+      cssRootFontSize: rootFontSize,
+      cssFontSize: fontSize,
       values: values,
       declaredTextProperties: Set.unmodifiable(
         declaredTextProperties ??
@@ -2850,6 +2627,7 @@ class ComputedStyle {
       emptyCells: emptyCells,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      listStyleString: listStyleString,
       listStylePosition: listStylePosition,
       listStyleImage: listStyleImage,
       tableLayout: tableLayout,
@@ -2870,6 +2648,7 @@ class ComputedStyle {
         explicitValue('border-image') ?? explicitValue('border-image-source'),
       ),
       width: width,
+      intrinsicWidth: intrinsicWidth,
       height: height,
       minWidth: minWidth,
       maxWidth: maxWidth,
@@ -2904,6 +2683,43 @@ class ComputedStyle {
     textSpacingTrim: textSpacingTrim,
     textIndent: textIndent,
   );
+
+  /// 只替换已求解的盒外边距；保留作者声明、字号与所有绘制属性。
+  ComputedStyle withMargins(CssEdges margins) =>
+      _withTextProperties(marginOverride: margins);
+
+  /// 内在内容宽确定后解算普通块的 auto 外边距；预测期间仍按零贡献。
+  ComputedStyle withIntrinsicMargins({
+    required double contentWidth,
+    required double containingWidth,
+  }) {
+    if (intrinsicWidth == null || (!marginLeftIsAuto && !marginRightIsAuto)) {
+      return this;
+    }
+    final inset =
+        padding.horizontal +
+        (borders.left.isVisible ? borders.left.width : 0) +
+        (borders.right.isVisible ? borders.right.width : 0);
+    final remaining = math.max(
+      0.0,
+      containingWidth -
+          contentWidth -
+          inset -
+          (marginLeftIsAuto ? 0 : margin.left) -
+          (marginRightIsAuto ? 0 : margin.right),
+    );
+    final auto = marginLeftIsAuto && marginRightIsAuto
+        ? remaining / 2
+        : remaining;
+    return withMargins(
+      CssEdges(
+        top: margin.top,
+        right: marginRightIsAuto ? auto : margin.right,
+        bottom: margin.bottom,
+        left: marginLeftIsAuto ? auto : margin.left,
+      ),
+    );
+  }
 
   /// 按阅读器字号缩放作者声明的相对字体排版。
   ///
@@ -2990,7 +2806,8 @@ class ComputedStyle {
         fontWeight == null &&
         italic == null &&
         letterSpacing == null &&
-        color == null) {
+        color == null &&
+        marginOverride == null) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
@@ -3042,6 +2859,9 @@ class ComputedStyle {
       if (color != null) 'color',
     };
     return ComputedStyle._(
+      valueContext: valueContext,
+      cssRootFontSize: cssRootFontSize,
+      cssFontSize: cssFontSize,
       values: nextValues,
       declaredTextProperties: declaredTextProperties,
       hasExplicitTextColor: color != null || hasExplicitTextColor,
@@ -3128,6 +2948,7 @@ class ComputedStyle {
       emptyCells: emptyCells,
       borderSpacing: borderSpacing,
       listStyleType: listStyleType,
+      listStyleString: listStyleString,
       listStylePosition: listStylePosition,
       listStyleImage: listStyleImage,
       tableLayout: tableLayout,
@@ -3148,6 +2969,7 @@ class ComputedStyle {
         nextValues['border-image'] ?? nextValues['border-image-source'],
       ),
       width: width,
+      intrinsicWidth: intrinsicWidth,
       height: height,
       minWidth: minWidth,
       maxWidth: maxWidth,
@@ -3170,6 +2992,9 @@ class ComputedStyle {
   };
 
   const ComputedStyle._({
+    this.valueContext = const CssValueContext(),
+    this.cssRootFontSize = 16,
+    required this.cssFontSize,
     this.borderImage,
     this.outline = CssOutline.none,
     required this.values,
@@ -3257,6 +3082,7 @@ class ComputedStyle {
     this.captionSide = CssCaptionSide.top,
     this.emptyCells = CssEmptyCells.show,
     required this.listStyleType,
+    this.listStyleString,
     required this.listStylePosition,
     this.listStyleImage,
     required this.tableLayout,
@@ -3274,6 +3100,7 @@ class ComputedStyle {
     required this.backgroundGradient,
     required this.borders,
     required this.width,
+    this.intrinsicWidth,
     required this.height,
     required this.minWidth,
     required this.maxWidth,
@@ -3294,6 +3121,13 @@ class ComputedStyle {
   static const _normalLineHeightFactor = 1.437;
 
   /// 属性 → 层叠后的字符串值。
+  /// 计算当前样式时使用的视口，排版覆盖时原样保留。
+  final CssValueContext valueContext;
+  final double cssRootFontSize;
+
+  /// 作者几何所用的计算字号；阅读器只覆盖文字时保持原值。
+  final double cssFontSize;
+
   final Map<String, String> values;
 
   /// 仅记录影响正文默认策略的声明；显式 inherit/unset 也保留来源。
@@ -3731,6 +3565,9 @@ class ComputedStyle {
   /// 列表标记类型（`list-style-type`，继承；P9-12）。
   final CssListStyleType listStyleType;
 
+  /// 合法 CSS 字符串的标记文字，不并入正文。
+  final String? listStyleString;
+
   /// 列表标记位置（`list-style-position`，非继承，初始 outside；W2）。
   final CssListStylePosition listStylePosition;
 
@@ -3997,33 +3834,32 @@ class ComputedStyle {
     final repeats = listValue('background-repeat');
     final sizes = listValue('background-size');
     final positions = listValue('background-position');
+    final positionsX = listValue('background-position-x');
+    final positionsY = listValue('background-position-y');
     final origins = listValue('background-origin');
     final clips = listValue('background-clip');
     return <CssBackgroundLayer>[
       for (var index = 0; index < images.length; index++)
         CssBackgroundLayer(
           image: _parseUrl(images[index]),
-          gradient: _parseGradient(images[index], fontSize: fontSize),
+          gradient: _parseGradient(images[index], fontSize: cssFontSize),
           repeat:
               _parseBackgroundRepeat(at(repeats, index)) ??
               CssBackgroundRepeat.repeat,
           size:
               _parseBackgroundSize(
                 at(sizes, index),
-                fontSize: fontSize,
-                rootFontSize: fontSize,
+                fontSize: cssFontSize,
+                rootFontSize: cssRootFontSize,
               ) ??
               const CssBackgroundSize.keyword(CssBackgroundSizeMode.auto),
-          position:
-              _parseBackgroundPosition(
-                at(positions, index),
-                fontSize: fontSize,
-                rootFontSize: fontSize,
-              ) ??
-              const CssBackgroundPosition(
-                x: CssLength(0, isPercent: true),
-                y: CssLength(0, isPercent: true),
-              ),
+          position: _backgroundPositionWithAxes(
+            at(positions, index),
+            x: at(positionsX, index),
+            y: at(positionsY, index),
+            fontSize: cssFontSize,
+            rootFontSize: cssRootFontSize,
+          ),
           origin:
               _parseBackgroundOrigin(at(origins, index)) ??
               CssBackgroundOrigin.paddingBox,
@@ -4045,6 +3881,9 @@ class ComputedStyle {
 
   /// 指定宽度；null 表示未声明（等同于 auto）。
   final CssLength? width;
+
+  /// 文本块的内在宽度模式；不混入像素、百分比或 auto 长度。
+  final CssIntrinsicWidth? intrinsicWidth;
 
   /// 指定高度；null 表示未声明（等同于 auto）。
   final CssLength? height;
@@ -4887,7 +4726,7 @@ class ComputedStyle {
   }
 
   static final RegExp _fontSizePattern = RegExp(
-    r'^(\d*\.?\d+)(px|pt|pc|em|rem|%)?(?:/(\S+))?$',
+    r'^(\d*\.?\d+)(px|pt|pc|em|rem|ex|%)?(?:/(\S+))?$',
   );
 
   /// 解析 `font` 简写（P9-09）：style/variant/weight/size[/line-height]/family。
@@ -4935,39 +4774,8 @@ class ComputedStyle {
         'line-height': 'normal',
       };
     }
-    // 按引号与空白切词，保留带空格的字体名。
-    final tokens = <String>[];
-    final buffer = StringBuffer();
-    String? quote;
-    for (var i = 0; i < value.length; i++) {
-      final char = value[i];
-      if (quote != null) {
-        buffer.write(char);
-        if (char == quote) {
-          quote = null;
-        }
-        continue;
-      }
-      if (char == '"' || char == "'") {
-        quote = char;
-        buffer.write(char);
-        continue;
-      }
-      if (char == ' ' || char == '\t') {
-        if (buffer.isNotEmpty) {
-          tokens.add(buffer.toString());
-          buffer.clear();
-        }
-        continue;
-      }
-      buffer.write(char);
-    }
-    if (buffer.isNotEmpty) {
-      tokens.add(buffer.toString());
-    }
-    if (tokens.isEmpty) {
-      return null;
-    }
+    final tokens = cssValueTokens(value, separateSlash: true);
+    if (tokens == null || tokens.isEmpty) return null;
 
     // 简写重置：未写出的子属性取初始值（否则父级/其它规则的
     // font-weight/font-style/line-height 会漏进来）。
@@ -5005,34 +4813,31 @@ class ComputedStyle {
       } else if (_fontStretchPercentPattern.hasMatch(token)) {
         result['font-stretch'] = token;
       } else {
-        final match = _fontSizePattern.firstMatch(token);
-        final keyword = const <String>{
-          'xx-small',
-          'x-small',
-          'small',
-          'medium',
-          'large',
-          'x-large',
-          'xx-large',
-          'smaller',
-          'larger',
-        }.contains(token);
-        if (match != null || keyword) {
+        if (_fontSizePattern.hasMatch(token) || CssFontSizes.isKeyword(token)) {
           size = token;
-          lineHeight = match?.group(3);
           break;
         }
+        return null;
       }
       index += 1;
     }
     if (size == null) {
       return null;
     }
-    result['font-size'] = size.split('/').first;
-    if (lineHeight != null) {
-      result['line-height'] = lineHeight;
+    if (_validLengthDeclaration('font-size', size) != true) return null;
+    var familyStart = index + 1;
+    if (familyStart < tokens.length && tokens[familyStart] == '/') {
+      if (++familyStart >= tokens.length) return null;
+      lineHeight = tokens[familyStart++].toLowerCase();
+      if (_validLengthDeclaration('line-height', lineHeight) != true) {
+        return null;
+      }
     }
-    final family = tokens.skip(index + 1).join(' ').trim();
+    result['font-size'] = size;
+    if (lineHeight != null) result['line-height'] = lineHeight;
+    final familyTokens = tokens.skip(familyStart).toList();
+    if (familyTokens.contains('/')) return null;
+    final family = familyTokens.join(' ').trim();
     // 字体族是字体简写的必填部分（CSS Fonts 3 §4.5），缺失时整条声明无效。
     if (family.isEmpty) {
       return null;
@@ -5092,7 +4897,7 @@ class ComputedStyle {
       return null;
     }
     final match = RegExp(
-      r'^(repeating-)?(linear|radial)-gradient\((.*)\)$',
+      r'^(repeating-)?(linear|radial|conic)-gradient\((.*)\)$',
       caseSensitive: false,
       dotAll: true,
     ).firstMatch(raw.trim());
@@ -5101,7 +4906,17 @@ class ComputedStyle {
     }
     final repeating = match.group(1) != null;
     final kind = match.group(2)!.toLowerCase();
-    final parts = _splitTopLevel(match.group(3)!, ',');
+    final parts = kind == 'conic'
+        ? cssValueTokens(match.group(3)!, separator: ',') ?? const <String>[]
+        : _splitTopLevel(match.group(3)!, ',');
+    if (kind == 'conic') {
+      if (repeating || parts.length < 2) return null;
+      final colors = parts.map((part) => _parseColor(part.trim())).toList();
+      if (colors.any((color) => color == null)) return null;
+      return CssConicGradient(
+        stops: [for (final color in colors) CssGradientStop(color: color!)],
+      );
+    }
     // 多背景层（`linear-gradient(...), linear-gradient(...)`）不支持：只要
     // 顶层分组里还出现 gradient( 就放弃，避免把两层拼成一层画错。
     if (parts.any((part) => part.toLowerCase().contains('-gradient('))) {
@@ -5356,32 +5171,6 @@ class ComputedStyle {
       percentBase: 0,
     );
     return resolved == null ? null : CssLength(resolved);
-  }
-
-  /// 取首个 `linear-gradient(...)` / `radial-gradient(...)` 原文（配对括号）。
-  ///
-  /// 供 `background` 简写使用：正则 `[^)]*` 会被色标里的 `rgba(...)` 截断。
-  static String? _firstGradientFunction(String text) {
-    final match = RegExp(
-      r'(?:repeating-)?(?:-[a-z]+-)?(?:linear|radial)-gradient\(',
-      caseSensitive: false,
-    ).firstMatch(text);
-    if (match == null) {
-      return null;
-    }
-    var depth = 0;
-    for (var i = match.end - 1; i < text.length; i++) {
-      final char = text[i];
-      if (char == '(') {
-        depth += 1;
-      } else if (char == ')') {
-        depth -= 1;
-        if (depth == 0) {
-          return text.substring(match.start, i + 1);
-        }
-      }
-    }
-    return null;
   }
 
   /// 按顶层分隔符切分：括号内的分隔符不切（`rgba(...)`、嵌套函数）。
@@ -6137,6 +5926,13 @@ class ComputedStyle {
     };
   }
 
+  /// 根视口轴与实际书写模式复用同一解析，包含大小写和旧式别名。
+  static bool isVerticalWritingMode(String raw) =>
+      switch (_parseWritingMode(raw)) {
+        CssWritingMode.verticalRl || CssWritingMode.verticalLr => true,
+        _ => false,
+      };
+
   /// 竖排字向：`sideways-right` 等旧写法归到 sideways。
   static CssTextOrientation? _parseTextOrientation(String raw) {
     return switch (raw.trim().toLowerCase()) {
@@ -6657,38 +6453,13 @@ class ComputedStyle {
         _ => null,
       };
 
-  static const Map<String, CssListStyleType> _listStyleTypes =
-      <String, CssListStyleType>{
-        'disc': CssListStyleType.disc,
-        'circle': CssListStyleType.circle,
-        'square': CssListStyleType.square,
-        'decimal': CssListStyleType.decimal,
-        'decimal-leading-zero': CssListStyleType.decimal,
-        'lower-roman': CssListStyleType.lowerRoman,
-        'upper-roman': CssListStyleType.upperRoman,
-        'lower-alpha': CssListStyleType.lowerAlpha,
-        'lower-latin': CssListStyleType.lowerAlpha,
-        'upper-alpha': CssListStyleType.upperAlpha,
-        'upper-latin': CssListStyleType.upperAlpha,
-        'none': CssListStyleType.none,
-      };
-
-  /// 解析 `list-style-type` / `list-style`（P9-12）；未知类型返回 null。
-  static CssListStyleType? _parseListStyleType(String raw) =>
-      parseListStyleTypeKeyword(raw)?.$1;
-
-  /// 从 `list-style` 简写里取出类型关键字（层叠层展开简写用）。
+  /// 从 list-style 简写提取类型，字符串的引号留给级联后的解析。
   static (CssListStyleType, String)? parseListStyleTypeKeyword(String raw) {
-    for (final token in raw.toLowerCase().split(RegExp(r'\s+'))) {
-      final type = _listStyleTypes[token];
-      if (type != null) {
-        return (type, token);
-      }
-    }
-    return null;
+    final value = CssListStyles.shorthand(raw)?['list-style-type'];
+    final parsed = value == null ? null : CssListStyles.type(value);
+    return parsed == null ? null : (parsed.type, parsed.declaration);
   }
 
-  /// 解析 `list-style-position`；未知值返回 null（调用方按 outside 兜底）。
   static CssListStylePosition? _parseListStylePosition(String? raw) =>
       switch (raw?.trim().toLowerCase()) {
         'inside' => CssListStylePosition.inside,
@@ -6696,157 +6467,30 @@ class ComputedStyle {
         _ => null,
       };
 
-  /// 从 `list-style` 简写里取出 inside/outside 关键字（层叠层展开用）。
-  static String? parseListStylePositionKeyword(String raw) {
-    for (final token in raw.toLowerCase().split(RegExp(r'\s+'))) {
-      if (token == 'inside' || token == 'outside') {
-        return token;
-      }
-    }
-    return null;
-  }
+  static String? parseListStylePositionKeyword(String raw) =>
+      CssListStyles.position(raw);
+  static String? parseListStyleImageKeyword(String raw) =>
+      CssListStyles.image(raw);
 
-  /// 从 `list-style` 简写里取出图片 URL 或 none（层叠层展开用）。
-  static String? parseListStyleImageKeyword(String raw) {
-    final match = RegExp(
-      r'''url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)''',
-      caseSensitive: false,
-    ).firstMatch(raw);
-    if (match != null) {
-      return match.group(0);
-    }
-    final tokens = raw.trim().toLowerCase().split(RegExp(r'\s+'));
-    return tokens.contains('none') ? 'none' : null;
-  }
+  /// 背景属性族完整解析成功后再展开；颜色与渐变复用现有类型解析器。
+  static Map<String, String>? _parseBackgroundShorthand(String? raw) =>
+      raw == null
+      ? null
+      : CssBackgroundDeclarations.shorthand(
+          raw,
+          isColor: (value) =>
+              value.toLowerCase() == 'currentcolor' ||
+              _parseColor(value) != null,
+          isImage: _validBackgroundImage,
+        );
 
-  static final RegExp _backgroundLengthToken = RegExp(
-    r'^[-+]?(\d*\.?\d+)(px|pt|pc|em|rem|%)?$',
-  );
-
-  static const _backgroundRepeatKeywords = <String>{
-    'repeat',
-    'repeat-x',
-    'repeat-y',
-    'no-repeat',
-    'space',
-    'round',
-  };
-
-  static const _backgroundPositionKeywords = <String>{
-    'left',
-    'right',
-    'center',
-    'top',
-    'bottom',
-  };
-
-  /// 解析 `background` 简写（P9-11/F06）：按逗号分层拆分出
-  /// image/color/repeat/position/size/origin/clip/attachment。
-  ///
-  /// 每层缺省项按 CSS 初始值补齐；颜色只取最后一层，与浏览器一致。
-  /// 渐变（W2）原样放进 `background-image`，由 [_parseGradient] 结构化。
-  static Map<String, String>? _parseBackgroundShorthand(String? raw) {
-    if (raw == null) {
-      return null;
+  static bool _validBackgroundImage(String raw) {
+    final value = raw.trim();
+    if (value.toLowerCase() == 'none') return true;
+    if (value.toLowerCase().startsWith('url(') && value.endsWith(')')) {
+      return cssValueTokens(value)?.length == 1 && _parseUrl(value) != null;
     }
-    final layers = _splitTopLevel(raw, ',');
-    if (layers.isEmpty) {
-      return null;
-    }
-    final parsed = <Map<String, String>>[
-      for (final layer in layers)
-        if (layer.isNotEmpty) _parseBackgroundLayer(layer),
-    ];
-    if (parsed.isEmpty) {
-      return null;
-    }
-    String initials(String key, String initial) =>
-        parsed.map((layer) => layer[key] ?? initial).join(', ');
-    return <String, String>{
-      'background-image': initials('background-image', 'none'),
-      'background-repeat': initials('background-repeat', 'repeat'),
-      'background-position': initials('background-position', '0% 0%'),
-      'background-size': initials('background-size', 'auto'),
-      'background-origin': initials('background-origin', 'padding-box'),
-      'background-clip': initials('background-clip', 'border-box'),
-      'background-attachment': initials('background-attachment', 'scroll'),
-      'background-color': parsed.last['background-color'] ?? 'transparent',
-    };
-  }
-
-  static Map<String, String> _parseBackgroundLayer(String raw) {
-    final result = <String, String>{};
-    final images = RegExp(
-      r'''url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)''',
-      caseSensitive: false,
-    ).allMatches(raw).map((match) => match.group(0)!).toList();
-    if (images.isNotEmpty) {
-      result['background-image'] = images.first;
-    }
-    // 渐变：配对括号截取，避免色标里的 rgba(...) 把串截断；一层只能有
-    // 一个图像，优先 url，其次渐变。
-    final gradient = _firstGradientFunction(raw);
-    if (images.isEmpty && gradient != null) {
-      result['background-image'] = gradient;
-    }
-    var rest = raw;
-    for (final image in images) {
-      rest = rest.replaceFirst(image, ' ');
-    }
-    if (gradient != null) {
-      rest = rest.replaceFirst(gradient, ' ');
-    }
-    // 斜杠两侧可能没有空格（`center/cover`），统一拆成独立 token。
-    rest = rest.replaceAll('/', ' / ');
-    final tokens = _cssTokens(rest);
-    final positions = <String>[];
-    final sizes = <String>[];
-    var afterSlash = false;
-    var boxCount = 0;
-    for (final token in tokens) {
-      final lower = token.toLowerCase();
-      if (lower == '/') {
-        afterSlash = true;
-        continue;
-      }
-      if (_backgroundRepeatKeywords.contains(lower)) {
-        result['background-repeat'] = lower;
-        continue;
-      }
-      if (const <String>{'scroll', 'fixed', 'local'}.contains(lower)) {
-        result['background-attachment'] = lower;
-        continue;
-      }
-      if (const <String>{
-        'border-box',
-        'padding-box',
-        'content-box',
-      }.contains(lower)) {
-        boxCount += 1;
-        result[boxCount == 1 ? 'background-origin' : 'background-clip'] = lower;
-        if (boxCount == 1) result['background-clip'] = lower;
-        continue;
-      }
-      if (lower == 'currentcolor' || _parseColor(token) != null) {
-        result['background-color'] = token;
-        continue;
-      }
-      if (afterSlash) {
-        sizes.add(token);
-        continue;
-      }
-      if (_backgroundPositionKeywords.contains(lower) ||
-          _backgroundLengthToken.hasMatch(token)) {
-        positions.add(token);
-      }
-    }
-    if (positions.isNotEmpty) {
-      result['background-position'] = positions.join(' ');
-    }
-    if (sizes.isNotEmpty) {
-      result['background-size'] = sizes.take(2).join(' ');
-    }
-    return result;
+    return _parseGradient(value) != null;
   }
 
   /// 公开的 `background` 简写解析入口；供级联在竞争前展开成长属性。
@@ -7035,41 +6679,12 @@ class ComputedStyle {
     required double parentFontSize,
     required double rootFontSize,
     required double percentBase,
-  }) {
-    final value = raw.trim().toLowerCase();
-    if (value.isEmpty || value == 'auto' || value == 'normal') {
-      return null;
-    }
-    // calc()（P9-15）：书籍常用 `calc(100% - 2em)` 之类表达式，之前整条
-    // 声明按非法长度丢弃。
-    if (value.startsWith('calc(')) {
-      return _evaluateCalc(
-        value,
-        fontSize: fontSize,
-        rootFontSize: rootFontSize,
-        percentBase: percentBase,
-      );
-    }
-    final match = RegExp(
-      r'^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|pt|pc|in|cm|mm|em|rem|%)?$',
-    ).firstMatch(value);
-    if (match == null) {
-      return null;
-    }
-    final number = double.parse(match[1]!);
-    return switch (match[2]) {
-      null || 'px' => number,
-      'pt' => number * 96 / 72,
-      'pc' => number * 16,
-      'in' => number * 96,
-      'cm' => number * 96 / 2.54,
-      'mm' => number * 96 / 25.4,
-      'em' => number * fontSize,
-      'rem' => number * rootFontSize,
-      '%' => number * percentBase / 100,
-      _ => null,
-    };
-  }
+  }) => resolveCssNumericLength(
+    raw,
+    fontSize: fontSize,
+    rootFontSize: rootFontSize,
+    percentBase: percentBase,
+  );
 
   static double? _parsePercent(String raw) {
     final value = raw.trim();
@@ -7364,13 +6979,39 @@ class ComputedStyle {
   }
 
   static CssBackgroundRepeat? _parseBackgroundRepeat(String? raw) =>
-      switch (raw?.trim().toLowerCase()) {
-        'repeat' => CssBackgroundRepeat.repeat,
-        'repeat-x' => CssBackgroundRepeat.repeatX,
-        'repeat-y' => CssBackgroundRepeat.repeatY,
-        'no-repeat' => CssBackgroundRepeat.noRepeat,
-        _ => null,
-      };
+      CssBackgroundDeclarations.repeat(
+        raw == null ? null : _splitTopLevel(raw, ',').first,
+      );
+
+  static CssBackgroundPosition _backgroundPositionWithAxes(
+    String? raw, {
+    String? x,
+    String? y,
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final fallback =
+        _parseBackgroundPosition(
+          raw == null ? null : _splitTopLevel(raw, ',').first,
+          fontSize: fontSize,
+          rootFontSize: rootFontSize,
+        ) ??
+        const CssBackgroundPosition(
+          x: CssLength(0, isPercent: true),
+          y: CssLength(0, isPercent: true),
+        );
+    CssLength? axis(String? value) => value == null
+        ? null
+        : CssBackgroundDeclarations.axis(
+            _splitTopLevel(value, ',').first,
+            fontSize: fontSize,
+            rootFontSize: rootFontSize,
+          );
+    return CssBackgroundPosition(
+      x: axis(x) ?? fallback.x,
+      y: axis(y) ?? fallback.y,
+    );
+  }
 
   static CssBackgroundSize? _parseBackgroundSize(
     String? raw, {
@@ -7968,176 +7609,7 @@ List<String> _parseFontFamilies(String raw) {
   return List<String>.unmodifiable(families);
 }
 
-/// `calc()` 表达式求值（P9-15）。
-///
-/// 支持 + - * /、括号与 px/pt/pc/in/cm/mm/em/rem/%；出现百分比时按
-/// [percentBase] 折算，基准为 0（未知）时返回 null，交给调用方回退。
-double? _evaluateCalc(
-  String raw, {
-  required double fontSize,
-  required double rootFontSize,
-  required double percentBase,
-}) {
-  var expression = raw.trim();
-  if (expression.toLowerCase().startsWith('calc(') &&
-      expression.endsWith(')')) {
-    expression = expression.substring(5, expression.length - 1);
-  }
-  final evaluator = _CalcEvaluator(
-    expression,
-    fontSize: fontSize,
-    rootFontSize: rootFontSize,
-    percentBase: percentBase,
-  );
-  final result = evaluator.evaluate();
-  return evaluator.finished ? result : null;
-}
-
-final RegExp _calcTokenPattern = RegExp(
-  r'(\d+(?:\.\d+)?|\.\d+)(px|pt|pc|in|cm|mm|em|rem|%)?|[()+\-*/]|\s+',
-);
-
-class _CalcEvaluator {
-  _CalcEvaluator(
-    this.source, {
-    required this.fontSize,
-    required this.rootFontSize,
-    required this.percentBase,
-  }) {
-    _tokenize();
-  }
-
-  final String source;
-  final double fontSize;
-  final double rootFontSize;
-  final double percentBase;
-  final List<String> _tokens = <String>[];
-  int _position = 0;
-  bool finished = false;
-
-  void _tokenize() {
-    var index = 0;
-    while (index < source.length) {
-      final match = _calcTokenPattern.matchAsPrefix(source, index);
-      if (match == null) {
-        _tokens
-          ..clear()
-          ..add('?');
-        return;
-      }
-      final token = match.group(0)!;
-      index = match.end;
-      if (token.trim().isEmpty) {
-        continue;
-      }
-      _tokens.add(token.trim());
-    }
-  }
-
-  double? evaluate() {
-    if (_tokens.isEmpty || _tokens.first == '?') {
-      return null;
-    }
-    final value = _parseExpression();
-    if (value == null || _position != _tokens.length) {
-      return null;
-    }
-    finished = true;
-    return value;
-  }
-
-  double? _parseExpression() {
-    var left = _parseTerm();
-    if (left == null) {
-      return null;
-    }
-    while (_position < _tokens.length) {
-      final token = _tokens[_position];
-      if (token != '+' && token != '-') {
-        break;
-      }
-      _position += 1;
-      final right = _parseTerm();
-      if (right == null) {
-        return null;
-      }
-      left = token == '+' ? left! + right : left! - right;
-    }
-    return left;
-  }
-
-  double? _parseTerm() {
-    var left = _parseFactor();
-    if (left == null) {
-      return null;
-    }
-    while (_position < _tokens.length) {
-      final token = _tokens[_position];
-      if (token != '*' && token != '/') {
-        break;
-      }
-      _position += 1;
-      final right = _parseFactor();
-      if (right == null) {
-        return null;
-      }
-      if (token == '*') {
-        left = left! * right;
-      } else {
-        if (right == 0) {
-          return null;
-        }
-        left = left! / right;
-      }
-    }
-    return left;
-  }
-
-  double? _parseFactor() {
-    if (_position >= _tokens.length) {
-      return null;
-    }
-    final token = _tokens[_position];
-    if (token == '-') {
-      _position += 1;
-      final inner = _parseFactor();
-      return inner == null ? null : -inner;
-    }
-    if (token == '(') {
-      _position += 1;
-      final inner = _parseExpression();
-      if (inner == null ||
-          _position >= _tokens.length ||
-          _tokens[_position] != ')') {
-        return null;
-      }
-      _position += 1;
-      return inner;
-    }
-    final match = RegExp(
-      r'^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|pt|pc|in|cm|mm|em|rem|%)?$',
-    ).firstMatch(token);
-    if (match == null) {
-      return null;
-    }
-    _position += 1;
-    final number = double.parse(match[1]!);
-    return switch (match[2]) {
-      null || 'px' => number,
-      'pt' => number * 96 / 72,
-      'pc' => number * 16,
-      'in' => number * 96,
-      'cm' => number * 96 / 2.54,
-      'mm' => number * 96 / 25.4,
-      'em' => number * fontSize,
-      'rem' => number * rootFontSize,
-      '%' => percentBase == 0 ? null : number * percentBase / 100,
-      _ => null,
-    };
-  }
-}
-
-/// 列表逐项相等（[CssGradient] 的 == / hashCode 用）。
+/// 样式值中的列表逐项相等。
 bool _listEquals<T>(List<T> a, List<T> b) {
   if (identical(a, b)) {
     return true;

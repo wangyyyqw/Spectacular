@@ -30,14 +30,26 @@ String colorToHex(Color color) {
   return (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
 }
 
-/// 从 body 的级联结果取整页背景；书籍未声明背景色或背景图时返回 null。
+/// 从 body 的级联结果取整页背景；书籍未声明背景色、图像或渐变时返回 null。
 ///
-/// 透明背景色不覆盖阅读主题；有色背景先铺页面，背景图再按尺寸/平铺/定位叠加。
-PageBackground? chapterPageBackground(ComputedStyle style) {
+/// 外链 CSS 已解算资源路径；内联样式由 [resolveUrl] 按当前章节目录补齐。
+PageBackground? chapterPageBackground(
+  ComputedStyle style, {
+  String Function(String)? resolveUrl,
+}) {
   final rawUrl = style.backgroundImage;
-  final url = rawUrl == null || rawUrl.isEmpty ? null : rawUrl;
+  final url = rawUrl == null || rawUrl.isEmpty
+      ? null
+      : resolveUrl?.call(rawUrl) ?? rawUrl;
+  final layers = List<CssBackgroundLayer>.unmodifiable([
+    for (final layer in style.backgroundLayers)
+      _pageBackgroundLayer(layer, resolveUrl),
+  ]);
   final color = style.backgroundColor.a > 0 ? style.backgroundColor : null;
-  if (url == null && color == null) {
+  final hasLayer = layers.any(
+    (layer) => layer.image != null || layer.gradient != null,
+  );
+  if (url == null && color == null && !hasLayer) {
     return null;
   }
   return PageBackground(
@@ -46,6 +58,26 @@ PageBackground? chapterPageBackground(ComputedStyle style) {
     size: style.backgroundSize,
     repeat: style.backgroundRepeat,
     position: style.backgroundPosition,
+    layers: layers,
+  );
+}
+
+CssBackgroundLayer _pageBackgroundLayer(
+  CssBackgroundLayer layer,
+  String Function(String)? resolveUrl,
+) {
+  final image = layer.image;
+  if (image == null || resolveUrl == null) return layer;
+  final resolved = resolveUrl(image);
+  if (resolved == image) return layer;
+  return CssBackgroundLayer(
+    image: resolved,
+    gradient: layer.gradient,
+    repeat: layer.repeat,
+    size: layer.size,
+    position: layer.position,
+    origin: layer.origin,
+    clip: layer.clip,
   );
 }
 

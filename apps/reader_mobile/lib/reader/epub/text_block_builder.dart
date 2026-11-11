@@ -3,12 +3,14 @@ import 'dart:math' as math;
 import 'package:reader_core/api.dart' show EpubNode, TextBlockNode;
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_size.dart';
 import 'package:reader_core/css/property_aliases.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/intrinsic_widths.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
@@ -56,6 +58,53 @@ class TextBlockBuilder {
     final paragraph = await _inlineParagraph(context, body, generated, dropped);
     final measured = await _measureParagraph(context, body, metrics, paragraph);
     await _appendBlocks(context, body, metrics, measured);
+  }
+
+  /// 容器预测复用正文的字号分类与行内级联；只推进调用方的计数器快照。
+  Future<IntrinsicWidths> measureIntrinsicContent(
+    TextBlockNode node,
+    BlockPosition position,
+    GeneratedChapterContent generation,
+  ) async {
+    final context = await _context(node, position);
+    final authored = _authoredStyle(context);
+    final body = await _bodyStyle(context, authored);
+    final generated = await _generatedText(context, body.style, generation);
+    final paragraph = await _expandGeneratedText(context, body, generated);
+    final marker = _nextMarker(context, body.style);
+    final measureStyle = await _markerMeasureStyle(context, body, marker);
+    return measure.intrinsicWidths(
+      paragraph.text,
+      measureStyle,
+      runs: await _intrinsicRuns(context, body, generated, paragraph),
+    );
+  }
+
+  Future<List<StyledRun>> _intrinsicRuns(
+    _BlockContext context,
+    _BodyStyle body,
+    _GeneratedText generated,
+    _ParagraphText paragraph,
+  ) async {
+    final runs = await styles.resolveInlineRunsAsync(
+      paragraph.marks,
+      _inlineContext(context, body),
+      checkpoint: measure.budget.checkpoint,
+    );
+    final measuredRuns = _pseudoRuns(context, body, generated, paragraph, runs);
+    final letter = styles.firstLetterRun(
+      styles.preparedStyles.firstLetterRules,
+      context.ancestors,
+      paragraph.text,
+      body.style,
+    );
+    if (letter != null) measuredRuns.add(letter);
+    return styles.snapshot.textOverlays.resolve(
+      blockCfi: context.cfi,
+      text: paragraph.text,
+      style: body.style,
+      runs: measuredRuns,
+    );
   }
 
   Future<_BlockContext> _context(
@@ -140,22 +189,24 @@ class TextBlockBuilder {
 
   Future<_GeneratedText> _generatedText(
     _BlockContext context,
-    ComputedStyle style,
-  ) async {
-    content.applyCounters(context.ancestors);
+    ComputedStyle style, [
+    GeneratedChapterContent? generation,
+  ]) async {
+    final source = generation ?? content;
+    source.applyCounters(context.ancestors);
     var qNesting = 0;
     for (final ancestor in context.ancestors) {
       await measure.budget.checkpoint();
       if (ancestor.tag == 'q') qNesting += 1;
     }
     final qLevel = context.tag == 'q' && qNesting > 0 ? qNesting - 1 : qNesting;
-    final before = content.pseudoContentOf(
+    final before = source.pseudoContentOf(
       context.ancestors,
       '::before',
       quotes: style.quotes,
       quoteDepth: qLevel,
     );
-    final after = content.pseudoContentOf(
+    final after = source.pseudoContentOf(
       context.ancestors,
       '::after',
       quotes: style.quotes,
@@ -243,7 +294,7 @@ class TextBlockBuilder {
       return null;
     }
     // rem 相对章节根字号，不能用已被作者缩小的父容器作为分母。
-    final referenceSize = raw?.endsWith('rem') ?? false
+    final referenceSize = CssFontSizes.usesRoot(raw)
         ? styles.style.fontSize
         : styles
               .chainStyle(ancestors.sublist(0, ancestors.length - 1))
@@ -422,7 +473,10 @@ class TextBlockBuilder {
     final list = context.position.list;
     if (!context.isListItem || !list!.markerPending) return null;
     list.markerPending = false;
-    final text = list.nextMarker(style.listStyleType);
+    final text = list.nextMarker(
+      style.listStyleType,
+      customMarker: style.listStyleString,
+    );
     return text.isEmpty ? (style.listStyleImage == null ? null : '') : text;
   }
 
@@ -866,7 +920,10 @@ class TextBlockBuilder {
   InlineStyleContext _inlineContext(_BlockContext context, _BodyStyle body) => (
     ancestors: context.ancestors,
     style: body.style,
-    width: measure.textWidthFor(body.style),
+    width: measure.textWidthFor(
+      body.style,
+      preserveNarrowWidth: styles.hasIntrinsicContainer(context.ancestors),
+    ),
     readerFontFamily: body.applyReaderTypography
         ? styles.snapshot.overrides.fontFamily
         : null,
@@ -1090,13 +1147,18 @@ class TextBlockBuilder {
     final runs = await _finalRuns(context, body, metrics, paragraph);
     final text = paragraph.dropped.paragraph;
     final rubies = await _rubyAnnotations(context, body, text);
+    final width = await _paragraphWidth(context, body, metrics, paragraph, (
+      runs: runs,
+      rubies: rubies,
+    ));
     final layout = await measure.layout(
       text: text.text,
       style: metrics.list.measureStyle,
-      maxWidth: _measureWidth(context, body, metrics),
+      maxWidth: width,
       runs: runs,
       rubies: rubies,
       inlineBoxes: paragraph.elements.boxes,
+      preserveContentWidth: styles.hasIntrinsicContainer(context.ancestors),
     );
     return _MeasuredParagraph(
       _layoutBounds(layout, body.style, metrics.list.measureStyle),
@@ -1105,6 +1167,32 @@ class TextBlockBuilder {
       rubies,
       _contentCfi(context, paragraph),
     );
+  }
+
+  Future<double> _paragraphWidth(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    _InlineParagraph paragraph,
+    ({List<StyledRun> runs, List<RubyAnnotation> rubies}) annotations,
+  ) async {
+    final style = metrics.list.measureStyle;
+    if (style.intrinsicWidth == null ||
+        !ChapterTextMeasurer.isOrdinaryHorizontalBlock(style) ||
+        context.position.containerFloat != null) {
+      return _measureWidth(context, body, metrics);
+    }
+    final widths = await measure.intrinsicWidths(
+      paragraph.dropped.paragraph.text,
+      style,
+      runs: annotations.runs,
+      rubies: annotations.rubies,
+      inlineBoxes: paragraph.elements.boxes,
+    );
+    return BoxModel.fromStyle(
+      style,
+      containingWidth: contentWidth,
+    ).resolveContentWidth(contentWidth, intrinsicWidths: widths);
   }
 
   Future<List<RubyAnnotation>> _rubyAnnotations(
@@ -1155,7 +1243,12 @@ class TextBlockBuilder {
             context.ancestors,
             position.containerFloatWidth!,
           )
-        : measure.textWidthFor(metrics.list.measureStyle);
+        : measure.textWidthFor(
+            metrics.list.measureStyle,
+            preserveNarrowWidth: styles.hasIntrinsicContainer(
+              context.ancestors,
+            ),
+          );
   }
 
   TextLayoutResult _layoutBounds(
@@ -1293,7 +1386,11 @@ class TextBlockBuilder {
     ({double before, double after}) spacing,
   ) => PageBlock.styled(
     layout: paragraph.layout,
-    style: body.style,
+    style: styles.intrinsicBlockStyle(
+      body.style,
+      context.ancestors,
+      paragraph.layout.maxWidth,
+    ),
     containingWidth: contentWidth,
     startCfi: paragraph.contentCfi,
     textRuleEligible: context.textRuleEligible,

@@ -14,6 +14,7 @@ import '../layout/text_layout.dart';
 import '../layout/text_spacing.dart';
 import '../text/reader_text_overlay.dart';
 import 'background_image.dart';
+import 'background_tiles.dart';
 import 'line_spans.dart';
 import 'paragraph_cache.dart';
 import 'text_emphasis.dart';
@@ -1107,23 +1108,12 @@ class PagePainter {
     if (color != null && color.a > 0) {
       canvas.drawRect(pageRect, Paint()..color = color);
     }
-    final url = spec.imageUrl;
-    final lookup = imageLookup;
-    if (url == null || lookup == null) {
-      return;
+    canvas.save();
+    canvas.clipRect(pageRect);
+    for (final layer in spec.effectiveLayers.reversed) {
+      _paintBackgroundLayer(canvas, layer, pageRect);
     }
-    final image = lookup(url);
-    if (image == null) {
-      return;
-    }
-    paintBackgroundImage(
-      canvas,
-      image,
-      pageRect,
-      repeat: spec.repeat,
-      size: spec.size,
-      position: spec.position,
-    );
+    canvas.restore();
   }
 
   /// 预计算每片切片的几何与样式（P2-29：各阶段共用同一份坐标）。
@@ -2425,8 +2415,10 @@ class PagePainter {
     // 无序列表的 disc/circle/square：Chromium 不画字体里的项目符号字形
     // （思源宋体的 • 只有 2px），而是画几何图形——直径约 0.4em、中心在
     // 基线上方约 0.43em。这里按同一几何画形状，其余标记（数字/罗马/字母）
-    // 仍走文字绘制。
-    final shape = _markerShapeOf(marker);
+    // 仍走文字绘制。显式字符串也按字体字形绘制，即使内容恰好是内建符号。
+    final shape = geometry.style.listStyleType == CssListStyleType.custom
+        ? null
+        : _markerShapeOf(marker);
     final fontSize = geometry.textStyle.fontSize ?? 0;
     if (shape != null && fontSize > 0) {
       final baseline = painter.computeDistanceToActualBaseline(
@@ -2925,98 +2917,68 @@ class PagePainter {
     for (final layer in layers.reversed) {
       final origin = _backgroundOriginRect(box, style, layer.origin);
       final clip = _backgroundClipRect(box, style, layer.clip);
-      final gradient = layer.gradient;
-      final image = _resolveBackgroundImage(layer.image);
-      if (gradient == null && image == null) {
-        continue;
-      }
       canvas.save();
       canvas.clipRect(clip);
-      if (roundedCorners) {
-        canvas.clipRRect(rounded);
-      }
-      if (gradient != null) {
-        _paintGradientBackground(
-          canvas,
-          gradient,
-          origin,
-          size: layer.size,
-          position: layer.position,
-          repeat: layer.repeat,
-        );
-      } else {
-        paintBackgroundImage(
-          canvas,
-          image!,
-          origin,
-          repeat: layer.repeat,
-          size: layer.size,
-          position: layer.position,
-          colorFilter: imageColorFilter,
-        );
-      }
+      if (roundedCorners) canvas.clipRRect(rounded);
+      _paintBackgroundLayer(
+        canvas,
+        layer,
+        origin,
+        paintingBounds: layer.repeat.hasSpacing ? clip : null,
+        colorFilter: imageColorFilter,
+      );
       canvas.restore();
     }
   }
 
-  /// 渐变没有固有尺寸：auto 与 cover/contain 都以定位区为瓦片尺寸。
+  void _paintBackgroundLayer(
+    Canvas canvas,
+    CssBackgroundLayer layer,
+    Rect bounds, {
+    Rect? paintingBounds,
+    ColorFilter? colorFilter,
+  }) {
+    final gradient = layer.gradient;
+    if (gradient != null) {
+      _paintGradientBackground(
+        canvas,
+        gradient,
+        bounds,
+        layer,
+        paintingBounds: paintingBounds,
+      );
+      return;
+    }
+    final image = _resolveBackgroundImage(layer.image);
+    if (image == null) return;
+    paintBackgroundImage(
+      canvas,
+      image,
+      bounds,
+      repeat: layer.repeat,
+      size: layer.size,
+      position: layer.position,
+      colorFilter: colorFilter,
+      paintingBounds: paintingBounds,
+    );
+  }
+
+  /// 渐变没有固有尺寸或比例；瓦片几何与背景图片使用同一个计算入口。
   void _paintGradientBackground(
     Canvas canvas,
     CssGradient gradient,
-    Rect bounds, {
-    required CssBackgroundSize size,
-    required CssBackgroundPosition position,
-    required CssBackgroundRepeat repeat,
+    Rect bounds,
+    CssBackgroundLayer layer, {
+    Rect? paintingBounds,
   }) {
-    final tile = switch (size.mode) {
-      CssBackgroundSizeMode.auto ||
-      CssBackgroundSizeMode.cover ||
-      CssBackgroundSizeMode.contain => bounds.size,
-      CssBackgroundSizeMode.explicit => Size(
-        size.width?.resolve(bounds.width) ?? bounds.width,
-        size.height?.resolve(bounds.height) ?? bounds.height,
-      ),
-    };
-    if (bounds.isEmpty || tile.width <= 0 || tile.height <= 0) {
-      return;
-    }
-    final originX = position.x.resolve(bounds.width - tile.width) ?? 0;
-    final originY = position.y.resolve(bounds.height - tile.height) ?? 0;
-    final repeatX =
-        repeat == CssBackgroundRepeat.repeat ||
-        repeat == CssBackgroundRepeat.repeatX;
-    final repeatY =
-        repeat == CssBackgroundRepeat.repeat ||
-        repeat == CssBackgroundRepeat.repeatY;
-    final startX = repeatX
-        ? bounds.left - originX % tile.width
-        : bounds.left + originX;
-    final startY = repeatY
-        ? bounds.top - originY % tile.height
-        : bounds.top + originY;
-    final stepX = repeatX ? tile.width : 0.0;
-    final stepY = repeatY ? tile.height : 0.0;
-    for (
-      var y = startY;
-      y < bounds.bottom;
-      y += stepY == 0 ? bounds.bottom : stepY
-    ) {
-      for (
-        var x = startX;
-        x < bounds.right;
-        x += stepX == 0 ? bounds.right : stepX
-      ) {
-        final rect = Rect.fromLTWH(x, y, tile.width, tile.height);
-        final shader = _gradientShader(gradient, rect);
-        if (shader != null) {
-          canvas.drawRect(rect, Paint()..shader = shader);
-        }
-        if (stepX == 0) {
-          break;
-        }
-      }
-      if (stepY == 0) {
-        break;
+    for (final tile in backgroundTileRects(
+      bounds,
+      layer,
+      paintingBounds: paintingBounds,
+    )) {
+      final shader = _gradientShader(gradient, tile);
+      if (shader != null) {
+        canvas.drawRect(tile, Paint()..shader = shader);
       }
     }
   }
@@ -3035,6 +2997,8 @@ class PagePainter {
   /// 重复平铺。
   Shader? _gradientShader(CssGradient gradient, Rect area) {
     switch (gradient) {
+      case CssConicGradient():
+        return _conicGradientShader(gradient, area);
       case CssLinearGradient():
         final radians = gradient.angle * math.pi / 180;
         final direction = Offset(math.sin(radians), -math.cos(radians));
@@ -3123,6 +3087,36 @@ class PagePainter {
           matrix,
         );
     }
+  }
+
+  Shader? _conicGradientShader(CssConicGradient gradient, Rect area) {
+    if (area.isEmpty || gradient.stops.length < 2) return null;
+    if (gradient.stops.any(
+      (stop) => stop.position != null || stop.positionPx != null,
+    )) {
+      return null;
+    }
+    final center = area.center;
+    // Skia sweep 从三点方向开始。围绕中心旋转 -90°，而非截取角度区间，
+    // 使十二点接缝两侧仍正确回绕到末色/首色。
+    final rotation = Float64List.fromList([
+      0, -1, 0, 0, //
+      1, 0, 0, 0, //
+      0, 0, 1, 0, //
+      center.dx - center.dy, center.dx + center.dy, 0, 1, //
+    ]);
+    return ui.Gradient.sweep(
+      center,
+      [for (final stop in gradient.stops) stop.color],
+      [
+        for (var index = 0; index < gradient.stops.length; index++)
+          index / (gradient.stops.length - 1),
+      ],
+      TileMode.clamp,
+      0,
+      2 * math.pi,
+      rotation,
+    );
   }
 
   /// 解析色标位置（0–1）：支持百分比与像素（按 [extent] 换算）。
@@ -5505,20 +5499,31 @@ class _SliceGeometry {
         ? slice.leftInset + style.margin.left
         : style.margin.left;
     final left = block.bleedLeft ? -pageInsets.left : boxLeft;
-    // 浮动的自动宽/百分比宽已在排版阶段解算，不能再按整页宽扩张背景与边框。
-    final contentWidth = block.floatSide != null
-        ? (block.layout.maxWidth.isFinite
-              ? block.layout.maxWidth
-              : block.layout.width)
-        : !isVerticalBlock
-        ? model.resolveContentWidth(pageWidth)
-        : model.contentWidth == null
-        ? block.layout.width
-        : model.resolveContentWidth(pageWidth);
+    final contentWidth = _contentBoxWidth(model);
     final right = block.bleedRight
         ? pageWidth + pageInsets.right
         : left + contentWidth + model.horizontalInset;
     return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  double _contentBoxWidth(BoxModel model) {
+    final block = slice.block;
+    // 浮动和普通横排内在宽度已在测量时解算，绘制直接使用最终内容宽。
+    final intrinsicText =
+        style.intrinsicWidth != null &&
+        !isVerticalBlock &&
+        !block.isReplaced &&
+        block.table == null &&
+        block.gallery == null;
+    if (block.floatSide != null || intrinsicText) {
+      return block.layout.maxWidth.isFinite
+          ? block.layout.maxWidth
+          : block.layout.width;
+    }
+    if (isVerticalBlock && model.contentWidth == null) {
+      return block.layout.width;
+    }
+    return model.resolveContentWidth(pageWidth);
   }
 
   /// 本切片是否竖排（`writing-mode: vertical-*`）。

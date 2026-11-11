@@ -4,6 +4,8 @@
 > 范围：`packages/reader_core/lib/css/*`（解析/层叠/计算）、`layout/*`、`paint/*`、`apps/reader_mobile/lib/reader/epub_chapter_source.dart`（flat 管线消费方）。
 > 本文只做审计，不含代码改动。第 2 版替换此前所有分类与行号（第 1 版的 C 组 9 条里已有 5 条被本轮实现接通）。
 
+> 2026-11-11 更新：第 10 章记录参考项目对照后的七组 CSS 补齐、实际消费与支持边界。此前统计、结论和行号保留为历史快照；涉及这七组的当前状态以第 10 章为准。
+
 ## 0. 结论摘要
 
 | 指标 | 数值 |
@@ -593,3 +595,76 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 `backdrop-filter` 仍按页面背景
 近似。新增真实书语料或多个背景、3D transform 等路径时，需要重新扩展用例与
 审计结论。
+
+## 第 10 章 参考项目对照后的七组 CSS 补齐（2026-11-11）
+
+本轮只补齐阅微或 Reeden 已有实际消费证据的属性及取值，沿用本项目的作者样式、阅读器字号和分页策略。属性登记、枚举、字符串命中只用于发现候选，不能单独证明布局或绘制支持；本节不重新计算前文的历史覆盖率。
+
+定位约定：`C/` 表示 `packages/reader_core/lib/`，`E/` 表示 `apps/reader_mobile/lib/reader/epub/`。函数名是维护锚点，行号仅在参考证据中保留审计快照。
+
+### 10.1 实现与明确边界
+
+| 组别 | 当前取值与语义 | 解析 → 实际消费 | 本轮未扩展的范围 |
+| --- | --- | --- | --- |
+| 字号关键字（含 `font` 简写） | `xx-small` 至 `xxx-large`、`smaller`、`larger`；绝对关键字使用书籍根字号基准，相对关键字使用父字号 | `C/css/font_size.dart` 的 `CssFontSizes.resolve`、`C/css/computed_style.dart` 的 `parseFontShorthand` → `E/chapter_style_resolver.dart`、`E/text_block_builder.dart` 的阅读器字号覆盖 → `C/layout/line_breaker.dart` 的 `textStyleFor` 与 `TextPainter` | 不新增 `font:caption` 等系统字体简写；不保证各平台浏览器的字号表完全一致 |
+| 长度单位（视口单位及字号/字距 `ex`） | 通用长度入口增加 `vw/vh/vi/vb/vmin/vmax`；`font-size`、`letter-spacing` 接通 `ex`。`vi/vb` 按根 `writing-mode` 选轴 | `C/css/length.dart` 的 `CssValueContext`、`resolveCssNumericLength` → `E/chapter_style_resolver.dart` 的 `_viewportContext` → 既有文字、盒模型和绘制消费者 | `ex` 为 `0.5em` 近似，未读取字体真实 x-height；不新增 `ch/ic/cap/lh/rlh` 或 `sv*/lv*/dv*` 单位，也不因此承诺所有属性的新语法 |
+| `background-position-x/y` | 每层单轴关键字（x：`left/center/right`；y：`top/center/bottom`）、已支持的长度及百分比；与 `background-position`、`background` 共用轴级联槽 | `C/css/background_declarations.dart` 的 `positionLonghands`、`axis` → `C/css/cascade.dart` → `ComputedStyle.backgroundLayers` → `C/paint/background_tiles.dart` 的 `_tileAxes` | 不新增单轴 `right 10px` 等边缘偏移或整体三/四值位置语法；无效组合整项拒绝 |
+| 双轴 `background-repeat`（含 `space/round`） | 单值、双值及 `repeat-x/repeat-y`；两轴独立选择 `repeat/no-repeat/space/round`，图片与渐变共用几何 | `C/css/background_declarations.dart` 的 `repeat` → `C/css/background_values.dart` → `C/paint/background_tiles.dart` 的 `backgroundTileRects` → `C/paint/background_image.dart`、`C/paint/page_renderer.dart` | 保留既有分页背景与 attachment 策略，不承诺浏览器滚动视口行为；零尺寸及非有限几何不绘制 |
+| 基础 `conic-gradient` | 接受至少两个完整颜色参数，如 `conic-gradient(red, blue, green)`；颜色沿圆周均匀分布，中心默认居中，十二点为起点、顺时针一周 | `ComputedStyle._parseGradient` → `C/css/background_values.dart` 的 `CssConicGradient` → `C/paint/page_renderer.dart` 的 `_conicGradientShader`；作为背景层参与位置、尺寸、平铺和裁切 | 不接受 `from`、`at`、百分比/角度位置色标、双位置色标、颜色插值提示或 `repeating-conic-gradient`；颜色能力沿用已有颜色解析器 |
+| 字符串 `list-style-type` | 引号字符串保留大小写、空串、Unicode 与 CSS 十六进制转义；支持继承、`list-style` 简写及 `inside/outside`，图片标记优先、失败时回退文本标记 | `C/css/list_style.dart` 的 `type`、`shorthand` → `ComputedStyle.listStyleString` / `CssListStyleType.custom` → `E/chapter_flow.dart` 的 `ListContext.nextMarker`、`E/text_block_builder.dart` 的 `_markerMeasureStyle` → `C/paint/page_renderer.dart` 的列表首行绘制 | 不新增 `symbols()`、`@counter-style` 或任意自定义计数系统；标记是布局/绘制数据，不插入原文、搜索文本或 CFI |
+| `width:min-content/max-content/fit-content` | 普通横排文本块、列表项及块容器按真实文字度量选择内容宽；兄弟块取最大占宽，`fit-content` 在最小/最大内容宽之间约束可用宽 | `C/css/intrinsic_width.dart` → `E/chapter_text_measurer.dart`、`E/text_block_builder.dart` 的 `measureIntrinsicContent`、`E/intrinsic_blocks.dart` 的 `ChapterIntrinsicMeasurer` → `C/layout/intrinsic_widths.dart`、`C/layout/box_model.dart` → `PageBlock` / `PageContainer` 的布局、背景、边框与命中 | 不新增 `min/max-width` 的这些关键字或 `fit-content()` 函数；不扩展竖排、浮动、绝对/固定定位、替换元素及 flex/grid/table 的完整内在尺寸算法 |
+
+字号关键字的倍率相对书籍根字号为：`xx-small=9/16`、`x-small=10/16`、`small=13/16`、`medium=1`、`large=9/8`、`x-large=3/2`、`xx-large=2`、`xxx-large=3`；`smaller=父字号/1.2`、`larger=父字号×1.2`。`CssFontSizes.usesRoot` 区分根/父基准，阅读器字号只在文字覆盖阶段应用一次，作者盒模型仍按书籍样式计算。这里记录本项目的算法，不把参考项目的具体倍率当作规范要求。
+
+长度计算只读取本次 `LayoutSnapshot.width/height`，旋屏或重排重新生成计算上下文；根轴锁定后，后代的横竖排不会改变 `vi/vb` 基准。单位换算只处理数值 token，保留字符串、URL 和自定义属性定义。旧 `width/height/min-width/max-width/min-height/max-height` 中的裸 `vh` 保留原延迟解算协议；无有效视口时不猜测像素值。
+
+背景百分比位置使用「定位区尺寸减瓦片尺寸」作为基准。`space` 能放下至少两块时贴边并均分间隙，不足两块时按 position 放置单块；`round` 按整数块数缩放，图片另一轴为 `auto` 时保持固有比例。多背景按层分别计算 size/position/repeat/origin/clip；`backgroundTileRects` 惰性产生矩形，采用整数计数及有限、单调坐标保护，不设置任意瓦片数量上限。
+
+`CssLength` 的相等比较与 hash 同时包含数值及 auto/百分比/旧 vh 标志，使重新计算但数值相同的背景 size/position 保持相等，并区分相同数字的不同单位语义。
+
+内在宽度的 `fit-content = min(max-content, max(min-content, 可用内容宽))`。`BoxModel` 统一处理边框、内边距、`box-sizing` 和数值 min/max 约束，冲突时 min 优先；预测阶段 auto 外边距按零贡献，得到实际宽后再分配。预测复用正文的字号、字距、硬换行、首行缩进、`::first-letter`、inside 标记和生成内容，计数器/列表上下文使用测量快照，不重复推进正式计数器。`minContentTextWidthAsync` 仅在测量副本把 CJK、ZWSP、anywhere 合法断点转为硬换行，保留原文坐标；循环检查取消，`TextPainter` 在 `finally` 释放。本轮没有修改旧数值宽度路径中已存在的长词断行问题。
+
+### 10.2 参考证据与规范
+
+阅微证据取自 2.3.2 beta 的已有反编译源码。以下 `Y/` 表示 `参考/阅微/analysis/decompiled/sources/org/epub/`；登记及候选索引另见 `参考/阅微/analysis/css-support-matrix.json`、`参考/阅微/analysis/evidence/css-registry-inventory.json`、`参考/阅微/analysis/evidence/css-property-usage.json`。
+
+| 组别 | 阅微实际消费证据（解析/计算 → 消费） | 官方规范 |
+| --- | --- | --- |
+| 字号关键字 | `Y/css/property/FontSize.java:322` 的根基准与 `:325` 的父基准分支 → `Y/css/Style.java:1716` 的 `getSpanStyle` | [CSS Fonts 4：font-size](https://drafts.csswg.org/css-fonts-4/#font-size-prop) |
+| 长度单位 | 视口：`Y/css/property/CSSUnit.java:104` → `Y/css/property/PaddingLeft.java:75` → `Y/css/Style.java:1451` 的盒模型；`ex`：`Y/css/property/FontSize.java:329`、`Y/css/property/LetterSpacing.java:103` → `Y/css/Style.java:1716` 的文字样式 | [视口相对长度](https://drafts.csswg.org/css-values-4/#viewport-relative-lengths)、[字体相对长度](https://drafts.csswg.org/css-values-4/#font-relative-lengths) |
+| 背景轴位置 | `Y/css/property/BackgroundPositionX.java:177`、`BackgroundPositionY.java:177` → `Y/ui/modifier/CSSBackgroundKt.java:52` 传参、`CSSBackgroundNode.java:658` 的位置计算 | [background-position](https://drafts.csswg.org/css-backgrounds-3/#the-background-position)、[轴长属性](https://drafts.csswg.org/css-backgrounds-4/#background-position-longhands) |
+| 背景双轴平铺 | `Y/css/property/BackgroundRepeat.java:239`、`:282` → `Y/ui/modifier/CSSBackgroundNode.java:773` 的 `layoutAxis`（space/round）、`:848` 的 `drawImage` | [background-repeat](https://drafts.csswg.org/css-backgrounds-3/#the-background-repeat) |
+| 基础圆锥渐变 | `Y/css/property/CSSGradient.java:703` 的 `parseColorStops` → `:120` 的 sweep brush → `Y/ui/modifier/CSSBackgroundNode.java:395` 的背景绘制 | [conic-gradient](https://drafts.csswg.org/css-images-4/#conic-gradients) |
+| 字符串列表标记 | `Y/css/property/ListStyleType.java:278` → `Y/html/node/BodyDom.java:67` 读取 `getDisplay()` 并加入实际标记内容 | [字符串文本标记](https://drafts.csswg.org/css-lists-3/#text-markers) |
+| 内在宽度 | `Y/css/property/Width.java:214` → `Y/html/node/ContainerDom.java:951` 的 MinContent/MaxContent/FitContent 布局分支及 `Y/css/Style.java:1479` 的宽度消费 | [内在尺寸关键字](https://drafts.csswg.org/css-sizing-3/#width-height-keywords) |
+
+这些证据证明参考项目存在消费路径，不表示参考算法与规范完全一致：阅微 `vi/vb` 直接取宽/高，不能据此证明竖排轴正确；conic 分支只取颜色列表生成 sweep，不能据此声称位置色标、`from/at` 生效；内在宽度分支不能泛化到所有布局上下文。本项目采用上节声明的语义和范围。
+
+Reeden 的 `参考/reeden/reports/` 下 `130-epub-css.md`、`150-epub-typography.md`、`620-enums-maps.md`、`630-ua-stylesheet.md` 保留其「观测/推断/未知」分级。本轮七组均已有上述阅微消费证据；Reeden 的单位枚举、属性字符串和 UA 声明不单独提升支持等级，未证实项未纳入实现范围。
+
+### 10.3 回归入口与验证状态
+
+真实章节回归使用 `apps/reader_mobile/test/reader/support/css_chapter_book.dart` 的 `openCssChapter`，从章节源验证布局和文本坐标；文件如下：
+
+| 回归文件（相对 `apps/reader_mobile/test/reader/`） | 已确认结果与重点 |
+| --- | --- |
+| `css_extended_values_chapter_test.dart` | 30 项通过：关键词嵌套/简写、阅读器字号、盒模型、视口/根轴/旋屏、`ex`、字符串标记、分页与原文/搜索/CFI 隔离 |
+| `intrinsic_width_chapter_test.dart` | 35 项通过：英文/CJK/硬换行、行内样式、嵌套最大子块宽、盒模型/min/max、旋屏/字号重测、计数器、CFI/进度与绘制宽度 |
+| `intrinsic_width_composition_test.dart` | 19 项通过：首行缩进、inside 标记、容器首字、auto 外边距、中文单字最小宽与祖先预测组合 |
+
+复跑这 84 项，从 `apps/reader_mobile/` 执行：
+
+```sh
+flutter test --no-pub --reporter expanded \
+  test/reader/css_extended_values_chapter_test.dart \
+  test/reader/intrinsic_width_chapter_test.dart \
+  test/reader/intrinsic_width_composition_test.dart
+```
+
+声明/级联和背景几何/像素验证另见 `packages/reader_core/test/css/css_extended_cascade_test.dart`、`packages/reader_core/test/paint/background_tiles_test.dart`、`packages/reader_core/test/paint/background_extended_paint_test.dart`，以及 `apps/reader_mobile/test/reader/epub/background_layers_chapter_test.dart`。
+
+截至本节更新，核心全量已确认 **1729 项通过、8 项跳过**，三包静态检查均通过，章节固定 fixture 保持原样且通过；表格/渐变导出编译修复后的目标测试为 **11 项通过、1 项环境跳过**。CSS、表格、原固定 fixture 与标题/图片 CFI 的集中目标复跑 **124 项通过**，与上表用例有重叠，不累加计数。
+
+分离架构改动后，三包静态检查和上述 124 项再次通过；背景按值比较补充用例通过，核心 CSS、盒模型及相关背景绘制集中复跑 **303 项通过**。迁移对照另保留了 6 组状态、23 页的样式、块几何、CFI、原文与像素散列，不修改项目原有 fixture。
+
+全量不是三包全绿：`reader_ui` 的 4 项与应用的 10 项失败均已在干净基线 `dd3e1eb` 复现，共 **14 项现有失败**，旧断言与 golden 未改写。本轮目标回归已通过；上述旧失败的最终集中验证命令、计数和跳过原因应与交付验收记录一起维护。

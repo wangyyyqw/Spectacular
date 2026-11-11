@@ -1,6 +1,9 @@
 import 'dart:ui' show Color;
 
-import '../css/computed_style.dart';
+import 'package:flutter/foundation.dart' show listEquals;
+
+import '../css/background_values.dart';
+import '../css/length.dart';
 
 /// 整页背景（书籍 `body` / `html` 声明的背景色或背景图）。
 ///
@@ -18,7 +21,9 @@ class PageBackground {
       x: CssLength(0, isPercent: true),
       y: CssLength(0, isPercent: true),
     ),
-  }) : assert(imageUrl != null || backgroundColor != null);
+    List<CssBackgroundLayer>? layers,
+  }) : layers = layers ?? const [],
+       assert(imageUrl != null || backgroundColor != null || layers != null);
 
   /// 已解析成书内资源路径的图片地址。
   final String? imageUrl;
@@ -35,6 +40,22 @@ class PageBackground {
   /// 背景位置（默认左上）。
   final CssBackgroundPosition position;
 
+  /// 作者背景层，首项最靠上；资源地址由章节准备阶段解析。
+  final List<CssBackgroundLayer> layers;
+
+  /// 新入口使用完整层列表，旧单图入口继续按原尺寸和位置绘制。
+  List<CssBackgroundLayer> get effectiveLayers => layers.isNotEmpty
+      ? layers
+      : [
+          if (imageUrl != null)
+            CssBackgroundLayer(
+              image: imageUrl,
+              size: size,
+              repeat: repeat,
+              position: position,
+            ),
+        ];
+
   @override
   bool operator ==(Object other) =>
       other is PageBackground &&
@@ -42,9 +63,16 @@ class PageBackground {
       other.backgroundColor == backgroundColor &&
       other.size == size &&
       other.repeat == repeat &&
-      other.position == position;
+      other.position == position &&
+      listEquals(other.layers, layers);
 
   @override
-  int get hashCode =>
-      Object.hash(imageUrl, backgroundColor, size, repeat, position);
+  int get hashCode => Object.hash(
+    imageUrl,
+    backgroundColor,
+    size,
+    repeat,
+    position,
+    Object.hashAll(layers),
+  );
 }

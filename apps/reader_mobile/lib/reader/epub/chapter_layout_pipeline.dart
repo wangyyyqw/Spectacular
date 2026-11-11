@@ -165,6 +165,7 @@ class ChapterLayoutPipeline {
         resolver.chainStyle([
           ChapterNodeView('body', input.document.root.attributes, const []),
         ]),
+        resolveUrl: (url) => resources.imageUrl(input.snapshot.spineIndex, url),
       ),
       warning: image.warning,
     );
