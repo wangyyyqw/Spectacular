@@ -33,6 +33,18 @@ void main() {
     expect(parsed.fontWeight, 700);
   });
 
+  test('font 简写的相对长度单位忽略大小写，字体名称保留大小写', () {
+    final parsed = ComputedStyle(
+      const {'font': 'ITALIC .8REM/1.3 "ExampleFont", serif'},
+      parent: style(const {'font-size': '10px'}),
+      rootFontSize: 21,
+    );
+    expect(parsed.fontSize, closeTo(16.8, .001));
+    expect(parsed.lineHeight, closeTo(16.8 * 1.3, .001));
+    expect(parsed.italic, isTrue);
+    expect(parsed.fontFamily, 'ExampleFont');
+  });
+
   test('font 简写支持无行高的百分比字号与系统关键字丢弃', () {
     final parsed = style(const <String, String>{'font': '120% serif'});
     expect(parsed.fontSize, greaterThan(0));

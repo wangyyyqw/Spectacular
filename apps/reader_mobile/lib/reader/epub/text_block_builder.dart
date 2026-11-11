@@ -199,20 +199,29 @@ class TextBlockBuilder {
     );
     final applyReader =
         !context.isHeading && !structured && !special && !promoted;
+    style = _applyBlockTypography(context, style, applyReader: applyReader);
+    return _BodyStyle(authored, style, compact, structured, applyReader);
+  }
+
+  ComputedStyle _applyBlockTypography(
+    _BlockContext context,
+    ComputedStyle style, {
+    required bool applyReader,
+  }) {
     if (applyReader) {
       final relativeSize =
-          _nestedRelativeFontSize(context) ??
-          _scopedPercentageFontSize(context);
-      style = relativeSize == null
-          ? styles.snapshot.overrides.applyTypography(style)
-          : style.scaleRelativeTypography(relativeSize);
-    } else {
-      final readerSize = _scaledComponentFontSize(context);
-      if (readerSize != null) {
-        style = style.scaleRelativeTypography(readerSize);
+          _nestedRelativeFontSize(context) ?? _scopedRelativeFontSize(context);
+      if (relativeSize != null) {
+        style = style.scaleRelativeTypography(relativeSize);
       }
+      return styles.snapshot.overrides
+          .copyWith(fontSize: relativeSize)
+          .applyTypography(style);
     }
-    return _BodyStyle(authored, style, compact, structured, applyReader);
+    final readerSize = _scaledComponentFontSize(context);
+    return readerSize == null
+        ? style
+        : style.scaleRelativeTypography(readerSize);
   }
 
   /// 保留标题和紧凑组件自身的相对字号，同时让比例以阅读器字号为基准。
@@ -227,16 +236,19 @@ class TextBlockBuilder {
         !computed.explicitProperties.contains('font')) {
       return null;
     }
-    final raw = _fontSizeDeclaration(computed);
+    final raw = fontSizeDeclarationOf(computed);
     if (raw != null &&
         RegExp(r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$').hasMatch(raw)) {
       return null;
     }
-    final parent = styles.chainStyle(
-      ancestors.sublist(0, ancestors.length - 1),
-    );
-    if (parent.fontSize <= 0) return null;
-    return readerSize * computed.fontSize / parent.fontSize;
+    // rem 相对章节根字号，不能用已被作者缩小的父容器作为分母。
+    final referenceSize = raw?.endsWith('rem') ?? false
+        ? styles.style.fontSize
+        : styles
+              .chainStyle(ancestors.sublist(0, ancestors.length - 1))
+              .fontSize;
+    if (referenceSize <= 0) return null;
+    return readerSize * computed.fontSize / referenceSize;
   }
 
   /// 普通正文若位于作者缩小/放大的容器内，也保留块自身的相对字号。
@@ -254,7 +266,7 @@ class TextBlockBuilder {
           !ancestor.explicitProperties.contains('font')) {
         continue;
       }
-      final raw = _fontSizeDeclaration(ancestor);
+      final raw = fontSizeDeclarationOf(ancestor);
       if (raw != null &&
           !RegExp(r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$').hasMatch(raw)) {
         return scaled;
@@ -263,17 +275,11 @@ class TextBlockBuilder {
     return null;
   }
 
-  /// 版权页等组件常用 class 百分字号；以阅读器字号为基准，避免被普通
-  /// 正文覆盖成满字号。全局 `p` 的百分字号不进入这里。
-  double? _scopedPercentageFontSize(_BlockContext context) {
+  /// class/id/内联声明的 em、rem、百分字号共用标题的相对缩放规则。
+  /// 全局正文基准仍由阅读器控制，作者盒模型不注入阅读器字号。
+  double? _scopedRelativeFontSize(_BlockContext context) {
     if (!_hasScopedFontSize(context)) return null;
-    final computed = styles.chainStyle(context.ancestors);
-    final raw = _fontSizeDeclaration(computed);
-    if (raw == null) return null;
-    final readerSize = styles.snapshot.overrides.fontSize;
-    if (readerSize == null) return null;
-    if (!RegExp(r'^(?:\d+(?:\.\d+)?|\.\d+)%$').hasMatch(raw)) return null;
-    return readerSize * double.parse(raw.substring(0, raw.length - 1)) / 100;
+    return _scaledComponentFontSize(context);
   }
 
   /// 组件自己通过 class/id/内联样式声明字号时，保留相对比例；普通 `p` 或
@@ -313,16 +319,6 @@ class TextBlockBuilder {
       }
     }
     return false;
-  }
-
-  String? _fontSizeDeclaration(ComputedStyle style) {
-    if (style.explicitProperties.contains('font-size')) {
-      return style.values['font-size']?.trim().toLowerCase();
-    }
-    final shorthand = style.values['font'];
-    return shorthand == null
-        ? null
-        : ComputedStyle.parseFontShorthand(shorthand)?['font-size'];
   }
 
   Future<bool> _compactComponent(
@@ -402,7 +398,7 @@ class TextBlockBuilder {
     if (marker == null || !inside) return body.style;
     final indent = await measure.insideMarkerIndent(marker, body.style);
     final position = context.position;
-    var style = styles.styleForChain(
+    final style = styles.styleForChain(
       position.ancestors,
       quoteDepth: position.quoteDepth,
       firstInContainer: position.firstInContainer,
@@ -410,10 +406,11 @@ class TextBlockBuilder {
       listIndent: body.authored.listIndent,
       firstLineIndent: indent,
     );
-    if (!context.isHeading) {
-      style = styles.snapshot.overrides.applyTypography(style);
-    }
-    return style;
+    return _applyBlockTypography(
+      context,
+      style,
+      applyReader: body.applyReaderTypography,
+    );
   }
 
   Future<bool> _buildImageOnly(

@@ -5,6 +5,17 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/page_background.dart';
 
+/// 从级联胜出的显式长属性或 font 简写中取字号，继承字号不当作新声明。
+String? fontSizeDeclarationOf(ComputedStyle style) {
+  if (style.explicitProperties.contains('font-size')) {
+    return style.values['font-size']?.trim().toLowerCase();
+  }
+  if (!style.explicitProperties.contains('font')) return null;
+  return ComputedStyle.parseFontShorthand(
+    style.values['font'],
+  )?['font-size']?.trim().toLowerCase();
+}
+
 /// 边框线型名（P8-05c 拼合声明用）。
 String borderStyleName(CssBorderStyle value) => switch (value) {
   CssBorderStyle.solid => 'solid',

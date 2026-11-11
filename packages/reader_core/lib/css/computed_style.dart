@@ -5005,7 +5005,7 @@ class ComputedStyle {
       } else if (_fontStretchPercentPattern.hasMatch(token)) {
         result['font-stretch'] = token;
       } else {
-        final match = _fontSizePattern.firstMatch(tokens[index]);
+        final match = _fontSizePattern.firstMatch(token);
         final keyword = const <String>{
           'xx-small',
           'x-small',
@@ -5018,7 +5018,7 @@ class ComputedStyle {
           'larger',
         }.contains(token);
         if (match != null || keyword) {
-          size = tokens[index];
+          size = token;
           lineHeight = match?.group(3);
           break;
         }
