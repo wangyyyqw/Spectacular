@@ -59,6 +59,11 @@ class ImageBlockBuilder {
     final block = _imageBlock(input, geometry, style, notes);
     if (node.containerChain.isEmpty) return [block];
     final margins = _foldedAncestorMargins(input);
+    if (geometry.side != null &&
+        !margins.hasFloatAncestor &&
+        position.containerFloat == null) {
+      return [block.withSpacing(floatParentMargins: margins.parents)];
+    }
     return [
       block.withSpacing(
         spaceBefore: collapseMargins(block.spaceBefore, margins.before),
@@ -93,22 +98,36 @@ class ImageBlockBuilder {
 
 /// 纯图折叠会移除逐层父块；每层父块都只有这张图，因此把它们的外边距
 /// 依次与图片段距折叠，避免 `div > img` 的垂直定位或间距丢失。
-({double before, double after}) _foldedAncestorMargins(
-  _ImageDescription input,
-) {
+({
+  double before,
+  double after,
+  bool hasFloatAncestor,
+  FloatParentMargins parents,
+})
+_foldedAncestorMargins(_ImageDescription input) {
   var before = 0.0;
   var after = 0.0;
+  var hasFloatAncestor = false;
+  var parents = const FloatParentMargins();
   for (var index = 0; index < input.chain.length; index++) {
     final style = input.styles.chainStyle(input.chain.sublist(0, index + 1));
     // 浮动整盒独立消费自己的外边距，纯图折叠只携带盒内后代的边距。
     if (style.cssFloat != CssFloat.none) {
       before = after = 0.0;
+      hasFloatAncestor = true;
+      parents = const FloatParentMargins();
       continue;
     }
     before = collapseMargins(before, style.margin.top);
     after = collapseMargins(after, style.margin.bottom);
+    parents = parents.include(style.margin.top).include(style.margin.bottom);
   }
-  return (before: before, after: after);
+  return (
+    before: before,
+    after: after,
+    hasFloatAncestor: hasFloatAncestor,
+    parents: parents,
+  );
 }
 
 /// 首次级联后立即冻结图片属性，后续容器级联不覆盖定位与透明度。

@@ -161,37 +161,69 @@ class _MarginCollapseWork {
   final _blocks = <PageBlock>[];
   var _flowCount = 0;
   int? _previous;
-  List<PageBlock> get result => _flowCount < 2 ? source : _blocks;
+  FloatParentMargins? _pendingFloatParentMargins;
+  final _pendingFloatIndices = <int>[];
+  bool _parentMarginChanged = false;
+  List<PageBlock> get result =>
+      _flowCount < 2 && !_parentMarginChanged ? source : _blocks;
 
   Iterable<int> steps() sync* {
     for (final current in source) {
       yield 0;
       if (current.floatSide != null || current.absolute) {
+        if (current.floatParentMargins case final parents?) {
+          _pendingFloatParentMargins =
+              _pendingFloatParentMargins?.merge(parents) ?? parents;
+          _pendingFloatIndices.add(_blocks.length);
+        }
         _blocks.add(current);
         continue;
       }
       _flowCount += 1;
-      if (_previous case final previousIndex?) {
-        final previous = _blocks[previousIndex];
-        final boundary = _MarginBoundary(previous, current);
-        yield* boundary.steps();
-        if (previous.spaceAfter != 0 && !boundary.blocked) {
-          _blocks[previousIndex] = previous.withSpacing(spaceAfter: 0);
-          _blocks.add(
-            current.withSpacing(
-              spaceBefore: collapseMargins(
-                previous.spaceAfter,
-                current.spaceBefore,
-              ),
-            ),
-          );
-          _previous = _blocks.length - 1;
-          continue;
-        }
-      }
-      _blocks.add(current);
-      _previous = _blocks.length - 1;
+      yield* _flowBlock(current);
     }
+  }
+
+  Iterable<int> _flowBlock(PageBlock current) sync* {
+    double? previousMargin;
+    if (_previous case final previousIndex?) {
+      final previous = _blocks[previousIndex];
+      final boundary = _MarginBoundary(previous, current);
+      yield* boundary.steps();
+      if (previous.spaceAfter != 0 && !boundary.blocked) {
+        previousMargin = previous.spaceAfter;
+        _blocks[previousIndex] = previous.withSpacing(spaceAfter: 0);
+      }
+    }
+    final parents = _pendingFloatParentMargins
+        ?.include(previousMargin ?? 0)
+        .include(current.spaceBefore);
+    if (parents != null) yield* _retainParentMargins(parents);
+    final before = parents != null
+        ? parents.extent
+        : previousMargin == null
+        ? current.spaceBefore
+        : collapseMargins(previousMargin, current.spaceBefore);
+    _pendingFloatParentMargins = null;
+    if ((parents != null || previousMargin != null) &&
+        before != current.spaceBefore) {
+      current = current.withSpacing(spaceBefore: before);
+      _parentMarginChanged = true;
+    }
+    _blocks.add(current);
+    _previous = _blocks.length - 1;
+  }
+
+  Iterable<int> _retainParentMargins(FloatParentMargins parents) sync* {
+    for (final index in _pendingFloatIndices) {
+      yield 0;
+      final block = _blocks[index];
+      if (!identical(block.floatParentMargins, parents)) {
+        _blocks[index] = block.withSpacing(floatParentMargins: parents);
+        _parentMarginChanged = true;
+      }
+    }
+    _pendingFloatIndices.clear();
   }
 }
 

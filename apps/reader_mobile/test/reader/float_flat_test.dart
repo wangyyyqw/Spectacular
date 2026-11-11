@@ -3,7 +3,19 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/epub/chapter/container_blocks.dart'
+    show collapseMarginsIgnoringFloats;
+import 'package:reader_core/layout/paginator.dart' show PageBlock;
 import 'package:reader_mobile/reader/epub_chapter_source.dart';
+
+typedef _ParentMarginCase = ({
+  String name,
+  double top,
+  double bottom,
+  double? next,
+  double? previous,
+  double collapsed,
+});
 
 /// float/clear 浮动排版接入 flat 管线的回归。
 Uint8List _buildEpub(String bodyHtml, {String? css}) {
@@ -152,6 +164,84 @@ void main() {
     );
   });
 
+  for (final scenario in <_ParentMarginCase>[
+    (
+      name: '父 40px 与自身 7px 分别消费',
+      top: 40,
+      bottom: 40,
+      next: 16,
+      previous: null,
+      collapsed: 40,
+    ),
+    (
+      name: '正负父边距与后继一起折叠',
+      top: 20,
+      bottom: -8,
+      next: 15,
+      previous: null,
+      collapsed: 12,
+    ),
+    (
+      name: '前段 25px 不因段后距清零而丢失',
+      top: 20,
+      bottom: -8,
+      next: 15,
+      previous: 25,
+      collapsed: 17,
+    ),
+    (
+      name: '没有后继在流块仍保留父边距',
+      top: 40,
+      bottom: 40,
+      next: null,
+      previous: null,
+      collapsed: 40,
+    ),
+    (
+      name: '没有后继时保留负父边距',
+      top: -8,
+      bottom: -8,
+      next: null,
+      previous: null,
+      collapsed: -8,
+    ),
+    (
+      name: '后继折叠为零与没有后继有区别',
+      top: -8,
+      bottom: -8,
+      next: 8,
+      previous: null,
+      collapsed: 0,
+    ),
+  ]) {
+    test('纯图浮动：${scenario.name}，原文与图片 CFI 保持不变', () async {
+      final source = await _openParentMarginCase(scenario);
+      await _expectParentMarginCase(source, scenario);
+    });
+  }
+
+  test('直接浮动图片继续按在流行首叠加自身边距', () async {
+    final source = await EpubChapterSource.open(
+      _buildEpub(
+        '<img id="direct" src="img.png"/><p>正文</p>',
+        css:
+            'body {font-size:16px;} p {margin:16px 0;} '
+            'img {float:left; width:80px; height:40px; margin-top:7px;}',
+      ),
+    );
+    addTearDown(source.close);
+    final slices = (await source.loadChapter(0)).first.slices;
+    final image = slices.singleWhere((slice) => slice.overlay);
+    final text = slices.singleWhere((slice) => !slice.overlay);
+    expect(text.leadingExtent, 16);
+    expect(image.absoluteTop, 16 + 7);
+    expect(image.block.floatParentMargins, isNull);
+    expect(
+      image.block.startCfi,
+      source.document.parseDocument(0).elementById('direct')!.cfi.serialize(),
+    );
+  });
+
   test('绕排占位结束后续行不重复应用 text-indent', () async {
     final source = await EpubChapterSource.open(
       _buildEpub(
@@ -290,4 +380,72 @@ void main() {
     final pages = await source.loadChapter(0);
     expect(pages.first.slices.where((s) => s.overlay), isEmpty);
   });
+}
+
+Future<EpubChapterSource> _openParentMarginCase(
+  _ParentMarginCase scenario,
+) async {
+  final source = await EpubChapterSource.open(
+    _buildEpub(
+      '${scenario.previous == null ? '' : '<p class="previous">前段</p>'}'
+      '<p id="wrapper" class="wrapper"><img id="folded" src="img.png"/></p>'
+      '${scenario.next == null ? '' : '<p class="next">正文</p>'}',
+      css:
+          'body {font-size:16px;} p {margin:0; line-height:20px;} '
+          '.previous {margin-bottom:${scenario.previous ?? 0}px;} '
+          '.wrapper {margin:${scenario.top}px 0 ${scenario.bottom}px;} '
+          '.next {margin-top:${scenario.next ?? 0}px;} '
+          'img {float:left; width:80px; height:40px; margin-top:7px;}',
+    ),
+  );
+  addTearDown(source.close);
+  return source;
+}
+
+Future<void> _expectParentMarginCase(
+  EpubChapterSource source,
+  _ParentMarginCase scenario,
+) async {
+  final parsed = source.document.parseDocument(0);
+  final original = parsed.plainText;
+  final slices = (await source.loadChapter(0))
+      .expand((page) => page.slices)
+      .toList();
+  final image = slices.singleWhere((slice) => slice.overlay);
+  final previousHeight = scenario.previous == null ? 0.0 : 20.0;
+  expect(
+    image.absoluteTop,
+    closeTo(previousHeight + scenario.collapsed + 7, .001),
+  );
+  expect(image.block.spaceBefore, 7, reason: '浮动自身边距独立保留');
+  expect(image.block.startCfi, parsed.elementById('folded')!.cfi.serialize());
+  expect(
+    image.block.startCfi,
+    isNot(parsed.elementById('wrapper')!.cfi.serialize()),
+  );
+  final flow = slices.where((slice) => !slice.overlay).toList();
+  expect(flow.map((slice) => slice.block.layout.text).join(), original);
+  if (scenario.previous != null) {
+    expect(flow.first.height, 20);
+    expect(flow.first.block.spaceAfter, 0);
+  }
+  if (scenario.next != null) {
+    expect(flow.last.leadingExtent, scenario.collapsed);
+    expect(
+      flow.last.block.startCfi,
+      parsed.textNodes.singleWhere((node) => node.text == '正文').cfi.serialize(),
+    );
+  }
+  _expectRepeatedMarginCollapse(slices.map((slice) => slice.block).toList());
+  expect(source.document.parseDocument(0).plainText, original);
+}
+
+void _expectRepeatedMarginCollapse(List<PageBlock> blocks) {
+  // 分页已把段前距移到切片；先折叠一次，再验证折叠本身的幂等性。
+  final once = collapseMarginsIgnoringFloats(blocks);
+  final twice = collapseMarginsIgnoringFloats(once);
+  expect(
+    twice.map((block) => (block.spaceBefore, block.spaceAfter, block.startCfi)),
+    once.map((block) => (block.spaceBefore, block.spaceAfter, block.startCfi)),
+  );
 }

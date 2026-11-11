@@ -162,6 +162,30 @@ int visibleLineCountWithinHeight(List<LineBox> lines, double boxHeight) {
   return count;
 }
 
+/// 纯图浮动父盒的折叠边距；保留正负极值，避免先求和后与邻居折叠丢信息。
+class FloatParentMargins {
+  const FloatParentMargins({this.positive = 0, this.negative = 0});
+
+  final double positive;
+  final double negative;
+
+  double get extent => positive + negative;
+
+  FloatParentMargins include(double margin) =>
+      margin <= positive && margin >= negative
+      ? this
+      : FloatParentMargins(
+          positive: math.max(positive, margin),
+          negative: math.min(negative, margin),
+        );
+
+  FloatParentMargins merge(FloatParentMargins other) =>
+      include(other.positive).include(other.negative);
+
+  double collapseWith(double margin) =>
+      math.max(positive, margin) + math.min(negative, margin);
+}
+
 /// 一个待分页的文本块。
 class PageBlock {
   /// 创建块。
@@ -185,6 +209,7 @@ class PageBlock {
     this.gallery,
     this.floatSide,
     this.floatBox,
+    this.floatParentMargins,
     this.floatContainingLeft,
     this.floatContainingWidth,
     this.rubies,
@@ -356,6 +381,10 @@ class PageBlock {
 
   /// 容器浮动的整盒占位；图片和图注的自身宽度不改变此范围。
   final PageFloatBox? floatBox;
+
+  /// 纯图折叠移除的普通父盒垂直外边距，折叠后包含同组在流邻居的极值，
+  /// 不能当作浮动自身 margin 再相加。null 表示没有这种父盒。
+  final FloatParentMargins? floatParentMargins;
 
   /// 浮动的包含块左缘（页面坐标）。行内浮动必须相对所在段落收窄，
   /// 不能按整页版心左右缘排布。
@@ -578,6 +607,7 @@ class PageBlock {
     List<PageContainerFragment>? containers,
     bool? breakAfterAvoid,
     PageFloatBox? floatBox,
+    FloatParentMargins? floatParentMargins,
   }) => PageBlock(
     layout: layout,
     pageBreakBefore: pageBreakBefore,
@@ -598,6 +628,7 @@ class PageBlock {
     gallery: gallery,
     floatSide: floatSide,
     floatBox: floatBox ?? this.floatBox,
+    floatParentMargins: floatParentMargins ?? this.floatParentMargins,
     floatContainingLeft: floatContainingLeft,
     floatContainingWidth: floatContainingWidth,
     rubies: rubies,
@@ -1460,6 +1491,7 @@ class Paginator {
     table: source.table,
     floatSide: source.floatSide,
     floatBox: source.floatBox,
+    floatParentMargins: source.floatParentMargins,
     rubies: source.rubies,
     inlineImages: source.inlineImages,
     footnotes: source.footnotes,

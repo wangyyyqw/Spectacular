@@ -397,7 +397,7 @@ class _FloatPagination {
   final pages = <PageContent>[];
   var slices = <PageBlockSlice>[];
   final occupancy = FloatOccupancy();
-  late final List<double> nextFlowLeading;
+  late final List<double?> nextFlowLeading;
   var y = 0.0;
   var hasFlowOnPage = false;
   var lastContentBottom = 0.0;
@@ -456,9 +456,9 @@ class _FloatPagination {
     }
   }
 
-  Future<List<double>> _nextLeading() async {
-    final result = List<double>.filled(blocks.length, 0);
-    var upcoming = 0.0;
+  Future<List<double?>> _nextLeading() async {
+    final result = List<double?>.filled(blocks.length, null);
+    double? upcoming;
     for (var i = blocks.length - 1; i >= 0; i--) {
       await budget.checkpoint();
       result[i] = upcoming;
@@ -683,9 +683,18 @@ class _FloatPagination {
     );
   }
 
-  double _flowPosition(PageBlock block, int index) => hasFlowOnPage
-      ? lastContentBottom + lastBottomMargin
-      : nextFlowLeading[index] + block.containerTopInset(0);
+  double _flowPosition(PageBlock block, int index) {
+    final parents = block.floatParentMargins;
+    if (hasFlowOnPage) {
+      return lastContentBottom +
+          (parents == null
+              ? lastBottomMargin
+              : parents.collapseWith(lastBottomMargin));
+    }
+    // 后继在流块已经消费父边距，不能再次折叠负值；没有后继时才直接使用。
+    return (nextFlowLeading[index] ?? parents?.extent ?? 0) +
+        block.containerTopInset(0);
+  }
 
   Future<_FloatGroupGeometry> _groupHeight(List<PageBlock> group) async {
     final tops = <double>[];
