@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:reader_core/api.dart' show EpubNode, TextBlockNode;
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/property_aliases.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/box_model.dart';
@@ -284,15 +285,20 @@ class TextBlockBuilder {
 
   /// 组件自己通过 class/id/内联样式声明字号时，保留相对比例；普通 `p` 或
   /// `body` 上的作者字号继续由阅读器字号覆盖。
-  bool _hasScopedFontSize(_BlockContext context) {
+  bool _hasScopedFontSize(_BlockContext context) =>
+      _hasScopedDeclaration(context, const {'font-size', 'font'});
+
+  bool _hasScopedDeclaration(
+    _BlockContext context,
+    Set<String> properties, {
+    bool localToElement = false,
+  }) {
     final ancestors = context.ancestors;
     if (ancestors.length < 2) return false;
     final current = ancestors.last;
     final parents = ancestors.sublist(0, ancestors.length - 1);
-    if (inlineDeclarationsOf(current.attributes['style']).any(
-      (declaration) =>
-          declaration.property == 'font-size' || declaration.property == 'font',
-    )) {
+    if (inlineDeclarationsOf(current.attributes['style'])
+        .any((declaration) => properties.contains(declaration.property))) {
       return true;
     }
     for (final rule in styles.cascadeRules.candidatesFor(current)) {
@@ -303,22 +309,31 @@ class TextBlockBuilder {
             contentWidth,
           ) ||
           !rule.rule.declarations.any(
-            (declaration) =>
-                declaration.property == 'font-size' ||
-                declaration.property == 'font',
+            (declaration) => properties.contains(declaration.property),
           )) {
         continue;
       }
       if (rule.selectors.selectors.any(
         (selector) =>
             selector.matches(current, parents) &&
-            (selector.specificity.id > 0 ||
-                selector.specificity.classCount > 0),
+            _isScopedSelector(selector, localToElement),
       )) {
         return true;
       }
     }
     return false;
+  }
+
+  static bool _isScopedSelector(ComplexSelector selector, bool localToElement) {
+    if (!localToElement) {
+      return selector.specificity.id > 0 || selector.specificity.classCount > 0;
+    }
+    // `.wrapper p` 是容器内正文基准；当前元素自身的限定才是局部组件边距。
+    final part = selector.parts.last;
+    return part.id != null ||
+        part.classes.isNotEmpty ||
+        part.attributeTests.isNotEmpty ||
+        part.pseudos.isNotEmpty;
   }
 
   Future<bool> _compactComponent(
@@ -362,14 +377,7 @@ class TextBlockBuilder {
         break;
       }
     }
-    final paragraphSpacing =
-        context.isHeading ||
-            context.tag == 'li' ||
-            splitFragment ||
-            body.structuredTitle ||
-            body.compact
-        ? null
-        : styles.snapshot.overrides.paragraphSpacing;
+    final paragraphSpacing = _paragraphSpacing(context, body, splitFragment);
     final absoluteBox = body.style.isOutOfFlow
         ? body.style.resolveAbsoluteBox(
             containingWidth: contentWidth,
@@ -377,6 +385,37 @@ class TextBlockBuilder {
           )
         : null;
     return _BlockMetrics(listMetrics, paragraphSpacing, absoluteBox);
+  }
+
+  ({double? before, double? after}) _paragraphSpacing(
+    _BlockContext context,
+    _BodyStyle body,
+    bool splitFragment,
+  ) {
+    final spacing = styles.snapshot.overrides.paragraphSpacing;
+    if (spacing == null ||
+        context.isHeading ||
+        context.tag == 'li' ||
+        splitFragment ||
+        body.structuredTitle ||
+        body.compact) {
+      return (before: null, after: null);
+    }
+    final logical = CssPropertyAliases.logicalPhysicalMap(
+      writingMode: body.authored.style.writingMode.name,
+      direction: body.authored.style.direction.name,
+    );
+    // 通用正文段距由阅读器控制；局部作者边距逐侧保留，不连带豁免另一侧。
+    double? overrideFor(String side) =>
+        _hasScopedDeclaration(context, {
+          'margin',
+          'margin-$side',
+          for (final entry in logical.entries)
+            if (entry.value == 'margin-$side') entry.key,
+        }, localToElement: true)
+        ? null
+        : spacing;
+    return (before: overrideFor('top'), after: overrideFor('bottom'));
   }
 
   String? _nextMarker(_BlockContext context, ComputedStyle style) {
@@ -1186,11 +1225,11 @@ class TextBlockBuilder {
     double incomingShift,
   ) => (
     before:
-        (metrics.paragraphSpacing ?? body.style.margin.top) +
+        (metrics.paragraphSpacing.before ?? body.style.margin.top) +
         metrics.list.before -
         incomingShift,
     after:
-        (metrics.paragraphSpacing ?? body.style.margin.bottom) +
+        (metrics.paragraphSpacing.after ?? body.style.margin.bottom) +
         metrics.list.after,
   );
 
@@ -1384,7 +1423,7 @@ class _ListMetrics {
 class _BlockMetrics {
   const _BlockMetrics(this.list, this.paragraphSpacing, this.absoluteBox);
   final _ListMetrics list;
-  final double? paragraphSpacing;
+  final ({double? before, double? after}) paragraphSpacing;
   final CssAbsoluteBox? absoluteBox;
 }
 
