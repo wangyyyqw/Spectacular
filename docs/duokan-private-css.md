@@ -574,7 +574,7 @@ div.orig-card {
 | [`packages/reader_core/lib/layout/line_breaker.dart`](../packages/reader_core/lib/layout/line_breaker.dart) | 新增竖排列布局入口，复用现有断行候选点；返回列/字位置 |
 | [`packages/reader_core/lib/layout/block_flow.dart`](../packages/reader_core/lib/layout/block_flow.dart) | `resolveFlowBranch` 第 519 行附近的竖排注释与分支；块级方向传递 |
 | [`packages/reader_core/lib/paint/page_renderer.dart`](../packages/reader_core/lib/paint/page_renderer.dart) | 竖排绘制分支；标点旋转、字向、着重号/注音/装饰线轴交换；选区矩形 |
-| [`apps/reader_mobile/lib/reader/epub_chapter_source.dart`](../apps/reader_mobile/lib/reader/epub_chapter_source.dart) | 从祖先链取 `writingMode` 写进 `PageBlock`；竖排块的分页组装 |
+| [`packages/reader_core/lib/epub/epub_chapter_source.dart`](../packages/reader_core/lib/epub/epub_chapter_source.dart) | 从祖先链取 `writingMode` 写进 `PageBlock`；竖排块的分页组装 |
 | [`packages/reader_core/lib/paint/page_snapshot.dart`](../packages/reader_core/lib/paint/page_snapshot.dart) | `writingMode` 从真实排版取值，不再固定默认 |
 | [`packages/reader_core/lib/css/computed_style.dart`](../packages/reader_core/lib/css/computed_style.dart) | 已有字段；补 `isVertical` 便捷判断与竖排相关值校验 |
 | 测试 | 新增竖排布局/分页/命中/CFI 往返；用 `cjk-vertical.epub` 与 `zhushen-yuxi` 的 `.vertical-poem` 做真实书回归 |
@@ -626,7 +626,7 @@ div.orig-card {
 | [`packages/reader_core/lib/layout/line_breaker.dart`](../packages/reader_core/lib/layout/line_breaker.dart) | 消费 `line-break`；补竖排下的行内推进；断字断点已接入，行尾连字符绘制在渲染层 |
 | [`packages/reader_core/lib/layout/paginator.dart`](../packages/reader_core/lib/layout/paginator.dart) | 出血从左右扩展到上下；竖排按列宽分页与命中测试 |
 | [`packages/reader_core/lib/paint/page_renderer.dart`](../packages/reader_core/lib/paint/page_renderer.dart) | 竖排逐字绘制、渐变文字、上下出血、首字下沉、縦中横 |
-| [`apps/reader_mobile/lib/reader/epub_chapter_source.dart`](../apps/reader_mobile/lib/reader/epub_chapter_source.dart) | 从祖先链取 `writingMode` 写入 `PageBlock`；竖排块分页组装；OPF 全屏已在此层实现，双页跨页待补 |
+| [`packages/reader_core/lib/epub/epub_chapter_source.dart`](../packages/reader_core/lib/epub/epub_chapter_source.dart) | 从祖先链取 `writingMode` 写入 `PageBlock`；竖排块分页组装；OPF 全屏已在此层实现，双页跨页待补 |
 | [`packages/reader_core/lib/paint/page_snapshot.dart`](../packages/reader_core/lib/paint/page_snapshot.dart) | `writingMode` 接真实排版值，参与快照指纹 |
 | [`packages/reader_core/test/css/private_properties_test.dart`](../packages/reader_core/test/css/private_properties_test.dart) | 补竖排族、`duokan-line-break`、`-epub-*`、`duokan-text-fill` 渐变、`duokan-break-inside` 用例 |
 | [`tool/css_parity/cases/`](../tool/css_parity/cases) | 新增或扩展真实书片段，与 Chrome 对照；竖排、出血、渐变各一组 |

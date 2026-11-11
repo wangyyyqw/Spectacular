@@ -1,98 +1,81 @@
 # EPUB 引擎架构与开发者指南
 
-> 面向后续开发者的一页式引擎全景：数据流、文件地图、设计决策、扩展方法。
-> 状态基线：2026-10-25，P3（M2 资源浮动容错）+ P8（引擎完备）完成，面板 168/242。
-> 配套阅读：[技术方案.md](../技术方案.md)（§51 级联、§60 块测量、§65 样式清单、§68 字体）、
-> [开发方案/P8-引擎完备.md](../开发方案/P8-引擎完备.md)（任务与验收）、
-> [验收记录/M2-真机测试.md](../验收记录/M2-真机测试.md) §7.1～7.6（演化日志）。
+当前实现以 `reader_core` 为唯一 EPUB 引擎，应用与测试直接导入核心模块。章节与定位契约统一位于 `reader_core/source/`；书库、进度和统计共用当前 schema 1。文件职责、缓存容量和既有验收记录见 [EPUB 引擎架构](../docs/epub-engine-architecture.md)，验证入口与预期维护见 [测试分类](../docs/测试分类.md)。
 
-## 1. 全景数据流
+## 数据流
 
-```
-EPUB bytes
-  └─ openEpub（epub/epub_document.dart）
-       ├─ 资源索引 resource_index（识别修复 P3-25）→ archive.readBytes
-       ├─ 破损分级 L0~L4（epub/importer.dart；无 OPF 拼章 P3-26）
-       └─ EpubDocumentImpl
-            ├─ parseBlocks(spine) → BlockDocument（原始块树，fullBleed 判定用）
-            └─ aggregateText(spine) → 聚合树（flat 管线主输入）
-                  ├─ 纯图块折叠 → tag='img' 块（P3 图片路径）
-                  ├─ InlineMark（行内样式标记 + 祖先链，P8-01/02）
-                  └─ RubyMark（注音，P8-08）
-
-EpubChapterSource.loadChapter（apps/…/epub_chapter_source.dart，flat 管线核心）
-  ├─ 满屏图章判定（P3-10）→ 单页背景块
-  ├─ collect(聚合树)
-  │    ├─ 级联样式 styleForChain：链式 Cascade.compute（P8-02）
-  │    │     规则 = uaRules()（P8-03，134 条对标）+ 作者样式表 + 内联 style
-  │    │     视图 = _NodeView(SelectorElement)（含兄弟池）
-  │    │     缓存 = 链键（全属性排序拼接，P8-07 修缓存污染）
-  │    ├─ display:none 子树剔除（P8-07）
-  │    ├─ 图片块（float 检测三来源 + inline-block 小图并排 P8-06）
-  │    ├─ 表格块（collectTable：两遍列宽→网格→行边界切分，P8 表格接入）
-  │    ├─ 伪元素 content 生成 + ::first-letter run（P8-09）
-  │    └─ 文本块：layout(runs) + rubies + 盒传导（背景/边框拼合 P8-05）
-  ├─ 浮动章 → _paginateWithFloats（FloatOccupancy 区间模型）
-  └─ 其余 → Paginator.measureChapter（分页状态机）+ PageIndex 重放
-
-渲染 PageRenderer（reader_core/paint/page_renderer.dart）
-  阶段：背景→块背景→块边框→文本→装饰（emphasis）→注音（P8-08）→选区
-  几何：leftInset/rightInset 双侧收窄（P8-05）；overlay 切片（浮动，P3-P8）
+```text
+应用文件选择与导入
+  → 计算书籍身份、内容摘要并保存当前数据库
+  → EpubFormatOpener.openFile / openBytes
+  → BookResources：归档、目标章、直接资源
+  → ChapterStructureStore：原始文档、选择器、原文锚点、图片叶 CFI
+  → ChapterStyles / ChapterStyleResolver：UA、作者规则和阅读设置
+  → ChapterBlockWalker：文字、图片、表格、Flex、容器构块
+  → ChapterPageLayout / Paginator：分页与页索引
+  → ReaderSession：当前位置、预取、交互和持久化
+  → PageRenderer：Canvas 正文、背景、装饰和选区
 ```
 
-## 2. 文件地图（按子系统）
+解压和 HTML/CSS 解析通过书籍共享的可取消 worker 完成；字体测量和分页在主 isolate 按预算让出执行权。准备完成后冻结 `LayoutSnapshot`，结果提交前核对内容、视口、字体和取消状态。
 
-| 子系统 | 文件 | 职责 |
+## 文件地图
+
+路径相对 `packages/reader_core/lib/`；应用与 UI 文件标明所属包。
+
+| 子系统 | 入口 | 职责 |
 |---|---|---|
-| **CSS 级联** | `reader_core/css/cascade.dart` | Cascade.compute：三源+!important+特异性+@media+18 项继承；CascadeRule.fromStylesheet（作者契约过滤 P7-17） |
-| | `reader_core/css/selector.dart` | SelectorParser（csslib AST→ComplexSelector）；组合器 4 种；属性/结构伪类；Specificity 四元组；**SelectorElement 视图接口 + ParsedElementView**（flat 树接入点） |
-| | `reader_core/css/ua_stylesheet.dart` | `uaStylesheetCss`（134 条对标 WHATWG/Reeden 630）→ `uaRules()`；UaBlockDefaults（快照 harness 旧路径） |
-| | `reader_core/css/computed_style.dart` | 计算样式全字段（§65 清单）；values/explicitProperties |
-| **flat 管线** | `apps/…/epub_chapter_source.dart` | collect/级联接线/图片/表格/浮动/伪元素/ruby 透传/盒传导——**单文件主战场，~1700 行** |
-| **分页** | `reader_core/layout/paginator.dart` | PageBlock（+table/floatSide/rubies 载荷）/PageBlockSlice（+overlay/absoluteTop）/measureChapter |
-| | `reader_core/layout/float_occupancy.dart` | 浮动区间模型（insert/occupiedLeftAt/take 跨页） |
-| | `reader_core/layout/table_layout.dart` | TableMeasurer/GridMeasurer/Grid/Paginator + TableRenderSpec（渲染载荷） |
-| **聚合** | `reader_core/parser/text_aggregator.dart` | 纯图折叠/InlineMark+链/RubyMark/white-space 模式 |
-| | `reader_core/parser/full_bleed.dart` | 满屏判定（**注意 P3-30 修的 ParsedText 正文计数缺陷**） |
-| **渲染** | `reader_core/paint/page_renderer.dart` | 绘制阶段机；_paintTable/_paintRubies/列表标记/边框拼合路径 |
-| **UI** | `reader_ui/reader_page.dart` | ReaderPage（页脚第一槽 P8-10）/ReaderView 手势（safeEdge 24 逻辑像素！自动化点击勿贴边） |
-| | `reader_ui/reader_session.dart` | 虚拟页窗口/进度持久化/重排失效矩阵 |
-| **字体** | `reader_core/css/font_face.dart` + `book_font_loader.dart` | @font-face 提取/注册（bookId 族名隔离）；app 侧 `_ensureBookFonts`+`_mapBookFontFamilies` |
+| 格式来源 | `source/format_opener.dart`、`source/chapter_source.dart` | 格式打开、章节、目录、定位、准备和资源关闭契约 |
+| EPUB 门面 | `epub/epub_format_opener.dart`、`epub/epub_chapter_source.dart` | 组织一次开书、章节请求、缓存提交及关闭 |
+| 资源准备 | `epub/chapter/book_resources.dart`、`chapter_preparation_job.dart` | 按目标章准备文档和直接注释，共享调度与取消 |
+| 原文结构 | `epub/chapter/chapter_structure.dart`、`chapter_positions.dart` | 聚合原文、目录定位与全书字节进度 |
+| CSS | `css/parser.dart`、`stylesheet_loader.dart`、`cascade.dart`、`computed_style.dart` | 解析、异步导入展开、层叠、继承和计算值 |
+| UA | `css/ua_stylesheet.dart` | `uaRules()` 提供唯一规则集，参与完整层叠 |
+| 章节样式 | `epub/chapter/chapter_styles.dart`、`chapter_style_resolver.dart` | 作者表缓存、字体改写、行内样式与阅读覆盖 |
+| 构块 | `epub/chapter/chapter_block_walker.dart`、各类 `*_block_builder.dart` | 按文档序构造当前页面块与原文坐标 |
+| 排版 | `layout/line_breaker.dart`、`layout/paginator.dart` | 文字行盒、断行、页边界与页面载荷 |
+| 章节分页 | `epub/chapter/chapter_pagination.dart` | 协调浮动、容器、页索引和特殊图片页 |
+| 绘制 | `paint/page_renderer.dart` | 消费页面载荷，绘制正文、背景、边框与装饰 |
+| 字体 | `epub/chapter/book_fonts.dart`、`css/book_font_loader.dart` | 按章加载书内字体，冻结作业使用的字体视图 |
+| 阅读 UI | `reader_ui/reader_session.dart`、`reader_page.dart` | 会话、预取、手势、选区、重排和页家具 |
+| 应用存储 | `reader_mobile/storage/db.dart`、`library/library_store.dart` | 当前完整数据库、导入、书库和统计持久化 |
 
-## 3. 关键设计决策（为什么是这样）
+## 准备与位置契约
 
-1. **flat 管线 vs 块流盒树**：引擎层有完整 BlockFlow 树（P2 建），但 app 阅读走「聚合树→块序列」的 flat 管线。P8-05 用**盒传导近似**（背景/边框透传子块 + 水平间距相加 + first/last 拼上下框）替代真嵌套盒子——改动集中在 styleForChain 一处。若未来做真盒树（P8-05 完全体），flat 决策点已内聚。
-2. **SelectorElement 视图接口**：级联匹配与 DOM 类型解耦。原始树用 ParsedElementView，flat 聚合树用 `_NodeView`（兄弟池=父的子视图）。新增树源实现三 getter 即可接入。
-3. **链式级联 + 前缀缓存**：body→div→p 逐级 compute（parent=上级结果），继承天然正确；同容器兄弟共享祖先前缀缓存。缓存键**必须含全部属性**（P8-07 教训：[hidden] 曾被同标签兄弟污染）。
-4. **级联缓存/页索引不覆盖浮动章与伪元素文本**：浮动章走手动分页（无 PageIndex 重放）；伪元素 content 拼入块文本后 CFI 偏移不含生成文本（flat 近似，已记录）。
-5. **UA 刻意差异**：li margin-left 40px 承担缩进（flat 无 ul 盒子）；img 默认 display:inline（不能给 inline-block——否则全图误浮动，P8-06 教训）；盒传导跳过 ul/ol/li（防双重缩进）。
-6. **空章合法性**：书作者可用 display:none 隐藏制作页等章（级联正确产物），VirtualPager 按 P2-32 跳过；多书冒烟断言「非空章存在」而非「每章非空」。
+- 冷章节先等待 `source.loadAnchorChapter(spine)`，需要页面时等待 `source.loadChapter(spine)`。同步 `anchorChapter`、满屏分析与位置换算只消费准备结果，不隐式解析。
+- 百分比跳转使用 `prepareCfiForReadingPercent(percent)`；目录跳转先准备其目标章，再读取目录 CFI 或 fragment。视口变化后重新准备该章。
+- `BookResources.parsedChapter/footnotes` 与 `ChapterStyles.stylesheets` 是准备结果的读取入口。未准备时明确失败，调用方通过相应异步准备 API 获取数据。
+- 结构与资源缓存共享同一原始文档；完成布局只保存纯结果，不持有归档句柄。当前章节固定在有界缓存内，后台预取不能挤出它。
+- 同键请求共享计算，每个等待者独立取消。关闭来源后等待 `preparationsStopped`，再结束测试或阅读页资源收尾。
+- 原文 CFI 使用 UTF-16 文本偏移或真实图片叶元素身份。生成文本、列表标记和当前页号分别处理，不替代原文坐标。
 
-## 4. 测试与门禁（提交前必跑）
+## 数据模型与书籍修订
+
+`AppDatabase` 的 schema 1 一次建立当前表和索引，没有历史版本迁移或外部 JSON 补导入。导入时计算 `contentRevision`；书籍身份、内容摘要和排版版本各自承担不同职责。书籍目录统一为 `books/<id>`。
+
+内容锚点只编解码当前格式，读取进度直接使用保存的比例和位置元数据。书籍内容修订继续支持原文匹配、拆章合章、待确认位置和过期会话写入保护。修订前身份的关联由 `BookIdAliases` 保存；用户笔记、书评和阅读时段保留。损坏的锚点导致修订失败并保留当前数据，不从页号或文件补造记录。
+
+## 按改动验证
+
+在仓库根目录执行：
 
 ```bash
-bash tool/run_all.sh            # 三包全量（reader_core/ui + mobile）
-bash tool/check_core_boundary.sh
-bash tests/analysis/verify_strict_flags.sh
-bash tests/tool/verify_core_boundary.sh
-REAL_EPUB=1 flutter test test/reader/multi_book_smoke_test.dart   # 七本真书（apps/reader_mobile 下）
-STYLE_REGRESSION_UPDATE=1 flutter test test/snapshot/style_regression_test.dart  # 基线更新（reader_core 下，预期差异才用）
+python3 tool/run_tests.py --check
+python3 tool/run_tests.py --changed --dry-run
+python3 tool/run_tests.py ui
+python3 tool/run_tests.py css
+python3 tool/run_tests.py resources position storage
+python3 tool/run_tests.py layout paint integration --analyze
 ```
 
-分域回归速查：CSS 引擎 `test/css/`；聚合 `test/parser/`；分页 `test/layout/`；flat 接线 `apps/…/test/reader/`（author_css/float_flat/table_flat/ruby_flat/pseudo_flat）；页脚 `reader_ui/test/page_footer_test.dart`。
+跨职责的公共接口变化组合调用方分类。核心依赖方向变化运行 `bash tests/tool/verify_core_boundary.sh`；分析规则变化运行 `bash tests/analysis/verify_strict_flags.sh`。本地测试默认 `--no-pub`，缺少依赖配置先使用离线缓存。`--all` 和 `tool/run_all.sh` 是显式全量入口。
 
-## 5. 扩展指南
+行为变化在同一提交中更新实现、旧断言、夹具与索引。快照逐条归因：本次统一 UA 后，表格题注消费居中规则，只更新 `table.epub` 第 0 页版式哈希及整书哈希；页数、原文、其他样本与光栅参考计数保持。单纯内部整理保留原断言。
 
-- **新 CSS 属性**：ComputedStyle 解析（computed_style.dart）→ 确认是否入 Cascade.inheritedProperties → flat 消费点（styleForChain 盒传导白名单 `_promotedBoxProps` 或渲染层）。
-- **新选择器语法**：csslib AST → SelectorParser._parseComplex 增分支（参考 AttributeSelector/PseudoClassFunctionSelector 现例）→ selector_test 补「支持/不支持」清单。
-- **新块类型载荷**：仿 table/rubies：reader_core 定义载荷类 → PageBlock 加字段 → PageRenderer 加绘制分支/趟 → app collect 构造 → 专项 flat 测试。
-- **新页家具槽**：reader_page.dart Stack 内 Positioned（仿页脚第一槽）；模板占位符在组装处替换。
+## 扩展与边界
 
-## 6. 已知近似与后续方向（按价值排序）
-
-1. 相邻段 margin 折叠未实现（flat 近似，段距可能偏大）。
-2. 伪元素 CFI 偏移、浮动章行内样式区间不映射（均记录于 §7.5/7.6）。
-3. 特异性 vs @layer、兄弟组合器连续场景（`A + B + C`）限制。
-4. 真嵌套盒模型（上下边框圆角拼合、负 margin 穿透）——P8-05 完全体。
-5. 6 槽页家具其余五槽与设置项；::first-letter 的排版级首字下沉（现为 run 近似）。
-6. 表格格级 CFI/选区；SVG 矢量渲染（现为 [OBJ] 占位/封面 jpg 链）。
+- CSS 属性经过解析、层叠、计算值和实际构块 / 绘制消费，并验证真实章节结果。
+- 新选择器在 `SelectorElement` 视图上匹配，回归需包含祖先、兄弟和原始属性身份。
+- 新块载荷由核心定义，构块器生成，分页器和绘制层共同消费；定位和取消测试随公共行为更新。
+- 引擎依赖 Flutter 的测量、字体注册和 Canvas。Flex、竖排、满屏图片及 EPUB 扩展按已实现能力验证；TXT/PDF 当前只有来源契约，没有解析器。
+- 单次原生文字测量内部不能任意抢占，原生字体和图片内存也不属于纯布局缓存容量。修改浮动、表格或原文坐标时需要组合相关分类与真书冒烟。

@@ -1,155 +1,109 @@
 # Spectacular Reader
 
-Flutter 原生 EPUB 阅读器，正文渲染不使用 WebView。技术方案见 [方案/技术方案.md](方案/技术方案.md)，开发任务见 [方案/开发方案.md](方案/开发方案.md)。
+开发中的 Flutter 原生 EPUB 阅读应用，尚未发布。正文通过「解析 → CSS 计算 → 构块测量 → 分页 → Canvas 绘制」显示，不使用 WebView。
 
-## EPUB 引擎架构
+项目按一个全新应用维护：EPUB 实现统一放在 `reader_core`，书库、阅读进度和统计使用同一个完整数据库结构。当前不保留历史版本升级、JSON 导入或应用层引擎转发入口；用户重新导入修订后的书籍仍是正常业务功能。
 
-正文渲染走「解析 → 样式 → 布局 → 分页 → 自绘」全自研管线，数据流与模块对应如下：
+## 当前实现进度
 
-```
-EPUB 字节
-  │
-  ├─ epub/      ZIP 读取（四档诊断恢复）→ OCF 校验 → container.xml（损坏时回退扫描 OPF）
-  │             → OPF/spine → 目录回退链（NCX↔NAV↔spine 兜底，绝不空目录）→ 资源索引（七级查找）
-  │
-  ├─ parser/    双路径解析：严格 XML 校验闸门（保留 epub:type 语义），失败自动回退
-  │             html5lib 容错并记诊断（sourceSpan 偏移是 CFI 坐标基础）
-  │             → display 分派建块树 → 行内聚合（空白/硬换行/图片占位）→ CFI 解析期绑定
-  │
-  ├─ css/       层叠三源：UA 默认表（对照 Reeden 134 规则基线落地，注释即规范出处）+ 作者样式 + 内联
-  │             → 选择器（四元组特异性）/层叠/继承 → ComputedStyle（一次算完不可变）
-  │             → 阅读器覆盖层（reader origin）+ 内部契约层（-reader-* 仅 UA/阅读器可用）
-  │
-  ├─ layout/    断行（引擎断行 + 3em 宽度下限 + 避头尾禁则）→ 行切分（leadingDistribution: even）
-  │             → 对齐（CJK gap 两端对齐 / 西文空格拉伸 / 标点悬挂 / 挤压 / 中西文自动间距）
-  │             → 盒模型（box-sizing / margin 折叠与穿透折叠 / 负 margin 页根钳制）
-  │             → 分页状态机（2px 容差 / break-inside / 图+题注整组不可切 / 20000 页截断）
-  │             → 页索引持久化（RPI1 魔数 + schemaVersion + 校验和，冷启动边界重放）
-  │
-  ├─ paint/     固定阶段绘制：页背景 → 块背景 → 块边框 → 文本 → 装饰 → 选区
-  │             + 段落缓存（布局指纹失效）+ 图片降采样缓存（href, 显示宽, DPR）
-  │
-  └─ position/  CFI 解析/构造/比较（唯一坐标：进度、书签、高亮全存 CFI 不存页码）
-                + 三级重定位：区间直查 → 原文+上下文指纹消歧 → 章内比例兜底
+以下按 2026-11-11 的代码整理。任务看板为 **202 / 242 项（83.5%）**，P0、P1、P2、P3、P4、P7、P8 的任务已勾选；P4 里程碑与 P5、P6 尚未核销。任务勾选反映阶段记录，具体功能与验收范围以代码和专项证据为准，见 [开发方案](方案/开发方案.md) 与 [验收索引](方案/验收记录/README.md)。
 
-reader_ui/      ReaderView / ReaderPage / ReaderSession + 虚拟页窗口（跨章连续页码）
-                + 页缓存（±2 预取、LRU）+ 翻页手势 + 主题
-apps/           章节源（document/styles/pagination 三层缓存 + 失效矩阵：切主题零重排）
-                + 存储（drift / 进度落盘）+ 文件/TTS/诊断日志
-```
-
-### 关键机制
-
-- **中文排版**：引擎断行（S4 实测定案）+ 避头尾禁则 + `text-justify` 四值 + `text-align-last` 末行对齐 + 标点悬挂（`hanging-punctuation`）/ 挤压（`text-spacing-trim`，逐对字体守卫）/ 中西文自动间距（`text-autospace`，默认关闭——「书里有什么就是什么」）。三类字距在同一字符上代数叠加。
-- **行高与基线**：`leadingDistribution: even`（S1 结论）+ 无单位行高因子按子元素字号重算 + 上下标借行距（墨迹越出行盒才撑高，脚注编号不跳行距）。
-- **盒模型**：margin 折叠全规则（正正/正负/负负/首末逸出/嵌套）+ 零高空容器穿透折叠 + body 首元素负 margin 钳制 + `flow-root` BFC 阻断规则。
-- **定位与标注**：CFI 与文档树在解析期绑定；重排后按 CFI 恢复位置（行级锚点偏差 0 行）；标注失效时走三级重定位并置灰保留（不删除）。
-- **缓存与性能**：排版缓存三层（document/styles/pagination），各层键只含「影响该层的最小变量集」（颜色不进排版键——切主题零重排）；段落布局缓存 + 页索引重放跳过分页状态机；性能预算见技术方案 §11.2 与验收记录指标表。
-- **容错与防护**：43 个稳定诊断码（code × category × severity + detail/offset，防漂移单测）；解析双路径；ZIP 四档分档（坏条目跳过、局部头偏移修补恢复）；压力防护四道（DOM 深度 500 / 属性 65536 / 正则 1s 隔离预算 / 单章 20000 页截断）。
-- **测试**：按 UI、CSS、布局、绘制、资源等职责运行，使用 `python3 tool/run_tests.py --list` 查看当前分类清单；另有 10 本样式快照回归（5 本地 + 5 生成）及 77 条排版规则编号矩阵（规则 ↔ 用例一一对应，见验收记录 `P7-规则回归矩阵.md`）。
-
-### 架构边界（设计即约束）
-
-- `reader_core` 禁止平台插件与宿主包依赖，由 `tool/check_core_boundary.sh` 强制——引擎可在桌面/单测环境完整运行。
-- 任何持久化数据不存页面坐标（只有 CFI 与字符偏移）；页码是重排后的派生量。
-- 原书不改写：导入与解析全部内存规范化（对照阅微的导入期回写方案）。
-- 架构骨架参考阅微（基于静态分析，仅参考架构与算法）；规格级补充来自 Reeden 2.0.0 静态分析（`参考/reeden/`，仅采用规格结论，不复用实现代码），引用纪律见 [docs/开发约定.md](docs/开发约定.md) §6.1。
-
-## 后续扩展路线
-
-任务定义与勾选状态见 [方案/开发方案.md](方案/开发方案.md)（232 项，进度 126/232）。当前 54.3%，下一步进入 **P3 主线**。
-
-### 主线阶段
-
-| 阶段 | 内容 | 状态 |
+| 能力 | 当前实现 | 验证与边界 |
 |---|---|---|
-| P3 M2 资源、浮动与容错 | 内嵌字体（@font-face/多字重/解混淆/中文别名）、图片管线（降采样/满屏/预览）、浮动绕排（occupiedList/占位）、表格（两遍测量/colspan/跨页）、page-break 完整规则、破损书五级可读性 | 未开始（30 项） |
-| P4 M3 业务闭环 | drift 表结构与书库、进度/目录/书签、选区与高亮笔记（消费三级重定位）、2-gram 全文搜索、设置面板、墨水屏、无障碍、性能埋点 | 未开始（34 项） |
-| P5 M4 高级排版 | ruby 注音、text-emphasis、竖排（坐标系/逐字定位/标点旋转/翻页方向）、逻辑属性族（竖排前置）、中英混排分段 | 未开始（20 项） |
-| P6 M5 打磨与发布 | 滚动模式、TTS（暂缓，待真机引擎可用）、CFI 导入导出、异常兜底、启动优化、签名与商店素材 | 未开始（20 项） |
-| P2 M1 排版质量 | 剩 P2-37（关键 P1 属性抽样，候选清单见属性矩阵 §7）与 P2-38（里程碑评审） | 36/38 |
+| 应用主界面 | 书架、统计、书评、我的四页；书籍详情、分组、筛选、排序和批量操作 | 已有组件回归和 Android 真机记录 |
+| EPUB 导入与资源 | 文件导入、内容摘要与去重、修订替换、OPF/目录、字体解混淆、图片与资源缓存 | 保留 EPUB 内容容错；TXT、PDF 只有格式契约，没有解析器 |
+| CSS 与中文排版 | UA/作者/行内级联、阅读覆盖、选择器、盒模型、浮动、表格、列表、生成内容、中文对齐和标点处理 | 具体取值、消费者与降级范围见 [CSS 属性审计](docs/css-property-audit.md)，不宣称完整浏览器 CSS 支持 |
+| 阅读交互 | 目录、进度跳转、书签、选区、高亮、笔记、图片预览、手工与自动装饰、主题、背景、自定义字体 | 同内容同版式可快速恢复；重排和内容修订使用原文锚点重新定位；图文混合首页的图片锚点仍有续读限制，见专项验收 |
+| 阅读模式与高级排版 | 覆盖、堆叠覆盖、贝塞尔仿真、3D 仿真、水平滑动、无动画和连续滚动；已有 ruby、强调符和竖排实现 | P5/P6 的完整验收矩阵仍待完成，不能据现有入口认定发布就绪 |
+| 搜索 | `ScanSearchService` 逐章扫描原文，结果携带 CFI 和上下文 | 当前主流程未使用 2-gram 全文索引 |
+| 持久化与统计 | drift 保存书库、进度、标注、装饰、设置、书评和阅读时段；统计消费真实阅读会话 | `AppDatabase` 初始 schema 1，一次创建完整表与索引；数据库不可用时退回内存模式 |
+| TTS 与发布 | 菜单保留可选 TTS 回调，依赖已声明；Android 开发验收 APK 可构建安装 | 尚未接入应用朗读流程；商店签名、发布材料和多平台验收未完成 |
 
-### P7 挂账清单（已完成增强的遗留项，均有责任任务）
+统一实现的专项结果、APK 与真机范围见 [统一实现与 APK 验收](docs/统一实现与APK验收-2026-11-11.md)。本地样式、布局和业务回归与真机验证分别记录，Android 验收不代表 iOS/macOS 已完成同等验证。
 
-| 遗留项 | 去向 |
-|---|---|
-| `line-break` 属性「照书」映射 | P3 CSS 扩展 |
-| 行内 run 样式接线（b/em/code 等；挤压/间距扩展到含 run 行） | P3/P4 作者样式引擎 |
-| 真斜体文件选面补验（合成倾斜已验证） | P3-02 |
-| 浮动容器内 margin 折叠边界 | P3-12 |
-| `div[align]` 属性居中（需属性选择器） | P3 |
-| 列表标记绘制/嵌套类型/`ol[reversed]` | P3-23 |
-| 表格默认边框与 `table[border]` 表现属性 | P3-17～21 |
-| `p` 默认段距启用（UA 表已收） | P4-21 |
-| 悬挂/挤压/自动间距的 reader 级开关（当前 CSS 驱动） | P4-21 |
-| 逻辑属性族（margin/padding/inset-inline-*） | P5-08 竖排前置 |
-| `text-orientation`/`text-combine-upright` 消费 | P5-10 |
-| 首字下沉多行对齐（当前单行近似） | P3 浮动布局 |
+## 模块职责与运行契约
 
-## 开发阅读路径（推荐顺序）
+依赖方向为 `reader_mobile → reader_ui → reader_core`，应用也直接调用核心的 EPUB 打开器。
 
-1. 先读本页：了解仓库边界、引擎架构与扩展路线。
-2. 再读 [方案/技术方案.md](方案/技术方案.md)：确认设计目标、架构边界和各模块职责。
-3. 然后看 [方案/开发方案.md](方案/开发方案.md)：把大设计拆成阶段任务和验收标准。
-4. 执行阶段任务时，进入对应的 [方案/开发方案](方案/开发方案) 子文件，按复选框逐项推进。
-5. 完成后补充验收记录与交接文档：见 [方案/交接文档.md](方案/交接文档.md)（项目现状速览 + 逐任务记录）与 [方案/验收记录](方案/验收记录/README.md)（99 个文件分类索引）。
-6. 涉及 Reeden 素材时，先读 [docs/开发约定.md](docs/开发约定.md) §6.1「Reeden 资料引用纪律」与 [方案/技术方案.md](方案/技术方案.md) §2.2 证据索引，报告在 [参考/reeden/reports/](参考/reeden/reports/)；增强类任务在 [方案/开发方案/P7-Reeden增强补充.md](方案/开发方案/P7-Reeden增强补充.md)。
+| 模块 | 实际职责 | 入口说明 |
+|---|---|---|
+| [reader_core](packages/reader_core/README.md) | EPUB 资源、文档解析、CSS、章节准备、构块测量、分页、自绘、CFI 与原文位置 | `source/` 提供章节和格式契约，`epub/epub_format_opener.dart` 提供 EPUB 实现 |
+| [reader_ui](packages/reader_ui/README.md) | 阅读会话、预取与页窗口、手势、翻页与滚动、选区、面板和主题 | `ReaderSession`、`ReaderPage`、`ReaderView`；存储和平台能力由宿主传入 |
+| [reader_mobile](apps/reader_mobile/README.md) | 四页应用壳、文件选择、书库与数据库、搜索、统计、用户字体与背景、诊断和平台插件 | `lib/main.dart` 启动，`EpubReaderPage` 连接核心、UI 与业务存储 |
 
-这条路径能把“为什么做/怎么做/怎么验收”三件事串起来，减少来回翻文档造成的上下文切换。
+引擎资源由 `BookResources` 唯一持有关闭权。HTML/CSS 准备使用可取消 worker；文字测量与几何分页在主 isolate 执行。每次排版通过 `LayoutSnapshot` 冻结内容、视口、样式、字体和装饰输入，取消或过期作业不得提交结果。
 
-## 仓库结构
+原文、样式和注释的同步访问只消费已准备结果；调用方先等待 `loadAnchorChapter`、`loadChapter` 或百分比定位准备。UA 默认样式统一参与 `Cascade.compute()`。视口单位在样式计算时按本次快照转为像素，百分比继续由布局阶段按包含块解析。
 
-```
-packages/reader_core/   EPUB 引擎（零平台插件依赖）：epub 解包 / parser 文档树 / css 层叠 /
-                        layout 断行分页 / paint 绘制缓存 / position CFI 与重定位 / text 工具
-packages/reader_ui/     阅读视图：ReaderView/ReaderPage/Session、虚拟页窗口、页缓存、手势、主题
-apps/reader_mobile/     iOS / Android / macOS 壳：章节源（三层缓存）、存储（drift/进度）、TTS、诊断
-方案/                   技术方案（v1.4）、开发方案（232 项按阶段拆分）、验收记录（含 README 索引）、
-                        交接文档（项目现状速览 + 逐任务记录）、spike 实验结论
-docs/                   开发约定（分支/测试/门禁/Reeden 引用纪律）
-参考/                   参考工程与静态分析：阅微静态分析资料（架构骨架）、reeden/（排版引擎规格报告，
-                        仅采用规格结论，不复用实现代码）
-tool/                   按改动测试 / 显式全量 / 边界检查 / 进度同步
-tests/                  跨包测试与校验脚本（strict flags / 边界拦截）
-test_corpus/            本地测试样本库（不入库，需自行准备；另有 5 本生成样本在测试内直构）
-test_fonts/             OFL 测试字体（思源宋体 Regular/Bold）
-```
+进度保存 CFI、内容摘要和原文证据，同时记录章页提示、滚动偏移及版式指纹。页号是版式相关的恢复提示；窗口、字号或书籍内容变化后由内容锚点恢复。修订功能保留原始与当前证据，并核验当前内容摘要，阻止过期会话回写。
 
-## 常用命令
+原 EPUB 文件不改写，容错和规范化发生在读取、解析与布局阶段。诊断以 `EpubCodeTable` 为真源，当前登记 48 条（包含预留码），由码表回归检查实际发出方。核心可依赖 Flutter 的文字测量与绘制能力，禁止依赖宿主、`reader_ui` 或平台插件。
+
+详细数据流、缓存键、资源生命周期和扩展边界见 [EPUB 引擎架构](docs/epub-engine-architecture.md)。
+
+## 本地开发
+
+当前验证环境为 Flutter 3.47.5、Dart 3.13.4；SDK 约束以各包的 `pubspec.yaml` 为准。已有本地依赖时使用 `--no-pub`。首次配置或包配置缺失时，在对应目录执行 `flutter pub get --offline`；本地缓存不足时再下载所需内容。
 
 ```bash
-# 日常：按 Git 改动运行相关测试，复用本地依赖缓存
-python3 tool/run_tests.py
+# 在仓库根目录准备三个包的本地依赖
+(cd packages/reader_core && flutter pub get --offline)
+(cd packages/reader_ui && flutter pub get --offline)
+(cd apps/reader_mobile && flutter pub get --offline)
 
-# 指定职责；影响多个职责时组合
-python3 tool/run_tests.py ui
-python3 tool/run_tests.py css layout
-
-# 预览选择范围与执行命令、校验分类索引
-python3 tool/run_tests.py --changed --dry-run
-python3 tool/run_tests.py --check
-
-# 显式全量：三包 analyze + test 及 Python 工具回归
-bash tool/run_all.sh
-
-# 运行移动端壳（macOS 桌面可直接预览）
-cd apps/reader_mobile && flutter run -d macos
-
-# 样式回归（基线更新需有意变更并逐条归因）
-cd packages/reader_core && flutter test --no-pub test/snapshot/style_regression_test.dart
+# 查看设备，然后运行应用
+flutter devices
+cd apps/reader_mobile
+flutter run --no-pub -d macos
 ```
 
-## 阅读与提交门禁
+Android 运行与离线 Release 打包说明见 [移动端 README](apps/reader_mobile/README.md)。构建产物放在被 Git 忽略的 `apps/reader_mobile/dist/`，不提交 APK、设备备份或日志。
 
-- `reader_core` 不得依赖平台插件与宿主包，由 `tool/check_core_boundary.sh` 强制（CI 已移除，本地门禁为准）。
-- 任务进度以《开发方案》阶段文件中的复选框为准，勾选后运行 `perl tool/render_plan.pl` 同步总览。
-- 提交前运行 `python3 tool/run_tests.py --check`，确认 `--changed --dry-run` 的范围后执行相关测试；改 UI 选 `ui`，改 CSS 选 `css`，跨职责组合分类。全量验证通过 `run_all.sh` 显式调用。
-- 核心依赖边界与分析规则改变时分别执行对应守卫；[测试分类规则](docs/测试分类.md) 说明命令、自动选择边界与真机范围。
-- 行为变更在同一提交同步旧断言、夹具和分类索引；涉及渲染/分页/解析必须有回归或快照，基线变更逐条归因。纯文档变更在提交信息里说明跳过测试的理由。
-- 交接记录见 [方案/交接文档.md](方案/交接文档.md)。
+## 按改动范围验证
 
-## 适合的阅读方式
+测试分类真源是 `tool/test_groups.json`。当前入口包含 `ui`、`css`、`layout`、`paint`、`resources`、`position`、`storage`、`perf`、`integration`、`tooling` 十类；每个测试文件归一个主分类，组合选择会去重。
 
-- 只想理解架构：本页「EPUB 引擎架构」→ [方案/技术方案.md](方案/技术方案.md)
-- 只想推进实现：[方案/开发方案.md](方案/开发方案.md) → 对应阶段文件 → 执行测试
-- 只想接手现状：[方案/交接文档.md](方案/交接文档.md)（速览 + 逐任务记录）→ [方案/验收记录/README.md](方案/验收记录/README.md)（证据索引）
+```bash
+# 默认按暂存、未暂存及未跟踪改动选择
+python3 tool/run_tests.py
+
+# 指定职责；CSS 改变几何或绘制时组合相关分类
+python3 tool/run_tests.py ui
+python3 tool/run_tests.py css layout paint
+python3 tool/run_tests.py storage position integration --analyze
+
+# 校验分类与预览范围，不启动 Flutter
+python3 tool/run_tests.py --check
+python3 tool/run_tests.py --changed --dry-run
+python3 tool/run_tests.py --list
+
+# 核心依赖边界守卫
+bash tests/tool/verify_core_boundary.sh
+
+# 明确需要全量时，分析三包并运行本地测试
+bash tool/run_all.sh
+```
+
+测试使用 `flutter test --no-pub`，分析使用 `flutter analyze --no-pub`。本地 Python 工具中的 CSS 图像回归需要 Pillow；本项目 macOS 已有 `/usr/bin/python3` 可运行 `tooling`。全量入口不包含 `integration_test/` 真机任务和设备操作，详细映射与范围见 [测试分类规则](docs/测试分类.md)。
+
+行为变更在同一提交同步相关断言、夹具与调用方回归；修 bug 时增加能在原实现失败的最小用例。新增、删除、重命名测试同步分类索引。快照仅在有意改变行为且逐条解释差异后更新，不能通过删断言、放宽容差或批量重录掩盖失败。纯文档变更可跳过行为测试，提交记录说明理由。
+
+## 仓库与文档导航
+
+```text
+packages/reader_core/  EPUB 引擎、跨层契约及核心测试
+packages/reader_ui/    阅读视图、会话、交互及组件测试
+apps/reader_mobile/   Android / iOS / macOS 宿主、业务存储与应用测试
+docs/                 当前架构、属性审计、工程规则和专项验收
+方案/                 技术设计、阶段任务、交接与历史验收记录
+tool/                 按改动测试、全量入口、工程守卫与本地工具
+tests/                跨包守卫与 Python 工具回归
+test_corpus/          本地 EPUB 样本库，不入库
+test_fonts/           OFL 测试字体
+参考/                 本地参考与静态分析资料，不入库
+```
+
+- 理解当前实现：[EPUB 引擎架构](docs/epub-engine-architecture.md) → [CSS 属性审计](docs/css-property-audit.md)。
+- 查看目标与任务：[技术方案](方案/技术方案.md) → [开发方案](方案/开发方案.md) → 对应阶段文件；任务勾选后使用 `perl tool/render_plan.pl` 同步看板。
+- 接手验证状态：[交接文档](方案/交接文档.md) → [验收索引](方案/验收记录/README.md) → 对应专项证据。历史报告保留当次结果，当前能力以代码和最新记录为准。
+- 修改代码前：[开发约定](docs/开发约定.md) 与 [测试分类规则](docs/测试分类.md)。参考项目只采用规格与算法结论，引用纪律见开发约定 §6.1。

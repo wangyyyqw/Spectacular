@@ -1,39 +1,43 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# reader_ui
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+基于 Flutter 和 `reader_core` 的阅读交互包，提供会话、预取、翻页、连续滚动、选区、标注面板和主题。文件选择、EPUB 打开、数据库及平台插件由应用宿主负责。
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
+## 当前能力
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+| 入口 | 职责 |
+|---|---|
+| `ReaderSession` | 章节加载、打开与恢复、进度节流写入、邻页预取、重排和取消；通过宿主传入的 `ReaderProgressStore` 保存位置 |
+| `ReaderPage` | 组合正文绘制、图片资源、页眉页脚、选区、高亮与笔记、注释弹窗、书签、装饰、搜索和设置面板 |
+| `ReaderView` | 手势识别、点击区域与翻页意图；支持九宫格动作配置 |
+| `VirtualPager` / `PageCache` | 跨章页窗口与有界页面复用 |
+| `paging/` | 覆盖、堆叠覆盖、贝塞尔仿真、3D 仿真、水平滑动、无动画和连续滚动，含页面快照与图片预加载 |
+| `theme/`、`panels/`、`annotations/`、`decorations/` | 阅读主题、字号与边距设置、标注和装饰交互及预览 |
 
-## Features
+统一导出位于 `lib/reader_ui.dart`。章节与目录契约直接来自 `reader_core/source/`；`reader_session.dart` 提供会话与进度契约，不再转发章节实现。
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+宿主先打开来源并准备设置与字体，再创建会话和阅读页；实际接入见 [EpubReaderPage](../../apps/reader_mobile/lib/reader/epub_reader_page.dart)。`ReaderSession` 的 `source`、`store`、`bookId` 必须由宿主提供，内容摘要通过 `contentRevision` 传入。退出阅读时等待会话与准备任务退出，关闭来源由其所有者负责。
 
-## Getting started
+## 位置与准备约定
 
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+进度以原文 CFI、内容摘要及内容证据定位，同时保留章页提示、滚动偏移和版式指纹。同内容同版式可快速恢复；重排或内容修订后重新解析内容锚点。缺少内容证据的标注不会仅凭 CFI 或引文命中自动接受，失败记录保留并展示状态。
 
-## Usage
+原文、样式和注释的同步接口只消费已准备结果。会话与面板在读取前等待章节准备，预取与前台阅读使用同一调度契约，取消或过期任务不得回填结果。注释载荷随准备后的布局冻结，避免资源缓存淘汰后重排丢失注释。
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
+视口改变且原文索引仍在准备时，百分比接口返回暂时不可定位；会话不缓存该空值，章节就绪后重新计算。实际可见章的结构与辅助定位请求分别受缓存保护。跨章翻页、滚动和跳转提交前，会话检查目标页的 CFI；有正文进度能力且索引缺失时等待原文准备，已就绪时不重复请求。
 
-```dart
-const like = 'sample';
+当前菜单仅提供可选 `onTts` 回调；本包没有平台朗读实现。竖排、ruby、强调符由核心布局与绘制提供，UI 消费其结果；高级场景的完整阶段验收仍待完成。
+
+## 本地验证
+
+已有本地依赖时，从仓库根目录按职责运行：
+
+```bash
+python3 tool/run_tests.py ui --analyze
+python3 tool/run_tests.py resources position
+python3 tool/run_tests.py layout paint
+python3 tool/run_tests.py --check
 ```
 
-## Additional information
+首次配置在本包执行 `flutter pub get --offline`，日常测试与分析使用 `--no-pub`。分类依据实际行为，缓存、定位与渲染测试分别归相应职责。公共行为变化同步调用方、断言与夹具；快照变化逐条解释原因，规则见 [测试分类](../../docs/测试分类.md)。
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+应用整体进度见 [根 README](../../README.md)，核心边界和资源生命周期见 [EPUB 引擎架构](../../docs/epub-engine-architecture.md)。

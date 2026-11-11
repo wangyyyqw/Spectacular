@@ -1,6 +1,6 @@
 # EPUB 引擎架构
 
-本轮是在现有引擎内整理职责与依赖：将 43 个实现文件迁入 `reader_core`，继续使用 `ComputedStyle`、`PageBlock`、`PageContent`、现有文本测量与分页算法、EPUB CFI。应用旧路径保留导出兼容入口，实际实现和状态只有一份。架构搬迁与新增 CSS 分别验收；目录和依赖变化本身不应改变样式、分页或定位结果。
+项目使用单一的 `reader_core` EPUB 实现和当前数据库结构。应用与测试直接导入核心模块，章节、目录和调度契约统一从 `source/` 导入；应用层不再保留章节转发文件，`reader_session.dart` 只提供会话与用户操作契约。样式、页面和位置分别以 `ComputedStyle`、`PageBlock` / `PageContent`、EPUB CFI 表达。
 
 依赖方向为 `reader_mobile → reader_ui → reader_core`，应用也直接使用核心的 EPUB 打开器。应用负责文件选择、数据库、偏好、用户字体文件和平台插件；`reader_ui` 负责会话、预取、手势、选区和阅读界面；`reader_core` 负责资源、解析、样式、布局、绘制和位置。核心可以依赖 Flutter，但不能反向依赖应用、`reader_ui` 或平台插件。`api.dart` 只汇总跨层契约与数据模型，EPUB 实现通过 `epub/` 的具体入口导入。
 
@@ -10,7 +10,7 @@ flowchart LR
   resources --> structure[文档结构与原文锚点]
   structure --> style[级联与属性计算]
   style --> blocks[构块与文字测量]
-  blocks --> pages[原有分页器]
+  blocks --> pages[分页与页索引]
   pages --> paint[Canvas 绘制]
   structure --> position[CFI 与阅读进度]
   snapshot[冻结的 LayoutSnapshot] --> style
@@ -32,7 +32,7 @@ flowchart LR
 
 | 契约文件 | 作用 |
 |---|---|
-| `chapter_source.dart` | 实际使用的章节加载、可取消任务、准备优先级、定位、目录、重排和字体依赖契约；`reader_ui/reader_session.dart` 保留旧导出。 |
+| `chapter_source.dart` | 实际使用的章节加载、可取消任务、准备优先级、定位、目录、重排和字体依赖契约；调用方直接导入此文件。 |
 | `toc.dart` | 共享 `TocRow` 与 `flattenToc`，保持原目录展开结果。 |
 | `format_opener.dart` | `ReaderFormat`、`ReaderContentLayout`、`ReaderPublicationSource`、`ReaderFormatOpener` 和 `ReaderOpenOptions`。 |
 
@@ -45,6 +45,18 @@ TXT、PDF 当前只有格式枚举，没有解析器或注册表。后续格式�
 资源与并发边界围绕一次打开的书籍建立。`BookResources` 是归档与原始资源的唯一关闭所有者；字体、样式、构块器只能借用它，完成布局不持有归档或加载器。`EpubChapterSource.close()` 取消准备和排版、失效版本并关闭各服务；宿主通过 `preparationsStopped` 等待 isolate 和端口实际释放。`BookFonts.close()` 清理 Dart 侧状态，Flutter 已注册的字形仍由引擎管理。
 
 准备调度与几何排版分别管理。同键请求共享计算，每个等待者独立取消；前台阅读优先于预取和后台。HTML/CSS 准备可取消 worker，几何排版在主 isolate 串行执行，并在遍历、测量与分页边界让出执行权。取消、内容版本变化、尺寸或字体依赖过期都会阻止结果提交；这些检查同样覆盖准备缓存回填，不能只在任务开始时判断一次。
+
+同步访问只消费准备结果：读取原文、目录位置或满屏判定前等待 `loadAnchorChapter(spine)` 或 `loadChapter(spine)`；百分比跳转使用 `prepareCfiForReadingPercent(percent)`。`BookResources.parsedChapter/footnotes`、`ChapterStyles.stylesheets` 和 `ChapterStructureStore.prepared` 在冷缓存时返回明确错误，不触发同步解压、解析或坐标补写。视口改变后重新准备目标章。结构缓存共享资源服务已解析的文档，目录核验也从该结构读取，保留同一份原始树。
+
+`setCurrentReadingChapter` 固定实际可见章结构，最近的前台准备请求使用独立保护键，辅助定位不会替换当前章的保护；结构缓存仍以三项为上限。视口变化后原文索引尚未准备时，`readingPercentForCfi` 按公共契约返回 `null`，不触发同步解析。会话不缓存准备中的空值，重排提交后重新计算百分比。
+
+页面窗口和原文索引分别缓存，预加载页不能保证索引仍在缓存中。`ReaderSession` 在跨章翻页、滚动与跳转提交前检查目标页的 CFI；来源提供正文进度但位置不可用时，通过既有可取消原文准备任务补齐索引。已有位置能力或不提供正文进度的来源不重复准备。
+
+UA 默认值统一由 `uaRules()` 参与 `Cascade.compute()`；CSS 导入加载、行内样式解析和 Flex 构块均只有一个异步入口。行内提升块同样等待后缀级联并检查作业预算。组件快照通过同一套 UA 层叠计算样式，其页边距和段距由夹具显式固定。
+
+应用存储采用 `AppDatabase` 的初始 schema 1，一次建立当前完整表结构和索引。书库、阅读进度、统计时段、标注、装饰、书评和偏好共用此库；没有历史 schema 升级、书库 / 进度 JSON 导入、身份补迁、锚点语义补迁或开书摘要补写。书籍目录统一为 `books/<id>`，导入时计算内容摘要并随条目保存。
+
+内容修订属于当前应用功能：用户重新导入修改后的 EPUB 或明确替换原书时，以原文证据重新关联位置，保留原始锚点、笔记、书评和阅读时段。修订产生的身份关联保存在 `BookIdAliases`；写入前核对当前内容摘要，防止过期阅读会话回写。缺失或损坏的记录不会在读取时转换；修订遇到无效锚点会失败并保留当前文件和数据库。
 
 缓存继续有界：完成布局、块和页索引由同一条目持有，进程内近期缓存最多 3 项、估算总量不超过 32 MiB；原文和结构缓存按 3 章保留，CSS 表缓存 32 项，段落测量缓存 4096 项，文本宽度缓存 2048 项，图片尺寸和未命中缓存各 512 项。完成缓存可以在来源关闭后保留纯结果，但不持有文件句柄。其容量估算不包含独立图片解码缓存和原生字形内存。
 
@@ -103,14 +115,14 @@ CSS 仍以 `ComputedStyle` 为统一入口，属性族只拆出解析和计算�
 | 模块 | 入口与实际消费 |
 |---|---|
 | `css/value_tokens.dart` | 分割值列表、函数和引号内容，解码 CSS 字符串；背景、列表及简写共同使用。 |
-| `css/length.dart` | `CssValueContext` 从 `LayoutSnapshot` 获得视口和根书写轴，计算视口单位；保留 `CssLength`、原尺寸 `vh` 协议及 `calc`，`ex` 使用 `0.5em` 回退。 |
+| `css/length.dart` | `CssValueContext` 从 `LayoutSnapshot` 获得视口和根书写轴，全部视口单位在样式计算时统一冻结为像素；`CssLength` 只表达像素、百分比和 auto，保留 `calc`，`ex` 使用 `0.5em` 回退。 |
 | `css/font_size.dart` | `CssFontSizes` 计算绝对档位和相对关键字，并参与现有阅读字号分类；作者几何字号独立保存在 `cssFontSize`。 |
 | `css/list_style.dart` | 解析字符串标记、类型和严格简写；文本构块器复用标记测量和绘制路径。 |
 | `css/background_declarations.dart` | 校验背景声明并展开长短属性，分轴定位进入同一组级联属性。 |
 | `css/background_values.dart` | 背景层、每轴重复模式、定位和渐变模型，包括基础 `CssConicGradient`。 |
 | `css/intrinsic_width.dart`、`layout/intrinsic_widths.dart` | 分别表示宽度模式和内容测量值；`BoxModel` 应用 `fit-content` 公式及原有 min/max 约束。 |
 | `css/parser.dart`、`css/cascade.dart`、`css/computed_style.dart` | 保留完整入口，处理声明有效性、级联顺序、继承、复制与计算值，连接各属性族。 |
-| `layout/line_breaker.dart`、`layout/text_layout.dart` | 使用同一套样式片段与断行规则测量内在宽度，并接入原有取消预算。 |
+| `layout/line_breaker.dart` | 提供文字布局、行盒与样式片段的唯一入口，测量内在宽度并接入取消预算。 |
 | `paint/background_tiles.dart`、`paint/background_image.dart`、`paint/page_renderer.dart` | 图片和渐变共用瓦片几何，消费 `space/round`、分轴定位与锥形渐变，并保留背景层和裁剪路径。 |
 
 新增能力保持明确边界：背景定位没有增加 `right 10px` 等边缘偏移语法；锥形渐变只支持默认中心、起点和均匀色标，不支持 `from/at`、显式色标位置或重复锥形渐变；内在宽度仅覆盖普通横排文本块与容器，没有扩展到尺寸函数、其他尺寸属性或替换元素的完整算法。`vi/vb` 使用根书写轴；保留 HTML 根轴信息不等于实现完整 HTML 样式继承。`orphans/widows` 继续不在本轮范围。属性对照与证据见 [CSS 属性审计](css-property-audit.md)。

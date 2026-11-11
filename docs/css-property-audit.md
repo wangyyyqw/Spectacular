@@ -1,7 +1,7 @@
 # CSS 属性实现审计（第 2 版）：解析位置 → 消费位置 → 是否真正生效
 
 > 目的：把「引擎认了但没用」的属性摊开，按「影响 × 真实书频率」排待修顺序。
-> 范围：`packages/reader_core/lib/css/*`（解析/层叠/计算）、`layout/*`、`paint/*`、`apps/reader_mobile/lib/reader/epub_chapter_source.dart`（flat 管线消费方）。
+> 范围：`packages/reader_core/lib/css/*`（解析/层叠/计算）、`layout/*`、`paint/*`、`packages/reader_core/lib/epub/epub_chapter_source.dart`（flat 管线消费方）。
 > 本文只做审计，不含代码改动。第 2 版替换此前所有分类与行号（第 1 版的 C 组 9 条里已有 5 条被本轮实现接通）。
 
 > 2026-11-11 更新：第 10 章记录参考项目对照后的七组 CSS 补齐、实际消费与支持边界。此前统计、结论和行号保留为历史快照；涉及这七组的当前状态以第 10 章为准。
@@ -171,7 +171,7 @@
 
 图例：**完整** = 解析→类型化→布局/绘制真实读取；**部分** = 有消费但缺子特性；**★** = 本轮新增或升级。
 
-行号缩写：`cs` = `packages/reader_core/lib/css/computed_style.dart`，`cas` = `cascade.dart`，`ua` = `ua_stylesheet.dart`，`alias` = `property_aliases.dart`，`lb` = `layout/line_breaker.dart`，`bf` = `layout/block_flow.dart`，`bm` = `layout/box_model.dart`，`pg` = `layout/paginator.dart`，`pr` = `paint/page_renderer.dart`，`ecs` = `apps/reader_mobile/lib/reader/epub_chapter_source.dart`。
+行号缩写：`cs` = `packages/reader_core/lib/css/computed_style.dart`，`cas` = `cascade.dart`，`ua` = `ua_stylesheet.dart`，`alias` = `property_aliases.dart`，`lb` = `layout/line_breaker.dart`，`bf` = `layout/block_flow.dart`，`bm` = `layout/box_model.dart`，`pg` = `layout/paginator.dart`，`pr` = `paint/page_renderer.dart`，`ecs` = `packages/reader_core/lib/epub/epub_chapter_source.dart`。
 
 ### 3.1 A 组：有字段且真正参与布局/绘制（98 条）
 
@@ -616,11 +616,11 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 
 字号关键字的倍率相对书籍根字号为：`xx-small=9/16`、`x-small=10/16`、`small=13/16`、`medium=1`、`large=9/8`、`x-large=3/2`、`xx-large=2`、`xxx-large=3`；`smaller=父字号/1.2`、`larger=父字号×1.2`。`CssFontSizes.usesRoot` 区分根/父基准，阅读器字号只在文字覆盖阶段应用一次，作者宽度、边框、内边距和缩进仍按书籍样式计算。标题及紧凑组件沿用 `scaleRelativeTypography` 的既有策略：当前元素声明的 `em/rem` 外边距随文字缩放，不能把它与作者内容宽混为同一基准。这里记录本项目的算法，不把参考项目的具体倍率当作规范要求。
 
-长度计算只读取本次 `LayoutSnapshot.width/height`，旋屏或重排重新生成计算上下文；根轴锁定后，后代的横竖排不会改变 `vi/vb` 基准。单位换算只处理数值 token，保留字符串、URL 和自定义属性定义。旧 `width/height/min-width/max-width/min-height/max-height` 中的裸 `vh` 保留原延迟解算协议；无有效视口时不猜测像素值。
+长度计算只读取本次 `LayoutSnapshot.width/height`，旋屏或重排重新生成计算上下文；根轴锁定后，后代的横竖排不会改变 `vi/vb` 基准。单位换算只处理数值 token，保留字符串、URL 和自定义属性定义。所有属性中的视口单位都在样式计算时冻结为像素，包含块仅继续解算百分比；无有效视口时不猜测像素值。
 
 背景百分比位置使用「定位区尺寸减瓦片尺寸」作为基准。`space` 能放下至少两块时贴边并均分间隙，不足两块时按 position 放置单块；`round` 按整数块数缩放，图片另一轴为 `auto` 时保持固有比例。多背景按层分别计算 size/position/repeat/origin/clip；`backgroundTileRects` 惰性产生矩形，采用整数计数及有限、单调坐标保护，不设置任意瓦片数量上限。
 
-`CssLength` 的相等比较与 hash 同时包含数值及 auto/百分比/旧 vh 标志，使重新计算但数值相同的背景 size/position 保持相等，并区分相同数字的不同单位语义。
+`CssLength` 的相等比较与 hash 同时包含数值及 auto/百分比标志，使重新计算但数值相同的背景 size/position 保持相等，并区分相同数字的像素与百分比语义。
 
 内在宽度的 `fit-content = min(max-content, max(min-content, 可用内容宽))`。`BoxModel` 统一处理边框、内边距、`box-sizing` 和数值 min/max 约束，冲突时 min 优先；预测阶段 auto 外边距按零贡献，得到实际宽后再分配。预测复用正文的字号、字距、硬换行、首行缩进、`::first-letter`、inside 标记和生成内容，计数器/列表上下文使用测量快照，不重复推进正式计数器。`minContentTextWidthAsync` 仅在测量副本把 CJK、ZWSP、anywhere 合法断点转为硬换行，保留原文坐标；循环检查取消，`TextPainter` 在 `finally` 释放。本轮没有修改旧数值宽度路径中已存在的长词断行问题。
 
