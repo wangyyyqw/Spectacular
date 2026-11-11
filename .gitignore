@@ -9,6 +9,10 @@ build/
 .flutter-plugins
 .flutter-plugins-dependencies
 
+# Python 工具本地缓存
+__pycache__/
+*.py[cod]
+
 # Apple
 Pods/
 .symlinks/
