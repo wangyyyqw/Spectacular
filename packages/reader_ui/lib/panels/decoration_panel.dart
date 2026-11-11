@@ -3,7 +3,6 @@ import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../decorations/decoration.dart';
-import '../reader_session.dart' show flattenToc;
 
 /// 只管理手工装饰的抽屉页签。
 class ReaderDecorationPanel extends StatefulWidget {

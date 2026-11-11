@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
-import '../reader_session.dart';
 import '../theme/reader_drawer_style.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。

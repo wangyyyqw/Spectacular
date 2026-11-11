@@ -14,7 +14,6 @@ import 'package:reader_core/epub/resource_index.dart';
 import 'package:reader_core/epub/zip_source.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_ui/reader_session.dart';
 
 const _chapter = 'OEBPS/Text/chapter.xhtml';
 const _notes = 'OEBPS/Text/notes.xhtml';

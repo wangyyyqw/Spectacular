@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/panels/toc_panel.dart';
-import 'package:reader_ui/reader_session.dart';
 
 TocEntry _entry(
   String title,
