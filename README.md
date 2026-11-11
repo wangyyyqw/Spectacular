@@ -46,7 +46,7 @@ apps/           章节源（document/styles/pagination 三层缓存 + 失效矩�
 - **定位与标注**：CFI 与文档树在解析期绑定；重排后按 CFI 恢复位置（行级锚点偏差 0 行）；标注失效时走三级重定位并置灰保留（不删除）。
 - **缓存与性能**：排版缓存三层（document/styles/pagination），各层键只含「影响该层的最小变量集」（颜色不进排版键——切主题零重排）；段落布局缓存 + 页索引重放跳过分页状态机；性能预算见技术方案 §11.2 与验收记录指标表。
 - **容错与防护**：43 个稳定诊断码（code × category × severity + detail/offset，防漂移单测）；解析双路径；ZIP 四档分档（坏条目跳过、局部头偏移修补恢复）；压力防护四道（DOM 深度 500 / 属性 65536 / 正则 1s 隔离预算 / 单章 20000 页截断）。
-- **测试**：600+ 例（reader_core 602 / reader_ui 60 / mobile 25）+ 10 本样式快照回归（5 本地 + 5 生成）；77 条排版规则编号矩阵（规则 ↔ 用例一一对应，见验收记录 `P7-规则回归矩阵.md`）。
+- **测试**：按 UI、CSS、布局、绘制、资源等职责运行，使用 `python3 tool/run_tests.py --list` 查看当前分类清单；另有 10 本样式快照回归（5 本地 + 5 生成）及 77 条排版规则编号矩阵（规则 ↔ 用例一一对应，见验收记录 `P7-规则回归矩阵.md`）。
 
 ### 架构边界（设计即约束）
 
@@ -109,7 +109,7 @@ apps/reader_mobile/     iOS / Android / macOS 壳：章节源（三层缓存）�
 docs/                   开发约定（分支/测试/门禁/Reeden 引用纪律）
 参考/                   参考工程与静态分析：阅微静态分析资料（架构骨架）、reeden/（排版引擎规格报告，
                         仅采用规格结论，不复用实现代码）
-tool/                   统一脚本（run_all / 边界检查 / 进度同步）与进度维护
+tool/                   按改动测试 / 显式全量 / 边界检查 / 进度同步
 tests/                  跨包测试与校验脚本（strict flags / 边界拦截）
 test_corpus/            本地测试样本库（不入库，需自行准备；另有 5 本生成样本在测试内直构）
 test_fonts/             OFL 测试字体（思源宋体 Regular/Bold）
@@ -118,29 +118,34 @@ test_fonts/             OFL 测试字体（思源宋体 Regular/Bold）
 ## 常用命令
 
 ```bash
-# 全仓库：pub get + analyze + test
-bash tool/run_all.sh
+# 日常：按 Git 改动运行相关测试，复用本地依赖缓存
+python3 tool/run_tests.py
 
-# 单包
-cd packages/reader_core && flutter pub get && flutter analyze && flutter test
+# 指定职责；影响多个职责时组合
+python3 tool/run_tests.py ui
+python3 tool/run_tests.py css layout
+
+# 预览选择范围与执行命令、校验分类索引
+python3 tool/run_tests.py --changed --dry-run
+python3 tool/run_tests.py --check
+
+# 显式全量：三包 analyze + test 及 Python 工具回归
+bash tool/run_all.sh
 
 # 运行移动端壳（macOS 桌面可直接预览）
 cd apps/reader_mobile && flutter run -d macos
 
 # 样式回归（基线更新需有意变更并逐条归因）
-cd packages/reader_core && flutter test test/snapshot/style_regression_test.dart
+cd packages/reader_core && flutter test --no-pub test/snapshot/style_regression_test.dart
 ```
 
 ## 阅读与提交门禁
 
 - `reader_core` 不得依赖平台插件与宿主包，由 `tool/check_core_boundary.sh` 强制（CI 已移除，本地门禁为准）。
 - 任务进度以《开发方案》阶段文件中的复选框为准，勾选后运行 `perl tool/render_plan.pl` 同步总览。
-- 提交前至少执行：
-  - `bash tool/run_all.sh`
-  - `bash tool/check_core_boundary.sh`
-  - `bash tests/analysis/verify_strict_flags.sh`
-  - `bash tests/tool/verify_core_boundary.sh`
-- 涉及渲染/分页/解析的行为变更必须有测试或快照；纯文档变更在提交信息里说明。
+- 提交前运行 `python3 tool/run_tests.py --check`，确认 `--changed --dry-run` 的范围后执行相关测试；改 UI 选 `ui`，改 CSS 选 `css`，跨职责组合分类。全量验证通过 `run_all.sh` 显式调用。
+- 核心依赖边界与分析规则改变时分别执行对应守卫；[测试分类规则](docs/测试分类.md) 说明命令、自动选择边界与真机范围。
+- 行为变更在同一提交同步旧断言、夹具和分类索引；涉及渲染/分页/解析必须有回归或快照，基线变更逐条归因。纯文档变更在提交信息里说明跳过测试的理由。
 - 交接记录见 [方案/交接文档.md](方案/交接文档.md)。
 
 ## 适合的阅读方式
