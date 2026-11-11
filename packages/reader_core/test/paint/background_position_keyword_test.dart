@@ -9,7 +9,7 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 const _pageSize = Size(120, 80);

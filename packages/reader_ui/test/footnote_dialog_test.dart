@@ -5,13 +5,14 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 class _Source implements ReaderChapterSource {
   _Source() {

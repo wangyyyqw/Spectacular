@@ -4,8 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 可重排 + 可改尺寸的假章节源：8 个带 CFI 的段落，页面高度较小，
 /// 使翻页后经常从块中间开始（覆盖行级锚点）。

@@ -240,13 +240,6 @@
       ]
     }
   ],
-  "source_aliases": {
-    "apps/reader_mobile/lib/reader/epub/": "packages/reader_core/lib/epub/chapter/",
-    "apps/reader_mobile/lib/reader/epub_chapter_source.dart": "packages/reader_core/lib/epub/epub_chapter_source.dart",
-    "apps/reader_mobile/lib/reader/epub_format_opener.dart": "packages/reader_core/lib/epub/epub_format_opener.dart",
-    "apps/reader_mobile/lib/reader/prose_spacing_defaults.dart": "packages/reader_core/lib/epub/chapter/prose_spacing_defaults.dart",
-    "apps/reader_mobile/lib/reader/bounded_cache.dart": "packages/reader_core/lib/util/bounded_cache.dart"
-  },
   "source_rules": [
     {"groups": ["tooling"], "paths": ["tool/run_tests.py", "tool/test_groups.json", "tool/run_all.sh", "tool/css_parity/*", "tool/device_reader_perf*.py"]},
     {"groups": ["css", "resources"], "paths": ["packages/reader_core/lib/css/book_font_loader.dart", "packages/reader_core/lib/css/stylesheet_loader.dart"]},

@@ -5,11 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 可按字号和尺寸重排的单章源；整章只有一个带 CFI 的文本块。
 class _ReflowSource

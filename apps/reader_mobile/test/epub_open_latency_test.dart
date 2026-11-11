@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 /// 真书测试统一使用《诸神愚戏》（148.5MB / 1541 章），本地样本库不入库。
 const _bookName = 'zhushen-yuxi.epub';

@@ -10,11 +10,11 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/zip_source.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_selectors.dart';
-import 'package:reader_mobile/reader/epub/chapter_styles.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_selectors.dart';
+import 'package:reader_core/epub/chapter/chapter_styles.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 const _container = '''
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -279,7 +279,7 @@ void main() {
     addTearDown(fonts.close);
     final styles = ChapterStyles(resources, fonts);
     addTearDown(styles.close);
-    final sheets = styles.stylesheets(0, width: 320);
+    final sheets = await styles.prepareStylesheets(0, width: 320);
     expect(
       sheets
           .expand((sheet) => sheet.rules)
@@ -319,7 +319,8 @@ void main() {
     addTearDown(fonts.close);
     final styles = ChapterStyles(resources, fonts);
     addTearDown(styles.close);
-    expect(styles.stylesheets(0, width: 320), hasLength(1));
+    expect(() => styles.stylesheets(0, width: 320), throwsStateError);
+    expect(await styles.prepareStylesheets(0, width: 320), hasLength(1));
     expect(styles.stylesheets(0, width: 640), hasLength(2));
     expect(styles.stylesheets(0, width: 320), hasLength(1));
     expect(
@@ -363,7 +364,8 @@ void main() {
 .absent {font-family:unused_font}
 '''),
     ];
-    final selectors = ChapterSelectors(resources.parsedChapter(0).root);
+    final parsed = await resources.prepareChapter(0);
+    final selectors = ChapterSelectors(parsed.root);
     const normal = ReaderOverrides();
     final used = styles.usedBookFonts(sheets, selectors, normal, 320);
     expect(used.map((face) => face.family), [

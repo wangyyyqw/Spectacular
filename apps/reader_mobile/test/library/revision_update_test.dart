@@ -565,15 +565,9 @@ void main() {
     );
   });
 
-  test('旧文件与锚点缺失时待确认保留旧引用，书签标签不冒充正文', () async {
+  test('原文件缺失时仍用已保存的内容证据修订，未匹配记录保留原引用', () async {
     final old = await library.importBytes(original);
     await _seedData(db, library, old, original);
-    await db
-        .update(db.annotations)
-        .write(const AnnotationsCompanion(anchorJson: Value(null)));
-    await db
-        .update(db.readingProgress)
-        .write(const ReadingProgressCompanion(anchorJson: Value(null)));
     final before = await db.select(db.annotations).get();
     await File(old.filePath).delete();
     final replacement = buildRevisionTestEpub(
@@ -590,12 +584,16 @@ void main() {
       expect(row.startCfi, oldRow.startCfi);
       expect(row.endCfi, oldRow.endCfi);
       expect(_userAnnotation(row), _userAnnotation(oldRow));
+      expect(
+        AnchorRecord.decode(row.anchorJson)!.original.toJson(),
+        AnchorRecord.decode(oldRow.anchorJson)!.original.toJson(),
+      );
     }
     expect(
       AnchorRecord.decode(
         annotations.singleWhere((row) => row.type == 2).anchorJson,
       )!.original.quote,
-      isEmpty,
+      startsWith(revisionBookmarkQuote),
     );
     expect((await DriftProgressStore(db).load(result.id))!.approximate, isTrue);
     expect(File(result.filePath).existsSync(), isTrue);
@@ -835,51 +833,24 @@ void main() {
     expect(repaired.style.toJson(), created.style.toJson());
   });
 
-  test('从仍存在旧 EPUB 补历史锚点，书签标签保留且页号进度标为近似来源', () async {
+  test('内容锚点损坏时拒绝修订，数据库和原文件整体保留', () async {
     final old = await library.importBytes(original);
     await _seedData(db, library, old, original);
     await db
         .update(db.annotations)
         .write(const AnnotationsCompanion(anchorJson: Value(null)));
-    await db
-        .update(db.readingProgress)
-        .write(
-          const ReadingProgressCompanion(
-            anchorJson: Value(null),
-            locatorCfi: Value('spine:0/page:0'),
-            spineIndex: Value(0),
-            pageIndex: Value(0),
-          ),
-        );
-    final result = await library.importBytes(updated);
-    final index = await buildRevisionAnchorBook(updated);
-    final rows = await db.select(db.annotations).get();
-    for (final row in rows) {
-      final record = AnchorRecord.decode(row.anchorJson)!;
-      expect(record.isResolved, isTrue);
-      expect(
-        index.capture(row.startCfi)!.start.spineIndex,
-        row.type == 2 ? 4 : 1,
-      );
-      if (row.type == 2) {
-        expect(row.quote, '旧第 2 章 · 第 1 页');
-        expect(record.original.quote, startsWith(revisionBookmarkQuote));
-      } else {
-        expect(
-          index.capture(row.startCfi, endCfi: row.endCfi)!.quote,
-          row.quote,
-        );
-      }
-    }
-    final progress = (await DriftProgressStore(db).load(result.id))!;
-    expect(progress.spineIndex, 1);
-    expect(progress.approximate, isTrue);
-    final anchor = AnchorRecord.decode(
-      (await db.select(db.readingProgress).get()).single.anchorJson,
-    )!;
-    expect(anchor.original.approximate, isTrue);
-    expect(anchor.status, 'approximate');
-    expect(index.capture(progress.cfi!)!.start.spineIndex, 1);
+    final before = await _snapshot(db);
+    await expectLater(library.importBytes(updated), throwsFormatException);
+    expect(await _snapshot(db), before);
+    expect(await File(old.filePath).readAsBytes(), orderedEquals(original));
+    expect(
+      directory
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('source.epub'))
+          .map((file) => file.path),
+      [old.filePath],
+    );
   });
 
   test('恢复扫描删除未提交和已退休版本，同时保护新原书和旧 ID 目录中的封面', () async {
@@ -897,15 +868,9 @@ void main() {
       ),
     );
     expect(current.coverPath, withCover.coverPath);
-    final oldDirectory = Directory(p.join(directory.path, 'books-v1', old.id));
+    final oldDirectory = Directory(p.join(directory.path, 'books', old.id));
     final pending = Directory(
-      p.join(
-        directory.path,
-        'books-v1',
-        current.id,
-        'versions',
-        'not-committed',
-      ),
+      p.join(directory.path, 'books', current.id, 'versions', 'not-committed'),
     );
     await pending.create(recursive: true);
     await File(p.join(pending.path, 'source.epub')).writeAsBytes(updated);

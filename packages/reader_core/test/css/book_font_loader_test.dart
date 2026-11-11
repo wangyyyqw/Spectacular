@@ -12,7 +12,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 import 'package:reader_core/text/font_metrics.dart';
 

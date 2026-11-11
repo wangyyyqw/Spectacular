@@ -46,16 +46,12 @@ class CssValueContext {
     });
   }
 
-  /// 旧尺寸 vh 保留延迟解算协议，其余视口单位在计算样式时冻结为像素。
+  /// 所有视口单位在计算样式时冻结为像素，百分比仍由包含块解算。
   Map<String, String> resolveValues(Map<String, String> values) {
     if (!hasViewport) return values;
     Map<String, String>? resolved;
     for (final entry in values.entries) {
-      if (entry.key.startsWith('--') ||
-          (_legacyDimensions.contains(entry.key) &&
-              _legacyVh.hasMatch(entry.value.trim()))) {
-        continue;
-      }
+      if (entry.key.startsWith('--')) continue;
       final value = resolveValue(entry.value);
       if (value == entry.value) continue;
       resolved ??= Map<String, String>.of(values);
@@ -65,18 +61,6 @@ class CssValueContext {
   }
 }
 
-const _legacyDimensions = {
-  'width',
-  'height',
-  'min-width',
-  'max-width',
-  'min-height',
-  'max-height',
-};
-final _legacyVh = RegExp(
-  r'^-?(?:\d+(?:\.\d+)?|\.\d+)vh$',
-  caseSensitive: false,
-);
 final _viewportTokens = RegExp(
   r'''("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|url\((?:\\.|[^)])*\))|(?<![\w.-])([-+]?(?:\d+(?:\.\d+)?|\.\d+))(vmin|vmax|vh|vw|vi|vb)\b''',
   caseSensitive: false,
@@ -138,20 +122,11 @@ double? _lengthNumber(
 /// 解析层只记录数值与单位标记，百分比按基准长度解算留到盒模型计算时。
 class CssLength {
   /// 创建尺寸值；[isPercent] 为 true 时 [value] 是百分比数字（如 50 表示
-  /// 50%）；[isViewportHeight] 为 true 时表示 `vh`。
-  const CssLength(
-    this.value, {
-    this.isAuto = false,
-    this.isPercent = false,
-    this.isViewportHeight = false,
-  });
+  /// 50%）。
+  const CssLength(this.value, {this.isAuto = false, this.isPercent = false});
 
   /// 关键字 `auto`。
-  const CssLength.auto()
-    : value = 0,
-      isAuto = true,
-      isPercent = false,
-      isViewportHeight = false;
+  const CssLength.auto() : value = 0, isAuto = true, isPercent = false;
 
   /// 数值（像素或百分比数字）。
   final double value;
@@ -162,16 +137,10 @@ class CssLength {
   /// 是否为百分比。
   final bool isPercent;
 
-  /// 是否使用视口高度单位（`vh`）。具体像素值需在拿到页面高度后解算。
-  final bool isViewportHeight;
-
   /// 按基准长度解算像素；auto 返回 null。
-  double? resolve(double base, {double? viewportHeight}) {
+  double? resolve(double base) {
     if (isAuto) {
       return null;
-    }
-    if (isViewportHeight) {
-      return viewportHeight == null ? null : value * viewportHeight / 100;
     }
     return isPercent ? value * base / 100 : value;
   }
@@ -181,20 +150,15 @@ class CssLength {
       other is CssLength &&
       other.value == value &&
       other.isAuto == isAuto &&
-      other.isPercent == isPercent &&
-      other.isViewportHeight == isViewportHeight;
+      other.isPercent == isPercent;
 
   @override
-  int get hashCode => Object.hash(value, isAuto, isPercent, isViewportHeight);
+  int get hashCode => Object.hash(value, isAuto, isPercent);
 
   @override
   String toString() => isAuto
       ? 'CssLength(auto)'
-      : (isPercent
-            ? 'CssLength($value%)'
-            : (isViewportHeight
-                  ? 'CssLength(${value}vh)'
-                  : 'CssLength($value)'));
+      : (isPercent ? 'CssLength($value%)' : 'CssLength($value)');
 }
 
 /// 保留原来的 calc 运算：百分比基准未知时返回 null。

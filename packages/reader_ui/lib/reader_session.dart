@@ -12,10 +12,6 @@ import 'package:reader_core/position/cfi.dart';
 
 import 'virtual_pager.dart';
 
-// 保留既有入口；契约与来源实现现在都可直接依赖核心包。
-export 'package:reader_core/source/chapter_source.dart';
-export 'package:reader_core/source/toc.dart';
-
 typedef _ContentSizeRequest = ({
   double width,
   double height,
@@ -58,12 +54,12 @@ class ReaderProgress {
   /// 锚点所属原 EPUB 的内容摘要。
   final String? contentRevision;
 
-  /// 此次位置来自旧版页号或比例兜底。
+  /// 当前内容证据不足以精确定位，恢复位置为近似值。
   final bool approximate;
 
   /// 当前正文位置占全书的比例（0～1）。
   ///
-  /// 由章节源的统一进度索引计算，排除目录、非正文与缺失章节。旧记录为空。
+  /// 由章节源的统一进度索引计算，排除目录、非正文与缺失章节。
   final double? readingPercent;
 
   /// 产生此位置时的排版指纹；仅用于判断能否复用精确像素偏移。
@@ -359,6 +355,9 @@ class ReaderSession extends ChangeNotifier {
       if (!prefetch) cancelTurnPrefetch();
       final target = await pending;
       if (target == null) return null;
+      if (!prefetch && target.spineIndex != origin.spineIndex) {
+        await _preparePagePosition(target.content);
+      }
       if (_disposed || generation != _generation || !identical(origin, page)) {
         pager.releasePrepared(target);
         return null;
@@ -449,6 +448,22 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
+  /// 页面缓存与原文缓存独立，仅在目标页的正文进度索引缺失时准备原文。
+  Future<void> _preparePagePosition(PageContent target) async {
+    final source = this.source;
+    if (source is! PositionedChapterSource) return;
+    final cfi = cfiAtPageOffset(target, null);
+    if (cfi == null || source.readingPercentForCfi(cfi) != null) return;
+    final anchors = this.source;
+    if (anchors is ScheduledAnchorChapterSource) {
+      await _awaitPositionPreparation(
+        anchors.scheduleAnchorChapter(target.spineIndex),
+      );
+    } else if (anchors is AnchorChapterSource) {
+      await anchors.loadAnchorChapter(target.spineIndex);
+    }
+  }
+
   /// 同步暂存连续滚动的可见位置。
   ///
   /// 只更新会话数据，不等待分页器加载目标页；因此退出、生命周期刷新和
@@ -536,6 +551,9 @@ class ReaderSession extends ChangeNotifier {
     final currentGeneration = _generation;
     if (pageChanged) {
       final changed = await pager.goTo(spineIndex, pageIndex);
+      if (changed && previous?.spineIndex != spineIndex) {
+        await _preparePagePosition(pager.current!.content);
+      }
       final latest = _stagedViewport;
       if (!changed ||
           _disposed ||
@@ -744,7 +762,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 当前正文位置占全书的比例（0～1）。
   ///
-  /// 由章节源按原文位置计算；源不支持时返回 null，由调用方回退到旧的
+  /// 由章节源按原文位置计算；源不支持时返回 null，由调用方回退到
   /// 章节/页估算，不能把两套口径混在同一个进度字段里。
   double? get readingPercent {
     final source = this.source;
@@ -753,7 +771,8 @@ class ReaderSession extends ChangeNotifier {
     if (cfi == null) return null;
     if (_readingPercentCfi == cfi) return _readingPercentValue;
     final value = source.readingPercentForCfi(cfi);
-    _readingPercentCfi = cfi;
+    // 准备中的空值不缓存，章节就绪后的下一次读取必须重新计算。
+    _readingPercentCfi = value == null ? null : cfi;
     _readingPercentValue = value;
     return value;
   }
@@ -919,6 +938,8 @@ class ReaderSession extends ChangeNotifier {
         _generation += 1;
       }
       final target = pager.current;
+      if (target != null) await _preparePagePosition(target.content);
+      if (_disposed || token != _jumpToken) return false;
       if (origin?.spineIndex != target?.spineIndex ||
           origin?.pageIndex != target?.pageIndex) {
         _suppressRestoredFinished = false;
@@ -995,6 +1016,8 @@ class ReaderSession extends ChangeNotifier {
         return false;
       }
       if (changed) {
+        await _preparePagePosition(pager.current!.content);
+        if (_disposed || token != _jumpToken) return false;
         _suppressRestoredFinished = false;
         final target = pager.current!;
         _restoredFinished = _finishedAt(target.spineIndex, target.pageIndex);
@@ -1176,8 +1199,7 @@ class ReaderSession extends ChangeNotifier {
       final saved = await store.load(bookId);
       if (generation != _generation) return;
       final sameRevision = saved?.contentRevision == contentRevision;
-      final legacyProgress = saved?.contentRevision == null;
-      final usableCache = sameRevision || legacyProgress;
+      final usableCache = sameRevision;
       _restoredFinished = usableCache && (saved?.finished ?? false);
       _suppressRestoredFinished = saved != null && !saved.finished;
       final savedCfi = sameRevision ? saved?.cfi : null;
@@ -1238,6 +1260,8 @@ class ReaderSession extends ChangeNotifier {
           : ReaderAnchor(cfi: savedCfi);
       _restoredApproximate =
           (saved?.approximate ?? false) || (saved != null && !usableCache);
+      await _preparePagePosition(pager.current!.content);
+      if (_disposed || generation != _generation) return;
       _loading = false;
       // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
       _lastPersisted = progress;
@@ -1325,6 +1349,10 @@ class ReaderSession extends ChangeNotifier {
     final origin = page;
     final changed = await pager.next();
     if (changed && generation == _generation) {
+      if (page?.spineIndex != origin?.spineIndex) {
+        await _preparePagePosition(page!);
+      }
+      if (_disposed || generation != _generation) return false;
       _recordPageTurn(origin);
       _readingAnchor = _anchorOf(page);
       _notify();
@@ -1343,6 +1371,10 @@ class ReaderSession extends ChangeNotifier {
     final origin = page;
     final changed = await pager.previous();
     if (changed && generation == _generation) {
+      if (page?.spineIndex != origin?.spineIndex) {
+        await _preparePagePosition(page!);
+      }
+      if (_disposed || generation != _generation) return false;
       _recordPageTurn(origin);
       _readingAnchor = _anchorOf(page);
       _notify();
@@ -1691,6 +1723,8 @@ class ReaderSession extends ChangeNotifier {
         startSpine: spine,
         startPage: pageIndex ?? _locatePage(pages, anchor),
       );
+      final target = pager.current?.content;
+      if (target != null) await _preparePagePosition(target);
       if (generation != _generation) {
         return;
       }
@@ -1700,6 +1734,7 @@ class ReaderSession extends ChangeNotifier {
           ? _anchorOf(current)
           : anchor;
       _readingAnchor = effectiveAnchor;
+      _readingPercentCfi = null;
       if (wasContinuous) {
         final offset = current == null
             ? null

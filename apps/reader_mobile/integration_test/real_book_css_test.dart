@@ -5,12 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_core/source/toc.dart';
 
 /// 通过 USB 的 adb reverse 提供原书，避免把版权语料打进测试包。
 /// 真机请通过 tool/device_css_test.py 启动，避免驱动按正式包名清理。

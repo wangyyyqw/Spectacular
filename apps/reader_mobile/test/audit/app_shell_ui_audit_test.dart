@@ -8,12 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 import '../support/test_epub.dart';
+
+import 'package:reader_ui/reader_session.dart';
 
 Future<void> _pumpFrames(WidgetTester tester, {int frames = 30}) async {
   for (var i = 0; i < frames; i++) {
@@ -69,7 +70,7 @@ void main() {
         key: const ValueKey('界面预览'),
         child: ReaderApp(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
         ),
       ),
     );

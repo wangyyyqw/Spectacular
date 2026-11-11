@@ -309,38 +309,8 @@ class ChapterStyleResolver {
     ];
   }
 
-  ComputedStyle inlineMarkStyle(InlineMark mark, InlineStyleContext context) {
-    final chain = inlineMarkChain(mark, context.ancestors);
-    var parent = context.style;
-    // 正文覆盖已作用于块样式；行内后缀从最终父样式继承，不再重算作者块。
-    // 表格与标题传入各自原样式，继续保留作者的字号策略。
-    for (var i = context.ancestors.length; i < chain.length; i++) {
-      parent = _cascadeInlineSuffix(chain, i, parent, context.width);
-    }
-    return _inlineReaderFont(parent, context);
-  }
-
-  List<StyledRun> resolveInlineRuns(
-    List<InlineMark> marks,
-    InlineStyleContext context,
-  ) {
-    if (marks.isEmpty) return const [];
-    final ordered = _inlineRunBoundaries(marks);
-    final runs = <StyledRun>[];
-    for (var i = 0; i < ordered.length - 1; i++) {
-      final winner = _InlineRunWinner(ordered[i], ordered[i + 1]);
-      for (final mark in marks) {
-        if (winner.covers(mark)) {
-          winner.accept(mark, inlineMarkStyle(mark, context));
-        }
-      }
-      if (winner.run case final run?) runs.add(run);
-    }
-    return runs;
-  }
-
-  /// 生产构块按每个标记与区间检查预算；同步入口保留给锚点与兼容调用。
-  Future<List<StyledRun>> resolveInlineRunsAsync(
+  /// 构块按每个标记与区间检查预算，不返回取消作业的部分结果。
+  Future<List<StyledRun>> resolveInlineRuns(
     List<InlineMark> marks,
     InlineStyleContext context, {
     Future<void> Function()? checkpoint,
@@ -364,7 +334,7 @@ class ChapterStyleResolver {
         if (!winner.covers(mark)) continue;
         winner.accept(
           mark,
-          await inlineMarkStyleAsync(mark, context, checkpoint: checkpoint),
+          await inlineMarkStyle(mark, context, checkpoint: checkpoint),
         );
       }
       if (winner.run case final run?) runs.add(run);
@@ -372,18 +342,8 @@ class ChapterStyleResolver {
     return runs;
   }
 
-  static List<int> _inlineRunBoundaries(List<InlineMark> marks) {
-    final boundaries = <int>{0};
-    for (final mark in marks) {
-      boundaries
-        ..add(mark.start)
-        ..add(mark.end);
-    }
-    return boundaries.toList()..sort();
-  }
-
-  /// 行内后缀级联也可分片；同步方法沿用同一字体和继承规则。
-  Future<ComputedStyle> inlineMarkStyleAsync(
+  /// 行内后缀从最终父样式继承，按链节点检查预算。
+  Future<ComputedStyle> inlineMarkStyle(
     InlineMark mark,
     InlineStyleContext context, {
     Future<void> Function()? checkpoint,

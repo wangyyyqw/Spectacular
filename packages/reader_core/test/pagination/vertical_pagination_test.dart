@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 /// 竖排分页：`lines` 是「列」，列沿横轴并排、整块同高，不能按纵向切页。
 ComputedStyle _style(Map<String, String> overrides) =>

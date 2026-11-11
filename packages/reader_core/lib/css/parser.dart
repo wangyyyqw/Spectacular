@@ -570,7 +570,9 @@ abstract final class CssParser {
 
   /// 从 XHTML 中提取 `<style>` 与 `<link rel=stylesheet>`。
   static InlineStyles extractFromXhtml(String xhtml) {
-    final document = html_parser.parse(prepareHtml5Input(xhtml));
+    final document = html_parser.parse(
+      prepareHtml5InputWithOffsets(xhtml).xhtml,
+    );
     final css = StringBuffer();
     final links = <String>[];
     final sources = <CssStyleSource>[];

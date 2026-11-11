@@ -20,14 +20,7 @@ typedef _CellPosition = ({
   bool multipart,
 });
 
-/// 同步兼容入口与异步阅读作业共用同一阶段算法。
-void _consumeSync(Iterable<int> steps) {
-  for (final _ in steps) {
-    // 同步驱动只消费边界；异步入口在同一位置检查预算。
-  }
-}
-
-Future<void> _consumeAsync(
+Future<void> _consume(
   Iterable<int> steps,
   Future<void> Function()? checkpoint,
 ) async {
@@ -38,23 +31,8 @@ Future<void> _consumeAsync(
 }
 
 /// 页面根 column Flex 的主轴居中，不改变后代块的 CFI 与容器载荷。
-void alignPageRootFlexColumn({
-  required List<PageBlock> blocks,
-  required int start,
-  required ComputedStyle containerStyle,
-  required double pageWidth,
-  required double pageHeight,
-}) {
-  final job = _FlexColumnAlignment(blocks, start, containerStyle, (
-    width: pageWidth,
-    height: pageHeight,
-  ));
-  _consumeSync(job.steps());
-  job.apply();
-}
-
-/// 参数沿用同步入口；新增的回调在扫描及提交垫片前核验取消。
-Future<void> alignPageRootFlexColumnAsync({
+/// 在扫描及提交垫片前核验取消，复用同一阶段算法。
+Future<void> alignPageRootFlexColumn({
   required List<PageBlock> blocks,
   required int start,
   required ComputedStyle containerStyle,
@@ -66,7 +44,7 @@ Future<void> alignPageRootFlexColumnAsync({
     width: pageWidth,
     height: pageHeight,
   ));
-  await _consumeAsync(job.steps(), checkpoint);
+  await _consume(job.steps(), checkpoint);
   job.apply();
 }
 
@@ -137,28 +115,8 @@ PageBlock _flexSpacer(double width, double height) => PageBlock(
   ),
 );
 
-/// 单行与换行 Flex 的兼容入口，复用表格格载荷保留子块与绘制样式。
-///
-/// 公开命名参数保留调用契约；内部的单次作业按尺寸、分行、分配与放置拆分。
-PageBlock? buildFlexRowBlock({
-  required ComputedStyle containerStyle,
-  required double containerWidth,
-  required List<List<PageBlock>> items,
-  required double containingWidth,
-  required double pageContentHeight,
-  int groupId = 0,
-}) {
-  final job = _FlexRowLayout(containerStyle, items, (
-    container: containerWidth,
-    containing: containingWidth,
-    pageHeight: pageContentHeight,
-  ), groupId);
-  _consumeSync(job.steps());
-  return job.result;
-}
-
 /// 阅读入口在各子项、分行、尺寸分配和逐格放置的边界检查时间预算。
-Future<PageBlock?> buildFlexRowBlockAsync({
+Future<PageBlock?> buildFlexRowBlock({
   required ComputedStyle containerStyle,
   required double containerWidth,
   required List<List<PageBlock>> items,
@@ -172,7 +130,7 @@ Future<PageBlock?> buildFlexRowBlockAsync({
     containing: containingWidth,
     pageHeight: pageContentHeight,
   ), groupId);
-  await _consumeAsync(job.steps(), checkpoint);
+  await _consume(job.steps(), checkpoint);
   return job.result;
 }
 

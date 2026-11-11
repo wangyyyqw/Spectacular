@@ -5,7 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 Future<Uint8List> _pngBytes(int width, int height) async {
   final recorder = ui.PictureRecorder();
@@ -30,16 +30,11 @@ Uint8List _buildEpub(Uint8List pngBytes) {
   archive.addFile(
     ArchiveFile('mimetype', 20, 'application/epub+zip'.codeUnits),
   );
-  addText(
-    'META-INF/container.xml',
-    '''<?xml version="1.0"?>
+  addText('META-INF/container.xml', '''<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
-</container>''',
-  );
-  addText(
-    'OEBPS/content.opf',
-    '''<?xml version="1.0"?>
+</container>''');
+  addText('OEBPS/content.opf', '''<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="uid">urn:uuid:1234-5678</dc:identifier>
@@ -52,8 +47,7 @@ Uint8List _buildEpub(Uint8List pngBytes) {
     <item id="pic" href="images/pic.png" media-type="image/png"/>
   </manifest>
   <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
-</package>''',
-  );
+</package>''');
   addText(
     'OEBPS/c1.xhtml',
     '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>文字章节</p></body></html>',
@@ -62,7 +56,9 @@ Uint8List _buildEpub(Uint8List pngBytes) {
     'OEBPS/c2.xhtml',
     '<html xmlns="http://www.w3.org/1999/xhtml"><body><img src="images/pic.png"/></body></html>',
   );
-  archive.addFile(ArchiveFile('OEBPS/images/pic.png', pngBytes.length, pngBytes));
+  archive.addFile(
+    ArchiveFile('OEBPS/images/pic.png', pngBytes.length, pngBytes),
+  );
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
 
@@ -70,7 +66,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('满屏章：单图章走整页单块背景图路径，文字章走普通路径', () async {
-    final source = await EpubChapterSource.open(_buildEpub(await _pngBytes(64, 48)));
+    final source = await EpubChapterSource.open(
+      _buildEpub(await _pngBytes(64, 48)),
+    );
 
     // 文字章：普通路径（多块文本）。
     final normal = await source.loadChapter(0);
@@ -78,6 +76,7 @@ void main() {
     expect(source.fullBleedAnalysis(0).isFullBleed, isFalse);
 
     // 图片章：满屏路径 → 单页、整页高、背景图 cover。
+    await source.loadAnchorChapter(1);
     expect(source.fullBleedAnalysis(1).isFullBleed, isTrue);
     final pages = await source.loadChapter(1);
     expect(pages, hasLength(1));

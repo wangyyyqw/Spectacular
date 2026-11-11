@@ -24,9 +24,11 @@ import 'chapter_styles.dart';
 /// 聚合原文、选择器、锚点与图片分析作为一次纯数据产物交接。
 class ChapterStructure {
   const ChapterStructure({
+    required this.parsed,
     required this.document,
     required this.selectors,
     required this.anchor,
+    required this.footnotes,
     required this.fullBleed,
     required this.fixedFullBleed,
     required this.images,
@@ -34,20 +36,27 @@ class ChapterStructure {
     required this.fontFamilies,
   });
 
-  ChapterStructure.withStylesheets(ChapterStructure source, this.sheets)
-    : document = source.document,
+  /// 宿主共享原始文档和作者表，避免为同步目录消费保存另一份解析树。
+  ChapterStructure.withResources(
+    ChapterStructure source,
+    this.sheets,
+    this.parsed,
+  ) : document = source.document,
       selectors = source.selectors,
       anchor = source.anchor,
+      footnotes = source.footnotes,
       fullBleed = source.fullBleed,
       fixedFullBleed = source.fixedFullBleed,
       images = source.images,
       fontFamilies = source.fontFamilies;
+  final ParsedDocument parsed;
   final BlockDocument document;
   final ChapterSelectors selectors;
   final AnchorChapter anchor;
+  final Map<String, FootnoteAnchor> footnotes;
   final FullBleedChapter fullBleed;
   final FullBleedChapter fixedFullBleed;
-  final ChapterImageCoordinates images;
+  final List<String> images;
   final List<CssStylesheet> sheets;
   final Set<String> fontFamilies;
 }
@@ -78,7 +87,7 @@ class ChapterStructureStore {
   final ComputedStyle baseStyle;
   late final _cache = BoundedCache<String, ChapterStructure>(
     capacity,
-    isPinned: (key) => key == _currentKey,
+    isPinned: (key) => key == _currentKey || key == _visibleKey,
   );
   final _preparing = ChapterPreparationScheduler();
   int preparations = 0;
@@ -86,10 +95,16 @@ class ChapterStructureStore {
   bool _closed = false;
   int _epoch = 0;
   String? _currentKey;
+  String? _visibleKey;
 
   int get length => _cache.length;
   Future<void> get preparationsStopped => _preparing.idle;
   String _key(int spine, double width) => '$spine@width=$width';
+
+  /// 实际可见章独立于前台定位请求，避免辅助章准备挤出阅读原文。
+  void setCurrentReadingChapter(int spine, double width) {
+    _visibleKey = _key(spine, width);
+  }
 
   Future<ChapterStructure> prepare(int spine, double width) =>
       schedule(spine, width).result;
@@ -139,7 +154,11 @@ class ChapterStructureStore {
     _check(epoch, task);
     // isolate 传递会复制规则列表；排版沿用仓储的同一作者样式身份，
     // 共享 CSS 的多章才能复用已准备的级联规则。
-    final result = ChapterStructure.withStylesheets(prepared, input.sheets);
+    final result = ChapterStructure.withResources(
+      prepared,
+      input.sheets,
+      input.parsed,
+    );
     preparations += 1;
     _cache[key] = result;
     return result;
@@ -170,22 +189,13 @@ class ChapterStructureStore {
     }
   }
 
-  /// 旧同步定位 API 的兼容入口；生产开书与跳转先调用 prepare。
-  ChapterStructure synchronously(int spine, double width) {
-    final key = _key(spine, width);
-    final cached = _cached(key);
-    if (cached != null) return cached;
-    final input = _StructureInput(
-      resources.parsedChapter(spine),
-      styles.stylesheets(spine, width: width),
-      resources.footnotes(spine),
-      _config(spine, width),
-    );
-    preparations += 1;
-    final result = _buildStructure(input);
-    _cache[key] = result;
-    return result;
-  }
+  /// 同步消费已准备的数据；解析与聚合只由准备任务执行。
+  ChapterStructure prepared(int spine, double width) =>
+      preparedOrNull(spine, width) ?? (throw StateError('章节尚未准备，请先等待章节准备任务完成'));
+
+  /// 查询准备结果，不在缓存缺失时解压或重解析。
+  ChapterStructure? preparedOrNull(int spine, double width) =>
+      _cached(_key(spine, width));
 
   _StructureConfig _config(int spine, double width) {
     final document = resources.document;
@@ -209,6 +219,7 @@ class ChapterStructureStore {
   void clear() {
     _epoch += 1;
     _currentKey = null;
+    _visibleKey = null;
     _preparing.cancelAll();
     _cache.clear();
   }
@@ -243,6 +254,7 @@ ChapterStructure _buildStructure(_StructureInput input) {
       : structural;
   final document = aggregateAnchorDocument(display, raw);
   return ChapterStructure(
+    parsed: input.parsed,
     document: document,
     selectors: selectors,
     anchor: AnchorChapter(
@@ -252,6 +264,7 @@ ChapterStructure _buildStructure(_StructureInput input) {
       readable: input.config.readable,
       blocks: collectAnchorBlocks(document, raw),
     ),
+    footnotes: input.footnotes,
     fullBleed: structural.isFullBleed ? visible : structural,
     fixedFullBleed: visible,
     images: imageCoordinatesOf(input.parsed.root, raw),

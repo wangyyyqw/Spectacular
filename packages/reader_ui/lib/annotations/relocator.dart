@@ -153,8 +153,8 @@ abstract final class AnnotationRelocator {
     List<PageContent> pages,
   ) {
     if (annotation.needsRelocation) return _failed(annotation);
-    final record = _anchorRecord(annotation, book);
-    if (record == null) return _failed(annotation);
+    final record = AnchorRecord.decode(annotation.anchorData);
+    if (record == null || !record.isResolved) return _failed(annotation);
     final anchor = record.effective;
     // 跨章区间由覆盖时的全书索引核验。仅消费与当前文件版本一致的结果，
     // 避免在当前一章的局部文本中把完整跨章引用误判为删除。
@@ -174,22 +174,6 @@ abstract final class AnnotationRelocator {
     }
     final current = result.effective;
     return _resolved(annotation, current.start.cfi, current.end!.cfi, pages);
-  }
-
-  static AnchorRecord? _anchorRecord(
-    ReaderAnnotation annotation,
-    AnchorBook book,
-  ) {
-    final stored = AnchorRecord.decode(annotation.anchorData);
-    if (stored != null) return stored.isResolved ? stored : null;
-    final legacy = book.legacyRange(
-      startCfi: annotation.startCfi,
-      endCfi: annotation.endCfi,
-      quote: annotation.currentQuote ?? annotation.quote,
-      contextBefore: annotation.contextBefore ?? '',
-      contextAfter: annotation.contextAfter ?? '',
-    );
-    return legacy == null ? null : AnchorRecord(original: legacy);
   }
 
   static AnnotationRelocation _resolved(

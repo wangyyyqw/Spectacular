@@ -165,12 +165,7 @@ Object _encodeValue(Object? value) => switch (value) {
   Enum() => value.name,
   Color() => [value.colorSpace.name, value.a, value.r, value.g, value.b],
   num() => value.toString(), // JSON 将非有限数交给此分支，不让诊断输入崩溃。
-  CssLength() => [
-    value.value,
-    value.isAuto,
-    value.isPercent,
-    value.isViewportHeight,
-  ],
+  CssLength() => [value.value, value.isAuto, value.isPercent],
   CssEdges() => [value.top, value.right, value.bottom, value.left],
   CssFontFeatureSetting() => [value.tag, value.value],
   CssQuotesAuto() => ['auto'],

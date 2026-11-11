@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
@@ -11,9 +12,25 @@ import 'package:reader_ui/annotations/thought_marker.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 String _cfi(int spine, int offset) =>
     'epubcfi(/6/${(spine + 1) * 2}!/4/2/1:$offset)';
+
+String _chapterText(int spine) => 'word in chapter $spine';
+
+String _anchorData(int spine) => AnchorRecord(
+  original: AnchorBook(
+    revision: 'reader-layout',
+    chapters: [
+      AnchorChapter(
+        spineIndex: spine,
+        href: '$spine.xhtml',
+        blocks: [AnchorBlock(cfi: _cfi(spine, 0), text: _chapterText(spine))],
+      ),
+    ],
+  ).capture(_cfi(spine, 0), endCfi: _cfi(spine, 4))!,
+).encode();
 
 class _Source implements ReaderChapterSource {
   final style = ComputedStyle(const {
@@ -33,7 +50,7 @@ class _Source implements ReaderChapterSource {
             blocks: [
               PageBlock(
                 layout: TextLayoutEngine.layout(
-                  text: 'word in chapter $spineIndex',
+                  text: _chapterText(spineIndex),
                   style: style,
                   maxWidth: 160,
                 ),
@@ -56,6 +73,7 @@ class _Annotations implements ReaderAnnotationStore {
         endCfi: _cfi(spine, 4),
         quote: 'word',
         note: '第${spine + 1}章想法',
+        anchorData: _anchorData(spine),
         createdAt: DateTime(2026),
         updatedAt: DateTime(2026),
       ),

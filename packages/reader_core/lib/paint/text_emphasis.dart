@@ -2,7 +2,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show StringCharacters;
 
 import '../css/computed_style.dart';
-import '../layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'line_spans.dart';
 
 typedef _StyledCluster = ({

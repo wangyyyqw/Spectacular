@@ -7,7 +7,7 @@ import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 /// W23 竖排绘画细节：着重号（列右侧）、装饰线（沿列方向的纵线）、列末省略号。

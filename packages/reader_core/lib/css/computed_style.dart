@@ -4059,14 +4059,6 @@ class ComputedStyle {
     if (percent != null) {
       return CssLength(percent, isPercent: true);
     }
-    final viewportHeight = RegExp(r'^(-?(?:\d+(?:\.\d+)?|\.\d+))vh$')
-        .firstMatch(value);
-    if (viewportHeight != null) {
-      return CssLength(
-        double.parse(viewportHeight.group(1)!),
-        isViewportHeight: true,
-      );
-    }
     final resolved = _resolveLength(
       value,
       fontSize: fontSize,

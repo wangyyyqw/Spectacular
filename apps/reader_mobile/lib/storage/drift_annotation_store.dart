@@ -32,41 +32,7 @@ class DriftAnnotationStore
               )
               ..orderBy([(table) => OrderingTerm(expression: table.createdAt)]))
             .get();
-    final annotations = <ReaderAnnotation>[];
-    for (final row in rows) {
-      var anchor = AnchorRecord.decode(row.anchorJson);
-      if (anchor == null) {
-        anchor = await originalAnnotationAnchor(_db, book, row);
-        await (_db.update(
-          _db.annotations,
-        )..where((table) => table.id.equals(row.id))).write(
-          AnnotationsCompanion(anchorJson: Value<String?>(anchor.encode())),
-        );
-      }
-      var startCfi = row.startCfi;
-      var endCfi = row.endCfi;
-      if (anchor.semanticVersion != currentAnchorSemanticVersion) {
-        final verified = await verifyAnchorSemantics(_db, book, anchor);
-        if (verified.encode() != row.anchorJson) {
-          startCfi = verified.effective.start.cfi;
-          endCfi = verified.effective.end?.cfi ?? startCfi;
-          await (_db.update(
-            _db.annotations,
-          )..where((table) => table.id.equals(row.id))).write(
-            AnnotationsCompanion(
-              startCfi: Value<String>(startCfi),
-              endCfi: Value<String>(endCfi),
-              anchorJson: Value<String?>(verified.encode()),
-            ),
-          );
-          anchor = verified;
-        }
-      }
-      annotations.add(
-        _toAnnotation(row, anchor: anchor, startCfi: startCfi, endCfi: endCfi),
-      );
-    }
-    return annotations;
+    return [for (final row in rows) _toAnnotation(row)];
   }
 
   @override
@@ -294,7 +260,7 @@ class DriftAnnotationStore
       book,
       startCfi,
       endCfi: endCfi,
-      existing: await originalAnnotationAnchor(_db, book, row),
+      existing: requireAnchorRecord(row.anchorJson),
     );
     if (anchor == null) throw const FormatException('无法确认所选文字的位置');
     await _db.transaction(() async {
@@ -332,7 +298,7 @@ class DriftAnnotationStore
       startCfi: startCfi,
       endCfi: endCfi,
     );
-    final original = index?.legacyRange(
+    final original = index?.rangeFromEvidence(
       startCfi: startCfi,
       endCfi: endCfi,
       quote: evidence.quote,
@@ -372,8 +338,9 @@ class DriftAnnotationStore
       note: row.note,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAt),
-      relocationStatus: anchor?.status,
-      relocationReason: anchor?.reason,
+      relocationStatus: anchor?.status ?? 'pending',
+      relocationReason:
+          anchor?.reason ?? (anchor == null ? '内容锚点缺失或格式不受支持，请重新建立记录' : null),
       currentQuote: anchor?.effective.quote,
       anchorData: anchor?.encode() ?? row.anchorJson,
     );

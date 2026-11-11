@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -23,7 +22,7 @@ Future<void> _enterMultiSelect(WidgetTester tester, String bookId) async {
 void main() {
   testWidgets('书架支持全选、取消全选和确认后批量删除', (tester) async {
     final library = LibraryStore.memory();
-    final progressStore = FileReaderProgressStore.memory();
+    final progressStore = MemoryReaderProgressStore();
     late BookEntry first;
     late BookEntry second;
     late BookEntry third;
@@ -129,7 +128,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
         ),
       ),
     );

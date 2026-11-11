@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 章节页数：0 章 2 页、1 章空、2 章 1 页。
 class _BoundarySource implements ReaderChapterSource {

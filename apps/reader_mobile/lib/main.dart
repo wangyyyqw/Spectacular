@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
 
@@ -12,7 +11,6 @@ import 'library/library_store.dart';
 import 'reader/reader_text_warmup.dart';
 import 'storage/db.dart';
 import 'storage/drift_progress_store.dart';
-import 'storage/file_progress_store.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
 
@@ -66,41 +64,13 @@ Future<void> main() async {
   final library = database == null
       ? LibraryStore.memory()
       : LibraryStore(database: database);
-  if (database != null && await prepareLibraryStorage(library, log)) {
-    // 旧书封面回填放后台，不拖慢启动。
-    unawaited(
-      library
-          .backfillCovers()
-          .then((filled) async {
-            if (filled > 0) {
-              await log.log(
-                'covers_backfilled',
-                fields: <String, Object?>{'books': filled},
-              );
-            }
-          })
-          .catchError((Object error, StackTrace stack) async {
-            await log.log(
-              'covers_backfill_failed',
-              fields: <String, Object?>{'error': error, 'stack': stack},
-            );
-          }),
-    );
+  if (database != null) {
+    await prepareLibraryStorage(library, log);
   }
   // P4-10：进度写 reading_progress 表；数据库不可用时退回内存存储。
-  final ReaderProgressStore progressStore;
-  if (database == null) {
-    progressStore = FileReaderProgressStore.memory();
-  } else {
-    final driftStore = DriftProgressStore(database);
-    // 旧版 reader_progress.json 一次性迁入表（幂等）。
-    await prepareProgressStorage(
-      driftStore,
-      getApplicationSupportDirectory,
-      log,
-    );
-    progressStore = driftStore;
-  }
+  final ReaderProgressStore progressStore = database == null
+      ? MemoryReaderProgressStore()
+      : DriftProgressStore(database);
   try {
     warmUpReaderTextRendering();
   } catch (error, stack) {

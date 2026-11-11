@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/line_spans.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -231,12 +231,7 @@ extension LibraryRevisionOperations on LibraryStore {
         : await buildRevisionAnchorBook(oldBytes);
     final newBook = await buildRevisionAnchorBook(bytes);
     final migrated = _migrateRevisionAnnotations(annotations, oldBook, newBook);
-    final position = await _migrateRevisionProgress(
-      progress,
-      oldBook,
-      newBook,
-      oldBytes,
-    );
+    final position = _migrateRevisionProgress(progress, oldBook, newBook);
     return _RevisionMigration(
       _RevisionBooks(old, oldBook, newBook),
       _RevisionUserData(annotations, decorations, progress),
@@ -253,7 +248,7 @@ extension LibraryRevisionOperations on LibraryStore {
   ) {
     final migrated = <String, AnchorRecord>{};
     for (final annotation in annotations) {
-      final record = _historicalAnnotation(annotation, oldBook);
+      final record = requireAnchorRecord(annotation.anchorJson);
       migrated[annotation.id] = RevisionRelocator.relocate(
         oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
         newBook: newBook,
@@ -273,7 +268,7 @@ extension LibraryRevisionOperations on LibraryStore {
       migrated[row.id] = RevisionRelocator.relocate(
         oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
         newBook: newBook,
-        record: _historicalDecoration(row, oldBook),
+        record: requireAnchorRecord(row.anchorJson),
       );
     }
     _resolveDecorationCollisions(decorations, migrated);
@@ -314,100 +309,18 @@ extension LibraryRevisionOperations on LibraryStore {
     }
   }
 
-  Future<AnchorRecord?> _migrateRevisionProgress(
+  AnchorRecord? _migrateRevisionProgress(
     ProgressRow? progress,
     AnchorBook? oldBook,
     AnchorBook newBook,
-    Uint8List? oldBytes,
-  ) async {
-    if (progress == null) return null;
-    var record = AnchorRecord.decode(progress.anchorJson);
-    if (record == null && oldBook != null && oldBytes != null) {
-      final cfi = progress.locatorCfi.startsWith('epubcfi(')
-          ? progress.locatorCfi
-          : await _recoverHistoricalCfi(oldBytes, progress);
-      final anchor = cfi == null
-          ? null
-          : oldBook.capture(
-              cfi,
-              approximate: !progress.locatorCfi.startsWith('epubcfi('),
-            );
-      if (anchor != null) record = AnchorRecord(original: anchor);
-    }
-    record ??= AnchorRecord(
-      original: _missingLocation(
-        progress.locatorCfi,
-        spineIndex: progress.spineIndex ?? 0,
-      ),
-    );
+  ) {
+    final record = AnchorRecord.decode(progress?.anchorJson);
+    if (record == null) return null;
     return RevisionRelocator.relocate(
       oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
       newBook: newBook,
       record: record,
       progress: true,
-    );
-  }
-
-  Future<String?> _recoverHistoricalCfi(
-    Uint8List bytes,
-    ProgressRow row,
-  ) async {
-    final source = await EpubChapterSource.open(bytes);
-    final memory = MemoryReaderProgressStore();
-    await memory.save(
-      'historical',
-      ReaderProgress(
-        spineIndex: row.spineIndex ?? 0,
-        pageIndex: row.pageIndex ?? 0,
-      ),
-    );
-    final session = ReaderSession(
-      source: source,
-      store: memory,
-      bookId: 'historical',
-    );
-    try {
-      final settings = await ReaderSettingsStore(this).load();
-      final size = _historicalContentSize(settings);
-      await session.open(
-        overrides: settings.overrides,
-        contentWidth: size.width,
-        contentHeight: size.height,
-        contentTopInset: size.topInset,
-      );
-      return session.currentCfi;
-    } finally {
-      session.dispose();
-      source.close();
-    }
-  }
-
-  ({double width, double height, double topInset}) _historicalContentSize(
-    ReaderSettings settings,
-  ) {
-    final view = PlatformDispatcher.instance.views.firstOrNull;
-    final ratio = view?.devicePixelRatio ?? 1;
-    final width = (view?.physicalSize.width ?? 320) / ratio;
-    final height = (view?.physicalSize.height ?? 480) / ratio;
-    final margins = settings.margins;
-    final padding = margins?.toBodyPadding(
-      showFurniture: true,
-      headerHeight: PageFurniture.headerHeight,
-      footerHeight: PageFurniture.footerHeight,
-    );
-    final side = padding == null
-        ? settings.horizontalPadding * 2
-        : padding.horizontal;
-    final vertical = padding == null
-        ? 32 +
-              PageFurniture.reservedHeight +
-              ((view?.viewPadding.top ?? 0) + (view?.viewPadding.bottom ?? 0)) /
-                  ratio
-        : padding.vertical;
-    return (
-      width: math.max(80, width - side),
-      height: math.max(120, height - vertical),
-      topInset: padding?.top ?? 16,
     );
   }
 
@@ -430,7 +343,7 @@ extension LibraryRevisionOperations on LibraryStore {
       await _checkRevisionConflict(migration.old.id, id);
       await _switchRevisionBook(migration, commit, id, identifier);
       await _writeRevisionStructure(migration.old.id, commit);
-      await _writeRevisionUserData(migration);
+      await _writeRevisionUserData(migration, document);
       // 事务内部的异步写入期间仍可取消，提交前最后核对并整体回滚。
       _checkImportCancelled(isCancelled);
     });
@@ -444,7 +357,7 @@ extension LibraryRevisionOperations on LibraryStore {
   ) async {
     final db = _db!;
     final old = migration.old;
-    await rekeyBook(db, old, id, identifier);
+    await _rekeyBook(db, old, id, identifier);
     if (old.uuid != id) {
       await db
           .into(db.bookIdAliases)
@@ -561,7 +474,10 @@ extension LibraryRevisionOperations on LibraryStore {
     await write(document.toc, 1);
   }
 
-  Future<void> _writeRevisionUserData(_RevisionMigration migration) async {
+  Future<void> _writeRevisionUserData(
+    _RevisionMigration migration,
+    EpubDocumentImpl document,
+  ) async {
     final db = _db!;
     for (final old in migration.annotations) {
       final record = migration.migrated[old.id]!;
@@ -581,7 +497,7 @@ extension LibraryRevisionOperations on LibraryStore {
       );
     }
     await _writeRevisionDecorations(migration);
-    await _writeRevisionProgress(migration);
+    await _writeRevisionProgress(migration, document);
   }
 
   Future<void> _writeRevisionDecorations(_RevisionMigration migration) async {
@@ -610,11 +526,14 @@ extension LibraryRevisionOperations on LibraryStore {
     }
   }
 
-  Future<void> _writeRevisionProgress(_RevisionMigration migration) async {
+  Future<void> _writeRevisionProgress(
+    _RevisionMigration migration,
+    EpubDocumentImpl document,
+  ) async {
     final progress = migration.progress;
+    if (progress == null) return;
     final position = migration.position;
-    if (progress == null || position == null) return;
-    final point = position.effective.start;
+    final point = position?.effective.start;
     final resetFinished =
         progress.finished &&
         migration.oldBook != null &&
@@ -626,28 +545,27 @@ extension LibraryRevisionOperations on LibraryStore {
       _db.readingProgress,
     )..where((table) => table.bookId.equals(progress.bookId))).write(
       ReadingProgressCompanion(
-        anchorJson: Value(position.encode()),
-        locatorCfi: Value(point.cfi),
-        spineIndex: Value(point.spineIndex),
+        anchorJson: Value(position?.encode()),
+        locatorCfi: Value(point?.cfi ?? ''),
+        spineIndex: Value(point?.spineIndex ?? 0),
         pageIndex: const Value(0),
-        percent: Value(_revisionProgressPercent(migration.newBook, point)),
+        percent: Value(
+          point == null ? 0 : _revisionProgressPercent(document, point),
+        ),
         finished: Value(resetFinished ? false : progress.finished),
       ),
     );
   }
 
-  double _revisionProgressPercent(AnchorBook book, AnchorPoint point) {
-    final readable = book.chapters
-        .where((chapter) => chapter.readable)
-        .toList();
-    final total = readable.fold<int>(
-      0,
-      (sum, chapter) => sum + chapter.text.length,
-    );
-    final before = readable
-        .where((chapter) => chapter.spineIndex < point.spineIndex)
-        .fold<int>(0, (sum, chapter) => sum + chapter.text.length);
-    return total == 0 ? 0 : (before + point.charOffset) / total * 100;
+  double _revisionProgressPercent(
+    EpubDocumentImpl document,
+    AnchorPoint point,
+  ) {
+    final ratio = point.chapterLength == 0
+        ? 0.0
+        : point.charOffset / point.chapterLength;
+    return bookProgressIndexFor(document).percentOf(point.spineIndex, ratio) *
+        100;
   }
 
   Future<void> _deleteRetiredSource(String? path) async {
@@ -658,8 +576,7 @@ extension LibraryRevisionOperations on LibraryStore {
     }
     final root = await _root();
     final normalized = p.normalize(path);
-    if (!p.isWithin(p.join(root.path, 'books-v1'), normalized) &&
-        !p.isWithin(p.join(root.path, 'books'), normalized)) {
+    if (!p.isWithin(p.join(root.path, 'books'), normalized)) {
       return;
     }
     try {
@@ -714,86 +631,21 @@ class _RevisionUserData {
   final ProgressRow? progress;
 }
 
-AnchorRecord _historicalDecoration(DecorationRow row, AnchorBook? book) {
-  final saved = AnchorRecord.decode(row.anchorJson);
-  if (saved != null) return saved;
-  final anchor = book?.capture(row.startCfi, endCfi: row.endCfi);
-  if (anchor != null &&
-      normalizeAnchorText(anchor.quote) == normalizeAnchorText(row.quote)) {
-    return AnchorRecord(original: anchor);
-  }
-  final original = (book ?? AnchorBook(revision: 'missing', chapters: []))
-      .legacyRange(
-        startCfi: row.startCfi,
-        endCfi: row.endCfi,
-        quote: row.quote,
-        contextBefore: row.contextBefore ?? '',
-        contextAfter: row.contextAfter ?? '',
-      );
-  return AnchorRecord(
-    original: original ?? _missingLocation(row.startCfi, endCfi: row.endCfi),
-    status: 'pending',
-    reason: '旧文件或内容锚点缺失，需重新定位',
+/// 调用方必须放在事务中，整数主键保持不变。
+Future<void> _rekeyBook(
+  AppDatabase db,
+  BookRow row,
+  String id,
+  String identifier,
+) async {
+  await (db.update(db.books)..where((table) => table.id.equals(row.id))).write(
+    BooksCompanion(uuid: Value(id), epubIdentifier: Value(identifier)),
   );
-}
-
-AnchorRecord _historicalAnnotation(AnnotationRow row, AnchorBook? book) {
-  final saved = AnchorRecord.decode(row.anchorJson);
-  if (saved != null) return saved;
-  final anchor = book?.capture(
-    row.startCfi,
-    endCfi: row.type == 2 ? null : row.endCfi,
-  );
-  if (anchor != null &&
-      (row.type == 2 ||
-          normalizeAnchorText(anchor.quote) ==
-              normalizeAnchorText(row.quote))) {
-    return AnchorRecord(original: anchor);
-  }
-  final legacy = row.type == 2
-      ? null
-      : AnchorBook(revision: 'missing', chapters: []).legacyRange(
-          startCfi: row.startCfi,
-          endCfi: row.endCfi,
-          quote: row.quote,
-          contextBefore: row.contextBefore ?? '',
-          contextAfter: row.contextAfter ?? '',
-        );
-  return AnchorRecord(
-    original:
-        legacy ??
-        _missingLocation(
-          row.startCfi,
-          endCfi: row.type == 2 ? null : row.endCfi,
-        ),
-    status: 'pending',
-    reason: '旧文件或内容锚点缺失，需重新定位',
-  );
-}
-
-LocationAnchor _missingLocation(
-  String cfi, {
-  String? endCfi,
-  int spineIndex = 0,
-}) {
-  AnchorPoint point(String value) => AnchorPoint(
-    cfi: value,
-    spineIndex: spineIndex,
-    href: '',
-    title: '',
-    chapterFingerprint: '',
-    paragraphFingerprint: '',
-    charOffset: 0,
-    chapterLength: 0,
-    quote: '',
-    contextBefore: '',
-    contextAfter: '',
-  );
-  return LocationAnchor(
-    revision: 'missing',
-    start: point(cfi),
-    end: endCfi == null ? null : point(endCfi),
-    quote: '',
-    approximate: true,
-  );
+  if (id == row.uuid) return;
+  await (db.update(db.shelfGroupBooks)
+        ..where((table) => table.bookUuid.equals(row.uuid)))
+      .write(ShelfGroupBooksCompanion(bookUuid: Value(id)));
+  await (db.update(db.bookTagLinks)
+        ..where((table) => table.bookUuid.equals(row.uuid)))
+      .write(BookTagLinksCompanion(bookUuid: Value(id)));
 }

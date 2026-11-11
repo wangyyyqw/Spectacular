@@ -57,7 +57,7 @@ class EpubArchive {
   List<String> get diagnostics => List<String>.unmodifiable(_diagnostics);
 
   /// 整本兜底上限：超过此大小的 ZIP64/加密容器直接拒绝。
-  static const int _legacyFallbackLimit = 512 * 1024 * 1024;
+  static const int _decodeFallbackLimit = 512 * 1024 * 1024;
 
   /// 从字节打开 ZIP；损坏时按四档分类（P7-15），可恢复档先修复再抛：
   ///
@@ -82,7 +82,7 @@ class EpubArchive {
     if (index != null) {
       return _fromIndex(index, verify: verify);
     }
-    return _legacyFromBytes(bytes, verify: verify);
+    return _decodeArchiveBytes(bytes, verify: verify);
   }
 
   /// 从文件打开：只解析中央目录，条目按需读取。
@@ -112,11 +112,11 @@ class EpubArchive {
     }
     await source.close();
     // 仅 ZIP64/加密/特殊编码等异常容器走整本兜底；正常 EPUB 不进入。
-    if (await file.length() > _legacyFallbackLimit) {
+    if (await file.length() > _decodeFallbackLimit) {
       throw const EpubException('E_ARCHIVE', '归档格式不受支持且文件过大，无法安全打开');
     }
     final bytes = await file.readAsBytes();
-    return _legacyFromBytes(
+    return _decodeArchiveBytes(
       bytes,
       verify: verify,
       notes: const <String>['E_ZIP_LEGACY: 归档变体不受惰性读取支持，已整本解码'],
@@ -152,8 +152,8 @@ class EpubArchive {
     );
   }
 
-  /// 旧的整本解码路径：仅用于惰性层不支持的归档变体。
-  static EpubArchive _legacyFromBytes(
+  /// 整本解码路径：仅用于惰性层不支持的归档变体。
+  static EpubArchive _decodeArchiveBytes(
     Uint8List bytes, {
     required bool verify,
     List<String> notes = const <String>[],
@@ -285,7 +285,7 @@ class EpubArchive {
       throw const EpubException('E_ARCHIVE', 'ZIP 中没有文件');
     }
     return EpubArchive._(
-      _LegacyBackend(entries),
+      _DecodedArchiveBackend(entries),
       order,
       List<String>.unmodifiable(notes),
     );
@@ -627,8 +627,8 @@ class _ZipIndexBackend implements _ArchiveBackend {
   }
 }
 
-class _LegacyBackend implements _ArchiveBackend {
-  _LegacyBackend(this._entries);
+class _DecodedArchiveBackend implements _ArchiveBackend {
+  _DecodedArchiveBackend(this._entries);
 
   final Map<String, ArchiveFile> _entries;
 

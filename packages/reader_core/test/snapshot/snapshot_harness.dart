@@ -5,10 +5,13 @@ import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/painting.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/cascade.dart';
+import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/src/api/models.dart' show EpubNode, TextBlockNode;
 import 'package:reader_core/paint/page_renderer.dart';
@@ -214,6 +217,16 @@ Uint8List buildSnapshotEpub() {
   return buildZip(files);
 }
 
+class _SnapshotElement implements SelectorElement {
+  const _SnapshotElement(this.tag);
+  @override
+  final String tag;
+  @override
+  Map<String, String> get attributes => const {};
+  @override
+  List<SelectorElement> get childElements => const [];
+}
+
 /// 按快照配置分页整书，返回所有页。
 Future<List<PageContent>> paginateSnapshot(
   Uint8List epubBytes,
@@ -235,21 +248,26 @@ Future<List<PageContent>> paginateSnapshot(
   for (var spine = 0; spine < document.spine.length; spine++) {
     final aggregated = document.aggregateText(spine);
     final blocks = <PageBlock>[];
-    // 块级 UA 覆盖（P7-03）：与应用侧 EpubChapterSource 同一条路径。
+    // 快照隔离行盒与分页：页边距由 spec 控制，正文段落不额外加间距。
+    final rules = [
+      ...uaRules(),
+      ...CascadeRule.fromStylesheet(
+        CssParser.parse('body, p { margin: 0; }'),
+        origin: CascadeOrigin.author,
+      ),
+    ];
     final uaStyles = <String, ComputedStyle>{};
     var figureSeq = 0;
-    ComputedStyle styleFor(String tag) {
-      final cached = uaStyles[tag];
-      if (cached != null) {
-        return cached;
-      }
-      final overlaid = UaBlockDefaults.apply(
-        style,
-        tag,
+    ComputedStyle styleFor(String tag) => uaStyles.putIfAbsent(
+      tag,
+      () => Cascade.compute(
+        element: _SnapshotElement(tag),
+        ancestors: const [],
+        rules: rules,
+        parent: style,
         containingWidth: spec.contentSize.width,
-      );
-      return uaStyles[tag] = overlaid ?? style;
-    }
+      ),
+    );
     void collect(EpubNode epubNode, String blockTag, {int groupId = 0}) {
       if (epubNode is TextBlockNode) {
         final text = epubNode.text;

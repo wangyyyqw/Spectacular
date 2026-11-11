@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 
 /// P9 回归：书籍的容器面板（背景/边框/内边距）与整页背景图。

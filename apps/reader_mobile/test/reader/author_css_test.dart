@@ -5,7 +5,7 @@ import 'dart:ui' show Color;
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 /// 构造带 link 作者 CSS 的最小 EPUB（真实书适配回归）。
 Uint8List _buildEpubWithCss(String css, String bodyHtml) {

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 /// 縦中横（CSS Writing Modes §9.1）：竖排下 `text-combine-upright: all` 把
 /// 2–4 位连续数字合并成一个正立块，纵向只占 1em。

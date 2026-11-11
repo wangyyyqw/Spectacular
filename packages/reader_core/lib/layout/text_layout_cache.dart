@@ -5,7 +5,6 @@ import 'package:flutter/painting.dart' show TextLeadingDistribution;
 import '../css/computed_style.dart';
 import 'line_breaker.dart';
 import 'text_edges.dart';
-import 'text_layout.dart';
 
 /// 段落布局缓存（P2-26，S2 结论：逐段 Paragraph + 缓存，不合并整页）。
 ///

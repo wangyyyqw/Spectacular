@@ -4,6 +4,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 记录 applyContentSize 的假源（P2-36：全面屏手势区兜底）。
 class _SizingSource implements RestylableChapterSource, ResizableChapterSource {

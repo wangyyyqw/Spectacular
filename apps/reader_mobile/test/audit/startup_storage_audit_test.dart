@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
-import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_mobile/storage/startup_storage.dart';
 
 import '../support/test_epub.dart';
@@ -31,28 +30,30 @@ void main() {
     directory.deleteSync(recursive: true);
   });
 
-  for (final contents in ['{', '[]', '{}']) {
-    test('旧书库损坏（$contents）时继续启动，且保留迁移前的 EPUB', () async {
-      File('${directory.path}/books.json').writeAsStringSync(contents);
-      final books = Directory('${directory.path}/books')..createSync();
-      final source = File('${books.path}/legacy.epub')
-        ..writeAsBytesSync(buildTestEpub());
+  test('启动清理孤儿目录，保留已导入书籍并记录清理结果', () async {
+    final bytes = buildTestEpub();
+    final entry = await library.importBytes(bytes);
+    final orphan = Directory('${directory.path}/books/orphan')
+      ..createSync(recursive: true);
+    File('${orphan.path}/source.epub').writeAsBytesSync([1, 2, 3]);
 
-      expect(await prepareLibraryStorage(library, log), isFalse);
-      expect(source.existsSync(), isTrue);
-      expect(File('${directory.path}/books.json').readAsStringSync(), contents);
-      expect(await log.exportText(), contains('library_prepare_failed'));
-    });
-  }
+    await prepareLibraryStorage(library, log);
 
-  test('旧进度损坏时继续使用数据库，保留旧文件并记诊断', () async {
-    final file = File('${directory.path}/reader_progress.json')
-      ..writeAsStringSync('{');
-    final store = DriftProgressStore(db);
+    expect(orphan.existsSync(), isFalse);
+    expect(File(entry.filePath).readAsBytesSync(), bytes);
+    expect((await library.list()).single.id, entry.id);
+    expect(await log.exportText(), contains('library_swept'));
+  });
 
-    await prepareProgressStorage(store, () async => directory, log);
-    expect(await store.snapshot(), isEmpty);
-    expect(file.readAsStringSync(), '{');
-    expect(await log.exportText(), contains('progress_migrate_failed'));
+  test('书库目录不可读时记录错误并继续启动', () async {
+    final unavailable = LibraryStore(
+      database: db,
+      directoryProvider: () async => throw const FileSystemException('目录不可读'),
+    );
+
+    await prepareLibraryStorage(unavailable, log);
+
+    expect(await log.exportText(), contains('library_prepare_failed'));
+    expect(await db.select(db.books).get(), isEmpty);
   });
 }

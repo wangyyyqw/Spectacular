@@ -16,22 +16,22 @@ import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
-import 'package:reader_mobile/reader/bounded_cache.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_flow.dart';
-import 'package:reader_mobile/reader/epub/chapter_layout_job.dart';
-import 'package:reader_mobile/reader/epub/chapter_selectors.dart';
-import 'package:reader_mobile/reader/epub/chapter_style_resolver.dart';
-import 'package:reader_mobile/reader/epub/chapter_styles.dart';
-import 'package:reader_mobile/reader/epub/chapter_text_measurer.dart';
-import 'package:reader_mobile/reader/epub/flex_blocks.dart';
-import 'package:reader_mobile/reader/epub/generated_chapter_content.dart';
-import 'package:reader_mobile/reader/epub/image_block_builder.dart';
-import 'package:reader_mobile/reader/epub/image_blocks.dart';
-import 'package:reader_mobile/reader/epub/inline_content_builder.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/util/bounded_cache.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_flow.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_job.dart';
+import 'package:reader_core/epub/chapter/chapter_selectors.dart';
+import 'package:reader_core/epub/chapter/chapter_style_resolver.dart';
+import 'package:reader_core/epub/chapter/chapter_styles.dart';
+import 'package:reader_core/epub/chapter/chapter_text_measurer.dart';
+import 'package:reader_core/epub/chapter/flex_blocks.dart';
+import 'package:reader_core/epub/chapter/generated_chapter_content.dart';
+import 'package:reader_core/epub/chapter/image_block_builder.dart';
+import 'package:reader_core/epub/chapter/image_blocks.dart';
+import 'package:reader_core/epub/chapter/inline_content_builder.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 const _containerXml = '''
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -97,11 +97,13 @@ Future<_ImageFixture> _images(
   final resources = BookResources(document);
   final fonts = BookFonts(resources, onFontsChanged: (_) {});
   final sheets = ChapterStyles(resources, fonts);
-  final parsed = document.parseDocument(0);
+  await resources.prepareFootnotes(0);
+  final preparedSheets = await sheets.prepareStylesheets(0, width: 240);
+  final parsed = resources.parsedChapter(0);
   final styles = ChapterStyleResolver(
     _snapshot(fonts.freeze()),
     ChapterSelectors(parsed.root),
-    sheets.prepare(sheets.stylesheets(0, width: 240)),
+    sheets.prepare(preparedSheets),
   );
   final inline = _inline(styles, resources, budget);
   final fixture = _ImageFixture(parsed, styles, inline);
@@ -131,6 +133,7 @@ InlineContentBuilder _inline(
     BoundedCache<String, double>(2048),
   ),
   resources,
+  resources.footnotes(0),
 );
 
 class _ImageFixture {
@@ -223,42 +226,6 @@ PageBlock _member(
   ),
 );
 
-Object? _flexGeometry(PageBlock? block) => block == null
-    ? null
-    : [
-        block.layout.text,
-        block.layout.width,
-        block.layout.height,
-        block.layout.maxWidth,
-        block.height,
-        block.startCfi,
-        block.endCfi,
-        block.groupId,
-        block.spaceBefore,
-        block.spaceAfter,
-        block.topInset,
-        block.bottomInset,
-        block.style?.values,
-        block.table!.rowYs,
-        block.table!.tableWidth,
-        block.table!.flex,
-        [
-          for (final cell in block.table!.cells)
-            [
-              cell.row,
-              cell.rect.left,
-              cell.rect.top,
-              cell.rect.width,
-              cell.rect.height,
-              cell.layout.text,
-              cell.layout.width,
-              cell.layout.height,
-              cell.startCfi,
-              cell.style.values,
-            ],
-        ],
-      ];
-
 class _StopBudget extends LayoutBudget {
   _StopBudget(this.after)
     : super(priority: ChapterLayoutPriority.reading, isCurrent: () => true);
@@ -274,12 +241,12 @@ class _StopBudget extends LayoutBudget {
   }
 }
 
-Future<PageBlock?> _flexAsync(
+Future<PageBlock?> _layoutFlex(
   ComputedStyle style,
   List<List<PageBlock>> items, {
   LayoutBudget? budget,
   double width = 320,
-}) => buildFlexRowBlockAsync(
+}) => buildFlexRowBlock(
   containerStyle: style,
   containerWidth: width,
   items: items,
@@ -492,7 +459,7 @@ void main() {
 
   test('Flex 增长与收缩保留加权分配、子块 CFI 和分组', () async {
     final style = _flexStyle({'column-gap': '10px'});
-    final grown = await _flexAsync(style, [
+    final grown = await _layoutFlex(style, [
       [
         _member('甲', 80, declarations: {'flex-grow': '1'}),
       ],
@@ -503,7 +470,7 @@ void main() {
     expect(grown!.table!.cells.map((cell) => cell.rect.width), [117.5, 192.5]);
     expect(grown.groupId, 7);
     expect(grown.startCfi, grown.table!.cells.first.startCfi);
-    final shrunk = await _flexAsync(style, [
+    final shrunk = await _layoutFlex(style, [
       [
         _member('甲', 100, declarations: {'flex-shrink': '1'}),
       ],
@@ -516,7 +483,7 @@ void main() {
   });
 
   test('Flex wrap-reverse 和跨轴分布保持行顺序与精确坐标', () async {
-    final block = await _flexAsync(
+    final block = await _layoutFlex(
       _flexStyle({
         'flex-wrap': 'wrap-reverse',
         'row-gap': '10px',
@@ -534,37 +501,11 @@ void main() {
     expect(block.height, 120);
   });
 
-  test('Flex 同步与异步公开入口的格、文本、样式及 CFI 完全一致', () async {
-    for (final declarations in [
-      {'justify-content': 'space-evenly'},
-      {'flex-wrap': 'wrap', 'align-content': 'stretch', 'height': '180px'},
-      {
-        'flex-wrap': 'wrap-reverse',
-        'align-content': 'center',
-        'height': '180px',
-      },
-    ]) {
-      final style = _flexStyle(declarations);
-      final items = [
-        [_member('甲', 100)],
-        [_member('乙', 100)],
-        [_member('丙', 100)],
-      ];
-      final sync = buildFlexRowBlock(
-        containerStyle: style,
-        containerWidth: 240,
-        items: items,
-        containingWidth: 320,
-        pageContentHeight: 400,
-        groupId: 7,
-      );
-      final async = await _flexAsync(style, items, width: 240);
-      expect(_flexGeometry(async), _flexGeometry(sync));
-    }
-    expect(await _flexAsync(_flexStyle({}), const []), isNull);
+  test('空 Flex 子项不生成页面块', () async {
+    expect(await _layoutFlex(_flexStyle({}), const []), isNull);
   });
 
-  test('页面根 Flex 居中忽略脱流块，同步与异步保留原块身份', () async {
+  test('页面根 Flex 居中忽略脱流块并保留原块身份', () async {
     final first = _member('甲', 80);
     final last = _member('乙', 80);
     final blocks = [
@@ -573,7 +514,6 @@ void main() {
       last,
       PageBlock(layout: first.layout, floatSide: FloatSide.left),
     ];
-    final sync = List<PageBlock>.of(blocks);
     final async = List<PageBlock>.of(blocks);
     final style = _flexStyle({
       'height': '240px',
@@ -581,22 +521,14 @@ void main() {
       'border': '1px solid #000',
       'justify-content': 'center',
     });
-    alignPageRootFlexColumn(
-      blocks: sync,
-      start: 0,
-      containerStyle: style,
-      pageWidth: 240,
-      pageHeight: 400,
-    );
-    await alignPageRootFlexColumnAsync(
+    await alignPageRootFlexColumn(
       blocks: async,
       start: 0,
       containerStyle: style,
       pageWidth: 240,
       pageHeight: 400,
     );
-    expect(sync.first.layout.height, 111);
-    expect(async.first.layout.height, sync.first.layout.height);
+    expect(async.first.layout.height, 111);
     expect(async.skip(1), blocks);
   });
 
@@ -607,7 +539,7 @@ void main() {
     ];
     final original = [for (final item in items) item.single];
     await expectLater(
-      _flexAsync(
+      _layoutFlex(
         _flexStyle({'flex-wrap': 'wrap'}),
         items,
         budget: _StopBudget(4),
@@ -616,7 +548,7 @@ void main() {
     );
     expect([for (final item in items) item.single], original);
     await expectLater(
-      _flexAsync(
+      _layoutFlex(
         _flexStyle({}),
         List.generate(16, (_) => <PageBlock>[]),
         budget: _StopBudget(3),
@@ -626,7 +558,7 @@ void main() {
     final budget = _StopBudget(3);
     final blocks = List<PageBlock>.of(original);
     await expectLater(
-      alignPageRootFlexColumnAsync(
+      alignPageRootFlexColumn(
         blocks: blocks,
         start: 0,
         containerStyle: _flexStyle({

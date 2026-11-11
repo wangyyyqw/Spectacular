@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -18,6 +18,7 @@ import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/selection/selection_menu.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 const _padding = EdgeInsets.fromLTRB(40, 70, 40, 40);
 const _cfi = 'epubcfi(/6/2!/4/2/1:0)';

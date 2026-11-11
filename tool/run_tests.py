@@ -27,10 +27,6 @@ def test_group(path, catalog):
 
 
 def source_groups(path, catalog):
-    for original, target in catalog["source_aliases"].items():
-        if path == original or (original.endswith("/") and path.startswith(original)):
-            path = target + path[len(original):]
-            break
     for rule in catalog["source_rules"]:
         if matches(path, rule["paths"]):
             return set(rule["groups"])

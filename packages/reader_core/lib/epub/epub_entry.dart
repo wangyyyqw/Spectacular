@@ -59,7 +59,7 @@ class EpubEntryPayload {
     required this.verifyCrc,
   });
 
-  /// 旧归档后端已在宿主解码；保留其特殊压缩兼容路径。
+  /// 恢复读取的归档已在宿主解码，直接交接当前条目的原始字节。
   EpubEntryPayload.decoded(this.bytes) : _entry = null, verifyCrc = false;
 
   final Uint8List bytes;

@@ -4,12 +4,11 @@ import 'dart:ui' show Color;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
-import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_core/css/ua_stylesheet.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
-import 'package:reader_ui/reader_session.dart' show ChapterLoadCancelled;
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'reader/support/css_chapter_book.dart';
+
+import 'package:reader_core/source/chapter_source.dart';
 
 /// P7-23：三层缓存与设置失效矩阵——
 /// 主题颜色变化 → 零重排（pagination 层键不含颜色）；
@@ -326,20 +325,5 @@ void main() {
     expect(colored, base, reason: '颜色不进排版指纹');
     final sized = const ReaderOverrides(fontSize: 20).fingerprint;
     expect(sized, isNot(base));
-  });
-
-  test('UA 覆盖层的 styles 层缓存按标签复用（P7-03/P7-23）', () {
-    final base = ComputedStyle(const <String, String>{
-      'font-size': '16px',
-      'line-height': '1.5',
-    });
-    final h1 = UaBlockDefaults.apply(base, 'h1')!;
-    final p = UaBlockDefaults.apply(base, 'p');
-    expect(
-      identical(h1, UaBlockDefaults.apply(base, 'h1')),
-      isFalse,
-      reason: '工厂每次构造（上层负责按标签缓存）',
-    );
-    expect(p, isNull);
   });
 }

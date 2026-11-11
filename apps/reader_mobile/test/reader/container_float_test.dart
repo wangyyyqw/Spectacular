@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/paginator.dart';
 
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
 

@@ -81,7 +81,7 @@ class ChapterBlockWalker {
     if (styles.chainStyle(chain).display == CssDisplay.none) return;
     if (await _specialBlock(node, position, ancestors, chain)) return;
     if (node is PromotedBlockNode) {
-      _promoteTypography(node, position.ancestors, view);
+      await _promoteTypography(node, position.ancestors, view);
     }
     final scope = _containerScope(node, position, ancestors, chain);
     await _retainContainer(scope, identical(node, root));
@@ -185,44 +185,49 @@ class ChapterBlockWalker {
     );
   }
 
-  void _promoteTypography(
+  Future<void> _promoteTypography(
     PromotedBlockNode node,
     List<SelectorElement> ancestors,
     SelectorElement view,
-  ) {
+  ) async {
     final applyReader =
         !ancestors.any(styles.promotedInlineStyles.containsKey) &&
         !_headings.contains(ancestors.lastOrNull?.tag);
     var parent = styles.chainStyle(ancestors);
     if (applyReader) parent = styles.snapshot.overrides.applyTypography(parent);
-    final mark = InlineMark(
-      start: 0,
-      end: 0,
-      tag: node.tag,
-      classes: const [],
-      chain: [
-        for (final ancestor in node.inlineAncestors)
-          MarkSubject(
-            tag: ancestor.tag,
-            classes: const {},
-            attributes: ancestor.attributes,
-          ),
-        MarkSubject(
-          tag: node.tag,
-          classes: const {},
-          attributes: node.attributes,
-        ),
-      ],
+    styles.promotedInlineStyles[view] = await styles.inlineMarkStyle(
+      _promotedMark(node),
+      (
+        ancestors: ancestors,
+        style: parent,
+        width: width,
+        readerFontFamily: applyReader
+            ? styles.snapshot.overrides.fontFamily
+            : null,
+      ),
+      checkpoint: inline.measure.budget.checkpoint,
     );
-    styles.promotedInlineStyles[view] = styles.inlineMarkStyle(mark, (
-      ancestors: ancestors,
-      style: parent,
-      width: width,
-      readerFontFamily: applyReader
-          ? styles.snapshot.overrides.fontFamily
-          : null,
-    ));
   }
+
+  InlineMark _promotedMark(PromotedBlockNode node) => InlineMark(
+    start: 0,
+    end: 0,
+    tag: node.tag,
+    classes: const [],
+    chain: [
+      for (final ancestor in node.inlineAncestors)
+        MarkSubject(
+          tag: ancestor.tag,
+          classes: const {},
+          attributes: ancestor.attributes,
+        ),
+      MarkSubject(
+        tag: node.tag,
+        classes: const {},
+        attributes: node.attributes,
+      ),
+    ],
+  );
 
   _ContainerScope _containerScope(
     BlockNode node,
@@ -440,7 +445,7 @@ class ChapterBlockWalker {
       await _finishFlexRow(scope, retained);
     }
     if (scope.isPageRootFlexColumn) {
-      await alignPageRootFlexColumnAsync(
+      await alignPageRootFlexColumn(
         blocks: flow.blocks,
         start: scope.start,
         containerStyle: scope.style,
@@ -484,7 +489,7 @@ class ChapterBlockWalker {
     PageContainer retained,
   ) async {
     final positioned = await _positionedBlocks(scope.start, positioned: true);
-    final row = await buildFlexRowBlockAsync(
+    final row = await buildFlexRowBlock(
       containerStyle: scope.style,
       containerWidth: retained.contentWidth,
       items: scope.flexItems,

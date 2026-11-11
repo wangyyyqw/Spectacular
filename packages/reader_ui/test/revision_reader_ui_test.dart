@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
@@ -14,6 +14,7 @@ import 'package:reader_ui/panels/bookmark_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 final _style = ComputedStyle(const {
   'font-size': '16px',
@@ -335,16 +336,53 @@ void main() {
   });
 
   test('CFI合法但内容不同不能绘制，重复引用不选第一条', () {
+    final recorded = AnchorBook(
+      revision: 'reader-layout',
+      chapters: [
+        AnchorChapter(
+          spineIndex: 0,
+          href: '',
+          blocks: const [
+            AnchorBlock(cfi: 'epubcfi(/6/2!/4/2/1:0)', text: '旧版引用'),
+          ],
+        ),
+      ],
+    );
+    final repeated = AnchorBook(
+      revision: 'reader-layout',
+      chapters: [
+        AnchorChapter(
+          spineIndex: 0,
+          href: '',
+          blocks: const [
+            AnchorBlock(cfi: 'epubcfi(/6/2!/4/2/9:0)', text: '重复引用'),
+          ],
+        ),
+      ],
+    );
     final page = _page([
       (text: '新的文字重复引用再重复引用', cfi: 'epubcfi(/6/2!/4/2/1:0)'),
     ]);
     final results = AnnotationRelocator.relocate(
       annotations: [
-        _annotation(),
+        _annotation(
+          anchorData: AnchorRecord(
+            original: recorded.capture(
+              'epubcfi(/6/2!/4/2/1:0)',
+              endCfi: 'epubcfi(/6/2!/4/2/1:4)',
+            )!,
+          ).encode(),
+        ),
         _annotation(
           quote: '重复引用',
           start: 'epubcfi(/6/2!/4/2/9:0)',
           end: 'epubcfi(/6/2!/4/2/9:4)',
+          anchorData: AnchorRecord(
+            original: repeated.capture(
+              'epubcfi(/6/2!/4/2/9:0)',
+              endCfi: 'epubcfi(/6/2!/4/2/9:4)',
+            )!,
+          ).encode(),
         ),
       ],
       pages: [page],

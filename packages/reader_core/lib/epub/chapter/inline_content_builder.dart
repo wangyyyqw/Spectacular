@@ -26,6 +26,7 @@ class InlineContentBuilder {
     this.content,
     this.measure,
     this._resources,
+    this.chapterFootnotes,
   );
   final ChapterStyleResolver styles;
   final GeneratedChapterContent content;
@@ -37,8 +38,7 @@ class InlineContentBuilder {
       _resources.intrinsicSizeOfUrl(url);
   double get contentWidth => styles.snapshot.width;
   double get contentHeight => styles.snapshot.height;
-  Map<String, FootnoteAnchor> get chapterFootnotes =>
-      _resources.footnotes(styles.snapshot.spineIndex);
+  final Map<String, FootnoteAnchor> chapterFootnotes;
   ImageIntrinsicSize? _intrinsicSizeOfUrl(String url) =>
       _resources.intrinsicSizeOfUrl(url);
 
@@ -179,7 +179,7 @@ class InlineContentBuilder {
   Future<ComputedStyle> _inlineStyle(
     InlineMark mark,
     InlineStyleContext context,
-  ) => styles.inlineMarkStyleAsync(
+  ) => styles.inlineMarkStyle(
     mark,
     context,
     checkpoint: measure.budget.checkpoint,
@@ -397,7 +397,7 @@ class InlineContentBuilder {
     InlineStyleContext context,
   ) async {
     final flow = await _extractFlowBoxes(atom.text, atom.marks, context);
-    final runs = await styles.resolveInlineRunsAsync(
+    final runs = await styles.resolveInlineRuns(
       flow.marks,
       context,
       checkpoint: measure.budget.checkpoint,
@@ -679,7 +679,7 @@ class InlineContentBuilder {
       readerFontFamily: null,
     );
     final flow = await _extractFlowBoxes(text, marks, context);
-    final runs = await styles.resolveInlineRunsAsync(
+    final runs = await styles.resolveInlineRuns(
       flow.marks,
       context,
       checkpoint: measure.budget.checkpoint,

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
@@ -15,6 +15,7 @@ import 'package:reader_ui/theme/reader_margins.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 void main() {
   testWidgets('快速拖动即时移动按钮，正文合并预览且松手立即应用最后值', (tester) async {

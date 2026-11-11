@@ -7,13 +7,23 @@ const _containingWidth = 200.0;
 ComputedStyle _style(
   Map<String, String> declarations, {
   double containingWidth = _containingWidth,
-}) => ComputedStyle(declarations, containingWidth: containingWidth);
+  CssValueContext? valueContext,
+}) => ComputedStyle(
+  declarations,
+  containingWidth: containingWidth,
+  valueContext: valueContext,
+);
 
 BoxModel _model(
   Map<String, String> declarations, {
   double containingWidth = _containingWidth,
+  CssValueContext? valueContext,
 }) => BoxModel.fromStyle(
-  _style(declarations, containingWidth: containingWidth),
+  _style(
+    declarations,
+    containingWidth: containingWidth,
+    valueContext: valueContext,
+  ),
   containingWidth: containingWidth,
 );
 
@@ -155,10 +165,15 @@ void main() {
     );
   });
 
-  test('min-height 支持 vh，并按页面高度解算', () {
-    final model = _model({'min-height': '100vh'});
+  test('min-height 的 vh 使用冻结视口，不随包含块高度改变', () {
+    final model = _model(
+      {'min-height': '100vh'},
+      valueContext: const CssValueContext(
+        viewportWidth: _containingWidth,
+        viewportHeight: 640,
+      ),
+    );
 
-    expect(model.minHeight?.isViewportHeight, isTrue);
     expect(
       model.resolveContentHeight(120, containingHeight: 640),
       640,
@@ -168,6 +183,11 @@ void main() {
       model.resolveContentHeight(700, containingHeight: 640),
       700,
       reason: '内容高于视口时不能缩短内容盒',
+    );
+    expect(
+      model.resolveContentHeight(120, containingHeight: 300),
+      640,
+      reason: '视口单位独立于嵌套包含块高度',
     );
   });
 

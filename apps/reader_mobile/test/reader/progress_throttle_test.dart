@@ -8,6 +8,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 找 test_corpus 里的样书（多页，能真正翻页）。
 Uint8List _corpusBook(String name) {

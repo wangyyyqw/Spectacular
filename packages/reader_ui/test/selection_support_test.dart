@@ -3,7 +3,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_support.dart';

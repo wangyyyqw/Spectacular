@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 /// 真实书的多看私有属性落点（需求 2）：`duokan-text-indent` 是书里最高频的
 /// 私有属性（7 本真实书共 1527 次），必须真的变成段落首行缩进。

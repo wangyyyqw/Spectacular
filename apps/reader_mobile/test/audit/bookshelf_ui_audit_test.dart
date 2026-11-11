@@ -4,7 +4,6 @@ import 'package:reader_mobile/home/book_detail_page.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -84,7 +83,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final library = LibraryStore.memory();
-    final progress = FileReaderProgressStore.memory();
+    final progress = MemoryReaderProgressStore();
     final first = await _import(tester, library, '山川纪事');
     final second = await _import(tester, library, '江海笔记', author: '乙作者');
     final third = await _import(tester, library, '城市阅读');
@@ -153,7 +152,7 @@ void main() {
       tester,
       BookshelfPage(
         library: library,
-        progressStore: FileReaderProgressStore.memory(),
+        progressStore: MemoryReaderProgressStore(),
         pickEpubFiles: () async => <String>['新书.epub'],
         readFile: (_) async => bytes,
       ),
@@ -211,7 +210,7 @@ void main() {
       tester,
       BookshelfPage(
         library: library,
-        progressStore: FileReaderProgressStore.memory(),
+        progressStore: MemoryReaderProgressStore(),
       ),
     );
     await tester.longPress(_key('book-card-${book.id}'));
@@ -244,7 +243,7 @@ void main() {
 
   testWidgets('读完弹层保存评分书评与进度，取消读完保留书评', (tester) async {
     final library = LibraryStore.memory();
-    final progress = FileReaderProgressStore.memory();
+    final progress = MemoryReaderProgressStore();
     final reviews = _MemoryReviews();
     final book = await _import(tester, library, '读完记录');
     await _show(

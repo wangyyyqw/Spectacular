@@ -269,14 +269,8 @@ class ChapterTextMeasurer {
         );
     final hasBorder = style.borders.hasBorder;
     final hasClearance = style.clear != CssClear.none;
-    final declaredHeight = style.height?.resolve(
-      contentWidth,
-      viewportHeight: containingHeight,
-    );
-    final declaredMinHeight = style.minHeight?.resolve(
-      contentWidth,
-      viewportHeight: containingHeight,
-    );
+    final declaredHeight = style.height?.resolve(contentWidth);
+    final declaredMinHeight = style.minHeight?.resolve(contentWidth);
     if (!hasBackground &&
         !hasBorder &&
         !hasClearance &&

@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 
 import '../support/test_epub.dart';
+
+import 'package:reader_ui/reader_session.dart';
 
 Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
   for (var i = 0; i < frames; i++) {
@@ -33,7 +34,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
         ),
       ),
     );

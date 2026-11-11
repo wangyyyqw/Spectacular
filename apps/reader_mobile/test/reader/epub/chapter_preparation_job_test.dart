@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub/chapter_preparation_job.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/chapter/chapter_preparation_job.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 Future<void> _expectCancelled(ChapterPreparationHandle<Object?> handle) =>
     expectLater(handle.result, throwsA(isA<ChapterLoadCancelled>()));

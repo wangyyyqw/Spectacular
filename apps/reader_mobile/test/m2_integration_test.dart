@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:drift/native.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/test_epub.dart';
 

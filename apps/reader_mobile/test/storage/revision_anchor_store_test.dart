@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -8,7 +7,7 @@ import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/position/text_length.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_annotation_store.dart';
 import 'package:reader_mobile/storage/drift_bookmark_store.dart';
@@ -41,7 +40,7 @@ void main() {
             title: '更新测试书',
             contentDir: directory.path,
             sourcePath: Value(path),
-            contentRevision: Value(index.revision),
+            contentRevision: index.revision,
             createdAt: 1,
           ),
         );
@@ -58,6 +57,7 @@ void main() {
   Future<double> percentAt(int spine, int offset) async {
     final source = await EpubChapterSource.openFile(File(book.sourcePath!));
     try {
+      await source.loadAnchorChapter(spine);
       return source.readingPercentForCfi(
         index.anchorAt(spine, offset)!.start.cfi,
       )!;
@@ -65,75 +65,6 @@ void main() {
       source.close();
     }
   }
-
-  test('旧语义进度按原文重定位并清除失效比例及像素元数据', () async {
-    final current = index.capture(cfi(12))!;
-    final point = <String, Object?>{
-      ...current.start.toJson(),
-      'cfi': cfi(0),
-      'charOffset': 0,
-      'chapterFingerprint': '旧聚合指纹',
-      'paragraphFingerprint': '旧段落指纹',
-    };
-    final original = LocationAnchor.fromJson({
-      ...current.toJson(),
-      'start': point,
-    });
-    final legacy = AnchorRecord(original: original);
-    await db
-        .into(db.readingProgress)
-        .insert(
-          ReadingProgressCompanion.insert(
-            bookId: Value(book.id),
-            locatorCfi: cfi(0),
-            percent: const Value(99),
-            spineIndex: const Value(0),
-            pageIndex: const Value(9),
-            anchorJson: Value(
-              jsonEncode({
-                ...legacy.toJson(),
-                'scrollOffset': 37.25,
-                'layoutFingerprint': '旧排版',
-                'readingPercent': 0.99,
-              }),
-            ),
-            updatedAt: 1,
-          ),
-        );
-    final store = DriftProgressStore(db);
-    final upgraded = (await store.snapshot())['current']!;
-    expect(upgraded.cfi, cfi(12));
-    expect(upgraded.approximate, isFalse);
-    expect(upgraded.scrollOffset, isNull);
-    expect(upgraded.layoutFingerprint, isNull);
-    expect(upgraded.pageIndex, 0);
-    expect(upgraded.readingPercent, closeTo(await percentAt(0, 12), 0.001));
-    final row = (await db.select(db.readingProgress).get()).single;
-    final verified = AnchorRecord.decode(row.anchorJson)!;
-    expect(verified.semanticVersion, currentAnchorSemanticVersion);
-    expect(verified.original.toJson(), legacy.original.toJson());
-    expect(row.percent, closeTo(upgraded.readingPercent! * 100, 0.001));
-    expect(await store.load('current'), upgraded);
-  });
-
-  test('旧锚点缺少正文时进度降级、书签待定位，恢复来源后可继续核验', () async {
-    final record = AnchorRecord(original: index.capture(cfi(5))!);
-    final missing = book.copyWith(sourcePath: const Value(null));
-    final progress = await verifyAnchorSemantics(
-      db,
-      missing,
-      record,
-      progress: true,
-    );
-    final bookmark = await verifyAnchorSemantics(db, missing, record);
-    expect(progress.status, 'approximate');
-    expect(bookmark.status, 'pending');
-    expect(progress.semanticVersion, isNull);
-    expect(bookmark.original.toJson(), record.original.toJson());
-    final recovered = await verifyAnchorSemantics(db, book, bookmark);
-    expect(recovered.isResolved, isTrue);
-    expect(recovered.semanticVersion, currentAnchorSemanticVersion);
-  });
 
   Future<EpubChapterSource> bindMultiChapterSource() async {
     final bytes = buildMultiChapterEpub(
@@ -251,7 +182,7 @@ void main() {
     expect(stored.note, '跨章笔记');
   });
 
-  test('当前身份优先，历史别名仅唯一时认领，兼容legacyUuid', () async {
+  test('当前身份优先，书籍修订标识仅唯一时可读取', () async {
     final otherId = await db
         .into(db.books)
         .insert(
@@ -260,7 +191,7 @@ void main() {
             title: '另一书',
             contentDir: 'other',
             createdAt: 2,
-            legacyUuid: const Value('legacy'),
+            contentRevision: 'other-content',
           ),
         );
     Future<void> alias(String value, int id) => db
@@ -271,11 +202,8 @@ void main() {
     expect((await resolveBookRow(db, 'current'))!.id, book.id);
     expect((await resolveBookRow(db, 'history'))!.id, book.id);
     expect(await resolveBookRow(db, 'history', allowAliases: false), isNull);
-    expect((await resolveBookRow(db, 'legacy'))!.id, otherId);
     await alias('history', otherId);
-    await alias('legacy', book.id);
     expect(await resolveBookRow(db, 'history'), isNull);
-    expect(await resolveBookRow(db, 'legacy'), isNull);
   });
 
   test('真实进度保留首次锚点、滚动偏移与近似状态，旧版本禁止回写', () async {
@@ -452,9 +380,7 @@ void main() {
     );
   });
 
-  test('schema13旧书首次保存使用原文件hash，尚无数据的旧store也绑定版本', () async {
-    await (db.update(db.books)..where((table) => table.id.equals(book.id)))
-        .write(const BooksCompanion(contentRevision: Value(null)));
+  test('存储实例绑定内容摘要，文件更新后不得回写先前会话', () async {
     final bookmarks = DriftBookmarkStore(db, 'current');
     final annotations = DriftAnnotationStore(db, 'current');
     final progress = DriftProgressStore(db);
@@ -514,35 +440,41 @@ void main() {
     expect(record.original.start.contextBefore, '原前文');
   });
 
-  test('无JSON的历史标注重新定位仍保留旧CFI与原引用证据', () async {
+  test('损坏锚点只标记待定位，读取不回填也不替换原引用', () async {
     await db
         .into(db.annotations)
         .insert(
           AnnotationsCompanion.insert(
-            id: 'legacy-annotation',
+            id: 'damaged-annotation',
             bookId: book.id,
             type: 1,
             startCfi: cfi(10),
             endCfi: cfi(20),
-            quote: '历史原引用',
-            note: const Value('旧笔记'),
+            quote: '原引用',
+            anchorJson: const Value('{'),
+            note: const Value('原笔记'),
             createdAt: 3,
             updatedAt: 4,
           ),
         );
     final annotations = DriftAnnotationStore(db, 'current');
-    await annotations.relocate(
-      'legacy-annotation',
-      startCfi: cfi(25),
-      endCfi: cfi(35),
+    final listed = (await annotations.list()).single;
+    expect(listed.relocationStatus, 'pending');
+    expect(listed.quote, '原引用');
+    await expectLater(
+      annotations.relocate(
+        'damaged-annotation',
+        startCfi: cfi(25),
+        endCfi: cfi(35),
+      ),
+      throwsFormatException,
     );
     final row = (await db.select(db.annotations).get()).single;
-    final record = AnchorRecord.decode(row.anchorJson)!;
-    expect(record.original.revision, 'legacy');
-    expect(record.original.start.cfi, cfi(10));
-    expect(record.original.quote, '历史原引用');
-    expect(record.effective.start.cfi, cfi(25));
-    expect(row.note, '旧笔记');
+    expect(row.anchorJson, '{');
+    expect(row.startCfi, cfi(10));
+    expect(row.endCfi, cfi(20));
+    expect(row.note, '原笔记');
+    expect(row.updatedAt, 4);
   });
 
   test('无效CFI进度不清除最近成功定位与原始锚点', () async {
@@ -586,7 +518,7 @@ void main() {
       label: '书签标签',
     );
     expect(bookmark, isNotNull);
-    expect(bookmark!.relocationStatus, isNull);
+    expect(bookmark!.relocationStatus, 'pending');
     expect((await db.select(db.annotations).get()).single.anchorJson, isNull);
     await source.writeAsBytes(bytes);
     final recovered = await store.add(

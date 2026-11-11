@@ -11,7 +11,7 @@ import 'float_occupancy.dart' show FloatSide;
 import 'image_gallery.dart';
 import 'page_background.dart';
 import 'table_layout.dart' show TableCellRender, TableRenderSpec;
-import 'text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'text_edges.dart';
 
 /// 行内图片（P9-06）：占位符下标 + 已解析成书内路径的图片地址。

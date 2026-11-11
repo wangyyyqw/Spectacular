@@ -9,13 +9,7 @@ void main() {
   test('码表无重复且字段齐全', () {
     final codes = EpubCodeTable.specs.map((spec) => spec.code).toList();
     expect(codes.toSet().length, codes.length, reason: '码不允许重复');
-    expect(
-      codes.length,
-      49,
-      reason: '现有 35 + 预留 14（P3-05/06 增 E_FAIRPLAY_ENCRYPTION、'
-          'E_FONT_LOAD_FAILED；本轮增 E_SPINE_FALLBACK、E_DUPLICATE、'
-          'E_IDENTITY_CONFLICT）',
-    );
+    expect(codes.length, 48, reason: '当前 34 项有效诊断码与 14 项注明消费任务的预留码');
     for (final spec in EpubCodeTable.specs) {
       expect(spec.source, isNotEmpty, reason: '${spec.code} 缺出处');
       expect(
@@ -48,8 +42,7 @@ void main() {
     }
     // 码表自身文件里的登记项也参与比对（登记但未用 = 预留，合法；
     // 使用但未登记 = 漂移，必须补表）。
-    final registered =
-        EpubCodeTable.specs.map((spec) => spec.code).toSet();
+    final registered = EpubCodeTable.specs.map((spec) => spec.code).toSet();
     final unregistered = used.difference(registered).difference({'E_'});
     expect(
       unregistered,

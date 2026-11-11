@@ -8,7 +8,6 @@ import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/epub/archive_reader.dart';
-import 'package:reader_core/epub/xml_encoding.dart';
 import 'package:reader_core/source/chapter_source.dart'
     show ChapterLayoutPriority, ChapterLoadCancelled;
 
@@ -47,13 +46,11 @@ class ChapterStyles {
       '级联准备 ${_fontCache.length}/$preparationCacheLimit 组；'
       '基础级联 ${_baseCache.length}/$preparationCacheLimit 组';
 
-  /// 完整来源只解析一次；每次按作业快照宽度判断 link/@import 的媒体条件。
+  /// 只读取已准备的来源，每次按快照宽度判断 link/@import 的媒体条件。
   List<CssStylesheet> stylesheets(int spineIndex, {required double width}) {
     if (_closed || _resources.isClosed) return const [];
-    final sheets = _chapterSheets.putIfAbsent(
-      spineIndex,
-      () => _loadChapterSheets(spineIndex),
-    );
+    final sheets = _chapterSheets[spineIndex];
+    if (sheets == null) throw StateError('章节样式尚未准备，请先等待样式准备任务完成');
     return _activeSheets(sheets, width);
   }
 
@@ -98,28 +95,38 @@ class ChapterStyles {
     );
     _checkPreparation(task);
     var inlineIndex = 0;
-    final sheets = await _loader().loadAsync(
-      sources,
-      _chapterBase(spineIndex),
-      readSheetAsync: (url) => _prepareSheet(url, task),
-      prepareInlineAsync: (css, baseDir) async {
-        final sheet = await task.wait(
-          _resources.preparationWorker.schedule(
-            'css-inline:$spineIndex:${inlineIndex++}',
-            () {
-              _checkPreparation(task);
-              return css;
-            },
-            parseCssText,
-            priority: task.priority,
-          ),
-        );
-        _checkPreparation(task);
-        return _absolutizeSheet(sheet, baseDir);
-      },
+    final loader = CssStylesheetLoader(
+      resolveUrl: (url, baseDir) =>
+          _resources.document.resources.resolve(url, baseDir: baseDir) ?? url,
+      readSheet: (url) => _prepareSheet(url, task),
+      prepareInline: (css, baseDir) =>
+          _prepareInline(css, baseDir, spineIndex, inlineIndex++, task),
     );
+    final sheets = await loader.load(sources, _chapterBase(spineIndex));
     _checkPreparation(task);
     return _chapterSheets.putIfAbsent(spineIndex, () => sheets);
+  }
+
+  Future<CssStylesheet> _prepareInline(
+    String css,
+    String baseDir,
+    int spineIndex,
+    int inlineIndex,
+    PreparationTask task,
+  ) async {
+    final sheet = await task.wait(
+      _resources.preparationWorker.schedule(
+        'css-inline:$spineIndex:$inlineIndex',
+        () {
+          _checkPreparation(task);
+          return css;
+        },
+        parseCssText,
+        priority: task.priority,
+      ),
+    );
+    _checkPreparation(task);
+    return _absolutizeSheet(sheet, baseDir);
   }
 
   Future<CssStylesheet> _prepareSheet(String url, PreparationTask task) async {
@@ -165,11 +172,6 @@ class ChapterStyles {
         sheet,
   ];
 
-  List<CssStylesheet> _loadChapterSheets(int spineIndex) => _loader().load(
-    _resources.chapterStyleSources(spineIndex),
-    _chapterBase(spineIndex),
-  );
-
   String _chapterBase(int spineIndex) {
     final document = _resources.document;
     final item = document.spine[spineIndex];
@@ -180,25 +182,6 @@ class ChapterStyles {
         ) ??
         item.href;
     return p.posix.dirname(path);
-  }
-
-  CssStylesheetLoader _loader() => CssStylesheetLoader(
-    resolveUrl: (url, baseDir) =>
-        _resources.document.resources.resolve(url, baseDir: baseDir) ?? url,
-    prepareInline: (css, baseDir) =>
-        _absolutizeSheet(CssParser.parse(css), baseDir),
-    readSheet: (url) => _sheetCache.putIfAbsent(url, () => _readSheet(url)),
-  );
-
-  CssStylesheet _readSheet(String url) {
-    final bytes = _resources.document.archive.readBytes(url);
-    if (bytes == null) {
-      return const CssStylesheet(rules: [], imports: [], warnings: []);
-    }
-    return _absolutizeSheet(
-      CssParser.parse(decodeTextBytes(bytes)),
-      p.posix.dirname(url),
-    );
   }
 
   /// 字体映射变化只改写声明，作者选择器与声明顺序继续复用。

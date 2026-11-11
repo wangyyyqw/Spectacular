@@ -65,22 +65,6 @@ void main() {
     );
   });
 
-  test('旧书补写内容版本且不覆盖已有版本', () async {
-    final dir = Directory.systemTemp.createTempSync('library_revision');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final opened = _open(dir);
-    final entry = await opened.store.importBytes(buildTestEpub(title: '旧书'));
-    await (opened.db.update(opened.db.books)
-          ..where((table) => table.uuid.equals(entry.id)))
-        .write(const BooksCompanion(contentRevision: Value(null)));
-
-    await opened.store.rememberContentRevision(entry.id, 'revision-one');
-    expect((await opened.store.list()).single.contentRevision, 'revision-one');
-
-    await opened.store.rememberContentRevision(entry.id, 'revision-two');
-    expect((await opened.store.list()).single.contentRevision, 'revision-one');
-  });
-
   test('条目跨实例持久化；删除后目录与条目都消失', () async {
     final dir = Directory.systemTemp.createTempSync('library_persist');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -129,7 +113,7 @@ void main() {
       );
       expect(book.id, isNot(anyOf('.', '..')));
       expect(
-        p.isWithin(p.join(dir.path, 'books-v1'), p.normalize(book.filePath)),
+        p.isWithin(p.join(dir.path, 'books'), p.normalize(book.filePath)),
         isTrue,
       );
       expect(
@@ -144,8 +128,8 @@ void main() {
     }
   });
 
-  test('旧库恶意标识只删记录，拒绝递归删除父目录或目录外原书', () async {
-    final dir = Directory.systemTemp.createTempSync('library_unsafe_legacy');
+  test('异常标识只删记录，拒绝递归删除父目录或目录外原书', () async {
+    final dir = Directory.systemTemp.createTempSync('library_unsafe_id');
     addTearDown(() => dir.deleteSync(recursive: true));
     final opened = _open(dir);
     final sentinel = File('${dir.path}/sentinel.txt')..writeAsStringSync('保留');
@@ -155,7 +139,8 @@ void main() {
           .insert(
             BooksCompanion.insert(
               uuid: id,
-              title: '旧库异常标识',
+              contentRevision: 'test-content',
+              title: '异常标识',
               contentDir: 'books/$id',
               sourcePath: Value(sentinel.path),
               createdAt: 0,
@@ -236,7 +221,7 @@ void main() {
     );
   });
 
-  test('progressWeights：无统计的旧书按章等权估算', () async {
+  test('progressWeights：未取得字符统计时按章等权估算', () async {
     final dir = Directory.systemTemp.createTempSync('library_chars_legacy');
     addTearDown(() => dir.deleteSync(recursive: true));
     final store = _open(dir).store;
@@ -438,11 +423,12 @@ void main() {
     expect(await second.bookTags(secondBook.id), hasLength(1));
   });
 
-  test('内存模式支持资料编辑与标签', () async {
+  test('内存模式编辑资料和阅读时间保留内容摘要及标签', () async {
     final store = LibraryStore.memory();
     final book = await store.importBytes(
       buildTestEpub(title: '内存书', identifier: 'memory-meta'),
     );
+    expect(book.contentRevision, matches(RegExp(r'^[0-9a-f]{64}$')));
     await store.updateBookMetadata(
       book.id,
       title: '内存新书名',
@@ -451,8 +437,13 @@ void main() {
     );
     final tag = await store.createTag('待读');
     await store.addBookTag(book.id, tag.id);
+    await store.touchLastRead(book.id);
 
     expect((await store.bookById(book.id))?.description, '简介');
+    expect(
+      (await store.bookById(book.id))?.contentRevision,
+      book.contentRevision,
+    );
     expect((await store.bookTags(book.id)).single.name, '待读');
     await store.removeBookTag(book.id, tag.id);
     expect(await store.bookTags(book.id), isEmpty);
@@ -496,30 +487,13 @@ void main() {
     );
   });
 
-  test('删除旧格式迁移书：原书文件一并删除', () async {
-    final dir = Directory.systemTemp.createTempSync('library_remove_legacy');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final epubFile = File('${dir.path}/books/legacy-del.epub')
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(buildTestEpub(title: '待删旧书'));
-    File('${dir.path}/books.json').writeAsStringSync(
-      '{"books":[{"id":"legacy-del","title":"待删旧书","author":"作者",'
-      '"filePath":"${epubFile.path}","addedAt":1700000000000}]}',
-    );
-    final store = _open(dir).store;
-    await store.migrateLegacyJson();
-    await store.remove('legacy-del');
-    expect(await store.list(), isEmpty);
-    expect(epubFile.existsSync(), isFalse, reason: '磁盘不留孤儿原书');
-  });
-
-  test('孤儿扫描：删未入库目录与旧格式文件，保留在册书籍', () async {
+  test('孤儿扫描清理未入库目录和临时文件，保留在册书籍', () async {
     final dir = Directory.systemTemp.createTempSync('library_sweep');
     addTearDown(() => dir.deleteSync(recursive: true));
     final store = _open(dir).store;
     final entry = await store.importBytes(buildTestEpub(title: '在册书'));
 
-    // 制造孤儿：未知 uuid 目录 + 未引用的旧格式 epub。
+    // 制造孤儿：未知书目录和未提交文件。
     final orphanDir = Directory('${dir.path}/books/orphan-dir')
       ..createSync(recursive: true);
     File('${orphanDir.path}/a.bin').writeAsBytesSync(List<int>.filled(16, 1));
@@ -533,62 +507,5 @@ void main() {
     expect(orphanFile.existsSync(), isFalse);
     expect(File(entry.filePath).existsSync(), isTrue, reason: '在册书不受影响');
     expect(await store.list(), hasLength(1));
-  });
-
-  test('孤儿扫描不误删旧格式在册文件（迁移场景）', () async {
-    final dir = Directory.systemTemp.createTempSync('library_sweep_keep');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final epubFile = File('${dir.path}/books/legacy.epub')
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(buildTestEpub(title: '旧格式'));
-    File('${dir.path}/books.json').writeAsStringSync(
-      '{"books":[{"id":"legacy-keep","title":"旧格式","author":"作者",'
-      '"filePath":"${epubFile.path}","addedAt":1700000000000}]}',
-    );
-    final store = _open(dir).store;
-    await store.migrateLegacyJson();
-    final swept = await store.sweepOrphans();
-    expect(swept.removed, 0, reason: '数据库引用中的文件必须保留');
-    expect(epubFile.existsSync(), isTrue);
-  });
-
-  test('封面回填：给缺封面的旧书补提封面', () async {
-    final dir = Directory.systemTemp.createTempSync('library_backfill');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final withCover = buildTestEpub(title: '可回填', cover: true);
-    final epubFile = File('${dir.path}/books/legacy-cover.epub')
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(withCover);
-    File('${dir.path}/books.json').writeAsStringSync(
-      '{"books":[{"id":"legacy-cover","title":"可回填","author":"作者",'
-      '"filePath":"${epubFile.path}","addedAt":1700000000000}]}',
-    );
-    final store = _open(dir).store;
-    await store.migrateLegacyJson();
-    expect((await store.list()).single.coverPath, isNull, reason: '迁移不带封面');
-
-    expect(await store.backfillCovers(), 1);
-    final entry = (await store.list()).single;
-    expect(entry.coverPath, isNotNull);
-    expect(File(entry.coverPath!).existsSync(), isTrue);
-    expect(await store.backfillCovers(), 0, reason: '幂等：已有封面不再处理');
-  });
-
-  test('旧版 books.json 一次性迁入 drift 且幂等', () async {
-    final dir = Directory.systemTemp.createTempSync('library_migrate');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final epubFile = File('${dir.path}/legacy.epub')
-      ..writeAsBytesSync(buildTestEpub(title: '旧书'));
-    File('${dir.path}/books.json').writeAsStringSync(
-      '{"books":[{"id":"legacy-1","title":"旧书","author":"旧作者",'
-      '"filePath":"${epubFile.path}","addedAt":1700000000000,'
-      '"spineCount":1,"readabilityLevel":1}]}',
-    );
-    final store = _open(dir).store;
-    expect(await store.migrateLegacyJson(), 1);
-    final books = await store.list();
-    expect(books.single.title, '旧书');
-    expect(books.single.readabilityLevel, 1);
-    expect(await store.migrateLegacyJson(), 0, reason: '幂等：库非空不再迁');
   });
 }

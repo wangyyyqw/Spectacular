@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -522,7 +521,7 @@ void main() {
       entry = await library.importBytes(buildTestEpub(title: '续读书'));
       await library.touchLastRead(entry.id);
     });
-    final progress = FileReaderProgressStore.memory();
+    final progress = MemoryReaderProgressStore();
     await progress.save(
       entry.id,
       const ReaderProgress(spineIndex: 0, pageIndex: 0),

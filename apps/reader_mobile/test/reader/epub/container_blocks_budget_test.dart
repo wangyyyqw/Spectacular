@@ -5,7 +5,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_mobile/reader/epub/container_blocks.dart';
+import 'package:reader_core/epub/chapter/container_blocks.dart';
 
 final _style = ComputedStyle({'font-size': '16px', 'margin': '0'});
 

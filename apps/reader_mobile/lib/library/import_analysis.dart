@@ -252,7 +252,7 @@ Future<ImportAnalysis> _analyzeFile(String path, {String? revision}) async {
         excludedSpineIndexes: Set<int>.unmodifiable(
           document.progressExcludedSpineIndexes,
         ),
-        identifier: _originalIdentifier(document),
+        identifier: originalEpubIdentifier(document),
         coverBytes: document.readCoverBytes(),
         coverExtension: _coverExtension(coverPath),
       ),
@@ -335,7 +335,7 @@ Future<ImportAnalysis> _analyze(Uint8List bytes, {String? revision}) async {
         excludedSpineIndexes: Set<int>.unmodifiable(
           document.progressExcludedSpineIndexes,
         ),
-        identifier: _originalIdentifier(document),
+        identifier: originalEpubIdentifier(document),
         coverBytes: document.readCoverBytes(),
         coverExtension: _coverExtension(coverPath),
       ),
@@ -347,7 +347,8 @@ Future<ImportAnalysis> _analyze(Uint8List bytes, {String? revision}) async {
   }
 }
 
-String _originalIdentifier(EpubDocumentImpl document) {
+/// 从原 OPF 读取标识；缺少 OPF 时不将解析器占位值用于书籍身份。
+String originalEpubIdentifier(EpubDocumentImpl document) {
   final source = document.archive.readString(document.opfPath);
   if (source == null) return '';
   try {

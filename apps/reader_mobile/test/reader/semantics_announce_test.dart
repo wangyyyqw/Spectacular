@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 Uint8List _corpusBook(String name) {
   var directory = Directory.current;

@@ -2,7 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/relocator.dart';
 
@@ -45,21 +46,43 @@ PageContent _pageFor(
 
 ReaderAnnotation _annotation({
   String start = 'epubcfi(/6/4!/4/2/1:3)',
-  String end = 'epubcfi(/6/4!/4/2/1:8)',
+  String? end,
   required String quote,
   String? before,
   String? after,
-}) => ReaderAnnotation(
-  id: 'a',
-  type: ReaderAnnotationType.mark,
-  startCfi: start,
-  endCfi: end,
-  quote: quote,
-  contextBefore: before,
-  contextAfter: after,
-  createdAt: DateTime(2026, 1, 1),
-  updatedAt: DateTime(2026, 1, 1),
-);
+}) {
+  final offset = cfiCharOffset(start) ?? 0;
+  final leading = before ?? '';
+  final endCfi = end ?? cfiWithCharOffset(start, offset + quote.length);
+  final book = AnchorBook(
+    revision: 'reader-layout',
+    chapters: [
+      AnchorChapter(
+        spineIndex: spineIndexOfCfi(EpubCfi.parse(start)!)!,
+        href: '',
+        blocks: [
+          AnchorBlock(
+            cfi: cfiWithCharOffset(start, offset - leading.length),
+            text: '$leading$quote${after ?? ''}',
+          ),
+        ],
+      ),
+    ],
+  );
+  return ReaderAnnotation(
+    id: 'a',
+    type: ReaderAnnotationType.mark,
+    startCfi: start,
+    endCfi: endCfi,
+    quote: quote,
+    contextBefore: before,
+    contextAfter: after,
+    anchorData: AnchorRecord(original: book.capture(start, endCfi: endCfi)!)
+        .encode(),
+    createdAt: DateTime(2026, 1, 1),
+    updatedAt: DateTime(2026, 1, 1),
+  );
+}
 
 void main() {
   group('标注重定位（P4-20，§30.4）', () {
@@ -132,8 +155,8 @@ void main() {
       final results = AnnotationRelocator.relocate(
         annotations: <ReaderAnnotation>[
           _annotation(
-            start: 'epubcfi(/6/4!/4/2/1:0)',
-            end: 'epubcfi(/6/4!/4/2/1:5)',
+            start: 'epubcfi(/6/4!/4/2/1:6)',
+            end: 'epubcfi(/6/4!/4/2/1:11)',
             quote: '重复的文字',
             before: '不存在的前文',
           ),
@@ -154,8 +177,8 @@ void main() {
       final results = AnnotationRelocator.relocate(
         annotations: <ReaderAnnotation>[
           _annotation(
-            start: 'epubcfi(/6/4!/4/2/1:0)',
-            end: 'epubcfi(/6/4!/4/2/1:4)',
+            start: 'epubcfi(/6/4!/4/2/1:2)',
+            end: 'epubcfi(/6/4!/4/2/1:7)',
             quote: '重复的文字',
             before: '乙处',
           ),
@@ -176,7 +199,7 @@ void main() {
         annotations: <ReaderAnnotation>[
           _annotation(
             start: 'epubcfi(/6/4!/4/2/1:0)',
-            end: 'epubcfi(/6/4!/4/2/1:4)',
+            end: 'epubcfi(/6/4!/4/2/1:6)',
             quote: '找不到的文字',
           ),
         ],
@@ -205,6 +228,28 @@ void main() {
         ),
         isEmpty,
       );
+    });
+
+    test('缺少内容锚点的记录不因 CFI 或引文命中而被接受', () {
+      final annotation = ReaderAnnotation(
+        id: 'missing-anchor',
+        type: ReaderAnnotationType.mark,
+        startCfi: 'epubcfi(/6/4!/4/2/1:3)',
+        endCfi: 'epubcfi(/6/4!/4/2/1:8)',
+        quote: '34567',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      );
+      final result = AnnotationRelocator.relocate(
+        annotations: [annotation],
+        pages: [
+          _pageFor([
+            (text: '0123456789abcdefghij', cfi: 'epubcfi(/6/4!/4/2/1)'),
+          ]),
+        ],
+      ).single;
+      expect(result.isResolved, isFalse);
+      expect(result.annotation.quote, annotation.quote);
     });
   });
 }

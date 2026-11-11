@@ -1,8 +1,8 @@
 import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub/cancellable_isolate_worker.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/chapter/cancellable_isolate_worker.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 int _runUntilCancelled(SendPort started) {
   started.send('已启动');

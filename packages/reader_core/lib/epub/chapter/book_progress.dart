@@ -25,18 +25,12 @@ class ChapterTextCoordinates {
   ChapterTextCoordinates(
     this.chapter, {
     Iterable<String> elementCfis = const [],
-    Map<String, String> legacyAliases = const {},
   }) : elements = List<EpubCfi>.unmodifiable(
          elementCfis.map(EpubCfi.parse).whereType<EpubCfi>(),
-       ),
-       _legacyAliases = Map.unmodifiable({
-         for (final entry in legacyAliases.entries)
-           ?_elementKey(entry.key): entry.value,
-       });
+       );
 
   final AnchorChapter chapter;
   final List<EpubCfi> elements;
-  final Map<String, String> _legacyAliases;
 
   double? ratioFor(String cfi) {
     if (chapter.text.isNotEmpty) {
@@ -45,9 +39,8 @@ class ChapterTextCoordinates {
     }
     final key = _elementKey(cfi);
     if (key == null || elements.isEmpty) return null;
-    final target = _elementKey(_legacyAliases[key] ?? cfi);
     final index = elements.indexWhere(
-      (element) => _elementKey(element.serialize()) == target,
+      (element) => _elementKey(element.serialize()) == key,
     );
     if (index < 0) return null;
     return elements.length == 1 ? 0 : index / (elements.length - 1);

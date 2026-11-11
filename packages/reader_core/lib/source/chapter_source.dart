@@ -128,7 +128,7 @@ abstract interface class MissingChapterSource implements ReaderChapterSource {
 /// 与书库一致的进度权重（排除目录、非正文与缺失章节）。
 abstract interface class PositionedChapterSource
     implements ReaderChapterSource {
-  /// CFI 对应的全书正文比例（0～1）；无法定位时返回 null。
+  /// CFI 对应的全书正文比例（0～1）；无法定位或章节尚未准备时返回 null。
   double? readingPercentForCfi(String? cfi);
 
   /// 全书正文比例对应的 CFI；没有可读正文时返回 null。

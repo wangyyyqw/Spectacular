@@ -55,7 +55,7 @@ abstract final class RevisionRelocator {
       status: current.approximate
           ? 'approximate'
           : (unchanged ? 'verified' : 'relocated'),
-      reason: current.approximate ? '历史页号进度的原始位置只能近似还原' : null,
+      reason: current.approximate ? '原内容位置只能近似还原' : null,
       semanticVersion: currentAnchorSemanticVersion,
     );
   }

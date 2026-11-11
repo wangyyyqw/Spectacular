@@ -71,7 +71,6 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_CONTAINER_FALLBACK', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 container.xml 不可用回退扫描 OPF（P7-12）'),
     // ---- 书库导入去重（打开路径之外的拒绝口径，文案见 EpubRejectionMessages）----
     EpubCodeSpec('E_DUPLICATE', EpubErrorCategory.io, EpubErrorSeverity.fatal, '§55.3 同标识书籍已存在，导入拒绝'),
-    EpubCodeSpec('E_IDENTITY_CONFLICT', EpubErrorCategory.io, EpubErrorSeverity.fatal, '§55.3 书籍标识与旧记录冲突且旧记录不可恢复'),
     EpubCodeSpec('E_MANIFEST_MEDIA_TYPE_INFERRED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 manifest 项缺 media-type 按扩展名推断（P7-12）'),
     EpubCodeSpec('E_TOC_TARGET_OUTSIDE_SPINE', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 目录项目标不在 spine 降级到最近章节（P7-13）'),
     EpubCodeSpec('E_SPINE_ALL_NON_LINEAR', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 spine 全部非 linear 退化目录包含全部项（P7-13）'),

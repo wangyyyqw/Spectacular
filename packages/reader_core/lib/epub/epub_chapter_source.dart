@@ -167,7 +167,7 @@ class EpubChapterSource
   /// 阅读图片复用书籍准备 worker；关闭后不再发布旧资源。
   Future<Uint8List?> readImageBytes(String url) => _resources.readImage(url);
 
-  /// 旧书摘要在首次排版前绑定；已完成纯布局按实际内容版本复用。
+  /// 首次排版前绑定导入摘要；完成布局按实际内容版本复用。
   void setContentVersion(String version) {
     if (_closed || version.trim().isEmpty || version == _contentVersion) return;
     _contentVersion = version;
@@ -272,7 +272,7 @@ class EpubChapterSource
   /// 实际原文准备次数，验证开书只准备目标章。
   int get anchorPreparationCount => _structures.preparations;
 
-  /// 兼容同步原文入口；生产打开、跳转和装饰核验先准备目标章。
+  /// 同步读取已准备的原文；调用前等待目标章的准备任务。
   AnchorChapter anchorChapter(int spineIndex) =>
       _positions.anchorChapter(spineIndex, contentWidth);
 
@@ -487,7 +487,7 @@ class EpubChapterSource
   /// 全书只持有条目权重；原文索引按目标章准备。
   BookProgressIndex get progressIndex => _positions.progressIndex;
 
-  /// 注入元数据索引，供缺失元数据与兼容降级回归使用。
+  /// 注入元数据索引，供缺失元数据的估算回归使用。
   void bindProgressIndex(BookProgressIndex index) =>
       _positions.bindProgressIndex(index);
 
@@ -639,7 +639,7 @@ class EpubChapterSource
 
   /// 满屏判定与原文结构共用纯数据准备结果。
   FullBleedChapter fullBleedAnalysis(int spineIndex) =>
-      _structures.synchronously(spineIndex, contentWidth).fullBleed;
+      _structures.prepared(spineIndex, contentWidth).fullBleed;
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) =>
@@ -822,6 +822,7 @@ class EpubChapterSource
       document: structure.document,
       selectors: structure.selectors,
       styles: _styles.prepare(sheets),
+      footnotes: structure.footnotes,
       imageAnalysis: imageAnalysis,
       imageCfi: imageAnalysis.singleImageCfi,
       fullPageOptions: FullPageLayoutOptions(
@@ -937,6 +938,7 @@ class EpubChapterSource
 
   @override
   void setCurrentReadingChapter(int spineIndex) {
+    _structures.setCurrentReadingChapter(spineIndex, contentWidth);
     final snapshot = _lastSnapshots[spineIndex];
     if (snapshot != null) _completed.setCurrent(snapshot.key);
   }
