@@ -52,7 +52,7 @@ class FullPageChapterLayout {
           contain: options.flags.fitWindow,
           bleed: true,
           aspect: null,
-        )),
+        ), flags: options.flags),
         warning: warning,
       );
     }
@@ -106,27 +106,21 @@ class FullPageChapterLayout {
         contain: contain,
         bleed: true,
         aspect: options.aspectRatio,
-      )),
+      ), flags: options.flags),
       warning: null,
     );
   }
 
   PageBlock _block(
     String source,
-    ({bool contain, bool bleed, double? aspect}) options,
-  ) {
+    ({bool contain, bool bleed, double? aspect}) options, {
+    OpfPageFlags flags = OpfPageFlags.none,
+  }) {
     final width = math.max(80.0, snapshot.width);
     final height = math.max(120.0, snapshot.height);
     final url = options.bleed && !options.contain
         ? _fullscreenImage(source, options.aspect)
         : resources.imageUrl(snapshot.spineIndex, source);
-    final style = ComputedStyle({
-      ...snapshot.baseStyle.values,
-      'background-image': 'url($url)',
-      'background-size': options.contain ? 'contain' : 'cover',
-      'background-position': 'center center',
-      'background-repeat': 'no-repeat',
-    });
     return PageBlock(
       layout: TextLayoutResult(
         text: '',
@@ -145,13 +139,29 @@ class FullPageChapterLayout {
         maxWidth: width,
         runs: const [],
       ),
-      style: style,
+      style: _backgroundStyle(url, options.contain, flags),
       startCfi: imageCfi,
       bleedLeft: options.bleed,
       bleedRight: options.bleed,
       bleedTop: options.bleed,
       bleedBottom: options.bleed,
     );
+  }
+
+  ComputedStyle _backgroundStyle(String url, bool contain, OpfPageFlags flags) {
+    // 满屏图等比铺满后保留指定侧；窗口适配及冲突标记仍居中。
+    final horizontal = contain || flags.spreadLeft == flags.spreadRight
+        ? 'center'
+        : flags.spreadLeft
+        ? 'left'
+        : 'right';
+    return ComputedStyle({
+      ...snapshot.baseStyle.values,
+      'background-image': 'url($url)',
+      'background-size': contain ? 'contain' : 'cover',
+      'background-position': '$horizontal center',
+      'background-repeat': 'no-repeat',
+    });
   }
 
   String _fullscreenImage(String source, double? targetAspect) {
