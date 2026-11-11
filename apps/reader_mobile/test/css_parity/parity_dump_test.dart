@@ -226,7 +226,11 @@ Map<String, Object?> _filterJson(CssFilter filter) => <String, Object?>{
 /// 背景渐变概要（种类 + 方向/形状 + 色标位置；位置保留百分比/像素两种标记）。
 Map<String, Object?> _gradientJson(CssGradient gradient) {
   final json = <String, Object?>{
-    'kind': gradient is CssLinearGradient ? 'linear' : 'radial',
+    'kind': switch (gradient) {
+      CssLinearGradient() => 'linear',
+      CssRadialGradient() => 'radial',
+      CssConicGradient() => 'conic',
+    },
     'repeating': gradient.repeating,
     'stops': <Map<String, Object?>>[
       for (final stop in gradient.stops)
@@ -244,6 +248,9 @@ Map<String, Object?> _gradientJson(CssGradient gradient) {
       json['shape'] = gradient.shape.name;
       json['centerX'] = _lengthJson(gradient.centerX);
       json['centerY'] = _lengthJson(gradient.centerY);
+    case CssConicGradient():
+      // 基础锥形渐变固定中心和起始方向，模型只含颜色列表。
+      break;
   }
   return json;
 }

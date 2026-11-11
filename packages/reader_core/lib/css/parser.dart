@@ -235,9 +235,10 @@ abstract final class CssParser {
   static CssStylesheet _parseSingle(String css) {
     final errors = <csslib.Message>[];
     final preprocessed = _preprocessSelectors(css);
+    final strings = _protectEscapedStrings(preprocessed.text);
     final StyleSheet sheet;
     try {
-      sheet = csslib.parse(preprocessed.text, errors: errors);
+      sheet = csslib.parse(strings.text, errors: errors);
     } catch (error) {
       return CssStylesheet(
         rules: const <CssRule>[],
@@ -248,7 +249,9 @@ abstract final class CssParser {
 
     final rules = <CssRule>[];
     final imports = <CssImport>[];
-    final warnings = <String>[for (final message in errors) message.describe];
+    final warnings = <String>[
+      for (final message in errors) strings.restore(message.describe),
+    ];
     // @font-face 不走 csslib（其 FontFaceDirective 不公开声明组），
     // 由提取器自行扫描；collect 里对 FontFaceDirective 静默跳过。
     final fontFaces = CssFontFaceExtractor.extract(css, warnings);
@@ -259,13 +262,19 @@ abstract final class CssParser {
     }) {
       for (final node in nodes) {
         if (node is RuleSet) {
-          final rawSelector = node.selectorGroup?.span?.text.trim() ?? '';
+          final rawSelector = strings.restore(
+            node.selectorGroup?.span?.text.trim() ?? '',
+          );
           final selector = preprocessed.selectors[rawSelector] ?? rawSelector;
           if (selector.isEmpty) {
             warnings.add('跳过无选择器的规则');
             continue;
           }
-          final declarations = _declarations(node.declarationGroup, warnings);
+          final declarations = _declarations(
+            node.declarationGroup,
+            warnings,
+            strings,
+          );
           if (declarations.isEmpty) {
             continue;
           }
@@ -279,7 +288,7 @@ abstract final class CssParser {
           );
         } else if (node is MediaDirective) {
           final query = node.mediaQueries
-              .map((item) => item.span.text.trim())
+              .map((item) => strings.restore(item.span.text.trim()))
               .where((item) => item.isNotEmpty)
               .join(', ');
           collect(
@@ -288,12 +297,12 @@ abstract final class CssParser {
           );
         } else if (node is ImportDirective) {
           final mediaText = node.mediaQueries
-              .map((item) => item.span.text.trim())
+              .map((item) => strings.restore(item.span.text.trim()))
               .where((item) => item.isNotEmpty)
               .join(', ');
           imports.add(
             CssImport(
-              url: _unquote(node.import),
+              url: _unquote(strings.restore(node.import)),
               media: mediaText.isEmpty ? null : mediaText,
             ),
           );
@@ -592,6 +601,7 @@ abstract final class CssParser {
   static List<CssDeclaration> _declarations(
     DeclarationGroup group,
     List<String> warnings,
+    _CssStringProtection strings,
   ) {
     final result = <CssDeclaration>[];
     for (final node in group.declarations) {
@@ -628,7 +638,7 @@ abstract final class CssParser {
       // `-duokan-text-indent` 等与标准属性语义一致，改名后各层无需兼容。
       final (aliasProperty, aliasValue) = CssPropertyAliases.resolve(
         property,
-        value,
+        strings.restore(value),
       );
       result.add(
         CssDeclaration(
@@ -640,6 +650,34 @@ abstract final class CssParser {
     }
     return result;
   }
+
+  /// csslib 会把字符串内的转义引号当作结束符，吞掉后续声明。
+  /// 仅在词法解析期间保护这类合法字符串，取回声明时恢复完整原文。
+  static _CssStringProtection _protectEscapedStrings(String css) {
+    var prefix = '__reader_escaped_string_';
+    while (css.contains(prefix)) {
+      prefix = '_$prefix';
+    }
+    final strings = <String, String>{};
+    final text = css.replaceAllMapped(_quotedCssTokens, (match) {
+      final raw = match[0]!;
+      if (raw.startsWith('/*') ||
+          !(raw.contains(r'\"') ||
+              raw.contains(r"\'") ||
+              raw.contains('\\\n') ||
+              raw.contains('\\\r'))) {
+        return raw;
+      }
+      final key = '$prefix${strings.length}';
+      strings[key] = raw.substring(1, raw.length - 1);
+      return '${raw[0]}$key${raw[0]}';
+    });
+    return _CssStringProtection(text, strings, prefix);
+  }
+
+  static final _quotedCssTokens = RegExp(
+    r"""/\*[\s\S]*?\*/|"(?:\\(?:\r\n|[\s\S])|[^"\\\n\r\f])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\\n\r\f])*'""",
+  );
 
   static String _unquote(String value) {
     var result = value.trim();
@@ -657,4 +695,20 @@ class _CssPreprocessResult {
 
   final String text;
   final Map<String, String> selectors;
+}
+
+class _CssStringProtection {
+  _CssStringProtection(this.text, this.strings, String prefix)
+    : pattern = RegExp('${RegExp.escape(prefix)}[0-9]+');
+
+  final String text;
+  final Map<String, String> strings;
+  final RegExp pattern;
+
+  String restore(String value) => strings.isEmpty
+      ? value
+      : value.replaceAllMapped(
+          pattern,
+          (match) => strings[match[0]] ?? match[0]!,
+        );
 }

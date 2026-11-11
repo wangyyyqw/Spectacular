@@ -22,7 +22,9 @@ class _PageImageAssets {
     }
     final background = page.background;
     if (background != null) {
-      _addUrl(background.imageUrl, required, pageWidth * scale);
+      for (final layer in background.effectiveLayers) {
+        _addUrl(layer.image, required, pageWidth * scale);
+      }
     }
   }
 

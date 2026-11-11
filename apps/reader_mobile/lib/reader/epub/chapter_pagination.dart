@@ -187,12 +187,17 @@ class ChapterPageLayout {
         break;
       }
     }
+    final hasBackground =
+        first?.style?.backgroundLayers.any(
+          (layer) => layer.image != null || layer.gradient != null,
+        ) ??
+        false;
     if (first == null ||
         first.floatSide != null ||
         !first.bleedTop ||
         first.bleedBottom ||
         first.layout.text.isNotEmpty ||
-        first.style?.backgroundImage == null) {
+        !hasBackground) {
       return 0;
     }
     return -snapshot.topInset;

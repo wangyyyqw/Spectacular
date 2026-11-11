@@ -14,6 +14,7 @@ import 'punctuation_spacing.dart';
 import 'spaced_paragraph.dart';
 import 'text_spacing.dart';
 import '../text/font_metrics.dart';
+import '../text/script.dart';
 import '../text/script_fallback.dart';
 
 export 'text_spacing.dart' show LineSpacing, GlyphSpacing, textSpacingRevision;
@@ -910,12 +911,12 @@ typedef LineBreakWarningCallback = void Function(LineBreakWarning warning);
 class LineBreaker {
   /// 创建断行器。
   LineBreaker({this.onWarning, this.minimumWidthEm = 3.0})
-    : assert(minimumWidthEm > 0);
+    : assert(minimumWidthEm >= 0);
 
   /// 告警回调，只在首次钳制时调用。
   final LineBreakWarningCallback? onWarning;
 
-  /// 宽度下限，单位为 em。
+  /// 宽度下限，单位为 em；已求解的内在容器内容使用 0 保留真实窄宽。
   final double minimumWidthEm;
 
   /// 是否按 CSS 像素解算行盒高（实验开关，默认关闭）。
@@ -948,6 +949,7 @@ class LineBreaker {
   /// 返回实际宽度；无作者宽度的正文低于下限时钳制并记录一次告警。
   double effectiveWidth(ComputedStyle style, double requestedWidth) {
     if (style.display == CssDisplay.inlineBlock ||
+        style.intrinsicWidth != null ||
         (style.width != null && !style.width!.isAuto)) {
       return requestedWidth;
     }
@@ -1128,6 +1130,251 @@ abstract final class TextLayoutEngine {
       runs: ordered,
       baseStyle: style,
       hasGlyph: hasGlyph,
+    );
+  }
+
+  /// 横排文本的最小内容宽；复用正式排版的字体、软断点和字间距规则。
+  /// 探测不会生成分页结果，原生测量前后与每批断点都检查取消预算。
+  static Future<double> minContentTextWidthAsync({
+    required String text,
+    required ComputedStyle style,
+    List<StyledRun> runs = const [],
+    bool Function(String family, int codeUnit)? hasGlyph,
+    Future<void> Function()? checkpoint,
+  }) async {
+    final work = _TextLayoutWork<double>();
+    try {
+      await checkpoint?.call();
+      for (final _ in _minContentWidthSteps(work, text, style, (
+        runs: runs,
+        hasGlyph: hasGlyph,
+      ))) {
+        await checkpoint?.call();
+      }
+      return work.result!;
+    } finally {
+      work.painters.dispose();
+    }
+  }
+
+  static Iterable<bool> _minContentWidthSteps(
+    _TextLayoutWork<double> work,
+    String text,
+    ComputedStyle style,
+    ({List<StyledRun> runs, bool Function(String, int)? hasGlyph}) context,
+  ) sync* {
+    text = _intrinsicMeasurementText(text, style, context.runs.isEmpty);
+    final styled = styledRuns(
+      text: text,
+      style: style,
+      runs: context.runs,
+      hasGlyph: context.hasGlyph,
+    );
+    final breaks = _TextLayoutWork<SoftBreakPlan>(work.painters);
+    yield* _intrinsicBreakSteps(breaks, text, style);
+    final plan = breaks.result!;
+    final span = _intrinsicSpan(
+      plan.text,
+      style,
+      _measurementRuns(styled, plan.offsets),
+    );
+    yield* _measureIntrinsicWidthSteps(work, span, plan.text, style);
+  }
+
+  static Iterable<bool> _intrinsicBreakSteps(
+    _TextLayoutWork<SoftBreakPlan> work,
+    String text,
+    ComputedStyle style,
+  ) sync* {
+    final soft = _TextLayoutWork<SoftBreakPlan>(work.painters);
+    yield* _softBreakSteps(
+      soft,
+      text: text,
+      hyphens: style.hyphens,
+      overflowWrap: style.overflowWrap,
+      wordBreak: style.wordBreak,
+      contentWidth: double.infinity,
+      style: style,
+      textScaleFactor: 1,
+      hyphenAdvance: 0,
+    );
+    if (_intrinsicNoWrap(style)) {
+      work.result = soft.result;
+      return;
+    }
+    yield* _intrinsicHardBreakSteps(work, soft.result!, style);
+  }
+
+  static Iterable<bool> _measureIntrinsicWidthSteps(
+    _TextLayoutWork<double> work,
+    TextSpan span,
+    String text,
+    ComputedStyle style,
+  ) sync* {
+    final noWrap = _intrinsicNoWrap(style);
+    final firstEnd = style.textIndent == 0
+        ? 0
+        : _firstIntrinsicSegmentEnd(text, noWrap);
+    final painter = work.painters.own(
+      TextPainter(
+        text: firstEnd == 0 ? span : sliceTextSpan(span, firstEnd, text.length),
+        textDirection: _textDirectionOf(style),
+      ),
+    )..layout();
+    yield false;
+    var width = noWrap ? painter.maxIntrinsicWidth : painter.minIntrinsicWidth;
+    if (firstEnd > 0) {
+      width = math.max(
+        width,
+        _measureTextSpan(sliceTextSpan(span, 0, firstEnd), 1) +
+            style.textIndent,
+      );
+      yield false;
+    }
+    if (!noWrap && !_allowsIntrinsicBreakAnywhere(style)) {
+      for (final range in _guardedTokenRanges(text)) {
+        width = math.max(
+          width,
+          _measureTextSpan(sliceTextSpan(span, range.$1, range.$2), 1) +
+              (range.$1 == 0 ? style.textIndent : 0),
+        );
+        yield false;
+      }
+    }
+    work.result = width;
+  }
+
+  static int _firstIntrinsicSegmentEnd(String text, bool noWrap) {
+    if (!noWrap) {
+      final guarded = _guardedTokenRanges(text).firstOrNull;
+      if (guarded?.$1 == 0) return guarded!.$2;
+    }
+    for (var index = 0; index < text.length; index++) {
+      final code = text.codeUnitAt(index);
+      if (code == 0x0A || code == 0x0D) return index;
+      if (!noWrap && _isHorizontalSpace(code)) return index;
+      if (!noWrap && code == 0x2D) return index + 1;
+    }
+    return text.length;
+  }
+
+  static bool _intrinsicNoWrap(ComputedStyle style) =>
+      style.whiteSpace == CssWhiteSpace.nowrap ||
+      style.whiteSpace == CssWhiteSpace.pre;
+
+  /// 原生无界测量会漏算 CJK/ZWSP 断点。仅在测量副本中强制已有合法断点，
+  /// 合并一次原生测量；按字簇遍历并保留映射，不改原文、正式断行或 CFI。
+  static Iterable<bool> _intrinsicHardBreakSteps(
+    _TextLayoutWork<SoftBreakPlan> work,
+    SoftBreakPlan soft,
+    ComputedStyle style,
+  ) sync* {
+    final text = StringBuffer();
+    final offsets = <int>[0];
+    var offset = 0;
+    var previous = '';
+    var checked = 0;
+    for (final cluster in soft.text.characters) {
+      if (_intrinsicBreakBetween(previous, cluster, style)) {
+        text.write('\n');
+        offsets.add(soft.originalOffset(offset));
+      }
+      if (cluster == '\u200B') {
+        if (soft.isHyphenPoint(offset)) {
+          text.write(cssAutoHyphen);
+          offsets.add(soft.originalOffset(offset));
+        }
+        text.write('\n');
+      } else {
+        text.write(cluster);
+      }
+      for (var index = 1; index <= cluster.length; index++) {
+        offsets.add(soft.originalOffset(offset + index));
+      }
+      offset += cluster.length;
+      previous = cluster;
+      if (++checked % 64 == 0) yield false;
+    }
+    work.result = SoftBreakPlan(
+      text: text.toString(),
+      offsets: offsets,
+      hyphenPoints: const {},
+    );
+  }
+
+  static bool _intrinsicBreakBetween(
+    String previous,
+    String next,
+    ComputedStyle style,
+  ) {
+    if (previous.isEmpty ||
+        previous.trim().isEmpty ||
+        next.trim().isEmpty ||
+        previous == '\u200B' ||
+        next == '\u200B') {
+      return false;
+    }
+    if (_allowsIntrinsicBreakAnywhere(style)) return true;
+    if (style.wordBreak == CssWordBreak.keepAll ||
+        previous == '\u2060' ||
+        next == '\u2060' ||
+        punctOpeningSet.contains(previous) ||
+        punctLineStartProhibitedSet.contains(next)) {
+      return false;
+    }
+    return isCjkCodePoint(previous.runes.last) ||
+        isCjkCodePoint(next.runes.first);
+  }
+
+  static bool _allowsIntrinsicBreakAnywhere(ComputedStyle style) =>
+      style.wordBreak == CssWordBreak.breakAll ||
+      style.overflowWrap == CssOverflowWrap.anywhere ||
+      style.lineBreak == CssLineBreak.anywhere;
+
+  static String _intrinsicMeasurementText(
+    String text,
+    ComputedStyle style,
+    bool plain,
+  ) {
+    final transformed = applyTextTransform(text, style.textTransform);
+    if (!plain || !transformed.contains('\t') || style.tabSize <= 0) {
+      return transformed;
+    }
+    return expandTabs(
+      transformed,
+      style.tabSize,
+      measureWidth: (prefix) =>
+          _measureTextWidth(prefix, style, 1, TextLeadingDistribution.even),
+      spaceWidth: _measureChar(' ', style, 1),
+    );
+  }
+
+  static TextSpan _intrinsicSpan(
+    String text,
+    ComputedStyle style,
+    List<StyledRun> runs,
+  ) {
+    final base = textStyleFor(style);
+    final span = _measurementSpan(text, runs, base, const [], (
+      css: style,
+      scale: 1,
+      leading: TextLeadingDistribution.even,
+    ));
+    if (style.isRtl ||
+        (style.whiteSpace != CssWhiteSpace.normal &&
+            style.whiteSpace != CssWhiteSpace.nowrap)) {
+      return span;
+    }
+    final spacing = _punctuationPlan(text, style, runs, (
+      base: base,
+      leading: TextLeadingDistribution.even,
+      autospace:
+          !_runsAffectTextLayout(runs, style) &&
+          style.textAutospace == CssTextAutospace.normal,
+    ), const {});
+    return applyTextSpacing(
+      span,
+      spacing.range(0, text.length, trimTrailing: false),
     );
   }
 

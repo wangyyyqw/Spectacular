@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_size.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
@@ -26,6 +27,31 @@ class ChapterStyleResolver {
   final ChapterSelectors selectorIndex;
   final ChapterCascadePreparation preparedStyles;
   double get contentWidth => snapshot.width;
+  late final CssValueContext valueContext = _viewportContext();
+
+  CssValueContext _viewportContext() {
+    final context = CssValueContext(
+      viewportWidth: snapshot.width,
+      viewportHeight: snapshot.height,
+    );
+    final html = selectorIndex.htmlElement;
+    if (html == null) return context;
+    final root = Cascade.compute(
+      element: html,
+      ancestors: const [],
+      rules: cascadeRules.candidatesFor(html),
+      inlineDeclarations: inlineDeclarationsOf(html.attributes['style']),
+      parent: style,
+      rootFontSize: style.fontSize,
+      containingWidth: contentWidth,
+      viewportWidth: contentWidth,
+      valueContext: context,
+    );
+    return root.explicitProperties.contains('writing-mode')
+        ? root.valueContext
+        : context;
+  }
+
   late final ComputedStyle style = _applyCustomFont(
     snapshot.overrides.applyCascadeBase(
       snapshot.baseStyle,
@@ -76,11 +102,7 @@ class ChapterStyleResolver {
     }
     final promoted = promotedInlineStyles[chain.last];
     if (promoted != null) return promoted;
-    var containing = contentWidth;
-    for (final ancestor in chain.take(chain.length - 1)) {
-      final box = retainedContainers[ancestor];
-      if (box != null) containing = box.contentWidth;
-    }
+    final containing = _containingWidthFor(chain);
     final key = '${_chainKey(chain, viewKeys, cascadeRules)}@$containing';
     return chainStyleCache.putIfAbsent(key, () {
       final parent = chain.length > 1
@@ -98,9 +120,47 @@ class ChapterStyleResolver {
           rootFontSize: style.fontSize,
           containingWidth: containing,
           viewportWidth: contentWidth,
+          valueContext: valueContext,
         ),
       );
     });
+  }
+
+  double _containingWidthFor(List<SelectorElement> chain) {
+    var width = contentWidth;
+    for (var index = 0; index < chain.length - 1; index++) {
+      final box = retainedContainers[chain[index]];
+      if (box != null) width = box.contentWidth;
+    }
+    return width;
+  }
+
+  bool hasIntrinsicContainer(List<SelectorElement> chain) => chain.any(
+    (view) => retainedContainers[view]?.style.intrinsicWidth != null,
+  );
+
+  /// 在原父内容盒中分配 auto 外边距，再把变化量加到已有页面投影上。
+  ComputedStyle intrinsicBlockStyle(
+    ComputedStyle computed,
+    List<SelectorElement> chain,
+    double contentWidth,
+  ) {
+    if (computed.intrinsicWidth == null) return computed;
+    final authored = chainStyle(chain);
+    final used = authored.withIntrinsicMargins(
+      contentWidth: contentWidth,
+      containingWidth: _containingWidthFor(chain),
+    );
+    if (identical(authored, used)) return computed;
+    return computed.withMargins(
+      CssEdges(
+        top: computed.margin.top,
+        right:
+            computed.margin.right + used.margin.right - authored.margin.right,
+        bottom: computed.margin.bottom,
+        left: computed.margin.left + used.margin.left - authored.margin.left,
+      ),
+    );
   }
 
   double textWidthInFloat(List<SelectorElement> chain, double floatWidth) {
@@ -184,6 +244,7 @@ class ChapterStyleResolver {
         rootFontSize: style.fontSize,
         containingWidth: _textWidthFor(parent),
         viewportWidth: contentWidth,
+        valueContext: valueContext,
       ),
     );
   }
@@ -354,13 +415,14 @@ class ChapterStyleResolver {
       rootFontSize: style.fontSize,
       containingWidth: width,
       viewportWidth: contentWidth,
+      valueContext: valueContext,
     );
     final readerSize = snapshot.overrides.fontSize;
     final rootSize = style.fontSize;
     final rawSize = fontSizeDeclarationOf(computed);
     if (readerSize == null ||
         rootSize <= 0 ||
-        !(rawSize?.endsWith('rem') ?? false)) {
+        !CssFontSizes.usesRoot(rawSize)) {
       return computed;
     }
     // em 已从最终父字号解算；rem 单独改用阅读器根基准，盒模型仍先按原书解算。
@@ -415,6 +477,7 @@ class ChapterStyleResolver {
       projection,
       firstLineIndent,
       listPosition,
+      _containingWidthFor(chain),
     );
     return _projectedStyle(computed, declarations);
   }
@@ -430,6 +493,7 @@ class ChapterStyleResolver {
     hasExplicitTextColor: computed.hasExplicitTextColor,
     containingWidth: contentWidth,
     rootFontSize: style.fontSize,
+    valueContext: computed.valueContext,
   );
 
   _ContainerProjection _projectAncestors(
@@ -458,6 +522,7 @@ class ChapterStyleResolver {
     final ancestorStyle = chainStyle(chain.sublist(0, index + 1));
     final retained = retainedContainers[chain[index]];
     if (retained != null) {
+      projection.hasIntrinsicContainer |= retained.style.intrinsicWidth != null;
       projection.left = retained.contentLeft;
       projection.right =
           contentWidth - retained.contentLeft - retained.contentWidth;
@@ -536,16 +601,20 @@ class ChapterStyleResolver {
     _ContainerProjection projection,
     double firstLineIndent,
     CssListStylePosition? listPosition,
+    double containingWidth,
   ) {
     final declarations = <String, String>{
       ...projection.declarations,
       ..._resolvedProjectionValues(computed),
+      if (computed.intrinsicWidth != null)
+        ..._intrinsicWidthBounds(computed, containingWidth),
     };
     if (projection.left > 0) {
       declarations['margin-left'] =
           '${computed.margin.left + projection.left}px';
     }
-    if (projection.right > 0) {
+    if (projection.right > 0 ||
+        (projection.hasIntrinsicContainer && projection.right < 0)) {
       declarations['margin-right'] =
           '${computed.margin.right + projection.right}px';
     }
@@ -561,6 +630,21 @@ class ChapterStyleResolver {
     }
     return declarations;
   }
+
+  /// 内在宽度求解前冻结百分比约束，投影到页面后仍以原父内容宽为基准。
+  static Map<String, String> _intrinsicWidthBounds(
+    ComputedStyle style,
+    double containingWidth,
+  ) => {
+    for (final entry in {
+      'min-width': style.minWidth,
+      'max-width': style.maxWidth,
+    }.entries)
+      if (entry.value != null &&
+          !entry.value!.isAuto &&
+          entry.value!.resolve(containingWidth) != null)
+        entry.key: '${entry.value!.resolve(containingWidth)}px',
+  };
 
   /// 只投影盒位置，不按页面宽度或根字号重算已解算的相对属性。
   static Map<String, String> _resolvedProjectionValues(ComputedStyle style) => {
@@ -773,4 +857,5 @@ class _ContainerProjection {
   double left = 0;
   double right = 0;
   bool bordered = false;
+  bool hasIntrinsicContainer = false;
 }

@@ -4,6 +4,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/intrinsic_widths.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/paint/image_size.dart';
@@ -27,6 +28,13 @@ class ChapterTextMeasurer {
   double get contentWidth => snapshot.width;
   double get contentHeight => snapshot.height;
 
+  static bool isOrdinaryHorizontalBlock(ComputedStyle style) =>
+      style.writingMode == CssWritingMode.horizontalTb &&
+      style.cssFloat == CssFloat.none &&
+      !style.isOutOfFlow &&
+      (style.display == CssDisplay.block ||
+          style.display == CssDisplay.listItem);
+
   /// 字段与核心测量接口一致，保留混排、ruby 和原子盒的独立几何输入。
   Future<TextLayoutResult> layout({
     required String text,
@@ -35,6 +43,7 @@ class ChapterTextMeasurer {
     List<StyledRun> runs = const [],
     List<RubyAnnotation> rubies = const [],
     List<InlineBoxSpec> inlineBoxes = const [],
+    bool preserveContentWidth = false,
   }) async {
     if (inlineBoxes.isEmpty) {
       return _layoutCache.layoutAsync(
@@ -46,6 +55,7 @@ class ChapterTextMeasurer {
         hasGlyph: snapshot.fonts.hasGlyph,
         fontDependency: snapshot.fontDependency,
         checkpoint: budget.checkpoint,
+        preserveContentWidth: preserveContentWidth,
       );
     }
     return TextLayoutEngine.layoutAsync(
@@ -57,6 +67,7 @@ class ChapterTextMeasurer {
       inlineBoxes: inlineBoxes,
       hasGlyph: snapshot.fonts.hasGlyph,
       checkpoint: budget.checkpoint,
+      lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
     );
   }
 
@@ -78,11 +89,65 @@ class ChapterTextMeasurer {
   /// 依赖：T2 在 ComputedStyle 侧提供的 `contentBoxWidth`（把 box-sizing /
   /// 百分比基准 / min-max 钳制收敛在一处，与 `BoxModel` 同口径）；这里只
   /// 对未声明宽度的正文保留 24px 下限；作者明确指定的窄列保留内容宽。
-  double textWidthFor(ComputedStyle style) {
+  double textWidthFor(ComputedStyle style, {bool preserveNarrowWidth = false}) {
     final width = style.contentBoxWidth(contentWidth);
-    return style.width != null && !style.width!.isAuto
+    return preserveNarrowWidth ||
+            style.intrinsicWidth != null ||
+            (style.width != null && !style.width!.isAuto)
         ? width
         : math.max(24.0, width);
+  }
+
+  /// 只为声明内在宽度的横排块测量，普通正文保持原来的单次布局。
+  Future<IntrinsicWidths> intrinsicWidths(
+    String text,
+    ComputedStyle style, {
+    List<StyledRun> runs = const [],
+    List<RubyAnnotation> rubies = const [],
+    List<InlineBoxSpec> inlineBoxes = const [],
+  }) async {
+    final unbounded = await layout(
+      text: text,
+      style: style,
+      maxWidth: double.infinity,
+      runs: runs,
+      rubies: rubies,
+      inlineBoxes: inlineBoxes,
+    );
+    var max = 0.0;
+    for (final (index, line) in unbounded.lines.indexed) {
+      await budget.checkpoint();
+      max = math.max(
+        max,
+        line.advanceWidth + (index == 0 ? style.textIndent : 0),
+      );
+    }
+    var min = await _minIntrinsicWidth(text, style, runs);
+    for (final box in inlineBoxes) {
+      await budget.checkpoint();
+      min = math.max(min, box.outerWidth);
+    }
+    return IntrinsicWidths(minContent: math.min(min, max), maxContent: max);
+  }
+
+  Future<double> _minIntrinsicWidth(
+    String text,
+    ComputedStyle style,
+    List<StyledRun> runs,
+  ) async {
+    final key = 'min-content|${_textWidthKey(text, style)}';
+    final cached = runs.isEmpty ? _textWidthCache[key] : null;
+    if (cached != null) return cached;
+    final width = await TextLayoutEngine.minContentTextWidthAsync(
+      text: text,
+      style: style,
+      runs: runs,
+      hasGlyph: snapshot.fonts.hasGlyph,
+      checkpoint: budget.checkpoint,
+    );
+    budget.check();
+    if (runs.isEmpty) _textWidthCache[key] = width;
+    return width;
   }
 
   /// 浮动文本块：`PageBlock.styled` 不透传 floatSide，这里按同一口径
@@ -198,7 +263,10 @@ class ChapterTextMeasurer {
       return null;
     }
     final hasBackground =
-        style.backgroundColor.a > 0 || style.backgroundImage != null;
+        style.backgroundColor.a > 0 ||
+        style.backgroundLayers.any(
+          (layer) => layer.image != null || layer.gradient != null,
+        );
     final hasBorder = style.borders.hasBorder;
     final hasClearance = style.clear != CssClear.none;
     final declaredHeight = style.height?.resolve(
@@ -227,7 +295,15 @@ class ChapterTextMeasurer {
     final model = BoxModel.fromStyle(style, containingWidth: contentWidth);
     final boxWidth =
         absoluteBox?.width ??
-        (style.isOutOfFlow ? 0.0 : model.resolveContentWidth(contentWidth));
+        (style.isOutOfFlow
+            ? 0.0
+            : model.resolveContentWidth(
+                contentWidth,
+                intrinsicWidths:
+                    style.writingMode == CssWritingMode.horizontalTb
+                    ? IntrinsicWidths.zero
+                    : null,
+              ));
     return PageBlock.styled(
       layout: TextLayoutEngine.layout(
         text: '',
@@ -367,7 +443,9 @@ class ChapterTextMeasurer {
   Future<double> insideMarkerIndent(String marker, ComputedStyle style) async {
     const gapEm = 0.333;
     const symbolAdvanceEm = 1.067;
-    final isSymbol = marker == '•' || marker == '○' || marker == '▪';
+    final isSymbol =
+        style.listStyleType != CssListStyleType.custom &&
+        (marker == '•' || marker == '○' || marker == '▪');
     final advance = isSymbol
         ? style.fontSize * symbolAdvanceEm
         : (await _layoutCache.layoutAsync(

@@ -1,6 +1,7 @@
 import 'cascade_rule.dart';
 import 'cascade_rule_set.dart';
 import 'computed_style.dart';
+import 'background_declarations.dart';
 import 'fragmentation.dart';
 import 'parser.dart';
 import 'property_aliases.dart';
@@ -74,6 +75,7 @@ abstract final class Cascade {
     double rootFontSize = 16,
     double containingWidth = 0,
     double? viewportWidth,
+    CssValueContext? valueContext,
   }) {
     final winners = <String, _Winner>{};
     final declarations = <_Candidate>[];
@@ -182,6 +184,22 @@ abstract final class Cascade {
       }
     }
 
+    var context =
+        valueContext ?? parent?.valueContext ?? const CssValueContext();
+    if (!context.rootAxisResolved &&
+        (parent?.valueContext.rootAxisResolved ?? false)) {
+      context = context.withRootAxis(parent!.valueContext.rootIsVertical);
+    }
+    final root =
+        element.tag == 'html' ||
+        (element.tag == 'body' && !ancestors.any((item) => item.tag == 'html'));
+    final rootMode = root ? values['writing-mode'] : null;
+    if (rootMode != null &&
+        (!context.rootAxisResolved || element.tag == 'html')) {
+      context = context.withRootAxis(
+        ComputedStyle.isVerticalWritingMode(rootMode),
+      );
+    }
     return ComputedStyle(
       Map<String, String>.unmodifiable(values),
       hasExplicitTextColor: explicitTextColor,
@@ -197,6 +215,7 @@ abstract final class Cascade {
       customProperties: customProperties,
       rootFontSize: rootFontSize,
       containingWidth: containingWidth,
+      valueContext: context,
     );
   }
 
@@ -317,19 +336,8 @@ abstract final class Cascade {
       declaration.value,
     );
     final level = _level(origin, declaration.important);
-    _consider(
-      winners,
-      property,
-      value,
-      origin,
-      level,
-      specificity,
-      sequence,
-    );
-    for (final longhand in _expandShorthand(
-      property,
-      value,
-    ).entries) {
+    _consider(winners, property, value, origin, level, specificity, sequence);
+    for (final longhand in _expandShorthand(property, value).entries) {
       _consider(
         winners,
         longhand.key,
@@ -339,52 +347,6 @@ abstract final class Cascade {
         specificity,
         sequence,
       );
-    }
-    // `list-style` 简写展开（P9-12）：不展开的话作者简写会被 UA 的
-    // `ul { list-style-type: disc }` 长属性按属性名抢先命中。
-    if (declaration.property == 'list-style') {
-      final keyword = ComputedStyle.parseListStyleTypeKeyword(
-        declaration.value,
-      );
-      if (keyword != null) {
-        _consider(
-          winners,
-          'list-style-type',
-          keyword.$2,
-          origin,
-          level,
-          specificity,
-          sequence,
-        );
-      }
-      // position 同属 `list-style` 简写（W2）：`list-style: square inside`
-      // 里的 inside 也要能被绘制/排版读成 list-style-position。
-      final position = ComputedStyle.parseListStylePositionKeyword(
-        declaration.value,
-      );
-      if (position != null) {
-        _consider(
-          winners,
-          'list-style-position',
-          position,
-          origin,
-          level,
-          specificity,
-          sequence,
-        );
-      }
-      final image = ComputedStyle.parseListStyleImageKeyword(declaration.value);
-      if (image != null) {
-        _consider(
-          winners,
-          'list-style-image',
-          image,
-          origin,
-          level,
-          specificity,
-          sequence,
-        );
-      }
     }
   }
 
@@ -477,12 +439,31 @@ abstract final class Cascade {
             'outline-$suffix':
                 parts?[suffix] ?? ComputedStyle.initialValue('outline-$suffix'),
         };
+      case 'background-position':
+        if (_isGlobalKeyword(value)) {
+          return {
+            'background-position-x': value,
+            'background-position-y': value,
+          };
+        }
+        return CssBackgroundDeclarations.positionLonghands(value) ?? const {};
+      case 'list-style':
+        if (_isGlobalKeyword(value)) {
+          return {
+            'list-style-type': value,
+            'list-style-position': value,
+            'list-style-image': value,
+          };
+        }
+        return CssListStyles.shorthand(value) ?? const {};
       case 'background':
         const longhands = <String>[
           'background-image',
           'background-color',
           'background-repeat',
           'background-position',
+          'background-position-x',
+          'background-position-y',
           'background-size',
           'background-origin',
           'background-clip',
@@ -497,9 +478,15 @@ abstract final class Cascade {
         if (parsed == null) {
           return const <String, String>{};
         }
+        final axes = CssBackgroundDeclarations.positionLonghands(
+          parsed['background-position'] ?? '0% 0%',
+        );
         return <String, String>{
           for (final longhand in longhands)
-            longhand: parsed[longhand] ?? ComputedStyle.initialValue(longhand),
+            longhand:
+                axes?[longhand] ??
+                parsed[longhand] ??
+                ComputedStyle.initialValue(longhand),
         };
       case 'text-decoration':
         if (_isGlobalKeyword(value)) {
@@ -588,26 +575,13 @@ abstract final class Cascade {
     final result = StringBuffer();
     var index = 0;
     while (true) {
-      final start = value.indexOf('var(', index);
+      final start = _nextVariable(value, index);
       if (start < 0) {
         result.write(value.substring(index));
         break;
       }
       result.write(value.substring(index, start));
-      var depth = 0;
-      var end = -1;
-      for (var cursor = start + 4; cursor < value.length; cursor += 1) {
-        final char = value[cursor];
-        if (char == '(') {
-          depth += 1;
-        } else if (char == ')') {
-          if (depth == 0) {
-            end = cursor;
-            break;
-          }
-          depth -= 1;
-        }
-      }
+      final end = _functionEnd(value, start + 3);
       if (end < 0) {
         result.write(value.substring(start));
         break;
@@ -636,8 +610,21 @@ abstract final class Cascade {
 
   static int _topLevelComma(String value) {
     var depth = 0;
+    String? quote;
     for (var i = 0; i < value.length; i += 1) {
       final char = value[i];
+      if (char == r'\') {
+        i++;
+        continue;
+      }
+      if (quote != null) {
+        if (char == quote) quote = null;
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        quote = char;
+        continue;
+      }
       if (char == '(') {
         depth += 1;
       } else if (char == ')') {
@@ -648,6 +635,46 @@ abstract final class Cascade {
     }
     return -1;
   }
+
+  static int _nextVariable(String value, int start) {
+    String? quote;
+    for (var i = start; i < value.length; i++) {
+      final char = value[i];
+      if (char == r'\') {
+        i++;
+      } else if (quote != null) {
+        if (char == quote) quote = null;
+      } else if (char == '"' || char == "'") {
+        quote = char;
+      } else if (value.startsWith('var(', i) &&
+          (i == 0 || !_nameCharacter.hasMatch(value[i - 1]))) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  static int _functionEnd(String value, int opening) {
+    var depth = 0;
+    String? quote;
+    for (var i = opening; i < value.length; i++) {
+      final char = value[i];
+      if (char == r'\') {
+        i++;
+      } else if (quote != null) {
+        if (char == quote) quote = null;
+      } else if (char == '"' || char == "'") {
+        quote = char;
+      } else if (char == '(') {
+        depth++;
+      } else if (char == ')' && --depth == 0) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  static final _nameCharacter = RegExp(r'[-_\w\u0080-\uFFFF]');
 
   /// @media 求值（P8-02，CSS 2.1 简化）：媒体类型 all/screen 命中、
   /// print/speech 不命中（阅读器按屏媒渲染）；min/max-width(px) 对

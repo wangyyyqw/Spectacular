@@ -19,6 +19,8 @@ import 'page_root_table_cell.dart';
 import 'inline_content_builder.dart';
 import 'table_block_builder.dart';
 import 'text_block_builder.dart';
+import 'intrinsic_blocks.dart';
+import 'chapter_text_measurer.dart';
 import 'block_style_helpers.dart';
 
 /// 文档序遍历只负责分发与容器上下文，各类构块拥有独立职责。
@@ -82,7 +84,7 @@ class ChapterBlockWalker {
       _promoteTypography(node, position.ancestors, view);
     }
     final scope = _containerScope(node, position, ancestors, chain);
-    _retainContainer(scope, identical(node, root));
+    await _retainContainer(scope, identical(node, root));
     scope.child = _childScope(scope);
     if (scope.retained != null && isDuokanGallery(node)) {
       await _gallery(scope, root);
@@ -236,7 +238,7 @@ class ChapterBlockWalker {
     flow.blocks.length,
   );
 
-  void _retainContainer(_ContainerScope scope, bool isRoot) {
+  Future<void> _retainContainer(_ContainerScope scope, bool isRoot) async {
     final style = scope.style;
     final isBodyRoot = isRoot && scope.node.tag == 'body';
     final isFloating =
@@ -255,10 +257,30 @@ class ChapterBlockWalker {
     final parent = parents.lastOrNull;
     final available = parent?.contentWidth ?? width;
     final model = BoxModel.fromStyle(style, containingWidth: available);
+    final intrinsic =
+        style.intrinsicWidth != null &&
+            ChapterTextMeasurer.isOrdinaryHorizontalBlock(style)
+        ? await ChapterIntrinsicMeasurer(styles, text, content).contentWidths(
+            scope.node,
+            scope.chain,
+            available,
+            list: scope.position.list,
+          )
+        : null;
+    final resolvedWidth = model.resolveContentWidth(
+      available,
+      intrinsicWidths: intrinsic,
+    );
+    final usedStyle = intrinsic == null
+        ? style
+        : style.withIntrinsicMargins(
+            contentWidth: resolvedWidth,
+            containingWidth: available,
+          );
     final retained = PageContainer(
-      style: style,
-      left: (parent?.contentLeft ?? 0) + style.margin.left,
-      width: model.borderBoxWidth(model.resolveContentWidth(available)),
+      style: usedStyle,
+      left: (parent?.contentLeft ?? 0) + usedStyle.margin.left,
+      width: model.borderBoxWidth(resolvedWidth),
       cloneDecoration: clonesContainerDecoration(style),
       isPageRoot: isRoot,
     );
