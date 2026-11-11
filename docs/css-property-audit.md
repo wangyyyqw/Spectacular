@@ -614,7 +614,7 @@ grep -n "_transformMatrixOf\|_withEffects\|_paintColumnRules\|_paintInlineBoxPla
 | 字符串 `list-style-type` | 引号字符串保留大小写、空串、Unicode 与 CSS 十六进制转义；支持继承、`list-style` 简写及 `inside/outside`，图片标记优先、失败时回退文本标记 | `C/css/list_style.dart` 的 `type`、`shorthand` → `ComputedStyle.listStyleString` / `CssListStyleType.custom` → `E/chapter_flow.dart` 的 `ListContext.nextMarker`、`E/text_block_builder.dart` 的 `_markerMeasureStyle` → `C/paint/page_renderer.dart` 的列表首行绘制 | 不新增 `symbols()`、`@counter-style` 或任意自定义计数系统；标记是布局/绘制数据，不插入原文、搜索文本或 CFI |
 | `width:min-content/max-content/fit-content` | 普通横排文本块、列表项及块容器按真实文字度量选择内容宽；兄弟块取最大占宽，`fit-content` 在最小/最大内容宽之间约束可用宽 | `C/css/intrinsic_width.dart` → `E/chapter_text_measurer.dart`、`E/text_block_builder.dart` 的 `measureIntrinsicContent`、`E/intrinsic_blocks.dart` 的 `ChapterIntrinsicMeasurer` → `C/layout/intrinsic_widths.dart`、`C/layout/box_model.dart` → `PageBlock` / `PageContainer` 的布局、背景、边框与命中 | 不新增 `min/max-width` 的这些关键字或 `fit-content()` 函数；不扩展竖排、浮动、绝对/固定定位、替换元素及 flex/grid/table 的完整内在尺寸算法 |
 
-字号关键字的倍率相对书籍根字号为：`xx-small=9/16`、`x-small=10/16`、`small=13/16`、`medium=1`、`large=9/8`、`x-large=3/2`、`xx-large=2`、`xxx-large=3`；`smaller=父字号/1.2`、`larger=父字号×1.2`。`CssFontSizes.usesRoot` 区分根/父基准，阅读器字号只在文字覆盖阶段应用一次，作者盒模型仍按书籍样式计算。这里记录本项目的算法，不把参考项目的具体倍率当作规范要求。
+字号关键字的倍率相对书籍根字号为：`xx-small=9/16`、`x-small=10/16`、`small=13/16`、`medium=1`、`large=9/8`、`x-large=3/2`、`xx-large=2`、`xxx-large=3`；`smaller=父字号/1.2`、`larger=父字号×1.2`。`CssFontSizes.usesRoot` 区分根/父基准，阅读器字号只在文字覆盖阶段应用一次，作者宽度、边框、内边距和缩进仍按书籍样式计算。标题及紧凑组件沿用 `scaleRelativeTypography` 的既有策略：当前元素声明的 `em/rem` 外边距随文字缩放，不能把它与作者内容宽混为同一基准。这里记录本项目的算法，不把参考项目的具体倍率当作规范要求。
 
 长度计算只读取本次 `LayoutSnapshot.width/height`，旋屏或重排重新生成计算上下文；根轴锁定后，后代的横竖排不会改变 `vi/vb` 基准。单位换算只处理数值 token，保留字符串、URL 和自定义属性定义。旧 `width/height/min-width/max-width/min-height/max-height` 中的裸 `vh` 保留原延迟解算协议；无有效视口时不猜测像素值。
 
@@ -667,4 +667,6 @@ flutter test --no-pub --reporter expanded \
 
 分离架构改动后，三包静态检查和上述 124 项再次通过；背景按值比较补充用例通过，核心 CSS、盒模型及相关背景绘制集中复跑 **303 项通过**。迁移对照另保留了 6 组状态、23 页的样式、块几何、CFI、原文与像素散列，不修改项目原有 fixture。
 
-全量不是三包全绿：`reader_ui` 的 4 项与应用的 10 项失败均已在干净基线 `dd3e1eb` 复现，共 **14 项现有失败**，旧断言与 golden 未改写。迁移后最终集中验证为核心 **1729 通过、8 跳过**，UI **768 通过、4 旧失败**，应用 **1198 通过、10 旧失败、6 跳过**；背景比较补充用例与统一打开接口均已计入。完整命令、失败明细、跳过原因和迁移对照见 [EPUB 引擎架构](epub-engine-architecture.md)。
+迁移验收时未达到三包全绿：`reader_ui` 的 4 项与应用的 10 项失败均已在干净基线 `dd3e1eb` 复现，共 **14 项既有失败**，该提交未改写旧断言与 golden。迁移后集中验证为核心 **1729 通过、8 跳过**，UI **768 通过、4 旧失败**，应用 **1198 通过、10 旧失败、6 跳过**；背景比较补充用例与统一打开接口均已计入。完整命令、历史失败明细、跳过原因和迁移对照见 [EPUB 引擎架构](epub-engine-architecture.md)。
+
+随后按根因完成这 14 项修复：消除提升行内块的字号二次缩放、分离纯图浮动父边距与图片自身边距；其余失效预期及日期样本按已存在的阅读策略修正并加强消费断言。最终三包全量为核心 **1729 通过、8 跳过**，UI **772 通过**，应用 **1217 通过、6 跳过**，合计 **3718 通过、0 失败、14 跳过**；三包静态检查、核心依赖边界与严格规则检查均通过。上述 84 项新 CSS 章节用例与原固定 fixture 全部通过，旧 fixture 和 golden 未重录。标题及紧凑组件相对外边距的既有缩放例外已在 10.1 明确。

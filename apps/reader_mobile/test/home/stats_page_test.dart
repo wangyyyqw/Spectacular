@@ -571,8 +571,9 @@ void main() {
       monday.day - 33,
       9,
     );
-    final previousMonth = DateTime(now.year, now.month - 1, 15, 9);
-    final previousYear = DateTime(now.year - 1, now.month, 15, 9);
+    // 五周前可能仍在上个月；月、年样本远离较短时段，避免月初或年初混入。
+    final threeMonthsAgo = DateTime(now.year, now.month - 3, 15, 9);
+    final twoYearsAgo = DateTime(now.year - 2, now.month, 15, 9);
     final sessions = <ReadingSession>[
       ReadingSession(
         bookId: 'a',
@@ -600,14 +601,14 @@ void main() {
       ),
       ReadingSession(
         bookId: 'c',
-        startedAt: previousMonth,
-        endedAt: previousMonth.add(const Duration(minutes: 25)),
+        startedAt: threeMonthsAgo,
+        endedAt: threeMonthsAgo.add(const Duration(minutes: 25)),
         duration: const Duration(minutes: 25),
       ),
       ReadingSession(
         bookId: 'c',
-        startedAt: previousYear,
-        endedAt: previousYear.add(const Duration(minutes: 30)),
+        startedAt: twoYearsAgo,
+        endedAt: twoYearsAgo.add(const Duration(minutes: 30)),
         duration: const Duration(minutes: 30),
       ),
     ];
@@ -643,6 +644,10 @@ void main() {
     expect(valueOf('stats-chart-bucket-duration'), '45 分钟');
     expect(valueOf('stats-chart-book-duration-a'), '30 分钟');
     expect(valueOf('stats-chart-book-duration-b'), '15 分钟');
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-c')),
+      findsNothing,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('stats-chart-period-week')),
@@ -654,28 +659,72 @@ void main() {
     await tester.pumpAndSettle();
     expect(valueOf('stats-chart-bucket-duration'), '20 分钟');
     expect(valueOf('stats-chart-book-duration-b'), '20 分钟');
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-c')),
+      findsNothing,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('stats-chart-period-month')),
     );
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-bar-month-10')),
+      find.byKey(const ValueKey<String>('stats-chart-bar-month-8')),
     );
     await tester.pumpAndSettle();
     expect(valueOf('stats-chart-bucket-duration'), '25 分钟');
     expect(valueOf('stats-chart-book-duration-c'), '25 分钟');
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-b')),
+      findsNothing,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('stats-chart-period-year')),
     );
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-bar-year-3')),
+      find.byKey(const ValueKey<String>('stats-chart-bar-year-2')),
     );
     await tester.pumpAndSettle();
     expect(valueOf('stats-chart-bucket-duration'), '30 分钟');
     expect(valueOf('stats-chart-book-duration-c'), '30 分钟');
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-b')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-period-day')),
+    );
+    await tester.pumpAndSettle();
+    expect(valueOf('stats-chart-bucket-duration'), '45 分钟');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('stats-chart-bar-day-5')),
+    );
+    await tester.pumpAndSettle();
+    expect(valueOf('stats-chart-bucket-duration'), '10 分钟');
+    expect(valueOf('stats-chart-book-duration-a'), '10 分钟');
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-b')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('stats-chart-book-c')),
+      findsNothing,
+    );
   });
 
   testWidgets('点击阅读热力图查看当日详细数据', (tester) async {

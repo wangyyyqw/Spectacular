@@ -134,7 +134,7 @@ void main() {
     expect(harness.source.loads, isNotEmpty);
     expect(harness.source.loads.every((spine) => spine == 0), isTrue);
     expect(harness.applied, isEmpty, reason: '预览不写入边距设置');
-    _expectHeaderMatches(tester, session);
+    _expectFurnitureMatches(tester, session);
     final loads = harness.source.loads.length;
     await tester.tap(_control('apply'));
     await tester.pumpAndSettle();
@@ -188,7 +188,7 @@ void main() {
       tester.getCenter(_control('top-outer')) - origin,
       const Offset(0, 50),
     );
-    _expectHeaderMatches(tester, session);
+    _expectFurnitureMatches(tester, session);
     await session.flushProgress();
     expect(await harness.store.load('margin-pagination'), before);
     await tester.tap(_control('cancel'));
@@ -197,7 +197,7 @@ void main() {
     expect(session.contentHeight, beforeHeight);
     expect(session.progress, before);
     expect(harness.applied, isEmpty);
-    _expectHeaderMatches(tester, session);
+    _expectFurnitureMatches(tester, session);
     await _closeReader(tester, harness);
   });
 
@@ -276,34 +276,46 @@ Future<void> _closeReader(WidgetTester tester, _Harness harness) async {
   harness.source.delegate.close();
 }
 
-void _expectHeaderMatches(WidgetTester tester, ReaderSession session) {
+void _expectFurnitureMatches(WidgetTester tester, ReaderSession session) {
   final page = session.page!;
-  final paper = find.byKey(
-    ValueKey('reader-page-${page.spineIndex}-${page.pageIndex}'),
+  final paper = _currentPaper(page);
+  expect(paper, findsOneWidget);
+  final header = find.descendant(
+    of: paper,
+    matching: find.byType(ReaderPageHeader),
   );
-  // 邻页位图预热也会构建纸张；核验当前正文自己的页眉。
-  final header = tester.widget<ReaderPageHeader>(
-    find.descendant(
-      of: paper,
-      matching: find.byElementPredicate((element) {
-        if (element.widget is! ReaderPageHeader) return false;
-        var backgroundCapture = false;
-        element.visitAncestorElements((ancestor) {
-          if (ancestor.widget is ExcludeSemantics) {
-            backgroundCapture = true;
-            return false;
-          }
-          return true;
-        });
-        return !backgroundCapture;
-      }, description: '当前正文页眉'),
-    ),
-  );
+  if (page.pageIndex == 0) {
+    expect(header, findsNothing, reason: '重排后的章首页仍隐藏页眉');
+  } else {
+    expect(header, findsOneWidget);
+    expect(
+      tester.widget<ReaderPageHeader>(header).pageLabel,
+      '${session.progress!.pageIndex + 1}/${session.chapterPageCount}',
+    );
+  }
   expect(
-    header.pageLabel,
-    '${session.progress!.pageIndex + 1}/${session.chapterPageCount}',
+    find.descendant(of: paper, matching: find.byType(ReaderPageFooter)),
+    findsOneWidget,
+    reason: '章首页和续页均保留页脚',
   );
 }
+
+// 邻页位图预热也会构建纸张；只核验当前正文，不混入捕获纸面。
+Finder _currentPaper(PageContent page) => find.byElementPredicate((element) {
+  if (element.widget.key !=
+      ValueKey('reader-page-${page.spineIndex}-${page.pageIndex}')) {
+    return false;
+  }
+  var backgroundCapture = false;
+  element.visitAncestorElements((ancestor) {
+    if (ancestor.widget is ExcludeSemantics) {
+      backgroundCapture = true;
+      return false;
+    }
+    return true;
+  });
+  return !backgroundCapture;
+}, description: '当前正文纸面');
 
 Future<void> _openEditor(WidgetTester tester) async {
   await tester.tapAt(tester.getCenter(find.byType(ReaderView)));

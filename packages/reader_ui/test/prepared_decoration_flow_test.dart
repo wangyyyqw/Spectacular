@@ -253,6 +253,30 @@ Widget _reader(
   ),
 );
 
+Future<void> _expectFirstPaint(
+  WidgetTester tester,
+  _PreparedSource source,
+) async {
+  // 不推进空闲定时器，单独核验首屏就绪不依赖邻章准备。
+  await tester.pump();
+  await tester.pump();
+  expect(source.loads.map((item) => item.spine), [740]);
+  expect(find.byType(ReaderPageFooter), findsOneWidget);
+  expect(find.byType(ReaderPageHeader), findsNothing, reason: '章首页隐藏页眉');
+}
+
+void _expectIdlePreparations(_PreparedSource source) {
+  expect(source.loads.where((item) => item.spine == 740), hasLength(1));
+  expect(source.loads.map((item) => item.spine).toSet(), {
+    738,
+    739,
+    740,
+    741,
+    742,
+    743,
+  }, reason: '前后两页预热后，前向四页内容预算允许下一轮补一章；不读取远章');
+}
+
 void main() {
   testWidgets('登记全书手工字体依赖，首屏只加载目标章字体', (tester) async {
     final source = _BookFontSource();
@@ -283,9 +307,9 @@ void main() {
     expect(source.anchors, [740]);
     expect(source.loads, isEmpty);
     gate.complete();
+    await _expectFirstPaint(tester, source);
     await tester.pumpAndSettle();
-    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
+    _expectIdlePreparations(source);
     expect(loads, ['AuditFont']);
     expect(source.availability, {'AuditFont': true});
     await tester.pumpWidget(const SizedBox());
@@ -305,13 +329,13 @@ void main() {
         },
       ),
     );
+    await _expectFirstPaint(tester, source);
     await tester.pumpAndSettle();
     expect(source.requestedFamilies, {'AuditFont'});
     expect(source.availability, {'AuditFont': false});
     expect(loads, ['AuditFont']);
     expect(source.anchors, [740]);
-    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
+    _expectIdlePreparations(source);
     final overlay = source.loads
         .firstWhere((item) => item.spine == 740)
         .overlays
@@ -373,16 +397,20 @@ void main() {
     expect(session.page, isNull);
     expect(source.bookTypography, contains(_cfi(999, 3)));
     fontGate.complete();
+    await _expectFirstPaint(tester, source);
     await tester.pumpAndSettle();
-    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
+    _expectIdlePreparations(source);
     final current = source.loads.firstWhere((item) => item.spine == 740);
     expect(current.font, 23);
     expect(current.overlays, hasLength(1));
     expect(current.overlays.single.fontSizeScale, 0.85);
     expect(current.overlays.single.fontWeight, 600);
-    expect(find.text('1/1'), findsOneWidget);
+    expect(session.chapterPageCount, 1);
+    expect(find.byType(ReaderPageHeader), findsNothing, reason: '章首页不显示页码');
+    expect(find.byType(ReaderPageFooter), findsOneWidget);
     expect(session.progress?.cfi, _cfi(740, 3));
+    expect(session.pageTurns, 0, reason: '空闲预取不提交阅读位置');
+    expect((await store.load('prepared'))?.cfi, _cfi(740, 3));
     expect(source.currentChapters, contains(740));
     await tester.pumpWidget(const SizedBox());
   });
@@ -426,16 +454,20 @@ void main() {
   testWidgets('纯绘制装饰更新不触发当前章几何重排', (tester) async {
     final source = _PreparedSource();
     final store = await _saved();
+    late ReaderSession session;
     await tester.pumpWidget(
       _reader(
         source,
         store,
         _Store([_decoration('a', 740, typography: false)]),
+        ready: (value) => session = value,
       ),
     );
+    await _expectFirstPaint(tester, source);
     await tester.pumpAndSettle();
-    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
+    _expectIdlePreparations(source);
+    final page = session.page;
+    final progress = session.progress;
     await tester.pumpWidget(
       _reader(
         source,
@@ -447,9 +479,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(source.loads.where((item) => item.spine == 740), hasLength(1));
-    expect(source.loads.map((item) => item.spine).toSet(), {738, 739, 740, 741, 742});
+    _expectIdlePreparations(source);
     expect(source.overlays, hasLength(2));
+    expect(session.page, same(page), reason: '纯绘制装饰复用当前页的几何结果');
+    expect(session.progress, progress);
+    expect(session.pageTurns, 0);
+    await tester.pumpWidget(const SizedBox());
   });
 
   test('原文核验允许唯一引文修正 CFI，歧义记录不参与字体装饰', () {

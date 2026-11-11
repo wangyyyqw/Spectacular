@@ -380,7 +380,10 @@ class EpubChapterSource
 
   ComputedStyle? _resolvedBaseStyle;
 
-  /// 文本块样式：同一环境复用书籍样式叠加阅读器覆盖的结果。
+  /// 作者级联基准：同一环境复用，阅读字号由正文构块阶段另行覆盖。
+  ///
+  /// 这里保留书籍字号以解算作者的 em 几何；尺寸变化后重算仍可能返回同一
+  /// 基准实例，实际测量与分页是否复用由冻结快照的完整布局键决定。
   ComputedStyle get style => _resolvedBaseStyle ??= _applyCustomFont(
     _overrides.applyCascadeBase(baseStyle, containingWidth: contentWidth),
   );

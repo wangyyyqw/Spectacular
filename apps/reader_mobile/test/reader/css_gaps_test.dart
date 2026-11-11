@@ -117,16 +117,29 @@ void main() {
   });
 
   test('CSS 变量与 calc 在真实管线生效（P9-14/P9-15）', () async {
+    const bookFontSize = 16.0;
     final source = await open(
       body: '<p class="v">变量段落</p>',
       css:
-          'body { --accent: #ff0000; } '
+          'body { font-size:${bookFontSize}px; --accent: #ff0000; } '
           'p.v { color: var(--accent); text-indent: calc(2em + 4px); }',
     );
-    final pages = await source.loadChapter(0);
-    final style = pages.first.slices.first.block.style!;
-    expect(style.color, const Color(0xFFFF0000));
-    expect(style.textIndent, closeTo(38, 0.5));
+    addTearDown(source.close);
+    for (final readerSize in [17.0, 22.0]) {
+      await source.applyOverrides(
+        ReaderSettingsDefaults.overrides.copyWith(fontSize: readerSize),
+      );
+      final block = (await source.loadChapter(0)).first.slices.first.block;
+      final style = block.style!;
+      expect(style.color, const Color(0xFFFF0000));
+      expect(style.fontSize, readerSize);
+      // 2em + 4px 在作者级联中计算；覆盖阅读字号不重算该缩进。
+      expect(style.textIndent, closeTo(2 * bookFontSize + 4, .001));
+      expect(
+        block.layout.lines.first.indent,
+        closeTo(2 * bookFontSize + 4, .001),
+      );
+    }
   });
 
   test('容器 duokan-bleed 让横幅图对齐页面边界（P9-22）', () async {
@@ -266,17 +279,31 @@ void main() {
   });
 
   test('多看私有属性在真实管线生效（P9-13）', () async {
+    const bookFontSize = 16.0;
     final source = await open(
-      body: '<p class="d">多看段落</p>',
+      body: '<p class="d">多看段落</p><p>验证阅读字号的普通正文。</p>',
       css:
+          'body { font-size:${bookFontSize}px; } '
           'p.d { -duokan-text-indent: 2em; duokan-paragraph-align: center; '
           'duokan-break-inside: avoid; }',
     );
-    final pages = await source.loadChapter(0);
-    final style = pages.first.slices.first.block.style!;
-    expect(style.textIndent, 34);
-    expect(style.textAlign, CssTextAlign.center);
-    expect(style.breakInsideAvoid, isTrue);
+    addTearDown(source.close);
+    for (final readerSize in [17.0, 22.0]) {
+      await source.applyOverrides(
+        ReaderSettingsDefaults.overrides.copyWith(fontSize: readerSize),
+      );
+      final blocks = (await source.loadChapter(0)).first.slices
+          .map((s) => s.block);
+      final block = blocks.first;
+      final style = block.style!;
+      // 短居中段沿用装饰标题字号，普通正文仍消费阅读设置。
+      expect(style.fontSize, bookFontSize);
+      expect(blocks.last.style!.fontSize, readerSize);
+      expect(style.textIndent, 2 * bookFontSize);
+      expect(block.layout.lines.first.indent, 2 * bookFontSize);
+      expect(style.textAlign, CssTextAlign.center);
+      expect(style.breakInsideAvoid, isTrue);
+    }
   });
 
   test('list-style-type 决定列表标记（P9-12）', () async {

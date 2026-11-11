@@ -10,6 +10,7 @@ import 'package:reader_mobile/reader/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
+import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/decorations/decoration.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -133,7 +134,19 @@ void main() {
     await pumpReaderUntil(tester, find.byType(ReaderPageFooter));
     await tester.pumpAndSettle();
     expect(find.byType(BookOpeningView), findsNothing);
-    expect(find.byType(ReaderPageHeader), findsWidgets);
+    final page = tester
+        .widget<ReaderSemanticsLayer>(find.byType(ReaderSemanticsLayer))
+        .page;
+    expect((page.spineIndex, page.pageIndex), (0, 0));
+    expect(
+      page.slices.map((slice) => slice.block.layout.text).join(),
+      contains('这是用于应用壳测试的段落'),
+    );
+    expect(
+      find.byType(ReaderPageHeader),
+      findsNothing,
+      reason: '章首页隐藏页眉，正文及页脚数字仍须在揭开封面前准备好',
+    );
     final footer = tester
         .widgetList<ReaderPageFooter>(find.byType(ReaderPageFooter))
         .first;
