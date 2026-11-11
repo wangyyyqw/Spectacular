@@ -100,6 +100,11 @@ class ImageBlockBuilder {
   var after = 0.0;
   for (var index = 0; index < input.chain.length; index++) {
     final style = input.styles.chainStyle(input.chain.sublist(0, index + 1));
+    // 浮动整盒独立消费自己的外边距，纯图折叠只携带盒内后代的边距。
+    if (style.cssFloat != CssFloat.none) {
+      before = after = 0.0;
+      continue;
+    }
     before = collapseMargins(before, style.margin.top);
     after = collapseMargins(after, style.margin.bottom);
   }
