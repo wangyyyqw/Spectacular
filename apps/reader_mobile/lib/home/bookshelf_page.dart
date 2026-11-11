@@ -14,6 +14,7 @@ import '../reader/reader_text_warmup.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
 import 'bookshelf_sort.dart';
+import 'book_cover_image.dart';
 import '../storage/import_queue.dart';
 
 /// 书架条目与已保存的当前正文比例；旧记录才按字符权重估算。
@@ -958,12 +959,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.file_upload_outlined),
+                    : const Icon(Icons.add_rounded),
               ),
               IconButton(
                 tooltip: _grid ? '列表视图' : '网格视图',
                 onPressed: _toggleView,
-                icon: Icon(_grid ? Icons.view_list_outlined : Icons.grid_view),
+                icon: Icon(
+                  _grid ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                ),
               ),
             ],
     );
@@ -1563,38 +1566,14 @@ class _BookRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final placeholder = Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: theme.textTheme.titleMedium,
-      ),
-    );
     final cover = Hero(
       tag: bookCoverHeroTag(entry.id),
       transitionOnUserGestures: true,
-      child: SizedBox(
+      child: BookCoverImage(
         key: const ValueKey<String>('book-row-cover'),
+        book: entry,
         width: 48,
         height: 64,
-        child: entry.coverPath == null
-            ? placeholder
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.file(
-                  File(entry.coverPath!),
-                  width: double.infinity,
-                  height: double.infinity,
-                  fit: BoxFit.cover,
-                  cacheWidth: 126,
-                  errorBuilder: (_, _, _) => placeholder,
-                ),
-              ),
       ),
     );
     final trailing = <Widget>[
@@ -1824,95 +1803,33 @@ class _BookCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final placeholder = Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(8),
-      child: Stack(
-        children: [
-          Center(
-            child: Text(
-              _coverGlyph(entry.title),
-              style: theme.textTheme.headlineMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-          ),
-          // L2/L3 结构异常角标（P3-27，§55.2：必须让用户知道书被修复过）。
-          if (entry.readabilityLevel >= 2)
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Tooltip(
-                message: entry.readabilityLevel >= 3
-                    ? '结构异常：进度与目录可能不可靠'
-                    : '部分内容降级：目录或资源缺失',
-                child: Container(
-                  key: const ValueKey<String>('book-damaged-badge'),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    entry.readabilityLevel >= 3 ? '结构异常' : '部分降级',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-    // 封面（§37.3）：缓存文件优先，缺失/解码失败退回书名首字占位。
     final cover = Hero(
       tag: bookCoverHeroTag(entry.id),
       transitionOnUserGestures: true,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (entry.coverPath == null)
-              placeholder
-            else
-              Image.file(
-                File(entry.coverPath!),
-                fit: BoxFit.cover,
-                cacheWidth: 320,
-                errorBuilder: (_, _, _) => placeholder,
-              ),
-            if (selectionMode)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    color: selected
-                        ? theme.colorScheme.primary.withAlpha(36)
-                        : Colors.transparent,
-                  ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          BookCoverImage(book: entry, showReadabilityBadge: true),
+          if (selectionMode)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: selected
+                      ? theme.colorScheme.primary.withAlpha(36)
+                      : Colors.transparent,
                 ),
               ),
-            if (selectionMode)
-              Positioned(
-                top: 6,
-                left: 6,
-                child: _BookSelectionMark(
-                  key: ValueKey<String>('book-selected-${entry.id}'),
-                  selected: selected,
-                ),
+            ),
+          if (selectionMode)
+            Positioned(
+              top: 6,
+              left: 6,
+              child: _BookSelectionMark(
+                key: ValueKey<String>('book-selected-${entry.id}'),
+                selected: selected,
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
     return InkWell(
@@ -2012,10 +1929,4 @@ class _BookSelectionMark extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 封面占位字形：标题首字符，空标题回退「书」。
-String _coverGlyph(String title) {
-  final chars = title.characters;
-  return chars.isEmpty ? '书' : chars.first.toString();
 }

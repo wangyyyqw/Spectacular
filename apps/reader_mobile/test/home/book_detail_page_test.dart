@@ -28,6 +28,29 @@ class _FakeCoverLibrary extends LibraryStore {
   }
 }
 
+class _FailingReviewStore implements BookReviewStore {
+  _FailingReviewStore(this.delegate);
+
+  final BookReviewStore delegate;
+  bool failSave = true;
+
+  @override
+  Future<Map<String, BookReview>> snapshot() => delegate.snapshot();
+
+  @override
+  Future<void> remove(String bookId) => delegate.remove(bookId);
+
+  @override
+  Future<void> save(
+    String bookId, {
+    int? rating,
+    required String content,
+  }) async {
+    if (failSave) throw StateError('写入失败');
+    await delegate.save(bookId, rating: rating, content: content);
+  }
+}
+
 void main() {
   late Directory dir;
   late AppDatabase db;
@@ -44,6 +67,71 @@ void main() {
     if (dir.existsSync()) {
       dir.deleteSync(recursive: true);
     }
+  });
+
+  testWidgets('读完信息支持长书评，保存失败保留草稿且不提前标记读完', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(buildTestEpub(title: '读完保存重试'));
+    });
+    final reviews = _FailingReviewStore(store.reviewStore()!);
+    final progress = MemoryReaderProgressStore();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(
+          entry: entry,
+          library: store,
+          progressStore: progress,
+          reviewStore: reviews,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final mark = find.byKey(const ValueKey('book-detail-mark-finished'));
+    await tester.scrollUntilVisible(
+      mark,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(mark);
+    await tester.pumpAndSettle();
+    final content = List.filled(1500, '字').join();
+    await tester.tap(find.byKey(const ValueKey('book-detail-finish-rating-5')));
+    await tester.enterText(
+      find.byKey(const ValueKey('book-detail-finish-review')),
+      content,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('book-detail-finish-save')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('book-detail-finish-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('保存失败，草稿已保留，请重试'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('book-detail-finish-review')),
+          )
+          .controller!
+          .text,
+      content,
+    );
+    expect(await progress.load(entry.id), isNull);
+    reviews.failSave = false;
+    await tester.tap(find.byKey(const ValueKey('book-detail-finish-save')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('book-detail-finish-sheet')),
+      findsNothing,
+    );
+    expect((await progress.load(entry.id))!.finished, isTrue);
+    final saved = (await reviews.snapshot())[entry.id]!;
+    expect(saved.rating, 5);
+    expect(saved.content, content);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('详情页可编辑资料、新建标签并切换标签', (tester) async {

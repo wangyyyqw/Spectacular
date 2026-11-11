@@ -217,13 +217,20 @@ void main() {
     await tester.pumpAndSettle();
     await _tap(tester, _key('book-detail-open-page'));
     expect(find.byType(BookDetailPage), findsOneWidget);
-    final coverClip = tester.widget<ClipRRect>(
+    final coverFrame = tester.widget<Container>(
       find.descendant(
         of: _key('book-detail-page-cover'),
-        matching: find.byType(ClipRRect),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Container &&
+              widget.foregroundDecoration is BoxDecoration,
+        ),
       ),
     );
-    expect(coverClip.borderRadius, BorderRadius.circular(4));
+    expect(
+      (coverFrame.foregroundDecoration! as BoxDecoration).borderRadius,
+      BorderRadius.circular(4),
+    );
     await tester.enterText(_key('book-detail-title-field'), '编辑后的书名');
     await tester.enterText(_key('book-detail-author-field'), '编辑后的作者');
     await tester.pump();

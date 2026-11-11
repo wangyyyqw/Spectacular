@@ -6,6 +6,7 @@ import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/mark_settings.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/page_furniture/corner_info.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/tap_zones.dart';
@@ -27,6 +28,7 @@ class ReaderSettings {
     this.customThemeId,
     this.inkMode = false,
     this.margins,
+    this.cornerInfo = ReaderCornerInfo.defaults,
     this.tapZones = ReaderTapZones.defaults,
     this.pageTurnMode = PageTurnMode.cover,
     this.keepScreenOn = false,
@@ -69,6 +71,9 @@ class ReaderSettings {
 
   /// 页边距（P8-10 边距调节器）；null 表示用默认 padding + 系统安全区。
   final ReaderMargins? margins;
+
+  /// 页眉页脚四角的信息类型。
+  final ReaderCornerInfo cornerInfo;
 
   /// 九宫格点击区域。
   final ReaderTapZones tapZones;
@@ -113,6 +118,7 @@ class ReaderSettings {
     String backgroundId = 'none',
     String? customThemeId,
     bool inkMode = false,
+    ReaderCornerInfo cornerInfo = ReaderCornerInfo.defaults,
     PageTurnMode pageTurnMode = PageTurnMode.cover,
     bool keepScreenOn = false,
     bool volumeKeyPaging = false,
@@ -130,6 +136,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
@@ -150,6 +157,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -162,7 +170,7 @@ class ReaderSettings {
   ReaderSettings copyWithFont(String? family) => ReaderSettings(
     fontSize: fontSize,
     fontFamily: family,
-    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    overrideEmbeddedFonts: family == null ? false : overrideEmbeddedFonts,
     lineHeight: lineHeight,
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
@@ -170,6 +178,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -190,6 +199,7 @@ class ReaderSettings {
     customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -210,6 +220,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: id,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -230,6 +241,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: enabled,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -250,7 +262,29 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: value,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
+  );
+
+  /// 修改四角显示，保留全部阅读偏好。
+  ReaderSettings copyWithCornerInfo(ReaderCornerInfo value) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    margins: margins,
+    cornerInfo: value,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
@@ -270,6 +304,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: value,
     pageTurnMode: pageTurnMode,
@@ -290,6 +325,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: value,
@@ -310,6 +346,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -330,6 +367,7 @@ class ReaderSettings {
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
+    cornerInfo: cornerInfo,
     margins: margins,
     tapZones: tapZones,
     pageTurnMode: pageTurnMode,
@@ -351,6 +389,7 @@ class ReaderSettings {
         customThemeId: customThemeId,
         backgroundId: backgroundId,
         inkMode: inkMode,
+        cornerInfo: cornerInfo,
         margins: margins,
         tapZones: tapZones,
         pageTurnMode: pageTurnMode,
@@ -373,6 +412,7 @@ class ReaderSettings {
       other.backgroundId == backgroundId &&
       other.inkMode == inkMode &&
       other.margins == margins &&
+      other.cornerInfo == cornerInfo &&
       other.tapZones == tapZones &&
       other.pageTurnMode == pageTurnMode &&
       other.keepScreenOn == keepScreenOn &&
@@ -392,6 +432,7 @@ class ReaderSettings {
     backgroundId,
     inkMode,
     margins,
+    cornerInfo,
     tapZones,
     pageTurnMode,
     keepScreenOn,
@@ -417,6 +458,7 @@ class ReaderSettingsStore {
 
   /// 页边距（JSON）。
   static const String keyMargins = 'reader.margins';
+  static const String keyCornerInfo = 'reader.cornerInfo';
   static const String keyThemeId = 'reader.themeId';
   static const String keyCustomThemeId = 'reader.customThemeId';
   static const String keyBackgroundId = 'reader.backgroundId';
@@ -461,6 +503,7 @@ class ReaderSettingsStore {
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
       margins: _readMargins(await _library.getSetting(keyMargins)),
+      cornerInfo: _readCornerInfo(await _library.getSetting(keyCornerInfo)),
       tapZones: _readTapZones(await _library.getSetting(keyTapZones)),
       pageTurnMode: PageTurnMode.fromId(
         await _library.getSetting(keyPageTurnMode),
@@ -482,6 +525,14 @@ class ReaderSettingsStore {
       return ReaderMargins.fromJson(jsonDecode(raw));
     } catch (_) {
       return null;
+    }
+  }
+
+  static ReaderCornerInfo _readCornerInfo(String? raw) {
+    try {
+      return ReaderCornerInfo.fromJson(jsonDecode(raw ?? '{}'));
+    } on FormatException {
+      return ReaderCornerInfo.defaults;
     }
   }
 
@@ -597,6 +648,10 @@ class ReaderSettingsStore {
     await _library.setSetting(
       keyTapZones,
       jsonEncode(settings.tapZones.toJson()),
+    );
+    await _library.setSetting(
+      keyCornerInfo,
+      jsonEncode(settings.cornerInfo.toJson()),
     );
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff

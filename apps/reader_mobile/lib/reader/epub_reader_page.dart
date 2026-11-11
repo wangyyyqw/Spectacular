@@ -23,8 +23,10 @@ import '../diagnostics/reader_log.dart';
 import '../search/scan_search_service.dart';
 import '../storage/reading_session_store.dart';
 import '../storage/drift_progress_store.dart';
+
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
+
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
@@ -182,7 +184,33 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   Future<ReaderFontOption?> _pickFont() async {
     final font = await widget.fontStore!.pick();
     if (font == null) return null;
+    await _refreshFontList();
     return ReaderFontOption(family: font.family, label: font.displayName);
+  }
+
+  Future<void> _refreshFontList() async {
+    final fonts = await widget.fontStore!.list();
+    if (!mounted) return;
+    setState(
+      () => _customFonts = [
+        for (final font in fonts)
+          ReaderFontOption(family: font.family, label: font.displayName),
+      ],
+    );
+  }
+
+  Future<ReaderFontOption> _renameFont(String family, String name) async {
+    final font = await widget.fontStore!.rename(family, name);
+    await _refreshFontList();
+    return ReaderFontOption(family: font.family, label: font.displayName);
+  }
+
+  Future<void> _removeFont(String family) async {
+    await widget.fontStore!.remove(family);
+    if (mounted && _settings.fontFamily == family) {
+      _changeSettings(_settings.copyWithFont(null));
+    }
+    await _refreshFontList();
   }
 
   void _changeSettings(ReaderSettings next) {
@@ -497,6 +525,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       backgroundImageLoader: _backgroundStore.load,
       onPickBackgroundImage: _backgroundStore.pick,
       customFonts: _customFonts,
+      onRenameFont: widget.fontStore == null ? null : _renameFont,
+      onRemoveFont: widget.fontStore == null ? null : _removeFont,
       onPickFont: widget.fontStore == null ? null : _pickFont,
       onLoadFont: widget.fontStore == null
           ? null
@@ -516,6 +546,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onSearch: _searchResults,
       bookTitle: widget.bookTitle,
       margins: settings.margins,
+      cornerInfo: settings.cornerInfo,
+      onCornerInfoChanged: (info) =>
+          _changeSettings(_settings.copyWithCornerInfo(info)),
       onMarginsChanged: (margins) {
         _changeSettings(_settings.copyWithMargins(margins));
         widget.onMarginsChanged?.call(margins);

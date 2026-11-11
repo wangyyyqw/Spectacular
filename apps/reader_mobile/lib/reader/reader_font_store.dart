@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show StringCharacters;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/text/font_coverage.dart';
@@ -46,6 +47,49 @@ class ReaderFontStore {
   );
 
   Future<List<ReaderFontEntry>> list() => _library.listUserFonts();
+
+  /// 修改展示名称，字体身份和正文排版不变。
+  Future<ReaderFontEntry> rename(String family, String name) async {
+    final label = name.trim();
+    if (label.isEmpty || label.characters.length > 60) {
+      throw const FormatException('字体名称需要 1–60 个字符');
+    }
+    final font = (await list())
+        .where((font) => font.family == family)
+        .firstOrNull;
+    if (font == null) throw const FormatException('字体已被移除');
+    final renamed = ReaderFontEntry(
+      family: family,
+      filePath: font.filePath,
+      displayName: label,
+    );
+    await _library.saveUserFont(renamed);
+    return renamed;
+  }
+
+  /// 先暂存文件，再更新清单；存储失败时还原文件，可安全重试。
+  Future<void> remove(String family) async {
+    final font = (await list())
+        .where((font) => font.family == family)
+        .firstOrNull;
+    if (font == null) return;
+    final directory = await _directory();
+    if (!p.isWithin(p.normalize(directory.path), p.normalize(font.filePath))) {
+      throw const FormatException('自定义字体路径无效');
+    }
+    final file = File(font.filePath);
+    final parked = await file.exists()
+        ? await file.rename('${file.path}.removing')
+        : null;
+    try {
+      await _library.removeUserFont(family);
+    } catch (_) {
+      if (parked != null) await parked.rename(font.filePath);
+      rethrow;
+    }
+    _validated.remove(family);
+    if (parked != null) await parked.delete();
+  }
 
   /// 取消选择不保存，也不改变当前字体。
   Future<ReaderFontEntry?> pick() async {

@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../library/library_store.dart';
+import 'book_cover_image.dart';
 
 /// 书籍详情（P4-06）：元信息 + 导入报告（修复项与告警）。
 ///
@@ -36,7 +35,12 @@ class BookDetailSheet extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _Cover(entry: entry),
+                BookCoverImage(
+                  key: const ValueKey('book-detail-cover'),
+                  book: entry,
+                  width: 80,
+                  height: 108,
+                ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -190,50 +194,6 @@ class BookDetailSheet extends StatelessWidget {
     final local = time.toLocal();
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)}';
-  }
-}
-
-class _Cover extends StatelessWidget {
-  const _Cover({required this.entry});
-
-  final BookEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final placeholder = Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        entry.title.isEmpty ? '书' : entry.title.characters.first,
-        style: theme.textTheme.titleLarge?.copyWith(
-          color: theme.colorScheme.onSurface,
-        ),
-      ),
-    );
-    final path = entry.coverPath;
-    return SizedBox(
-      key: const ValueKey<String>('book-detail-cover'),
-      width: 80,
-      height: 108,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: path == null
-            ? placeholder
-            : Image.file(
-                File(path),
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.cover,
-                cacheWidth: 360,
-                errorBuilder: (_, _, _) => placeholder,
-              ),
-      ),
-    );
   }
 }
 

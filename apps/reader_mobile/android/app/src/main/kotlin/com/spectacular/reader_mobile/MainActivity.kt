@@ -1,5 +1,8 @@
 package com.spectacular.reader_mobile
 
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.view.KeyEvent
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -26,9 +29,22 @@ class MainActivity : FlutterActivity() {
                         volumeKeyPaging = call.arguments as? Boolean ?: false
                         result.success(null)
                     }
+                    "getBatteryLevel" -> result.success(batteryLevel())
                     else -> result.notImplemented()
                 }
             }
+        }
+    }
+
+    private fun batteryLevel(): Int? {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?: return null
+        val level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        return if (level >= 0 && scale > 0) {
+            (level * 100 / scale).coerceIn(0, 100)
+        } else {
+            null
         }
     }
 

@@ -53,6 +53,34 @@ void main() {
     expect(await store.snapshot(), isEmpty);
   });
 
+  test('正文按完整字符限制，超限保存不会覆盖已有书评', () async {
+    final book = await library.importBytes(buildTestEpub(title: '正文长度'));
+    final content = List.filled(BookReview.maxContentLength, '👨‍👩‍👧').join();
+    await store.save(book.id, rating: 4, content: content);
+    expect((await store.snapshot())[book.id]!.content, content);
+
+    await expectLater(
+      store.save(book.id, rating: 5, content: '$content字'),
+      throwsA(isA<FormatException>()),
+    );
+    final unchanged = (await store.snapshot())[book.id]!;
+    expect(unchanged.content, content);
+    expect(unchanged.rating, 4);
+  });
+
+  test('已移除的书籍不能静默保存书评，原书评仍可随重新导入恢复', () async {
+    final book = await library.importBytes(buildTestEpub(title: '移除后保存'));
+    await store.save(book.id, content: '原来的书评');
+    await library.remove(book.id);
+    await expectLater(
+      store.save(book.id, content: '不应保存的修改'),
+      throwsA(isA<FormatException>()),
+    );
+    expect(await store.snapshot(), isEmpty);
+    await library.importBytes(buildTestEpub(title: '移除后保存'));
+    expect((await store.snapshot())[book.id]!.content, '原来的书评');
+  });
+
   test('删书后隐藏书评，重新导入同一本书后恢复', () async {
     final book = await library.importBytes(buildTestEpub(title: '级联书评'));
     await store.save(book.id, rating: 5, content: '会随书删除');

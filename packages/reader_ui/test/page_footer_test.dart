@@ -4,6 +4,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
+import 'package:reader_ui/page_furniture/corner_info.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -92,6 +93,71 @@ void _expectFurniture(WidgetTester tester, {int? chapter}) {
 }
 
 void main() {
+  for (final explicit in [false, true]) {
+    testWidgets('隐藏四角回收页家具高度，${explicit ? '保留显式内边距' : '回收默认信息间距'}并可恢复', (
+      tester,
+    ) async {
+      final source = _SizedPageSource();
+      final store = MemoryReaderProgressStore();
+      var info = ReaderCornerInfo.defaults;
+      late StateSetter update;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            width: 360,
+            height: 520,
+            child: StatefulBuilder(
+              builder: (_, setState) {
+                update = setState;
+                return ReaderPage(
+                  source: source,
+                  store: store,
+                  bookId: 'corner-space-$explicit',
+                  cornerInfo: info,
+                  pageTurnMode: PageTurnMode.none,
+                  margins: explicit
+                      ? const ReaderMargins(
+                          left: 20,
+                          right: 20,
+                          topOuter: 0,
+                          topInner: 12,
+                          bottomInner: 14,
+                          bottomOuter: 0,
+                        )
+                      : null,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final before = source.contentSize!.height;
+      update(
+        () => info = const ReaderCornerInfo(
+          topLeft: ReaderCornerContent.none,
+          topRight: ReaderCornerContent.none,
+          bottomLeft: ReaderCornerContent.none,
+          bottomRight: ReaderCornerContent.none,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        source.contentSize!.height - before,
+        explicit
+            ? PageFurniture.headerHeight + PageFurniture.footerHeight
+            : PageFurniture.reservedHeight,
+      );
+      expect(find.byType(ReaderPageHeader), findsNothing);
+      expect(find.byType(ReaderPageFooter), findsNothing);
+      update(() => info = ReaderCornerInfo.defaults);
+      await tester.pumpAndSettle();
+      expect(source.contentSize!.height, before);
+      expect(find.byType(ReaderPageFooter), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('每章首页隐藏页眉，前后翻页与目录跳转均保留页脚', (tester) async {
     late ReaderSession session;
     await tester.pumpWidget(

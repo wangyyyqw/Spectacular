@@ -56,6 +56,56 @@ void main() {
   });
 
   group('边距调节器（设计稿「边距调节器」）', () {
+    testWidgets('小数边距未修改确认保留原始值，显示与输入不会舍入为整数', (tester) async {
+      final margins = _defaults().copyWith(left: 8.799999999999997);
+      final previews = <ReaderMargins>[];
+      final applied = <ReaderMargins>[];
+      await _showEditor(
+        tester,
+        margins: margins,
+        onPreview: previews.add,
+        onApply: applied.add,
+      );
+      expect(find.text('左 8.8'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('margin-value-左')));
+      await tester.pumpAndSettle();
+      final input = tester.widget<TextField>(
+        find.byKey(const ValueKey('margin-value-input')),
+      );
+      expect(input.controller!.text, '8.8');
+      await tester.tap(find.byKey(const ValueKey('margin-value-confirm')));
+      await tester.pumpAndSettle();
+      expect(previews, isEmpty, reason: '未编辑数值不得产生重排或改变实际精度');
+      await tester.tap(find.byKey(const ValueKey('margin-apply')));
+      await tester.pumpAndSettle();
+      expect(applied.single, margins);
+    });
+
+    testWidgets('数值精调校验范围并实时预览，取消编辑器不保存', (tester) async {
+      final previews = <ReaderMargins>[];
+      await _showEditor(tester, onPreview: previews.add);
+      await tester.tap(find.byKey(const ValueKey('margin-value-左')));
+      await tester.pumpAndSettle();
+      final input = find.byKey(const ValueKey('margin-value-input'));
+      await tester.enterText(input, '49');
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('margin-value-confirm')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(input, '12.5');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('margin-value-confirm')));
+      await tester.pumpAndSettle();
+      expect(previews.single.left, 12.5);
+      expect(previews.single.right, 20);
+      expect(find.text('左 12.5'), findsOneWidget);
+    });
+
     testWidgets('点箭头步进并移动按钮、保存回传草稿', (tester) async {
       ReaderMargins? applied;
       var cancelled = false;
@@ -610,6 +660,7 @@ Future<void> _showEditor(
   WidgetTester tester, {
   required ValueChanged<ReaderMargins> onPreview,
   ReaderMargins? margins,
+  ValueChanged<ReaderMargins>? onApply,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -621,7 +672,7 @@ Future<void> _showEditor(
             margins: margins ?? _defaults(),
             defaults: _defaults(),
             onCancel: () {},
-            onApply: (_) {},
+            onApply: onApply ?? (_) {},
             onPreview: onPreview,
           ),
         ),

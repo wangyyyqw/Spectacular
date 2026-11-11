@@ -48,6 +48,10 @@ void main() {
     expect(changes.last.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
     // 点主题块切换。
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-theme-sepia')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-theme-sepia')),
     );
@@ -58,6 +62,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('settings-reset')));
     await tester.pump();
     expect(reset, isTrue);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-font-size-value')),
+      -250,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsPanel),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
     final label = tester.widget<Text>(
       find.byKey(const ValueKey<String>('settings-font-size-value')),
     );
