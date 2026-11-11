@@ -251,7 +251,10 @@ class TextBlockBuilder {
     );
     final applyReader =
         !context.isHeading && !structured && !special && !promoted;
-    style = _applyBlockTypography(context, style, applyReader: applyReader);
+    // 提升块及其后代已在行内级联中继承最终字号，不能再按作者父字号缩放。
+    if (!promoted) {
+      style = _applyBlockTypography(context, style, applyReader: applyReader);
+    }
     return _BodyStyle(authored, style, compact, structured, applyReader);
   }
 

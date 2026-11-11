@@ -212,8 +212,9 @@ void main() {
           'span { display: block; } .relative { font-size: .85em; } '
           '.pixels { font-size: 12px; } .root { font-size: 1.2rem; }',
     );
+    addTearDown(source.close);
     final cfis = textCfis(source.document.parseDocument(0).root);
-    for (final size in [17.0, 22.0]) {
+    for (final size in [17.0, 22.0, 17.0]) {
       await source.applyOverrides(ReaderOverrides(fontSize: size));
       final blocks = await blocksOf(source);
       final relative = blocks.singleWhere(
@@ -239,6 +240,49 @@ void main() {
       for (final block in blocks) {
         expect(block.startCfi, cfis[block.layout.text]);
       }
+    }
+  });
+
+  test('嵌套提升块沿最终父字号继承，根关键字独立缩放且 CFI 不变', () async {
+    final source = await openCssChapter(
+      body:
+          '<p><i>前</i><span class="outer"><i>外</i><b><span class="inner"><i>内</i>'
+          '<span class="root"><i>根</i></span><i>末</i></span></b><i>尾</i></span><i>后</i></p>',
+      css:
+          'body { font-size: 16px; } p { font-size: .8em; margin: 0; } '
+          'span { display: block; } .outer { font-size: .85em; } '
+          '.inner { font-size: 50%; } .root { font-size: x-large; }',
+    );
+    addTearDown(source.close);
+    final cfis = textCfis(source.document.parseDocument(0).root);
+    for (final size in [17.0, 22.0, 17.0]) {
+      await source.applyOverrides(ReaderOverrides(fontSize: size));
+      final blocks = await blocksOf(source);
+      final sizes = {
+        '前': size,
+        '外': size * .85,
+        '内': size * .85 * .5,
+        '根': size * 1.5,
+        '末': size * .85 * .5,
+        '尾': size * .85,
+        '后': size,
+      };
+      expect(blocks.map((block) => block.layout.text), sizes.keys);
+      for (final block in blocks) {
+        expect(block.style!.fontSize, closeTo(sizes[block.layout.text]!, .001));
+        expect(block.startCfi, cfis[block.layout.text]);
+        expect(block.layout.runs, isNotEmpty);
+        for (final run in block.layout.runs) {
+          expect(run.style.fontSize, closeTo(sizes[block.layout.text]!, .001));
+        }
+      }
+      expect(
+        blocks
+            .singleWhere((block) => block.layout.text == '内')
+            .style!
+            .fontWeight,
+        700,
+      );
     }
   });
 
