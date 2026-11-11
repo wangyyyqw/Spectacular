@@ -63,6 +63,35 @@ void main() {
     expect(blocks['—— By Venzos']!.style!.fontSize, closeTo(9.6, .001));
   });
 
+  test('块级 br 不拆散标题，相对字号和 em 边距一起缩放', () async {
+    final source = await openCssChapter(
+      body:
+          '<p class="section">/<br class="break"/>作者简介</p>'
+          '<p class="name">村上春树</p>',
+      css:
+          'body { font-size: 16px; } '
+          '.section { font-size: 1.29167em; line-height: 1.8em; '
+          'margin: .8em 0 .6em; } '
+          '.break { display: block; } '
+          '.name { line-height: 1.8em; margin: 1em 0; }',
+      overrides: const ReaderOverrides(
+        fontSize: 21,
+        lineHeight: 1.3,
+        paragraphSpacing: 0,
+      ),
+    );
+    addTearDown(source.close);
+    final blocks = await _textBlocks(source);
+    final title = blocks['/\n作者简介']!;
+    final name = blocks['村上春树']!;
+    final titleSize = 21 * 1.29167;
+    expect(title.style!.fontSize, closeTo(titleSize, .001));
+    expect(title.style!.lineHeight, closeTo(titleSize * 1.3, .001));
+    expect(title.style!.margin.top, closeTo(titleSize * .8, .001));
+    expect(title.style!.margin.bottom, closeTo(titleSize * .6, .001));
+    expect(name.spaceBefore, closeTo(titleSize * .6, .001));
+  });
+
   for (final declaration in ['.8em', '.8rem', '80%']) {
     test('class、id 和内联声明的 $declaration 均相对阅读器字号生效', () async {
       final source = await openCssChapter(
