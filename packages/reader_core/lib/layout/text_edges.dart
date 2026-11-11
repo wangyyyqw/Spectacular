@@ -4,7 +4,7 @@ import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../paint/line_spans.dart';
-import 'text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 /// 行高在真实字体盒之外增加的上下留白；不包含字形自身的空白。
 class PageTextEdges {

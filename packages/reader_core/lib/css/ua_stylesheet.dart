@@ -1,5 +1,4 @@
 import 'cascade.dart';
-import 'computed_style.dart';
 import 'parser.dart';
 
 /// UA 默认样式表（P7-03）。
@@ -8,12 +7,8 @@ import 'parser.dart';
 /// 来源、支持状态及回归映射见 docs/UA规则台账-2026-11-07.md；
 /// 本轮只补审计元数据，不改变声明顺序或作者覆盖行为。
 /// 差异取舍对照 Reeden 2.0.0 的 134 规则 UA 表（`参考/reeden/reports/
-/// 630-ua-stylesheet.md`）与技术方案 §73。两条读取路径：
-///
-/// 1. [uaRules]：喂给 `Cascade.compute` 的完整规则集（UA origin，供
-///    作者样式接入后的逐元素层叠使用）；
-/// 2. [UaBlockDefaults]：当前「单一基准样式」管线可直接消费的块级
-///    覆盖层（仅含当前排版/绘制栈已消费的物理属性）。
+/// 630-ua-stylesheet.md`）与技术方案 §73。统一通过 [uaRules] 提供完整
+/// UA 规则集，由 `Cascade.compute` 与作者样式共同参与逐元素层叠。
 const String uaStylesheetCss = '''
 /* ==== 隐藏元素（WHATWG HTML 15.3.1；P8-03 对标 Reeden 630）==== */
 /* 规范标题：Hidden elements；
@@ -117,7 +112,7 @@ hgroup > p { margin-top: 1em; margin-bottom: 1em; }
 li { display: list-item; }
 /* 刻意差异（flat 管线近似）：WHATWG li 默认 margin 0、缩进来自
    ul 的 padding；flat 无嵌套盒子，li 自带 40px 左边距承担缩进
-   （P3-23 标记 gutter 语义），与旧 UaBlockDefaults 一致。 */
+   （P3-23 标记 gutter 语义）。 */
 /* UA-027；HTML 15.3.7；支持；li 缩进为旧路径近似。 */
 li { margin-left: 40px; }
 /* UA-028；HTML 15.3.7；支持；li 缩进为旧路径近似。 */
@@ -268,142 +263,3 @@ List<CascadeRule> uaRules() => _uaRulesCache ??= CascadeRule.fromStylesheet(
   CssParser.parse(uaStylesheetCss),
   origin: CascadeOrigin.userAgent,
 );
-
-/// 当前管线可直接消费的块级 UA 覆盖层（P7-03）。
-///
-/// 只含「单一基准样式 + 块级 PageBlock」路径已消费的物理属性；
-/// 行内 run、完整列表、表格与 ruby 由 [uaStylesheetCss] 的层叠路径消费；
-/// 此兼容入口仅用于块级基准样式，既有差异在 UA 台账中逐项记录。
-abstract final class UaBlockDefaults {
-  /// 块级标签 → 声明集；不在表内的标签返回空 Map。
-  static Map<String, String> declarationsFor(String tag) =>
-      _blockDeclarations[tag] ?? const <String, String>{};
-
-  /// 在基准样式之上应用块级 UA 覆盖；无覆盖声明时返回 null。
-  ///
-  /// 构造方式与 [ReaderOverrides.apply] 一致：覆盖声明作为子样式的
-  /// 显式属性，em 单位相对父级字号解算（阅读器字号设置仍是基准）。
-  static ComputedStyle? apply(
-    ComputedStyle base,
-    String tag, {
-    double? containingWidth,
-  }) {
-    final declarations = declarationsFor(tag);
-    if (declarations.isEmpty) {
-      return null;
-    }
-    return ComputedStyle(
-      declarations,
-      parent: base,
-      explicitProperties: declarations.keys.toSet(),
-      containingWidth: containingWidth ?? 0,
-      rootFontSize: base.fontSize,
-    );
-  }
-
-  static const Map<String, Map<String, String>> _blockDeclarations =
-      <String, Map<String, String>>{
-        // 标题：字号/加粗/上下边距/避页底（WHATWG 15.3.6 + Reeden 630 §2-5）。
-        'h1': <String, String>{
-          'font-size': '2em',
-          'font-weight': 'bold',
-          'margin-top': '0.67em',
-          'margin-bottom': '0.67em',
-          'page-break-after': 'avoid',
-        },
-        'h2': <String, String>{
-          'font-size': '1.5em',
-          'font-weight': 'bold',
-          'margin-top': '0.83em',
-          'margin-bottom': '0.83em',
-          'page-break-after': 'avoid',
-        },
-        'h3': <String, String>{
-          'font-size': '1.17em',
-          'font-weight': 'bold',
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-          'page-break-after': 'avoid',
-        },
-        'h4': <String, String>{
-          'font-size': '1em',
-          'font-weight': 'bold',
-          'margin-top': '1.33em',
-          'margin-bottom': '1.33em',
-          'page-break-after': 'avoid',
-        },
-        'h5': <String, String>{
-          'font-size': '0.83em',
-          'font-weight': 'bold',
-          'margin-top': '1.67em',
-          'margin-bottom': '1.67em',
-          'page-break-after': 'avoid',
-        },
-        'h6': <String, String>{
-          'font-size': '0.67em',
-          'font-weight': 'bold',
-          'margin-top': '2.33em',
-          'margin-bottom': '2.33em',
-          'page-break-after': 'avoid',
-        },
-        // 引用与图注容器：上下 1em、左右 40px（WHATWG 15.3.3）。
-        'blockquote': <String, String>{
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-          'margin-left': '40px',
-          'margin-right': '40px',
-        },
-        'figure': <String, String>{
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-          'margin-left': '40px',
-          'margin-right': '40px',
-        },
-        'figcaption': <String, String>{
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-        },
-        // 预格式化：等宽字体（white-space 已由聚合器按 pre 语义处理）。
-        'pre': <String, String>{
-          'font-family': 'monospace',
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-        },
-        // 列表容器与定义列表（标记绘制属 P3-23，先落缩进/边距/加粗）。
-        'ul': <String, String>{
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-          'padding-left': '40px',
-        },
-        // 列表项（P3-23）：flat 管线无 ul 盒子，margin-left 40px 近似
-        // ul padding-left 缩进；标记由章节源按列表类型赋值绘制。
-        'li': <String, String>{
-          'margin-left': '40px',
-          'list-style-type': 'disc',
-        },
-        'ol': <String, String>{
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-          'padding-left': '40px',
-        },
-        'dl': <String, String>{
-          'margin-top': '1em',
-          'margin-bottom': '1em',
-        },
-        'dd': <String, String>{'margin-left': '40px'},
-        'dt': <String, String>{'font-weight': 'bold'},
-        // 表头单元格（表格排版属 P3-17～21，先落字体语义）。
-        'th': <String, String>{'font-weight': 'bold', 'text-align': 'center'},
-        // 分隔线：与 UA 层叠路径共用既有默认灰线（绘制属 P3-24）。
-        'hr': <String, String>{
-          'margin-top': '0.5em',
-          'margin-bottom': '0.5em',
-          'height': '1px',
-          'border-bottom': '1px solid #B0B0B0',
-        },
-        // 居中表现属性（WHATWG 15.3.3）。
-        'center': <String, String>{'text-align': 'center'},
-        // 水平分割线外的水平线语义由 hr 承担；p 的默认段距待 P4-21
-        // 阅读器段距设置接入后再启用（§7.5 第 3 条），不在覆盖层。
-      };
-}

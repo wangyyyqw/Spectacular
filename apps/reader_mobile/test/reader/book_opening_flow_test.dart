@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/book_opening_reader.dart';
 import 'package:reader_mobile/reader/book_opening_view.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';

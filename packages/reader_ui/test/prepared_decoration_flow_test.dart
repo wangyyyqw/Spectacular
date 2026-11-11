@@ -5,7 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -15,10 +16,29 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 const _text = 'abcdefghijklmnopqrstuvwx';
 String _cfi(int spine, [int offset = 0]) =>
     'epubcfi(/6/${(spine + 1) * 2}!/4/2/1:$offset)';
+
+String _anchorData(
+  int spine, {
+  String text = _text,
+  int from = 3,
+  int to = 8,
+}) => AnchorRecord(
+  original: AnchorBook(
+    revision: 'r1',
+    chapters: [
+      AnchorChapter(
+        spineIndex: spine,
+        href: '$spine.xhtml',
+        blocks: [AnchorBlock(cfi: _cfi(spine), text: text)],
+      ),
+    ],
+  ).capture(_cfi(spine, from), endCfi: _cfi(spine, to))!,
+).encode();
 
 ReaderDecoration _decoration(String id, int spine, {bool typography = true}) =>
     ReaderDecoration(
@@ -26,6 +46,7 @@ ReaderDecoration _decoration(String id, int spine, {bool typography = true}) =>
       startCfi: _cfi(spine, 3),
       endCfi: _cfi(spine, 8),
       quote: 'defgh',
+      anchorData: _anchorData(spine),
       style: typography
           ? const ReaderDecorationStyle(
               fontFamily: 'AuditFont',
@@ -47,6 +68,7 @@ ReaderDecoration _copy(
   startCfi: start ?? item.startCfi,
   endCfi: end ?? item.endCfi,
   quote: item.quote,
+  anchorData: item.anchorData,
   style: style ?? item.style,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
@@ -73,6 +95,11 @@ class _Store implements ReaderDecorationStore {
       startCfi: startCfi,
       endCfi: endCfi,
       quote: quote,
+      anchorData: _anchorData(
+        spineIndexOfCfi(EpubCfi.parse(startCfi)!)!,
+        from: cfiCharOffset(startCfi) ?? 0,
+        to: cfiCharOffset(endCfi) ?? 0,
+      ),
       style: style,
       contextBefore: contextBefore,
       contextAfter: contextAfter,
@@ -506,6 +533,7 @@ void main() {
       startCfi: _cfi(0),
       endCfi: _cfi(0, quote.length),
       quote: quote,
+      anchorData: _anchorData(0, text: quote, from: 0, to: quote.length),
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
     );

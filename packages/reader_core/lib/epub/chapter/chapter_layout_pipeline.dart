@@ -1,4 +1,5 @@
 import 'package:reader_core/layout/page_background.dart';
+import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
@@ -29,6 +30,7 @@ class PreparedChapterLayout {
     required this.document,
     required this.selectors,
     required this.styles,
+    required this.footnotes,
     required this.imageAnalysis,
     required this.imageCfi,
     required this.fullPageOptions,
@@ -38,6 +40,7 @@ class PreparedChapterLayout {
   final BlockDocument document;
   final ChapterSelectors selectors;
   final ChapterCascadePreparation styles;
+  final Map<String, FootnoteAnchor> footnotes;
   final FullBleedChapter imageAnalysis;
   final String? imageCfi;
   final FullPageLayoutOptions fullPageOptions;
@@ -137,7 +140,13 @@ class ChapterLayoutPipeline {
       resolver,
       (source) => resources.imageUrl(input.snapshot.spineIndex, source),
     );
-    final inline = InlineContentBuilder(resolver, content, measure, resources);
+    final inline = InlineContentBuilder(
+      resolver,
+      content,
+      measure,
+      resources,
+      input.footnotes,
+    );
     final flow = ChapterFlow();
     final watch = Stopwatch()..start();
     await ChapterBlockWalker(

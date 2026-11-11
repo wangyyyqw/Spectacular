@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 
 import '../support/test_epub.dart';
+
+import 'package:reader_ui/reader_session.dart';
 
 /// 慢速书库：给「导入中」进度条留出观察窗口。
 class _SlowLibrary extends LibraryStore {
@@ -59,7 +60,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
           pickEpubFiles: () async => <String>[epubFile.path],
           readFile: (path) async => File(path).readAsBytesSync(),
         ),
@@ -86,7 +87,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
           pickEpubFiles: () async => <String>[epubFile.path],
           readFile: (path) async => File(path).readAsBytesSync(),
         ),
@@ -117,7 +118,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
           pickEpubFiles: () async => <String>[epubFile.path],
           readFile: (path) async => File(path).readAsBytesSync(),
         ),
@@ -149,7 +150,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
           pickEpubFiles: () async => <String>[epubFile.path, second.path],
           readFile: (path) async => File(path).readAsBytesSync(),
         ),

@@ -48,17 +48,24 @@ class ChapterPositions {
   }
 
   AnchorChapter anchorChapter(int spine, double width) =>
-      structures.synchronously(spine, width).anchor;
+      structures.prepared(spine, width).anchor;
 
   ChapterTextCoordinates _coordinatesFor(int spine, double width) =>
-      _coordinates.putIfAbsent(spine, () {
-        final structure = structures.synchronously(spine, width);
-        return ChapterTextCoordinates(
-          structure.anchor,
-          elementCfis: structure.images.cfis,
-          legacyAliases: structure.images.legacyAliases,
-        );
-      });
+      _preparedCoordinatesFor(spine, width) ??
+      (throw StateError('章节尚未准备，请先等待章节准备任务完成'));
+
+  ChapterTextCoordinates? _preparedCoordinatesFor(int spine, double width) {
+    final cached = _coordinates[spine];
+    if (cached != null) return cached;
+    final structure = structures.preparedOrNull(spine, width);
+    if (structure == null) return null;
+    final result = ChapterTextCoordinates(
+      structure.anchor,
+      elementCfis: structure.images,
+    );
+    _coordinates[spine] = result;
+    return result;
+  }
 
   double? readingPercentForCfi(String? cfi, double width) {
     if (cfi == null || cfi.isEmpty) return null;
@@ -66,7 +73,7 @@ class ChapterPositions {
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
     if (spine == null || isMissing(spine)) return null;
     if (progressIndex.totalWeight <= 0) return null;
-    final ratio = _coordinatesFor(spine, width).ratioFor(cfi);
+    final ratio = _preparedCoordinatesFor(spine, width)?.ratioFor(cfi);
     return ratio == null ? null : progressIndex.percentOf(spine, ratio);
   }
 
@@ -90,7 +97,7 @@ class ChapterPositions {
 
   String? cfiForTocEntry(TocEntry entry, double width) {
     if (entry.missing || isMissing(entry.spineIndex)) return null;
-    final parsed = resources.parsedChapter(entry.spineIndex);
+    final parsed = structures.prepared(entry.spineIndex, width).parsed;
     final direct = entry.cfi;
     if (direct != null && spineIndexOfCfi(direct) == entry.spineIndex) {
       final serialized = direct.serialize();

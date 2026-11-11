@@ -18,7 +18,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
-import 'package:reader_core/layout/text_layout.dart' show TextLayoutResult;
+import 'package:reader_core/layout/line_breaker.dart' show TextLayoutResult;
 
 import 'annotations/annotation.dart';
 import 'annotations/annotation_editor_sheet.dart';

@@ -13,7 +13,7 @@ import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/reader_pump.dart';
 

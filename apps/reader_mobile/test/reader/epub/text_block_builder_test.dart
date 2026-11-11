@@ -14,19 +14,19 @@ import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
-import 'package:reader_mobile/reader/bounded_cache.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_flow.dart';
-import 'package:reader_mobile/reader/epub/chapter_layout_job.dart';
-import 'package:reader_mobile/reader/epub/chapter_selectors.dart';
-import 'package:reader_mobile/reader/epub/chapter_style_resolver.dart';
-import 'package:reader_mobile/reader/epub/chapter_styles.dart';
-import 'package:reader_mobile/reader/epub/chapter_text_measurer.dart';
-import 'package:reader_mobile/reader/epub/generated_chapter_content.dart';
-import 'package:reader_mobile/reader/epub/inline_content_builder.dart';
-import 'package:reader_mobile/reader/epub/text_block_builder.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/util/bounded_cache.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_flow.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_job.dart';
+import 'package:reader_core/epub/chapter/chapter_selectors.dart';
+import 'package:reader_core/epub/chapter/chapter_style_resolver.dart';
+import 'package:reader_core/epub/chapter/chapter_styles.dart';
+import 'package:reader_core/epub/chapter/chapter_text_measurer.dart';
+import 'package:reader_core/epub/chapter/generated_chapter_content.dart';
+import 'package:reader_core/epub/chapter/inline_content_builder.dart';
+import 'package:reader_core/epub/chapter/text_block_builder.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 const _sentence = '长段中文与 Latin words、标点混排，分页和锚点保持连续。';
 final _base = ComputedStyle({
@@ -289,23 +289,25 @@ void main() {
       readerFontFamily: null,
     );
     final marks = job.node('target').inlineMarks;
-    final synchronous = resolver.resolveInlineRuns(marks, context);
     var checks = 0;
-    final asynchronous = await resolver.resolveInlineRunsAsync(
+    final runs = await resolver.resolveInlineRuns(
       marks,
       context,
       checkpoint: () async {
         checks += 1;
       },
     );
-    expect(_runStructure(asynchronous), _runStructure(synchronous));
-    final nested = asynchronous.firstWhere(
-      (run) => run.start == 2 && run.end == 3,
-    );
+    expect(runs.map((run) => (run.start, run.end)), [
+      (1, 2),
+      (2, 3),
+      (3, 4),
+      (4, 5),
+    ]);
+    final nested = runs.firstWhere((run) => run.start == 2 && run.end == 3);
     expect(nested.style.fontSize, 24);
     expect(nested.style.fontFamily, contains('monospace'));
     expect(nested.style.color.toARGB32(), 0xff0000ff);
-    expect(asynchronous.any((run) => run.baselineShift < 0), isTrue);
+    expect(runs.any((run) => run.baselineShift < 0), isTrue);
     expect(checks, greaterThan(marks.length));
   });
 
@@ -340,7 +342,7 @@ void main() {
     var checks = 0;
     final budget = _CancellingBudget(() => ++checks == marks.length + 10);
     await expectLater(
-      job.builder.styles.resolveInlineRunsAsync(
+      job.builder.styles.resolveInlineRuns(
         marks,
         context,
         checkpoint: budget.checkpoint,
@@ -408,18 +410,6 @@ void main() {
   });
 }
 
-List<Object?> _runStructure(List<StyledRun> runs) => [
-  for (final run in runs)
-    [
-      run.start,
-      run.end,
-      run.baselineShift,
-      run.style.values,
-      run.style.declaredTextProperties,
-      run.style.layoutFingerprint,
-    ],
-];
-
 class _TestChapter {
   _TestChapter(this.resources, this.fonts, this.css, this.selectors);
   final BookResources resources;
@@ -438,6 +428,8 @@ class _TestChapter {
     addTearDown(fonts.close);
     final styles = ChapterStyles(resources, fonts);
     addTearDown(styles.close);
+    await resources.prepareFootnotes(0);
+    await styles.prepareStylesheets(0, width: 344);
     return _TestChapter(
       resources,
       fonts,
@@ -510,7 +502,13 @@ class _TestJob {
       styles,
       (src) => resources.imageUrl(0, src),
     );
-    final inline = InlineContentBuilder(styles, content, measure, resources);
+    final inline = InlineContentBuilder(
+      styles,
+      content,
+      measure,
+      resources,
+      resources.footnotes(0),
+    );
     final flow = ChapterFlow();
     final parsed = resources.parsedChapter(0);
     final root = TextAggregator.aggregate(

@@ -9,7 +9,7 @@ import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/panels/decoration_panel.dart';

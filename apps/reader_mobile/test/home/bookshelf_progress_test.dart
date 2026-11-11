@@ -7,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -122,7 +121,7 @@ void main() {
       database: db,
       directoryProvider: () async => dir,
     );
-    final progressStore = FileReaderProgressStore.memory();
+    final progressStore = MemoryReaderProgressStore();
 
     late BookEntry entry;
     await tester.runAsync(() async {

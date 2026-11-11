@@ -21,6 +21,7 @@ void main() {
         .insert(
           BooksCompanion.insert(
             uuid: 'book-a',
+            contentRevision: 'test-content',
             title: '阅读统计',
             contentDir: 'books/book-a/content',
             createdAt: 1,

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 /// P2-34 降级固定用例：P0 矩阵里标注「部分」的属性当前不参与块流/文本布局，
 /// 这里显式固定「已解析但不消费」的行为，避免静默变化。

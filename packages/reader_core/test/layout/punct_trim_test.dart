@@ -3,7 +3,6 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/punct_trim.dart';
-import 'package:reader_core/layout/text_layout.dart';
 
 /// P7-19：标点挤压——相邻全角标点的前标点加 -0.5em 字距；
 /// `text-spacing-trim: trim-adjacent` 启用，默认 normal 与现状一致；

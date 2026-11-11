@@ -6,7 +6,7 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/importer.dart';
 import 'package:reader_core/epub/toc_cfi.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/position/cfi.dart';
 

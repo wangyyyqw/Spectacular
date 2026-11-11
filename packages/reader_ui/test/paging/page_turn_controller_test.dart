@@ -7,6 +7,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 class _Source implements ReaderChapterSource {
   _Source(this.pageCount);

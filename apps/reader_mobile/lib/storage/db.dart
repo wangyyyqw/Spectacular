@@ -14,20 +14,14 @@ class Books extends Table {
   /// 主键。
   IntColumn get id => integer().autoIncrement()();
 
-  /// 固定算法生成的 32 位书籍标识；保留列名以兼容已有存储接口。
+  /// 固定算法生成的 32 位书籍标识。
   TextColumn get uuid => text().unique()();
 
   /// EPUB 原始 unique-identifier，不使用书籍标识替换字体解混淆密钥。
   TextColumn get epubIdentifier => text().nullable()();
 
-  /// 标识算法版本；0 表示等待从原书迁移，1 表示固定摘要算法。
-  IntColumn get identityVersion => integer().withDefault(const Constant(0))();
-
-  /// 迁移前标识，供旧进度文件解析及旧目录保护。
-  TextColumn get legacyUuid => text().nullable()();
-
   /// 当前 EPUB 字节摘要，与书籍身份分开。
-  TextColumn get contentRevision => text().nullable()();
+  TextColumn get contentRevision => text()();
 
   /// 书名。
   TextColumn get title => text()();
@@ -311,13 +305,13 @@ class ReadingProgress extends Table {
   IntColumn get bookId =>
       integer().references(Books, #id, onDelete: KeyAction.cascade)();
 
-  /// 位置 CFI（P5 接入 CFI 后使用；当前存 `spine:i/page:j` 占位串）。
+  /// 当前原文的 CFI；没有内容位置的读完标记保存空串。
   TextColumn get locatorCfi => text()();
 
-  /// 版本化内容锚点，旧位置串保留兼容。
+  /// 原始与当前内容锚点及位置元数据。
   TextColumn get anchorJson => text().nullable()();
 
-  /// spine 序号（P4-10：进度迁移到表内，书架/续读用）。
+  /// spine 序号，供书架和续读使用。
   IntColumn get spineIndex => integer().nullable()();
 
   /// 章内页序号。
@@ -336,7 +330,7 @@ class ReadingProgress extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{bookId};
 }
 
-/// 强制更新前的历史书籍标识，仅供旧数据定位，不参与自动覆盖。
+/// 原书被用户指定替换后的身份，用于定位同一条修订记录。
 @DataClassName('BookIdAliasRow')
 class BookIdAliases extends Table {
   TextColumn get aliasId => text()();
@@ -556,115 +550,14 @@ class AppDatabase extends _$AppDatabase {
   /// 数据库文件名。
   static const String fileName = 'reader.sqlite';
 
-  /// schema 版本（§70.1：全局表结构版本，与书级 layoutVersion 分开）。
+  /// 当前完整表结构的初始版本，与书级排版版本分开。
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 1;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) async {
       await migrator.createAll();
-      await _createIndexes();
-    },
-    // §70.2 三条纪律：每步单调递增不合并、不删列、索引单独建。
-    onUpgrade: (migrator, from, to) async {
-      var version = from;
-      if (version < 2) {
-        await migrator.createTable(importReports);
-        version = 2;
-      }
-      if (version < 3) {
-        // P4-10：进度迁入 reading_progress，补 spine/page 两列。
-        await migrator.addColumn(readingProgress, readingProgress.spineIndex);
-        await migrator.addColumn(readingProgress, readingProgress.pageIndex);
-        version = 3;
-      }
-      if (version < 4) {
-        // P4-24 时期的搜索索引表已废弃（搜索改为扫描式），v4 只推进版本号。
-        version = 4;
-      }
-      if (version < 5) {
-        // 搜索改为扫描式（对照 Reeden）：不再维护倒排索引，删表回收空间。
-        await customStatement('DROP TABLE IF EXISTS search_grams');
-        await customStatement('DROP TABLE IF EXISTS chapter_text');
-        version = 5;
-      }
-      if (version < 6) {
-        await migrator.createTable(bookReviews);
-        version = 6;
-      }
-      if (version < 7) {
-        await migrator.createTable(readingSessions);
-        version = 7;
-      }
-      if (version < 8) {
-        // 删书改为软删除：保留进度、标注、书评和阅读会话，重新导入可恢复。
-        await migrator.addColumn(books, books.deletedAt);
-        version = 8;
-      }
-      if (version < 9) {
-        await migrator.createTable(shelfGroups);
-        await migrator.createTable(shelfGroupBooks);
-        version = 9;
-      }
-      if (version < 10) {
-        await migrator.addColumn(books, books.description);
-        await migrator.createTable(bookTags);
-        await migrator.createTable(bookTagLinks);
-        version = 10;
-      }
-      if (version < 11) {
-        // v7 建表时使用当前表定义，旧库从更早版本升级时可能已包含新列。
-        final columns = await customSelect(
-          'PRAGMA table_info(reading_sessions)',
-        ).get();
-        final names = <String>{
-          for (final row in columns) row.read<String>('name'),
-        };
-        if (!names.contains('page_turns')) {
-          await migrator.addColumn(readingSessions, readingSessions.pageTurns);
-        }
-        if (!names.contains('characters_read')) {
-          await migrator.addColumn(
-            readingSessions,
-            readingSessions.charactersRead,
-          );
-        }
-        version = 11;
-      }
-      if (version < 12) {
-        final columns = await customSelect(
-          'PRAGMA table_info(reading_progress)',
-        ).get();
-        final names = <String>{
-          for (final row in columns) row.read<String>('name'),
-        };
-        if (!names.contains('finished')) {
-          await migrator.addColumn(readingProgress, readingProgress.finished);
-        }
-        version = 12;
-      }
-      if (version < 13) {
-        await migrator.addColumn(books, books.epubIdentifier);
-        await migrator.addColumn(books, books.identityVersion);
-        await migrator.addColumn(books, books.legacyUuid);
-        version = 13;
-      }
-      if (version < 14) {
-        await migrator.addColumn(books, books.contentRevision);
-        await migrator.addColumn(annotations, annotations.anchorJson);
-        await migrator.addColumn(readingProgress, readingProgress.anchorJson);
-        await migrator.createTable(bookIdAliases);
-        version = 14;
-      }
-      if (version < 15) {
-        await migrator.addColumn(annotations, annotations.opacity);
-        await migrator.createTable(decorations);
-        await migrator.createTable(decorationRuleGroups);
-        await migrator.createTable(decorationRules);
-        await _migrateEmptyThoughts();
-        version = 15;
-      }
       await _createIndexes();
     },
     beforeOpen: (details) async {
@@ -673,18 +566,7 @@ class AppDatabase extends _$AppDatabase {
     },
   );
 
-  Future<void> _migrateEmptyThoughts() async {
-    final rows = await (select(
-      annotations,
-    )..where((table) => table.type.equals(1))).get();
-    for (final row in rows) {
-      if ((row.note ?? '').trim().isNotEmpty) continue;
-      await (update(annotations)..where((table) => table.id.equals(row.id)))
-          .write(const AnnotationsCompanion(type: Value(0)));
-    }
-  }
-
-  /// 索引单独建（§70.2 纪律 3）：幂等，升级/新建共用。
+  /// 新库索引随当前表结构一次创建。
   Future<void> _createIndexes() async {
     await customStatement(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_spine_book '
@@ -735,10 +617,10 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  /// 触发打开与迁移。
+  /// 触发打开与建库。
   ///
   /// drift 是懒打开：只构造不会建库，第一次查询才执行 onCreate /
-  /// onUpgrade。启动时调用一次，让建库与迁移在可控位置失败。
+  /// 版本检查。启动时调用一次，让建库或不支持的数据库版本在可控位置失败。
   Future<void> warmUp() async {
     await customSelect('SELECT 1').getSingle();
   }

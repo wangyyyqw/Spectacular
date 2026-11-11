@@ -11,7 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
@@ -24,6 +24,8 @@ import 'package:reader_ui/reader_view.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 
 import 'reader_perf_probe.dart';
+
+import 'package:reader_core/source/toc.dart';
 
 /// 只由 device_reader_perf.py 在独立包运行；计时包含真实书架读盘和正文帧。
 const _server = String.fromEnvironment('PERF_SERVER');
@@ -175,7 +177,7 @@ Future<void> _seedBook(AppDatabase db, File file) async {
           title: _title,
           contentDir: file.parent.path,
           sourcePath: Value(file.path),
-          contentRevision: Value(revision),
+          contentRevision: revision,
           spineCount: Value(await _chapterCount(file)),
           createdAt: DateTime.now().millisecondsSinceEpoch,
         ),

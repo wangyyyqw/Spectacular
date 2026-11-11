@@ -6,7 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/paint/page_renderer.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 
 /// 卡片四边框闭合（P9-25）：容器被 flat 管线拆成多个块，背景与左右边框

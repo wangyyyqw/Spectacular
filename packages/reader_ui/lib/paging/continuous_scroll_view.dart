@@ -8,6 +8,7 @@ import 'package:reader_core/layout/scroll_layout.dart';
 
 import '../reader_session.dart';
 import 'page_turn_mode.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 连续滚动的纸面构建器。
 typedef ScrollPaperBuilder = Widget Function(PageContent page, Size size);

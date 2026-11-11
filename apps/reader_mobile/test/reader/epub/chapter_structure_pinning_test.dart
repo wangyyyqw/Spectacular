@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/epub_document.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_structure.dart';
-import 'package:reader_mobile/reader/epub/chapter_styles.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_structure.dart';
+import 'package:reader_core/epub/chapter/chapter_styles.dart';
 
 import '../../support/test_epub.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

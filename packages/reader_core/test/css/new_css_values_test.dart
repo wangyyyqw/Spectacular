@@ -73,7 +73,7 @@ void main() {
     expect(_compute('padding-left: calc(1vw + 2ex)').padding.left, 19);
   });
 
-  test('盒模型视口单位使用冻结视口，尺寸 vh 继续延迟解算', () {
+  test('盒模型全部视口单位使用同一冻结视口', () {
     final style = _compute(
       'margin: 1vh 2vw; padding: 1vmin 1vmax; '
       'width: 50vw; height: 20vh; left: 3vi; top: 4vb',
@@ -83,8 +83,7 @@ void main() {
     expect(style.padding.top, 3);
     expect(style.padding.right, 6);
     expect(style.width!.resolve(90), 150);
-    expect(style.height!.isViewportHeight, isTrue);
-    expect(style.height!.resolve(90, viewportHeight: 600), 120);
+    expect(style.height!.resolve(90), 120);
     expect(style.left!.resolve(300), 9);
     expect(style.top!.resolve(600), 24);
     expect(style.withTypography(fontSize: 28).valueContext.viewportHeight, 600);

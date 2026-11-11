@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/decorations.dart';
 import 'package:reader_ui/annotations/relocator.dart';
@@ -66,6 +67,12 @@ void main() {
       startCfi: cfi.start,
       endCfi: cfi.end,
       quote: quote,
+      anchorData: AnchorRecord(
+        original: AnchorBook(
+          revision: 'reader-layout',
+          chapters: [await source.loadAnchorChapter(page.spineIndex)],
+        ).capture(cfi.start, endCfi: cfi.end)!,
+      ).encode(),
       color: 0xFFFFEB3B,
       createdAt: DateTime(2026, 1, 1),
       updatedAt: DateTime(2026, 1, 1),

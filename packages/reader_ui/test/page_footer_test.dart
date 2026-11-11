@@ -8,6 +8,7 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 PageContent _page(int spine, int index) {
   const text = '页脚测试内容，多页填充。';

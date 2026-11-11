@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -65,7 +64,6 @@ class BookOpener {
     final opening = _OpeningPreparation(bytes, settings);
     final revision = opening.revision = _loadContentRevision(
       entry,
-      bytes,
       isCancelled: () => opening.cancelled,
     );
     // 路由可能在首帧前取消，仍接住准备任务的异常。
@@ -80,8 +78,7 @@ class BookOpener {
       _settings ??= await ReaderSettingsStore(library).load();
 
   Future<String> _loadContentRevision(
-    BookEntry entry,
-    Future<Uint8List>? bytes, {
+    BookEntry entry, {
     required bool Function() isCancelled,
   }) async {
     var known = entry.contentRevision;
@@ -91,33 +88,7 @@ class BookOpener {
     }
     if (known != null && known.isNotEmpty) return known;
     if (isCancelled()) throw StateError('打开已取消');
-    final revision = bytes == null
-        ? (await sha256
-                  .bind(
-                    File(entry.filePath)
-                        .openRead()
-                        .takeWhile((_) => !isCancelled()),
-                  )
-                  .first)
-              .toString()
-        : await _hashBytes(bytes, isCancelled);
-    // 中途返回会取消文件流；部分摘要绝不能绑定 CFI 或写成原书版本。
-    if (isCancelled()) throw StateError('打开已取消');
-    try {
-      await library.rememberContentRevision(entry.id, revision);
-    } catch (_) {
-      // 补写失败不影响本次版本校验，下次打开再补写。
-    }
-    return revision;
-  }
-
-  Future<String> _hashBytes(
-    Future<Uint8List> bytes,
-    bool Function() isCancelled,
-  ) async {
-    final payload = await bytes;
-    if (isCancelled()) throw StateError('打开已取消');
-    return compute(_revisionOfBytes, payload);
+    throw StateError('书籍内容版本缺失，请重新导入书籍');
   }
 
   Future<void> _logRead(BookEntry entry, Future<Uint8List>? bytes) async {
@@ -250,5 +221,3 @@ class _OpeningPreparation {
     if (!closed.isCompleted) closed.complete();
   }
 }
-
-String _revisionOfBytes(Uint8List bytes) => sha256.convert(bytes).toString();

@@ -2,14 +2,72 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/layout/paginator.dart' show PageFootnote;
 
 import '../support/css_chapter_book.dart';
 import '../../support/test_epub.dart';
 
+import 'package:reader_core/source/chapter_source.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('同步定位只读取准备结果，冷章节必须先异步准备', () async {
+    final source = await openCssChapter(body: '<p>原文定位契约</p>');
+    addTearDown(() async {
+      source.close();
+      await source.preparationsStopped;
+    });
+    expect(() => source.anchorChapter(0), throwsStateError);
+    expect(source.anchorPreparationCount, 0);
+
+    final chapter = await source.loadAnchorChapter(0);
+    expect(source.anchorChapter(0), same(chapter));
+    final cfi = chapter.cfiAt(0)!;
+    expect(source.readingPercentForCfi(cfi), 0);
+    expect(source.anchorPreparationCount, 1);
+  });
+
+  test('定位准备其他章节不淘汰实际当前阅读章', () async {
+    final source = await EpubChapterSource.open(
+      buildMultiChapterEpub(
+        chapters: [for (var i = 0; i < 6; i++) '第 $i 章正文' * 40],
+      ),
+    );
+    addTearDown(() async {
+      source.close();
+      await source.preparationsStopped;
+    });
+    await source.loadChapter(3);
+    source.setCurrentReadingChapter(3);
+    final cfi = source.anchorChapter(3).cfiAt(60);
+    for (final spine in [0, 1, 2, 4, 5]) {
+      await source.loadAnchorChapter(spine);
+    }
+    expect(source.anchorChapter(3).cfiAt(60), cfi);
+    expect(source.readingPercentForCfi(cfi), isNotNull);
+    expect(source.anchorPreparationCount, 6);
+  });
+
+  test('视口定位准备尚未完成时百分比返回不可定位且不同步重解析', () async {
+    final source = await openCssChapter(body: '<p>宽度变化后的原文位置</p>');
+    addTearDown(() async {
+      source.close();
+      await source.preparationsStopped;
+    });
+    final chapter = await source.loadAnchorChapter(0);
+    final cfi = chapter.cfiAt(5)!;
+    final original = source.readingPercentForCfi(cfi);
+    final preparations = source.anchorPreparationCount;
+    await source.applyContentSize(width: 260, height: 500);
+    expect(source.readingPercentForCfi(cfi), isNull);
+    expect(source.anchorPreparationCount, preparations);
+    expect(() => source.anchorChapter(0), throwsStateError);
+    await source.loadAnchorChapter(0);
+    expect(source.readingPercentForCfi(cfi), original);
+    expect(source.anchorPreparationCount, preparations + 1);
+  });
 
   test('真实章节共享准备，取消单个等待者不影响另一请求', () async {
     final source = await openCssChapter(body: '<p>共享原文准备</p>');
@@ -34,6 +92,41 @@ void main() {
     expect(pages, isNotEmpty);
     expect(pages.first.slices.first.block.style!.fontSize, 24);
     expect(source.chapterLayoutCount, 1);
+  });
+
+  test('资源缓存淘汰后当前章重排仍消费冻结的注释和原文', () async {
+    final source = await EpubChapterSource.open(
+      buildMultiChapterEpub(
+        rawBody: true,
+        chapters: [
+          '<p>当前正文<a role="doc-noteref" href="#note">[1]</a></p>'
+              '<aside id="note" role="doc-footnote">冻结的注释内容</aside>',
+          for (var i = 1; i < 4; i++) '<p>第 $i 章正文</p>',
+        ],
+      ),
+    );
+    addTearDown(() async {
+      source.close();
+      await source.preparationsStopped;
+    });
+    await source.loadChapter(0);
+    for (var spine = 1; spine < 4; spine++) {
+      await source
+          .scheduleChapter(spine, priority: ChapterLayoutPriority.prefetch)
+          .result;
+    }
+    final prepared = source.anchorPreparationCount;
+    await source.applyOverrides(const ReaderOverrides(fontSize: 20));
+    final pages = await source.loadChapter(0);
+    expect(source.anchorPreparationCount, prepared);
+    expect(
+      pages
+          .expand((page) => page.slices)
+          .expand((slice) => slice.block.footnotes),
+      contains(
+        isA<PageFootnote>().having((note) => note.text, '注释正文', '冻结的注释内容'),
+      ),
+    );
   });
 
   test('关闭准备中的章节源及时取消且不再提交，越界保留空章语义', () async {

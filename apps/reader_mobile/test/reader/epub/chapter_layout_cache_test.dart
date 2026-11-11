@@ -9,7 +9,7 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
-import 'package:reader_mobile/reader/epub/chapter_layout_cache.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_cache.dart';
 
 CompletedChapterLayout _entry(String key, {int indexBytes = 0}) {
   final block = PageBlock(

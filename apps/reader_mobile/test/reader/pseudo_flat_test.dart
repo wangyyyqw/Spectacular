@@ -5,7 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/selection/selection.dart';
 
 Uint8List _epub(String bodyHtml, String css) {

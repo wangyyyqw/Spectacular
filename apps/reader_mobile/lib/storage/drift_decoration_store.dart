@@ -147,7 +147,7 @@ class DriftDecorationStore implements ReaderDecorationStore {
             ))
             .getSingleOrNull();
     if (row == null) throw const FormatException('原装饰不存在');
-    final original = await _originalAnchor(book, row);
+    final original = requireAnchorRecord(row.anchorJson);
     final anchor = await captureBookAnchor(
       _db,
       book,
@@ -190,7 +190,7 @@ class DriftDecorationStore implements ReaderDecorationStore {
       startCfi: first,
       endCfi: last,
     );
-    final original = index?.legacyRange(
+    final original = index?.rangeFromEvidence(
       startCfi: first,
       endCfi: last,
       quote: evidence.quote,
@@ -204,31 +204,6 @@ class DriftDecorationStore implements ReaderDecorationStore {
             status: 'pending',
             reason: '原引用与当前位置文字不一致',
           );
-  }
-
-  Future<AnchorRecord> _originalAnchor(BookRow book, DecorationRow row) async {
-    final saved = AnchorRecord.decode(row.anchorJson);
-    if (saved != null) return saved;
-    final index = await loadBookAnchorIndex(
-      _db,
-      book,
-      startCfi: row.startCfi,
-      endCfi: row.endCfi,
-    );
-    final historical = (index ?? AnchorBook(revision: 'legacy', chapters: []))
-        .legacyRange(
-          startCfi: row.startCfi,
-          endCfi: row.endCfi,
-          quote: row.quote,
-          contextBefore: row.contextBefore ?? '',
-          contextAfter: row.contextAfter ?? '',
-        );
-    if (historical == null) throw const FormatException('无法确认原装饰的内容锚点');
-    return AnchorRecord(
-      original: historical,
-      status: 'pending',
-      reason: '旧版本缺少内容锚点',
-    );
   }
 
   Future<void> _cleanImages() async {
@@ -268,8 +243,9 @@ class DriftDecorationStore implements ReaderDecorationStore {
       contextBefore: row.contextBefore,
       contextAfter: row.contextAfter,
       anchorData: row.anchorJson,
-      relocationStatus: anchor?.status,
-      relocationReason: anchor?.reason,
+      relocationStatus: anchor?.status ?? 'pending',
+      relocationReason:
+          anchor?.reason ?? (anchor == null ? '内容锚点缺失或格式不受支持，请重新建立记录' : null),
       currentQuote: anchor?.effective.quote,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAt),

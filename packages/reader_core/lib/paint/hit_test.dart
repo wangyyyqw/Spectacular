@@ -5,7 +5,6 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../layout/line_breaker.dart';
 import '../layout/paginator.dart';
-import '../layout/text_layout.dart';
 import 'line_spans.dart';
 
 /// 一行的页内几何（P4-14 命中测试输出；P4-15 选区手柄复用）。

@@ -136,24 +136,11 @@ class BookResources {
     if (_closed || epoch != _prepareEpoch) throw const ChapterLoadCancelled();
   }
 
-  /// 兼容同步锚点入口；生产路径先调用 prepareChapter。
-  ParsedDocument parsedChapter(int spineIndex) => _parsed
-      .putIfAbsent(
-        spineIndex,
-        () => _parseChapterText((
-          xhtml: _readChapterString(spineIndex),
-          spine: spineIndex,
-          path: _chapterPath(spineIndex),
-        )),
-      )
-      .document;
-
-  /// 样式来源在解析 isolate 中提取，避免界面线程再次解析整章 HTML。
-  List<CssStyleSource> chapterStyleSources(int spineIndex) {
+  /// 同步读取已准备的章节，不在读取时解压或解析文档。
+  ParsedDocument parsedChapter(int spineIndex) {
     final prepared = _parsed[spineIndex];
-    if (prepared != null) return prepared.styleSources;
-    parsedChapter(spineIndex);
-    return _parsed[spineIndex]!.styleSources;
+    if (prepared == null) throw StateError('章节资源尚未准备，请先等待资源准备任务完成');
+    return prepared.document;
   }
 
   Future<List<CssStyleSource>> prepareStyleSources(
@@ -180,13 +167,6 @@ class BookResources {
         p.posix.normalize(p.posix.join(base, href));
   }
 
-  String _readChapterString(int spineIndex) {
-    final path = _chapterPath(spineIndex);
-    final xhtml = document.archive.readString(path);
-    if (xhtml == null) throw EpubException('E_SPINE_MISSING', '章节文件不存在：$path');
-    return xhtml;
-  }
-
   void clearParsed() {
     _prepareEpoch += 1;
     _parsed.clear();
@@ -210,14 +190,12 @@ class BookResources {
     document.archive.close();
   }
 
-  Map<String, FootnoteAnchor> footnotes(int spineIndex) =>
-      _footnoteReferenceCache.putIfAbsent(spineIndex, () {
-        final refs = <String, FootnoteAnchor>{};
-        for (final anchor in document.resolveFootnotes(spineIndex)) {
-          refs.putIfAbsent(anchor.referenceKey, () => anchor);
-        }
-        return Map<String, FootnoteAnchor>.unmodifiable(refs);
-      });
+  /// 构块只读取已准备的直接注释引用。
+  Map<String, FootnoteAnchor> footnotes(int spineIndex) {
+    final notes = _footnoteReferenceCache[spineIndex];
+    if (notes == null) throw StateError('章节注释尚未准备，请先等待注释准备任务完成');
+    return notes;
+  }
 
   /// 注释只准备目标章及其直接引用的定义文档，不扫描其它章节。
   Future<Map<String, FootnoteAnchor>> prepareFootnotes(

@@ -1,18 +1,16 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
-import 'package:reader_core/position/revision_relocator.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/book_progress_index.dart';
 
-import '../reader/epub_chapter_source.dart';
-import '../reader/epub/book_progress.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/epub/chapter/book_progress.dart';
+
 import '../storage/db.dart';
 
-/// 当前身份优先；历史别名必须唯一，不能把歧义旧数据挂到其他书。
+/// 当前身份优先；修订前身份必须唯一，避免关联到另一条书籍记录。
 Future<BookRow?> resolveBookRow(
   AppDatabase db,
   String id, {
@@ -25,13 +23,7 @@ Future<BookRow?> resolveBookRow(
   final aliases = await (db.select(
     db.bookIdAliases,
   )..where((table) => table.aliasId.equals(id))).get();
-  final legacy = await (db.select(
-    db.books,
-  )..where((table) => table.legacyUuid.equals(id))).get();
-  final ids = {
-    for (final alias in aliases) alias.bookId,
-    for (final book in legacy) book.id,
-  };
+  final ids = {for (final alias in aliases) alias.bookId};
   if (ids.length != 1) return null;
   return (db.select(
     db.books,
@@ -86,7 +78,7 @@ Future<({BookProgressIndex index, bool cacheable})> _readProgressIndex(
         }
       }
     } on FileSystemException {
-      // 旧书文件暂不可用时保留 CFI，只降级元数据权重。
+      // 原书文件暂不可用时保留 CFI，只降级元数据权重。
     } on FormatException {
       // 损坏的归档不应阻止已有阅读进度展示。
     } on StateError {
@@ -109,8 +101,7 @@ Future<void Function()> bindReadingAnchorSource(
   String revision,
 ) async {
   final row = await resolveBookRow(db, bookId, allowAliases: false);
-  if (row == null ||
-      (row.contentRevision != null && row.contentRevision != revision)) {
+  if (row == null || row.contentRevision != revision) {
     return () {};
   }
   final sources = _readingSources[db] ??= {};
@@ -135,7 +126,7 @@ Future<AnchorBook?> loadBookAnchorIndex(
   }
   final binding = _readingSources[db]?[row.uuid];
   if (binding != null && binding.matches(row)) {
-    return Future.value(binding.index(first, last));
+    return binding.index(first, last);
   }
   final path = row.sourcePath;
   if (path == null) return Future.value(null);
@@ -169,11 +160,10 @@ Future<AnchorBook?> _readIndex(BookRow row, int first, int last) async {
     if (!await file.exists()) return null;
     final source = await EpubChapterSource.openFile(file, verifyCrc: false);
     try {
-      return _ReadingAnchorSource(
+      return await _ReadingAnchorSource(
         row,
         source,
-        row.contentRevision ??
-            (await sha256.bind(file.openRead()).first).toString(),
+        row.contentRevision,
       ).index(first, last);
     } finally {
       source.close();
@@ -203,7 +193,7 @@ class _ReadingAnchorSource {
       row.contentRevision == current.contentRevision &&
       row.layoutVersion == current.layoutVersion;
 
-  AnchorBook? index(int first, int last) {
+  Future<AnchorBook?> index(int first, int last) async {
     if (last >= source.chapterCount) return null;
     final chapters = <AnchorChapter>[];
     for (var spine = first; spine <= last; spine++) {
@@ -216,7 +206,7 @@ class _ReadingAnchorSource {
                   blocks: const [],
                   readable: false,
                 )
-              : source.anchorChapter(spine));
+              : await source.loadAnchorChapter(spine));
       _chapters[spine] = chapter;
       while (_chapters.length > EpubChapterSource.documentCacheChapterLimit) {
         _chapters.remove(_chapters.keys.first);
@@ -226,10 +216,11 @@ class _ReadingAnchorSource {
     return AnchorBook(revision: revision, chapters: chapters);
   }
 
-  LocationAnchor? elementAnchor(String cfi) {
+  Future<LocationAnchor?> elementAnchor(String cfi) async {
     final spine = _spineOf(cfi);
-    if (spine == null || !source.isValidElementCfi(cfi)) return null;
-    final chapter = source.anchorChapter(spine);
+    if (spine == null || source.isChapterMissing(spine)) return null;
+    final chapter = await source.loadAnchorChapter(spine);
+    if (!source.isValidElementCfi(cfi)) return null;
     if (chapter.text.isNotEmpty || source.readingPercentForCfi(cfi) == null) {
       return null;
     }
@@ -257,7 +248,7 @@ class _ReadingAnchorSource {
 Future<T?> _withElementSource<T>(
   AppDatabase db,
   BookRow row,
-  T? Function(_ReadingAnchorSource source) read,
+  Future<T?> Function(_ReadingAnchorSource source) read,
 ) async {
   final binding = _readingSources[db]?[row.uuid];
   if (binding != null && binding.matches(row)) return read(binding);
@@ -267,10 +258,7 @@ Future<T?> _withElementSource<T>(
     final file = File(path);
     final source = await EpubChapterSource.openFile(file, verifyCrc: false);
     try {
-      final revision =
-          row.contentRevision ??
-          (await sha256.bind(file.openRead()).first).toString();
-      return read(_ReadingAnchorSource(row, source, revision));
+      return await read(_ReadingAnchorSource(row, source, row.contentRevision));
     } finally {
       source.close();
     }
@@ -288,8 +276,8 @@ Future<double?> loadElementReadingPercent(
   AppDatabase db,
   BookRow row,
   String cfi,
-) => _withElementSource(db, row, (binding) {
-  if (binding.elementAnchor(cfi) == null) return null;
+) => _withElementSource(db, row, (binding) async {
+  if (await binding.elementAnchor(cfi) == null) return null;
   return binding.source.readingPercentForCfi(cfi);
 });
 
@@ -326,119 +314,13 @@ Future<AnchorRecord?> captureBookAnchor(
   );
 }
 
-/// 旧正文语义锚点先按原文与上下文核验；无法建立索引时保留证据并降级。
-///
-/// 进度允许近似恢复；书签/标注必须找到唯一原文，否则保持待定位状态。
-Future<AnchorRecord> verifyAnchorSemantics(
-  AppDatabase db,
-  BookRow book,
-  AnchorRecord record, {
-  bool progress = false,
-}) async {
-  if (record.semanticVersion == currentAnchorSemanticVersion) return record;
-  final effective = record.effective;
-  final index = await loadBookAnchorIndex(
-    db,
-    book,
-    startCfi: effective.start.cfi,
-    endCfi: effective.end?.cfi,
-  );
-  if (index == null) {
-    return AnchorRecord(
-      original: record.original,
-      current: record.current,
-      status: progress ? 'approximate' : 'pending',
-      reason: '暂时无法读取正文，旧位置尚未核验',
-      // 保留旧版本，来源恢复后继续核验。
-      semanticVersion: record.semanticVersion,
-    );
+/// 只读取当前锚点格式，缺失或不支持的记录须重新建立。
+AnchorRecord requireAnchorRecord(String? source) {
+  final record = AnchorRecord.decode(source);
+  if (record == null) {
+    throw const FormatException('内容锚点缺失或格式不受支持，请重新建立记录');
   }
-  return RevisionRelocator.relocate(
-    oldBook: index,
-    newBook: index,
-    record: record,
-    progress: progress,
-  );
-}
-
-/// 语义升级后的坐标需重新计算比例与像素，不能沿用旧排版元数据。
-String mergeAnchorMetadata(String verifiedJson, String? previousJson) {
-  if (previousJson == null || previousJson.isEmpty) return verifiedJson;
-  try {
-    final verified = jsonDecode(verifiedJson) as Map<String, dynamic>;
-    final previous = jsonDecode(previousJson) as Map<String, dynamic>;
-    final merged = <String, Object?>{...verified};
-    for (final entry in previous.entries) {
-      if (const {
-        'readingPercent',
-        'scrollOffset',
-        'layoutFingerprint',
-      }.contains(entry.key)) {
-        continue;
-      }
-      merged.putIfAbsent(entry.key, () => entry.value);
-    }
-    return jsonEncode(merged);
-  } on FormatException {
-    return verifiedJson;
-  } on TypeError {
-    return verifiedJson;
-  }
-}
-
-/// 缺少旧文件时只保存历史证据，不用新选区替换最初引用。
-Future<AnchorRecord> originalAnnotationAnchor(
-  AppDatabase db,
-  BookRow book,
-  AnnotationRow row,
-) async {
-  final existing = AnchorRecord.decode(row.anchorJson);
-  if (existing != null) return existing;
-  final index = await loadBookAnchorIndex(
-    db,
-    book,
-    startCfi: row.startCfi,
-    endCfi: row.endCfi,
-  );
-  final range = row.type == 2
-      ? null
-      : index?.legacyRange(
-          startCfi: row.startCfi,
-          endCfi: row.endCfi,
-          quote: row.quote,
-          contextBefore: row.contextBefore ?? '',
-          contextAfter: row.contextAfter ?? '',
-        );
-
-  return AnchorRecord(
-    original:
-        range ??
-        LocationAnchor(
-          revision: 'legacy',
-          start: _legacyPoint(row.startCfi),
-          end: row.type == 2 ? null : _legacyPoint(row.endCfi),
-          quote: row.type == 2 ? '' : row.quote,
-        ),
-    status: 'pending',
-    reason: '旧版本缺少内容锚点',
-  );
-}
-
-AnchorPoint _legacyPoint(String cfi) {
-  final parsed = EpubCfi.parse(cfi);
-  return AnchorPoint(
-    cfi: cfi,
-    spineIndex: parsed == null ? 0 : spineIndexOfCfi(parsed) ?? 0,
-    href: '',
-    title: '',
-    chapterFingerprint: '',
-    paragraphFingerprint: '',
-    charOffset: 0,
-    chapterLength: 0,
-    quote: '',
-    contextBefore: '',
-    contextAfter: '',
-  );
+  return record;
 }
 
 /// 构造时立即读取内容版本，尚无标注的旧会话也不能回写新版。

@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/cjk_justify.dart';
 import 'package:reader_core/layout/line_breaker.dart';
-import 'package:reader_core/layout/text_layout.dart';
 import 'package:reader_core/paint/line_spans.dart';
 
 /// 两端对齐的行宽口径：`width` 是自然宽，`advanceWidth` 是绘制宽。

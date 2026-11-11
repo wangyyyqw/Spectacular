@@ -21,7 +21,7 @@ enum ReaderAnnotationType {
 
 /// 高亮装饰样式。
 enum ReaderAnnotationStyle {
-  /// 半透明底色（旧数据默认样式）。
+  /// 半透明底色，默认样式。
   background(0),
 
   /// 实线下划线。

@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/epub/book_identity.dart';
+import 'package:reader_core/epub/chapter/book_progress.dart'
+    show bookProgressIndexFor;
 import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -16,12 +18,8 @@ import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/revision_relocator.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
-import 'package:reader_ui/reader_session.dart';
-import 'package:reader_ui/page_furniture/page_furniture.dart';
 
-import '../reader/epub_chapter_source.dart';
 import '../reader/reader_decoration_image_store.dart';
-import '../reader/reader_settings.dart';
 import '../storage/book_review_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
@@ -29,9 +27,9 @@ import '../storage/drift_decoration_store.dart';
 import '../storage/drift_decoration_rule_store.dart';
 import '../storage/drift_bookmark_store.dart';
 import '../storage/reading_session_store.dart';
-import 'book_identity_migration.dart';
 import 'import_analysis.dart';
 import 'revision_anchor_index.dart';
+import 'revision_anchor_store.dart' show requireAnchorRecord;
 
 part 'library_revision.dart';
 
@@ -81,7 +79,7 @@ class BookEntry {
   /// 用户可编辑的简介。
   final String description;
 
-  /// EPUB 文件绝对路径（新书为 `books-v1/<id>/source.epub`）。
+  /// EPUB 文件绝对路径（新书为 `books/<id>/source.epub`）。
   final String filePath;
 
   /// 导入时间。
@@ -99,7 +97,7 @@ class BookEntry {
   /// 封面缓存文件路径（§37.3 三级提取成功后落盘）；null 用占位。
   final String? coverPath;
 
-  /// 原书 SHA-256（导入时计算并落库）；旧数据或内存模式为 null。
+  /// 原书 SHA-256，导入时计算并与条目一起保存。
   final String? contentRevision;
 
   /// 仅用于此次导入提示，不持久化到书架。
@@ -120,59 +118,12 @@ class BookEntry {
   /// 封面占位色：由 id 派生的稳定色相（§37.3 四级回退的第 4 级）。
   int get coverHue => id.hashCode.abs() % 360;
 
-  Map<String, Object?> toJson() => <String, Object?>{
-    'id': id,
-    'title': title,
-    'author': author,
-    'description': description,
-    'filePath': filePath,
-    'addedAt': addedAt.millisecondsSinceEpoch,
-    'lastReadAt': lastReadAt?.millisecondsSinceEpoch,
-    'spineCount': spineCount,
-    'readabilityLevel': readabilityLevel,
-    'coverPath': coverPath,
-  };
-
-  static BookEntry? fromJson(Map<String, dynamic> json) {
-    final id = json['id'];
-    final title = json['title'];
-    final filePath = json['filePath'];
-    final addedAt = json['addedAt'];
-    if (id is! String ||
-        title is! String ||
-        filePath is! String ||
-        addedAt is! int) {
-      return null;
-    }
-    final lastReadAt = json['lastReadAt'];
-    final spineCount = json['spineCount'];
-    return BookEntry(
-      id: id,
-      title: title,
-      author: json['author'] is String ? json['author'] as String : '',
-      description: json['description'] is String
-          ? json['description'] as String
-          : '',
-      filePath: filePath,
-      addedAt: DateTime.fromMillisecondsSinceEpoch(addedAt),
-      lastReadAt: lastReadAt is int
-          ? DateTime.fromMillisecondsSinceEpoch(lastReadAt)
-          : null,
-      spineCount: spineCount is int ? spineCount : null,
-      readabilityLevel: json['readabilityLevel'] is int
-          ? json['readabilityLevel'] as int
-          : 0,
-      coverPath: json['coverPath'] is String
-          ? json['coverPath'] as String
-          : null,
-    );
-  }
-
   BookEntry copyWith({
     DateTime? lastReadAt,
     String? title,
     String? author,
     String? description,
+    String? contentRevision,
   }) => BookEntry(
     id: id,
     title: title ?? this.title,
@@ -183,7 +134,7 @@ class BookEntry {
     lastReadAt: lastReadAt ?? this.lastReadAt,
     spineCount: spineCount,
     readabilityLevel: readabilityLevel,
-    contentRevision: contentRevision,
+    contentRevision: contentRevision ?? this.contentRevision,
     coverPath: coverPath,
     importOutcome: importOutcome,
   );
@@ -284,7 +235,7 @@ class ReaderFontEntry {
   final String displayName;
 }
 
-/// 书库存储（P4-04）：drift `books` 表 + `books-v1/<id>/` 目录
+/// 书库存储（P4-04）：drift `books` 表 + `books/<id>/` 目录
 /// （`source.epub` 原书 + `cover.jpg` 封面缓存）。
 ///
 /// [LibraryStore.memory] 为纯内存模式（无数据库、无 IO，widget 测试用）。
@@ -310,25 +261,10 @@ class LibraryStore {
   final Map<String, BookTag> _memoryTags = <String, BookTag>{};
   final Map<String, Set<String>> _memoryBookTags = <String, Set<String>>{};
   final List<void Function()> _listeners = <void Function()>[];
-  Future<int>? _identityMigration;
   Future<void>? _importQueue;
   static final _databaseImportQueues = Expando<Future<void>>();
 
   bool get _isMemory => _db == null;
-
-  /// 启动和导入共用迁移入口；失败可重试，不改变原书路径与整数外键。
-  Future<int> migrateBookIds() async {
-    if (_isMemory) return 0;
-    final pending = _identityMigration;
-    if (pending != null) return pending;
-    final migration = migrateBookIdentities(_db!);
-    _identityMigration = migration;
-    try {
-      return await migration;
-    } finally {
-      _identityMigration = null;
-    }
-  }
 
   /// 条目变化通知（书架刷新用）。
   void addListener(void Function() listener) => _listeners.add(listener);
@@ -350,7 +286,7 @@ class LibraryStore {
 
   Future<Directory> _bookDirectory(String id) async {
     final root = await _root();
-    final directory = _safeBookDirectory(root, id, canonical: true);
+    final directory = _safeBookDirectory(root, id);
     if (directory == null) {
       throw const LibraryImportException('书籍标识无效，无法创建存储目录');
     }
@@ -358,19 +294,13 @@ class LibraryStore {
     return directory;
   }
 
-  Directory? _safeBookDirectory(
-    Directory root,
-    String id, {
-    bool canonical = false,
-  }) {
+  Directory? _safeBookDirectory(Directory root, String id) {
     if (id == '.' ||
         id == '..' ||
         !RegExp(r'^[A-Za-z0-9._~-]+$').hasMatch(id)) {
       return null;
     }
-    final booksPath = p.normalize(
-      p.join(root.path, canonical ? 'books-v1' : 'books'),
-    );
+    final booksPath = p.normalize(p.join(root.path, 'books'));
     final path = p.normalize(p.join(booksPath, id));
     return p.isWithin(booksPath, path) ? Directory(path) : null;
   }
@@ -1023,11 +953,6 @@ class LibraryStore {
     bool Function()? isCancelled,
   }) async {
     _checkImportCancelled(isCancelled);
-    try {
-      await migrateBookIds();
-    } on FormatException {
-      // 单本旧书损坏或冲突保留待恢复，不阻止无关新书导入。
-    }
     onProgress?.call(0.1);
     // 哈希、CRC 校验、字数统计与封面提取都在后台 isolate 完成。
     final analysisTrace = readerTraceEnabled
@@ -1076,12 +1001,6 @@ class LibraryStore {
       identifier: identifier,
     );
     final existing = _isMemory ? null : await _bookRowOfUuid(id);
-    if (existing != null && existing.identityVersion != 1) {
-      throw const LibraryImportException(
-        '书籍标识与待迁移旧记录冲突，已保留原数据',
-        errorCode: 'E_IDENTITY_CONFLICT',
-      );
-    }
     if (!_isMemory && existing != null && existing.deletedAt == null) {
       final openTrace = readerTraceEnabled
           ? ReaderTrace.instance.start(ReaderTraceName.import)
@@ -1118,7 +1037,7 @@ class LibraryStore {
       _memoryBytes[id] = bytes;
       final current = _memoryEntries[id]!;
       final entry = _withImportOutcome(
-        current,
+        current.copyWith(contentRevision: analysis.revision),
         same ? BookImportOutcome.unchanged : BookImportOutcome.updated,
       );
       _memoryEntries[id] = entry;
@@ -1130,7 +1049,7 @@ class LibraryStore {
         : meta.title.trim();
     _checkImportCancelled(isCancelled);
     // 整本哈希已在后台算好，暂存目录名与 contentRevision 共用。
-    final sourceRevision = _isMemory ? '' : analysis.revision;
+    final sourceRevision = analysis.revision;
     String filePath = '';
     String? coverPath;
     Directory? stagedDirectory;
@@ -1187,6 +1106,7 @@ class LibraryStore {
         spineCount: summary.spine.length,
         readabilityLevel: report.readabilityLevel,
         coverPath: coverPath,
+        contentRevision: sourceRevision,
       );
       if (_isMemory) {
         _memoryBytes[id] = payload.bytes!;
@@ -1196,9 +1116,7 @@ class LibraryStore {
         final companion = BooksCompanion.insert(
           uuid: id,
           epubIdentifier: Value(identifier),
-          identityVersion: const Value(1),
-          contentRevision: Value(sourceRevision),
-          legacyUuid: Value(existing?.legacyUuid ?? existing?.uuid),
+          contentRevision: sourceRevision,
           title: title,
           author: Value(meta.author.trim().isEmpty ? null : meta.author.trim()),
           description: Value(existing?.description),
@@ -1206,7 +1124,7 @@ class LibraryStore {
             meta.language.trim().isEmpty ? null : meta.language.trim(),
           ),
           // 尚未解包：书目录即资源目录。
-          contentDir: 'books-v1/$id',
+          contentDir: 'books/$id',
           sourcePath: Value(filePath),
           coverPath: Value(coverPath),
           spineCount: Value(summary.spine.length),
@@ -1287,23 +1205,6 @@ class LibraryStore {
     _notify();
   }
 
-  /// 旧书首次打开时补写内容版本，避免之后每次开书都重新哈希整本文件。
-  ///
-  /// 只填补空值，不覆盖导入流程已经写入的版本号。
-  Future<void> rememberContentRevision(String id, String revision) async {
-    if (revision.isEmpty || _isMemory) {
-      return;
-    }
-    final db = _db;
-    if (db == null) {
-      return;
-    }
-    await (db.update(db.books)..where(
-          (table) => table.uuid.equals(id) & table.contentRevision.isNull(),
-        ))
-        .write(BooksCompanion(contentRevision: Value(revision)));
-  }
-
   /// 从书架移除书籍：保留用户数据，只清理书籍文件并标记为已删除。
   ///
   /// 重新导入同一 OPF identifier 时复用原书主键，进度、标注、书评和阅读
@@ -1318,17 +1219,11 @@ class LibraryStore {
     // 软删除保留子表；文件删除失败留孤儿，启动扫描可清理。
     final db = _db!;
     final root = await _root();
-    final directory = _safeBookDirectory(root, id, canonical: true);
+    final directory = _safeBookDirectory(root, id);
     final rows = await (db.select(
       db.books,
     )..where((table) => table.uuid.equals(id))).get();
-    final directories = <Directory>[
-      ?directory,
-      for (final row in rows)
-        if (row.identityVersion == 0) ?_safeBookDirectory(root, row.uuid),
-      for (final row in rows)
-        if (row.legacyUuid != null) ?_safeBookDirectory(root, row.legacyUuid!),
-    ];
+    final directories = <Directory>[?directory];
     final otherBooks =
         await (db.select(db.books)..where(
               (table) => table.uuid.isNotValue(id) & table.deletedAt.isNull(),
@@ -1355,18 +1250,12 @@ class LibraryStore {
     );
     for (final path in sourcePaths) {
       if (otherBooks.any((book) => book.sourcePath == path)) continue;
-      // 旧库异常路径只能清理记录，不能扩大文件删除范围。
+      // 只清理本书目录中的文件，异常路径不扩大删除范围。
       final normalized = p.normalize(path);
-      final legacyDirectory = p.normalize(p.join(root.path, 'books'));
       final owned = directories.any(
         (item) => p.isWithin(item.path, normalized),
       );
-      final legacy =
-          p.dirname(normalized) == legacyDirectory &&
-          p.extension(normalized).toLowerCase() == '.epub';
-      if (directory == null || (!owned && !legacy)) {
-        continue;
-      }
+      if (!owned) continue;
       final file = File(path);
       if (await file.exists()) {
         try {
@@ -1565,7 +1454,7 @@ class LibraryStore {
     ];
   }
 
-  /// 启动扫描：清理数据库中不存在的书目录与旧格式孤儿文件（§37.4）。
+  /// 启动扫描：清理当前书库中的孤儿目录与未提交版本（§37.4）。
   ///
   /// 返回清理的条目数与释放的字节数；失败项跳过（下次启动再试）。
   Future<({int removed, int bytes})> sweepOrphans() {
@@ -1588,31 +1477,15 @@ class LibraryStore {
     final rows = await (db.select(
       db.books,
     )..where((table) => table.deletedAt.isNull())).get();
-    final knownIds = <String>{
-      for (final row in rows) row.uuid,
-      for (final row in rows)
-        if (row.legacyUuid != null) row.legacyUuid!,
-    };
     final knownFiles = <String>{
       for (final row in rows)
         if (row.sourcePath != null) p.normalize(row.sourcePath!),
       for (final row in rows)
         if (row.coverPath != null) p.normalize(row.coverPath!),
     };
-    final legacy = await _sweepBookDirectory(
-      Directory('${root.path}/books'),
-      knownIds,
-      knownFiles,
-    );
-    final canonical = await _sweepBookDirectory(
-      Directory('${root.path}/books-v1'),
-      {for (final row in rows) row.uuid},
-      knownFiles,
-    );
-    return (
-      removed: legacy.removed + canonical.removed,
-      bytes: legacy.bytes + canonical.bytes,
-    );
+    return _sweepBookDirectory(Directory('${root.path}/books'), {
+      for (final row in rows) row.uuid,
+    }, knownFiles);
   }
 
   Future<({int removed, int bytes})> _sweepBookDirectory(
@@ -1625,7 +1498,7 @@ class LibraryStore {
     var bytes = 0;
     await for (final entity in booksDirectory.list(followLinks: false)) {
       if (entity is Directory) {
-        // 新格式：books/<uuid>/；未知 uuid 即孤儿目录。
+        // books/<id>/；未知标识且无活动文件引用即为孤儿目录。
         if (knownIds.contains(p.basename(entity.path)) ||
             knownFiles.any((path) => p.isWithin(entity.path, path))) {
           final retired = await _sweepRetiredVersions(entity, knownFiles);
@@ -1641,7 +1514,7 @@ class LibraryStore {
           // 占用/权限失败：保留，下次启动再试。
         }
       } else if (entity is File) {
-        // 旧格式：books/<id>.epub；只留数据库引用中的文件。
+        // 未提交的临时文件只保留数据库仍在引用的条目。
         if (knownFiles.contains(p.normalize(entity.path))) {
           continue;
         }
@@ -1719,132 +1592,6 @@ class LibraryStore {
       }
     }
     return total;
-  }
-
-  /// 给缺封面的旧书补提取封面（迁移后的一次性回填，幂等）。
-  ///
-  /// 只处理 `cover_path` 为空的书；单本失败不影响其它书。
-  Future<int> backfillCovers() async {
-    if (_isMemory) {
-      return 0;
-    }
-    final db = _db!;
-    final rows =
-        await (db.select(db.books)..where(
-              (table) => table.deletedAt.isNull() & table.coverPath.isNull(),
-            ))
-            .get();
-    var filled = 0;
-    for (final row in rows) {
-      final sourcePath = row.sourcePath;
-      if (sourcePath == null || !await File(sourcePath).exists()) {
-        continue;
-      }
-      try {
-        // 惰性打开：只解压 OPF/导航与封面，不再把整本读进内存。
-        final result = await openEpubFile(File(sourcePath));
-        final document = result.document;
-        if (document == null) continue;
-        try {
-          final coverBytes = document.readCoverBytes();
-          if (coverBytes == null || coverBytes.isEmpty) {
-            continue;
-          }
-          final directory = await _bookDirectory(row.uuid);
-          final extension = _coverExtension(document.coverResourcePath);
-          final coverFile = File('${directory.path}/cover.$extension');
-          await coverFile.writeAsBytes(coverBytes, flush: true);
-          await (db.update(db.books)..where((table) => table.id.equals(row.id)))
-              .write(BooksCompanion(coverPath: Value(coverFile.path)));
-          filled += 1;
-        } finally {
-          document.archive.close();
-        }
-      } catch (_) {
-        // 单本解析失败跳过，不影响其它书。
-      }
-    }
-    if (filled > 0) {
-      _notify();
-    }
-    return filled;
-  }
-
-  /// 把旧版 `books.json` 一次性迁入 drift（幂等：库非空直接返回 0）。
-  ///
-  /// §36.2：uuid 唯一，重复导入落到同一本书。
-  Future<int> migrateLegacyJson() async {
-    if (_isMemory) {
-      return 0;
-    }
-    final db = _db!;
-    final rows = await (db.select(
-      db.books,
-    )..where((table) => table.deletedAt.isNull())).get();
-    if (rows.isNotEmpty) {
-      return 0;
-    }
-    final root = await _root();
-    final file = File('${root.path}/books.json');
-    if (!await file.exists()) {
-      return 0;
-    }
-    final decoded = jsonDecode(await file.readAsString());
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('旧书库数据必须是对象');
-    }
-    final entries = decoded['books'];
-    if (entries is! List) {
-      throw const FormatException('旧书库缺少书籍列表');
-    }
-    var migrated = 0;
-    for (final raw in entries) {
-      if (raw is! Map<String, dynamic>) {
-        continue;
-      }
-      final entry = BookEntry.fromJson(raw);
-      if (entry == null || !await File(entry.filePath).exists()) {
-        continue;
-      }
-      await db
-          .into(db.books)
-          .insert(
-            BooksCompanion.insert(
-              uuid: entry.id,
-              title: entry.title,
-              author: Value(entry.author.isEmpty ? null : entry.author),
-              description: Value(
-                entry.description.isEmpty ? null : entry.description,
-              ),
-              contentDir: 'books/${entry.id}',
-              sourcePath: Value(entry.filePath),
-              coverPath: Value(entry.coverPath),
-              spineCount: Value(entry.spineCount ?? 0),
-              createdAt: entry.addedAt.millisecondsSinceEpoch,
-              lastReadAt: Value(entry.lastReadAt?.millisecondsSinceEpoch),
-              level: Value(entry.readabilityLevel),
-            ),
-          );
-      migrated += 1;
-    }
-    _notify();
-    return migrated;
-  }
-
-  static const _coverExtensions = <String>{'jpg', 'jpeg', 'png', 'gif', 'webp'};
-
-  /// 封面文件扩展名：按资源路径后缀，未知按 jpg。
-  static String _coverExtension(String? resourcePath) {
-    if (resourcePath != null) {
-      final dot = resourcePath.lastIndexOf('.');
-      if (dot >= 0 && dot + 1 < resourcePath.length) {
-        final extension = resourcePath.substring(dot + 1).toLowerCase();
-        if (_coverExtensions.contains(extension)) {
-          return extension == 'jpeg' ? 'jpg' : extension;
-        }
-      }
-    }
-    return 'jpg';
   }
 
   Future<BookRow?> _bookRowOfUuid(String id) async {

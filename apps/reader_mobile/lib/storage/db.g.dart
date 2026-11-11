@@ -42,29 +42,6 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _identityVersionMeta = const VerificationMeta(
-    'identityVersion',
-  );
-  @override
-  late final GeneratedColumn<int> identityVersion = GeneratedColumn<int>(
-    'identity_version',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: false,
-    defaultValue: const Constant(0),
-  );
-  static const VerificationMeta _legacyUuidMeta = const VerificationMeta(
-    'legacyUuid',
-  );
-  @override
-  late final GeneratedColumn<String> legacyUuid = GeneratedColumn<String>(
-    'legacy_uuid',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-  );
   static const VerificationMeta _contentRevisionMeta = const VerificationMeta(
     'contentRevision',
   );
@@ -72,9 +49,9 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
   late final GeneratedColumn<String> contentRevision = GeneratedColumn<String>(
     'content_revision',
     aliasedName,
-    true,
+    false,
     type: DriftSqlType.string,
-    requiredDuringInsert: false,
+    requiredDuringInsert: true,
   );
   static const VerificationMeta _titleMeta = const VerificationMeta('title');
   @override
@@ -244,8 +221,6 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
     id,
     uuid,
     epubIdentifier,
-    identityVersion,
-    legacyUuid,
     contentRevision,
     title,
     author,
@@ -295,21 +270,6 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
         ),
       );
     }
-    if (data.containsKey('identity_version')) {
-      context.handle(
-        _identityVersionMeta,
-        identityVersion.isAcceptableOrUnknown(
-          data['identity_version']!,
-          _identityVersionMeta,
-        ),
-      );
-    }
-    if (data.containsKey('legacy_uuid')) {
-      context.handle(
-        _legacyUuidMeta,
-        legacyUuid.isAcceptableOrUnknown(data['legacy_uuid']!, _legacyUuidMeta),
-      );
-    }
     if (data.containsKey('content_revision')) {
       context.handle(
         _contentRevisionMeta,
@@ -318,6 +278,8 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
           _contentRevisionMeta,
         ),
       );
+    } else if (isInserting) {
+      context.missing(_contentRevisionMeta);
     }
     if (data.containsKey('title')) {
       context.handle(
@@ -445,18 +407,10 @@ class $BooksTable extends Books with TableInfo<$BooksTable, BookRow> {
         DriftSqlType.string,
         data['${effectivePrefix}epub_identifier'],
       ),
-      identityVersion: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}identity_version'],
-      )!,
-      legacyUuid: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}legacy_uuid'],
-      ),
       contentRevision: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}content_revision'],
-      ),
+      )!,
       title: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}title'],
@@ -530,20 +484,14 @@ class BookRow extends DataClass implements Insertable<BookRow> {
   /// 主键。
   final int id;
 
-  /// 固定算法生成的 32 位书籍标识；保留列名以兼容已有存储接口。
+  /// 固定算法生成的 32 位书籍标识。
   final String uuid;
 
   /// EPUB 原始 unique-identifier，不使用书籍标识替换字体解混淆密钥。
   final String? epubIdentifier;
 
-  /// 标识算法版本；0 表示等待从原书迁移，1 表示固定摘要算法。
-  final int identityVersion;
-
-  /// 迁移前标识，供旧进度文件解析及旧目录保护。
-  final String? legacyUuid;
-
   /// 当前 EPUB 字节摘要，与书籍身份分开。
-  final String? contentRevision;
+  final String contentRevision;
 
   /// 书名。
   final String title;
@@ -593,9 +541,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     required this.id,
     required this.uuid,
     this.epubIdentifier,
-    required this.identityVersion,
-    this.legacyUuid,
-    this.contentRevision,
+    required this.contentRevision,
     required this.title,
     this.author,
     this.description,
@@ -620,13 +566,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     if (!nullToAbsent || epubIdentifier != null) {
       map['epub_identifier'] = Variable<String>(epubIdentifier);
     }
-    map['identity_version'] = Variable<int>(identityVersion);
-    if (!nullToAbsent || legacyUuid != null) {
-      map['legacy_uuid'] = Variable<String>(legacyUuid);
-    }
-    if (!nullToAbsent || contentRevision != null) {
-      map['content_revision'] = Variable<String>(contentRevision);
-    }
+    map['content_revision'] = Variable<String>(contentRevision);
     map['title'] = Variable<String>(title);
     if (!nullToAbsent || author != null) {
       map['author'] = Variable<String>(author);
@@ -668,13 +608,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       epubIdentifier: epubIdentifier == null && nullToAbsent
           ? const Value.absent()
           : Value(epubIdentifier),
-      identityVersion: Value(identityVersion),
-      legacyUuid: legacyUuid == null && nullToAbsent
-          ? const Value.absent()
-          : Value(legacyUuid),
-      contentRevision: contentRevision == null && nullToAbsent
-          ? const Value.absent()
-          : Value(contentRevision),
+      contentRevision: Value(contentRevision),
       title: Value(title),
       author: author == null && nullToAbsent
           ? const Value.absent()
@@ -718,9 +652,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       id: serializer.fromJson<int>(json['id']),
       uuid: serializer.fromJson<String>(json['uuid']),
       epubIdentifier: serializer.fromJson<String?>(json['epubIdentifier']),
-      identityVersion: serializer.fromJson<int>(json['identityVersion']),
-      legacyUuid: serializer.fromJson<String?>(json['legacyUuid']),
-      contentRevision: serializer.fromJson<String?>(json['contentRevision']),
+      contentRevision: serializer.fromJson<String>(json['contentRevision']),
       title: serializer.fromJson<String>(json['title']),
       author: serializer.fromJson<String?>(json['author']),
       description: serializer.fromJson<String?>(json['description']),
@@ -745,9 +677,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       'id': serializer.toJson<int>(id),
       'uuid': serializer.toJson<String>(uuid),
       'epubIdentifier': serializer.toJson<String?>(epubIdentifier),
-      'identityVersion': serializer.toJson<int>(identityVersion),
-      'legacyUuid': serializer.toJson<String?>(legacyUuid),
-      'contentRevision': serializer.toJson<String?>(contentRevision),
+      'contentRevision': serializer.toJson<String>(contentRevision),
       'title': serializer.toJson<String>(title),
       'author': serializer.toJson<String?>(author),
       'description': serializer.toJson<String?>(description),
@@ -770,9 +700,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     int? id,
     String? uuid,
     Value<String?> epubIdentifier = const Value.absent(),
-    int? identityVersion,
-    Value<String?> legacyUuid = const Value.absent(),
-    Value<String?> contentRevision = const Value.absent(),
+    String? contentRevision,
     String? title,
     Value<String?> author = const Value.absent(),
     Value<String?> description = const Value.absent(),
@@ -794,11 +722,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     epubIdentifier: epubIdentifier.present
         ? epubIdentifier.value
         : this.epubIdentifier,
-    identityVersion: identityVersion ?? this.identityVersion,
-    legacyUuid: legacyUuid.present ? legacyUuid.value : this.legacyUuid,
-    contentRevision: contentRevision.present
-        ? contentRevision.value
-        : this.contentRevision,
+    contentRevision: contentRevision ?? this.contentRevision,
     title: title ?? this.title,
     author: author.present ? author.value : this.author,
     description: description.present ? description.value : this.description,
@@ -822,12 +746,6 @@ class BookRow extends DataClass implements Insertable<BookRow> {
       epubIdentifier: data.epubIdentifier.present
           ? data.epubIdentifier.value
           : this.epubIdentifier,
-      identityVersion: data.identityVersion.present
-          ? data.identityVersion.value
-          : this.identityVersion,
-      legacyUuid: data.legacyUuid.present
-          ? data.legacyUuid.value
-          : this.legacyUuid,
       contentRevision: data.contentRevision.present
           ? data.contentRevision.value
           : this.contentRevision,
@@ -867,8 +785,6 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           ..write('id: $id, ')
           ..write('uuid: $uuid, ')
           ..write('epubIdentifier: $epubIdentifier, ')
-          ..write('identityVersion: $identityVersion, ')
-          ..write('legacyUuid: $legacyUuid, ')
           ..write('contentRevision: $contentRevision, ')
           ..write('title: $title, ')
           ..write('author: $author, ')
@@ -890,12 +806,10 @@ class BookRow extends DataClass implements Insertable<BookRow> {
   }
 
   @override
-  int get hashCode => Object.hashAll([
+  int get hashCode => Object.hash(
     id,
     uuid,
     epubIdentifier,
-    identityVersion,
-    legacyUuid,
     contentRevision,
     title,
     author,
@@ -912,7 +826,7 @@ class BookRow extends DataClass implements Insertable<BookRow> {
     level,
     warnings,
     deletedAt,
-  ]);
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -920,8 +834,6 @@ class BookRow extends DataClass implements Insertable<BookRow> {
           other.id == this.id &&
           other.uuid == this.uuid &&
           other.epubIdentifier == this.epubIdentifier &&
-          other.identityVersion == this.identityVersion &&
-          other.legacyUuid == this.legacyUuid &&
           other.contentRevision == this.contentRevision &&
           other.title == this.title &&
           other.author == this.author &&
@@ -944,9 +856,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
   final Value<int> id;
   final Value<String> uuid;
   final Value<String?> epubIdentifier;
-  final Value<int> identityVersion;
-  final Value<String?> legacyUuid;
-  final Value<String?> contentRevision;
+  final Value<String> contentRevision;
   final Value<String> title;
   final Value<String?> author;
   final Value<String?> description;
@@ -966,8 +876,6 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.id = const Value.absent(),
     this.uuid = const Value.absent(),
     this.epubIdentifier = const Value.absent(),
-    this.identityVersion = const Value.absent(),
-    this.legacyUuid = const Value.absent(),
     this.contentRevision = const Value.absent(),
     this.title = const Value.absent(),
     this.author = const Value.absent(),
@@ -989,9 +897,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.id = const Value.absent(),
     required String uuid,
     this.epubIdentifier = const Value.absent(),
-    this.identityVersion = const Value.absent(),
-    this.legacyUuid = const Value.absent(),
-    this.contentRevision = const Value.absent(),
+    required String contentRevision,
     required String title,
     this.author = const Value.absent(),
     this.description = const Value.absent(),
@@ -1008,6 +914,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     this.warnings = const Value.absent(),
     this.deletedAt = const Value.absent(),
   }) : uuid = Value(uuid),
+       contentRevision = Value(contentRevision),
        title = Value(title),
        contentDir = Value(contentDir),
        createdAt = Value(createdAt);
@@ -1015,8 +922,6 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Expression<int>? id,
     Expression<String>? uuid,
     Expression<String>? epubIdentifier,
-    Expression<int>? identityVersion,
-    Expression<String>? legacyUuid,
     Expression<String>? contentRevision,
     Expression<String>? title,
     Expression<String>? author,
@@ -1038,8 +943,6 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       if (id != null) 'id': id,
       if (uuid != null) 'uuid': uuid,
       if (epubIdentifier != null) 'epub_identifier': epubIdentifier,
-      if (identityVersion != null) 'identity_version': identityVersion,
-      if (legacyUuid != null) 'legacy_uuid': legacyUuid,
       if (contentRevision != null) 'content_revision': contentRevision,
       if (title != null) 'title': title,
       if (author != null) 'author': author,
@@ -1063,9 +966,7 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     Value<int>? id,
     Value<String>? uuid,
     Value<String?>? epubIdentifier,
-    Value<int>? identityVersion,
-    Value<String?>? legacyUuid,
-    Value<String?>? contentRevision,
+    Value<String>? contentRevision,
     Value<String>? title,
     Value<String?>? author,
     Value<String?>? description,
@@ -1086,8 +987,6 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
       id: id ?? this.id,
       uuid: uuid ?? this.uuid,
       epubIdentifier: epubIdentifier ?? this.epubIdentifier,
-      identityVersion: identityVersion ?? this.identityVersion,
-      legacyUuid: legacyUuid ?? this.legacyUuid,
       contentRevision: contentRevision ?? this.contentRevision,
       title: title ?? this.title,
       author: author ?? this.author,
@@ -1118,12 +1017,6 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
     }
     if (epubIdentifier.present) {
       map['epub_identifier'] = Variable<String>(epubIdentifier.value);
-    }
-    if (identityVersion.present) {
-      map['identity_version'] = Variable<int>(identityVersion.value);
-    }
-    if (legacyUuid.present) {
-      map['legacy_uuid'] = Variable<String>(legacyUuid.value);
     }
     if (contentRevision.present) {
       map['content_revision'] = Variable<String>(contentRevision.value);
@@ -1182,8 +1075,6 @@ class BooksCompanion extends UpdateCompanion<BookRow> {
           ..write('id: $id, ')
           ..write('uuid: $uuid, ')
           ..write('epubIdentifier: $epubIdentifier, ')
-          ..write('identityVersion: $identityVersion, ')
-          ..write('legacyUuid: $legacyUuid, ')
           ..write('contentRevision: $contentRevision, ')
           ..write('title: $title, ')
           ..write('author: $author, ')
@@ -5192,13 +5083,13 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   /// 书籍主键兼外键。
   final int bookId;
 
-  /// 位置 CFI（P5 接入 CFI 后使用；当前存 `spine:i/page:j` 占位串）。
+  /// 当前原文的 CFI；没有内容位置的读完标记保存空串。
   final String locatorCfi;
 
-  /// 版本化内容锚点，旧位置串保留兼容。
+  /// 原始与当前内容锚点及位置元数据。
   final String? anchorJson;
 
-  /// spine 序号（P4-10：进度迁移到表内，书架/续读用）。
+  /// spine 序号，供书架和续读使用。
   final int? spineIndex;
 
   /// 章内页序号。
@@ -5207,7 +5098,7 @@ class ProgressRow extends DataClass implements Insertable<ProgressRow> {
   /// 用户手动标记的读完状态。
   final bool finished;
 
-  /// 全书百分比（0～1）。
+  /// 全书百分比（0～100；UI 使用的 `ReaderProgress.readingPercent` 为 0～1）。
   final double percent;
 
   /// 写入时间（毫秒）。
@@ -8853,9 +8744,7 @@ typedef $$BooksTableCreateCompanionBuilder = BooksCompanion Function({
   Value<int> id,
   required String uuid,
   Value<String?> epubIdentifier,
-  Value<int> identityVersion,
-  Value<String?> legacyUuid,
-  Value<String?> contentRevision,
+  required String contentRevision,
   required String title,
   Value<String?> author,
   Value<String?> description,
@@ -8876,9 +8765,7 @@ typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<int> id,
   Value<String> uuid,
   Value<String?> epubIdentifier,
-  Value<int> identityVersion,
-  Value<String?> legacyUuid,
-  Value<String?> contentRevision,
+  Value<String> contentRevision,
   Value<String> title,
   Value<String?> author,
   Value<String?> description,
@@ -9112,16 +8999,6 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
 
   ColumnFilters<String> get epubIdentifier => $composableBuilder(
     column: $table.epubIdentifier,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<int> get identityVersion => $composableBuilder(
-    column: $table.identityVersion,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get legacyUuid => $composableBuilder(
-    column: $table.legacyUuid,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9480,16 +9357,6 @@ class $$BooksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get identityVersion => $composableBuilder(
-    column: $table.identityVersion,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<String> get legacyUuid => $composableBuilder(
-    column: $table.legacyUuid,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<String> get contentRevision => $composableBuilder(
     column: $table.contentRevision,
     builder: (column) => ColumnOrderings(column),
@@ -9588,16 +9455,6 @@ class $$BooksTableAnnotationComposer
 
   GeneratedColumn<String> get epubIdentifier => $composableBuilder(
     column: $table.epubIdentifier,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<int> get identityVersion => $composableBuilder(
-    column: $table.identityVersion,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<String> get legacyUuid => $composableBuilder(
-    column: $table.legacyUuid,
     builder: (column) => column,
   );
 
@@ -9957,9 +9814,7 @@ class $$BooksTableTableManager
                 Value<int> id = const Value.absent(),
                 Value<String> uuid = const Value.absent(),
                 Value<String?> epubIdentifier = const Value.absent(),
-                Value<int> identityVersion = const Value.absent(),
-                Value<String?> legacyUuid = const Value.absent(),
-                Value<String?> contentRevision = const Value.absent(),
+                Value<String> contentRevision = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String?> author = const Value.absent(),
                 Value<String?> description = const Value.absent(),
@@ -9979,8 +9834,6 @@ class $$BooksTableTableManager
                 id: id,
                 uuid: uuid,
                 epubIdentifier: epubIdentifier,
-                identityVersion: identityVersion,
-                legacyUuid: legacyUuid,
                 contentRevision: contentRevision,
                 title: title,
                 author: author,
@@ -10003,9 +9856,7 @@ class $$BooksTableTableManager
                 Value<int> id = const Value.absent(),
                 required String uuid,
                 Value<String?> epubIdentifier = const Value.absent(),
-                Value<int> identityVersion = const Value.absent(),
-                Value<String?> legacyUuid = const Value.absent(),
-                Value<String?> contentRevision = const Value.absent(),
+                required String contentRevision,
                 required String title,
                 Value<String?> author = const Value.absent(),
                 Value<String?> description = const Value.absent(),
@@ -10025,8 +9876,6 @@ class $$BooksTableTableManager
                 id: id,
                 uuid: uuid,
                 epubIdentifier: epubIdentifier,
-                identityVersion: identityVersion,
-                legacyUuid: legacyUuid,
                 contentRevision: contentRevision,
                 title: title,
                 author: author,

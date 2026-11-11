@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/document_parser.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
 
@@ -122,6 +122,7 @@ void main() {
         body: body,
         binaryFiles: {'OEBPS/Text/x.png': base64Decode(transparentPng)},
       );
+      await source.loadAnchorChapter(0);
       expect(source.fullBleedAnalysis(0).isFullBleed, isFalse, reason: body);
       final pages = await source.loadChapter(0);
       expect(pages.expand((page) => page.slices), isEmpty, reason: body);
@@ -138,8 +139,10 @@ void main() {
       contentWidth: 400,
       binaryFiles: {'OEBPS/Text/x.png': base64Decode(transparentPng)},
     );
+    await source.loadAnchorChapter(0);
     expect(source.fullBleedAnalysis(0).isFullBleed, isTrue);
     await source.applyContentSize(width: 300, height: 500);
+    await source.loadAnchorChapter(0);
     expect(source.fullBleedAnalysis(0).isFullBleed, isFalse);
   });
 

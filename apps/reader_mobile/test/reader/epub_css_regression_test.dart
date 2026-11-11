@@ -228,7 +228,7 @@ void main() {
           '.spaces { white-space: pre-wrap; } .normal { white-space: normal; }',
     );
     addTearDown(source.close);
-    final anchor = source.anchorChapter(0);
+    final anchor = await source.loadAnchorChapter(0);
     final text = (await source.loadChapter(0))
         .first
         .slices

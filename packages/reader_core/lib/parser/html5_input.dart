@@ -49,10 +49,6 @@ const Set<String> _voidElements = <String>{
   'wbr',
 };
 
-/// 兼容入口：只取预处理后的 XHTML。
-String prepareHtml5Input(String xhtml) =>
-    prepareHtml5InputWithOffsets(xhtml).xhtml;
-
 /// 预处理 XHTML，并保留转换后位置到原始源码位置的映射。
 PreparedHtml5Input prepareHtml5InputWithOffsets(String source) {
   final output = StringBuffer();

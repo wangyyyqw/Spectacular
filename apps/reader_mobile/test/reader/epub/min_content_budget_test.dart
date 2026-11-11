@@ -7,14 +7,14 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
-import 'package:reader_mobile/reader/bounded_cache.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_layout_job.dart';
-import 'package:reader_mobile/reader/epub/chapter_text_measurer.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/util/bounded_cache.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_job.dart';
+import 'package:reader_core/epub/chapter/chapter_text_measurer.dart';
 
 import '../support/css_chapter_book.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 class _ObservedWidthCache extends BoundedCache<String, double> {
   _ObservedWidthCache() : super(128);

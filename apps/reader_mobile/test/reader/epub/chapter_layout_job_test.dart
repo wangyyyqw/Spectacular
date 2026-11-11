@@ -6,12 +6,12 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_layout_job.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_job.dart';
 
 import '../support/css_chapter_book.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 late BookFontView _fonts;
 

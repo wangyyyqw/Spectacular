@@ -7,7 +7,7 @@ import 'package:reader_core/api.dart' show TocEntry;
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/book_progress_index.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
 Uint8List _buildBook(List<String> chapters, {List<String>? bodies}) {
@@ -119,7 +119,7 @@ void main() {
       ),
     );
     for (final percent in [0.0, 0.25, 0.75, 1.0]) {
-      final cfi = source.cfiForReadingPercent(percent)!;
+      final cfi = (await source.prepareCfiForReadingPercent(percent))!;
       expect(source.readingPercentForCfi(cfi), closeTo(percent, 0.002));
       expect(spineIndexOfCfi(EpubCfi.parse(cfi)!), lessThan(2));
     }
@@ -137,7 +137,8 @@ void main() {
       verifyCrc: false,
     );
     addTearDown(source.close);
-    final chapter = source.anchorChapter(1);
+    final chapter = await source.loadAnchorChapter(1);
+    final firstChapter = await source.loadAnchorChapter(0);
     final targetOffset = chapter.text.length ~/ 2;
     final targetCfi = chapter.cfiAt(targetOffset)!;
     final direct = source.cfiForTocEntry(
@@ -162,7 +163,7 @@ void main() {
         title: '后半',
         spineIndex: 1,
         fragment: '后半',
-        cfi: EpubCfi.parse(source.anchorChapter(0).cfiAt(0)!),
+        cfi: EpubCfi.parse(firstChapter.cfiAt(0)!),
       ),
     );
     expect(invalidDirect, fragment, reason: '跨 spine 的目录 CFI 应改用 fragment');
@@ -195,7 +196,7 @@ void main() {
       verifyCrc: false,
     );
     addTearDown(source.close);
-    final chapter = source.anchorChapter(0);
+    final chapter = await source.loadAnchorChapter(0);
     int weightAt(String cfi) {
       final offset = chapter.offsetFor(cfi);
       expect(offset, isNotNull);
@@ -246,5 +247,118 @@ void main() {
       await source.loadChapter(1);
       expect(source.readingPercentForCfi(cfi), original);
     }
+  });
+
+  test('连续翻页跨过缓存容量后仍有真实百分比且可保存位置', () async {
+    final source = await EpubChapterSource.open(
+      _buildBook(List.filled(8, _text(150))),
+    );
+    final store = MemoryReaderProgressStore();
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'page-turn-position',
+      contentRevision: 'r1',
+    );
+    addTearDown(() async {
+      session.dispose();
+      source.close();
+      await source.preparationsStopped;
+    });
+    await session.open(contentWidth: 200, contentHeight: 200);
+    final visited = <int>{};
+    for (final next in [true, false]) {
+      for (var i = 0; i < 12; i++) {
+        final turn = await session.preparePageTurn(next);
+        if (turn == null) break;
+        expect(session.commitPageTurn(turn), isTrue);
+        visited.add(session.progress!.spineIndex);
+        expect(session.readingPercent, isNotNull);
+        await session.flushProgress();
+        final saved = await store.load('page-turn-position');
+        expect(saved?.cfi, session.readingCfi);
+        expect(saved?.readingPercent, session.readingPercent);
+      }
+    }
+    expect(
+      visited.length,
+      greaterThan(EpubChapterSource.documentCacheChapterLimit),
+    );
+  });
+
+  test('百分比定位准备的空值不阻断就绪后重新计算', () async {
+    final source = await EpubChapterSource.open(_buildBook([_text(2000)]));
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'preparing-percent',
+    );
+    addTearDown(() async {
+      session.dispose();
+      source.close();
+      await source.preparationsStopped;
+    });
+    await session.open(contentWidth: 300, contentHeight: 400);
+    final cfi = source.anchorChapter(0).cfiAt(60)!;
+    final percent = source.readingPercentForCfi(cfi);
+    expect(
+      session.stageViewportSnapshot(
+        ReaderViewportSnapshot(
+          spineIndex: 0,
+          pageIndex: 0,
+          scrollOffset: 10,
+          generation: session.generation,
+          cfi: cfi,
+        ),
+      ),
+      isTrue,
+    );
+    await source.applyContentSize(width: 260, height: 400);
+    expect(session.readingPercent, isNull);
+    await source.loadAnchorChapter(0);
+    expect(session.readingPercent, percent);
+  });
+
+  test('暂存滚动位置后调整边距，定位准备期间可读进度且最终正常落盘', () async {
+    final source = await EpubChapterSource.open(_buildBook([_text(2000)]));
+    final store = MemoryReaderProgressStore();
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'resize-position',
+      contentRevision: 'r1',
+    );
+    addTearDown(() async {
+      session.dispose();
+      source.close();
+      await source.preparationsStopped;
+    });
+    await session.open(contentWidth: 300, contentHeight: 400);
+    final cfi = source.anchorChapter(0).cfiAt(60)!;
+    final percent = source.readingPercentForCfi(cfi);
+    expect(
+      session.stageViewportSnapshot(
+        ReaderViewportSnapshot(
+          spineIndex: 0,
+          pageIndex: 0,
+          scrollOffset: 10,
+          generation: session.generation,
+          cfi: cfi,
+        ),
+      ),
+      isTrue,
+    );
+    session.addListener(() {
+      expect(session.bookProgress, inInclusiveRange(0, 1));
+      expect(session.progress, isNotNull);
+    });
+    await session.applyContentSize(width: 260, height: 400, preview: true);
+    await session.applyContentSize(width: 260, height: 400);
+    expect(session.error, isNull);
+    expect(session.readingPercent, percent);
+    await session.flushProgress();
+    final saved = await store.load('resize-position');
+    expect(saved?.cfi, cfi);
+    expect(saved?.readingPercent, percent);
   });
 }

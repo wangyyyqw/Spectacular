@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/bounded_cache.dart';
+import 'package:reader_core/util/bounded_cache.dart';
 
 void main() {
   test('BoundedCache 按最近访问顺序淘汰最久未用条目', () {

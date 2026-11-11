@@ -3,13 +3,14 @@ import 'dart:isolate';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/epub_document.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_structure.dart';
-import 'package:reader_mobile/reader/epub/chapter_styles.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_structure.dart';
+import 'package:reader_core/epub/chapter/chapter_styles.dart';
 
 import '../support/css_chapter_book.dart';
+
+import 'package:reader_core/source/chapter_source.dart';
 
 int _holdWorker(SendPort ready) {
   ready.send(true);
@@ -88,6 +89,7 @@ void main() {
 
     await cancelled;
     final result = await current.result;
+    expect(result.parsed, same(resources.parsedChapter(0)));
     expect(structures.preparations, 1);
     expect(structures.length, 1);
     expect(await structures.schedule(0, 320).result, same(result));

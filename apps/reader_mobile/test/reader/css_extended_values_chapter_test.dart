@@ -7,7 +7,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/page_renderer.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/search/chapter_text.dart';
 import 'package:reader_mobile/search/scan_search_service.dart';
 
@@ -274,13 +274,15 @@ Future<void> _logicalViewportAxes(String rootMode) async {
 Future<void> _viewportHeightOnlyChange() async {
   final source = await _open(
     '<p class="probe">高度变化</p>',
-    '.probe { padding-top: 10vh; letter-spacing: 1vb; }',
+    '.probe { padding-top: 10vh; letter-spacing: 1vb; height: 20vh; }',
   );
   final first = (await _textBlocks(source))['高度变化']!;
   expect(first.style!.padding.top, 50);
+  expect(first.style!.height!.resolve(1), 100);
   expect(await source.applyContentSize(width: 300, height: 240), isTrue);
   final second = (await _textBlocks(source))['高度变化']!;
   expect(second.style!.padding.top, 24);
+  expect(second.style!.height!.resolve(1), 48);
   expect(_styleAt(second, '高').letterSpacing, closeTo(2.4, .001));
   expect(second.startCfi, first.startCfi, reason: '重排不改变原文定位');
 }

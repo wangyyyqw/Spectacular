@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/search/scan_search_service.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -48,11 +48,13 @@ void main() {
     expect((await library().list()).single.lastReadAt, isNotNull);
     expect(
       await DriftProgressStore(db).load(entry.id),
-      const ReaderProgress(
+      ReaderProgress(
         spineIndex: 0,
         pageIndex: 2,
         finished: true,
         approximate: true,
+        contentRevision: entry.contentRevision,
+        readingPercent: 0,
       ),
     );
     expect((await DriftBookReviewStore(db).snapshot())[entry.id]?.rating, 4);
@@ -75,11 +77,13 @@ void main() {
     await library().importBytes(bytes);
     expect(
       await DriftProgressStore(db).load(entry.id),
-      const ReaderProgress(
+      ReaderProgress(
         spineIndex: 0,
         pageIndex: 2,
         finished: true,
         approximate: true,
+        contentRevision: entry.contentRevision,
+        readingPercent: 0,
       ),
     );
     expect(

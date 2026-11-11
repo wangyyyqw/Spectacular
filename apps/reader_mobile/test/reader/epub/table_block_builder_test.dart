@@ -14,21 +14,21 @@ import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
-import 'package:reader_mobile/reader/bounded_cache.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
-import 'package:reader_mobile/reader/epub/chapter_flow.dart';
-import 'package:reader_mobile/reader/epub/chapter_layout_job.dart';
-import 'package:reader_mobile/reader/epub/chapter_pagination.dart';
-import 'package:reader_mobile/reader/epub/chapter_selectors.dart';
-import 'package:reader_mobile/reader/epub/chapter_style_resolver.dart';
-import 'package:reader_mobile/reader/epub/chapter_styles.dart';
-import 'package:reader_mobile/reader/epub/chapter_text_measurer.dart';
-import 'package:reader_mobile/reader/epub/container_blocks.dart';
-import 'package:reader_mobile/reader/epub/generated_chapter_content.dart';
-import 'package:reader_mobile/reader/epub/inline_content_builder.dart';
-import 'package:reader_mobile/reader/epub/table_block_builder.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/util/bounded_cache.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
+import 'package:reader_core/epub/chapter/chapter_flow.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_job.dart';
+import 'package:reader_core/epub/chapter/chapter_pagination.dart';
+import 'package:reader_core/epub/chapter/chapter_selectors.dart';
+import 'package:reader_core/epub/chapter/chapter_style_resolver.dart';
+import 'package:reader_core/epub/chapter/chapter_styles.dart';
+import 'package:reader_core/epub/chapter/chapter_text_measurer.dart';
+import 'package:reader_core/epub/chapter/container_blocks.dart';
+import 'package:reader_core/epub/chapter/generated_chapter_content.dart';
+import 'package:reader_core/epub/chapter/inline_content_builder.dart';
+import 'package:reader_core/epub/chapter/table_block_builder.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 const _plainCss =
     'body, table { margin: 0; } '
@@ -105,6 +105,8 @@ Future<_Fixture> _fixture(
   final resources = BookResources(document);
   final fonts = BookFonts(resources, onFontsChanged: (_) {});
   final sheets = ChapterStyles(resources, fonts);
+  await resources.prepareFootnotes(0);
+  await sheets.prepareStylesheets(0, width: 320);
   final activeBudget =
       budget ??
       LayoutBudget(
@@ -131,7 +133,7 @@ _Fixture _prepareFixture(
   LayoutSnapshot snapshot,
   LayoutBudget budget,
 ) {
-  final parsed = resources.document.parseDocument(0);
+  final parsed = resources.parsedChapter(0);
   final styles = ChapterStyleResolver(
     snapshot,
     ChapterSelectors(parsed.root),
@@ -165,6 +167,7 @@ InlineContentBuilder _inlineBuilder(
     GeneratedChapterContent(styles, (src) => resources.imageUrl(0, src)),
     measure,
     resources,
+    resources.footnotes(0),
   );
 }
 

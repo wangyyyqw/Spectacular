@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/extension.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/css_chapter_book.dart';
@@ -149,7 +149,7 @@ void main() {
       final parent = parsed.elementById('parent')!.cfi.serialize();
       expect(source.cfiForReadingPercent(0.5), leaf);
       expect(source.readingPercentForCfi(leaf), 0);
-      expect(source.readingPercentForCfi(parent), 0);
+      expect(source.readingPercentForCfi(parent), isNull);
     });
   }
 
@@ -301,7 +301,7 @@ void main() {
   });
 
   for (final count in [2, 3]) {
-    test('$count 张单图 div 的旧父 CFI 及 :0 书签跳到对应真实叶页', () async {
+    test('$count 张图片通过真实叶 CFI 及零偏移跳到对应页面', () async {
       final source = await _open(
         [
           for (var i = 0; i < count; i++)
@@ -316,7 +316,7 @@ void main() {
       final session = ReaderSession(
         source: source,
         store: MemoryReaderProgressStore(),
-        bookId: 'legacy-image-parent-$count',
+        bookId: 'image-leaf-$count',
       );
       addTearDown(session.dispose);
       await session.open();
@@ -324,7 +324,9 @@ void main() {
       for (final withOffset in [false, true]) {
         for (var i = count - 1; i >= 0; i--) {
           final parent = parsed.elementById('parent-$i')!.cfi.serialize();
-          final target = withOffset ? cfiWithCharOffset(parent, 0) : parent;
+          expect(source.readingPercentForCfi(parent), isNull);
+          final leaf = parsed.elementById('leaf-$i')!.cfi.serialize();
+          final target = withOffset ? cfiWithCharOffset(leaf, 0) : leaf;
           await session.jumpToCfi(target);
           expect(session.progress?.pageIndex, i, reason: target);
           expect(

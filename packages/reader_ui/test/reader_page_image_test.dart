@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-size': '16px',

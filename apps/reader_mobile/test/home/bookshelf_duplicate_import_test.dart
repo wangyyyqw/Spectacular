@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 
 import '../support/test_epub.dart';
+
+import 'package:reader_ui/reader_session.dart';
 
 void main() {
   testWidgets('相同文件导入提示内容未变化且原书仍可见', (tester) async {
@@ -15,7 +16,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
           pickEpubFiles: () async => ['副本.epub'],
           readFile: (_) async => bytes,
         ),

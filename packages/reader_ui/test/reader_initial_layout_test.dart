@@ -6,6 +6,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 class _Source implements RestylableChapterSource, ResizableChapterSource {
   final loads = <({int spine, double? font, double? width, double? height})>[];

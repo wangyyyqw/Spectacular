@@ -38,38 +38,12 @@ class DriftBookmarkStore
               )
               ..orderBy([(table) => OrderingTerm(expression: table.createdAt)]))
             .get();
-    final bookmarks = <ReaderBookmark>[];
-    for (final row in rows) {
-      var anchor = AnchorRecord.decode(row.anchorJson);
-      if (anchor == null) {
-        anchor = await originalAnnotationAnchor(_db, book, row);
-        await (_db.update(
-          _db.annotations,
-        )..where((table) => table.id.equals(row.id))).write(
-          AnnotationsCompanion(anchorJson: Value<String?>(anchor.encode())),
-        );
-      }
-      if (anchor.semanticVersion != currentAnchorSemanticVersion) {
-        final verified = await verifyAnchorSemantics(_db, book, anchor);
-        if (verified.encode() != row.anchorJson) {
-          await (_db.update(
-            _db.annotations,
-          )..where((table) => table.id.equals(row.id))).write(
-            AnnotationsCompanion(
-              startCfi: Value<String>(verified.effective.start.cfi),
-              endCfi: Value<String>(verified.effective.start.cfi),
-              anchorJson: Value<String?>(verified.encode()),
-            ),
-          );
-          anchor = verified;
-        }
-      }
-      bookmarks.add(_toBookmark(row, anchor));
-    }
-    return bookmarks..sort((a, b) => a.spineIndex.compareTo(b.spineIndex));
+    return [for (final row in rows) _toBookmark(row)]
+      ..sort((a, b) => a.spineIndex.compareTo(b.spineIndex));
   }
 
-  ReaderBookmark _toBookmark(AnnotationRow row, AnchorRecord? anchor) {
+  ReaderBookmark _toBookmark(AnnotationRow row) {
+    final anchor = AnchorRecord.decode(row.anchorJson);
     final cfi = anchor != null && anchor.isResolved
         ? anchor.effective.start.cfi
         : row.startCfi;
@@ -79,8 +53,9 @@ class DriftBookmarkStore
       spineIndex: _spineIndexOf(cfi),
       label: row.quote,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
-      relocationStatus: anchor?.status,
-      relocationReason: anchor?.reason,
+      relocationStatus: anchor?.status ?? 'pending',
+      relocationReason:
+          anchor?.reason ?? (anchor == null ? '内容锚点缺失或格式不受支持，请重新建立记录' : null),
       currentQuote: anchor?.effective.quote,
     );
   }
@@ -136,7 +111,7 @@ class DriftBookmarkStore
       spineIndex: spineIndex,
       label: label,
       createdAt: now,
-      relocationStatus: anchor?.status,
+      relocationStatus: anchor?.status ?? 'pending',
       currentQuote: anchor?.effective.quote,
     );
   }
@@ -168,7 +143,7 @@ class DriftBookmarkStore
       _db,
       book,
       cfi,
-      existing: await originalAnnotationAnchor(_db, book, row),
+      existing: requireAnchorRecord(row.anchorJson),
     );
     if (anchor == null) throw const FormatException('无法确认当前阅读位置');
     await _db.transaction(() async {

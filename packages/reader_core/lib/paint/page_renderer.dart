@@ -10,7 +10,6 @@ import '../layout/line_breaker.dart';
 import '../layout/image_gallery.dart';
 import '../layout/paginator.dart';
 import '../layout/table_layout.dart';
-import '../layout/text_layout.dart';
 import '../layout/text_spacing.dart';
 import '../text/reader_text_overlay.dart';
 import 'background_image.dart';

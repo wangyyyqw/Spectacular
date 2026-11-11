@@ -12,7 +12,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/paint/page_renderer.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 /// CSS 属性对照：把 cases/*.json 用引擎渲染成同尺寸 PNG，并导出每页的
 /// 块/行/表格单元格几何与计算样式，供与浏览器（render_browser.mjs）

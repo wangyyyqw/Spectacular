@@ -12,38 +12,25 @@ class CssStylesheetLoader {
   });
 
   /// 读取已解析的外链样式表；可以由宿主缓存。
-  final CssStylesheet Function(String url) readSheet;
+  final Future<CssStylesheet> Function(String url) readSheet;
 
   /// 按来源目录解析地址。
   final String Function(String url, String baseDir) resolveUrl;
 
   /// 解析内嵌 CSS 并归一化声明内的资源地址。
-  final CssStylesheet Function(String css, String baseDir) prepareInline;
+  final Future<CssStylesheet> Function(String css, String baseDir)
+  prepareInline;
 
   /// 保留重复引用，只阻断当前导入链中的循环。
-  List<CssStylesheet> load(List<CssStyleSource> sources, String baseDir) {
-    final result = <CssStylesheet>[];
-    for (final request in _requests(sources, baseDir, result)) {
-      request.sheet = request.url == null
-          ? prepareInline(request.css!, request.baseDir)
-          : readSheet(request.url!);
-    }
-    return result;
-  }
-
-  /// 异步宿主与同步入口共用导入遍历，逐表等待后才继续展开其依赖。
-  Future<List<CssStylesheet>> loadAsync(
+  Future<List<CssStylesheet>> load(
     List<CssStyleSource> sources,
-    String baseDir, {
-    required Future<CssStylesheet> Function(String url) readSheetAsync,
-    required Future<CssStylesheet> Function(String css, String baseDir)
-    prepareInlineAsync,
-  }) async {
+    String baseDir,
+  ) async {
     final result = <CssStylesheet>[];
     for (final request in _requests(sources, baseDir, result)) {
       request.sheet = request.url == null
-          ? await prepareInlineAsync(request.css!, request.baseDir)
-          : await readSheetAsync(request.url!);
+          ? await prepareInline(request.css!, request.baseDir)
+          : await readSheet(request.url!);
     }
     return result;
   }

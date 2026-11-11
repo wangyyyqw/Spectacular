@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 /// W6：filter 合成 / 重复渐变 / effectiveOpacity / 列表标记图片 / td 竖直居中。

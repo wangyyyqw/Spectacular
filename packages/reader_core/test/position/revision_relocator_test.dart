@@ -650,12 +650,12 @@ void main() {
     expect(AnchorRecord.decode(jsonEncode(json)), isNull);
   });
 
-  test('历史标注只借候选坐标，不把当前错误文字当成证据', () {
+  test('待核验选区只借候选坐标，不把错误文字当成证据', () {
     final book = _book('v2', [
       ['错误文字在原来偏移处'],
       [before + quote + after],
     ]);
-    final anchor = book.legacyRange(
+    final anchor = book.rangeFromEvidence(
       startCfi: _cfi(0, 0).replaceFirst(')', ':9)'),
       endCfi: _cfi(0, 0),
       quote: quote,
@@ -668,7 +668,11 @@ void main() {
     expect(book.textFor(result.current!), quote);
     expect(anchor.start.chapterFingerprint, isEmpty);
     expect(
-      book.legacyRange(startCfi: _cfi(0, 0), endCfi: _cfi(0, 0), quote: ''),
+      book.rangeFromEvidence(
+        startCfi: _cfi(0, 0),
+        endCfi: _cfi(0, 0),
+        quote: '',
+      ),
       isNull,
     );
   });

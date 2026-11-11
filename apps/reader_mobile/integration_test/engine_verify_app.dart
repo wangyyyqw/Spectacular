@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/image_cache.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -19,8 +19,8 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/continuous_scroll_view.dart';
 import 'package:reader_ui/panels/toc_panel.dart';
 import 'package:reader_ui/reader_page.dart';
-import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_core/source/toc.dart';
 
 /// 只由 tool/device_engine_verify.py 在隔离包运行的真机引擎验收入口。
 ///

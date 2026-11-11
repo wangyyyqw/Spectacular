@@ -1,8 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
-import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 30 章纯文本示例，用于 M0 联调不依赖外部文件。
 ///

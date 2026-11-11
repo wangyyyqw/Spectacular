@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 /// 表格块接入 flat 管线的回归（渲染载荷 + 分页几何）。
 Uint8List _buildTableEpub(String bodyHtml, {String css = ''}) {

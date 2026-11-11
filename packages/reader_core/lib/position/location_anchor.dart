@@ -6,8 +6,8 @@ import 'cfi.dart';
 
 /// 当前正文聚合与锚点坐标语义版本。
 ///
-/// 解析、行内块提升或空白处理变化时递增；旧锚点读取后先用原文证据
-/// 核验，不能仅凭旧 CFI 当作精确位置。
+/// 记录只使用当前格式；解析、行内块提升或空白处理变化时同步更新
+/// 编解码与行为测试，不在读取时转换坐标语义。
 const String currentAnchorSemanticVersion = 'text-2';
 
 /// 阅读器实际使用的文本块；CFI 偏移沿用现有块内 UTF-16 坐标。
@@ -249,7 +249,7 @@ class AnchorRecord {
     this.current,
     this.status = 'verified',
     this.reason,
-    this.semanticVersion,
+    this.semanticVersion = currentAnchorSemanticVersion,
   });
 
   final LocationAnchor original;
@@ -257,8 +257,8 @@ class AnchorRecord {
   final String status;
   final String? reason;
 
-  /// 创建锚点时的正文语义版本；旧记录为空。
-  final String? semanticVersion;
+  /// 创建锚点时的正文语义版本。
+  final String semanticVersion;
   LocationAnchor get effective => current ?? original;
   bool get isResolved => status == 'verified' || status == 'relocated';
 
@@ -268,7 +268,7 @@ class AnchorRecord {
     'current': current?.toJson(),
     'status': status,
     'reason': reason,
-    if (semanticVersion != null) 'semanticVersion': semanticVersion,
+    'semanticVersion': semanticVersion,
   };
 
   String encode() => jsonEncode(toJson());
@@ -277,7 +277,10 @@ class AnchorRecord {
     if (source == null) return null;
     try {
       final json = jsonDecode(source) as Map<String, dynamic>;
-      if (json['version'] != 1) return null;
+      if (json['version'] != 1 ||
+          json['semanticVersion'] != currentAnchorSemanticVersion) {
+        return null;
+      }
       final status = json['status'] as String;
       if (!{
         'verified',
@@ -296,7 +299,7 @@ class AnchorRecord {
             : LocationAnchor.fromJson(json['current'] as Map<String, dynamic>),
         status: status,
         reason: json['reason'] as String?,
-        semanticVersion: json['semanticVersion'] as String?,
+        semanticVersion: json['semanticVersion'] as String,
       );
     } catch (_) {
       return null;
@@ -345,8 +348,8 @@ class AnchorBook {
     return _location(start, end, approximate);
   }
 
-  /// 旧标注只使用保存的原文证据；当前文件的内容不能反过来证明旧 CFI 正确。
-  LocationAnchor? legacyRange({
+  /// 选区无法通过位置核验时只保存原文证据，不将候选 CFI 视为可靠位置。
+  LocationAnchor? rangeFromEvidence({
     required String startCfi,
     required String endCfi,
     required String quote,
@@ -354,18 +357,18 @@ class AnchorBook {
     String contextAfter = '',
   }) {
     if (quote.isEmpty) return null;
-    final start = _legacyPoint(startCfi, contextBefore, quote + contextAfter);
-    final end = _legacyPoint(endCfi, contextBefore + quote, contextAfter);
+    final start = _evidencePoint(startCfi, contextBefore, quote + contextAfter);
+    final end = _evidencePoint(endCfi, contextBefore + quote, contextAfter);
     if (start == null || end == null) return null;
     return LocationAnchor(
-      revision: 'legacy',
+      revision: revision,
       start: start,
       end: end,
       quote: quote,
     );
   }
 
-  AnchorPoint? _legacyPoint(String cfi, String before, String following) {
+  AnchorPoint? _evidencePoint(String cfi, String before, String following) {
     final parsed = EpubCfi.parse(cfi);
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
     if (spine == null) return null;

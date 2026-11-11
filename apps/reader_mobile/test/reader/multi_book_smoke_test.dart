@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 /// P8-04 真书多书冒烟：test_corpus/real 全部真书打开 + 前 3 章分页非空。
 /// 防引擎改动退化为单书适配（诸神愚戏专属回归的补充）。

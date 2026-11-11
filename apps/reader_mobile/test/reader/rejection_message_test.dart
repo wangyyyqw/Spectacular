@@ -62,8 +62,14 @@ void main() {
 
     test('文案无技术术语与堆栈泄漏', () {
       for (final code in <String?>[
-        'E_ARCHIVE', 'E_OCF', 'E_CONTAINER_MISSING', 'E_OPF_MISSING',
-        'E_SPINE_EMPTY', 'E_INTERNAL', 'E_UNKNOWN_NEW_CODE', null,
+        'E_ARCHIVE',
+        'E_OCF',
+        'E_CONTAINER_MISSING',
+        'E_OPF_MISSING',
+        'E_SPINE_EMPTY',
+        'E_INTERNAL',
+        'E_UNKNOWN_NEW_CODE',
+        null,
       ]) {
         final message = EpubRejectionMessages.forCode(code, null);
         expect(message.title.contains('Exception'), isFalse, reason: '$code');
@@ -78,18 +84,10 @@ void main() {
       expect(message.title, contains('无法解析'));
     });
 
-    test('重复与身份冲突不误报书籍格式错误', () {
+    test('重复书籍提示直接阅读，不误报格式错误', () {
       final duplicate = EpubRejectionMessages.forCode('E_DUPLICATE', null);
       expect(duplicate.title, '这本书已在书架中');
       expect(duplicate.suggestion, '请直接从书架打开阅读');
-
-      final conflict = EpubRejectionMessages.forCode(
-        'E_IDENTITY_CONFLICT',
-        'Exception: 不应展示的内部详情',
-      );
-      expect(conflict.title, contains('原数据已保留'));
-      expect(conflict.suggestion, contains('原 EPUB 文件'));
-      expect(conflict.title, isNot(contains('Exception')));
     });
   });
 
@@ -107,11 +105,9 @@ void main() {
         buildTestEpub(title: '分级书', author: '作者'),
       );
       expect(entry.readabilityLevel, 0, reason: '完整书 L0');
-      // 持久化往返。
-      final json = entry.toJson();
-      expect(json['readabilityLevel'], 0);
-      final restored = BookEntry.fromJson(json);
-      expect(restored!.readabilityLevel, 0);
+      final restored = (await store.list()).single;
+      expect(restored.id, entry.id);
+      expect(restored.readabilityLevel, 0);
     });
 
     test('L2 书（spine 缺失）导入后 level=2', () async {

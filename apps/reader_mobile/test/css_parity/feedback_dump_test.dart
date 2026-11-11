@@ -9,7 +9,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 
 /// 按外部清单导出原书页面，版权语料与截图均不写入仓库。

@@ -11,8 +11,8 @@ import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/text/font_coverage.dart';
-import 'package:reader_mobile/reader/epub/book_fonts.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
+import 'package:reader_core/epub/chapter/book_fonts.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
 
 const _files = <String, String>{
   'mimetype': 'application/epub+zip',

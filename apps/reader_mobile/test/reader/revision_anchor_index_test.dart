@@ -17,7 +17,7 @@ void main() {
       css: '.preserve { white-space: pre-wrap; } .hidden { display:none; }',
     );
     addTearDown(source.close);
-    final chapter = source.anchorChapter(0);
+    final chapter = await source.loadAnchorChapter(0);
     final book = AnchorBook(revision: 'test', chapters: [chapter]);
     final blocks = (await source.loadChapter(0))
         .expand((page) => page.slices)
@@ -48,7 +48,7 @@ void main() {
           '<tr><td><p>第一段 文字</p><p>第二段𠮷😀</p></td><td>另一格</td></tr></table>',
     );
     addTearDown(source.close);
-    final chapter = source.anchorChapter(0);
+    final chapter = await source.loadAnchorChapter(0);
     final cells = (await source.loadChapter(0))
         .expand((page) => page.slices)
         .where((slice) => slice.block.table != null)

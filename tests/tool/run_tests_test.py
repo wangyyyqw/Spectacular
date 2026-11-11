@@ -32,7 +32,6 @@ def minimal_catalog(root):
             {"group": "ui", "paths": ["packages/reader_ui/test/*_test.dart"]},
             {"group": "css", "paths": ["packages/reader_core/test/css/*_test.dart"]},
         ],
-        "source_aliases": {},
         "source_rules": [],
     }
     write(root, "tool/test_groups.json", json.dumps(catalog, ensure_ascii=False))
@@ -69,8 +68,8 @@ class SelectionTest(unittest.TestCase):
         self.assertIn("apps/reader_mobile/test/reader/css_gaps_test.dart", selected)
         self.assertNotIn("packages/reader_ui/test/settings_panel_test.dart", selected)
 
-    def test_legacy_chapter_export_uses_core_scope(self):
-        paths = ["apps/reader_mobile/lib/reader/epub/chapter_styles.dart"]
+    def test_chapter_styles_use_core_scope(self):
+        paths = ["packages/reader_core/lib/epub/chapter/chapter_styles.dart"]
         self.assertEqual(self.selected_groups(paths), {"css"})
 
     def test_layout_and_paint_changes_select_their_consumers(self):

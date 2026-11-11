@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 /// 竖排跨页列流：列长 = 页高，一页容纳 floor(页宽/列宽) 列，剩余列顺延下一页。
 ComputedStyle _style(Map<String, String> overrides) =>

@@ -86,7 +86,7 @@ class TextBlockBuilder {
     _GeneratedText generated,
     _ParagraphText paragraph,
   ) async {
-    final runs = await styles.resolveInlineRunsAsync(
+    final runs = await styles.resolveInlineRuns(
       paragraph.marks,
       _inlineContext(context, body),
       checkpoint: measure.budget.checkpoint,
@@ -893,7 +893,7 @@ class TextBlockBuilder {
       dropped.paragraph,
       inlineContext,
     );
-    final runs = await styles.resolveInlineRunsAsync(
+    final runs = await styles.resolveInlineRuns(
       extracted.paragraph.marks,
       inlineContext,
       checkpoint: measure.budget.checkpoint,
@@ -1210,7 +1210,7 @@ class TextBlockBuilder {
       final chain = ruby.chain;
       final style = chain.isEmpty
           ? null
-          : await styles.inlineMarkStyleAsync(
+          : await styles.inlineMarkStyle(
               InlineMark(
                 start: ruby.start,
                 end: ruby.end,

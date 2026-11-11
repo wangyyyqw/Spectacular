@@ -6,9 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
 import 'package:reader_mobile/reader/book_opening_view.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -16,47 +15,17 @@ import 'package:reader_ui/reader_page.dart';
 import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
 
+import 'package:reader_ui/reader_session.dart';
+
 class _DelayedLibraryStore extends LibraryStore {
   _DelayedLibraryStore() : super.memory();
 
   final Completer<Uint8List> _bytes = Completer<Uint8List>();
-  int revisionWrites = 0;
 
   @override
   Future<Uint8List> readBytes(BookEntry entry) => _bytes.future;
 
-  @override
-  Future<void> rememberContentRevision(String id, String revision) async {
-    revisionWrites += 1;
-  }
-
   void finish(Uint8List bytes) => _bytes.complete(bytes);
-}
-
-class _StoredRevisionLibrary extends LibraryStore {
-  _StoredRevisionLibrary() : super.memory();
-
-  int revisionWrites = 0;
-  static const revision = 'already-stored-content-revision';
-
-  @override
-  Future<BookEntry?> bookById(String id) async {
-    final entry = await super.bookById(id);
-    if (entry == null) return null;
-    return BookEntry(
-      id: entry.id,
-      title: entry.title,
-      author: entry.author,
-      filePath: entry.filePath,
-      addedAt: entry.addedAt,
-      contentRevision: revision,
-    );
-  }
-
-  @override
-  Future<void> rememberContentRevision(String id, String revision) async {
-    revisionWrites += 1;
-  }
 }
 
 Future<void> _pumpFrames(WidgetTester tester, {int frames = 12}) async {
@@ -75,7 +44,7 @@ void main() {
     );
     final opener = BookOpener(
       library: library,
-      progressStore: FileReaderProgressStore.memory(),
+      progressStore: MemoryReaderProgressStore(),
     );
     final contextKey = GlobalKey();
 
@@ -131,7 +100,7 @@ void main() {
     );
     final opener = BookOpener(
       library: library,
-      progressStore: FileReaderProgressStore.memory(),
+      progressStore: MemoryReaderProgressStore(),
     );
     final contextKey = GlobalKey();
 
@@ -216,7 +185,7 @@ void main() {
     );
     final opener = BookOpener(
       library: library,
-      progressStore: FileReaderProgressStore.memory(),
+      progressStore: MemoryReaderProgressStore(),
     );
     final contextKey = GlobalKey();
 
@@ -246,17 +215,16 @@ void main() {
 
     expect(find.text('书架'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('reader-page')), findsNothing);
-    expect(library.revisionWrites, 0);
     expect((await library.bookById(entry.id))?.lastReadAt, isNull);
   });
 
-  testWidgets('条目未携带版本时复用书库摘要，不重复计算和补写', (tester) async {
-    final library = _StoredRevisionLibrary();
+  testWidgets('开书使用导入时的内容摘要并绑定阅读位置', (tester) async {
+    final library = LibraryStore.memory();
     final entry = await library.importBytes(buildTestEpub(title: '已存版本'));
-    expect(entry.contentRevision, isNull);
+    expect(entry.contentRevision, isNotNull);
     final opener = BookOpener(
       library: library,
-      progressStore: FileReaderProgressStore.memory(),
+      progressStore: MemoryReaderProgressStore(),
     );
     final contextKey = GlobalKey();
     await tester.pumpWidget(
@@ -272,8 +240,7 @@ void main() {
     final openFuture = opener.open(contextKey.currentContext!, entry);
     await _pumpFrames(tester);
     final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
-    expect(reader.contentRevision, _StoredRevisionLibrary.revision);
-    expect(library.revisionWrites, 0);
+    expect(reader.contentRevision, entry.contentRevision);
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
     await pumpReaderTask(tester, openFuture);

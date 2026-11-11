@@ -4,10 +4,11 @@ import 'package:reader_core/api.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 
 import 'support/test_epub.dart';
 import 'support/reader_pump.dart';
+
+import 'package:reader_ui/reader_session.dart';
 
 /// 内存存储（零 IO）：加载圈转一帧即出内容，固定 pump 即可。
 Future<void> _settle(WidgetTester tester, {int frames = 4}) async {
@@ -23,7 +24,7 @@ void main() {
 
   testWidgets('应用壳：四底栏切换，书架空态与导入入口', (tester) async {
     final library = LibraryStore.memory();
-    final progress = FileReaderProgressStore.memory();
+    final progress = MemoryReaderProgressStore();
     await tester.pumpWidget(
       ReaderApp(library: library, progressStore: progress),
     );
@@ -59,7 +60,7 @@ void main() {
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: FileReaderProgressStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
           pickEpubFiles: () async => <String>[entry.filePath],
         ),
       ),

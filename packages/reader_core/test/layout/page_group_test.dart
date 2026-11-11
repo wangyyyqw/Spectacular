@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 /// P7-26：整组不可切——同组连续块是原子单元（图+题注永不分离）；
 /// 组放不下当前页时整体下移；组高于整页时按序切。

@@ -8,7 +8,6 @@ import 'package:reader_mobile/home/book_detail_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/storage/db.dart';
-import 'package:reader_mobile/storage/file_progress_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -243,7 +242,7 @@ void main() {
         buildTestEpub(title: '读完标记', identifier: 'detail-finished'),
       );
     });
-    final progress = FileReaderProgressStore.memory();
+    final progress = MemoryReaderProgressStore();
 
     await tester.pumpWidget(
       MaterialApp(

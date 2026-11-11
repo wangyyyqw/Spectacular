@@ -162,8 +162,7 @@ class BoxModel {
     double measuredContentHeight, {
     required double containingHeight,
   }) {
-    // 百分比高度相对包含块高度；尚未提供包含块高度时沿用旧的宽度基准，
-    // 兼容分页前尚未拿到页面几何的调用点。
+    // 百分比高度相对包含块高度；尚未提供包含块高度时使用宽度基准。
     final verticalBase = containingHeight > 0
         ? containingHeight
         : containingWidth;
@@ -173,7 +172,6 @@ class BoxModel {
           base: verticalBase,
           inset: verticalInset,
           boxSizing: boxSizing,
-          viewportHeight: verticalBase,
         ) ??
         math.max(0.0, measuredContentHeight);
     final min = _resolveBound(
@@ -181,14 +179,12 @@ class BoxModel {
       base: verticalBase,
       inset: verticalInset,
       boxSizing: boxSizing,
-      viewportHeight: verticalBase,
     );
     final max = _resolveBound(
       maxHeight,
       base: verticalBase,
       inset: verticalInset,
       boxSizing: boxSizing,
-      viewportHeight: verticalBase,
     );
     return _clamp(height, min, max);
   }
@@ -199,12 +195,11 @@ class BoxModel {
     required double base,
     required double inset,
     required CssBoxSizing boxSizing,
-    double? viewportHeight,
   }) {
     if (length == null || length.isAuto) {
       return null;
     }
-    final declared = length.resolve(base, viewportHeight: viewportHeight);
+    final declared = length.resolve(base);
     if (declared == null) {
       return null;
     }

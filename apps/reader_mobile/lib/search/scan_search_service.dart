@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart' show applyTextTransform;
 import 'package:reader_core/position/cfi.dart';
-import 'package:reader_ui/reader_session.dart';
 
-import '../reader/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'chapter_text.dart';
+import 'package:reader_core/source/toc.dart';
 
 /// 扫描式全文搜索：只提取轻量正文，用户点击命中时才复用当前章节源排版。
 ///

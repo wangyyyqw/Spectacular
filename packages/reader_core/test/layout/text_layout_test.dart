@@ -1,7 +1,7 @@
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
-import 'package:reader_core/layout/text_layout.dart';
+import 'package:reader_core/layout/line_breaker.dart';
 
 const _text = 'The quick brown fox jumps over the lazy dog. 中文混排测试，用于验证断行。';
 

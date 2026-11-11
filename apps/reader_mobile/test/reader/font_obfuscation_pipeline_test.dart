@@ -7,10 +7,10 @@ import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/font_obfuscation.dart';
-import 'package:reader_mobile/reader/epub_chapter_source.dart';
-import 'package:reader_ui/reader_session.dart' show ChapterLoadCancelled;
+import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 Uint8List _fallbackFontBook(Uint8List font) {
   final archive = Archive();

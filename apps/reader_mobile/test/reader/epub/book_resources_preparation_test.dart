@@ -13,7 +13,7 @@ import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/epub/resource_index.dart';
 import 'package:reader_core/epub/zip_source.dart';
 import 'package:reader_core/paint/image_cache.dart';
-import 'package:reader_mobile/reader/epub/book_resources.dart';
+import 'package:reader_core/epub/chapter/book_resources.dart';
 
 const _chapter = 'OEBPS/Text/chapter.xhtml';
 const _notes = 'OEBPS/Text/notes.xhtml';
@@ -158,10 +158,11 @@ void main() {
         _indirect: _utf16(_xhtml('<aside id="x">间接定义</aside>')),
       };
       final resources = _resources(files, compression: compression);
-      final sync = _resources(files, compression: compression);
+      expect(() => resources.parsedChapter(0), throwsStateError);
       final parsed = await resources.prepareChapter(0);
       expect(parsed.source, source);
-      expect(parsed.plainText, sync.parsedChapter(0).plainText);
+      expect(parsed.plainText, contains('中文正文'));
+      expect(resources.parsedChapter(0), same(parsed));
       expect(await resources.prepareChapter(0), same(parsed));
       expect(await resources.prepareStyleSources(0), hasLength(1));
       final notes = await resources.prepareFootnotes(0);
@@ -169,10 +170,7 @@ void main() {
         notes.values.firstWhere((note) => note.targetId == 'n').noteText,
         contains('中文注释'),
       );
-      expect(
-        notes.values.map((note) => note.noteText),
-        sync.footnotes(0).values.map((note) => note.noteText),
-      );
+      expect(resources.footnotes(0), same(notes));
       expect(resources.document.archive.contains(_indirect), isTrue);
       expect(resources.footnoteCacheCount, 1);
     });
