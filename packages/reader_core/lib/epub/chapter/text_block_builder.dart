@@ -267,7 +267,11 @@ class TextBlockBuilder {
       final relativeSize =
           _nestedRelativeFontSize(context) ?? _scopedRelativeFontSize(context);
       if (relativeSize != null) {
-        style = style.scaleRelativeTypography(relativeSize);
+        style = styles.scaleBlockTypography(
+          style,
+          context.ancestors,
+          relativeSize,
+        );
       }
       return styles.snapshot.overrides
           .copyWith(fontSize: relativeSize)
@@ -276,7 +280,7 @@ class TextBlockBuilder {
     final readerSize = _scaledComponentFontSize(context);
     return readerSize == null
         ? style
-        : style.scaleRelativeTypography(readerSize);
+        : styles.scaleBlockTypography(style, context.ancestors, readerSize);
   }
 
   /// 保留标题和紧凑组件自身的相对字号，同时让比例以阅读器字号为基准。
