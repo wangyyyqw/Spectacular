@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -18,6 +19,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
+import 'support/css_chapter_book.dart';
 
 final _book = BookEntry(
   id: 'opening-readiness',
@@ -25,6 +27,19 @@ final _book = BookEntry(
   author: '测试作者',
   filePath: '',
   addedAt: DateTime(2026),
+);
+
+Uint8List _backgroundCoverEpub() => buildCssChapterBook(
+  body: '<p>&#160;</p>',
+  css:
+      'body { background-image: url(../Images/cover.png); '
+      'background-size: cover; background-repeat: no-repeat; '
+      'width: 100%; min-height: 100%; margin: 0; padding: 0; }',
+  binaryFiles: {
+    'OEBPS/Images/cover.png': base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ioAAAAASUVORK5CYII=',
+    ),
+  },
 );
 
 class _DeferredFonts extends ReaderFontStore {
@@ -84,6 +99,44 @@ class _ClosingSource extends Fake implements EpubChapterSource {
 }
 
 void main() {
+  testWidgets('首章只有 CSS 背景封面时，没有正文进度也能正常揭开', (tester) async {
+    final source = await EpubChapterSource.open(
+      _backgroundCoverEpub(),
+      verifyCrc: false,
+    );
+    addTearDown(source.close);
+    final closed = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookOpeningReader(
+          book: _book,
+          readerBuilder: (onReady, readingActive) => EpubReaderPage(
+            sourceFuture: Future.value(source),
+            contentRevision: 'background-cover',
+            bookId: _book.id,
+            store: MemoryReaderProgressStore(),
+            readingActive: readingActive,
+            onReady: onReady,
+            onClosed: closed.complete,
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.byType(ReaderSemanticsLayer));
+    await tester.pump(BookOpeningView.revealDuration);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    final page = tester
+        .widget<ReaderSemanticsLayer>(find.byType(ReaderSemanticsLayer))
+        .page;
+    expect(page.background?.imageUrl, 'OEBPS/Images/cover.png');
+    expect(page.slices, isEmpty, reason: '背景封面没有正文或图片元素的位置锚点');
+    expect(find.byType(BookOpeningView), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await pumpReaderTask(tester, closed.future);
+  });
+
   testWidgets('源和字体并行准备，目标装饰及正文数字完成后才揭开封面', (tester) async {
     final bytes = buildTestEpub(title: _book.title);
     final source = await EpubChapterSource.open(bytes, verifyCrc: false);
