@@ -15,6 +15,49 @@ const _xhtml = '''
 ''';
 
 void main() {
+  test('图片宽高表现属性参与级联，压过 UA 尺寸', () {
+    final style = Cascade.compute(
+      element: const _BareElement('img', {'width': '10px', 'height': '25%'}),
+      ancestors: const [],
+      rules: CascadeRule.fromStylesheet(
+        CssParser.parse('img { width: 200px; height: 200px; }'),
+        origin: CascadeOrigin.userAgent,
+      ),
+      containingWidth: 344,
+    );
+    expect(style.width!.resolve(344), 10);
+    expect(style.height!.resolve(400), 100);
+  });
+
+  test('作者通配规则和内联尺寸覆盖图片表现属性，保留 auto', () {
+    final style = Cascade.compute(
+      element: const _BareElement('img', {'width': '100', 'height': '60'}),
+      ancestors: const [],
+      rules: CascadeRule.fromStylesheet(
+        CssParser.parse('* { width: auto; height: 20px; }'),
+        origin: CascadeOrigin.author,
+      ),
+      inlineDeclarations: CssParser.parseStyleAttribute('height: 16px;'),
+    );
+    expect(style.width!.isAuto, isTrue);
+    expect(style.height!.resolve(400), 16);
+  });
+
+  test('非图片元素及无效图片尺寸属性不产生尺寸声明', () {
+    for (final element in const [
+      _BareElement('span', {'width': '10', 'height': '20'}),
+      _BareElement('img', {'width': '-10', 'height': 'auto'}),
+    ]) {
+      final style = Cascade.compute(
+        element: element,
+        ancestors: const [],
+        rules: const [],
+      );
+      expect(style.width, isNull);
+      expect(style.height, isNull);
+    }
+  });
+
   test('作者盒类简写压过 UA 长属性（P9-27）', () {
     final sheet = CssParser.parse(
       'p { margin: 8px 0; padding: 3px 6px; border: 2px solid #3366cc; }',
@@ -292,13 +335,13 @@ void main() {
 /// 最简元素视图（级联测试用：只要 tag/属性）。
 class _BareElement implements SelectorElement {
   /// 创建元素。
-  const _BareElement(this.tag);
+  const _BareElement(this.tag, [this.attributes = const <String, String>{}]);
 
   @override
   final String tag;
 
   @override
-  Map<String, String> get attributes => const <String, String>{};
+  final Map<String, String> attributes;
 
   @override
   List<SelectorElement> get childElements => const <SelectorElement>[];

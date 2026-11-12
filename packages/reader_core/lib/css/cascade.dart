@@ -78,7 +78,7 @@ abstract final class Cascade {
     CssValueContext? valueContext,
   }) {
     final winners = <String, _Winner>{};
-    final declarations = <_Candidate>[];
+    final declarations = _imageDimensionHints(element);
     final sorted = rules is CascadeRuleSet ? rules : CascadeRuleSet(rules);
 
     var sequence = 0;
@@ -217,6 +217,34 @@ abstract final class Cascade {
       containingWidth: containingWidth,
       valueContext: context,
     );
+  }
+
+  static final _imageDimension = RegExp(
+    r'^(\d+(?:\.\d+)?|\.\d+)(px|%)?$',
+    caseSensitive: false,
+  );
+
+  /// 图片宽高表现属性映射为零特异性的作者声明，排在样式表之前。
+  /// 让行内替换盒和竖排行内图片共用尺寸级联，作者 CSS（含 auto）仍可覆盖。
+  static List<_Candidate> _imageDimensionHints(SelectorElement element) {
+    final hints = <_Candidate>[];
+    if (element.tag != 'img') return hints;
+    for (final property in const ['width', 'height']) {
+      final raw = element.attributes[property]?.trim();
+      if (raw == null) continue;
+      final match = _imageDimension.firstMatch(raw);
+      if (match == null) continue;
+      hints.add((
+        CssDeclaration(
+          property: property,
+          value: '${match[1]}${match[2] == '%' ? '%' : 'px'}',
+        ),
+        CascadeOrigin.author,
+        const Specificity(0, 0, 0, 0),
+        0,
+      ));
+    }
+    return hints;
   }
 
   static Map<String, String> _customProperties(

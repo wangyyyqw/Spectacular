@@ -20,12 +20,18 @@ late Uint8List _rightBytes;
 late ui.Image _leftImage;
 late ui.Image _rightImage;
 
-Future<Uint8List> _imageBytes(Color color) async {
+Future<Uint8List> _imageBytes(
+  Color color, {
+  int width = 60,
+  int height = 20,
+}) async {
   final recorder = ui.PictureRecorder();
-  Canvas(recorder)
-      .drawRect(const Rect.fromLTWH(0, 0, 60, 20), Paint()..color = color);
+  Canvas(recorder).drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    Paint()..color = color,
+  );
   final picture = recorder.endRecording();
-  final image = await picture.toImage(60, 20);
+  final image = await picture.toImage(width, height);
   picture.dispose();
   final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
@@ -43,19 +49,22 @@ Future<PageContent> _titlePage({
   double size = 17,
   double width = _width,
   String align = 'baseline',
-  String dimensions = 'height: .8em; width: auto;',
+  ({String css, String attributes}) dimensions = (
+    css: 'height: .8em; width: auto;',
+    attributes: '',
+  ),
   bool withFloat = false,
 }) async {
   final source = await openCssChapter(
     body:
-        '<p><img class="icon" src="../Images/left.png"/>$_title'
-        '<img class="icon" src="../Images/right.png"/></p>'
+        '<p><img class="icon" src="../Images/left.png" ${dimensions.attributes}/>$_title'
+        '<img class="icon" src="../Images/right.png" ${dimensions.attributes}/></p>'
         '${withFloat ? '<div style="float: right; width: 30px; height: 20px;">浮动</div>' : ''}',
     css:
         'body { margin: 0; font-family: relic_song; font-size: ${size}px; } '
         'p { margin: 20px 0; text-indent: 0; text-align: center; '
         'line-height: 1.6; color: #008000; } '
-        '.icon { margin: 0 10px; vertical-align: $align; $dimensions }',
+        '.icon { margin: 0 10px; vertical-align: $align; ${dimensions.css} }',
     binaryFiles: {
       'OEBPS/Images/left.png': _leftBytes,
       'OEBPS/Images/right.png': _rightBytes,
@@ -63,6 +72,7 @@ Future<PageContent> _titlePage({
     contentWidth: width,
     contentHeight: _height,
   );
+  addTearDown(source.close);
   return (await source.loadChapter(0)).single;
 }
 
@@ -172,7 +182,9 @@ void main() {
     '声明宽高比': ('height: 16px; width: auto; aspect-ratio: 2;', 32.0, 16.0),
   }.entries) {
     test('${dimensions.key}：测量尺寸与绘制尺寸一致', () async {
-      final page = await _titlePage(dimensions: dimensions.value.$1);
+      final page = await _titlePage(
+        dimensions: (css: dimensions.value.$1, attributes: ''),
+      );
       final boxes = page.slices.single.block.layout.lines.single.inlineBoxes;
       expect(boxes, hasLength(2));
       for (final box in boxes) {
@@ -182,6 +194,75 @@ void main() {
       await _expectSeparatedInk(page);
     });
   }
+
+  for (final entry in {
+    '像素宽度属性': ('width="10px"', '', 10.0, 10.0 / 3),
+    '裸数高度属性': ('height="12"', '', 36.0, 12.0),
+    '百分比宽度属性': ('width="25%"', '', _width / 4, _width / 12),
+    '宽高属性': ('width="10" height="12"', '', 10.0, 12.0),
+    'CSS 尺寸覆盖属性': (
+      'width="10" height="12"',
+      'width: 35px; height: auto;',
+      35.0,
+      35.0 / 3,
+    ),
+    'CSS auto 覆盖属性': (
+      'width="100" height="60"',
+      'width: auto; height: 16px;',
+      48.0,
+      16.0,
+    ),
+  }.entries) {
+    test('${entry.key}：行内占位与实际绘制使用级联后的尺寸', () async {
+      final (attributes, dimensions, width, height) = entry.value;
+      final page = await _titlePage(
+        dimensions: (attributes: attributes, css: dimensions),
+      );
+      final boxes = page.slices.single.block.layout.lines.single.inlineBoxes;
+      expect(boxes, hasLength(2));
+      for (final box in boxes) {
+        expect(box.width, closeTo(width, .01));
+        expect(box.height, closeTo(height, .01));
+      }
+      await _expectSeparatedInk(page);
+    });
+  }
+
+  test('200px 简介图标按 width="10px" 显示，四项文字均保持同行', () async {
+    final source = await openCssChapter(
+      body: ['作者：误道者', '首发：起点', '完本：750万字', '简介：']
+          .map(
+            (text) =>
+                '<p><img src="../Images/icon.png" width="10px"/>$text</p>',
+          )
+          .join(),
+      css:
+          'body { margin: 0; font-size: 17px; font-family: relic_song; } '
+          'p { font-size: 80%; margin: 0 2.5% 2.5%; text-indent: 0; '
+          'line-height: 1.35; text-align: justify; }',
+      binaryFiles: {
+        'OEBPS/Images/icon.png': await _imageBytes(
+          const Color(0xffff0000),
+          width: 200,
+          height: 200,
+        ),
+      },
+      contentWidth: _width,
+      contentHeight: _height,
+    );
+    addTearDown(source.close);
+    final pages = await source.loadChapter(0);
+    expect(pages, hasLength(1), reason: '四个 10px 图标不应撑出额外分页');
+    final page = pages.single;
+    expect(page.slices, hasLength(4));
+    for (final slice in page.slices) {
+      final line = slice.block.layout.lines.single;
+      final icon = line.inlineBoxes.single;
+      expect(icon.width, 10);
+      expect(icon.height, 10);
+      expect(line.width, lessThan(_width));
+    }
+  });
 
   test('窄屏装饰整体换行，原文及图片偏移保持稳定', () async {
     final page = await _titlePage(width: 100);
