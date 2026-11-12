@@ -48,6 +48,7 @@ class _ParagraphSource
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     final changed = contentWidth != width || pageHeight != height;
     contentWidth = width;

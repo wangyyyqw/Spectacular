@@ -125,6 +125,7 @@ class _ResizableSource implements ResizableChapterSource {
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     source = _Source(pageHeight: height);
     return true;

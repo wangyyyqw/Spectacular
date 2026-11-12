@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/painting.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -9,20 +9,26 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/theme/reader_margins.dart';
 
+import '../support/reader_pump.dart';
 import 'support/css_chapter_book.dart';
 
 const _size = Size(300, 500);
 const _insets = EdgeInsets.fromLTRB(20, 80, 20, 20);
 const _bannerColor = Color(0xFFE06020);
 
-Future<ui.Image> _banner() async {
+Future<ui.Image> _banner({int width = 200, int height = 60}) async {
   final recorder = ui.PictureRecorder();
-  Canvas(
-    recorder,
-  ).drawRect(const Rect.fromLTWH(0, 0, 200, 60), Paint()..color = _bannerColor);
+  Canvas(recorder).drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    Paint()..color = _bannerColor,
+  );
   final picture = recorder.endRecording();
-  final image = await picture.toImage(200, 60);
+  final image = await picture.toImage(width, height);
   picture.dispose();
   return image;
 }
@@ -30,14 +36,15 @@ Future<ui.Image> _banner() async {
 Future<ByteData> _render(
   PageContent page,
   ui.Image banner, {
-  double topInset = 80,
+  EdgeInsets insets = _insets,
+  double? topInset,
 }) async {
   final recorder = ui.PictureRecorder();
   PagePainter(imageLookup: (_) => banner).paint(
     Canvas(recorder),
     page,
     pageSize: _size,
-    pageInsets: _insets.copyWith(top: topInset),
+    pageInsets: topInset == null ? insets : insets.copyWith(top: topInset),
   );
   final picture = recorder.endRecording();
   final image = await picture.toImage(300, 500);
@@ -54,6 +61,58 @@ Color _pixel(ByteData data, int x, int y) {
     data.getUint8(offset),
     data.getUint8(offset + 1),
     data.getUint8(offset + 2),
+  );
+}
+
+Rect _imageBounds(ByteData data) {
+  var left = 300;
+  var top = 500;
+  var right = -1;
+  var bottom = -1;
+  for (var y = 0; y < 500; y++) {
+    for (var x = 0; x < 300; x++) {
+      if (_pixel(data, x, y) != _bannerColor) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  expect(right, greaterThanOrEqualTo(left), reason: '图片必须实际绘制');
+  return Rect.fromLTRB(
+    left.toDouble(),
+    top.toDouble(),
+    (right + 1).toDouble(),
+    (bottom + 1).toDouble(),
+  );
+}
+
+Future<EpubChapterSource> _narrowImageSource(
+  ui.Image image, {
+  required String align,
+  required bool topBleed,
+}) async {
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  return openCssChapter(
+    body:
+        '<div><div class="logo"><img src="../Images/logo.png"/></div>'
+        '<h3>序</h3><p>首段正文</p></div>',
+    css:
+        'body { margin: 0 1%; font-size: 16px; }'
+        'div { margin: 0; padding: 0; }'
+        '.logo { margin: 1.75em 0 0; text-align: $align; '
+        'duokan-bleed: ${topBleed ? 'lefttopright' : 'leftright'}; }'
+        'img { width: 30%; }'
+        'h3 { margin: -4em 0 0; padding: 5px; width: 3em; '
+        'font-size: 20px; line-height: 1.45; color: transparent; }'
+        'p { margin: 10px 0 0; width: 170px; font-size: 10px; '
+        'line-height: 20px; color: transparent; background: #224466; }',
+    binaryFiles: {'OEBPS/Images/logo.png': png!.buffer.asUint8List()},
+    contentWidth: 300,
+    contentHeight: 500,
+    overrides: const ReaderOverrides(
+      padding: CssEdges(left: 20, top: 80, right: 20, bottom: 20),
+    ),
   );
 }
 
@@ -93,6 +152,134 @@ Future<EpubChapterSource> _bannerSource(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('自定义左右页边距按实际页面宽计算出血窄图，不裁掉右侧', (tester) async {
+    final image = (await tester.runAsync(
+      () => _banner(width: 120, height: 180),
+    ))!;
+    addTearDown(image.dispose);
+    final source = (await tester.runAsync(
+      () => _narrowImageSource(image, align: 'right', topBleed: true),
+    ))!;
+    addTearDown(source.close);
+    late ReaderSession session;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 300,
+            height: 500,
+            child: ReaderPage(
+              source: source,
+              store: MemoryReaderProgressStore(),
+              bookId: 'bleed-custom-margins',
+              showPageFooter: false,
+              overrides: source.overrides,
+              margins: const ReaderMargins(
+                left: 8,
+                right: 12,
+                topOuter: 80,
+                topInner: 0,
+                bottomInner: 0,
+                bottomOuter: 20,
+              ),
+              onSessionReady: (value) => session = value,
+            ),
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.byType(ReaderView));
+    final page = session.page!;
+    expect(source.contentWidth, 280);
+    expect(page.slices.first.block.style!.width!.value, 90);
+    expect(
+      _imageBounds(
+        (await tester.runAsync(
+          () => _render(
+            page,
+            image,
+            insets: const EdgeInsets.fromLTRB(8, 80, 12, 20),
+          ),
+        ))!,
+      ),
+      const Rect.fromLTWH(210, 0, 90, 135),
+    );
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  test('正文宽高不变时实际左右内缩使窄图缓存失效，恢复时不沿用预览宽度', () async {
+    final image = await _banner(width: 120, height: 180);
+    addTearDown(image.dispose);
+    final source = await _narrowImageSource(
+      image,
+      align: 'right',
+      topBleed: true,
+    );
+    addTearDown(source.close);
+    Future<bool> resize(double right) => source.applyContentSize(
+      width: 280,
+      height: 400,
+      topInset: 80,
+      sideInsets: (left: 8, right: right),
+    );
+    await resize(12);
+    final before = await source.loadChapter(0);
+    expect(before.first.slices.first.block.style!.width!.value, 90);
+    expect(await resize(22), isTrue);
+    final preview = await source.loadChapter(0);
+    expect(preview, isNot(same(before)));
+    expect(preview.first.slices.first.block.style!.width!.value, 93);
+    source.clearPaginationCache();
+    final replayed = await source.loadChapter(0);
+    expect(replayed.first.slices.first.block.style!.width!.value, 93);
+    expect(await resize(12), isTrue);
+    final restored = (await source.loadChapter(0)).first;
+    expect(restored.slices.first.block.style!.width!.value, 90);
+    expect(
+      _imageBounds(
+        await _render(
+          restored,
+          image,
+          insets: const EdgeInsets.fromLTRB(8, 80, 12, 20),
+        ),
+      ),
+      const Rect.fromLTWH(210, 0, 90, 135),
+    );
+    expect(await resize(12), isFalse);
+  });
+
+  for (final topBleed in [false, true]) {
+    for (final alignment in {
+      'left': 0.0,
+      'center': 105.0,
+      'right': 210.0,
+    }.entries) {
+      test('30% 窄图保留尺寸和 ${alignment.key} 对齐（顶部出血：$topBleed）', () async {
+        final image = await _banner(width: 120, height: 180);
+        addTearDown(image.dispose);
+        final source = await _narrowImageSource(
+          image,
+          align: alignment.key,
+          topBleed: topBleed,
+        );
+        addTearDown(source.close);
+        final page = (await source.loadChapter(0)).first;
+        final block = page.slices.first.block;
+        expect(block.style!.width!.value, 90, reason: '30% 使用出血包含块宽度');
+        expect(block.layout.height, 135);
+        expect(block.spaceBefore, 28, reason: '作者上边距保留在普通流中');
+        final top = topBleed ? 0.0 : 108.0;
+        final expected = Rect.fromLTWH(alignment.value, top, 90, 135);
+        expect(_imageBounds(await _render(page, image)), expected);
+        source.clearPaginationCache();
+        final replayed = (await source.loadChapter(0)).first;
+        expect(_imageBounds(await _render(replayed, image)), expected);
+        expect(replayed.usedHeight, page.usedHeight);
+      });
+    }
+  }
 
   for (final fixed in [false, true]) {
     test('千禧章首结构的头图贴左上右边（含固定定位：$fixed）', () async {

@@ -5566,14 +5566,10 @@ class _SliceGeometry {
         ? block.bottomInset
         : style.padding.bottom +
               (style.borders.bottom.isVisible ? style.borders.bottom.width : 0);
-    final top = block.bleedTop
-        ? -pageInsets.top
-        : (slice.leadingExtent != 0 ? y + slice.leadingExtent - ownTop : y);
-    final bottom = block.bleedBottom
-        ? pageHeight + pageInsets.bottom
-        : (slice.trailingExtent != 0
-              ? y + slice.height - slice.trailingExtent + ownBottom
-              : y + slice.height);
+    final top = slice.leadingExtent != 0 ? y + slice.leadingExtent - ownTop : y;
+    final bottom = slice.trailingExtent != 0
+        ? y + slice.height - slice.trailingExtent + ownBottom
+        : y + slice.height;
     // 横向按解算后的内容宽（`width` 声明 / auto）× box-sizing 定右边：
     // 声明了 width 的块背景与 overflow 裁剪都要收在声明宽内（Chromium 的
     // used width 口径）；auto 时与「页宽 − margin」等价。
@@ -5587,12 +5583,40 @@ class _SliceGeometry {
     final boxLeft = slice.overlay
         ? slice.leftInset + style.margin.left
         : style.margin.left;
-    final left = block.bleedLeft ? -pageInsets.left : boxLeft;
     final contentWidth = _contentBoxWidth(model);
+    if (block.isReplaced) {
+      return _replacedBorderBox(
+        Rect.fromLTRB(
+          boxLeft,
+          top,
+          boxLeft + contentWidth + model.horizontalInset,
+          bottom,
+        ),
+      );
+    }
+    final left = block.bleedLeft ? -pageInsets.left : boxLeft;
     final right = block.bleedRight
         ? pageWidth + pageInsets.right
         : left + contentWidth + model.horizontalInset;
-    return Rect.fromLTRB(left, top, right, bottom);
+    return Rect.fromLTRB(
+      left,
+      block.bleedTop ? -pageInsets.top : top,
+      right,
+      block.bleedBottom ? pageHeight + pageInsets.bottom : bottom,
+    );
+  }
+
+  /// 替换图片保留测量盒；出血只移动包含块原点和上下贴边位置，
+  /// 不把图像定位区域撑成整页，也不让外边距参与 object-fit 缩放。
+  Rect _replacedBorderBox(Rect box) {
+    final block = slice.block;
+    final left = box.left - (block.bleedLeft ? pageInsets.left : 0);
+    final top = block.bleedTop
+        ? -pageInsets.top
+        : block.bleedBottom
+        ? pageHeight + pageInsets.bottom - box.height
+        : box.top;
+    return Rect.fromLTWH(left, top, box.width, box.height);
   }
 
   double _contentBoxWidth(BoxModel model) {

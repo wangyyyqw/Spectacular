@@ -211,8 +211,8 @@ class _ImageSizing {
     final snapshot = input.styles.snapshot;
     if (bleed.left || bleed.right) {
       return snapshot.width +
-          (bleed.left ? snapshot.overrides.padding?.left ?? 0 : 0) +
-          (bleed.right ? snapshot.overrides.padding?.right ?? 0 : 0);
+          (bleed.left ? snapshot.sideInsets.left : 0) +
+          (bleed.right ? snapshot.sideInsets.right : 0);
     }
     var width = snapshot.width;
     if (input.style.isOutOfFlow &&
@@ -327,7 +327,10 @@ double _usedMarginLeft(_ImageDescription input, _ImageGeometry geometry) {
   final widthIsAuto = own.width == null || own.width!.isAuto;
   final autoMargins =
       widthIsAuto && (own.marginLeftIsAuto || own.marginRightIsAuto);
-  final left = input.promotedLeft + own.margin.left;
+  // 出血包含块已改用页面宽，不重复叠加原祖先内容盒的水平偏移。
+  final bleed = input.style.bleed;
+  final left =
+      (bleed.left || bleed.right ? 0 : input.promotedLeft) + own.margin.left;
   if ((geometry.side != null && geometry.floatBox == null) ||
       input.style.isOutOfFlow ||
       !(autoMargins || inlineLevel)) {

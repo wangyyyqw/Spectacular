@@ -131,6 +131,7 @@ class _ScheduledSource
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     final changed = this.height != height;
     this.height = height;

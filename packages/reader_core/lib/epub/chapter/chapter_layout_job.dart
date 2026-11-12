@@ -22,6 +22,7 @@ class LayoutSnapshot {
     required this.height,
     required this.pageHeight,
     required this.topInset,
+    ContentSideInsets? sideInsets,
     required this.baseStyle,
     required this.overrides,
     required this.textOverlays,
@@ -29,7 +30,12 @@ class LayoutSnapshot {
     required this.fonts,
     required this.fontFamilies,
     required this.trimTextEdges,
-  });
+  }) : sideInsets =
+           sideInsets ??
+           (
+             left: overrides.padding?.left ?? 0,
+             right: overrides.padding?.right ?? 0,
+           );
 
   final int spineIndex;
   final String key;
@@ -39,6 +45,7 @@ class LayoutSnapshot {
   final double height;
   final double pageHeight;
   final double topInset;
+  final ContentSideInsets sideInsets;
   final ComputedStyle baseStyle;
   final ReaderOverrides overrides;
   final ReaderTextOverlayResolver textOverlays;

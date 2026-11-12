@@ -149,13 +149,18 @@ abstract interface class ScheduledPositionedChapterSource
   ReaderPreparationHandle<String?> scheduleCfiForReadingPercent(double percent);
 }
 
+/// 正文区相对整页的实际左右内缩，独立于阅读设置中的默认页边距。
+typedef ContentSideInsets = ({double left, double right});
+
 /// 可应用正文区尺寸的章节源（旋转/窗口变化，P2-31）。
 abstract interface class ResizableChapterSource implements ReaderChapterSource {
   /// 应用正文区尺寸及整页到正文的上内缩（含安全区与页眉槽）。
+  /// [sideInsets] 供出血图片测量；未传时沿用设置页边距。
   /// 返回是否真的发生变化，变化后调用方重新加载章节。
   Future<bool> applyContentSize({
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   });
 }

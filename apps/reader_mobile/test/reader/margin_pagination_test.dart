@@ -15,6 +15,7 @@ import 'package:reader_ui/theme/reader_margins.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
+
 import 'package:reader_core/source/chapter_source.dart';
 
 void main() {
@@ -403,9 +404,11 @@ class _CountingSource
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) => delegate.applyContentSize(
     width: width,
     height: height,
     topInset: topInset,
+    sideInsets: sideInsets,
   );
 }
