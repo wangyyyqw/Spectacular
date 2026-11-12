@@ -7,6 +7,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
+import '../editing/book_edit_repository.dart';
 import 'book_opening_reader.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
@@ -186,6 +187,7 @@ class BookOpener {
       bytesFuture: opening.bytes,
       sourcePath: entry.filePath.isEmpty ? null : entry.filePath,
       bookId: entry.id,
+      bookEditorRepository: BookEditRepository(library),
       store: progressStore,
       bookmarks: bookmarks,
       annotations: annotations,

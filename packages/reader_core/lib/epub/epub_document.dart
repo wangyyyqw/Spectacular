@@ -48,8 +48,17 @@ Future<EpubOpenResult> openEpub(Uint8List bytes, {bool verifyCrc = true}) {
 /// 阅读路径用这个入口——100MB+ 的书不再把整本字节读进 Dart 堆。
 /// [verifyCrc] 默认关闭：导入时已完整校验过一次，阅读时逐条重算 CRC
 /// 只会增加 CPU 与发热。
-Future<EpubOpenResult> openEpubFile(File file, {bool verifyCrc = false}) {
-  return _openWith(() => EpubArchive.fromFile(file, verify: verifyCrc));
+Future<EpubOpenResult> openEpubFile(
+  File file, {
+  bool verifyCrc = false,
+  Map<String, Uint8List?> resourceOverrides = const {},
+}) {
+  return _openWith(() async {
+    final archive = await EpubArchive.fromFile(file, verify: verifyCrc);
+    return resourceOverrides.isEmpty
+        ? archive
+        : EpubArchive.withOverrides(archive, resourceOverrides);
+  });
 }
 
 Future<EpubOpenResult> _openWith(Future<EpubArchive> Function() create) async {

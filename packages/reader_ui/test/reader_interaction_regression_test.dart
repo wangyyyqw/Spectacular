@@ -66,6 +66,40 @@ class _NavigationObserver extends NavigatorObserver {
   }
 }
 
+class _ImageEditSource implements ReaderChapterSource {
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final style = ComputedStyle(const {
+      'font-size': '16px',
+      'width': '80px',
+      'height': '80px',
+      'margin-left': '20px',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: ' ',
+      style: style,
+      maxWidth: 80,
+    );
+    return Paginator(pageHeight: 120)
+        .measureChapter(
+          blocks: [
+            PageBlock.styled(
+              layout: layout,
+              style: style,
+              containingWidth: 160,
+              startCfi: 'epubcfi(/6/2!/4/2)',
+              isReplaced: true,
+            ),
+          ],
+          spineIndex: 0,
+        )
+        .pages;
+  }
+}
+
 class _ChapterBoundarySource implements ReaderChapterSource {
   @override
   int get chapterCount => 2;
@@ -129,6 +163,8 @@ class _BlankLineSource implements RestylableChapterSource {
 Future<ReaderSession> _showReader(
   WidgetTester tester, {
   ReaderChapterSource? source,
+  bool editMode = false,
+  ValueChanged<ReaderEditTarget>? onEditTarget,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -136,6 +172,8 @@ Future<ReaderSession> _showReader(
       home: Scaffold(
         body: ReaderPage(
           source: source ?? _Source(),
+          editMode: editMode,
+          onEditTarget: onEditTarget,
           store: MemoryReaderProgressStore(),
           bookId: 'interaction-regression',
           padding: _padding,
@@ -278,6 +316,57 @@ bool _menuOpen(WidgetTester tester) =>
     tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open;
 
 void main() {
+  testWidgets('编辑模式点击独立图片内容区返回元素CFI，不附加文字偏移', (tester) async {
+    final targets = <ReaderEditTarget>[];
+    await _showReader(
+      tester,
+      source: _ImageEditSource(),
+      editMode: true,
+      onEditTarget: targets.add,
+    );
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    await tester.tapAt(origin + _padding.topLeft + const Offset(50, 45));
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+    expect(targets.single.cfi, 'epubcfi(/6/2!/4/2)');
+    await tester.tapAt(origin + _padding.topLeft + const Offset(150, 45));
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+  });
+  testWidgets('编辑模式真实点击正文回传精确CFI，页边距不误选', (tester) async {
+    final targets = <ReaderEditTarget>[];
+    final session = await _showReader(
+      tester,
+      editMode: true,
+      onEditTarget: targets.add,
+    );
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    final line = TextHitTester.lineBoxes(session.page!).first;
+    await tester.tapAt(
+      origin +
+          _padding.topLeft +
+          Offset(line.rect.left + 6, line.rect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+    expect(targets.single.spineIndex, 0);
+    expect(targets.single.cfi, startsWith('epubcfi(/6/2!'));
+    expect(session.progress!.pageIndex, 0);
+    await tester.tapAt(origin + const Offset(4, 12));
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+  });
+
+  testWidgets('普通阅读长按选区可请求编辑原文', (tester) async {
+    final targets = <ReaderEditTarget>[];
+    final session = await _showReader(tester, onEditTarget: targets.add);
+    await _selectWord(tester, session.page!);
+    await tester.tap(find.text('编辑原文'));
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+    expect(find.byType(SelectionLayer), findsNothing);
+  });
+
   testWidgets('墨水屏模式仍可使用连续滚动', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

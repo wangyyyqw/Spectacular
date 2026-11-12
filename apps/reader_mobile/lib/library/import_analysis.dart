@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:reader_core/api.dart' show BookMeta, ImportReport, SpineItem;
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/opf.dart';
+import 'package:reader_core/epub/archive_reader.dart';
+import 'package:reader_core/editing/edit_change_classifier.dart';
 
 /// isolate 可安全传回的新书导入摘要。
 ///
@@ -233,15 +235,19 @@ class _DigestSink implements Sink<Digest> {
   void close() {}
 }
 
-Future<ImportAnalysis> _analyzeFile(String path, {String? revision}) async {
+Future<ImportAnalysis> _analyzeFile(
+  String path, {
+  String? revision,
+  List<int>? knownCounts,
+}) async {
   revision ??= await _sha256File(path);
   // 导入做完整 CRC 校验；惰性 ZIP 逐条解压，内存有界。
   final parsed = await openEpubFile(File(path), verifyCrc: true);
   final document = parsed.document;
   if (document == null) return ImportAnalysis(revision, parsed, null);
-  final counts = await document.countChapterCharacters();
-  final coverPath = document.coverResourcePath;
   try {
+    final counts = knownCounts ?? await document.countChapterCharacters();
+    final coverPath = document.coverResourcePath;
     return ImportAnalysis(
       revision,
       EpubOpenResult(report: parsed.report),
@@ -259,6 +265,55 @@ Future<ImportAnalysis> _analyzeFile(String path, {String? revision}) async {
     );
   } finally {
     document.archive.close();
+  }
+}
+
+/// CSS 提示必须由实际归档证实；其余修改仍执行正文迁移。
+Future<({ImportAnalysis analysis, bool cssOnly})> analyzeEditedFile(
+  String path, {
+  required String oldPath,
+  required bool cssOnly,
+  required List<int> knownCounts,
+}) => Isolate.run(() async {
+  final onlyCss = cssOnly && await _verifiedCssOnly(oldPath, path);
+  final analysis = await _analyzeFile(
+    path,
+    knownCounts: onlyCss ? knownCounts : null,
+  );
+  return (analysis: analysis, cssOnly: onlyCss);
+});
+
+Future<bool> _verifiedCssOnly(String oldPath, String path) async {
+  final opened = await openEpubFile(File(oldPath), verifyCrc: false);
+  final document = opened.document;
+  if (document == null) return false;
+  final old = document.archive;
+  EpubArchive? next;
+  try {
+    next = await EpubArchive.fromFile(File(path));
+    return EditChangeClassifier(
+      document.opfPath,
+      old.readBytes,
+      next.readBytes,
+    ).cssOnly(_changedEditEntries(old, next));
+  } finally {
+    old.close();
+    next?.close();
+  }
+}
+
+Iterable<String> _changedEditEntries(
+  EpubArchive before,
+  EpubArchive after,
+) sync* {
+  for (final path in {...before.names, ...after.names}) {
+    final a = before.readBytes(path), b = after.readBytes(path);
+    if (a == null ||
+        b == null ||
+        a.length != b.length ||
+        sha256.convert(a) != sha256.convert(b)) {
+      yield path;
+    }
   }
 }
 

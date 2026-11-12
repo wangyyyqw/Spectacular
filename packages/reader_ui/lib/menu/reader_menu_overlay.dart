@@ -53,6 +53,7 @@ class ReaderMenuOverlay extends StatelessWidget {
     this.safeTop = 0,
     this.safeBottom = 0,
     this.onTts,
+    this.onEdit,
   });
 
   /// 菜单是否展开（设计稿 `.menu-open`）。
@@ -109,6 +110,9 @@ class ReaderMenuOverlay extends StatelessWidget {
 
   /// 听书（为 null 时不显示入口图标）。
   final VoidCallback? onTts;
+
+  /// 宿主原文编辑器入口。
+  final VoidCallback? onEdit;
 
   static const Duration _enter = Duration(milliseconds: 280);
   static const Duration _exit = Duration(milliseconds: 200);
@@ -191,6 +195,15 @@ class ReaderMenuOverlay extends StatelessWidget {
                                 : '夜间',
                             buttonKey: const ValueKey<String>('menu-daynight'),
                           ),
+                          if (onEdit != null)
+                            _IconButton(
+                              icon: Icons.edit_note_outlined,
+                              iconSize: 22,
+                              color: fg,
+                              onTap: onEdit,
+                              tooltip: '编辑书籍',
+                              buttonKey: const ValueKey<String>('menu-edit'),
+                            ),
                           if (onTts != null)
                             _IconButton(
                               icon: Icons.headphones_outlined,

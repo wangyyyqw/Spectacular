@@ -8590,6 +8590,784 @@ class BookIdAliasesCompanion extends UpdateCompanion<BookIdAliasRow> {
   }
 }
 
+class $EditDraftsTable extends EditDrafts
+    with TableInfo<$EditDraftsTable, EditDraftRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EditDraftsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<int> bookId = GeneratedColumn<int>(
+    'book_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES books (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _baseRevisionMeta = const VerificationMeta(
+    'baseRevision',
+  );
+  @override
+  late final GeneratedColumn<String> baseRevision = GeneratedColumn<String>(
+    'base_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourcePathMeta = const VerificationMeta(
+    'sourcePath',
+  );
+  @override
+  late final GeneratedColumn<String> sourcePath = GeneratedColumn<String>(
+    'source_path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _directoryMeta = const VerificationMeta(
+    'directory',
+  );
+  @override
+  late final GeneratedColumn<String> directory = GeneratedColumn<String>(
+    'directory',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    bookId,
+    baseRevision,
+    sourcePath,
+    directory,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'edit_drafts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EditDraftRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    }
+    if (data.containsKey('base_revision')) {
+      context.handle(
+        _baseRevisionMeta,
+        baseRevision.isAcceptableOrUnknown(
+          data['base_revision']!,
+          _baseRevisionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_baseRevisionMeta);
+    }
+    if (data.containsKey('source_path')) {
+      context.handle(
+        _sourcePathMeta,
+        sourcePath.isAcceptableOrUnknown(data['source_path']!, _sourcePathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourcePathMeta);
+    }
+    if (data.containsKey('directory')) {
+      context.handle(
+        _directoryMeta,
+        directory.isAcceptableOrUnknown(data['directory']!, _directoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_directoryMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {bookId};
+  @override
+  EditDraftRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EditDraftRow(
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}book_id'],
+      )!,
+      baseRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}base_revision'],
+      )!,
+      sourcePath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_path'],
+      )!,
+      directory: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}directory'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $EditDraftsTable createAlias(String alias) {
+    return $EditDraftsTable(attachedDatabase, alias);
+  }
+}
+
+class EditDraftRow extends DataClass implements Insertable<EditDraftRow> {
+  final int bookId;
+  final String baseRevision;
+  final String sourcePath;
+  final String directory;
+  final int updatedAt;
+  const EditDraftRow({
+    required this.bookId,
+    required this.baseRevision,
+    required this.sourcePath,
+    required this.directory,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['book_id'] = Variable<int>(bookId);
+    map['base_revision'] = Variable<String>(baseRevision);
+    map['source_path'] = Variable<String>(sourcePath);
+    map['directory'] = Variable<String>(directory);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  EditDraftsCompanion toCompanion(bool nullToAbsent) {
+    return EditDraftsCompanion(
+      bookId: Value(bookId),
+      baseRevision: Value(baseRevision),
+      sourcePath: Value(sourcePath),
+      directory: Value(directory),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory EditDraftRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EditDraftRow(
+      bookId: serializer.fromJson<int>(json['bookId']),
+      baseRevision: serializer.fromJson<String>(json['baseRevision']),
+      sourcePath: serializer.fromJson<String>(json['sourcePath']),
+      directory: serializer.fromJson<String>(json['directory']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'bookId': serializer.toJson<int>(bookId),
+      'baseRevision': serializer.toJson<String>(baseRevision),
+      'sourcePath': serializer.toJson<String>(sourcePath),
+      'directory': serializer.toJson<String>(directory),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  EditDraftRow copyWith({
+    int? bookId,
+    String? baseRevision,
+    String? sourcePath,
+    String? directory,
+    int? updatedAt,
+  }) => EditDraftRow(
+    bookId: bookId ?? this.bookId,
+    baseRevision: baseRevision ?? this.baseRevision,
+    sourcePath: sourcePath ?? this.sourcePath,
+    directory: directory ?? this.directory,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  EditDraftRow copyWithCompanion(EditDraftsCompanion data) {
+    return EditDraftRow(
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+      baseRevision: data.baseRevision.present
+          ? data.baseRevision.value
+          : this.baseRevision,
+      sourcePath: data.sourcePath.present
+          ? data.sourcePath.value
+          : this.sourcePath,
+      directory: data.directory.present ? data.directory.value : this.directory,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EditDraftRow(')
+          ..write('bookId: $bookId, ')
+          ..write('baseRevision: $baseRevision, ')
+          ..write('sourcePath: $sourcePath, ')
+          ..write('directory: $directory, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(bookId, baseRevision, sourcePath, directory, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EditDraftRow &&
+          other.bookId == this.bookId &&
+          other.baseRevision == this.baseRevision &&
+          other.sourcePath == this.sourcePath &&
+          other.directory == this.directory &&
+          other.updatedAt == this.updatedAt);
+}
+
+class EditDraftsCompanion extends UpdateCompanion<EditDraftRow> {
+  final Value<int> bookId;
+  final Value<String> baseRevision;
+  final Value<String> sourcePath;
+  final Value<String> directory;
+  final Value<int> updatedAt;
+  const EditDraftsCompanion({
+    this.bookId = const Value.absent(),
+    this.baseRevision = const Value.absent(),
+    this.sourcePath = const Value.absent(),
+    this.directory = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  EditDraftsCompanion.insert({
+    this.bookId = const Value.absent(),
+    required String baseRevision,
+    required String sourcePath,
+    required String directory,
+    required int updatedAt,
+  }) : baseRevision = Value(baseRevision),
+       sourcePath = Value(sourcePath),
+       directory = Value(directory),
+       updatedAt = Value(updatedAt);
+  static Insertable<EditDraftRow> custom({
+    Expression<int>? bookId,
+    Expression<String>? baseRevision,
+    Expression<String>? sourcePath,
+    Expression<String>? directory,
+    Expression<int>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (bookId != null) 'book_id': bookId,
+      if (baseRevision != null) 'base_revision': baseRevision,
+      if (sourcePath != null) 'source_path': sourcePath,
+      if (directory != null) 'directory': directory,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  EditDraftsCompanion copyWith({
+    Value<int>? bookId,
+    Value<String>? baseRevision,
+    Value<String>? sourcePath,
+    Value<String>? directory,
+    Value<int>? updatedAt,
+  }) {
+    return EditDraftsCompanion(
+      bookId: bookId ?? this.bookId,
+      baseRevision: baseRevision ?? this.baseRevision,
+      sourcePath: sourcePath ?? this.sourcePath,
+      directory: directory ?? this.directory,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (bookId.present) {
+      map['book_id'] = Variable<int>(bookId.value);
+    }
+    if (baseRevision.present) {
+      map['base_revision'] = Variable<String>(baseRevision.value);
+    }
+    if (sourcePath.present) {
+      map['source_path'] = Variable<String>(sourcePath.value);
+    }
+    if (directory.present) {
+      map['directory'] = Variable<String>(directory.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EditDraftsCompanion(')
+          ..write('bookId: $bookId, ')
+          ..write('baseRevision: $baseRevision, ')
+          ..write('sourcePath: $sourcePath, ')
+          ..write('directory: $directory, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $EditVersionsTable extends EditVersions
+    with TableInfo<$EditVersionsTable, EditVersionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EditVersionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<int> bookId = GeneratedColumn<int>(
+    'book_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES books (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _revisionMeta = const VerificationMeta(
+    'revision',
+  );
+  @override
+  late final GeneratedColumn<String> revision = GeneratedColumn<String>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourcePathMeta = const VerificationMeta(
+    'sourcePath',
+  );
+  @override
+  late final GeneratedColumn<String> sourcePath = GeneratedColumn<String>(
+    'source_path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _summaryMeta = const VerificationMeta(
+    'summary',
+  );
+  @override
+  late final GeneratedColumn<String> summary = GeneratedColumn<String>(
+    'summary',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    bookId,
+    kind,
+    revision,
+    sourcePath,
+    summary,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'edit_versions';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EditVersionRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bookIdMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('revision')) {
+      context.handle(
+        _revisionMeta,
+        revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_revisionMeta);
+    }
+    if (data.containsKey('source_path')) {
+      context.handle(
+        _sourcePathMeta,
+        sourcePath.isAcceptableOrUnknown(data['source_path']!, _sourcePathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourcePathMeta);
+    }
+    if (data.containsKey('summary')) {
+      context.handle(
+        _summaryMeta,
+        summary.isAcceptableOrUnknown(data['summary']!, _summaryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_summaryMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {bookId, kind};
+  @override
+  EditVersionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EditVersionRow(
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}book_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}revision'],
+      )!,
+      sourcePath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_path'],
+      )!,
+      summary: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}summary'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $EditVersionsTable createAlias(String alias) {
+    return $EditVersionsTable(attachedDatabase, alias);
+  }
+}
+
+class EditVersionRow extends DataClass implements Insertable<EditVersionRow> {
+  final int bookId;
+  final String kind;
+  final String revision;
+  final String sourcePath;
+  final String summary;
+  final int createdAt;
+  const EditVersionRow({
+    required this.bookId,
+    required this.kind,
+    required this.revision,
+    required this.sourcePath,
+    required this.summary,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['book_id'] = Variable<int>(bookId);
+    map['kind'] = Variable<String>(kind);
+    map['revision'] = Variable<String>(revision);
+    map['source_path'] = Variable<String>(sourcePath);
+    map['summary'] = Variable<String>(summary);
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  EditVersionsCompanion toCompanion(bool nullToAbsent) {
+    return EditVersionsCompanion(
+      bookId: Value(bookId),
+      kind: Value(kind),
+      revision: Value(revision),
+      sourcePath: Value(sourcePath),
+      summary: Value(summary),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory EditVersionRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EditVersionRow(
+      bookId: serializer.fromJson<int>(json['bookId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      revision: serializer.fromJson<String>(json['revision']),
+      sourcePath: serializer.fromJson<String>(json['sourcePath']),
+      summary: serializer.fromJson<String>(json['summary']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'bookId': serializer.toJson<int>(bookId),
+      'kind': serializer.toJson<String>(kind),
+      'revision': serializer.toJson<String>(revision),
+      'sourcePath': serializer.toJson<String>(sourcePath),
+      'summary': serializer.toJson<String>(summary),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  EditVersionRow copyWith({
+    int? bookId,
+    String? kind,
+    String? revision,
+    String? sourcePath,
+    String? summary,
+    int? createdAt,
+  }) => EditVersionRow(
+    bookId: bookId ?? this.bookId,
+    kind: kind ?? this.kind,
+    revision: revision ?? this.revision,
+    sourcePath: sourcePath ?? this.sourcePath,
+    summary: summary ?? this.summary,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  EditVersionRow copyWithCompanion(EditVersionsCompanion data) {
+    return EditVersionRow(
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      sourcePath: data.sourcePath.present
+          ? data.sourcePath.value
+          : this.sourcePath,
+      summary: data.summary.present ? data.summary.value : this.summary,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EditVersionRow(')
+          ..write('bookId: $bookId, ')
+          ..write('kind: $kind, ')
+          ..write('revision: $revision, ')
+          ..write('sourcePath: $sourcePath, ')
+          ..write('summary: $summary, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(bookId, kind, revision, sourcePath, summary, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EditVersionRow &&
+          other.bookId == this.bookId &&
+          other.kind == this.kind &&
+          other.revision == this.revision &&
+          other.sourcePath == this.sourcePath &&
+          other.summary == this.summary &&
+          other.createdAt == this.createdAt);
+}
+
+class EditVersionsCompanion extends UpdateCompanion<EditVersionRow> {
+  final Value<int> bookId;
+  final Value<String> kind;
+  final Value<String> revision;
+  final Value<String> sourcePath;
+  final Value<String> summary;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const EditVersionsCompanion({
+    this.bookId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.sourcePath = const Value.absent(),
+    this.summary = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EditVersionsCompanion.insert({
+    required int bookId,
+    required String kind,
+    required String revision,
+    required String sourcePath,
+    required String summary,
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : bookId = Value(bookId),
+       kind = Value(kind),
+       revision = Value(revision),
+       sourcePath = Value(sourcePath),
+       summary = Value(summary),
+       createdAt = Value(createdAt);
+  static Insertable<EditVersionRow> custom({
+    Expression<int>? bookId,
+    Expression<String>? kind,
+    Expression<String>? revision,
+    Expression<String>? sourcePath,
+    Expression<String>? summary,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (bookId != null) 'book_id': bookId,
+      if (kind != null) 'kind': kind,
+      if (revision != null) 'revision': revision,
+      if (sourcePath != null) 'source_path': sourcePath,
+      if (summary != null) 'summary': summary,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EditVersionsCompanion copyWith({
+    Value<int>? bookId,
+    Value<String>? kind,
+    Value<String>? revision,
+    Value<String>? sourcePath,
+    Value<String>? summary,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return EditVersionsCompanion(
+      bookId: bookId ?? this.bookId,
+      kind: kind ?? this.kind,
+      revision: revision ?? this.revision,
+      sourcePath: sourcePath ?? this.sourcePath,
+      summary: summary ?? this.summary,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (bookId.present) {
+      map['book_id'] = Variable<int>(bookId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<String>(revision.value);
+    }
+    if (sourcePath.present) {
+      map['source_path'] = Variable<String>(sourcePath.value);
+    }
+    if (summary.present) {
+      map['summary'] = Variable<String>(summary.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EditVersionsCompanion(')
+          ..write('bookId: $bookId, ')
+          ..write('kind: $kind, ')
+          ..write('revision: $revision, ')
+          ..write('sourcePath: $sourcePath, ')
+          ..write('summary: $summary, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -8620,6 +9398,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $BookTagsTable bookTags = $BookTagsTable(this);
   late final $BookTagLinksTable bookTagLinks = $BookTagLinksTable(this);
   late final $BookIdAliasesTable bookIdAliases = $BookIdAliasesTable(this);
+  late final $EditDraftsTable editDrafts = $EditDraftsTable(this);
+  late final $EditVersionsTable editVersions = $EditVersionsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -8643,6 +9423,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     bookTags,
     bookTagLinks,
     bookIdAliases,
+    editDrafts,
+    editVersions,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -8736,6 +9518,20 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('book_id_aliases', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'books',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('edit_drafts', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'books',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('edit_versions', kind: UpdateKind.delete)],
     ),
   ]);
 }
@@ -8973,6 +9769,42 @@ final class $$BooksTableReferences
     ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_bookIdAliasesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$EditDraftsTable, List<EditDraftRow>>
+  _editDraftsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.editDrafts,
+    aliasName: 'books__id__edit_drafts__book_id',
+  );
+
+  $$EditDraftsTableProcessedTableManager get editDraftsRefs {
+    final manager = $$EditDraftsTableTableManager(
+      $_db,
+      $_db.editDrafts,
+    ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_editDraftsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$EditVersionsTable, List<EditVersionRow>>
+  _editVersionsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.editVersions,
+    aliasName: 'books__id__edit_versions__book_id',
+  );
+
+  $$EditVersionsTableProcessedTableManager get editVersionsRefs {
+    final manager = $$EditVersionsTableTableManager(
+      $_db,
+      $_db.editVersions,
+    ).filter((f) => f.bookId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_editVersionsRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -9323,6 +10155,56 @@ class $$BooksTableFilterComposer extends Composer<_$AppDatabase, $BooksTable> {
           }) => $$BookIdAliasesTableFilterComposer(
             $db: $db,
             $table: $db.bookIdAliases,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> editDraftsRefs(
+    Expression<bool> Function($$EditDraftsTableFilterComposer f) f,
+  ) {
+    final $$EditDraftsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.editDrafts,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$EditDraftsTableFilterComposer(
+            $db: $db,
+            $table: $db.editDrafts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> editVersionsRefs(
+    Expression<bool> Function($$EditVersionsTableFilterComposer f) f,
+  ) {
+    final $$EditVersionsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.editVersions,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$EditVersionsTableFilterComposer(
+            $db: $db,
+            $table: $db.editVersions,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -9770,6 +10652,56 @@ class $$BooksTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> editDraftsRefs<T extends Object>(
+    Expression<T> Function($$EditDraftsTableAnnotationComposer a) f,
+  ) {
+    final $$EditDraftsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.editDrafts,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$EditDraftsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.editDrafts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> editVersionsRefs<T extends Object>(
+    Expression<T> Function($$EditVersionsTableAnnotationComposer a) f,
+  ) {
+    final $$EditVersionsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.editVersions,
+      getReferencedColumn: (t) => t.bookId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$EditVersionsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.editVersions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$BooksTableTableManager
@@ -9796,6 +10728,8 @@ class $$BooksTableTableManager
             bool bookReviewsRefs,
             bool readingSessionsRefs,
             bool bookIdAliasesRefs,
+            bool editDraftsRefs,
+            bool editVersionsRefs,
           })
         > {
   $$BooksTableTableManager(_$AppDatabase db, $BooksTable table)
@@ -9913,6 +10847,8 @@ class $$BooksTableTableManager
                 bookReviewsRefs = false,
                 readingSessionsRefs = false,
                 bookIdAliasesRefs = false,
+                editDraftsRefs = false,
+                editVersionsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -9927,6 +10863,8 @@ class $$BooksTableTableManager
                     if (bookReviewsRefs) db.bookReviews,
                     if (readingSessionsRefs) db.readingSessions,
                     if (bookIdAliasesRefs) db.bookIdAliases,
+                    if (editDraftsRefs) db.editDrafts,
+                    if (editVersionsRefs) db.editVersions,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -10141,6 +11079,48 @@ class $$BooksTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (editDraftsRefs)
+                        await $_getPrefetchedData<
+                          BookRow,
+                          $BooksTable,
+                          EditDraftRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BooksTableReferences
+                              ._editDraftsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BooksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).editDraftsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.bookId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (editVersionsRefs)
+                        await $_getPrefetchedData<
+                          BookRow,
+                          $BooksTable,
+                          EditVersionRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BooksTableReferences
+                              ._editVersionsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BooksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).editVersionsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.bookId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -10172,6 +11152,8 @@ typedef $$BooksTableProcessedTableManager =
         bool bookReviewsRefs,
         bool readingSessionsRefs,
         bool bookIdAliasesRefs,
+        bool editDraftsRefs,
+        bool editVersionsRefs,
       })
     >;
 typedef $$SpineItemsTableCreateCompanionBuilder = SpineItemsCompanion Function({
@@ -15892,6 +16874,653 @@ typedef $$BookIdAliasesTableProcessedTableManager =
       BookIdAliasRow,
       PrefetchHooks Function({bool bookId})
     >;
+typedef $$EditDraftsTableCreateCompanionBuilder = EditDraftsCompanion Function({
+  Value<int> bookId,
+  required String baseRevision,
+  required String sourcePath,
+  required String directory,
+  required int updatedAt,
+});
+typedef $$EditDraftsTableUpdateCompanionBuilder = EditDraftsCompanion Function({
+  Value<int> bookId,
+  Value<String> baseRevision,
+  Value<String> sourcePath,
+  Value<String> directory,
+  Value<int> updatedAt,
+});
+
+final class $$EditDraftsTableReferences
+    extends BaseReferences<_$AppDatabase, $EditDraftsTable, EditDraftRow> {
+  $$EditDraftsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $BooksTable _bookIdTable(_$AppDatabase db) =>
+      db.books.createAlias('edit_drafts__book_id__books__id');
+
+  $$BooksTableProcessedTableManager get bookId {
+    final $_column = $_itemColumn<int>('book_id')!;
+
+    final manager = $$BooksTableTableManager(
+      $_db,
+      $_db.books,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_bookIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$EditDraftsTableFilterComposer
+    extends Composer<_$AppDatabase, $EditDraftsTable> {
+  $$EditDraftsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get baseRevision => $composableBuilder(
+    column: $table.baseRevision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get directory => $composableBuilder(
+    column: $table.directory,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BooksTableFilterComposer get bookId {
+    final $$BooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableFilterComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$EditDraftsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EditDraftsTable> {
+  $$EditDraftsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get baseRevision => $composableBuilder(
+    column: $table.baseRevision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get directory => $composableBuilder(
+    column: $table.directory,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BooksTableOrderingComposer get bookId {
+    final $$BooksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableOrderingComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$EditDraftsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EditDraftsTable> {
+  $$EditDraftsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get baseRevision => $composableBuilder(
+    column: $table.baseRevision,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get directory =>
+      $composableBuilder(column: $table.directory, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$BooksTableAnnotationComposer get bookId {
+    final $$BooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$EditDraftsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EditDraftsTable,
+          EditDraftRow,
+          $$EditDraftsTableFilterComposer,
+          $$EditDraftsTableOrderingComposer,
+          $$EditDraftsTableAnnotationComposer,
+          $$EditDraftsTableCreateCompanionBuilder,
+          $$EditDraftsTableUpdateCompanionBuilder,
+          (EditDraftRow, $$EditDraftsTableReferences),
+          EditDraftRow,
+          PrefetchHooks Function({bool bookId})
+        > {
+  $$EditDraftsTableTableManager(_$AppDatabase db, $EditDraftsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EditDraftsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EditDraftsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EditDraftsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> bookId = const Value.absent(),
+                Value<String> baseRevision = const Value.absent(),
+                Value<String> sourcePath = const Value.absent(),
+                Value<String> directory = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+              }) => EditDraftsCompanion(
+                bookId: bookId,
+                baseRevision: baseRevision,
+                sourcePath: sourcePath,
+                directory: directory,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> bookId = const Value.absent(),
+                required String baseRevision,
+                required String sourcePath,
+                required String directory,
+                required int updatedAt,
+              }) => EditDraftsCompanion.insert(
+                bookId: bookId,
+                baseRevision: baseRevision,
+                sourcePath: sourcePath,
+                directory: directory,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$EditDraftsTable, EditDraftRow>(table),
+                  $$EditDraftsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({bookId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (bookId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.bookId,
+                        referencedTable: $$EditDraftsTableReferences
+                            ._bookIdTable(db),
+                        referencedColumn: $$EditDraftsTableReferences
+                            ._bookIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$EditDraftsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EditDraftsTable,
+      EditDraftRow,
+      $$EditDraftsTableFilterComposer,
+      $$EditDraftsTableOrderingComposer,
+      $$EditDraftsTableAnnotationComposer,
+      $$EditDraftsTableCreateCompanionBuilder,
+      $$EditDraftsTableUpdateCompanionBuilder,
+      (EditDraftRow, $$EditDraftsTableReferences),
+      EditDraftRow,
+      PrefetchHooks Function({bool bookId})
+    >;
+typedef $$EditVersionsTableCreateCompanionBuilder =
+    EditVersionsCompanion Function({
+      required int bookId,
+      required String kind,
+      required String revision,
+      required String sourcePath,
+      required String summary,
+      required int createdAt,
+      Value<int> rowid,
+    });
+typedef $$EditVersionsTableUpdateCompanionBuilder =
+    EditVersionsCompanion Function({
+      Value<int> bookId,
+      Value<String> kind,
+      Value<String> revision,
+      Value<String> sourcePath,
+      Value<String> summary,
+      Value<int> createdAt,
+      Value<int> rowid,
+    });
+
+final class $$EditVersionsTableReferences
+    extends BaseReferences<_$AppDatabase, $EditVersionsTable, EditVersionRow> {
+  $$EditVersionsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $BooksTable _bookIdTable(_$AppDatabase db) =>
+      db.books.createAlias('edit_versions__book_id__books__id');
+
+  $$BooksTableProcessedTableManager get bookId {
+    final $_column = $_itemColumn<int>('book_id')!;
+
+    final manager = $$BooksTableTableManager(
+      $_db,
+      $_db.books,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_bookIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$EditVersionsTableFilterComposer
+    extends Composer<_$AppDatabase, $EditVersionsTable> {
+  $$EditVersionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get summary => $composableBuilder(
+    column: $table.summary,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BooksTableFilterComposer get bookId {
+    final $$BooksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableFilterComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$EditVersionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EditVersionsTable> {
+  $$EditVersionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get summary => $composableBuilder(
+    column: $table.summary,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BooksTableOrderingComposer get bookId {
+    final $$BooksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableOrderingComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$EditVersionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EditVersionsTable> {
+  $$EditVersionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  GeneratedColumn<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get summary =>
+      $composableBuilder(column: $table.summary, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$BooksTableAnnotationComposer get bookId {
+    final $$BooksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.bookId,
+      referencedTable: $db.books,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BooksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.books,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$EditVersionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EditVersionsTable,
+          EditVersionRow,
+          $$EditVersionsTableFilterComposer,
+          $$EditVersionsTableOrderingComposer,
+          $$EditVersionsTableAnnotationComposer,
+          $$EditVersionsTableCreateCompanionBuilder,
+          $$EditVersionsTableUpdateCompanionBuilder,
+          (EditVersionRow, $$EditVersionsTableReferences),
+          EditVersionRow,
+          PrefetchHooks Function({bool bookId})
+        > {
+  $$EditVersionsTableTableManager(_$AppDatabase db, $EditVersionsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EditVersionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EditVersionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EditVersionsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> bookId = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> revision = const Value.absent(),
+                Value<String> sourcePath = const Value.absent(),
+                Value<String> summary = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EditVersionsCompanion(
+                bookId: bookId,
+                kind: kind,
+                revision: revision,
+                sourcePath: sourcePath,
+                summary: summary,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required int bookId,
+                required String kind,
+                required String revision,
+                required String sourcePath,
+                required String summary,
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => EditVersionsCompanion.insert(
+                bookId: bookId,
+                kind: kind,
+                revision: revision,
+                sourcePath: sourcePath,
+                summary: summary,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$EditVersionsTable, EditVersionRow>(table),
+                  $$EditVersionsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({bookId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (bookId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.bookId,
+                        referencedTable: $$EditVersionsTableReferences
+                            ._bookIdTable(db),
+                        referencedColumn: $$EditVersionsTableReferences
+                            ._bookIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$EditVersionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EditVersionsTable,
+      EditVersionRow,
+      $$EditVersionsTableFilterComposer,
+      $$EditVersionsTableOrderingComposer,
+      $$EditVersionsTableAnnotationComposer,
+      $$EditVersionsTableCreateCompanionBuilder,
+      $$EditVersionsTableUpdateCompanionBuilder,
+      (EditVersionRow, $$EditVersionsTableReferences),
+      EditVersionRow,
+      PrefetchHooks Function({bool bookId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -15932,4 +17561,8 @@ class $AppDatabaseManager {
       $$BookTagLinksTableTableManager(_db, _db.bookTagLinks);
   $$BookIdAliasesTableTableManager get bookIdAliases =>
       $$BookIdAliasesTableTableManager(_db, _db.bookIdAliases);
+  $$EditDraftsTableTableManager get editDrafts =>
+      $$EditDraftsTableTableManager(_db, _db.editDrafts);
+  $$EditVersionsTableTableManager get editVersions =>
+      $$EditVersionsTableTableManager(_db, _db.editVersions);
 }

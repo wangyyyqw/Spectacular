@@ -1,13 +1,13 @@
 # reader_mobile
 
-Spectacular Reader 的 Flutter 应用宿主，包含 Android、iOS 和 macOS 工程。项目仍在开发，当前专项验收主要覆盖 Android 真机；平台目录存在不代表已完成同等验收。
+Spectacular Reader 的 Flutter 应用宿主，包含 Android、iOS、macOS 和 Windows 工程。项目仍在开发，当前专项验收主要覆盖 Android 真机；平台目录存在不代表已完成同等验收。
 
 ## 当前功能与职责
 
 - `lib/main.dart` 初始化日志、当前数据库、书库和进度存储，进入书架、统计、书评、我的四页应用壳。
 - `lib/library/` 负责 EPUB 文件导入、去重、内容摘要、修订替换、分组、标签和书籍生命周期。文件统一保存在 `books/<id>`，原 EPUB 不改写。
 - `lib/reader/epub_reader_page.dart` 通过核心 `EpubFormatOpener` 打开书籍，将进度、标注、装饰、偏好、用户字体和背景交给 `ReaderPage`；EPUB 解析、章节准备和排版实现位于 `reader_core`。
-- `lib/storage/` 使用同一个 drift 数据库保存书库、进度、标注、装饰、书评、阅读时段和设置。`AppDatabase.schemaVersion` 为 1，一次创建完整表与索引，不保留历史数据库升级或 JSON 导入流程。
+- `lib/storage/` 使用同一个 drift 数据库保存书库、进度、标注、装饰、书评、阅读时段和设置。`AppDatabase.schemaVersion` 为 2，支持 v1 增量升级，增加编辑草稿和保留版本表，不清理用户阅读数据。
 - `lib/search/scan_search_service.dart` 逐章扫描原文，返回上下文和 CFI；当前阅读搜索未使用 2-gram 索引。
 - `lib/reader/reading_session_tracker.dart` 记录前台阅读时段，`lib/home/stats_page.dart` 汇总统计；`lib/diagnostics/` 提供运行事件与日志导出。
 
@@ -29,6 +29,27 @@ Spectacular Reader 的 Flutter 应用宿主，包含 Android、iOS 和 macOS 工
 统计中的阅读次数是连续前台片段次数；退出、后台和再次进入会产生不同片段。跨自然日的翻页和字数按时长分配，标为估算且总数守恒；日均以实际阅读天数计算，字速不是净阅读速度测量。书评与读完标记分别保存，后者失败时会明确提示书评已保存，保留编辑器供重试。
 
 实现、分类回归及真机覆盖见 [功能细节优化与 APK 验收](../../docs/功能细节优化与APK验收-2026-11-12.md)。
+
+## EPUB 编辑
+
+阅读菜单或选区菜单中的“编辑 EPUB”进入工作副本。Android 点击段落可改正文、HTML 和 class；桌面窗口展开文件树、源码标签页和本应用引擎预览。源码支持查找替换，资源工具支持目录、元数据、章节顺序与分合章。预览可切换书籍样式和当前阅读设置。
+
+- 同名 class 写入共享 CSS。先展示全书影响范围；高优先级声明冲突时可保留作者优先级或显式统一该属性。归属清单只用于恢复，实际渲染仍来自标准 XHTML/CSS。
+- 保存更新书库副本，保留书籍身份、进度、批注和书签。正文变化按内容证据迁移位置；无法确认的位置保留为待重新定位。
+- 自动草稿保留未完成的源码；语法错误允许留在草稿，不能提交。过期草稿可以导出保留，但不能覆盖较新版本。
+- 保留首次编辑前原版和最近一次保存前版本；恢复书籍内容不会恢复旧数据库或丢弃之后新增的笔记。原始外部 EPUB 不自动覆盖，另用“导出 EPUB”选择输出位置。
+- 编辑撤销历史最多 100 项、旧资源 32 MiB，超出后释放最早历史；图片和字体按条目读取，输入期间不重新打包整本 EPUB。
+
+相关实现位于 `lib/editing/`、`reader_core/lib/editing/`。Windows 验收入口是 `.github/workflows/epub-editor-windows.yml`，只有实际运行通过才计为平台验收，工程目录本身不代表兼容性保证。
+
+大书编辑基准复用上述本地生成的 144 MiB、48 图、单 HTML 200 页样本，在核心包执行：
+
+```bash
+flutter test --no-pub test/editing/epub_edit_stress_test.dart \
+  --dart-define=RUN_EDITOR_STRESS=true
+```
+
+报告写入 `apps/reader_mobile/dist/epub-editor-stress.json`；本地测试进程的事件循环间隔和 RSS 不代表 Android Release 帧率。
 
 ## 本地运行
 

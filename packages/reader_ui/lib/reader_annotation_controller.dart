@@ -202,6 +202,26 @@ extension _ReaderAnnotationController on _ReaderPageState {
     PageContent page,
     ReaderSelection selection,
   ) {
+    if (widget.editMode) {
+      return [
+        if (widget.onEditTarget != null &&
+            SelectionOps.cfiOf(selection) != null)
+          _selectionAction(
+            'edit-source',
+            '编辑原文',
+            () => _requestTextEdit(
+              page.spineIndex,
+              SelectionOps.cfiOf(selection)!.start,
+            ),
+          ),
+        _selectionAction(
+          'copy',
+          '复制',
+          () => unawaited(_copySelection(page, selection)),
+        ),
+        _selectionAction('dismiss', '取消选区', _clearSelection),
+      ];
+    }
     if (_relocatingAnnotation != null || _relocatingDecoration != null) {
       return [
         _selectionAction(
@@ -217,6 +237,15 @@ extension _ReaderAnnotationController on _ReaderPageState {
       ];
     }
     return [
+      if (widget.onEditTarget != null && SelectionOps.cfiOf(selection) != null)
+        _selectionAction(
+          'edit-source',
+          '编辑原文',
+          () => _requestTextEdit(
+            page.spineIndex,
+            SelectionOps.cfiOf(selection)!.start,
+          ),
+        ),
       _selectionAction(
         'mark',
         '划线',
