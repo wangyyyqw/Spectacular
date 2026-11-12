@@ -147,6 +147,9 @@ extension LibraryRevisionOperations on LibraryStore {
       await stage.create(recursive: true);
       final file = File(p.join(stage.path, 'source.epub'));
       await file.writeAsBytes(bytes, flush: true);
+      final restoredCover = old.deletedAt == null
+          ? null
+          : await _restoreRevisionCover(stage, analysis.summary!);
       onProgress?.call(0.5);
       final migration = await _prepareRevision(
         old,
@@ -163,7 +166,7 @@ extension LibraryRevisionOperations on LibraryStore {
       onProgress?.call(0.85);
       await _commitRevision(
         migration,
-        _RevisionCommit(parsed, file, weights, counts),
+        _RevisionCommit(parsed, file, weights, counts, restoredCover),
         isCancelled: isCancelled,
       );
       committed = true;
@@ -180,6 +183,17 @@ extension LibraryRevisionOperations on LibraryStore {
         await stage.delete(recursive: true);
       }
     }
+  }
+
+  Future<String?> _restoreRevisionCover(
+    Directory stage,
+    ImportBookSummary summary,
+  ) async {
+    final bytes = summary.coverBytes;
+    if (bytes == null || bytes.isEmpty) return null;
+    final file = File(p.join(stage.path, 'cover.${summary.coverExtension}'));
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
   }
 
   Future<void> _checkRevisionConflict(int oldId, String id) async {
@@ -370,6 +384,10 @@ extension LibraryRevisionOperations on LibraryStore {
     )..where((table) => table.id.equals(old.id))).write(
       BooksCompanion(
         sourcePath: Value(commit.file.path),
+        deletedAt: const Value(null),
+        coverPath: old.deletedAt == null
+            ? const Value.absent()
+            : Value(commit.restoredCover),
         contentDir: Value(
           p.relative(commit.file.parent.path, from: (await _root()).path),
         ),
@@ -416,7 +434,7 @@ extension LibraryRevisionOperations on LibraryStore {
     final old = migration.old;
     if (current == null ||
         current.uuid != old.uuid ||
-        current.deletedAt != null ||
+        current.deletedAt != old.deletedAt ||
         current.sourcePath != old.sourcePath ||
         current.contentRevision != old.contentRevision ||
         current.layoutVersion != old.layoutVersion) {
@@ -589,11 +607,18 @@ extension LibraryRevisionOperations on LibraryStore {
 }
 
 class _RevisionCommit {
-  _RevisionCommit(this.parsed, this.file, this.weights, this.counts);
+  _RevisionCommit(
+    this.parsed,
+    this.file,
+    this.weights,
+    this.counts,
+    this.restoredCover,
+  );
   final EpubOpenResult parsed;
   final File file;
   final ProgressWeights weights;
   final List<int> counts;
+  final String? restoredCover;
 }
 
 class _RevisionBooks {

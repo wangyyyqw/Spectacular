@@ -33,6 +33,23 @@ void main() {
     }
   });
 
+  test('删书后导入修订版重新提取封面并恢复可打开的书籍', () async {
+    final old = await library.importBytes(
+      buildTestEpub(identifier: 'restore-cover', cover: true),
+    );
+    await library.remove(old.id);
+    final updated = buildTestEpub(
+      identifier: 'restore-cover',
+      cover: true,
+      paragraphs: ['修订后的正文'],
+    );
+    final restored = await library.importBytes(updated);
+    expect((await library.list()).single.id, old.id);
+    expect(await library.readBytes(restored), updated);
+    expect(restored.coverPath, isNotNull);
+    expect(await File(restored.coverPath!).readAsBytes(), isNotEmpty);
+  });
+
   test('删书保留进度、标注、书签、书评和会话，重新导入后完整恢复', () async {
     final bytes = buildTestEpub(
       identifier: 'urn:uuid:library-data-restore',

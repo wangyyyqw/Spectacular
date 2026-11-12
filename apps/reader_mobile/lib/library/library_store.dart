@@ -1018,7 +1018,9 @@ class LibraryStore {
       identifier: identifier,
     );
     final existing = _isMemory ? null : await _bookRowOfUuid(id);
-    if (!_isMemory && existing != null && existing.deletedAt == null) {
+    if (existing != null &&
+        (existing.deletedAt == null ||
+            existing.contentRevision != analysis.revision)) {
       final openTrace = readerTraceEnabled
           ? ReaderTrace.instance.start(ReaderTraceName.import)
           : null;

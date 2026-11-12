@@ -287,6 +287,72 @@ void main() {
     expect(File(entry.filePath).existsSync(), isTrue);
   });
 
+  test('删书后导入修订版迁移旧位置并恢复同一书籍的历史', () async {
+    final entry = await library.importBytes(original);
+    await _seedData(db, library, entry, original);
+    final oldBook = (await db.select(db.books).get()).single;
+    final oldAnnotations = await db.select(db.annotations).get();
+    final history = _jsonRows(await db.select(db.readingSessions).get());
+    final reviews = _jsonRows(await db.select(db.bookReviews).get());
+    await library.remove(entry.id);
+
+    final restored = await library.importBytes(updated);
+    final row = (await db.select(db.books).get()).single;
+    expect((await library.list()).single.id, entry.id);
+    expect(row.id, oldBook.id);
+    expect(row.deletedAt, isNull);
+    expect(row.createdAt, oldBook.createdAt);
+    expect(row.lastReadAt, oldBook.lastReadAt);
+    final index = await buildRevisionAnchorBook(updated);
+    for (final annotation in await db.select(db.annotations).get()) {
+      final old = oldAnnotations.singleWhere(
+        (item) => item.id == annotation.id,
+      );
+      _verifyRestructuredAnnotation(annotation, old, index, deleted: false);
+      expect(
+        AnchorRecord.decode(annotation.anchorJson)!.effective.revision,
+        restored.contentRevision,
+      );
+    }
+    final progress = (await DriftProgressStore(db).load(restored.id))!;
+    expect(progress.contentRevision, restored.contentRevision);
+    expect(progress.spineIndex, 1);
+    expect(index.capture(progress.cfi!)!.quote, startsWith(revisionQuote));
+    expect(
+      (await library.bookmarkStore(restored.id)!.list()).single.spineIndex,
+      4,
+    );
+    expect(_jsonRows(await db.select(db.readingSessions).get()), history);
+    expect(_jsonRows(await db.select(db.bookReviews).get()), reviews);
+  });
+
+  test('删书后恢复修订版在提交前取消时不恢复条目或改写旧位置', () async {
+    final entry = await library.importBytes(original);
+    await _seedData(db, library, entry, original);
+    await library.remove(entry.id);
+    final before = await _snapshot(db);
+    var cancelled = false;
+    await expectLater(
+      library.importBytes(
+        updated,
+        onProgress: (value) {
+          if (value >= 0.85) cancelled = true;
+        },
+        isCancelled: () => cancelled,
+      ),
+      throwsA(
+        isA<LibraryImportException>().having(
+          (error) => error.errorCode,
+          '错误码',
+          'E_CANCELLED',
+        ),
+      ),
+    );
+    expect(await _snapshot(db), before);
+    expect(await library.list(), isEmpty);
+    expect(directory.listSync(recursive: true).whereType<File>(), isEmpty);
+  });
+
   test('真实连续 EPUB 拆章改名、合并搬移和删除再恢复保留同一用户记录', () async {
     final entry = await library.importBytes(original);
     await _seedData(db, library, entry, original);
