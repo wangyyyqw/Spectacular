@@ -2688,6 +2688,10 @@ class ComputedStyle {
   ComputedStyle withMargins(CssEdges margins) =>
       _withTextProperties(marginOverride: margins);
 
+  /// 页面根背景交给整页绘制；移除背景时保留已求解的字号和盒尺寸。
+  ComputedStyle withoutBackground() =>
+      _withTextProperties(clearBackground: true);
+
   /// 内在内容宽确定后解算普通块的 auto 外边距；预测期间仍按零贡献。
   ComputedStyle withIntrinsicMargins({
     required double contentWidth,
@@ -2795,6 +2799,7 @@ class ComputedStyle {
     double? letterSpacing,
     Color? color,
     CssEdges? marginOverride,
+    bool clearBackground = false,
   }) {
     if (fontSize == null &&
         lineHeightFactor == null &&
@@ -2807,7 +2812,8 @@ class ComputedStyle {
         italic == null &&
         letterSpacing == null &&
         color == null &&
-        marginOverride == null) {
+        marginOverride == null &&
+        !clearBackground) {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
@@ -2844,6 +2850,11 @@ class ComputedStyle {
         'color':
             'rgba(${(color.r * 255).round()},${(color.g * 255).round()},${(color.b * 255).round()},${color.a})',
       'font-family': ?familyDeclaration,
+      if (clearBackground) ...{
+        'background': 'none',
+        'background-color': 'transparent',
+        'background-image': 'none',
+      },
     };
     final nextExplicit = <String>{
       ...explicitProperties,
@@ -2857,6 +2868,11 @@ class ComputedStyle {
       if (italic != null) 'font-style',
       if (letterSpacing != null) 'letter-spacing',
       if (color != null) 'color',
+      if (clearBackground) ...{
+        'background',
+        'background-color',
+        'background-image',
+      },
     };
     return ComputedStyle._(
       valueContext: valueContext,
@@ -2960,9 +2976,11 @@ class ComputedStyle {
       right: right,
       bottom: bottom,
       left: left,
-      backgroundColor: backgroundColor,
-      backgroundImage: backgroundImage,
-      backgroundGradient: backgroundGradient,
+      backgroundColor: clearBackground
+          ? const Color(0x00000000)
+          : backgroundColor,
+      backgroundImage: clearBackground ? null : backgroundImage,
+      backgroundGradient: clearBackground ? null : backgroundGradient,
       borders: borders,
       outline: outline,
       borderImage: _parseBorderImage(
