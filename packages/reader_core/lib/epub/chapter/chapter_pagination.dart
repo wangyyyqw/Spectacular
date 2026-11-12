@@ -291,6 +291,17 @@ class ChapterPageLayout {
     double width, {
     int start = 0,
   }) async {
+    if (start == 0 &&
+        textCache.canReuseUnchanged(
+          block.layout,
+          style: style,
+          maxWidth: width,
+          fontDependency: snapshot.fontDependency,
+          rubies: block.rubies ?? const [],
+        )) {
+      await budget.checkpoint();
+      return block.layout;
+    }
     final layoutStyle = start == 0
         ? style
         : style.withTypography(textIndent: 0);

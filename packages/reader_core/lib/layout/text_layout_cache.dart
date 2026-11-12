@@ -12,6 +12,9 @@ import 'text_edges.dart';
 /// leading 分布、行内 run 摘要、是否启用字形覆盖回调；样式或宽度变化自然
 /// 产生新键，清缓存用于设置重排（P2-24）。
 class TextLayoutCache {
+  /// 限制快速复用的同步注音快照与校验；更长列表交回带检查点的重排。
+  static const _maxReusableRubies = 64;
+
   /// 创建缓存。
   TextLayoutCache({this.maxEntries = 512});
 
@@ -20,6 +23,7 @@ class TextLayoutCache {
 
   final LinkedHashMap<String, TextLayoutResult> _entries =
       LinkedHashMap<String, TextLayoutResult>();
+  Expando<_ReusableMeasurement> _measurements = Expando();
   int _hits = 0;
   int _misses = 0;
   int _epoch = 0;
@@ -62,7 +66,7 @@ class TextLayoutCache {
       preserveContentWidth: preserveContentWidth,
     );
     final cached = _take(
-      key,
+      key.value,
       () => TextLayoutEngine.styledRuns(
         text: text,
         style: style,
@@ -85,8 +89,15 @@ class TextLayoutCache {
       hasGlyph: hasGlyph,
       lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
     );
-    _entries[key] = result;
+    _entries[key.value] = result;
     _evict();
+    if (textScaleFactor == 1 &&
+        leadingDistribution == TextLeadingDistribution.even &&
+        hasGlyph != null &&
+        !preserveContentWidth &&
+        rubies.length <= _maxReusableRubies) {
+      _rememberMeasurement(result, key.style, maxWidth, fontDependency, rubies);
+    }
     return result;
   }
 
@@ -118,7 +129,7 @@ class TextLayoutCache {
       preserveContentWidth: preserveContentWidth,
     );
     final cached = _take(
-      key,
+      key.value,
       () => TextLayoutEngine.styledRuns(
         text: text,
         style: style,
@@ -143,8 +154,21 @@ class TextLayoutCache {
     );
     if (checkpoint != null) await checkpoint();
     if (epoch == _epoch) {
-      _entries[key] = result;
+      _entries[key.value] = result;
       _evict();
+      if (textScaleFactor == 1 &&
+          leadingDistribution == TextLeadingDistribution.even &&
+          hasGlyph != null &&
+          !preserveContentWidth &&
+          rubies.length <= _maxReusableRubies) {
+        _rememberMeasurement(
+          result,
+          key.style,
+          maxWidth,
+          fontDependency,
+          rubies,
+        );
+      }
     }
     return result;
   }
@@ -159,13 +183,71 @@ class TextLayoutCache {
     _hits += 1;
     final result = cached.withRuns(currentRuns());
     reuseTextLineEdges(cached, result);
+    _measurements[result] = _measurements[cached];
     return result;
+  }
+
+  /// 判断原对象是否已按浮动分页的默认选项测量，且全部外部条件未变。
+  /// 只适用于完整原文和现有 runs；不接受缩放、特殊 leading、无字形回调
+  /// 或保留内容宽的测量。弱引用记录不延长布局及其书籍资源的生命周期。
+  bool canReuseUnchanged(
+    TextLayoutResult result, {
+    required ComputedStyle style,
+    required double maxWidth,
+    required String fontDependency,
+    List<RubyAnnotation> rubies = const [],
+  }) {
+    final measured = _measurements[result];
+    if (measured == null ||
+        measured.width != maxWidth ||
+        measured.fonts != fontDependency ||
+        measured.fractional != LineBreaker.preserveFractionalLineHeight ||
+        measured.rubies.length != rubies.length ||
+        measured.style != style.layoutFingerprint) {
+      return false;
+    }
+    for (var i = 0; i < rubies.length; i++) {
+      final before = measured.rubies[i];
+      final current = rubies[i];
+      if (before.start != current.start ||
+          before.end != current.end ||
+          before.text != current.text ||
+          before.style != current.style?.layoutFingerprint) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _rememberMeasurement(
+    TextLayoutResult result,
+    String styleFingerprint,
+    double maxWidth,
+    String fontDependency,
+    List<RubyAnnotation> rubies,
+  ) {
+    _measurements[result] = (
+      style: styleFingerprint,
+      width: maxWidth,
+      fonts: fontDependency,
+      fractional: LineBreaker.preserveFractionalLineHeight,
+      rubies: [
+        for (final ruby in rubies)
+          (
+            start: ruby.start,
+            end: ruby.end,
+            text: ruby.text,
+            style: ruby.style?.layoutFingerprint,
+          ),
+      ],
+    );
   }
 
   /// 清空缓存（设置重排时调用）。
   void clear() {
     _epoch += 1;
     _entries.clear();
+    _measurements = Expando();
     _hits = 0;
     _misses = 0;
   }
@@ -176,7 +258,7 @@ class TextLayoutCache {
     }
   }
 
-  static String _key({
+  static ({String value, String style}) _key({
     required String text,
     required ComputedStyle style,
     required double maxWidth,
@@ -188,13 +270,14 @@ class TextLayoutCache {
     required String fontDependency,
     required bool preserveContentWidth,
   }) {
+    final styleFingerprint = style.layoutFingerprint;
     final buffer = StringBuffer('spacing=$textSpacingRevision|')
       ..write('fractional=${LineBreaker.preserveFractionalLineHeight}|')
       ..write('fonts=$fontDependency|')
       ..write(
         'contentWidth=${preserveContentWidth || style.intrinsicWidth != null}|',
       )
-      ..write(style.layoutFingerprint)
+      ..write(styleFingerprint)
       ..write('|w=')
       ..write(maxWidth.toString())
       ..write('|s=')
@@ -227,6 +310,14 @@ class TextLayoutCache {
     buffer
       ..write('|')
       ..write(text);
-    return buffer.toString();
+    return (value: buffer.toString(), style: styleFingerprint);
   }
 }
+
+typedef _ReusableMeasurement = ({
+  String style,
+  double width,
+  String fonts,
+  bool fractional,
+  List<({int start, int end, String text, String? style})> rubies,
+});

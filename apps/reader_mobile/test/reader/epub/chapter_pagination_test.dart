@@ -396,6 +396,112 @@ void main() {
     }
   });
 
+  test('浮动章节未被遮挡的混排行与注音复用原测量，不再次查段落缓存', () async {
+    final cache = TextLayoutCache();
+    const rubies = [RubyAnnotation(start: 0, end: 2, text: 'zhengwen')];
+    final measured = await cache.layoutAsync(
+      text: '正文与混排样式',
+      style: _base,
+      maxWidth: 220,
+      runs: [
+        StyledRun(start: 3, end: 5, style: _base.withTypography(fontSize: 20)),
+      ],
+      rubies: rubies,
+      hasGlyph: _fonts.hasGlyph,
+      fontDependency: _snapshot().fontDependency,
+    );
+    final block = PageBlock.styled(
+      layout: measured,
+      style: _base,
+      containingWidth: 220,
+      rubies: rubies,
+    );
+    final expected = await _layout().paginate(
+      [block, _float()],
+      const [],
+      null,
+    );
+    final before = cache.hits + cache.misses;
+    final actual = await ChapterPageLayout(
+      _snapshot(),
+      _budget(),
+      cache,
+    ).paginate([block, _float()], const [], null);
+    expect(_geometry(actual.pages), _geometry(expected.pages));
+    expect(cache.hits + cache.misses, before);
+    final text = actual.pages.first.slices.first.block;
+    expect(text.layout.runs.any((run) => run.style.fontSize == 20), isTrue);
+    expect(text.rubies!.single.text, 'zhengwen');
+  });
+
+  test('inside 列表测量缩进与块样式不同，浮动分页仍执行原重排', () async {
+    final cache = TextLayoutCache();
+    final style = ComputedStyle({
+      ..._base.values,
+      'display': 'list-item',
+      'list-style-position': 'inside',
+    });
+    final measured = cache.layout(
+      text: '列表正文',
+      style: style.withTypography(textIndent: 32),
+      maxWidth: 220,
+      hasGlyph: _fonts.hasGlyph,
+      fontDependency: _snapshot().fontDependency,
+    );
+    final block = PageBlock.styled(
+      layout: measured,
+      style: style,
+      containingWidth: 220,
+      listMarker: '1.',
+    );
+    final expected = await _layout().paginate(
+      [block, _float()],
+      const [],
+      null,
+    );
+    final actual = await ChapterPageLayout(
+      _snapshot(),
+      _budget(),
+      cache,
+    ).paginate([block, _float()], const [], null);
+    expect(cache.misses, 2);
+    expect(_geometry(actual.pages), _geometry(expected.pages));
+  });
+
+  test('已有原测量遇浮动缩窄时仍重排，几何与未登记布局相同', () async {
+    final cache = TextLayoutCache();
+    final measured = cache.layout(
+      text: _sentence * 4,
+      style: _base,
+      maxWidth: 220,
+      hasGlyph: _fonts.hasGlyph,
+      fontDependency: _snapshot().fontDependency,
+    );
+    final block = PageBlock.styled(
+      layout: measured,
+      style: _base,
+      containingWidth: 220,
+    );
+    final expected = await _layout().paginate(
+      [_float(), block],
+      const [],
+      null,
+    );
+    final actual = await ChapterPageLayout(
+      _snapshot(),
+      _budget(),
+      cache,
+    ).paginate([_float(), block], const [], null);
+    expect(cache.misses, greaterThan(1));
+    expect(_geometry(actual.pages), _geometry(expected.pages));
+    final lines = actual.pages
+        .expand((page) => page.slices)
+        .where((slice) => !slice.overlay)
+        .expand((slice) => slice.lines);
+    expect(lines.first.offsetX, greaterThan(0));
+    expect(lines.any((line) => line.offsetX == 0), isTrue);
+  });
+
   test('绕排重测保留行内盒和注音的原文偏移', () async {
     final text = '甲乙\uFFFC丙丁${_sentence * 4}';
     const boxes = [

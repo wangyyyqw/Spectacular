@@ -71,4 +71,17 @@ python3 tool/run_tests.py --check
 
 测试文件归类依据行为，应用包中的 CSS 测试仍属于 `css`。`integration_test/` 中的真机入口不由日常分类或 `--all` 自动运行。新增或改变业务行为时同步相关断言、夹具与索引，规则见 [测试分类](../../docs/测试分类.md)。
 
+大型 EPUB 压力基准使用本地生成的固定样本，不下载书籍或图片：
+
+```bash
+# 仓库根目录：生成约 144 MiB、48 张大图、单 XHTML 长章
+python3 tool/build_performance_epub.py
+
+# 本目录：显式启用压力基准，日常测试默认跳过
+flutter test --no-pub test/reader_perf_stress_test.dart \
+  --dart-define=RUN_STRESS_BENCHMARK=true
+```
+
+默认样本在测试的 360×600、18px 参数下为 200 页，包含嵌套边框、混合字号、浮动和表格。基准检查正文、分页、CFI、重排定位及图片解码绘制，记录开书、长章跳转、热缓存、百页定位和重排耗时；使用 `STRESS_EPUB`、`STRESS_REPORT` 指定输入与 JSON 报告路径。默认产物都在忽略的 `dist/` 下。事件循环间隔与 RSS 来自本地 Flutter 测试进程，不能替代 Android Release 的帧率和内存实测；耗时不设易受机器负载影响的硬阈值。
+
 当前架构与资源生命周期见 [EPUB 引擎架构](../../docs/epub-engine-architecture.md)，验收范围见 [验收索引](../../方案/验收记录/README.md)。

@@ -422,6 +422,21 @@ void main() {
     expect(source.percentRequests, [0.25, 0.75]);
   });
 
+  test('百分比定位准备期间不启动旧位置的章节预取', () async {
+    final source = _ScheduledSource();
+    final session = await _open(source);
+    addTearDown(session.dispose);
+    final gate = Completer<String?>();
+    source.percentGate = gate;
+    final jump = session.seekToReadingPercent(0.75);
+    expect(await session.prefetchTurnChapter(true), isNull);
+    expect(await session.preparePageTurn(true, prefetch: true), isNull);
+    expect(source.handles.map((handle) => handle.spine), [0]);
+    gate.complete(null);
+    expect(await jump, isFalse);
+    expect(session.jumpLoadingTitle, isNull);
+  });
+
   test('新百分比跳转取消旧目录原文等待者，关闭取消新等待者', () async {
     final source = _ScheduledPositionSource();
     final session = await _open(source);
