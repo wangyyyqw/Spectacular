@@ -840,14 +840,32 @@ class _InlineRunWinner {
   final int end;
   ComputedStyle? _style;
   int _depth = -1;
+  double _leadingInset = 0;
+  double _trailingInset = 0;
 
   bool covers(InlineMark mark) =>
-      mark.start <= start &&
-      end <= mark.end &&
-      mark.chain.isNotEmpty &&
-      mark.chain.length >= _depth;
+      mark.start <= start && end <= mark.end && mark.chain.isNotEmpty;
 
   void accept(InlineMark mark, ComputedStyle computed) {
+    // 文字取最深级联；每层元素的盒边只在其真实首尾占宽一次。
+    final borders = computed.borders;
+    final atomic =
+        computed.display == CssDisplay.inlineBlock ||
+        mark.tag == 'img' ||
+        mark.tag == 'image' ||
+        mark.tag == 'object' &&
+            (mark.chain.last.attributes['data']?.trim().isNotEmpty ?? false);
+    if (!atomic && mark.start == start) {
+      _leadingInset +=
+          computed.padding.left +
+          (borders.left.isVisible ? borders.left.width : 0);
+    }
+    if (!atomic && mark.end == end) {
+      _trailingInset +=
+          computed.padding.right +
+          (borders.right.isVisible ? borders.right.width : 0);
+    }
+    if (mark.chain.length < _depth) return;
     if (computed.explicitProperties.isEmpty) return;
     _style = computed;
     _depth = mark.chain.length;
@@ -862,6 +880,8 @@ class _InlineRunWinner {
             end: end,
             style: computed,
             baselineShift: computed.verticalAlignShift,
+            inlineLeadingInset: _leadingInset,
+            inlineTrailingInset: _trailingInset,
           );
   }
 }

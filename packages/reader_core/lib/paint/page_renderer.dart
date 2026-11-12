@@ -483,11 +483,11 @@ class PagePainter {
     final canvas = context.canvas;
     _notifyPhase(PagePaintPhase.blockBackground);
     _paintBoxShadow(canvas, geometry);
-    _clipBlock(canvas, geometry, clip: true, () {
+    _clipBlock(canvas, geometry, clip: true, decoration: true, () {
       _paintBlockBackground(canvas, geometry, context.page, context.pageRect);
     });
     _notifyPhase(PagePaintPhase.blockBorder);
-    _clipBlock(canvas, geometry, clip: true, () {
+    _clipBlock(canvas, geometry, clip: true, decoration: true, () {
       _paintBlockBorder(canvas, geometry);
     });
   }
@@ -972,10 +972,11 @@ class PagePainter {
     void Function() body, {
     required bool clip,
     bool contentClip = false,
+    bool decoration = false,
   }) {
     canvas.save();
     if (clip && geometry.style.transforms.isEmpty) {
-      geometry.clip(canvas);
+      geometry.clip(canvas, decoration: decoration);
     }
     if (contentClip && geometry.clipsOverflow) {
       canvas.clipRect(geometry.paddingBox);
@@ -2607,6 +2608,7 @@ class PagePainter {
       return;
     }
     for (final placement in line.inlineBoxes) {
+      if (placement.spec.payload is InlineSpacingEdge) continue;
       final style = _inlineBoxStyleOf(placement, runs) ?? baseStyle;
       final Rect rect;
       if (placement.vertical) {
@@ -2842,12 +2844,8 @@ class PagePainter {
   /// 普通行内 run 的背景、边框与内边距在文字下方绘制。
   /// 独立行内盒由 placements 绘制，run 在插入点拆段并跟随文字位移。
   ///
-  /// 排版宽度没有把行内 padding 计入（flat 管线不做行内盒布局），这里
-  /// 按字形框外扩 padding 绘制。边框基于字体内容盒，在 padding 外继续
-  /// 外扩可见边框宽度；行高只控制行盒，不参与行内上下边框的厚度与位置。
-  /// 带水平 margin 的连续 span 改用紧字形盒，
-  /// 并把累计 margin 作为 run 间隔，否则相邻 rgba 背景会在 padding
-  /// 交叠处连成一线并叠加出更深的竖条。
+  /// 水平 padding/border 已在排版时占宽；按移动后的字形框外扩绘制，
+  /// 跨行只在原元素首尾保留侧边。行高不包含行内上下 padding/border。
   void _paintInlineBoxes(
     Canvas canvas,
     TextPainter painter,
@@ -2884,28 +2882,40 @@ class PagePainter {
         heightStyle: hasBorder || hasHorizontalMargin
             ? ui.BoxHeightStyle.tight
             : ui.BoxHeightStyle.includeLineSpacingMiddle,
-      );
+      ).toList();
       final marginShift = marginPlan.shiftAtOffset(run.start);
-      for (final box in boxes) {
-        final paddingBox = hasHorizontalMargin
-            ? Rect.fromLTRB(
-                x + box.left + marginShift,
-                y + box.top,
-                x + box.right + marginShift,
-                y + box.bottom,
-              )
-            : Rect.fromLTRB(
-                x + box.left - style.padding.left,
-                y + box.top - style.padding.top,
-                x + box.right + style.padding.right,
-                y + box.bottom + style.padding.bottom,
-              );
+      final leadingEdge =
+          isRtl ||
+          line.vertical ||
+          line.inlineBoxes.any(
+            (box) =>
+                box.offset == run.sourceStart &&
+                box.spec.payload == InlineSpacingEdge.leading,
+          );
+      final trailingEdge =
+          isRtl ||
+          line.vertical ||
+          line.inlineBoxes.any(
+            (box) =>
+                box.offset == run.sourceEnd &&
+                box.spec.payload == InlineSpacingEdge.trailing,
+          );
+      for (final (index, box) in boxes.indexed) {
+        final leading = leadingEdge && index == 0;
+        final trailing = trailingEdge && index == boxes.length - 1;
+        final paddingBox = Rect.fromLTRB(
+          x + box.left + marginShift - (leading ? style.padding.left : 0),
+          y + box.top - style.padding.top,
+          x + box.right + marginShift + (trailing ? style.padding.right : 0),
+          y + box.bottom + style.padding.bottom,
+        );
         final borders = style.borders;
         final rect = Rect.fromLTRB(
-          paddingBox.left - (borders.left.isVisible ? borders.left.width : 0),
+          paddingBox.left -
+              (leading && borders.left.isVisible ? borders.left.width : 0),
           paddingBox.top - (borders.top.isVisible ? borders.top.width : 0),
           paddingBox.right +
-              (borders.right.isVisible ? borders.right.width : 0),
+              (trailing && borders.right.isVisible ? borders.right.width : 0),
           paddingBox.bottom +
               (borders.bottom.isVisible ? borders.bottom.width : 0),
         );
@@ -2928,13 +2938,27 @@ class PagePainter {
         }
         _paintInnerShadow(canvas, rect, style);
         if (hasBorder) {
+          // 续行不重复画左右边；将缺省侧边移出片段后裁掉，顶部与底部连续。
+          final borderRect = Rect.fromLTRB(
+            rect.left -
+                (!leading && borders.left.isVisible ? borders.left.width : 0),
+            rect.top,
+            rect.right +
+                (!trailing && borders.right.isVisible
+                    ? borders.right.width
+                    : 0),
+            rect.bottom,
+          );
+          canvas.save();
+          canvas.clipRect(rect);
           _paintBorders(
             canvas,
-            rect,
+            borderRect,
             style,
             startsBlock: true,
             endsBlock: true,
           );
+          canvas.restore();
         }
       }
     }
@@ -4587,6 +4611,7 @@ class PagePainter {
     List<_LineRun> runs,
     double x,
     double y,
+    _InlineMarginPlan marginPlan,
   ) {
     final span = painter.text! as TextSpan;
     var cursor = 0;
@@ -4626,7 +4651,10 @@ class PagePainter {
             0;
         segment.paint(
           canvas,
-          Offset(x + offset.dx + extra, y + baseline + shift),
+          Offset(
+            x + offset.dx + extra + marginPlan.shiftAtOffset(start),
+            y + baseline + shift,
+          ),
         );
         segment.dispose();
       }
@@ -4660,7 +4688,20 @@ class PagePainter {
       return;
     }
     if (line != null && line.inlineBoxes.isNotEmpty) {
-      _paintTextAroundInlineBoxes(canvas, painter, line, runs, x, y);
+      _paintTextAroundInlineBoxes(
+        canvas,
+        painter,
+        line,
+        runs,
+        x,
+        y,
+        _InlineMarginPlan(
+          runs: runs,
+          line: line,
+          textAlign: textAlign,
+          isRtl: isRtl,
+        ),
+      );
       return;
     }
     if (line != null &&
@@ -5667,9 +5708,29 @@ class _SliceGeometry {
     );
   }
 
+  Rect _decorationClip(Rect clip) {
+    // 负外边距可把首尾边框移到切片流占位之外；只扩展真实块首尾，
+    // 续页仍沿分页切口裁剪，完整边框最多画到整页边界。
+    final box = borderBox;
+    return Rect.fromLTRB(
+      clip.left,
+      startsBlock
+          ? math.min(clip.top, math.max(-pageInsets.top, box.top))
+          : clip.top,
+      clip.right,
+      endsBlock
+          ? math.max(
+              clip.bottom,
+              math.min(pageHeight + pageInsets.bottom, box.bottom),
+            )
+          : clip.bottom,
+    );
+  }
+
   /// 按切片裁剪；上下标越界时放宽上下边。
-  void clip(Canvas canvas) {
-    final clip = slice.clipRect(y, pageWidth);
+  void clip(Canvas canvas, {bool decoration = false}) {
+    final bounds = slice.clipRect(y, pageWidth);
+    final clip = decoration ? _decorationClip(bounds) : bounds;
     // 容器内子块（P9-25）的背景/边框会延伸到上下段距，裁剪同步放宽。
     final containerTop = slice.block.containerSides ? slice.leadingExtent : 0.0;
     final containerBottom = slice.block.containerSides

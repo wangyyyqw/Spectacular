@@ -14,6 +14,34 @@ ComputedStyle _style([Map<String, String> overrides = const {}]) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('同文字样式但原行内盒首尾占宽不同不会复用分页几何', () {
+    final cache = TextLayoutCache();
+    final style = _style();
+    TextLayoutResult layout(double leading, double trailing) => cache.layout(
+      text: '甲乙',
+      style: style,
+      maxWidth: 200,
+      runs: [
+        StyledRun(
+          start: 0,
+          end: 2,
+          style: style,
+          inlineLeadingInset: leading,
+          inlineTrailingInset: trailing,
+        ),
+      ],
+    );
+    final plain = layout(0, 0);
+    final padded = layout(4, 6);
+    expect(
+      padded.lines.single.width - plain.lines.single.width,
+      closeTo(10, .01),
+    );
+    expect(cache.misses, 2);
+    layout(4, 6);
+    expect(cache.hits, 1);
+  });
+
   test('相同输入第二次命中缓存并返回同一结果对象', () {
     final cache = TextLayoutCache();
     final style = _style();

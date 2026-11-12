@@ -19,6 +19,8 @@ List<StyledRun> sliceTextRuns(TextLayoutResult layout, int start, int end) {
         style: run.style,
         baselineShift: run.baselineShift,
         syntheticFontFallback: run.syntheticFontFallback,
+        inlineLeadingInset: runStart == run.start ? run.inlineLeadingInset : 0,
+        inlineTrailingInset: runEnd == run.end ? run.inlineTrailingInset : 0,
       ),
     );
   }

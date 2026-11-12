@@ -213,6 +213,10 @@ class TextLayoutCache {
           ..write(',')
           ..write(run.baselineShift)
           ..write(',')
+          ..write(run.syntheticFontFallback ? 0 : run.leadingInset)
+          ..write(',')
+          ..write(run.syntheticFontFallback ? 0 : run.trailingInset)
+          ..write(',')
           ..write(run.style.layoutFingerprint)
           ..write(';');
       }

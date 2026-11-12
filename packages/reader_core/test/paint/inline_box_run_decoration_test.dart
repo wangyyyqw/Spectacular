@@ -52,7 +52,10 @@ Future<ByteData> _render({
     ],
   );
   // 用真实布局结果驱动公共绘制入口，保证盒宽确实参与断行及文字定位。
-  expect(layout.lines.single.width, withBox ? 100 : 40);
+  final borderWidth = !syntheticFontFallback && properties.containsKey('border')
+      ? 4
+      : 0;
+  expect(layout.lines.single.width, (withBox ? 100 : 40) + borderWidth);
   final block = PageBlock.styled(
     layout: layout,
     style: style,

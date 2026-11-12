@@ -1118,7 +1118,11 @@ class TextBlockBuilder {
             run.start == box.offset &&
             run.end == box.offset + 1,
       );
-      if (!replaced) runs.add(run);
+      if (replaced) {
+        _preserveImageInlineSpacing(run, paragraph.elements);
+      } else {
+        runs.add(run);
+      }
     }
     if (paragraph.dropped.cap == null) {
       final letter = styles.firstLetterRun(
@@ -1135,6 +1139,30 @@ class TextBlockBuilder {
       style: metrics.list.measureStyle,
       runs: runs,
     );
+  }
+
+  void _preserveImageInlineSpacing(StyledRun run, _InlineElements elements) {
+    // 图片盒已包含自身装饰；只保留解析器明确记录的祖先首尾占宽。
+    final leading = run.inlineLeadingInset ?? 0;
+    final trailing = run.inlineTrailingInset ?? 0;
+    if (leading == 0 && trailing == 0) return;
+    elements.boxes = [
+      ...elements.boxes,
+      if (leading > 0)
+        InlineBoxSpec(
+          offset: run.start,
+          width: leading,
+          height: 0,
+          payload: InlineSpacingEdge.leading,
+        ),
+      if (trailing > 0)
+        InlineBoxSpec(
+          offset: run.end,
+          width: trailing,
+          height: 0,
+          payload: InlineSpacingEdge.trailing,
+        ),
+    ];
   }
 
   String? _contentCfi(_BlockContext context, _InlineParagraph paragraph) {
