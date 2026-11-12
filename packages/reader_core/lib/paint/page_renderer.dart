@@ -1147,11 +1147,18 @@ class PagePainter {
       }
     }
     final geometries = <_SliceGeometry>[];
+    final borderMetrics = <TextStyle, ({double ascent, double descent})>{};
     var y = page.topPadding;
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
       // 浮动覆盖切片（flat 管线接入）：绝对定位，不推进流游标。
       final sliceY = slice.overlay ? slice.absoluteTop! : y;
+      final borderOverflow = _inlineBorderOverflow(
+        slice,
+        pageSize,
+        sliceY,
+        borderMetrics,
+      );
       geometries.add(
         _SliceGeometry(
           slice: slice,
@@ -1176,8 +1183,8 @@ class PagePainter {
                         style.padding.left
                   : 0),
           rightInset: style.margin.right + style.padding.right,
-          upExtent: upExtent,
-          downExtent: downExtent,
+          upExtent: math.max(upExtent, borderOverflow.top),
+          downExtent: math.max(downExtent, borderOverflow.bottom),
           pageWidth: pageSize.width,
           pageHeight: pageSize.height,
           pageInsets: pageInsets,
@@ -1188,6 +1195,63 @@ class PagePainter {
       }
     }
     return geometries;
+  }
+
+  /// 行内边框可超出行盒；只扩展所属切片的绘制范围，并在页内容区收边。
+  ({double top, double bottom}) _inlineBorderOverflow(
+    PageBlockSlice slice,
+    Size pageSize,
+    double sliceY,
+    Map<TextStyle, ({double ascent, double descent})> metricsCache,
+  ) {
+    final layout = slice.block.layout;
+    if (layout.isVertical || layout.lines.any((line) => line.vertical)) {
+      return (top: 0, bottom: 0);
+    }
+    final runs = layout.runs
+        .where(
+          (run) => !run.syntheticFontFallback && run.style.borders.hasBorder,
+        )
+        .toList();
+    if (runs.isEmpty) return (top: 0, bottom: 0);
+    final clip = slice.clipRect(0, pageSize.width);
+    var top = 0.0, bottom = 0.0, lineTop = slice.leadingExtent;
+    for (final line in slice.lines) {
+      for (final run in runs) {
+        if (run.end <= line.start || run.start >= line.end) continue;
+        final extents = _inlineBorderVerticalExtents(run.style, metricsCache);
+        final baseline = lineTop + line.baseline - line.top;
+        top = math.max(top, clip.top - baseline + extents.top);
+        bottom = math.max(bottom, baseline + extents.bottom - clip.bottom);
+      }
+      lineTop += line.height;
+    }
+    return (
+      top: math.min(top.ceilToDouble(), math.max(0, sliceY + clip.top)),
+      bottom: math.min(
+        bottom.ceilToDouble(),
+        math.max(0, pageSize.height - sliceY - clip.bottom),
+      ),
+    );
+  }
+
+  /// 相对基线的上下边界：字体内容盒、内边距及可见边框依次向外扩。
+  ({double top, double bottom}) _inlineBorderVerticalExtents(
+    ComputedStyle style,
+    Map<TextStyle, ({double ascent, double descent})> metricsCache,
+  ) {
+    final font = _fontMetricsOf(style, metricsCache);
+    final borders = style.borders;
+    return (
+      top:
+          font.ascent +
+          style.padding.top +
+          (borders.top.isVisible ? borders.top.width : 0),
+      bottom:
+          font.descent +
+          style.padding.bottom +
+          (borders.bottom.isVisible ? borders.bottom.width : 0),
+    );
   }
 
   /// 画选区（P2-29）：按切片序号 + 块内字符范围取排版盒，最后统一覆盖。
@@ -2779,7 +2843,9 @@ class PagePainter {
   /// 独立行内盒由 placements 绘制，run 在插入点拆段并跟随文字位移。
   ///
   /// 排版宽度没有把行内 padding 计入（flat 管线不做行内盒布局），这里
-  /// 按字形框外扩 padding 绘制。带水平 margin 的连续 span 改用紧字形盒，
+  /// 按字形框外扩 padding 绘制。边框基于字体内容盒，在 padding 外继续
+  /// 外扩可见边框宽度；行高只控制行盒，不参与行内上下边框的厚度与位置。
+  /// 带水平 margin 的连续 span 改用紧字形盒，
   /// 并把累计 margin 作为 run 间隔，否则相邻 rgba 背景会在 padding
   /// 交叠处连成一线并叠加出更深的竖条。
   void _paintInlineBoxes(
@@ -2815,13 +2881,13 @@ class PagePainter {
         painter,
         line,
         TextSelection(baseOffset: run.start, extentOffset: run.end),
-        heightStyle: hasHorizontalMargin
+        heightStyle: hasBorder || hasHorizontalMargin
             ? ui.BoxHeightStyle.tight
             : ui.BoxHeightStyle.includeLineSpacingMiddle,
       );
       final marginShift = marginPlan.shiftAtOffset(run.start);
       for (final box in boxes) {
-        final rect = hasHorizontalMargin
+        final paddingBox = hasHorizontalMargin
             ? Rect.fromLTRB(
                 x + box.left + marginShift,
                 y + box.top,
@@ -2834,6 +2900,15 @@ class PagePainter {
                 x + box.right + style.padding.right,
                 y + box.bottom + style.padding.bottom,
               );
+        final borders = style.borders;
+        final rect = Rect.fromLTRB(
+          paddingBox.left - (borders.left.isVisible ? borders.left.width : 0),
+          paddingBox.top - (borders.top.isVisible ? borders.top.width : 0),
+          paddingBox.right +
+              (borders.right.isVisible ? borders.right.width : 0),
+          paddingBox.bottom +
+              (borders.bottom.isVisible ? borders.bottom.width : 0),
+        );
         _paintOuterShadow(canvas, rect, style);
         if (hasBackground) {
           final radii = style.borders.radiiFor(rect.size);
