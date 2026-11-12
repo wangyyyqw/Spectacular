@@ -988,7 +988,11 @@ class LibraryStore {
                 ))
                 .get();
         final row = rows.firstOrNull;
-        if (row == null) return false;
+        if (row == null ||
+            row.sourcePath == null ||
+            !await File(row.sourcePath!).exists()) {
+          return false;
+        }
         unchangedEntry = _withImportOutcome(
           _entryFromRow(row),
           BookImportOutcome.unchanged,
@@ -1018,9 +1022,8 @@ class LibraryStore {
       identifier: identifier,
     );
     final existing = _isMemory ? null : await _bookRowOfUuid(id);
-    if (existing != null &&
-        (existing.deletedAt == null ||
-            existing.contentRevision != analysis.revision)) {
+    // 同版本缺失文件只补回原书，不能重写位置锚点与版式恢复提示。
+    if (existing != null && existing.contentRevision != analysis.revision) {
       final openTrace = readerTraceEnabled
           ? ReaderTrace.instance.start(ReaderTraceName.import)
           : null;
@@ -1063,14 +1066,20 @@ class LibraryStore {
       _notify();
       return entry;
     }
-    final title = meta.title.trim().isEmpty
-        ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
-        : meta.title.trim();
+    final title =
+        existing?.title ??
+        (meta.title.trim().isEmpty
+            ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
+            : meta.title.trim());
+    final author = existing == null
+        ? meta.author.trim()
+        : existing.author ?? '';
     _checkImportCancelled(isCancelled);
     // 整本哈希已在后台算好，暂存目录名与 contentRevision 共用。
     final sourceRevision = analysis.revision;
     String filePath = '';
-    String? coverPath;
+    String? coverPath = existing?.coverPath;
+    if (coverPath != null && !await File(coverPath).exists()) coverPath = null;
     Directory? stagedDirectory;
     var committed = false;
     try {
@@ -1090,7 +1099,7 @@ class LibraryStore {
         filePath = file.path;
         onProgress?.call(0.7);
         final coverBytes = summary.coverBytes;
-        if (coverBytes != null && coverBytes.isNotEmpty) {
+        if (coverPath == null && coverBytes != null && coverBytes.isNotEmpty) {
           final coverFile = File(
             '${revisionDirectory.path}/cover.${summary.coverExtension}',
           );
@@ -1118,7 +1127,7 @@ class LibraryStore {
       final entry = BookEntry(
         id: id,
         title: title,
-        author: meta.author.trim(),
+        author: author,
         description: existing?.description ?? '',
         filePath: filePath,
         addedAt: addedAt,
@@ -1126,6 +1135,9 @@ class LibraryStore {
         readabilityLevel: report.readabilityLevel,
         coverPath: coverPath,
         contentRevision: sourceRevision,
+        importOutcome: existing != null && existing.deletedAt == null
+            ? BookImportOutcome.updated
+            : BookImportOutcome.added,
       );
       if (_isMemory) {
         _memoryBytes[id] = payload.bytes!;
@@ -1137,7 +1149,7 @@ class LibraryStore {
           epubIdentifier: Value(identifier),
           contentRevision: sourceRevision,
           title: title,
-          author: Value(meta.author.trim().isEmpty ? null : meta.author.trim()),
+          author: Value(author.isEmpty ? null : author),
           description: Value(existing?.description),
           language: Value(
             meta.language.trim().isEmpty ? null : meta.language.trim(),

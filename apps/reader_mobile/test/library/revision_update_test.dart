@@ -43,6 +43,22 @@ Future<Map<String, Object?>> _snapshot(AppDatabase db) async => {
   'chapters': _jsonRows(await db.select(db.chapters).get()),
 };
 
+void _expectRetainedUserData(
+  Map<String, Object?> before,
+  Map<String, Object?> after,
+) {
+  for (final key in [
+    'progress',
+    'annotations',
+    'reviews',
+    'sessions',
+    'groups',
+    'tags',
+  ]) {
+    expect(after[key], before[key], reason: '同内容补回不能改写$key');
+  }
+}
+
 LocationAnchor _quoteAnchor(AnchorBook book) {
   final chapter = book.chapter(0)!;
   final offset = chapter.text.indexOf(revisionQuote);
@@ -286,6 +302,43 @@ void main() {
     expect(await _snapshot(db), before);
     expect(File(entry.filePath).existsSync(), isTrue);
   });
+
+  for (final fromFile in [false, true]) {
+    test('原书文件丢失后从${fromFile ? '文件' : '字节'}补回同版本，不改写位置与用户资料', () async {
+      final entry = await library.importBytes(original);
+      await _seedData(db, library, entry, original);
+      await library.updateBookMetadata(
+        entry.id,
+        title: '自定义书名',
+        author: '自定义作者',
+        description: '保留简介',
+      );
+      final cover = await library.replaceCover(
+        entry.id,
+        Uint8List.fromList([1, 2, 3]),
+        extension: 'png',
+      );
+      final before = await _snapshot(db);
+      await File(entry.filePath).delete();
+      final input = File(p.join(directory.path, 'input.epub'));
+      await input.writeAsBytes(original);
+      final result = fromFile
+          ? await library.importFile(input.path)
+          : await library.importBytes(original);
+
+      expect(
+        await File(result.filePath).readAsBytes(),
+        orderedEquals(original),
+      );
+      expect(result.importOutcome, BookImportOutcome.updated);
+      expect((await library.list()).single.id, entry.id);
+      expect(result.title, '自定义书名');
+      expect(result.author, '自定义作者');
+      expect(result.description, '保留简介');
+      expect(result.coverPath, cover.coverPath);
+      _expectRetainedUserData(before, await _snapshot(db));
+    });
+  }
 
   test('删书后导入修订版迁移旧位置并恢复同一书籍的历史', () async {
     final entry = await library.importBytes(original);
