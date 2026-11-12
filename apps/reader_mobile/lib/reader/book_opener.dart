@@ -39,13 +39,14 @@ class BookOpener {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
-      final opening = _prepareOpening(entry);
-      final route = _readerRoute(entry, opening);
-      await navigator.push<void>(route);
-      opening.cancelled = true;
-      await route.completed;
-      if (opening.created) await opening.closed.future;
-      if (opening.revealed) await library.touchLastRead(entry.id);
+      var current = entry;
+      while (context.mounted) {
+        final result = await _openReader(navigator, current);
+        if (result != EpubReaderExit.contentUpdated || !context.mounted) break;
+        final updated = await library.bookById(current.id);
+        if (updated == null) throw StateError('保存后的书籍已不在书库中');
+        current = updated;
+      }
     } catch (error) {
       if (context.mounted) {
         messenger.hideCurrentSnackBar();
@@ -56,6 +57,21 @@ class BookOpener {
     } finally {
       _opening = false;
     }
+  }
+
+  Future<EpubReaderExit?> _openReader(
+    NavigatorState navigator,
+    BookEntry entry,
+  ) async {
+    final opening = _prepareOpening(entry);
+    final route = _readerRoute(entry, opening);
+    final result = await navigator.push<EpubReaderExit>(route);
+    opening.cancelled = true;
+    await route.completed;
+    // 旧进度落盘及章节源释放完毕，才能为新修订绑定源并恢复位置。
+    if (opening.created) await opening.closed.future;
+    if (opening.revealed) await library.touchLastRead(entry.id);
+    return result;
   }
 
   _OpeningPreparation _prepareOpening(BookEntry entry) {
@@ -145,9 +161,12 @@ class BookOpener {
 
   /// 封面和阅读页共用路由，准备任务与开场动画同时开始。
   /// 设置和存储参数集中桥接，保持服务身份稳定，避免揭开封面触发重复装饰准备。
-  PageRoute<void> _readerRoute(BookEntry entry, _OpeningPreparation opening) {
+  PageRoute<EpubReaderExit> _readerRoute(
+    BookEntry entry,
+    _OpeningPreparation opening,
+  ) {
     final readerBuilder = _readerBuilder(entry, opening);
-    return PageRouteBuilder<void>(
+    return PageRouteBuilder<EpubReaderExit>(
       transitionDuration: const Duration(milliseconds: 220),
       reverseTransitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (_, _, _) {

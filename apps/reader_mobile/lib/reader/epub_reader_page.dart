@@ -42,6 +42,9 @@ const ReaderOverrides defaultReaderOverrides = ReaderOverrides(
   paragraphSpacing: 10,
 );
 
+/// 内容已保存或恢复时，由打开器释放旧会话后重新读取书库版本。
+enum EpubReaderExit { contentUpdated }
+
 /// 从内存 EPUB 打开的最小阅读页。
 class EpubReaderPage extends StatefulWidget {
   /// 创建页面。
@@ -595,6 +598,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (repository == null || path == null) return;
     _editorOpen = true;
     _syncReadingActivity();
+    var contentUpdated = false;
     try {
       await _readerSession?.flushProgress();
       if (!mounted) return;
@@ -622,16 +626,21 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           ),
         ),
       );
-      // 保存后旧阅读源属于上一修订；回到书架，下次打开使用新版本。
-      if (saved == true && mounted) Navigator.of(context).pop();
+      if (saved == true && mounted) {
+        contentUpdated = true;
+        Navigator.of(context).pop(EpubReaderExit.contentUpdated);
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('打开编辑器失败：$error')));
       }
     } finally {
-      _editorOpen = false;
-      if (mounted) _syncReadingActivity();
+      // 旧版本退出动画期间继续暂停统计；新会话就绪后自行恢复。
+      if (!contentUpdated) {
+        _editorOpen = false;
+        if (mounted) _syncReadingActivity();
+      }
     }
   }
 
