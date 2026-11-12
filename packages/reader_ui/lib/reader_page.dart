@@ -598,6 +598,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 上一次布局的正文区尺寸（旋转/窗口变化检测，P2-31）。
   Size? _lastContentSize;
   double? _lastContentTopInset;
+  ContentSideInsets? _lastContentSideInsets;
   bool? _lastContentSizePreview;
   Future<void>? _initialOpen;
   bool _approximateNoticeShown = false;
@@ -696,6 +697,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 尺寸变化（旋转/窗口缩放）时通知会话重排并恢复位置（P2-31）。
   void _scheduleContentSize(Size pageSize) {
     final padding = _bodyPadding();
+    final sideInsets = (left: padding.left, right: padding.right);
     final preview = _editingMargins;
     final content = Size(
       pageSize.width - padding.horizontal,
@@ -706,18 +708,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     if (_lastContentSize == content &&
         _lastContentTopInset == padding.top &&
+        _lastContentSideInsets == sideInsets &&
         _lastContentSizePreview == preview) {
       return;
     }
     _lastContentSize = content;
     _lastContentTopInset = padding.top;
+    _lastContentSideInsets = sideInsets;
     _lastContentSizePreview = preview;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _applyContentSize(content, padding.top, preview);
+      if (mounted) _applyContentSize(content, padding, preview);
     });
   }
 
-  void _applyContentSize(Size content, double topInset, bool preview) {
+  void _applyContentSize(Size content, EdgeInsets padding, bool preview) {
+    final sideInsets = (left: padding.left, right: padding.right);
     final opening = _initialOpen;
     if (opening == null) {
       _initialOpen = _session
@@ -725,7 +730,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             overrides: _effectiveOverrides(),
             contentWidth: content.width,
             contentHeight: content.height,
-            contentTopInset: topInset,
+            contentTopInset: padding.top,
+            contentSideInsets: sideInsets,
           )
           .then((_) {
             if (mounted &&
@@ -743,7 +749,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         await _session.applyContentSize(
           width: content.width,
           height: content.height,
-          topInset: topInset,
+          topInset: padding.top,
+          sideInsets: sideInsets,
           preview: preview,
         );
         if (mounted && !preview && _finishingMarginEdit) {

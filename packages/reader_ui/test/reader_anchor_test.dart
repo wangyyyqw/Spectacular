@@ -43,6 +43,7 @@ class _AnchoredSource
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     if (this.width == width && this.height == height) {
       return false;

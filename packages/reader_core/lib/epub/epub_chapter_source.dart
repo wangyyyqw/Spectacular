@@ -203,6 +203,7 @@ class EpubChapterSource
   double? _viewportContentWidth;
   double? _viewportContentHeight;
   double? _viewportContentTopInset;
+  ContentSideInsets? _viewportSideInsets;
 
   /// 段落布局缓存（P2-26）：同一文本+样式的重复测量直接复用。
   final TextLayoutCache _layoutCache = TextLayoutCache(
@@ -306,6 +307,7 @@ class EpubChapterSource
       '$_cacheScope'
       'base=$_baseStyleKey|${contentWidth}x$contentHeight'
       '|page=$baseContentHeight|top=$_contentTopInset|trim=$trimTextEdges'
+      '|sides=${_contentSideInsets.left},${_contentSideInsets.right}'
       '|spacing=$textSpacingRevision|index=${PageIndex.currentSchemaVersion}'
       '|${_overrides.fingerprint}';
 
@@ -375,6 +377,13 @@ class EpubChapterSource
   double get _contentTopInset =>
       _viewportContentTopInset ?? (_overrides.padding?.top ?? 0);
 
+  ContentSideInsets get _contentSideInsets =>
+      _viewportSideInsets ??
+      (
+        left: _overrides.padding?.left ?? 0,
+        right: _overrides.padding?.right ?? 0,
+      );
+
   /// 容器级浮动分组号的起点（W12）：普通块组的 groupId 从 1 起，
   /// 容器浮动组用 [floatGroupBase] + 序号，分页时按组整体占位。
 
@@ -442,19 +451,28 @@ class EpubChapterSource
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     final previous = (
       width: contentWidth,
       height: contentHeight,
       top: _contentTopInset,
+      sides: _contentSideInsets,
     );
     _viewportContentWidth = math.max(80.0, width);
     _viewportContentHeight = math.max(120.0, height);
     _viewportContentTopInset = math.max(0.0, topInset);
+    _viewportSideInsets = sideInsets == null
+        ? null
+        : (
+            left: math.max(0.0, sideInsets.left),
+            right: math.max(0.0, sideInsets.right),
+          );
     final next = (
       width: contentWidth,
       height: contentHeight,
       top: _contentTopInset,
+      sides: _contentSideInsets,
     );
     if (previous == next) return false;
     _layoutGeneration += 1;
@@ -799,6 +817,7 @@ class EpubChapterSource
       height: contentHeight,
       pageHeight: baseContentHeight,
       topInset: _contentTopInset,
+      sideInsets: _contentSideInsets,
       baseStyle: baseStyle,
       overrides: _overrides,
       textOverlays: _chapterOverlays.forSpine(spine),
@@ -841,6 +860,7 @@ class EpubChapterSource
       snapshot.width == contentWidth &&
       snapshot.height == contentHeight &&
       snapshot.topInset == _contentTopInset &&
+      snapshot.sideInsets == _contentSideInsets &&
       snapshot.overrideFingerprint == _overrideFingerprint &&
       snapshot.typographyFingerprint ==
           _chapterOverlays

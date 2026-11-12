@@ -34,6 +34,7 @@ class _SizingSource implements RestylableChapterSource, ResizableChapterSource {
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     appliedSize = Size(width, height);
     appliedTopInset = topInset;

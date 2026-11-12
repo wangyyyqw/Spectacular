@@ -16,6 +16,7 @@ typedef _ContentSizeRequest = ({
   double width,
   double height,
   double topInset,
+  ContentSideInsets? sideInsets,
   bool preview,
   int generation,
 });
@@ -605,6 +606,7 @@ class ReaderSession extends ChangeNotifier {
   double? _contentWidth;
   double? _contentHeight;
   double _contentTopInset = 0;
+  ContentSideInsets? _contentSideInsets;
   _ContentSizeRequest? _pendingContentSize;
   _ContentSizeRequest? _activeContentSize;
   Future<void>? _contentSizeTask;
@@ -613,7 +615,7 @@ class ReaderSession extends ChangeNotifier {
   Future<void>? _reloadTask;
   ReaderAnchor? _contentSizePreviewAnchor;
   ReaderProgress? _contentSizePreviewProgress;
-  (double?, double?, double)? _contentSizeBeforePreview;
+  (double?, double?, double, ContentSideInsets?)? _contentSizeBeforePreview;
 
   /// 当前正文区高度（分页依据；测试与诊断用）。
   double? get contentHeight => _contentHeight;
@@ -1177,6 +1179,7 @@ class ReaderSession extends ChangeNotifier {
     double? contentWidth,
     double? contentHeight,
     double contentTopInset = 0,
+    ContentSideInsets? contentSideInsets,
   }) async {
     if (_loading || _pager != null) {
       return;
@@ -1194,6 +1197,7 @@ class ReaderSession extends ChangeNotifier {
         contentWidth,
         contentHeight,
         contentTopInset,
+        contentSideInsets,
       );
       if (generation != _generation) return;
       final saved = await store.load(bookId);
@@ -1319,6 +1323,7 @@ class ReaderSession extends ChangeNotifier {
     double? width,
     double? height,
     double topInset,
+    ContentSideInsets? sideInsets,
   ) async {
     final src = source;
     if (overrides != null) {
@@ -1329,11 +1334,13 @@ class ReaderSession extends ChangeNotifier {
       _contentWidth = width;
       _contentHeight = height;
       _contentTopInset = topInset;
+      _contentSideInsets = sideInsets;
       if (src is ResizableChapterSource) {
         await src.applyContentSize(
           width: width,
           height: height,
           topInset: topInset,
+          sideInsets: sideInsets,
         );
       }
     }
@@ -1412,6 +1419,8 @@ class ReaderSession extends ChangeNotifier {
       'w=${_contentWidth ?? '-'}',
       'h=${_contentHeight ?? '-'}',
       'top=$_contentTopInset',
+      'sides=${_contentSideInsets?.left ?? _overrides.padding?.left ?? 0},'
+          '${_contentSideInsets?.right ?? _overrides.padding?.right ?? 0}',
       'textScale=1.0',
       _overrides.fingerprint,
       'font=$sourceDependency',
@@ -1544,6 +1553,7 @@ class ReaderSession extends ChangeNotifier {
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
     bool preview = false,
   }) {
     if (_disposed) return Future.value();
@@ -1551,14 +1561,16 @@ class ReaderSession extends ChangeNotifier {
     if (pending?.width == width &&
         pending?.height == height &&
         pending?.topInset == topInset &&
+        pending?.sideInsets == sideInsets &&
         pending?.preview == preview) {
       return _contentSizeTask ?? Future.value();
     }
-    final changed = _requiresContentReflow(width, height, topInset);
+    final changed = _requiresContentReflow(width, height, topInset, sideInsets);
     _pendingContentSize = (
       width: width,
       height: height,
       topInset: topInset,
+      sideInsets: sideInsets,
       preview: preview,
       generation: changed ? ++_generation : _generation,
     );
@@ -1569,16 +1581,23 @@ class ReaderSession extends ChangeNotifier {
     return _contentSizeTask ??= _drainContentSizes();
   }
 
-  bool _requiresContentReflow(double width, double height, double topInset) {
+  bool _requiresContentReflow(
+    double width,
+    double height,
+    double topInset,
+    ContentSideInsets? sideInsets,
+  ) {
     final active = _activeContentSize;
     if (active?.width == width &&
         active?.height == height &&
-        active?.topInset == topInset) {
+        active?.topInset == topInset &&
+        active?.sideInsets == sideInsets) {
       return false;
     }
     return _contentWidth != width ||
         _contentHeight != height ||
         _contentTopInset != topInset ||
+        _contentSideInsets != sideInsets ||
         _contentSizeTask != null ||
         _error != null;
   }
@@ -1617,6 +1636,7 @@ class ReaderSession extends ChangeNotifier {
         _contentWidth,
         _contentHeight,
         _contentTopInset,
+        _contentSideInsets,
       );
     }
     final anchor =
@@ -1625,6 +1645,7 @@ class ReaderSession extends ChangeNotifier {
     if (_contentWidth == next.width &&
         _contentHeight == next.height &&
         _contentTopInset == next.topInset &&
+        _contentSideInsets == next.sideInsets &&
         _error == null) {
       if (!next.preview) _finishContentSizePreview();
       return;
@@ -1652,13 +1673,15 @@ class ReaderSession extends ChangeNotifier {
       width: next.width,
       height: next.height,
       topInset: next.topInset,
+      sideInsets: next.sideInsets,
     );
     if (generation != _generation) return;
     if (changed || _error != null) {
       final original = _contentSizePreviewProgress;
       // 原尺寸直接恢复原页号，避免锚点恰在页边界时退到前一页。
       final restoresOriginalSize =
-          (next.width, next.height, next.topInset) == _contentSizeBeforePreview;
+          (next.width, next.height, next.topInset, next.sideInsets) ==
+          _contentSizeBeforePreview;
       await (_reloadTask = _reloadChapter(
         generation: generation,
         spine: spine,
@@ -1676,6 +1699,7 @@ class ReaderSession extends ChangeNotifier {
     _contentWidth = next.width;
     _contentHeight = next.height;
     _contentTopInset = next.topInset;
+    _contentSideInsets = next.sideInsets;
   }
 
   void _finishContentSizePreview() {

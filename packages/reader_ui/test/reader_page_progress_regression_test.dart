@@ -47,6 +47,7 @@ class _ReflowSource
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     final changed = this.width != width || this.height != height;
     this.width = width;

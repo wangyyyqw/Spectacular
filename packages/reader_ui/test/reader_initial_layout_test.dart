@@ -16,6 +16,7 @@ class _Source implements RestylableChapterSource, ResizableChapterSource {
   double? width;
   double? height;
   double topInset = 0;
+  ContentSideInsets? sideInsets;
 
   @override
   int get chapterCount => 2000;
@@ -28,14 +29,17 @@ class _Source implements RestylableChapterSource, ResizableChapterSource {
     required double width,
     required double height,
     double topInset = 0,
+    ContentSideInsets? sideInsets,
   }) async {
     final changed =
         this.width != width ||
         this.height != height ||
-        this.topInset != topInset;
+        this.topInset != topInset ||
+        this.sideInsets != sideInsets;
     this.width = width;
     this.height = height;
     this.topInset = topInset;
+    this.sideInsets = sideInsets;
     return changed;
   }
 
@@ -75,6 +79,54 @@ Future<ReaderSession> _restored(_Source source) async {
 }
 
 void main() {
+  test('正文宽高不变时左右内缩仍重排，取消预览恢复原内缩与进度', () async {
+    final source = _Source();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'side-insets',
+    );
+    addTearDown(session.dispose);
+    const original = (left: 8.0, right: 12.0);
+    await session.open(
+      contentWidth: 300,
+      contentHeight: 500,
+      contentSideInsets: original,
+    );
+    expect(source.sideInsets, original);
+    await session.next();
+    await session.flushProgress();
+    final progress = session.progress;
+    final fingerprint = session.layoutFingerprint;
+    source.loads.clear();
+    await session.applyContentSize(
+      width: 300,
+      height: 500,
+      sideInsets: (left: 12, right: 8),
+      preview: true,
+    );
+    expect(source.sideInsets, (left: 12, right: 8));
+    expect(source.loads.map((e) => e.spine), [0]);
+    expect(session.layoutFingerprint, isNot(fingerprint));
+    await session.flushProgress();
+    expect(await session.store.load('side-insets'), progress);
+    await session.applyContentSize(
+      width: 300,
+      height: 500,
+      sideInsets: original,
+    );
+    expect(source.sideInsets, original);
+    expect(session.progress, progress);
+    expect(session.layoutFingerprint, fingerprint);
+    source.loads.clear();
+    await session.applyContentSize(
+      width: 300,
+      height: 500,
+      sideInsets: original,
+    );
+    expect(source.loads, isEmpty);
+  });
+
   test('正文尺寸相同时，上内缩变化仍传给章节源并重排', () async {
     final source = _Source();
     final session = ReaderSession(
