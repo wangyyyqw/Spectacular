@@ -1216,7 +1216,13 @@ class TextBlockBuilder {
           metrics,
           paragraph,
           generated,
-          layout,
+          await _fillParagraphLines(
+            context,
+            body,
+            paragraph,
+            generated,
+            layout,
+          ),
         ),
         body.style,
         metrics.list.measureStyle,
@@ -1226,6 +1232,53 @@ class TextBlockBuilder {
       rubies,
       _contentCfi(context, paragraph),
     );
+  }
+
+  Future<TextLayoutResult> _fillParagraphLines(
+    _BlockContext context,
+    _BodyStyle body,
+    _InlineParagraph paragraph,
+    _GeneratedText generated,
+    TextLayoutResult layout,
+  ) async {
+    if (!body.applyReaderTypography ||
+        layout.lines.length < 2 ||
+        paragraph.dropped.cap != null ||
+        paragraph.dropped.paragraph.rubies.isNotEmpty ||
+        paragraph.elements.boxes.isNotEmpty ||
+        paragraph.elements.floats.isNotEmpty ||
+        generated.prefix.isNotEmpty ||
+        generated.suffix.isNotEmpty) {
+      return layout;
+    }
+    final filled = fillProseLineEnds(body.style, context.ancestors, layout);
+    if (identical(filled, layout) ||
+        await _hasAuthoredProseSpacing(context, paragraph)) {
+      return layout;
+    }
+    return filled;
+  }
+
+  Future<bool> _hasAuthoredProseSpacing(
+    _BlockContext context,
+    _InlineParagraph paragraph,
+  ) async {
+    const properties = {'letter-spacing', 'word-spacing', 'text-justify'};
+    final seen = <SelectorElement>{};
+    final chains = [
+      context.ancestors,
+      for (final mark in paragraph.dropped.paragraph.marks)
+        styles.inlineMarkChain(mark, context.ancestors),
+    ];
+    for (final chain in chains) {
+      for (var i = 0; i < chain.length; i++) {
+        if (!seen.add(chain[i])) continue;
+        await measure.budget.checkpoint();
+        final authored = styles.chainStyle(chain.sublist(0, i + 1));
+        if (authored.explicitProperties.any(properties.contains)) return true;
+      }
+    }
+    return false;
   }
 
   Future<TextLayoutResult> _withLeadingBreaks(
