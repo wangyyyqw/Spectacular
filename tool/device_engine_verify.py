@@ -107,6 +107,15 @@ def run(command, *, cwd=ROOT, capture=False, env=None, check=True):
     ).stdout
 
 
+def check_isolated_apk(apk: Path) -> None:
+    """构建或复用的 APK 均须在安装前核对实际包名。"""
+    actual = run(
+        ["apkanalyzer", "manifest", "application-id", str(apk)], capture=True
+    ).strip()
+    if actual != TEST_ID:
+        raise RuntimeError(f"拒绝安装非隔离包：{actual}")
+
+
 def install_apk(device: str, apk: Path) -> None:
     """安装隔离包；Flyme 的按包名 USB 安装白名单关闭时先放行再重试。"""
     result = subprocess.run(
@@ -281,13 +290,7 @@ def build_apk(workspace: Path, url: str) -> Path:
         ],
         cwd=app,
     )
-    apk = app / "build/app/outputs/flutter-apk/app-release.apk"
-    actual = run(
-        ["apkanalyzer", "manifest", "application-id", str(apk)], capture=True
-    ).strip()
-    if actual != TEST_ID:
-        raise RuntimeError(f"拒绝安装非隔离包：{actual}")
-    return apk
+    return app / "build/app/outputs/flutter-apk/app-release.apk"
 
 
 def ensure_fixtures() -> None:
@@ -419,6 +422,7 @@ def verify(args) -> None:
             workspace = Path(workspace_ctx.name)
             prepare_workspace(workspace)
             apk = build_apk(workspace, f"http://127.0.0.1:{port}")
+        check_isolated_apk(Path(apk))
         print(f"APK：{apk}")
         subprocess.run(
             ["adb", "-s", device, "logcat", "-c"], check=False,
