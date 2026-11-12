@@ -2258,6 +2258,21 @@ class PagePainter {
       var lineY = top + cell.rect.top + topInset + alignOffset;
       canvas.save();
       canvas.clipRect(cellRect);
+      if (cell.layout.isVertical) {
+        // Flex 的竖排子项保留列布局，不能用横排 TextPainter 再画整列文字。
+        _paintVerticalColumns(
+          canvas,
+          cell.layout,
+          style,
+          textColorOverride: override,
+          contentLeft: cellRect.left + leftInset,
+          contentTop: lineY,
+          startLine: 0,
+          endLine: cell.layout.lineCount,
+        );
+        canvas.restore();
+        continue;
+      }
       for (var i = 0; i < cell.layout.lineCount; i++) {
         final line = cell.layout.lines[i];
         final text = cell.layout.text.substring(line.start, line.end);

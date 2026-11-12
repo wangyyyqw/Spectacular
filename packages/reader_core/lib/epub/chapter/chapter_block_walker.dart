@@ -283,7 +283,7 @@ class ChapterBlockWalker {
             containingWidth: available,
           );
     final retained = PageContainer(
-      style: usedStyle,
+      style: isBodyRoot ? usedStyle.withoutBackground() : usedStyle,
       left: (parent?.contentLeft ?? 0) + usedStyle.margin.left,
       width: model.borderBoxWidth(resolvedWidth),
       cloneDecoration: clonesContainerDecoration(style),
@@ -490,7 +490,7 @@ class ChapterBlockWalker {
   ) async {
     final positioned = await _positionedBlocks(scope.start, positioned: true);
     final row = await buildFlexRowBlock(
-      containerStyle: scope.style,
+      containerStyle: retained.isPageRoot ? retained.style : scope.style,
       containerWidth: retained.contentWidth,
       items: scope.flexItems,
       containingWidth: width,
