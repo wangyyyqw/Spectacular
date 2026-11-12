@@ -205,12 +205,22 @@ bool _ruleConflicts(
 ) {
   for (final declaration in rule.declarations) {
     final property = declaration.property;
-    final covers = property == proposal.key || proposal.key.startsWith('$property-') ||
-      (property == 'all' && !proposal.key.startsWith('--')) ||
-      (property == 'font' && proposal.key == 'line-height');
-    final contextual = const {'inherit', 'initial', 'unset', 'revert', 'revert-layer'}
-        .contains(declaration.value.trim()) || declaration.value.contains('var(');
-    if (covers && contextual && declaration.value != proposal.value) return true;
+    final covers =
+        property == proposal.key ||
+        proposal.key.startsWith('$property-') ||
+        (property == 'all' && !proposal.key.startsWith('--')) ||
+        (property == 'font' && proposal.key == 'line-height');
+    final contextual =
+        const {
+          'inherit',
+          'initial',
+          'unset',
+          'revert',
+          'revert-layer',
+        }.contains(declaration.value.trim()) ||
+        declaration.value.contains('var(');
+    if (covers && contextual && declaration.value != proposal.value)
+      return true;
   }
   final computed = Cascade.compute(
     element: target.element,

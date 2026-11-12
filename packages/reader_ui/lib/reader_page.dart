@@ -1984,13 +1984,46 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool _editTextAt(PageContent page, Offset position) {
     if (widget.onEditTarget == null) return false;
     final hit = TextHitTester.hitTest(page, position);
-    if (hit == null || !hit.lineBox.rect.inflate(3).contains(position)) {
+    if (hit == null ||
+        (!hit.lineBox.rect.inflate(3).contains(position) &&
+            !_insideEditableLineGap(page, hit.lineBox, position))) {
       return false;
     }
     final cfi = hit.lineBox.slice.block.startCfi;
     if (cfi == null) return false;
     _requestTextEdit(page.spineIndex, cfi);
     return true;
+  }
+
+  bool _insideEditableLineGap(
+    PageContent page,
+    PageLineBox target,
+    Offset position,
+  ) {
+    if (target.isVertical || target.slice.block.multicol != null) return false;
+    final lines = TextHitTester.lineBoxes(page);
+    for (var index = 1; index < lines.length; index++) {
+      final previous = lines[index - 1];
+      final next = lines[index];
+      if (previous.sliceIndex != target.sliceIndex ||
+          next.sliceIndex != target.sliceIndex ||
+          previous.lineIndex + 1 != next.lineIndex ||
+          previous.text.trim().isEmpty ||
+          next.text.trim().isEmpty) {
+        continue;
+      }
+      // 只补同段相邻行中心线之间的空白，不包含段间距或段尾下方。
+      final bounds = previous.rect.expandToInclude(next.rect);
+      if (Rect.fromLTRB(
+        bounds.left,
+        previous.rect.center.dy,
+        bounds.right,
+        next.rect.center.dy,
+      ).contains(position)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void _requestTextEdit(int spineIndex, String cfi) {

@@ -322,6 +322,11 @@ class _BookEditorPageState extends State<BookEditorPage> {
             children: [
               const SizedBox(width: 8),
               const Text('预览样式'),
+              const SizedBox(width: 8),
+              const Tooltip(
+                message: '点击段落编辑',
+                child: Icon(Icons.touch_app_outlined, size: 18),
+              ),
               const Spacer(),
               DropdownButton<bool>(
                 value: editor.useReadingSettings,
@@ -370,7 +375,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
         height: 48,
         child: Row(
           children: [
-            for (final (index, label) in ['预览 · 点段落编辑', '源码', '文件'].indexed)
+            for (final (index, label) in ['预览', '源码', '文件'].indexed)
               Expanded(
                 child: TextButton(
                   onPressed: () => setState(() => _mobileTab = index),

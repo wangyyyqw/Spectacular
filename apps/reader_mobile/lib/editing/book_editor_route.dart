@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_ui/reader_page.dart';
 
@@ -158,9 +157,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
   }
 
   Future<void> _write(EpubEditSession session, {bool commit = false}) async {
-    final temporary = await getTemporaryDirectory();
-    final directory = await Directory('${temporary.path}/epub-edit-')
-        .createTemp();
+    final directory = await EpubExport.createTemporaryDirectory();
     final file = File('${directory.path}/edited.epub');
     try {
       await EpubWriter.write(session, file);
