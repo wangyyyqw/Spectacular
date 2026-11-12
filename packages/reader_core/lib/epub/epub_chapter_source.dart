@@ -28,6 +28,7 @@ import 'chapter/book_fonts.dart';
 import 'chapter/chapter_styles.dart';
 import 'chapter/chapter_style_key.dart';
 import 'chapter/chapter_structure.dart';
+import 'chapter/chapter_preview_cache.dart';
 import 'chapter/container_blocks.dart';
 import 'chapter/chapter_layout_job.dart';
 import 'chapter/chapter_preparation_job.dart';
@@ -64,13 +65,22 @@ class EpubChapterSource
     required this.baseStyle,
     required this.trimTextEdges,
     String? contentVersion,
-  }) : _resources = BookResources(document),
+    ChapterPreviewCache<ChapterStructure>? previewCache,
+    Map<String, String> resourceVersions = const {},
+  }) : _resources = BookResources(
+         document,
+         trackDependencies: previewCache != null,
+       ),
+       _previewCache = previewCache,
+       _resourceVersions = Map.unmodifiable(resourceVersions),
        _contentVersion = contentVersion?.trim().isNotEmpty == true
            ? contentVersion!
            : '会话:${++_sessionSequence}';
 
   static int _sessionSequence = 0;
   String _contentVersion;
+  final ChapterPreviewCache<ChapterStructure>? _previewCache;
+  final Map<String, String> _resourceVersions;
 
   /// 打开 EPUB 并创建来源。
   static Future<EpubChapterSource> open(
@@ -109,6 +119,8 @@ class EpubChapterSource
     bool trimTextEdges = true,
     String? contentVersion,
     Map<String, Uint8List?> resourceOverrides = const {},
+    ChapterPreviewCache<ChapterStructure>? previewCache,
+    Map<String, String> resourceVersions = const {},
   }) async {
     line_breaker.LineBreaker.preserveFractionalLineHeight = true;
     final result = await openEpubFile(
@@ -123,6 +135,8 @@ class EpubChapterSource
       style: style,
       trimTextEdges: trimTextEdges,
       contentVersion: contentVersion,
+      previewCache: previewCache,
+      resourceVersions: resourceVersions,
     );
   }
 
@@ -133,6 +147,8 @@ class EpubChapterSource
     required ComputedStyle? style,
     required bool trimTextEdges,
     String? contentVersion,
+    ChapterPreviewCache<ChapterStructure>? previewCache,
+    Map<String, String> resourceVersions = const {},
   }) {
     final document = result.document;
     if (document == null) {
@@ -154,6 +170,8 @@ class EpubChapterSource
           }),
       trimTextEdges: trimTextEdges,
       contentVersion: contentVersion,
+      previewCache: previewCache,
+      resourceVersions: resourceVersions,
     );
   }
 
@@ -223,6 +241,8 @@ class EpubChapterSource
     _resources,
     _styles,
     baseStyle,
+    previewCache: _previewCache,
+    resourceVersions: _resourceVersions,
   );
 
   late final ChapterPositions _positions = ChapterPositions(
@@ -321,7 +341,8 @@ class EpubChapterSource
 
   String _paginationKey(int spine, String dependency) =>
       '$_configurationKey|spine=$spine|font=$dependency'
-      '|text=${_chapterOverlays.forSpine(spine).typographyFingerprint}';
+      '|text=${_chapterOverlays.forSpine(spine).typographyFingerprint}'
+      '${_previewCache == null ? '' : '|resources=${_structures.prepared(spine, contentWidth).resourceDependency}'}';
 
   /// 失效与续排日志（P7-27；对照 Reeden 失效诊断带 old/new——
   /// 「批量排版缓存失效. 因为屏幕尺寸变更. old: 」）。

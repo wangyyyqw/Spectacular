@@ -9,8 +9,9 @@ import 'xhtml_chunk_analyzer.dart';
 
 /// ReEditor 保持每份文档独立缓冲、选择范围和撤销栈。
 class BookEditorSource extends StatelessWidget {
-  const BookEditorSource({super.key, required this.controller});
+  const BookEditorSource({super.key, required this.controller, this.onLocate});
   final BookEditorController controller;
+  final VoidCallback? onLocate;
 
   @override
   Widget build(BuildContext context) {
@@ -19,19 +20,32 @@ class BookEditorSource extends StatelessWidget {
       children: [
         SizedBox(
           height: 44,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
+          child: Row(
             children: [
-              for (final doc in controller.documents.values)
-                InputChip(
-                  key: ValueKey('document-${doc.path}'),
-                  selected: doc.path == controller.activePath,
-                  label: Text(
-                    '${doc.path.split('/').last}${controller.documentDirty(doc.path) ? ' •' : ''}',
-                  ),
-                  onPressed: () => controller.openDocument(doc.path),
-                  onDeleted: () => controller.closeDocument(doc.path),
+              Expanded(
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final doc in controller.documents.values)
+                      InputChip(
+                        key: ValueKey('document-${doc.path}'),
+                        selected: doc.path == controller.activePath,
+                        label: Text(
+                          '${doc.path.split('/').last}${controller.documentDirty(doc.path) ? ' •' : ''}',
+                        ),
+                        onPressed: () => controller.openDocument(doc.path),
+                        onDeleted: () => controller.closeDocument(doc.path),
+                      ),
+                  ],
                 ),
+              ),
+              IconButton(
+                tooltip: '定位到预览',
+                onPressed: document == null || controller.busy
+                    ? null
+                    : onLocate,
+                icon: const Icon(Icons.my_location),
+              ),
             ],
           ),
         ),

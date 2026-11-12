@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 
 import '../epub/epub_document.dart';
 import '../epub/epub_chapter_source.dart';
+import '../epub/chapter/chapter_preview_cache.dart';
+import '../epub/chapter/chapter_structure.dart';
 import '../epub/opf.dart';
 import '../parser/document_parser.dart';
 import '../position/cfi.dart';
@@ -96,9 +98,12 @@ class EpubEditSession {
   Map<String, Uint8List?> _overrides = {};
   Map<String, dynamic> _metadata = {};
   final _undo = <_EditState>[];
+  final _previewCache = ChapterPreviewCache<ChapterStructure>();
+  final _resourceDigests = Expando<String>();
   final _redo = <_EditState>[];
   int _revision = 0;
   int get revision => _revision;
+  int get previewCacheEntryCount => _previewCache.length;
   bool _closed = false;
   bool _inTransaction = false;
   int historyDiscarded = 0;
@@ -232,6 +237,34 @@ class EpubEditSession {
     }
   }
 
+  /// 从原始元素范围生成正文 CFI，并反向核验，拒绝容错或过期映射。
+  String cfiForElement(EditableElementRef element) {
+    checkElement(element);
+    final spine = spinePaths.indexOf(element.path);
+    if (spine < 0) throw const EpubEditException('此文件不在阅读顺序中');
+    final parsed = DocumentParser.parse(
+      xhtml: readText(element.path),
+      spineIndex: spine,
+    );
+    if (parsed.parseDiagnostics.isNotEmpty) {
+      throw const EpubEditException('容错文档不能精确定位到预览');
+    }
+    final pending = <ParsedElement>[parsed.root];
+    while (pending.isNotEmpty) {
+      final node = pending.removeLast();
+      if (node.start == element.start && node.tag == element.tag) {
+        final cfi = node.cfi.serialize();
+        final resolved = resolveEditableElement(spine, cfi);
+        if (resolved.start == element.start && resolved.end == element.end) {
+          return cfi;
+        }
+        break;
+      }
+      pending.addAll(node.children.whereType<ParsedElement>());
+    }
+    throw const EpubEditException('光标不在可精确定位的正文元素中');
+  }
+
   void transaction(
     String label,
     void Function(EpubEditTransaction tx) apply, {
@@ -300,8 +333,17 @@ class EpubEditSession {
       contentHeight: options.contentHeight,
       style: options.style,
       trimTextEdges: options.trimTextEdges,
-      contentVersion: '编辑:$baseDigest:$revision',
+      contentVersion: '编辑:$baseDigest',
       resourceOverrides: resourceOverrides,
+      previewCache: _previewCache,
+      resourceVersions: {
+        for (final entry in _overrides.entries)
+          entry.key: entry.value == null
+              ? 'deleted'
+              : (_resourceDigests[entry.value!] ??= sha256
+                    .convert(entry.value!)
+                    .toString()),
+      },
     );
   }
 
@@ -409,6 +451,7 @@ class EpubEditSession {
     _closed = true;
     _document.archive.close();
     _overrides.clear();
+    _previewCache.clear();
     _undo.clear();
     _redo.clear();
     unawaited(_events.close());

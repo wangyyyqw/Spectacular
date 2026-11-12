@@ -219,8 +219,9 @@ bool _ruleConflicts(
           'revert-layer',
         }.contains(declaration.value.trim()) ||
         declaration.value.contains('var(');
-    if (covers && contextual && declaration.value != proposal.value)
+    if (covers && contextual && declaration.value != proposal.value) {
       return true;
+    }
   }
   final computed = Cascade.compute(
     element: target.element,

@@ -68,6 +68,29 @@ void main() {
     expect(_paragraph(session).text, '甲&新😀丙');
   });
 
+  test('源码到预览定位精确匹配中文行内元素，拒绝 head 和过期源码', () {
+    final doc = session.editableDocument('OPS/chapter.xhtml');
+    final inline = doc.elements.singleWhere(
+      (node) => node.attributes['id'] == 'e',
+    );
+    final cfi = session.cfiForElement(inline);
+    final resolved = session.resolveEditableElement(0, cfi);
+    expect(resolved.outerXml, '<em id="e">乙😀</em>');
+    expect(resolved.start, inline.start);
+    expect(
+      () => session.cfiForElement(
+        doc.elements.firstWhere((node) => node.tag == 'head'),
+      ),
+      throwsA(isA<EpubEditException>()),
+    );
+    expect(session.revision, 0);
+    session.replaceText(_paragraph(session), '甲&新😀丙');
+    expect(
+      () => session.cfiForElement(inline),
+      throwsA(isA<EpubEditException>()),
+    );
+  });
+
   test('拆分跨行内元素保留标签且不复制 ID，插入删除共享同一历史', () {
     session.splitAtTextOffset(_paragraph(session), 3);
     final nodes = session.editableDocument('OPS/chapter.xhtml').elements;

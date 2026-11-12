@@ -79,6 +79,7 @@ class BookEditorController extends ChangeNotifier {
   EpubChapterSource? previewSource;
   int previewRevision = -1;
   ReaderEditTarget? previewTarget;
+  int previewNavigation = 0;
 
   BookEditorDocument? get activeDocument => documents[activePath];
   bool get dirty => session.revision != _savedRevision || hasPendingText;
@@ -113,10 +114,16 @@ class BookEditorController extends ChangeNotifier {
         offset.clamp(0, doc.code.text.length),
       );
       final lines = prefix.split('\n');
+      var position = doc.code.lineIndex2Index(lines.length - 1);
+      while (position.chunkIndex >= 0) {
+        doc.code.expandChunk(position.index);
+        position = doc.code.lineIndex2Index(lines.length - 1);
+      }
       doc.code.selection = CodeLineSelection.collapsed(
-        index: lines.length - 1,
+        index: position.index,
         offset: lines.last.length,
       );
+      doc.code.makeCursorVisible();
     }
     _notify();
     return doc;
@@ -286,6 +293,50 @@ class BookEditorController extends ChangeNotifier {
     }
     previewTarget = target;
     return session.resolveEditableElement(target.spineIndex, target.cfi);
+  }
+
+  Future<EditableElementRef?> locateSource() async {
+    if (busy || !flush()) return null;
+    try {
+      final doc = activeDocument;
+      if (doc == null) throw StateError('请先打开正文源码');
+      final offset = _sourceOffset(doc);
+      final element = session
+          .editableDocument(doc.path)
+          .elementAtOffset(offset);
+      if (element == null) throw StateError('光标不在正文元素中');
+      final cfi = session.cfiForElement(element);
+      final revision = session.revision;
+      if (previewRevision != revision) await refreshPreview();
+      if (_disposed ||
+          session.revision != revision ||
+          hasPendingText ||
+          previewRevision != revision) {
+        throw StateError('源码已变化，请重新定位');
+      }
+      previewTarget = ReaderEditTarget(
+        spineIndex: session.spinePaths.indexOf(doc.path),
+        cfi: cfi,
+        contentRevision: 'editor-$revision',
+      );
+      previewNavigation++;
+      error = null;
+      _notify();
+      return element;
+    } catch (failure) {
+      error = '$failure';
+      _notify();
+      return null;
+    }
+  }
+
+  int _sourceOffset(BookEditorDocument doc) {
+    final selection = doc.code.unfoldLineSelection;
+    return doc.code.text
+            .split('\n')
+            .take(selection.extentIndex)
+            .fold<int>(0, (length, line) => length + line.length + 1) +
+        selection.extentOffset;
   }
 
   bool runCommand(VoidCallback action) {

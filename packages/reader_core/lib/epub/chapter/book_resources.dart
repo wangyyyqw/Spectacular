@@ -15,10 +15,12 @@ import 'package:reader_core/source/chapter_source.dart';
 import '../../util/bounded_cache.dart';
 import 'cancellable_isolate_worker.dart';
 import 'chapter_preparation_job.dart';
+import 'chapter_resource_dependencies.dart';
 
 /// 一本书的归档与原始资源所有者；章节布局和缓存不持有关闭权限。
 class BookResources {
-  BookResources(this.document);
+  BookResources(this.document, {this.trackDependencies = false});
+  final bool trackDependencies;
 
   static const imageHeaderProbeBytes = 256 * 1024;
   static const imageIntrinsicCacheLimit = 512;
@@ -116,7 +118,12 @@ class BookResources {
           _checkPreparation(epoch);
           path = _chapterPath(spineIndex);
           read = document.archive.prepareEntry(path) ?? _missingChapter(path);
-          return (payload: read.payload, spine: spineIndex, path: path);
+          return (
+            payload: read.payload,
+            spine: spineIndex,
+            path: path,
+            trackDependencies: trackDependencies,
+          );
         },
         _parseChapterEntry,
         priority: task.priority,
@@ -165,6 +172,48 @@ class BookResources {
     final base = p.posix.dirname(document.opfPath);
     return document.resources.resolve(href, baseDir: base) ??
         p.posix.normalize(p.posix.join(base, href));
+  }
+
+  /// 缺失资源也记录规范候选路径，后续补图或补 CSS 时必须失效。
+  Set<String> dependencyPaths(String raw, {String baseDir = ''}) {
+    final uri = Uri.tryParse(raw);
+    if (uri == null || uri.hasScheme || uri.hasAuthority || uri.path.isEmpty) {
+      return const {};
+    }
+    return {
+      ?document.resources.resolve(raw, baseDir: baseDir),
+      p.posix.normalize(
+        uri.path.startsWith('/')
+            ? Uri.decodeComponent(uri.path.substring(1))
+            : p.posix.join(baseDir, Uri.decodeComponent(uri.path)),
+      ),
+    };
+  }
+
+  Set<String> chapterDependencies(int spine) {
+    final prepared = _parsed[spine]!;
+    final path = _chapterPath(spine);
+    return {
+      path,
+      document.opfPath,
+      'META-INF/container.xml',
+      'META-INF/duokan-extension.xml',
+      'META-INF/encryption.xml',
+      for (final item in document.package.manifest)
+        if (item.properties.contains('nav') ||
+            item.id == document.package.tocId)
+          ...dependencyPaths(
+            item.href,
+            baseDir: p.posix.dirname(document.opfPath),
+          ),
+      for (final asset in prepared.assets)
+        ...dependencyPaths(asset, baseDir: p.posix.dirname(path)),
+      for (final anchor in prepared.footnotes?.anchors ?? <FootnoteAnchor>[])
+        ?FootnoteParser.targetPathOf(anchor, path),
+      for (final anchor
+          in _footnoteReferenceCache[spine]?.values ?? <FootnoteAnchor>[])
+        ...anchor.noteImages,
+    };
   }
 
   void clearParsed() {
@@ -288,6 +337,7 @@ class BookResources {
           payload: read.payload,
           path: path,
           spine: spines[path] ?? -1,
+          trackDependencies: false,
         ));
       }
     }
@@ -416,8 +466,18 @@ class BookResources {
   }
 }
 
-typedef _ChapterText = ({String xhtml, String path, int spine});
-typedef _ChapterEntry = ({EpubEntryPayload payload, String path, int spine});
+typedef _ChapterText = ({
+  String xhtml,
+  String path,
+  int spine,
+  bool trackDependencies,
+});
+typedef _ChapterEntry = ({
+  EpubEntryPayload payload,
+  String path,
+  int spine,
+  bool trackDependencies,
+});
 typedef _ChapterEntryResult = ({_ChapterResources? parsed, String? error});
 typedef _FootnoteEntryResult = ({
   Map<String, FootnoteAnchor> references,
@@ -428,23 +488,36 @@ Never _missingChapter(String path) =>
     throw EpubException('E_SPINE_MISSING', '章节文件不存在：$path');
 
 class _ChapterResources {
-  const _ChapterResources(this.document, this.styleSources, this.footnotes);
+  const _ChapterResources(
+    this.document,
+    this.styleSources,
+    this.footnotes,
+    this.assets,
+  );
   final ParsedDocument document;
   final List<CssStyleSource> styleSources;
   final FootnoteDocument? footnotes;
+  final List<String> assets;
 }
 
-_ChapterResources _parseChapterText(_ChapterText input) => _ChapterResources(
-  DocumentParser.parse(xhtml: input.xhtml, spineIndex: input.spine),
-  CssParser.extractFromXhtml(input.xhtml).sources,
-  FootnoteParser.mayContainReferences(input.xhtml)
-      ? FootnoteParser.parse(
-          spineIndex: input.spine,
-          path: input.path,
-          xhtml: input.xhtml,
-        )
-      : null,
-);
+_ChapterResources _parseChapterText(_ChapterText input) {
+  final parsed = DocumentParser.parse(
+    xhtml: input.xhtml,
+    spineIndex: input.spine,
+  );
+  return _ChapterResources(
+    parsed,
+    CssParser.extractFromXhtml(input.xhtml).sources,
+    FootnoteParser.mayContainReferences(input.xhtml)
+        ? FootnoteParser.parse(
+            spineIndex: input.spine,
+            path: input.path,
+            xhtml: input.xhtml,
+          )
+        : null,
+    input.trackDependencies ? chapterAssetReferences(parsed) : const [],
+  );
+}
 
 _ChapterEntryResult _parseChapterEntry(_ChapterEntry input) {
   final decoded = decodeEpubEntry(input.payload);
@@ -456,6 +529,7 @@ _ChapterEntryResult _parseChapterEntry(_ChapterEntry input) {
             xhtml: decodeXmlBytes(bytes),
             path: input.path,
             spine: input.spine,
+            trackDependencies: input.trackDependencies,
           )),
     error: decoded.error,
   );

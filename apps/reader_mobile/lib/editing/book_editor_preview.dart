@@ -21,6 +21,8 @@ class BookEditorPreview extends StatefulWidget {
     this.target,
     this.settings,
     this.onLocationChanged,
+    this.navigation = 0,
+    this.onSessionReady,
   });
   final EpubChapterSource source;
   final int revision;
@@ -28,6 +30,8 @@ class BookEditorPreview extends StatefulWidget {
   final ValueChanged<ReaderEditTarget> onEditTarget;
   final ReaderSettings? settings;
   final ValueChanged<ReaderEditTarget>? onLocationChanged;
+  final int navigation;
+  final ValueChanged<ReaderSession>? onSessionReady;
 
   @override
   State<BookEditorPreview> createState() => _BookEditorPreviewState();
@@ -45,6 +49,7 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
 
   void _ready(ReaderSession session) {
     _session = session;
+    widget.onSessionReady?.call(session);
     session.addListener(_rememberLocation);
     final target = widget.target;
     if (target == null) return;
@@ -60,6 +65,17 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
       widget.onLocationChanged?.call(
         ReaderEditTarget(spineIndex: progress!.spineIndex, cfi: cfi),
       );
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant BookEditorPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.navigation == oldWidget.navigation) return;
+    final target = widget.target;
+    final session = _session;
+    if (target != null && session != null) {
+      unawaited(session.jumpToCfi(target.cfi));
     }
   }
 
