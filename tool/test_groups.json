@@ -216,6 +216,7 @@
         "apps/reader_mobile/test/reader/m0_snapshot_test.dart",
         "apps/reader_mobile/test/reader/margin_pagination_test.dart",
         "apps/reader_mobile/test/reader/narrow_author_width_test.dart",
+        "apps/reader_mobile/test/reader/narrow_title_alignment_test.dart",
         "apps/reader_mobile/test/reader/nested_inline_block_test.dart",
         "apps/reader_mobile/test/reader/object_fit_test.dart",
         "apps/reader_mobile/test/reader/opf_fullscreen_page_test.dart",
@@ -241,7 +242,7 @@
     }
   ],
   "source_rules": [
-    {"groups": ["tooling"], "paths": ["tool/run_tests.py", "tool/test_groups.json", "tool/run_all.sh", "tool/css_parity/*", "tool/device_reader_perf*.py"]},
+    {"groups": ["tooling"], "paths": ["tool/run_tests.py", "tool/test_groups.json", "tool/run_all.sh", "tool/css_parity/*", "tool/device_reader_perf*.py", "tool/device_engine_verify.py"]},
     {"groups": ["css", "resources"], "paths": ["packages/reader_core/lib/css/book_font_loader.dart", "packages/reader_core/lib/css/stylesheet_loader.dart"]},
     {"groups": ["css"], "paths": ["packages/reader_core/lib/css/*", "packages/reader_core/lib/epub/chapter/*style*.dart", "packages/reader_core/lib/epub/chapter/chapter_selectors.dart", "packages/reader_core/lib/epub/chapter/css_preparation.dart", "packages/reader_core/lib/epub/chapter/generated*.dart", "packages/reader_core/lib/epub/chapter/prose_spacing_defaults.dart"]},
     {"groups": ["position"], "paths": ["packages/reader_core/lib/position/*", "packages/reader_core/lib/parser/cfi*.dart", "packages/reader_core/lib/epub/toc_cfi.dart", "packages/reader_core/lib/epub/chapter/*coordinates.dart", "packages/reader_core/lib/epub/chapter/chapter_anchor_builder.dart", "packages/reader_core/lib/epub/chapter/chapter_positions.dart", "packages/reader_core/lib/epub/chapter/book_progress.dart", "packages/reader_core/lib/text/search.dart", "packages/reader_core/lib/text/xhtml_text.dart", "packages/reader_ui/lib/annotations/relocator.dart", "apps/reader_mobile/lib/search/*", "apps/reader_mobile/lib/library/revision_anchor_index.dart"]},
