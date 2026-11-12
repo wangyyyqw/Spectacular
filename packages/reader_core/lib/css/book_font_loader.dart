@@ -7,6 +7,7 @@ import 'package:flutter/services.dart' show ByteData, FontLoader;
 import 'font_face.dart';
 import '../text/font_coverage.dart';
 import '../text/font_metrics.dart';
+import '../text/font_punctuation_metrics.dart';
 
 /// 一个已注册的 face 记录（缓存键：weight+italic）。
 class RegisteredFontFace {
@@ -311,6 +312,14 @@ class BookFontLoader {
       loader.addFont(Future.value(ByteData.sublistView(face.bytes)));
     }
     await loader.load();
+    for (final face in ordered) {
+      FontPunctuationRegistry.register(
+        engineName,
+        face.bytes,
+        weight: face.weight,
+        italic: face.italic,
+      );
+    }
     _engineLoadCount += 1;
   }
 
