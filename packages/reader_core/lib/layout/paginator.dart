@@ -11,7 +11,9 @@ import 'float_occupancy.dart' show FloatSide;
 import 'image_gallery.dart';
 import 'page_background.dart';
 import 'table_layout.dart' show TableCellRender, TableRenderSpec;
+
 import 'package:reader_core/layout/line_breaker.dart';
+
 import 'text_edges.dart';
 
 /// 行内图片（P9-06）：占位符下标 + 已解析成书内路径的图片地址。
@@ -1236,6 +1238,12 @@ class Paginator {
             style: run.style,
             baselineShift: run.baselineShift,
             syntheticFontFallback: run.syntheticFontFallback,
+            inlineLeadingInset: run.start >= textStart
+                ? run.inlineLeadingInset
+                : 0,
+            inlineTrailingInset: run.end <= textEnd
+                ? run.inlineTrailingInset
+                : 0,
           ),
     ];
     return TextLayoutResult(

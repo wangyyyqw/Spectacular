@@ -282,6 +282,9 @@ enum InlineBoxVerticalAlign {
   bottom,
 }
 
+/// 普通行内盒的首尾占宽，绘制时由对应文字片段消费其装饰。
+enum InlineSpacingEdge { leading, trailing }
+
 /// 行内盒规格（`display: inline-block` 与行内替换图的布局侧输入）。
 ///
 /// 章节源把 inline-block 元素描述成「在文本 [offset] 处插入 `width × height`
@@ -500,6 +503,8 @@ class StyledRun {
     required this.style,
     this.baselineShift = 0,
     this.syntheticFontFallback = false,
+    this.inlineLeadingInset,
+    this.inlineTrailingInset,
   });
 
   /// 起始偏移（UTF-16，含）。
@@ -518,6 +523,20 @@ class StyledRun {
   ///
   /// 这类区间没有对应的行内元素，不能据此重复绘制块的背景、边框或内边距。
   final bool syntheticFontFallback;
+
+  /// 原行内元素在此片段首尾的水平占宽；null 兼容直接使用自身样式的调用。
+  /// 嵌套元素可在同一边界累加，拆分片段未触及原边界时为零。
+  final double? inlineLeadingInset;
+  final double? inlineTrailingInset;
+
+  double get leadingInset =>
+      inlineLeadingInset ??
+      style.padding.left +
+          (style.borders.left.isVisible ? style.borders.left.width : 0);
+  double get trailingInset =>
+      inlineTrailingInset ??
+      style.padding.right +
+          (style.borders.right.isVisible ? style.borders.right.width : 0);
 }
 
 /// 按制表位展开制表符（CSS Text 3 `tab-size`）：每遇到 `\t` 补齐到下一个
@@ -846,6 +865,8 @@ class TextLayoutResult implements TextLayout {
             current.end != cached.end ||
             current.baselineShift != cached.baselineShift ||
             current.syntheticFontFallback != cached.syntheticFontFallback ||
+            current.inlineLeadingInset != cached.inlineLeadingInset ||
+            current.inlineTrailingInset != cached.inlineTrailingInset ||
             !identical(current.style, cached.style)) {
           same = false;
           break;
@@ -1669,6 +1690,12 @@ abstract final class TextLayoutEngine {
       );
     }
     final breakPlan = planWork.result!;
+    if (!vertical && !style.isRtl && runs.isNotEmpty) {
+      inlineBoxes = [
+        ...inlineBoxes,
+        ..._inlineSpacingBoxes(runs, text.length, textScaleFactor),
+      ];
+    }
     late List<LineBox> measured;
     Iterable<bool> measureText(
       String source,
@@ -1706,7 +1733,7 @@ abstract final class TextLayoutEngine {
           spacingBarriers: barriers,
         );
       }
-      measured = _mapSoftBreaks(segment.result!, breakPlan);
+      measured = segment.result!;
     }
 
     // 行内盒「整块换行」：盒在行尾放不下时在盒前强制换行后重测（最多 4 轮，
@@ -1716,8 +1743,15 @@ abstract final class TextLayoutEngine {
       final boxText = inlineBoxes.isEmpty
           ? null
           : _buildInlineBoxText(
-              measuredText,
-              inlineBoxes,
+              breakPlan.text,
+              breakPlan.changed
+                  ? [
+                      for (final box in inlineBoxes)
+                        box.atOffset(
+                          _measuredOffset(breakPlan.offsets, box.offset),
+                        ),
+                    ]
+                  : inlineBoxes,
               forcedBreaks: forcedBreaks,
             );
       // 缩进非零就走首行减宽路径：负缩进的首行宽 = width + |indent|，
@@ -1725,11 +1759,17 @@ abstract final class TextLayoutEngine {
       yield* measureText(
         boxText?.text ?? breakPlan.text,
         boxText?.marks ?? const <_InlineBoxMark>[],
-        boxText?.offsets ?? breakPlan.offsets,
+        boxText == null
+            ? breakPlan.offsets
+            : [
+                for (final offset in boxText.offsets)
+                  breakPlan.originalOffset(offset),
+              ],
       );
       if (boxText != null && boxText.changed) {
         measured = _mapInlineBoxLines(measured, boxText);
       }
+      measured = _mapSoftBreaks(measured, breakPlan);
       if (style.writingMode != CssWritingMode.horizontalTb) {
         // 竖排（CSS Writing Modes §3，最小可用映射）：横排测量得到的每「行」
         // 变成一「列」，列宽 = 行高，列长 = 该行宽；rl 首列在最右、lr 在左。
@@ -1750,6 +1790,7 @@ abstract final class TextLayoutEngine {
       var retry = false;
       for (final line in measured) {
         for (final box in line.inlineBoxes) {
+          if (box.spec.payload is InlineSpacingEdge) continue;
           // 行内还有前置文字、且盒右缘超出内容宽 → 盒整体换行。
           if (box.left > 0.5 && box.left + box.width > width + 0.5) {
             if (forcedBreaks.add(box.spec.offset)) {
@@ -2273,6 +2314,19 @@ abstract final class TextLayoutEngine {
           width: hyphenated ? line.width + plan.hyphenAdvance : line.width,
           hyphenated: hyphenated,
           hyphenWidth: hyphenated ? plan.hyphenAdvance : 0,
+          inlineBoxes: [
+            for (final box in line.inlineBoxes)
+              InlineBoxPlacement(
+                offset: plan.originalOffset(box.offset),
+                left: box.left,
+                width: box.width,
+                height: box.height,
+                ascent: box.ascent,
+                descent: box.descent,
+                spec: box.spec,
+                vertical: box.vertical,
+              ),
+          ],
         ),
       );
     }
@@ -2306,6 +2360,8 @@ abstract final class TextLayoutEngine {
           style: run.style,
           baselineShift: run.baselineShift,
           syntheticFontFallback: run.syntheticFontFallback,
+          inlineLeadingInset: run.inlineLeadingInset,
+          inlineTrailingInset: run.inlineTrailingInset,
         ),
     ];
   }
@@ -2342,6 +2398,8 @@ abstract final class TextLayoutEngine {
             style: run.style,
             baselineShift: run.baselineShift,
             syntheticFontFallback: run.syntheticFontFallback,
+            inlineLeadingInset: start == run.start ? run.inlineLeadingInset : 0,
+            inlineTrailingInset: end == run.end ? run.inlineTrailingInset : 0,
           ),
         );
       }
@@ -2429,6 +2487,8 @@ abstract final class TextLayoutEngine {
     ComputedStyle? openStyle;
     var openShift = 0.0;
     var openSynthetic = false;
+    var openLeadingInset = 0.0;
+    var openTrailingInset = 0.0;
     void flush() {
       final start = openStart;
       final end = openEnd;
@@ -2441,6 +2501,8 @@ abstract final class TextLayoutEngine {
             style: style,
             baselineShift: openShift,
             syntheticFontFallback: openSynthetic,
+            inlineLeadingInset: openLeadingInset,
+            inlineTrailingInset: openTrailingInset,
           ),
         );
       }
@@ -2471,8 +2533,11 @@ abstract final class TextLayoutEngine {
           identical(openStyle, style) &&
           openShift == shift &&
           openSynthetic == synthetic &&
+          openTrailingInset == 0 &&
+          (owner?.start != start || owner!.leadingInset == 0) &&
           openEnd == start) {
         openEnd = end; // 同源同族同偏移，继续延伸
+        openTrailingInset = owner?.end == end ? owner!.trailingInset : 0;
       } else {
         flush();
         openStart = start;
@@ -2480,6 +2545,8 @@ abstract final class TextLayoutEngine {
         openStyle = style;
         openShift = shift;
         openSynthetic = synthetic;
+        openLeadingInset = owner?.start == start ? owner!.leadingInset : 0;
+        openTrailingInset = owner?.end == end ? owner!.trailingInset : 0;
       }
     }
     flush();
@@ -2565,6 +2632,12 @@ abstract final class TextLayoutEngine {
             style: run.style,
             baselineShift: run.baselineShift,
             syntheticFontFallback: run.syntheticFontFallback,
+            inlineLeadingInset: runStart == run.start
+                ? run.inlineLeadingInset
+                : 0,
+            inlineTrailingInset: runEnd == run.end
+                ? run.inlineTrailingInset
+                : 0,
           ),
         );
       }
@@ -3397,18 +3470,23 @@ abstract final class TextLayoutEngine {
   }
 
   /// 截取子串测量时把行内样式区间平移、裁剪到子串范围。
-  static List<StyledRun> _shiftRuns(List<StyledRun> runs, int start, int end) =>
-      <StyledRun>[
-        for (final run in runs)
-          if (run.end > start && run.start < end)
-            StyledRun(
-              start: math.max(run.start, start) - start,
-              end: math.min(run.end, end) - start,
-              style: run.style,
-              baselineShift: run.baselineShift,
-              syntheticFontFallback: run.syntheticFontFallback,
-            ),
-      ];
+  static List<StyledRun> _shiftRuns(
+    List<StyledRun> runs,
+    int start,
+    int end,
+  ) => <StyledRun>[
+    for (final run in runs)
+      if (run.end > start && run.start < end)
+        StyledRun(
+          start: math.max(run.start, start) - start,
+          end: math.min(run.end, end) - start,
+          style: run.style,
+          baselineShift: run.baselineShift,
+          syntheticFontFallback: run.syntheticFontFallback,
+          inlineLeadingInset: run.start >= start ? run.inlineLeadingInset : 0,
+          inlineTrailingInset: run.end <= end ? run.inlineTrailingInset : 0,
+        ),
+  ];
 
   static double _measureTextSpan(InlineSpan span, double textScaleFactor) {
     final painter = TextPainter(
@@ -3584,6 +3662,35 @@ abstract final class TextLayoutEngine {
   /// 行内盒占位符（U+FFFC：object replacement character）。
   static const String _inlineBoxPlaceholder = '\uFFFC';
 
+  /// 普通行内元素的水平内边距和边框参与占宽；零高盒不撑高行盒。
+  static Iterable<InlineBoxSpec> _inlineSpacingBoxes(
+    List<StyledRun> runs,
+    int length,
+    double scale,
+  ) sync* {
+    for (final run in runs) {
+      if (run.syntheticFontFallback || run.end <= run.start) continue;
+      final left = run.leadingInset;
+      final right = run.trailingInset;
+      if (left > 0) {
+        yield InlineBoxSpec(
+          offset: run.start.clamp(0, length),
+          width: left * scale,
+          height: 0,
+          payload: InlineSpacingEdge.leading,
+        );
+      }
+      if (right > 0) {
+        yield InlineBoxSpec(
+          offset: run.end.clamp(0, length),
+          width: right * scale,
+          height: 0,
+          payload: InlineSpacingEdge.trailing,
+        );
+      }
+    }
+  }
+
   /// 原文 [offset] 前一个字簇的起始下标。
   static int _previousCharacterOffset(String text, int offset) {
     if (offset <= 0) {
@@ -3606,7 +3713,10 @@ abstract final class TextLayoutEngine {
     final ordered = [for (var i = 0; i < specs.length; i++) (i, specs[i])]
       ..sort((a, b) {
         final offsetOrder = a.$2.offset.compareTo(b.$2.offset);
-        return offsetOrder == 0 ? a.$1.compareTo(b.$1) : offsetOrder;
+        if (offsetOrder != 0) return offsetOrder;
+        final edgeOrder = _inlineBoxOrder(a.$2)
+            .compareTo(_inlineBoxOrder(b.$2));
+        return edgeOrder == 0 ? a.$1.compareTo(b.$1) : edgeOrder;
       });
     final buffer = StringBuffer();
     final offsets = <int>[0];
@@ -3632,6 +3742,10 @@ abstract final class TextLayoutEngine {
         buffer.write('\n');
         offsets.add(stop);
       }
+      if (spec.payload == InlineSpacingEdge.trailing) {
+        buffer.write('\u2060');
+        offsets.add(stop);
+      }
       buffer.write(_inlineBoxPlaceholder);
       marks.add(_InlineBoxMark(index: buffer.length - 1, spec: spec));
       // 图片复用原文占位符；普通行内块仍只插入盒、不消耗原文字。
@@ -3642,6 +3756,10 @@ abstract final class TextLayoutEngine {
           ? stop + 1
           : stop;
       offsets.add(cursor);
+      if (spec.payload == InlineSpacingEdge.leading) {
+        buffer.write('\u2060');
+        offsets.add(cursor);
+      }
     }
     writeUntil(text.length);
     return _InlineBoxText(
@@ -3650,6 +3768,12 @@ abstract final class TextLayoutEngine {
       marks: marks,
     );
   }
+
+  static int _inlineBoxOrder(InlineBoxSpec box) => switch (box.payload) {
+    InlineSpacingEdge.trailing => 0,
+    InlineSpacingEdge.leading => 1,
+    _ => 2,
+  };
 
   /// 占位文本中 [index] 之前的宽度（行内盒 x 用；含此前占位符的宽度）。
   static double _prefixAdvance(
@@ -4178,6 +4302,8 @@ abstract final class TextLayoutEngine {
           style: run.style,
           baselineShift: shift,
           syntheticFontFallback: run.syntheticFontFallback,
+          inlineLeadingInset: run.inlineLeadingInset,
+          inlineTrailingInset: run.inlineTrailingInset,
         ),
       );
     }

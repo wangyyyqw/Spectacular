@@ -170,6 +170,10 @@ class ReaderTextOverlayResolver {
       style: _mergeStyle(author?.style ?? style, overlays),
       baselineShift: author?.baselineShift ?? 0,
       syntheticFontFallback: author?.syntheticFontFallback ?? true,
+      inlineLeadingInset: start == author?.start
+          ? author?.inlineLeadingInset
+          : 0,
+      inlineTrailingInset: end == author?.end ? author?.inlineTrailingInset : 0,
     );
   }
 
