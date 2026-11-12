@@ -525,8 +525,7 @@ void main() {
       blocks: async,
       start: 0,
       containerStyle: style,
-      pageWidth: 240,
-      pageHeight: 400,
+      page: (width: 240, height: 400, retainedTopInset: 0),
     );
     expect(async.first.layout.height, 111);
     expect(async.skip(1), blocks);
@@ -565,8 +564,7 @@ void main() {
           'height': '240px',
           'justify-content': 'center',
         }),
-        pageWidth: 240,
-        pageHeight: 400,
+        page: (width: 240, height: 400, retainedTopInset: 0),
         checkpoint: budget.checkpoint,
       ),
       throwsA(isA<ChapterLoadCancelled>()),

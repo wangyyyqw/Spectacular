@@ -284,7 +284,12 @@ class ChapterBlockWalker {
           );
     final retained = PageContainer(
       style: isBodyRoot ? usedStyle.withoutBackground() : usedStyle,
-      left: (parent?.contentLeft ?? 0) + usedStyle.margin.left,
+      left: _containerLeft(
+        parent,
+        usedStyle,
+        model.borderBoxWidth(resolvedWidth),
+        scope.ancestors.lastOrNull,
+      ),
       width: model.borderBoxWidth(resolvedWidth),
       cloneDecoration: clonesContainerDecoration(style),
       isPageRoot: isRoot,
@@ -302,6 +307,25 @@ class ChapterBlockWalker {
         scope.node.children.any((child) => child is PromotedBlockNode)) {
       styles.splitInlineContainers.add(scope.chain.last);
     }
+  }
+
+  double _containerLeft(
+    PageContainer? parent,
+    ComputedStyle style,
+    double borderWidth,
+    SelectorElement? parentView,
+  ) {
+    final left = (parent?.contentLeft ?? 0) + style.margin.left;
+    if (parent == null ||
+        !identical(parent, styles.retainedContainers[parentView]) ||
+        parent.style.display != CssDisplay.flex ||
+        parent.style.flexDirection != CssFlexDirection.column ||
+        parent.style.alignItems != CssAlignItems.center) {
+      return left;
+    }
+    // 仅对齐直接子项的外边距盒，后代复用同一内容坐标。
+    final free = parent.contentWidth - borderWidth - style.margin.horizontal;
+    return left + free / 2;
   }
 
   BlockPosition _childScope(_ContainerScope scope) {
@@ -449,8 +473,11 @@ class ChapterBlockWalker {
         blocks: flow.blocks,
         start: scope.start,
         containerStyle: scope.style,
-        pageWidth: width,
-        pageHeight: height,
+        page: (
+          width: width,
+          height: height,
+          retainedTopInset: retained?.topDecoration ?? 0,
+        ),
         checkpoint: inline.measure.budget.checkpoint,
       );
     }

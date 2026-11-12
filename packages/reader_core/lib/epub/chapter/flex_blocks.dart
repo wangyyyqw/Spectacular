@@ -10,7 +10,7 @@ import 'package:reader_core/layout/table_layout.dart';
 import 'container_blocks.dart';
 
 typedef _FlexSize = ({double container, double containing, double pageHeight});
-typedef _ColumnSize = ({double width, double height});
+typedef _ColumnSize = ({double width, double height, double retainedTopInset});
 typedef _CrossDistribution = ({double offset, double gap, double stretch});
 typedef _MainDistribution = ({double offset, double gap});
 typedef _CellPosition = ({
@@ -30,20 +30,17 @@ Future<void> _consume(
   if (checkpoint != null) await checkpoint();
 }
 
-/// 页面根 column Flex 的主轴居中，不改变后代块的 CFI 与容器载荷。
+/// 页面根 column Flex 的主轴对齐与顶部内缩，保留后代块的 CFI 和容器载荷。
+/// 已保留根盒的顶部装饰由容器路径占位，垫片只补未消费的部分。
 /// 在扫描及提交垫片前核验取消，复用同一阶段算法。
 Future<void> alignPageRootFlexColumn({
   required List<PageBlock> blocks,
   required int start,
   required ComputedStyle containerStyle,
-  required double pageWidth,
-  required double pageHeight,
+  required ({double width, double height, double retainedTopInset}) page,
   Future<void> Function()? checkpoint,
 }) async {
-  final job = _FlexColumnAlignment(blocks, start, containerStyle, (
-    width: pageWidth,
-    height: pageHeight,
-  ));
+  final job = _FlexColumnAlignment(blocks, start, containerStyle, page);
   await _consume(job.steps(), checkpoint);
   job.apply();
 }
@@ -58,12 +55,7 @@ class _FlexColumnAlignment {
   PageBlock? _spacer;
 
   Iterable<int> steps() sync* {
-    final align = style.justifyContent;
-    if (start >= blocks.length ||
-        (align != CssJustifyContent.center &&
-            align != CssJustifyContent.flexEnd)) {
-      return;
-    }
+    if (start >= blocks.length) return;
     var naturalHeight = 0.0;
     for (final block in blocks.skip(start)) {
       yield 0;
@@ -92,7 +84,12 @@ double _columnOffset(ComputedStyle style, _ColumnSize size, double natural) {
   final free = math.max(0.0, declared - natural);
   return model.padding.top +
       model.borders.top +
-      (style.justifyContent == CssJustifyContent.center ? free / 2 : free);
+      switch (style.justifyContent) {
+        CssJustifyContent.center => free / 2,
+        CssJustifyContent.flexEnd => free,
+        _ => 0,
+      } -
+      size.retainedTopInset;
 }
 
 PageBlock _flexSpacer(double width, double height) => PageBlock(
