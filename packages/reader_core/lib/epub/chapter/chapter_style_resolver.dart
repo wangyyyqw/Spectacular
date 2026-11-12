@@ -16,6 +16,7 @@ import 'package:reader_core/parser/text_aggregator.dart';
 import 'chapter_layout_job.dart';
 import 'chapter_selectors.dart';
 import 'chapter_styles.dart';
+import 'chapter_text_measurer.dart';
 import 'block_style_helpers.dart';
 import 'generated_content.dart';
 
@@ -160,6 +161,59 @@ class ChapterStyleResolver {
         bottom: computed.margin.bottom,
         left: computed.margin.left + used.margin.left - authored.margin.left,
       ),
+    );
+  }
+
+  /// 先缩放块自身的相对边距，再把变化量叠加到祖先的页面投影。
+  ComputedStyle scaleBlockTypography(
+    ComputedStyle computed,
+    List<SelectorElement> chain,
+    double fontSize,
+  ) {
+    final authored = chainStyle(chain);
+    final scaled = authored.scaleRelativeTypography(fontSize);
+    final margins = _scaledBlockMargins(scaled, _containingWidthFor(chain));
+    return computed
+        .scaleRelativeTypography(fontSize)
+        .withMargins(
+          CssEdges(
+            top: computed.margin.top + margins.top - authored.margin.top,
+            right:
+                computed.margin.right + margins.right - authored.margin.right,
+            bottom:
+                computed.margin.bottom +
+                margins.bottom -
+                authored.margin.bottom,
+            left: computed.margin.left + margins.left - authored.margin.left,
+          ),
+        );
+  }
+
+  static CssEdges _scaledBlockMargins(ComputedStyle style, double width) {
+    final leftAuto = style.marginLeftIsAuto;
+    final rightAuto = style.marginRightIsAuto;
+    if (!ChapterTextMeasurer.isOrdinaryHorizontalBlock(style) ||
+        style.width == null ||
+        style.width!.isAuto ||
+        (!leftAuto && !rightAuto)) {
+      return style.margin;
+    }
+    // 内容宽、内边距和边框沿用作者盒；auto 吸收外边距缩放后的剩余空间。
+    final model = BoxModel.fromStyle(style, containingWidth: width);
+    final remaining = math.max(
+      0.0,
+      width -
+          model.resolveContentWidth(width) -
+          model.horizontalInset -
+          (leftAuto ? 0 : style.margin.left) -
+          (rightAuto ? 0 : style.margin.right),
+    );
+    final share = leftAuto && rightAuto ? remaining / 2 : remaining;
+    return CssEdges(
+      top: style.margin.top,
+      right: rightAuto ? share : style.margin.right,
+      bottom: style.margin.bottom,
+      left: leftAuto ? share : style.margin.left,
     );
   }
 
