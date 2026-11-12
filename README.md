@@ -63,6 +63,8 @@ Android 运行与离线 Release 打包说明见 [移动端 README](apps/reader_m
 
 ## 按改动范围验证
 
+用户反馈的局部 EPUB 样式问题按 [EPUB 样式适配流程](AGENTS.md#epub-样式适配流程) 处理：核对原书 CSS、精准修复、相关引擎回归、离线打包覆盖安装、目标页与应用数据验收。
+
 测试分类真源是 `tool/test_groups.json`。当前入口包含 `ui`、`css`、`layout`、`paint`、`resources`、`position`、`storage`、`perf`、`integration`、`tooling` 十类；每个测试文件归一个主分类，组合选择会去重。
 
 ```bash
