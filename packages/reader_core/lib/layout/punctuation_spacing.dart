@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show CharacterRange, StringCharacters;
 
 import '../css/computed_style.dart';
+import '../text/font_punctuation_metrics.dart';
 import 'autospace.dart';
 import 'punct_trim.dart';
 import 'text_spacing.dart';
@@ -12,6 +13,12 @@ typedef SpacingStyle = ({
   ComputedStyle css,
   TextStyle text,
   double baselineShift,
+});
+
+typedef _PunctuationMetrics = ({
+  double advance,
+  double reduction,
+  bool halfWidth,
 });
 
 final _punctuationUnits = {
@@ -50,7 +57,7 @@ class PunctuationSpacing {
   final _pairs = <({int left, int right, GlyphSpacing glyph})>[];
   final _uniform = <int, GlyphSpacing>{};
   final _autospace = <int, GlyphSpacing>{};
-  final _metrics = <int, ({double advance, double reduction})>{};
+  final _metrics = <int, _PunctuationMetrics>{};
   final _punctuation = <int>{};
   final _blockedGaps = <int>{};
   final _singleClusters = <int, bool>{};
@@ -138,7 +145,7 @@ class PunctuationSpacing {
       styleAt(offset).css.textSpacingTrim.trimsEnd &&
           punctClosingSet.contains(text[offset]);
 
-  ({double advance, double reduction}) metricsAt(int offset) =>
+  ({double advance, double reduction, bool halfWidth}) metricsAt(int offset) =>
       _metrics.putIfAbsent(
         offset,
         () => _punctuationMetrics(text[offset], styleAt(offset).text),
@@ -238,9 +245,11 @@ class PunctuationSpacing {
     final reduction = math.min(metric.advance * ratio, metric.reduction);
     return GlyphSpacing(
       offset: offset,
-      halfWidth: true,
-      // halt 先回收字体留白，再补回所需占宽；不对字形做水平缩放。
-      letterSpacing: metric.reduction - reduction,
+      halfWidth: metric.halfWidth,
+      // halt 先回收留白再补占宽；轮廓回退直接收紧字距，两者均不缩放字形。
+      letterSpacing: metric.halfWidth
+          ? metric.reduction - reduction
+          : -reduction,
       reduction: reduction,
     );
   }
@@ -291,7 +300,8 @@ class PunctuationSpacing {
     final local = offset - start;
     glyphs[local] = GlyphSpacing(
       offset: local,
-      halfWidth: true,
+      halfWidth: metricsAt(offset).halfWidth,
+      letterSpacing: metricsAt(offset).halfWidth ? 0 : -reduction,
       reduction: reduction,
     );
     return reduction;
@@ -362,7 +372,8 @@ class PunctuationSpacing {
     if (metric.reduction > 0) {
       return GlyphSpacing(
         offset: offset,
-        halfWidth: true,
+        halfWidth: metric.halfWidth,
+        letterSpacing: metric.halfWidth ? 0 : -metric.reduction,
         reduction: metric.reduction,
       );
     }
@@ -405,13 +416,10 @@ Iterable<int> _offsetsInRange(List<int> offsets, int start, int end) sync* {
   }
 }
 
-final Map<(TextStyle, String), ({double advance, double reduction})>
+final Map<(TextStyle, String, int, bool), _PunctuationMetrics>
 _punctuationCache = {};
 
-({double advance, double reduction}) _punctuationMetrics(
-  String char,
-  TextStyle style,
-) {
+_PunctuationMetrics _punctuationMetrics(String char, TextStyle style) {
   final probeStyle = TextStyle(
     fontSize: style.fontSize,
     fontFamily: style.fontFamily,
@@ -421,9 +429,26 @@ _punctuationCache = {};
     fontVariations: style.fontVariations,
     fontFeatures: style.fontFeatures,
   );
-  final key = (probeStyle, char);
+  final key = (
+    probeStyle,
+    char,
+    FontPunctuationRegistry.revision,
+    (style.letterSpacing ?? 0) < 0,
+  );
   final cached = _punctuationCache[key];
   if (cached != null) return cached;
+  final result = _measurePunctuation(char, style, probeStyle);
+  if (_punctuationCache.length >= 1024) {
+    _punctuationCache.remove(_punctuationCache.keys.first);
+  }
+  return _punctuationCache[key] = result;
+}
+
+_PunctuationMetrics _measurePunctuation(
+  String char,
+  TextStyle style,
+  TextStyle probeStyle,
+) {
   final advance = _advance(char, probeStyle);
   final explicitHalt =
       style.fontFeatures?.any((f) => f.feature == 'halt') ?? false;
@@ -439,11 +464,36 @@ _punctuationCache = {};
       advance >= (style.fontSize ?? 0) * fullWidthRatioThreshold &&
       reduction > 0.01 &&
       half >= advance * 0.4;
-  final result = (advance: advance, reduction: safe ? reduction : 0.0);
-  if (_punctuationCache.length >= 1024) {
-    _punctuationCache.remove(_punctuationCache.keys.first);
+  return (
+    advance: advance,
+    reduction: safe ? reduction : _outlineReduction(char, style, advance),
+    halfWidth: safe,
+  );
+}
+
+/// 无半宽特性的静态字库只回收已确认的侧边留白，左右各留 .04em。
+/// 原生负字距会向两侧各收一半，故以较小侧留白限制总收缩量。
+double _outlineReduction(String char, TextStyle style, double advance) {
+  final em = style.fontSize ?? 0;
+  if (em <= 0 ||
+      advance < em * fullWidthRatioThreshold ||
+      (style.letterSpacing ?? 0) < 0 ||
+      style.fontFeatures?.isNotEmpty == true ||
+      style.fontVariations?.isNotEmpty == true) {
+    return 0;
   }
-  return _punctuationCache[key] = result;
+  final metrics = FontPunctuationRegistry.lookup(
+    style.fontFamily,
+    char.codeUnitAt(0),
+    weight: style.fontWeight?.value ?? 400,
+    italic: style.fontStyle == FontStyle.italic,
+  );
+  if (metrics == null ||
+      (metrics.advanceRatio * em - advance).abs() > em * .01) {
+    return 0;
+  }
+  final side = math.min(metrics.leftBearingRatio, metrics.rightBearingRatio);
+  return math.max(0.0, (side - .04) * em * 2);
 }
 
 double _advance(String char, TextStyle style) {
