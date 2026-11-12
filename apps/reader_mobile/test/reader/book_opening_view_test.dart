@@ -1,19 +1,29 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/editing.dart';
+import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
 import 'package:reader_mobile/reader/book_opening_view.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
+import 'package:reader_mobile/reader/reader_settings.dart';
+import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
 
 import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
+import '../library/fixtures/revision_epub.dart';
 
 import 'package:reader_ui/reader_session.dart';
 
@@ -28,6 +38,24 @@ class _DelayedLibraryStore extends LibraryStore {
   void finish(Uint8List bytes) => _bytes.complete(bytes);
 }
 
+class _ReopenProgressStore extends DriftProgressStore {
+  _ReopenProgressStore(super.db);
+  final sources = <EpubChapterSource>[];
+
+  @override
+  Future<void Function()> bindSource(
+    String bookId,
+    EpubChapterSource source,
+    String revision,
+  ) {
+    if (sources.isNotEmpty) {
+      expect(sources.last.isClosed, isTrue, reason: '新版本绑定前必须释放旧章节源');
+    }
+    sources.add(source);
+    return super.bindSource(bookId, source, revision);
+  }
+}
+
 Future<void> _pumpFrames(WidgetTester tester, {int frames = 12}) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 100));
@@ -35,6 +63,151 @@ Future<void> _pumpFrames(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
+  testWidgets('保存编辑后自动重开新版本并保留设置书签和已迁移进度', (tester) async {
+    late Directory temporary;
+    late AppDatabase db;
+    late LibraryStore library;
+    late BookEntry entry;
+    late _ReopenProgressStore progress;
+    await tester.runAsync(() async {
+      temporary = await Directory.systemTemp.createTemp('reader-reopen-');
+      db = AppDatabase(NativeDatabase.memory());
+      library = LibraryStore(
+        database: db,
+        directoryProvider: () async => temporary,
+      );
+      entry = await library.importBytes(buildRevisionTestEpub());
+      progress = _ReopenProgressStore(db);
+      final index = await buildRevisionAnchorBookFile(
+        File(entry.filePath),
+        revision: entry.contentRevision!,
+      );
+      final chapter = index.chapter(1)!;
+      final cfi = chapter.cfiAt(chapter.text.indexOf(revisionBookmarkQuote))!;
+      await progress.save(
+        entry.id,
+        ReaderProgress(
+          spineIndex: 1,
+          pageIndex: 0,
+          cfi: cfi,
+          contentRevision: entry.contentRevision,
+        ),
+      );
+      await library
+          .bookmarkStore(entry.id)!
+          .add(cfi: cfi, spineIndex: 1, label: '保存后仍在原章');
+      await ReaderSettingsStore(library)
+          .save(const ReaderSettings(fontSize: 23));
+    });
+    const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      pathChannel,
+      (_) async => temporary.path,
+    );
+    addTearDown(() async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        pathChannel,
+        null,
+      );
+      await tester.pumpWidget(const SizedBox());
+      await pumpReaderUntilComplete(
+        tester,
+        () => progress.sources.every((source) => source.isClosed),
+      );
+      await tester.runAsync(() async {
+        await db.close();
+        await temporary.delete(recursive: true);
+      });
+    });
+    final opener = BookOpener(library: library, progressStore: progress);
+    final contextKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(key: contextKey, builder: (_) => const Text('书架')),
+        ),
+      ),
+    );
+    final opened = opener.open(contextKey.currentContext!, entry);
+    await pumpReaderUntil(tester, find.byType(ReaderPageFooter));
+    await _pumpFrames(tester);
+    final oldReader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    final oldSource = oldReader.source as EpubChapterSource;
+    oldReader.onOpenEditor!();
+    await pumpReaderUntil(tester, find.byType(BookEditorPage));
+    final editor = tester
+        .widget<BookEditorPage>(find.byType(BookEditorPage))
+        .controller;
+    final paragraph = editor.session
+        .editableDocument('OEBPS/first.xhtml')
+        .elements
+        .firstWhere((node) => node.tag == 'p');
+    expect(
+      editor.runCommand(
+        () => editor.session.replaceText(paragraph, '保存后的新正文。'),
+      ),
+      isTrue,
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('保存书籍'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(BookEditorPage).evaluate().isEmpty,
+      description: '编辑保存完成',
+      maxFrames: 240,
+    );
+    await pumpReaderUntilComplete(
+      tester,
+      () {
+        final readers = tester.widgetList<ReaderPage>(find.byType(ReaderPage));
+        return find.byType(BookEditorPage).evaluate().isEmpty &&
+            readers.length == 1 &&
+            readers.single.source != oldSource;
+      },
+      description: '保存后自动重开',
+      maxFrames: 240,
+    );
+    await pumpReaderUntil(tester, find.byType(ReaderPageFooter));
+    final newReader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(oldSource.isClosed, isTrue);
+    expect(newReader.contentRevision, isNot(entry.contentRevision));
+    expect(newReader.overrides!.fontSize, 23);
+    final page = tester
+        .widget<ReaderSemanticsLayer>(find.byType(ReaderSemanticsLayer))
+        .page;
+    expect(page.spineIndex, 1);
+    await tester.runAsync(() async {
+      final saved = await library.bookById(entry.id);
+      expect(newReader.contentRevision, saved!.contentRevision);
+      final before = (await db.select(db.readingProgress).getSingle()).toJson();
+      await progress.save(
+        entry.id,
+        ReaderProgress(
+          spineIndex: 0,
+          pageIndex: 0,
+          cfi: 'epubcfi(/6/2!/4/2/1:0)',
+          contentRevision: entry.contentRevision,
+        ),
+      );
+      expect(
+        (await db.select(db.readingProgress).getSingle()).toJson(),
+        before,
+        reason: '旧会话晚到的保存不能覆盖新版迁移位置',
+      );
+      expect(
+        (await progress.load(entry.id))!.contentRevision,
+        saved.contentRevision,
+      );
+      expect(
+        (await library.bookmarkStore(entry.id)!.list()).single.label,
+        '保存后仍在原章',
+      );
+    });
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await _pumpFrames(tester);
+    await pumpReaderTask(tester, opened);
+  });
+
   testWidgets('读盘期间显示封面展开动画，完成后进入阅读页', (tester) async {
     final library = _DelayedLibraryStore();
     final bytes = buildTestEpub(title: '山海小记', author: '测试作者');
