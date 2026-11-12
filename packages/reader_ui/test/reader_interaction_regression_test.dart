@@ -66,6 +66,43 @@ class _NavigationObserver extends NavigatorObserver {
   }
 }
 
+class _ParagraphGapSource implements ReaderChapterSource {
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final blocks = <PageBlock>[];
+    for (final (index, text) in [
+      'long first line\nend',
+      'other paragraph',
+    ].indexed) {
+      final style = ComputedStyle({
+        'font-size': '16px',
+        'line-height': '2.5',
+        'font-family': 'Ahem',
+        'white-space': 'pre-wrap',
+        if (index == 1) 'margin-top': '40px',
+      });
+      blocks.add(
+        PageBlock.styled(
+          layout: TextLayoutEngine.layout(
+            text: text,
+            style: style,
+            maxWidth: 280,
+          ),
+          style: style,
+          containingWidth: 280,
+          startCfi: 'epubcfi(/6/2!/4/${2 + index * 2}/1:0)',
+        ),
+      );
+    }
+    return Paginator(pageHeight: 400)
+        .measureChapter(blocks: blocks, spineIndex: 0)
+        .pages;
+  }
+}
+
 class _ImageEditSource implements ReaderChapterSource {
   @override
   int get chapterCount => 1;
@@ -316,6 +353,57 @@ bool _menuOpen(WidgetTester tester) =>
     tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open;
 
 void main() {
+  testWidgets('编辑模式命中同段两行间空白，不命中段间空白或页边距', (tester) async {
+    final targets = <ReaderEditTarget>[];
+    final session = await _showReader(
+      tester,
+      source: _ParagraphGapSource(),
+      editMode: true,
+      onEditTarget: targets.add,
+    );
+    final lines = TextHitTester.lineBoxes(session.page!);
+    expect(lines, hasLength(3));
+    final origin =
+        tester.getTopLeft(find.byType(ReaderView)) + _padding.topLeft;
+    final gap = Offset(
+      lines.first.rect.center.dx,
+      (lines[0].rect.center.dy + lines[1].rect.center.dy) / 2,
+    );
+    expect(lines[1].rect.inflate(3).contains(gap), isFalse);
+    await tester.tapAt(origin + gap);
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+    expect(targets.single.cfi, 'epubcfi(/6/2!/4/2/1)');
+    await tester.tapAt(
+      origin + Offset(gap.dx, (lines[1].rect.bottom + lines[2].rect.top) / 2),
+    );
+    await tester.pumpAndSettle();
+    await tester.tapAt(origin + Offset(-20, gap.dy));
+    await tester.pumpAndSettle();
+    expect(targets, hasLength(1));
+  });
+
+  testWidgets('普通阅读点击段落行间空白不触发编辑', (tester) async {
+    final targets = <ReaderEditTarget>[];
+    final session = await _showReader(
+      tester,
+      source: _ParagraphGapSource(),
+      onEditTarget: targets.add,
+    );
+    final lines = TextHitTester.lineBoxes(session.page!);
+    final origin =
+        tester.getTopLeft(find.byType(ReaderView)) + _padding.topLeft;
+    await tester.tapAt(
+      origin +
+          Offset(
+            lines.first.rect.center.dx,
+            (lines[0].rect.center.dy + lines[1].rect.center.dy) / 2,
+          ),
+    );
+    await tester.pumpAndSettle();
+    expect(targets, isEmpty);
+  });
+
   testWidgets('编辑模式点击独立图片内容区返回元素CFI，不附加文字偏移', (tester) async {
     final targets = <ReaderEditTarget>[];
     await _showReader(

@@ -319,6 +319,9 @@ void main() {
       readingSettings: const ReaderSettings(fontSize: 24, themeId: 'night'),
     );
     await _show(tester, editor, const Size(390, 844));
+    expect(find.text('预览'), findsOneWidget);
+    expect(find.text('预览 · 点段落编辑'), findsNothing);
+    expect(find.byTooltip('点击段落编辑'), findsOneWidget);
     var reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
     expect(reader.overrides!.fontSize, isNull);
     editor.setPreviewSettings(true);

@@ -87,11 +87,15 @@ void main() {
   });
 
   test('依赖父元素的高优先级 inherit 与 var 声明仍提示冲突', () {
-    session.transaction('准备继承与变量声明', (tx) => tx.writeText(
-      'OPS/style.css', 'body { --ink: red; color: blue; } p.note { color: inherit; margin-top: var(--gap); }'));
-    final report = ClassStyleEditor(session).inspect('note', proposed: {
-      'color': 'green', 'margin-top': '12px',
-    });
+    session.transaction(
+      '准备继承与变量声明',
+      (tx) => tx.writeText(
+        'OPS/style.css',
+        'body { --ink: red; color: blue; } p.note { color: inherit; margin-top: var(--gap); }',
+      ),
+    );
+    final report = ClassStyleEditor(session)
+        .inspect('note', proposed: {'color': 'green', 'margin-top': '12px'});
     expect(report.conflicts.any((c) => c.property == 'color'), isTrue);
     expect(report.conflicts.any((c) => c.property == 'margin-top'), isTrue);
   });
