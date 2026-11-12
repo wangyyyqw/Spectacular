@@ -49,6 +49,28 @@ class OcfReport {
 class EpubArchive {
   EpubArchive._(this._backend, this._orderedNames, this._diagnostics);
 
+  /// 编辑预览持有独立覆盖快照；关闭时同时关闭传入的基础归档。
+  factory EpubArchive.withOverrides(
+    EpubArchive base,
+    Map<String, Uint8List?> changes,
+  ) {
+    final snapshot = <String, Uint8List?>{
+      for (final entry in changes.entries)
+        _normalizePath(entry.key): entry.value == null
+            ? null
+            : Uint8List.fromList(entry.value!),
+    };
+    final names = <String>[
+      for (final name in {...base.names, ...snapshot.keys})
+        if (!snapshot.containsKey(name) || snapshot[name] != null) name,
+    ];
+    return EpubArchive._(
+      _OverlayArchiveBackend(base, snapshot),
+      names,
+      List.of(base.diagnostics),
+    );
+  }
+
   final _ArchiveBackend _backend;
   final List<String> _orderedNames;
   final List<String> _diagnostics;
@@ -564,6 +586,84 @@ abstract class _ArchiveBackend {
   Uint8List? readHead(String path, int maxBytes);
   CompressionType? compressionOf(String path);
   void close();
+}
+
+class _OverlayArchiveBackend implements _ArchiveBackend {
+  _OverlayArchiveBackend(this.base, this.changes);
+  final EpubArchive base;
+  final Map<String, Uint8List?> changes;
+  bool closed = false;
+
+  @override
+  int get length => closed
+      ? 0
+      : {...base.names.where(contains), ...changes.keys.where(contains)}.length;
+  @override
+  bool contains(String path) =>
+      !closed &&
+      (changes.containsKey(path) ? changes[path] != null : base.contains(path));
+  @override
+  int? uncompressedSizeOf(String path) => closed
+      ? null
+      : changes.containsKey(path)
+      ? changes[path]?.length
+      : base.uncompressedSizeOf(path);
+  @override
+  Uint8List? readBytes(String path) {
+    if (closed) return null;
+    if (!changes.containsKey(path)) return base.readBytes(path);
+    final bytes = changes[path];
+    return bytes == null ? null : Uint8List.fromList(bytes);
+  }
+
+  @override
+  _PreparedEntry? prepareEntry(String path) {
+    if (closed) return null;
+    if (!changes.containsKey(path)) return base._backend.prepareEntry(path);
+    final bytes = changes[path];
+    return bytes == null
+        ? null
+        : (
+            identity: bytes,
+            payload: EpubEntryPayload.decoded(Uint8List.fromList(bytes)),
+          );
+  }
+
+  @override
+  Future<_PreparedEntry?> prepareEntryAsync(String path) async => closed
+      ? null
+      : changes.containsKey(path)
+      ? prepareEntry(path)
+      : base._backend.prepareEntryAsync(path);
+  @override
+  bool commitEntry(String path, Object identity, String? error) =>
+      !closed &&
+      (changes.containsKey(path)
+          ? error == null && identical(changes[path], identity)
+          : base._backend.commitEntry(path, identity, error));
+  @override
+  Uint8List? readHead(String path, int maxBytes) {
+    if (closed) return null;
+    if (!changes.containsKey(path)) return base.readHead(path, maxBytes);
+    final bytes = changes[path];
+    return bytes == null
+        ? null
+        : Uint8List.fromList(bytes.take(maxBytes < 0 ? 0 : maxBytes).toList());
+  }
+
+  @override
+  CompressionType? compressionOf(String path) => !contains(path)
+      ? null
+      : changes.containsKey(path)
+      ? CompressionType.none
+      : base.compressionOf(path);
+  @override
+  void close() {
+    if (closed) return;
+    closed = true;
+    changes.clear();
+    base.close();
+  }
 }
 
 class _ZipIndexBackend implements _ArchiveBackend {

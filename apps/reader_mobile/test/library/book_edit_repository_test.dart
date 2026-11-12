@@ -1,0 +1,443 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:archive/archive.dart';
+import 'package:drift/drift.dart' hide isNull, isNotNull;
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/editing.dart';
+import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_mobile/editing/book_edit_repository.dart';
+import 'package:reader_mobile/library/import_analysis.dart';
+import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/revision_anchor_index.dart';
+import 'package:reader_mobile/storage/db.dart';
+
+import 'fixtures/revision_epub.dart';
+
+const _textChange = EpubEditSummary(
+  changedPaths: {'OEBPS/first.xhtml'},
+  cssOnly: false,
+);
+const _cssChange = EpubEditSummary(
+  changedPaths: {'OEBPS/style.css'},
+  cssOnly: true,
+);
+
+class _Fixture {
+  _Fixture(this.root, this.db, this.library, this.entry);
+  final Directory root;
+  final AppDatabase db;
+  final LibraryStore library;
+  final BookEntry entry;
+  BookEditRepository get repository => BookEditRepository(library);
+  Future<BookRow> get book => db.select(db.books).getSingle();
+  Future<File> file(Uint8List bytes) async =>
+      File('${root.path}/input-${DateTime.now().microsecondsSinceEpoch}.epub')
+          .writeAsBytes(bytes);
+}
+
+Future<_Fixture> _fixture({bool css = false}) async {
+  final root = await Directory.systemTemp.createTemp('book-edit-test-');
+  final db = AppDatabase(NativeDatabase.memory());
+  final library = LibraryStore(
+    database: db,
+    directoryProvider: () async => root,
+  );
+  addTearDown(() async {
+    await db.close();
+    await root.delete(recursive: true);
+  });
+  final bytes = css ? _styled('p { color: black; }') : buildRevisionTestEpub();
+  final entry = await library.importBytes(bytes);
+  final fixture = _Fixture(root, db, library, entry);
+  await _seedPosition(fixture);
+  return fixture;
+}
+
+Future<void> _seedPosition(_Fixture fixture) async {
+  final book = await fixture.book;
+  final index = await buildRevisionAnchorBookFile(
+    File(book.sourcePath!),
+    revision: book.contentRevision,
+  );
+  final chapter = index.chapter(0)!;
+  final cfi = chapter.cfiAt(chapter.text.indexOf(revisionQuote))!;
+  final anchor = index.capture(cfi)!;
+  final record = AnchorRecord(original: anchor).encode();
+  await fixture.db
+      .into(fixture.db.annotations)
+      .insert(
+        AnnotationsCompanion.insert(
+          id: 'retained-note',
+          bookId: book.id,
+          type: 1,
+          startCfi: cfi,
+          endCfi: cfi,
+          quote: revisionQuote,
+          note: const Value('不能丢失的笔记'),
+          anchorJson: Value(record),
+          createdAt: 1,
+          updatedAt: 2,
+        ),
+      );
+  await fixture.db
+      .into(fixture.db.readingProgress)
+      .insert(
+        ReadingProgressCompanion.insert(
+          bookId: Value(book.id),
+          locatorCfi: cfi,
+          anchorJson: Value(record),
+          spineIndex: const Value(0),
+          pageIndex: const Value(7),
+          percent: const Value(21),
+          finished: const Value(true),
+          updatedAt: 3,
+        ),
+      );
+}
+
+Uint8List _styled(String css) {
+  final source = ZipDecoder().decodeBytes(buildRevisionTestEpub());
+  final result = Archive();
+  for (final entry in source.files) {
+    var bytes = entry.content;
+    if (entry.name.endsWith('.opf')) {
+      bytes = utf8.encode(
+        utf8
+            .decode(bytes)
+            .replaceFirst(
+              '</manifest>',
+              '<item id="style" href="style.css" media-type="text/css"/></manifest>',
+            ),
+      );
+    } else if (entry.name.endsWith('.xhtml')) {
+      bytes = utf8.encode(
+        utf8
+            .decode(bytes)
+            .replaceAll('<p>', '<p class="shared">')
+            .replaceFirst(
+              '</head>',
+              '<link rel="stylesheet" href="style.css"/></head>',
+            ),
+      );
+    }
+    result.addFile(ArchiveFile.bytes(entry.name, bytes));
+  }
+  result.addFile(ArchiveFile.string('OEBPS/style.css', css));
+  return Uint8List.fromList(ZipEncoder().encodeBytes(result));
+}
+
+Future<void> _expectUnchanged(_Fixture f, BookRow before) async {
+  expect((await f.book).toJson(), before.toJson());
+  expect(await File(before.sourcePath!).exists(), isTrue);
+  expect(await f.repository.versions(before.uuid), isEmpty);
+  final stages = Directory('${f.root.path}/books/${before.uuid}/versions');
+  if (await stages.exists()) {
+    final abandoned = await stages
+        .list()
+        .where((entry) => entry.path != File(before.sourcePath!).parent.path)
+        .toList();
+    expect(abandoned, isEmpty);
+  }
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('正文和元数据保存保持书籍身份、迁移位置，原版与最近版可以恢复', () async {
+    final f = await _fixture();
+    final before = await f.book;
+    final input = await f.file(
+      buildRevisionTestEpub(
+        chapters: revisionUpdatedChapters,
+        title: '修改后的书名',
+        identifier: 'edited-id',
+      ),
+    );
+    final updated = await f.repository.commitEditedFile(
+      before.uuid,
+      before.contentRevision,
+      input,
+      _textChange,
+    );
+    expect(updated.id, before.uuid);
+    expect(updated.title, '修改后的书名');
+    expect((await f.book).id, before.id);
+    final note = await f.db.select(f.db.annotations).getSingle();
+    expect(note.note, '不能丢失的笔记');
+    expect(
+      AnchorRecord.decode(note.anchorJson)!.original.revision,
+      before.contentRevision,
+    );
+    expect(
+      AnchorRecord.decode(note.anchorJson)!.effective.revision,
+      updated.contentRevision,
+    );
+    final progress = await f.db.select(f.db.readingProgress).getSingle();
+    expect(progress.spineIndex, 1);
+    expect(progress.finished, isFalse);
+    final restored = await f.repository.restoreOriginal(
+      updated.id,
+      updated.contentRevision!,
+    );
+    expect(restored.contentRevision, before.contentRevision);
+    expect(restored.id, before.uuid);
+    await f.library.sweepOrphans();
+    final versions = await f.repository.versions(before.uuid);
+    expect(versions.map((v) => v.kind), containsAll(['original', 'previous']));
+    for (final version in versions) {
+      expect(await version.sourceFile.exists(), isTrue);
+    }
+    final recent = await f.repository.restorePrevious(
+      restored.id,
+      restored.contentRevision!,
+    );
+    expect(recent.contentRevision, updated.contentRevision);
+    expect(await input.exists(), isTrue);
+  });
+
+  test('纯 CSS 跳过正文统计和迁移，CFI 与原始证据保留并清空旧页序', () async {
+    final f = await _fixture(css: true);
+    final before = await f.book;
+    final original = await f.db.select(f.db.annotations).getSingle();
+    final file = await f.file(_styled('p { color: red; font-size: 22px; }'));
+    final analysis = await analyzeEditedFile(
+      file.path,
+      oldPath: before.sourcePath!,
+      cssOnly: true,
+      knownCounts: [17, 18, 19],
+    );
+    expect(analysis.cssOnly, isTrue);
+    expect(analysis.analysis.charCounts, [17, 18, 19]);
+    final saved = await f.repository.commitEditedFile(
+      before.uuid,
+      before.contentRevision,
+      file,
+      _cssChange,
+    );
+    final note = await f.db.select(f.db.annotations).getSingle();
+    expect(note.startCfi, original.startCfi);
+    expect(AnchorRecord.decode(note.anchorJson)!.status, 'verified');
+    expect(
+      AnchorRecord.decode(note.anchorJson)!.original.toJson(),
+      AnchorRecord.decode(original.anchorJson)!.original.toJson(),
+    );
+    expect(
+      AnchorRecord.decode(note.anchorJson)!.effective.revision,
+      saved.contentRevision,
+    );
+    final progress = await f.db.select(f.db.readingProgress).getSingle();
+    expect(progress.pageIndex, 0);
+    expect(progress.finished, isTrue);
+    expect(progress.percent, 21);
+    expect((await f.book).layoutVersion, before.layoutVersion + 1);
+  });
+
+  test('不能用错误 CSS 标记绕过正文迁移，过期草稿在写文件前拒绝', () async {
+    final f = await _fixture();
+    final before = await f.book;
+    final input = await f.file(
+      buildRevisionTestEpub(chapters: revisionUpdatedChapters),
+    );
+    final updated = await f.repository.commitEditedFile(
+      before.uuid,
+      before.contentRevision,
+      input,
+      _cssChange,
+    );
+    expect((await f.db.select(f.db.readingProgress).getSingle()).spineIndex, 1);
+    await expectLater(
+      f.repository.commitEditedFile(
+        before.uuid,
+        before.contentRevision,
+        input,
+        _textChange,
+      ),
+      throwsA(
+        isA<LibraryImportException>().having(
+          (e) => e.errorCode,
+          'code',
+          'E_STALE_REVISION',
+        ),
+      ),
+    );
+    expect((await f.book).contentRevision, updated.contentRevision);
+  });
+
+  test('首次共享 class 样式的 link 与归属元数据不触发正文迁移', () async {
+    final f = await _fixture(css: true);
+    final session = await EpubEditSession.open(File(f.entry.filePath));
+    addTearDown(session.close);
+    final report = ClassStyleEditor(session).apply('shared', {'color': 'red'});
+    expect(report.elementCount, greaterThan(0));
+    expect(session.summary.cssOnly, isTrue);
+    final output = File('${f.root.path}/class-style.epub');
+    await EpubWriter.write(session, output);
+    final analysis = await analyzeEditedFile(
+      output.path,
+      oldPath: f.entry.filePath,
+      cssOnly: session.summary.cssOnly,
+      knownCounts: [17, 18, 19],
+    );
+    expect(analysis.cssOnly, isTrue);
+    expect(analysis.analysis.charCounts, [17, 18, 19]);
+    await f.repository.commitEditedFile(
+      f.entry.id,
+      f.entry.contentRevision!,
+      output,
+      session.summary,
+    );
+    final note = await f.db.select(f.db.annotations).getSingle();
+    expect(AnchorRecord.decode(note.anchorJson)!.status, 'verified');
+    expect(
+      (await f.db.select(f.db.readingProgress).getSingle()).finished,
+      isTrue,
+    );
+  });
+
+  test('非法文件和事务中途失败都回滚历史、文件指针与阅读数据', () async {
+    final f = await _fixture();
+    final before = await f.book;
+    final broken = await f.file(Uint8List.fromList([1, 2, 3]));
+    await expectLater(
+      f.repository.commitEditedFile(
+        before.uuid,
+        before.contentRevision,
+        broken,
+        _textChange,
+      ),
+      throwsA(anything),
+    );
+    await _expectUnchanged(f, before);
+    await f.db.customStatement(
+      "CREATE TRIGGER fail_edit BEFORE UPDATE OF source_path ON books BEGIN SELECT RAISE(ABORT, '模拟写库失败'); END",
+    );
+    final valid = await f.file(
+      buildRevisionTestEpub(chapters: revisionUpdatedChapters),
+    );
+    await expectLater(
+      f.repository.commitEditedFile(
+        before.uuid,
+        before.contentRevision,
+        valid,
+        _textChange,
+      ),
+      throwsA(anything),
+    );
+    await _expectUnchanged(f, before);
+    expect((await f.db.select(f.db.readingProgress).getSingle()).pageIndex, 7);
+    await f.db.customStatement('DROP TRIGGER fail_edit');
+    expect(
+      (await f.repository.commitEditedFile(
+        before.uuid,
+        before.contentRevision,
+        valid,
+        _textChange,
+      )).importOutcome,
+      BookImportOutcome.updated,
+    );
+  });
+
+  test('草稿资源目录可恢复正式编辑会话，失败快照不覆盖上次草稿', () async {
+    final f = await _fixture(css: true);
+    final source = File(f.entry.filePath);
+    final session = await EpubEditSession.open(source);
+    addTearDown(session.close);
+    session.transaction(
+      '修改样式',
+      (tx) => tx.writeText('OEBPS/style.css', 'p { color: blue; }'),
+    );
+    await f.repository.saveDraft(
+      f.entry.id,
+      f.entry.contentRevision!,
+      (blob) => session.toDraft(storeBlob: blob),
+    );
+    final draft = (await f.repository.openDraft(f.entry.id))!;
+    expect(jsonEncode(draft.data), isNot(contains('base64')));
+    expect(() => draft.readBlob('../source.epub'), throwsFormatException);
+    await expectLater(
+      f.repository.saveDraft(
+        f.entry.id,
+        f.entry.contentRevision!,
+        (_) => throw StateError('模拟序列化失败'),
+      ),
+      throwsStateError,
+    );
+    await f.library.sweepOrphans();
+    final recovered = (await BookEditRepository(f.library)
+        .openDraft(f.entry.id))!;
+    expect(recovered.directory.path, draft.directory.path);
+    final reopened = await EpubEditSession.open(
+      recovered.sourceFile,
+      draft: recovered.data,
+      readBlob: recovered.readBlob,
+    );
+    addTearDown(reopened.close);
+    expect(reopened.readText('OEBPS/style.css'), 'p { color: blue; }');
+    await f.repository.discardDraft(f.entry.id);
+    expect(await f.repository.openDraft(f.entry.id), isNull);
+    expect(await draft.directory.exists(), isFalse);
+    expect(await source.exists(), isTrue);
+  });
+
+  test('外部换版后的旧草稿仍可独立导出，扫描不删除其基线文件', () async {
+    final f = await _fixture(css: true);
+    final session = await EpubEditSession.open(File(f.entry.filePath));
+    addTearDown(session.close);
+    session.transaction(
+      '草稿样式',
+      (tx) => tx.writeText('OEBPS/style.css', 'p { color: green; }'),
+    );
+    await f.repository.saveDraft(
+      f.entry.id,
+      f.entry.contentRevision!,
+      (blob) => session.toDraft(storeBlob: blob),
+    );
+    final updated = await f.library.updateBytes(
+      f.entry.id,
+      buildRevisionTestEpub(chapters: revisionUpdatedChapters),
+    );
+    await f.library.sweepOrphans();
+    await expectLater(
+      f.repository.openDraft(updated.id),
+      throwsA(
+        isA<LibraryImportException>().having(
+          (error) => error.errorCode,
+          'code',
+          'E_STALE_REVISION',
+        ),
+      ),
+    );
+    final draft = (await f.repository.readDraftForRecovery(updated.id))!;
+    expect(draft.baseRevision, f.entry.contentRevision);
+    expect(await draft.sourceFile.exists(), isTrue);
+    final recovered = await EpubEditSession.open(
+      draft.sourceFile,
+      draft: draft.data,
+      readBlob: draft.readBlob,
+    );
+    addTearDown(recovered.close);
+    final export = File('${f.root.path}/recovered.epub');
+    await EpubWriter.write(recovered, export);
+    final reopened = await EpubEditSession.open(export);
+    addTearDown(reopened.close);
+    expect(reopened.readText('OEBPS/style.css'), 'p { color: green; }');
+    await expectLater(
+      f.repository.commitEditedFile(
+        updated.id,
+        draft.baseRevision,
+        export,
+        _cssChange,
+      ),
+      throwsA(
+        isA<LibraryImportException>().having(
+          (error) => error.errorCode,
+          'code',
+          'E_STALE_REVISION',
+        ),
+      ),
+    );
+    expect((await f.book).contentRevision, updated.contentRevision);
+  });
+}

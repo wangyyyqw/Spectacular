@@ -62,6 +62,8 @@ void main() {
         'decorations',
         'decoration_rule_groups',
         'decoration_rules',
+        'edit_drafts',
+        'edit_versions',
       ]),
     );
     final indexes = await database
@@ -96,7 +98,7 @@ void main() {
           .customSelect('PRAGMA user_version')
           .getSingle()
           .then((row) => row.read<int>('user_version')),
-      1,
+      2,
     );
   });
 
@@ -108,6 +110,44 @@ void main() {
       throwsA(isA<sqlite.SqliteException>()),
     );
     expect((await database.select(database.books).get()).length, 1);
+  });
+
+  test('v1 升级到 v2 只新增编辑表，既有书库和阅读数据保留', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'reader-v1-upgrade-',
+    );
+    final file = File('${directory.path}/reader.sqlite');
+    addTearDown(() => directory.delete(recursive: true));
+    final original = await AppDatabase.open(file);
+    final id = await _insertBook(original);
+    await original
+        .into(original.readingProgress)
+        .insert(
+          ReadingProgressCompanion.insert(
+            bookId: Value(id),
+            locatorCfi: '旧位置',
+            updatedAt: 17,
+          ),
+        );
+    await original.customStatement('DROP TABLE edit_drafts');
+    await original.customStatement('DROP TABLE edit_versions');
+    await original.customStatement('PRAGMA user_version = 1');
+    await original.close();
+    final migrated = await AppDatabase.open(file);
+    addTearDown(migrated.close);
+    await migrated.warmUp();
+    expect((await migrated.select(migrated.books).getSingle()).id, id);
+    expect(
+      (await migrated.select(migrated.readingProgress).getSingle()).locatorCfi,
+      '旧位置',
+    );
+    expect(await migrated.select(migrated.editDrafts).get(), isEmpty);
+    expect(await migrated.select(migrated.editVersions).get(), isEmpty);
+    expect(
+      (await migrated.customSelect('PRAGMA user_version').getSingle())
+          .read<int>('user_version'),
+      2,
+    );
   });
 
   test('删书级联清理：spine/目录/标注/进度/索引/报告一并删除', () async {

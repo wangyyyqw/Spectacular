@@ -11,3 +11,4 @@ export 'position/book_progress_index.dart';
 export 'source/chapter_source.dart';
 export 'source/format_opener.dart';
 export 'source/toc.dart';
+export 'editing.dart';

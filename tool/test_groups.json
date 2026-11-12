@@ -24,6 +24,7 @@
         "packages/reader_ui/test/paging/*latency_test.dart",
         "apps/reader_mobile/test/*latency_test.dart",
         "apps/reader_mobile/test/reader_perf*_test.dart",
+        "packages/reader_core/test/editing/epub_edit_stress_test.dart",
         "apps/reader_mobile/test/real_book_sweep_test.dart",
         "apps/reader_mobile/test/diagnostics/*_test.dart",
         "apps/reader_mobile/test/reader/memory_budget_test.dart",
@@ -58,6 +59,8 @@
       "paths": [
         "apps/reader_mobile/test/storage/*_test.dart",
         "apps/reader_mobile/test/library/library*_test.dart",
+        "apps/reader_mobile/test/library/book_edit_repository_test.dart",
+        "apps/reader_mobile/test/editing/epub_export_test.dart",
         "apps/reader_mobile/test/library/revision_update_test.dart",
         "apps/reader_mobile/test/audit/import_queue_audit_test.dart",
         "apps/reader_mobile/test/audit/reading_session_audit_test.dart",
@@ -72,6 +75,7 @@
       "group": "resources",
       "paths": [
         "packages/reader_core/test/epub/*_test.dart",
+        "packages/reader_core/test/editing/*_test.dart",
         "packages/reader_core/test/parser/*_test.dart",
         "packages/reader_core/test/css/book_font_loader_test.dart",
         "packages/reader_core/test/css/stylesheet_loader_test.dart",
@@ -126,6 +130,8 @@
       "paths": [
         "packages/reader_ui/test/*_test.dart",
         "apps/reader_mobile/test/widget_test.dart",
+        "apps/reader_mobile/test/editing/book_editor*_test.dart",
+        "apps/reader_mobile/test/editing/xhtml_chunk_analyzer_test.dart",
         "apps/reader_mobile/test/home/*_test.dart",
         "apps/reader_mobile/test/prototype/*_test.dart",
         "apps/reader_mobile/test/audit/*_ui_audit_test.dart",

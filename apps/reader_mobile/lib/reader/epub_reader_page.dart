@@ -20,6 +20,8 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
+import '../editing/book_edit_repository.dart';
+import '../editing/book_editor_route.dart';
 import '../search/scan_search_service.dart';
 import '../storage/reading_session_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -68,7 +70,10 @@ class EpubReaderPage extends StatefulWidget {
     this.readingActive = true,
     this.onReady,
     this.onClosed,
+    this.bookEditorRepository,
   });
+
+  final BookEditRepository? bookEditorRepository;
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
@@ -566,11 +571,68 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
+      onOpenEditor:
+          widget.bookEditorRepository != null && widget.sourcePath != null
+          ? () => _openEditor(null)
+          : null,
+      onEditTarget:
+          widget.bookEditorRepository != null && widget.sourcePath != null
+          ? _openEditor
+          : null,
       onLog: (event, fields) =>
           unawaited(ReaderLog.instance.log(event, fields: fields)),
       onResolveSearchCfi: _resolveSearchCfi,
       onSearchStream: _searchStream,
     );
+  }
+
+  bool _editorOpen = false;
+
+  Future<void> _openEditor(ReaderEditTarget? target) async {
+    if (_editorOpen) return;
+    final repository = widget.bookEditorRepository;
+    final path = widget.sourcePath;
+    if (repository == null || path == null) return;
+    _editorOpen = true;
+    _syncReadingActivity();
+    try {
+      await _readerSession?.flushProgress();
+      if (!mounted) return;
+      final progress = _readerSession?.progress;
+      final location =
+          target ??
+          (progress?.cfi == null
+              ? null
+              : ReaderEditTarget(
+                  spineIndex: progress!.spineIndex,
+                  cfi: progress.cfi!,
+                  contentRevision: _contentRevision,
+                ));
+      final saved = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => BookEditorRoute(
+            repository: repository,
+            bookId: widget.bookId,
+            sourcePath: path,
+            contentRevision: _contentRevision,
+            title: widget.bookTitle,
+            target: location,
+            readingSettings: _settings,
+            editInitialTarget: target != null,
+          ),
+        ),
+      );
+      // 保存后旧阅读源属于上一修订；回到书架，下次打开使用新版本。
+      if (saved == true && mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('打开编辑器失败：$error')));
+      }
+    } finally {
+      _editorOpen = false;
+      if (mounted) _syncReadingActivity();
+    }
   }
 
   void _bindReaderSession(ReaderSession session) {
@@ -629,7 +691,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     final foreground =
         lifecycle == null || lifecycle == AppLifecycleState.resumed;
-    if (_readable && widget.readingActive && foreground && !_closing) {
+    if (_readable &&
+        widget.readingActive &&
+        foreground &&
+        !_closing &&
+        !_editorOpen) {
       _readingTracker?.start();
     } else {
       unawaited(_readingTracker?.pause() ?? Future<void>.value());

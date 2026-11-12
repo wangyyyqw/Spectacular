@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:reader_core/position/location_anchor.dart';
@@ -20,6 +21,24 @@ Future<AnchorBook> buildRevisionAnchorBook(
       revision: revision ?? sha256.convert(bytes).toString(),
       chapters: chapters,
     );
+  } finally {
+    source.close();
+    await source.preparationsStopped;
+  }
+}
+
+/// 编辑文件逐章读取，避免为新旧两版各分配一份整书字节。
+Future<AnchorBook> buildRevisionAnchorBookFile(
+  File file, {
+  required String revision,
+}) async {
+  final source = await EpubChapterSource.openFile(file);
+  try {
+    final chapters = <AnchorChapter>[];
+    for (var index = 0; index < source.chapterCount; index++) {
+      chapters.add(await source.loadAnchorChapter(index));
+    }
+    return AnchorBook(revision: revision, chapters: chapters);
   } finally {
     source.close();
     await source.preparationsStopped;

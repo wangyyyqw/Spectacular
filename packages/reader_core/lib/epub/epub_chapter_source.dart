@@ -108,9 +108,14 @@ class EpubChapterSource
     bool verifyCrc = false,
     bool trimTextEdges = true,
     String? contentVersion,
+    Map<String, Uint8List?> resourceOverrides = const {},
   }) async {
     line_breaker.LineBreaker.preserveFractionalLineHeight = true;
-    final result = await openEpubFile(file, verifyCrc: verifyCrc);
+    final result = await openEpubFile(
+      file,
+      verifyCrc: verifyCrc,
+      resourceOverrides: resourceOverrides,
+    );
     return _fromOpenResult(
       result,
       contentWidth: contentWidth,

@@ -28,10 +28,13 @@ import '../storage/drift_decoration_rule_store.dart';
 import '../storage/drift_bookmark_store.dart';
 import '../storage/reading_session_store.dart';
 import 'import_analysis.dart';
+import 'book_edit_models.dart';
 import 'revision_anchor_index.dart';
 import 'revision_anchor_store.dart' show requireAnchorRecord;
 
 part 'library_revision.dart';
+part 'library_editing.dart';
+part 'library_edit_drafts.dart';
 
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
@@ -67,7 +70,7 @@ class BookEntry {
     this.importOutcome = BookImportOutcome.added,
   });
 
-  /// 固定三元组摘要标识（= `books.uuid`，32 位小写十六进制）。
+  /// 初次导入的三元组摘要（`books.uuid`）；本地编辑时身份保持稳定。
   final String id;
 
   /// 书名（OPF dc:title；缺失时用文件名）。
@@ -1279,6 +1282,10 @@ class LibraryStore {
         coverPath: const Value<String?>(null),
       ),
     );
+    for (final row in rows) {
+      await (db.delete(db.editDrafts)..where((t) => t.bookId.equals(row.id))).go();
+      await (db.delete(db.editVersions)..where((t) => t.bookId.equals(row.id))).go();
+    }
     for (final path in sourcePaths) {
       if (otherBooks.any((book) => book.sourcePath == path)) continue;
       // 只清理本书目录中的文件，异常路径不扩大删除范围。
@@ -1514,6 +1521,8 @@ class LibraryStore {
       for (final row in rows)
         if (row.coverPath != null) p.normalize(row.coverPath!),
     };
+    knownFiles.addAll(await _protectedEditFiles());
+    await _sweepEditDrafts(rows);
     return _sweepBookDirectory(Directory('${root.path}/books'), {
       for (final row in rows) row.uuid,
     }, knownFiles);

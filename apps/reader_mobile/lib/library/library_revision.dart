@@ -588,6 +588,7 @@ extension LibraryRevisionOperations on LibraryStore {
 
   Future<void> _deleteRetiredSource(String? path) async {
     if (path == null) return;
+    if ((await _protectedEditFiles()).contains(p.normalize(path))) return;
     final rows = await _db!.select(_db.books).get();
     if (rows.any((row) => row.sourcePath == path || row.coverPath == path)) {
       return;

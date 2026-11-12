@@ -12,9 +12,13 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var readerChannel: MethodChannel? = null
     private var volumeKeyPaging = false
+    private var epubExport: EpubExportHandler? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        epubExport = EpubExportHandler(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
+            "com.spectacular.reader_mobile/epub_export").setMethodCallHandler(epubExport)
         readerChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/reader",
@@ -34,6 +38,16 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (epubExport?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onDestroy() {
+        epubExport?.dispose()
+        super.onDestroy()
     }
 
     private fun batteryLevel(): Int? {

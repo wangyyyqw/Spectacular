@@ -14,7 +14,7 @@ class Books extends Table {
   /// 主键。
   IntColumn get id => integer().autoIncrement()();
 
-  /// 固定算法生成的 32 位书籍标识。
+  /// 首次导入生成的书籍标识；本地编辑元数据时保持稳定。
   TextColumn get uuid => text().unique()();
 
   /// EPUB 原始 unique-identifier，不使用书籍标识替换字体解混淆密钥。
@@ -520,6 +520,33 @@ class BookTagLinks extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{bookUuid, tagId};
 }
 
+/// 草稿仅保存目录指针；修改资源存为独立文件，不把 EPUB 放进数据库。
+@DataClassName('EditDraftRow')
+class EditDrafts extends Table {
+  IntColumn get bookId =>
+      integer().references(Books, #id, onDelete: KeyAction.cascade)();
+  TextColumn get baseRevision => text()();
+  TextColumn get sourcePath => text()();
+  TextColumn get directory => text()();
+  IntColumn get updatedAt => integer()();
+  @override
+  Set<Column<Object>> get primaryKey => {bookId};
+}
+
+/// 每本书保留首次编辑前原版和最近一次保存前版本。
+@DataClassName('EditVersionRow')
+class EditVersions extends Table {
+  IntColumn get bookId =>
+      integer().references(Books, #id, onDelete: KeyAction.cascade)();
+  TextColumn get kind => text()();
+  TextColumn get revision => text()();
+  TextColumn get sourcePath => text()();
+  TextColumn get summary => text()();
+  IntColumn get createdAt => integer()();
+  @override
+  Set<Column<Object>> get primaryKey => {bookId, kind};
+}
+
 /// 应用数据库：书库、进度、标注、搜索索引（技术方案 §36）。
 @DriftDatabase(
   tables: [
@@ -541,6 +568,8 @@ class BookTagLinks extends Table {
     BookTags,
     BookTagLinks,
     BookIdAliases,
+    EditDrafts,
+    EditVersions,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -550,15 +579,22 @@ class AppDatabase extends _$AppDatabase {
   /// 数据库文件名。
   static const String fileName = 'reader.sqlite';
 
-  /// 当前完整表结构的初始版本，与书级排版版本分开。
+  /// 数据库结构版本，与书级排版版本分开；v2 增加草稿与编辑历史。
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) async {
       await migrator.createAll();
       await _createIndexes();
+    },
+    onUpgrade: (migrator, from, to) async {
+      if (from > to) throw StateError('数据库版本过新，不能降级打开');
+      if (from < 2) {
+        await migrator.createTable(editDrafts);
+        await migrator.createTable(editVersions);
+      }
     },
     beforeOpen: (details) async {
       // §36.2：级联删除依赖外键约束。

@@ -81,6 +81,19 @@ const MethodChannel _readerPlatformChannel = MethodChannel(
   'com.spectacular.reader_mobile/reader',
 );
 
+/// 正式引擎命中的文本位置；原文解析与写入由宿主编辑会话负责。
+class ReaderEditTarget {
+  const ReaderEditTarget({
+    required this.spineIndex,
+    required this.cfi,
+    this.contentRevision,
+  });
+
+  final int spineIndex;
+  final String cfi;
+  final String? contentRevision;
+}
+
 /// 最小可运行的阅读页：打开、分页、绘制、翻页与进度恢复。
 class ReaderPage extends StatefulWidget {
   /// 创建阅读页。
@@ -115,6 +128,9 @@ class ReaderPage extends StatefulWidget {
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
+    this.editMode = false,
+    this.onEditTarget,
+    this.onOpenEditor,
     this.imageCache,
     this.theme,
     this.overrides,
@@ -137,6 +153,11 @@ class ReaderPage extends StatefulWidget {
     this.volumeKeyPaging = false,
     this.onVolumeKeyPagingChanged,
   });
+
+  /// 编辑预览中单击正文直接请求编辑；普通阅读仍保留翻页和脚注语义。
+  final bool editMode;
+  final ValueChanged<ReaderEditTarget>? onEditTarget;
+  final VoidCallback? onOpenEditor;
 
   /// 章节页来源。
   final ReaderChapterSource source;
@@ -972,6 +993,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
+    if (widget.editMode) return;
     _pageTurnKey.currentState?.controller.cancel();
     final open = !_menuOpen;
     _log('user_menu', <String, Object?>{'open': open});
@@ -1870,6 +1892,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   bool _handleTapInPage(PageContent page, Offset pagePosition) {
+    if (widget.editMode && _editImageAt(page, pagePosition)) return true;
+    if (widget.editMode && _editTextAt(page, pagePosition)) return true;
     if (_handleGalleryTap(page, pagePosition)) return true;
     final persistent = <ReaderAnnotation>[
       for (final annotation in _resolvedAnnotations)
@@ -1907,6 +1931,86 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return true;
     }
     return false;
+  }
+
+  bool _editImageAt(PageContent page, Offset position) {
+    if (widget.onEditTarget == null) return false;
+    for (final region in galleryRegionsOf(page)) {
+      if (region.rect.contains(position)) {
+        final gallery = region.gallery;
+        _requestTextEdit(
+          page.spineIndex,
+          gallery.frames[_galleryFrameOf(gallery)].cfi,
+        );
+        return true;
+      }
+    }
+    var flowY = page.topPadding;
+    for (final slice in page.slices) {
+      final top = slice.overlay ? slice.absoluteTop ?? flowY : flowY;
+      if (!slice.overlay) flowY += slice.height;
+      final block = slice.block;
+      final style = block.style;
+      if (!block.isReplaced ||
+          style == null ||
+          block.startCfi == null ||
+          style.visibility != CssVisibility.visible ||
+          block.effectiveOpacity <= 0) {
+        continue;
+      }
+      final model = BoxModel.fromStyle(
+        style,
+        containingWidth: _paperContentWidth,
+      );
+      final bounds = Rect.fromLTWH(
+        (slice.overlay ? slice.leftInset : 0) +
+            style.margin.left +
+            block.leftInset,
+        top + slice.leadingExtent,
+        model.resolveContentWidth(_paperContentWidth),
+        (slice.height - slice.leadingExtent - slice.trailingExtent).clamp(
+          0,
+          double.infinity,
+        ),
+      );
+      if (bounds.contains(position)) {
+        _requestTextEdit(page.spineIndex, block.startCfi!);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _editTextAt(PageContent page, Offset position) {
+    if (widget.onEditTarget == null) return false;
+    final hit = TextHitTester.hitTest(page, position);
+    if (hit == null || !hit.lineBox.rect.inflate(3).contains(position)) {
+      return false;
+    }
+    final cfi = hit.lineBox.slice.block.startCfi;
+    if (cfi == null) return false;
+    _requestTextEdit(page.spineIndex, cfi);
+    return true;
+  }
+
+  void _requestTextEdit(int spineIndex, String cfi) {
+    // 排版块可合并多个行内文本节点；编辑定位只传节点路径，不能把
+    // 块内累加字符偏移当作原始 XML 文本节点内的偏移。
+    final parsed = EpubCfi.parse(cfi);
+    if (parsed != null && !parsed.isRange && parsed.segments.isNotEmpty) {
+      final segments = [...parsed.segments];
+      final last = segments.removeLast();
+      segments.add(CfiSegment(last.steps, side: last.side));
+      cfi = EpubCfi(segments).serialize();
+    }
+    _clearSelection();
+    widget.onEditTarget?.call(
+      ReaderEditTarget(
+        spineIndex: spineIndex,
+        cfi: cfi,
+        contentRevision: widget.contentRevision,
+      ),
+    );
   }
 
   /// 打开高亮编辑弹层：组合调整颜色、样式、笔记或删除标注。
@@ -2320,6 +2424,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               progress: _bookProgressOf(page),
               chapterLabel: _chapterLabelOf(page),
               onBack: _exitReader,
+              onEdit: widget.onOpenEditor,
               onToggleDayNight: _toggleDayNight,
               nightMode:
                   (_theme ?? ReaderTheme.white).background.computeLuminance() <
