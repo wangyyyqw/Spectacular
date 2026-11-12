@@ -1125,7 +1125,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
-  /// 拖到页边 → 延时 300ms 翻页并扩展选区（§63.5）。
+  /// 拖到页边 → 延时 300ms 在当前章内翻页并扩展选区（§63.5）。
   void _handleSelectionEdgeDrag(bool forward) {
     _selectionEdgeTimer?.cancel();
     _selectionEdgeTimer = Timer(const Duration(milliseconds: 300), () {
@@ -1138,7 +1138,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Future<void> _extendSelectionForward() async {
     final selection = _selection;
     final page = _session.page;
-    if (selection == null || page == null) {
+    if (selection == null ||
+        page == null ||
+        page.pageIndex >= _session.chapterPageCount - 1) {
       return;
     }
     final changed = await _session.next();
@@ -1174,7 +1176,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Future<void> _extendSelectionBackward() async {
     final selection = _selection;
     final page = _session.page;
-    if (selection == null || page == null) {
+    if (selection == null || page == null || page.pageIndex <= 0) {
       return;
     }
     final changed = await _session.previous();

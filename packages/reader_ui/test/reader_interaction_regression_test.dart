@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -65,6 +66,37 @@ class _NavigationObserver extends NavigatorObserver {
   }
 }
 
+class _ChapterBoundarySource implements ReaderChapterSource {
+  @override
+  int get chapterCount => 2;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final style = ComputedStyle(const {
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': 'Ahem',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: spineIndex == 0 ? 'first chapter' : 'second chapter',
+      style: style,
+      maxWidth: 280,
+    );
+    return Paginator(pageHeight: 120)
+        .measureChapter(
+          blocks: [
+            PageBlock(
+              layout: layout,
+              style: style,
+              startCfi: 'epubcfi(/6/${(spineIndex + 1) * 2}!/4/2/1:0)',
+            ),
+          ],
+          spineIndex: spineIndex,
+        )
+        .pages;
+  }
+}
+
 class _BlankLineSource implements RestylableChapterSource {
   final _style = ComputedStyle(const {
     'font-size': '16px',
@@ -94,13 +126,16 @@ class _BlankLineSource implements RestylableChapterSource {
   }
 }
 
-Future<ReaderSession> _showReader(WidgetTester tester) async {
+Future<ReaderSession> _showReader(
+  WidgetTester tester, {
+  ReaderChapterSource? source,
+}) async {
   late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
         body: ReaderPage(
-          source: _Source(),
+          source: source ?? _Source(),
           store: MemoryReaderProgressStore(),
           bookId: 'interaction-regression',
           padding: _padding,
@@ -128,6 +163,22 @@ SelectionLayer _selectionLayer(WidgetTester tester) =>
     tester.widget<SelectionLayer>(find.byType(SelectionLayer));
 
 Finder _handle(String end) => find.byKey(ValueKey('selection-handle-$end'));
+
+String? Function() _captureClipboard(WidgetTester tester) {
+  String? text;
+  final messenger = tester.binding.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+    if (call.method == 'Clipboard.setData') {
+      final arguments = call.arguments as Map<Object?, Object?>;
+      text = arguments['text'] as String;
+    }
+    return null;
+  });
+  addTearDown(
+    () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+  );
+  return () => text;
+}
 
 Future<void> _openSearch(WidgetTester tester) async {
   await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
@@ -321,6 +372,43 @@ void main() {
     expect(selection.startPageIndex, 0);
     expect(selection.endPageIndex, 1);
   });
+
+  for (final forward in [true, false]) {
+    testWidgets('向${forward ? '后' : '前'}扩选在章边界停止并复制本章文字', (tester) async {
+      final clipboardText = _captureClipboard(tester);
+      final session = await _showReader(
+        tester,
+        source: _ChapterBoundarySource(),
+      );
+      final spine = forward ? 0 : 1;
+      if (!forward) {
+        await session.jumpToChapter(spine);
+        await tester.pumpAndSettle();
+      }
+      await _selectWord(tester, session.page!);
+      final bounds = tester.getRect(find.byType(ReaderView));
+      final gesture = await tester.startGesture(
+        tester.getCenter(_handle(forward ? 'end' : 'start')),
+      );
+      await gesture.moveTo(
+        Offset(bounds.center.dx, forward ? bounds.bottom - 4 : bounds.top + 4),
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(session.page!.spineIndex, spine);
+      final selection = _selectionLayer(tester).selection;
+      final cfi = SelectionOps.cfiOf(selection)!;
+      expect(cfi.start, contains('/6/${(spine + 1) * 2}!'));
+      expect(cfi.end, contains('/6/${(spine + 1) * 2}!'));
+      final expected = SelectionOps.textOf(session.page!, selection);
+      expect(expected, isNotEmpty);
+      await tester.tap(find.byKey(const ValueKey('selection-action-copy')));
+      await tester.pumpAndSettle();
+      expect(clipboardText(), expected);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('选中文字后点击正文只取消选中，不翻页', (tester) async {
     final session = await _showReader(tester);
