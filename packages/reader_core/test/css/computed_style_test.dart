@@ -179,6 +179,45 @@ void main() {
     expect(base.lineHeight, closeTo(20 * 1.437, 0.001));
   });
 
+  for (final declaration in ['160%', '32px']) {
+    test('相对字号缩放后$declaration 行高仍按绝对长度继承', () {
+      final scaled = style(
+        'p',
+        'p { font-size:20px; line-height:$declaration; }',
+      ).scaleRelativeTypography(13.6);
+      expect(scaled.lineHeight, closeTo(21.76, .001));
+      expect(scaled.unitlessLineHeightFactor, isNull);
+      expect(scaled.values['line-height'], endsWith('px'));
+      final child = style('p', 'p { font-size:1.1em; }', parent: scaled);
+      expect(child.fontSize, closeTo(14.96, .001));
+      expect(child.lineHeight, closeTo(21.76, .001));
+      expect(child.lineHeightFactor, closeTo(21.76 / 14.96, .001));
+      expect(child.unitlessLineHeightFactor, isNull);
+    });
+  }
+
+  test('相对字号缩放仍保留无单位行高与 normal 的继承语义', () {
+    final unitless = style(
+      'p',
+      'p { font-size:20px; line-height:1.6; }',
+    ).scaleRelativeTypography(13.6);
+    expect(unitless.unitlessLineHeightFactor, closeTo(1.6, .001));
+    expect(
+      style('p', 'p { font-size:1.1em; }', parent: unitless).lineHeight,
+      closeTo(14.96 * 1.6, .001),
+    );
+    final normal = style(
+      'p',
+      'p { font-size:20px; line-height:normal; }',
+    ).scaleRelativeTypography(13.6);
+    expect(normal.lineHeightFactor, isNull);
+    expect(normal.unitlessLineHeightFactor, isNull);
+    expect(
+      style('p', 'p { font-size:1.1em; }', parent: normal).lineHeightFactor,
+      isNull,
+    );
+  });
+
   test('未声明行高 = CSS normal：显式 normal/继承/阅读器覆盖三条路径', () {
     // 1) 显式 `line-height: normal` 与未声明等价（因子仍为 null）。
     final explicitNormal = style(

@@ -116,6 +116,7 @@ class TextContentNode implements TextBlockNode {
     this.inlineMarks = const <InlineMark>[],
     this.rubies = const <RubyMark>[],
     this.inlineImages = const <InlineImageMark>[],
+    this.leadingBreakCount = 0,
   });
 
   @override
@@ -126,6 +127,9 @@ class TextContentNode implements TextBlockNode {
 
   /// 强制换行位置（`<br>` 与保留的换行符在 text 中的下标）。
   final List<int> hardBreaks;
+
+  /// 块首显式换行占用的空行，不写入正文以保留既有 UTF-16 与 CFI 坐标。
+  final int leadingBreakCount;
 
   /// 行内样式标记（真实书适配）。
   final List<InlineMark> inlineMarks;
@@ -644,6 +648,7 @@ class _TextAccumulator {
   final StringBuffer _buffer = StringBuffer();
   final List<TextRun> _runs = <TextRun>[];
   final List<int> _hardBreaks = <int>[];
+  int _leadingBreakCount = 0;
 
   /// 块内遇到的图片行内节点（img/image 与带 data 的 object），供纯图块折叠判定
   /// 与行内图片绘制（P9-06）。
@@ -705,7 +710,7 @@ class _TextAccumulator {
 
   /// 缓冲是否只含图片占位（\uFFFC 与空白），无任何真实文本与换行。
   bool get hasOnlyImages {
-    if (images.isEmpty) {
+    if (images.isEmpty || _leadingBreakCount > 0) {
       return false;
     }
     for (final char in _buffer.toString().split('')) {
@@ -781,6 +786,10 @@ class _TextAccumulator {
 
   void addBreak() {
     _pendingSpace = false;
+    if (_buffer.isEmpty && marks.isEmpty) {
+      _leadingBreakCount += 1;
+      return;
+    }
     _writeBreak();
   }
 
@@ -826,7 +835,7 @@ class _TextAccumulator {
     }
   }
 
-  /// 写一个换行并记录强制换行位置（块首换行忽略）。
+  /// 写一个换行并记录强制换行位置（块首源码换行忽略）。
   void _writeBreak() {
     if (_buffer.isEmpty && marks.isEmpty) {
       return;
@@ -837,12 +846,13 @@ class _TextAccumulator {
   }
 
   TextContentNode? take() {
-    final content = _buffer.isEmpty && marks.isEmpty
+    final content = _buffer.isEmpty && marks.isEmpty && _leadingBreakCount == 0
         ? null
         : TextContentNode(
             text: _buffer.toString(),
             runs: List<TextRun>.unmodifiable(_runs),
             hardBreaks: List<int>.unmodifiable(_hardBreaks),
+            leadingBreakCount: _leadingBreakCount,
             inlineMarks: marks.isEmpty
                 ? const <InlineMark>[]
                 : List<InlineMark>.unmodifiable(marks),
@@ -859,6 +869,7 @@ class _TextAccumulator {
     _buffer.clear();
     _runs.clear();
     _hardBreaks.clear();
+    _leadingBreakCount = 0;
     marks.clear();
     rubies.clear();
     images.clear();

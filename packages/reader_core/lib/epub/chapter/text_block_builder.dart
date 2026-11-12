@@ -56,7 +56,13 @@ class TextBlockBuilder {
     final expanded = await _expandGeneratedText(context, body, generated);
     final dropped = await _extractDropCap(context, body, expanded);
     final paragraph = await _inlineParagraph(context, body, generated, dropped);
-    final measured = await _measureParagraph(context, body, metrics, paragraph);
+    final measured = await _measureParagraph(
+      context,
+      body,
+      metrics,
+      paragraph,
+      generated,
+    );
     await _appendBlocks(context, body, metrics, measured);
   }
 
@@ -167,7 +173,11 @@ class TextBlockBuilder {
   ) async {
     final node = context.node;
     final hasEmptyInlineBox = await _hasEmptyInlineBox(node);
-    if (node.text.trim().isNotEmpty || hasEmptyInlineBox) return false;
+    if (node.text.trim().isNotEmpty ||
+        hasEmptyInlineBox ||
+        (node is TextContentNode && node.leadingBreakCount > 0)) {
+      return false;
+    }
     // 空盒先于计数器和伪内容处理，沿用原章节遍历的语义顺序。
     final block = await measure.emptyBoxBlock(
       authored.style,
@@ -519,7 +529,9 @@ class TextBlockBuilder {
     _GeneratedText generated,
   ) async {
     final paragraph = _ParagraphText.fromNode(context.node);
-    if (paragraph.text.trim() != '\uFFFC' ||
+    final node = context.node;
+    if ((node is TextContentNode && node.leadingBreakCount > 0) ||
+        paragraph.text.trim() != '\uFFFC' ||
         paragraph.images.length != 1 ||
         generated.prefix.isNotEmpty ||
         generated.suffix.isNotEmpty) {
@@ -1178,6 +1190,7 @@ class TextBlockBuilder {
     _BodyStyle body,
     _BlockMetrics metrics,
     _InlineParagraph paragraph,
+    _GeneratedText generated,
   ) async {
     final notes = await _footnotes(paragraph);
     final runs = await _finalRuns(context, body, metrics, paragraph);
@@ -1197,11 +1210,87 @@ class TextBlockBuilder {
       preserveContentWidth: styles.hasIntrinsicContainer(context.ancestors),
     );
     return _MeasuredParagraph(
-      _layoutBounds(layout, body.style, metrics.list.measureStyle),
+      _layoutBounds(
+        await _withLeadingBreaks(
+          context,
+          metrics,
+          paragraph,
+          generated,
+          layout,
+        ),
+        body.style,
+        metrics.list.measureStyle,
+      ),
       paragraph,
       notes,
       rubies,
       _contentCfi(context, paragraph),
+    );
+  }
+
+  Future<TextLayoutResult> _withLeadingBreaks(
+    _BlockContext context,
+    _BlockMetrics metrics,
+    _InlineParagraph paragraph,
+    _GeneratedText generated,
+    TextLayoutResult layout,
+  ) async {
+    final node = context.node;
+    if (node is! TextContentNode || node.leadingBreakCount == 0) return layout;
+    // 仅补横排普通首行；前缀、首字下沉和竖排仍沿用原有布局顺序。
+    if (layout.isVertical ||
+        generated.prefix.isNotEmpty ||
+        paragraph.dropped.cap != null) {
+      return layout;
+    }
+    final measured = await measure.layout(
+      text: ' ',
+      style: metrics.list.measureStyle,
+      maxWidth: layout.maxWidth,
+    );
+    final strut = measured.lines.firstOrNull;
+    if (strut == null) return layout;
+    // 缓存仍只保存正文几何，补空行时新建结果，保持文字、样式区间及 CFI。
+    return _prependEmptyLines(
+      layout,
+      strut,
+      node.leadingBreakCount,
+      hasContent: layout.text.isNotEmpty || paragraph.elements.boxes.isNotEmpty,
+    );
+  }
+
+  TextLayoutResult _prependEmptyLines(
+    TextLayoutResult layout,
+    LineBox strut,
+    int count, {
+    required bool hasContent,
+  }) {
+    final shift = strut.height * count;
+    final lines = <LineBox>[
+      for (var i = 0; i < count; i++)
+        LineBox(
+          start: 0,
+          end: 0,
+          top: strut.height * i,
+          height: strut.height,
+          baseline: strut.baseline - strut.top + strut.height * i,
+          width: 0,
+          isHardBreak: true,
+          isLastLine: !hasContent && i == count - 1,
+        ),
+      if (hasContent)
+        for (final line in layout.lines) line.copyWith(top: line.top + shift),
+    ];
+    return TextLayoutResult(
+      text: layout.text,
+      lines: lines,
+      width: layout.width,
+      height: shift + (hasContent ? layout.height : 0),
+      maxWidth: layout.maxWidth,
+      runs: layout.runs,
+      isRtl: layout.isRtl,
+      writingMode: layout.writingMode,
+      plainTextLayout: layout.plainTextLayout,
     );
   }
 

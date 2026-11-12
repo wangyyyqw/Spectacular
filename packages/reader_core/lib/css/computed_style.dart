@@ -2732,12 +2732,14 @@ class ComputedStyle {
   ComputedStyle scaleRelativeTypography(double fontSize) {
     if (fontSize <= 0 || fontSize == this.fontSize) return this;
     final factor = fontSize / this.fontSize;
-    final scaledLineHeightFactor = lineHeightFactor == null
+    final scaledLineHeight =
+        lineHeightFactor == null || unitlessLineHeightFactor != null
         ? null
-        : lineHeight * factor / fontSize;
+        : lineHeight * factor;
     return _withTextProperties(
       fontSize: fontSize,
-      lineHeightFactor: scaledLineHeightFactor,
+      lineHeightFactor: unitlessLineHeightFactor,
+      resolvedLineHeight: scaledLineHeight,
       marginOverride: CssEdges(
         top: _scaledRelativeLength(values['margin-top'], margin.top, factor),
         right: _scaledRelativeLength(
@@ -2789,6 +2791,7 @@ class ComputedStyle {
   ComputedStyle _withTextProperties({
     double? fontSize,
     double? lineHeightFactor,
+    double? resolvedLineHeight,
     CssTextAlign? textAlign,
     String? fontFamily,
     List<String>? fontFamilyList,
@@ -2803,6 +2806,7 @@ class ComputedStyle {
   }) {
     if (fontSize == null &&
         lineHeightFactor == null &&
+        resolvedLineHeight == null &&
         textAlign == null &&
         fontFamily == null &&
         fontFamilyList == null &&
@@ -2823,22 +2827,32 @@ class ComputedStyle {
     final familyDeclaration = fontFamilyList == null
         ? fontFamily
         : fontFamilyList.map((family) => '"$family"').join(',');
-    final nextUnitless = lineHeightFactor ?? unitlessLineHeightFactor;
-    final nextLineHeightFactor = lineHeightFactor ?? this.lineHeightFactor;
+    final nextUnitless = resolvedLineHeight == null
+        ? lineHeightFactor ?? unitlessLineHeightFactor
+        : null;
+    final nextLineHeightFactor = resolvedLineHeight == null
+        ? lineHeightFactor ?? this.lineHeightFactor
+        : (nextFontSize == 0 ? null : resolvedLineHeight / nextFontSize);
     // 阅读器覆盖（lineHeightFactor 非空）→ 显式倍数；书籍自身的无单位因子
     // 按新字号重算；两者都没有（CSS normal）→ 只更新像素兜底，因子仍为 null，
     // 真实行高继续交给字体度量。
-    final nextLineHeight = lineHeightFactor != null
-        ? nextFontSize * lineHeightFactor
-        : (nextUnitless != null
-              ? nextFontSize * nextUnitless
-              : (this.lineHeightFactor == null
-                    ? nextFontSize * _normalLineHeightFactor
-                    : lineHeight));
+    // 百分比或长度行高缩放后仍是已求解的像素值，不能变成子元素字号倍数。
+    final nextLineHeight =
+        resolvedLineHeight ??
+        (lineHeightFactor != null
+            ? nextFontSize * lineHeightFactor
+            : (nextUnitless != null
+                  ? nextFontSize * nextUnitless
+                  : (this.lineHeightFactor == null
+                        ? nextFontSize * _normalLineHeightFactor
+                        : lineHeight)));
     final nextValues = <String, String>{
       ...values,
       if (fontSize != null) 'font-size': '${nextFontSize}px',
-      if (lineHeightFactor != null) 'line-height': '$lineHeightFactor',
+      if (resolvedLineHeight != null)
+        'line-height': '${resolvedLineHeight}px'
+      else if (lineHeightFactor != null)
+        'line-height': '$lineHeightFactor',
       if (textAlign != null) 'text-align': _textAlignToCss(textAlign),
       if (textSpacingTrim != null)
         'text-spacing-trim': textSpacingTrim.cssValue,
@@ -2859,7 +2873,7 @@ class ComputedStyle {
     final nextExplicit = <String>{
       ...explicitProperties,
       if (fontSize != null) 'font-size',
-      if (lineHeightFactor != null) 'line-height',
+      if (lineHeightFactor != null || resolvedLineHeight != null) 'line-height',
       if (textAlign != null) 'text-align',
       if (textSpacingTrim != null) 'text-spacing-trim',
       if (textIndent != null) 'text-indent',
