@@ -87,10 +87,10 @@ class CompletedChapterLayout {
       );
 }
 
-/// 近期结果按完整键复用，最多三项且估算总容量不超过 32MiB。
+/// 近期结果按完整键复用，最多三项且估算总容量不超过 64MiB。
 class ChapterLayoutCache {
   static const maxEntries = 3;
-  static const maxBytes = 32 * 1024 * 1024;
+  static const maxBytes = 64 * 1024 * 1024;
   static final recent = ChapterLayoutCache();
 
   final LinkedHashMap<String, CompletedChapterLayout> _entries =
@@ -182,7 +182,8 @@ class ChapterLayoutCache {
 }
 
 /// 遍历完成结果实际持有的布局图，行内载荷和表格也参与身份去重。
-/// 字符串按 UTF-16 容量估算；独立图片解码缓存与原生字形内存不在此图中。
+/// 字符串按 UTF-16 容量估算，短字符串按引用保守计费；独立图片解码缓存
+/// 与原生字形内存不在此图中。
 int estimateLayoutBytes(
   List<PageContent> pages,
   List<PageBlock> blocks,
@@ -245,6 +246,7 @@ Iterable<int> _copySteps<T>(List<T> source, List<T> target) sync* {
 
 /// 只处理已知布局数据；队列避免嵌套内盒造成递归栈溢出或环引用。
 class _LayoutMemoryWork {
+  static const _shortStringLengthLimit = 64;
   final _seen = HashSet<Object>.identity();
   final _pending = ListQueue<Object>();
   int bytes = 0;
@@ -261,7 +263,13 @@ class _LayoutMemoryWork {
   Iterable<int> _references(Iterable<Object?> values) sync* {
     for (final value in values) {
       yield 0;
-      if (value != null) _pending.add(value);
+      if (value is String && value.length <= _shortStringLengthLimit) {
+        // 同值字符串的身份哈希相同，逐实例去重会形成长碰撞链。
+        // 按引用累计最多高估共享短串，不放宽缓存容量上限。
+        bytes += value.length * 2;
+      } else if (value != null) {
+        _pending.add(value);
+      }
     }
   }
 

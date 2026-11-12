@@ -303,7 +303,7 @@ class ReaderSession extends ChangeNotifier {
     bool Function()? shouldContinue,
     int pageBudget = VirtualPager.turnPrefetchPageBudget,
   }) async {
-    if (_disposed || _loading) return null;
+    if (_disposed || _loading || _jumpLoadingTitle != null) return null;
     try {
       return await _pager?.prefetchChapter(
         next ? 1 : -1,
@@ -343,7 +343,12 @@ class ReaderSession extends ChangeNotifier {
     final pager = _pager;
     final origin = page;
     final generation = _generation;
-    if (pager == null || origin == null || _loading) return null;
+    if (pager == null ||
+        origin == null ||
+        _loading ||
+        (prefetch && _jumpLoadingTitle != null)) {
+      return null;
+    }
     try {
       final pending = pager.prepareAdjacent(
         next ? 1 : -1,
@@ -793,28 +798,38 @@ class ReaderSession extends ChangeNotifier {
     }
     final token = ++_jumpToken;
     _generation += 1;
+    _pager?.cancelPendingNavigation();
     _cancelChapterWaiters();
-    final safe = percent.clamp(0.0, 1.0);
-    String? cfi;
+    _jumpLoadingTitle = '全书进度';
+    _notify();
     try {
-      cfi = source is ScheduledPositionedChapterSource
-          ? await _awaitPositionPreparation(
-              source.scheduleCfiForReadingPercent(safe),
-            )
-          : source is AsyncPositionedChapterSource
-          ? await source.prepareCfiForReadingPercent(safe)
-          : source.cfiForReadingPercent(safe);
+      final cfi = await _preparePercentCfi(source, percent.clamp(0.0, 1.0));
+      if (_disposed || token != _jumpToken || cfi == null) return false;
+      return await jumpToCfi(
+        cfi,
+        title: '全书进度',
+        continuous: continuous ?? _scrollOffset != null,
+      );
     } on ChapterLoadCancelled {
       return false;
+    } finally {
+      if (token == _jumpToken) {
+        _jumpLoadingTitle = null;
+        _notify();
+      }
     }
-    if (_disposed || token != _jumpToken) return false;
-    if (cfi == null) return false;
-    return jumpToCfi(
-      cfi,
-      title: '全书进度',
-      continuous: continuous ?? _scrollOffset != null,
-    );
   }
+
+  Future<String?> _preparePercentCfi(
+    PositionedChapterSource source,
+    double percent,
+  ) async => source is ScheduledPositionedChapterSource
+      ? await _awaitPositionPreparation(
+          source.scheduleCfiForReadingPercent(percent),
+        )
+      : source is AsyncPositionedChapterSource
+      ? await source.prepareCfiForReadingPercent(percent)
+      : source.cfiForReadingPercent(percent);
 
   /// 目录项跳转：优先目录 CFI，其次 fragment，最后章首。
   Future<bool> jumpToTocEntry(TocEntry entry, {bool? continuous}) async {

@@ -141,18 +141,19 @@ class TextBlockBuilder {
       left: isRelative ? relative.left?.resolve(contentWidth) ?? 0.0 : 0.0,
       top: isRelative ? relative.top?.resolve(contentHeight) ?? 0.0 : 0.0,
     );
-    final style = styles.styleForChain(
-      position.ancestors,
-      quoteDepth: position.quoteDepth,
-      firstInContainer: position.firstInContainer,
-      lastInContainer: position.lastInContainer,
-      listIndent: listIndent,
-      listPosition: context.isListItem
-          ? (position.list!.inside
+    // 普通段落的投影参数完全相同，只有列表需要补充标记位置后再计算。
+    final style = context.isListItem
+        ? styles.styleForChain(
+            position.ancestors,
+            quoteDepth: position.quoteDepth,
+            firstInContainer: position.firstInContainer,
+            lastInContainer: position.lastInContainer,
+            listIndent: listIndent,
+            listPosition: position.list!.inside
                 ? CssListStylePosition.inside
-                : CssListStylePosition.outside)
-          : null,
-    );
+                : CssListStylePosition.outside,
+          )
+        : relative;
     // 后续样式查询会覆盖 resolver 的临时旗标，必须立即冻结到本段。
     return _AuthoredStyle(style, listIndent, offsets, (
       bordered: styles.containerBorderedForLastChain,

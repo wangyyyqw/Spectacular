@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_ui/paging/duokan_curl_shader.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
@@ -64,6 +66,13 @@ class _GatedSource extends _Source {
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) =>
       spineIndex == 0 ? previous.future : super.loadChapter(spineIndex);
+}
+
+class _RestylingSource extends _Source implements RestylableChapterSource {
+  final restyled = Completer<void>();
+
+  @override
+  Future<void> applyOverrides(ReaderOverrides overrides) => restyled.future;
 }
 
 Future<ReaderSession> _openInputSession() async {
@@ -152,6 +161,127 @@ class _LocatedChapterSource extends _Source {
 }
 
 void main() {
+  testWidgets('跳转等待期间旧页延迟预热不重新加载邻章', (tester) async {
+    final source = _GatedSource();
+    final store = MemoryReaderProgressStore();
+    await store.save('跳转预热', const ReaderProgress(spineIndex: 1, pageIndex: 0));
+    final session = ReaderSession(source: source, store: store, bookId: '跳转预热');
+    await session.open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    await tester.pumpWidget(_inputView(session, key, mode: PageTurnMode.none));
+    final jump = session.jumpToChapter(0);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(session.jumpLoadingTitle, isNotNull);
+    expect(source.loads, [1], reason: '目标章未完成时不能重新预排旧位置的第3章');
+    source.previous.complete([_page(0)]);
+    expect(await jump, isTrue);
+    await tester.pumpWidget(_inputView(session, key, mode: PageTurnMode.none));
+    await tester.pumpAndSettle();
+    expect(source.loads, contains(2), reason: '跳转完成后恢复正常近邻预热');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await session.flushProgress();
+  });
+
+  testWidgets('取消代次之后旧页计时器失效，新代次仍可正常预热', (tester) async {
+    final source = _Source();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: '取消预热',
+    );
+    await session.open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    await tester.pumpWidget(_inputView(session, key, mode: PageTurnMode.none));
+    session.cancelPendingLoads();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(source.loads, [0]);
+    await tester.pumpWidget(_inputView(session, key, mode: PageTurnMode.none));
+    await tester.pumpAndSettle();
+    expect(source.loads, [0, 1, 2]);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('字号重排等待期间不生成旧页图片或快照', (tester) async {
+    final source = _RestylingSource();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: '重排预热',
+    );
+    await session.open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final prepared = <int>[];
+    await tester.pumpWidget(
+      _inputView(
+        session,
+        key,
+        prepare: (page) async {
+          prepared.add(page.spineIndex);
+        },
+      ),
+    );
+    final reflow = session.applyOverrides(const ReaderOverrides(fontSize: 20));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(session.loading, isTrue);
+    expect(prepared, isEmpty);
+    expect(key.currentState!.snapshotCount, 0);
+    source.restyled.complete();
+    await reflow;
+    await tester.pumpWidget(const SizedBox.shrink());
+    await session.flushProgress();
+  });
+
+  testWidgets('旧代次图片晚到不重新启动排队快照', (tester) async {
+    final session = await _openInputSession();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final images = Completer<void>();
+    await tester.pumpWidget(
+      _inputView(session, key, prepare: (_) => images.future),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    session.cancelPendingLoads();
+    images.complete();
+    await tester.pumpAndSettle();
+    expect(key.currentState!.snapshotCount, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('3D 起手等待着色器期间取消后不把旧页作为新任务截图', (tester) async {
+    await tester.runAsync(DuokanCurlShader.load);
+    final session = await _openInputSession();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final prepared = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PageTurnView(
+          key: key,
+          session: session,
+          mode: PageTurnMode.simulation3d,
+          revision: 1,
+          preload: false,
+          preparePageImages: (page) async => prepared.add(page.spineIndex),
+          paperBuilder: (_, _) => const ColoredBox(color: Colors.white),
+          paperColor: Colors.white,
+        ),
+      ),
+    );
+    key.currentState!.controller.request(true);
+    session.cancelPendingLoads();
+    await tester.pumpAndSettle();
+    expect(prepared, isEmpty);
+    expect(key.currentState!.snapshotCount, 0);
+    expect(session.pageTurns, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('后翻后跳到章末，前向内容预排不等待当前页图片', (tester) async {
     final source = _LocatedChapterSource();
     final store = MemoryReaderProgressStore();

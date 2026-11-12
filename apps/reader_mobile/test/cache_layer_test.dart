@@ -13,7 +13,7 @@ import 'package:reader_core/source/chapter_source.dart';
 /// P7-23：三层缓存与设置失效矩阵——
 /// 主题颜色变化 → 零重排（pagination 层键不含颜色）；
 /// 字号/行高/对齐/边距/几何 → 完整键隔离并保留近期结果；
-/// 页、块和索引共用三项/32MiB 完成缓存，索引可以独立重放。
+/// 页、块和索引共用三项/64MiB 完成缓存，索引可以独立重放。
 void main() {
   Directory? corpus;
 

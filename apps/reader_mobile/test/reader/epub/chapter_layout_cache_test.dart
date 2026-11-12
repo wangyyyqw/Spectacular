@@ -67,7 +67,7 @@ void main() {
 
   test('容量包含索引字节，必要时淘汰上一字号但始终保留当前结果', () {
     final cache = ChapterLayoutCache();
-    const size = 18 * 1024 * 1024;
+    const size = ChapterLayoutCache.maxBytes ~/ 2;
     cache.setCurrent('旧');
     cache.put(_entry('旧', indexBytes: size));
     cache.setCurrent('新');
@@ -82,17 +82,26 @@ void main() {
     );
   });
 
-  test('超过 32MiB 的单条布局不进入近期缓存', () {
+  test('64MiB 边界布局可缓存，多一个字节时拒绝且保留已有条目', () {
     final cache = ChapterLayoutCache();
-    final entry = _entry('超预算', indexBytes: ChapterLayoutCache.maxBytes);
-    cache.setCurrent(entry.key);
-    expect(cache.put(entry), isFalse);
-    expect(cache.length, 0);
-    expect(cache.estimatedBytes, 0);
+    expect(ChapterLayoutCache.maxBytes, 64 * 1024 * 1024);
+    final layoutBytes = _entry('边界').estimatedBytes;
+    final indexBytes = ChapterLayoutCache.maxBytes - layoutBytes;
+    final boundary = _entry('边界', indexBytes: indexBytes);
+    cache.setCurrent(boundary.key);
+    expect(boundary.estimatedBytes, ChapterLayoutCache.maxBytes);
+    expect(cache.put(boundary), isTrue);
+
+    final oversized = _entry('超预算', indexBytes: indexBytes + 1);
+    expect(oversized.estimatedBytes, ChapterLayoutCache.maxBytes + 1);
+    expect(cache.put(oversized), isFalse);
+    expect(cache.length, 1);
+    expect(cache.estimatedBytes, ChapterLayoutCache.maxBytes);
+    expect(cache.get(boundary.key, '字体'), same(boundary));
   });
 
   test('行内文字、表格格内载荷和脚注正文超过容量时拒绝缓存', () {
-    final text = '甲' * (17 * 1024 * 1024);
+    final text = '甲' * (ChapterLayoutCache.maxBytes ~/ 2 + 1);
     final inline = _inlineBlock([_textBlock(text)]);
     final examples = {
       '行内载荷': inline,
@@ -150,6 +159,44 @@ void main() {
       ),
     );
     expect(image.estimatedBytes, greaterThan(text.length * 2));
+  });
+
+  test('大量短字符串按引用保守计费，同值不同实例不进入身份碰撞链', () async {
+    const count = 10000;
+    final units = List<int>.filled(64, 65);
+    final distinct = List.generate(count, (_) => String.fromCharCodes(units));
+    expect(identical(distinct[0], distinct[1]), isFalse);
+    final shared = _fromBlock(
+      _inlineBlock([List.filled(count, distinct.first)]),
+    );
+    final separate = _fromBlock(_inlineBlock([distinct]));
+
+    expect(shared.estimatedBytes, separate.estimatedBytes);
+    expect(separate.estimatedBytes, greaterThanOrEqualTo(count * 64 * 2));
+    expect(separate.estimatedBytes, lessThan(ChapterLayoutCache.maxBytes));
+    expect(ChapterLayoutCache().put(separate), isTrue);
+    var checkpoints = 0;
+    final asynchronous = await _asyncFrom(
+      separate,
+      checkpoint: () async => checkpoints += 1,
+    );
+    expect(asynchronous.estimatedBytes, separate.estimatedBytes);
+    expect(checkpoints, greaterThanOrEqualTo(count));
+  });
+
+  test('超过短字符串阈值的正文仍按身份去重，不合并同值不同实例', () {
+    const count = 200;
+    final units = List<int>.filled(65, 65);
+    final distinct = List.generate(count, (_) => String.fromCharCodes(units));
+    final shared = _fromBlock(
+      _inlineBlock([List.filled(count, distinct.first)]),
+    );
+    final separate = _fromBlock(_inlineBlock([distinct]));
+
+    expect(
+      separate.estimatedBytes - shared.estimatedBytes,
+      (count - 1) * 65 * 2,
+    );
   });
 
   test('异步完成产物与同步构造估算一致，保留几何对象并冻结顶层列表', () async {
