@@ -621,11 +621,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
+  // 背景封面可能没有正文锚点，进度为空不影响已经准备好的首屏。
   bool _hasPreparedFrame(ReaderSession? session) =>
-      session != null &&
-      !session.loading &&
-      session.hasContent &&
-      session.readingPercent != null;
+      session != null && !session.loading && session.hasContent;
 
   void _syncReadingActivity() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
