@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_core/editing/package_editor.dart';
+import 'package:reader_core/editing/editable_document.dart';
 import 'package:reader_ui/reader_page.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_element_sheet.dart';
+import 'book_editor_inspector.dart';
 import 'book_editor_preview.dart';
 import 'book_editor_source.dart';
 import 'book_editor_tools.dart';
@@ -37,6 +39,9 @@ class _BookEditorPageState extends State<BookEditorPage> {
   bool _canPop = false;
   bool _elementOpen = false;
   bool _initialTargetHandled = false;
+  EditableElementRef? _selectedElement;
+  bool _inspectorExpanded = true;
+  bool _isDesktop = false;
 
   @override
   void initState() {
@@ -49,6 +54,10 @@ class _BookEditorPageState extends State<BookEditorPage> {
   }
 
   void _changed() {
+    if (editor.hasPendingText ||
+        _selectedElement?.revision != editor.session.revision) {
+      _selectedElement = null;
+    }
     if (editor.sourceRequested) {
       editor.sourceRequested = false;
       _mobileTab = 1;
@@ -132,6 +141,23 @@ class _BookEditorPageState extends State<BookEditorPage> {
     try {
       final element = editor.resolveTarget(target);
       editor.openDocument(element.path, offset: element.sourceStart);
+      if (_isDesktop) {
+        setState(() {
+          _selectedElement = element;
+          _inspectorExpanded = true;
+        });
+        return;
+      }
+      await _editElement(element);
+    } catch (error) {
+      if (mounted) _message('$error');
+    }
+  }
+
+  Future<void> _editElement(EditableElementRef element) async {
+    if (_elementOpen) return;
+    try {
+      editor.session.checkElement(element);
       _elementOpen = true;
       await showModalBottomSheet<void>(
         context: context,
@@ -145,6 +171,21 @@ class _BookEditorPageState extends State<BookEditorPage> {
     } finally {
       _elementOpen = false;
     }
+  }
+
+  Future<void> _locateSource() async {
+    final element = await editor.locateSource();
+    if (element == null || !mounted) return;
+    setState(() {
+      _selectedElement = element;
+      _inspectorExpanded = true;
+      _mobileTab = 0;
+    });
+  }
+
+  void _selectElement(EditableElementRef element) {
+    editor.openDocument(element.path, offset: element.sourceStart);
+    setState(() => _selectedElement = element);
   }
 
   void _message(String text) =>
@@ -299,9 +340,12 @@ class _BookEditorPageState extends State<BookEditorPage> {
               child: AbsorbPointer(
                 absorbing: editor.busy,
                 child: LayoutBuilder(
-                  builder: (context, constraints) => constraints.maxWidth >= 960
-                      ? _desktop(constraints.maxWidth)
-                      : _mobile(),
+                  builder: (context, constraints) {
+                    _isDesktop = constraints.maxWidth >= 960;
+                    return _isDesktop
+                        ? _desktop(constraints.maxWidth)
+                        : _mobile();
+                  },
                 ),
               ),
             ),
@@ -351,6 +395,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
             source: source,
             revision: editor.previewRevision,
             target: editor.previewTarget,
+            navigation: editor.previewNavigation,
             settings: editor.useReadingSettings ? editor.readingSettings : null,
             onLocationChanged: (target) => editor.previewTarget = target,
             onEditTarget: (target) => unawaited(_editTarget(target)),
@@ -363,7 +408,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
   Widget _files() => BookEditorFiles(
     editor: editor,
     onOpen: () {
-      if (MediaQuery.sizeOf(context).width < 960) {
+      if (!_isDesktop) {
         setState(() => _mobileTab = 1);
       }
     },
@@ -398,7 +443,10 @@ class _BookEditorPageState extends State<BookEditorPage> {
           index: _mobileTab,
           children: [
             _preview(),
-            BookEditorSource(controller: editor),
+            BookEditorSource(
+              controller: editor,
+              onLocate: () => unawaited(_locateSource()),
+            ),
             _files(),
           ],
         ),
@@ -419,7 +467,10 @@ class _BookEditorPageState extends State<BookEditorPage> {
         ),
         SizedBox(
           width: remaining * _sourceRatio,
-          child: BookEditorSource(controller: editor),
+          child: BookEditorSource(
+            controller: editor,
+            onLocate: () => unawaited(_locateSource()),
+          ),
         ),
         _divider(
           (delta) => setState(
@@ -427,7 +478,39 @@ class _BookEditorPageState extends State<BookEditorPage> {
                 _sourceRatio = (_sourceRatio + delta / remaining).clamp(.3, .7),
           ),
         ),
-        Expanded(child: _preview()),
+        Expanded(
+          child: Column(
+            children: [
+              Expanded(child: _preview()),
+              const Divider(height: 1),
+              ListTile(
+                dense: true,
+                title: const Text('样式检查器'),
+                trailing: IconButton(
+                  tooltip: _inspectorExpanded ? '折叠样式检查器' : '展开样式检查器',
+                  onPressed: () =>
+                      setState(() => _inspectorExpanded = !_inspectorExpanded),
+                  icon: Icon(
+                    _inspectorExpanded ? Icons.expand_more : Icons.expand_less,
+                  ),
+                ),
+              ),
+              if (_inspectorExpanded)
+                SizedBox(
+                  height: 260,
+                  child: _selectedElement == null
+                      ? const Center(child: Text('点击预览元素或从源码定位，查看样式。'))
+                      : BookEditorInspector(
+                          editor: editor,
+                          element: _selectedElement!,
+                          onSelect: _selectElement,
+                          onEdit: () =>
+                              unawaited(_editElement(_selectedElement!)),
+                        ),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }

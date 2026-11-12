@@ -98,6 +98,36 @@ void main() {
     }
   });
 
+  test('写出期间关闭会话会丢弃输出，原书保持可读且没有残留暂存目录', () async {
+    final input = await createEditingFixture(directory);
+    final before = await input.readAsBytes();
+    final session = await EpubEditSession.open(input);
+    final output = File('${directory.path}/cancelled.epub');
+    final writing = EpubWriter.write(session, output);
+    session.close();
+    await expectLater(writing, throwsA(isA<EpubEditException>()));
+    expect(output.existsSync(), isFalse);
+    expect(await input.readAsBytes(), before);
+    expect(directory.listSync().whereType<Directory>(), isEmpty);
+  });
+
+  test('目标目录写入失败不改变原书或既有文件', () async {
+    final input = await createEditingFixture(directory);
+    final before = await input.readAsBytes();
+    final session = await EpubEditSession.open(input);
+    final blocked = File('${directory.path}/blocked')..writeAsStringSync('保留');
+    try {
+      await expectLater(
+        EpubWriter.write(session, File('${blocked.path}/book.epub')),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(await input.readAsBytes(), before);
+      expect(blocked.readAsStringSync(), '保留');
+    } finally {
+      session.close();
+    }
+  });
+
   test('首次管理类样式不迁移正文，导出重开仍可继续管理', () async {
     final input = await createEditingFixture(directory);
     final session = await EpubEditSession.open(input);

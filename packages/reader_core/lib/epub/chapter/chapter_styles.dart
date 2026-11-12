@@ -17,6 +17,7 @@ import 'book_resources.dart';
 import 'chapter_preparation_job.dart';
 import 'chapter_selectors.dart';
 import 'css_preparation.dart';
+import 'chapter_resource_dependencies.dart';
 
 /// 章节作者样式与派生级联缓存；原文读取和归档生命周期由资源服务持有。
 class ChapterStyles {
@@ -26,12 +27,13 @@ class ChapterStyles {
   final BookFonts _fonts;
   static const int sheetCacheLimit = 32;
   static const int preparationCacheLimit = 3;
-  final BoundedCache<String, CssStylesheet> _sheetCache = BoundedCache(
-    sheetCacheLimit,
-  );
+  final BoundedCache<String, ({CssStylesheet sheet, Set<String> paths})>
+  _sheetCache = BoundedCache(sheetCacheLimit);
   final BoundedCache<int, List<CssStylesheet>> _chapterSheets = BoundedCache(
     preparationCacheLimit,
   );
+  final _dependencies = BoundedCache<int, Set<String>>(preparationCacheLimit);
+  Set<String> dependencies(int spine) => _dependencies[spine] ?? const {};
   final BoundedCache<_CssSheetSetKey, ChapterCascadePreparation> _baseCache =
       BoundedCache(preparationCacheLimit);
   final BoundedCache<_CssSheetSetKey, ChapterCascadePreparation> _fontCache =
@@ -94,29 +96,46 @@ class ChapterStyles {
       _resources.scheduleStyleSources(spineIndex, priority: task.priority),
     );
     _checkPreparation(task);
-    var inlineIndex = 0;
-    final loader = CssStylesheetLoader(
-      resolveUrl: (url, baseDir) =>
-          _resources.document.resources.resolve(url, baseDir: baseDir) ?? url,
-      readSheet: (url) => _prepareSheet(url, task),
-      prepareInline: (css, baseDir) =>
-          _prepareInline(css, baseDir, spineIndex, inlineIndex++, task),
-    );
+    final paths = <String>{};
+    final loader = _loader(spineIndex, task, paths);
     final sheets = await loader.load(sources, _chapterBase(spineIndex));
     _checkPreparation(task);
+    _dependencies[spineIndex] = Set.unmodifiable(paths);
     return _chapterSheets.putIfAbsent(spineIndex, () => sheets);
+  }
+
+  CssStylesheetLoader _loader(
+    int spine,
+    PreparationTask task,
+    Set<String> paths,
+  ) {
+    var inlineIndex = 0;
+    return CssStylesheetLoader(
+      resolveUrl: (url, baseDir) {
+        if (_resources.trackDependencies) {
+          paths.addAll(_resources.dependencyPaths(url, baseDir: baseDir));
+        }
+        return _resources.document.resources.resolve(url, baseDir: baseDir) ??
+            url;
+      },
+      readSheet: (url) => _prepareSheet(url, task, paths),
+      prepareInline: (css, baseDir) => _prepareInline(css, baseDir, (
+        spine: spine,
+        index: inlineIndex++,
+        paths: paths,
+      ), task),
+    );
   }
 
   Future<CssStylesheet> _prepareInline(
     String css,
     String baseDir,
-    int spineIndex,
-    int inlineIndex,
+    ({int spine, int index, Set<String> paths}) context,
     PreparationTask task,
   ) async {
     final sheet = await task.wait(
       _resources.preparationWorker.schedule(
-        'css-inline:$spineIndex:$inlineIndex',
+        'css-inline:${context.spine}:${context.index}',
         () {
           _checkPreparation(task);
           return css;
@@ -126,12 +145,20 @@ class ChapterStyles {
       ),
     );
     _checkPreparation(task);
+    context.paths.addAll(_assetPaths(sheet, baseDir));
     return _absolutizeSheet(sheet, baseDir);
   }
 
-  Future<CssStylesheet> _prepareSheet(String url, PreparationTask task) async {
+  Future<CssStylesheet> _prepareSheet(
+    String url,
+    PreparationTask task,
+    Set<String> paths,
+  ) async {
     final cached = _sheetCache[url];
-    if (cached != null) return cached;
+    if (cached != null) {
+      paths.addAll(cached.paths);
+      return cached.sheet;
+    }
     EpubEntryRead? read;
     final prepared = await task.wait(
       _resources.preparationWorker.schedule(
@@ -150,11 +177,21 @@ class ChapterStyles {
         !_resources.document.archive.commitEntry(read!, prepared.error)) {
       throw const ChapterLoadCancelled();
     }
-    return _sheetCache.putIfAbsent(
-      url,
-      () => _absolutizeSheet(prepared.sheet, p.posix.dirname(url)),
-    );
+    final base = p.posix.dirname(url);
+    final assets = _assetPaths(prepared.sheet, base);
+    paths.addAll(assets);
+    final sheet = _absolutizeSheet(prepared.sheet, base);
+    _sheetCache[url] = (sheet: sheet, paths: assets);
+    return sheet;
   }
+
+  Set<String> _assetPaths(CssStylesheet sheet, String baseDir) =>
+      !_resources.trackDependencies
+      ? const {}
+      : {
+          for (final raw in stylesheetAssetReferences(sheet))
+            ..._resources.dependencyPaths(raw, baseDir: baseDir),
+        };
 
   void _checkPreparation(PreparationTask task) {
     task.check();
@@ -521,6 +558,7 @@ class ChapterStyles {
     _preparing.close();
     _sheetCache.clear();
     _chapterSheets.clear();
+    _dependencies.clear();
     _baseCache.clear();
     _fontCache.clear();
   }

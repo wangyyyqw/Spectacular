@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:reader_core/api.dart' show EpubLayoutType;
 import 'package:reader_core/css/computed_style.dart';
@@ -20,6 +21,7 @@ import 'chapter_preparation_job.dart';
 import 'chapter_raw_styles.dart';
 import 'chapter_selectors.dart';
 import 'chapter_styles.dart';
+import 'chapter_preview_cache.dart';
 
 /// 聚合原文、选择器、锚点与图片分析作为一次纯数据产物交接。
 class ChapterStructure {
@@ -34,21 +36,24 @@ class ChapterStructure {
     required this.images,
     required this.sheets,
     required this.fontFamilies,
+    this.resourceDependency = '',
   });
 
   /// 宿主共享原始文档和作者表，避免为同步目录消费保存另一份解析树。
   ChapterStructure.withResources(
     ChapterStructure source,
     this.sheets,
-    this.parsed,
-  ) : document = source.document,
-      selectors = source.selectors,
-      anchor = source.anchor,
-      footnotes = source.footnotes,
-      fullBleed = source.fullBleed,
-      fixedFullBleed = source.fixedFullBleed,
-      images = source.images,
-      fontFamilies = source.fontFamilies;
+    this.parsed, {
+    String? resourceDependency,
+  }) : document = source.document,
+       selectors = source.selectors,
+       anchor = source.anchor,
+       footnotes = source.footnotes,
+       fullBleed = source.fullBleed,
+       fixedFullBleed = source.fixedFullBleed,
+       images = source.images,
+       fontFamilies = source.fontFamilies,
+       resourceDependency = resourceDependency ?? source.resourceDependency;
   final ParsedDocument parsed;
   final BlockDocument document;
   final ChapterSelectors selectors;
@@ -59,6 +64,7 @@ class ChapterStructure {
   final List<String> images;
   final List<CssStylesheet> sheets;
   final Set<String> fontFamilies;
+  final String resourceDependency;
 }
 
 typedef _StructureConfig = ({
@@ -80,11 +86,19 @@ class _StructureInput {
 
 /// 只保存三章准备数据，关闭后晚到 isolate 结果不能回填。
 class ChapterStructureStore {
-  ChapterStructureStore(this.resources, this.styles, this.baseStyle);
+  ChapterStructureStore(
+    this.resources,
+    this.styles,
+    this.baseStyle, {
+    this.previewCache,
+    this.resourceVersions = const {},
+  });
   static const capacity = 3;
   final BookResources resources;
   final ChapterStyles styles;
   final ComputedStyle baseStyle;
+  final ChapterPreviewCache<ChapterStructure>? previewCache;
+  final Map<String, String> resourceVersions;
   late final _cache = BoundedCache<String, ChapterStructure>(
     capacity,
     isPinned: (key) => key == _currentKey || key == _visibleKey,
@@ -119,6 +133,15 @@ class ChapterStructureStore {
     if (priority == ChapterLayoutPriority.reading) _currentKey = key;
     final cached = _cached(key);
     if (cached != null) return completedPreparation(cached);
+    final reusable = previewCache?.get(
+      _reuseKey(spine, width),
+      resourceVersions,
+    );
+    if (reusable != null) {
+      hits += 1;
+      _cache[key] = reusable;
+      return completedPreparation(reusable);
+    }
     final epoch = _epoch;
     return _preparing.schedule(
       '$key@$epoch',
@@ -132,6 +155,19 @@ class ChapterStructureStore {
     final result = _cache[key];
     if (result != null) hits += 1;
     return result;
+  }
+
+  String _reuseKey(int spine, double width) {
+    final config = _config(spine, width);
+    return jsonEncode([
+      spine,
+      width,
+      baseStyle.layoutFingerprint,
+      config.href,
+      config.title,
+      config.readable,
+      config.fixed,
+    ]);
   }
 
   Future<ChapterStructure> _prepare(
@@ -152,15 +188,40 @@ class ChapterStructureStore {
       ),
     );
     _check(epoch, task);
+    final result = _sharePrepared(spine, width, input, prepared);
+    preparations += 1;
+    _cache[key] = result;
+    return result;
+  }
+
+  ChapterStructure _sharePrepared(
+    int spine,
+    double width,
+    _StructureInput input,
+    ChapterStructure prepared,
+  ) {
     // isolate 传递会复制规则列表；排版沿用仓储的同一作者样式身份，
     // 共享 CSS 的多章才能复用已准备的级联规则。
+    final dependencies = previewCache == null
+        ? <String>{}
+        : {
+            ...resources.chapterDependencies(spine),
+            ...styles.dependencies(spine),
+          };
     final result = ChapterStructure.withResources(
       prepared,
       input.sheets,
       input.parsed,
+      resourceDependency: previewCache == null
+          ? ''
+          : ChapterPreviewCache.fingerprint(dependencies, resourceVersions),
     );
-    preparations += 1;
-    _cache[key] = result;
+    previewCache?.put(
+      _reuseKey(spine, width),
+      result,
+      dependencies,
+      resourceVersions,
+    );
     return result;
   }
 

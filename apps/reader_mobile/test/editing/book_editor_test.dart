@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/parser/document_parser.dart';
@@ -13,6 +14,7 @@ import 'package:reader_mobile/editing/book_editor_element_sheet.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/book_editor_preview.dart';
 import 'package:reader_mobile/editing/book_editor_source.dart';
+import 'package:reader_mobile/editing/book_editor_inspector.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -28,6 +30,7 @@ Future<BookEditorController> _open(
   WidgetTester tester, {
   SaveEditorDraft? saveDraft,
   CommitEditor? commit,
+  CommitEditor? export,
   ReaderSettings? readingSettings,
   Future<void> Function()? discardDraft,
   bool withImages = false,
@@ -69,6 +72,7 @@ Future<BookEditorController> _open(
     session: session,
     saveDraft: saveDraft,
     commit: commit,
+    export: export,
     readingSettings: readingSettings,
     discardDraft: discardDraft,
   );
@@ -466,7 +470,7 @@ void main() {
       tester,
       commit: (_) async {
         attempts++;
-        throw StateError('模拟磁盘写入失败');
+        throw const FileSystemException('磁盘写入失败：空间不足', '', OSError('空间不足', 28));
       },
     );
     final doc = editor.openDocument(_chapter);
@@ -478,5 +482,153 @@ void main() {
     expect(await editor.save(), isFalse);
     expect(attempts, 1);
     expect(doc.code.text, '<html>');
+  });
+
+  testWidgets('取消系统导出保留修改并允许重试', (tester) async {
+    var attempts = 0;
+    final editor = await _open(
+      tester,
+      export: (_) async {
+        attempts++;
+        if (attempts == 1) throw const EditorExportCancelled();
+      },
+    );
+    final paragraph = editor.session
+        .editableDocument(_chapter)
+        .elements
+        .firstWhere((node) => node.tag == 'p');
+    editor.session.insertAfter(paragraph, '<p>未保存正文</p>');
+    expect(await editor.exportBook(), isFalse);
+    expect(editor.busy, isFalse);
+    expect(editor.error, isNull);
+    expect(editor.dirty, isTrue);
+    expect(await editor.exportBook(), isTrue);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+  });
+
+  testWidgets('源码光标跨章节定位到正式预览，非法输入不跳转', (tester) async {
+    final editor = await _open(tester);
+    ReaderSession? reader;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnimatedBuilder(
+          animation: editor,
+          builder: (_, _) => BookEditorPreview(
+            source: editor.previewSource!,
+            revision: editor.previewRevision,
+            target: editor.previewTarget,
+            navigation: editor.previewNavigation,
+            onEditTarget: (_) {},
+            onSessionReady: (value) => reader = value,
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntilComplete(tester, () => reader?.page != null);
+    final doc = editor.openDocument(
+      'OEBPS/c2.xhtml',
+      offset: editor.session.readText('OEBPS/c2.xhtml').indexOf('第二章节'),
+    );
+    await tester.pump();
+    expect(await editor.locateSource(), isNotNull);
+    await pumpReaderUntilComplete(
+      tester,
+      () => reader?.progress?.spineIndex == 1 && !reader!.loading,
+    );
+    expect(
+      (await editor.previewSource!.loadAnchorChapter(1)).text,
+      contains('第二章节'),
+    );
+    expect(editor.session.revision, 0);
+    final navigation = editor.previewNavigation;
+    doc.code.text = '<html>';
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(await editor.locateSource(), isNull);
+    await tester.pump();
+    expect(editor.previewNavigation, navigation);
+    expect(reader!.progress!.spineIndex, 1);
+    expect(doc.code.text, '<html>');
+    await tester.pumpWidget(const SizedBox());
+    editor.previewSource!.close();
+    await pumpReaderTask(tester, editor.previewSource!.preparationsStopped);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('折叠源码保留 UTF-16 定位，预览反向定位展开嵌套行', (tester) async {
+    final editor = await _open(
+      tester,
+      firstChapter:
+          '<section>\n<div>\n<p id="nested">嵌套正文</p>\n</div>\n</section>\n'
+          '<p id="paragraph">中文😀目标正文</p>',
+    );
+    final doc = editor.openDocument(_chapter);
+    final lines = doc.code.text.split('\n');
+    final section = lines.indexWhere((line) => line.contains('<section>'));
+    final nested = lines.indexWhere((line) => line.contains('id="nested"'));
+    final target = lines.indexWhere((line) => line.contains('id="paragraph"'));
+    doc.code.collapseChunk(section + 1, section + 3);
+    doc.code.collapseChunk(section, doc.code.lineIndex2Index(target).index);
+    expect(
+      doc.code.lineIndex2Index(nested).chunkIndex,
+      greaterThanOrEqualTo(0),
+    );
+    editor.openDocument(_chapter, offset: doc.code.text.indexOf('嵌套正文'));
+    expect(doc.code.unfoldLineSelection.extentIndex, nested);
+    expect(doc.code.lineIndex2Index(nested).chunkIndex, -1);
+
+    doc.code.collapseChunk(section, target);
+    doc.code.selection = CodeLineSelection.collapsed(
+      index: doc.code.lineIndex2Index(target).index,
+      offset: lines[target].indexOf('目标正文'),
+    );
+    final element = await editor.locateSource();
+    expect(element?.attributes['id'], 'paragraph');
+    expect(element?.sourceStart, doc.code.text.indexOf('<p id="paragraph"'));
+    expect(doc.code.unfoldLineSelection.extentIndex, target);
+    expect(editor.session.revision, 0);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+  });
+
+  testWidgets('桌面检查器显示精确元素、多类选择、全书属性入口并可折叠', (tester) async {
+    final editor = await _open(
+      tester,
+      firstChapter: '<p id="paragraph" class="body extra">正文<em>行内</em></p>',
+    );
+    await _show(tester, editor, const Size(1360, 900));
+    tester.widget<ReaderPage>(find.byType(ReaderPage)).onEditTarget!(
+      _target(editor),
+    );
+    await tester.pump();
+    expect(find.byType(BookEditorElementSheet), findsNothing);
+    expect(find.byType(BookEditorInspector), findsOneWidget);
+    expect(find.text('.body'), findsOneWidget);
+    expect(find.text('.extra'), findsOneWidget);
+    await tester.tap(find.text('.body'));
+    await pumpReaderUntil(tester, find.text('编辑全书 .body 属性'));
+    await tester.ensureVisible(find.text('编辑全书 .body 属性'));
+    await tester.tap(find.text('编辑全书 .body 属性'));
+    await pumpReaderUntil(tester, find.text('全书 .body'));
+    Navigator.of(tester.element(find.text('全书 .body'))).pop();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('折叠样式检查器'));
+    await tester.pump();
+    expect(find.byType(BookEditorInspector), findsNothing);
+    await tester.tap(find.byTooltip('展开样式检查器'));
+    await tester.pump();
+    expect(find.byType(BookEditorInspector), findsOneWidget);
+    editor.session.insertAfter(
+      editor.session
+          .editableDocument(_chapter)
+          .elements
+          .firstWhere((node) => node.tag == 'p'),
+      '<p>新正文</p>',
+    );
+    await tester.pump();
+    expect(find.byType(BookEditorInspector), findsNothing);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+    await tester.pumpWidget(const SizedBox());
+    editor.previewSource!.close();
+    await pumpReaderTask(tester, editor.previewSource!.preparationsStopped);
+    expect(tester.takeException(), isNull);
   });
 }

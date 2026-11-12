@@ -7,6 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_cache.dart';
+import 'package:reader_core/epub/chapter/chapter_preview_cache.dart';
+import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/source/format_opener.dart';
 
 const _enabled = bool.fromEnvironment('RUN_EDITOR_STRESS');
@@ -86,7 +89,17 @@ void main() {
           () => preview!.loadChapter(1),
         );
         report['pageCount'] = pages.length;
-        expect(pages.length, greaterThanOrEqualTo(190));
+        expect(pages.length, greaterThanOrEqualTo(200));
+        for (var round = 1; round <= 3; round++) {
+          preview = await _checkPreviewReuse(
+            active,
+            preview!,
+            pages,
+            report,
+            round,
+          );
+        }
+        _checkCacheBounds(active, report);
         final image = active.resources.firstWhere(
           (r) => r.mediaType == 'image/png',
         );
@@ -145,6 +158,73 @@ void main() {
     skip: !_enabled,
     timeout: const Timeout(Duration(minutes: 8)),
   );
+}
+
+Future<EpubChapterSource> _checkPreviewReuse(
+  EpubEditSession session,
+  EpubChapterSource previous,
+  List<PageContent> pages,
+  Map<String, Object?> report,
+  int round,
+) async {
+  final path = session.spinePaths[0];
+  session.transaction(
+    '只改封面章正文',
+    (tx) => tx.writeText(
+      path,
+      session
+          .readText(path)
+          .replaceFirst('</body>', '<p>缓存切换 $round</p></body>'),
+    ),
+  );
+  previous.close();
+  await previous.preparationsStopped;
+  final next = await _measureStage(
+    report,
+    'previewReuseOpen${round}Ms',
+    () => _previewForStress(session),
+  );
+  try {
+    final reused = await _measureStage(
+      report,
+      'previewReuseLayout${round}Ms',
+      () => next.loadChapter(1),
+    );
+    expect(reused.length, greaterThanOrEqualTo(200));
+    expect(identical(reused, pages), isTrue);
+    expect(next.anchorPreparationCount, 0);
+    expect(next.chapterLayoutCount, 0);
+    report['previewCacheSwitches'] = round;
+    return next;
+  } catch (_) {
+    next.close();
+    await next.preparationsStopped;
+    rethrow;
+  }
+}
+
+Future<EpubChapterSource> _previewForStress(EpubEditSession session) async {
+  final source = await session.createPreviewSource(
+    options: const ReaderOpenOptions(contentWidth: 360, contentHeight: 600),
+  );
+  await source.applyOverrides(const ReaderOverrides(fontSize: 18));
+  return source;
+}
+
+void _checkCacheBounds(EpubEditSession session, Map<String, Object?> report) {
+  final layouts = ChapterLayoutCache.recent;
+  expect(
+    session.previewCacheEntryCount,
+    lessThanOrEqualTo(ChapterPreviewCache.maxEntries),
+  );
+  expect(layouts.length, lessThanOrEqualTo(ChapterLayoutCache.maxEntries));
+  expect(
+    layouts.estimatedBytes,
+    lessThanOrEqualTo(ChapterLayoutCache.maxBytes),
+  );
+  report['previewStructureEntries'] = session.previewCacheEntryCount;
+  report['previewCompletedEntries'] = layouts.length;
+  report['previewCompletedBytes'] = layouts.estimatedBytes;
 }
 
 /// 与界面使用相同异步入口，单独记录每个阶段的事件循环间隔。

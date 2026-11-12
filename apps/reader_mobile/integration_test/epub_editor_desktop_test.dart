@@ -11,6 +11,8 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/editing/book_edit_repository.dart';
 import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
+import 'package:reader_mobile/editing/book_editor_inspector.dart';
+import 'package:reader_ui/reader_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
@@ -183,6 +185,38 @@ void main() {
     );
     reopened.close();
     await reopened.preparationsStopped;
+    controller.openDocument(
+      'OEBPS/middle.xhtml',
+      offset: session
+          .readText('OEBPS/middle.xhtml')
+          .indexOf(revisionBookmarkQuote),
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('定位到预览'));
+    await _until(tester, () => controller.previewNavigation == 1);
+    await _until(tester, () => controller.previewTarget?.spineIndex == 1);
+    // 实际窗口宽度足够时验收固定检查器；窄窗口使用同一预览入口。
+    if (find.byType(BookEditorInspector).evaluate().isNotEmpty) {
+      expect(find.byType(BookEditorInspector), findsOneWidget);
+      await tester.tap(find.byTooltip('折叠样式检查器'));
+      await tester.pump();
+      expect(find.byType(BookEditorInspector), findsNothing);
+      await tester.tap(find.byTooltip('展开样式检查器'));
+      await tester.pump();
+    }
+    final parsed = session
+        .editableDocument('OEBPS/middle.xhtml')
+        .elements
+        .firstWhere((element) => element.tag == 'p');
+    tester.widget<ReaderPage>(find.byType(ReaderPage)).onEditTarget!(
+      ReaderEditTarget(spineIndex: 1, cfi: session.cfiForElement(parsed)),
+    );
+    await tester.pump();
+    expect(controller.activePath, 'OEBPS/middle.xhtml');
+    if (find.byType(BookEditorInspector).evaluate().isEmpty) {
+      Navigator.of(tester.element(find.textContaining('编辑 <'))).pop();
+      await tester.pump();
+    }
     await tester.tap(find.byTooltip('保存书籍'));
     await _until(tester, () => saved);
     expect(savedBook!.id, book.id);
