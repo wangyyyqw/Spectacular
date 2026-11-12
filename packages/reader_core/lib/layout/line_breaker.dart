@@ -3308,18 +3308,26 @@ abstract final class TextLayoutEngine {
           (cssLineHeight != null && (metric.height - cssLineHeight).abs() <= 0.6
               ? cssLineHeight
               : metric.height);
+      final line = LineBox(
+        start: boundary.start,
+        end: boundary.end,
+        top: top,
+        height: lineHeight,
+        baseline: top + metric.ascent,
+        width: math.max(0, metric.width).toDouble(),
+        spacing:
+            measured?.spacing ??
+            spacingPlan?.range(boundary.start, boundary.end),
+      );
       lines.add(
-        LineBox(
-          start: boundary.start,
-          end: boundary.end,
-          top: top,
-          height: lineHeight,
-          baseline: top + metric.ascent,
-          width: math.max(0, metric.width).toDouble(),
-          spacing:
-              measured?.spacing ??
-              spacingPlan?.range(boundary.start, boundary.end),
-        ),
+        horizontal && inlineBoxMarks.isNotEmpty
+            ? _withTrailingInlineSpacingWidth(
+                line,
+                sourceSpan,
+                inlineBoxMarks,
+                textScaleFactor,
+              )
+            : line,
       );
       top += lineHeight;
       if (steps == null || metricIndex % 16 == 15) yield false;
@@ -4020,6 +4028,42 @@ abstract final class TextLayoutEngine {
       top += height;
     }
     return adjusted;
+  }
+
+  /// 行末尾盒前的 WORD JOINER 会让部分字体忽略占位符的负字距，
+  /// 把原字形宽带入行宽；改用前缀的实际 advance 加连续尾盒的真实宽度。
+  static LineBox _withTrailingInlineSpacingWidth(
+    LineBox line,
+    TextSpan source,
+    List<_InlineBoxMark> marks,
+    double scale,
+  ) {
+    final last = marks.lastIndexWhere((mark) => mark.index < line.end);
+    if (last < 0 ||
+        marks[last].index < line.start ||
+        marks[last].index + 1 != line.end ||
+        marks[last].spec.payload != InlineSpacingEdge.trailing) {
+      return line;
+    }
+    var first = last;
+    var width = marks[last].spec.outerWidth;
+    while (first > 0) {
+      final previous = marks[first - 1];
+      // 相邻尾盒之间只有 _buildInlineBoxText 固定插入的 WORD JOINER。
+      if (previous.index < line.start ||
+          previous.spec.payload != InlineSpacingEdge.trailing ||
+          previous.index + 2 != marks[first].index) {
+        break;
+      }
+      width += previous.spec.outerWidth;
+      first--;
+    }
+    return line.copyWith(
+      width: math.max(
+        0.0,
+        _linePrefixAdvance(source, line, marks[first].index, scale) + width,
+      ),
+    );
   }
 
   static double _linePrefixAdvance(
