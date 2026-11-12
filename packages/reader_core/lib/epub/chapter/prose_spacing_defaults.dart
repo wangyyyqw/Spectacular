@@ -1,5 +1,7 @@
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/selector.dart';
+import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/prose_line_fill.dart';
 
 /// 只补普通正文缺省值；作者声明来源与计算值分开，继承的左对齐也不能覆盖。
 ComputedStyle proseSpacingDefaults(
@@ -18,6 +20,15 @@ ComputedStyle proseSpacingDefaults(
         : CssTextSpacingTrim.trimAll,
   );
 }
+
+/// 与正文缺省间距共用分类，标题、题记和特殊组件不补行尾。
+TextLayoutResult fillProseLineEnds(
+  ComputedStyle style,
+  List<SelectorElement> chain,
+  TextLayoutResult layout,
+) => _isProse(style, chain, layout.text)
+    ? fillProseLines(layout, style)
+    : layout;
 
 bool _isProse(ComputedStyle style, List<SelectorElement> chain, String text) {
   if (chain.isEmpty ||
