@@ -253,6 +253,7 @@ class TextBlockBuilder {
                   container.columnWidth != null));
       promoted = promoted || styles.promotedInlineStyles.containsKey(view);
     }
+    final preserveHeadingLayout = special || promoted;
     special = special || promoted || structured;
     var style = proseSpacingDefaults(
       authored.style,
@@ -265,6 +266,9 @@ class TextBlockBuilder {
     // 提升块及其后代已在行内级联中继承最终字号，不能再按作者父字号缩放。
     if (!promoted) {
       style = _applyBlockTypography(context, style, applyReader: applyReader);
+      if (!preserveHeadingLayout) {
+        style = _applyHeadingLineHeight(context, style);
+      }
     }
     return _BodyStyle(authored, style, compact, structured, applyReader);
   }
@@ -292,6 +296,22 @@ class TextBlockBuilder {
     return readerSize == null
         ? style
         : styles.scaleBlockTypography(style, context.ancestors, readerSize);
+  }
+
+  /// 普通标题继承正文基准时使用阅读行高，保留局部作者行高声明。
+  ComputedStyle _applyHeadingLineHeight(
+    _BlockContext context,
+    ComputedStyle style,
+  ) {
+    final height = styles.snapshot.overrides.lineHeight;
+    if (!context.isHeading || height == null) return style;
+    final ancestors = context.ancestors;
+    for (var index = 0; index < ancestors.length; index++) {
+      if (const {'html', 'body'}.contains(ancestors[index].tag)) continue;
+      final authored = styles.chainStyle(ancestors.sublist(0, index + 1));
+      if (authored.explicitProperties.contains('line-height')) return style;
+    }
+    return style.withTypography(lineHeightFactor: height);
   }
 
   /// 保留标题和紧凑组件自身的相对字号，同时让比例以阅读器字号为基准。
