@@ -541,8 +541,7 @@ class PagePainter {
       canvas,
       geometry.containerPaintBox,
       geometry.style,
-      startsBlock: geometry.startsBlock,
-      endsBlock: geometry.endsBlock,
+      fragment: (starts: geometry.startsBlock, ends: geometry.endsBlock),
     );
   }
 
@@ -704,19 +703,19 @@ class PagePainter {
         ) {
           final line = layout.lines[lineIndex];
           final lineText = layout.text.substring(line.start, line.end);
+          final x = line.offsetX + geometry.leftInset;
+          // 列表标记属于块首行，显式换行形成的空行也必须绘制。
+          if (lineIndex == 0 && geometry.slice.block.listMarker != null) {
+            _paintListMarker(
+              canvas,
+              geometry,
+              marker: geometry.slice.block.listMarker!,
+              textX: x,
+              lineTop: lineY,
+              lineHeight: line.height,
+            );
+          }
           if (lineText.isNotEmpty || line.inlineBoxes.isNotEmpty) {
-            final x = line.offsetX + geometry.leftInset;
-            // 列表标记（P3-23）：块首行左侧 gutter 内画标记文本。
-            if (lineIndex == 0 && geometry.slice.block.listMarker != null) {
-              _paintListMarker(
-                canvas,
-                geometry,
-                marker: geometry.slice.block.listMarker!,
-                textX: x,
-                lineTop: lineY,
-                lineHeight: line.height,
-              );
-            }
             final painter = _linePainterFor(
               page,
               sliceIndex,
@@ -2658,7 +2657,12 @@ class PagePainter {
           imageColorFilter: inkMode ? _inkImageFilter : null,
         );
         _paintInnerShadow(canvas, rect, style);
-        _paintBorders(canvas, rect, style, startsBlock: true, endsBlock: true);
+        _paintBorders(
+          canvas,
+          rect,
+          style,
+          fragment: (starts: true, ends: true),
+        );
         final payload = placement.spec.payload;
         if (payload is PageBlock) {
           _paintInlineBoxContent(canvas, payload, rect);
@@ -2955,8 +2959,12 @@ class PagePainter {
             canvas,
             borderRect,
             style,
-            startsBlock: true,
-            endsBlock: true,
+            fragment: (starts: true, ends: true),
+            // 新圆角环仅用于完整 run；跨行或跨盒片段沿用原有直边路径。
+            allowRoundedSolid:
+                run.sourceStart >= line.start &&
+                run.sourceEnd <= line.end &&
+                boxes.length == 1,
           );
           canvas.restore();
         }
@@ -3653,9 +3661,11 @@ class PagePainter {
     Canvas canvas,
     Rect box,
     ComputedStyle style, {
-    required bool startsBlock,
-    required bool endsBlock,
+    required ({bool starts, bool ends}) fragment,
+    bool allowRoundedSolid = true,
   }) {
+    final startsBlock = fragment.starts;
+    final endsBlock = fragment.ends;
     final borders = style.borders;
     if (!borders.hasBorder) {
       return;
@@ -3740,6 +3750,16 @@ class PagePainter {
           outward: const Offset(0, 1),
         );
       }
+      return;
+    }
+    if (allowRoundedSolid &&
+        _paintRoundedSolidBorders(
+          canvas,
+          box,
+          borders,
+          startsBlock,
+          endsBlock,
+        )) {
       return;
     }
     if (_paintJoinedSolidBorders(
@@ -3915,6 +3935,69 @@ class PagePainter {
           ..isAntiAlias = false,
       );
     }
+  }
+
+  /// 同色实线以外内圆角环相减，零宽邻边也保留完整的转角曲线。
+  bool _paintRoundedSolidBorders(
+    Canvas canvas,
+    Rect box,
+    CssBorders borders,
+    bool starts,
+    bool ends,
+  ) {
+    if (!starts || !ends || !borders.hasRadius) return false;
+    final sides = [
+      borders.top,
+      borders.right,
+      borders.bottom,
+      borders.left,
+    ].where((side) => side.isVisible).toList();
+    if (sides.any(
+      (side) =>
+          side.style != CssBorderStyle.solid || side.color != sides.first.color,
+    )) {
+      return false;
+    }
+    canvas.drawPath(
+      _roundedBorderRing(box, borders),
+      Paint()..color = sides.first.color,
+    );
+    return true;
+  }
+
+  Path _roundedBorderRing(Rect box, CssBorders borders) {
+    double width(CssBorderSide side) => side.isVisible ? side.width : 0;
+    final insets = EdgeInsets.fromLTRB(
+      width(borders.left),
+      width(borders.top),
+      width(borders.right),
+      width(borders.bottom),
+    );
+    final outer = _shadowRRect(borders, box, 0).scaleRadii();
+    final path = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRRect(outer);
+    if (box.width > insets.horizontal && box.height > insets.vertical) {
+      path.addRRect(_insetBorderRRect(outer, insets));
+    }
+    return path;
+  }
+
+  RRect _insetBorderRRect(RRect outer, EdgeInsets insets) {
+    Radius inset(Radius radius, double x, double y) =>
+        Radius.elliptical(math.max(0, radius.x - x), math.max(0, radius.y - y));
+    return RRect.fromRectAndCorners(
+      Rect.fromLTRB(
+        outer.left + insets.left,
+        outer.top + insets.top,
+        outer.right - insets.right,
+        outer.bottom - insets.bottom,
+      ),
+      topLeft: inset(outer.tlRadius, insets.left, insets.top),
+      topRight: inset(outer.trRadius, insets.right, insets.top),
+      bottomRight: inset(outer.brRadius, insets.right, insets.bottom),
+      bottomLeft: inset(outer.blRadius, insets.left, insets.bottom),
+    );
   }
 
   /// 不同宽度或颜色的实线边框在外角与内角之间斜接，避免矩形互相覆盖。

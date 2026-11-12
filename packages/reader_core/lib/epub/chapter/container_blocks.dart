@@ -37,14 +37,46 @@ List<PageContainerFragment> containerFragmentsFor(
   required bool ends,
 }) => [
   for (final fragment in block.containers)
-    PageContainerFragment(
-      container: fragment.container,
-      startsHere: starts && fragment.startsHere,
-      endsHere: ends && fragment.endsHere,
-      topInset: fragment.topInset,
-      bottomInset: fragment.bottomInset,
+    _preserveExternalMarginEdges(
+      fragment,
+      PageContainerFragment(
+        container: fragment.container,
+        startsHere: starts && fragment.startsHere,
+        endsHere: ends && fragment.endsHere,
+        topInset: fragment.topInset,
+        bottomInset: fragment.bottomInset,
+      ),
     ),
 ];
+
+/// 外边距已与子块边距分开；只供本文件折叠阶段识别，不引入公共布局字段。
+class _ExternalMarginFragment extends PageContainerFragment {
+  _ExternalMarginFragment(
+    PageContainerFragment source,
+    this.separateTop,
+    this.separateBottom,
+  ) : super(
+        container: source.container,
+        startsHere: source.startsHere,
+        endsHere: source.endsHere,
+        topInset: source.topInset,
+        bottomInset: source.bottomInset,
+      );
+
+  final bool separateTop;
+  final bool separateBottom;
+}
+
+PageContainerFragment _preserveExternalMarginEdges(
+  PageContainerFragment source,
+  PageContainerFragment replacement,
+) => source is _ExternalMarginFragment
+    ? _ExternalMarginFragment(
+        replacement,
+        source.separateTop,
+        source.separateBottom,
+      )
+    : replacement;
 
 /// 有块级后代的普通容器保留盒结构，浮动和特殊排版仍走各自路径。
 bool retainsContainer(BlockNode node, ComputedStyle style) {
@@ -227,7 +259,7 @@ class _MarginCollapseWork {
   }
 }
 
-/// 容器边框和内边距隔断相邻段距，保持原先前块优先的短路顺序。
+/// 容器装饰隔断内部段距；已分离的外部兄弟边距仍参与折叠。
 class _MarginBoundary {
   _MarginBoundary(this.previous, this.current);
 
@@ -240,7 +272,8 @@ class _MarginBoundary {
       yield 0;
       final style = fragment.container.style;
       if (fragment.endsHere &&
-          style.padding.bottom + style.borders.bottom.width > 0) {
+          style.padding.bottom + style.borders.bottom.width > 0 &&
+          !(fragment is _ExternalMarginFragment && fragment.separateBottom)) {
         blocked = true;
         return;
       }
@@ -249,7 +282,8 @@ class _MarginBoundary {
       yield 0;
       final style = fragment.container.style;
       if (fragment.startsHere &&
-          style.padding.top + style.borders.top.width > 0) {
+          style.padding.top + style.borders.top.width > 0 &&
+          !(fragment is _ExternalMarginFragment && fragment.separateTop)) {
         blocked = true;
         return;
       }
@@ -324,12 +358,15 @@ class _ContainerDecorationWork {
         ),
       );
       target.add(
-        PageContainerFragment(
-          container: sliced,
-          startsHere: fragment.startsHere,
-          endsHere: fragment.endsHere,
-          topInset: fragment.topInset,
-          bottomInset: fragment.bottomInset,
+        _preserveExternalMarginEdges(
+          fragment,
+          PageContainerFragment(
+            container: sliced,
+            startsHere: fragment.startsHere,
+            endsHere: fragment.endsHere,
+            topInset: fragment.topInset,
+            bottomInset: fragment.bottomInset,
+          ),
         ),
       );
     }
@@ -385,8 +422,13 @@ Future<void> wrapContainerBlocks(
   // 挂在首个在流块上，浮动仍按填充前的游标定位，后续浮动（气泡）
   // 又会把整段内边距计入静态位置，消息间距会被放大。
   var hasFloatChild = false;
+  var hasOutOfFlowChild = false;
   for (var index = start; index < blocks.length; index++) {
     await checkpoint?.call();
+    hasOutOfFlowChild =
+        hasOutOfFlowChild ||
+        blocks[index].floatSide != null ||
+        blocks[index].absolute;
     if (blocks[index].floatSide != null) {
       hasFloatChild = true;
       break;
@@ -437,6 +479,16 @@ Future<void> wrapContainerBlocks(
       paragraphSpacing == null && containerCollapsesMargins(style);
   final collapseTop = top == 0 && containerCollapses;
   final collapseBottom = bottom == 0 && containerCollapses;
+  final separateExternalMargins =
+      paragraphSpacing == null &&
+      !hasOutOfFlowChild &&
+      style.writingMode == CssWritingMode.horizontalTb &&
+      (style.columnCount ?? 1) <= 1 &&
+      (style.columnWidth == null || style.columnWidth!.isAuto) &&
+      (style.display == CssDisplay.block ||
+          style.display == CssDisplay.listItem);
+  final separateTop = separateExternalMargins && top > 0;
+  final separateBottom = separateExternalMargins && bottom > 0;
   for (var i = start; i < blocks.length; i++) {
     await checkpoint?.call();
     final block = blocks[i];
@@ -446,33 +498,47 @@ Future<void> wrapContainerBlocks(
       breakAfterAvoid:
           block.breakAfterAvoid ||
           (first && !last && isContainerHeading(block)),
-      spaceBefore: first && collapseTop
+      spaceBefore: first && separateTop
+          ? style.margin.top
+          : first && collapseTop
           ? collapseMargins(style.margin.top, block.spaceBefore)
           : block.spaceBefore,
-      spaceAfter: last && collapseBottom
+      spaceAfter: last && separateBottom
+          ? style.margin.bottom
+          : last && collapseBottom
           ? collapseMargins(block.spaceAfter, style.margin.bottom)
           : block.spaceAfter,
       topInset:
           block.topInset +
           (i == topTarget
               ? (hasTopSpacer ? 0 : top) +
-                    (collapseTop ? 0 : (paragraphSpacing ?? style.margin.top))
+                    (separateTop
+                        ? block.spaceBefore
+                        : collapseTop
+                        ? 0
+                        : (paragraphSpacing ?? style.margin.top))
               : 0),
       bottomInset:
           block.bottomInset +
           (i == bottomTarget
               ? bottom +
-                    (collapseBottom
+                    (separateBottom
+                        ? block.spaceAfter
+                        : collapseBottom
                         ? 0
                         : (paragraphSpacing ?? style.margin.bottom))
               : 0),
       containers: [
-        PageContainerFragment(
-          container: container,
-          startsHere: first && !hasTopSpacer,
-          endsHere: last,
-          topInset: first && !hasTopSpacer ? block.leadingExtent + top : 0,
-          bottomInset: last ? block.trailingExtent + bottom : 0,
+        _ExternalMarginFragment(
+          PageContainerFragment(
+            container: container,
+            startsHere: first && !hasTopSpacer,
+            endsHere: last,
+            topInset: first && !hasTopSpacer ? block.leadingExtent + top : 0,
+            bottomInset: last ? block.trailingExtent + bottom : 0,
+          ),
+          separateTop,
+          separateBottom,
         ),
         ...block.containers,
       ],

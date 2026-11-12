@@ -75,6 +75,42 @@ void main() {
     expect(text.hardBreaks, <int>[1]);
   });
 
+  test('块首 br 保留空行及后续行内样式的原文偏移', () {
+    final text = _onlyText(_aggregate('<h2><br/><b>简介</b></h2>'));
+    expect(text.text, '简介');
+    expect(text.leadingBreakCount, 1);
+    expect(text.hardBreaks, isEmpty);
+    expect(text.inlineMarks.single.start, 0);
+    expect(text.inlineMarks.single.end, 2);
+  });
+
+  test('连续块首 br 各保留一行，源码缩进空白仍折叠', () {
+    final text = _onlyText(
+      _aggregate('<h2> \n<br/> \n<br/><b>简介</b> \n</h2>'),
+    );
+    expect(text.text, '简介');
+    expect(text.leadingBreakCount, 2);
+    expect(text.hardBreaks, isEmpty);
+    expect(text.inlineMarks.single.start, 0);
+    expect(text.inlineMarks.single.end, 2);
+  });
+
+  test('纯 br 块保留空行元信息，后续块不继承计数', () {
+    final texts = _texts(_aggregate('<p><br/><br/></p><p>正文</p>').root);
+    expect(texts, hasLength(2));
+    expect(texts.first.text, isEmpty);
+    expect(texts.first.leadingBreakCount, 2);
+    expect(texts.last.text, '正文');
+    expect(texts.last.leadingBreakCount, 0);
+  });
+
+  test('块首 br 与图片一起保留，不折叠成纯图片块', () {
+    final text = _onlyText(_aggregate('<p><br/><img src="x.png"/></p>'));
+    expect(text.text, '\uFFFC');
+    expect(text.leadingBreakCount, 1);
+    expect(text.inlineImages.single.offset, 0);
+  });
+
   test('相邻 span 文本合并为一个 TextBlockNode', () {
     final doc = _aggregate('<p id="p">a<span>b</span><b>c</b>d</p>');
     final text = _onlyText(doc);
