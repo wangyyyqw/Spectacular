@@ -519,6 +519,12 @@ class ChapterStyleResolver {
     for (var index = 0; index < chain.length - 1; index++) {
       _projectAncestor(projection, chain, index, first, last);
     }
+    // 祖先出血仅供图片盒兼容投影，普通后代的背景和边框仍使用自身盒。
+    if (chain.isEmpty ||
+        !const {'img', 'image', 'object'}.contains(chain.last.tag)) {
+      projection.declarations.remove('duokan-bleed');
+      projection.declarations.remove('-duokan-bleed');
+    }
     return projection;
   }
 
@@ -815,7 +821,7 @@ class ChapterStyleResolver {
       .join('>');
 
   static const _promotedBoxProps = <String>{
-    // P9-22：容器上的 duokan-bleed 要传导到子块（横幅图出血）。
+    // P9-22：横幅图仍接收祖先出血，普通后代由 _projectAncestors 排除。
     'duokan-bleed', '-duokan-bleed',
     // 水平内缩不在这里传导：容器的 padding/margin 由 extraLeft/extraRight
     // 累加进子块 margin（见下方循环），两边都做会重复计算（P9-27）。
