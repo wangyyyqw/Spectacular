@@ -608,7 +608,14 @@ abstract final class TextAggregator {
           children: const <EpubNode>[],
           cfi: block.cfi,
           attributes: only.attributes,
-          containerChain: only.containerChain,
+          // `display:block` 会先把行内图片提升成空图片块；此时图片自身没有
+          // 容器链，必须保留当前折叠容器，后代选择器才能继续命中。
+          containerChain: only.containerChain.isEmpty
+              ? <({String tag, String classes})>[
+                  for (final subject in subjectChain)
+                    (tag: subject.tag, classes: subject.classes.join(' ')),
+                ]
+              : only.containerChain,
           start: block.start,
           end: block.end,
         );
