@@ -8,6 +8,7 @@ import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
+import 'package:reader_mobile/editing/book_edit_repository.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
@@ -63,6 +64,45 @@ Future<void> _pumpFrames(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
+  testWidgets(
+    '手机阅读菜单与选区不提供 EPUB 编辑入口',
+    (tester) async {
+      late Directory temporary;
+      late File epub;
+      await tester.runAsync(() async {
+        temporary = await Directory.systemTemp.createTemp('reader-no-editor-');
+        epub = await File('${temporary.path}/book.epub')
+            .writeAsBytes(buildTestEpub());
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(() => temporary.delete(recursive: true));
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EpubReaderPage(
+            sourcePath: epub.path,
+            bookId: 'mobile-no-editor',
+            store: MemoryReaderProgressStore(),
+            bookEditorRepository: BookEditRepository(LibraryStore.memory()),
+          ),
+        ),
+      );
+      await pumpReaderUntil(tester, find.byType(ReaderPageFooter));
+      final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+      expect(reader.onOpenEditor, isNull);
+      expect(reader.onEditTarget, isNull);
+      await tester.tapAt(const Offset(400, 300));
+      await _pumpFrames(tester);
+      expect(find.byTooltip('编辑书籍'), findsNothing);
+      expect(find.text('编辑原文'), findsNothing);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
   testWidgets('保存编辑后自动重开新版本并保留设置书签和已迁移进度', (tester) async {
     late Directory temporary;
     late AppDatabase db;
@@ -206,7 +246,7 @@ void main() {
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
     await pumpReaderTask(tester, opened);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('读盘期间显示封面展开动画，完成后进入阅读页', (tester) async {
     final library = _DelayedLibraryStore();

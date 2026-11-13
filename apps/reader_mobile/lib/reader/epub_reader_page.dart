@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -574,14 +576,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
-      onOpenEditor:
-          widget.bookEditorRepository != null && widget.sourcePath != null
-          ? () => _openEditor(null)
-          : null,
-      onEditTarget:
-          widget.bookEditorRepository != null && widget.sourcePath != null
-          ? _openEditor
-          : null,
+      onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
+      onEditTarget: _canEditBook ? _openEditor : null,
       onLog: (event, fields) =>
           unawaited(ReaderLog.instance.log(event, fields: fields)),
       onResolveSearchCfi: _resolveSearchCfi,
@@ -591,8 +587,16 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   bool _editorOpen = false;
 
+  bool get _canEditBook =>
+      widget.bookEditorRepository != null &&
+      widget.sourcePath != null &&
+      switch (defaultTargetPlatform) {
+        TargetPlatform.macOS || TargetPlatform.windows => true,
+        _ => false,
+      };
+
   Future<void> _openEditor(ReaderEditTarget? target) async {
-    if (_editorOpen) return;
+    if (!_canEditBook || _editorOpen) return;
     final repository = widget.bookEditorRepository;
     final path = widget.sourcePath;
     if (repository == null || path == null) return;
