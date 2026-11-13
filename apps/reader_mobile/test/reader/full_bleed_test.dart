@@ -75,7 +75,7 @@ void main() {
     expect(normal, isNotEmpty);
     expect(source.fullBleedAnalysis(0).isFullBleed, isFalse);
 
-    // 图片章：满屏路径 → 单页、整页高、背景图 cover。
+    // 图片章：整页单图路径，等比完整显示。
     await source.loadAnchorChapter(1);
     expect(source.fullBleedAnalysis(1).isFullBleed, isTrue);
     final pages = await source.loadChapter(1);
@@ -86,8 +86,8 @@ void main() {
     expect(block.style!.backgroundImage, 'OEBPS/images/pic.png');
     expect(
       block.style!.backgroundSize.mode,
-      CssBackgroundSizeMode.cover,
-      reason: '背景图按 cover 铺满整页',
+      CssBackgroundSizeMode.contain,
+      reason: '没有作者裁切声明时完整显示图片',
     );
     expect(page.usedHeight, greaterThan(0));
   });
