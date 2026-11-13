@@ -12,7 +12,7 @@ Future<void> _writeWideCover(File file) async {
   final canvas = Canvas(recorder);
   canvas.drawRect(
     const Rect.fromLTWH(0, 0, 200, 50),
-    Paint()..color = Colors.blue,
+    Paint()..color = const Color(0xFF0000FF),
   );
   canvas.drawRect(
     const Rect.fromLTWH(0, 0, 50, 50),
@@ -31,7 +31,7 @@ Future<void> _writeWideCover(File file) async {
 }
 
 void main() {
-  testWidgets('横向封面完整显示左右内容，缩略图不会裁掉书名所在边缘', (tester) async {
+  testWidgets('封面居中等比裁切并铺满三比四边框', (tester) async {
     final directory = Directory.systemTemp.createTempSync('cover-visible');
     addTearDown(() => directory.deleteSync(recursive: true));
     final file = File('${directory.path}/wide.png');
@@ -94,10 +94,13 @@ void main() {
     final bytes = pixels.bytes;
     final left = (80 * pixels.width + 10) * 4;
     final right = (80 * pixels.width + 90) * 4;
-    expect(bytes[left], 255, reason: '左侧红色内容必须保留');
+    expect(bytes[left], 0, reason: '左侧边缘必须被裁掉');
     expect(bytes[left + 1], 0);
+    expect(bytes[left + 2], 255, reason: '裁切后应显示居中内容');
     expect(bytes[right], 0);
-    expect(bytes[right + 1], 255, reason: '右侧绿色内容必须保留');
+    expect(bytes[right + 1], 0);
+    expect(bytes[right + 2], 255, reason: '裁切后应显示居中内容');
+    expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.cover);
     expect(find.byKey(const ValueKey('book-damaged-badge')), findsOneWidget);
   });
 
