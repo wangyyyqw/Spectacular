@@ -18,7 +18,7 @@ void main() {
   Future<(Map<String, String>, double)> imageBoxOf(String css) async {
     final source = await EpubChapterSource.open(
       buildCssChapterBook(
-        // 附一段正文：避免单图章走「整页满屏」路径（那条路径固定 cover）。
+        // 附一段正文，明确走普通图片构块路径，单独验证 object-fit。
         body:
             '<div class="box"><img src="../Images/p.png"/></div>'
             '<p>正文一段，避免整页满屏。</p>',
