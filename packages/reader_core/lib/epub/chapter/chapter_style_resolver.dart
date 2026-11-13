@@ -626,8 +626,7 @@ class ChapterStyleResolver {
     final declarations = <String, String>{
       ...projection.declarations,
       ..._resolvedProjectionValues(computed),
-      if (computed.intrinsicWidth != null)
-        ..._intrinsicWidthBounds(computed, containingWidth),
+      ..._resolvedWidthValues(computed, containingWidth),
     };
     if (projection.left > 0) {
       declarations['margin-left'] =
@@ -651,12 +650,13 @@ class ChapterStyleResolver {
     return declarations;
   }
 
-  /// 内在宽度求解前冻结百分比约束，投影到页面后仍以原父内容宽为基准。
-  static Map<String, String> _intrinsicWidthBounds(
+  /// 水平尺寸先按原父内容宽解算，页面投影不再改变百分比与 calc 的基准。
+  static Map<String, String> _resolvedWidthValues(
     ComputedStyle style,
     double containingWidth,
   ) => {
     for (final entry in {
+      'width': style.width,
       'min-width': style.minWidth,
       'max-width': style.maxWidth,
     }.entries)
