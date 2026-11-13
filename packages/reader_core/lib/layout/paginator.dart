@@ -273,6 +273,7 @@ class PageBlock {
         layout.isVertical ||
         style.writingMode != CssWritingMode.horizontalTb ||
         layout.lines.any((line) => line.vertical);
+    final bottomBorderClearance = _bottomBorderTextOverflow(layout, style);
     return PageBlock(
       layout: layout,
       style: style,
@@ -286,7 +287,8 @@ class PageBlock {
       spaceBefore: spaceBefore ?? style.margin.top,
       spaceAfter: spaceAfter ?? style.margin.bottom,
       topInset: model.borders.top + model.padding.top,
-      bottomInset: model.borders.bottom + model.padding.bottom,
+      bottomInset:
+          model.borders.bottom + model.padding.bottom + bottomBorderClearance,
       leftInset: model.borders.left + model.padding.left,
       groupId: groupId,
       listMarker: listMarker,
@@ -782,6 +784,30 @@ class MulticolGeometry {
     }
     return MulticolGeometry(count: count, columnWidth: width, gap: gap);
   }
+}
+
+/// 短行盒中的大字号行内文字可越过内容盒；有可见底边时按实测溢出量避让。
+double _bottomBorderTextOverflow(TextLayoutResult layout, ComputedStyle style) {
+  if (!style.borders.bottom.isVisible ||
+      layout.isVertical ||
+      style.writingMode != CssWritingMode.horizontalTb ||
+      layout.lines.isEmpty) {
+    return 0;
+  }
+  final line = layout.lines.last;
+  if (line.vertical ||
+      line.inlineBoxes.isNotEmpty ||
+      line.start >= line.end ||
+      layout.text.substring(line.start, line.end).trim().isEmpty ||
+      layout.runs.any(
+        (run) =>
+            run.end > line.start &&
+            run.start < line.end &&
+            run.baselineShift != 0,
+      )) {
+    return 0;
+  }
+  return textLineEdges(layout, line, style).bottomOverflow;
 }
 
 /// 竖排按页分栏的结果：每页的列块 + 每页占用高。

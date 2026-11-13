@@ -4,14 +4,18 @@ import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../paint/line_spans.dart';
+
 import 'package:reader_core/layout/line_breaker.dart';
 
 /// 行高在真实字体盒之外增加的上下留白；不包含字形自身的空白。
 class PageTextEdges {
-  const PageTextEdges({this.top = 0, this.bottom = 0});
+  const PageTextEdges({this.top = 0, this.bottom = 0, this.bottomOverflow = 0});
 
   final double top;
   final double bottom;
+
+  /// 字形超出行盒下沿的实测距离；用于装饰线避让。
+  final double bottomOverflow;
 }
 
 final _edgeCache = Expando<Map<(LineBox, String), PageTextEdges>>();
@@ -78,8 +82,11 @@ InlineSpan _lineSpan(
 
 PageTextEdges _edges(LineBox line, double ascent, double descent) {
   final baseline = line.baseline - line.top;
+  final top = baseline - ascent;
+  final bottom = line.height - baseline - descent;
   return PageTextEdges(
-    top: math.max(0, baseline - ascent),
-    bottom: math.max(0, line.height - baseline - descent),
+    top: math.max(0, top),
+    bottom: math.max(0, bottom),
+    bottomOverflow: math.max(0, -bottom),
   );
 }
