@@ -1125,6 +1125,25 @@ class CssBleed {
   /// 无出血。
   static const none = CssBleed();
 
+  /// 解析多看 `duokan-bleed`：auto/none 无出血，all 四边；
+  /// 多看常把方向连写（`lefttopright`），因此按子串判断而不是分词。
+  static CssBleed parse(String? raw) {
+    if (raw == null) {
+      return none;
+    }
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value == 'none' || value == 'auto') {
+      return none;
+    }
+    final all = value.contains('all') || value.contains('both');
+    return CssBleed(
+      left: all || value.contains('left'),
+      right: all || value.contains('right'),
+      top: all || value.contains('top'),
+      bottom: all || value.contains('bottom'),
+    );
+  }
+
   /// 左出血。
   final bool left;
 
@@ -2398,7 +2417,7 @@ class ComputedStyle {
     // 出血常写在容器上（`div.x { duokan-bleed: lefttopright }`），
     // 由 flat 管线的盒属性传导注入，因此从 values 读而不是只读显式值。
     final rawBleed = values['duokan-bleed'] ?? values['-duokan-bleed'];
-    final bleed = _parseBleed(rawBleed);
+    final bleed = CssBleed.parse(rawBleed);
     // list-style-type（P9-12）：简写在层叠层已展开成长属性，这里只读
     // 长属性，继承与特异性才和 CSS 一致。
     final rawListStyle = explicitValue('list-style-type');
@@ -6447,25 +6466,6 @@ class ComputedStyle {
       width: style == CssBorderStyle.none ? 0 : width,
       style: style,
       color: ruleColor,
-    );
-  }
-
-  /// 解析多看 `duokan-bleed`（P9-22）：auto/none 无出血，all 四边；
-  /// 多看常把方向连写（`lefttopright`），因此按子串判断而不是分词。
-  static CssBleed _parseBleed(String? raw) {
-    if (raw == null) {
-      return CssBleed.none;
-    }
-    final value = raw.trim().toLowerCase();
-    if (value.isEmpty || value == 'none' || value == 'auto') {
-      return CssBleed.none;
-    }
-    final all = value.contains('all') || value.contains('both');
-    return CssBleed(
-      left: all || value.contains('left'),
-      right: all || value.contains('right'),
-      top: all || value.contains('top'),
-      bottom: all || value.contains('bottom'),
     );
   }
 
