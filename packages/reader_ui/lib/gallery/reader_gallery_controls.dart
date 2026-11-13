@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_core/api.dart' show PageGallery;
 
-/// 透明手势层；画面仍由正文绘制器绘制，切帧不创建新的分页。
+/// 透明分页手势层；画面仍由正文绘制器绘制，拖动不创建新的正文分页。
+/// 构造参数保留独立的语义、预览和绘制回调，便于宿主按需接入。
 class ReaderGalleryControls extends StatefulWidget {
   const ReaderGalleryControls({
     super.key,
@@ -11,6 +14,8 @@ class ReaderGalleryControls extends StatefulWidget {
     required this.foreground,
     required this.onChanged,
     this.onPreview,
+    this.onPositionChanged,
+    this.animate = true,
   });
 
   final PageGallery gallery;
@@ -18,29 +23,102 @@ class ReaderGalleryControls extends StatefulWidget {
   final Color foreground;
   final ValueChanged<int> onChanged;
   final VoidCallback? onPreview;
+  final ValueChanged<double?>? onPositionChanged;
+  final bool animate;
 
   @override
   State<ReaderGalleryControls> createState() => _ReaderGalleryControlsState();
 }
 
 class _ReaderGalleryControlsState extends State<ReaderGalleryControls> {
+  late final _pager = PageController(initialPage: _index, keepPage: false);
   double _distance = 0;
   bool _focused = false;
+  int? _target;
 
   int get _count => widget.gallery.frames.length;
   int get _index => _count == 0 ? 0 : widget.index.clamp(0, _count - 1);
+  bool get _animate =>
+      widget.animate && !MediaQuery.disableAnimationsOf(context);
+
+  @override
+  void didUpdateWidget(ReaderGalleryControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index == widget.index &&
+        oldWidget.gallery == widget.gallery) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_pager.hasClients) return;
+      if ((_pager.page! - _index).abs() > 0.001) _pager.jumpToPage(_index);
+    });
+  }
+
+  @override
+  void dispose() {
+    _pager.dispose();
+    final clearPosition = widget.onPositionChanged;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => clearPosition?.call(null),
+    );
+    super.dispose();
+  }
 
   void _step(int delta) {
     if (_count < 2) return;
-    final next = (_index + delta).clamp(0, _count - 1);
-    if (next != _index) widget.onChanged(next);
+    final next = ((_target ?? _index) + delta).clamp(0, _count - 1);
+    if (next == (_target ?? _index)) return;
+    if (!_animate || !_pager.hasClients) {
+      widget.onChanged(next);
+      return;
+    }
+    _target = next;
+    unawaited(
+      _pager.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+      ),
+    );
   }
 
   void _endDrag(DragEndDetails details) {
     final speed = details.primaryVelocity ?? 0;
-    if (_distance.abs() < 24 && speed.abs() < 500) return;
-    final direction = _distance.abs() >= 24 ? _distance : speed;
+    final threshold = widget.gallery.width / 3;
+    if (_distance.abs() < threshold && speed.abs() < 500) return;
+    final direction = speed.abs() >= 500 ? speed : _distance;
     _step(direction < 0 ? 1 : -1);
+  }
+
+  bool _scroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _target = null;
+    }
+    if (notification is ScrollUpdateNotification) {
+      final metrics = notification.metrics;
+      // page 会钳住首尾，直接用像素位置让纸面同步显示边界回弹。
+      widget.onPositionChanged?.call(
+        metrics.pixels / metrics.viewportDimension,
+      );
+    } else if (notification is ScrollEndNotification) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _settled());
+    }
+    return true;
+  }
+
+  void _settled() {
+    if (!mounted ||
+        _count == 0 ||
+        !_pager.hasClients ||
+        _pager.position.isScrollingNotifier.value) {
+      return;
+    }
+    final selected = (_pager.page ?? _index).round().clamp(0, _count - 1);
+    _target = null;
+    widget.onPositionChanged?.call(null);
+    if (selected != _index) widget.onChanged(selected);
   }
 
   KeyEventResult _key(FocusNode node, KeyEvent event) {
@@ -96,12 +174,31 @@ class _ReaderGalleryControlsState extends State<ReaderGalleryControls> {
     excludeFromSemantics: true,
     // 消费长按，避免父阅读器把画廊占位块当作正文选区。
     onLongPress: () {},
-    onHorizontalDragStart: _count > 1 ? (_) => _distance = 0 : null,
-    onHorizontalDragUpdate: _count > 1
+    onHorizontalDragStart: _count > 1 && !_animate
+        ? (_) => _distance = 0
+        : null,
+    onHorizontalDragUpdate: _count > 1 && !_animate
         ? (details) => _distance += details.delta.dx
         : null,
-    onHorizontalDragEnd: _count > 1 ? _endDrag : null,
-    child: _indicator(context),
+    onHorizontalDragEnd: _count > 1 && !_animate ? _endDrag : null,
+    child: Stack(
+      fit: StackFit.expand,
+      children: [if (_count > 1 && _animate) _pages(), _indicator(context)],
+    ),
+  );
+
+  Widget _pages() => ExcludeSemantics(
+    child: NotificationListener<ScrollNotification>(
+      onNotification: _scroll,
+      child: PageView.builder(
+        controller: _pager,
+        physics: const BouncingScrollPhysics(),
+        scrollBehavior: ScrollConfiguration.of(context)
+            .copyWith(scrollbars: false, overscroll: false),
+        itemCount: _count,
+        itemBuilder: (_, _) => const SizedBox.expand(),
+      ),
+    ),
   );
 
   Widget _indicator(BuildContext context) => SizedBox.expand(
