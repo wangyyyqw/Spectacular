@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../library/library_store.dart';
 
-/// 书架、详情、统计与书评共用封面；完整保留原图比例和边缘。
+/// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。
 class BookCoverImage extends StatelessWidget {
   const BookCoverImage({
     super.key,
@@ -76,7 +76,7 @@ class BookCoverImage extends StatelessWidget {
       key: ValueKey('cover-${book.coverPath}'),
       width: double.infinity,
       height: double.infinity,
-      fit: BoxFit.contain,
+      fit: BoxFit.cover,
       cacheWidth: decodeWidth,
       gaplessPlayback: true,
       excludeFromSemantics: true,
