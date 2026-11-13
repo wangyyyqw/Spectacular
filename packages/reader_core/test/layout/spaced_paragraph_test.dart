@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/spaced_paragraph.dart';
 
 const _fragment =
     '甲乙丙丁戊己庚辛壬癸，“中文”与 Latin ffi AV 混排，'
@@ -71,6 +73,29 @@ List<Object?> _geometry(TextLayoutResult layout) => [
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_fonts);
+
+  test('连续硬换行不生成无效行边界', () {
+    const text = '第一卷\n\n再见当年潮';
+    final painter = TextPainter(
+      text: const TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: 'builtin_song',
+          fontSize: 25.2,
+          height: 1.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: 16.8);
+    final ranges = textLineRanges(painter, text, 8);
+
+    expect(ranges, hasLength(8));
+    expect(ranges.every((range) => range.isValid), isTrue);
+    expect(
+      ranges.map((range) => text.substring(range.start, range.end)).join(),
+      '第一卷再见当年潮',
+    );
+  });
 
   test('同一宋体字库的内置名与自定义名保持长段断点和全部行几何', () {
     for (final css in [

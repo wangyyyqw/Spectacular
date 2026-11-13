@@ -33,7 +33,31 @@ List<TextRange> textLineRanges(
   final ranges = <TextRange>[];
   var cursor = 0;
   while (ranges.length < lineCount) {
+    if (cursor >= text.length) {
+      ranges.addAll(
+        List<TextRange>.filled(
+          lineCount - ranges.length,
+          TextRange.collapsed(text.length),
+        ),
+      );
+      break;
+    }
     final boundary = painter.getLineBoundary(TextPosition(offset: cursor));
+    if (!boundary.isValid || boundary.start < 0 || boundary.end > text.length) {
+      // 窄行中的连续硬换行可能得到 (-1, -1)。若此处是空行，平台没有
+      // 对应行框时直接越过；其他无效结果至少推进一个完整字符，避免卡死。
+      if (text.codeUnitAt(cursor) == 10) {
+        cursor++;
+        while (cursor < text.length && text.codeUnitAt(cursor) == 10) {
+          cursor++;
+        }
+      } else {
+        final next = cursor + text.substring(cursor).characters.first.length;
+        ranges.add(TextRange(start: cursor, end: next));
+        cursor = next;
+      }
+      continue;
+    }
     ranges.add(boundary);
     var next = boundary.end;
     if (next < text.length && text.codeUnitAt(next) == 10) {
@@ -42,14 +66,6 @@ List<TextRange> textLineRanges(
       next = cursor + 1;
     }
     cursor = next.clamp(0, text.length);
-    if (cursor == text.length && ranges.length < lineCount) {
-      ranges.addAll(
-        List<TextRange>.filled(
-          lineCount - ranges.length,
-          TextRange.collapsed(text.length),
-        ),
-      );
-    }
   }
   return ranges;
 }
