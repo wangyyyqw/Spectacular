@@ -78,7 +78,7 @@ PageContainerFragment _preserveExternalMarginEdges(
       )
     : replacement;
 
-/// 有块级后代的普通容器保留盒结构，浮动和特殊排版仍走各自路径。
+/// 有块级后代的在流容器保留盒结构，浮动和特殊排版仍走各自路径。
 bool retainsContainer(BlockNode node, ComputedStyle style) {
   const tags = {
     'div',
@@ -97,7 +97,8 @@ bool retainsContainer(BlockNode node, ComputedStyle style) {
   return (tags.contains(node.tag) || splitInlineFlow) &&
       node.children.any((child) => child is BlockNode) &&
       style.cssFloat == CssFloat.none &&
-      style.position == CssPosition.static &&
+      (style.position == CssPosition.static ||
+          style.position == CssPosition.relative) &&
       style.writingMode == CssWritingMode.horizontalTb;
 }
 
