@@ -180,6 +180,21 @@ void main() {
     );
   });
 
+  test('窄浮动标题中的连续硬换行保留全部文字', () async {
+    final page = await _page(
+      css: 'h3 { width:16.8px; float:right; padding:8px 10px 8px 2px; }',
+      body: '<h3>第一卷<br/><br/>再见当年潮</h3>',
+    );
+    final layout = page.slices.single.block.layout;
+    expect(layout.lines.every((line) => line.start >= 0), isTrue);
+    expect(
+      layout.lines
+          .map((line) => layout.text.substring(line.start, line.end))
+          .join(),
+      '第一卷再见当年潮',
+    );
+  });
+
   test('未设置阅读行高时继续保留作者的百分比继承', () async {
     _expectHeadingHeight(await _page(lineHeight: null), 27.3);
   });
