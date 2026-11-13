@@ -291,7 +291,12 @@ class _LayoutMemoryWork {
     InlineBoxPlacement() => _add(96, [value.spec]),
     InlineBoxSpec() => _add(128, [value.payload]),
     PageBlockSlice() => _add(192, [value.block]),
-    TableCellRender() => _add(256, [value.layout, value.style, value.startCfi]),
+    TableCellRender() => _add(256, [
+      value.layout,
+      value.style,
+      value.startCfi,
+      value.footnotes,
+    ]),
     StyledRun() => _add(64, [value.style]),
     _ => _background(value),
   };

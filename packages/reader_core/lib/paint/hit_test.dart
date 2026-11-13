@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import '../css/computed_style.dart';
 import '../layout/line_breaker.dart';
 import '../layout/paginator.dart';
+import '../layout/table_layout.dart' show TableCellRender;
 import 'line_spans.dart';
 
 /// 一行的页内几何（P4-14 命中测试输出；P4-15 选区手柄复用）。
@@ -274,7 +275,55 @@ abstract final class TextHitTester {
         }
       }
     }
+    return _tableFootnoteAt(page, position);
+  }
+
+  static PageFootnote? _tableFootnoteAt(PageContent page, Offset position) {
+    var flowY = page.topPadding;
+    for (final slice in page.slices) {
+      final sliceY = slice.overlay ? (slice.absoluteTop ?? flowY) : flowY;
+      final origin = Offset(
+        slice.leftInset + (slice.block.style?.margin.left ?? 0),
+        sliceY + slice.leadingExtent,
+      );
+      final local = position - origin;
+      for (final cell
+          in slice.block.table?.cells ?? const <TableCellRender>[]) {
+        if (cell.footnotes.isEmpty ||
+            !cell.rect.inflate(_footnoteHitSlop).contains(local)) {
+          continue;
+        }
+        final note = _cellFootnoteAt(cell, local - cell.textOrigin);
+        if (note != null) return note;
+      }
+      if (!slice.overlay) flowY += slice.height;
+    }
     return null;
+  }
+
+  /// 格内原点已消耗 margin、padding 和对齐，注号复用普通行的命中路径。
+  static PageFootnote? _cellFootnoteAt(TableCellRender cell, Offset position) {
+    final block = PageBlock(
+      layout: cell.layout,
+      style: cell.style.withMargins(CssEdges.zero),
+      footnotes: cell.footnotes,
+    );
+    final page = PageContent(
+      spineIndex: 0,
+      pageIndex: 0,
+      slices: [
+        PageBlockSlice(
+          block: block,
+          startLine: 0,
+          endLine: cell.layout.lineCount,
+          height: cell.layout.height,
+        ),
+      ],
+      usedHeight: cell.layout.height,
+      pageHeight: cell.layout.height,
+      topPadding: 0,
+    );
+    return footnoteAt(page, position);
   }
 
   /// 注号在页内的实际可点击矩形：普通文字按字形框，图片/空标签按行内盒。

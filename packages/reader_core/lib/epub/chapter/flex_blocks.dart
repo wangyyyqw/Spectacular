@@ -18,6 +18,7 @@ typedef _CellPosition = ({
   double top,
   double width,
   bool multipart,
+  PageContainer? container,
 });
 
 Future<void> _consume(
@@ -122,7 +123,19 @@ Future<PageBlock?> buildFlexRowBlock({
   int groupId = 0,
   Future<void> Function()? checkpoint,
 }) async {
-  final job = _FlexRowLayout(containerStyle, items, (
+  final normalized = <List<PageBlock>>[];
+  for (final item in items) {
+    // Flex 子项之间不折叠 margin；子项内部的普通块仍走正式块流折叠。
+    normalized.add(
+      commonFlexItemContainer(item) == null
+          ? item
+          : await collapseMarginsIgnoringFloatsAsync(
+              item,
+              checkpoint: checkpoint,
+            ),
+    );
+  }
+  final job = _FlexRowLayout(containerStyle, normalized, (
     container: containerWidth,
     containing: containingWidth,
     pageHeight: pageContentHeight,
@@ -141,6 +154,7 @@ class _FlexRowLayout {
   final int groupId;
   final widths = <double>[];
   final heights = <double>[];
+  final containers = <PageContainer?>[];
   List<List<int>> rows = [];
   final rowHeights = <double>[];
   final rowTops = <double>[];
@@ -176,6 +190,8 @@ class _FlexRowLayout {
   Iterable<int> _measureItems() sync* {
     for (final item in items) {
       yield 0;
+      final container = commonFlexItemContainer(item);
+      containers.add(container);
       var width = 0.0;
       var height = 0.0;
       for (final block in item) {
@@ -191,10 +207,39 @@ class _FlexRowLayout {
             block.bottomInset +
             block.spaceAfter;
       }
-      widths.add(width);
+      widths.add(_itemWidth(container, width));
       heights.add(height);
     }
   }
+
+  double _itemWidth(PageContainer? container, double measured) {
+    if (container == null) return measured;
+    final style = container.style;
+    final model = BoxModel.fromStyle(style, containingWidth: size.container);
+    if (style.flexBasisIsContent) return measured + model.horizontalInset;
+    final basis = style.flexBasis.resolve(size.container);
+    if (basis != null) {
+      return math.max(
+        0,
+        style.boxSizing == CssBoxSizing.borderBox
+            ? basis
+            : model.borderBoxWidth(basis),
+      );
+    }
+    // 保留盒的声明宽已包含 padding 与 border；auto 则仍按自然内容收缩。
+    if (style.intrinsicWidth != null ||
+        (style.width != null && !style.width!.isAuto)) {
+      return container.width;
+    }
+    return model.borderBoxWidth(
+      model.resolveContentWidth(
+        measured + model.horizontalInset + style.margin.horizontal,
+      ),
+    );
+  }
+
+  ComputedStyle? _itemStyle(int index) =>
+      containers[index]?.style ?? items[index].first.style;
 
   double _horizontalInset(PageBlock block) {
     final style = block.style;
@@ -291,12 +336,12 @@ class _FlexRowLayout {
     var total = 0.0;
     for (final index in row) {
       yield 0;
-      total += items[index].first.style?.flexGrow ?? 0;
+      total += _itemStyle(index)?.flexGrow ?? 0;
     }
     if (!(total > 0)) return;
     for (final index in row) {
       yield 0;
-      final grow = items[index].first.style?.flexGrow ?? 0;
+      final grow = _itemStyle(index)?.flexGrow ?? 0;
       widths[index] += free * grow / total;
     }
   }
@@ -305,8 +350,7 @@ class _FlexRowLayout {
     final weights = <int, double>{};
     for (final index in row) {
       yield 0;
-      weights[index] =
-          (items[index].first.style?.flexShrink ?? 1) * widths[index];
+      weights[index] = (_itemStyle(index)?.flexShrink ?? 1) * widths[index];
     }
     var total = 0.0;
     for (final weight in weights.values) {
@@ -411,6 +455,7 @@ class _FlexRowLayout {
           top: top,
           width: width,
           multipart: item.length > 1,
+          container: containers[index],
         )),
       );
       top +=
@@ -445,6 +490,9 @@ class _FlexRowLayout {
   }
 
   TableCellRender _blockCell(int row, PageBlock block, _CellPosition position) {
+    if (position.container != null) {
+      return _containedBlockCell(row, block, position);
+    }
     final style = block.style ?? this.style;
     final width = position.width;
     final declared = style.width?.resolve(width);
@@ -475,6 +523,47 @@ class _FlexRowLayout {
       layout: _cellTextLayout(block.layout, style, ownWidth),
       style: style,
       startCfi: block.startCfi,
+      footnotes: block.footnotes,
+    );
+  }
+
+  TableCellRender _containedBlockCell(
+    int row,
+    PageBlock block,
+    _CellPosition position,
+  ) {
+    final container = position.container!;
+    final style = block.style ?? container.style;
+    // 后代 margin 是章节坐标投影，转为子项局部坐标时只扣盒外的空间。
+    final leftInset = style.margin.left - container.left;
+    final rightInset =
+        style.margin.right -
+        (size.containing - container.left - container.width);
+    final available = math.max(0.0, position.width - leftInset - rightInset);
+    final parentModel = BoxModel.fromStyle(
+      container.style,
+      containingWidth: size.container,
+    );
+    final model = BoxModel.fromStyle(
+      style.withMargins(CssEdges.zero),
+      containingWidth: math.max(
+        0.0,
+        position.width - parentModel.horizontalInset,
+      ),
+    );
+    final width = model.borderBoxWidth(model.resolveContentWidth(available));
+    return TableCellRender(
+      row: row,
+      rect: Rect.fromLTWH(
+        position.left + leftInset,
+        position.top + block.topInset - model.padding.top - model.borders.top,
+        width,
+        block.height + model.verticalInset,
+      ),
+      layout: _cellTextLayout(block.layout, style, width),
+      style: style,
+      startCfi: block.startCfi,
+      footnotes: block.footnotes,
     );
   }
 

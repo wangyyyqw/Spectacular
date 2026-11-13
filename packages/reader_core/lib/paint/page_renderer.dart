@@ -505,7 +505,7 @@ class PagePainter {
       canvas.restore();
     }
     _notifyPhase(PagePaintPhase.text);
-    _paintBlockText(canvas, page, geometry, sliceIndex);
+    _paintBlockText(canvas, page, geometry, sliceIndex, context.pageRect);
     _notifyPhase(PagePaintPhase.decoration);
     _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
     _paintBlockRubies(canvas, geometry);
@@ -518,7 +518,12 @@ class PagePainter {
     PageContent page,
     Rect pageRect,
   ) {
-    _paintBackdropFilter(canvas, geometry, page, pageRect);
+    _paintBackdropFilter(
+      canvas,
+      (box: geometry.borderBox, style: geometry.style),
+      page,
+      pageRect,
+    );
     _paintBackground(
       canvas,
       geometry.containerPaintBox,
@@ -652,6 +657,7 @@ class PagePainter {
     PageContent page,
     _SliceGeometry geometry,
     int sliceIndex,
+    Rect pageRect,
   ) {
     final gallery = geometry.slice.block.gallery;
     if (gallery != null) {
@@ -663,7 +669,7 @@ class PagePainter {
     final tableSpec = geometry.slice.block.table;
     if (tableSpec != null) {
       _clipBlock(canvas, geometry, clip: true, contentClip: true, () {
-        _paintTable(canvas, geometry, tableSpec);
+        _paintTable(canvas, geometry, tableSpec, page, pageRect);
       });
       return;
     }
@@ -1755,20 +1761,20 @@ class PagePainter {
   /// 半透明装饰框，观感接近。
   void _paintBackdropFilter(
     Canvas canvas,
-    _SliceGeometry geometry,
+    ({Rect box, ComputedStyle style}) target,
     PageContent page,
     Rect pageRect,
   ) {
-    final filters = geometry.style.backdropFilters;
+    final filters = target.style.backdropFilters;
     if (filters.isEmpty) {
       return;
     }
-    final box = geometry.borderBox;
+    final box = target.box;
     if (box.width <= 0 || box.height <= 0) {
       return;
     }
     canvas.save();
-    canvas.clipRect(box);
+    canvas.clipRRect(_shadowRRect(target.style.borders, box, 0));
     var layers = 0;
     for (var i = filters.length - 1; i >= 0; i--) {
       final paint = _filterLayerPaint(filters[i]);
@@ -2254,6 +2260,8 @@ class PagePainter {
     Canvas canvas,
     _SliceGeometry geometry,
     TableRenderSpec spec,
+    PageContent page,
+    Rect pageRect,
   ) {
     final top = geometry.y + geometry.leading;
     // 表格原点与正文左缘对齐（P9-16）：列坐标是表格内的相对坐标，
@@ -2273,16 +2281,18 @@ class PagePainter {
           style.emptyCells == CssEmptyCells.hide &&
           style.borderCollapse == CssBorderCollapse.separate;
       if (!hideEmpty) {
-        // Flex 子项复用单元格绘制：图片块以背景图承载，单元格也必须走完整
-        // 背景链路，而不能只铺背景色。
-        _paintBackground(
-          canvas,
-          cellRect,
-          style,
-          startsBlock: true,
-          endsBlock: true,
-        );
-        _paintCellBorders(canvas, cellRect, style.borders);
+        if (spec.flex) {
+          _paintFlexCellBox(canvas, cellRect, style, page, pageRect);
+        } else {
+          _paintBackground(
+            canvas,
+            cellRect,
+            style,
+            startsBlock: true,
+            endsBlock: true,
+          );
+          _paintCellBorders(canvas, cellRect, style.borders);
+        }
       }
     }
     for (final cell in spec.cells) {
@@ -2296,22 +2306,7 @@ class PagePainter {
         cell.rect.width,
         cell.rect.height,
       );
-      final borders = style.borders;
-      final leftInset = style.padding.left + borders.left.width;
-      final topInset = style.padding.top + borders.top.width;
-      final bottomInset = style.padding.bottom + borders.bottom.width;
-      final innerHeight = math.max(
-        0.0,
-        cell.rect.height - topInset - bottomInset,
-      );
-      final textHeight = cell.layout.height;
-      // 垂直对齐（P9-16）：书籍大量使用 td { vertical-align: top/middle }。
-      final freeSpace = math.max(0.0, innerHeight - textHeight);
-      final alignOffset = switch (style.verticalAlign) {
-        CssVerticalAlign.middle => freeSpace / 2,
-        CssVerticalAlign.bottom => freeSpace,
-        _ => 0.0,
-      };
+      final textOrigin = cell.textOrigin.translate(left, top);
       // 单元格文字同样走主题色策略（P9-23）：书籍没显式声明颜色的格
       // （如 RANK 标签）此前用初始黑色，深色底上直接看不见。
       final textStyleBase = TextLayoutEngine.textStyleFor(style);
@@ -2319,7 +2314,7 @@ class PagePainter {
       final textStyle = override == null
           ? textStyleBase
           : textStyleBase.copyWith(color: override);
-      var lineY = top + cell.rect.top + topInset + alignOffset;
+      var lineY = textOrigin.dy;
       canvas.save();
       canvas.clipRect(cellRect);
       if (cell.layout.isVertical) {
@@ -2329,7 +2324,7 @@ class PagePainter {
           cell.layout,
           style,
           textColorOverride: override,
-          contentLeft: cellRect.left + leftInset,
+          contentLeft: textOrigin.dx,
           contentTop: lineY,
           startLine: 0,
           endLine: cell.layout.lineCount,
@@ -2368,7 +2363,7 @@ class PagePainter {
               );
           final textY =
               lineY + textLineBaselineOffset(cell.layout, line, painter);
-          final contentLeft = left + cell.rect.left + leftInset;
+          final contentLeft = textOrigin.dx;
           // 水平对齐已在排版阶段写入 LineBox.offsetX。绘制器按无限宽重排
           // 后，painter.width 不再代表单元格可用宽度，不能据此二次居中。
           final x = contentLeft + line.offsetX;
@@ -2409,6 +2404,25 @@ class PagePainter {
         lineY += line.height;
       }
       canvas.restore();
+    }
+  }
+
+  /// Flex 子项保留普通盒的装饰；真实表格仍沿用单元格边框规则。
+  void _paintFlexCellBox(
+    Canvas canvas,
+    Rect rect,
+    ComputedStyle style,
+    PageContent page,
+    Rect pageRect,
+  ) {
+    _paintOuterShadow(canvas, rect, style);
+    _paintBackdropFilter(canvas, (box: rect, style: style), page, pageRect);
+    _paintBackground(canvas, rect, style, startsBlock: true, endsBlock: true);
+    _paintInnerShadow(canvas, rect, style);
+    if (style.borderImage != null) {
+      _paintBorderImage(canvas, rect, style);
+    } else {
+      _paintBorders(canvas, rect, style, fragment: (starts: true, ends: true));
     }
   }
 

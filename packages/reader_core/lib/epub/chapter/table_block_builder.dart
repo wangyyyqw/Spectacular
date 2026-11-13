@@ -917,6 +917,7 @@ class _TableBuild {
           layout: cell.layout,
           style: cell.style,
           startCfi: cell.startCfi,
+          footnotes: cell.footnotes,
         ),
       );
     }
