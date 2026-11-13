@@ -86,9 +86,17 @@ extension _ReaderGalleryController on _ReaderPageState {
 
   bool _handleGalleryTap(PageContent page, Offset position) {
     for (final region in galleryRegionsOf(page)) {
-      if (!region.rect.contains(position)) continue;
+      final gallery = region.gallery;
+      if (!_canPreviewGallery(gallery)) continue;
+      final imageRect = galleryImageRectOf(
+        gallery,
+        _galleryFrameOf(gallery),
+        contentOrigin: region.rect.topLeft,
+        containingWidth: _paperContentWidth,
+      );
+      if (imageRect == null || !imageRect.contains(position)) continue;
       _clearSelection();
-      unawaited(_previewGallery(region.gallery));
+      unawaited(_previewGallery(gallery));
       return true;
     }
     return false;

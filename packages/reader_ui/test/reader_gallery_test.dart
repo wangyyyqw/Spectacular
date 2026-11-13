@@ -5,6 +5,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/image_gallery.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/gallery/reader_gallery_controls.dart';
 import 'package:reader_ui/image_preview_page.dart';
@@ -258,7 +259,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('预取仅覆盖当前与相邻帧，边缘点按预览当前主图且不触发正文翻页', (tester) async {
+  testWidgets('预取仅覆盖当前与相邻帧，点按主图预览当前帧且不触发正文翻页', (tester) async {
     final requested = <String>[];
     final cache = DecodedImageCache(
       loadBytes: (url) async {
@@ -272,8 +273,16 @@ void main() {
     expect(requested, isNot(contains('image://2')));
     await _swipe(tester, -200);
     expect(requested, contains('image://2'));
-    final origin = tester.getTopLeft(find.byType(ReaderGalleryControls));
-    await tester.tapAt(origin + const Offset(10, 30));
+    final page = session.page!;
+    final region = galleryRegionsOf(page).single;
+    final imageRect = galleryImageRectOf(
+      region.gallery,
+      1,
+      contentOrigin: region.rect.topLeft,
+      containingWidth: 760,
+    )!;
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    await tester.tapAt(origin + const Offset(20, 30) + imageRect.center);
     await tester.pumpAndSettle();
     expect(find.byType(ImagePreviewPage), findsOneWidget);
     expect(requested.last, 'image://1');
@@ -282,6 +291,39 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('preview-close')));
     await tester.pumpAndSettle();
     expect(find.text('2 / 3'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('点按图注只走正文点击，不打开图片预览', (tester) async {
+    final cache = DecodedImageCache(loadBytes: (_) async => null);
+    addTearDown(cache.clear);
+    final session = await _show(tester, _Source(), cache: cache);
+    final region = galleryRegionsOf(session.page!).single;
+    final gallery = region.gallery;
+    final caption = TextHitTester.lineBoxes(gallery.frames.first.content)
+        .firstWhere((line) => line.text.trim() == '主标题 1');
+    final captionPoint = Offset(
+      region.rect.left +
+          gallery.width * (1 - gallery.scale) / 2 +
+          (caption.rect.center.dx - gallery.left) * gallery.scale,
+      region.rect.top + caption.rect.center.dy * gallery.scale,
+    );
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    await tester.tapAt(origin + const Offset(20, 30) + captionPoint);
+    await tester.pumpAndSettle();
+    expect(find.byType(ImagePreviewPage), findsNothing);
+    expect(session.page!.pageIndex, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('点按帧序号只走正文点击，不打开图片预览', (tester) async {
+    final cache = DecodedImageCache(loadBytes: (_) async => null);
+    addTearDown(cache.clear);
+    final session = await _show(tester, _Source(), cache: cache);
+    await tester.tap(find.text('1 / 3'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ImagePreviewPage), findsNothing);
+    expect(session.page!.pageIndex, 0);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

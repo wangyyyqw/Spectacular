@@ -48,6 +48,37 @@ PageBlock _block({String visibility = 'visible'}) {
   );
 }
 
+PageGalleryFrame _imageFrame(int cell, String imageUrl) {
+  final style = ComputedStyle({
+    'width': '80px',
+    'height': '60px',
+    'margin-left': '10px',
+    'background-image': 'url($imageUrl)',
+  });
+  final block = PageBlock.styled(
+    layout: TextLayoutResult(
+      text: '',
+      lines: const [
+        LineBox(start: 0, end: 0, top: 0, height: 60, baseline: 60, width: 80),
+      ],
+      width: 80,
+      height: 60,
+      maxWidth: 80,
+    ),
+    style: style,
+    containingWidth: 100,
+    isReplaced: true,
+  );
+  return PageGalleryFrame(
+    cfi: 'epubcfi(/6/2!/4/2/$cell)',
+    imageUrl: imageUrl,
+    content: Paginator(pageHeight: 100)
+        .measureChapter(blocks: [block])
+        .pages
+        .single,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -85,5 +116,27 @@ void main() {
       expect(page.slices.single.block.gallery, isNotNull);
       expect(galleryRegionsOf(page), isEmpty);
     }
+  });
+
+  test('主图命中矩形跟随帧缩放，不包含画廊题注与序号空间', () {
+    final gallery = PageGallery(
+      cfi: 'epubcfi(/6/2!/4/2)',
+      frames: [_imageFrame(2, 'image://2'), _imageFrame(20, 'image://20')],
+      left: 10,
+      width: 80,
+      height: 84,
+      scale: 0.5,
+      indicatorExtent: 24,
+    );
+
+    expect(
+      galleryImageRectOf(
+        gallery,
+        1,
+        contentOrigin: const Offset(12, 17),
+        containingWidth: 100,
+      ),
+      const Rect.fromLTWH(32, 17, 40, 30),
+    );
   });
 }

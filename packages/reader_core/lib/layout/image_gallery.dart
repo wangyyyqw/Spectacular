@@ -1,7 +1,8 @@
-import 'dart:ui' show Rect;
+import 'dart:ui' show Offset, Rect;
 
 import '../css/computed_style.dart';
 import '../position/cfi.dart';
+import 'box_model.dart';
 import 'paginator.dart';
 
 /// 多看画廊的一帧；继续使用正文的排版与绘制载荷。
@@ -122,4 +123,94 @@ Iterable<PageGalleryRegion> galleryRegionsOf(PageContent page) sync* {
     }
     if (!slice.overlay) y += slice.height;
   }
+}
+
+/// 当前画廊帧主图在页内坐标中的可见矩形。
+///
+/// [contentOrigin] 和 [containingWidth] 必须与绘制正文时使用的内容区左上角、
+/// 内容宽度一致。命中只覆盖主图元素，不包含题注、序号或画廊留白。
+Rect? galleryImageRectOf(
+  PageGallery gallery,
+  int frameIndex, {
+  required Offset contentOrigin,
+  required double containingWidth,
+}) {
+  if (gallery.frames.isEmpty ||
+      gallery.scale <= 0 ||
+      gallery.contentHeight <= 0 ||
+      containingWidth <= 0) {
+    return null;
+  }
+  final index = frameIndex.clamp(0, gallery.frames.length - 1);
+  final frame = gallery.frames[index];
+  final imageUrl = frame.imageUrl;
+  if (imageUrl == null) return null;
+
+  final imageBox = _galleryImageBox(frame.content, imageUrl, containingWidth);
+  if (imageBox == null || imageBox.isEmpty) return null;
+
+  final scale = gallery.scale;
+  final frameLeft =
+      contentOrigin.dx +
+      gallery.width * (1 - scale) / 2 +
+      (imageBox.left - gallery.left) * scale;
+  final frameTop = contentOrigin.dy + imageBox.top * scale;
+  final rect = Rect.fromLTWH(
+    frameLeft,
+    frameTop,
+    imageBox.width * scale,
+    imageBox.height * scale,
+  );
+  return rect.intersect(
+    Rect.fromLTWH(
+      contentOrigin.dx,
+      contentOrigin.dy,
+      gallery.width,
+      gallery.contentHeight,
+    ),
+  );
+}
+
+Rect? _galleryImageBox(
+  PageContent page,
+  String imageUrl,
+  double containingWidth,
+) {
+  var y = page.topPadding;
+  for (final slice in page.slices) {
+    final top = slice.overlay ? (slice.absoluteTop ?? y) : y;
+    if (!slice.overlay) y += slice.height;
+    final block = slice.block;
+    final style = block.style;
+    if (style == null ||
+        style.backgroundImage != imageUrl ||
+        style.visibility != CssVisibility.visible ||
+        block.effectiveOpacity <= 0 ||
+        block.gallery != null) {
+      continue;
+    }
+
+    final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
+    final borders = style.borders;
+    final ownTop = block.containers.isEmpty
+        ? block.topInset
+        : style.padding.top + (borders.top.isVisible ? borders.top.width : 0);
+    final ownBottom = block.containers.isEmpty
+        ? block.bottomInset
+        : style.padding.bottom +
+              (borders.bottom.isVisible ? borders.bottom.width : 0);
+    final boxTop = slice.leadingExtent != 0
+        ? top + slice.leadingExtent - ownTop
+        : top;
+    final boxBottom = slice.trailingExtent != 0
+        ? top + slice.height - slice.trailingExtent + ownBottom
+        : top + slice.height;
+    final boxLeft = slice.overlay
+        ? slice.leftInset + style.margin.left
+        : style.margin.left;
+    final boxWidth =
+        model.resolveContentWidth(containingWidth) + model.horizontalInset;
+    return Rect.fromLTRB(boxLeft, boxTop, boxLeft + boxWidth, boxBottom);
+  }
+  return null;
 }
