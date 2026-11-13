@@ -51,7 +51,7 @@ Future<Uint8List> _banner() async {
   }
 }
 
-Future<Uint8List> _epub(String extraCss) async => auditZip({
+Future<Uint8List> _epub(String extraCss, {String? body}) async => auditZip({
   'mimetype': 'application/epub+zip',
   'META-INF/container.xml':
       '<container><rootfiles><rootfile full-path="book.opf"/>'
@@ -67,17 +67,20 @@ Future<Uint8List> _epub(String extraCss) async => auditZip({
       '</manifest><spine><itemref idref="c"/></spine></package>',
   'c.xhtml':
       '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
-      '<style>$_css $extraCss</style></head><body><h1>'
-      '<img src="banner.png"/><div class="number">ABC</div>'
-      '<div class="name"><span>DEFG</span></div></h1></body></html>',
+      '<style>$_css $extraCss</style></head><body>'
+      '${body ?? '<h1><img src="banner.png"/><div class="number">ABC</div>'
+              '<div class="name"><span>DEFG</span></div></h1>'}'
+      '</body></html>',
   'banner.png': await _banner(),
 });
 
 Future<({PageContent page, ByteData pixels})> _render({
   String extraCss = '',
+  String? body,
+  int pageIndex = 0,
 }) async {
   final source = await const EpubFormatOpener().openBytes(
-    await _epub(extraCss),
+    await _epub(extraCss, body: body),
     options: ReaderOpenOptions(
       contentWidth: _pageSize.width - _insets.horizontal,
       contentHeight: _pageSize.height - _insets.vertical,
@@ -93,7 +96,7 @@ Future<({PageContent page, ByteData pixels})> _render({
     topInset: _insets.top,
     sideInsets: (left: _insets.left, right: _insets.right),
   );
-  final page = (await source.loadChapter(0)).single;
+  final page = (await source.loadChapter(0))[pageIndex];
   final cache = DecodedImageCache(loadBytes: source.readImageBytes);
   addTearDown(cache.clear);
   await cache.load('banner.png', displayWidth: _pageSize.width);
@@ -121,18 +124,18 @@ Future<ByteData> _paint(PageContent page, DecodedImageCache cache) async {
 int _pixel(ByteData pixels, int x, int y) =>
     pixels.getUint32((y * _width + x) * 4);
 
-Rect _blueBounds(ByteData pixels) {
+Rect _colorBounds(ByteData pixels, int color) {
   var left = _width, top = _height, right = -1, bottom = -1;
   for (var y = 0; y < _height; y++) {
     for (var x = 0; x < _width; x++) {
-      if (_pixel(pixels, x, y) != _blue) continue;
+      if (_pixel(pixels, x, y) != color) continue;
       if (x < left) left = x;
       if (y < top) top = y;
       if (x > right) right = x;
       if (y > bottom) bottom = y;
     }
   }
-  expect(right, greaterThanOrEqualTo(left), reason: '作者背景必须实际绘制');
+  expect(right, greaterThanOrEqualTo(left), reason: '目标颜色必须实际绘制');
   return Rect.fromLTRB(
     left.toDouble(),
     top.toDouble(),
@@ -144,6 +147,37 @@ Rect _blueBounds(ByteData pixels) {
 PageBlock _number(PageContent page) =>
     page.slices.singleWhere((slice) => slice.block.layout.text == 'ABC').block;
 
+void _expectFlowImage(PageContent page, ByteData pixels) {
+  final imageIndex = page.slices.indexWhere((slice) => slice.block.isReplaced);
+  final slice = page.slices[imageIndex];
+  expect(slice.block.bleedTop, isTrue, reason: '保留作者的出血声明');
+  final flowTop =
+      page.slices
+          .take(imageIndex)
+          .fold(
+            page.topPadding,
+            (double y, previous) =>
+                y + (previous.overlay ? 0 : previous.height),
+          ) +
+      slice.leadingExtent;
+  final bounds = _colorBounds(pixels, 0x00aa00ff);
+  expect(bounds.top / _ratio, closeTo(_insets.top + flowTop, 1));
+  expect(
+    bounds.top / _ratio,
+    greaterThanOrEqualTo(_insets.top),
+    reason: '分隔图不进入页眉槽',
+  );
+  expect(bounds.width / _ratio, closeTo(_pageSize.width * 0.2, 1));
+  expect(bounds.center.dx / _ratio, closeTo(_pageSize.width / 2, 1));
+  final hit = page.hitTest(
+    Offset(
+      bounds.center.dx / _ratio - _insets.left,
+      bounds.center.dy / _ratio - _insets.top,
+    ),
+  );
+  expect(hit?.slice.block, same(slice.block), reason: '图片绘制与命中位置一致');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -154,7 +188,7 @@ void main() {
     expect(number.bleedRight, isFalse);
     expect(number.bleedTop, isFalse);
     expect(number.style!.borders.left.isVisible, isTrue);
-    final bounds = _blueBounds(result.pixels);
+    final bounds = _colorBounds(result.pixels, _blue);
     expect(bounds.width / _ratio, lessThan(60));
     expect(bounds.center.dx / _ratio, closeTo(_pageSize.width / 2, 1));
     expect(_pixel(result.pixels, 5, bounds.center.dy.round()), _background);
@@ -181,6 +215,32 @@ void main() {
     expect(number.bleedLeft, isTrue);
     expect(number.bleedRight, isTrue);
     expect(number.bleedTop, isFalse);
-    expect(_blueBounds(result.pixels).width / _ratio, greaterThan(375));
+    expect(_colorBounds(result.pixels, _blue).width / _ratio, greaterThan(375));
   });
+
+  for (final scenario in [
+    (pageIndex: 0, leadingText: true),
+    (pageIndex: 7, leadingText: true),
+    (pageIndex: 7, leadingText: false),
+  ]) {
+    test('第 ${scenario.pageIndex + 1} 页正文分隔图不贴页顶（前有正文：${scenario.leadingText}）', () async {
+      final result = await _render(
+        pageIndex: scenario.pageIndex,
+        body:
+            '${List.filled(scenario.pageIndex, '<p class="page">前页正文</p>').join()}'
+            '${scenario.leadingText ? '<p>分隔图前文</p>' : ''}'
+            '<div class="divider"><img src="banner.png"/></div>'
+            '<p>分隔图后文</p>',
+        extraCss:
+            'p { margin:0; } .page { page-break-after:always; }'
+            '.divider { margin:0; text-align:center; text-indent:0; '
+            'duokan-text-indent:0; duokan-bleed:lefttopright; }'
+            '.divider img { width:20%; }',
+      );
+      final page = result.page;
+      expect(page.pageIndex, scenario.pageIndex);
+      expect(page.topPadding, 0);
+      _expectFlowImage(page, result.pixels);
+    });
+  }
 }
