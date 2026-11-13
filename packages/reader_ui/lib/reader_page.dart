@@ -310,6 +310,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late PagePainter _painter = _buildPainter();
   final Map<String, ({int index, String? anchor, int generation})>
   _gallerySelections = {};
+  final _galleryPositions = <String, double>{};
+  final _galleryRepaint = ValueNotifier(0);
 
   /// 当前排版设置（P4-21：设置面板可改，初始来自 widget.overrides）。
   late ReaderOverrides _overrides;
@@ -480,6 +482,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       textOverlays: _textOverlays,
       beforeBlockText: _paintDecorationsBeforeText,
       galleryFrameOf: _galleryFrameOf,
+      galleryPositionOf: (gallery) => _galleryPositions[gallery.cfi],
     );
   }
 
@@ -2188,6 +2191,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _session.flushProgress().ignore();
     _session.cancelPendingLoads();
     _session.dispose();
+    _galleryRepaint.dispose();
     final source = widget.source;
     if (source is PreparedChapterSource) source.setChapterPreparer(null);
     if (_ownsParagraphCache) {
@@ -2837,6 +2841,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             painter: _painter,
             imageRevision: _imageRevision,
             pageInsets: _bodyPadding(),
+            repaint: _galleryRepaint,
           ),
         ),
         if (_resolvedAnnotations.isNotEmpty || _tempHighlight != null)
@@ -2873,6 +2878,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               page: page,
               painter: _painter,
               imageRevision: _imageRevision,
+              repaint: _galleryRepaint,
             ),
           ),
         ),
@@ -2948,6 +2954,7 @@ class _ReaderPageCustomPainter extends CustomPainter {
     required this.painter,
     required this.imageRevision,
     this.pageInsets = EdgeInsets.zero,
+    super.repaint,
   });
 
   final PageContent page;

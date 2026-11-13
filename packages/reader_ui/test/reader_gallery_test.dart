@@ -9,6 +9,7 @@ import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_ui/gallery/reader_gallery_controls.dart';
 import 'package:reader_ui/image_preview_page.dart';
+import 'package:reader_ui/paging/continuous_scroll_view.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -143,6 +144,7 @@ Future<ReaderSession> _show(
   _Source source, {
   PageTurnMode mode = PageTurnMode.none,
   DecodedImageCache? cache,
+  bool inkMode = false,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -154,6 +156,7 @@ Future<ReaderSession> _show(
         padding: const EdgeInsets.fromLTRB(20, 30, 20, 30),
         showPageFooter: false,
         pageTurnMode: mode,
+        inkMode: inkMode,
         imageCache: cache,
         onSessionReady: (value) => session = value,
       ),
@@ -217,6 +220,128 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('连续滚动模式下图内纵滑继续滚正文，不被画廊抢占', (tester) async {
+    final source = _Source();
+    final gallery = source.pages.first.slices.single.block;
+    source.pages
+      ..clear()
+      ..addAll(
+        Paginator(pageHeight: 500)
+            .measureChapter(
+              blocks: [
+                gallery,
+                _textBlock(
+                  List.filled(180, '连续正文').join(' '),
+                  ComputedStyle({'font-size': '16px'}),
+                  'epubcfi(/6/2!/4/6/1:0)',
+                ),
+              ],
+            )
+            .pages,
+      );
+    await _show(tester, source, mode: PageTurnMode.scroll);
+    final scrollable = find
+        .descendant(
+          of: find.byType(ContinuousScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.maxScrollExtent, greaterThan(100));
+    await tester.drag(
+      find.byType(ReaderGalleryControls).first,
+      const Offset(0, -60),
+    );
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+    expect(find.text('1 / 3'), findsOneWidget);
+    expect(find.byType(ImagePreviewPage), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('短拖回弹和反向拖回不提交分帧，也不改变正文位置', (tester) async {
+    final source = _Source();
+    final session = await _show(tester, source);
+    final cfi = session.currentCfi;
+    final loads = source.loads;
+    final controls = find.byType(ReaderGalleryControls);
+    final pager = tester
+        .widget<PageView>(
+          find.descendant(of: controls, matching: find.byType(PageView)),
+        )
+        .controller!;
+    for (final reverse in [false, true]) {
+      final gesture = await tester.startGesture(tester.getCenter(controls));
+      await gesture.moveBy(const Offset(-30, 0));
+      await gesture.moveBy(const Offset(-50, 0));
+      await tester.pump();
+      final position = pager.page!;
+      expect(position, inExclusiveRange(0, 0.5));
+      expect(find.text('1 / 3'), findsOneWidget);
+      if (reverse) {
+        await gesture.moveBy(const Offset(30, 0));
+        await tester.pump();
+        expect(pager.page, lessThan(position));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(pager.page, closeTo(0, 0.001));
+      expect(find.text('1 / 3'), findsOneWidget);
+    }
+    expect(session.page!.pageIndex, 0);
+    expect(session.currentCfi, cfi);
+    expect(source.loads, loads);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('正文首尾拖动位置保留越界值，结束后清理瞬时绘制位置', (tester) async {
+    final positions = <double?>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 240,
+          height: 160,
+          child: ReaderGalleryControls(
+            gallery: _galleryPage().slices.single.block.gallery!,
+            index: 0,
+            foreground: Colors.black,
+            onChanged: (_) => fail('首帧回弹不应切图'),
+            onPositionChanged: positions.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(ReaderGalleryControls)),
+    );
+    await gesture.moveBy(const Offset(30, 0));
+    await gesture.moveBy(const Offset(50, 0));
+    await tester.pump();
+    expect(positions.whereType<double>(), contains(isNegative));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(positions.last, isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('墨水模式下横滑即时切帧，不创建分页动画或翻正文页', (tester) async {
+    final session = await _show(tester, _Source(), inkMode: true);
+    final cfi = session.currentCfi;
+    expect(
+      find.descendant(
+        of: find.byType(ReaderGalleryControls),
+        matching: find.byType(PageView),
+      ),
+      findsNothing,
+    );
+    await _swipe(tester, -200);
+    expect(find.text('2 / 3'), findsOneWidget);
+    expect(session.page!.pageIndex, 0);
+    expect(session.currentCfi, cfi);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('跳到未显示帧的题注 CFI 时仍定位到画廊页并显示对应分帧', (tester) async {
     final session = await _show(tester, _Source());
     const target = 'epubcfi(/6/2!/4/2/6/4/1:0)';
@@ -259,7 +384,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('预取仅覆盖当前与相邻帧，点按主图预览当前帧且不触发正文翻页', (tester) async {
+  testWidgets('预取仅覆盖当前与相邻帧，全屏切图返回后同步分帧且不翻正文页', (tester) async {
     final requested = <String>[];
     final cache = DecodedImageCache(
       loadBytes: (url) async {
@@ -269,6 +394,7 @@ void main() {
     );
     addTearDown(cache.clear);
     final session = await _show(tester, _Source(), cache: cache);
+    final cfi = session.currentCfi;
     expect(requested, containsAll(['image://0', 'image://1']));
     expect(requested, isNot(contains('image://2')));
     await _swipe(tester, -200);
@@ -282,15 +408,26 @@ void main() {
       containingWidth: 760,
     )!;
     final origin = tester.getTopLeft(find.byType(ReaderView));
+    final beforePreview = requested.length;
     await tester.tapAt(origin + const Offset(20, 30) + imageRect.center);
     await tester.pumpAndSettle();
     expect(find.byType(ImagePreviewPage), findsOneWidget);
-    expect(requested.last, 'image://1');
+    expect(requested.skip(beforePreview), contains('image://1'));
     expect(find.text('图片无法加载'), findsOneWidget);
-    expect(session.page!.pageIndex, 0);
-    await tester.tap(find.byKey(const ValueKey('preview-close')));
+    final thirdLoads = requested.where((url) => url == 'image://2').length;
+    await tester.tap(find.byTooltip('下一张'));
     await tester.pumpAndSettle();
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(find.text('3 / 3'), findsOneWidget);
+    expect(
+      requested.where((url) => url == 'image://2').length,
+      greaterThan(thirdLoads),
+      reason: '第三帧被选中后才加载它的原图',
+    );
+    expect(session.page!.pageIndex, 0);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('3 / 3'), findsOneWidget);
+    expect(session.currentCfi, cfi);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

@@ -82,10 +82,16 @@ PageBlock _block(ComputedStyle style, double height, {PageGallery? gallery}) =>
       gallery: gallery,
     );
 
-Future<ByteData> _render(PageContent page, {int? index}) async {
+Future<ByteData> _render(
+  PageContent page, {
+  int? index,
+  double? position,
+}) async {
   final recorder = ui.PictureRecorder();
-  PagePainter(galleryFrameOf: index == null ? null : (_) => index)
-      .paint(ui.Canvas(recorder), page, pageSize: const Size(100, 100));
+  PagePainter(
+    galleryFrameOf: index == null ? null : (_) => index,
+    galleryPositionOf: position == null ? null : (_) => position,
+  ).paint(ui.Canvas(recorder), page, pageSize: const Size(100, 100));
   final picture = recorder.endRecording();
   final image = picture.toImageSync(100, 100);
   try {
@@ -122,5 +128,31 @@ void main() {
   test('画廊与分帧透明度各合成一次，避免重复变淡', () async {
     final pixels = await _render(_page(opacity: 0.5, frameOpacity: 0.4));
     expect(_pixel(pixels, 40, 20), [255, 204, 204, 255]);
+  });
+
+  test('拖动连续绘制相邻帧，帧内缩放与画廊裁切保持作者尺寸', () async {
+    final pixels = await _render(_page(), position: 0.5);
+    expect(_pixel(pixels, 20, 20), [255, 0, 0, 255]);
+    expect(_pixel(pixels, 70, 20), [0, 255, 0, 255]);
+    expect(_pixel(pixels, 5, 20), [255, 255, 255, 255]);
+    expect(_pixel(pixels, 40, 70), [255, 255, 255, 255]);
+    final scaled = await _render(_page(scale: 0.5), position: 0.5);
+    expect(_pixel(scaled, 20, 20), [255, 0, 0, 255]);
+    expect(_pixel(scaled, 80, 20), [0, 255, 0, 255]);
+    expect(_pixel(scaled, 50, 20), [255, 255, 255, 255]);
+  });
+
+  test('首尾拖动只露出纸底，无效位置回退静态帧，整数位置与切帧一致', () async {
+    final start = await _render(_page(), position: -0.25);
+    expect(_pixel(start, 15, 20), [255, 255, 255, 255]);
+    expect(_pixel(start, 40, 20), [255, 0, 0, 255]);
+    final end = await _render(_page(), position: 1.25);
+    expect(_pixel(end, 75, 20), [255, 255, 255, 255]);
+    expect(_pixel(end, 40, 20), [0, 255, 0, 255]);
+    final settled = await _render(_page(), position: 1);
+    final resting = await _render(_page(), index: 1);
+    expect(settled.buffer.asUint8List(), resting.buffer.asUint8List());
+    final invalid = await _render(_page(), index: 1, position: double.nan);
+    expect(invalid.buffer.asUint8List(), resting.buffer.asUint8List());
   });
 }

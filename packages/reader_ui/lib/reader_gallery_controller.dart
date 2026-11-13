@@ -54,6 +54,18 @@ extension _ReaderGalleryController on _ReaderPageState {
     unawaited(_prefetchPageImages(page, _paperContentWidth));
   }
 
+  void _setGalleryPosition(PageGallery gallery, double? position) {
+    if (!mounted || _galleryPositions[gallery.cfi] == position) return;
+    if (position == null) {
+      _galleryPositions.remove(gallery.cfi);
+      // 松手后使翻页快照失效，不保留拖动过程中的半帧画面。
+      _changeReaderState(() => _painter = _buildPainter());
+    } else {
+      _galleryPositions[gallery.cfi] = position;
+    }
+    _galleryRepaint.value++;
+  }
+
   List<Widget> _galleryLayers(
     PageContent page, {
     EdgeInsets padding = EdgeInsets.zero,
@@ -72,8 +84,11 @@ extension _ReaderGalleryController on _ReaderPageState {
               _effectiveTheme?.text ?? Theme.of(context).colorScheme.onSurface,
           onChanged: (index) =>
               _selectGalleryFrame(page, region.gallery, index),
+          onPositionChanged: (position) =>
+              _setGalleryPosition(region.gallery, position),
+          animate: !_inkMode,
           onPreview: _canPreviewGallery(region.gallery)
-              ? () => unawaited(_previewGallery(region.gallery))
+              ? () => unawaited(_previewGallery(page, region.gallery))
               : null,
         ),
       ),
@@ -96,39 +111,65 @@ extension _ReaderGalleryController on _ReaderPageState {
       );
       if (imageRect == null || !imageRect.contains(position)) continue;
       _clearSelection();
-      unawaited(_previewGallery(gallery));
+      unawaited(_previewGallery(page, gallery));
       return true;
     }
     return false;
   }
 
-  Future<void> _previewGallery(PageGallery gallery) async {
+  Future<void> _previewGallery(PageContent page, PageGallery gallery) async {
     if (gallery.frames.isEmpty) return;
     final cache = widget.imageCache;
-    final url = gallery.frames[_galleryFrameOf(gallery)].imageUrl;
-    if (cache == null || url == null || !mounted) return;
-    // 缩略图克隆句柄与独立原图缓存由本次预览释放，不受正文 LRU 淘汰影响。
-    final thumbnail = cache.lookup(url)?.clone();
+    if (cache == null || !mounted) return;
+    var index = _galleryFrameOf(gallery);
+    final generation = _session.generation;
     final originals = DecodedImageCache(
       loadBytes: cache.loadBytes,
       maxEntries: 1,
     );
+    final items = _galleryPreviewItems(gallery, cache, originals);
     try {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
-          builder: (_) => ImagePreviewPage(
-            thumbnail: thumbnail,
-            loadOriginal: () => originals.load(
-              url,
-              displayWidth: gallery.width,
-              fullResolution: true,
-            ),
+          builder: (_) => ImagePreviewPage.gallery(
+            items: items,
+            initialIndex: index,
+            animate: !_inkMode,
+            onChanged: (selected) {
+              index = selected;
+              // 旧请求失效，当前帧由预览克隆持有；不在原图缓存里累积帧。
+              originals.clear();
+            },
           ),
         ),
       );
     } finally {
       originals.clear();
-      thumbnail?.dispose();
+    }
+    if (mounted && _session.generation == generation) {
+      _selectGalleryFrame(page, gallery, index);
     }
   }
+
+  List<ImagePreviewItem> _galleryPreviewItems(
+    PageGallery gallery,
+    DecodedImageCache thumbnails,
+    DecodedImageCache originals,
+  ) => [
+    for (final frame in gallery.frames)
+      ImagePreviewItem(
+        thumbnail: () =>
+            frame.imageUrl == null ? null : thumbnails.lookup(frame.imageUrl!),
+        loadThumbnail: () async => frame.imageUrl == null
+            ? null
+            : thumbnails.load(frame.imageUrl!, displayWidth: gallery.width),
+        loadOriginal: () async => frame.imageUrl == null
+            ? null
+            : originals.load(
+                frame.imageUrl!,
+                displayWidth: gallery.width,
+                fullResolution: true,
+              ),
+      ),
+  ];
 }

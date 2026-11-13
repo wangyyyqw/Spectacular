@@ -91,6 +91,7 @@ class PagePainter {
     this.textOverlays = const [],
     this.beforeBlockText,
     this.galleryFrameOf,
+    this.galleryPositionOf,
   });
 
   /// 页面背景色。
@@ -155,6 +156,9 @@ class PagePainter {
 
   /// UI 提供画廊当前帧；缺省显示第一帧，不改动排版结果。
   final int Function(PageGallery gallery)? galleryFrameOf;
+
+  /// 拖动中的连续帧位置；仅影响绘制，整数位置与静态帧一致。
+  final double? Function(PageGallery gallery)? galleryPositionOf;
 
   /// 只绘制阅读主题的纸底，供卷页背面的背景纹理复用。
   void paintBackground(
@@ -830,17 +834,52 @@ class PagePainter {
         gallery.contentHeight <= 0) {
       return;
     }
-    final index = (galleryFrameOf?.call(gallery) ?? 0).clamp(
+    final selected = (galleryFrameOf?.call(gallery) ?? 0).clamp(
       0,
       gallery.frames.length - 1,
     );
+    final requested = galleryPositionOf?.call(gallery);
+    final position = requested != null && requested.isFinite
+        ? requested.clamp(-1.0, gallery.frames.length.toDouble())
+        : selected.toDouble();
+    final index = position.floor().clamp(0, gallery.frames.length - 1);
+    final offset = (index - position) * gallery.width;
     final top = geometry.y + geometry.leading;
-    final left = gallery.left + gallery.width * (1 - gallery.scale) / 2;
     canvas.save();
     canvas.clipRect(
       Rect.fromLTWH(gallery.left, top, gallery.width, gallery.contentHeight),
     );
-    canvas.translate(left, top);
+    _paintGalleryAt(canvas, geometry, gallery, index, Offset(offset, top));
+    if (offset < 0 && index + 1 < gallery.frames.length) {
+      _paintGalleryAt(
+        canvas,
+        geometry,
+        gallery,
+        index + 1,
+        Offset(offset + gallery.width, top),
+      );
+    }
+    canvas.restore();
+  }
+
+  void _paintGalleryAt(
+    Canvas canvas,
+    _SliceGeometry geometry,
+    PageGallery gallery,
+    int index,
+    Offset position,
+  ) {
+    final left = gallery.left + gallery.width * (1 - gallery.scale) / 2;
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(
+        gallery.left + position.dx,
+        position.dy,
+        gallery.width,
+        gallery.contentHeight,
+      ),
+    );
+    canvas.translate(left + position.dx, position.dy);
     canvas.scale(gallery.scale);
     canvas.translate(-gallery.left, 0);
     _paintGalleryFrame(canvas, geometry, gallery.frames[index].content);
