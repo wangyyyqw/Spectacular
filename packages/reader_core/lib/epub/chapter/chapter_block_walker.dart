@@ -79,12 +79,21 @@ class ChapterBlockWalker {
     final view = styles.selectorViewOf(node);
     final chain = [...ancestors, view];
     if (styles.chainStyle(chain).display == CssDisplay.none) return;
-    if (await _specialBlock(node, position, ancestors, chain)) return;
+    final isRoot = identical(node, root);
+    if (await _specialBlock(
+      node,
+      position,
+      ancestors,
+      chain,
+      isBodyRoot: isRoot && node.tag == 'body',
+    )) {
+      return;
+    }
     if (node is PromotedBlockNode) {
       await _promoteTypography(node, position.ancestors, view);
     }
     final scope = _containerScope(node, position, ancestors, chain);
-    await _retainContainer(scope, identical(node, root));
+    await _retainContainer(scope, isRoot);
     scope.child = _childScope(scope);
     if (scope.retained != null && isDuokanGallery(node)) {
       await _gallery(scope, root);
@@ -109,8 +118,9 @@ class ChapterBlockWalker {
     BlockNode node,
     BlockPosition position,
     List<SelectorElement> ancestors,
-    List<SelectorElement> chain,
-  ) async {
+    List<SelectorElement> chain, {
+    required bool isBodyRoot,
+  }) async {
     if (const {'img', 'image', 'object'}.contains(node.tag) &&
         node.children.isEmpty) {
       flow.blocks.addAll(
@@ -135,8 +145,14 @@ class ChapterBlockWalker {
       return true;
     }
     if (node.children.isNotEmpty) return false;
+    return _emptyBlock(chain, isBodyRoot);
+  }
+
+  Future<bool> _emptyBlock(List<SelectorElement> chain, bool isBodyRoot) async {
+    final style = styles.chainStyle(chain);
+    // 空 body 同样使用页级背景，避免在正文区再次缩放绘制。
     final block = await inline.measure.emptyBoxBlock(
-      styles.chainStyle(chain),
+      isBodyRoot ? style.withoutBackground() : style,
       width,
       containingHeight: styles.snapshot.pageHeight,
     );
