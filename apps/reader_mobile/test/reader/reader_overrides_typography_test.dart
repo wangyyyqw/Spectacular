@@ -89,7 +89,7 @@ void main() {
     }
   });
 
-  test('阅读器字号不连带放大作者 em 盒与标题比例', () async {
+  test('阅读器字号保留容器内的继承比例且不连带放大作者 em 盒', () async {
     for (final readerSize in [12.0, 20.0]) {
       final source = await openCssChapter(
         body:
@@ -120,12 +120,16 @@ void main() {
       final note = blocks.firstWhere((block) => block.layout.text == '制作说明');
       final container = paragraph.containers.single.container.style;
 
-      expect(paragraph.style!.fontSize, readerSize, reason: '正文跟随阅读器字号');
+      expect(
+        paragraph.style!.fontSize,
+        closeTo(readerSize * .75, 0.001),
+        reason: '正文继承作者容器的 .75em 比例',
+      );
       expect(container.fontSize, closeTo(12, 0.001), reason: '作者 .75em 盒保持源比例');
       expect(container.borders.left.width, closeTo(12, 0.001));
       expect(container.padding.left, closeTo(6, 0.001));
-      expect(heading.style!.fontSize, closeTo(readerSize * 1.2, 0.001));
-      expect(note.style!.fontSize, closeTo(readerSize * 0.9, 0.001));
+      expect(heading.style!.fontSize, closeTo(readerSize * .75 * 1.2, 0.001));
+      expect(note.style!.fontSize, closeTo(readerSize * .75 * .9, 0.001));
     }
   });
 
