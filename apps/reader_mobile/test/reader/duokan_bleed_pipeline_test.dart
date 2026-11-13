@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_ui/page_furniture/page_furniture.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -20,6 +23,15 @@ import 'support/css_chapter_book.dart';
 const _size = Size(300, 500);
 const _insets = EdgeInsets.fromLTRB(20, 80, 20, 20);
 const _bannerColor = Color(0xFFE06020);
+const _deviceSize = Size(384, 853.3333333333334);
+const _deviceMargins = ReaderMargins(
+  left: 8.8,
+  right: 8.53333333333336,
+  topOuter: 36.07500000000001,
+  topInner: 0,
+  bottomInner: 0,
+  bottomOuter: 4.088888888888931,
+);
 
 Future<ui.Image> _banner({int width = 200, int height = 60}) async {
   final recorder = ui.PictureRecorder();
@@ -150,8 +162,120 @@ Future<EpubChapterSource> _bannerSource(
   return source;
 }
 
+Future<EpubChapterSource> _furnitureSource(
+  ui.Image image, {
+  required bool backgroundOnly,
+}) async {
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  final source = await const EpubFormatOpener().openBytes(
+    buildCssChapterBook(
+      body:
+          '${List.generate(7, (i) => '<p class="page">前文${i + 1}</p>').join()}'
+          '<div class="decoration"><img src="../Images/logo.png"/></div>'
+          '${backgroundOnly ? '' : '<p>续页正文</p>'}',
+      css:
+          'body { margin: 0; padding: 0; }'
+          '.page { page-break-after: always; }'
+          '.decoration { margin: 0; text-align: center; text-indent: 0; '
+          'duokan-bleed: ${backgroundOnly ? 'leftright' : 'lefttopright'}; }'
+          'img { width: ${backgroundOnly ? '100%' : '20%'}; '
+          '${backgroundOnly ? 'background-image: url(../Images/logo.png); height: 100vh; duokan-bleed: leftright;' : ''} }',
+      binaryFiles: {'OEBPS/Images/logo.png': png!.buffer.asUint8List()},
+    ),
+  );
+  await source.applyOverrides(
+    const ReaderOverrides(fontSize: 21, lineHeight: 1.6, paragraphSpacing: 10),
+  );
+  return source;
+}
+
+Future<({ReaderSession session, EpubChapterSource source})>
+_mountFurnitureReader(
+  WidgetTester tester, {
+  required bool backgroundOnly,
+}) async {
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.binding.setSurfaceSize(_deviceSize);
+  final image = (await tester.runAsync(() => _banner()))!;
+  addTearDown(image.dispose);
+  final source = (await tester.runAsync(
+    () => _furnitureSource(image, backgroundOnly: backgroundOnly),
+  ))!;
+  addTearDown(source.close);
+  late ReaderSession session;
+  await tester.pumpWidget(
+    MaterialApp(
+      home: ReaderPage(
+        source: source,
+        store: MemoryReaderProgressStore(),
+        bookId: 'furniture-decoration-$backgroundOnly',
+        overrides: source.overrides,
+        margins: _deviceMargins,
+        pageTurnMode: PageTurnMode.none,
+        onSessionReady: (value) => session = value,
+      ),
+    ),
+  );
+  await pumpReaderUntil(tester, find.byType(ReaderView));
+  return (session: session, source: source);
+}
+
+void _expectContinuationFurniture(
+  WidgetTester tester,
+  ReaderSession session,
+  EpubChapterSource source, {
+  required bool backgroundOnly,
+}) {
+  final page = session.page!;
+  expect(page.pageIndex, 7);
+  expect(source.contentWidth, closeTo(366.66666666666663, 0.001));
+  expect(source.contentHeight, closeTo(773.1694444444445, 0.001));
+  if (backgroundOnly) {
+    final block = page.slices.single.block;
+    expect(block.layout.text, isEmpty);
+    expect(block.style!.values['background-image'], isNotEmpty);
+    expect(block.bleedLeft && block.bleedRight, isTrue);
+  } else {
+    expect(page.slices.any((slice) => slice.block.bleedTop), isTrue);
+    expect(find.byType(ReaderPageFooter), findsOneWidget);
+  }
+  expect(find.byType(ReaderPageHeader), findsOneWidget);
+  expect(
+    tester.widget<ReaderPageHeader>(find.byType(ReaderPageHeader)).pageLabel,
+    '8/${session.chapterPageCount}',
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final backgroundOnly in [false, true]) {
+    testWidgets('第 8 页含${backgroundOnly ? '整页背景图' : '顶部出血分隔图'}仍显示页眉，章首页保持隐藏', (
+      tester,
+    ) async {
+      final fixture = await _mountFurnitureReader(
+        tester,
+        backgroundOnly: backgroundOnly,
+      );
+      final session = fixture.session;
+      expect(session.page!.pageIndex, 0);
+      expect(find.byType(ReaderPageHeader), findsNothing);
+      for (var page = 1; page <= 7; page++) {
+        expect(await pumpReaderTask(tester, session.next()), isTrue);
+      }
+      _expectContinuationFurniture(
+        tester,
+        session,
+        fixture.source,
+        backgroundOnly: backgroundOnly,
+      );
+      await pumpReaderTask(tester, session.jumpToChapter(0));
+      expect(find.byType(ReaderPageHeader), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+  }
 
   testWidgets('自定义左右页边距按实际页面宽计算出血窄图，不裁掉右侧', (tester) async {
     final image = (await tester.runAsync(

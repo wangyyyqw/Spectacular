@@ -556,9 +556,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         );
   }
 
-  /// 整页背景图页（封面/扉页）：整页只有一块背景图，四角信息都不画。
-  ///
-  /// 这类页整页都是图，页眉页脚压上去只会挡图，与多看/阅微一致。
+  /// 整页背景图页（封面/扉页）：整页只有一块背景图，页脚为图片让位。
   bool _isFullPageBackground(PageContent page) {
     if (page.slices.length != 1) {
       return false;
@@ -572,10 +570,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         block.bleedLeft &&
         block.bleedRight;
   }
-
-  /// 顶部出血页（章首横幅图）：只让位页眉，页脚（时间 + 进度）保留。
-  bool _hasTopBleed(PageContent page) =>
-      page.slices.any((slice) => slice.block.bleedTop);
 
   /// 章标题：目录里有就用目录名，否则退回「第 N 章」。
   String _chapterTitleOf(int spineIndex) {
@@ -2908,11 +2902,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       progress: _bookProgressOf(page),
     );
     return [
+      // 页眉只在章节第一页自动隐藏，续页含出血或背景图也保留。
       if (widget.showPageFooter &&
           _cornerInfo.hasHeader &&
-          page.pageIndex > 0 &&
-          !full &&
-          !_hasTopBleed(page))
+          page.pageIndex > 0)
         Positioned(
           left: padding.left,
           right: padding.right,
