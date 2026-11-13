@@ -375,6 +375,8 @@ ComputedStyle _imagePaintStyle(
   return ComputedStyle({
     ...input.style.values,
     'width': '${geometry.width}px',
+    // 分页盒与背景绘制共用已限制的尺寸，不能重新使用原始声明高度。
+    'height': '${geometry.height}px',
     'margin-left':
         '${input.style.isOutOfFlow ? input.style.margin.left : _usedMarginLeft(input, geometry)}px',
     'background-image': 'url(${input.url})',
