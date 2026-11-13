@@ -486,12 +486,20 @@ class ChapterStyleResolver {
     }
     projection.left += listIndent;
     promotedLeftForLastChain = projection.left;
+    final rawProjectedBleed =
+        projection.declarations['duokan-bleed'] ??
+        projection.declarations['-duokan-bleed'];
+    final preserveBleedImageWidths =
+        chain.isNotEmpty &&
+        const {'img', 'image', 'object'}.contains(chain.last.tag) &&
+        (computed.bleed.any || CssBleed.parse(rawProjectedBleed).any);
     final declarations = _projectBlockDeclarations(
       computed,
       projection,
       firstLineIndent,
       listPosition,
       _containingWidthFor(chain),
+      preserveBleedImageWidths: preserveBleedImageWidths,
     );
     return _projectedStyle(computed, declarations);
   }
@@ -621,12 +629,14 @@ class ChapterStyleResolver {
     _ContainerProjection projection,
     double firstLineIndent,
     CssListStylePosition? listPosition,
-    double containingWidth,
-  ) {
+    double containingWidth, {
+    required bool preserveBleedImageWidths,
+  }) {
     final declarations = <String, String>{
       ...projection.declarations,
       ..._resolvedProjectionValues(computed),
-      ..._resolvedWidthValues(computed, containingWidth),
+      if (!preserveBleedImageWidths)
+        ..._resolvedWidthValues(computed, containingWidth),
     };
     if (projection.left > 0) {
       declarations['margin-left'] =
