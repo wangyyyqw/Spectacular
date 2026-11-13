@@ -47,9 +47,11 @@ class FullPageChapterLayout {
       return (block: null, warning: warning);
     }
     if (options.flags.isFullPage) {
+      final contain =
+          options.flags.fitWindow || analysis.singleImageMeetsViewport;
       return (
         block: _block(source, (
-          contain: options.flags.fitWindow,
+          contain: contain,
           bleed: true,
           aspect: null,
         ), flags: options.flags),

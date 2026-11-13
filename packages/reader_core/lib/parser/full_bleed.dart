@@ -10,6 +10,7 @@ class FullBleedChapter {
     required this.singleImageSrc,
     required this.singleImageHasDimensions,
     this.singleImageCfi,
+    this.singleImageMeetsViewport = false,
     this.hasGallery = false,
     this.singleImageHasLayout = false,
   });
@@ -25,6 +26,9 @@ class FullBleedChapter {
 
   /// 唯一图片在聚合前显示树中的真实叶 CFI，与计数和可见性同次确认。
   final String? singleImageCfi;
+
+  /// 唯一图片的外层 SVG 是否要求按 `meet` 完整显示。
+  final bool singleImageMeetsViewport;
 
   /// 唯一图片是否声明了 width/height 属性。
   final bool singleImageHasDimensions;
@@ -70,15 +74,18 @@ class _FullBleedAnalysis {
   bool _hasVisibleText = false;
   String? _singleSrc;
   String? _singleCfi;
+  bool _singleMeetsViewport = false;
   bool _singleHasDimensions = false;
   bool _hasGallery = false;
   bool _singleHasLayout = false;
+  final List<InlineNode> _ancestors = <InlineNode>[];
 
   FullBleedChapter get result => FullBleedChapter(
     imageCount: _imageCount,
     hasVisibleText: _hasVisibleText,
     singleImageSrc: _imageCount == 1 ? _singleSrc : null,
     singleImageCfi: _imageCount == 1 ? _singleCfi : null,
+    singleImageMeetsViewport: _singleMeetsViewport,
     singleImageHasDimensions: _singleHasDimensions,
     hasGallery: _hasGallery,
     singleImageHasLayout: _singleHasLayout,
@@ -99,15 +106,20 @@ class _FullBleedAnalysis {
       return;
     }
     if (node is InlineNode) {
-      final objectImage =
-          node.tag == 'object' &&
-          (node.attributes['data']?.trim().isNotEmpty ?? false);
-      if (node.tag == 'img' || node.tag == 'image' || objectImage) {
-        _recordImage(node);
-        // 可用 object 是图片替换元素，备用文字/图片不进入实际正文流。
-        if (objectImage) return;
+      _ancestors.add(node);
+      try {
+        final objectImage =
+            node.tag == 'object' &&
+            (node.attributes['data']?.trim().isNotEmpty ?? false);
+        if (node.tag == 'img' || node.tag == 'image' || objectImage) {
+          _recordImage(node);
+          // 可用 object 是图片替换元素，备用文字/图片不进入实际正文流。
+          if (objectImage) return;
+        }
+        _visitChildren(node.children);
+      } finally {
+        _ancestors.removeLast();
       }
-      _visitChildren(node.children);
       return;
     }
     if (node is TextBlockNode) {
@@ -145,6 +157,17 @@ class _FullBleedAnalysis {
         (node.attributes['width']?.trim().isNotEmpty ?? false) ||
         (node.attributes['height']?.trim().isNotEmpty ?? false);
     _singleHasLayout = preserveImageLayout?.call(node) ?? false;
+    _singleMeetsViewport = _ancestors.reversed.any(_meetsViewport);
+  }
+
+  bool _meetsViewport(InlineNode node) {
+    if (node.tag != 'svg') return false;
+    for (final entry in node.attributes.entries) {
+      if (entry.key.toLowerCase() != 'preserveaspectratio') continue;
+      final tokens = entry.value.trim().split(RegExp(r'\s+'));
+      return tokens.isNotEmpty && tokens.last.toLowerCase() == 'meet';
+    }
+    return false;
   }
 
   void _recordText(String text) {

@@ -32,7 +32,9 @@ Future<ui.Image> _decodeImage(List<int> png) async {
 }
 
 /// 渲染整页并统计：图片色（0xFF3F51B5）出现的行区间与四边留白。
-Future<({int top, int bottom, bool leftEdge, bool rightEdge, int width, int height})>
+Future<
+  ({int top, int bottom, bool leftEdge, bool rightEdge, int width, int height})
+>
 _renderCoverBand({
   required EpubChapterSource source,
   required List<int> png,
@@ -94,7 +96,8 @@ void main() {
     final source = await openCssChapter(
       body: coverBody,
       // 正文样式故意写得很“贵”：padding/字号/行高都不应影响全屏页。
-      css: 'body { margin: 0; padding: 40px; font-size: 30px; '
+      css:
+          'body { margin: 0; padding: 40px; font-size: 30px; '
           'line-height: 3; } img { width: 100px; height: 50px; }',
       binaryFiles: <String, List<int>>{
         'OEBPS/Images/cover.png': await coverPng(),
@@ -123,40 +126,43 @@ void main() {
     expect(pages.single.usedHeight, closeTo(500, 0.01));
   });
 
-  test('SVG 封面页：全屏标记优先于 SVG meet，按 cover 铺满页面', () async {
-    // 页面 320x480（比例 0.667），图片 660x880（比例 0.75）。
-    // 即使 SVG 自身写 meet，OPF 全屏页仍应覆盖整页。
-    final png = await _pngBytes(660, 880);
+  test('SVG 封面页：显式 meet 在整页视口内等比完整显示', () async {
+    // 页面 320x711（比例约 0.45），图片 561x799（比例约 0.702）。
+    // 作者要求 meet 时不能为了铺满而裁掉封面左右内容。
+    final png = await _pngBytes(561, 799);
     final source = await openCssChapter(
-      body: '<svg xmlns="http://www.w3.org/2000/svg" '
+      body:
+          '<svg xmlns="http://www.w3.org/2000/svg" '
           'xmlns:xlink="http://www.w3.org/1999/xlink" '
-          'viewBox="0 0 660 880" preserveAspectRatio="xMidYMid meet">'
+          'viewBox="0 0 561 799" preserveAspectRatio="xMidYMid meet">'
           '<image xlink:href="../Images/cover.png" x="0" y="0" '
-          'width="660" height="880"/></svg>',
+          'width="561" height="799"/></svg>',
       binaryFiles: <String, List<int>>{'OEBPS/Images/cover.png': png},
       itemrefAttributes: ' properties="duokan-page-fullscreen"',
       contentWidth: 320,
-      contentHeight: 480,
+      contentHeight: 711,
     );
     final pages = await source.loadChapter(0);
     final block = pages.single.slices.single.block;
     expect(
       block.style!.backgroundSize.mode,
-      CssBackgroundSizeMode.cover,
-      reason: 'OPF fullscreen 页面按 cover 铺满',
+      CssBackgroundSizeMode.contain,
+      reason: '作者声明 meet 时按 contain 完整显示',
     );
-    const pageSize = Size(320, 480);
+    const pageSize = Size(320, 711);
     final band = await _renderCoverBand(
       source: source,
       png: png,
       pageSize: pageSize,
     );
-    expect(band.top, lessThanOrEqualTo(1), reason: 'cover 页面顶部无白边');
-    expect(band.bottom, greaterThanOrEqualTo(478), reason: 'cover 页面底部无白边');
-    expect(band.leftEdge, isTrue, reason: '宽度撑满版心（无左右留白）');
-    expect(band.rightEdge, isTrue);
     final drawnHeight = band.bottom - band.top + 1;
-    expect(drawnHeight, closeTo(480, 1), reason: '图片铺满整个页面高度');
+    expect(drawnHeight, closeTo(799 * 320 / 561, 2), reason: '保持封面宽高比');
+    expect(band.top, greaterThan(100), reason: '上下居中留白');
+    expect(band.bottom, lessThan(610), reason: '上下居中留白');
+    expect(band.leftEdge, isTrue, reason: '封面宽度完整显示到左右边缘');
+    expect(band.rightEdge, isTrue);
+    expect(block.bleedLeft, isTrue);
+    expect(block.bleedRight, isTrue);
   });
 
   test('同时提供 ~slim 变体时，按页面比例选择更接近的一张', () async {
@@ -238,7 +244,10 @@ void main() {
     );
     expect(left.chapterPageFlags(0).fullScreen, isTrue);
     expect(left.chapterPageFlags(0).spreadLeft, isTrue);
-    expect((await left.loadChapter(0)).single.slices.single.block.bleedLeft, isTrue);
+    expect(
+      (await left.loadChapter(0)).single.slices.single.block.bleedLeft,
+      isTrue,
+    );
 
     final right = await openCssChapter(
       body: coverBody,
@@ -261,7 +270,7 @@ void main() {
     expect(pages.single.slices.first.block.style!.backgroundImage, isNull);
   });
 
-  test('真书取证：mj-003 / zhushen-yuxi 的封面章按全屏铺满', () async {
+  test('真书取证：mj-003 / zhushen-yuxi 的 SVG 封面遵守 meet', () async {
     // 语料：两本多看书的 OPF 都把封面章标成
     // `<itemref idref="cover.xhtml" properties="duokan-page-fullscreen"/>`。
     for (final name in <String>['mj-003.epub', 'zhushen-yuxi.epub']) {
@@ -283,17 +292,10 @@ void main() {
       final block = pages.single.slices.single.block;
       expect(block.bleedLeft, isTrue);
       expect(block.bleedRight, isTrue);
-      // 真书同时提供 ~slim 变体；全屏页按 cover 铺满，且优先匹配
-      // 当前屏幕比例，避免为了铺满而大幅裁切主封面。
       expect(
         block.style!.backgroundSize.mode,
-        CssBackgroundSizeMode.cover,
-        reason: '$name 全屏封面按 cover 铺满',
-      );
-      expect(
-        block.style!.backgroundImage,
-        endsWith('~slim.jpg'),
-        reason: '$name 应优先选择与屏幕比例更接近的 slim 封面',
+        CssBackgroundSizeMode.contain,
+        reason: '$name 的 SVG 声明 meet，封面应完整显示',
       );
       // 整页尺寸 = 页宽/页高（不被正文样式或页边距裁小）。
       expect(block.layout.width, closeTo(320, 0.01));
