@@ -314,7 +314,11 @@ class TextBlockBuilder {
     return style.withTypography(lineHeightFactor: height);
   }
 
-  /// 保留标题和紧凑组件自身的相对字号，同时让比例以阅读器字号为基准。
+  static final _absoluteFontSize = RegExp(
+    r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$',
+  );
+
+  /// 保留块及祖先的相对字号，继承值与显式声明使用同一缩放基准。
   double? _scaledComponentFontSize(_BlockContext context) {
     final readerSize = styles.snapshot.overrides.fontSize;
     final ancestors = context.ancestors;
@@ -322,30 +326,47 @@ class TextBlockBuilder {
       return null;
     }
     final computed = styles.chainStyle(ancestors);
-    if (!computed.explicitProperties.contains('font-size') &&
-        !computed.explicitProperties.contains('font')) {
-      return null;
-    }
     final raw = fontSizeDeclarationOf(computed);
-    if (raw != null &&
-        RegExp(r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$').hasMatch(raw)) {
+    if (raw != null && _absoluteFontSize.hasMatch(raw)) {
       return null;
     }
     // rem 相对章节根字号，不能用已被作者缩小的父容器作为分母。
     final referenceSize = CssFontSizes.usesRoot(raw)
         ? styles.style.fontSize
-        : styles
-              .chainStyle(ancestors.sublist(0, ancestors.length - 1))
-              .fontSize;
+        : _fontSizeReference(ancestors);
     if (referenceSize <= 0) return null;
     return readerSize * computed.fontSize / referenceSize;
   }
 
-  /// 普通正文若位于作者缩小/放大的容器内，也保留块自身的相对字号。
-  ///
-  /// 例如 `.design-box{font-size:.75em}` 中的 `.ovalnote{font-size:.9em}`，
-  /// 阅读器字号应先作为正文基准，再应用 `.9em`；直接提升到满字号会破坏
-  /// 作者层级并导致换行差异。
+  /// 全局文档与正文基准由阅读设置替换；局部相对字号一直累乘到块自身。
+  /// 绝对长度开始新的字号基准，祖先 rem/关键字则回到章节根基准。
+  double _fontSizeReference(List<SelectorElement> ancestors) {
+    var reference = styles.style.fontSize;
+    for (var length = 1; length < ancestors.length; length += 1) {
+      final chain = ancestors.sublist(0, length);
+      final authored = styles.chainStyle(chain);
+      final raw = fontSizeDeclarationOf(authored);
+      if (raw == null) continue;
+      final proseBase =
+          const {'html', 'body', 'p'}.contains(chain.last.tag) &&
+          !_hasScopedDeclaration(chain, const {'font-size', 'font'});
+      if (_absoluteFontSize.hasMatch(raw) ||
+          (proseBase && CssFontSizes.usesRoot(raw))) {
+        reference = authored.fontSize;
+      } else if (proseBase) {
+        // 拆出的匿名正文沿用段落基准，只抵消全局声明，保留外围组件比例。
+        final parent = styles.chainStyle(chain.sublist(0, length - 1));
+        if (parent.fontSize > 0) {
+          reference *= authored.fontSize / parent.fontSize;
+        }
+      } else if (CssFontSizes.usesRoot(raw)) {
+        reference = styles.style.fontSize;
+      }
+    }
+    return reference;
+  }
+
+  /// 普通正文也继承作者容器的完整比例，不能直接恢复为阅读器满字号。
   double? _nestedRelativeFontSize(_BlockContext context) {
     final scaled = _scaledComponentFontSize(context);
     if (scaled == null) return null;
@@ -357,8 +378,7 @@ class TextBlockBuilder {
         continue;
       }
       final raw = fontSizeDeclarationOf(ancestor);
-      if (raw != null &&
-          !RegExp(r'^(?:\d|\.\d).*(?:px|pt|pc|cm|mm|in)$').hasMatch(raw)) {
+      if (raw != null && !_absoluteFontSize.hasMatch(raw)) {
         return scaled;
       }
     }
@@ -375,15 +395,14 @@ class TextBlockBuilder {
   /// 组件自己通过 class/id/内联样式声明字号时，保留相对比例；普通 `p` 或
   /// `body` 上的作者字号继续由阅读器字号覆盖。
   bool _hasScopedFontSize(_BlockContext context) =>
-      _hasScopedDeclaration(context, const {'font-size', 'font'});
+      _hasScopedDeclaration(context.ancestors, const {'font-size', 'font'});
 
   bool _hasScopedDeclaration(
-    _BlockContext context,
+    List<SelectorElement> ancestors,
     Set<String> properties, {
     bool localToElement = false,
   }) {
-    final ancestors = context.ancestors;
-    if (ancestors.length < 2) return false;
+    if (ancestors.isEmpty) return false;
     final current = ancestors.last;
     final parents = ancestors.sublist(0, ancestors.length - 1);
     if (inlineDeclarationsOf(current.attributes['style'])
@@ -496,7 +515,7 @@ class TextBlockBuilder {
     );
     // 通用正文段距由阅读器控制；局部作者边距逐侧保留，不连带豁免另一侧。
     double? overrideFor(String side) =>
-        _hasScopedDeclaration(context, {
+        _hasScopedDeclaration(context.ancestors, {
           'margin',
           'margin-$side',
           for (final entry in logical.entries)
