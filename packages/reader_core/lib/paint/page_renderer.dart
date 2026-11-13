@@ -1194,6 +1194,7 @@ class PagePainter {
     final geometries = <_SliceGeometry>[];
     final borderMetrics = <TextStyle, ({double ascent, double descent})>{};
     var y = page.topPadding;
+    var chapterLeading = page.pageIndex == 0;
     for (final slice in page.slices) {
       final style = slice.block.style ?? ComputedStyle(<String, String>{});
       // 浮动覆盖切片（flat 管线接入）：绝对定位，不推进流游标。
@@ -1233,10 +1234,12 @@ class PagePainter {
           pageWidth: pageSize.width,
           pageHeight: pageSize.height,
           pageInsets: pageInsets,
+          chapterLeading: chapterLeading && !slice.overlay,
         ),
       );
       if (!slice.overlay) {
         y += slice.height;
+        chapterLeading = false;
       }
     }
     return geometries;
@@ -5666,6 +5669,7 @@ class _SliceGeometry {
     required this.pageWidth,
     required this.pageHeight,
     this.pageInsets = EdgeInsets.zero,
+    this.chapterLeading = false,
     this.textColorOverride,
     this.paintBox,
   });
@@ -5703,6 +5707,9 @@ class _SliceGeometry {
 
   /// 正文区相对整页的内缩（阅读器页边距 + 页眉页脚槽）。
   final EdgeInsets pageInsets;
+
+  /// 章首页的首个普通流块；只有此处的出血图片可以自动贴页顶。
+  final bool chapterLeading;
 
   /// 背景/边框盒子（含首尾内缩）。
   Rect get box => paintBox ?? Rect.fromLTWH(0, y, pageWidth, slice.height);
@@ -5783,12 +5790,12 @@ class _SliceGeometry {
     );
   }
 
-  /// 替换图片保留测量盒；出血只移动包含块原点和上下贴边位置，
-  /// 不把图像定位区域撑成整页，也不让外边距参与 object-fit 缩放。
+  /// 替换图片保留测量盒和正文流位置；章首头图可贴页顶，
+  /// 覆盖切片沿用显式出血定位，不把图像定位区域撑成整页。
   Rect _replacedBorderBox(Rect box) {
     final block = slice.block;
     final left = box.left - (block.bleedLeft ? pageInsets.left : 0);
-    final top = block.bleedTop
+    final top = block.bleedTop && (chapterLeading || slice.overlay)
         ? -pageInsets.top
         : block.bleedBottom
         ? pageHeight + pageInsets.bottom - box.height
