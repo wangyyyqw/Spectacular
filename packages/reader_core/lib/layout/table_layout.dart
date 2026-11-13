@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import '../css/computed_style.dart';
 import 'line_breaker.dart';
+import 'paginator.dart' show PageFootnote;
 
 /// 表格单元格的渲染载荷（flat 管线接入）：一格的文字排版结果与
 /// 计算样式，坐标为表格局部坐标系（含跨列合并区域）。
@@ -16,6 +17,7 @@ class TableCellRender {
     required this.layout,
     required this.style,
     this.startCfi,
+    this.footnotes = const <PageFootnote>[],
   });
 
   /// 所在行号（全表行号）。
@@ -32,6 +34,29 @@ class TableCellRender {
 
   /// 来源单元格元素（或 Flex 子块）的稳定 CFI，用于定位载荷所在页。
   final String? startCfi;
+
+  /// 注号区间沿用格内文本坐标；布局和分页转换不能丢失弹窗数据。
+  final List<PageFootnote> footnotes;
+
+  /// 格内文字原点，包含自身装饰与垂直对齐，供绘制和注号命中共用。
+  Offset get textOrigin {
+    final borders = style.borders;
+    final topInset = style.padding.top + borders.top.width;
+    final bottomInset = style.padding.bottom + borders.bottom.width;
+    final freeSpace = math.max(
+      0.0,
+      rect.height - topInset - bottomInset - layout.height,
+    );
+    final alignOffset = switch (style.verticalAlign) {
+      CssVerticalAlign.middle => freeSpace / 2,
+      CssVerticalAlign.bottom => freeSpace,
+      _ => 0.0,
+    };
+    return rect.topLeft.translate(
+      style.padding.left + borders.left.width,
+      topInset + alignOffset,
+    );
+  }
 }
 
 /// 一页表格切片的渲染规格：格载荷 + 网格线坐标 + 行区间。

@@ -2633,6 +2633,7 @@ class _TablePieceWork {
     layout: cell.layout,
     style: cell.style,
     startCfi: cell.startCfi,
+    footnotes: cell.footnotes,
   );
 
   TableCellRender _bodyCell(TableCellRender cell) => TableCellRender(
@@ -2646,6 +2647,7 @@ class _TablePieceWork {
     layout: cell.layout,
     style: cell.style,
     startCfi: cell.startCfi,
+    footnotes: cell.footnotes,
   );
 
   // 保留 PageBlock 的完整字段传递；这里只构造结果，不包含遍历或分支决策。
