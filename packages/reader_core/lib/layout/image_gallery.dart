@@ -3,6 +3,7 @@ import 'dart:ui' show Offset, Rect;
 import '../css/computed_style.dart';
 import '../position/cfi.dart';
 import 'box_model.dart';
+import 'line_breaker.dart';
 import 'paginator.dart';
 
 /// 多看画廊的一帧；继续使用正文的排版与绘制载荷。
@@ -183,34 +184,104 @@ Rect? _galleryImageBox(
     final block = slice.block;
     final style = block.style;
     if (style == null ||
-        style.backgroundImage != imageUrl ||
         style.visibility != CssVisibility.visible ||
         block.effectiveOpacity <= 0 ||
         block.gallery != null) {
       continue;
     }
-
-    final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
-    final borders = style.borders;
-    final ownTop = block.containers.isEmpty
-        ? block.topInset
-        : style.padding.top + (borders.top.isVisible ? borders.top.width : 0);
-    final ownBottom = block.containers.isEmpty
-        ? block.bottomInset
-        : style.padding.bottom +
-              (borders.bottom.isVisible ? borders.bottom.width : 0);
-    final boxTop = slice.leadingExtent != 0
-        ? top + slice.leadingExtent - ownTop
-        : top;
-    final boxBottom = slice.trailingExtent != 0
-        ? top + slice.height - slice.trailingExtent + ownBottom
-        : top + slice.height;
-    final boxLeft = slice.overlay
-        ? slice.leftInset + style.margin.left
-        : style.margin.left;
-    final boxWidth =
-        model.resolveContentWidth(containingWidth) + model.horizontalInset;
-    return Rect.fromLTRB(boxLeft, boxTop, boxLeft + boxWidth, boxBottom);
+    if (style.backgroundImage == imageUrl) {
+      return _galleryBlockImageBox(slice, top, containingWidth);
+    }
+    final inlineBox = _galleryInlineImageBox(slice, top, imageUrl);
+    if (inlineBox != null) return inlineBox;
   }
   return null;
+}
+
+Rect _galleryBlockImageBox(
+  PageBlockSlice slice,
+  double top,
+  double containingWidth,
+) {
+  final block = slice.block;
+  final style = block.style!;
+  final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
+  final borders = style.borders;
+  final ownTop = block.containers.isEmpty
+      ? block.topInset
+      : style.padding.top + (borders.top.isVisible ? borders.top.width : 0);
+  final ownBottom = block.containers.isEmpty
+      ? block.bottomInset
+      : style.padding.bottom +
+            (borders.bottom.isVisible ? borders.bottom.width : 0);
+  final boxTop = slice.leadingExtent != 0
+      ? top + slice.leadingExtent - ownTop
+      : top;
+  final boxBottom = slice.trailingExtent != 0
+      ? top + slice.height - slice.trailingExtent + ownBottom
+      : top + slice.height;
+  final boxLeft = slice.overlay
+      ? slice.leftInset + style.margin.left
+      : style.margin.left;
+  final boxWidth =
+      model.resolveContentWidth(containingWidth) + model.horizontalInset;
+  return Rect.fromLTRB(boxLeft, boxTop, boxLeft + boxWidth, boxBottom);
+}
+
+Rect? _galleryInlineImageBox(
+  PageBlockSlice slice,
+  double top,
+  String imageUrl,
+) {
+  final block = slice.block;
+  final offsets = {
+    for (final image in block.inlineImages)
+      if (image.url == imageUrl) image.offset,
+  };
+  if (offsets.isEmpty) return null;
+  final left = _galleryInlineLeft(slice);
+  var lineTop = top + slice.leadingExtent;
+  for (var index = slice.startLine; index < slice.endLine; index++) {
+    final line = block.layout.lines[index];
+    for (final placement in line.inlineBoxes) {
+      if (!placement.spec.replacesPlaceholder ||
+          !offsets.contains(placement.offset) ||
+          !_visibleInlineImage(placement)) {
+        continue;
+      }
+      // 与行内替换图绘制共用已排定的盒和基线；上外边距不属于图片命中区。
+      return Rect.fromLTWH(
+        left + line.offsetX + placement.left,
+        lineTop +
+            placement.topIn(line.baseline - line.top) +
+            placement.spec.marginTop,
+        placement.width,
+        placement.height,
+      );
+    }
+    lineTop += line.height;
+  }
+  return null;
+}
+
+double _galleryInlineLeft(PageBlockSlice slice) {
+  final style = slice.block.style!;
+  final inset = slice.overlay && style.isOutOfFlow
+      ? style.padding.left +
+            (style.borders.left.isVisible ? style.borders.left.width : 0)
+      : 0;
+  return slice.leftInset + style.margin.left + inset;
+}
+
+bool _visibleInlineImage(InlineBoxPlacement placement) {
+  final payload = placement.spec.payload;
+  final style = switch (payload) {
+    PageBlock() => payload.style,
+    ComputedStyle() => payload,
+    _ => null,
+  };
+  return (payload is! PageBlock || payload.effectiveOpacity > 0) &&
+      (style == null ||
+          style.visibility == CssVisibility.visible &&
+              style.effectiveOpacity > 0);
 }
