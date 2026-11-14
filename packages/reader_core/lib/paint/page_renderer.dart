@@ -3809,6 +3809,15 @@ class PagePainter {
     )) {
       return;
     }
+    if (_paintRoundedPatternBorders(
+      canvas,
+      box,
+      borders,
+      startsBlock,
+      endsBlock,
+    )) {
+      return;
+    }
     // 四边一致且实线：整块（首尾都在本页）用整框描边，圆角生效
     //（与阅微整框描边路径一致）。
     if (borders.isUniform && borders.top.style == CssBorderStyle.solid) {
@@ -3927,6 +3936,78 @@ class PagePainter {
       Offset(box.right - borders.right.width / 2, box.bottom),
       outward: const Offset(1, 0),
     );
+  }
+
+  /// 一致的点线和虚线沿圆角路径绘制；续页只保留真实首尾的转角。
+  bool _paintRoundedPatternBorders(
+    Canvas canvas,
+    Rect box,
+    CssBorders borders,
+    bool starts,
+    bool ends,
+  ) {
+    final side = borders.top;
+    if (!borders.isUniform ||
+        !borders.hasRadius ||
+        (!starts && !ends) ||
+        (side.style != CssBorderStyle.dotted &&
+            side.style != CssBorderStyle.dashed)) {
+      return false;
+    }
+    final stroke = _insetBorderRRect(
+      _shadowRRect(borders, box, 0).scaleRadii(),
+      EdgeInsets.all(side.width / 2),
+    ).scaleRadii();
+    final dotted = side.style == CssBorderStyle.dotted;
+    _paintPathDashes(
+      canvas,
+      _patternBorderPath(stroke, starts, ends),
+      Paint()
+        ..color = side.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = side.width
+        ..strokeCap = StrokeCap.butt,
+      side.width * (dotted ? 1 : (side.width < 3 ? 3 : 2)),
+      side.width * (dotted || side.width >= 3 ? 1 : 2),
+    );
+    return true;
+  }
+
+  Path _patternBorderPath(RRect box, bool starts, bool ends) {
+    if (starts && ends) return Path()..addRRect(box);
+    final path = Path();
+    if (starts) {
+      path
+        ..moveTo(box.left, box.bottom)
+        ..lineTo(box.left, box.top + box.tlRadiusY)
+        ..arcToPoint(
+          Offset(box.left + box.tlRadiusX, box.top),
+          radius: box.tlRadius,
+        )
+        ..lineTo(box.right - box.trRadiusX, box.top)
+        ..arcToPoint(
+          Offset(box.right, box.top + box.trRadiusY),
+          radius: box.trRadius,
+        )
+        ..lineTo(box.right, box.bottom);
+    } else {
+      path
+        ..moveTo(box.left, box.top)
+        ..lineTo(box.left, box.bottom - box.blRadiusY)
+        ..arcToPoint(
+          Offset(box.left + box.blRadiusX, box.bottom),
+          radius: box.blRadius,
+          clockwise: false,
+        )
+        ..lineTo(box.right - box.brRadiusX, box.bottom)
+        ..arcToPoint(
+          Offset(box.right, box.bottom - box.brRadiusY),
+          radius: box.brRadius,
+          clockwise: false,
+        )
+        ..lineTo(box.right, box.top);
+    }
+    return path;
   }
 
   /// 双线边框画成两个同心圆角环。逐边画线会在四角形成交叉或缺口，
