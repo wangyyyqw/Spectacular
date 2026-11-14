@@ -79,7 +79,9 @@ class AnchorChapter {
     this.title = '',
     required List<AnchorBlock> blocks,
     this.readable = true,
-  }) : blocks = List.unmodifiable(blocks) {
+    Map<String, int> elementOffsets = const {},
+  }) : blocks = List.unmodifiable(blocks),
+       elementOffsets = Map.unmodifiable(elementOffsets) {
     var offset = 0;
     for (final block in blocks) {
       blockStarts.add(offset);
@@ -98,6 +100,9 @@ class AnchorChapter {
   final String title;
   final bool readable;
   final List<AnchorBlock> blocks;
+
+  /// 可见元素在聚合正文中的位置；不增加字符或替换元素自身的 CFI。
+  final Map<String, int> elementOffsets;
   final List<int> blockStarts = [];
   late final String text;
   late final NormalizedAnchorText normalized;
@@ -115,7 +120,9 @@ class AnchorChapter {
         return blockStarts[i] + local;
       }
     }
-    return null;
+    // 纯图章另按真实图片叶顺序定位；元素不接受非零字符偏移。
+    if (text.isEmpty || offset != 0) return null;
+    return elementOffsets[base];
   }
 
   String? cfiAt(int offset, {bool end = false}) {
@@ -334,7 +341,11 @@ class AnchorBook {
     if (spine == null) return null;
     final source = chapter(spine);
     final offset = source?.offsetFor(cfi);
-    return source == null || offset == null ? null : _point(source, offset);
+    if (source == null || offset == null) return null;
+    final isElement =
+        (cfiCharOffset(cfi) ?? 0) == 0 &&
+        source.elementOffsets.containsKey(cfiBase(cfi));
+    return _point(source, offset, cfi: isElement ? cfi : null);
   }
 
   LocationAnchor? capture(
@@ -434,9 +445,9 @@ class AnchorBook {
     );
   }
 
-  AnchorPoint? _point(AnchorChapter chapter, int rawOffset) {
+  AnchorPoint? _point(AnchorChapter chapter, int rawOffset, {String? cfi}) {
     final offset = utf16Boundary(chapter.text, rawOffset);
-    final cfi = chapter.cfiAt(offset);
+    cfi ??= chapter.cfiAt(offset);
     if (cfi == null) return null;
     final quoteEnd = utf16Boundary(chapter.text, offset + 64);
     return AnchorPoint(

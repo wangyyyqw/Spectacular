@@ -583,18 +583,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return '第 ${spineIndex + 1} 章';
   }
 
-  /// 当前正文位置占全书的比例（0..1）。
+  /// 指定纸面占全书的比例（0..1），与当前会话所在页无关。
   ///
   /// EPUB 源按同一套章节权重与原文位置计算；普通源或旧数据没有比例时，
   /// 才退回按章/页估算，避免两套口径写回同一个进度字段。
   double _bookProgressOf(PageContent page) {
-    final positioned = _session.readingPercent;
+    final positioned = _session.readingPercentOf(page);
     if (positioned != null) return positioned.clamp(0.0, 1.0);
     final chapters = widget.source.chapterCount;
     if (chapters <= 0) {
       return 0;
     }
-    final pagesInChapter = _session.chapterPageCount;
+    final pagesInChapter = _session.pageCountOf(page.spineIndex);
     final within = pagesInChapter <= 0
         ? 0.0
         : (page.pageIndex + 1) / pagesInChapter;
@@ -2452,7 +2452,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               open: _menuOpen,
               theme: _effectiveTheme,
               bookTitle: widget.bookTitle,
-              progress: _bookProgressOf(page),
+              progress: _session.readingPercent ?? _bookProgressOf(page),
               chapterLabel: _chapterLabelOf(page),
               onBack: _exitReader,
               onEdit: widget.onOpenEditor,
@@ -2930,7 +2930,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           child: IgnorePointer(
             child: ReaderPageFooter(
               theme: _effectiveTheme,
-              progress: _bookProgressOf(page),
+              progress: data.progress,
               inkMode: _inkMode,
               info: _cornerInfo,
               data: data,

@@ -4,6 +4,7 @@ import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
 import 'chapter_raw_styles.dart';
@@ -97,19 +98,27 @@ BlockDocument aggregateAnchorDocument(
   whiteSpaceFor: (node, _) => styles.styleOf(node).whiteSpace,
 );
 
-List<AnchorBlock> collectAnchorBlocks(
+({List<AnchorBlock> blocks, Map<String, int> elementOffsets})
+collectChapterAnchors(
   BlockDocument document,
   ChapterRawStyles styles,
+  ParsedDocument parsed,
 ) {
-  final collector = _AnchorBlocks(styles);
+  final collector = _AnchorBlocks(styles, parsed);
   collector.walk(document.root, styles.baseStyle);
-  return List.unmodifiable(collector.blocks);
+  return (
+    blocks: List.unmodifiable(collector.blocks),
+    elementOffsets: Map.unmodifiable(collector.elementOffsets),
+  );
 }
 
 class _AnchorBlocks {
-  _AnchorBlocks(this.styles);
+  _AnchorBlocks(this.styles, this.parsed);
   final ChapterRawStyles styles;
+  final ParsedDocument parsed;
   final List<AnchorBlock> blocks = [];
+  final Map<String, int> elementOffsets = {};
+  int _offset = 0;
 
   void walk(EpubNode node, ComputedStyle parent) {
     final style = node is TextContentNode ? parent : styles.styleOf(node);
@@ -120,17 +129,26 @@ class _AnchorBlocks {
     if (node is TextContentNode) {
       _appendText(node);
     } else if (node is BlockNode) {
+      _recordElementPath(node.cfi, _offset);
       if (const {'td', 'th', 'caption'}.contains(node.tag)) {
         final text = _cellText(node);
         if (text.isNotEmpty) {
-          blocks.add(AnchorBlock(cfi: node.cfi.serialize(), text: text));
+          _appendBlock(node.cfi, text);
         }
       } else {
+        final imageCfi =
+            const {'img', 'image', 'svg', 'object'}.contains(node.tag)
+            ? styles.selectors.imageCfiOf(node)
+            : null;
+        if (imageCfi != null) {
+          _recordElementPath(EpubCfi.parse(imageCfi)!, _offset);
+        }
         for (final child in node.children) {
           walk(child, style);
         }
       }
     } else if (node is InlineNode) {
+      _recordElementPath(node.cfi, _offset);
       for (final child in node.children) {
         walk(child, style);
       }
@@ -143,8 +161,43 @@ class _AnchorBlocks {
         node.inlineMarks.any(
           (mark) => const {'img', 'image', 'svg', 'object'}.contains(mark.tag),
         );
-    if (!onlyImages && node.text.trim().isNotEmpty) {
-      blocks.add(AnchorBlock(cfi: node.cfi.serialize(), text: node.text));
+    final hasText = !onlyImages && node.text.trim().isNotEmpty;
+    _recordElementPath(node.cfi, _offset);
+    for (final image in node.inlineImages) {
+      _recordElementPath(
+        image.node.cfi,
+        _offset + (hasText ? image.offset : 0),
+      );
+    }
+    for (final mark in node.inlineMarks) {
+      final id = mark.chain.lastOrNull?.attributes['id'];
+      final element = id == null ? null : parsed.elementById(id);
+      if (element != null && styles.isVisibleElement(element)) {
+        _recordElementPath(element.cfi, _offset + (hasText ? mark.start : 0));
+      }
+    }
+    if (hasText) _appendBlock(node.cfi, node.text);
+  }
+
+  void _appendBlock(EpubCfi cfi, String text) {
+    blocks.add(AnchorBlock(cfi: cfi.serialize(), text: text));
+    _offset += text.length;
+  }
+
+  /// 聚合可能折叠图片外框或提升行内块，原路径上的容器仍指向首个可见内容。
+  void _recordElementPath(EpubCfi cfi, int offset) {
+    final segment = cfi.segments.last;
+    for (var length = 1; length <= segment.steps.length; length++) {
+      if (segment.steps[length - 1].index.isOdd) break;
+      final key = EpubCfi([
+        ...cfi.segments.take(cfi.segments.length - 1),
+        CfiSegment(segment.steps.take(length).toList()),
+      ]).serialize();
+      elementOffsets.update(
+        key,
+        (previous) => previous < offset ? previous : offset,
+        ifAbsent: () => offset,
+      );
     }
   }
 

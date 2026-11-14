@@ -73,6 +73,29 @@ void main() {
   const after = '子丑寅卯辰巳午未申酉这是不会变化的后文用于可靠地夹定引用终点。';
   const quote = '旧版里需要保留的选中文字';
 
+  test('元素锚点保留身份，文字锚点仍校正 UTF-16 边界', () {
+    const elementCfi = 'epubcfi(/6/2!/4/2)';
+    final book = AnchorBook(
+      revision: 'v1',
+      chapters: [
+        AnchorChapter(
+          spineIndex: 0,
+          href: 'chapter.xhtml',
+          blocks: [AnchorBlock(cfi: _cfi(0, 0), text: '甲😀乙')],
+          elementOffsets: const {elementCfi: 0},
+        ),
+      ],
+    );
+    final element = book.capture(elementCfi)!;
+    expect(element.start.cfi, elementCfi);
+    expect(element.start.charOffset, 0);
+    expect(book.capture(cfiWithCharOffset(elementCfi, 1)), isNull);
+    final text = book.capture(cfiWithCharOffset(_cfi(0, 0), 2))!;
+    expect(text.start.cfi, cfiWithCharOffset(_cfi(0, 0), 1));
+    expect(text.start.charOffset, 1);
+    expect(text.quote, '😀乙');
+  });
+
   test('同版本也核对实际原文；当前锚点记录真实选中文字', () {
     final book = _book('v1', [
       [before + quote + after],

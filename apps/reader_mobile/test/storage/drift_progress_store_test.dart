@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/api.dart' show TocEntry;
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
@@ -14,6 +15,7 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
+import '../reader/support/css_chapter_book.dart';
 
 Uint8List _imageBook() {
   final archive = ZipDecoder().decodeBytes(buildTestEpub(title: '纯图片进度'));
@@ -383,6 +385,69 @@ void main() {
       throwsStateError,
     );
     expect((await store.load(entry.id))?.cfi, cfi);
+  });
+
+  test('目录跳到混合图文元素后保存并重开，保留元素 CFI 和原文进度', () async {
+    final entry = await library.importBytes(
+      buildCssChapterBook(
+        body:
+            '<p>${'前文。' * 100}</p><h2 id="title">目标标题</h2>'
+            '<p>${'标题后。' * 60}</p><div id="picture">'
+            '<img id="leaf" src="../Images/p.png" width="120" height="180"/>'
+            '</div><p>${'后文。' * 60}</p>',
+        binaryFiles: {
+          'OEBPS/Images/p.png': base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aCZkAAAAASUVORK5CYII=',
+          ),
+        },
+      ),
+    );
+    final source = await EpubChapterSource.openFile(File(entry.filePath));
+    addTearDown(source.close);
+    final release = await store.bindSource(
+      entry.id,
+      source,
+      entry.contentRevision!,
+    );
+    addTearDown(release);
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: entry.id,
+      contentRevision: entry.contentRevision,
+    );
+    addTearDown(session.dispose);
+    await session.open();
+    for (final id in ['title', 'picture', 'leaf']) {
+      await session.jumpToTocEntry(
+        TocEntry(title: id, spineIndex: 0, fragment: id),
+      );
+      final cfi = source.document
+          .parseDocument(0)
+          .elementById(id)!
+          .cfi
+          .serialize();
+      expect(session.readingCfi, cfi);
+      expect(session.readingPercent, isNotNull);
+      await session.flushProgress();
+      final loaded = (await store.load(entry.id))!;
+      expect(loaded.cfi, cfi);
+      expect(loaded.readingPercent, closeTo(session.readingPercent!, 1e-9));
+      final reopened = ReaderSession(
+        source: source,
+        store: store,
+        bookId: entry.id,
+        contentRevision: entry.contentRevision,
+      );
+      try {
+        await reopened.open();
+        expect(reopened.readingCfi, cfi);
+        expect(reopened.readingPercent, closeTo(loaded.readingPercent!, 1e-9));
+        expect(reopened.page?.pageIndex, session.page?.pageIndex);
+      } finally {
+        reopened.dispose();
+      }
+    }
   });
 
   test('原书文件恢复后不继续复用临时等权降级', () async {
