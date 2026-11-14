@@ -206,4 +206,68 @@ void main() {
     );
     expect(longhand.textEmphasisStyle, CssTextEmphasisStyle.circle);
   });
+
+  test('同心圆和三角形支持填充、省略填充与厂商兼容声明', () {
+    final cases = {
+      'filled double-circle': CssTextEmphasisStyle.doubleCircle,
+      'double-circle': CssTextEmphasisStyle.doubleCircle,
+      'double-circle open': CssTextEmphasisStyle.openDoubleCircle,
+      'filled triangle': CssTextEmphasisStyle.triangle,
+      'triangle': CssTextEmphasisStyle.triangle,
+      'open triangle': CssTextEmphasisStyle.openTriangle,
+    };
+    for (final entry in cases.entries) {
+      for (final property in ['text-emphasis', '-webkit-text-emphasis']) {
+        final style = _style('p { $property: ${entry.key} red; }');
+        expect(style.textEmphasisStyle, entry.value, reason: entry.key);
+        expect(style.textEmphasisString, isNull);
+        expect(style.textEmphasisColor, const Color(0xFFFF0000));
+      }
+    }
+  });
+
+  test('自定义字符串保留大小写、空格与转义，并随计算值继承和复制', () {
+    for (final (raw, text) in [
+      ('"O"', 'O'),
+      ('"O X"', 'O X'),
+      (r'"\4F "', 'O'),
+      ('"e\u0301X"', 'e\u0301X'),
+      ('""', ''),
+    ]) {
+      final parent = _style('p { text-emphasis: $raw red; }');
+      expect(parent.textEmphasisStyle, CssTextEmphasisStyle.custom);
+      expect(parent.textEmphasisString, text);
+      expect(parent.hasTextEmphasis, text.isNotEmpty);
+      for (final css in [
+        '',
+        'text-emphasis:inherit;',
+        'text-emphasis:unset;',
+      ]) {
+        final child = _style('p {$css}', parent: parent);
+        expect(child.textEmphasisStyle, CssTextEmphasisStyle.custom);
+        expect(child.textEmphasisString, text);
+        expect(child.withTypography(fontSize: 21).textEmphasisString, text);
+      }
+      for (final value in ['none', 'initial', 'open circle']) {
+        final reset = _style('p { text-emphasis:$value; }', parent: parent);
+        expect(reset.textEmphasisString, isNull);
+      }
+    }
+  });
+
+  test('字符串不能与形状或填充混用，错误声明不覆盖先前合法字符串', () {
+    for (final invalid in [
+      '"O" triangle',
+      'filled "O"',
+      '"O" "A"',
+      '"unterminated',
+    ]) {
+      final style = _style(
+        'p { text-emphasis: "O" blue; text-emphasis:$invalid; }',
+      );
+      expect(style.textEmphasisStyle, CssTextEmphasisStyle.custom);
+      expect(style.textEmphasisString, 'O', reason: invalid);
+      expect(style.textEmphasisColor, const Color(0xFF0000FF));
+    }
+  });
 }

@@ -179,7 +179,11 @@ class _TableRow {
 }
 
 typedef _ColumnElement = ({String tag, Map<String, String> attributes});
-typedef _CellContent = ({String text, List<InlineMark> marks});
+typedef _CellContent = ({
+  String text,
+  List<InlineMark> marks,
+  List<InlineImageMark> images,
+});
 typedef _TableWidth = ({double? pixels, double? fraction});
 typedef _CellInput = ({
   BlockNode node,
@@ -254,13 +258,15 @@ class _TableStructure {
   }
 }
 
-/// 格内文本拼接保留 trim、空盒空白、嵌套换行和行内标记的原文坐标。
+/// 格内拼接保留 trim、嵌套块、图片占位和行内标记的原文坐标。
 class _CellContentCollector {
-  _CellContentCollector(this.budget);
+  _CellContentCollector(this.styles, this.budget);
 
+  final ChapterStyleResolver styles;
   final LayoutBudget budget;
   final buffer = StringBuffer();
   final marks = <InlineMark>[];
+  final images = <InlineImageMark>[];
 
   Future<_CellContent> collect(
     BlockNode cell,
@@ -272,7 +278,7 @@ class _CellContentCollector {
       ancestors.add(_subject(element.tag, element.attributes));
     }
     await _walk(cell, ancestors);
-    return (text: buffer.toString(), marks: marks);
+    return (text: buffer.toString(), marks: marks, images: images);
   }
 
   Future<void> _walk(EpubNode node, List<MarkSubject> ancestors) async {
@@ -283,11 +289,59 @@ class _CellContentCollector {
       final trimmed = node.text.trim();
       if (trimmed.isNotEmpty) _appendText(trimmed);
     } else if (node is BlockNode) {
-      for (final child in node.children) {
-        await _walk(child, ancestors);
-      }
+      await _blockNode(node, ancestors);
     } else if (node is InlineNode) {
       await _inlineNode(node, ancestors);
+    }
+  }
+
+  Future<void> _blockNode(BlockNode node, List<MarkSubject> ancestors) async {
+    final objectImage =
+        node.tag == 'object' &&
+        (node.attributes['data']?.trim().isNotEmpty ?? false);
+    if ((node.tag == 'img' || node.tag == 'image' || objectImage) &&
+        node.children.isEmpty) {
+      await _blockImage(node, ancestors);
+      return;
+    }
+    final root = identical(ancestors.last.attributes, node.attributes);
+    final next = root
+        ? ancestors
+        : [...ancestors, _subject(node.tag, node.attributes)];
+    final start = buffer.length;
+    for (final child in node.children) {
+      await _walk(child, next);
+    }
+    if (!root && buffer.length > start) {
+      _addMark(node.tag, next, start, buffer.length);
+    }
+  }
+
+  Future<void> _blockImage(BlockNode node, List<MarkSubject> ancestors) async {
+    final image = InlineNode(
+      tag: node.tag,
+      children: const [],
+      cfi: node.cfi,
+      attributes: node.attributes,
+      start: node.start,
+      end: node.end,
+    );
+    final source = styles.selectorIndex.chainOf(node);
+    final chain = source == null
+        ? [...ancestors, _subject(node.tag, node.attributes)]
+        : [for (final view in source) _subject(view.tag, view.attributes)];
+    final offset = _appendImage(image, chain);
+    // 普通纯图容器仍由聚合器折叠；在格内按原始选择器链恢复被折叠的盒。
+    final start =
+        chain.lastIndexWhere(
+          (subject) => ancestors.any(
+            (ancestor) => identical(ancestor.attributes, subject.attributes),
+          ),
+        ) +
+        1;
+    for (var i = start; i < chain.length - 1; i++) {
+      await budget.checkpoint();
+      _addMark(chain[i].tag, chain.sublist(0, i + 1), offset, offset + 1);
     }
   }
 
@@ -317,32 +371,50 @@ class _CellContentCollector {
         ),
       );
     }
+    for (final image in node.inlineImages) {
+      await budget.checkpoint();
+      final start = image.offset - leading;
+      if (start < 0 || start >= text.length) continue;
+      images.add(InlineImageMark(offset: offset + start, node: image.node));
+    }
   }
 
   Future<void> _inlineNode(InlineNode node, List<MarkSubject> ancestors) async {
-    final classes = (node.attributes['class'] ?? '')
-        .split(RegExp(r'\s+'))
-        .where((value) => value.isNotEmpty)
-        .toList(growable: false);
-    final subject = MarkSubject(
-      tag: node.tag,
-      attributes: node.attributes,
-      classes: classes.toSet(),
-    );
-    final next = <MarkSubject>[...ancestors, subject];
+    final next = <MarkSubject>[
+      ...ancestors,
+      _subject(node.tag, node.attributes),
+    ];
+    final objectImage =
+        node.tag == 'object' &&
+        (node.attributes['data']?.trim().isNotEmpty ?? false);
+    if (node.tag == 'img' || node.tag == 'image' || objectImage) {
+      _appendImage(node, next);
+      return;
+    }
     final start = buffer.length;
     for (final child in node.children) {
       await _walk(child, next);
     }
     final end = buffer.length;
     if (end <= start) return;
+    _addMark(node.tag, next, start, end);
+  }
+
+  int _appendImage(InlineNode node, List<MarkSubject> chain) {
+    final offset = _appendText('\uFFFC');
+    images.add(InlineImageMark(offset: offset, node: node));
+    _addMark(node.tag, chain, offset, offset + 1);
+    return offset;
+  }
+
+  void _addMark(String tag, List<MarkSubject> chain, int start, int end) {
     marks.add(
       InlineMark(
         start: start,
         end: end,
-        tag: node.tag,
-        classes: classes,
-        chain: List<MarkSubject>.unmodifiable(next),
+        tag: tag,
+        classes: chain.last.classes.toList(growable: false),
+        chain: List<MarkSubject>.unmodifiable(chain),
       ),
     );
   }
@@ -392,6 +464,7 @@ class _TableCell {
         chain,
         style,
         math.max(8.0, width - inset.horizontal),
+        images: content.images,
       );
     }
     return Future.value(
@@ -632,14 +705,18 @@ class _TableBuild {
       final cells = <_TableCell>[];
       for (final node in row.cells) {
         await budget.checkpoint();
-        final chain = List<SelectorElement>.unmodifiable([
-          ...table.chain,
-          rowView,
-          ChapterNodeView(node.tag, node.attributes, const []),
-        ]);
+        final chain =
+            styles.selectorIndex.chainOf(node) ??
+            List<SelectorElement>.unmodifiable([
+              ...table.chain,
+              rowView,
+              ChapterNodeView(node.tag, node.attributes, const []),
+            ]);
         final style = styles.chainStyle(chain);
-        final content = await _CellContentCollector(budget)
-            .collect(node, chain);
+        final content = await _CellContentCollector(
+          styles,
+          budget,
+        ).collect(node, chain);
         cells.add(
           _TableCell(inline, table, (
             node: node,
@@ -849,12 +926,14 @@ class _TableBuild {
 
   Future<PageBlock?> _caption(BlockNode? node, double width) async {
     if (node == null) return null;
-    final chain = [
-      ...table.chain,
-      ChapterNodeView(node.tag, node.attributes, const []),
-    ];
+    final chain =
+        styles.selectorIndex.chainOf(node) ??
+        [...table.chain, ChapterNodeView(node.tag, node.attributes, const [])];
     final style = styles.styleForChain(chain);
-    final content = await _CellContentCollector(budget).collect(node, chain);
+    final content = await _CellContentCollector(
+      styles,
+      budget,
+    ).collect(node, chain);
     if (content.text.isEmpty && content.marks.isEmpty) return null;
     final layout = await inline.layoutCellContent(
       content.text,
@@ -865,6 +944,7 @@ class _TableBuild {
         8.0,
         width - tableCellInsetFor(style, collapse: table.collapse).horizontal,
       ),
+      images: content.images,
     );
     return PageBlock.styled(
       layout: layout,

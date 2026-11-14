@@ -224,16 +224,21 @@ enum CssTextDecorationStyle { solid, double, dotted, dashed, wavy }
 
 /// 着重号样式（CSS `text-emphasis-style`，P2-17）。
 ///
-/// CSS 的「填充/空心」与「点/圆/芝麻点」是两个维度；枚举保存组合值，
-/// 避免把 `open circle` 错降成空心圆点或把 `filled sesame` 画成圆点。
+/// 填充状态与形状保存为组合值；自定义字符串由 [ComputedStyle.textEmphasisString]
+/// 独立保存，避免丢失作者指定的大小写与转义字符。
 enum CssTextEmphasisStyle {
   none,
   dot,
   openDot,
   circle,
   openCircle,
+  doubleCircle,
+  openDoubleCircle,
+  triangle,
+  openTriangle,
   sesame,
   openSesame,
+  custom,
 }
 
 /// 着重号位置（CSS text-emphasis-position 属性）。
@@ -2298,16 +2303,23 @@ class ComputedStyle {
     final rawEmphasis =
         explicitValue('text-emphasis-style') ??
         shorthandEmphasis?['text-emphasis-style'];
-    final textEmphasisStyle = rawEmphasis == null
-        ? (parent?.textEmphasisStyle ?? CssTextEmphasisStyle.none)
+    final parsedEmphasis = rawEmphasis == null
+        ? null
         : _parseTextEmphasisStyle(
-                rawEmphasis,
-                vertical:
-                    writingMode != CssWritingMode.horizontalTb &&
-                    textOrientation != CssTextOrientation.sideways,
-              ) ??
-              parent?.textEmphasisStyle ??
-              CssTextEmphasisStyle.none;
+            rawEmphasis,
+            vertical:
+                writingMode != CssWritingMode.horizontalTb &&
+                textOrientation != CssTextOrientation.sideways,
+          );
+    final textEmphasisStyle =
+        parsedEmphasis ??
+        parent?.textEmphasisStyle ??
+        CssTextEmphasisStyle.none;
+    final textEmphasisString = textEmphasisStyle != CssTextEmphasisStyle.custom
+        ? null
+        : parsedEmphasis == null
+        ? parent?.textEmphasisString
+        : decodeCssString(rawEmphasis!.trim());
     final rawEmphasisPosition = explicitValue('text-emphasis-position');
     final textEmphasisPosition = rawEmphasisPosition == null
         ? (parent?.textEmphasisPosition ?? CssTextEmphasisPosition.over)
@@ -2625,6 +2637,7 @@ class ComputedStyle {
       verticalAlignLength: verticalAlignLength,
       textDecoration: textDecoration,
       textEmphasisStyle: textEmphasisStyle,
+      textEmphasisString: textEmphasisString,
       textEmphasisPosition: textEmphasisPosition,
       rubyPosition: rubyPosition,
       rubyAlign: rubyAlign,
@@ -2976,6 +2989,7 @@ class ComputedStyle {
       verticalAlignLength: verticalAlignLength,
       textDecoration: textDecoration,
       textEmphasisStyle: textEmphasisStyle,
+      textEmphasisString: textEmphasisString,
       textEmphasisPosition: textEmphasisPosition,
       rubyPosition: rubyPosition,
       rubyAlign: rubyAlign,
@@ -3113,6 +3127,7 @@ class ComputedStyle {
     required this.verticalAlignLength,
     required this.textDecoration,
     required this.textEmphasisStyle,
+    required this.textEmphasisString,
     required this.textEmphasisPosition,
     required this.rubyPosition,
     required this.rubyAlign,
@@ -3552,6 +3567,15 @@ class ComputedStyle {
 
   /// 着重号样式（继承，初始 none）。
   final CssTextEmphasisStyle textEmphasisStyle;
+
+  /// 自定义着重号的解码字符串（继承）；绘制时采用首个字素簇。
+  final String? textEmphasisString;
+
+  /// 空字符串是合法计算值，但不生成可见着重号。
+  bool get hasTextEmphasis =>
+      textEmphasisStyle != CssTextEmphasisStyle.none &&
+      (textEmphasisStyle != CssTextEmphasisStyle.custom ||
+          (textEmphasisString?.isNotEmpty ?? false));
 
   /// 着重号位置（继承，初始 over）。
   final CssTextEmphasisPosition textEmphasisPosition;
@@ -7327,9 +7351,11 @@ class ComputedStyle {
 
   /// 着重号简写拆成长属性；缺项重置，位置独立参与继承。
   static Map<String, String>? parseTextEmphasisShorthand(String raw) {
+    final tokens = cssValueTokens(raw);
+    if (tokens == null) return null;
     final styles = <String>[];
     String? color;
-    for (final token in _cssTokens(raw)) {
+    for (final token in tokens) {
       if (token.toLowerCase() == 'currentcolor' || _parseColor(token) != null) {
         if (color != null) return null;
         color = token;
@@ -7346,33 +7372,44 @@ class ComputedStyle {
     };
   }
 
+  static const _emphasisShapes = {
+    'dot': (CssTextEmphasisStyle.dot, CssTextEmphasisStyle.openDot),
+    'circle': (CssTextEmphasisStyle.circle, CssTextEmphasisStyle.openCircle),
+    'double-circle': (
+      CssTextEmphasisStyle.doubleCircle,
+      CssTextEmphasisStyle.openDoubleCircle,
+    ),
+    'triangle': (
+      CssTextEmphasisStyle.triangle,
+      CssTextEmphasisStyle.openTriangle,
+    ),
+    'sesame': (CssTextEmphasisStyle.sesame, CssTextEmphasisStyle.openSesame),
+  };
+
   static CssTextEmphasisStyle? _parseTextEmphasisStyle(
     String raw, {
     bool vertical = false,
   }) {
-    if (raw.trim().toLowerCase() == 'none') return CssTextEmphasisStyle.none;
-    final tokens = _cssTokens(raw.toLowerCase());
-    if (tokens.isEmpty) return null;
+    final value = raw.trim();
+    if (value.toLowerCase() == 'none') return CssTextEmphasisStyle.none;
+    if (decodeCssString(value) != null) return CssTextEmphasisStyle.custom;
+    final tokens = cssValueTokens(value.toLowerCase());
+    if (tokens == null || tokens.isEmpty) return null;
     String? fill;
     String? shape;
     for (final token in tokens) {
       if (const {'filled', 'open'}.contains(token)) {
         if (fill != null) return null;
         fill = token;
-      } else if (const {'dot', 'circle', 'sesame'}.contains(token)) {
+      } else if (_emphasisShapes.containsKey(token)) {
         if (shape != null) return null;
         shape = token;
       } else {
         return null;
       }
     }
-    final open = fill == 'open';
-    return switch (shape ?? (vertical ? 'sesame' : 'circle')) {
-      'dot' => open ? CssTextEmphasisStyle.openDot : CssTextEmphasisStyle.dot,
-      'sesame' =>
-        open ? CssTextEmphasisStyle.openSesame : CssTextEmphasisStyle.sesame,
-      _ => open ? CssTextEmphasisStyle.openCircle : CssTextEmphasisStyle.circle,
-    };
+    final styles = _emphasisShapes[shape ?? (vertical ? 'sesame' : 'circle')]!;
+    return fill == 'open' ? styles.$2 : styles.$1;
   }
 
   static CssTextCombine? _parseTextCombine(String raw) {

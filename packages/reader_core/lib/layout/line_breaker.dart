@@ -816,6 +816,9 @@ class TextLayoutResult implements TextLayout {
     this.isRtl = false,
     this.writingMode = CssWritingMode.horizontalTb,
     this.plainTextLayout = false,
+    this.firstLineStyle,
+    this.firstLineRuns,
+    this.sourceRuns,
   });
 
   /// 原始文本。
@@ -836,6 +839,13 @@ class TextLayoutResult implements TextLayout {
   /// 行内样式区间（绘制用），偏移基于 [text]。
   final List<StyledRun> runs;
 
+  /// 首行断行前的级联输入；变宽重排时重新确定首行范围。
+  final ComputedStyle? firstLineStyle;
+  final List<StyledRun>? firstLineRuns;
+  final List<StyledRun>? sourceRuns;
+
+  List<StyledRun> get inputRuns => sourceRuns ?? runs;
+
   /// 段落方向是否为 RTL（绘制/命中需用同一 baseDirection，否则字形顺序错位）。
   final bool isRtl;
 
@@ -855,8 +865,18 @@ class TextLayoutResult implements TextLayout {
   ///
   /// 段落缓存键只包含影响度量的 run 指纹，颜色、背景和装饰不在键内；
   /// 命中后必须重新绑定当前 runs，不能把首段绘制样式带给后续段落。
-  TextLayoutResult withRuns(List<StyledRun> currentRuns) {
-    var same = currentRuns.length == runs.length;
+  /// 首行输入也必须完整传入；显式 null 清除旧值，不表示保留缓存输入。
+  TextLayoutResult withRuns(
+    List<StyledRun> currentRuns, {
+    required ComputedStyle? firstLineStyle,
+    required List<StyledRun>? firstLineRuns,
+    required List<StyledRun>? sourceRuns,
+  }) {
+    var same =
+        currentRuns.length == runs.length &&
+        identical(firstLineStyle, this.firstLineStyle) &&
+        identical(firstLineRuns, this.firstLineRuns) &&
+        identical(sourceRuns, this.sourceRuns);
     if (same) {
       for (var i = 0; i < runs.length; i++) {
         final current = currentRuns[i];
@@ -884,6 +904,9 @@ class TextLayoutResult implements TextLayout {
       isRtl: isRtl,
       writingMode: writingMode,
       plainTextLayout: plainTextLayout,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: sourceRuns,
     );
   }
 
@@ -1009,6 +1032,8 @@ class LineBreaker {
     bool Function(String family, int codeUnit)? hasGlyph,
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) {
     // nowrap/pre 不软换行：测量时不软换行，但内容宽保持有限值（P9-28：
     // 无限宽会让对齐余量恒为 0，也让对照工具拿到 Infinity）。
@@ -1026,6 +1051,8 @@ class LineBreaker {
       inlineBoxes: inlineBoxes,
       rubies: rubies,
       softWrap: softWrap,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
   }
 
@@ -1041,6 +1068,8 @@ class LineBreaker {
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     Future<void> Function()? checkpoint,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) {
     final softWrap =
         style.whiteSpace != CssWhiteSpace.nowrap &&
@@ -1057,6 +1086,8 @@ class LineBreaker {
       rubies: rubies,
       softWrap: softWrap,
       checkpoint: checkpoint,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
   }
 }
@@ -1084,6 +1115,8 @@ abstract final class TextLayoutEngine {
     bool Function(String family, int codeUnit)? hasGlyph,
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) {
     return (lineBreaker ?? LineBreaker()).layout(
       text: text,
@@ -1095,6 +1128,8 @@ abstract final class TextLayoutEngine {
       hasGlyph: hasGlyph,
       inlineBoxes: inlineBoxes,
       rubies: rubies,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
   }
 
@@ -1113,6 +1148,8 @@ abstract final class TextLayoutEngine {
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     Future<void> Function()? checkpoint,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) => (lineBreaker ?? LineBreaker()).layoutAsync(
     text: text,
     style: style,
@@ -1124,6 +1161,8 @@ abstract final class TextLayoutEngine {
     inlineBoxes: inlineBoxes,
     rubies: rubies,
     checkpoint: checkpoint,
+    firstLineStyle: firstLineStyle,
+    firstLineRuns: firstLineRuns,
   );
 
   /// 计算绘制用 runs（含字形回退分段），不执行断行。
@@ -1136,8 +1175,20 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     bool Function(String family, int codeUnit)? hasGlyph,
     TextLeadingDistribution leadingDistribution = TextLeadingDistribution.even,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
+    int firstLineEnd = 0,
   }) {
     text = applyTextTransform(text, style.textTransform);
+    if (firstLineStyle != null && firstLineEnd > 0) {
+      runs = _runsWithFirstLine(
+        text.length,
+        firstLineEnd,
+        runs,
+        firstLineRuns ?? inheritedFirstLineRuns(runs, firstLineStyle),
+        firstLineStyle,
+      );
+    }
     final ordered = _applyVerticalAlign(
       _normalizeRuns(runs, text.length),
       style,
@@ -1493,6 +1544,8 @@ abstract final class TextLayoutEngine {
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool softWrap = true,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) {
     final work = _TextLayoutWork<TextLayoutResult>();
     try {
@@ -1508,6 +1561,8 @@ abstract final class TextLayoutEngine {
         inlineBoxes: inlineBoxes,
         rubies: rubies,
         softWrap: softWrap,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
       )) {}
       return work.result!;
     } finally {
@@ -1527,6 +1582,8 @@ abstract final class TextLayoutEngine {
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool softWrap = true,
     Future<void> Function()? checkpoint,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) async {
     final work = _TextLayoutWork<TextLayoutResult>();
     try {
@@ -1543,6 +1600,8 @@ abstract final class TextLayoutEngine {
         inlineBoxes: inlineBoxes,
         rubies: rubies,
         softWrap: softWrap,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
       )) {
         if (checkpoint != null) await checkpoint();
       }
@@ -1565,6 +1624,8 @@ abstract final class TextLayoutEngine {
     List<InlineBoxSpec> inlineBoxes = const <InlineBoxSpec>[],
     List<RubyAnnotation> rubies = const <RubyAnnotation>[],
     bool softWrap = true,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) sync* {
     // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
     text = applyTextTransform(text, style.textTransform);
@@ -1611,13 +1672,22 @@ abstract final class TextLayoutEngine {
         : 0.0;
     // P2-12：按字形覆盖叠加字体族分段。未传 hasGlyph 时走原路径，
     // 行为与之前完全一致。
-    final styled = styledRuns(
+    var styled = styledRuns(
       text: text,
       style: style,
       runs: runs,
       hasGlyph: hasGlyph,
       leadingDistribution: leadingDistribution,
     );
+    final firstStyled = firstLineStyle == null
+        ? styled
+        : styledRuns(
+            text: text,
+            style: firstLineStyle,
+            runs: firstLineRuns ?? inheritedFirstLineRuns(runs, firstLineStyle),
+            hasGlyph: hasGlyph,
+            leadingDistribution: leadingDistribution,
+          );
     // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
     var measuredEnd = text.length;
     while (measuredEnd > 0 && text.codeUnitAt(measuredEnd - 1) == 10) {
@@ -1645,6 +1715,7 @@ abstract final class TextLayoutEngine {
     final autoBreakWork = _TextLayoutWork<Map<int, bool>>(work.painters);
     if (inlineBoxes.isEmpty &&
         runs.isEmpty &&
+        firstLineStyle == null &&
         softWrap &&
         !vertical &&
         style.hyphens == CssHyphens.auto &&
@@ -1705,7 +1776,7 @@ abstract final class TextLayoutEngine {
       final measuredRuns = _measurementRuns(styled, offsets);
       final barriers = _spacingBarriers(rubies, inlineBoxMarks, offsets);
       final segment = _TextLayoutWork<List<LineBox>>(work.painters);
-      if (measuredText.isEmpty || indent == 0) {
+      if (measuredText.isEmpty || (indent == 0 && firstLineStyle == null)) {
         yield* _measureSegmentSteps(
           segment,
           text: source,
@@ -1731,6 +1802,8 @@ abstract final class TextLayoutEngine {
           leadingDistribution: leadingDistribution,
           runs: measuredRuns,
           spacingBarriers: barriers,
+          firstLineStyle: firstLineStyle,
+          firstLineRuns: _measurementRuns(firstStyled, offsets),
         );
       }
       measured = segment.result!;
@@ -1779,8 +1852,22 @@ abstract final class TextLayoutEngine {
           lines: measured,
           style: style,
           maxWidth: width,
-          runs: styled,
+          runs: firstLineStyle == null || measured.isEmpty
+              ? styled
+              : styledRuns(
+                  text: text,
+                  style: style,
+                  runs: runs,
+                  hasGlyph: hasGlyph,
+                  leadingDistribution: leadingDistribution,
+                  firstLineStyle: firstLineStyle,
+                  firstLineRuns: firstLineRuns,
+                  firstLineEnd: measured.first.end,
+                ),
           isRtl: style.isRtl,
+          firstLineStyle: firstLineStyle,
+          firstLineRuns: firstLineRuns,
+          sourceRuns: firstLineStyle == null ? null : runs,
         );
         return;
       }
@@ -1820,6 +1907,18 @@ abstract final class TextLayoutEngine {
         break;
       }
     }
+    if (firstLineStyle != null && measured.isNotEmpty) {
+      styled = styledRuns(
+        text: text,
+        style: style,
+        runs: runs,
+        hasGlyph: hasGlyph,
+        leadingDistribution: leadingDistribution,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
+        firstLineEnd: measured.first.end,
+      );
+    }
     final aligned = <LineBox>[];
     for (final line in _align(measuredText, measured, style, width, (
       runs: styled,
@@ -1838,10 +1937,12 @@ abstract final class TextLayoutEngine {
       isRtl: style.isRtl,
       // Chromium 会给横排 under 着重号增加约 0.12em 的块底部空间。
       bottomOverflow:
-          style.textEmphasisStyle != CssTextEmphasisStyle.none &&
-              style.textEmphasisPosition.isUnder
+          style.hasTextEmphasis && style.textEmphasisPosition.isUnder
           ? style.fontSize * 0.12
           : 0,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: firstLineStyle == null ? null : runs,
     );
   }
 
@@ -2408,6 +2509,85 @@ abstract final class TextLayoutEngine {
     return ordered;
   }
 
+  /// 直接测量入口没有 DOM 时，按 run 自身声明重建首行继承。
+  /// 缓存键复用同一结果的度量指纹，避免相同正文字号漏掉声明来源差异。
+  /// 这里只重建级联，不测量或裁剪首行范围。
+  /// 章节入口提供完整重级联结果，避免把祖先声明当成 span 的显式值。
+  static List<StyledRun> inheritedFirstLineRuns(
+    List<StyledRun> runs,
+    ComputedStyle firstLineStyle,
+  ) => [
+    for (final run in runs)
+      StyledRun(
+        start: run.start,
+        end: run.end,
+        style: ComputedStyle(
+          run.style.values,
+          parent: firstLineStyle,
+          explicitProperties: run.style.explicitProperties,
+          hasExplicitTextColor: run.style.hasExplicitTextColor,
+          declaredTextProperties: run.style.declaredTextProperties,
+          rootFontSize: firstLineStyle.fontSize,
+          valueContext: firstLineStyle.valueContext,
+        ),
+        baselineShift: run.baselineShift,
+        syntheticFontFallback: run.syntheticFontFallback,
+        inlineLeadingInset: run.inlineLeadingInset,
+        inlineTrailingInset: run.inlineTrailingInset,
+      ),
+  ];
+
+  static StyledRun _runFragment(StyledRun run, int start, int end) => StyledRun(
+    start: start,
+    end: end,
+    style: run.style,
+    baselineShift: run.baselineShift,
+    syntheticFontFallback: run.syntheticFontFallback,
+    inlineLeadingInset: start == run.start ? run.inlineLeadingInset : 0,
+    inlineTrailingInset: end == run.end ? run.inlineTrailingInset : 0,
+  );
+
+  /// 只把真正第一物理行替换为首行样式，余文保留正文声明和盒边界。
+  static List<StyledRun> _runsWithFirstLine(
+    int length,
+    int firstLineEnd,
+    List<StyledRun> bodyRuns,
+    List<StyledRun> firstLineRuns,
+    ComputedStyle firstLineStyle,
+  ) {
+    final end = firstLineEnd.clamp(0, length);
+    final result = <StyledRun>[];
+    var cursor = 0;
+    void fill(int to) {
+      if (to <= cursor) return;
+      result.add(
+        StyledRun(
+          start: cursor,
+          end: to,
+          style: firstLineStyle,
+          inlineLeadingInset: 0,
+          inlineTrailingInset: 0,
+        ),
+      );
+      cursor = to;
+    }
+
+    for (final run in _normalizeRuns(firstLineRuns, length)) {
+      final start = math.max(cursor, run.start);
+      final stop = math.min(end, run.end);
+      if (stop <= start) continue;
+      fill(start);
+      result.add(_runFragment(run, start, stop));
+      cursor = stop;
+    }
+    fill(end);
+    for (final run in _normalizeRuns(bodyRuns, length)) {
+      final start = math.max(end, run.start);
+      if (run.end > start) result.add(_runFragment(run, start, run.end));
+    }
+    return result;
+  }
+
   /// 把字形覆盖分段叠加到调用方的 [runs] 上，返回升序、互不重叠的样式区间。
   ///
   /// 行内样式优先：调用方区间（混排字号、上下标等）只在自身计算样式上叠加
@@ -2658,7 +2838,11 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs = const <StyledRun>[],
     List<_InlineBoxMark> inlineBoxMarks = const <_InlineBoxMark>[],
     Set<int> spacingBarriers = const {},
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) sync* {
+    final headStyle = firstLineStyle ?? style;
+    final sourceHeadRuns = firstLineRuns ?? runs;
     final firstWidth = math.max(1.0, width - indent);
     // 首段先不带行内盒测一次，拿到分界后再把「落在首段」的盒补进去
     // （盒占宽会改变首段末行，但盒的位置由原文偏移决定，不受影响）。
@@ -2667,8 +2851,8 @@ abstract final class TextLayoutEngine {
         ? text
         : text.substring(0, _indentProbeChars);
     var headRuns = text.length <= _indentProbeChars
-        ? runs
-        : _sliceRuns(runs, 0, _indentProbeChars);
+        ? sourceHeadRuns
+        : _sliceRuns(sourceHeadRuns, 0, _indentProbeChars);
     var headMarks = text.length <= _indentProbeChars
         ? inlineBoxMarks
         : <_InlineBoxMark>[
@@ -2683,7 +2867,7 @@ abstract final class TextLayoutEngine {
         text: headText,
         width: firstWidth,
         contentWidth: firstWidth,
-        style: style,
+        style: headStyle,
         textScaleFactor: textScaleFactor,
         leadingDistribution: leadingDistribution,
         runs: headRuns,
@@ -2699,7 +2883,7 @@ abstract final class TextLayoutEngine {
       }
       final next = math.min(text.length, headText.length * 2);
       headText = text.substring(0, next);
-      headRuns = _sliceRuns(runs, 0, next);
+      headRuns = _sliceRuns(sourceHeadRuns, 0, next);
       headMarks = <_InlineBoxMark>[
         for (final mark in inlineBoxMarks)
           if (mark.index < next) mark,
@@ -2722,7 +2906,7 @@ abstract final class TextLayoutEngine {
           width: firstWidth,
           contentWidth: firstWidth,
           inlineBoxMarks: firstMarks,
-          style: style,
+          style: headStyle,
           textScaleFactor: textScaleFactor,
           leadingDistribution: leadingDistribution,
           runs: headRuns,
@@ -4710,6 +4894,9 @@ abstract final class TextLayoutEngine {
     required double maxWidth,
     required List<StyledRun> runs,
     required bool isRtl,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
+    List<StyledRun>? sourceRuns,
   }) {
     // 列宽 = 行高：优先用实测行高（`line-height: normal` 时由字体度量决定，
     // 不能拿 1.2em 之类的常数近似）；无行时退回字号。
@@ -4760,6 +4947,9 @@ abstract final class TextLayoutEngine {
       isRtl: isRtl,
       writingMode: style.writingMode,
       plainTextLayout: !_runsAffectTextLayout(runs, style),
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: sourceRuns,
     );
   }
 
@@ -4771,6 +4961,9 @@ abstract final class TextLayoutEngine {
     ComputedStyle style, {
     bool isRtl = false,
     double bottomOverflow = 0,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
+    List<StyledRun>? sourceRuns,
   }) {
     var maxLineWidth = 0.0;
     for (final line in lines) {
@@ -4786,6 +4979,9 @@ abstract final class TextLayoutEngine {
       runs: List<StyledRun>.unmodifiable(runs),
       isRtl: isRtl,
       plainTextLayout: !_runsAffectTextLayout(runs, style),
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: sourceRuns,
     );
   }
 

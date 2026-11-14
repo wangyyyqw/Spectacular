@@ -44,6 +44,8 @@ class ChapterTextMeasurer {
     List<RubyAnnotation> rubies = const [],
     List<InlineBoxSpec> inlineBoxes = const [],
     bool preserveContentWidth = false,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) async {
     if (inlineBoxes.isEmpty) {
       return _layoutCache.layoutAsync(
@@ -56,6 +58,8 @@ class ChapterTextMeasurer {
         fontDependency: snapshot.fontDependency,
         checkpoint: budget.checkpoint,
         preserveContentWidth: preserveContentWidth,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
       );
     }
     return TextLayoutEngine.layoutAsync(
@@ -68,6 +72,8 @@ class ChapterTextMeasurer {
       hasGlyph: snapshot.fonts.hasGlyph,
       checkpoint: budget.checkpoint,
       lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
   }
 
@@ -257,6 +263,7 @@ class ChapterTextMeasurer {
     ComputedStyle style,
     double contentWidth, {
     required double containingHeight,
+    PageFloatBox? floatBox,
   }) async {
     if (style.display == CssDisplay.none ||
         style.visibility != CssVisibility.visible) {
@@ -309,6 +316,15 @@ class ChapterTextMeasurer {
       absolute: style.isOutOfFlow,
       absoluteTop: absoluteBox?.top,
       absoluteLeft: absoluteBox?.left,
+    ).withSpacing(
+      floatSide: switch (style.cssFloat) {
+        CssFloat.left => FloatSide.left,
+        CssFloat.right => FloatSide.right,
+        CssFloat.none => null,
+      },
+      // 原子空盒只绘自身装饰，父包含块坐标独立参与浮动占位。
+      floatContainingLeft: floatBox?.containingLeft,
+      floatContainingWidth: floatBox?.containingWidth,
     );
   }
 

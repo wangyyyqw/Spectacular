@@ -52,6 +52,8 @@ class TextLayoutCache {
     bool Function(String family, int codeUnit)? hasGlyph,
     String fontDependency = '',
     bool preserveContentWidth = false,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) {
     final key = _key(
       text: text,
@@ -64,16 +66,24 @@ class TextLayoutCache {
       hasGlyph: hasGlyph,
       fontDependency: fontDependency,
       preserveContentWidth: preserveContentWidth,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
     final cached = _take(
       key.value,
-      () => TextLayoutEngine.styledRuns(
+      (end) => TextLayoutEngine.styledRuns(
         text: text,
         style: style,
         runs: runs,
         hasGlyph: hasGlyph,
         leadingDistribution: leadingDistribution,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
+        firstLineEnd: end,
       ),
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: firstLineStyle == null ? null : runs,
     );
     if (cached != null) {
       return cached;
@@ -88,6 +98,8 @@ class TextLayoutCache {
       rubies: rubies,
       hasGlyph: hasGlyph,
       lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
     _entries[key.value] = result;
     _evict();
@@ -95,6 +107,7 @@ class TextLayoutCache {
         leadingDistribution == TextLeadingDistribution.even &&
         hasGlyph != null &&
         !preserveContentWidth &&
+        firstLineStyle == null &&
         rubies.length <= _maxReusableRubies) {
       _rememberMeasurement(result, key.style, maxWidth, fontDependency, rubies);
     }
@@ -114,6 +127,8 @@ class TextLayoutCache {
     String fontDependency = '',
     Future<void> Function()? checkpoint,
     bool preserveContentWidth = false,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) async {
     if (checkpoint != null) await checkpoint();
     final key = _key(
@@ -127,16 +142,24 @@ class TextLayoutCache {
       hasGlyph: hasGlyph,
       fontDependency: fontDependency,
       preserveContentWidth: preserveContentWidth,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
     final cached = _take(
       key.value,
-      () => TextLayoutEngine.styledRuns(
+      (end) => TextLayoutEngine.styledRuns(
         text: text,
         style: style,
         runs: runs,
         hasGlyph: hasGlyph,
         leadingDistribution: leadingDistribution,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
+        firstLineEnd: end,
       ),
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: firstLineStyle == null ? null : runs,
     );
     if (cached != null) return cached;
     final epoch = _epoch;
@@ -151,6 +174,8 @@ class TextLayoutCache {
       hasGlyph: hasGlyph,
       checkpoint: checkpoint,
       lineBreaker: preserveContentWidth ? LineBreaker(minimumWidthEm: 0) : null,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
     if (checkpoint != null) await checkpoint();
     if (epoch == _epoch) {
@@ -160,6 +185,7 @@ class TextLayoutCache {
           leadingDistribution == TextLeadingDistribution.even &&
           hasGlyph != null &&
           !preserveContentWidth &&
+          firstLineStyle == null &&
           rubies.length <= _maxReusableRubies) {
         _rememberMeasurement(
           result,
@@ -173,7 +199,13 @@ class TextLayoutCache {
     return result;
   }
 
-  TextLayoutResult? _take(String key, List<StyledRun> Function() currentRuns) {
+  TextLayoutResult? _take(
+    String key,
+    List<StyledRun> Function(int firstLineEnd) currentRuns, {
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
+    List<StyledRun>? sourceRuns,
+  }) {
     final cached = _entries.remove(key);
     if (cached == null) {
       _misses += 1;
@@ -181,7 +213,12 @@ class TextLayoutCache {
     }
     _entries[key] = cached;
     _hits += 1;
-    final result = cached.withRuns(currentRuns());
+    final result = cached.withRuns(
+      currentRuns(cached.lines.firstOrNull?.end ?? 0),
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: sourceRuns,
+    );
     reuseTextLineEdges(cached, result);
     _measurements[result] = _measurements[cached];
     return result;
@@ -269,6 +306,8 @@ class TextLayoutCache {
     required bool Function(String family, int codeUnit)? hasGlyph,
     required String fontDependency,
     required bool preserveContentWidth,
+    required ComputedStyle? firstLineStyle,
+    required List<StyledRun>? firstLineRuns,
   }) {
     final styleFingerprint = style.layoutFingerprint;
     final buffer = StringBuffer('spacing=$textSpacingRevision|')
@@ -286,23 +325,17 @@ class TextLayoutCache {
       ..write(leadingDistribution.name)
       ..write('|hg=')
       ..write(hasGlyph == null ? 0 : 1);
-    if (runs.isNotEmpty) {
-      buffer.write('|r=');
-      for (final run in runs) {
-        buffer
-          ..write(run.start)
-          ..write(',')
-          ..write(run.end)
-          ..write(',')
-          ..write(run.baselineShift)
-          ..write(',')
-          ..write(run.syntheticFontFallback ? 0 : run.leadingInset)
-          ..write(',')
-          ..write(run.syntheticFontFallback ? 0 : run.trailingInset)
-          ..write(',')
-          ..write(run.style.layoutFingerprint)
-          ..write(';');
-      }
+    _writeRuns(buffer, '|r=', runs);
+    if (firstLineStyle != null) {
+      buffer.write('|first=${firstLineStyle.layoutFingerprint}');
+      // null 自动继承正文声明，显式空列表只采用首行样式，度量可不同。
+      buffer.write(
+        '|firstRunsMode=${firstLineRuns == null ? 'inherited' : 'explicit'}',
+      );
+      final effectiveFirstRuns =
+          firstLineRuns ??
+          TextLayoutEngine.inheritedFirstLineRuns(runs, firstLineStyle);
+      _writeRuns(buffer, '|firstRuns=', effectiveFirstRuns);
     }
     for (final ruby in rubies) {
       buffer.write('|ruby=${ruby.start}:${ruby.end}');
@@ -311,6 +344,30 @@ class TextLayoutCache {
       ..write('|')
       ..write(text);
     return (value: buffer.toString(), style: styleFingerprint);
+  }
+
+  static void _writeRuns(
+    StringBuffer buffer,
+    String label,
+    List<StyledRun> runs,
+  ) {
+    if (runs.isEmpty) return;
+    buffer.write(label);
+    for (final run in runs) {
+      buffer
+        ..write(run.start)
+        ..write(',')
+        ..write(run.end)
+        ..write(',')
+        ..write(run.baselineShift)
+        ..write(',')
+        ..write(run.syntheticFontFallback ? 0 : run.leadingInset)
+        ..write(',')
+        ..write(run.syntheticFontFallback ? 0 : run.trailingInset)
+        ..write(',')
+        ..write(run.style.layoutFingerprint)
+        ..write(';');
+    }
   }
 }
 

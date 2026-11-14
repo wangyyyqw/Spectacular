@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/widgets.dart' show StringCharacters;
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_size.dart';
@@ -78,8 +79,6 @@ class ChapterStyleResolver {
       snapshot.fonts.applyCustomFont(computed, snapshot.overrides);
   double _textWidthFor(ComputedStyle style) =>
       math.max(24, style.contentBoxWidth(contentWidth));
-  bool _ruleMediaMatches(String? media, List<String> conditions) =>
-      ruleMediaMatches(media, conditions, contentWidth);
 
   SelectorElement selectorViewOf(EpubNode node) {
     final original = selectorIndex.chainOf(node)?.last;
@@ -131,7 +130,7 @@ class ChapterStyleResolver {
     var width = contentWidth;
     for (var index = 0; index < chain.length - 1; index++) {
       final box = retainedContainers[chain[index]];
-      if (box != null) width = box.contentWidth;
+      if (box != null) width = box.flowWidth;
     }
     return width;
   }
@@ -259,7 +258,7 @@ class ChapterStyleResolver {
         );
       }
       left = container.contentLeft;
-      width = container.contentWidth;
+      width = container.flowWidth;
     }
     return result;
   }
@@ -268,26 +267,40 @@ class ChapterStyleResolver {
     List<SelectorElement> ancestors,
     ComputedStyle parent,
     String pseudo,
+  ) => _auxiliaryStyleFor(
+    ancestors,
+    parent,
+    pseudo,
+    pseudoRules[pseudo] ?? const [],
+  );
+
+  /// 首行只传递伪元素允许的文字与背景属性，不把盒尺寸当作首行样式。
+  ComputedStyle? firstLineStyleFor(
+    List<SelectorElement> ancestors,
+    ComputedStyle parent,
+  ) {
+    if (ancestors.isEmpty || preparedStyles.firstLineRules.isEmpty) return null;
+    final computed = _auxiliaryStyleFor(
+      ancestors,
+      parent,
+      '::first-line',
+      preparedStyles.firstLineRules,
+    );
+    return computed.explicitProperties.isEmpty ? null : computed;
+  }
+
+  ComputedStyle _auxiliaryStyleFor(
+    List<SelectorElement> ancestors,
+    ComputedStyle parent,
+    String pseudo,
+    List<AuxiliaryCssRule> auxiliary,
   ) {
     if (ancestors.isEmpty) {
       return parent;
     }
     final rules = pseudoCascadeRules.putIfAbsent(
       pseudo,
-      () => CascadeRuleSet([
-        for (final (index, rule)
-            in (pseudoRules[pseudo] ?? const <AuxiliaryCssRule>[]).indexed)
-          CascadeRule(
-            rule: CssRule(
-              selector: rule.selectorText,
-              declarations: rule.declarations,
-              media: rule.media,
-              mediaConditions: rule.mediaConditions,
-            ),
-            origin: CascadeOrigin.author,
-            order: index,
-          ),
-      ]),
+      () => _auxiliaryCascadeRules(auxiliary, pseudo),
     );
     return _applyCustomFont(
       Cascade.compute(
@@ -302,6 +315,45 @@ class ChapterStyleResolver {
       ),
     );
   }
+
+  static CascadeRuleSet _auxiliaryCascadeRules(
+    List<AuxiliaryCssRule> auxiliary,
+    String pseudo,
+  ) => CascadeRuleSet([
+    for (final (index, rule) in auxiliary.indexed)
+      CascadeRule(
+        rule: CssRule(
+          selector: rule.selectorText,
+          declarations: pseudo == '::first-line'
+              ? rule.declarations
+                    .where(
+                      (declaration) => _firstLineProperty(declaration.property),
+                    )
+                    .toList(growable: false)
+              : rule.declarations,
+          media: rule.media,
+          mediaConditions: rule.mediaConditions,
+        ),
+        origin: CascadeOrigin.author,
+        order: index,
+      ),
+  ]);
+
+  static bool _firstLineProperty(String property) =>
+      property.startsWith('font') ||
+      property.startsWith('background') ||
+      property.startsWith('text-decoration') ||
+      property.startsWith('text-emphasis') ||
+      property.startsWith('--') ||
+      const {
+        'color',
+        'word-spacing',
+        'letter-spacing',
+        'vertical-align',
+        'text-transform',
+        'line-height',
+        'text-shadow',
+      }.contains(property);
 
   CssDisplay inlineDisplay(InlineNode node, List<MarkSubject> ancestors) {
     final structural = selectorIndex.chainOf(node);
@@ -553,7 +605,7 @@ class ChapterStyleResolver {
       projection.hasIntrinsicContainer |= retained.style.intrinsicWidth != null;
       projection.left = retained.contentLeft;
       projection.right =
-          contentWidth - retained.contentLeft - retained.contentWidth;
+          contentWidth - retained.contentLeft - retained.flowWidth;
       return;
     }
     if (chain[index].tag == 'body') {
@@ -752,7 +804,7 @@ class ChapterStyleResolver {
     return null;
   }
 
-  /// 首字符 run：合并作者 `::first-letter` 声明与 `initial-letter` 的首字
+  /// 首字 run：合并作者首字伪元素声明与 `initial-letter` 的首字
   /// 下沉语义，借用行内 run 机制放大首字并撑高首行。
   StyledRun? firstLetterRun(
     List<AuxiliaryCssRule> rules,
@@ -760,17 +812,18 @@ class ChapterStyleResolver {
     String text,
     ComputedStyle baseStyle, {
     bool sizeInitialLetter = true,
+    ComputedStyle? firstLineStyle,
   }) {
     if (ancestors.isEmpty || text.isEmpty) return null;
-    final declarations = _firstLetterDeclarations(rules, ancestors);
+    final letterStyle = _auxiliaryStyleFor(
+      ancestors,
+      firstLineStyle ?? firstLineStyleFor(ancestors, baseStyle) ?? baseStyle,
+      '::first-letter',
+      rules,
+    );
     final initialLines = baseStyle.initialLetterLines;
     final hasInitial = initialLines != null && initialLines > 0;
-    if (sizeInitialLetter && hasInitial) {
-      final extent = baseStyle.lineHeight * initialLines;
-      declarations.putIfAbsent('font-size', () => '${extent * 0.85}px');
-      declarations.putIfAbsent('line-height', () => '${extent}px');
-    }
-    if (declarations.isEmpty && !hasInitial) return null;
+    if (letterStyle.explicitProperties.isEmpty && !hasInitial) return null;
     var start = 0;
     while (start < text.length && isWhitespace(text.codeUnitAt(start))) {
       start += 1;
@@ -778,35 +831,31 @@ class ChapterStyleResolver {
     if (start >= text.length) return null;
     return StyledRun(
       start: start,
-      end: start + 1,
-      style: ComputedStyle(
-        declarations,
-        parent: baseStyle,
-        explicitProperties: declarations.keys.toSet(),
-        containingWidth: contentWidth,
-        rootFontSize: baseStyle.fontSize,
-      ),
+      end: start + text.substring(start).characters.first.length,
+      style: sizeInitialLetter && hasInitial
+          ? _initialLetterStyle(
+              letterStyle,
+              baseStyle.lineHeight * initialLines,
+            )
+          : letterStyle,
     );
   }
 
-  Map<String, String> _firstLetterDeclarations(
-    List<AuxiliaryCssRule> rules,
-    List<SelectorElement> ancestors,
-  ) {
-    final declarations = <String, String>{};
-    final parents = ancestors.sublist(0, ancestors.length - 1);
-    for (final rule in rules) {
-      if (!_ruleMediaMatches(rule.media, rule.mediaConditions)) continue;
-      if (!rule.selectors.selectors.any(
-        (selector) => selector.matches(ancestors.last, parents),
-      )) {
-        continue;
-      }
-      for (final declaration in rule.declarations) {
-        declarations[declaration.property] = declaration.value;
-      }
-    }
-    return declarations;
+  ComputedStyle _initialLetterStyle(ComputedStyle letterStyle, double extent) {
+    final declarations = <String, String>{
+      if (!letterStyle.explicitProperties.contains('font-size'))
+        'font-size': '${extent * 0.85}px',
+      if (!letterStyle.explicitProperties.contains('line-height'))
+        'line-height': '${extent}px',
+    };
+    return ComputedStyle(
+      declarations,
+      parent: letterStyle,
+      explicitProperties: declarations.keys.toSet(),
+      containingWidth: contentWidth,
+      rootFontSize: style.fontSize,
+      valueContext: valueContext,
+    );
   }
 
   static String _chainKey(

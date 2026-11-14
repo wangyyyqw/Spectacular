@@ -226,7 +226,7 @@ class _ImageSizing {
       if (tag == 'html') continue;
       final container = input.styles.retainedContainers[input.chain[i]];
       if (container != null) {
-        width = container.contentWidth;
+        width = container.flowWidth;
         continue;
       }
       final style = input.styles.chainStyle(input.chain.sublist(0, i + 1));

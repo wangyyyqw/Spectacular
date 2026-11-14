@@ -396,6 +396,30 @@ class PagePainter {
           )
         : group.geometries.first;
     final last = group.geometries.last;
+    final flow = _containerFlowBounds(first, last, (
+      container: container,
+      depth: depth,
+      pageHeight: pageHeight,
+    ));
+    final bandBottom = _multicolContainerBottom(group, depth, flow.bottom);
+    final bottom = _floatContainerBottom(first, container, (
+      top: flow.top,
+      bottom: bandBottom,
+    ));
+    return Rect.fromLTWH(
+      container.left,
+      flow.top,
+      container.width,
+      math.max(0, bottom - flow.top),
+    );
+  }
+
+  ({double top, double bottom}) _containerFlowBounds(
+    _SliceGeometry first,
+    _SliceGeometry last,
+    ({PageContainer container, int depth, double pageHeight}) context,
+  ) {
+    final (:container, :depth, :pageHeight) = context;
     final start = first.slice.block.containers[depth];
     final end = last.slice.block.containers[depth];
     final starts = start.startsHere && first.startsBlock;
@@ -420,12 +444,42 @@ class PagePainter {
                   ? pageHeight
                   : last.y + last.slice.height) -
               outerBottom;
-    return Rect.fromLTWH(
-      container.left,
-      top,
-      container.width,
-      math.max(0, bottom - top),
-    );
+    return (top: top, bottom: bottom);
+  }
+
+  double _multicolContainerBottom(_PaintGroup group, int depth, double bottom) {
+    for (final geometry in group.geometries) {
+      if (geometry.slice.block.multicolContent == null) continue;
+      final fragment = geometry.slice.block.containers[depth];
+      final bandBottom =
+          geometry.y +
+          geometry.slice.height -
+          geometry.slice.trailingExtent +
+          fragment.bottomInset;
+      bottom = math.max(bottom, bandBottom);
+    }
+    return bottom;
+  }
+
+  double _floatContainerBottom(
+    _SliceGeometry first,
+    PageContainer container,
+    ({double top, double bottom}) bounds,
+  ) {
+    final floatBox = first.slice.block.floatBox;
+    if (floatBox != null &&
+        identical(floatBox.container.style, container.style)) {
+      final model = BoxModel.fromStyle(
+        container.style,
+        containingWidth: floatBox.containingWidth,
+      );
+      final contentHeight = model.resolveContentHeight(
+        bounds.bottom - bounds.top - model.verticalInset,
+        containingHeight: 0,
+      );
+      return bounds.top + model.borderBoxHeight(contentHeight);
+    }
+    return bounds.bottom;
   }
 
   _SliceGeometry _containerGeometry(
@@ -739,12 +793,13 @@ class PagePainter {
             );
             final lineRuns = _lineRuns(layout, line);
             final textY = lineY + textLineBaselineOffset(layout, line, painter);
+            final textX = x + textLineJustifyOffset(line, painter);
             // 普通 run 与独立行内盒都在文字之前绘制，不能互相替代。
             _paintInlineBoxes(
               canvas,
               painter,
               lineRuns,
-              x,
+              textX,
               textY,
               line: line,
               textAlign: geometry.style.textAlign,
@@ -766,7 +821,7 @@ class PagePainter {
               lineText,
               lineRuns,
               geometry.textStyle,
-              x,
+              textX,
               textY,
               line: line,
               textAlign: geometry.style.textAlign,
@@ -780,7 +835,7 @@ class PagePainter {
               layout,
               line,
               geometry.style,
-              x,
+              textX,
               textY,
               fontMetricsCache,
             );
@@ -790,7 +845,7 @@ class PagePainter {
               geometry,
               line,
               lineText,
-              x,
+              textX,
               textY,
             );
             // 行尾字形（W13）：布局层只截断/计宽不画字——
@@ -955,7 +1010,9 @@ class PagePainter {
           textColorOverride: geometry.textColorOverride,
         );
         final origin = Offset(
-          line.offsetX + geometry.leftInset,
+          line.offsetX +
+              geometry.leftInset +
+              textLineJustifyOffset(line, painter),
           lineY + textLineBaselineOffset(layout, line, painter),
         );
         try {
@@ -1171,8 +1228,7 @@ class PagePainter {
     var downExtent = 0.0;
     for (final slice in page.slices) {
       final style = slice.block.style;
-      if (style != null &&
-          style.textEmphasisStyle != CssTextEmphasisStyle.none) {
+      if (style != null && style.hasTextEmphasis) {
         if (style.textEmphasisPosition.isUnder) {
           downExtent = math.max(downExtent, style.fontSize * 0.55);
         } else {
@@ -1180,7 +1236,7 @@ class PagePainter {
         }
       }
       for (final run in slice.block.layout.runs) {
-        final marked = run.style.textEmphasisStyle != CssTextEmphasisStyle.none;
+        final marked = run.style.hasTextEmphasis;
         final above = marked && run.style.textEmphasisPosition.isOver
             ? run.style.fontSize * 0.4
             : 0.0;
@@ -1212,8 +1268,12 @@ class PagePainter {
           style: style,
           textStyle: TextLayoutEngine.textStyleFor(style),
           textColorOverride: _textColorFor(style),
-          startsBlock: slice.startLine == 0,
-          endsBlock: slice.endLine == slice.block.layout.lineCount,
+          startsBlock:
+              slice.startLine == 0 &&
+              (slice.block.columnFragment?.starts ?? true),
+          endsBlock:
+              slice.endLine == slice.block.layout.lineCount &&
+              (slice.block.columnFragment?.ends ?? true),
           hidden: style.visibility != CssVisibility.visible,
           leading: slice.leadingExtent,
           // flat 管线（P3-30 真机验收）：box.left 恒 0，块级 margin.left
@@ -1348,7 +1408,10 @@ class PagePainter {
               extentOffset: end - line.start,
             ),
           );
-          final x = line.offsetX + geometry.leftInset;
+          final x =
+              line.offsetX +
+              geometry.leftInset +
+              textLineJustifyOffset(line, painter);
           for (final box in boxes) {
             canvas.drawRect(
               Rect.fromLTWH(
@@ -2409,11 +2472,12 @@ class PagePainter {
           // 水平对齐已在排版阶段写入 LineBox.offsetX。绘制器按无限宽重排
           // 后，painter.width 不再代表单元格可用宽度，不能据此二次居中。
           final x = contentLeft + line.offsetX;
+          final textX = x + textLineJustifyOffset(line, painter);
           _paintInlineBoxes(
             canvas,
             painter,
             cellRuns,
-            x,
+            textX,
             textY - (painter.height - line.height) / 2,
             line: line,
             textAlign: style.textAlign,
@@ -2435,7 +2499,7 @@ class PagePainter {
             text,
             cellRuns,
             textStyle,
-            x,
+            textX,
             textY,
             line: line,
             textAlign: style.textAlign,
@@ -2833,7 +2897,7 @@ class PagePainter {
             style,
             line,
             runs,
-            contentLeft,
+            contentLeft + line.offsetX,
             contentTop + line.top,
           );
         }
@@ -2850,7 +2914,7 @@ class PagePainter {
             textDirection: TextDirection.ltr,
           )..layout(maxWidth: contentWidth);
           final origin = Offset(
-            contentLeft + line.offsetX,
+            contentLeft + line.offsetX + textLineJustifyOffset(line, painter),
             contentTop +
                 line.top +
                 textLineBaselineOffset(layout, line, painter),
@@ -3022,6 +3086,7 @@ class PagePainter {
                 run.sourceEnd <= line.end &&
                 boxes.length == 1,
           );
+          _paintBorderImage(canvas, borderRect, style);
           canvas.restore();
         }
       }
@@ -3452,7 +3517,7 @@ class PagePainter {
     final top = borders.top.width;
     final right = borders.right.width;
     final bottom = borders.bottom.width;
-    if (left + right <= 0 || top + bottom <= 0) {
+    if (left + right + top + bottom <= 0) {
       return;
     }
     final image = lookup(spec.url);
@@ -4614,12 +4679,30 @@ class PagePainter {
     required double centerY,
   }) {
     final emphasis = style.textEmphasisStyle;
-    if (emphasis == CssTextEmphasisStyle.none) {
+    if (!style.hasTextEmphasis) {
+      return;
+    }
+    final color = style.textEmphasisColor ?? textColorOverride ?? style.color;
+    if (emphasis == CssTextEmphasisStyle.doubleCircle ||
+        emphasis == CssTextEmphasisStyle.openDoubleCircle ||
+        emphasis == CssTextEmphasisStyle.triangle ||
+        emphasis == CssTextEmphasisStyle.openTriangle ||
+        emphasis == CssTextEmphasisStyle.custom) {
+      final painter = createTextEmphasisPainter(style, color);
+      if (painter == null) return;
+      final centerX = style.textEmphasisPosition.isVerticalLeft
+          ? columnLeft + painter.width / 2 + 1
+          : columnLeft + columnWidth - painter.width / 2 - 1;
+      painter.paint(
+        canvas,
+        Offset(centerX - painter.width / 2, centerY - painter.height / 2),
+      );
+      painter.dispose();
       return;
     }
     final radius = _emphasisRadius(style.fontSize, emphasis);
     final paint = Paint()
-      ..color = style.textEmphasisColor ?? textColorOverride ?? style.color
+      ..color = color
       ..strokeCap = StrokeCap.round;
     // over → 列右缘；under → 列左缘（竖排的 over 侧就是右）。
     final centerX = style.textEmphasisPosition.isVerticalLeft
@@ -4791,7 +4874,11 @@ class PagePainter {
         segment.paint(
           canvas,
           Offset(
-            x + offset.dx + extra + marginPlan.shiftAtOffset(start),
+            x +
+                offset.dx +
+                extra +
+                marginPlan.shiftAtOffset(start) +
+                textLineJustifyOffset(line, segment),
             y + baseline + shift,
           ),
         );
@@ -4878,7 +4965,10 @@ class PagePainter {
         segmentPainter.paint(
           canvas,
           Offset(
-            x + boxes.first.left + marginPlan.shiftAtOffset(segment.start),
+            x +
+                boxes.first.left +
+                marginPlan.shiftAtOffset(segment.start) +
+                textLineJustifyOffset(line, segmentPainter),
             y + baseline + segment.baselineShift,
           ),
         );
@@ -4914,7 +5004,12 @@ class PagePainter {
           );
       segmentPainter.paint(
         canvas,
-        Offset(x + boxes.first.left, y + baseline + segment.baselineShift),
+        Offset(
+          x +
+              boxes.first.left +
+              (line == null ? 0 : textLineJustifyOffset(line, segmentPainter)),
+          y + baseline + segment.baselineShift,
+        ),
       );
       segmentPainter.dispose();
     }
@@ -5765,7 +5860,9 @@ class _SliceGeometry {
     // 覆盖切片的 leftInset 已由分页层解算为盒左缘（绝对定位/浮动/多列），
     // 普通流的 leftInset 仍只是 border + padding，不能拿来当盒左缘。
     final boxLeft = slice.overlay
-        ? slice.leftInset + style.margin.left
+        ? slice.leftInset +
+              style.margin.left -
+              (block.columnFragment == null ? 0 : block.leftInset)
         : style.margin.left;
     final contentWidth = _contentBoxWidth(model);
     if (block.isReplaced) {
@@ -5812,7 +5909,9 @@ class _SliceGeometry {
         !block.isReplaced &&
         block.table == null &&
         block.gallery == null;
-    if (block.floatSide != null || intrinsicText) {
+    if (block.floatSide != null ||
+        block.columnFragment != null ||
+        intrinsicText) {
       return block.layout.maxWidth.isFinite
           ? block.layout.maxWidth
           : block.layout.width;

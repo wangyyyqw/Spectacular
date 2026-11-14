@@ -29,6 +29,14 @@ double textLineBaselineOffset(
       painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
 }
 
+/// 两端对齐的首字字距会使底层画笔右移半个字距，须与已测量行宽归一。
+/// 绘制、字符命中和选区共用此偏移；原声明的非对齐字距保持原有行为。
+double textLineJustifyOffset(LineBox line, TextPainter painter) {
+  if (line.justifyExtra <= 0 || line.vertical) return 0;
+  final metrics = painter.computeLineMetrics();
+  return metrics.isEmpty ? 0 : -metrics.first.left;
+}
+
 /// 原文位置之前的行内盒占宽；同位置多个盒累加，不向原文插入字符。
 /// 插入盒的边界按亲和选择前后；替换图则按原有 U+FFFC 的两个边界选择。
 double inlineBoxAdvanceAt(LineBox line, TextPosition position) {

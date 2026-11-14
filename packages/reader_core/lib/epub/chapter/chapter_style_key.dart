@@ -144,6 +144,7 @@ Map<String, Object?> _paint(ComputedStyle s) => {
   'textDecorationStyle': s.textDecorationStyle,
   'textDecorationColor': s.textDecorationColor,
   'textEmphasisStyle': s.textEmphasisStyle,
+  'textEmphasisString': s.textEmphasisString,
   'textEmphasisPosition': s.textEmphasisPosition,
   'textEmphasisColor': s.textEmphasisColor,
   'backgroundColor': s.backgroundColor,
