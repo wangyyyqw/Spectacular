@@ -43,6 +43,7 @@ import 'menu/reader_menu_overlay.dart';
 import 'panels/margin_editor.dart';
 import 'panels/tap_zone_editor.dart';
 import 'page_furniture/page_furniture.dart';
+import 'page_furniture/corner_row.dart' show readerBatteryLevel;
 import 'theme/reader_margins.dart';
 import 'tap_zones.dart';
 import 'annotations/relocator.dart';
@@ -2804,19 +2805,22 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       onTapAt: (point) => _pageTurnKey.currentState?.controller.active == true
           ? false
           : _handleTapAt(point),
-      child: PageTurnView(
-        key: _pageTurnKey,
-        session: _session,
-        mode: _effectiveTurnMode,
-        revision: revision,
-        paperBuilder: _buildPaper,
-        paperColor: _effectiveTheme?.background ?? widget.background,
-        paintBackground: _painter.pageBackgroundImage == null
-            ? null
-            : _paintTurnBackground,
-        preparePageImages: _prepareTurnPageImages,
-        preload: !_editingMargins && !_finishingMarginEdit,
-        rtl: _readingRtl,
+      child: ValueListenableBuilder<int?>(
+        valueListenable: readerBatteryLevel,
+        builder: (context, battery, _) => PageTurnView(
+          key: _pageTurnKey,
+          session: _session,
+          mode: _effectiveTurnMode,
+          revision: (revision, battery),
+          paperBuilder: _buildPaper,
+          paperColor: _effectiveTheme?.background ?? widget.background,
+          paintBackground: _painter.pageBackgroundImage == null
+              ? null
+              : _paintTurnBackground,
+          preparePageImages: _prepareTurnPageImages,
+          preload: !_editingMargins && !_finishingMarginEdit,
+          rtl: _readingRtl,
+        ),
       ),
     );
   }

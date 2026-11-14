@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/page_furniture/battery_icon.dart';
 import 'package:reader_ui/page_furniture/corner_info.dart';
 import 'package:reader_ui/page_furniture/corner_row.dart';
 import 'package:reader_ui/panels/corner_info_editor.dart';
@@ -79,7 +80,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('测试书'), findsOneWidget);
-    expect(find.text('73%'), findsOneWidget);
+    expect(find.text('73%'), findsNothing);
+    expect(
+      tester.widget<ReaderBatteryIcon>(find.byType(ReaderBatteryIcon)).level,
+      73,
+    );
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
