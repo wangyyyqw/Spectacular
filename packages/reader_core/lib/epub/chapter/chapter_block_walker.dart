@@ -24,6 +24,7 @@ import 'text_block_builder.dart';
 import 'intrinsic_blocks.dart';
 import 'chapter_text_measurer.dart';
 import 'block_style_helpers.dart';
+import 'multicol_blocks.dart';
 
 /// 文档序遍历只负责分发与容器上下文，各类构块拥有独立职责。
 class ChapterBlockWalker {
@@ -152,11 +153,15 @@ class ChapterBlockWalker {
 
   Future<bool> _emptyBlock(List<SelectorElement> chain, bool isBodyRoot) async {
     final style = styles.chainStyle(chain);
+    final floatBox = style.isOutOfFlow || floatSideOfStyle(style) == null
+        ? null
+        : styles.floatBoxForChain(chain);
     // 空 body 同样使用页级背景，避免在正文区再次缩放绘制。
     final block = await inline.measure.emptyBoxBlock(
       isBodyRoot ? style.withoutBackground() : style,
-      width,
+      floatBox?.containingWidth ?? width,
       containingHeight: styles.snapshot.pageHeight,
+      floatBox: floatBox,
     );
     if (block == null) return false;
     flow.blocks.add(block);
@@ -278,7 +283,7 @@ class ChapterBlockWalker {
         .map((view) => styles.retainedContainers[view])
         .nonNulls;
     final parent = parents.lastOrNull;
-    final available = parent?.contentWidth ?? width;
+    final available = parent?.flowWidth ?? width;
     final model = BoxModel.fromStyle(style, containingWidth: available);
     final intrinsic =
         style.intrinsicWidth != null &&
@@ -520,6 +525,7 @@ class ChapterBlockWalker {
   Future<void> _finishContainer(_ContainerScope scope) async {
     await inline.measure.budget.checkpoint();
     final retained = scope.retained;
+    if (retained != null && await _finishMulticol(scope, retained)) return;
     if (scope.isFlexRow && retained != null) {
       await _finishFlexRow(scope, retained);
     }
@@ -552,6 +558,23 @@ class ChapterBlockWalker {
       );
     }
     await _alignPageTableCell(scope);
+  }
+
+  Future<bool> _finishMulticol(
+    _ContainerScope scope,
+    PageContainer retained,
+  ) async {
+    if (scope.isFlexRow || scope.isPageRootFlexColumn) return false;
+    final block = await buildMulticolContainer(
+      children: flow.blocks.sublist(scope.start),
+      container: retained,
+      style: styles.styleForChain(scope.chain),
+      containingWidth: width,
+      checkpoint: inline.measure.budget.checkpoint,
+    );
+    if (block == null) return false;
+    flow.blocks.replaceRange(scope.start, flow.blocks.length, [block]);
+    return true;
   }
 
   Future<void> _finishFloatContainer(_ContainerScope scope) async {

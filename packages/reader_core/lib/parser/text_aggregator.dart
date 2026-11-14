@@ -235,6 +235,17 @@ typedef WhiteSpaceResolver = CssWhiteSpace Function(
 );
 
 abstract final class TextAggregator {
+  static const _tableStructureTags = {
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'td',
+    'th',
+    'caption',
+  };
+
   /// 记录样式标记的标签（真实书适配）：这些标签的行内元素即使无 class
   /// 也产标记（UA 语义样式：粗斜体/上下标/删除线等）。
   static const _styleMarkTags = <String>{
@@ -557,7 +568,8 @@ abstract final class TextAggregator {
     // 纯图块折叠（真实书适配）：块内唯一实质内容是一个 img/image/object（无
     // 其他文本、无强制换行）时，丢弃占位文本、保留图片属性（src/width/
     // height/class），产出 tag='img' 的块节点供章节源构造图片块。
-    if (onlyImage != null) {
+    // 纯图仍属于单元格内容；表格结构不能被替换成图片节点。
+    if (onlyImage != null && !_tableStructureTags.contains(block.tag)) {
       final image = onlyImage;
       if (_isGalleryContainer(block)) {
         return BlockNode(
@@ -597,7 +609,8 @@ abstract final class TextAggregator {
     }
     // 外层容器折叠：聚合后子节点恰好是一个已折叠的 img 块（div>div>img）；
     // 有任何文本内容时 children 会多于 1 个，不会误折叠。
-    if (!_isGalleryContainer(block) &&
+    if (!_tableStructureTags.contains(block.tag) &&
+        !_isGalleryContainer(block) &&
         children.length == 1 &&
         children.single is BlockNode) {
       final only = children.single as BlockNode;

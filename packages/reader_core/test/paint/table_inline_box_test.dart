@@ -203,7 +203,7 @@ void main() {
     expect(darkPixels(32, 80), 0, reason: '格底以下不得残留文字墨迹');
   });
 
-  test('单元格绘制沿用测量换行宽度，不在窄内宽中重新换行', () async {
+  test('窄单元格按真实内容宽换行，画笔保留两行文字', () async {
     final cellStyle = ComputedStyle({
       'font-size': '16px',
       'font-family': 'Ahem',
@@ -216,9 +216,10 @@ void main() {
       text: 'AA',
       style: cellStyle,
       maxWidth: 18,
+      lineBreaker: LineBreaker(minimumWidthEm: 0),
     );
-    expect(cellLayout.maxWidth, 48, reason: '行宽被正文 3em 下限钳制');
-    expect(cellLayout.lineCount, 1, reason: '测量结果是一行');
+    expect(cellLayout.maxWidth, 18, reason: '窄格不得套用正文 3em 行宽下限');
+    expect(cellLayout.lineCount, 2, reason: '两个字须按真实格内宽度换行');
     final block = PageBlock.styled(
       layout: TextLayoutResult(
         text: '',
@@ -227,13 +228,13 @@ void main() {
             start: 0,
             end: 0,
             top: 0,
-            height: 40,
-            baseline: 40,
+            height: 60,
+            baseline: 60,
             width: 44,
           ),
         ],
         width: 44,
-        height: 40,
+        height: 60,
         maxWidth: 44,
         runs: <StyledRun>[],
       ),
@@ -243,17 +244,17 @@ void main() {
         cells: [
           TableCellRender(
             row: 0,
-            rect: const Rect.fromLTWH(0, 0, 44, 40),
+            rect: const Rect.fromLTWH(0, 0, 44, 60),
             layout: cellLayout,
             style: cellStyle,
           ),
         ],
         columnXs: const [0, 44],
-        rowYs: const [0, 40],
+        rowYs: const [0, 60],
         tableWidth: 44,
       ),
     );
-    final page = Paginator(pageHeight: 40)
+    final page = Paginator(pageHeight: 60)
         .measureChapter(blocks: [block])
         .pages
         .single;
@@ -261,23 +262,29 @@ void main() {
     const PagePainter().paint(
       Canvas(recorder),
       page,
-      pageSize: const Size(60, 40),
+      pageSize: const Size(60, 60),
     );
-    final image = await recorder.endRecording().toImage(60, 40);
+    final image = await recorder.endRecording().toImage(60, 60);
     final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
     image.dispose();
-    var rightInk = 0;
-    for (var y = 0; y < 40; y++) {
-      for (var x = 30; x < 42; x++) {
-        final offset = (y * 60 + x) * 4;
-        if (data.getUint8(offset) < 40 &&
-            data.getUint8(offset + 1) < 40 &&
-            data.getUint8(offset + 2) < 40) {
-          rightInk += 1;
+    for (final line in cellLayout.lines) {
+      var ink = 0;
+      for (
+        var y = (9 + line.top).ceil();
+        y < (9 + line.top + line.height).floor();
+        y++
+      ) {
+        for (var x = 13; x < 31; x++) {
+          final offset = (y * 60 + x) * 4;
+          if (data.getUint8(offset) < 40 &&
+              data.getUint8(offset + 1) < 40 &&
+              data.getUint8(offset + 2) < 40) {
+            ink += 1;
+          }
         }
       }
+      expect(ink, greaterThan(10), reason: '每行都须在内容盒内绘出文字，检查区域避开边框');
     }
-    expect(rightInk, greaterThan(10), reason: '第二个字仍须留在首行可见');
   });
 
   test('单元格居中沿用排版行偏移，行首空白不使可见文字偏右', () async {

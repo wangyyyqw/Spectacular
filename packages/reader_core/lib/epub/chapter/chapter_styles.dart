@@ -16,6 +16,7 @@ import 'book_fonts.dart';
 import 'book_resources.dart';
 import 'chapter_preparation_job.dart';
 import 'chapter_selectors.dart';
+import 'pseudo_element_selector.dart';
 import 'css_preparation.dart';
 import 'chapter_resource_dependencies.dart';
 
@@ -243,7 +244,12 @@ class ChapterStyles {
       });
       return ChapterCascadePreparation(
         auxiliaryRules: List.unmodifiable(_prepareAuxiliaryRules(sheets)),
-        firstLetterRules: List.unmodifiable(_prepareFirstLetterRules(sheets)),
+        firstLetterRules: List.unmodifiable(
+          _prepareTextPseudoRules(sheets, '::first-letter'),
+        ),
+        firstLineRules: List.unmodifiable(
+          _prepareTextPseudoRules(sheets, '::first-line'),
+        ),
         pseudoRules: pseudoRules,
         cascadeRules: CascadeRuleSet([
           // 列表容器负责真实缩进，UA 的近似 li 缩进会重复叠加。
@@ -274,6 +280,7 @@ class ChapterStyles {
     return ChapterCascadePreparation(
       auxiliaryRules: List.unmodifiable(base.auxiliaryRules.map(rewrite)),
       firstLetterRules: List.unmodifiable(base.firstLetterRules.map(rewrite)),
+      firstLineRules: List.unmodifiable(base.firstLineRules.map(rewrite)),
       pseudoRules: Map.unmodifiable({
         for (final entry in base.pseudoRules.entries)
           entry.key: List<AuxiliaryCssRule>.unmodifiable(
@@ -332,6 +339,9 @@ class ChapterStyles {
     for (final rule in prepared.firstLetterRules) {
       if (_matches(chain, rule.selectors.selectors)) yield rule.declarations;
     }
+    for (final rule in prepared.firstLineRules) {
+      if (_matches(chain, rule.selectors.selectors)) yield rule.declarations;
+    }
     for (final rules in prepared.pseudoRules.values) {
       for (final rule in rules) {
         if (_matches(chain, rule.selectors.selectors)) yield rule.declarations;
@@ -363,16 +373,16 @@ class ChapterStyles {
     }
   }
 
-  static List<AuxiliaryCssRule> _prepareFirstLetterRules(
+  static List<AuxiliaryCssRule> _prepareTextPseudoRules(
     List<CssStylesheet> sheets,
+    String pseudo,
   ) {
-    const pseudo = '::first-letter';
     return [
       for (final sheet in sheets)
         for (final rule in sheet.rules)
           for (final raw in rule.selector.split(','))
-            if (raw.trim().endsWith(pseudo))
-              ..._parseAuxiliary(rule, raw.trim(), pseudo),
+            if (originatingSelector(raw, pseudo) case final main?)
+              ..._parseAuxiliary(rule, main),
     ];
   }
 
@@ -389,32 +399,29 @@ class ChapterStyles {
     final result = <AuxiliaryCssRule>[];
     for (final sheet in sheets) {
       for (final rule in sheet.rules) {
-        if (!rule.declarations.any(
-          (declaration) => pseudo == null
-              ? properties.contains(declaration.property)
-              : declaration.property == 'content',
-        )) {
+        if (pseudo == null &&
+            !rule.declarations.any(
+              (declaration) => properties.contains(declaration.property),
+            )) {
           continue;
         }
-        if (pseudo == null && rule.selector.contains('::')) continue;
         for (final raw in rule.selector.split(',')) {
           final selector = raw.trim();
-          if (pseudo != null && !selector.endsWith(pseudo)) continue;
-          result.addAll(_parseAuxiliary(rule, selector, pseudo));
+          if (pseudo == null) {
+            if (selector.contains('::') || hasLegacyPseudoElement(selector)) {
+              continue;
+            }
+            result.addAll(_parseAuxiliary(rule, selector));
+          } else if (originatingSelector(selector, pseudo) case final main?) {
+            result.addAll(_parseAuxiliary(rule, main));
+          }
         }
       }
     }
     return result;
   }
 
-  static List<AuxiliaryCssRule> _parseAuxiliary(
-    CssRule rule,
-    String selector,
-    String? pseudo,
-  ) {
-    final main = pseudo == null
-        ? selector
-        : selector.substring(0, selector.length - pseudo.length);
+  static List<AuxiliaryCssRule> _parseAuxiliary(CssRule rule, String main) {
     if (main.isEmpty) return const [];
     final parsed = SelectorParser.parse(main);
     if (parsed.selectors.isEmpty) return const [];
@@ -569,12 +576,14 @@ class ChapterCascadePreparation {
   const ChapterCascadePreparation({
     required this.auxiliaryRules,
     required this.firstLetterRules,
+    this.firstLineRules = const [],
     required this.pseudoRules,
     required this.cascadeRules,
   });
 
   final List<AuxiliaryCssRule> auxiliaryRules;
   final List<AuxiliaryCssRule> firstLetterRules;
+  final List<AuxiliaryCssRule> firstLineRules;
   final Map<String, List<AuxiliaryCssRule>> pseudoRules;
   final CascadeRuleSet cascadeRules;
 }

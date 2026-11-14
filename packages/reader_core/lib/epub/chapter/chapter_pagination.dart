@@ -77,6 +77,7 @@ class ChapterPageLayout {
       skipIndex =
           skipIndex ||
           block.absolute ||
+          block.multicolContent != null ||
           (block.height - block.measuredHeight).abs() > 0.01 ||
           block.clipsContent;
     }
@@ -310,9 +311,16 @@ class ChapterPageLayout {
     await budget.checkpoint();
     final input = (
       text: block.layout.text.substring(start),
-      runs: sliceTextRuns(block.layout, start, block.layout.text.length),
+      runs: sliceTextRuns(
+        block.layout,
+        start,
+        block.layout.text.length,
+        inputRuns: true,
+      ),
       boxes: boxes,
       rubies: rubies,
+      firstLineStyle: start == 0 ? block.layout.firstLineStyle : null,
+      firstLineRuns: start == 0 ? block.layout.firstLineRuns : null,
     );
     return _measureFloatText(input, layoutStyle, width);
   }
@@ -328,6 +336,8 @@ class ChapterPageLayout {
           maxWidth: width,
           runs: input.runs,
           rubies: input.rubies,
+          firstLineStyle: input.firstLineStyle,
+          firstLineRuns: input.firstLineRuns,
           hasGlyph: snapshot.fonts.hasGlyph,
           fontDependency: snapshot.fontDependency,
           checkpoint: budget.checkpoint,
@@ -339,6 +349,8 @@ class ChapterPageLayout {
           runs: input.runs,
           inlineBoxes: input.boxes,
           rubies: input.rubies,
+          firstLineStyle: input.firstLineStyle,
+          firstLineRuns: input.firstLineRuns,
           hasGlyph: snapshot.fonts.hasGlyph,
           checkpoint: budget.checkpoint,
         );
@@ -389,6 +401,8 @@ typedef _FloatTextInput = ({
   List<StyledRun> runs,
   List<InlineBoxSpec> boxes,
   List<RubyAnnotation> rubies,
+  ComputedStyle? firstLineStyle,
+  List<StyledRun>? firstLineRuns,
 });
 typedef _OccupiedRange = ({
   double left,
@@ -680,7 +694,7 @@ class _FloatPagination {
     final border = math.min(region.width, content + inset);
     final marginLeft = style?.margin.left ?? 0;
     final marginRight = style?.margin.right ?? 0;
-    final gap = !grouped && block.layout.text.isEmpty ? 8.0 : 0.0;
+    final gap = !grouped && block.isReplaced ? 8.0 : 0.0;
     final left = grouped || block.floatSide == FloatSide.left
         ? marginLeft
         : math.max(marginLeft, gap);
@@ -1293,7 +1307,10 @@ class _FloatPagination {
     double leading,
     int start,
   ) async {
-    final page = _TextPage(start);
+    final page = _TextPage(
+      start,
+      retainMeasuredRuns: block.layout.firstLineStyle != null,
+    );
     while (page.cursor < block.layout.text.length) {
       await budget.checkpoint();
       final input = await _measureAvailableText(
@@ -1447,6 +1464,23 @@ class _FloatPagination {
     double left,
     int textLength,
   ) async {
+    if (page.retainMeasuredRuns) {
+      final end = measured.lines[batch.taken - 1].end;
+      for (final run in sliceTextRuns(measured, 0, end)) {
+        await budget.checkpoint();
+        page.runs.add(
+          StyledRun(
+            start: run.start + page.cursor,
+            end: run.end + page.cursor,
+            style: run.style,
+            baselineShift: run.baselineShift,
+            syntheticFontFallback: run.syntheticFontFallback,
+            inlineLeadingInset: run.inlineLeadingInset,
+            inlineTrailingInset: run.inlineTrailingInset,
+          ),
+        );
+      }
+    }
     for (var index = 0; index < batch.taken; index++) {
       await budget.checkpoint();
       page.lines.add(
@@ -1592,12 +1626,14 @@ class _FloatPagination {
 
 /// 本页某段正文已经接纳的行；原文游标跨批次推进，行顶始终相对本段。
 class _TextPage {
-  _TextPage(this.cursor);
+  _TextPage(this.cursor, {required this.retainMeasuredRuns});
 
   int cursor;
+  final bool retainMeasuredRuns;
   double height = 0;
   double? blockedUntil;
   final lines = <LineBox>[];
+  final runs = <StyledRun>[];
 
   TextLayoutResult toLayout(PageBlock block, double width) => TextLayoutResult(
     text: block.layout.text.substring(0, lines.last.end),
@@ -1605,7 +1641,7 @@ class _TextPage {
     width: width,
     height: height,
     maxWidth: width,
-    runs: block.layout.runs,
-    plainTextLayout: block.layout.plainTextLayout,
+    runs: retainMeasuredRuns ? runs : block.layout.runs,
+    plainTextLayout: !retainMeasuredRuns && block.layout.plainTextLayout,
   );
 }

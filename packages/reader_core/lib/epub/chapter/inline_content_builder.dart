@@ -7,6 +7,7 @@ import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
 
@@ -665,33 +666,399 @@ class InlineContentBuilder {
     return remaining;
   }
 
+  /// 保持原五参数入口兼容，图片作为可选载荷参与同一格的测量。
   Future<TextLayoutResult> layoutCellContent(
     String text,
     List<InlineMark> marks,
     List<SelectorElement> ancestors,
     ComputedStyle cellStyle,
-    double width,
-  ) async {
-    final context = (
+    double width, {
+    List<InlineImageMark> images = const [],
+  }) => _layoutCellFlow(
+    (text: text, marks: marks, images: images),
+    (
       ancestors: ancestors,
       style: cellStyle,
       width: width,
       readerFontFamily: null,
-    );
-    final flow = await _extractFlowBoxes(text, marks, context);
+    ),
+  );
+
+  Future<TextLayoutResult> _layoutCellFlow(
+    _CellInlineContent content,
+    InlineStyleContext context,
+  ) async {
+    final flow = content.images.isEmpty
+        ? await _extractFlowBoxes(content.text, content.marks, context)
+        : await _extractCellImageFlow(content, context);
     final runs = await styles.resolveInlineRuns(
       flow.marks,
       context,
       checkpoint: measure.budget.checkpoint,
     );
-    return measure.layout(
+    final layout = await measure.layout(
       text: flow.text,
-      style: cellStyle,
-      maxWidth: width,
+      style: context.style,
+      maxWidth: context.width,
       runs: runs,
       inlineBoxes: flow.boxes,
+      preserveContentWidth: true,
+    );
+    return flow.boxes.any((box) => box is _CellBlockBox)
+        ? _positionCellBlockBoxes(layout)
+        : layout;
+  }
+
+  /// 独占行的块盒按包含块定位；正文对齐与缩进只影响其内的行内容。
+  Future<TextLayoutResult> _positionCellBlockBoxes(
+    TextLayoutResult layout,
+  ) async {
+    final lines = <LineBox>[];
+    var changed = false;
+    for (final line in layout.lines) {
+      await measure.budget.checkpoint();
+      if (!line.inlineBoxes.any((box) => box.spec is _CellBlockBox)) {
+        lines.add(line);
+        continue;
+      }
+      changed = true;
+      lines.add(
+        line.copyWith(
+          offsetX: 0,
+          indent: 0,
+          justifyExtra: 0,
+          inlineBoxes: [
+            for (final box in line.inlineBoxes) _cellBlockPlacement(box),
+          ],
+        ),
+      );
+    }
+    if (!changed) return layout;
+    return _cellLayoutWithLines(layout, lines);
+  }
+
+  static TextLayoutResult _cellLayoutWithLines(
+    TextLayoutResult layout,
+    List<LineBox> lines,
+  ) => TextLayoutResult(
+    text: layout.text,
+    lines: List<LineBox>.unmodifiable(lines),
+    width: layout.width,
+    height: layout.height,
+    maxWidth: layout.maxWidth,
+    runs: layout.runs,
+    isRtl: layout.isRtl,
+    writingMode: layout.writingMode,
+    plainTextLayout: layout.plainTextLayout,
+    firstLineStyle: layout.firstLineStyle,
+    firstLineRuns: layout.firstLineRuns,
+    sourceRuns: layout.sourceRuns,
+  );
+
+  static InlineBoxPlacement _cellBlockPlacement(InlineBoxPlacement placement) {
+    final spec = placement.spec;
+    if (spec is! _CellBlockBox) return placement;
+    return InlineBoxPlacement(
+      offset: placement.offset,
+      left: spec.blockLeft,
+      width: placement.width,
+      height: placement.height,
+      ascent: placement.ascent,
+      descent: placement.descent,
+      spec: spec,
+      vertical: placement.vertical,
     );
   }
+
+  /// 图片跟随原子盒摘除同步重映射，含图块递归保留自身样式与图注。
+  Future<_InlineBoxFlow> _extractCellImageFlow(
+    _CellInlineContent initial,
+    InlineStyleContext context,
+  ) async {
+    var remaining = initial;
+    var boxes = <InlineBoxSpec>[];
+    for (var guard = 0; guard < initial.marks.length; guard++) {
+      await measure.budget.checkpoint();
+      final extracted = await _extractCellAtomic(remaining, context);
+      if (extracted == null) break;
+      remaining = (
+        text: extracted.text,
+        marks: extracted.marks,
+        images: await _remapCellImages(remaining.images, extracted),
+      );
+      boxes = appendInlineBox(boxes, extracted);
+    }
+    for (final image in remaining.images) {
+      await measure.budget.checkpoint();
+      final box = await _cellImageBox(image, remaining.marks, context);
+      if (box != null) boxes.add(box);
+    }
+    return _InlineBoxFlow(remaining.text, remaining.marks, boxes);
+  }
+
+  Future<InlineFloatExtraction?> _extractCellAtomic(
+    _CellInlineContent content,
+    InlineStyleContext context,
+  ) async {
+    for (final mark in content.marks) {
+      await measure.budget.checkpoint();
+      if (await _hasCellImageAncestor(mark, content, context)) continue;
+      final candidate = await _cellAtomicCandidate(mark, content, context);
+      if (candidate == null) continue;
+      // 格内浮动保留既有文字近似，不把脱流内容摘掉。
+      if (candidate.side != null) return null;
+      final atom = await _atomicText(
+        content.text,
+        content.marks,
+        candidate,
+        context,
+      );
+      if (atom == null) continue;
+      final images = await _cellAtomicImages(content.images, atom);
+      if (images.isEmpty) {
+        return _extractAtomicText(content.text, content.marks, atom, context);
+      }
+      return _extractCellImageAtomic(content, atom, images, context);
+    }
+    return null;
+  }
+
+  Future<InlineFloatExtraction> _extractCellImageAtomic(
+    _CellInlineContent content,
+    _AtomicText atom,
+    List<InlineImageMark> images,
+    InlineStyleContext context,
+  ) async {
+    final box = await _cellImageAtomicBox(atom, images, context);
+    final removal = _cellImageAtomicRemoval(content.text, atom.candidate);
+    final mark = atom.candidate.mark;
+    return InlineFloatExtraction(
+      text: removal.text,
+      marks: await _remainingAtomicMarks(content.marks, mark, removal),
+      inlineBox: box.atOffset(removal.start),
+      remapOffset: removal.remap,
+      removeStart: removal.start,
+      removeEnd: removal.end,
+      footnote: footnoteForReference(
+        mark.tag,
+        mark.chain.last.attributes,
+        atom.raw,
+        start: removal.start,
+        end: removal.start + 1,
+      ),
+    );
+  }
+
+  static _TextRemoval _cellImageAtomicRemoval(
+    String text,
+    _AtomicCandidate candidate,
+  ) {
+    final start = candidate.mark.start;
+    // 块标记包含前置分隔符；摘取载荷时保留它，避免与前文共占一行。
+    if (candidate.style.display == CssDisplay.block &&
+        start > 0 &&
+        text[start] == '\n') {
+      return _TextRemoval(text, start + 1, candidate.mark.end);
+    }
+    return _atomicRemoval(text, candidate);
+  }
+
+  Future<_AtomicCandidate?> _cellAtomicCandidate(
+    InlineMark mark,
+    _CellInlineContent content,
+    InlineStyleContext context,
+  ) async {
+    final candidate = await _atomicCandidate(mark, content.marks, context);
+    if (candidate != null) return candidate;
+    if (mark.chain.isEmpty) return null;
+    final style = await _inlineStyle(mark, context);
+    return _cellImageBlock(mark, style, content.images)
+        ? _AtomicCandidate(mark, style, null, true)
+        : null;
+  }
+
+  bool _cellImageBlock(
+    InlineMark mark,
+    ComputedStyle style,
+    List<InlineImageMark> images,
+  ) =>
+      style.display == CssDisplay.block &&
+      !const {'img', 'image', 'object'}.contains(mark.tag) &&
+      (BlockBuilder.displayFor(mark.tag) == DisplayMode.block ||
+          style.values['display']?.trim() == 'block') &&
+      images.any(
+        (image) => image.offset >= mark.start && image.offset < mark.end,
+      );
+
+  Future<bool> _hasCellImageAncestor(
+    InlineMark mark,
+    _CellInlineContent content,
+    InlineStyleContext context,
+  ) async {
+    for (final parent in content.marks) {
+      await measure.budget.checkpoint();
+      if (!inlineDescendantOf(mark, parent)) continue;
+      final style = await _inlineStyle(parent, context);
+      if (style.display == CssDisplay.inlineBlock ||
+          _cellImageBlock(parent, style, content.images)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<InlineBoxSpec> _cellImageAtomicBox(
+    _AtomicText atom,
+    List<InlineImageMark> images,
+    InlineStyleContext context,
+  ) async {
+    var width = math.max(1.0, atom.model.resolveContentWidth(context.width));
+    final content = (text: atom.text, marks: atom.marks, images: images);
+    var layout = await _layoutCellFlow(
+      content,
+      _atomicContext(atom, context, width),
+    );
+    if (atom.candidate.style.display == CssDisplay.inlineBlock &&
+        atom.model.contentWidth == null) {
+      width = _atomicPreferredWidth(atom, layout, context.width);
+      layout = await _layoutCellFlow(
+        content,
+        _atomicContext(atom, context, width),
+      );
+    }
+    final box = _atomicInlineBox(atom, layout, width);
+    if (!ChapterTextMeasurer.isOrdinaryHorizontalBlock(atom.candidate.style)) {
+      return box;
+    }
+    // CSS 2.2 §10.3.3：定宽盒约束由包含块方向决定被调整的物理外边距。
+    final left = context.style.isRtl
+        ? context.width - box.width - box.marginRight
+        : box.marginLeft;
+    return _CellBlockBox(box, left);
+  }
+
+  Future<List<InlineImageMark>> _cellAtomicImages(
+    List<InlineImageMark> images,
+    _AtomicText atom,
+  ) async {
+    // 原子文本只裁掉边界空白；内容子串的首位置就是占位重映射基准。
+    final start = atom.candidate.mark.start + atom.raw.indexOf(atom.text);
+    final result = <InlineImageMark>[];
+    for (final image in images) {
+      await measure.budget.checkpoint();
+      if (image.offset < start || image.offset >= start + atom.text.length) {
+        continue;
+      }
+      result.add(
+        InlineImageMark(offset: image.offset - start, node: image.node),
+      );
+    }
+    return result;
+  }
+
+  Future<List<InlineImageMark>> _remapCellImages(
+    List<InlineImageMark> images,
+    InlineFloatExtraction extracted,
+  ) async {
+    final result = <InlineImageMark>[];
+    for (final image in images) {
+      await measure.budget.checkpoint();
+      if (extracted.removed(image.offset)) continue;
+      result.add(
+        InlineImageMark(
+          offset: extracted.remapOffset(image.offset),
+          node: image.node,
+        ),
+      );
+    }
+    return result;
+  }
+
+  Future<InlineBoxSpec?> _cellImageBox(
+    InlineImageMark image,
+    List<InlineMark> marks,
+    InlineStyleContext context,
+  ) async {
+    final attributes = image.node.attributes;
+    final src =
+        attributes['src'] ??
+        attributes['xlink:href'] ??
+        attributes['href'] ??
+        attributes['data'];
+    if (src == null || src.isEmpty) return null;
+    final source = _cellImageMark(image, marks);
+    final chain = styles.inlineMarkChain(source, context.ancestors);
+    final imageStyle = await _inlineStyle(source, context);
+    return inlineImageBox(
+      InlineImageSpec(offset: image.offset, url: imageUrl(src)),
+      imageStyle,
+      chain,
+      context.width,
+    );
+  }
+
+  InlineMark _cellImageMark(InlineImageMark image, List<InlineMark> marks) {
+    final source = styles.selectorIndex.chainOf(image.node);
+    final marked = marks
+        .where(
+          (mark) => mark.start == image.offset && mark.tag == image.node.tag,
+        )
+        .firstOrNull;
+    return source == null && marked != null
+        ? marked
+        : InlineMark(
+            start: image.offset,
+            end: image.offset + 1,
+            tag: image.node.tag,
+            classes: const [],
+            chain: [
+              if (source == null)
+                MarkSubject(
+                  tag: image.node.tag,
+                  attributes: image.node.attributes,
+                  classes: const {},
+                ),
+              for (final view in source ?? const <SelectorElement>[])
+                MarkSubject(
+                  tag: view.tag,
+                  attributes: view.attributes,
+                  classes: const {},
+                ),
+            ],
+          );
+  }
+}
+
+typedef _CellInlineContent = ({
+  String text,
+  List<InlineMark> marks,
+  List<InlineImageMark> images,
+});
+
+/// 格内块盒沿用真实尺寸与级联解算的 auto 外边距，重映射时保留块标记。
+class _CellBlockBox extends InlineBoxSpec {
+  _CellBlockBox(InlineBoxSpec box, this.blockLeft)
+    : super(
+        offset: box.offset,
+        width: box.width,
+        height: box.height,
+        verticalAlign: box.verticalAlign,
+        marginTop: box.marginTop,
+        marginBottom: box.marginBottom,
+        marginLeft: box.marginLeft,
+        marginRight: box.marginRight,
+        baselineOffset: box.baselineOffset,
+        contentHeight: box.contentHeight,
+        contentBaseline: box.contentBaseline,
+        replacesPlaceholder: box.replacesPlaceholder,
+        payload: box.payload,
+      );
+
+  final double blockLeft;
+
+  @override
+  InlineBoxSpec atOffset(int offset) =>
+      _CellBlockBox(super.atOffset(offset), blockLeft);
 }
 
 /// 行内浮动提取结果（W17）：摘出的浮动块 + 剩余文本与偏移重映射。

@@ -6,9 +6,14 @@ bool isHighSurrogate(int codeUnit) => codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
 
 bool isLowSurrogate(int codeUnit) => codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
 
-List<StyledRun> sliceTextRuns(TextLayoutResult layout, int start, int end) {
+List<StyledRun> sliceTextRuns(
+  TextLayoutResult layout,
+  int start,
+  int end, {
+  bool inputRuns = false,
+}) {
   final runs = <StyledRun>[];
-  for (final run in layout.runs) {
+  for (final run in inputRuns ? layout.inputRuns : layout.runs) {
     final runStart = math.max(run.start, start);
     final runEnd = math.min(run.end, end);
     if (runEnd <= runStart) continue;

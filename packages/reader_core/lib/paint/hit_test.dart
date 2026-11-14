@@ -121,7 +121,7 @@ abstract final class TextHitTester {
       }
       target = box;
     }
-    if (boxes.any((box) => box.slice.block.multicol != null)) {
+    if (page.slices.any((slice) => slice.block.multicol != null)) {
       target = _multicolLineAt(position, boxes);
     }
     final lineText = target.text;
@@ -145,7 +145,7 @@ abstract final class TextHitTester {
     final charOffset = _charOffsetFor(
       painter,
       line,
-      local.dx.clamp(0.0, width),
+      local.dx.clamp(0.0, width) - textLineJustifyOffset(line, painter),
     );
     painter.dispose();
     return TextHit(
@@ -481,12 +481,17 @@ abstract final class TextHitTester {
         (box.textTop ?? box.rect.top) -
         box.rect.top +
         textLineBaselineOffset(box.slice.block.layout, line, painter);
+    final justifyOffset = textLineJustifyOffset(line, painter);
     final result = <Rect>[];
     for (final part in lineTextFragments(line, start: start, end: end)) {
       for (final rect in painter.getBoxesForSelection(
         TextSelection(baseOffset: part.start, extentOffset: part.end),
       )) {
-        result.add(rect.toRect().shift(Offset(part.advance, baselineOffset)));
+        result.add(
+          rect.toRect().shift(
+            Offset(part.advance + justifyOffset, baselineOffset),
+          ),
+        );
       }
     }
     painter.dispose();
@@ -526,8 +531,12 @@ abstract final class TextHitTester {
         (box.textTop ?? box.rect.top) -
         box.rect.top +
         textLineBaselineOffset(box.slice.block.layout, line, painter);
+    final justifyOffset = textLineJustifyOffset(line, painter);
     painter.dispose();
-    return caret.translate(inlineBoxAdvanceAt(line, clamped), baselineOffset);
+    return caret.translate(
+      inlineBoxAdvanceAt(line, clamped) + justifyOffset,
+      baselineOffset,
+    );
   }
 
   /// 竖排逐字度量。绘制层使用同一份度量，命中/选区不能再用横排 TextPainter。

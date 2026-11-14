@@ -9,6 +9,7 @@ import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
 import 'float_occupancy.dart' show FloatSide;
 import 'image_gallery.dart';
+import 'multicol_flow.dart';
 import 'page_background.dart';
 import 'table_layout.dart' show TableCellRender, TableRenderSpec;
 
@@ -115,6 +116,24 @@ class PageContainer {
         style.borders.left.width -
         style.borders.right.width,
   );
+
+  /// 多栏后代以单列为包含块，容器装饰仍使用完整内容盒宽。
+  double get flowWidth =>
+      MulticolGeometry.fromStyle(style, contentWidth)?.columnWidth ??
+      contentWidth;
+}
+
+/// 一个多栏容器的连续子流；保留每个原块的样式、图片和文本坐标。
+class PageMulticolContent {
+  PageMulticolContent({
+    required this.container,
+    required List<PageBlock> blocks,
+  }) : blocks = List<PageBlock>.unmodifiable(blocks);
+
+  final PageContainer container;
+  final List<PageBlock> blocks;
+  MulticolGeometry get geometry =>
+      MulticolGeometry.fromStyle(container.style, container.contentWidth)!;
 }
 
 /// 容器浮动拆成多个子块后，仍共享作者的整盒尺寸和包含块范围。
@@ -232,6 +251,8 @@ class PageBlock {
     this.verticalContentWidth,
     this.effectiveOpacity = 1,
     this.multicol,
+    this.multicolContent,
+    this.columnFragment,
   });
 
   /// 按样式创建块：padding/border 折算成内缩，参与分页几何（P2-14 补全）。
@@ -267,6 +288,7 @@ class PageBlock {
     bool containerSides = false,
     double? effectiveOpacity,
     double? declaredContentHeight,
+    PageMulticolContent? multicolContent,
   }) {
     final model = BoxModel.fromStyle(style, containingWidth: containingWidth);
     final vertical =
@@ -314,6 +336,7 @@ class PageBlock {
       declaredContentHeight:
           declaredContentHeight ??
           model.resolveContentHeight(layout.height, containingHeight: 0),
+      multicolContent: multicolContent,
       // 竖排的 inline/block 轴互换：layout.width 只是实际列带总宽，
       // 内容盒宽仍由包含块和作者 width 决定。vertical-rl 需要靠这个
       // 宽度把整条列带贴到右缘，绘制与命中共用同一份几何。
@@ -504,6 +527,12 @@ class PageBlock {
   /// `column-rule` 与列分隔；其余列块为 null。
   final MulticolGeometry? multicol;
 
+  /// 尚未展开的多栏容器；分页时按列切片，不合并或重写子块文本。
+  final PageMulticolContent? multicolContent;
+
+  /// 列切片使用局部文本坐标，仍保留原盒真实首尾供装饰按 slice 绘制。
+  final ({bool starts, bool ends})? columnFragment;
+
   /// 祖先累计不透明度（`ComputedStyle.effectiveOpacity`，1 为不透明）。
   ///
   /// flat 管线重建块样式时只带当前元素声明，父链的 opacity 会丢；章节源
@@ -544,6 +573,7 @@ class PageBlock {
           floatSide != null ||
           table != null ||
           multicol != null ||
+          multicolContent != null ||
           (height - measuredHeight).abs() > 0.01 ||
           computed.height != null ||
           computed.minHeight != null ||
@@ -602,7 +632,7 @@ class PageBlock {
     return extent;
   }
 
-  /// 复制块并替换段距或容器分页占位（其余字段共享引用）。
+  /// 复制块并替换段距、浮动方向或容器分页占位（其余字段共享引用）。
   PageBlock withSpacing({
     double? spaceBefore,
     double? spaceAfter,
@@ -610,8 +640,11 @@ class PageBlock {
     double? bottomInset,
     List<PageContainerFragment>? containers,
     bool? breakAfterAvoid,
+    FloatSide? floatSide,
     PageFloatBox? floatBox,
     FloatParentMargins? floatParentMargins,
+    double? floatContainingLeft,
+    double? floatContainingWidth,
   }) => PageBlock(
     layout: layout,
     pageBreakBefore: pageBreakBefore,
@@ -630,11 +663,11 @@ class PageBlock {
     groupId: groupId,
     table: table,
     gallery: gallery,
-    floatSide: floatSide,
+    floatSide: floatSide ?? this.floatSide,
     floatBox: floatBox ?? this.floatBox,
     floatParentMargins: floatParentMargins ?? this.floatParentMargins,
-    floatContainingLeft: floatContainingLeft,
-    floatContainingWidth: floatContainingWidth,
+    floatContainingLeft: floatContainingLeft ?? this.floatContainingLeft,
+    floatContainingWidth: floatContainingWidth ?? this.floatContainingWidth,
     rubies: rubies,
     // 重建时必须带全字段（P9-19）：边距折叠会把相邻块换成新实例，
     // 漏字段会让行内图片/绝对定位在真机里随机消失。
@@ -655,6 +688,8 @@ class PageBlock {
     verticalContentWidth: verticalContentWidth,
     effectiveOpacity: effectiveOpacity,
     multicol: multicol,
+    multicolContent: multicolContent,
+    columnFragment: columnFragment,
   );
 
   /// 相邻块上下外边距折叠（CSS 2.2 §60.3 相邻兄弟规则，与块流管线
@@ -765,7 +800,7 @@ class MulticolGeometry {
     }
     // column-gap: normal → 1em。
     final gapRaw = style.columnGap;
-    final gap = gapRaw == null || gapRaw <= 0 ? style.fontSize : gapRaw;
+    final gap = gapRaw == null ? style.fontSize : math.max(0.0, gapRaw);
     var count = declaredCount;
     if (specWidth != null && specWidth > 0) {
       final byWidth = ((availableWidth + gap) / (specWidth + gap))
@@ -1293,6 +1328,7 @@ class Paginator {
     double? absoluteTop,
     MulticolGeometry? multicol,
     (int start, int end)? textRange,
+    List<PageContainerFragment>? containers,
   }) => PageBlock(
     layout: layout,
     startCfi: _columnCfi(source.startCfi, textRange?.$1),
@@ -1312,9 +1348,24 @@ class Paginator {
     bleedTop: source.bleedTop,
     bleedBottom: source.bleedBottom,
     containerSides: source.containerSides,
-    containers: source.containers,
+    containers: containers ?? source.containers,
     effectiveOpacity: source.effectiveOpacity,
     multicol: multicol,
+    multicolContent: textRange == null ? source.multicolContent : null,
+    columnFragment: textRange == null
+        ? source.columnFragment
+        : (
+            starts: textRange.$1 == 0,
+            ends: textRange.$2 == source.layout.text.length,
+          ),
+    table: textRange == null ? source.table : null,
+    gallery: textRange == null ? source.gallery : null,
+    declaredContentHeight: textRange == null
+        ? source.declaredContentHeight
+        : null,
+    verticalContentWidth: source.verticalContentWidth,
+    floatSide: source.floatSide,
+    floatBox: source.floatBox,
     // 注音/行内图片按列文本区间切片并平移到片段坐标。
     rubies: textRange == null
         ? source.rubies
@@ -1377,6 +1428,198 @@ class Paginator {
   ) => range.$1 < range.$2
       ? (source.lines[range.$1].start, source.lines[range.$2 - 1].end)
       : (0, 0);
+
+  /// 一条在流空盒占满列带高度，后代按原文顺序保留各自的列片段。
+  static List<PageBlockSlice> _multicolBandSlices(
+    PageBlock source,
+    MulticolBand band,
+    ({double top, double left, bool first, bool last}) position,
+  ) {
+    final content = source.multicolContent!;
+    final leading = position.first ? source.leadingExtent : 0.0;
+    final trailing = position.last ? source.trailingExtent : 0.0;
+    final fragments = _multicolFragments(source, content, position);
+    final children = _multicolChildren(band, fragments, (
+      content: content,
+      top: position.top + leading,
+      left: position.left,
+    ));
+    final anchor = _multicolAnchor(source, band, fragments, children);
+    return [
+      PageBlockSlice(
+        block: anchor,
+        startLine: 0,
+        endLine: 0,
+        height: leading + band.height + trailing,
+        leadingExtent: leading,
+        trailingExtent: trailing,
+        leftInset: source.leftInset + position.left,
+      ),
+      ...children,
+    ];
+  }
+
+  static List<PageBlockSlice> _multicolChildren(
+    MulticolBand band,
+    List<PageContainerFragment> fragments,
+    ({PageMulticolContent content, double top, double left}) position,
+  ) {
+    final children = <PageBlockSlice>[];
+    final projected = <(PageContainer, int), PageContainer>{};
+    for (final piece in band.pieces) {
+      final left =
+          position.left + position.content.geometry.leftOf(piece.column);
+      final own = _projectColumnContainers(
+        piece.source,
+        piece,
+        left,
+        projected,
+      );
+      final block = piece.source.withSpacing(
+        containers: [...fragments, ...own],
+      );
+      final top = position.top + piece.top;
+      if (block.multicolContent != null) {
+        children.addAll(_nestedMulticolSlices(block, (top: top, left: left)));
+      } else {
+        children.add(_multicolPieceSlice(block, piece, (top: top, left: left)));
+      }
+    }
+    return children;
+  }
+
+  static List<PageContainerFragment> _multicolFragments(
+    PageBlock source,
+    PageMulticolContent content,
+    ({double top, double left, bool first, bool last}) position,
+  ) => [
+    for (final fragment in source.containers)
+      PageContainerFragment(
+        container: fragment.container,
+        startsHere: position.first && fragment.startsHere,
+        endsHere: position.last && fragment.endsHere,
+        topInset: fragment.topInset,
+        bottomInset: fragment.bottomInset,
+      ),
+    PageContainerFragment(
+      container: _shiftColumnContainer(content.container, position.left),
+      startsHere: position.first,
+      endsHere: position.last,
+      topInset: position.first ? content.container.topDecoration : 0,
+      bottomInset: position.last ? content.container.bottomDecoration : 0,
+    ),
+  ];
+
+  static PageBlock _multicolAnchor(
+    PageBlock source,
+    MulticolBand band,
+    List<PageContainerFragment> fragments,
+    List<PageBlockSlice> children,
+  ) => PageBlock(
+    layout: TextLayoutResult(
+      text: '',
+      lines: const [],
+      width: source.multicolContent!.container.contentWidth,
+      height: band.height,
+      maxWidth: source.multicolContent!.container.contentWidth,
+    ),
+    style: ComputedStyle(const {}),
+    startCfi: children.isEmpty
+        ? source.startCfi
+        : children.first.block.startCfi,
+    endCfi: children.isEmpty ? source.endCfi : children.last.block.endCfi,
+    containers: fragments,
+    multicol: source.multicolContent!.geometry,
+    multicolContent: source.multicolContent,
+  );
+
+  static PageBlockSlice _multicolPieceSlice(
+    PageBlock source,
+    MulticolPiece piece,
+    ({double top, double left}) position,
+  ) {
+    final layout = piece.atomic
+        ? source.layout
+        : _columnLayout(source.layout, piece.range, source.layout.maxWidth);
+    final block = _columnBlock(
+      source,
+      layout,
+      absoluteTop: position.top,
+      absoluteLeft: position.left,
+      textRange: piece.atomic
+          ? null
+          : _columnTextRange(source.layout, piece.range),
+    );
+    return PageBlockSlice(
+      block: block,
+      startLine: 0,
+      endLine: layout.lineCount,
+      height: piece.height,
+      leadingExtent: piece.leading,
+      trailingExtent: piece.trailing,
+      leftInset: source.leftInset + position.left,
+      overlay: true,
+      absoluteTop: position.top,
+    );
+  }
+
+  static List<PageContainerFragment> _projectColumnContainers(
+    PageBlock source,
+    MulticolPiece piece,
+    double left,
+    Map<(PageContainer, int), PageContainer> projected,
+  ) => [
+    for (final fragment in source.containers)
+      PageContainerFragment(
+        container: projected.putIfAbsent((
+          fragment.container,
+          piece.column,
+        ), () => _shiftColumnContainer(fragment.container, left)),
+        startsHere: piece.startLine == 0 && fragment.startsHere,
+        endsHere: piece.endLine >= source.layout.lineCount && fragment.endsHere,
+        topInset: fragment.topInset,
+        bottomInset: fragment.bottomInset,
+      ),
+  ];
+
+  static PageContainer _shiftColumnContainer(
+    PageContainer source,
+    double left,
+  ) => left == 0
+      ? source
+      : PageContainer(
+          style: source.style,
+          left: source.left + left,
+          width: source.width,
+          isPageRoot: source.isPageRoot,
+        );
+
+  static List<PageBlockSlice> _nestedMulticolSlices(
+    PageBlock source,
+    ({double top, double left}) position,
+  ) {
+    final flow = MulticolFlow(source.multicolContent!);
+    final slices = _multicolBandSlices(
+      source,
+      flow.take(flow.balancedHeight()),
+      (top: position.top, left: position.left, first: true, last: true),
+    );
+    final anchor = slices.first;
+    return [
+      PageBlockSlice(
+        block: anchor.block,
+        startLine: 0,
+        endLine: 0,
+        height: anchor.height,
+        leadingExtent: anchor.leadingExtent,
+        trailingExtent: anchor.trailingExtent,
+        leftInset: anchor.leftInset,
+        overlay: true,
+        absoluteTop: position.top,
+      ),
+      ...slices.skip(1),
+    ];
+  }
 
   /// 绝对定位解算（CSS 2.1 §10.3.7/§10.6.4 的扁平管线口径）。
   ///
@@ -1542,6 +1785,11 @@ class Paginator {
     verticalContentWidth: source.verticalContentWidth,
     effectiveOpacity: source.effectiveOpacity,
     multicol: source.multicol,
+    multicolContent: source.multicolContent,
+    columnFragment: source.columnFragment,
+    gallery: source.gallery,
+    floatContainingLeft: source.floatContainingLeft,
+    floatContainingWidth: source.floatContainingWidth,
   );
 
   /// min-content 宽近似：最长不可断片段宽。
@@ -1959,6 +2207,59 @@ class Paginator {
         if (page != null) yield _PaginationStep.page(page);
       }
 
+      final columnContent = block.multicolContent;
+      if (columnContent != null) {
+        final columnFlow = MulticolFlow(columnContent);
+        var firstBand = true;
+        final extent =
+            block.leadingExtent +
+            columnFlow.balancedHeight() +
+            block.trailingExtent;
+        if (extent > available + tolerance &&
+            extent <= pageHeight + tolerance) {
+          final page = record();
+          if (page != null) yield _PaginationStep.page(page);
+        }
+        while (!columnFlow.isDone) {
+          if (token?.isCancelled ?? false) return;
+          if (progress.pageCount >= maxPages) {
+            progress.truncated = true;
+            return;
+          }
+          yield const _PaginationStep.checkpoint();
+          final leading = firstBand ? block.leadingExtent : 0.0;
+          final balanced = columnFlow.balancedHeight();
+          final room = math.max(0.0, available - leading);
+          final finishes = balanced + block.trailingExtent <= room + tolerance;
+          final band = columnFlow.take(
+            finishes ? balanced : room,
+            forceProgress: slices.isEmpty,
+          );
+          if (band.pieces.isEmpty && !columnFlow.isDone) {
+            final page = record();
+            if (page != null) yield _PaginationStep.page(page);
+            continue;
+          }
+          if (band.pieces.isNotEmpty) {
+            final added = _multicolBandSlices(block, band, (
+              top: (firstPage ? topPadding : 0) + used,
+              left: 0.0,
+              first: firstBand,
+              last: columnFlow.isDone,
+            ));
+            slices.addAll(added);
+            used += added.first.height;
+            available -= added.first.height;
+          }
+          firstBand = false;
+          if (!columnFlow.isDone || block.pageBreakAfter) {
+            final page = record();
+            if (page != null) yield _PaginationStep.page(page);
+          }
+        }
+        continue;
+      }
+
       // 多列（CSS Multicol §3）：按列宽重排后均衡分列；首列随正常流占高，
       // 其余列作为覆盖切片绘制在首列右侧（绘制/命中沿用 overlay 几何）。
       // 放不下当前页时走「跨页列流」：每列按本页可用高容行，一页排
@@ -1980,7 +2281,9 @@ class Paginator {
           text: block.layout.text,
           style: block.style!,
           maxWidth: multicol.columnWidth,
-          runs: block.layout.runs,
+          runs: block.layout.inputRuns,
+          firstLineStyle: block.layout.firstLineStyle,
+          firstLineRuns: block.layout.firstLineRuns,
           inlineBoxes: [
             for (final line in block.layout.lines)
               for (final box in line.inlineBoxes) box.spec.atOffset(box.offset),

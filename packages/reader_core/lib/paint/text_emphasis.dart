@@ -2,7 +2,9 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show StringCharacters;
 
 import '../css/computed_style.dart';
+
 import 'package:reader_core/layout/line_breaker.dart';
+
 import 'line_spans.dart';
 
 typedef _StyledCluster = ({
@@ -11,6 +13,46 @@ typedef _StyledCluster = ({
   ComputedStyle style,
   double shift,
 });
+
+/// 按 CSS 标准字形创建横排、竖排共用的着重号画笔；空字符串不绘制。
+/// 返回的画笔已排版，调用方负责调用 [TextPainter.dispose] 释放资源。
+TextPainter? createTextEmphasisPainter(ComputedStyle style, Color color) {
+  final base = TextLayoutEngine.textStyleFor(style);
+  final glyph = switch (style.textEmphasisStyle) {
+    CssTextEmphasisStyle.dot => '\u2022',
+    CssTextEmphasisStyle.openDot => '\u25e6',
+    CssTextEmphasisStyle.circle => '\u25cf',
+    CssTextEmphasisStyle.openCircle => '\u25cb',
+    CssTextEmphasisStyle.doubleCircle => '\u25c9',
+    CssTextEmphasisStyle.openDoubleCircle => '\u25ce',
+    CssTextEmphasisStyle.triangle => '\u25b2',
+    CssTextEmphasisStyle.openTriangle => '\u25b3',
+    CssTextEmphasisStyle.sesame => '\ufe45',
+    CssTextEmphasisStyle.openSesame => '\ufe46',
+    CssTextEmphasisStyle.custom =>
+      style.textEmphasisString?.characters.firstOrNull ?? '',
+    CssTextEmphasisStyle.none => '',
+  };
+  if (glyph.isEmpty) return null;
+  return TextPainter(
+    text: TextSpan(
+      text: glyph,
+      style: TextStyle(
+        fontFamily: base.fontFamily,
+        fontFamilyFallback: base.fontFamilyFallback,
+        fontSize: base.fontSize! / 2,
+        fontWeight: base.fontWeight,
+        fontStyle: base.fontStyle,
+        fontFeatures: [...?base.fontFeatures, const FontFeature('ruby')],
+        fontVariations: base.fontVariations,
+        height: 1,
+        leadingDistribution: TextLeadingDistribution.even,
+        color: color,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+}
 
 /// 横排着重号：按字素簇选择行内样式，同一块内复用标记字形。
 class HorizontalTextEmphasis {
@@ -30,10 +72,8 @@ class HorizontalTextEmphasis {
 
   /// 整块没有着重号时跳过额外的逐行排版。
   bool get hasMarks =>
-      _base.textEmphasisStyle != CssTextEmphasisStyle.none ||
-      _layout.runs.any(
-        (run) => run.style.textEmphasisStyle != CssTextEmphasisStyle.none,
-      );
+      _base.hasTextEmphasis ||
+      _layout.runs.any((run) => run.style.hasTextEmphasis);
 
   // CSS Text Decoration 3 §3.1：标点例外包含 NFKD 对应的兼容字符。
   static final _punctuationExceptions = '#%‰‱٪؉؊&⁊@§¶⁋⁓〽＃％＆＠﹟﹠﹪﹫'.runes.toSet();
@@ -65,7 +105,7 @@ class HorizontalTextEmphasis {
           : null;
       final style = run?.style ?? _base;
       // 字素簇跨样式边界时采用起始字符样式，不拆开代理对或组合字符。
-      if (style.textEmphasisStyle != CssTextEmphasisStyle.none &&
+      if (style.hasTextEmphasis &&
           style.visibility == CssVisibility.visible &&
           _receivesMark(cluster)) {
         yield (
@@ -130,7 +170,7 @@ class HorizontalTextEmphasis {
 class _EmphasisMark {
   factory _EmphasisMark(ComputedStyle style, Color color) {
     final base = TextLayoutEngine.textStyleFor(style);
-    final mark = _painter(style, color);
+    final mark = createTextEmphasisPainter(style, color)!;
     final probe = TextPainter(
       text: TextSpan(text: '国Hg', style: base),
       textDirection: TextDirection.ltr,
@@ -166,37 +206,6 @@ class _EmphasisMark {
   final TextPainter _mark;
   final double _top;
   final double textBaseline;
-
-  static TextPainter _painter(ComputedStyle style, Color color) {
-    final base = TextLayoutEngine.textStyleFor(style);
-    final glyph = switch (style.textEmphasisStyle) {
-      CssTextEmphasisStyle.dot => '\u2022',
-      CssTextEmphasisStyle.openDot => '\u25e6',
-      CssTextEmphasisStyle.circle => '\u25cf',
-      CssTextEmphasisStyle.openCircle => '\u25cb',
-      CssTextEmphasisStyle.sesame => '\ufe45',
-      CssTextEmphasisStyle.openSesame => '\ufe46',
-      CssTextEmphasisStyle.none => '',
-    };
-    return TextPainter(
-      text: TextSpan(
-        text: glyph,
-        style: TextStyle(
-          fontFamily: base.fontFamily,
-          fontFamilyFallback: base.fontFamilyFallback,
-          fontSize: base.fontSize! / 2,
-          fontWeight: base.fontWeight,
-          fontStyle: base.fontStyle,
-          fontFeatures: [...?base.fontFeatures, const FontFeature('ruby')],
-          fontVariations: base.fontVariations,
-          height: 1,
-          leadingDistribution: TextLeadingDistribution.even,
-          color: color,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-  }
 
   void paint(Canvas canvas, Rect glyph, Offset baseline) {
     final center = (glyph.left + glyph.right - _style.letterSpacing) / 2;

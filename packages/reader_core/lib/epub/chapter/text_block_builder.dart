@@ -54,7 +54,7 @@ class TextBlockBuilder {
     final metrics = await _metrics(context, body);
     if (await _buildImageOnly(context, generated)) return;
     final expanded = await _expandGeneratedText(context, body, generated);
-    final dropped = await _extractDropCap(context, body, expanded);
+    final dropped = await _extractDropCap(context, body, expanded, generated);
     final paragraph = await _inlineParagraph(context, body, generated, dropped);
     final measured = await _measureParagraph(
       context,
@@ -97,13 +97,21 @@ class TextBlockBuilder {
       _inlineContext(context, body),
       checkpoint: measure.budget.checkpoint,
     );
-    final measuredRuns = _pseudoRuns(context, body, generated, paragraph, runs);
-    final letter = styles.firstLetterRun(
-      styles.preparedStyles.firstLetterRules,
-      context.ancestors,
-      paragraph.text,
+    final measuredRuns = _pseudoRuns(
+      context,
       body.style,
+      generated,
+      paragraph,
+      runs,
     );
+    final letter = _hasFirstLineText(context, generated)
+        ? styles.firstLetterRun(
+            styles.preparedStyles.firstLetterRules,
+            context.ancestors,
+            paragraph.text,
+            body.style,
+          )
+        : null;
     if (letter != null) measuredRuns.add(letter);
     return styles.snapshot.textOverlays.resolve(
       blockCfi: context.cfi,
@@ -179,10 +187,15 @@ class TextBlockBuilder {
       return false;
     }
     // 空盒先于计数器和伪内容处理，沿用原章节遍历的语义顺序。
+    final floatBox =
+        authored.style.isOutOfFlow || floatSideOfStyle(authored.style) == null
+        ? null
+        : styles.floatBoxForChain(context.ancestors);
     final block = await measure.emptyBoxBlock(
-      authored.style,
-      contentWidth,
+      floatBox?.container.style ?? authored.style,
+      floatBox?.containingWidth ?? contentWidth,
       containingHeight: contentHeight,
+      floatBox: floatBox,
     );
     measure.budget.check();
     if (block != null) flow.blocks.add(block);
@@ -810,9 +823,11 @@ class TextBlockBuilder {
     _BlockContext context,
     _BodyStyle body,
     _ParagraphText paragraph,
+    _GeneratedText generated,
   ) async {
     final lines = body.style.initialLetterLines;
-    if (lines == null ||
+    if (!_hasFirstLineText(context, generated) ||
+        lines == null ||
         lines <= 0 ||
         paragraph.text.isEmpty ||
         floatSideOfStyle(body.style) != null ||
@@ -956,7 +971,7 @@ class TextBlockBuilder {
     );
     final styledRuns = _pseudoRuns(
       context,
-      body,
+      body.style,
       generated,
       extracted.paragraph,
       runs,
@@ -973,8 +988,14 @@ class TextBlockBuilder {
       extracted.elements,
       styledRuns,
       images,
+      _hasFirstLineText(context, generated),
     );
   }
+
+  bool _hasFirstLineText(_BlockContext context, _GeneratedText generated) =>
+      context.node is! TextContentNode ||
+      (context.node as TextContentNode).leadingBreakCount == 0 ||
+      generated.prefix.isNotEmpty;
 
   InlineStyleContext _inlineContext(_BlockContext context, _BodyStyle body) => (
     ancestors: context.ancestors,
@@ -1043,25 +1064,49 @@ class TextBlockBuilder {
 
   List<StyledRun> _pseudoRuns(
     _BlockContext context,
-    _BodyStyle body,
+    ComputedStyle parent,
     _GeneratedText generated,
     _ParagraphText paragraph,
     List<StyledRun> runs,
   ) => [
     if (generated.prefix.isNotEmpty)
-      StyledRun(
+      _pseudoRun(
         start: 0,
         end: generated.prefix.length,
-        style: styles.pseudoStyleFor(context.ancestors, body.style, '::before'),
+        text: generated.prefix,
+        style: styles.pseudoStyleFor(context.ancestors, parent, '::before'),
       ),
     ...runs,
     if (generated.suffix.isNotEmpty)
-      StyledRun(
+      _pseudoRun(
         start: paragraph.text.length - generated.suffix.length,
         end: paragraph.text.length,
-        style: styles.pseudoStyleFor(context.ancestors, body.style, '::after'),
+        text: generated.suffix,
+        style: styles.pseudoStyleFor(context.ancestors, parent, '::after'),
       ),
   ];
+
+  StyledRun _pseudoRun({
+    required int start,
+    required int end,
+    required String text,
+    required ComputedStyle style,
+  }) {
+    final run = StyledRun(start: start, end: end, style: style);
+    // 单图生成内容的边距与装饰由替换图盒统一占宽，文字内容在首尾计一次。
+    final replacedImage = text == '\uFFFC';
+    return StyledRun(
+      start: start,
+      end: end,
+      style: style,
+      inlineLeadingInset: replacedImage
+          ? 0
+          : style.margin.left + run.leadingInset,
+      inlineTrailingInset: replacedImage
+          ? 0
+          : style.margin.right + run.trailingInset,
+    );
+  }
 
   Future<List<InlineImageSpec>> _inlineImages(
     _BlockContext context,
@@ -1097,7 +1142,18 @@ class TextBlockBuilder {
         body.style,
         mark.pseudo,
       );
-      result.add(_imageSpec(mark.offset, mark.url, style));
+      final image = _imageSpec(mark.offset, mark.url, style);
+      result.add(image);
+      if (style.writingMode == CssWritingMode.horizontalTb) {
+        elements.boxes.add(
+          inline.inlineImageBox(
+            image,
+            style,
+            context.ancestors,
+            inlineContext.width,
+          ),
+        );
+      }
     }
     return result;
   }
@@ -1155,14 +1211,15 @@ class TextBlockBuilder {
     return notes.result;
   }
 
-  Future<List<StyledRun>> _finalRuns(
+  Future<List<StyledRun>> _paragraphRuns(
     _BlockContext context,
     _BodyStyle body,
     _BlockMetrics metrics,
-    _InlineParagraph paragraph,
-  ) async {
+    _InlineParagraph paragraph, {
+    ({ComputedStyle style, List<StyledRun> runs})? firstLine,
+  }) async {
     final runs = <StyledRun>[];
-    for (final run in paragraph.runs) {
+    for (final run in firstLine?.runs ?? paragraph.runs) {
       await measure.budget.checkpoint();
       final replaced = paragraph.elements.boxes.any(
         (box) =>
@@ -1171,25 +1228,64 @@ class TextBlockBuilder {
             run.end == box.offset + 1,
       );
       if (replaced) {
-        _preserveImageInlineSpacing(run, paragraph.elements);
+        if (firstLine == null) {
+          _preserveImageInlineSpacing(run, paragraph.elements);
+        }
       } else {
         runs.add(run);
       }
     }
-    if (paragraph.dropped.cap == null) {
+    if (paragraph.hasFirstLineText && paragraph.dropped.cap == null) {
       final letter = styles.firstLetterRun(
         styles.preparedStyles.firstLetterRules,
         context.ancestors,
         paragraph.dropped.paragraph.text,
         body.style,
+        firstLineStyle: firstLine?.style,
       );
       if (letter != null) runs.add(letter);
     }
     return styles.snapshot.textOverlays.resolve(
       blockCfi: _contentCfi(context, paragraph),
       text: paragraph.dropped.paragraph.text,
-      style: metrics.list.measureStyle,
+      style: firstLine?.style ?? metrics.list.measureStyle,
       runs: runs,
+    );
+  }
+
+  Future<List<StyledRun>> _firstLineRuns(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    _InlineParagraph paragraph,
+    ({ComputedStyle style, _GeneratedText generated}) firstLine,
+  ) async {
+    final inherited = _inlineContext(context, body);
+    final runs = await styles.resolveInlineRuns(
+      paragraph.dropped.paragraph.marks,
+      (
+        ancestors: inherited.ancestors,
+        style: firstLine.style,
+        width: inherited.width,
+        readerFontFamily: inherited.readerFontFamily,
+      ),
+      checkpoint: measure.budget.checkpoint,
+    );
+    return _paragraphRuns(
+      context,
+      body,
+      metrics,
+      paragraph,
+      firstLine: (
+        style: firstLine.style,
+        runs: _pseudoRuns(
+          context,
+          firstLine.style,
+          firstLine.generated,
+          paragraph.dropped.paragraph,
+          runs,
+        ),
+      ),
     );
   }
 
@@ -1232,7 +1328,16 @@ class TextBlockBuilder {
     _GeneratedText generated,
   ) async {
     final notes = await _footnotes(paragraph);
-    final runs = await _finalRuns(context, body, metrics, paragraph);
+    final runs = await _paragraphRuns(context, body, metrics, paragraph);
+    final firstLineStyle = paragraph.hasFirstLineText
+        ? styles.firstLineStyleFor(context.ancestors, metrics.list.measureStyle)
+        : null;
+    final firstLineRuns = firstLineStyle == null
+        ? null
+        : await _firstLineRuns(context, body, metrics, paragraph, (
+            style: firstLineStyle,
+            generated: generated,
+          ));
     final text = paragraph.dropped.paragraph;
     final rubies = await _rubyAnnotations(context, body, text);
     final width = await _paragraphWidth(context, body, metrics, paragraph, (
@@ -1247,6 +1352,8 @@ class TextBlockBuilder {
       rubies: rubies,
       inlineBoxes: paragraph.elements.boxes,
       preserveContentWidth: styles.hasIntrinsicContainer(context.ancestors),
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     );
     return _MeasuredParagraph(
       _layoutBounds(
@@ -1335,40 +1442,48 @@ class TextBlockBuilder {
         paragraph.dropped.cap != null) {
       return layout;
     }
-    final measured = await measure.layout(
-      text: ' ',
-      style: metrics.list.measureStyle,
-      maxWidth: layout.maxWidth,
+    final strut = await _emptyLineStrut(
+      metrics.list.measureStyle,
+      layout.maxWidth,
     );
-    final strut = measured.lines.firstOrNull;
     if (strut == null) return layout;
+    final firstStyle = styles.firstLineStyleFor(
+      context.ancestors,
+      metrics.list.measureStyle,
+    );
     // 缓存仍只保存正文几何，补空行时新建结果，保持文字、样式区间及 CFI。
     return _prependEmptyLines(
       layout,
       strut,
       node.leadingBreakCount,
       hasContent: layout.text.isNotEmpty || paragraph.elements.boxes.isNotEmpty,
+      firstStrut: firstStyle == null
+          ? strut
+          : await _emptyLineStrut(firstStyle, layout.maxWidth) ?? strut,
     );
   }
+
+  Future<LineBox?> _emptyLineStrut(ComputedStyle style, double width) async =>
+      (await measure.layout(
+        text: ' ',
+        style: style,
+        maxWidth: width,
+      )).lines.firstOrNull;
 
   TextLayoutResult _prependEmptyLines(
     TextLayoutResult layout,
     LineBox strut,
     int count, {
     required bool hasContent,
+    required LineBox firstStrut,
   }) {
-    final shift = strut.height * count;
+    final shift = firstStrut.height + strut.height * (count - 1);
     final lines = <LineBox>[
       for (var i = 0; i < count; i++)
-        LineBox(
-          start: 0,
-          end: 0,
-          top: strut.height * i,
-          height: strut.height,
-          baseline: strut.baseline - strut.top + strut.height * i,
-          width: 0,
-          isHardBreak: true,
-          isLastLine: !hasContent && i == count - 1,
+        _emptyLine(
+          i == 0 ? firstStrut : strut,
+          i == 0 ? 0 : firstStrut.height + strut.height * (i - 1),
+          !hasContent && i == count - 1,
         ),
       if (hasContent)
         for (final line in layout.lines) line.copyWith(top: line.top + shift),
@@ -1383,8 +1498,22 @@ class TextBlockBuilder {
       isRtl: layout.isRtl,
       writingMode: layout.writingMode,
       plainTextLayout: layout.plainTextLayout,
+      firstLineStyle: layout.firstLineStyle,
+      firstLineRuns: layout.firstLineRuns,
+      sourceRuns: layout.sourceRuns,
     );
   }
+
+  LineBox _emptyLine(LineBox strut, double top, bool isLastLine) => LineBox(
+    start: 0,
+    end: 0,
+    top: top,
+    height: strut.height,
+    baseline: strut.baseline - strut.top + top,
+    width: 0,
+    isHardBreak: true,
+    isLastLine: isLastLine,
+  );
 
   Future<double> _paragraphWidth(
     _BlockContext context,
@@ -1824,11 +1953,18 @@ class _InlineElements {
 }
 
 class _InlineParagraph {
-  const _InlineParagraph(this.dropped, this.elements, this.runs, this.images);
+  const _InlineParagraph(
+    this.dropped,
+    this.elements,
+    this.runs,
+    this.images,
+    this.hasFirstLineText,
+  );
   final _DropCapResult dropped;
   final _InlineElements elements;
   final List<StyledRun> runs;
   final List<InlineImageSpec> images;
+  final bool hasFirstLineText;
 }
 
 class _FootnoteCollector {

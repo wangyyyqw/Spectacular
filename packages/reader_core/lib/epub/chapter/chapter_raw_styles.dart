@@ -8,6 +8,7 @@ import 'package:reader_core/parser/document_parser.dart';
 
 import 'chapter_selectors.dart';
 import 'chapter_styles.dart' show inlineDeclarationsOf;
+import 'pseudo_element_selector.dart';
 
 /// 原文结构的作者级联，不读取用户字体、装饰或原生文字测量状态。
 class ChapterRawStyles {
@@ -61,20 +62,22 @@ class ChapterRawStyles {
 
   static List<CascadeRuleSet> _fontPseudoRules(List<CssStylesheet> sheets) {
     final result = <CascadeRuleSet>[];
-    for (final pseudo in ['::before', '::after', '::first-letter']) {
+    for (final pseudo in [
+      '::before',
+      '::after',
+      '::first-letter',
+      '::first-line',
+    ]) {
       final rules = <CascadeRule>[];
       for (final sheet in sheets) {
         for (final rule in sheet.rules) {
           for (final selector in rule.selector.split(',')) {
-            final trimmed = selector.trim();
-            if (!trimmed.endsWith(pseudo)) continue;
+            final main = originatingSelector(selector, pseudo);
+            if (main == null) continue;
             rules.add(
               CascadeRule(
                 rule: CssRule(
-                  selector: trimmed.substring(
-                    0,
-                    trimmed.length - pseudo.length,
-                  ),
+                  selector: main,
                   declarations: rule.declarations,
                   media: rule.media,
                   mediaConditions: rule.mediaConditions,
