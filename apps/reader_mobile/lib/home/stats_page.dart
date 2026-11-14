@@ -6,6 +6,7 @@ import 'book_cover_image.dart';
 import 'reading_insights.dart';
 import 'reading_habits_panel.dart';
 import 'book_reading_ranking.dart';
+import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 
@@ -289,6 +290,12 @@ class _StatsPageState extends State<StatsPage> {
                     child: _OverviewGrid(stats: stats),
                   ),
                   _TrendSection(stats: stats, onOpenBook: _openBook),
+                  _Section(
+                    title: '每日平均',
+                    detail: '按星期',
+                    caption: '按星期汇总全部阅读记录，均值只计算有阅读的日期。',
+                    child: WeekdayAverageChart(insights: stats.insights),
+                  ),
                   _HeatmapSection(stats: stats, onOpenBook: _openBook),
                   _Section(
                     title: '阅读习惯',
