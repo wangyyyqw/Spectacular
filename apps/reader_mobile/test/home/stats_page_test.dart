@@ -188,6 +188,16 @@ void main() {
             .data,
         '1 小时',
       );
+      final weekdayChart = find.byKey(
+        const ValueKey('stats-weekday-average-chart'),
+      );
+      await _scrollTo(tester, weekdayChart, 180);
+      expect(weekdayChart, findsOneWidget);
+      expect(
+        find.byKey(ValueKey('stats-weekday-petal-value-${today.weekday % 7}')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
       for (final key in ['stats-current-streak', 'stats-ranking-counts-a']) {
         await _scrollTo(tester, find.byKey(ValueKey(key)), 180);
         await tester.pumpAndSettle();
