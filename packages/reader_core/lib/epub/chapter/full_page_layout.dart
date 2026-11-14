@@ -161,7 +161,7 @@ class FullPageChapterLayout {
         : 'right';
     return ComputedStyle({
       ...snapshot.baseStyle.values,
-      'background-image': 'url($url)',
+      'background-image': 'url("$url")',
       'background-size': contain ? 'contain' : 'cover',
       'background-position': '$horizontal center',
       'background-repeat': 'no-repeat',

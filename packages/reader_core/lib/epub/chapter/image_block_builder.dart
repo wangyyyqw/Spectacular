@@ -379,7 +379,7 @@ ComputedStyle _imagePaintStyle(
     'height': '${geometry.height}px',
     'margin-left':
         '${input.style.isOutOfFlow ? input.style.margin.left : _usedMarginLeft(input, geometry)}px',
-    'background-image': 'url(${input.url})',
+    'background-image': 'url("${input.url}")',
     'background-size': fit.size,
     'background-position': bleed.top
         ? 'center top'

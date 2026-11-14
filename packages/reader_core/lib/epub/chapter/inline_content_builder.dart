@@ -110,7 +110,7 @@ class InlineContentBuilder {
     );
     final payloadStyle = ComputedStyle({
       ...imageStyle.values,
-      'background-image': 'url($url)',
+      'background-image': 'url("$url")',
       'background-size':
           content.rawDeclarationsFor(chain).containsKey('object-fit')
           ? fit.size
@@ -595,7 +595,7 @@ class InlineContentBuilder {
     );
     final style = ComputedStyle({
       ...imageStyle.values,
-      'background-image': 'url($url)',
+      'background-image': 'url("$url")',
       'background-size': objectFit.size,
       'background-position': objectFit.position,
       'background-repeat': 'no-repeat',
