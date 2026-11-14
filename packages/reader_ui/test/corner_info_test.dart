@@ -54,7 +54,18 @@ void main() {
     const channel = MethodChannel('com.spectacular.reader_mobile/reader');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       channel,
-      (call) async => 73,
+      (call) async => {'level': 73, 'charging': false},
+    );
+    const events = EventChannel('com.spectacular.reader_mobile/battery');
+    tester.binding.defaultBinaryMessenger.setMockStreamHandler(
+      events,
+      MockStreamHandler.inline(onListen: (_, _) {}),
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockStreamHandler(
+        events,
+        null,
+      ),
     );
     addTearDown(
       () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -84,6 +95,10 @@ void main() {
     expect(
       tester.widget<ReaderBatteryIcon>(find.byType(ReaderBatteryIcon)).level,
       73,
+    );
+    expect(
+      tester.widget<ReaderBatteryIcon>(find.byType(ReaderBatteryIcon)).charging,
+      isFalse,
     );
     await tester.pumpWidget(
       const MaterialApp(

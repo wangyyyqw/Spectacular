@@ -8,8 +8,11 @@ import '../theme/reader_theme.dart';
 import 'battery_icon.dart';
 import 'corner_info.dart';
 
-/// 电量变化时让翻页快照失效，读取和刷新仍由电量槽位管理。
-ValueListenable<int?> get readerBatteryLevel => _ReaderCornerRowState._battery;
+typedef ReaderBatteryStatus = ({int? level, bool? charging});
+
+/// 电量或充电状态变化时让翻页快照失效。
+ValueListenable<ReaderBatteryStatus> get readerBatteryStatus =>
+    _ReaderCornerRowState._battery;
 
 /// 四角显示所需的当前页数据。
 class ReaderCornerData {
@@ -50,7 +53,7 @@ class ReaderCornerRow extends StatefulWidget {
 }
 
 class _ReaderCornerRowState extends State<ReaderCornerRow> {
-  static final _battery = _BatteryLevel();
+  static final _battery = _BatteryStatus();
   Timer? _timer;
   late DateTime _now = widget.now ?? DateTime.now();
   bool _listeningBattery = false;
@@ -157,7 +160,11 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
           Flexible(child: _textLabel(_clock, color, align)),
           const SizedBox(width: 8),
         ],
-        ReaderBatteryIcon(level: _battery.value, color: color),
+        ReaderBatteryIcon(
+          level: _battery.value.level,
+          charging: _battery.value.charging,
+          color: color,
+        ),
       ],
     );
   }
@@ -177,13 +184,16 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
   );
 }
 
-/// 静态纸面与预热纸面共享电量，异步读取期间也保留最近有效值。
-class _BatteryLevel extends ValueNotifier<int?> {
-  _BatteryLevel() : super(null);
+/// 静态纸面与预热纸面共享系统状态，异步读取期间保留最近有效值。
+class _BatteryStatus extends ValueNotifier<ReaderBatteryStatus> {
+  _BatteryStatus() : super((level: null, charging: null));
 
   static const _channel = MethodChannel('com.spectacular.reader_mobile/reader');
+  static const _events = EventChannel('com.spectacular.reader_mobile/battery');
+  StreamSubscription<Object?>? _subscription;
   Future<void>? _pending;
   int _generation = 0;
+  int _eventRevision = 0;
 
   Future<void> refresh() {
     final pending = _pending;
@@ -196,19 +206,42 @@ class _BatteryLevel extends ValueNotifier<int?> {
 
   Future<void> _read(int generation) async {
     try {
-      final level = await _channel.invokeMethod<int>('getBatteryLevel');
-      if (generation == _generation &&
-          hasListeners &&
-          level != null &&
-          level >= 0 &&
-          level <= 100) {
-        value = level;
-      }
+      final revision = _eventRevision;
+      final status = await _channel.invokeMapMethod<String, Object?>(
+        'getBatteryStatus',
+      );
+      if (generation != _generation || !hasListeners || status == null) return;
+      // 分钟查询晚于系统事件返回时，不能把新充电状态覆盖成旧状态。
+      if (revision == _eventRevision) _update(status);
+      _watch(generation);
     } on MissingPluginException {
       // 桌面或测试环境不提供电量，显示不可用状态。
     } on PlatformException {
       // 系统暂时无法读取时保留最后一次有效电量。
     }
+  }
+
+  void _watch(int generation) {
+    _subscription ??= _events.receiveBroadcastStream().listen(
+      (event) {
+        if (generation != _generation || !hasListeners) return;
+        _eventRevision++;
+        _update(event);
+      },
+      onError: (Object error) {
+        // 系统暂时无法推送时保留有效状态，分钟查询继续兜底。
+      },
+    );
+  }
+
+  void _update(Object? event) {
+    if (event is! Map) return;
+    final level = event['level'];
+    final charging = event['charging'];
+    value = (
+      level: level is int && level >= 0 && level <= 100 ? level : value.level,
+      charging: charging is bool ? charging : value.charging,
+    );
   }
 
   @override
@@ -217,7 +250,9 @@ class _BatteryLevel extends ValueNotifier<int?> {
     if (!hasListeners) {
       _generation++;
       _pending = null;
-      value = null;
+      unawaited(_subscription?.cancel());
+      _subscription = null;
+      value = (level: null, charging: null);
     }
   }
 }
