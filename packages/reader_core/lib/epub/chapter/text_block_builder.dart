@@ -217,32 +217,50 @@ class TextBlockBuilder {
     GeneratedChapterContent? generation,
   ]) async {
     final source = generation ?? content;
-    source.applyCounters(context.ancestors);
+    final chain = _pseudoChain(context);
+    if (context.tag != 'reader-anonymous') source.applyCounters(chain);
     var qNesting = 0;
     for (final ancestor in context.ancestors) {
       await measure.budget.checkpoint();
       if (ancestor.tag == 'q') qNesting += 1;
     }
     final qLevel = context.tag == 'q' && qNesting > 0 ? qNesting - 1 : qNesting;
-    final before = source.pseudoContentOf(
-      context.ancestors,
-      '::before',
-      quotes: style.quotes,
-      quoteDepth: qLevel,
-    );
-    final after = source.pseudoContentOf(
-      context.ancestors,
-      '::after',
-      quotes: style.quotes,
-      quoteDepth: qLevel,
-    );
     return _GeneratedText(
-      before,
-      after,
+      _inlinePseudoContent(chain, source, style, '::before', qLevel),
+      _inlinePseudoContent(chain, source, style, '::after', qLevel),
       context.node is TextContentNode,
       qLevel,
     );
   }
+
+  PseudoContent? _inlinePseudoContent(
+    List<SelectorElement> chain,
+    GeneratedChapterContent source,
+    ComputedStyle style,
+    String pseudo,
+    int quoteDepth,
+  ) {
+    final blockPseudos = chain.isEmpty
+        ? const <String>{}
+        : styles.blockPseudoElements[chain.last] ?? const <String>{};
+    return blockPseudos.contains(pseudo)
+        ? null
+        : source.pseudoContentOf(
+            chain,
+            pseudo,
+            quotes: style.quotes,
+            quoteDepth: quoteDepth,
+          );
+  }
+
+  List<SelectorElement> _pseudoChain(_BlockContext context) =>
+      context.tag == 'reader-anonymous' &&
+          context.ancestors.length > 1 &&
+          styles.blockPseudoElements.containsKey(
+            context.ancestors[context.ancestors.length - 2],
+          )
+      ? context.ancestors.sublist(0, context.ancestors.length - 1)
+      : context.ancestors;
 
   Future<_BodyStyle> _bodyStyle(
     _BlockContext context,
@@ -334,7 +352,10 @@ class TextBlockBuilder {
   /// 保留块及祖先的相对字号，继承值与显式声明使用同一缩放基准。
   double? _scaledComponentFontSize(_BlockContext context) {
     final readerSize = styles.snapshot.overrides.fontSize;
-    final ancestors = context.ancestors;
+    // 匿名行内块继承原元素的字号，不能把它误当成新的正文字号基准。
+    final ancestors = context.tag == 'reader-anonymous'
+        ? context.ancestors.sublist(0, context.ancestors.length - 1)
+        : context.ancestors;
     if (readerSize == null || ancestors.length < 2) {
       return null;
     }
@@ -516,6 +537,7 @@ class TextBlockBuilder {
     final spacing = styles.snapshot.overrides.paragraphSpacing;
     if (spacing == null ||
         context.isHeading ||
+        context.tag == 'reader-anonymous' ||
         context.tag == 'li' ||
         splitFragment ||
         body.structuredTitle ||
@@ -1074,7 +1096,7 @@ class TextBlockBuilder {
         start: 0,
         end: generated.prefix.length,
         text: generated.prefix,
-        style: styles.pseudoStyleFor(context.ancestors, parent, '::before'),
+        style: styles.pseudoStyleFor(_pseudoChain(context), parent, '::before'),
       ),
     ...runs,
     if (generated.suffix.isNotEmpty)
@@ -1082,7 +1104,7 @@ class TextBlockBuilder {
         start: paragraph.text.length - generated.suffix.length,
         end: paragraph.text.length,
         text: generated.suffix,
-        style: styles.pseudoStyleFor(context.ancestors, parent, '::after'),
+        style: styles.pseudoStyleFor(_pseudoChain(context), parent, '::after'),
       ),
   ];
 
@@ -1138,7 +1160,7 @@ class TextBlockBuilder {
     for (final mark in paragraph.pseudoImages) {
       await measure.budget.checkpoint();
       final style = styles.pseudoStyleFor(
-        context.ancestors,
+        _pseudoChain(context),
         body.style,
         mark.pseudo,
       );
@@ -1821,8 +1843,14 @@ class _BlockContext {
   final bool textRuleEligible;
   List<SelectorElement> get ancestors => position.ancestors;
   String get tag => ancestors.isEmpty ? 'body' : ancestors.last.tag;
-  bool get isHeading =>
-      const {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}.contains(tag);
+  bool get isHeading => const {
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+  }.contains(tag == 'reader-anonymous' ? position.blockTag : tag);
   bool get isListItem => tag == 'li' && position.list != null;
   final String? cfi;
 }

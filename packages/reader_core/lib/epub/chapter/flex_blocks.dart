@@ -9,7 +9,12 @@ import 'package:reader_core/layout/table_layout.dart';
 
 import 'container_blocks.dart';
 
-typedef _FlexSize = ({double container, double containing, double pageHeight});
+typedef _FlexSize = ({
+  double container,
+  double containing,
+  double? left,
+  double pageHeight,
+});
 typedef _ColumnSize = ({double width, double height, double retainedTopInset});
 typedef _CrossDistribution = ({double offset, double gap, double stretch});
 typedef _MainDistribution = ({double offset, double gap});
@@ -114,9 +119,11 @@ PageBlock _flexSpacer(double width, double height) => PageBlock(
 );
 
 /// 阅读入口在各子项、分行、尺寸分配和逐格放置的边界检查时间预算。
+/// 页面投影后的子项传入内容盒原点；局部坐标子项直接使用自身外边距。
 Future<PageBlock?> buildFlexRowBlock({
   required ComputedStyle containerStyle,
   required double containerWidth,
+  double? containerContentLeft,
   required List<List<PageBlock>> items,
   required double containingWidth,
   required double pageContentHeight,
@@ -138,6 +145,7 @@ Future<PageBlock?> buildFlexRowBlock({
   final job = _FlexRowLayout(containerStyle, normalized, (
     container: containerWidth,
     containing: containingWidth,
+    left: containerContentLeft,
     pageHeight: pageContentHeight,
   ), groupId);
   await _consume(job.steps(), checkpoint);
@@ -162,6 +170,7 @@ class _FlexRowLayout {
   final text = StringBuffer();
   PageBlock? first;
   PageBlock? last;
+  String? startCfi;
   PageBlock? result;
   double layoutHeight = 0;
   double naturalHeight = 0;
@@ -198,6 +207,7 @@ class _FlexRowLayout {
         yield 0;
         first ??= block;
         last = block;
+        startCfi ??= block.startCfi;
         text.write(block.layout.text);
         width = math.max(width, _baseWidth(block));
         height +=
@@ -241,8 +251,31 @@ class _FlexRowLayout {
   ComputedStyle? _itemStyle(int index) =>
       containers[index]?.style ?? items[index].first.style;
 
-  double _outerWidth(int index) =>
-      widths[index] + (containers[index]?.style.margin.horizontal ?? 0);
+  ({double left, double right}) _itemMargins(int index) {
+    final container = containers[index];
+    if (container != null) {
+      return (
+        left: container.style.margin.left,
+        right: container.style.margin.right,
+      );
+    }
+    final itemStyle = items[index].firstOrNull?.style;
+    if (itemStyle == null) return (left: 0, right: 0);
+    final left = size.left;
+    if (left == null) {
+      return (left: itemStyle.margin.left, right: itemStyle.margin.right);
+    }
+    // 普通子项携带页面坐标投影，Flex 只分配相对于本内容盒的外边距。
+    return (
+      left: itemStyle.margin.left - left,
+      right: itemStyle.margin.right - (size.containing - left - size.container),
+    );
+  }
+
+  double _outerWidth(int index) {
+    final margins = _itemMargins(index);
+    return widths[index] + margins.left + margins.right;
+  }
 
   double _horizontalInset(PageBlock block) {
     final style = block.style;
@@ -432,11 +465,7 @@ class _FlexRowLayout {
     );
     var cursor = distribution.offset;
     for (final index in row) {
-      yield* _placeItem(
-        rowIndex,
-        index,
-        cursor + (containers[index]?.style.margin.left ?? 0),
-      );
+      yield* _placeItem(rowIndex, index, cursor + _itemMargins(index).left);
       cursor += _outerWidth(index) + gap + distribution.gap;
     }
   }
@@ -458,7 +487,8 @@ class _FlexRowLayout {
     for (final block in item) {
       yield 0;
       top += block.spaceBefore;
-      cells.add(
+      yield* _appendBlockCells(
+        block,
         _blockCell(row, block, (
           left: cursor,
           top: top,
@@ -469,6 +499,43 @@ class _FlexRowLayout {
       );
       top +=
           block.topInset + block.height + block.bottomInset + block.spaceAfter;
+    }
+  }
+
+  Iterable<int> _appendBlockCells(
+    PageBlock block,
+    TableCellRender outer,
+  ) sync* {
+    final table = block.table;
+    if (table == null || !table.flex) {
+      cells.add(outer);
+      return;
+    }
+    // 嵌套 Flex 仍保留每个子项的绘制坐标和样式；父格只绘自身装饰。
+    cells.add(
+      TableCellRender(
+        row: outer.row,
+        rect: outer.rect,
+        layout: TextLayoutEngine.layout(
+          text: '',
+          style: outer.style,
+          maxWidth: outer.rect.width,
+        ),
+        style: outer.style,
+      ),
+    );
+    for (final cell in table.cells) {
+      yield 0;
+      cells.add(
+        TableCellRender(
+          row: outer.row,
+          rect: cell.rect.shift(outer.textOrigin),
+          layout: cell.layout,
+          style: cell.style,
+          startCfi: cell.startCfi,
+          footnotes: cell.footnotes,
+        ),
+      );
     }
   }
 
@@ -579,39 +646,45 @@ class _FlexRowLayout {
   void _finish() {
     final value = text.toString();
     rowTops.add(rowEnd);
-    result = PageBlock.styled(
-      layout: TextLayoutResult(
-        text: value,
-        lines: [
-          LineBox(
-            start: 0,
-            end: value.length,
-            top: 0,
-            height: layoutHeight,
-            baseline: layoutHeight,
-            width: size.container,
+    result =
+        PageBlock.styled(
+          layout: _rowLayout(value),
+          style: style,
+          containingWidth: size.containing,
+          groupId: groupId,
+          startCfi: startCfi,
+          endCfi: last!.endCfi,
+          table: TableRenderSpec(
+            cells: cells,
+            columnXs: const [0],
+            rowYs: rowTops,
+            tableWidth: size.container,
+            flex: true,
           ),
-        ],
-        width: size.container,
-        height: layoutHeight,
-        maxWidth: size.container,
-        runs: const [],
-      ),
-      style: style,
-      containingWidth: size.containing,
-      groupId: groupId,
-      startCfi: first!.startCfi,
-      endCfi: last!.endCfi,
-      table: TableRenderSpec(
-        cells: cells,
-        columnXs: const [0],
-        rowYs: rowTops,
-        tableWidth: size.container,
-        flex: true,
-      ),
-      declaredContentHeight: layoutHeight,
-    );
+          declaredContentHeight: layoutHeight,
+        ).withSpacing(
+          // 子格已测量实际文字；合成行的虚拟基线不能再次增加边框避让空间。
+          bottomInset: style.padding.bottom + style.borders.bottom.width,
+        );
   }
+
+  TextLayoutResult _rowLayout(String value) => TextLayoutResult(
+    text: value,
+    lines: [
+      LineBox(
+        start: 0,
+        end: value.length,
+        top: 0,
+        height: layoutHeight,
+        baseline: layoutHeight,
+        width: size.container,
+      ),
+    ],
+    width: size.container,
+    height: layoutHeight,
+    maxWidth: size.container,
+    runs: const [],
+  );
 }
 
 /// 收到自然宽的 Flex 文字沿用断行与行内载荷，只迁移原内容宽的对齐坐标。

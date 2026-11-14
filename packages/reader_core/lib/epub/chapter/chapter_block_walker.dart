@@ -15,6 +15,7 @@ import 'chapter_style_resolver.dart';
 import 'container_blocks.dart';
 import 'flex_blocks.dart';
 import 'generated_chapter_content.dart';
+import 'generated_block_builder.dart';
 import 'gallery_block_builder.dart';
 import 'image_block_builder.dart';
 import 'page_root_table_cell.dart';
@@ -30,6 +31,7 @@ import 'multicol_blocks.dart';
 class ChapterBlockWalker {
   ChapterBlockWalker(this.styles, this.inline, this.content, this.flow)
     : text = TextBlockBuilder(styles, inline, content, flow),
+      generated = GeneratedBlockBuilder(styles, inline, content),
       images = ImageBlockBuilder(styles, inline, content),
       tables = TableBlockBuilder(styles, inline, flow);
 
@@ -40,6 +42,7 @@ class ChapterBlockWalker {
   final GeneratedChapterContent content;
   final ChapterFlow flow;
   final TextBlockBuilder text;
+  final GeneratedBlockBuilder generated;
   final ImageBlockBuilder images;
   final TableBlockBuilder tables;
   double get width => styles.snapshot.width;
@@ -96,13 +99,20 @@ class ChapterBlockWalker {
       await _promoteTypography(node, position.ancestors, view);
     }
     final scope = _containerScope(node, position, ancestors, chain);
+    scope.pseudos = generated.blockPseudosFor(chain, scope.style);
     await _retainContainer(scope, isRoot);
     scope.child = _childScope(scope);
     if (scope.retained != null && isDuokanGallery(node)) {
       await _gallery(scope, root);
       return;
     }
+    if (scope.retained != null) {
+      styles.blockPseudoElements[scope.chain.last] = scope.pseudos;
+      content.applyCounters(scope.chain);
+    }
+    await _generatedChild(scope, '::before');
     await _children(scope, root);
+    await _generatedChild(scope, '::after');
     await _finishContainer(scope);
   }
 
@@ -276,6 +286,7 @@ class ChapterBlockWalker {
         !(isBodyRoot ||
             isFloating ||
             scope.isFlexRow ||
+            scope.pseudos.isNotEmpty ||
             retainsContainer(scope.node, style))) {
       return;
     }
@@ -451,6 +462,18 @@ class ChapterBlockWalker {
     }
   }
 
+  Future<void> _generatedChild(_ContainerScope scope, String pseudo) async {
+    if (scope.retained == null || !scope.pseudos.contains(pseudo)) return;
+    final block = await generated.build(
+      scope.chain,
+      pseudo,
+      groupId: scope.child.groupId,
+    );
+    if (block == null) return;
+    flow.blocks.add(block);
+    if (scope.isFlexRow) scope.flexItems.add([block]);
+  }
+
   Future<void> _gallery(_ContainerScope scope, BlockNode root) async {
     final frames = <GalleryFrameBlocks>[];
     final children = scope.node.children.cast<BlockNode>().toList();
@@ -606,8 +629,11 @@ class ChapterBlockWalker {
   ) async {
     final positioned = await _positionedBlocks(scope.start, positioned: true);
     final row = await buildFlexRowBlock(
-      containerStyle: retained.isPageRoot ? retained.style : scope.style,
+      containerStyle: retained.isPageRoot
+          ? retained.style
+          : styles.styleForChain(scope.chain),
       containerWidth: retained.contentWidth,
+      containerContentLeft: retained.contentLeft,
       items: scope.flexItems,
       containingWidth: width,
       pageContentHeight: height,
@@ -677,6 +703,7 @@ class _ContainerScope {
   final int start;
   PageContainer? retained;
   late BlockPosition child;
+  Set<String> pseudos = const {};
   final List<List<PageBlock>> flexItems = [];
   bool get isFlexRow =>
       style.display == CssDisplay.flex &&

@@ -68,6 +68,7 @@ class ChapterStyleResolver {
   final Map<SelectorElement, ComputedStyle> promotedInlineStyles = {};
   final Map<EpubNode, SelectorElement> fallbackViews = {};
   final Map<SelectorElement, PageContainer> retainedContainers = {};
+  final Map<SelectorElement, Set<String>> blockPseudoElements = {};
   final Set<SelectorElement> splitInlineContainers = {};
   final Map<String, CascadeRuleSet> pseudoCascadeRules = {};
   int fallbackViewId = 0;
@@ -322,7 +323,9 @@ class ChapterStyleResolver {
       rules: rules.candidatesFor(ancestors.last),
       parent: parent,
       rootFontSize: style.fontSize,
-      containingWidth: _textWidthFor(parent),
+      containingWidth:
+          retainedContainers[ancestors.last]?.contentWidth ??
+          _textWidthFor(parent),
       viewportWidth: contentWidth,
       valueContext: valueContext,
     );
