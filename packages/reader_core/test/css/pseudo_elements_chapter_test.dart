@@ -60,6 +60,11 @@ Future<EpubChapterSource> _open(
   String css,
   String body, {
   Uint8List? image,
+  ReaderOverrides overrides = const ReaderOverrides(
+    fontSize: 21,
+    lineHeight: 1.6,
+    paragraphSpacing: 10,
+  ),
 }) async {
   final source = await const EpubFormatOpener().openBytes(
     _epub(css, body, image),
@@ -69,9 +74,7 @@ Future<EpubChapterSource> _open(
     ),
   );
   addTearDown(source.close);
-  await source.applyOverrides(
-    const ReaderOverrides(fontSize: 21, lineHeight: 1.6, paragraphSpacing: 10),
-  );
+  await source.applyOverrides(overrides);
   await source.applyContentSize(
     width: _pageSize.width - _insets.horizontal,
     height: _pageSize.height - _insets.vertical,
@@ -330,6 +333,125 @@ void main() {
     expect(run.style.color, const Color(0xff0000ff));
     expect(block.layout.text, text);
     expect(_styleAt(block, 2).fontSize, closeTo(21, .001));
+  });
+
+  test('自定义字体不生成未命中的首字或首行样式，英文自动断词不溢出', () async {
+    const text = 'extraordinary extraordinary extraordinary';
+    for (final unmatched in [
+      '',
+      '.other::first-line {font-size:2em;} '
+          '.other::first-letter {color:red;}',
+    ]) {
+      final source = await _open(
+        'p {width:160px; hyphens:auto;} $unmatched',
+        '<p>$text</p>',
+        overrides: const ReaderOverrides(
+          fontSize: 16,
+          lineHeight: 1.5,
+          paragraphSpacing: 0,
+          fontFamily: 'user_pseudo_regression',
+        ),
+      );
+      final block = (await source.loadChapter(0)).single.slices.single.block;
+      final reference = TextLayoutEngine.layout(
+        text: text,
+        style: block.style!,
+        maxWidth: block.layout.maxWidth,
+        hasGlyph: (_, _) => true,
+      );
+
+      expect(block.style!.fontFamily, 'user_pseudo_regression');
+      expect(block.layout.firstLineStyle, isNull);
+      expect(
+        block.layout.runs.where((run) => !run.syntheticFontFallback),
+        isEmpty,
+      );
+      expect(block.layout.lines, hasLength(6));
+      expect(
+        block.layout.lines.map((line) => line.width),
+        everyElement(lessThanOrEqualTo(block.layout.maxWidth)),
+      );
+      expect(
+        block.layout.lines.map(
+          (line) => (line.start, line.end, line.width, line.hyphenated),
+        ),
+        reference.lines.map(
+          (line) => (line.start, line.end, line.width, line.hyphenated),
+        ),
+      );
+    }
+  });
+
+  test('浮动段落 initial-letter 同时保留首字装饰与作者相对字号', () async {
+    for (final declaredSize in [false, true]) {
+      final source = await _open(
+        'p {float:left; width:200px; initial-letter:2;}'
+            'p::first-letter {background:yellow; border:2px solid green; '
+            'text-decoration:underline; vertical-align:super; '
+            '${declaredSize ? 'font-size:1.5em; line-height:1.25; border-width:.125em;' : ''}}',
+        '<p>甲乙丙丁戊己庚辛壬癸</p>',
+        overrides: const ReaderOverrides(
+          fontSize: 16,
+          lineHeight: 1.5,
+          paragraphSpacing: 0,
+        ),
+      );
+      final block = (await source.loadChapter(0)).single.slices.single.block;
+      final letter = _styleAt(block, 0);
+
+      expect(letter.fontSize, closeTo(declaredSize ? 24 : 40.8, .001));
+      expect(letter.lineHeight, closeTo(declaredSize ? 30 : 48, .001));
+      expect(letter.backgroundColor, const Color(0xffffff00));
+      expect(letter.borders.left.width, closeTo(declaredSize ? 3 : 2, .001));
+      expect(letter.borders.left.color, const Color(0xff008000));
+      expect(letter.textDecoration, CssTextDecoration.underline);
+      expect(letter.verticalAlign, CssVerticalAlign.superscript);
+    }
+  });
+
+  test('首行的 em 留白参与断行和绘制，跨行末边距恢复正文字号', () async {
+    final source = await _open(
+      'p {width:144px; word-break:break-all;}'
+          'p::first-line {font-size:2em;}'
+          'span {padding:0 1em;}',
+      '<p><span>abcdefghijklmno</span></p>',
+      overrides: const ReaderOverrides(
+        fontSize: 16,
+        lineHeight: 1.5,
+        paragraphSpacing: 0,
+      ),
+    );
+    final block = (await source.loadChapter(0)).single.slices.single.block;
+    final lines = block.layout.lines;
+    final first = lines.first;
+    final edges = lines.expand((line) => line.inlineBoxes).toList();
+    final painter = TextPainter(
+      text: buildLineSpan(
+        layout: block.layout,
+        line: first,
+        baseStyle: TextLayoutEngine.textStyleFor(block.style!),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    addTearDown(painter.dispose);
+
+    expect(lines.map((line) => (line.start, line.end)), [
+      (0, 3),
+      (3, 12),
+      (12, 15),
+    ]);
+    expect(lines.map((line) => line.width), [128, 144, 64]);
+    expect(_styleAt(block, 0).padding.left, 32);
+    expect(_styleAt(block, first.end).padding.right, 16);
+    expect(edges, hasLength(2));
+    expect(edges.first.spec.payload, InlineSpacingEdge.leading);
+    expect(edges.first.width, 32);
+    expect(edges.last.spec.payload, InlineSpacingEdge.trailing);
+    expect(edges.last.width, 16);
+    final start = inlineBoxAdvanceAt(first, const TextPosition(offset: 0));
+    expect(start, 32);
+    expect(start + painter.width, first.width);
+    expect(start + painter.width, lessThanOrEqualTo(block.layout.maxWidth));
   });
 
   test('首行在硬换行处结束且祖先规则不会误套每个子段', () async {
