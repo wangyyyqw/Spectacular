@@ -288,6 +288,8 @@ class _CancellingMeasurer extends ChapterTextMeasurer {
     List<RubyAnnotation> rubies = const [],
     List<InlineBoxSpec> inlineBoxes = const [],
     bool preserveContentWidth = false,
+    ComputedStyle? firstLineStyle,
+    List<StyledRun>? firstLineRuns,
   }) => (budget as _MeasurementCancellationBudget).duringMeasurement(
     () => super.layout(
       text: text,
@@ -297,6 +299,8 @@ class _CancellingMeasurer extends ChapterTextMeasurer {
       rubies: rubies,
       inlineBoxes: inlineBoxes,
       preserveContentWidth: preserveContentWidth,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
     ),
   );
 }
