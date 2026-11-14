@@ -1,10 +1,17 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/epub/chapter/chapter_layout_cache.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/layout/image_gallery.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/page_renderer.dart';
+
+import 'image_gallery_fixture.dart';
 
 PageGalleryFrame _frame(int cell) => PageGalleryFrame(
   cfi: 'epubcfi(/6/2!/4/2/$cell)',
@@ -139,4 +146,102 @@ void main() {
       const Rect.fromLTWH(32, 17, 40, 30),
     );
   });
+
+  for (final scaled in [false, true]) {
+    test('正式 EPUB 行内主图命中与实际绘制一致（缩放：$scaled）', () async {
+      final fixture = await _inlineGallery(
+        scaled ? '.duokan-image-gallery { height: 72px; }' : '',
+      );
+      final region = galleryRegionsOf(fixture.page).single;
+      final gallery = region.gallery;
+      expect(gallery.scale, scaled ? lessThan(1) : 1);
+      expect(region.rect.left, greaterThan(0));
+      expect(region.rect.top, greaterThan(0));
+      final hit = galleryImageRectOf(
+        gallery,
+        0,
+        contentOrigin: region.rect.topLeft,
+        containingWidth: 240,
+      );
+      expect(hit, isNotNull);
+      expect(hit!.width, closeTo(40 * gallery.scale, 0.01));
+      expect(hit.height, closeTo(40 * gallery.scale, 0.01));
+
+      // 白色 PNG 是页内唯一白色内容，直接从正式绘制结果核对命中边界。
+      final painted = await _paintedImageRect(fixture.page, fixture.image);
+      expect(painted, isNotNull);
+      expect(hit.left, closeTo(painted!.left, 1));
+      expect(hit.top, closeTo(painted.top, 1));
+      expect(hit.right, closeTo(painted.right, 1));
+      expect(hit.bottom, closeTo(painted.bottom, 1));
+    });
+  }
+
+  for (final rule in ['visibility: hidden', 'opacity: 0']) {
+    test('正式 EPUB 的不可见行内主图不进入命中范围（$rule）', () async {
+      final fixture = await _inlineGallery('img { $rule; }');
+      final region = galleryRegionsOf(fixture.page).single;
+      expect(
+        galleryImageRectOf(
+          region.gallery,
+          0,
+          contentOrigin: region.rect.topLeft,
+          containingWidth: 240,
+        ),
+        isNull,
+      );
+    });
+  }
+}
+
+Future<({PageContent page, ui.Image image})> _inlineGallery(String css) async {
+  final source = await EpubChapterSource.open(
+    inlineGalleryEpub(extraStyle: css),
+    contentWidth: 240,
+    contentHeight: 320,
+  );
+  addTearDown(() async {
+    source.close();
+    await source.preparationsStopped;
+    ChapterLayoutCache.recent.clear();
+  });
+  final page = (await source.loadChapter(0)).single;
+  final bytes = (await source.readImageBytes(galleryImageUrl))!;
+  final codec = await ui.instantiateImageCodec(bytes);
+  try {
+    final image = (await codec.getNextFrame()).image;
+    addTearDown(image.dispose);
+    return (page: page, image: image);
+  } finally {
+    codec.dispose();
+  }
+}
+
+Future<Rect?> _paintedImageRect(PageContent page, ui.Image image) async {
+  final recorder = ui.PictureRecorder();
+  PagePainter(
+    background: const Color(0xff000000),
+    imageLookup: (url) => url == galleryImageUrl ? image : null,
+  ).paint(ui.Canvas(recorder), page, pageSize: const Size(240, 320));
+  final picture = recorder.endRecording();
+  final rendered = picture.toImageSync(240, 320);
+  try {
+    final pixels = (await rendered.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    ))!;
+    Rect? result;
+    for (var y = 0; y < 320; y++) {
+      for (var x = 0; x < 240; x++) {
+        final offset = (y * 240 + x) * 4;
+        if (pixels.getUint32(offset) == 0xffffffff) {
+          final pixel = Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1);
+          result = result?.expandToInclude(pixel) ?? pixel;
+        }
+      }
+    }
+    return result;
+  } finally {
+    rendered.dispose();
+    picture.dispose();
+  }
 }
