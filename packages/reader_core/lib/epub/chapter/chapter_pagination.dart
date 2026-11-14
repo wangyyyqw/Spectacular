@@ -6,6 +6,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/layout/multicol_flow.dart';
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -449,6 +450,10 @@ class _FloatPagination {
     if (block.absolute) {
       _addAbsolute(block);
     } else if (block.floatSide != null) {
+      if (block.multicolContent != null) {
+        await _addFloatMulticol(block, index);
+        return 0;
+      }
       if (block.floatBox != null || block.groupId >= 500000) {
         final group = block.groupId >= 500000
             ? await _floatGroup(index)
@@ -467,7 +472,9 @@ class _FloatPagination {
     await _applyClear(block);
     await _keepWithNext(block, index);
     final rows = block.table == null ? 0 : Paginator.splittableTableRows(block);
-    if (rows > 1) {
+    if (block.multicolContent != null) {
+      await _layoutMulticol(block);
+    } else if (rows > 1) {
       await _layoutTable(block, rows);
     } else if (block.layout.lineCount == 0 ||
         block.table != null ||
@@ -1151,6 +1158,228 @@ class _FloatPagination {
       block.style?.margin.bottom ?? block.spaceAfter,
     );
     y += leading + block.height + block.trailingExtent;
+  }
+
+  // 取带、提交和收页保持同一循环，避免游标已前进但片段尚未保存。
+  Future<void> _layoutMulticol(PageBlock block) async {
+    if (block.pageBreakBefore && slices.isNotEmpty) await closePage();
+    await _clearMulticolArea(block);
+    final flow = MulticolFlow(block.multicolContent!);
+    var first = true;
+    while (!flow.isDone) {
+      await budget.checkpoint();
+      final balanced = flow.heightForContainer(block);
+      var leading = leadingOf(block, starts: first);
+      final extent = leading + balanced + block.trailingExtent;
+      if (slices.isNotEmpty && extent > height - y && extent <= height) {
+        await closePage();
+        leading = leadingOf(block, starts: first);
+      }
+      final room = math.max(0.0, height - y - leading);
+      final (:band, :trailing) = flow.takeContainerBand(
+        block,
+        room,
+        forceProgress: slices.isEmpty,
+      );
+      if (band.pieces.isEmpty && !flow.isDone) {
+        if (slices.isNotEmpty) await closePage();
+        continue;
+      }
+      if (band.pieces.isNotEmpty) {
+        _appendMulticolFlow(block, band, (
+          first: first,
+          last: flow.isDone,
+          leading: leading,
+          trailing: trailing,
+        ));
+        first = false;
+      }
+      if (!flow.isDone || band.pageBreak || block.pageBreakAfter) {
+        if (slices.isNotEmpty) await closePage();
+      }
+    }
+  }
+
+  void _appendMulticolFlow(
+    PageBlock block,
+    MulticolBand band,
+    ({bool first, bool last, double leading, double trailing}) fragment,
+  ) {
+    final trailing = fragment.trailing;
+    final added = Paginator.multicolBandSlices(
+      block,
+      band,
+      (
+        top: topPadding + y,
+        left: 0.0,
+        first: fragment.first,
+        last: fragment.last,
+      ),
+      pageSize: (width: width, height: height),
+      extents: (leading: fragment.leading, trailing: trailing),
+    );
+    slices.addAll(added);
+    y += added.first.height;
+    noteFlow(y - trailing, block.style?.margin.bottom ?? block.spaceAfter);
+  }
+
+  Future<void> _clearMulticolArea(PageBlock block) async {
+    final container = block.multicolContent!.container;
+    var bottom = y;
+    for (final item in occupancy.items) {
+      await budget.checkpoint();
+      if (item.rect.left < container.left + container.width &&
+          item.rect.right > container.left) {
+        bottom = math.max(bottom, item.rect.bottom);
+      }
+    }
+    if (bottom <= y) return;
+    slices.add(
+      PageBlockSlice(
+        block: _clearSpacer(block, bottom - y),
+        startLine: 0,
+        endLine: 1,
+        height: bottom - y,
+      ),
+    );
+    y = bottom;
+    await _removeSatisfied(bottom);
+  }
+
+  // 浮动列带一次完成放置、提交和收页，保持占位与递归游标同步。
+  Future<void> _addFloatMulticol(PageBlock block, int index) async {
+    if (block.pageBreakBefore && slices.isNotEmpty) await closePage();
+    final flow = MulticolFlow(block.multicolContent!);
+    final region = floatRegion(block);
+    final dimensions = _floatWidth(block, region, grouped: true);
+    var first = true;
+    while (!flow.isDone) {
+      await budget.checkpoint();
+      final balanced = flow.heightForContainer(block);
+      final leading = first ? block.leadingExtent : 0.0;
+      final placement = await _floatMulticolPlacement(block, index, region, (
+        width: dimensions.occupied,
+        height: leading + balanced + block.trailingExtent,
+      ));
+      final room = math.max(0.0, height - placement.top - leading);
+      final (:band, :trailing) = flow.takeContainerBand(
+        block,
+        room,
+        forceProgress: slices.isEmpty,
+      );
+      if (band.pieces.isEmpty && !flow.isDone) {
+        if (slices.isNotEmpty) await closePage();
+        continue;
+      }
+      if (band.pieces.isNotEmpty) {
+        _appendFloatMulticol(block, band, (
+          first: first,
+          last: flow.isDone,
+          placement: placement,
+          dimensions: dimensions,
+          leading: leading,
+          trailing: trailing,
+        ));
+        first = false;
+      }
+      if (!flow.isDone || band.pageBreak || block.pageBreakAfter) {
+        if (slices.isNotEmpty) await closePage();
+      }
+    }
+  }
+
+  Future<_FloatPosition> _floatMulticolPlacement(
+    PageBlock block,
+    int index,
+    _FloatRegion region,
+    _FloatSize size,
+  ) async {
+    var top = _flowPosition(block, index);
+    if (slices.isNotEmpty &&
+        size.height <= height &&
+        top + size.height > height) {
+      await closePage();
+      top = _flowPosition(block, index);
+    }
+    final placement = await placeFloat(
+      top,
+      (
+        width: size.width,
+        height: math.min(size.height, math.max(0.0, height - top)),
+      ),
+      block.floatSide!,
+      region,
+    );
+    if (placement.top >= height && slices.isNotEmpty) {
+      await closePage();
+      return placeFloat(
+        _flowPosition(block, index),
+        (width: size.width, height: math.min(size.height, height)),
+        block.floatSide!,
+        region,
+      );
+    }
+    return placement;
+  }
+
+  // 切片和浮动占位需一起提交；拆开会使后续正文漏掉整盒绕排区域。
+  void _appendFloatMulticol(
+    PageBlock block,
+    MulticolBand band,
+    ({
+      bool first,
+      bool last,
+      _FloatPosition placement,
+      _FloatWidth dimensions,
+      double leading,
+      double trailing,
+    })
+    fragment,
+  ) {
+    final container = block.multicolContent!.container;
+    final top = topPadding + fragment.placement.top;
+    final added = Paginator.multicolBandSlices(
+      block,
+      band,
+      (
+        top: top,
+        left:
+            fragment.placement.x +
+            fragment.dimensions.leftSpace -
+            container.left,
+        first: fragment.first,
+        last: fragment.last,
+      ),
+      pageSize: (width: width, height: height),
+      extents: (leading: fragment.leading, trailing: fragment.trailing),
+    );
+    final anchor = added.first;
+    slices.add(
+      PageBlockSlice(
+        block: anchor.block,
+        startLine: 0,
+        endLine: 0,
+        height: anchor.height,
+        leadingExtent: anchor.leadingExtent,
+        trailingExtent: anchor.trailingExtent,
+        leftInset: anchor.leftInset,
+        overlay: true,
+        absoluteTop: top,
+      ),
+    );
+    slices.addAll(added.skip(1));
+    occupancy.insert(
+      BoxOccupied(
+        rect: Rect.fromLTWH(
+          fragment.placement.x,
+          fragment.placement.top,
+          fragment.dimensions.occupied,
+          anchor.height,
+        ),
+        baseline: fragment.placement.top,
+        side: block.floatSide!,
+      ),
+    );
   }
 
   Future<void> _layoutDeclaredBox(PageBlock block) async {

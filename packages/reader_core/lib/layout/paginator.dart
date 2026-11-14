@@ -1430,19 +1430,24 @@ class Paginator {
       : (0, 0);
 
   /// 一条在流空盒占满列带高度，后代按原文顺序保留各自的列片段。
-  static List<PageBlockSlice> _multicolBandSlices(
+  static List<PageBlockSlice> multicolBandSlices(
     PageBlock source,
     MulticolBand band,
-    ({double top, double left, bool first, bool last}) position,
-  ) {
+    ({double top, double left, bool first, bool last}) position, {
+    required ({double width, double height}) pageSize,
+    ({double leading, double trailing})? extents,
+  }) {
     final content = source.multicolContent!;
-    final leading = position.first ? source.leadingExtent : 0.0;
-    final trailing = position.last ? source.trailingExtent : 0.0;
+    final leading =
+        extents?.leading ?? (position.first ? source.leadingExtent : 0.0);
+    final trailing =
+        extents?.trailing ?? (position.last ? source.trailingExtent : 0.0);
     final fragments = _multicolFragments(source, content, position);
     final children = _multicolChildren(band, fragments, (
       content: content,
       top: position.top + leading,
       left: position.left,
+      pageSize: pageSize,
     ));
     final anchor = _multicolAnchor(source, band, fragments, children);
     return [
@@ -1462,7 +1467,13 @@ class Paginator {
   static List<PageBlockSlice> _multicolChildren(
     MulticolBand band,
     List<PageContainerFragment> fragments,
-    ({PageMulticolContent content, double top, double left}) position,
+    ({
+      PageMulticolContent content,
+      double top,
+      double left,
+      ({double width, double height}) pageSize,
+    })
+    position,
   ) {
     final children = <PageBlockSlice>[];
     final projected = <(PageContainer, int), PageContainer>{};
@@ -1479,8 +1490,20 @@ class Paginator {
         containers: [...fragments, ...own],
       );
       final top = position.top + piece.top;
-      if (block.multicolContent != null) {
-        children.addAll(_nestedMulticolSlices(block, (top: top, left: left)));
+      if (block.absolute) {
+        children.add(
+          _multicolAbsoluteSlice(block, (
+            top: top,
+            left: left,
+          ), position.pageSize),
+        );
+      } else if (piece.nested != null) {
+        children.addAll(
+          _nestedMulticolSlices(block, piece, (
+            top: top,
+            left: left,
+          ), position.pageSize),
+        );
       } else {
         children.add(_multicolPieceSlice(block, piece, (top: top, left: left)));
       }
@@ -1563,6 +1586,32 @@ class Paginator {
     );
   }
 
+  static PageBlockSlice _multicolAbsoluteSlice(
+    PageBlock source,
+    ({double top, double left}) position,
+    ({double width, double height}) pageSize,
+  ) {
+    final resolved = _resolveAbsolute(
+      source,
+      containingWidth: pageSize.width,
+      containingHeight: pageSize.height,
+      staticTop: position.top,
+      staticLeft: position.left,
+    );
+    final block = resolved.block;
+    return PageBlockSlice(
+      block: block,
+      startLine: 0,
+      endLine: block.layout.lineCount,
+      height: block.leadingExtent + block.height + block.trailingExtent,
+      leadingExtent: block.leadingExtent,
+      trailingExtent: block.trailingExtent,
+      leftInset: resolved.left,
+      overlay: true,
+      absoluteTop: resolved.top.clamp(0.0, math.max(0.0, pageSize.height - 1)),
+    );
+  }
+
   static List<PageContainerFragment> _projectColumnContainers(
     PageBlock source,
     MulticolPiece piece,
@@ -1575,8 +1624,8 @@ class Paginator {
           fragment.container,
           piece.column,
         ), () => _shiftColumnContainer(fragment.container, left)),
-        startsHere: piece.startLine == 0 && fragment.startsHere,
-        endsHere: piece.endLine >= source.layout.lineCount && fragment.endsHere,
+        startsHere: piece.startsBlock && fragment.startsHere,
+        endsHere: piece.endsBlock && fragment.endsHere,
         topInset: fragment.topInset,
         bottomInset: fragment.bottomInset,
       ),
@@ -1596,13 +1645,22 @@ class Paginator {
 
   static List<PageBlockSlice> _nestedMulticolSlices(
     PageBlock source,
+    MulticolPiece piece,
     ({double top, double left}) position,
+    ({double width, double height}) pageSize,
   ) {
-    final flow = MulticolFlow(source.multicolContent!);
-    final slices = _multicolBandSlices(
+    final nested = piece.nested!;
+    final slices = multicolBandSlices(
       source,
-      flow.take(flow.balancedHeight()),
-      (top: position.top, left: position.left, first: true, last: true),
+      nested.band,
+      (
+        top: position.top,
+        left: position.left,
+        first: nested.first,
+        last: nested.last,
+      ),
+      pageSize: pageSize,
+      extents: (leading: piece.leading, trailing: piece.trailing),
     );
     final anchor = slices.first;
     return [
@@ -1708,25 +1766,14 @@ class Paginator {
       0.0,
       availableWidth - model.horizontalInset - model.margin.horizontal,
     );
-    final preferred = TextLayoutEngine.layout(
-      text: block.layout.text,
-      style: style,
-      maxWidth: double.infinity,
-    ).width;
+    final preferred = _layoutAtWidth(block, style, double.infinity).width;
     // shrink-to-fit：min(max(min-content, 可用宽), max-content)。
     final minContent = _minContentWidth(block.layout.text, style);
     final target = math.min(preferred, math.max(minContent, contentAvailable));
     if ((target - block.layout.maxWidth).abs() < 0.5) {
       return block;
     }
-    return _withLayout(
-      block,
-      layout: TextLayoutEngine.layout(
-        text: block.layout.text,
-        style: style,
-        maxWidth: target,
-      ),
-    );
+    return _withLayout(block, layout: _layoutAtWidth(block, style, target));
   }
 
   /// 按指定宽重排块（绝对定位声明宽与已测宽不一致时用）。
@@ -1734,13 +1781,27 @@ class Paginator {
     PageBlock block,
     ComputedStyle style,
     double width,
-  ) => _withLayout(
-    block,
-    layout: TextLayoutEngine.layout(
-      text: block.layout.text,
-      style: style,
-      maxWidth: width,
-    ),
+  ) => _withLayout(block, layout: _layoutAtWidth(block, style, width));
+
+  /// 变宽重排复用原文样式和替换盒，普通行内留白由 runs 重新生成。
+  static TextLayoutResult _layoutAtWidth(
+    PageBlock block,
+    ComputedStyle style,
+    double width,
+  ) => TextLayoutEngine.layout(
+    text: block.layout.text,
+    style: style,
+    maxWidth: width,
+    runs: block.layout.inputRuns,
+    firstLineStyle: block.layout.firstLineStyle,
+    firstLineRuns: block.layout.firstLineRuns,
+    inlineBoxes: [
+      for (final line in block.layout.lines)
+        for (final box in line.inlineBoxes)
+          if (box.spec.payload is! InlineSpacingEdge)
+            box.spec.atOffset(box.offset),
+    ],
+    rubies: block.rubies ?? const [],
   );
 
   /// 替换行布局并完整保留块的盒、覆盖层与装饰字段。
@@ -2199,7 +2260,7 @@ class Paginator {
       final lines = block.layout.lines;
       // 空块（无行且无盒高）不占位；声明了高度的空块（height/min-height）
       // 仍按盒高占位。
-      if (lines.isEmpty && block.height <= 0) {
+      if (lines.isEmpty && block.height <= 0 && block.multicolContent == null) {
         continue;
       }
       if (block.pageBreakBefore) {
@@ -2213,7 +2274,7 @@ class Paginator {
         var firstBand = true;
         final extent =
             block.leadingExtent +
-            columnFlow.balancedHeight() +
+            columnFlow.heightForContainer(block) +
             block.trailingExtent;
         if (extent > available + tolerance &&
             extent <= pageHeight + tolerance) {
@@ -2228,11 +2289,10 @@ class Paginator {
           }
           yield const _PaginationStep.checkpoint();
           final leading = firstBand ? block.leadingExtent : 0.0;
-          final balanced = columnFlow.balancedHeight();
           final room = math.max(0.0, available - leading);
-          final finishes = balanced + block.trailingExtent <= room + tolerance;
-          final band = columnFlow.take(
-            finishes ? balanced : room,
+          final (:band, :trailing) = columnFlow.takeContainerBand(
+            block,
+            room,
             forceProgress: slices.isEmpty,
           );
           if (band.pieces.isEmpty && !columnFlow.isDone) {
@@ -2241,18 +2301,29 @@ class Paginator {
             continue;
           }
           if (band.pieces.isNotEmpty) {
-            final added = _multicolBandSlices(block, band, (
-              top: (firstPage ? topPadding : 0) + used,
-              left: 0.0,
-              first: firstBand,
-              last: columnFlow.isDone,
-            ));
+            final added = multicolBandSlices(
+              block,
+              band,
+              (
+                top: (firstPage ? topPadding : 0) + used,
+                left: 0.0,
+                first: firstBand,
+                last: columnFlow.isDone,
+              ),
+              pageSize: (
+                width: pageWidth > 0
+                    ? pageWidth
+                    : columnContent.container.contentWidth,
+                height: pageHeight - (firstPage ? topPadding : 0),
+              ),
+              extents: (leading: leading, trailing: trailing),
+            );
             slices.addAll(added);
             used += added.first.height;
             available -= added.first.height;
           }
           firstBand = false;
-          if (!columnFlow.isDone || block.pageBreakAfter) {
+          if (!columnFlow.isDone || band.pageBreak || block.pageBreakAfter) {
             final page = record();
             if (page != null) yield _PaginationStep.page(page);
           }

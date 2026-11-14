@@ -135,9 +135,18 @@ class ChapterStyleResolver {
     return width;
   }
 
-  bool hasIntrinsicContainer(List<SelectorElement> chain) => chain.any(
-    (view) => retainedContainers[view]?.style.intrinsicWidth != null,
-  );
+  /// 已求解的内在容器和多栏后代保留真实内容宽，不再套用正文最小宽度。
+  bool preservesContainerWidth(List<SelectorElement> chain) =>
+      chain.any((view) {
+        final container = retainedContainers[view];
+        return container != null &&
+            (container.style.intrinsicWidth != null ||
+                MulticolGeometry.fromStyle(
+                      container.style,
+                      container.contentWidth,
+                    ) !=
+                    null);
+      });
 
   /// 在原父内容盒中分配 auto 外边距，再把变化量加到已有页面投影上。
   ComputedStyle intrinsicBlockStyle(

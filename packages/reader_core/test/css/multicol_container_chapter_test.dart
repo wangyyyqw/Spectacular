@@ -82,6 +82,25 @@ Iterable<PageBlockSlice> _columnText(List<PageContent> pages) => [
       if (slice.block.columnFragment != null) slice,
 ];
 
+String _pageText(PageContent page) => [
+  for (final slice in page.slices)
+    for (final line in slice.block.layout.lines.sublist(
+      slice.startLine,
+      slice.endLine,
+    ))
+      slice.block.layout.text.substring(line.start, line.end),
+].join();
+
+void _expectVisibleText(List<PageContent> pages, String text) {
+  expect(pages.map(_pageText).join(), text);
+  for (final page in pages) {
+    expect(page.usedHeight, lessThanOrEqualTo(page.pageHeight + .1));
+    for (final box in TextHitTester.lineBoxes(page)) {
+      expect(box.rect.bottom, lessThanOrEqualTo(page.pageHeight + .1));
+    }
+  }
+}
+
 Future<ByteData> _paint(PageContent page, {ui.Image? image}) async {
   final recorder = ui.PictureRecorder();
   PagePainter(
@@ -403,5 +422,357 @@ void main() {
     final y = (_insets.top + bands.last.absoluteTop! + 20).floor();
     expect(_lineColorAt(pixels, x, y, const Color(0xff0000ff)), isTrue);
     expect((await source.loadAnchorChapter(0)).text, original.text);
+  });
+
+  test('长嵌套多栏续排保留全部正文、可见行和递增文本位置', () async {
+    final text = 'ABCDE' * 120;
+    final source = await _open(
+      '<div class="columns"><div class="nested"><p>$text</p></div>'
+      '</div><p>后续正文</p>',
+      css: '.columns{column-count:2;}.nested{column-count:2;column-gap:0;}',
+    );
+    final original = await source.loadAnchorChapter(0);
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    _expectVisibleText(pages, '$text后续正文');
+    var offset = 0;
+    for (final piece in _columnText(pages)) {
+      expect(
+        EpubCfi.parse(piece.block.startCfi!)!
+            .compareTo(EpubCfi.parse(original.cfiAt(offset)!)!),
+        0,
+      );
+      offset += piece.block.layout.text.length;
+    }
+    expect(offset, text.length);
+  });
+
+  for (final nested in [false, true]) {
+    for (final declaration in [
+      'break-before:page;page-break-before:always;',
+      'break-after:page;page-break-after:always;',
+    ]) {
+      test('多栏${nested ? '嵌套' : '直接'}子块保留 $declaration', () async {
+        final before = declaration.startsWith('break-before');
+        final content =
+            '<p${before ? '' : ' style="$declaration"'}>AAAA</p>'
+            '<p${before ? ' style="$declaration"' : ''}>BBBB</p>';
+        final source = await _open(
+          '<div class="columns">'
+          '${nested ? '<div class="nested">$content</div>' : content}'
+          '</div><p>CCCC</p>',
+          css: '.columns{column-count:2;}.nested{column-count:2;column-gap:0;}',
+        );
+        final pages = await source.loadChapter(0);
+        _expectVisibleText(pages, 'AAAABBBBCCCC');
+        final first = pages.indexWhere(
+          (page) => _pageText(page).contains('AAAA'),
+        );
+        final second = pages.indexWhere(
+          (page) => _pageText(page).contains('BBBB'),
+        );
+        expect(second, greaterThan(first), reason: '强制分页不能退化为换列');
+      });
+    }
+  }
+
+  test('多栏内绝对定位沿用页面坐标且不挤占列流高度', () async {
+    final source = await _open(
+      '<div class="columns"><p>AAAA</p>'
+      '<p style="position:absolute;top:120px;left:90px;width:90px;">BBBB</p>'
+      '<p>CCCC</p></div>',
+      css: '.columns{column-count:2;}',
+    );
+    final control = await _open(
+      '<div class="columns"><p>AAAA</p><p>CCCC</p></div>',
+      css: '.columns{column-count:2;}',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final expected = (await control.loadChapter(0)).single;
+    final located = page.slices.singleWhere(
+      (slice) => slice.block.layout.text == 'BBBB',
+    );
+    expect(located.absoluteTop, closeTo(120, .1));
+    expect(located.leftInset, closeTo(90, .1));
+    expect(page.usedHeight, closeTo(expected.usedHeight, .01));
+    final following = TextHitTester.lineBoxes(page)
+        .singleWhere((box) => box.text == 'CCCC');
+    final reference = TextHitTester.lineBoxes(expected)
+        .singleWhere((box) => box.text == 'CCCC');
+    expect(following.rect, reference.rect);
+  });
+
+  test('多栏内自动宽绝对定位重排保留行内字体和替换图片', () async {
+    final source = await _open(
+      '<div class="columns"><p>AAAA</p>'
+      '<p style="position:absolute;top:120px;left:90px;">'
+      '<span style="color:red;font-weight:bold;padding-left:2px;padding-right:3px;">BB</span>'
+      '<img src="red.png" style="width:20px;height:16px;"/>DD</p>'
+      '<p>CCCC</p></div>',
+      css: '.columns{column-count:2;}',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final absolute = page.slices.singleWhere(
+      (slice) => slice.block.layout.text.startsWith('BB'),
+    );
+    expect(absolute.absoluteTop, closeTo(120, .1));
+    expect(absolute.leftInset, closeTo(90, .1));
+    expect(
+      absolute.block.layout.runs.any(
+        (run) =>
+            run.start == 0 &&
+            run.style.color == const Color(0xffff0000) &&
+            run.style.fontWeight == 700,
+      ),
+      isTrue,
+    );
+    final image = absolute.lines
+        .expand((line) => line.inlineBoxes)
+        .singleWhere((box) => box.spec.replacesPlaceholder);
+    expect(image.width, closeTo(20, .01));
+    expect(image.height, closeTo(16, .01));
+    final spacing = absolute.lines
+        .expand((line) => line.inlineBoxes)
+        .where((box) => !box.spec.replacesPlaceholder)
+        .fold(0.0, (width, box) => width + box.width);
+    expect(spacing, closeTo(5, .01), reason: '重排只保留一份作者行内留白');
+  });
+
+  test('浮动多栏以单列宽测量正文，后文沿整盒绕排', () async {
+    final text = 'ABCD' * 4;
+    final source = await _open(
+      '<div class="floating"><p>$text</p><p>BB</p></div><p>CCCC</p>',
+      css: '.floating{float:left;width:120px;column-count:2;column-gap:0;}',
+    );
+    final page = (await source.loadChapter(0)).single;
+    _expectVisibleText([page], '${text}BBCCCC');
+    final boxes = TextHitTester.lineBoxes(page);
+    final floated = boxes.firstWhere(
+      (box) => box.slice.block.columnFragment != null,
+    );
+    final following = boxes.firstWhere((box) => box.text.contains('CCCC'));
+    expect(following.rect.top, lessThan(floated.rect.bottom));
+    expect(following.rect.bottom, greaterThan(floated.rect.top));
+    expect(following.rect.left, greaterThanOrEqualTo(119.9));
+    for (final piece in _columnText([page])) {
+      expect(piece.block.layout.maxWidth, closeTo(60, .01));
+      for (final line in piece.lines) {
+        expect(line.width, lessThanOrEqualTo(60.01));
+      }
+    }
+    await _paint(page);
+  });
+
+  test('窄父盒中的右浮动多栏只平移一次，并保留内部装饰', () async {
+    final source = await _open(
+      '<div class="host"><div class="floating"><div class="card">'
+      '<p>ABCD</p><p>EFGH</p></div></div><p>CCCC</p></div>',
+      css:
+          '.host{width:280px;margin-left:16px;padding:8px;border:2px solid blue;}'
+          '.floating{float:right;width:120px;column-count:2;column-gap:0;}'
+          '.card{border:1px solid green;}',
+    );
+    final page = (await source.loadChapter(0)).single;
+    _expectVisibleText([page], 'ABCDEFGHCCCC');
+    final floated = _columnText([page]).toList();
+    final boxes = TextHitTester.lineBoxes(page);
+    final following = boxes.firstWhere((box) => box.text == 'CCCC');
+    final first = boxes.firstWhere((box) => box.slice == floated.first);
+    expect(first.rect.left, closeTo(16 + 10 + 280 - 120 + 1, .01));
+    expect(following.rect.left, closeTo(26, .01));
+    expect(following.rect.right, lessThan(first.rect.left));
+    expect(following.rect.top, lessThan(first.rect.bottom));
+    expect(
+      floated.first.block.containers.any(
+        (fragment) =>
+            fragment.container.style.borders.left.color ==
+            const Color(0xff008000),
+      ),
+      isTrue,
+    );
+    await _paint(page);
+  });
+
+  test('浮动与普通长多栏出现在同章时，两种列流都完整展开', () async {
+    final text = 'ABCDE' * 180;
+    final source = await _open(
+      '<div class="floating"><p>AA</p><p>BB</p></div>'
+      '<div class="columns"><p>$text</p></div><p>后续正文</p>',
+      css:
+          '.floating{float:left;width:120px;column-count:2;column-gap:0;}'
+          '.columns{column-count:2;}',
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    _expectVisibleText(pages, 'AABB$text后续正文');
+    final firstPage = TextHitTester.lineBoxes(pages.first);
+    final lastFloatBottom = firstPage
+        .where((box) => box.text == 'AA' || box.text == 'BB')
+        .map((box) => box.rect.bottom)
+        .reduce((a, b) => a > b ? a : b);
+    final ordinary = firstPage.firstWhere(
+      (box) => box.text.startsWith('ABCDE'),
+    );
+    expect(ordinary.rect.top, greaterThanOrEqualTo(lastFloatBottom));
+  });
+
+  test('长浮动多栏跨页保留全部正文与后续普通段落', () async {
+    final text = 'ABCDE' * 120;
+    final source = await _open(
+      '<div class="floating"><p>$text</p></div><p>后续正文</p>',
+      css: '.floating{float:left;width:120px;column-count:2;column-gap:0;}',
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    _expectVisibleText(pages, '$text后续正文');
+  });
+
+  test('三层长多栏跨页保留全文和可见范围', () async {
+    final text = 'ABCDE' * 120;
+    final source = await _open(
+      '<div class="columns"><div class="nested"><div class="inner">'
+      '<p>$text</p></div></div></div><p>后续正文</p>',
+      css:
+          '.columns{column-count:2;}'
+          '.nested,.inner{column-count:2;column-gap:0;}',
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    _expectVisibleText(pages, '$text后续正文');
+  });
+
+  test('嵌套多栏在页末预留底边框与内边距', () async {
+    final source = await _open(
+      '<p class="before">PRE</p><div class="columns">'
+      '<div class="nested"><p>AB</p></div></div><p>END</p>',
+      css:
+          '.before{height:690px;}.columns{column-count:2;}'
+          '.nested{column-count:2;column-gap:0;padding-bottom:18px;border-bottom:2px solid red;}',
+    );
+    final pages = await source.loadChapter(0);
+    _expectVisibleText(pages, 'PREABEND');
+    for (final page in pages) {
+      for (final slice in page.slices.where((slice) => slice.overlay)) {
+        expect(
+          slice.absoluteTop! + slice.height,
+          lessThanOrEqualTo(page.pageHeight + .1),
+        );
+      }
+    }
+  });
+
+  for (final hasFloat in [false, true]) {
+    test('顶层多栏末片底装饰不越页（同章浮动：$hasFloat）', () async {
+      final text = 'A' * 368;
+      final source = await _open(
+        '<div class="columns"><p>$text</p></div>'
+        '${hasFloat ? '<p style="float:right;width:30px;">D</p>' : ''}',
+        css: '.columns{column-count:2;padding-bottom:18px;border-bottom:2px solid red;}',
+      );
+      final pages = await source.loadChapter(0);
+      expect(pages.length, greaterThan(1));
+      _expectVisibleText(pages, '$text${hasFloat ? 'D' : ''}');
+      final last = pages.last.slices.firstWhere(
+        (slice) => slice.block.multicolContent != null,
+      );
+      expect(last.trailingExtent, greaterThanOrEqualTo(20));
+    });
+  }
+
+  test('多栏末片同时预留子段和容器的底装饰', () async {
+    final text = 'A' * 352;
+    final source = await _open(
+      '<div class="columns"><p>$text</p></div>',
+      css:
+          '.columns{column-count:2;padding-bottom:18px;border-bottom:2px solid red;}'
+          '.columns>p{padding-bottom:20px;}',
+    );
+    final pages = await source.loadChapter(0);
+    _expectVisibleText(pages, text);
+    expect(pages.length, greaterThan(1));
+    final last = pages.last.slices.firstWhere(
+      (slice) => slice.block.multicolContent != null,
+    );
+    expect(last.trailingExtent, greaterThanOrEqualTo(20));
+  });
+
+  test('能放入下一外列的嵌套多栏遵守避免内部断列', () async {
+    final source = await _open(
+      '<div class="columns"><p>PRE</p><div class="nested">'
+      '<p>A<br/>B<br/>C<br/>D<br/>E<br/>F</p></div></div>',
+      css:
+          '.columns{column-count:2;}'
+          '.nested{column-count:2;column-gap:0;break-inside:avoid;}',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final nested = page.slices.where(
+      (slice) => slice.overlay && slice.block.multicolContent != null,
+    );
+    expect(nested, hasLength(1));
+    final boxes = TextHitTester.lineBoxes(page);
+    final before = boxes.firstWhere((box) => box.text == 'PRE');
+    final first = boxes.firstWhere((box) => box.text == 'A');
+    expect(first.rect.left, greaterThan(before.rect.right));
+  });
+
+  test('短嵌套多栏保留作者最小高度', () async {
+    final source = await _open(
+      '<div class="columns"><div class="nested"><p>A</p></div><p>B</p></div>',
+      css:
+          '.columns{column-count:2;}'
+          '.nested{column-count:2;column-gap:0;min-height:100px;}',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final inner = page.slices.singleWhere(
+      (slice) => slice.overlay && slice.block.multicolContent != null,
+    );
+    expect(inner.block.layout.height, closeTo(100, .01));
+    expect(page.usedHeight, greaterThanOrEqualTo(100));
+    _expectVisibleText([page], 'AB');
+  });
+
+  for (final mode in ['普通列流', '同章浮动', '自身浮动']) {
+    test('$mode 保留多栏最小高度及后续正文位置', () async {
+      final source = await _open(
+        '${mode == '同章浮动' ? '<p style="float:right;width:30px;">D</p>' : ''}'
+        '<div class="columns"><p>A</p></div><p>${'C' * 120}</p>',
+        css:
+            '.columns{width:120px;column-count:2;column-gap:0;min-height:100px;'
+            '${mode == '自身浮动' ? 'float:left;' : ''}}',
+      );
+      final page = (await source.loadChapter(0)).single;
+      final anchor = page.slices.singleWhere(
+        (slice) => slice.block.multicolContent != null,
+      );
+      expect(anchor.block.layout.height, closeTo(100, .01));
+      final boxes = TextHitTester.lineBoxes(page);
+      final columnTop = boxes.singleWhere((box) => box.text == 'A').rect.top;
+      final following = boxes.where((box) => box.text.startsWith('C'));
+      if (mode == '自身浮动') {
+        final floatBottom = anchor.absoluteTop! + anchor.height;
+        for (final box in following.where(
+          (box) => box.rect.top < floatBottom - .1,
+        )) {
+          expect(box.rect.left, greaterThanOrEqualTo(119.9));
+        }
+        expect(following.last.rect.left, lessThan(119.9));
+      } else {
+        expect(following.first.rect.top, greaterThanOrEqualTo(columnTop + 100));
+      }
+      _expectVisibleText([page], '${mode == '同章浮动' ? 'D' : ''}A${'C' * 120}');
+    });
+  }
+
+  test('连续分页声明和三层首子分页不制造空页', () async {
+    final source = await _open(
+      '<p style="break-after:page;">AAAA</p><div class="columns">'
+      '<div class="nested"><div class="inner">'
+      '<p style="break-before:page;">BBBB</p></div></div></div>',
+      css:
+          '.columns{column-count:2;}'
+          '.nested,.inner{column-count:2;column-gap:0;}',
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages.map(_pageText), ['AAAA', 'BBBB']);
   });
 }
