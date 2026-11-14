@@ -178,6 +178,7 @@ class ChapterPageLayout {
   }
 
   /// 章首出血图从页顶开始，正文不重复预留安全区和页眉槽。
+  /// 替换图片的绘制盒已贴顶，占位也须抵消上外边距，避免后文覆盖图片。
   Future<double> _chapterTopPadding(List<PageBlock> blocks) async {
     PageBlock? first;
     for (final block in blocks) {
@@ -202,7 +203,7 @@ class ChapterPageLayout {
         !hasBackground) {
       return 0;
     }
-    return -snapshot.topInset;
+    return -snapshot.topInset - (first.isReplaced ? first.spaceBefore : 0);
   }
 
   Future<List<PageContent>> _withFixedOverlays(
