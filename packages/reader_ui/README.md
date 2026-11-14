@@ -31,7 +31,7 @@
 
 - `ReaderMenuOverlay` 顶部、底部和抽屉使用滑动及淡入淡出，进入 280ms、退出 200ms，退出内容禁止点击；墨水屏或 `MediaQuery.disableAnimations` 为真时即时切换。抽屉提供标题、关闭按钮与抓手。
 - `MarginEditor` 保留六项边距的拖动、正文预览、取消和保存，数值可点击输入小数，按各项上限校验；预览与实际正文共用页家具高度。
-- `ReaderCornerInfo` 管理四角信息，`ReaderCornerRow` 显示当前章节、书名、章页、进度、分钟时钟或电量。整行隐藏时回收该行高度，显式边距继续保留；信息配置参与翻页快照失效。电量使用宿主的 `getBatteryLevel` 平台通道，未提供时显示不可用状态。
+- `ReaderCornerInfo` 管理四角信息，`ReaderCornerRow` 显示当前章节、书名、章页、进度、分钟时钟或电池图标。整行隐藏时回收该行高度，显式边距继续保留；信息配置参与翻页快照失效。电池通过宿主的 `getBatteryStatus` 查询电量与充电状态，并监听 `com.spectacular.reader_mobile/battery` 事件通道即时更新；充电及已充满仍接电时显示闪电，未提供状态时显示未知，读取失败保留有效值。
 - `ReaderFontPickerSheet` 提供字体选择、按需试读、重命名和确认移除，失败保留弹层并展示原因。宿主通过 `onLoadFont`、`onRenameFont`、`onRemoveFont` 负责注册与持久化，恢复书籍字体时关闭全书字体覆盖。
 
 当前实现与 Android 验收范围见 [功能细节优化与 APK 验收](../../docs/功能细节优化与APK验收-2026-11-12.md)。

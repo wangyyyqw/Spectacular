@@ -1,24 +1,28 @@
 package com.spectacular.reader_mobile
 
 import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
 import android.view.KeyEvent
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var readerChannel: MethodChannel? = null
     private var volumeKeyPaging = false
     private var epubExport: EpubExportHandler? = null
+    private var battery: ReaderBatteryHandler? = null
+    private var batteryChannel: EventChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         epubExport = EpubExportHandler(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/epub_export").setMethodCallHandler(epubExport)
+        battery = ReaderBatteryHandler(this)
+        batteryChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger,
+            "com.spectacular.reader_mobile/battery").also { it.setStreamHandler(battery) }
         readerChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/reader",
@@ -33,7 +37,7 @@ class MainActivity : FlutterActivity() {
                         volumeKeyPaging = call.arguments as? Boolean ?: false
                         result.success(null)
                     }
-                    "getBatteryLevel" -> result.success(batteryLevel())
+                    "getBatteryStatus" -> result.success(battery?.snapshot())
                     else -> result.notImplemented()
                 }
             }
@@ -47,19 +51,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         epubExport?.dispose()
+        batteryChannel?.setStreamHandler(null)
+        battery?.dispose()
         super.onDestroy()
-    }
-
-    private fun batteryLevel(): Int? {
-        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            ?: return null
-        val level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-        val scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-        return if (level >= 0 && scale > 0) {
-            (level * 100 / scale).coerceIn(0, 100)
-        } else {
-            null
-        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

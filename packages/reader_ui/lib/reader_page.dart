@@ -43,7 +43,8 @@ import 'menu/reader_menu_overlay.dart';
 import 'panels/margin_editor.dart';
 import 'panels/tap_zone_editor.dart';
 import 'page_furniture/page_furniture.dart';
-import 'page_furniture/corner_row.dart' show readerBatteryLevel;
+import 'page_furniture/corner_row.dart'
+    show ReaderBatteryStatus, readerBatteryStatus;
 import 'theme/reader_margins.dart';
 import 'tap_zones.dart';
 import 'annotations/relocator.dart';
@@ -2805,8 +2806,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       onTapAt: (point) => _pageTurnKey.currentState?.controller.active == true
           ? false
           : _handleTapAt(point),
-      child: ValueListenableBuilder<int?>(
-        valueListenable: readerBatteryLevel,
+      child: ValueListenableBuilder<ReaderBatteryStatus>(
+        valueListenable: readerBatteryStatus,
         builder: (context, battery, _) => PageTurnView(
           key: _pageTurnKey,
           session: _session,
