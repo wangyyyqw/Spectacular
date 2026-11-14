@@ -269,11 +269,17 @@ void main() {
     final visited = <int>{};
     for (final next in [true, false]) {
       for (var i = 0; i < 12; i++) {
+        final origin = session.page;
+        final preview = await session.preparePageTurn(next, prefetch: true);
+        if (preview == null) break;
+        final previewPercent = session.readingPercentOf(preview.target.content);
+        expect(previewPercent, isNotNull);
+        expect(session.page, same(origin), reason: '预热不改变当前页');
         final turn = await session.preparePageTurn(next);
-        if (turn == null) break;
-        expect(session.commitPageTurn(turn), isTrue);
+        expect(turn, isNotNull);
+        expect(session.commitPageTurn(turn!), isTrue);
         visited.add(session.progress!.spineIndex);
-        expect(session.readingPercent, isNotNull);
+        expect(session.readingPercent, previewPercent, reason: '预热与落页使用同一比例');
         await session.flushProgress();
         final saved = await store.load('page-turn-position');
         expect(saved?.cfi, session.readingCfi);
@@ -284,6 +290,40 @@ void main() {
       visited.length,
       greaterThan(EpubChapterSource.documentCacheChapterLimit),
     );
+  });
+
+  test('原文缓存淘汰后纸面比例稳定，实际翻页仍重新准备当前正文', () async {
+    final source = await EpubChapterSource.open(
+      _buildBook(List.filled(8, _text(100))),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'cached-page-percent',
+    );
+    addTearDown(() async {
+      session.dispose();
+      source.close();
+      await source.preparationsStopped;
+    });
+    await session.open(contentWidth: 300, contentHeight: 500);
+    expect(session.chapterPageCount, 1);
+    final preview = (await session.preparePageTurn(true, prefetch: true))!;
+    final target = preview.target.content;
+    final cfi = session.cfiAtPageOffset(target, null)!;
+    final percent = session.readingPercentOf(target);
+    expect(percent, isNotNull);
+    for (var spine = 2; spine < 8; spine++) {
+      final chapter = await source.loadAnchorChapter(spine);
+      expect(source.readingPercentForCfi(chapter.cfiAt(0)), isNotNull);
+    }
+    expect(source.readingPercentForCfi(cfi), isNull);
+    expect(session.readingPercentOf(target), percent);
+    final turn = (await session.preparePageTurn(true))!;
+    expect(source.readingPercentForCfi(cfi), percent);
+    expect(session.commitPageTurn(turn), isTrue);
+    expect(session.readingPercent, percent);
+    await session.flushProgress();
   });
 
   test('百分比定位准备的空值不阻断就绪后重新计算', () async {

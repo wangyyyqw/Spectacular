@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/extension.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -85,6 +86,47 @@ Future<List<PageContent>> _expectImages(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('混合图文的标题、容器和图片共用正文坐标且保留原始 CFI', () async {
+    final source = await _open(
+      '<h2 id="title">标题</h2><p>前文</p>'
+      '<div id="outer"><img id="picture" src="$_sourcePath" '
+      'width="80" height="100"/></div><p>后文</p>'
+      '<p>甲<span id="inside">乙<img id="inline" src="$_sourcePath" '
+      'width="20" height="20"/>丙</span>丁</p>'
+      '<p id="hidden" style="display:none">隐藏正文</p>',
+    );
+    await source.loadChapter(0);
+    final chapter = await source.loadAnchorChapter(0);
+    final book = AnchorBook(revision: '元素进度', chapters: [chapter]);
+    final parsed = source.document.parseDocument(0);
+    expect(chapter.text, '标题前文后文甲乙\uFFFC丙丁');
+    for (final entry in {
+      'title': 0,
+      'outer': 4,
+      'picture': 4,
+      'inside': 7,
+      'inline': 8,
+    }.entries) {
+      final cfi = parsed.elementById(entry.key)!.cfi.serialize();
+      expect(chapter.offsetFor(cfi), entry.value, reason: entry.key);
+      expect(
+        source.readingPercentForCfi(cfi),
+        closeTo(entry.value / chapter.text.length, 1e-9),
+      );
+      final anchor = book.capture(cfi)!;
+      expect(anchor.start.cfi, cfi, reason: '元素位置不能替换成邻近文字');
+      expect(anchor.start.charOffset, entry.value);
+      expect(
+        book.capture(cfiWithCharOffset(cfi, 0))?.start.charOffset,
+        entry.value,
+      );
+      expect(book.capture(cfiWithCharOffset(cfi, 1)), isNull);
+    }
+    final hidden = parsed.elementById('hidden')!.cfi.serialize();
+    expect(source.readingPercentForCfi(hidden), isNull);
+    expect(book.capture('epubcfi(/6/2!/4/9998)'), isNull);
+  });
 
   test('混合正文中重复 data 的 object 经真实聚合和遍历保留可见叶 CFI', () async {
     final source = await _open(

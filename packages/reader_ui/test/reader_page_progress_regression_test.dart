@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/api.dart' show TocEntry;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -96,8 +100,91 @@ class _TrackingStore extends MemoryReaderProgressStore {
   }
 }
 
+class _FixedPages implements ReaderChapterSource {
+  _FixedPages({List<int> pageCounts = const [3]})
+    : chapters = [
+        for (var spine = 0; spine < pageCounts.length; spine++)
+          _chapter(spine, pageCounts[spine]),
+      ];
+
+  final List<List<PageContent>> chapters;
+
+  @override
+  int get chapterCount => chapters.length;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async =>
+      chapters[spineIndex];
+
+  static List<PageContent> _chapter(int spine, int count) {
+    final style = ComputedStyle(const {'font-size': '16px'});
+    final layout = TextLayoutEngine.layout(
+      text: '测试正文' * 10,
+      style: style,
+      maxWidth: 280,
+    );
+    return [
+      for (var page = 0; page < count; page++)
+        PageContent(
+          spineIndex: spine,
+          pageIndex: page,
+          slices: [
+            PageBlockSlice(
+              block: PageBlock(
+                layout: layout,
+                style: style,
+                startCfi:
+                    'epubcfi(/6/${(spine + 1) * 2}!/4/2/1:${(page + 1) * 100})',
+              ),
+              startLine: 0,
+              endLine: layout.lineCount,
+              height: layout.height,
+            ),
+          ],
+          usedHeight: layout.height,
+          pageHeight: 400,
+          topPadding: 0,
+        ),
+    ];
+  }
+}
+
+class _PositionedPages extends _FixedPages implements PositionedChapterSource {
+  bool positionsReady = true;
+
+  @override
+  double? readingPercentForCfi(String? cfi) =>
+      !positionsReady || cfi == null ? null : (cfiCharOffset(cfi) ?? 0) / 1000;
+
+  @override
+  String? cfiForReadingPercent(double percent) => null;
+
+  @override
+  String? cfiForTocEntry(TocEntry entry) => null;
+}
+
+ReaderPageFooter _footerOf(Widget widget) {
+  if (widget is ReaderPageFooter) return widget;
+  final children = switch (widget) {
+    MultiChildRenderObjectWidget() => widget.children,
+    SingleChildRenderObjectWidget() => [
+      if (widget.child != null) widget.child!,
+    ],
+    ProxyWidget() => [widget.child],
+    _ => <Widget>[],
+  };
+  for (final child in children) {
+    try {
+      return _footerOf(child);
+    } on StateError {
+      continue;
+    }
+  }
+  throw StateError('纸面没有页脚');
+}
+
 Widget _readerPage(
-  _ReflowSource source, {
+  ReaderChapterSource source, {
   required ReaderProgressStore store,
   required String bookId,
   required PageTurnMode mode,
@@ -139,6 +226,111 @@ Future<void> _jumpScroll(WidgetTester tester, double offset) async {
 }
 
 void main() {
+  testWidgets('预热、落页和回翻都显示各自页面的原文百分比', (tester) async {
+    final source = _PositionedPages();
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _readerPage(
+        source,
+        store: MemoryReaderProgressStore(),
+        bookId: 'page-percent',
+        mode: PageTurnMode.coverStack,
+        onSessionReady: (value) => session = value,
+      ),
+    );
+    await _settle(tester);
+    final view = tester.widget<PageTurnView>(find.byType(PageTurnView));
+    final state = tester.state<PageTurnViewState>(find.byType(PageTurnView));
+    for (final index in [1, 2, 1, 0]) {
+      final expected = (index + 1) / 10;
+      final target = source.chapters[0][index];
+      final paper = view.paperBuilder(target, const Size(360, 520));
+      expect(_footerOf(paper).progress, expected, reason: '预热不能借用当前页的百分比');
+      state.controller.request(index > session.page!.pageIndex);
+      for (
+        var frame = 0;
+        frame < 120 && state.controller.targetImage == null;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(state.controller.targetImage, isNotNull);
+      await tester.pumpAndSettle();
+      expect(session.page, same(target));
+      expect(
+        tester.widget<ReaderPageFooter>(find.byType(ReaderPageFooter)).progress,
+        expected,
+      );
+    }
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('同页精确跳转保留逻辑进度，纸面百分比不受当前锚点影响', (tester) async {
+    final source = _PositionedPages();
+    final store = MemoryReaderProgressStore();
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _readerPage(
+        source,
+        store: store,
+        bookId: 'same-page-percent',
+        mode: PageTurnMode.coverStack,
+        onSessionReady: (value) => session = value,
+      ),
+    );
+    await _settle(tester);
+    await session.jumpToCfi('epubcfi(/6/2!/4/2/1:210)');
+    await _settle(tester);
+    expect(session.page?.pageIndex, 1);
+    expect(session.readingPercent, .21);
+    expect(
+      tester.widget<ReaderPageFooter>(find.byType(ReaderPageFooter)).progress,
+      .2,
+    );
+    await session.flushProgress();
+    expect((await store.load('same-page-percent'))?.readingPercent, .21);
+    source.positionsReady = false;
+    final view = tester.widget<PageTurnView>(find.byType(PageTurnView));
+    expect(
+      _footerOf(view.paperBuilder(source.chapters[0][1], const Size(360, 520)))
+          .progress,
+      .2,
+      reason: '原文缓存淘汰后已准备纸面仍保持相同比例',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('普通来源跨章预热按目标章页数估算百分比', (tester) async {
+    final source = _FixedPages(pageCounts: const [1, 4]);
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _readerPage(
+        source,
+        store: MemoryReaderProgressStore(),
+        bookId: 'fallback-percent',
+        mode: PageTurnMode.coverStack,
+        onSessionReady: (value) => session = value,
+      ),
+    );
+    await _settle(tester);
+    final prepared = (await session.preparePageTurn(true, prefetch: true))!;
+    final view = tester.widget<PageTurnView>(find.byType(PageTurnView));
+    final target = prepared.target.content;
+    expect(
+      _footerOf(view.paperBuilder(target, const Size(360, 520))).progress,
+      .625,
+    );
+    expect(session.commitPageTurn(prepared), isTrue);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ReaderPageFooter>(find.byType(ReaderPageFooter)).progress,
+      .625,
+    );
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('重排期间旧滚动窗口不能反写最终 CFI', (tester) async {
     final source = _ReflowSource();
     final store = MemoryReaderProgressStore();

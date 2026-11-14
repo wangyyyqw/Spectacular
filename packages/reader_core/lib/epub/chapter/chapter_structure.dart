@@ -314,6 +314,7 @@ ChapterStructure _buildStructure(_StructureInput input) {
         )
       : structural;
   final document = aggregateAnchorDocument(display, raw);
+  final anchors = collectChapterAnchors(document, raw, input.parsed);
   return ChapterStructure(
     parsed: input.parsed,
     document: document,
@@ -323,7 +324,8 @@ ChapterStructure _buildStructure(_StructureInput input) {
       href: input.config.href,
       title: input.config.title,
       readable: input.config.readable,
-      blocks: collectAnchorBlocks(document, raw),
+      blocks: anchors.blocks,
+      elementOffsets: anchors.elementOffsets,
     ),
     footnotes: input.footnotes,
     fullBleed: structural.isFullBleed ? visible : structural,

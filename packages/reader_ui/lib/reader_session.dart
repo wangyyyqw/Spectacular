@@ -361,9 +361,7 @@ class ReaderSession extends ChangeNotifier {
       if (!prefetch) cancelTurnPrefetch();
       final target = await pending;
       if (target == null) return null;
-      if (!prefetch && target.spineIndex != origin.spineIndex) {
-        await _preparePagePosition(target.content);
-      }
+      await _preparePagePosition(target.content, prefetch: prefetch);
       if (_disposed || generation != _generation || !identical(origin, page)) {
         pager.releasePrepared(target);
         return null;
@@ -455,19 +453,36 @@ class ReaderSession extends ChangeNotifier {
   }
 
   /// 页面缓存与原文缓存独立，仅在目标页的正文进度索引缺失时准备原文。
-  Future<void> _preparePagePosition(PageContent target) async {
+  Future<void> _preparePagePosition(
+    PageContent target, {
+    bool prefetch = false,
+  }) async {
     final source = this.source;
     if (source is! PositionedChapterSource) return;
     final cfi = cfiAtPageOffset(target, null);
-    if (cfi == null || source.readingPercentForCfi(cfi) != null) return;
+    if (cfi == null) return;
+    final available = prefetch
+        ? readingPercentOf(target)
+        : source.readingPercentForCfi(cfi);
+    if (available != null) {
+      readingPercentOf(target);
+      return;
+    }
     final anchors = this.source;
-    if (anchors is ScheduledAnchorChapterSource) {
+    if (prefetch && anchors is ScheduledChapterSource) {
+      // 页缓存可能比原文缓存活得久；预热沿用可取消的低优先级准备入口。
+      await _loadChapter(
+        target.spineIndex,
+        priority: ChapterLayoutPriority.prefetch,
+      );
+    } else if (anchors is ScheduledAnchorChapterSource) {
       await _awaitPositionPreparation(
         anchors.scheduleAnchorChapter(target.spineIndex),
       );
     } else if (anchors is AnchorChapterSource) {
       await anchors.loadAnchorChapter(target.spineIndex);
     }
+    readingPercentOf(target);
   }
 
   /// 同步暂存连续滚动的可见位置。
@@ -647,6 +662,7 @@ class ReaderSession extends ChangeNotifier {
   ReaderViewportSnapshot? Function()? _viewportSnapshotProvider;
   String? _readingPercentCfi;
   double? _readingPercentValue;
+  final _pageReadingPercents = Expando<double>();
   bool _firstChangeAfterOpen = false;
   bool _dirty = false;
   bool _flushingProgress = false;
@@ -781,6 +797,18 @@ class ReaderSession extends ChangeNotifier {
     // 准备中的空值不缓存，章节就绪后的下一次读取必须重新计算。
     _readingPercentCfi = value == null ? null : cfi;
     _readingPercentValue = value;
+    return value;
+  }
+
+  /// 纸面进度只属于该页，预热、落页和回翻均不借用当前逻辑锚点。
+  /// 成功值随页面身份缓存，原文缓存淘汰后仍可复用已准备的纸面。
+  double? readingPercentOf(PageContent page) {
+    final source = this.source;
+    if (source is! PositionedChapterSource) return null;
+    final cached = _pageReadingPercents[page];
+    if (cached != null) return cached;
+    final value = source.readingPercentForCfi(cfiAtPageOffset(page, null));
+    if (value != null) _pageReadingPercents[page] = value;
     return value;
   }
 
