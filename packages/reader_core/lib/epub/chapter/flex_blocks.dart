@@ -241,6 +241,9 @@ class _FlexRowLayout {
   ComputedStyle? _itemStyle(int index) =>
       containers[index]?.style ?? items[index].first.style;
 
+  double _outerWidth(int index) =>
+      widths[index] + (containers[index]?.style.margin.horizontal ?? 0);
+
   double _horizontalInset(PageBlock block) {
     final style = block.style;
     return style == null
@@ -294,11 +297,13 @@ class _FlexRowLayout {
     var rowWidth = 0.0;
     for (var i = 0; i < items.length; i++) {
       yield 0;
-      final next = row.isEmpty ? widths[i] : rowWidth + gap + widths[i];
+      final next = row.isEmpty
+          ? _outerWidth(i)
+          : rowWidth + gap + _outerWidth(i);
       if (wraps && row.isNotEmpty && next > size.container + 0.5) {
         rows.add(row);
         row = [];
-        rowWidth = widths[i];
+        rowWidth = _outerWidth(i);
       } else {
         rowWidth = next;
       }
@@ -320,7 +325,7 @@ class _FlexRowLayout {
       var baseTotal = 0.0;
       for (final index in row) {
         yield 0;
-        baseTotal += widths[index];
+        baseTotal += _outerWidth(index);
       }
       baseTotal += gap * math.max(0, row.length - 1);
       final free = size.container - baseTotal;
@@ -416,7 +421,7 @@ class _FlexRowLayout {
     var itemsWidth = 0.0;
     for (final index in row) {
       yield 0;
-      itemsWidth += widths[index];
+      itemsWidth += _outerWidth(index);
     }
     itemsWidth += gap * math.max(0, row.length - 1);
     final free = math.max(0.0, size.container - itemsWidth);
@@ -427,8 +432,12 @@ class _FlexRowLayout {
     );
     var cursor = distribution.offset;
     for (final index in row) {
-      yield* _placeItem(rowIndex, index, cursor);
-      cursor += widths[index] + gap + distribution.gap;
+      yield* _placeItem(
+        rowIndex,
+        index,
+        cursor + (containers[index]?.style.margin.left ?? 0),
+      );
+      cursor += _outerWidth(index) + gap + distribution.gap;
     }
   }
 
@@ -475,9 +484,9 @@ class _FlexRowLayout {
         row: row,
         rect: Rect.fromLTWH(
           rect.$1,
-          rect.$2,
+          rect.$2 + container.style.margin.top,
           math.min(rect.$3, size.container),
-          rect.$4,
+          math.max(0, rect.$4 - container.style.margin.vertical),
         ),
         layout: TextLayoutEngine.layout(
           text: '',

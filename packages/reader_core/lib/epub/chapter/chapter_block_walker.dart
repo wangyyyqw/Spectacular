@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:reader_core/api.dart' show EpubNode, TextBlockNode;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/selector.dart';
@@ -288,9 +290,11 @@ class ChapterBlockWalker {
             list: scope.position.list,
           )
         : null;
-    final resolvedWidth = model.resolveContentWidth(
-      available,
-      intrinsicWidths: intrinsic,
+    final resolvedWidth = _flexItemWidth(
+      scope,
+      parent,
+      model,
+      model.resolveContentWidth(available, intrinsicWidths: intrinsic),
     );
     final usedStyle = intrinsic == null
         ? style
@@ -323,6 +327,41 @@ class ChapterBlockWalker {
         scope.node.children.any((child) => child is PromotedBlockNode)) {
       styles.splitInlineContainers.add(scope.chain.last);
     }
+  }
+
+  double _flexItemWidth(
+    _ContainerScope scope,
+    PageContainer? parent,
+    BoxModel model,
+    double contentWidth,
+  ) {
+    final parentView = scope.ancestors.lastOrNull;
+    final style = scope.style;
+    if (parent == null ||
+        !identical(parent, styles.retainedContainers[parentView]) ||
+        parent.style.display != CssDisplay.flex ||
+        parent.style.flexDirection != CssFlexDirection.row ||
+        parentView?.childElements.length != 1 ||
+        style.flexShrink < 1 ||
+        style.intrinsicWidth != null ||
+        !style.flexBasis.isAuto ||
+        style.flexBasisIsContent) {
+      return contentWidth;
+    }
+    // 单个可完全收缩的子项在测量后代前即可确定最终内容宽，
+    // 百分比图片与文字不能继续使用收缩前的包含块。
+    final available = math.max(
+      0.0,
+      parent.contentWidth - style.margin.horizontal - model.horizontalInset,
+    );
+    final minWidth = math.max(
+      0.0,
+      (style.minWidth?.resolve(parent.contentWidth) ?? 0) -
+          (style.boxSizing == CssBoxSizing.borderBox
+              ? model.horizontalInset
+              : 0),
+    );
+    return math.min(contentWidth, math.max(available, minWidth));
   }
 
   double _containerLeft(
