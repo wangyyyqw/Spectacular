@@ -1,10 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/reader_theme.dart';
+import 'battery_icon.dart';
 import 'corner_info.dart';
+
+/// 电量变化时让翻页快照失效，读取和刷新仍由电量槽位管理。
+ValueListenable<int?> get readerBatteryLevel => _ReaderCornerRowState._battery;
 
 /// 四角显示所需的当前页数据。
 class ReaderCornerData {
@@ -45,10 +50,10 @@ class ReaderCornerRow extends StatefulWidget {
 }
 
 class _ReaderCornerRowState extends State<ReaderCornerRow> {
-  static const _channel = MethodChannel('com.spectacular.reader_mobile/reader');
+  static final _battery = _BatteryLevel();
   Timer? _timer;
   late DateTime _now = widget.now ?? DateTime.now();
-  int? _battery;
+  bool _listeningBattery = false;
 
   bool get _needsBattery =>
       widget.left.needsBattery || widget.right.needsBattery;
@@ -73,7 +78,7 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
   void _refresh() {
     _timer?.cancel();
     _now = widget.now ?? DateTime.now();
-    if (_needsBattery) unawaited(_readBattery());
+    _syncBattery();
     if (widget.now != null || (!_needsBattery && !_needsClock)) return;
     _timer = Timer(
       Duration(milliseconds: 60000 - _now.second * 1000 - _now.millisecond),
@@ -84,33 +89,32 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
     );
   }
 
-  Future<void> _readBattery() async {
-    try {
-      final value = await _channel.invokeMethod<int>('getBatteryLevel');
-      if (mounted &&
-          value != _battery &&
-          value != null &&
-          value >= 0 &&
-          value <= 100) {
-        setState(() => _battery = value);
-      }
-    } on MissingPluginException {
-      // 桌面或测试环境不提供电量，显示不可用状态。
-    } on PlatformException {
-      // 系统暂时无法读取时保留最后一次有效电量。
+  void _syncBattery() {
+    if (_needsBattery && !_listeningBattery) {
+      _battery.addListener(_batteryChanged);
+      _listeningBattery = true;
+    } else if (!_needsBattery && _listeningBattery) {
+      _battery.removeListener(_batteryChanged);
+      _listeningBattery = false;
     }
+    if (_needsBattery) unawaited(_battery.refresh());
+  }
+
+  void _batteryChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    if (_listeningBattery) _battery.removeListener(_batteryChanged);
     super.dispose();
   }
 
+  String get _clock =>
+      '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}';
+
   String _text(ReaderCornerContent content) {
-    final clock =
-        '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}';
-    final battery = _battery == null ? '电量 --' : '$_battery%';
     return switch (content) {
       ReaderCornerContent.none => '',
       ReaderCornerContent.bookTitle => widget.data.bookTitle,
@@ -118,10 +122,9 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
       ReaderCornerContent.chapterPage => widget.data.pageLabel,
       ReaderCornerContent.progress =>
         '${(widget.data.progress.clamp(0.0, 1.0) * 100).toStringAsFixed(2)}%',
-      ReaderCornerContent.clock => clock,
-      ReaderCornerContent.battery => battery,
-      ReaderCornerContent.clockAndBattery =>
-        _battery == null ? clock : '$clock · $battery',
+      ReaderCornerContent.clock ||
+      ReaderCornerContent.clockAndBattery => _clock,
+      ReaderCornerContent.battery => '',
     };
   }
 
@@ -143,18 +146,78 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
     );
   }
 
-  Widget _label(ReaderCornerContent content, Color color, TextAlign align) =>
-      Text(
-        _text(content),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        textAlign: align,
-        style: TextStyle(
-          fontSize: 13,
-          letterSpacing: .26,
-          color: color,
-          decoration: TextDecoration.none,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
-      );
+  Widget _label(ReaderCornerContent content, Color color, TextAlign align) {
+    if (!content.needsBattery) return _textLabel(_text(content), color, align);
+    return Row(
+      mainAxisAlignment: align == TextAlign.left
+          ? MainAxisAlignment.start
+          : MainAxisAlignment.end,
+      children: [
+        if (content.needsClock) ...[
+          Flexible(child: _textLabel(_clock, color, align)),
+          const SizedBox(width: 8),
+        ],
+        ReaderBatteryIcon(level: _battery.value, color: color),
+      ],
+    );
+  }
+
+  Widget _textLabel(String text, Color color, TextAlign align) => Text(
+    text,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    textAlign: align,
+    style: TextStyle(
+      fontSize: 13,
+      letterSpacing: .26,
+      color: color,
+      decoration: TextDecoration.none,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    ),
+  );
+}
+
+/// 静态纸面与预热纸面共享电量，异步读取期间也保留最近有效值。
+class _BatteryLevel extends ValueNotifier<int?> {
+  _BatteryLevel() : super(null);
+
+  static const _channel = MethodChannel('com.spectacular.reader_mobile/reader');
+  Future<void>? _pending;
+  int _generation = 0;
+
+  Future<void> refresh() {
+    final pending = _pending;
+    if (pending != null) return pending;
+    final generation = _generation;
+    return _pending = _read(generation).whenComplete(() {
+      if (generation == _generation) _pending = null;
+    });
+  }
+
+  Future<void> _read(int generation) async {
+    try {
+      final level = await _channel.invokeMethod<int>('getBatteryLevel');
+      if (generation == _generation &&
+          hasListeners &&
+          level != null &&
+          level >= 0 &&
+          level <= 100) {
+        value = level;
+      }
+    } on MissingPluginException {
+      // 桌面或测试环境不提供电量，显示不可用状态。
+    } on PlatformException {
+      // 系统暂时无法读取时保留最后一次有效电量。
+    }
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) {
+      _generation++;
+      _pending = null;
+      value = null;
+    }
+  }
 }
