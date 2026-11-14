@@ -276,11 +276,13 @@ class ChapterStyleResolver {
     List<SelectorElement> ancestors,
     ComputedStyle parent,
     String pseudo,
-  ) => _auxiliaryStyleFor(
-    ancestors,
-    parent,
-    pseudo,
-    pseudoRules[pseudo] ?? const [],
+  ) => _applyCustomFont(
+    _auxiliaryStyleFor(
+      ancestors,
+      parent,
+      pseudo,
+      pseudoRules[pseudo] ?? const [],
+    ),
   );
 
   /// 首行只传递伪元素允许的文字与背景属性，不把盒尺寸当作首行样式。
@@ -295,7 +297,9 @@ class ChapterStyleResolver {
       '::first-line',
       preparedStyles.firstLineRules,
     );
-    return computed.explicitProperties.isEmpty ? null : computed;
+    return computed.explicitProperties.isEmpty
+        ? null
+        : _applyCustomFont(computed);
   }
 
   ComputedStyle _auxiliaryStyleFor(
@@ -311,17 +315,16 @@ class ChapterStyleResolver {
       pseudo,
       () => _auxiliaryCascadeRules(auxiliary, pseudo),
     );
-    return _applyCustomFont(
-      Cascade.compute(
-        element: ancestors.last,
-        ancestors: ancestors.sublist(0, ancestors.length - 1),
-        rules: rules.candidatesFor(ancestors.last),
-        parent: parent,
-        rootFontSize: style.fontSize,
-        containingWidth: _textWidthFor(parent),
-        viewportWidth: contentWidth,
-        valueContext: valueContext,
-      ),
+    // 用户字体覆盖会增加显式 font-family；伪元素是否命中只看作者级联。
+    return Cascade.compute(
+      element: ancestors.last,
+      ancestors: ancestors.sublist(0, ancestors.length - 1),
+      rules: rules.candidatesFor(ancestors.last),
+      parent: parent,
+      rootFontSize: style.fontSize,
+      containingWidth: _textWidthFor(parent),
+      viewportWidth: contentWidth,
+      valueContext: valueContext,
     );
   }
 
@@ -824,9 +827,11 @@ class ChapterStyleResolver {
     ComputedStyle? firstLineStyle,
   }) {
     if (ancestors.isEmpty || text.isEmpty) return null;
+    final parent =
+        firstLineStyle ?? firstLineStyleFor(ancestors, baseStyle) ?? baseStyle;
     final letterStyle = _auxiliaryStyleFor(
       ancestors,
-      firstLineStyle ?? firstLineStyleFor(ancestors, baseStyle) ?? baseStyle,
+      parent,
       '::first-letter',
       rules,
     );
@@ -841,27 +846,38 @@ class ChapterStyleResolver {
     return StyledRun(
       start: start,
       end: start + text.substring(start).characters.first.length,
-      style: sizeInitialLetter && hasInitial
-          ? _initialLetterStyle(
-              letterStyle,
-              baseStyle.lineHeight * initialLines,
-            )
-          : letterStyle,
+      style: _applyCustomFont(
+        sizeInitialLetter && hasInitial
+            ? _initialLetterStyle(
+                letterStyle,
+                parent,
+                baseStyle.lineHeight * initialLines,
+              )
+            : letterStyle,
+      ),
     );
   }
 
-  ComputedStyle _initialLetterStyle(ComputedStyle letterStyle, double extent) {
-    final declarations = <String, String>{
+  ComputedStyle _initialLetterStyle(
+    ComputedStyle letterStyle,
+    ComputedStyle parent,
+    double extent,
+  ) {
+    final defaults = <String, String>{
       if (!letterStyle.explicitProperties.contains('font-size'))
         'font-size': '${extent * 0.85}px',
       if (!letterStyle.explicitProperties.contains('line-height'))
         'line-height': '${extent}px',
     };
     return ComputedStyle(
-      declarations,
-      parent: letterStyle,
-      explicitProperties: declarations.keys.toSet(),
-      containingWidth: contentWidth,
+      {...letterStyle.values, ...defaults},
+      // 与作者首字声明同层计算，保留非继承装饰及相对单位的原父基准。
+      parent: parent,
+      explicitProperties: {...letterStyle.explicitProperties, ...defaults.keys},
+      hasExplicitTextColor: letterStyle.hasExplicitTextColor,
+      declaredTextProperties: letterStyle.declaredTextProperties,
+      customProperties: letterStyle.customProperties,
+      containingWidth: _textWidthFor(parent),
       rootFontSize: style.fontSize,
       valueContext: valueContext,
     );

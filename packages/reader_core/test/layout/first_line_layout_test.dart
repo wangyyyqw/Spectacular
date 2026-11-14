@@ -181,11 +181,139 @@ void main() {
     }
   });
 
+  test('相对首尾留白使用所在行的字号，续行不重复首边距', () {
+    const text = 'abcdefghijklmno';
+    final body = _style();
+    final first = _style({'font-size': '32px'});
+    StyledRun run(ComputedStyle parent) => StyledRun(
+      start: 0,
+      end: text.length,
+      style: ComputedStyle({'padding': '0 1em'}, parent: parent),
+    );
+
+    for (final suppliedRuns in [false, true]) {
+      final result = TextLayoutEngine.layout(
+        text: text,
+        style: body,
+        maxWidth: 144,
+        runs: [run(body)],
+        firstLineStyle: first,
+        firstLineRuns: suppliedRuns ? [run(first)] : null,
+      );
+
+      expect(result.lines.map((line) => (line.start, line.end)), [
+        (0, 3),
+        (3, 12),
+        (12, 15),
+      ]);
+      expect(result.lines.map((line) => line.width), [128, 144, 64]);
+      expect(result.lines.first.inlineBoxes.single.width, 32);
+      expect(result.lines[1].inlineBoxes, isEmpty);
+      expect(result.lines.last.inlineBoxes.single.width, 16);
+      expect(
+        result.runs.map(
+          (run) => (run.start, run.end, run.leadingInset, run.trailingInset),
+        ),
+        [(0, 3, 32, 0), (3, 15, 0, 16)],
+      );
+    }
+  });
+
+  test('被首行挤到续行的行内首边距改用正文计算值', () {
+    const text = 'abcdefghijklmno';
+    final body = _style();
+    final result = TextLayoutEngine.layout(
+      text: text,
+      style: body,
+      maxWidth: 144,
+      runs: [
+        StyledRun(
+          start: 4,
+          end: text.length,
+          style: ComputedStyle({'padding': '0 1em'}, parent: body),
+        ),
+      ],
+      firstLineStyle: _style({'font-size': '32px'}),
+    );
+
+    expect(result.lines.map((line) => (line.start, line.end)), [
+      (0, 4),
+      (4, 12),
+      (12, 15),
+    ]);
+    expect(result.lines.map((line) => line.width), [128, 144, 64]);
+    expect(result.lines.first.inlineBoxes, isEmpty);
+    final leading = result.lines[1].inlineBoxes.single;
+    expect(leading.offset, 4);
+    expect(leading.spec.payload, InlineSpacingEdge.leading);
+    expect(leading.width, 16);
+    expect(result.lines.last.inlineBoxes.single.width, 16);
+  });
+
+  test('在首行结束的行内元素使用首行末边距', () {
+    final body = _style();
+    final result = TextLayoutEngine.layout(
+      text: _text,
+      style: body,
+      maxWidth: 144,
+      runs: [
+        StyledRun(
+          start: 0,
+          end: 2,
+          style: ComputedStyle({'padding-right': '1em'}, parent: body),
+        ),
+      ],
+      firstLineStyle: _style({'font-size': '32px'}),
+    );
+
+    expect(result.lines.first.end, 3);
+    expect(result.lines.first.width, 128);
+    final trailing = result.lines.first.inlineBoxes.single;
+    expect(trailing.offset, 2);
+    expect(trailing.spec.payload, InlineSpacingEdge.trailing);
+    expect(trailing.width, 32);
+    expect(result.lines.skip(1).expand((line) => line.inlineBoxes), isEmpty);
+  });
+
+  test('相对留白从零变为非零或从非零变为零时保留原文边界', () {
+    const text = 'abcdefghijklmno';
+    for (final (padding, leading, width) in [
+      ('calc(1em - 16px)', 16.0, 144.0),
+      ('calc(32px - 1em)', 0.0, 128.0),
+    ]) {
+      final body = _style();
+      final result = TextLayoutEngine.layout(
+        text: text,
+        style: body,
+        maxWidth: 144,
+        runs: [
+          StyledRun(
+            start: 0,
+            end: text.length,
+            style: ComputedStyle({'padding-left': padding}, parent: body),
+          ),
+        ],
+        firstLineStyle: _style({'font-size': '32px'}),
+      );
+
+      expect(result.text, text);
+      expect(result.lines.map((line) => (line.start, line.end)), [
+        (0, 4),
+        (4, 13),
+        (13, 15),
+      ]);
+      expect(result.lines.first.width, width);
+      expect(result.lines.first.inlineBoxes.single.offset, 0);
+      expect(result.lines.first.inlineBoxes.single.width, leading);
+      expect(result.lines.skip(1).expand((line) => line.inlineBoxes), isEmpty);
+    }
+  });
+
   test('提供首行 runs 时同步和异步保留相同行几何、样式及盒边界', () async {
     final body = _style();
     final first = _style({'font-size': '32px', 'color': 'red'});
     final runs = [_run(body, leading: 3, trailing: 5)];
-    final firstRuns = [_run(first, leading: 3, trailing: 5)];
+    final firstRuns = [_run(first, leading: 6, trailing: 10)];
 
     for (final width in [96.0, 128.0, 160.0]) {
       final synchronous = TextLayoutEngine.layout(

@@ -472,6 +472,33 @@ class _InlineBoxMark {
   final InlineBoxSpec spec;
 }
 
+/// 同一原文边界共用占位符，首行和续行分别使用各自级联后的留白。
+class _FirstLineSpacingBoxSpec extends InlineBoxSpec {
+  const _FirstLineSpacingBoxSpec({
+    required super.offset,
+    required super.width,
+    required this.firstLineWidth,
+    required InlineSpacingEdge edge,
+  }) : super(height: 0, payload: edge);
+
+  final double firstLineWidth;
+
+  InlineBoxSpec get forFirstLine => InlineBoxSpec(
+    offset: offset,
+    width: firstLineWidth,
+    height: 0,
+    payload: payload,
+  );
+
+  @override
+  _FirstLineSpacingBoxSpec atOffset(int offset) => _FirstLineSpacingBoxSpec(
+    offset: offset,
+    width: width,
+    firstLineWidth: firstLineWidth,
+    edge: payload! as InlineSpacingEdge,
+  );
+}
+
 /// 行内盒占位文本：插入 U+FFFC 后的测量文本 + 偏移映射 + 标记。
 class _InlineBoxText {
   const _InlineBoxText({
@@ -1679,12 +1706,15 @@ abstract final class TextLayoutEngine {
       hasGlyph: hasGlyph,
       leadingDistribution: leadingDistribution,
     );
+    final headRuns = firstLineStyle == null
+        ? runs
+        : firstLineRuns ?? inheritedFirstLineRuns(runs, firstLineStyle);
     final firstStyled = firstLineStyle == null
         ? styled
         : styledRuns(
             text: text,
             style: firstLineStyle,
-            runs: firstLineRuns ?? inheritedFirstLineRuns(runs, firstLineStyle),
+            runs: headRuns,
             hasGlyph: hasGlyph,
             leadingDistribution: leadingDistribution,
           );
@@ -1761,10 +1791,18 @@ abstract final class TextLayoutEngine {
       );
     }
     final breakPlan = planWork.result!;
-    if (!vertical && !style.isRtl && runs.isNotEmpty) {
+    if (!vertical && !style.isRtl) {
       inlineBoxes = [
         ...inlineBoxes,
-        ..._inlineSpacingBoxes(runs, text.length, textScaleFactor),
+        if (firstLineStyle == null)
+          ..._inlineSpacingBoxes(runs, text.length, textScaleFactor)
+        else
+          ..._firstLineSpacingBoxes(
+            runs,
+            headRuns,
+            text.length,
+            textScaleFactor,
+          ),
       ];
     }
     late List<LineBox> measured;
@@ -2843,6 +2881,13 @@ abstract final class TextLayoutEngine {
   }) sync* {
     final headStyle = firstLineStyle ?? style;
     final sourceHeadRuns = firstLineRuns ?? runs;
+    final sourceHeadMarks = [
+      for (final mark in inlineBoxMarks)
+        if (mark.spec case final _FirstLineSpacingBoxSpec spec)
+          _InlineBoxMark(index: mark.index, spec: spec.forFirstLine)
+        else
+          mark,
+    ];
     final firstWidth = math.max(1.0, width - indent);
     // 首段先不带行内盒测一次，拿到分界后再把「落在首段」的盒补进去
     // （盒占宽会改变首段末行，但盒的位置由原文偏移决定，不受影响）。
@@ -2854,9 +2899,9 @@ abstract final class TextLayoutEngine {
         ? sourceHeadRuns
         : _sliceRuns(sourceHeadRuns, 0, _indentProbeChars);
     var headMarks = text.length <= _indentProbeChars
-        ? inlineBoxMarks
+        ? sourceHeadMarks
         : <_InlineBoxMark>[
-            for (final mark in inlineBoxMarks)
+            for (final mark in sourceHeadMarks)
               if (mark.index < _indentProbeChars) mark,
           ];
     late List<LineBox> head;
@@ -2885,7 +2930,7 @@ abstract final class TextLayoutEngine {
       headText = text.substring(0, next);
       headRuns = _sliceRuns(sourceHeadRuns, 0, next);
       headMarks = <_InlineBoxMark>[
-        for (final mark in inlineBoxMarks)
+        for (final mark in sourceHeadMarks)
           if (mark.index < next) mark,
       ];
     }
@@ -2895,7 +2940,7 @@ abstract final class TextLayoutEngine {
     }
     if (headMarks.isNotEmpty) {
       final firstMarks = <_InlineBoxMark>[
-        for (final mark in inlineBoxMarks)
+        for (final mark in sourceHeadMarks)
           if (mark.index < head.first.end) mark,
       ];
       if (firstMarks.isNotEmpty) {
@@ -3880,6 +3925,31 @@ abstract final class TextLayoutEngine {
           payload: InlineSpacingEdge.trailing,
         );
       }
+    }
+  }
+
+  static Iterable<InlineBoxSpec> _firstLineSpacingBoxes(
+    List<StyledRun> runs,
+    List<StyledRun> firstLineRuns,
+    int length,
+    double scale,
+  ) sync* {
+    final body = <(int, InlineSpacingEdge), double>{};
+    final first = <(int, InlineSpacingEdge), double>{};
+    for (final (widths, source) in [(body, runs), (first, firstLineRuns)]) {
+      for (final box in _inlineSpacingBoxes(source, length, scale)) {
+        final key = (box.offset, box.payload! as InlineSpacingEdge);
+        widths[key] = (widths[key] ?? 0) + box.width;
+      }
+    }
+    // 一侧为零也保留同一占位符，防止两套度量的原文偏移或首尾边界错位。
+    for (final key in {...body.keys, ...first.keys}) {
+      yield _FirstLineSpacingBoxSpec(
+        offset: key.$1,
+        width: body[key] ?? 0,
+        firstLineWidth: first[key] ?? 0,
+        edge: key.$2,
+      );
     }
   }
 
