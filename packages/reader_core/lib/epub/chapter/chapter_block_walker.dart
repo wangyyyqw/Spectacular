@@ -396,6 +396,8 @@ class ChapterBlockWalker {
     final floatGroup = side == null
         ? parent.containerFloatGroup
         : floatGroupBase + ++flow.containerFloatSeq;
+    // 多栏内部按单列独立测量，只有外包装参与父流的浮动占位。
+    final separateFlow = scope.isMulticol;
     return BlockPosition(
       blockTag: scope.node.tag,
       attributes: scope.node.attributes,
@@ -407,12 +409,14 @@ class ChapterBlockWalker {
       lastInContainer: parent.lastInContainer,
       listFirst: scope.node.tag == 'li' && parent.listFirst,
       listLast: scope.node.tag == 'li' && parent.listLast,
-      containerFloat: side ?? parent.containerFloat,
-      containerFloatWidth: side == null
+      containerFloat: separateFlow ? null : side ?? parent.containerFloat,
+      containerFloatWidth: separateFlow
+          ? null
+          : side == null
           ? parent.containerFloatWidth
           : scope.retained?.contentWidth ??
                 inline.measure.textWidthFor(scope.style),
-      containerFloatGroup: floatGroup,
+      containerFloatGroup: separateFlow ? 0 : floatGroup,
     );
   }
 
@@ -565,7 +569,7 @@ class ChapterBlockWalker {
     PageContainer retained,
   ) async {
     if (scope.isFlexRow || scope.isPageRootFlexColumn) return false;
-    final block = await buildMulticolContainer(
+    var block = await buildMulticolContainer(
       children: flow.blocks.sublist(scope.start),
       container: retained,
       style: styles.styleForChain(scope.chain),
@@ -573,6 +577,13 @@ class ChapterBlockWalker {
       checkpoint: inline.measure.budget.checkpoint,
     );
     if (block == null) return false;
+    final side = floatSideOfStyle(scope.style);
+    if (side != null) {
+      block = block.withSpacing(
+        floatSide: side,
+        floatBox: styles.floatBoxForChain(scope.chain),
+      );
+    }
     flow.blocks.replaceRange(scope.start, flow.blocks.length, [block]);
     return true;
   }
@@ -675,4 +686,10 @@ class _ContainerScope {
       style.flexDirection == CssFlexDirection.column &&
       node.tag == 'body';
   bool get isList => node.tag == 'ul' || node.tag == 'ol';
+  bool get isMulticol =>
+      retained != null &&
+      !isFlexRow &&
+      !isPageRootFlexColumn &&
+      MulticolGeometry.fromStyle(retained!.style, retained!.contentWidth) !=
+          null;
 }

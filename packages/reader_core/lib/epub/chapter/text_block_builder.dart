@@ -1002,7 +1002,7 @@ class TextBlockBuilder {
     style: body.style,
     width: measure.textWidthFor(
       body.style,
-      preserveNarrowWidth: styles.hasIntrinsicContainer(context.ancestors),
+      preserveNarrowWidth: styles.preservesContainerWidth(context.ancestors),
     ),
     readerFontFamily: body.applyReaderTypography
         ? styles.snapshot.overrides.fontFamily
@@ -1351,7 +1351,7 @@ class TextBlockBuilder {
       runs: runs,
       rubies: rubies,
       inlineBoxes: paragraph.elements.boxes,
-      preserveContentWidth: styles.hasIntrinsicContainer(context.ancestors),
+      preserveContentWidth: styles.preservesContainerWidth(context.ancestors),
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
     );
@@ -1591,7 +1591,7 @@ class TextBlockBuilder {
           )
         : measure.textWidthFor(
             metrics.list.measureStyle,
-            preserveNarrowWidth: styles.hasIntrinsicContainer(
+            preserveNarrowWidth: styles.preservesContainerWidth(
               context.ancestors,
             ),
           );
