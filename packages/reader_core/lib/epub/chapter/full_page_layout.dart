@@ -121,7 +121,8 @@ class FullPageChapterLayout {
   }) {
     final width = math.max(80.0, snapshot.width);
     final height = math.max(120.0, snapshot.height);
-    final url = options.bleed && !options.contain
+    // 全屏变体选择独立于 SVG meet 的等比显示；窗口适配仍保留原图。
+    final url = flags.fullScreen && !flags.fitWindow
         ? _fullscreenImage(source, options.aspect)
         : resources.imageUrl(snapshot.spineIndex, source);
     return PageBlock(
