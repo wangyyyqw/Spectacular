@@ -54,7 +54,6 @@ extension LibraryRevisionOperations on LibraryStore {
     if (_isMemory) {
       throw const LibraryImportException('当前模式不支持强制更新');
     }
-    final db = _db!;
     Future<BookEntry> update() async {
       _checkImportCancelled(isCancelled);
       final old = await _bookRowOfUuid(bookId);
@@ -92,11 +91,7 @@ extension LibraryRevisionOperations on LibraryStore {
       }
     }
 
-    final previous = LibraryStore._databaseImportQueues[db];
-    final result = previous == null ? update() : previous.then((_) => update());
-    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
-    LibraryStore._databaseImportQueues[db] = _importQueue;
-    return result;
+    return _enqueueOperation(update);
   }
 
   // 暂存、取消与提交后清理共享一个 finally 边界；保留线性协调流程避免误删已提交文件。

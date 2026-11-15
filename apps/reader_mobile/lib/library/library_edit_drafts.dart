@@ -3,13 +3,7 @@ part of 'library_store.dart';
 extension LibraryEditDraftOperations on LibraryStore {
   Future<T> _editQueue<T>(Future<T> Function() operation) {
     if (_isMemory) throw const LibraryImportException('当前模式不支持书籍编辑');
-    final previous = LibraryStore._databaseImportQueues[_db!];
-    final result = previous == null
-        ? operation()
-        : previous.then((_) => operation());
-    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
-    LibraryStore._databaseImportQueues[_db] = _importQueue;
-    return result;
+    return _enqueueOperation(operation);
   }
 
   Future<BookRow> _editableBook(String id, [String? expectedRevision]) async {

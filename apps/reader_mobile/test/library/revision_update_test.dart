@@ -161,6 +161,24 @@ Map<String, dynamic> _userAnnotation(AnnotationRow row) => row.toJson()
   ..remove('endCfi')
   ..remove('anchorJson');
 
+({LibraryStore store, Completer<void> entered, Completer<void> release})
+_blockedLibrary(AppDatabase db, Directory directory) {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  return (
+    store: LibraryStore(
+      database: db,
+      directoryProvider: () async {
+        if (!entered.isCompleted) entered.complete();
+        await release.future;
+        return directory;
+      },
+    ),
+    entered: entered,
+    release: release,
+  );
+}
+
 List<List<RevisionTestChapter>> _restructuredVersions() => [
   [
     const RevisionTestChapter('new-before.xhtml', '相遇上篇', [revisionBefore]),
@@ -785,6 +803,89 @@ void main() {
     }
     expect(await db.select(db.readingSessions).get(), hasLength(1));
     expect(await db.select(db.readingProgress).get(), hasLength(1));
+  });
+
+  test('同数据库删除等待在途导入改版提交，随后一次清理当前书目录', () async {
+    final old = await library.importBytes(original);
+    final blocked = _blockedLibrary(db, directory);
+    final update = blocked.store.importBytes(updated);
+    await blocked.entered.future;
+    var deletionStarted = false;
+    final deleter = LibraryStore(
+      database: db,
+      directoryProvider: () async {
+        deletionStarted = true;
+        return directory;
+      },
+    );
+    final removal = deleter.remove(old.id);
+    try {
+      await Future<void>.delayed(Duration.zero);
+      expect(deletionStarted, isFalse);
+      expect(File(old.filePath).existsSync(), isTrue);
+    } finally {
+      blocked.release.complete();
+    }
+    final current = await update;
+    await removal;
+    expect(deletionStarted, isTrue);
+    expect(await library.list(), isEmpty);
+    expect((await db.select(db.books).get()).single.sourcePath, isNull);
+    expect(File(current.filePath).existsSync(), isFalse);
+    expect(
+      Directory(p.join(directory.path, 'books', old.id)).existsSync(),
+      isFalse,
+    );
+  });
+
+  test('同数据库重新导入等待在途删除完成，恢复后的原书完整可读', () async {
+    final old = await library.importBytes(original);
+    final oldPrimaryKey = (await db.select(db.books).get()).single.id;
+    final blocked = _blockedLibrary(db, directory);
+    final removal = blocked.store.remove(old.id);
+    await blocked.entered.future;
+    var importStarted = false;
+    final imported = library.importBytes(
+      original,
+      onProgress: (_) => importStarted = true,
+    );
+    try {
+      await Future<void>.delayed(Duration.zero);
+      expect(importStarted, isFalse);
+      expect(File(old.filePath).existsSync(), isTrue);
+    } finally {
+      blocked.release.complete();
+    }
+    await removal;
+    final restored = await imported;
+    expect(restored.importOutcome, BookImportOutcome.added);
+    expect(await library.list(), hasLength(1));
+    expect((await db.select(db.books).get()).single.id, oldPrimaryKey);
+    expect(
+      await File(restored.filePath).readAsBytes(),
+      orderedEquals(original),
+    );
+  });
+
+  test('首个导入的同步进度回调触发删除，也排在导入提交之后', () async {
+    final id = generateBookId(
+      title: revisionTitle,
+      author: revisionAuthor,
+      identifier: revisionIdentifier,
+    );
+    Future<void>? removal;
+    final imported = await library.importBytes(
+      original,
+      onProgress: (progress) {
+        if (progress == 0.1) removal = library.remove(id);
+      },
+    );
+    expect(removal, isNotNull);
+    await removal!;
+
+    expect(imported.id, id);
+    expect(await library.list(), isEmpty);
+    expect(File(imported.filePath).existsSync(), isFalse);
   });
 
   test('更新后旧阅读会话不得覆盖新版进度、改笔记或删除书签', () async {

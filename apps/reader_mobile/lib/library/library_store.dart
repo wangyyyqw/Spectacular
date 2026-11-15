@@ -269,6 +269,16 @@ class LibraryStore {
 
   bool get _isMemory => _db == null;
 
+  Future<T> _enqueueOperation<T>(Future<T> Function() operation) {
+    final db = _db;
+    final previous = db == null ? _importQueue : _databaseImportQueues[db];
+    // 先登记队列，再执行首个操作，进度回调中的新请求也会正确排队。
+    final result = (previous ?? Future<void>.value()).then((_) => operation());
+    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
+    if (db != null) _databaseImportQueues[db] = _importQueue;
+    return result;
+  }
+
   /// 条目变化通知（书架刷新用）。
   void addListener(void Function() listener) => _listeners.add(listener);
 
@@ -918,20 +928,14 @@ class LibraryStore {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
-  }) {
-    final db = _db;
-    final queue = db == null ? _importQueue : _databaseImportQueues[db];
-    Future<BookEntry> import() => _import(
+  }) => _enqueueOperation(
+    () => _import(
       _ImportPayload.bytes(bytes),
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
       isCancelled: isCancelled,
-    );
-    final result = queue == null ? import() : queue.then((_) => import());
-    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
-    if (db != null) _databaseImportQueues[db] = _importQueue;
-    return result;
-  }
+    ),
+  );
 
   /// 从文件导入 EPUB：哈希、解析与落盘全程流式，不把整本读入内存。
   ///
@@ -950,18 +954,14 @@ class LibraryStore {
         isCancelled: isCancelled,
       );
     }
-    final db = _db;
-    final queue = db == null ? _importQueue : _databaseImportQueues[db];
-    Future<BookEntry> import() => _import(
-      _ImportPayload.file(path),
-      fallbackTitle: fallbackTitle,
-      onProgress: onProgress,
-      isCancelled: isCancelled,
+    return _enqueueOperation(
+      () => _import(
+        _ImportPayload.file(path),
+        fallbackTitle: fallbackTitle,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      ),
     );
-    final result = queue == null ? import() : queue.then((_) => import());
-    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
-    if (db != null) _databaseImportQueues[db] = _importQueue;
-    return result;
   }
 
   // 新书导入沿用既有串行主流程，文件和数据库提交共用完成标记。
@@ -1243,77 +1243,88 @@ class LibraryStore {
   ///
   /// 重新导入同一 OPF identifier 时复用原书主键，进度、标注、书评和阅读
   /// 会话随之恢复。
-  Future<void> remove(String id) async {
+  Future<void> remove(String id) => _enqueueOperation(() => _remove(id));
+
+  Future<void> _remove(String id) async {
     if (_isMemory) {
       _memoryBytes.remove(id);
       _memoryEntries.remove(id);
       _notify();
       return;
     }
-    // 软删除保留子表；文件删除失败留孤儿，启动扫描可清理。
+    final row = await _bookRowOfUuid(id);
+    if (row == null) return;
+    final directories = await _removalDirectories(await _root(), row);
+    await _markBookRemoved(row.id);
+    _notify();
+    for (final directory in directories) {
+      try {
+        if (await directory.exists()) await directory.delete(recursive: true);
+      } on FileSystemException {
+        // 权限或占用失败时保留，下一次启动扫描再清理。
+      }
+    }
+  }
+
+  Future<List<Directory>> _removalDirectories(
+    Directory root,
+    BookRow book,
+  ) async {
     final db = _db!;
-    final root = await _root();
-    final directory = _safeBookDirectory(root, id);
-    final rows = await (db.select(
+    final directory = _safeBookDirectory(root, book.uuid);
+    if (directory == null) return [];
+    final ownedPaths = [book.sourcePath, book.coverPath].nonNulls;
+    if (!ownedPaths.any(
+      (path) => p.isWithin(directory.path, p.normalize(path)),
+    )) {
+      return [];
+    }
+    final otherBooks = await (db.select(
       db.books,
-    )..where((table) => table.uuid.equals(id))).get();
-    final directories = <Directory>[?directory];
-    final otherBooks =
-        await (db.select(db.books)..where(
-              (table) => table.uuid.isNotValue(id) & table.deletedAt.isNull(),
-            ))
-            .get();
-    directories.removeWhere(
-      (item) => otherBooks.any(
-        (book) => [
-          book.sourcePath,
-          book.coverPath,
-        ].nonNulls.any((path) => p.isWithin(item.path, p.normalize(path))),
-      ),
-    );
-    final sourcePaths = <String>[
-      for (final row in rows)
-        if (row.sourcePath != null) row.sourcePath!,
+    )..where((table) => table.id.isNotValue(book.id))).get();
+    final versions = await (db.select(
+      db.editVersions,
+    )..where((table) => table.bookId.isNotValue(book.id))).get();
+    final drafts = await (db.select(
+      db.editDrafts,
+    )..where((table) => table.bookId.isNotValue(book.id))).get();
+    final protected = <String>[
+      for (final other in otherBooks) ...[?other.sourcePath, ?other.coverPath],
+      for (final version in versions) version.sourcePath,
+      for (final draft in drafts) ...[draft.sourcePath, draft.directory],
     ];
-    await (db.update(db.books)..where((table) => table.uuid.equals(id))).write(
+    return _directoryHasReference(directory, protected) ? [] : [directory];
+  }
+
+  bool _directoryHasReference(Directory directory, Iterable<String> paths) {
+    final root = p.normalize(directory.path);
+    return paths.any((path) {
+      final normalized = p.normalize(path);
+      return p.equals(root, normalized) ||
+          p.isWithin(root, normalized) ||
+          p.isWithin(normalized, root);
+    });
+  }
+
+  Future<void> _markBookRemoved(int bookId) => _db!.transaction(() async {
+    final db = _db!;
+    // 软删除保留阅读数据；编辑记录与文件指针在同一事务中清理。
+    await (db.update(
+      db.books,
+    )..where((table) => table.id.equals(bookId))).write(
       BooksCompanion(
         deletedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
         sourcePath: const Value<String?>(null),
         coverPath: const Value<String?>(null),
       ),
     );
-    for (final row in rows) {
-      await (db.delete(db.editDrafts)..where((t) => t.bookId.equals(row.id))).go();
-      await (db.delete(db.editVersions)..where((t) => t.bookId.equals(row.id))).go();
-    }
-    for (final path in sourcePaths) {
-      if (otherBooks.any((book) => book.sourcePath == path)) continue;
-      // 只清理本书目录中的文件，异常路径不扩大删除范围。
-      final normalized = p.normalize(path);
-      final owned = directories.any(
-        (item) => p.isWithin(item.path, normalized),
-      );
-      if (!owned) continue;
-      final file = File(path);
-      if (await file.exists()) {
-        try {
-          await file.delete();
-        } catch (_) {
-          // 占用失败留孤儿，启动扫描清理。
-        }
-      }
-    }
-    _notify();
-    for (final item in directories) {
-      if (await item.exists()) {
-        try {
-          await item.delete(recursive: true);
-        } catch (_) {
-          // 权限/占用失败：下次启动扫描清理。
-        }
-      }
-    }
-  }
+    await (db.delete(
+      db.editDrafts,
+    )..where((t) => t.bookId.equals(bookId))).go();
+    await (db.delete(
+      db.editVersions,
+    )..where((t) => t.bookId.equals(bookId))).go();
+  });
 
   /// 写入 spine 行（§36.1）：字符数与章前累计供进度量化（§76.1）。
   Future<void> _writeSpineItems(
@@ -1495,16 +1506,8 @@ class LibraryStore {
   /// 启动扫描：清理当前书库中的孤儿目录与未提交版本（§37.4）。
   ///
   /// 返回清理的条目数与释放的字节数；失败项跳过（下次启动再试）。
-  Future<({int removed, int bytes})> sweepOrphans() {
-    final db = _db;
-    final previous = db == null ? _importQueue : _databaseImportQueues[db];
-    final result = previous == null
-        ? _sweepOrphans()
-        : previous.then((_) => _sweepOrphans());
-    _importQueue = result.then<void>((_) {}, onError: (Object _) {});
-    if (db != null) _databaseImportQueues[db] = _importQueue;
-    return result;
-  }
+  Future<({int removed, int bytes})> sweepOrphans() =>
+      _enqueueOperation(_sweepOrphans);
 
   Future<({int removed, int bytes})> _sweepOrphans() async {
     if (_isMemory) {
