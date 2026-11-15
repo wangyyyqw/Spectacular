@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/book_edit_repository.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
@@ -432,6 +433,10 @@ void main() {
   });
 
   testWidgets('开书使用导入时的内容摘要并绑定阅读位置', (tester) async {
+    final log = ReaderLog.instance;
+    log.resetForTest();
+    addTearDown(log.resetForTest);
+    await pumpReaderTask(tester, log.clear());
     final library = LibraryStore.memory();
     final entry = await library.importBytes(buildTestEpub(title: '已存版本'));
     expect(entry.contentRevision, isNotNull);
@@ -454,6 +459,10 @@ void main() {
     await _pumpFrames(tester);
     final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
     expect(reader.contentRevision, entry.contentRevision);
+    final text = await pumpReaderTask(tester, log.exportText());
+    expect(text, contains('user_open_book'));
+    expect(text, contains('book_id=${entry.id.substring(0, 8)}'));
+    expect(text, isNot(contains(entry.title)), reason: '开书诊断不能记录明文书名');
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
     await pumpReaderTask(tester, openFuture);

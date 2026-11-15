@@ -117,7 +117,7 @@ class BookOpener {
       await ReaderLog.instance.log(
         'user_open_book',
         fields: {
-          'book': entry.title,
+          'book_id': entry.id,
           'bytes': length,
           'source': bytes == null ? 'file' : 'memory',
           'read_ms': watch.elapsedMilliseconds,
@@ -154,7 +154,7 @@ class BookOpener {
         .catchError((Object error) async {
           await ReaderLog.instance.log(
             'settings_save_error',
-            fields: {'error': '$error'},
+            fields: {'error': error},
           );
         });
   }

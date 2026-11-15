@@ -79,7 +79,7 @@ class ScanSearchService {
     }
     if (_canContinue(generation)) {
       onLog?.call('search_scan', <String, Object?>{
-        'query': query,
+        'query_length': query.length,
         'chapters': total,
         'hits': results.length,
         'extract_scan_ms': watch.elapsedMilliseconds,
