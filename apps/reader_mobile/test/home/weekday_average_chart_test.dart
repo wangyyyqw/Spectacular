@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/home/hourly_reading_chart.dart';
 import 'package:reader_mobile/home/reading_insights.dart';
 import 'package:reader_mobile/home/weekday_average_chart.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
@@ -160,5 +163,77 @@ void main() {
     }
     expect(find.text('还没有阅读记录，开始阅读后会在这里按星期汇总。'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点击有阅读记录的星期花瓣进入最近阅读日的小时图', (tester) async {
+    final insights = ReadingInsights([
+      _session(DateTime(2026, 11, 2, 9), const Duration(hours: 1)),
+      _session(DateTime(2026, 11, 9, 9), const Duration(minutes: 30)),
+    ], now: DateTime(2026, 11, 15));
+    await _pumpChart(tester, insights);
+
+    final button = tester.getCenter(
+      find.byKey(const ValueKey<String>('stats-weekday-petal-surface')),
+    );
+    final angle = 2 * math.pi / 7;
+    await tester.tapAt(
+      button + Offset(70 * math.sin(angle), -70 * math.cos(angle)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HourlyReadingPage), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-hourly-page-date')),
+          )
+          .data,
+      '2026年11月9日 · 周一',
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('stats-hourly-total')),
+          )
+          .data,
+      '合计 30 分钟',
+    );
+  });
+
+  testWidgets('七个星期花瓣分别进入最近阅读日的小时图', (tester) async {
+    final insights = ReadingInsights([
+      for (var weekday = 0; weekday < 7; weekday++)
+        _session(
+          DateTime(2026, 11, 2 + (weekday + 6) % 7, 9),
+          const Duration(minutes: 10),
+        ),
+    ], now: DateTime(2026, 11, 15));
+    await _pumpChart(tester, insights);
+
+    final center = tester.getCenter(
+      find.byKey(const ValueKey<String>('stats-weekday-petal-surface')),
+    );
+    const labels = <String>['日', '一', '二', '三', '四', '五', '六'];
+    for (var index = 0; index < 7; index++) {
+      final angle = index * 2 * math.pi / 7;
+      await tester.tapAt(
+        center + Offset(70 * math.sin(angle), -70 * math.cos(angle)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HourlyReadingPage), findsOneWidget);
+      final date = DateTime(2026, 11, 2 + (index + 6) % 7);
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey<String>('stats-hourly-page-date')),
+            )
+            .data,
+        '${date.year}年${date.month}月${date.day}日 · 周${labels[index]}',
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
   });
 }
