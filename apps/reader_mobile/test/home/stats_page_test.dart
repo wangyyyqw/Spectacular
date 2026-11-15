@@ -134,7 +134,7 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 }
 
 void main() {
-  testWidgets('统计页接入图书时长，季度切换使用真实会话', (tester) async {
+  testWidgets('概览直接衔接图书时长，移除趋势图和内嵌明细，季度切换使用真实会话', (tester) async {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, 8);
     await tester.pumpWidget(
@@ -154,6 +154,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('stats-characters-read')),
+      180,
+    );
+    expect(find.text('近 7 天阅读时长'), findsNothing);
+    expect(find.byKey(const ValueKey('stats-chart-period')), findsNothing);
+    expect(find.byKey(const ValueKey('stats-chart-detail')), findsNothing);
+    final overviewBottom = tester.getBottomLeft(
+      find.byKey(const ValueKey('stats-characters-read')),
+    );
+    final durationTop = tester.getTopLeft(find.text('图书时长'));
+    expect(durationTop.dy - overviewBottom.dy, inExclusiveRange(0, 120));
     await _tapControl(tester, 'stats-book-duration-period-quarter');
     expect(find.text('图书时长'), findsOneWidget);
     expect(_valueOf(tester, 'stats-book-duration-total'), '25 分钟');
@@ -166,163 +179,6 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
-  });
-
-  for (final period in [
-    ('day', '日'),
-    ('week', '周'),
-    ('month', '月'),
-    ('year', '年'),
-  ]) {
-    testWidgets('${period.$2}趋势可浏览历史、刷新汇总并回到当前，历史数据不重复累计', (tester) async {
-      tester.view.physicalSize = const Size(320, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final old = switch (period.$1) {
-        'day' => DateTime(today.year, today.month, today.day - 7, 9),
-        'week' => DateTime(today.year, today.month, today.day - 56, 9),
-        'month' => DateTime(today.year, today.month - 12, 1, 9),
-        _ => DateTime(today.year - 5, 1, 1, 9),
-      };
-      final sessions = [
-        ReadingSession(
-          bookId: 'current',
-          startedAt: today.add(const Duration(hours: 9)),
-          endedAt: today.add(const Duration(hours: 9, minutes: 10)),
-          duration: const Duration(minutes: 10),
-        ),
-        ReadingSession(
-          bookId: 'archived',
-          bookTitle: '历史保留的书',
-          startedAt: old,
-          endedAt: old.add(const Duration(minutes: 35)),
-          duration: const Duration(minutes: 35),
-        ),
-      ];
-      await tester.pumpWidget(
-        MaterialApp(
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: const TextScaler.linear(1.6)),
-            child: child!,
-          ),
-          home: StatsPage(
-            library: _FakeLibrary([_book('current', '当前书籍')], const {}),
-            progressStore: _FakeProgressStore(const {}),
-            sessionStore: _FakeSessionStore(sessions),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(_valueOf(tester, 'stats-total-reading'), '累计 45 分钟');
-      await _tapControl(tester, 'stats-chart-period-${period.$1}');
-      final currentRange = _valueOf(tester, 'stats-chart-window-range');
-      expect(_valueOf(tester, 'stats-activity-summary'), '10 分钟 · 1 天');
-      expect(
-        tester
-            .widget<IconButton>(
-              find.byKey(const ValueKey('stats-chart-window-next')),
-            )
-            .onPressed,
-        isNull,
-      );
-      await _tapControl(tester, 'stats-chart-window-previous');
-      expect(_valueOf(tester, 'stats-chart-window-range'), isNot(currentRange));
-      expect(_valueOf(tester, 'stats-activity-summary'), '35 分钟 · 1 天');
-      expect(_valueOf(tester, 'stats-chart-bucket-duration'), '35 分钟');
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('stats-chart-book-archived')),
-          matching: find.text('历史保留的书'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        tester
-            .widget<IconButton>(
-              find.byKey(const ValueKey('stats-chart-window-previous')),
-            )
-            .onPressed,
-        isNull,
-      );
-      expect(tester.takeException(), isNull);
-
-      sessions.add(
-        ReadingSession(
-          bookId: 'archived',
-          bookTitle: '历史保留的书',
-          startedAt: old.add(const Duration(hours: 1)),
-          endedAt: old.add(const Duration(hours: 1, minutes: 5)),
-          duration: const Duration(minutes: 5),
-        ),
-      );
-      await tester.tap(find.byKey(const ValueKey('stats-refresh')));
-      await tester.pumpAndSettle();
-      expect(_valueOf(tester, 'stats-activity-summary'), '40 分钟 · 1 天');
-      expect(_valueOf(tester, 'stats-chart-bucket-duration'), '40 分钟');
-      await _tapControl(tester, 'stats-chart-window-current');
-      expect(_valueOf(tester, 'stats-chart-window-range'), currentRange);
-      expect(_valueOf(tester, 'stats-activity-summary'), '10 分钟 · 1 天');
-      expect(
-        find.byKey(const ValueKey('stats-chart-window-current')),
-        findsNothing,
-      );
-      await _scrollTo(
-        tester,
-        find.byKey(const ValueKey('stats-total-reading')),
-        -180,
-      );
-      expect(_valueOf(tester, 'stats-total-reading'), '累计 50 分钟');
-      expect(tester.takeException(), isNull);
-    });
-  }
-
-  testWidgets('日周月年摘要按自然日去重，跨日会话的时长与计数守恒', (tester) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: StatsPage(
-          library: _FakeLibrary([_book('a', '跨日阅读')], const {}),
-          progressStore: _FakeProgressStore(const {}),
-          sessionStore: _FakeSessionStore([
-            ReadingSession(
-              bookId: 'a',
-              startedAt: DateTime(
-                today.year,
-                today.month,
-                today.day - 1,
-                23,
-                50,
-              ),
-              endedAt: today.add(const Duration(minutes: 10)),
-              duration: const Duration(minutes: 20),
-              pageTurns: 5,
-              charactersRead: 101,
-            ),
-            ReadingSession(
-              bookId: 'a',
-              startedAt: today.add(const Duration(hours: 9)),
-              endedAt: today.add(const Duration(hours: 9, minutes: 10)),
-              duration: const Duration(minutes: 10),
-              pageTurns: 3,
-              charactersRead: 99,
-            ),
-          ]),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    for (final period in ['day', 'week', 'month', 'year']) {
-      await _tapControl(tester, 'stats-chart-period-$period');
-      expect(_valueOf(tester, 'stats-activity-summary'), '30 分钟 · 2 天');
-    }
-    expect(
-      _valueOf(tester, 'stats-chart-bucket-counts'),
-      '2 次阅读 · 8 次翻页 · 200 字',
-    );
   });
 
   testWidgets('已移出书架的书保留名称并进入排行和日详情，书架数量保持真实', (tester) async {
@@ -384,7 +240,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('小屏大字号可查看习惯、排行和日期详情，图表按钮支持逐日切换', (tester) async {
+  testWidgets('小屏大字号可查看图书时长、习惯、排行和日期详情', (tester) async {
     tester.view.physicalSize = const Size(320, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -419,37 +275,10 @@ void main() {
       expect(tester.takeException(), isNull);
       await _scrollTo(
         tester,
-        find.byKey(const ValueKey('stats-chart-previous')),
+        find.byKey(const ValueKey('stats-book-duration-total')),
         180,
       );
-      expect(
-        tester
-            .widget<Text>(
-              find.byKey(const ValueKey('stats-chart-bucket-duration')),
-            )
-            .data,
-        '1 小时',
-      );
-      await tester.tap(find.byKey(const ValueKey('stats-chart-previous')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<Text>(
-              find.byKey(const ValueKey('stats-chart-bucket-duration')),
-            )
-            .data,
-        '0 分钟',
-      );
-      await tester.tap(find.byKey(const ValueKey('stats-chart-next')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<Text>(
-              find.byKey(const ValueKey('stats-chart-bucket-duration')),
-            )
-            .data,
-        '1 小时',
-      );
+      expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时');
       final weekdayChart = find.byKey(
         const ValueKey('stats-weekday-average-chart'),
       );
@@ -589,30 +418,6 @@ void main() {
     expect(
       tester
           .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-summary')),
-          )
-          .data,
-      '1 天活跃 · 1 本书',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-6')),
-          )
-          .data,
-      '0',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-5')),
-          )
-          .data,
-      '1',
-    );
-    expect(
-      tester
-          .widget<Text>(
             find.byKey(const ValueKey<String>('stats-total-characters')),
           )
           .data,
@@ -667,7 +472,7 @@ void main() {
     );
   });
 
-  testWidgets('近七天活跃图按自然日汇总阅读书籍', (tester) async {
+  testWidgets('概览的近七天阅读天数按自然日汇总', (tester) async {
     final now = DateTime.now();
     final books = [
       _book('today', '今天', lastReadAt: now),
@@ -693,38 +498,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-summary')),
-          )
-          .data,
-      '3 天活跃 · 3 本书',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-6')),
-          )
-          .data,
-      '1',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-5')),
-          )
-          .data,
-      '1',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-3')),
-          )
-          .data,
-      '1',
-    );
     expect(
       tester
           .widget<Text>(
@@ -825,39 +598,6 @@ void main() {
           )
           .data,
       '2 天',
-    );
-    expect(find.text('近 7 天阅读时长'), findsOneWidget);
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-summary')),
-          )
-          .data,
-      '42 分钟 · 2 天',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-6')),
-          )
-          .data,
-      '12分',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-count-5')),
-          )
-          .data,
-      '30分',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-activity-caption')),
-          )
-          .data,
-      '按实际前台阅读时长统计',
     );
   });
 
@@ -989,177 +729,6 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
-  });
-
-  testWidgets('阅读图表支持日周月年切换并展示时段书目', (tester) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final monday = DateTime(
-      today.year,
-      today.month,
-      today.day - (today.weekday - 1),
-    );
-    final fiveWeeksAgo = DateTime(
-      monday.year,
-      monday.month,
-      monday.day - 33,
-      9,
-    );
-    // 五周前可能仍在上个月；月、年样本远离较短时段，避免月初或年初混入。
-    final threeMonthsAgo = DateTime(now.year, now.month - 3, 15, 9);
-    final twoYearsAgo = DateTime(now.year - 2, now.month, 15, 9);
-    final sessions = <ReadingSession>[
-      ReadingSession(
-        bookId: 'a',
-        startedAt: today.add(const Duration(hours: 9)),
-        endedAt: today.add(const Duration(hours: 9, minutes: 30)),
-        duration: const Duration(minutes: 30),
-      ),
-      ReadingSession(
-        bookId: 'b',
-        startedAt: today.add(const Duration(hours: 10)),
-        endedAt: today.add(const Duration(hours: 10, minutes: 15)),
-        duration: const Duration(minutes: 15),
-      ),
-      ReadingSession(
-        bookId: 'a',
-        startedAt: DateTime(today.year, today.month, today.day - 1, 9),
-        endedAt: DateTime(today.year, today.month, today.day - 1, 9, 10),
-        duration: const Duration(minutes: 10),
-      ),
-      ReadingSession(
-        bookId: 'b',
-        startedAt: fiveWeeksAgo,
-        endedAt: fiveWeeksAgo.add(const Duration(minutes: 20)),
-        duration: const Duration(minutes: 20),
-      ),
-      ReadingSession(
-        bookId: 'c',
-        startedAt: threeMonthsAgo,
-        endedAt: threeMonthsAgo.add(const Duration(minutes: 25)),
-        duration: const Duration(minutes: 25),
-      ),
-      ReadingSession(
-        bookId: 'c',
-        startedAt: twoYearsAgo,
-        endedAt: twoYearsAgo.add(const Duration(minutes: 30)),
-        duration: const Duration(minutes: 30),
-      ),
-    ];
-    final library = _FakeLibrary([
-      _book('a', '第一本'),
-      _book('b', '第二本'),
-      _book('c', '第三本'),
-    ], const {});
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: StatsPage(
-          library: library,
-          progressStore: _FakeProgressStore(const {}),
-          sessionStore: _FakeSessionStore(sessions),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _scrollTo(
-      tester,
-      find.byKey(const ValueKey<String>('stats-chart-period')),
-      300,
-    );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey<String>('stats-chart-period')),
-    );
-    await tester.pumpAndSettle();
-
-    String valueOf(String key) =>
-        tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
-
-    expect(valueOf('stats-activity-summary'), '55 分钟 · 2 天');
-    expect(valueOf('stats-chart-bucket-duration'), '45 分钟');
-    expect(valueOf('stats-chart-book-duration-a'), '30 分钟');
-    expect(valueOf('stats-chart-book-duration-b'), '15 分钟');
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-c')),
-      findsNothing,
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-period-week')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-bar-week-2')),
-    );
-    await tester.pumpAndSettle();
-    expect(valueOf('stats-chart-bucket-duration'), '20 分钟');
-    expect(valueOf('stats-chart-book-duration-b'), '20 分钟');
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-a')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-c')),
-      findsNothing,
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-period-month')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-bar-month-8')),
-    );
-    await tester.pumpAndSettle();
-    expect(valueOf('stats-chart-bucket-duration'), '25 分钟');
-    expect(valueOf('stats-chart-book-duration-c'), '25 分钟');
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-a')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-b')),
-      findsNothing,
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-period-year')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-bar-year-2')),
-    );
-    await tester.pumpAndSettle();
-    expect(valueOf('stats-chart-bucket-duration'), '30 分钟');
-    expect(valueOf('stats-chart-book-duration-c'), '30 分钟');
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-a')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-b')),
-      findsNothing,
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-period-day')),
-    );
-    await tester.pumpAndSettle();
-    expect(valueOf('stats-chart-bucket-duration'), '45 分钟');
-    await tester.tap(
-      find.byKey(const ValueKey<String>('stats-chart-bar-day-5')),
-    );
-    await tester.pumpAndSettle();
-    expect(valueOf('stats-chart-bucket-duration'), '10 分钟');
-    expect(valueOf('stats-chart-book-duration-a'), '10 分钟');
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-b')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('stats-chart-book-c')),
-      findsNothing,
-    );
   });
 
   testWidgets('点击阅读热力图查看当日详细数据', (tester) async {
