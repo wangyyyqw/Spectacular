@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart' show getCrc32;
 
+import 'epub_limits.dart';
+
 /// ZIP 中央目录中的一个条目。
 ///
 /// 只保存定位信息，不持有压缩或解压后的字节：大型 EPUB（100MB+）打开时
@@ -57,14 +59,19 @@ class EpubEntryPayload {
     this.bytes,
     this._entry, {
     required this.verifyCrc,
+    this.limits = const EpubArchiveLimits(),
   });
 
   /// 恢复读取的归档已在宿主解码，直接交接当前条目的原始字节。
-  EpubEntryPayload.decoded(this.bytes) : _entry = null, verifyCrc = false;
+  EpubEntryPayload.decoded(this.bytes)
+    : _entry = null,
+      verifyCrc = false,
+      limits = const EpubArchiveLimits();
 
   final Uint8List bytes;
   final ZipEntryInfo? _entry;
   final bool verifyCrc;
+  final EpubArchiveLimits limits;
 }
 
 /// 解压失败作为数据返回，由持有归档的宿主移除坏条目并记录诊断。
@@ -85,6 +92,7 @@ EpubEntryDecodeResult decodeEpubEntry(EpubEntryPayload payload) {
     payload.verifyCrc,
     () => payload.bytes,
     () => _payloadChunks(payload.bytes),
+    limits: payload.limits,
   );
 }
 
@@ -100,8 +108,15 @@ EpubEntryDecodeResult decodeEpubEntryChunks(
   ZipEntryInfo entry,
   bool verifyCrc,
   Uint8List Function() stored,
-  Iterable<Uint8List> Function() chunks,
-) {
+  Iterable<Uint8List> Function() chunks, {
+  EpubArchiveLimits limits = const EpubArchiveLimits(),
+}) {
+  final failure = limits.entryFailure(
+    entry.name,
+    entry.compressedSize,
+    entry.uncompressedSize,
+  );
+  if (failure != null) return EpubEntryDecodeResult.failure(failure);
   try {
     final bytes = entry.method == 0 ? stored() : _inflateEntry(entry, chunks());
     if (entry.method == 0 && bytes.length != entry.compressedSize) {

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -98,6 +99,33 @@ void main() {
     }
   });
 
+  test('原归档含超限资源时拒绝导出，避免静默漏掉资源', () async {
+    final input = await createEditingFixture(directory);
+    final files = ZipDecoder().decodeBytes(await input.readAsBytes())
+      ..addFile(ArchiveFile.string('unused.bin', '很小的压缩输入'));
+    final bytes = Uint8List.fromList(ZipEncoder().encode(files));
+    _oversizeUnusedEntry(bytes);
+    await input.writeAsBytes(bytes);
+    final session = await EpubEditSession.open(input);
+    try {
+      final output = File('${directory.path}/rejected-limit.epub');
+      await expectLater(
+        EpubWriter.write(session, output),
+        throwsA(
+          isA<EpubEditException>().having(
+            (error) => error.message,
+            '原因',
+            contains('单条目预算'),
+          ),
+        ),
+      );
+      expect(output.existsSync(), isFalse);
+      expect(await input.readAsBytes(), bytes);
+    } finally {
+      session.close();
+    }
+  });
+
   test('写出期间关闭会话会丢弃输出，原书保持可读且没有残留暂存目录', () async {
     final input = await createEditingFixture(directory);
     final before = await input.readAsBytes();
@@ -165,4 +193,19 @@ void main() {
       session.close();
     }
   });
+}
+
+void _oversizeUnusedEntry(Uint8List bytes) {
+  final data = ByteData.sublistView(bytes);
+  for (var offset = 0; offset + 46 < bytes.length; offset++) {
+    if (data.getUint32(offset, Endian.little) != 0x02014b50) continue;
+    final length = data.getUint16(offset + 28, Endian.little);
+    final name = String.fromCharCodes(
+      bytes.sublist(offset + 46, offset + 46 + length),
+    );
+    if (name != 'unused.bin') continue;
+    data.setUint32(offset + 24, 64 * 1024 * 1024 + 1, Endian.little);
+    return;
+  }
+  throw StateError('测试归档缺少待修改的资源');
 }

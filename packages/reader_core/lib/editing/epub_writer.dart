@@ -6,6 +6,7 @@ import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 
 import '../epub/epub_document.dart';
+import '../epub/epub_limits.dart';
 import 'editable_document.dart';
 import 'epub_edit_session.dart';
 
@@ -67,6 +68,7 @@ void _copyArchive(_WriteRequest request, File staged) {
   final input = InputFileStream(request.source);
   final output = OutputFileStream(staged.path);
   try {
+    _checkSourceZipBudget(input);
     final archive = ZipDecoder().decodeStream(input);
     final encoder = ZipEncoder()..startEncode(output);
     encoder.add(
@@ -94,6 +96,28 @@ void _copyArchive(_WriteRequest request, File staged) {
   }
 }
 
+void _checkSourceZipBudget(InputStream input) {
+  const limits = EpubArchiveLimits();
+  final directory = ZipDirectory()..read(input);
+  final budget = EpubDecodeBudget(limits);
+  for (final header in directory.fileHeaders) {
+    final file = header.file!;
+    final failure = limits.entryFailure(
+      header.filename,
+      header.compressedSize,
+      header.uncompressedSize,
+    );
+    if (failure != null ||
+        !budget.admit(
+          file.filename,
+          file.compressedSize,
+          file.uncompressedSize,
+        )) {
+      throw EpubEditException(failure ?? budget.diagnostics.last);
+    }
+  }
+}
+
 void _addChanged(ZipEncoder encoder, String path, Uint8List? bytes) {
   if (bytes != null) encoder.add(ArchiveFile.bytes(path, bytes));
 }
@@ -104,7 +128,9 @@ Future<void> _validateOutput(File staged) async {
   try {
     if (document == null ||
         document.archive.diagnostics.any(
-          (note) => note.startsWith('E_ZIP_ENTRY_'),
+          (note) =>
+              note.startsWith('E_ZIP_ENTRY_TRUNCATED') ||
+              note.startsWith('E_ZIP_RESOURCE_LIMIT'),
         )) {
       throw EpubEditException(
         '导出 EPUB 校验失败：${opened.report.message ?? opened.report.warnings.join('；')}',

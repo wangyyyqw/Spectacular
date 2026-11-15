@@ -6,11 +6,13 @@ import 'package:archive/archive.dart';
 
 import 'epub_exception.dart';
 import 'epub_entry.dart';
+import 'epub_limits.dart';
 import 'xml_encoding.dart';
 import 'zip_source.dart';
 
 export 'epub_entry.dart'
     show EpubEntryPayload, EpubEntryDecodeResult, decodeEpubEntry;
+export 'epub_limits.dart' show EpubArchiveLimits;
 
 /// 宿主独占的读取凭据；仅 [payload] 可交给纯数据 worker。
 class EpubEntryRead {
@@ -78,9 +80,6 @@ class EpubArchive {
   /// 打开期诊断（恢复档的记录，供 ImportReport 汇总）。
   List<String> get diagnostics => List<String>.unmodifiable(_diagnostics);
 
-  /// 整本兜底上限：超过此大小的 ZIP64/加密容器直接拒绝。
-  static const int _decodeFallbackLimit = 512 * 1024 * 1024;
-
   /// 从字节打开 ZIP；损坏时按四档分类（P7-15），可恢复档先修复再抛：
   ///
   /// 1. **条目截断/损坏**（CRC 失败）→ 降级重解码，坏条目跳过并记
@@ -95,16 +94,21 @@ class EpubArchive {
   ///
   /// [verify] 为 false 时跳过 CRC 校验：大文件（150MB+）解码能快数倍，
   /// 阅读场景用（导入时已完整校验过一次）。
-  factory EpubArchive.fromBytes(Uint8List bytes, {bool verify = true}) {
+  factory EpubArchive.fromBytes(
+    Uint8List bytes, {
+    bool verify = true,
+    EpubArchiveLimits limits = const EpubArchiveLimits(),
+  }) {
     final index = ZipIndex.tryParse(
       ZipByteSource.fromBytes(bytes),
       validateHeaders: true,
       verifyCrc: verify,
+      limits: limits,
     );
     if (index != null) {
       return _fromIndex(index, verify: verify);
     }
-    return _decodeArchiveBytes(bytes, verify: verify);
+    return _decodeArchiveBytes(bytes, verify: verify, limits: limits);
   }
 
   /// 从文件打开：只解析中央目录，条目按需读取。
@@ -112,7 +116,11 @@ class EpubArchive {
   /// 这是阅读路径的入口。内存占用只与中央目录和当前章节有关，不再随书
   /// 的体积线性增长。[verify] 为 true 时逐条解压校验 CRC（导入用，内存
   /// 有界但耗时）；阅读路径传 false——导入时已完整校验过一次。
-  static Future<EpubArchive> fromFile(File file, {bool verify = false}) async {
+  static Future<EpubArchive> fromFile(
+    File file, {
+    bool verify = false,
+    EpubArchiveLimits limits = const EpubArchiveLimits(),
+  }) async {
     final source = await ZipByteSource.fromFile(file);
     ZipIndex? index;
     try {
@@ -120,7 +128,11 @@ class EpubArchive {
         source,
         validateHeaders: false,
         verifyCrc: verify,
+        limits: limits,
       );
+    } on EpubException {
+      await source.close();
+      rethrow;
     } catch (_) {
       index = null;
     }
@@ -134,13 +146,14 @@ class EpubArchive {
     }
     await source.close();
     // 仅 ZIP64/加密/特殊编码等异常容器走整本兜底；正常 EPUB 不进入。
-    if (await file.length() > _decodeFallbackLimit) {
+    if (await file.length() > limits.maxArchiveBytes) {
       throw const EpubException('E_ARCHIVE', '归档格式不受支持且文件过大，无法安全打开');
     }
     final bytes = await file.readAsBytes();
     return _decodeArchiveBytes(
       bytes,
       verify: verify,
+      limits: limits,
       notes: const <String>['E_ZIP_LEGACY: 归档变体不受惰性读取支持，已整本解码'],
     );
   }
@@ -164,7 +177,11 @@ class EpubArchive {
       );
       throw EpubException(
         truncated ? 'E_ZIP_ENTRY_TRUNCATED' : 'E_ARCHIVE',
-        truncated ? '全部条目均损坏，无法恢复' : 'ZIP 中没有文件',
+        truncated
+            ? '全部条目均损坏，无法恢复'
+            : index.diagnostics.isEmpty
+            ? 'ZIP 中没有文件'
+            : '归档没有可安全读取的条目',
       );
     }
     return EpubArchive._(
@@ -178,30 +195,58 @@ class EpubArchive {
   static EpubArchive _decodeArchiveBytes(
     Uint8List bytes, {
     required bool verify,
+    required EpubArchiveLimits limits,
     List<String> notes = const <String>[],
+  }) {
+    final decoded = _decodeWithRecovery(bytes, verify: verify, limits: limits);
+    final recovered = _recoverDroppedEntries(
+      bytes,
+      decoded.files,
+      verify: verify,
+      limits: limits,
+    );
+    return _build(
+      recovered ?? decoded.files,
+      verify: verify,
+      limits: limits,
+      diagnostics: [
+        ...notes,
+        ...decoded.diagnostics,
+        if (recovered != null) 'E_ZIP_LOCAL_HEADER: 解码丢失条目，已按局部头扫描修补恢复',
+      ],
+    );
+  }
+
+  static ({List<ArchiveFile> files, List<String> diagnostics})
+  _decodeWithRecovery(
+    Uint8List bytes, {
+    required bool verify,
+    required EpubArchiveLimits limits,
   }) {
     List<ArchiveFile> files;
     try {
-      files = ZipDecoder().decodeBytes(bytes, verify: verify).files;
+      files = _decodeFiles(bytes, verify: verify, limits: limits);
+    } on EpubException {
+      rethrow;
     } catch (error) {
       // 第一层恢复：不做 CRC 校验重解码（覆盖整档 verify 抛出，
       // 坏条目由 [_build] 逐条跳过）。
       try {
-        files = ZipDecoder().decodeBytes(bytes, verify: false).files;
+        files = _decodeFiles(bytes, verify: false, limits: limits);
+      } on EpubException {
+        rethrow;
       } catch (_) {
         // 第二层恢复：局部头偏移修补（zipLocalHeaderRelocated 场景）。
         final repaired = _repairLocalHeaderOffsets(bytes);
         if (repaired != null) {
           try {
-            files = ZipDecoder().decodeBytes(repaired, verify: verify).files;
-            return _build(
-              files,
-              verify: verify,
-              diagnostics: <String>[
-                ...notes,
-                'E_ZIP_LOCAL_HEADER: 局部头偏移错位，已扫描修补中心目录并恢复',
-              ],
+            files = _decodeFiles(repaired, verify: verify, limits: limits);
+            return (
+              files: files,
+              diagnostics: ['E_ZIP_LOCAL_HEADER: 局部头偏移错位，已扫描修补中心目录并恢复'],
             );
+          } on EpubException {
+            rethrow;
           } catch (_) {
             // 修补后仍失败：落到分类抛出。
           }
@@ -209,21 +254,39 @@ class EpubArchive {
         throw _classifyZipError(error);
       }
     }
-    // 本版 package:archive 对局部头错位会「静默丢条目」：解码成功但
-    // 条目变成空名零长占位——按「有名条目」数少于中心目录触发修补
-    // 重解码（P7-15）。目录也计入总数，避免正常目录触发无谓恢复。
-    final recovered = _recoverDroppedEntries(bytes, files, verify: verify);
-    if (recovered != null) {
-      return _build(
-        recovered,
-        verify: verify,
-        diagnostics: <String>[
-          ...notes,
-          'E_ZIP_LOCAL_HEADER: 解码丢失条目，已按局部头扫描修补恢复',
-        ],
-      );
+    return (files: files, diagnostics: []);
+  }
+
+  /// 先读取 ZIP64 等变体的元数据，再允许旧解码器接触内容和符号链接。
+  static List<ArchiveFile> _decodeFiles(
+    Uint8List bytes, {
+    required bool verify,
+    required EpubArchiveLimits limits,
+  }) {
+    if (bytes.length > limits.maxArchiveBytes) {
+      throw const EpubException('E_ARCHIVE', '归档格式不受支持且文件过大，无法安全打开');
     }
-    return _build(files, verify: verify, diagnostics: notes);
+    final directory = ZipDirectory()..read(InputMemoryStream(bytes));
+    final budget = EpubDecodeBudget(limits);
+    for (final header in directory.fileHeaders) {
+      final file = header.file!;
+      final headerFailure = limits.entryFailure(
+        header.filename,
+        header.compressedSize,
+        header.uncompressedSize,
+      );
+      if (headerFailure != null) {
+        throw EpubException('E_ARCHIVE', headerFailure);
+      }
+      if (!budget.admit(
+        file.filename,
+        file.compressedSize,
+        file.uncompressedSize,
+      )) {
+        throw EpubException('E_ARCHIVE', budget.diagnostics.last);
+      }
+    }
+    return ZipDecoder().decodeBytes(bytes, verify: verify).files;
   }
 
   /// 静默丢条目的恢复：有名条目数少于中心目录时修补偏移重解码，
@@ -232,6 +295,7 @@ class EpubArchive {
     Uint8List bytes,
     List<ArchiveFile> decoded, {
     required bool verify,
+    required EpubArchiveLimits limits,
   }) {
     final centralCount = _centralEntryCount(bytes);
     final namedCount = decoded
@@ -245,11 +309,13 @@ class EpubArchive {
       return null;
     }
     try {
-      final files = ZipDecoder().decodeBytes(repaired, verify: verify).files;
+      final files = _decodeFiles(repaired, verify: verify, limits: limits);
       return files.where((file) => file.name.trim().isNotEmpty).length >
               namedCount
           ? files
           : null;
+    } on EpubException {
+      rethrow;
     } catch (_) {
       return null;
     }
@@ -269,17 +335,24 @@ class EpubArchive {
 
   /// 组装条目表；单条解压或 CRC 失败记诊断跳过（截断档恢复）。全部条目
   /// 损坏抛 `E_ZIP_ENTRY_TRUNCATED`，真空 ZIP 抛 `E_ARCHIVE`。
+  /// 此函数保留单遍装配，避免诊断与条目顺序脱节；预算和损坏回归约束风险。
   static EpubArchive _build(
     List<ArchiveFile> files, {
     required bool verify,
+    required EpubArchiveLimits limits,
     required List<String> diagnostics,
   }) {
     final entries = <String, ArchiveFile>{};
     final order = <String>[];
     final notes = <String>[...diagnostics];
+    final budget = EpubDecodeBudget(limits);
     var corrupted = 0;
     for (final file in files) {
       if (!file.isFile) {
+        continue;
+      }
+      if (!budget.admit(file.name, file.rawContent?.length ?? 0, file.size)) {
+        notes.add(budget.diagnostics.last);
         continue;
       }
       final failure = verify ? _entryFailure(file) : null;
@@ -309,7 +382,7 @@ class EpubArchive {
     return EpubArchive._(
       _DecodedArchiveBackend(entries),
       order,
-      List<String>.unmodifiable(notes),
+      List<String>.unmodifiable({...notes, ...budget.diagnostics}),
     );
   }
 
