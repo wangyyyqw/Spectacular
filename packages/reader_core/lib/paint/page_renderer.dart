@@ -92,6 +92,8 @@ class PagePainter {
     this.beforeBlockText,
     this.galleryFrameOf,
     this.galleryPositionOf,
+    this.backgroundTileLimit = defaultBackgroundTileLimit,
+    this.onBackgroundTileLimit,
   });
 
   /// 页面背景色。
@@ -159,6 +161,12 @@ class PagePainter {
 
   /// 拖动中的连续帧位置；仅影响绘制，整数位置与静态帧一致。
   final double? Function(PageGallery gallery)? galleryPositionOf;
+
+  /// 作者背景每层最多绘制的瓦片数，超限时改为一张覆盖有效绘制区。
+  final int backgroundTileLimit;
+
+  /// 瓦片超限回调；未接回调时仍可查询 [BackgroundTileDiagnostics]。
+  final void Function(BackgroundTileLimitDiagnostic)? onBackgroundTileLimit;
 
   /// 只绘制阅读主题的纸底，供卷页背面的背景纹理复用。
   void paintBackground(
@@ -3202,6 +3210,8 @@ class PagePainter {
       position: layer.position,
       colorFilter: colorFilter,
       paintingBounds: paintingBounds,
+      maximumTiles: backgroundTileLimit,
+      onLimitExceeded: onBackgroundTileLimit,
     );
   }
 
@@ -3213,15 +3223,25 @@ class PagePainter {
     CssBackgroundLayer layer, {
     Rect? paintingBounds,
   }) {
+    final paint = Paint();
+    Size? shaderSize;
     for (final tile in backgroundTileRects(
       bounds,
       layer,
       paintingBounds: paintingBounds,
+      maximumTiles: backgroundTileLimit,
+      onLimitExceeded: onBackgroundTileLimit,
     )) {
-      final shader = _gradientShader(gradient, tile);
-      if (shader != null) {
-        canvas.drawRect(tile, Paint()..shader = shader);
+      if (shaderSize != tile.size) {
+        final shader = _gradientShader(gradient, Offset.zero & tile.size);
+        if (shader == null) return;
+        paint.shader = shader;
+        shaderSize = tile.size;
       }
+      canvas.save();
+      canvas.translate(tile.left, tile.top);
+      canvas.drawRect(Offset.zero & tile.size, paint);
+      canvas.restore();
     }
   }
 

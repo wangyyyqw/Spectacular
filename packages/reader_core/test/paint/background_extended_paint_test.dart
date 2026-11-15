@@ -8,6 +8,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/background_tiles.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
 const _red = Color(0xFFFF0000);
@@ -42,6 +43,8 @@ Future<ByteData> _render(
   Size size,
   PageBackground background, {
   ui.Image? image,
+  int maximumTiles = defaultBackgroundTileLimit,
+  void Function(BackgroundTileLimitDiagnostic)? onLimitExceeded,
 }) async {
   final page = PageContent(
     spineIndex: 0,
@@ -52,17 +55,28 @@ Future<ByteData> _render(
     topPadding: 0,
     background: background,
   );
-  return _renderPage(size, page, image: image);
+  return _renderPage(
+    size,
+    page,
+    image: image,
+    maximumTiles: maximumTiles,
+    onLimitExceeded: onLimitExceeded,
+  );
 }
 
 Future<ByteData> _renderPage(
   Size size,
   PageContent page, {
   ui.Image? image,
+  int maximumTiles = defaultBackgroundTileLimit,
+  void Function(BackgroundTileLimitDiagnostic)? onLimitExceeded,
 }) async {
   final recorder = ui.PictureRecorder();
-  PagePainter(imageLookup: (_) => image)
-      .paint(Canvas(recorder), page, pageSize: size);
+  PagePainter(
+    imageLookup: (_) => image,
+    backgroundTileLimit: maximumTiles,
+    onBackgroundTileLimit: onLimitExceeded,
+  ).paint(Canvas(recorder), page, pageSize: size);
   final picture = recorder.endRecording();
   final output = await picture.toImage(size.width.toInt(), size.height.toInt());
   final data = await output.toByteData(format: ui.ImageByteFormat.rawRgba);
@@ -71,7 +85,12 @@ Future<ByteData> _renderPage(
   return data!;
 }
 
-Future<ByteData> _renderBlock(Map<String, String> properties) async {
+Future<ByteData> _renderBlock(
+  Map<String, String> properties, {
+  ui.Image? image,
+  int maximumTiles = defaultBackgroundTileLimit,
+  void Function(BackgroundTileLimitDiagnostic)? onLimitExceeded,
+}) async {
   const size = Size(200, 120);
   final style = ComputedStyle({
     'font-size': '16px',
@@ -96,7 +115,13 @@ Future<ByteData> _renderBlock(Map<String, String> properties) async {
       )
       .pages
       .single;
-  return _renderPage(size, page);
+  return _renderPage(
+    size,
+    page,
+    image: image,
+    maximumTiles: maximumTiles,
+    onLimitExceeded: onLimitExceeded,
+  );
 }
 
 Color _pixel(ByteData data, int width, int x, int y) {
@@ -121,6 +146,63 @@ void main() {
   late ui.Image image;
   setUpAll(() async => image = await _redImage());
   tearDownAll(() => image.dispose());
+
+  for (final isGradient in [false, true]) {
+    test('${isGradient ? '渐变' : '图片'}极小背景尺寸在正式绘制入口只铺一层', () async {
+      final before = BackgroundTileDiagnostics.fallbackCount;
+      final diagnostics = <BackgroundTileLimitDiagnostic>[];
+      final maximumTiles = isGradient ? defaultBackgroundTileLimit : 7;
+      final data = await _renderBlock(
+        {
+          'background-image': isGradient
+              ? 'linear-gradient(90deg, #0000ff, #0000ff)'
+              : 'url(tile)',
+          'background-size': '0.0000000001px 0.0000000001px',
+          'height': '24px',
+        },
+        image: image,
+        maximumTiles: maximumTiles,
+        onLimitExceeded: diagnostics.add,
+      );
+      expect(diagnostics, hasLength(1));
+      expect(diagnostics.single.maximumTiles, maximumTiles);
+      expect(BackgroundTileDiagnostics.fallbackCount, before + 1);
+      for (final (x, y) in [(0, 0), (100, 12), (199, 23)]) {
+        expect(_pixel(data, 200, x, y), isGradient ? _blue : _red);
+      }
+      expect(_pixel(data, 200, 100, 24), _white, reason: '单层降级仍裁剪到块盒');
+    });
+  }
+
+  test('正式渐变绘制透传预算，在较低上限下使用整层渐变', () async {
+    const background = PageBackground(
+      layers: [
+        CssBackgroundLayer(
+          gradient: CssLinearGradient(
+            angle: 90,
+            stops: [
+              CssGradientStop(color: _red, position: 0.5),
+              CssGradientStop(color: _blue, position: 0.5),
+            ],
+          ),
+          size: CssBackgroundSize.explicit(
+            width: CssLength(10),
+            height: CssLength(12),
+          ),
+        ),
+      ],
+    );
+    final ordinary = await _render(const Size(30, 12), background);
+    expect(_pixel(ordinary, 30, 11, 6), _red, reason: '普通预算下开始第二张瓦片');
+    final limited = await _render(
+      const Size(30, 12),
+      background,
+      maximumTiles: 2,
+    );
+    expect(_pixel(limited, 30, 11, 6), _red);
+    expect(_pixel(limited, 30, 19, 6), _blue, reason: '降级后只保留整层中间分界');
+    expect(BackgroundTileDiagnostics.lastFallback?.maximumTiles, 2);
+  });
 
   test('整页 space 背景首尾有图，中间空隙露出底色', () async {
     final data = await _render(

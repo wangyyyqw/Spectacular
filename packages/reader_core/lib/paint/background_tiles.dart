@@ -4,10 +4,41 @@ import 'dart:ui';
 import '../css/background_values.dart';
 
 typedef _Interval = ({double start, double end});
-typedef _TileAxis = ({double start, double step, int count});
+typedef _TileAxis = ({double start, double step, double count});
 
-// 坐标由 double 计算；转为循环计数前，仅接受其能精确表示的整数范围。
-const _maximumExactCount = 9007199254740991;
+/// 每层背景的默认瓦片上限；超过后改为一张覆盖有效绘制区。
+const int defaultBackgroundTileLimit = 4096;
+
+/// 瓦片降级诊断，只包含几何与预算，不包含书籍内容。
+class BackgroundTileLimitDiagnostic {
+  const BackgroundTileLimitDiagnostic({
+    required this.columns,
+    required this.rows,
+    required this.maximumTiles,
+  });
+
+  final double columns;
+  final double rows;
+  final int maximumTiles;
+
+  String get message =>
+      'W_BACKGROUND_TILE_LIMIT: 背景瓦片 $columns 列 × $rows 行超过 '
+      '$maximumTiles 张，已改为单层铺绘';
+}
+
+/// 当前 isolate 的有界诊断摘要；未接回调的调用方也可查询。
+abstract final class BackgroundTileDiagnostics {
+  static int _fallbackCount = 0;
+  static BackgroundTileLimitDiagnostic? _lastFallback;
+
+  static int get fallbackCount => _fallbackCount;
+  static BackgroundTileLimitDiagnostic? get lastFallback => _lastFallback;
+
+  static void _record(BackgroundTileLimitDiagnostic diagnostic) {
+    _fallbackCount++;
+    _lastFallback = diagnostic;
+  }
+}
 
 /// 图片和渐变共用的瓦片几何；定位区与最终绘制区可分别传入。
 ///
@@ -18,7 +49,12 @@ Iterable<Rect> backgroundTileRects(
   CssBackgroundLayer layer, {
   Rect? paintingBounds,
   Size? intrinsicSize,
+  int maximumTiles = defaultBackgroundTileLimit,
+  void Function(BackgroundTileLimitDiagnostic)? onLimitExceeded,
 }) sync* {
+  if (maximumTiles < 1) {
+    throw ArgumentError.value(maximumTiles, 'maximumTiles', '必须大于零');
+  }
   final painting = paintingBounds ?? bounds;
   if (!_validRect(bounds) || !_validRect(painting)) return;
   final original = _initialTileSize(bounds.size, layer.size, intrinsicSize);
@@ -29,6 +65,32 @@ Iterable<Rect> backgroundTileRects(
   if (axes == null) return;
   final (x, y) = axes;
   if (x.count == 0 || y.count == 0) return;
+  if (!_withinTileBudget(x, y, maximumTiles, onLimitExceeded)) {
+    yield painting;
+    return;
+  }
+  yield* _tileRects(x, y, tile);
+}
+
+bool _withinTileBudget(
+  _TileAxis x,
+  _TileAxis y,
+  int maximumTiles,
+  void Function(BackgroundTileLimitDiagnostic)? onLimitExceeded,
+) {
+  // 先除再比较，不把两个可达极大值的轴计数相乘。
+  if (x.count <= maximumTiles / y.count) return true;
+  final diagnostic = BackgroundTileLimitDiagnostic(
+    columns: x.count,
+    rows: y.count,
+    maximumTiles: maximumTiles,
+  );
+  BackgroundTileDiagnostics._record(diagnostic);
+  onLimitExceeded?.call(diagnostic);
+  return false;
+}
+
+Iterable<Rect> _tileRects(_TileAxis x, _TileAxis y, Size tile) sync* {
   for (final top in _axisCoordinates(y)) {
     for (final left in _axisCoordinates(x)) {
       final rect = Rect.fromLTWH(left, top, tile.width, tile.height);
@@ -117,7 +179,8 @@ Size _roundTileSize(
 
 double _roundedLength(double length, double available) {
   final ratio = available / length;
-  if (!ratio.isFinite) return 0;
+  // 无法表达的稠密 round 留给瓦片预算统一降级。
+  if (!ratio.isFinite) return length;
   return available / math.max(1, ratio.roundToDouble());
 }
 
@@ -160,9 +223,11 @@ _TileAxis? _axisTiles({
   if (single) {
     final start = origin.start + offset;
     final visible = start < painting.end && start + length > painting.start;
-    return (start: start, step: 0, count: visible ? 1 : 0);
+    return (start: start, step: 0, count: visible ? 1.0 : 0.0);
   }
-  if (!fitting.isFinite) return null;
+  if (!fitting.isFinite) {
+    return (start: origin.start, step: length, count: double.infinity);
+  }
   final step = mode == CssBackgroundRepeatMode.space
       ? (available - length) / (fitting.floorToDouble() - 1)
       : length;
@@ -188,6 +253,6 @@ _TileAxis? _repeatedAxis(
   if (!start.isFinite) return null;
   if (start + length <= painting.start) start += step;
   final count = (painting.end - start) / step;
-  if (!count.isFinite || count > _maximumExactCount) return null;
-  return (start: start, step: step, count: math.max(0, count.ceil()));
+  if (count.isNaN) return null;
+  return (start: start, step: step, count: math.max(0.0, count.ceilToDouble()));
 }

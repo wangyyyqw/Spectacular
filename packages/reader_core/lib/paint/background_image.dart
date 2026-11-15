@@ -33,6 +33,8 @@ void paintBackgroundImage(
   ),
   ColorFilter? colorFilter,
   Rect? paintingBounds,
+  int maximumTiles = defaultBackgroundTileLimit,
+  void Function(BackgroundTileLimitDiagnostic)? onLimitExceeded,
 }) {
   final clip = paintingBounds ?? bounds;
   if (!bounds.isFinite || bounds.isEmpty || !clip.isFinite || clip.isEmpty) {
@@ -55,6 +57,8 @@ void paintBackgroundImage(
     layer,
     intrinsicSize: intrinsic,
     paintingBounds: paintingBounds,
+    maximumTiles: maximumTiles,
+    onLimitExceeded: onLimitExceeded,
   )) {
     canvas.drawImageRect(image, source, tile, paint);
   }
