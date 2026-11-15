@@ -174,8 +174,8 @@ void main() {
     );
     expect(find.text('书架中的新书名'), findsOneWidget);
     expect(_text(tester, 'total'), '4 小时 40 分');
-    expect(find.text('其他'), findsOneWidget);
-    expect(_text(tester, 'value-other'), '3 本\n1 小时');
+    expect(find.text('其他3本'), findsOneWidget);
+    expect(_text(tester, 'value-other'), '1 小时');
     expect(_key('tag-1'), findsNothing);
     await _tap(tester, 'tag-other');
     expect(_key('list-page'), findsOneWidget);
@@ -269,7 +269,130 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final (width, scale) in [(320.0, 2.0), (800.0, 1.0)]) {
+  testWidgets('少于六本书也能打开完整列表，长书名与占比可查看', (tester) async {
+    const title = '一本需要完整显示的很长很长的中文图书名称';
+    await _pump(
+      tester,
+      [
+        _session('a', DateTime(2026, 11, 15, 8), 30),
+        _session('b', DateTime(2026, 11, 15, 9), 10),
+      ],
+      titles: {'a': title},
+    );
+    await _tap(tester, 'all');
+    expect(_key('list-page'), findsOneWidget);
+    expect(find.text(title), findsOneWidget);
+    expect(find.text('30 分钟 · 75.0%'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(_text(tester, 'total'), '40 分钟');
+  });
+
+  testWidgets('点选书名或扇区显示相同详情，重复点选和切换日期清除选中', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await _pump(tester, [
+        _session('a', DateTime(2026, 11, 15, 8), 30),
+        _session('b', DateTime(2026, 11, 15, 9), 10),
+        _session('a', DateTime(2026, 11, 14, 8), 5),
+      ]);
+      await _tap(tester, 'tag-a');
+      expect(_text(tester, 'ring-value'), '75.0%');
+      expect(find.text('30 分钟 · 占比 75.0%'), findsOneWidget);
+      expect(
+        tester.getSemantics(_key('tag-a')),
+        matchesSemantics(
+          label: '书籍 a，30 分钟，占比 75.0%',
+          isButton: true,
+          isSelected: true,
+          hasSelectedState: true,
+          hasTapAction: true,
+        ),
+      );
+      expect(_text(tester, 'total'), '40 分钟');
+      await _tap(tester, 'tag-a');
+      expect(_key('selection'), findsNothing);
+      final ring = tester.getRect(_key('ring'));
+      await tester.tapAt(Offset(ring.right - 9, ring.center.dy));
+      await tester.pumpAndSettle();
+      expect(_text(tester, 'ring-value'), '75.0%');
+      await _tap(tester, 'previous');
+      expect(_key('selection'), findsNothing);
+      expect(_text(tester, 'total'), '5 分钟');
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('历史选择器跨空档跳转、按周期去重，并保留历史日期', (tester) async {
+    await _pump(tester, [
+      _session('a', DateTime(2026, 11, 15, 8), 30),
+      _session('b', DateTime(2025, 2, 18, 8), 10),
+      _session('b', DateTime(2025, 2, 18, 10), 15),
+      _session('future', DateTime(2027, 1, 1, 8), 5),
+    ]);
+    await _tap(tester, 'pick-period');
+    expect(find.byType(ListTile), findsNWidgets(2));
+    await _tap(tester, 'history-${DateTime(2025, 2, 18).toIso8601String()}');
+    expect(_text(tester, 'range'), '2025年2月18日');
+    expect(_text(tester, 'total'), '25 分钟');
+    for (final period in ['week', 'month', 'quarter', 'year', 'day']) {
+      await _tap(tester, 'period-$period');
+      expect(_text(tester, 'total'), '25 分钟');
+    }
+    expect(_text(tester, 'range'), '2025年2月18日');
+    await _tap(tester, 'current');
+    expect(_text(tester, 'range'), '今天 · 2026年11月15日');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('刷新后选中书籍消失时清除详情，重新出现不恢复旧选择', (tester) async {
+    final sessions = [_session('a', DateTime(2026, 11, 15, 8), 30)];
+    await _pump(tester, sessions);
+    await _tap(tester, 'tag-a');
+    expect(_key('selection'), findsOneWidget);
+    await _pump(tester, []);
+    expect(_key('selection'), findsNothing);
+    await _pump(tester, sessions);
+    expect(_key('selection'), findsNothing);
+    expect(_text(tester, 'ring-value'), '1 本书');
+  });
+
+  testWidgets('书架名称改变同值排名后，刷新按实际可见书目保留或清除选择', (tester) async {
+    final sessions = [
+      for (final id in ['a', 'b', 'c', 'd', 'e', 'f'])
+        _session(id, DateTime(2026, 11, 15, 8), 10),
+    ];
+    final titles = {'f': '1 排在首位的书'};
+    await _pump(tester, sessions, titles: titles);
+    await _tap(tester, 'tag-f');
+    await _pump(tester, sessions, titles: titles);
+    expect(_key('selection'), findsOneWidget);
+    expect(_text(tester, 'ring-value'), '16.7%');
+    await _pump(tester, sessions);
+    expect(_key('tag-f'), findsNothing);
+    expect(_key('selection'), findsNothing);
+    expect(_text(tester, 'ring-value'), '6 本书');
+  });
+
+  testWidgets('历史选择器取消不改变日期，空记录也能返回当前周期', (tester) async {
+    await _pump(tester, []);
+    await _tap(tester, 'pick-period');
+    expect(find.byType(ListTile), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(_key('period-picker'), findsNothing);
+    expect(_text(tester, 'range'), '今天 · 2026年11月15日');
+    expect(_key('empty'), findsOneWidget);
+  });
+
+  for (final (width, scale) in [
+    (320.0, 1.0),
+    (320.0, 1.3),
+    (320.0, 2.0),
+    (800.0, 1.0),
+  ]) {
     testWidgets('${width.toInt()} 宽度、$scale 倍字号可显示长书名、极小占比并提供读屏标签', (
       tester,
     ) async {
@@ -293,7 +416,18 @@ void main() {
         );
         expect(find.text(title), findsOneWidget);
         expect(_text(tester, 'value-tiny'), '<1 分钟');
-        expect(find.bySemanticsLabel('$title，10 小时'), findsOneWidget);
+        expect(find.bySemanticsLabel('$title，10 小时，占比 100.0%'), findsOneWidget);
+        final total = tester.widget<Text>(_key('total'));
+        expect(total.style!.fontSize, greaterThanOrEqualTo(24));
+        final longTag = tester.getRect(_key('tag-long'));
+        final ring = tester.getRect(_key('ring'));
+        expect(longTag.overlaps(ring), isFalse);
+        await _tap(tester, 'tag-long');
+        expect(
+          find.descendant(of: _key('selection'), matching: find.text(title)),
+          findsOneWidget,
+        );
+        expect(_text(tester, 'ring-value'), '100.0%');
         expect(
           tester.getSemantics(find.bySemanticsLabel('日')),
           matchesSemantics(
