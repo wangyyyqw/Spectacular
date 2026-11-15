@@ -175,6 +175,15 @@ void main() {
       ),
       findsOneWidget,
     );
+    await _tapControl(
+      tester,
+      'stats-calendar-day-${now.year}-${now.month}-${now.day}',
+    );
+    expect(find.text('1 本书 · 合计 25 分钟'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('stats-calendar-detail-a')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

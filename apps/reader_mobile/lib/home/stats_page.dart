@@ -4,13 +4,14 @@ import 'package:reader_ui/reader_session.dart';
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
 import 'book_duration_chart.dart';
+import 'reading_calendar.dart';
 import 'reading_insights.dart';
 import 'book_reading_ranking.dart';
 import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 
-/// 统计页：图书时长、每日平均与按书排行，保留完整统计数据汇总。
+/// 统计页：图书时长、阅读日历、每日平均与按书排行，保留完整统计数据汇总。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
 class StatsPage extends StatefulWidget {
@@ -282,6 +283,21 @@ class _StatsPageState extends State<StatsPage> {
                           bookTitles: {
                             for (final row in stats.rows)
                               row.book.id: row.book.title,
+                          },
+                        ),
+                      ),
+                      _Section(
+                        title: '阅读日历',
+                        detail: '按月',
+                        child: ReadingCalendar(
+                          insights: stats.insights,
+                          bookTitles: {
+                            for (final row in stats.rows)
+                              row.book.id: row.book.title,
+                          },
+                          finishedBookIds: {
+                            for (final row in stats.rows)
+                              if (row.progress?.finished ?? false) row.book.id,
                           },
                         ),
                       ),
