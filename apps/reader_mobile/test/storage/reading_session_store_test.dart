@@ -47,6 +47,32 @@ Future<void> _addNotes(LibraryStore library, String bookId) async {
       .add(cfi: 'epubcfi(/6/2!/4/2/1:8)', spineIndex: 0, label: '保留的书签');
 }
 
+Future<int> _insertSessionBook(AppDatabase db, String uuid) => db
+    .into(db.books)
+    .insert(
+      BooksCompanion.insert(
+        uuid: uuid,
+        contentRevision: 'session-content',
+        title: '会话绑定测试书',
+        contentDir: 'books/$uuid/content',
+        createdAt: 1,
+      ),
+    );
+
+Future<void> _rekeySessionBook(
+  AppDatabase db,
+  int bookId,
+  String oldId,
+  String newId,
+) => db.transaction(() async {
+  await (db.update(db.books)..where((table) => table.id.equals(bookId))).write(
+    BooksCompanion(uuid: Value(newId)),
+  );
+  await db
+      .into(db.bookIdAliases)
+      .insert(BookIdAliasesCompanion.insert(aliasId: oldId, bookId: bookId));
+});
+
 void main() {
   late AppDatabase db;
   late DriftReadingSessionStore store;
@@ -228,16 +254,108 @@ void main() {
     expect(db.schemaVersion, 2);
   });
 
-  test('未知书籍或非正时长不写入噪声记录', () async {
+  test('未知书籍明确返回身份失败，非正时长仍不写入噪声记录', () async {
     final start = DateTime(2026, 11, 3, 8);
-    await store.add(
-      bookId: 'missing',
-      startedAt: start,
-      endedAt: start.add(const Duration(minutes: 1)),
+    await expectLater(
+      store.add(
+        bookId: 'missing',
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 1)),
+      ),
+      throwsA(
+        isA<ReadingSessionSaveException>().having(
+          (error) => error.reason,
+          '身份失败原因',
+          ReadingSessionSaveFailure.bookMissing,
+        ),
+      ),
     );
     await store.add(bookId: 'missing', startedAt: start, endedAt: start);
 
     expect(await store.list(), isEmpty);
+    expect(await db.select(db.readingSessions).get(), isEmpty);
+  });
+
+  test('结束时旧标识只剩唯一别名，普通追加会话仍可解析改版后的书籍', () async {
+    final bookId = await _insertSessionBook(db, 'before-rekey');
+    await _rekeySessionBook(db, bookId, 'before-rekey', 'after-rekey');
+    final start = DateTime(2026, 11, 15, 8);
+
+    await store.add(
+      bookId: 'before-rekey',
+      startedAt: start,
+      endedAt: start.add(const Duration(minutes: 2)),
+    );
+
+    expect((await db.select(db.readingSessions).get()).single.bookId, bookId);
+    expect((await store.list()).single.bookId, 'after-rekey');
+  });
+
+  test('会话开始时绑定的整数主键，在软删除后仍保留完整时段', () async {
+    final bookId = await _insertSessionBook(db, 'soft-removed');
+    final bound = store.bindBook('soft-removed');
+    await (db.update(db.books)..where((table) => table.id.equals(bookId)))
+        .write(const BooksCompanion(deletedAt: Value(2)));
+    final start = DateTime(2026, 11, 15, 8);
+
+    await bound.add(
+      bookId: 'soft-removed',
+      startedAt: start,
+      endedAt: start.add(const Duration(minutes: 2)),
+      pageTurns: 3,
+      charactersRead: 120,
+    );
+
+    final saved = (await db.select(db.readingSessions).get()).single;
+    expect(saved.bookId, bookId);
+    expect(saved.durationMs, const Duration(minutes: 2).inMilliseconds);
+    expect(saved.pageTurns, 3);
+    expect(saved.charactersRead, 120);
+  });
+
+  test('旧标识重新导入产生新书记录，开始时绑定的时段仍属于改版原书', () async {
+    final originalId = await _insertSessionBook(db, 'reused-id');
+    final bound = store.bindBook('reused-id');
+    await _rekeySessionBook(db, originalId, 'reused-id', 'rekeyed-original');
+    final reimportedId = await _insertSessionBook(db, 'reused-id');
+    final start = DateTime(2026, 11, 15, 8);
+
+    await bound.add(
+      bookId: 'reused-id',
+      startedAt: start,
+      endedAt: start.add(const Duration(minutes: 2)),
+    );
+
+    final saved = (await db.select(db.readingSessions).get()).single;
+    expect(saved.bookId, originalId);
+    expect(saved.bookId, isNot(reimportedId));
+    expect((await store.list()).single.bookId, 'rekeyed-original');
+  });
+
+  test('已绑定记录被真正删除时明确失败，不能将时段归给新出现的同名书', () async {
+    final originalId = await _insertSessionBook(db, 'hard-removed');
+    final bound = store.bindBook('hard-removed');
+    await (db.delete(
+      db.books,
+    )..where((table) => table.id.equals(originalId))).go();
+    await _insertSessionBook(db, 'hard-removed');
+    final start = DateTime(2026, 11, 15, 8);
+
+    await expectLater(
+      bound.add(
+        bookId: 'hard-removed',
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 2)),
+      ),
+      throwsA(
+        isA<ReadingSessionSaveException>().having(
+          (error) => error.reason,
+          '身份失败原因',
+          ReadingSessionSaveFailure.bookMissing,
+        ),
+      ),
+    );
+
     expect(await db.select(db.readingSessions).get(), isEmpty);
   });
 }
