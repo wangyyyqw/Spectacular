@@ -9,7 +9,7 @@ void main() {
   test('码表无重复且字段齐全', () {
     final codes = EpubCodeTable.specs.map((spec) => spec.code).toList();
     expect(codes.toSet().length, codes.length, reason: '码不允许重复');
-    expect(codes.length, 48, reason: '当前 34 项有效诊断码与 14 项注明消费任务的预留码');
+    expect(codes.length, 49, reason: '当前 35 项有效诊断码与 14 项注明消费任务的预留码');
     for (final spec in EpubCodeTable.specs) {
       expect(spec.source, isNotEmpty, reason: '${spec.code} 缺出处');
       expect(

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/archive_reader.dart';
+import 'package:reader_core/epub/epub_entry.dart';
 import 'package:reader_core/epub/zip_source.dart';
 
 const _path = 'Text/chapter.xhtml';
@@ -226,6 +227,48 @@ void main() {
     expect(decodeEpubEntry(prepared.payload).error, isNotNull);
     expect(damaged.contains(_path), isTrue);
     expect(damaged.readHead(_path, 16), data.take(16));
+  });
+
+  test('纯数据解码在分配或读取压缩输入前拒绝超限声明', () {
+    final entry = ZipEntryInfo(
+      name: _path,
+      rawNameBytes: Uint8List(0),
+      method: 8,
+      crc32: 0,
+      compressedSize: 1,
+      uncompressedSize: const EpubArchiveLimits().maxEntryBytes + 1,
+      localHeaderOffset: 0,
+      flags: 0,
+    );
+    final result = decodeEpubEntry(
+      EpubEntryPayload.compressed(
+        Uint8List.fromList([0]),
+        entry,
+        verifyCrc: false,
+      ),
+    );
+    expect(result.bytes, isNull);
+    expect(result.error, contains('单条目预算'));
+    final streamed = decodeEpubEntryChunks(
+      entry,
+      false,
+      () => throw StateError('超限时不应读取条目'),
+      () => throw StateError('超限时不应开始解压'),
+    );
+    expect(streamed.error, result.error);
+  });
+
+  test('宿主配置的单条目预算随 payload 进入 worker', () {
+    const limits = EpubArchiveLimits(maxEntryBytes: 1024);
+    final zip = _zip(utf8.encode('正文' * 100), CompressionType.deflate);
+    final index = ZipIndex.tryParse(
+      ZipByteSource.fromBytes(zip),
+      limits: limits,
+    )!;
+    addTearDown(index.release);
+    final payload = index.prepareEntry(_path)!.payload;
+    expect(payload.limits.maxEntryBytes, limits.maxEntryBytes);
+    expect(decodeEpubEntry(payload).bytes, utf8.encode('正文' * 100));
   });
 }
 

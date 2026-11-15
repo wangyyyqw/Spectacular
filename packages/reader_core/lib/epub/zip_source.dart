@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'epub_entry.dart';
+import 'epub_exception.dart';
+import 'epub_limits.dart';
 
 export 'epub_entry.dart' show ZipEntryInfo;
 
@@ -132,13 +134,20 @@ class _FileZipSource implements ZipByteSource {
 /// 不支持的变体（ZIP64、加密、bzip2/zstd）返回 null，由调用方回退到
 /// `package:archive`，保证既有兼容行为不倒退。
 class ZipIndex {
-  ZipIndex._(this._source, this.entries, this.order, this._verifyCrc);
+  ZipIndex._(
+    this._source,
+    this.entries,
+    this.order,
+    this._verifyCrc,
+    this._limits,
+  );
 
   final ZipByteSource _source;
 
   /// 读取时是否比对 CRC。阅读路径关闭（导入时已校验过一次），避免大图片
   /// 每次布局探测都重复算 CRC。
   final bool _verifyCrc;
+  final EpubArchiveLimits _limits;
 
   /// 全部文件条目（不含目录）。
   final Map<String, ZipEntryInfo> entries;
@@ -160,6 +169,7 @@ class ZipIndex {
     ZipByteSource source, {
     bool validateHeaders = true,
     bool verifyCrc = false,
+    EpubArchiveLimits limits = const EpubArchiveLimits(),
   }) {
     final eocd = _findEocd(source);
     if (eocd == null) {
@@ -181,6 +191,9 @@ class ZipIndex {
     }
     if (directoryOffset + directorySize > source.length) {
       return null;
+    }
+    if (directorySize > limits.maxEntryBytes) {
+      throw const EpubException('E_ARCHIVE', 'ZIP 中央目录超出安全预算');
     }
     final directory = source.readRange(directoryOffset, directorySize);
     if (directory.length < directorySize) {
@@ -248,7 +261,16 @@ class ZipIndex {
       );
       order.add(name);
     }
-    final index = ZipIndex._(source, entries, order, verifyCrc);
+    final budget = EpubDecodeBudget(limits);
+    for (final name in List<String>.of(order)) {
+      final entry = entries[name]!;
+      if (!budget.admit(name, entry.compressedSize, entry.uncompressedSize)) {
+        entries.remove(name);
+        order.remove(name);
+      }
+    }
+    final index = ZipIndex._(source, entries, order, verifyCrc, limits);
+    index.diagnostics.addAll(budget.diagnostics);
     if (validateHeaders) {
       for (final name in List<String>.of(order)) {
         if (!index._validateLocalHeader(entries[name]!)) {
@@ -275,6 +297,7 @@ class ZipIndex {
         _verifyCrc,
         () => _independentRange(range.start, range.length),
         () => _entryChunks(entry, range.start),
+        limits: _limits,
       );
       commitEntry(entry, result.error);
       return result.bytes;
@@ -304,6 +327,7 @@ class ZipIndex {
           bytes,
           entry,
           verifyCrc: _verifyCrc,
+          limits: _limits,
         ),
       );
     } catch (error) {
@@ -334,6 +358,7 @@ class ZipIndex {
           bytes,
           entry,
           verifyCrc: _verifyCrc,
+          limits: _limits,
         ),
       );
     } catch (error) {

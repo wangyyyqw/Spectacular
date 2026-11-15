@@ -80,6 +80,7 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_ZIP_LOCAL_HEADER', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§55.3 局部头损坏/错位（偏移修补恢复档）'),
     EpubCodeSpec('E_ZIP_ENTRY_TRUNCATED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 条目截断/损坏（跳过坏条目恢复档）'),
     EpubCodeSpec('E_ZIP_NAME_ENCODING', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§54 文件名传统编码错位（资源索引大小写容错兜底）'),
+    EpubCodeSpec('E_ZIP_RESOURCE_LIMIT', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, 'ZIP 单条目解压预算与异常压缩比诊断'),
     // ---- 压力防护（P7-16；对照 Reeden 四道防线）----
     EpubCodeSpec('E_DOM_NESTING_TOO_DEEP', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 DOM 嵌套超 500 层子树展平为文本'),
     EpubCodeSpec('E_ATTRIBUTE_TRUNCATED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 属性值超 65536 字符截断（SVG/data URI 炸弹防线）'),

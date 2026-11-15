@@ -416,6 +416,139 @@ void main() {
     expect(decoded.contains('good.txt'), isTrue);
     expect(decoded.diagnostics, contains(contains('large.xhtml')));
   });
+
+  test('声明巨大但实际很小的条目在内存与文件入口均拒绝读取', () async {
+    for (final verify in [false, true]) {
+      final files = Archive()
+        ..addFile(ArchiveFile.string('good.txt', '可读正文'))
+        ..addFile(ArchiveFile.string('bad.txt', '很小的压缩输入'));
+      final zip = Uint8List.fromList(ZipEncoder().encode(files));
+      ByteData.sublistView(zip).setUint32(
+        _centralHeaderOffset(zip, 'bad.txt')! + 24,
+        const EpubArchiveLimits().maxEntryBytes + 1,
+        Endian.little,
+      );
+      final directory = await Directory.systemTemp.createTemp('epub-limit-');
+      addTearDown(() => directory.delete(recursive: true));
+      final file = await File('${directory.path}/book.epub').writeAsBytes(zip);
+      final archives = [
+        EpubArchive.fromBytes(zip, verify: verify),
+        await EpubArchive.fromFile(file, verify: verify),
+      ];
+      for (final archive in archives) {
+        addTearDown(archive.close);
+        expect(archive.readString('good.txt'), '可读正文');
+        expect(archive.contains('bad.txt'), isFalse);
+        expect(archive.readBytes('bad.txt'), isNull);
+        expect(archive.readHead('bad.txt', 10), isNull);
+        expect(await archive.prepareEntryAsync('bad.txt'), isNull);
+        expect(archive.diagnostics, contains(contains('E_ZIP_RESOURCE_LIMIT')));
+      }
+    }
+  });
+
+  test('惰性及旧解码入口共用整本解压预算且重复读取不重复计费', () {
+    const limits = EpubArchiveLimits(
+      maxEntryBytes: 12000,
+      maxArchiveBytes: 15000,
+    );
+    for (final compression in [
+      CompressionType.deflate,
+      CompressionType.bzip2,
+    ]) {
+      final files = Archive()
+        ..addFile(
+          ArchiveFile.string('one.txt', 'a' * 10000)..compression = compression,
+        )
+        ..addFile(
+          ArchiveFile.string('two.txt', 'b' * 10000)..compression = compression,
+        );
+      final zip = Uint8List.fromList(ZipEncoder().encode(files));
+      expect(
+        () => EpubArchive.fromBytes(zip, verify: false, limits: limits),
+        throwsA(
+          isA<EpubException>().having((e) => e.message, '原因', contains('总量')),
+        ),
+      );
+      final single = Uint8List.fromList(
+        ZipEncoder().encode(Archive()..addFile(files.files.first)),
+      );
+      final archive = EpubArchive.fromBytes(
+        single,
+        verify: false,
+        limits: limits,
+      );
+      addTearDown(archive.close);
+      expect(archive.readBytes('one.txt'), hasLength(10000));
+      expect(archive.readBytes('one.txt'), hasLength(10000));
+    }
+  });
+
+  test('旧压缩入口在实际解压前拒绝超限声明', () {
+    final files = Archive()
+      ..addFile(
+        ArchiveFile.string('bad.txt', '很小的内容')
+          ..compression = CompressionType.bzip2,
+      );
+    final zip = Uint8List.fromList(ZipEncoder().encode(files));
+    ByteData.sublistView(zip).setUint32(
+      _centralHeaderOffset(zip, 'bad.txt')! + 24,
+      const EpubArchiveLimits().maxEntryBytes + 1,
+      Endian.little,
+    );
+    expect(
+      () => EpubArchive.fromBytes(zip, verify: false),
+      throwsA(
+        isA<EpubException>().having((e) => e.message, '原因', contains('单条目预算')),
+      ),
+    );
+  });
+
+  test('stored 条目谎报较小输出不能绕过整本预算', () {
+    final files = Archive()
+      ..addFile(
+        ArchiveFile.string('one.txt', 'a' * 9000)
+          ..compression = CompressionType.none,
+      )
+      ..addFile(
+        ArchiveFile.string('two.txt', 'b' * 9000)
+          ..compression = CompressionType.none,
+      );
+    final zip = Uint8List.fromList(ZipEncoder().encode(files));
+    for (final name in ['one.txt', 'two.txt']) {
+      ByteData.sublistView(zip)
+          .setUint32(_centralHeaderOffset(zip, name)! + 24, 1, Endian.little);
+    }
+    expect(
+      () => EpubArchive.fromBytes(
+        zip,
+        verify: false,
+        limits: const EpubArchiveLimits(
+          maxEntryBytes: 12000,
+          maxArchiveBytes: 15000,
+        ),
+      ),
+      throwsA(
+        isA<EpubException>().having(
+          (error) => error.message,
+          '原因',
+          contains('总量'),
+        ),
+      ),
+    );
+  });
+
+  test('异常压缩比有诊断但预算内的合法正文仍能读取', () {
+    final files = Archive()
+      ..addFile(ArchiveFile.string('repeated.txt', 'a' * (2 * 1024 * 1024)));
+    final archive = EpubArchive.fromBytes(
+      Uint8List.fromList(ZipEncoder().encode(files)),
+      verify: false,
+    );
+    addTearDown(archive.close);
+    expect(archive.diagnostics, contains(contains('压缩比异常')));
+    expect(archive.readBytes('repeated.txt'), hasLength(2 * 1024 * 1024));
+  });
 }
 
 int _indexOf(List<int> haystack, List<int> needle) {
