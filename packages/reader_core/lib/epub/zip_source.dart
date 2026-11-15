@@ -520,7 +520,7 @@ class ZipIndex {
           'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 解压尺寸与声明不符',
         );
       }
-      if (entry.crc32 != 0 && sink.value != entry.crc32) {
+      if (sink.value != entry.crc32) {
         throw _ZipEntryFailure(
           'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 损坏（CRC 不符）',
         );

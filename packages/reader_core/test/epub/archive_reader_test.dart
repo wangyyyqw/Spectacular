@@ -232,7 +232,7 @@ void main() {
   test('mimetype 内容错误时校验失败', () {
     final archive = Archive()
       ..addFile(
-        ArchiveFile('mimetype', 20, utf8.encode('text/plain'))
+        ArchiveFile.string('mimetype', 'text/plain')
           ..compression = CompressionType.none,
       );
     final report = EpubArchive.fromBytes(
@@ -548,6 +548,21 @@ void main() {
     addTearDown(archive.close);
     expect(archive.diagnostics, contains(contains('压缩比异常')));
     expect(archive.readBytes('repeated.txt'), hasLength(2 * 1024 * 1024));
+  });
+
+  test('零 CRC 不能隐藏大条目的损坏，声明尺寸仍必须一致', () {
+    final files = Archive()
+      ..addFile(ArchiveFile.string('good.txt', '正文'))
+      ..addFile(ArchiveFile.string('bad.txt', 'a' * (2 * 1024 * 1024)));
+    final zip = Uint8List.fromList(ZipEncoder().encode(files));
+    ByteData.sublistView(
+      zip,
+    ).setUint32(_centralHeaderOffset(zip, 'bad.txt')! + 16, 0, Endian.little);
+    final archive = EpubArchive.fromBytes(zip);
+    addTearDown(archive.close);
+    expect(archive.readString('good.txt'), '正文');
+    expect(archive.contains('bad.txt'), isFalse);
+    expect(archive.diagnostics, contains(contains('CRC 不符')));
   });
 }
 
