@@ -90,11 +90,10 @@ class FullPageChapterLayout {
       return (block: null, warning: warning);
     }
     if (options.flags.isFullPage) {
-      final contain =
-          options.flags.fitWindow || analysis.singleImageMeetsViewport;
+      // 全屏图片等比裁切铺满屏幕；窗口适配才完整显示，SVG meet 不改变全屏模式。
       return (
         block: _block(source, (
-          contain: contain,
+          contain: options.flags.fitWindow,
           bleed: true,
           aspect: null,
         ), flags: options.flags),
@@ -164,7 +163,7 @@ class FullPageChapterLayout {
   }) {
     final width = math.max(80.0, snapshot.width);
     final height = math.max(120.0, snapshot.height);
-    // 全屏变体选择独立于 SVG meet 的等比显示；窗口适配仍保留原图。
+    // 全屏模式选择更接近页面比例的图片变体，减少裁切；窗口适配使用原图。
     final url = flags.fullScreen && !flags.fitWindow
         ? _fullscreenImage(source, options.aspect)
         : resources.imageUrl(snapshot.spineIndex, source);
