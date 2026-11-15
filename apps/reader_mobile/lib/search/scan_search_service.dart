@@ -114,6 +114,8 @@ class ScanSearchService {
   /// 仅排版被点击的章节，退出期间完成的旧结果会被丢弃。
   Future<String?> resolveCfi(SearchResult result) async {
     if (_disposed || source.isClosed) return null;
+    final direct = result.cfi;
+    if (direct != null) return _directSearchCfi(direct, result.spineIndex);
     final generation = _generation;
     try {
       final pages = await source.loadChapter(result.spineIndex);
@@ -162,6 +164,15 @@ class ScanSearchService {
   }
 }
 
+String? _directSearchCfi(String direct, int spineIndex) {
+  final parsed = EpubCfi.parse(direct);
+  return parsed != null &&
+          !parsed.isRange &&
+          spineIndexOfCfi(parsed) == spineIndex
+      ? direct
+      : null;
+}
+
 /// 扫描偏移映射到排版正文；先比较去空白上下文，同上下文时保持命中序号。
 ///
 /// 两套文本的块间换行、隐藏内容和生成内容不同，不能直接复用字符偏移；
@@ -199,6 +210,7 @@ CssTextTransform _blockTransform(ChapterBlock block) =>
     block.style?.textTransform ?? CssTextTransform.none;
 
 typedef _SearchPattern = ({
+  String text,
   String query,
   int ordinal,
   (String, String) context,
@@ -231,6 +243,7 @@ _SearchPattern _searchPattern(
       ? text.substring(0, start).toUpperCase().length
       : start;
   return (
+    text: text,
     query: transformedQuery,
     ordinal: _matchOrdinal(ordinalText, ordinalQuery, ordinalOffset),
     context: _matchContext(text, start, end - start, foldCase: foldCase),
@@ -245,19 +258,16 @@ _SearchPattern _searchPattern(
   ChapterText? chapter,
 ) {
   var best = (offset: -1, score: -1, distance: rendered.length);
+  final identicalText =
+      _canonicalSearchText(rendered, pattern.foldCase) ==
+      _canonicalSearchText(pattern.text, pattern.foldCase);
   for (final (at, ordinal) in _searchCandidates(rendered, pattern)) {
     final block = chapter?.blockAt(at);
     if (chapter == null ||
         block != null && _blockTransform(block) == transform) {
-      final candidate = _matchContext(
-        rendered,
-        at,
-        pattern.query.length,
-        foldCase: pattern.foldCase,
-      );
-      final score =
-          _commonEdge(pattern.context.$1, candidate.$1, fromEnd: true) +
-          _commonEdge(pattern.context.$2, candidate.$2, fromEnd: false);
+      final score = _searchContextScore(rendered, at, pattern);
+      // 全章文字一致时，命中序号有可靠依据；其他映射至少匹配两个上下文字。
+      if (!identicalText && score < 2) continue;
       final distance = (ordinal - pattern.ordinal).abs();
       if (score > best.score ||
           (score == best.score && distance < best.distance)) {
@@ -266,6 +276,17 @@ _SearchPattern _searchPattern(
     }
   }
   return best;
+}
+
+int _searchContextScore(String rendered, int offset, _SearchPattern pattern) {
+  final candidate = _matchContext(
+    rendered,
+    offset,
+    pattern.query.length,
+    foldCase: pattern.foldCase,
+  );
+  return _commonEdge(pattern.context.$1, candidate.$1, fromEnd: true) +
+      _commonEdge(pattern.context.$2, candidate.$2, fromEnd: false);
 }
 
 Iterable<(int, int)> _searchCandidates(
@@ -305,6 +326,9 @@ int _matchOrdinal(String text, String query, int offset) {
 }
 
 final RegExp _contextWhitespace = RegExp(r'\s+');
+
+String _canonicalSearchText(String text, bool foldCase) =>
+    (foldCase ? text.toUpperCase() : text).replaceAll(_contextWhitespace, '');
 
 (String, String) _matchContext(
   String text,

@@ -148,6 +148,50 @@ void main() {
         rendered.indexOf('关键词乙尾'),
       );
     });
+
+    test('上下文得分为零或只有一个字时拒绝跳到同词其他位置', () {
+      expect(mapSearchOffset('丙关键词丁', '甲关键词乙', '关键词', 1), -1);
+      expect(mapSearchOffset('丙关键词。', '甲关键词。', '关键词', 1), -1);
+    });
+
+    test('全章只有命中词或只差空白时保留可靠定位', () {
+      expect(mapSearchOffset('关键词', '关键词', '关键词', 0), 0);
+      expect(mapSearchOffset('关键词', '\n\n关键词\n', '关键词', 2), 0);
+      expect(mapSearchOffset('词\n词', '词\n\n词', '词', 3), 2);
+    });
+  });
+
+  test('已有直接CFI不依赖上下文，但必须属于命中章节', () async {
+    final source = await openTestChapterSource(buildTestEpub());
+    addTearDown(source.close);
+    final service = ScanSearchService(source: source);
+    addTearDown(service.dispose);
+    final cfi = source.document.parseDocument(0).textNodes.first.cfi.toString();
+    SearchResult result(String direct, {int spine = 0}) => SearchResult(
+      spineIndex: spine,
+      charOffset: -1,
+      chapterTitle: '',
+      context: '',
+      matchLength: 0,
+      cfi: direct,
+    );
+    expect(await service.resolveCfi(result(cfi)), cfi);
+    expect(await service.resolveCfi(result(cfi, spine: 1)), isNull);
+    expect(await service.resolveCfi(result('无效位置')), isNull);
+  });
+
+  test('隐藏命中的弱上下文不能重新定位到另一处同词', () async {
+    final source = await openCssChapter(
+      body: '<p class="hidden">甲关键词。</p><p>乙关键词。</p>',
+      css: '.hidden {display:none;}',
+    );
+    addTearDown(source.close);
+    final service = ScanSearchService(source: source);
+    addTearDown(service.dispose);
+    final hits = await service.search('关键词');
+    expect(hits, hasLength(2));
+    expect(await service.resolveCfi(hits.first), isNull);
+    expect(await service.resolveCfi(hits.last), isNotNull);
   });
 
   test('多段落重复命中的CFI分别落在真实命中文字', () async {
