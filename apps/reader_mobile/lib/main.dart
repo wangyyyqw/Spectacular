@@ -9,8 +9,6 @@ import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
 import 'reader/reader_text_warmup.dart';
-import 'storage/db.dart';
-import 'storage/drift_progress_store.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
 
@@ -41,36 +39,11 @@ Future<void> main() async {
   };
   await log.initialize();
   await log.log('app_start');
-  // P4-01/P4-02：打开业务库（书库/进度/标注/搜索索引）。库损坏或版本
-  // 过新时记录错误并继续启动，不让数据库问题拖垮阅读。
-  final database = await AppDatabase.tryOpenDefault(
-    onError: (error, stack) => unawaited(
-      log.log(
-        'db_open_failed',
-        fields: <String, Object?>{'error': error, 'stack': stack},
-      ),
-    ),
-  );
-  if (database != null) {
-    await log.log(
-      'db_ready',
-      fields: <String, Object?>{'schema_version': database.schemaVersion},
-    );
-  }
-
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
-  // 书库走 drift（P4-04）：数据库不可用时退回内存模式，书架为空但可启动。
-  final library = database == null
-      ? LibraryStore.memory()
-      : LibraryStore(database: database);
-  if (database != null) {
-    await prepareLibraryStorage(library, log);
-  }
-  // P4-10：进度写 reading_progress 表；数据库不可用时退回内存存储。
-  final ReaderProgressStore progressStore = database == null
-      ? MemoryReaderProgressStore()
-      : DriftProgressStore(database);
+  // 数据库不可用时仍可启动，界面显示临时模式并提供同一路径的重试。
+  final storage = StartupStorage(log: log);
+  await storage.retry();
   try {
     warmUpReaderTextRendering();
   } catch (error, stack) {
@@ -81,7 +54,7 @@ Future<void> main() async {
       ),
     );
   }
-  runApp(ReaderApp(library: library, progressStore: progressStore));
+  runApp(ReaderApp.withStorage(storage: storage));
 }
 
 /// 应用壳：四底栏（书架/统计/书评/我的）+ EPUB 导入 + 阅读页。
@@ -89,23 +62,58 @@ class ReaderApp extends StatelessWidget {
   /// 创建应用。
   const ReaderApp({
     super.key,
-    required this.library,
-    required this.progressStore,
-  });
+    required LibraryStore library,
+    required ReaderProgressStore progressStore,
+  }) : _library = library,
+       _progressStore = progressStore,
+       _startupStorage = null;
 
-  /// 书架存储。
-  final LibraryStore library;
+  /// 正式启动入口，监听数据库失败与恢复后的存储替换。
+  ReaderApp.withStorage({super.key, required StartupStorage storage})
+    : _library = storage.library,
+      _progressStore = storage.progressStore,
+      _startupStorage = storage;
 
-  /// 进度存储。
-  final ReaderProgressStore progressStore;
+  final LibraryStore _library;
+  final ReaderProgressStore _progressStore;
+  final StartupStorage? _startupStorage;
+
+  /// 当前书架存储，恢复成功后随启动存储更新。
+  LibraryStore get library => _startupStorage?.library ?? _library;
+
+  /// 当前进度存储，与恢复后的书库绑定同一数据库。
+  ReaderProgressStore get progressStore =>
+      _startupStorage?.progressStore ?? _progressStore;
 
   @override
   Widget build(BuildContext context) {
+    final storage = _startupStorage;
+    if (storage == null) return _buildApp(library, progressStore);
+    return ListenableBuilder(
+      listenable: storage,
+      builder: (context, child) => _buildApp(
+        storage.library,
+        storage.progressStore,
+        recovery: storage.isTemporary ? storage : null,
+      ),
+    );
+  }
+
+  Widget _buildApp(
+    LibraryStore library,
+    ReaderProgressStore progressStore, {
+    StartupStorage? recovery,
+  }) {
     return MaterialApp(
       title: 'Spectacular Reader',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: HomeShell(library: library, progressStore: progressStore),
+      home: HomeShell(
+        key: ObjectKey(library),
+        library: library,
+        progressStore: progressStore,
+        storageRecovery: recovery,
+      ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -164,5 +165,64 @@ void main() {
     expect(find.text('山海小记'), findsWidgets);
     expect(find.text('第二本'), findsWidgets);
     expect((await library.list()).length, 2);
+  });
+
+  testWidgets('临时模式禁用导入入口，不调用文件选择器', (tester) async {
+    final library = LibraryStore.memory();
+    var pickCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+          allowImport: false,
+          pickEpubFiles: () async {
+            pickCalls++;
+            return <String>[epubFile.path];
+          },
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    final button = tester.widget<IconButton>(
+      find.byKey(const ValueKey<String>('bookshelf-import')),
+    );
+    expect(button.onPressed, isNull);
+    await tester.tap(find.byTooltip('导入 EPUB'));
+    await _settle(tester);
+    expect(pickCalls, 0);
+    expect(await library.list(), isEmpty);
+    expect(find.text('书库暂时不可用'), findsOneWidget);
+    expect(find.text('书架还是空的'), findsNothing);
+  });
+
+  testWidgets('选择文件期间转入临时模式，不将迟到文件入队', (tester) async {
+    final library = LibraryStore.memory();
+    final progress = MemoryReaderProgressStore();
+    final pending = Completer<List<String>>();
+    var readCalls = 0;
+    Widget page(bool allowImport) => MaterialApp(
+      home: BookshelfPage(
+        library: library,
+        progressStore: progress,
+        allowImport: allowImport,
+        pickEpubFiles: () => pending.future,
+        readFile: (_) async {
+          readCalls++;
+          return buildTestEpub();
+        },
+      ),
+    );
+    await tester.pumpWidget(page(true));
+    await _settle(tester);
+    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.pumpWidget(page(false));
+    pending.complete(<String>[epubFile.path]);
+    await _settle(tester);
+
+    expect(readCalls, 0);
+    expect(await library.list(), isEmpty);
+    expect(find.textContaining('正在导入'), findsNothing);
   });
 }
