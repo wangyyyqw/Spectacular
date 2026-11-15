@@ -134,6 +134,40 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets('统计页接入图书时长，季度切换使用真实会话', (tester) async {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, 8);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([_book('a', '图书时长样本')], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            ReadingSession(
+              bookId: 'a',
+              startedAt: start,
+              endedAt: start.add(const Duration(minutes: 25)),
+              duration: const Duration(minutes: 25),
+            ),
+          ]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    expect(find.text('图书时长'), findsOneWidget);
+    expect(_valueOf(tester, 'stats-book-duration-total'), '25 分钟');
+    expect(_valueOf(tester, 'stats-book-duration-value-a'), '25 分钟');
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('stats-book-duration-tag-a')),
+        matching: find.text('图书时长样本'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   for (final period in [
     ('day', '日'),
     ('week', '周'),

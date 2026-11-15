@@ -3,6 +3,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
+import 'book_duration_chart.dart';
 import 'reading_insights.dart';
 import 'reading_habits_panel.dart';
 import 'book_reading_ranking.dart';
@@ -290,6 +291,15 @@ class _StatsPageState extends State<StatsPage> {
                     child: _OverviewGrid(stats: stats),
                   ),
                   _TrendSection(stats: stats, onOpenBook: _openBook),
+                  _Section(
+                    title: '图书时长',
+                    child: BookDurationChart(
+                      insights: stats.insights,
+                      bookTitles: {
+                        for (final row in stats.rows) row.book.id: row.book.title,
+                      },
+                    ),
+                  ),
                   _Section(
                     title: '每日平均',
                     detail: '按星期',
