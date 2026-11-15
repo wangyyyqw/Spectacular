@@ -134,17 +134,19 @@ void main() {
         bytes.setUint32(central + 16, 1, Endian.little);
         _expectEquivalent(zip, verify: verify, succeeds: !verify);
         bytes.setUint32(central + 16, 0, Endian.little);
-        _expectEquivalent(zip, verify: verify, succeeds: true);
+        _expectEquivalent(zip, verify: verify, succeeds: !verify);
         final size = bytes.getUint32(central + 24, Endian.little);
         for (final delta in [-1, 1]) {
           bytes.setUint32(central + 24, size + delta, Endian.little);
-          _expectEquivalent(
-            zip,
-            verify: verify,
-            succeeds: method == CompressionType.none,
-          );
+          _expectEquivalent(zip, verify: verify, succeeds: false);
         }
       }
+    }
+  });
+
+  test('有效的零 CRC 条目仍通过同步与纯数据校验', () {
+    for (final method in [CompressionType.none, CompressionType.deflate]) {
+      _expectEquivalent(_zip(const [], method), verify: true, succeeds: true);
     }
   });
 

@@ -31,7 +31,7 @@ class ZipEntryInfo {
   /// 压缩方式：0 = store，8 = deflate。
   final int method;
 
-  /// 未压缩内容的 CRC32。
+  /// 未压缩内容的 CRC32；中央目录中的 0 也是有效校验值。
   final int crc32;
 
   /// 压缩后字节数。
@@ -119,12 +119,14 @@ EpubEntryDecodeResult decodeEpubEntryChunks(
   if (failure != null) return EpubEntryDecodeResult.failure(failure);
   try {
     final bytes = entry.method == 0 ? stored() : _inflateEntry(entry, chunks());
-    if (entry.method == 0 && bytes.length != entry.compressedSize) {
+    if (entry.method == 0 &&
+        (bytes.length != entry.compressedSize ||
+            bytes.length != entry.uncompressedSize)) {
       return EpubEntryDecodeResult.failure(
         'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整',
       );
     }
-    if (verifyCrc && entry.crc32 != 0 && getCrc32(bytes) != entry.crc32) {
+    if (verifyCrc && getCrc32(bytes) != entry.crc32) {
       return EpubEntryDecodeResult.failure(
         'E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 损坏（CRC 不符）',
       );
