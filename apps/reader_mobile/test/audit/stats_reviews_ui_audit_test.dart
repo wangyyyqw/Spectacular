@@ -117,7 +117,7 @@ Future<void> _openEditor(WidgetTester tester, BookEntry book) async {
 }
 
 void main() {
-  testWidgets('统计在窄屏保留数字、四种周期和热力详情', (tester) async {
+  testWidgets('统计在窄屏保留数字、图书时长五种周期和热力详情', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final library = LibraryStore.memory();
@@ -142,30 +142,23 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('30 分钟'), findsWidgets);
-    for (final entry in const {
-      'day': 7,
-      'week': 8,
-      'month': 12,
-      'year': 5,
-    }.entries) {
-      final period = entry.key;
+    for (final period in ['day', 'week', 'month', 'quarter', 'year']) {
       final control = find.byKey(
-        ValueKey<String>('stats-chart-period-$period'),
+        ValueKey<String>('stats-book-duration-period-$period'),
       );
       await _scrollTo(tester, control);
       await tester.tap(control);
       await tester.pumpAndSettle();
       expect(
-        find.byWidgetPredicate((widget) {
-          final key = widget.key;
-          return widget is InkWell &&
-              key is ValueKey<String> &&
-              key.value.startsWith('stats-chart-bar-$period-');
-        }),
-        findsNWidgets(entry.value),
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('stats-book-duration-total')),
+            )
+            .data,
+        '30 分钟',
       );
       expect(
-        find.byKey(const ValueKey<String>('stats-chart-detail')),
+        find.byKey(ValueKey('stats-book-duration-tag-${book.id}')),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
