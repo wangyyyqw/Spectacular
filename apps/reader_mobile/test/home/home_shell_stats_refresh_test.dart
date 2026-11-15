@@ -59,6 +59,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(library.sessionStore.listCalls, 0, reason: '隐藏的统计页不应在启动时读取阅读会话');
+    final navigation = tester.widget<BottomNavigationBar>(
+      find.byType(BottomNavigationBar),
+    );
+    expect(navigation.items[2].icon, isNot(isA<Icon>()));
+    expect(navigation.items[2].activeIcon, isNot(isA<Icon>()));
 
     final now = DateTime.now();
     library.sessions.add(
