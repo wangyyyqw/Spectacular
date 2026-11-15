@@ -67,6 +67,14 @@ Future<void> _tap(WidgetTester tester, String suffix) async {
   await tester.pumpAndSettle();
 }
 
+List<ReadingSession> _fourThenFiveBooks() => [
+  for (var id = 0; id < 4; id++)
+    _session('$id', DateTime(2026, 11, 1, 9), 40 - id * 10),
+  for (var id = 0; id < 5; id++)
+    _session('$id', DateTime(2026, 11, 2, 9), id * 10 + 10),
+  _session('3', DateTime(2026, 11, 3, 9), 10),
+];
+
 void main() {
   test('日历按自然日跨月分摊，同名书分开且书架名称优先', () {
     final sessions = [
@@ -128,6 +136,32 @@ void main() {
     expect(sixWeeks.dateAt(5, 1), DateTime(2026, 8, 31));
   });
 
+  test('四本全部保留，五本取时长前三本，跨日换行不会漏书或重叠', () {
+    final month = _month(_fourThenFiveBooks(), _now);
+    final spans = month.spansForWeek(0);
+    const expected = [
+      ['0', '1', '2', '3'],
+      ['4', '3', '2'],
+      ['3'],
+    ];
+    for (var column = 0; column < 3; column++) {
+      final active = spans.where(
+        (span) => span.firstColumn <= column && span.lastColumn >= column,
+      );
+      expect(
+        active.map((span) => span.bookId),
+        unorderedEquals(expected[column]),
+      );
+      expect(active.map((span) => span.lane).toSet().length, active.length);
+      expect(active.every((span) => span.lane < (column == 1 ? 3 : 4)), isTrue);
+    }
+    final fourth = spans.where((span) => span.bookId == '3').toList();
+    expect(fourth.map((span) => (span.firstColumn, span.lastColumn)), [
+      (0, 0),
+      (1, 2),
+    ]);
+  });
+
   testWidgets('月历条带覆盖连续日期，点条带对应日期查看当天真实时长', (tester) async {
     await _pump(
       tester,
@@ -173,6 +207,61 @@ void main() {
     );
     expect(find.text(title), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('四本显示四条、五本显示三条和剩余数量，字号 $scale 倍不重叠', (tester) async {
+      await _pump(tester, _fourThenFiveBooks(), width: 320, scale: scale);
+      expect(_key('more-2026-11-1'), findsNothing);
+      for (var id = 0; id < 4; id++) {
+        expect(_key('bar-0-$id-0'), findsOneWidget);
+      }
+      expect(find.text('+2 本'), findsOneWidget);
+      final overflow = tester.getRect(_key('more-2026-11-2'));
+      final fourth = tester.getRect(_key('bar-0-3-0'));
+      final lastOnSecondDay = tester.getRect(_key('bar-0-2-0'));
+      final date = find.descendant(
+        of: _key('day-2026-11-1'),
+        matching: find.text('1'),
+      );
+      expect(fourth.bottom, lessThan(tester.getRect(date).top));
+      expect(lastOnSecondDay.bottom, lessThan(overflow.top));
+      expect(overflow.top - lastOnSecondDay.bottom, lessThan(4));
+      final secondDate = find.descendant(
+        of: _key('day-2026-11-2'),
+        matching: find.text('2'),
+      );
+      expect(overflow.bottom, lessThan(tester.getRect(secondDate).top));
+      await _tap(tester, 'day-2026-11-1');
+      expect(find.text('4 本书 · 合计 1 小时 40 分'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('仅绘制本月日期格子，月首与月末仍按星期对齐', (tester) async {
+    for (final date in [DateTime(2026, 11, 15), DateTime(2024, 2, 29)]) {
+      await _pump(tester, [], now: date);
+      final month = _month([], date);
+      final cells = find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key as ValueKey<String>).value.startsWith(
+              'stats-calendar-day-',
+            ),
+      );
+      expect(cells, findsNWidgets(month.dayCount));
+      final first = _key('day-${date.year}-${date.month}-1');
+      final nextWeek = _key('day-${date.year}-${date.month}-8');
+      expect(tester.getRect(first).left, tester.getRect(nextWeek).left);
+      final outside = [
+        month.start.subtract(const Duration(days: 1)),
+        DateTime(date.year, date.month + 1),
+      ];
+      for (final day in outside) {
+        expect(_key('day-${day.year}-${day.month}-${day.day}'), findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    }
   });
 
   testWidgets('跨年月份导航、空月和月份选择器可用，不能进入未来月份', (tester) async {

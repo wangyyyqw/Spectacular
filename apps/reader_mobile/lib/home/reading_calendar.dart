@@ -236,25 +236,27 @@ class _CalendarWeek extends StatelessWidget {
       1,
       (count, span) => math.max(count, span.lane + 1),
     );
-    final height = math.max(
-      48.0 * scale,
-      8 +
-          math.min(lanes, 3) * lineHeight +
-          18 * scale +
-          (lanes > 3 ? 12 * scale : 0),
+    final hasOverflow = Iterable<int>.generate(7).any(
+      (column) => (month.days[month.dateAt(week, column)]?.length ?? 0) > 4,
     );
+    final contentHeight = math.max(
+      lanes * lineHeight,
+      hasOverflow ? 3 * lineHeight + 12 * scale : 0.0,
+    );
+    final height = math.max(48.0 * scale, 8 + contentHeight + 18 * scale);
     return SizedBox(
       height: height,
       child: LayoutBuilder(
         builder: (context, constraints) => Stack(
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (var column = 0; column < 7; column++)
-                  Expanded(child: _day(context, column, spans)),
+                  Expanded(child: _day(context, column, lineHeight)),
               ],
             ),
-            for (final span in spans.where((span) => span.lane < 3))
+            for (final span in spans)
               _bar(span, constraints.maxWidth / 7, lineHeight),
           ],
         ),
@@ -274,23 +276,12 @@ class _CalendarWeek extends StatelessWidget {
     child: _CalendarBar(span: span, week: week),
   );
 
-  Widget _day(
-    BuildContext context,
-    int column,
-    List<ReadingCalendarSpan> spans,
-  ) {
+  Widget _day(BuildContext context, int column, double lineHeight) {
     final date = month.dateAt(week, column);
+    if (date.month != month.start.month) return const SizedBox.shrink();
     final books = month.days[date] ?? const <BookDurationEntry>[];
-    final inMonth = date.month == month.start.month;
-    final enabled = inMonth && !date.isAfter(today);
-    final extra = spans
-        .where(
-          (span) =>
-              span.lane >= 3 &&
-              span.firstColumn <= column &&
-              span.lastColumn >= column,
-        )
-        .length;
+    final enabled = !date.isAfter(today);
+    final extra = books.length > 4 ? books.length - 3 : 0;
     return Semantics(
       label:
           '${date.month}月${date.day}日，'
@@ -299,27 +290,37 @@ class _CalendarWeek extends StatelessWidget {
       child: InkWell(
         key: ValueKey('stats-calendar-day-${_dateKey(date)}'),
         onTap: enabled ? () => onOpen(date, books) : null,
-        child: _dayCell(context, date, extra),
+        child: _dayCell(context, date, extra, lineHeight),
       ),
     );
   }
 
-  Widget _dayCell(BuildContext context, DateTime date, int extra) {
+  Widget _dayCell(
+    BuildContext context,
+    DateTime date,
+    int extra,
+    double lineHeight,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
         color: date == selected ? scheme.surfaceContainerHighest : null,
         border: Border.all(color: scheme.outlineVariant, width: 0.5),
       ),
-      alignment: Alignment.bottomLeft,
       padding: const EdgeInsets.all(4),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          if (extra > 0) _overflow(context, date, extra),
-          if (date.month == month.start.month)
-            _dayNumber(context, date, !date.isAfter(today)),
+          if (extra > 0)
+            Positioned(
+              top: 3 * lineHeight,
+              left: 0,
+              right: 0,
+              child: _overflow(context, date, extra),
+            ),
+          Align(
+            alignment: Alignment.bottomLeft,
+            child: _dayNumber(context, date, !date.isAfter(today)),
+          ),
         ],
       ),
     );
