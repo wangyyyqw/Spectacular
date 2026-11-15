@@ -62,7 +62,7 @@ void main() {
     final navigation = tester.widget<BottomNavigationBar>(
       find.byType(BottomNavigationBar),
     );
-    for (final index in <int>[0, 2, 3]) {
+    for (final index in <int>[0, 1, 2, 3]) {
       expect(navigation.items[index].icon, isNot(isA<Icon>()));
       expect(navigation.items[index].activeIcon, isNot(isA<Icon>()));
     }

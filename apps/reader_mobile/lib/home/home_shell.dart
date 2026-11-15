@@ -88,13 +88,13 @@ class _HomeShellState extends State<HomeShell> {
               label: '书架',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.insights_outlined),
-              activeIcon: Icon(Icons.insights_rounded),
+              icon: _StatsIcon(color: unselectedColor),
+              activeIcon: _StatsIcon(color: selectedColor, filled: true),
               label: '统计',
             ),
             BottomNavigationBarItem(
-              icon: _BooksIcon(color: unselectedColor),
-              activeIcon: _BooksIcon(
+              icon: _ReviewIcon(color: unselectedColor),
+              activeIcon: _ReviewIcon(
                 color: selectedColor,
                 filled: true,
                 cutoutColor: navigationBackground,
@@ -284,8 +284,54 @@ class _ProfileIconPainter extends CustomPainter {
       cutoutColor != oldDelegate.cutoutColor;
 }
 
-class _BooksIcon extends StatelessWidget {
-  const _BooksIcon({
+class _StatsIcon extends StatelessWidget {
+  const _StatsIcon({required this.color, this.filled = false});
+
+  final Color color;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    size: const Size.square(24),
+    painter: _StatsIconPainter(color: color, filled: filled),
+  );
+}
+
+class _StatsIconPainter extends CustomPainter {
+  const _StatsIconPainter({required this.color, required this.filled});
+
+  final Color color;
+  final bool filled;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 24, size.height / 24);
+    final paint = Paint()
+      ..style = filled ? PaintingStyle.fill : PaintingStyle.stroke
+      ..strokeWidth = 1.7
+      ..strokeJoin = StrokeJoin.round
+      ..color = color;
+    for (final bar in const <Rect>[
+      Rect.fromLTRB(3.1, 11.7, 7.5, 20.5),
+      Rect.fromLTRB(9.8, 7, 14.2, 20.5),
+      Rect.fromLTRB(16.5, 2.7, 20.9, 20.5),
+    ]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(bar, const Radius.circular(1.2)),
+        paint,
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_StatsIconPainter oldDelegate) =>
+      color != oldDelegate.color || filled != oldDelegate.filled;
+}
+
+class _ReviewIcon extends StatelessWidget {
+  const _ReviewIcon({
     required this.color,
     this.filled = false,
     this.cutoutColor,
@@ -298,7 +344,7 @@ class _BooksIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) => CustomPaint(
     size: const Size.square(24),
-    painter: _BooksIconPainter(
+    painter: _ReviewIconPainter(
       color: color,
       filled: filled,
       cutoutColor: cutoutColor,
@@ -306,8 +352,8 @@ class _BooksIcon extends StatelessWidget {
   );
 }
 
-class _BooksIconPainter extends CustomPainter {
-  const _BooksIconPainter({
+class _ReviewIconPainter extends CustomPainter {
+  const _ReviewIconPainter({
     required this.color,
     required this.filled,
     required this.cutoutColor,
@@ -319,34 +365,34 @@ class _BooksIconPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final sx = size.width / 24;
-    final sy = size.height / 24;
+    canvas.save();
+    canvas.scale(size.width / 24, size.height / 24);
     final outer = Paint()
       ..style = filled ? PaintingStyle.fill : PaintingStyle.stroke
-      ..strokeWidth = 1.7 * sx
+      ..strokeWidth = 1.7
       ..strokeJoin = StrokeJoin.round
       ..color = color;
     final paper = Paint()..color = color;
     final left = RRect.fromLTRBR(
-      3.5 * sx,
-      3 * sy,
-      10 * sx,
-      21 * sy,
-      Radius.circular(1.2 * sx),
+      2.8,
+      2.7,
+      10.1,
+      21.3,
+      const Radius.circular(1.2),
     );
     final middle = RRect.fromLTRBR(
-      10 * sx,
-      9 * sy,
-      16.5 * sx,
-      21 * sy,
-      Radius.circular(1.2 * sx),
+      10.8,
+      8.5,
+      16,
+      21.3,
+      const Radius.circular(1.2),
     );
     final right = RRect.fromLTRBR(
-      18.5 * sx,
-      2.7 * sy,
-      21.2 * sx,
-      20.2 * sy,
-      Radius.circular(1.2 * sx),
+      17.4,
+      2.7,
+      20.1,
+      20.2,
+      const Radius.circular(1.2),
     );
     canvas.save();
     canvas.translate(right.center.dx, right.center.dy);
@@ -359,31 +405,20 @@ class _BooksIconPainter extends CustomPainter {
     if (filled) {
       final cut = Paint()..color = cutoutColor!;
       canvas.drawRRect(
-        RRect.fromLTRBR(
-          11.1 * sx,
-          14 * sy,
-          15.4 * sx,
-          16.4 * sy,
-          Radius.circular(1.2 * sx),
-        ),
+        RRect.fromLTRBR(11.7, 14, 15.1, 16.2, const Radius.circular(1.1)),
         cut,
       );
     } else {
       canvas.drawRRect(
-        RRect.fromLTRBR(
-          11.3 * sx,
-          14 * sy,
-          15.2 * sx,
-          15.4 * sy,
-          Radius.circular(0.7 * sx),
-        ),
+        RRect.fromLTRBR(11.9, 14, 14.9, 15.4, const Radius.circular(0.7)),
         paper,
       );
     }
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_BooksIconPainter oldDelegate) =>
+  bool shouldRepaint(_ReviewIconPainter oldDelegate) =>
       color != oldDelegate.color ||
       filled != oldDelegate.filled ||
       cutoutColor != oldDelegate.cutoutColor;
