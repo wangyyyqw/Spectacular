@@ -304,7 +304,11 @@ class _CalendarWeek extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: date == selected ? scheme.surfaceContainerHighest : null,
+        color: date == today
+            ? scheme.onSurface.withValues(alpha: 0.08)
+            : date == selected
+            ? scheme.surfaceContainerHighest
+            : null,
         border: Border.all(color: scheme.outlineVariant, width: 0.5),
       ),
       padding: const EdgeInsets.all(4),
@@ -339,20 +343,17 @@ class _CalendarWeek extends StatelessWidget {
 
   Widget _dayNumber(BuildContext context, DateTime date, bool enabled) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      decoration: BoxDecoration(
-        color: date == today ? scheme.primary : null,
-        borderRadius: BorderRadius.circular(3),
-      ),
       child: Text(
         '${date.day}',
         style: TextStyle(
           fontSize: 11,
           height: 1.2,
+          fontWeight: date == today ? FontWeight.w600 : FontWeight.w400,
           fontFeatures: const [FontFeature.tabularFigures()],
           color: date == today
-              ? scheme.onPrimary
+              ? scheme.onSurface
               : enabled
               ? scheme.onSurfaceVariant
               : scheme.outline,
